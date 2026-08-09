@@ -8,7 +8,7 @@ import time
 from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
-from ..services import fetcher, history, notify, scorer
+from ..services import fetcher, history, notify, scorer, stats
 from .deps import get_uid, jr, qs
 
 log = logger.get_logger(__name__)
@@ -60,6 +60,11 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
             notify.push_result_async(result, f)
         except Exception as e:
             log.error("推送触发失败 err=%s", e)
+        # 顺带统计当日一字涨停(数量+竞价总额), 失败不影响选股
+        try:
+            stats.record_daily_yizi(raw)
+        except Exception as e:
+            log.error("一字涨停统计失败 err=%s", e)
 
     return jr({
         "ok": True,

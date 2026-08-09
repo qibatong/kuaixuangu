@@ -18,3 +18,14 @@ def api_stats_performance(request: Request, uid: int = Depends(get_uid)):
     date_to = scorer._q_date((q.get("date_to") or [None])[0], "2100-12-31")
     result = stats.compute_performance(uid, date_from, date_to)
     return jr({"ok": True, "range": {"from": date_from, "to": date_to}, **result})
+
+
+@router.get("/api/stats/daily-yizi")
+def api_stats_daily_yizi(request: Request, uid: int = Depends(get_uid)):
+    """每日一字涨停统计: 近 N 日 一字数量 + 竞价总额(市场公共数据, 登录即可看)"""
+    q = qs(request)
+    try:
+        days = min(30, max(1, int((q.get("days") or [10])[0])))
+    except (TypeError, ValueError):
+        days = 10
+    return jr({"ok": True, "list": stats.daily_yizi_trend(days)})

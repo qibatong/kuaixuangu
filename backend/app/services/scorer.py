@@ -192,6 +192,26 @@ def is_first_board(s):
     return get_warn_type(s) >= 5
 
 
+def limit_pct(code, name, pre_close):
+    """涨停幅度: ST 5% / 创业板·科创板 20% / 主板 10%"""
+    if "ST" in (name or ""):
+        return 0.05
+    if (code or "").startswith(("300", "301", "688")):
+        return 0.20
+    return 0.10
+
+
+def is_yizi(s):
+    """一字涨停: 开盘价 f17 直接封在涨停价(交易所四舍五入到分)"""
+    f17 = parse_float(s.get("f17"))
+    f18 = parse_float(s.get("f18"))
+    if f17 <= 0 or f18 <= 0:
+        return False
+    pct = limit_pct(s.get("f12", ""), s.get("f14", ""), f18)
+    limit_price = int(f18 * (1 + pct) * 100 + 0.5) / 100.0   # 四舍五入到分
+    return f17 >= limit_price - 0.005
+
+
 def is_st(name):
     return "ST" in name or "*ST" in name
 
@@ -284,6 +304,14 @@ def apply_filters(items, f):
     return result
 
 
+def is_qiangchou(bid_change, bid_ratio):
+    """竞价抢筹信号: 竞价涨幅>=2% 且 竞价成交额/昨日成交额占比>=20%
+    (资金在竞价阶段显著抢筹; 二期加入 9:20 加速度后再增强)"""
+    if bid_ratio is None or bid_ratio < 20:
+        return False
+    return bid_change >= 2
+
+
 def process_all_stocks(raw, f, yesterday_map=None):
     """yesterday_map: code -> 昨日成交额(万元), 用于计算竞价成交额占比"""
     yesterday_map = yesterday_map or {}
@@ -312,6 +340,7 @@ def process_all_stocks(raw, f, yesterday_map=None):
             "bidAmt": bid_amt,          # 万元
             "bidRatio": bid_ratio,      # 竞价成交额/昨日成交额 (%)
             "price": parse_float(s.get("f2")),
+            "qiangchou": 1 if is_qiangchou(get_bid_change(s), bid_ratio) else 0,
             "_raw": s,
         })
     scored.sort(key=lambda x: x["probability"], reverse=True)

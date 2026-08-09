@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-战绩分析服务: 基于历史选股批次计算胜率/评分有效性/每日趋势
-==============================================================
+战绩分析服务: 基于历史选股批次计算胜率/评分有效性/每日趋势 + 每日一字涨停统计
+==============================================================================
 胜率定义: 入选后当日实时涨幅(real_change) > 0 视为"上涨"(赢)
+一字涨停统计: lock 选股时对全市场行情快照统计(一字数量 + 竞价总额)
 """
 import sqlite3
+import time
 
 from ..core import config
 from . import scorer
@@ -14,6 +16,43 @@ def _conn():
     conn = sqlite3.connect(config.DB_FILE)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _bj_date():
+    g = time.gmtime(time.time() + 8 * 3600)
+    return "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
+
+
+def record_daily_yizi(raw_list):
+    """统计并落库当日一字涨停(开盘即涨停): 数量 + 竞价总额(万元)。
+    raw_list: fetcher 行情快照(含 f17 今开/f18 昨收/f616 竞价额)。
+    幂等: 同一天重复调用只更新(取最新快照)。
+    """
+    yizi = 0
+    bid_sum = 0.0
+    for s in raw_list or []:
+        if scorer.is_yizi(s):
+            yizi += 1
+            bid_sum += scorer.get_bid_amt(s)
+    conn = _conn()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO daily_yizi (date, yizi_count, bid_amt, ts) VALUES (?,?,?,?)",
+            (_bj_date(), yizi, round(bid_sum, 2), int(time.time())))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"date": _bj_date(), "yizi_count": yizi, "bid_amt": round(bid_sum, 2)}
+
+
+def daily_yizi_trend(days=10):
+    """近 N 日一字涨停趋势(倒序: 最新在前)"""
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT date, yizi_count, bid_amt FROM daily_yizi "
+        "ORDER BY date DESC LIMIT ?", (days,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def compute_performance(uid, date_from, date_to):

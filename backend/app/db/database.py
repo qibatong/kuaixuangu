@@ -94,6 +94,15 @@ def init_db():
             updated_at INTEGER NOT NULL
         )
     """)
+    # 每日一字涨停统计(竞价时段市场快照, 供趋势查看)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS daily_yizi (
+            date TEXT PRIMARY KEY,
+            yizi_count INTEGER NOT NULL DEFAULT 0,
+            bid_amt REAL NOT NULL DEFAULT 0,
+            ts INTEGER NOT NULL
+        )
+    """)
     # 密码重置令牌
     cur.execute("""
         CREATE TABLE IF NOT EXISTS reset_tokens (
