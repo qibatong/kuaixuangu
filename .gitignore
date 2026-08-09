@@ -1,0 +1,51 @@
+# ========== 依赖与构建产物 ==========
+node_modules/
+frontend/dist/
+frontend/dist_v*/
+dist/
+dist_v*/
+build/
+build_v*/
+
+# ========== 数据库与数据(含用户数据, 严禁入库) ==========
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# ========== 日志 ==========
+*.log
+logs/
+
+# ========== 环境与密钥 ==========
+.env
+.env.*
+!.env.example
+
+# ========== 二进制/发行包 ==========
+download/
+*.exe
+*.tar.gz
+
+# ========== 旧单文件版(参考用, 不入库) ==========
+/server.py
+/app.py
+/index.html
+/_test_ratio.py
+/自选股_样例.blk
+/_proxy.py
+/_scan.py
+/_tmp.js
+
+# ========== 前端临时文件/调试脚本 ==========
+frontend/_proxy.py
+frontend/deploy_dist.py
+frontend/shots/
+frontend/vite.config.js.timestamp-*
+
+# ========== 系统文件 ==========
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

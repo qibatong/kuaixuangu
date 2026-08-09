@@ -1,0 +1,92 @@
+<template>
+  <div class="stock-pool-panel">
+    <div class="pool-header">
+      <div class="pool-title">
+        <i class="fa fa-database"></i> 策略股票池
+        <span class="auto-tag">{{ statusTag }}</span>
+        <span class="pool-expiry-info" v-if="expiryText" v-html="expiryText"></span>
+      </div>
+      <div class="pool-buttons">
+        <button class="pool-btn" @click="manualAdd"><i class="fa fa-plus-circle"></i> 加入当前前三</button>
+        <button class="pool-btn" @click="clearPool"><i class="fa fa-trash-o"></i> 清空股票池</button>
+        <button class="pool-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="exportPool"><i class="fa fa-share-square-o"></i> 下载股票池</button>
+      </div>
+    </div>
+    <div class="pool-list">
+      <div v-if="!pool.stockPool.length" class="empty-pool">暂无股票，9:30前系统自动将前三名选入池中</div>
+      <div v-for="(item, idx) in pool.stockPool" :key="item.code" class="pool-item" :class="medalCls(idx)">
+        <div class="pool-item-main">
+          <span class="pool-medal" v-if="idx < 3">{{ ['🥇', '🥈', '🥉'][idx] }}</span>
+          <span class="pool-rank" v-else>{{ idx + 1 }}</span>
+          <div class="pool-item-info">
+            <div class="pool-stock-code code-click" @click="linkToSoftware(item.code)">{{ item.code }}</div>
+            <div class="pool-stock-name">{{ item.name }}</div>
+          </div>
+        </div>
+        <div class="pool-item-right">
+          <div class="pool-snaps">
+            <span v-if="hasSnapshot(item.bidChange)" class="pool-snap" :class="item.bidChange > 0 ? 'up' : 'down'">{{ item.bidChange > 0 ? '+' : '' }}{{ item.bidChange.toFixed(2) }}%</span>
+            <span v-else class="pool-snap dim">-</span>
+            <span v-if="hasSnapshot(item.probability)" class="pool-score">{{ item.probability }}分</span>
+          </div>
+          <div class="pool-add-time">{{ item.addTime }}</div>
+          <button class="del-single" @click="pool.removeStock(item.code)">移除</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { computed } from 'vue'
+import { usePoolStore } from '../stores/pool'
+import { useStocksStore } from '../stores/stocks'
+import { showToast } from '../utils/toast'
+import { downloadBlkFile, linkToSoftware } from '../utils/tdx'
+import { bjNow, pad2 } from '../utils/time'
+
+const pool = usePoolStore()
+const stocksStore = useStocksStore()
+
+const LOCK_DURATION_MS = 10 * 60 * 60 * 1000
+
+function hasSnapshot(v) { return v !== undefined && v !== null && !isNaN(v) }
+function medalCls(idx) { return idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : '' }
+
+const statusTag = computed(() => {
+  if (pool.autoPoolLockTime && pool.stockPool.length) {
+    return ` 已锁定于 ${new Date(pool.autoPoolLockTime).toLocaleTimeString('zh-CN', { hour12: false })} · 刷新不变`
+  }
+  const bj = bjNow()
+  const h = bj.getHours(), m = bj.getMinutes()
+  if (h < 9 || (h === 9 && m < 30)) {
+    return `⏰ 9:30前自动收录中 (${pad2(h)}:${pad2(m)})`
+  }
+  return ` 已过9:30 停止自动选股`
+})
+
+const expiryText = computed(() => {
+  if (!pool.autoPoolLockTime || !pool.stockPool.length) return ''
+  const rem = pool.autoPoolLockTime + LOCK_DURATION_MS - Date.now()
+  if (rem <= 0) return ''
+  const h = Math.floor(rem / 3600000)
+  const m = Math.floor((rem % 3600000) / 60000)
+  return ` 锁定剩余 <strong>${h}小时${m}分</strong>`
+})
+
+function manualAdd() {
+  if (!stocksStore.isDataCached || !stocksStore.cachedStocks.length) { showToast('无缓存', 'error'); return }
+  pool.addStocks(stocksStore.cachedStocks.slice(0, 3))
+  showToast('✅ 已加入当前前三', 'success')
+}
+
+function clearPool() {
+  pool.clearAll()
+  showToast('已清空股票池', 'info')
+}
+
+function exportPool() {
+  if (!pool.stockPool.length) { showToast('池空', 'error'); return }
+  downloadBlkFile(pool.stockPool, 0, '_股票池')
+}
+</script>
