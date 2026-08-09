@@ -57,9 +57,7 @@
           <label>评分≥ <input type="number" v-model="f.prob_min" placeholder="不限"></label>
           <label>可信度≥ <input type="number" v-model="f.conf_min" placeholder="不限"></label>
           <select v-model="f.action"><option value="">全部类型</option><option value="lock">锁定选股</option><option value="filter">筛选重算</option></select>
-        </div>
-        <div class="query-actions">
-          <button class="tdx-export-btn" style="background:#ff5c5c;" @click="runQuery"><i class="fa fa-search"></i> 查询</button>
+          <button class="tdx-export-btn query-submit-btn" style="background:#ff5c5c;" @click="runQuery"><i class="fa fa-search"></i> 查询</button>
         </div>
         <div class="query-tip">打开时已自动查询当月记录；同一只票一天内多次入选会全部保留（按入选时间展示，方便追踪调整轨迹）；竞价涨幅、流通市值、评分、可信度等条件可留空，留空表示不限制</div>
         <div class="query-result">
