@@ -55,16 +55,25 @@
                 <td><span v-if="u.is_admin" class="admin-tag">管理员</span><span v-else class="user-tag">普通用户</span></td>
                 <td>
                   <div v-if="u.is_admin" style="color:#888;font-size:12px;">管理员永久有效</div>
-                  <div v-else class="expire-ops">
-                    <button class="mini-btn" @click="extendUser(u, 'week')">+1周</button>
-                    <button class="mini-btn" @click="extendUser(u, 'month')">+1月</button>
-                    <button class="mini-btn" @click="extendUser(u, 'quarter')">+1季</button>
-                    <button class="mini-btn" @click="extendUser(u, 'year')">+1年</button>
-                    <button class="mini-btn" title="设为永久" @click="extendUser(u, 'forever')">永久</button>
-                    <span class="date-set">
-                      <input type="date" v-model="u._expireDate" class="mini-date" :max="'2099-12-31'" />
-                      <button class="mini-btn" @click="extendUser(u, 'date')">设日期</button>
-                    </span>
+                  <div v-else class="expire-cell">
+                    <button class="mini-btn" @click.stop="togglePanel(u)">⚙️ 设置期限</button>
+                    <div v-if="openUid === u.id" class="expire-popover" @click.stop>
+                      <div class="pop-label">延长时长</div>
+                      <div class="pop-row">
+                        <button class="mini-btn" @click="extendUser(u, 'week')">+1周</button>
+                        <button class="mini-btn" @click="extendUser(u, 'month')">+1月</button>
+                        <button class="mini-btn" @click="extendUser(u, 'quarter')">+1季</button>
+                        <button class="mini-btn" @click="extendUser(u, 'year')">+1年</button>
+                      </div>
+                      <div class="pop-label">自定义到期日</div>
+                      <div class="pop-row">
+                        <input type="date" v-model="u._expireDate" class="mini-date" :max="'2099-12-31'" />
+                        <button class="mini-btn" @click="extendUser(u, 'date')">设为该日</button>
+                      </div>
+                      <div class="pop-row">
+                        <button class="mini-btn danger" title="永久有效" @click="extendUser(u, 'forever')">设为永久</button>
+                      </div>
+                    </div>
                   </div>
                 </td>
               </tr>
@@ -137,9 +146,16 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { adminScoring, adminUsers, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
 import { showToast as toast } from '../utils/toast'
+
+const openUid = ref(null)
+function togglePanel(u) { openUid.value = openUid.value === u.id ? null : u.id }
+function closePanel() { openUid.value = null }
+function onDocClick(e) { if (!e.target.closest('.expire-cell')) openUid.value = null }
+onMounted(() => document.addEventListener('click', onDocClick))
+onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
 const stats = ref({})
 const rows = ref([])
@@ -199,6 +215,7 @@ async function extendUser(u, action) {
     const d = await setUserExpire(u.id, payload)
     toast(`${u.username} ${label}设置成功，到期 ${fmtDate(d.expire_at)}`, 'success')
     u._expireDate = ''
+    closePanel()
     loadUsers(page.value)
   } catch (e) {
     toast(e.message || '设置失败', 'error')
@@ -298,11 +315,27 @@ onMounted(() => {
 .user-tag { color: #999; border: 1px solid #666; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
 .expired-tag { color: #ff6a6a; border: 1px solid #ff5050; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
 .ok-tag { color: #7ce8a0; border: 1px solid #4caf70; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
-.expire-ops { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
-.mini-btn { background: rgba(0,180,255,0.12); border: 1px solid #00b4ff; color: #a0e0ff; border-radius: 4px; padding: 2px 8px; font-size: 12px; cursor: pointer; }
+.expire-cell { position: relative; display: inline-block; }
+.expire-popover {
+  position: absolute;
+  top: 28px;
+  right: 0;
+  z-index: 10;
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-width: 220px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+}
+.pop-label { font-size: 11px; color: #888; margin: 6px 0 4px; }
+.pop-label:first-child { margin-top: 0; }
+.pop-row { display: flex; gap: 4px; margin-bottom: 6px; align-items: center; flex-wrap: wrap; }
+.mini-btn { background: rgba(0,180,255,0.12); border: 1px solid #00b4ff; color: #a0e0ff; border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
 .mini-btn:hover { background: rgba(0,180,255,0.25); }
-.date-set { display: inline-flex; align-items: center; gap: 4px; }
-.mini-date { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; color: #eee; padding: 2px 6px; font-size: 12px; color-scheme: dark; }
+.mini-btn.danger { background: rgba(255,80,80,0.12); border-color: #ff5050; color: #ff9a9a; }
+.mini-btn.danger:hover { background: rgba(255,80,80,0.25); }
+.mini-date { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; color: #eee; padding: 3px 6px; font-size: 12px; color-scheme: dark; }
 .pager { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 12px; }
 .page-btn { background: rgba(0,180,255,0.12); border: 1px solid #00b4ff; color: #a0e0ff; border-radius: 6px; padding: 4px 14px; cursor: pointer; }
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
