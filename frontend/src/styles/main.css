@@ -330,7 +330,7 @@ border-radius: 6px; cursor: pointer; font-size: 14px; line-height: 1;
 .history-close:hover { background: #ff3a3a; color: white; }
 .history-query { display: flex; flex-direction: column; padding: 12px 14px 14px; }
 .query-form {
-display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; align-items: center; padding: 6px 2px 10px;
+display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; padding: 6px 2px 10px;
 border-bottom: 1px dashed rgba(255,160,120,0.25); row-gap: 8px;
 }
 /* 查询按钮: 跟随表单居中(不推右) */
