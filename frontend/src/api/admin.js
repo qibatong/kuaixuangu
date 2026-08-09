@@ -19,3 +19,7 @@ export function setUserExpire(uid, payload) {
   // payload: {duration:'week'|'month'|'quarter'|'year'} | {days:N} | {expire_at:'YYYY-MM-DD'}
   return request('/api/admin/users/expire', { method: 'POST', body: { uid, ...payload } })
 }
+
+export function bidSnapshot(date, timePoint = '9_25', limit = 50) {
+  return request(`/api/stats/bid-snapshot?date=${date}&time_point=${timePoint}&limit=${limit}`)
+}

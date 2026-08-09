@@ -116,6 +116,18 @@ def init_db():
             PRIMARY KEY (date, code)
         )
     """)
+    # 多时点竞价快照归档(历史回放): 9:15/9:20/9:25 全市场快照, 每日积累形成回放库
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS snapshot_bid (
+            date TEXT NOT NULL,
+            time_point TEXT NOT NULL,
+            code TEXT NOT NULL,
+            bid_change REAL NOT NULL DEFAULT 0,
+            bid_amt REAL NOT NULL DEFAULT 0,
+            ts INTEGER NOT NULL,
+            PRIMARY KEY (date, time_point, code)
+        )
+    """)
     # 密码重置令牌
     cur.execute("""
         CREATE TABLE IF NOT EXISTS reset_tokens (

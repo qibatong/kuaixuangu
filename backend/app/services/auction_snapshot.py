@@ -1,21 +1,30 @@
 # -*- coding: utf-8 -*-
 """
-9:20 竞价时点快照服务: 定时抓取全市场竞价数据 + 存储/查询
-==========================================================
-- 工作日 9:20 前后, 后台线程自动抓取全市场行情(沪深/创业/科创) → snapshot_920 表
-- 9:25 lock 时读取该快照, 与当前竞价对比计算"涨幅加速度"(最后5分钟资金抢筹信号)
+竞价多时点快照归档服务: 9:15 / 9:20 / 9:25 全市场快照每日自动采集
+================================================================
+- 工作日 9:15 / 9:20 / 9:25 三个时点, 后台线程自动抓取全市场行情 → snapshot_bid 表
+- 每日积累 → 形成"历史多时点回放库"(短线侠式核心壁垒)
+- 9:25 lock 时读取 9:20 快照, 计算涨幅加速度
 """
 import threading
 import time
 
-from ..core import config, logger
+from ..core import logger
 from ..db import database
 from . import fetcher, scorer
 
 log = logger.get_logger(__name__)
 
+# 时点 -> (开始分钟, 结束分钟) 北京时间(每 10 秒轮询, 窗口 1 分钟防漏)
+TIME_POINTS = {
+    "9_15": (9 * 60 + 15, 9 * 60 + 16),
+    "9_20": (9 * 60 + 20, 9 * 60 + 21),
+    "9_25": (9 * 60 + 25, 9 * 60 + 26),
+}
+DEFAULT_POINT = "9_20"     # 加速度计算使用的时点
+
 _sched_lock = threading.Lock()
-_sched_done_date = ""       # 已抓取的日期(防同一天重复)
+_sched_done = set()        # {(date, time_point)} 已抓取, 防重复
 
 
 def _bj_date():
@@ -23,15 +32,14 @@ def _bj_date():
     return "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
 
 
-def snapshot_all():
-    """抓取当前全市场快照并落库, 返回入库数量; 失败返回 0"""
-    date = _bj_date()
+def _fetch_market_map():
+    """抓取当前全市场(沪深/创业/科创)快照, 返回 {code: {bid_change, bid_amt}}"""
     raw_all = {}
     for m in ("hs", "cyb", "kcb"):
         try:
             raw = fetcher.fetch_eastmoney(scorer.market_fs([m]))
         except Exception as e:
-            log.warning("9:20快照拉取失败 market=%s err=%s", m, e)
+            log.warning("快照拉取失败 market=%s err=%s", m, e)
             continue
         for s in raw:
             code = s.get("f12")
@@ -40,51 +48,77 @@ def snapshot_all():
                     "bid_change": scorer.get_bid_change(s),
                     "bid_amt": scorer.get_bid_amt(s),
                 }
+    return raw_all
+
+
+def snapshot_at(time_point):
+    """抓取并归档某时点全市场快照, 返回入库数量; 失败返回 0"""
+    if time_point not in TIME_POINTS:
+        return 0
+    date = _bj_date()
+    raw_all = _fetch_market_map()
     if not raw_all:
         return 0
     try:
         conn = database.get_conn()
         conn.executemany(
-            "INSERT OR REPLACE INTO snapshot_920 (date, code, bid_change, bid_amt, ts) VALUES (?,?,?,?,?)",
-            [(date, code, v["bid_change"], v["bid_amt"], int(time.time()))
+            "INSERT OR REPLACE INTO snapshot_bid (date, time_point, code, bid_change, bid_amt, ts) "
+            "VALUES (?,?,?,?,?,?)",
+            [(date, time_point, code, v["bid_change"], v["bid_amt"], int(time.time()))
              for code, v in raw_all.items()])
         conn.commit()
         conn.close()
     except Exception as e:
-        log.error("9:20快照落库失败 err=%s", e)
+        log.error("快照落库失败 time=%s err=%s", time_point, e)
         return 0
-    log.info("9:20快照已存 date=%s 数量%d", date, len(raw_all))
+    log.info("快照已存 date=%s time=%s 数量%d", date, time_point, len(raw_all))
     return len(raw_all)
 
 
-def load_snapshot(date=None):
-    """读取某日 9:20 快照, 返回 {code: {bid_change, bid_amt}}; 无数据返回 {}"""
+def load_snapshot(date=None, time_point=DEFAULT_POINT):
+    """读取某日某时点快照, 返回 {code: {bid_change, bid_amt}}; 无数据返回 {}"""
     date = date or _bj_date()
     try:
         conn = database.get_conn()
         rows = conn.execute(
-            "SELECT code, bid_change, bid_amt FROM snapshot_920 WHERE date=?",
-            (date,)).fetchall()
+            "SELECT code, bid_change, bid_amt FROM snapshot_bid WHERE date=? AND time_point=?",
+            (date, time_point)).fetchall()
         conn.close()
     except Exception:
         return {}
     return {r[0]: {"bid_change": r[1], "bid_amt": r[2]} for r in rows}
 
 
+def query_snapshot(date, time_point, limit=50):
+    """历史回放: 某日某时点全市场快照(按竞价涨幅降序)"""
+    try:
+        conn = database.get_conn()
+        rows = conn.execute(
+            "SELECT code, bid_change, bid_amt, ts FROM snapshot_bid "
+            "WHERE date=? AND time_point=? ORDER BY bid_change DESC LIMIT ?",
+            (date, time_point, min(limit, 500))).fetchall()
+        conn.close()
+    except Exception:
+        return []
+    return [{"code": r[0], "bid_change": r[1], "bid_amt": r[2]} for r in rows]
+
+
 def _scheduler_loop():
-    """后台调度: 工作日 9:20:00-9:20:30 之间抓取一次, 每 10 秒检查"""
+    """后台调度: 工作日按时点窗口抓取一次, 每 10 秒轮询"""
     while True:
         try:
             g = time.gmtime(time.time() + 8 * 3600)
             date = _bj_date()
             hm = g.tm_hour * 60 + g.tm_min
-            if g.tm_wday < 5 and 9 * 60 + 20 <= hm <= 9 * 60 + 30 and _sched_done_date != date:
-                with _sched_lock:
-                    if _sched_done_date != date:
-                        if snapshot_all():
-                            _sched_done_date = date
+            for tp, (start, end) in TIME_POINTS.items():
+                key = (date, tp)
+                if g.tm_wday < 5 and start <= hm <= end and key not in _sched_done:
+                    with _sched_lock:
+                        if key not in _sched_done:
+                            if snapshot_at(tp):
+                                _sched_done.add(key)
         except Exception as e:
-            log.error("9:20快照调度异常 err=%s", e)
+            log.error("快照调度异常 err=%s", e)
         time.sleep(10)
 
 
@@ -92,4 +126,4 @@ def start_scheduler():
     """main.py startup 调用: 启动后台抓取线程(单 worker 下唯一实例)"""
     t = threading.Thread(target=_scheduler_loop, daemon=True)
     t.start()
-    log.info("9:20快照调度已启动")
+    log.info("竞价多时点快照调度已启动(9:15/9:20/9:25)")

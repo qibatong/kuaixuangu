@@ -29,3 +29,21 @@ def api_stats_daily_yizi(request: Request, uid: int = Depends(get_uid)):
     except (TypeError, ValueError):
         days = 10
     return jr({"ok": True, "list": stats.daily_yizi_trend(days)})
+
+
+@router.get("/api/stats/bid-snapshot")
+def api_stats_bid_snapshot(request: Request, uid: int = Depends(get_uid)):
+    """历史竞价多时点回放: ?date=YYYY-MM-DD&time_point=9_15|9_20|9_25&limit=N
+    返回当日该时点全市场快照(按竞价涨幅降序)"""
+    from ..services import auction_snapshot
+    q = qs(request)
+    date = (q.get("date") or [""])[0]
+    tp = (q.get("time_point") or ["9_25"])[0]
+    if tp not in auction_snapshot.TIME_POINTS:
+        return jr({"ok": False, "msg": "time_point 应为 9_15/9_20/9_25"}, 400)
+    try:
+        limit = min(500, max(1, int((q.get("limit") or [50])[0])))
+    except (TypeError, ValueError):
+        limit = 50
+    rows = auction_snapshot.query_snapshot(date, tp, limit) if date else []
+    return jr({"ok": True, "date": date, "time_point": tp, "count": len(rows), "list": rows})

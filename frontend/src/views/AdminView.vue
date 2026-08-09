@@ -141,14 +141,60 @@
           </table>
         </div>
       </div>
+      <!-- 历史竞价回放 -->
+      <div class="admin-card">
+        <div class="card-title"><i class="fa fa-video-camera"></i> 历史竞价回放 <span style="color:#888;font-size:12px;margin-left:8px;">9:15/9:20/9:25 全市场快照(每个交易日自动归档)</span>
+          <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
+            <input type="date" v-model="playDate" class="admin-input" :max="'2099-12-31'" />
+            <select v-model="playTime" class="admin-input">
+              <option value="9_15">9:15</option>
+              <option value="9_20">9:20</option>
+              <option value="9_25">9:25</option>
+            </select>
+            <button class="tdx-export-btn" style="background:rgba(120,200,80,0.2);border:1px solid #78c850;color:#c0e8a0;" @click="loadPlayback"><i class="fa fa-play"></i> 回放</button>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="admin-table">
+            <thead><tr><th style="width:60px;">排名</th><th>代码</th><th>竞价涨幅</th><th>竞价额(万)</th></tr></thead>
+            <tbody>
+              <tr v-for="(s, i) in playList" :key="s.code">
+                <td>{{ i + 1 }}</td>
+                <td>{{ s.code }}</td>
+                <td :class="s.bid_change >= 0 ? 'up' : 'down'">{{ s.bid_change >= 0 ? '+' : '' }}{{ s.bid_change.toFixed(2) }}%</td>
+                <td>{{ s.bid_amt ? s.bid_amt.toFixed(0) : '-' }}</td>
+              </tr>
+              <tr v-if="!playList.length"><td colspan="4" style="text-align:center;color:#888;padding:16px;">该日期该时点暂无快照（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </template>
   </div>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { adminScoring, adminUsers, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
+import { adminScoring, adminUsers, bidSnapshot, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
 import { showToast as toast } from '../utils/toast'
+
+// 默认回放日期 = 今天(北京时间)
+function todayBj() {
+  const d = new Date(Date.now() + 8 * 3600 * 1000)
+  return d.toISOString().slice(0, 10)
+}
+const playDate = ref(todayBj())
+const playTime = ref('9_25')
+const playList = ref([])
+
+async function loadPlayback() {
+  try {
+    const d = await bidSnapshot(playDate.value, playTime.value, 50)
+    playList.value = d.list || []
+  } catch (e) {
+    toast(e.message || '查询失败', 'error')
+  }
+}
 
 const openUid = ref(null)
 function togglePanel(u) { openUid.value = openUid.value === u.id ? null : u.id }

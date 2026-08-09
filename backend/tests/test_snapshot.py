@@ -17,7 +17,7 @@ FILTER = {"stSuspend": False, "limitUp": False, "bidGt": 7, "probLt": 65, "confL
 
 # ---------- 快照存取 ----------
 def test_snapshot_save_load(client, monkeypatch):
-    """snapshot_all 抓取全市场并落库, load 可读回(幂等覆盖)"""
+    """snapshot_at 抓取全市场并落库, load 可读回(幂等覆盖)"""
     calls = {"n": 0}
 
     def fake_fetch(fs):
@@ -29,17 +29,37 @@ def test_snapshot_save_load(client, monkeypatch):
         return [a, b]
 
     monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney", fake_fetch)
-    n = auction_snapshot.snapshot_all()
+    n = auction_snapshot.snapshot_at("9_20")
     assert n == 2 and calls["n"] == 3   # hs/cyb/kcb 三分区
     snap = auction_snapshot.load_snapshot()
     assert snap["600001"]["bid_change"] == 4.0
     assert snap["000002"]["bid_change"] == 1.2
-    # 幂等: 再次抓取覆盖同日期, 行数不变
-    auction_snapshot.snapshot_all()
+    # 幂等: 再次抓取覆盖同日期同时点, 行数不变
+    auction_snapshot.snapshot_at("9_20")
     assert len(auction_snapshot.load_snapshot()) == 2
 
 
-def test_snapshot_load_empty():
+def test_snapshot_multi_time_points(client, monkeypatch):
+    """9:15/9:20/9:25 三时点独立归档, 互不覆盖"""
+    seq = {"n": 0}
+
+    def fake_fetch2(fs):
+        seq["n"] += 1
+        a = dict(RAW)
+        a["f12"] = "600001"
+        a["f615"] = [1.0, 2.5, 4.0][min((seq["n"] - 1) // 3, 2)]   # 每时点三分区同值, 依次 1.0/2.5/4.0
+        return [a]
+
+    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney", fake_fetch2)
+    auction_snapshot.snapshot_at("9_15")
+    auction_snapshot.snapshot_at("9_20")
+    auction_snapshot.snapshot_at("9_25")
+    assert auction_snapshot.load_snapshot(time_point="9_15")["600001"]["bid_change"] == 1.0
+    assert auction_snapshot.load_snapshot(time_point="9_20")["600001"]["bid_change"] == 2.5
+    assert auction_snapshot.load_snapshot(time_point="9_25")["600001"]["bid_change"] == 4.0
+
+
+def test_snapshot_load_empty(client):
     """无数据日期返回空 map"""
     assert auction_snapshot.load_snapshot("2000-01-01") == {}
 
@@ -49,7 +69,26 @@ def test_snapshot_fetch_fail_returns_0(client, monkeypatch):
     def boom(fs):
         raise RuntimeError("network down")
     monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney", boom)
-    assert auction_snapshot.snapshot_all() == 0
+    assert auction_snapshot.snapshot_at("9_20") == 0
+
+
+def test_snapshot_invalid_time_point(client):
+    assert auction_snapshot.snapshot_at("9_99") == 0
+
+
+# ---------- 历史回放 ----------
+def test_query_snapshot_sorted(client, monkeypatch):
+    """query_snapshot 按竞价涨幅降序 + limit"""
+    def fake_fetch(fs):
+        a = dict(RAW); a["f12"] = "600001"; a["f615"] = 1.0
+        b = dict(RAW); b.update({"f12": "000002", "f615": 6.0})
+        c = dict(RAW); c.update({"f12": "300003", "f615": 3.0})
+        return [a, b, c]
+    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney", fake_fetch)
+    auction_snapshot.snapshot_at("9_25")
+    rows = auction_snapshot.query_snapshot(auction_snapshot._bj_date(), "9_25", 50)
+    assert [r["code"] for r in rows] == ["000002", "300003", "600001"]   # 6.0 > 3.0 > 1.0
+    assert len(auction_snapshot.query_snapshot(auction_snapshot._bj_date(), "9_25", 2)) == 2
 
 
 # ---------- 涨幅加速度 ----------
