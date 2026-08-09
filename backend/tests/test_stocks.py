@@ -68,11 +68,11 @@ def test_lock_before_930_ok(client, first_user, monkeypatch):
 def test_filter_with_ratio(client, first_user, monkeypatch):
     """昨日成交额 map 有值时(竞价窗口内), 竞价/昨比应算出"""
     token, _, _ = first_user
-    # 手动让 fetch_yesterday_amounts 返回有值 map, 且处于竞价窗口
+    # 手动让 fetch_yesterday_amounts 返回 [T日, T-1日] 有值 pair, 且处于竞价窗口
     monkeypatch.setattr(scorer, "in_auction_window", lambda: True)
     import tests.conftest as ct
     orig = fetcher.fetch_yesterday_amounts
-    fetcher.fetch_yesterday_amounts = lambda codes: {s["f12"]: 10000.0 for s in MOCK_RAW}
+    fetcher.fetch_yesterday_amounts = lambda codes: {s["f12"]: [10000.0, 8000.0] for s in MOCK_RAW}
     try:
         r = client.get("/api/stocks?action=filter&markets=sh_sz", headers=hdrs(token))
         assert r.status_code == 200

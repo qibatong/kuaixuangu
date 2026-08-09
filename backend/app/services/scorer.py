@@ -328,13 +328,15 @@ def process_all_stocks(raw, f, yesterday_map=None):
     """yesterday_map: code -> 昨日成交额(万元), 用于计算竞价成交额占比"""
     yesterday_map = yesterday_map or {}
     scored = []
-    # 竞价数据窗口内才计算 bidRatio(避免非交易时段"同日自比"误导)
+    # 竞价数据窗口内: f616=当日竞价额, 分母取最近交易日(T=昨日, 今天无日K)
+    # 非窗口: f616=最近交易日竞价额, 分母取 T 的前一交易日(T-1), 避免"同日自比"
     auction_ok = in_auction_window()
     for s in raw:
         sc = compute_score(s)
         bid_amt = get_bid_amt(s)   # 万元
-        y_amt = yesterday_map.get(s.get("f12"))
-        bid_ratio = round(bid_amt / y_amt * 100, 2) if (auction_ok and y_amt) else None  # 竞价/昨日成交额占比(%)
+        pair = yesterday_map.get(s.get("f12"))   # [T日全天额, T-1日全天额] 万元
+        y_amt = pair[0] if (auction_ok and pair) else (pair[1] if pair else None)
+        bid_ratio = round(bid_amt / y_amt * 100, 2) if y_amt else None  # 竞价/前一交易日成交额占比(%)
         scored.append({
             "code": s.get("f12", ""),
             "name": s.get("f14", ""),

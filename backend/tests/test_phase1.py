@@ -103,7 +103,7 @@ def test_process_all_stocks_has_qiangchou(monkeypatch):
     """筛选结果带 qiangchou 字段(竞价窗口内); 高竞价+高占比的标的应为 1"""
     monkeypatch.setattr(scorer, "in_auction_window", lambda: True)
     # 该标的: f615=4(竞价4%) + 竞价额占比高
-    yesterday = {"600001": 20000.0}   # 昨日成交 2 亿(万元) → 竞价 5000万/2亿 = 25%
+    yesterday = {"600001": [20000.0, 15000.0]}   # [T日2亿, T-1日1.5亿] 万元 → 竞价5000万/2亿 = 25%
     raw = dict(QC_RAW)
     raw["f616"] = 5.0e7               # 竞价 5000万
     f = {"stSuspend": False, "limitUp": False, "bidGt": 7, "probLt": 65, "confLt": 65,
@@ -114,15 +114,31 @@ def test_process_all_stocks_has_qiangchou(monkeypatch):
 
 
 # ---------- 竞价/昨比 窗口口径 ----------
-def test_bid_ratio_only_in_auction_window(monkeypatch):
-    """非竞价窗口(收盘后/周末)即使有昨日额也不算 bidRatio(防同日自比误导)"""
+def test_bid_ratio_off_window_uses_prev_trading_day(monkeypatch):
+    """非竞价窗口(收盘后/周末): 用 最近交易日竞价额 / T-1日全天额 计算(不再同日自比)"""
     monkeypatch.setattr(scorer, "in_auction_window", lambda: False)
-    yesterday = {"600001": 20000.0}
+    # f616=最近交易日(T)竞价额5000万, T日2亿/T-1日1.5亿 → 非窗口分母取 T-1=1.5亿 → 33.33%
+    yesterday = {"600001": [20000.0, 15000.0]}
     raw = dict(QC_RAW)
     raw["f616"] = 5.0e7
     f = {"stSuspend": False, "limitUp": False, "bidGt": 7, "probLt": 65, "confLt": 65,
          "floatMvFloor": 1, "floatMvGt": 5000, "priceGt": 5000, "bidAmtFloor": 0}
     result = scorer.process_all_stocks([raw], f, yesterday)
+    assert abs(result[0]["bidRatio"] - 33.33) < 0.01   # 5000万/1.5亿
+    # 窗口内则用 T=2亿 → 25%
+    monkeypatch.setattr(scorer, "in_auction_window", lambda: True)
+    result2 = scorer.process_all_stocks([raw], f, yesterday)
+    assert abs(result2[0]["bidRatio"] - 25.0) < 0.01
+
+
+def test_bid_ratio_none_without_pair(monkeypatch):
+    """无日K pair 时 bidRatio 为 None, 抢筹为 0"""
+    monkeypatch.setattr(scorer, "in_auction_window", lambda: True)
+    raw = dict(QC_RAW)
+    raw["f616"] = 5.0e7
+    f = {"stSuspend": False, "limitUp": False, "bidGt": 7, "probLt": 65, "confLt": 65,
+         "floatMvFloor": 1, "floatMvGt": 5000, "priceGt": 5000, "bidAmtFloor": 0}
+    result = scorer.process_all_stocks([raw], f, {})
     assert result[0]["bidRatio"] is None
     assert result[0]["qiangchou"] == 0
 

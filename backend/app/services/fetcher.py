@@ -167,11 +167,10 @@ def _mark_host_broken(host):
 
 
 def _fetch_yesterday_amount_ths(code):
-    """同花顺日K兜底源: 返回昨日成交额(万元); 失败返回 None
+    """同花顺日K兜底源: 返回最近两交易日成交额 [T日, T-1日] 万元; 失败返回 None
     接口: d.10jqka.com.cn/v6/line/hs_{code}/01/last.js (全部历史K线, 含成交额)
     字段: 日期,今开,最高,最低,收盘,成交量(股),成交额(元),换手率...
     """
-    today = _bj_date_str().replace("-", "")
     for proto in ("https", "http"):
         url = "%s://d.10jqka.com.cn/v6/line/hs_%s/01/last.js" % (proto, code)
         t0 = time.time()
@@ -189,18 +188,11 @@ def _fetch_yesterday_amount_ths(code):
             segs = [s for s in str(data).split(";") if s]
             if not segs:
                 continue
-            # 最后一根是今天(盘中)则取倒数第二根(昨日), 否则最后一根即最近交易日
-            last = segs[-1]
-            if len(segs) >= 2 and last.split(",")[0] == today:
-                last = segs[-2]
-            parts = last.split(",")
-            if len(parts) < 7:
-                continue
-            amt = float(parts[6])   # 成交额(元)
-            if not math.isfinite(amt) or amt <= 0:
+            pair = _kline_amount_pair(segs)
+            if pair is None:
                 continue
             _record("ths_kline", True, int((time.time() - t0) * 1000))
-            return amt / 10000.0    # 万元
+            return pair
         except Exception:
             continue
     _record("ths_kline", False)
@@ -208,7 +200,8 @@ def _fetch_yesterday_amount_ths(code):
 
 
 def _fetch_yesterday_amount_one(code):
-    """拉单只股票昨日成交额(万元): 东财日K(多域名轮询)失败后自动切同花顺兜底; 都失败返回 None"""
+    """拉单只股票最近两交易日成交额(万元): 返回 [T日, T-1日] (T=最近已收盘交易日);
+    东财日K(多域名轮询)失败后自动切同花顺兜底; 完全失败返回 None"""
     qs = urllib.parse.urlencode({
         "secid": _secid(code), "fields1": "f1,f2,f3,f4,f5,f6",
         "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
@@ -229,24 +222,37 @@ def _fetch_yesterday_amount_one(code):
             if not klines:
                 _mark_host_broken(host)
                 continue
-            # 取"最近完整交易日"的成交额: 若最后一根是今天, 取倒数第二根(昨日)
-            last = klines[-1]
-            if len(klines) >= 2 and last.split(",")[0] == _bj_date_str():
-                last = klines[-2]
-            parts = last.split(",")
-            if len(parts) < 7:
-                continue
-            amt = float(parts[6])   # 成交额(元)
-            if not math.isfinite(amt) or amt <= 0:
+            pair = _kline_amount_pair(klines)
+            if pair is None:
                 continue
             _record("eastmoney_kline", True, int((time.time() - t0) * 1000))
-            return amt / 10000.0    # 万元
+            return pair
         except Exception:
             _mark_host_broken(host)
             continue
     _record("eastmoney_kline", False)
     # 东财全失败 → 同花顺兜底
     return _fetch_yesterday_amount_ths(code)
+
+
+def _kline_amount_pair(klines):
+    """从日K行(逗号分隔, 第7字段=成交额元)提取 [T日万元, T-1日万元]; 不足/无效返回 None"""
+    def amt_of(row):
+        parts = row.split(",")
+        if len(parts) < 7:
+            return None
+        try:
+            v = float(parts[6])
+        except (TypeError, ValueError):
+            return None
+        return v / 10000.0 if (math.isfinite(v) and v > 0) else None
+    if not klines:
+        return None
+    t = amt_of(klines[-1])
+    t1 = amt_of(klines[-2]) if len(klines) >= 2 else None
+    if t is None and t1 is None:
+        return None
+    return [t, t1]
 
 
 def fetch_yesterday_amounts(codes):
