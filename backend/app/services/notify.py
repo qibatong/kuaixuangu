@@ -12,7 +12,9 @@
     NOTIFY_SERVERCHAN_KEY    Server酱 SendKey(推个人微信)
     NOTIFY_WECHAT_WEBHOOK    企业微信群机器人 webhook
 """
+import base64
 import hashlib
+import hmac
 import json
 import threading
 import time
@@ -113,9 +115,24 @@ def _resp_ok(ok_flag, body):
     return True, body[:200]
 
 
+def _feishu_sign(timestamp, secret):
+    """飞书机器人加签(安全设置选"签名校验"时必需)。
+
+    严格照抄飞书官方示例: string_to_sign = "{timestamp}\\n{secret}",
+    hmac 的 key 是拼接串本身、msg 为空, 再 base64。
+    """
+    string_to_sign = "%s\n%s" % (timestamp, secret)
+    hmac_code = hmac.new(string_to_sign.encode("utf-8"), digestmod=hashlib.sha256).digest()
+    return base64.b64encode(hmac_code).decode("utf-8")
+
+
 def _send_feishu(text):
     url = config.NOTIFY_FEISHU_WEBHOOK
     payload = {"msg_type": "text", "content": {"text": text}}
+    if config.NOTIFY_FEISHU_SECRET:
+        ts = str(round(time.time()))
+        payload["timestamp"] = ts
+        payload["sign"] = _feishu_sign(ts, config.NOTIFY_FEISHU_SECRET)
     status, body = _post_json(url, payload)
     return _resp_ok(200 <= status < 300, body)
 

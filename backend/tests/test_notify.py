@@ -117,6 +117,59 @@ def test_wecom_payload(monkeypatch):
     assert captured["payload"]["text"]["content"].startswith("【快选")
 
 
+# ---------- 飞书签名校验 ----------
+def test_feishu_sign_deterministic():
+    """同 timestamp + secret → 同 sign, 且为合法 base64"""
+    s1 = notify._feishu_sign("1754200000", "sec_abc")
+    s2 = notify._feishu_sign("1754200000", "sec_abc")
+    assert s1 == s2
+    import base64
+    # base64 可解码, 解出 32 字节(SHA256 摘要)
+    assert len(base64.b64decode(s1)) == 32
+    # 不同 timestamp 或不同 secret 结果不同
+    assert notify._feishu_sign("1754200001", "sec_abc") != s1
+    assert notify._feishu_sign("1754200000", "sec_xyz") != s1
+
+
+def test_feishu_payload_with_secret(monkeypatch):
+    """配置 secret 时 payload 必须带 timestamp + sign"""
+    _clean_cfg(monkeypatch)
+    monkeypatch.setattr(config, "NOTIFY_FEISHU_WEBHOOK", "https://open.feishu.cn/hook/fake")
+    monkeypatch.setattr(config, "NOTIFY_FEISHU_SECRET", "sec_fake")
+    captured = {}
+
+    def fake_post_json(url, payload, timeout=None):
+        captured["payload"] = payload
+        return 200, '{"errcode":0,"msg":"ok"}'
+
+    monkeypatch.setattr(notify, "_post_json", fake_post_json)
+    monkeypatch.setattr(notify, "_dedup", lambda *a, **k: False)
+    monkeypatch.setattr(time, "time", lambda: 1754200000.0)
+    r = notify.push_result(RESULT, FILTERS)
+    assert r["feishu"]["ok"] is True
+    p = captured["payload"]
+    assert p["timestamp"] == "1754200000"
+    assert p["sign"] == notify._feishu_sign("1754200000", "sec_fake")
+    assert p["msg_type"] == "text"
+
+
+def test_feishu_payload_without_secret(monkeypatch):
+    """未配置 secret 时 payload 不带签名"""
+    _clean_cfg(monkeypatch)
+    monkeypatch.setattr(config, "NOTIFY_FEISHU_WEBHOOK", "https://open.feishu.cn/hook/fake")
+    captured = {}
+
+    def fake_post_json(url, payload, timeout=None):
+        captured["payload"] = payload
+        return 200, '{"errcode":0,"msg":"ok"}'
+
+    monkeypatch.setattr(notify, "_post_json", fake_post_json)
+    monkeypatch.setattr(notify, "_dedup", lambda *a, **k: False)
+    notify.push_result(RESULT, FILTERS)
+    assert "timestamp" not in captured["payload"]
+    assert "sign" not in captured["payload"]
+
+
 # ---------- 失败处理 ----------
 def test_http_error_returns_fail(monkeypatch):
     _clean_cfg(monkeypatch)

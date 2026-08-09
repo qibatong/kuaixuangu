@@ -52,6 +52,7 @@ KLINE_HOSTS = [
 # ---------- 推送提醒(选股结果 → 微信/飞书) ----------
 # 任一渠道配置后即启用; 全部未配置则推送自动跳过(不影响选股主流程)
 NOTIFY_FEISHU_WEBHOOK = os.environ.get("NOTIFY_FEISHU_WEBHOOK", "")          # 飞书群机器人 webhook
+NOTIFY_FEISHU_SECRET = os.environ.get("NOTIFY_FEISHU_SECRET", "")            # 飞书机器人加签 secret(可选, 配了才签名)
 NOTIFY_SERVERCHAN_KEY = os.environ.get("NOTIFY_SERVERCHAN_KEY", "")          # Server酱 SendKey(推送个人微信)
 NOTIFY_WECHAT_WEBHOOK = os.environ.get("NOTIFY_WECHAT_WEBHOOK", "")          # 企业微信群机器人 webhook
 NOTIFY_TOP_N = int(os.environ.get("NOTIFY_TOP_N", "8"))                      # 推送展示 Top N 只
