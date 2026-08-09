@@ -29,6 +29,69 @@ _yesterday_lock = threading.Lock()
 _broken_hosts = {}
 _HOST_COOLDOWN = 300   # 冷却 5 分钟
 
+# ---------- 数据源健康监控 ----------
+# src -> {ok, fail, last_ok, last_fail, ms_sum, ms_cnt, down_since}
+# down_since>0 表示自该时刻起处于"故障中"(失败后尚未成功恢复)
+_HEALTH = {
+    "eastmoney_clist": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
+    "eastmoney_kline": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
+    "ths_kline":       {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
+}
+_health_lock = threading.Lock()
+
+
+def _record(src, ok, ms=0):
+    """记录一次数据源调用结果; 状态翻转时打告警/恢复日志"""
+    with _health_lock:
+        h = _HEALTH[src]
+        now = time.time()
+        if ok:
+            h["ok"] += 1
+            h["last_ok"] = now
+            if ms > 0:
+                h["ms_sum"] += ms
+                h["ms_cnt"] += 1
+            if h["down_since"]:
+                log.info("数据源恢复: %s 恢复正常(故障%.0f秒)", src, now - h["down_since"])
+                h["down_since"] = 0
+        else:
+            h["fail"] += 1
+            h["last_fail"] = now
+            if not h["down_since"]:
+                h["down_since"] = now
+                log.error("数据源故障: %s 调用失败, 进入异常状态", src)
+
+
+def _src_status(h):
+    """单个数据源状态: ok / degraded / down"""
+    if h["down_since"] and h["last_ok"] < h["down_since"]:
+        return "down"
+    if h["fail"] and h["last_fail"] > h["last_ok"]:
+        return "degraded"
+    return "ok"
+
+
+def get_health_status():
+    """数据源健康快照: {overall, sources:{src:{status,ok,fail,last_ok,last_fail,avg_ms}}}"""
+    with _health_lock:
+        sources = {}
+        for src, h in _HEALTH.items():
+            st = _src_status(h)
+            sources[src] = {
+                "status": st,
+                "ok": h["ok"], "fail": h["fail"],
+                "last_ok": h["last_ok"], "last_fail": h["last_fail"],
+                "avg_ms": round(h["ms_sum"] / h["ms_cnt"]) if h["ms_cnt"] else 0,
+            }
+        statuses = [s["status"] for s in sources.values()]
+        if all(st == "down" for st in statuses):
+            overall = "down"          # 全部数据源故障
+        elif "down" in statuses or "degraded" in statuses:
+            overall = "degraded"      # 部分故障/降级(可能由兜底源覆盖)
+        else:
+            overall = "ok"
+    return {"overall": overall, "sources": sources}
+
 
 def _bj_date_str():
     g = time.gmtime(time.time() + 8 * 3600)
@@ -50,8 +113,14 @@ def fetch_eastmoney(fs):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "Referer": "https://quote.eastmoney.com/",
     })
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        _record("eastmoney_clist", False)
+        raise
+    _record("eastmoney_clist", True, int((time.time() - t0) * 1000))
     if data.get("rc") != 0 or not data.get("data", {}).get("diff"):
         raise RuntimeError("东方财富接口返回异常")
     diff = data["data"]["diff"]
@@ -105,6 +174,7 @@ def _fetch_yesterday_amount_ths(code):
     today = _bj_date_str().replace("-", "")
     for proto in ("https", "http"):
         url = "%s://d.10jqka.com.cn/v6/line/hs_%s/01/last.js" % (proto, code)
+        t0 = time.time()
         try:
             req = urllib.request.Request(url, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
@@ -129,9 +199,11 @@ def _fetch_yesterday_amount_ths(code):
             amt = float(parts[6])   # 成交额(元)
             if not math.isfinite(amt) or amt <= 0:
                 continue
+            _record("ths_kline", True, int((time.time() - t0) * 1000))
             return amt / 10000.0    # 万元
         except Exception:
             continue
+    _record("ths_kline", False)
     return None
 
 
@@ -145,6 +217,7 @@ def _fetch_yesterday_amount_one(code):
     for host in config.KLINE_HOSTS:
         if _host_blocked(host):
             continue
+        t0 = time.time()
         try:
             req = urllib.request.Request(host + "/api/qt/stock/kline/get?" + qs, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
@@ -166,10 +239,12 @@ def _fetch_yesterday_amount_one(code):
             amt = float(parts[6])   # 成交额(元)
             if not math.isfinite(amt) or amt <= 0:
                 continue
+            _record("eastmoney_kline", True, int((time.time() - t0) * 1000))
             return amt / 10000.0    # 万元
         except Exception:
             _mark_host_broken(host)
             continue
+    _record("eastmoney_kline", False)
     # 东财全失败 → 同花顺兜底
     return _fetch_yesterday_amount_ths(code)
 

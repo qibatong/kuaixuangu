@@ -3,6 +3,7 @@
     <!-- 规则条 + 顶栏按钮组 -->
     <div class="alert-rule">
       <div class="rule-text"><i class="fa fa-clock-o"></i> <strong>9:30前可重新选股 · 9:30后仅更新实时涨幅</strong></div>
+      <span class="health-dot" :class="'health-' + (healthStatus || 'none')" :title="healthTip || healthText">{{ healthText }}</span>
       <div class="right-group">
         <div class="btn-group">
           <button class="tdx-export-btn reset-lock-btn" :disabled="!isBefore930()" @click="reLock"><i class="fa fa-refresh"></i> 重新锁定(9:30前可用)</button>
@@ -86,10 +87,34 @@ const user = useUserStore()
 const changePwdModal = ref(null)
 const medalExportCount = ref(3)
 const bjTime = ref('--:--:--')
+const healthStatus = ref('')      // ok / degraded / down / ''
+const healthText = ref('数据源检查中...')
+const healthTip = ref('')
+
+async function loadHealth() {
+  try {
+    const resp = await fetch('/api/health', { headers: { 'Authorization': 'Bearer ' + user.apiToken } })
+    const data = await resp.json()
+    if (data.ok) {
+      healthStatus.value = data.overall || ''
+      const s = data.sources || {}
+      const parts = []
+      for (const [k, v] of Object.entries(s)) {
+        const names = { eastmoney_clist: '东财行情', eastmoney_kline: '东财日K', ths_kline: '同花顺' }
+        parts.push(`${names[k] || k}:${v.status === 'ok' ? '正常' : v.status === 'degraded' ? '降级' : '异常'}(成功${v.ok}/失败${v.fail})`)
+      }
+      healthTip.value = parts.join('；')
+      healthText.value = data.overall === 'ok' ? '数据源正常'
+        : data.overall === 'degraded' ? '数据源降级'
+        : data.overall === 'down' ? '数据源异常' : '数据源检查中...'
+    }
+  } catch (e) { /* 静默: 不影响主流程 */ }
+}
 
 let clockTimer = null
 let autoAddTimer = null
 let expiryTimer = null
+let healthTimer = null
 
 async function init() {
   user.migrateLegacyKeys()
@@ -107,6 +132,9 @@ async function init() {
   // 启动定时器: 时钟 / 自动收录 / 过期检查
   clockTimer = setInterval(() => { bjTime.value = bjTimeStr() }, 1000)
   autoAddTimer = setInterval(() => pool.autoAdd(stocks.cachedStocks, stocks.isDataCached), 20000)
+  // 数据源健康状态(每 5 分钟刷新)
+  loadHealth()
+  healthTimer = setInterval(loadHealth, 300000)
   expiryTimer = setInterval(() => pool.checkExpiry(), 30000)
   pool.autoAdd(stocks.cachedStocks, stocks.isDataCached)
 }
@@ -136,5 +164,6 @@ onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
   if (autoAddTimer) clearInterval(autoAddTimer)
   if (expiryTimer) clearInterval(expiryTimer)
+  if (healthTimer) clearInterval(healthTimer)
 })
 </script>
