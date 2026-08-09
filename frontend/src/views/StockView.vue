@@ -4,6 +4,11 @@
     <div class="alert-rule">
       <div class="rule-text"><i class="fa fa-clock-o"></i> <strong>9:30前可重新选股 · 9:30后仅更新实时涨幅</strong></div>
       <span class="health-dot" :class="'health-' + (healthStatus || 'none')" :title="healthTip || healthText">{{ healthText }}</span>
+      <span class="yizi-card" :title="'近5日一字涨停趋势: ' + yiziTrend.map(d => d.date.slice(5) + ':' + d.yizi_count + '个').join('  ')">
+        <i class="fa fa-fire" style="color:#ff5028;"></i>
+        <template v-if="yiziToday">一字 <b>{{ yiziToday.yizi_count }}</b> 个 · 竞价 <b>{{ yiziAmtText(yiziToday.bid_amt) }}</b></template>
+        <template v-else>一字统计加载中...</template>
+      </span>
       <div class="right-group">
         <div class="btn-group">
           <button class="tdx-export-btn reset-lock-btn" :disabled="!isBefore930()" @click="reLock"><i class="fa fa-refresh"></i> 重新锁定(9:30前可用)</button>
@@ -91,6 +96,24 @@ const bjTime = ref('--:--:--')
 const healthStatus = ref('')      // ok / degraded / down / ''
 const healthText = ref('数据源检查中...')
 const healthTip = ref('')
+const yiziToday = ref(null)       // {yizi_count, bid_amt} 今日一字涨停
+const yiziTrend = ref([])         // 近 5 日趋势
+
+async function loadYizi() {
+  try {
+    const resp = await fetch('/api/stats/daily-yizi?days=5', { headers: { 'Authorization': 'Bearer ' + user.apiToken } })
+    const data = await resp.json()
+    if (data.ok && data.list && data.list.length) {
+      yiziTrend.value = data.list
+      yiziToday.value = data.list[0]
+    }
+  } catch (e) { /* 静默 */ }
+}
+
+function yiziAmtText(amt) {
+  if (amt === null || amt === undefined) return '-'
+  return (amt / 10000).toFixed(1) + '亿'
+}
 
 async function loadHealth() {
   try {
@@ -160,6 +183,7 @@ function logout() {
 onMounted(() => {
   bjTime.value = bjTimeStr()
   init()
+  loadYizi()
 })
 onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
@@ -168,3 +192,21 @@ onBeforeUnmount(() => {
   if (healthTimer) clearInterval(healthTimer)
 })
 </script>
+
+<style scoped>
+.yizi-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 10px;
+  padding: 3px 10px;
+  border: 1px solid rgba(255, 80, 40, 0.4);
+  border-radius: 12px;
+  background: rgba(255, 80, 40, 0.08);
+  color: #ffbc9a;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: default;
+}
+.yizi-card b { color: #ff6a4a; }
+</style>

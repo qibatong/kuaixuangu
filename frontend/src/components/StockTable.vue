@@ -3,13 +3,14 @@
     <div v-if="!stocks.length" class="empty-state">暂无符合条件股票</div>
     <table v-else class="stock-table">
       <thead>
-        <tr><th>排名</th><th>股票代码</th><th>股票名称</th><th>竞价涨幅</th><th>实时涨幅</th><th>实体涨幅</th><th>异动</th><th>竞价金额(万)</th><th>竞价/昨比</th><th>流通市值(亿)</th><th>行业</th><th>概念</th><th>综合评分</th><th>可信度</th></tr>
+        <tr><th>排名</th><th>股票代码</th><th>股票名称</th><th>抢筹</th><th>竞价涨幅</th><th>实时涨幅</th><th>实体涨幅</th><th>异动</th><th>竞价金额(万)</th><th>竞价/昨比</th><th>流通市值(亿)</th><th>行业</th><th>概念</th><th>综合评分</th><th>可信度</th></tr>
       </thead>
       <tbody>
         <tr v-for="(item, idx) in stocks" :key="item.code">
           <td class="rank-col">{{ idx + 1 }}</td>
           <td class="code-click" @click="linkToSoftware(item.code)">{{ item.code }}</td>
           <td>{{ item.name }}</td>
+          <td><span v-if="item.qiangchou" class="qc-badge" title="竞价涨幅≥2% 且 竞价/昨比≥20%">🔥抢筹</span><span v-else>-</span></td>
           <td :class="item.bidChange > 0 ? 'up' : 'down'">{{ signed(item.bidChange) }}%</td>
           <td :class="realCls(item)">{{ signed(item.realChange) }}%</td>
           <td :class="item.entityChange > 0 ? 'up' : 'down'">{{ signed(item.entityChange) }}%</td>
@@ -54,3 +55,20 @@ function ratioText(br) {
   return br.toFixed(2) + '%'
 }
 </script>
+
+<style scoped>
+.qc-badge {
+  display: inline-block;
+  background: rgba(255, 80, 40, 0.18);
+  border: 1px solid #ff5028;
+  color: #ffa07a;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 12px;
+  animation: qc-pulse 1.6s ease-in-out infinite;
+}
+@keyframes qc-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+</style>
