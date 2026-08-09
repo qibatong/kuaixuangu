@@ -8,7 +8,7 @@
 ## 目录结构
 
 ```
-bid-selector-server/
+kuaixuan/                        # 仓库根（GitHub: felix-rich/kuaixuan）
 ├── backend/                      # 后端 (FastAPI 分层)
 │   ├── requirements.txt
 │   └── app/
@@ -124,7 +124,7 @@ Nginx 关键配置（/etc/nginx/conf.d/kuaixuan.conf）：
 - 中文品牌：**快选 Kuaixuan**（localStorage key `kuaixuan_*` 已统一）
 - 完整 Logo：项目内 `frontend/public/logo.png` 或 https://<你的部署地址>/logo.png
 - 浏览器标签：自动获取 `favicon.png`（刷新即生效）
-- 推广文案：见本文末尾或 `bid-selector-server/推广文案.md`
+- 推广文案：见本文末尾「推广文案」章节
 
 ## 历史里程碑
 
