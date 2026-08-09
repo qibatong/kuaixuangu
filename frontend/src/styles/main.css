@@ -335,15 +335,15 @@ border-bottom: 1px dashed rgba(255,160,120,0.25); row-gap: 8px;
 }
 /* 查询按钮独立行: 固定右对齐, 不参与控件换行 */
 .query-actions { display: flex; justify-content: flex-end; padding: 8px 2px 0; }
-.query-form label { font-size: 12px; color: #ffbcbc; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.query-form label { font-size: 12px; color: #ffbcbc; display: flex; align-items: center; gap: 4px; white-space: nowrap; flex: 0 0 auto; }
 .query-form input, .query-form select {
 background: rgba(0,0,0,0.5); border: 1px solid #ff5c5c; color: #fff; padding: 4px 6px;
-border-radius: 4px; font-size: 12px; outline: none;
+border-radius: 4px; font-size: 12px; outline: none; flex-shrink: 0;
 }
 .query-form input:focus { box-shadow: 0 0 0 2px #ff5c5c; }
 .query-form input::placeholder { color: #667; }
-.query-form input[type="number"] { width: 64px; font-family: monospace; }
-.query-form input[type="date"] { width: 128px; color-scheme: dark; }
+.query-form input[type="number"] { width: 56px; font-family: monospace; }
+.query-form input[type="date"] { width: auto; min-width: 118px; color-scheme: dark; }
 .query-tip { font-size: 11px; color: #7788aa; padding: 6px 2px 0; }
 .query-result { margin-top: 8px; border-radius: 8px; }
 .query-summary { font-size: 12px; color: #88aacc; padding: 4px 6px 8px; }
