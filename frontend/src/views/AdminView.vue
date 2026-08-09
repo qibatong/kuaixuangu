@@ -61,6 +61,10 @@
                     <button class="mini-btn" @click="extendUser(u, 'quarter')">+1季</button>
                     <button class="mini-btn" @click="extendUser(u, 'year')">+1年</button>
                     <button class="mini-btn" title="设为永久" @click="extendUser(u, 'forever')">永久</button>
+                    <span class="date-set">
+                      <input type="date" v-model="u._expireDate" class="mini-date" :max="'2099-12-31'" />
+                      <button class="mini-btn" @click="extendUser(u, 'date')">设日期</button>
+                    </span>
                   </div>
                 </td>
               </tr>
@@ -182,11 +186,19 @@ function expireState(u) {
 }
 
 async function extendUser(u, action) {
-  const label = { week: '+1周', month: '+1月', quarter: '+1季', year: '+1年', forever: '永久' }[action]
+  const label = { week: '+1周', month: '+1月', quarter: '+1季', year: '+1年', forever: '永久', date: '设日期' }[action]
   try {
-    const payload = action === 'forever' ? { days: 0 } : { duration: action }
+    let payload
+    if (action === 'forever') payload = { days: 0 }
+    else if (action === 'date') {
+      if (!u._expireDate) { toast('请先选择日期', 'error'); return }
+      payload = { expire_at: u._expireDate }
+    } else {
+      payload = { duration: action }
+    }
     const d = await setUserExpire(u.id, payload)
     toast(`${u.username} ${label}设置成功，到期 ${fmtDate(d.expire_at)}`, 'success')
+    u._expireDate = ''
     loadUsers(page.value)
   } catch (e) {
     toast(e.message || '设置失败', 'error')
@@ -286,9 +298,11 @@ onMounted(() => {
 .user-tag { color: #999; border: 1px solid #666; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
 .expired-tag { color: #ff6a6a; border: 1px solid #ff5050; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
 .ok-tag { color: #7ce8a0; border: 1px solid #4caf70; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
-.expire-ops { display: flex; gap: 4px; flex-wrap: wrap; }
+.expire-ops { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
 .mini-btn { background: rgba(0,180,255,0.12); border: 1px solid #00b4ff; color: #a0e0ff; border-radius: 4px; padding: 2px 8px; font-size: 12px; cursor: pointer; }
 .mini-btn:hover { background: rgba(0,180,255,0.25); }
+.date-set { display: inline-flex; align-items: center; gap: 4px; }
+.mini-date { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; color: #eee; padding: 2px 6px; font-size: 12px; color-scheme: dark; }
 .pager { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 12px; }
 .page-btn { background: rgba(0,180,255,0.12); border: 1px solid #00b4ff; color: #a0e0ff; border-radius: 6px; padding: 4px 14px; cursor: pointer; }
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
