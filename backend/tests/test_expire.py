@@ -178,3 +178,21 @@ def test_admin_expire_requires_admin(client, second_user):
     token, _ = second_user
     r = client.post("/api/admin/users/expire", json={"uid": 1, "days": 7}, headers=hdrs(token))
     assert r.status_code == 403
+
+
+# ---------- 今日注册统计(时区 bug 回归) ----------
+def test_user_stats_today_excludes_old_users(client, first_user, second_user):
+    """今日注册不应把昨天/更早注册的用户算进去(修复双重+8h 时区 bug)"""
+    import sqlite3
+    _, _, inv = first_user
+    _, uname2 = second_user
+    # 把 second_user 的注册时间改成 3 天前
+    u2 = users.find_user(uname2)["id"]
+    conn = sqlite3.connect(os.environ["BID_DB_PATH"])
+    conn.execute("UPDATE users SET created_at=? WHERE id=?", (int(time.time()) - 3 * 86400, u2))
+    conn.commit()
+    conn.close()
+    st = users.user_stats()
+    # second_user 被改成 3 天前 → today 必须小于 total(不能再 all==total 的 bug)
+    assert st["today"] >= 1                 # first_user 等今天注册
+    assert st["today"] < st["total"]        # 关键: 不再出现 today==total

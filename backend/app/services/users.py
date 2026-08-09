@@ -117,8 +117,9 @@ def user_stats():
     """管理端用户统计: 总数/今日注册/邀请关系/活跃(有选股记录)用户"""
     conn = _conn()
     total = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    # 今日注册(北京时间, 与服务器时区无关): created_at 是 UTC 时间戳, +8h 后按 UTC 显示即北京日期
     today = conn.execute(
-        "SELECT COUNT(*) FROM users WHERE datetime(created_at+8*3600,'unixepoch','localtime') >= date('now','localtime')"
+        "SELECT COUNT(*) FROM users WHERE date(created_at+8*3600,'unixepoch') = date('now','+8 hours')"
     ).fetchone()[0]
     active = conn.execute(
         "SELECT COUNT(DISTINCT user_id) FROM batches").fetchone()[0]
