@@ -20,6 +20,8 @@
       <label>股价&gt;<input type="number" v-model.number="store.filterSettings.priceGt" min="1" max="5000" step="1" :disabled="store.isFilterLocked">元 剔除</label>
       <span class="filter-divider">|</span>
       <label>竞价金额&lt;<input type="number" v-model.number="store.filterSettings.bidAmtFloor" min="0" max="100000" step="500" :disabled="store.isFilterLocked">万 剔除</label>
+    </div>
+    <div class="filter-actions">
       <button class="tdx-export-btn" style="background:#ff5c5c;" :disabled="store.isFilterLocked" @click="apply">应用筛选</button>
       <button class="tdx-export-btn reset-filter-btn" :disabled="store.isFilterLocked" @click="store.resetFilterToDefault()"><i class="fa fa-undo"></i> 重置</button>
       <button class="tdx-export-btn lock-filter-btn" :class="{ locked: store.isFilterLocked }" @click="store.toggleFilterLock()">{{ store.isFilterLocked ? ' 解锁' : ' 锁定' }}</button>
