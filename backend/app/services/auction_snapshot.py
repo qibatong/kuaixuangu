@@ -33,7 +33,8 @@ def _bj_date():
 
 
 def _fetch_market_map():
-    """抓取当前全市场(沪深/创业/科创)快照, 返回 {code: {bid_change, bid_amt}}"""
+    """抓取当前全市场(沪深/创业/科创)快照, 返回 {code: {bid_change, bid_amt}}
+    过滤异常涨幅(±30% 外, A股涨跌停上限20%/新股44%, 非交易时段字段可能异常)"""
     raw_all = {}
     for m in ("hs", "cyb", "kcb"):
         try:
@@ -43,11 +44,12 @@ def _fetch_market_map():
             continue
         for s in raw:
             code = s.get("f12")
-            if code:
-                raw_all[code] = {
-                    "bid_change": scorer.get_bid_change(s),
-                    "bid_amt": scorer.get_bid_amt(s),
-                }
+            if not code:
+                continue
+            bc = scorer.get_bid_change(s)
+            if bc < -30 or bc > 30:    # 明显异常数据(非交易时段字段污染)
+                continue
+            raw_all[code] = {"bid_change": bc, "bid_amt": scorer.get_bid_amt(s)}
     return raw_all
 
 

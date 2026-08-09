@@ -76,6 +76,19 @@ def test_snapshot_invalid_time_point(client):
     assert auction_snapshot.snapshot_at("9_99") == 0
 
 
+def test_snapshot_filters_abnormal_change(client, monkeypatch):
+    """归档过滤异常涨幅(±30%外, 防非交易时段字段污染)"""
+    def fake_fetch(fs):
+        a = dict(RAW); a["f12"] = "600001"; a["f615"] = 4.0       # 正常
+        b = dict(RAW); b.update({"f12": "000002", "f615": 360.5})  # 异常
+        return [a, b]
+    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney", fake_fetch)
+    n = auction_snapshot.snapshot_at("9_25")
+    assert n == 1
+    snap = auction_snapshot.load_snapshot(time_point="9_25")
+    assert "600001" in snap and "000002" not in snap
+
+
 # ---------- 历史回放 ----------
 def test_query_snapshot_sorted(client, monkeypatch):
     """query_snapshot 按竞价涨幅降序 + limit"""
