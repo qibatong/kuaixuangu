@@ -122,6 +122,8 @@ Nginx 关键配置（/etc/nginx/conf.d/kuaixuan.conf）：
 | /api/history, /api/history/query | GET | 历史批次 / 条件分页查询 |
 | /api/invite, /api/invite/refresh | GET/POST | 邀请码与名单 |
 | /api/prefs | GET/POST | 账号级筛选偏好 |
+| /api/admin/users | GET | 管理端用户列表(分页/搜索) + 统计(仅管理员) |
+| /api/admin/scoring | GET/PUT | 管理端评分权重 + 打分明细读写(仅管理员) |
 
 鉴权：`Authorization: Bearer <token>`（或 ?token=），401 时前端自动跳登录。
 

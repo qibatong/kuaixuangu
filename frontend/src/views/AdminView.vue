@@ -89,6 +89,30 @@
           <span v-if="saveMsg" :style="{ color: saveErr ? '#ff6a6a' : '#7ce8a0' }">{{ saveMsg }}</span>
         </div>
       </div>
+
+      <!-- 打分明细配置 -->
+      <div class="admin-card">
+        <div class="card-title"><i class="fa fa-table"></i> 打分明细（各因子分段得分） <span style="color:#888;font-size:12px;margin-left:8px;">命中区间 [下限, 上限) 得对应分，未命中取默认分</span></div>
+        <div v-for="fk in factorOrder" :key="fk" class="factor-box">
+          <div class="factor-title">{{ factors[fk] ? factors[fk].label : fk }} <span style="color:#888;font-size:12px;">（{{ factors[fk] ? factors[fk].unit : '' }}）</span>
+            <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+              默认分 <input v-model.number="factors[fk].default" type="number" step="0.05" min="0" max="1" class="admin-input" style="width:70px;" />
+            </span>
+          </div>
+          <table class="admin-table bucket-table">
+            <thead><tr><th style="width:120px;">下限</th><th style="width:120px;">上限</th><th>得分(0~1)</th><th style="width:70px;"></th></tr></thead>
+            <tbody>
+              <tr v-for="(b, idx) in factors[fk].buckets" :key="idx">
+                <td><input v-model.number="b[0]" type="number" step="0.1" class="admin-input" style="width:100px;" /></td>
+                <td><input v-model.number="b[1]" type="number" step="0.1" class="admin-input" style="width:100px;" /></td>
+                <td><input v-model.number="b[2]" type="number" step="0.05" min="0" max="1" class="admin-input" style="width:100px;" /></td>
+                <td><button class="del-btn" @click="delBucket(fk, idx)"><i class="fa fa-trash-o"></i></button></td>
+              </tr>
+              <tr><td colspan="4"><button class="add-btn" @click="addBucket(fk)"><i class="fa fa-plus"></i> 新增分档</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </template>
   </div>
 </template>
@@ -109,6 +133,8 @@ const denied = ref(false)
 const scoring = reactive({})
 const wKeys = ref([])
 const confKeys = ref([])
+const factors = reactive({})
+const factorOrder = ['bid', 'activity', 'warn', 'market', 'yesterday']
 const saving = ref(false)
 const saveMsg = ref('')
 const saveErr = ref(false)
@@ -148,22 +174,46 @@ async function loadScoring() {
     Object.assign(scoring, d.scoring || {})
     wKeys.value = d.w_keys || []
     confKeys.value = d.conf_keys || []
+    const fac = (d.scoring && d.scoring.factors) || {}
+    factorOrder.forEach((fk) => {
+      factors[fk] = fac[fk] || { label: fk, unit: '', buckets: [], default: 0.1 }
+      // buckets 行转数组, 便于 v-model.number 双向绑定
+      factors[fk].buckets = (factors[fk].buckets || []).map((b) => [Number(b[0]), Number(b[1]), Number(b[2])])
+    })
   } catch (e) {
     if (e.status === 403) denied.value = true
     else toast(e.message || '加载失败', 'error')
   }
 }
 
+function addBucket(fk) {
+  factors[fk].buckets.push([0, 1, 0.5])
+}
+
+function delBucket(fk, idx) {
+  factors[fk].buckets.splice(idx, 1)
+}
+
 async function saveScoring() {
   saveMsg.value = ''
   const payload = {}
-  Object.keys(scoring).forEach((k) => { payload[k] = Number(scoring[k]) })
+  Object.keys(scoring).forEach((k) => {
+    if (!k.startsWith('factors')) payload[k] = Number(scoring[k])
+  })
+  payload.factors = {}
+  factorOrder.forEach((fk) => {
+    const f = factors[fk]
+    payload.factors[fk] = {
+      label: f.label, unit: f.unit, default: Number(f.default),
+      buckets: f.buckets.map((b) => [String(b[0]), String(b[1]), Number(b[2])])
+    }
+  })
   saving.value = true
   try {
     const d = await apiSaveScoring(payload)
     saveMsg.value = d.msg || '已保存'
     saveErr.value = false
-    toast('权重已保存并生效', 'success')
+    toast('权重与打分明细已保存并生效', 'success')
   } catch (e) {
     saveMsg.value = e.message || '保存失败'
     saveErr.value = true
@@ -200,4 +250,9 @@ onMounted(() => {
 .page-btn { background: rgba(0,180,255,0.12); border: 1px solid #00b4ff; color: #a0e0ff; border-radius: 6px; padding: 4px 14px; cursor: pointer; }
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .weight-table input { color: #ffd700; }
+.factor-box { border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+.factor-title { display: flex; align-items: center; color: #ffd700; font-size: 14px; margin-bottom: 8px; }
+.bucket-table input { color: #a0e0ff; }
+.add-btn { background: rgba(0,180,255,0.12); border: 1px dashed #00b4ff; color: #a0e0ff; border-radius: 6px; padding: 3px 14px; cursor: pointer; font-size: 12px; }
+.del-btn { background: rgba(255,80,80,0.15); border: 1px solid #ff5050; color: #ff9a9a; border-radius: 6px; padding: 2px 8px; cursor: pointer; }
 </style>

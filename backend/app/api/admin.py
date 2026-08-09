@@ -99,4 +99,31 @@ def _validate_scoring(new):
             return "置信度加成 %s 必须是数字" % k
         if not (0 <= v <= 30):
             return "置信度加成 %s 需在 0~30 之间" % k
+    # 打分明细: 5 个因子, 每因子 buckets 为 [下限, 上限, 得分] 且 下限<上限, 得分 0~1
+    factors = new.get("factors")
+    if factors is not None:
+        if not isinstance(factors, dict):
+            return "打分明细格式错误"
+        for fk, fv in factors.items():
+            if fk not in scorer.DEFAULT_SCORING["factors"]:
+                return "未知因子: %s" % fk
+            if not isinstance(fv, dict) or not isinstance(fv.get("buckets"), list) or not fv["buckets"]:
+                return "因子 %s 缺少有效的分档表" % fk
+            try:
+                dflt = float(fv.get("default", 0.1))
+            except (TypeError, ValueError):
+                return "因子 %s 的默认得分必须是数字" % fk
+            if not (0 <= dflt <= 1):
+                return "因子 %s 的默认得分需在 0~1 之间" % fk
+            for b in fv["buckets"]:
+                if not isinstance(b, (list, tuple)) or len(b) != 3:
+                    return "因子 %s 分档必须为 [下限, 上限, 得分]" % fk
+                try:
+                    lo, hi, sc = float(b[0]), float(b[1]), float(b[2])
+                except (TypeError, ValueError):
+                    return "因子 %s 分档数值不合法" % fk
+                if lo >= hi:
+                    return "因子 %s 分档下限需小于上限" % fk
+                if not (0 <= sc <= 1):
+                    return "因子 %s 分档得分需在 0~1 之间" % fk
     return ""

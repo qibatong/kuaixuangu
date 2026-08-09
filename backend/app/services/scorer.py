@@ -10,7 +10,8 @@ import time
 from . import settings
 
 # ---------- 评分权重配置(管理员可调, 存 settings 表 "scoring") ----------
-# 五项因子权重和应=1.0; 改动经管理端 PUT /api/admin/scoring 保存后即时生效
+# 结构: 五项因子权重 + 各因子打分明细(buckets: [下限, 上限, 得分], 左闭右开) + 置信度加成
+# 默认值与重构前硬编码逻辑完全一致, 行为零变化
 DEFAULT_SCORING = {
     "w_bid": 0.34,        # 竞价分权重
     "w_activity": 0.32,   # 活跃度(竞价换手/量比)权重
@@ -20,23 +21,64 @@ DEFAULT_SCORING = {
     "conf_warn_high": 10,  # 置信度: 强异动加成
     "conf_turnover": 8,    # 置信度: 高换手加成
     "conf_bid": 7,         # 置信度: 竞价温和区间加成
+    # 各因子打分明细: buckets 为 [下限, 上限, 得分] 列表, 命中条件 下限<=x<上限, 按顺序首个命中
+    "factors": {
+        "bid": {
+            "label": "竞价涨幅", "unit": "%",
+            "buckets": [["3", "5.5", 1.0], ["5.5", "99", 0.88], ["2", "3", 0.88],
+                        ["1.5", "2", 0.65], ["0.001", "1.5", 0.4]],
+            "default": 0.1,
+        },
+        "activity": {
+            "label": "竞价换手率", "unit": "%",
+            "buckets": [["0.8", "99", 1.0], ["0.4", "0.8", 0.88], ["0.2", "0.4", 0.72],
+                        ["0.08", "0.2", 0.5], ["0.001", "0.08", 0.3]],
+            "default": 0.1,
+        },
+        "warn": {
+            "label": "异动等级", "unit": "级",
+            "buckets": [["5", "6", 1.0], ["4", "5", 0.85], ["3", "4", 0.6]],
+            "default": 0.18,
+        },
+        "market": {
+            "label": "流通市值", "unit": "亿",
+            "buckets": [["0", "30", 1.0], ["30", "60", 0.88], ["60", "120", 0.68],
+                        ["120", "250", 0.45]],
+            "default": 0.22,
+        },
+        "yesterday": {
+            "label": "昨日涨幅", "unit": "%",
+            "buckets": [["3", "9.5", 0.9], ["9.5", "99", 0.65], ["1", "3", 0.65],
+                        ["0", "1", 0.4], ["-3", "0", 0.25]],
+            "default": 0.15,
+        },
+    },
 }
 _scoring_cfg = None
 
 
 def get_scoring_cfg(force=False):
-    """读取评分权重(内存缓存; 管理端更新后调 reload 生效)"""
+    """读取评分配置(权重+打分明细; 内存缓存; 管理端更新后调 reload 生效)"""
     global _scoring_cfg
     if _scoring_cfg is None or force:
         cfg = settings.get("scoring")
         if isinstance(cfg, dict):
             merged = dict(DEFAULT_SCORING)
+            num_keys = ("w_bid", "w_activity", "w_warn", "w_market", "w_yesterday",
+                        "conf_warn_high", "conf_turnover", "conf_bid")
             for k, v in cfg.items():
-                if k in DEFAULT_SCORING:
+                if k in num_keys:
                     try:
                         merged[k] = float(v)
                     except (TypeError, ValueError):
                         pass
+            # factors 逐层合并, 缺省因子/分档用默认
+            if isinstance(cfg.get("factors"), dict):
+                fac = dict(DEFAULT_SCORING["factors"])
+                for fk, fv in cfg["factors"].items():
+                    if fk in fac and isinstance(fv, dict):
+                        fac[fk] = dict(fac[fk], **fv)
+                merged["factors"] = fac
             _scoring_cfg = merged
         else:
             _scoring_cfg = dict(DEFAULT_SCORING)
@@ -44,8 +86,26 @@ def get_scoring_cfg(force=False):
 
 
 def reload_scoring_cfg():
-    """管理端更新权重后强制刷新内存缓存, 返回新配置"""
+    """管理端更新配置后强制刷新内存缓存, 返回新配置"""
     return get_scoring_cfg(force=True)
+
+
+def get_factor_score(cfg, factor, value):
+    """按配置分档表打分: 命中 [下限, 上限) 返回得分, 未命中返回 default"""
+    f = (cfg.get("factors") or {}).get(factor)
+    if not f or not f.get("buckets"):
+        return 0.1
+    for b in f["buckets"]:
+        try:
+            lo, hi, sc = float(b[0]), float(b[1]), float(b[2])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if lo <= value < hi:
+            return sc
+    try:
+        return float(f.get("default", 0.1))
+    except (TypeError, ValueError):
+        return 0.1
 
 
 # ---------- 工具 ----------
@@ -150,64 +210,24 @@ def compute_score(s):
     circ_mv = parse_float(s.get("f21")) / 1e8          # 流通市值(亿)
     yesterday_approx = parse_float(s.get("f3"))        # 原策略的"昨日涨幅"口径: f3
 
-    # 竞价分
-    bid_score = 0.15
-    if 3.0 <= bid_change <= 5.5:
-        bid_score = 1.0
-    elif bid_change >= 2:
-        bid_score = 0.88
-    elif bid_change >= 1.5:
-        bid_score = 0.65
-    elif bid_change > 0:
-        bid_score = 0.4
-    else:
-        bid_score = 0.1
+    # 竞价分(按配置分档表)
+    cfg = get_scoring_cfg()
+    bid_score = get_factor_score(cfg, "bid", bid_change)
 
-    # 活跃度分
-    activity_score = 0.2
-    if bid_turnover >= 0.8:
-        activity_score = 1.0
-    elif bid_turnover >= 0.4:
-        activity_score = 0.88
-    elif bid_turnover >= 0.2:
-        activity_score = 0.72
-    elif bid_turnover >= 0.08:
-        activity_score = 0.5
-    elif bid_turnover > 0:
-        activity_score = 0.3
-    else:
-        activity_score = 0.1
+    # 活跃度分(竞价换手 + 量比加成)
+    activity_score = get_factor_score(cfg, "activity", bid_turnover)
     if bid_vol_ratio >= 0.3:
         activity_score = min(1.0, activity_score + 0.1)
 
     # 异动分
-    warn_score = 1.0 if warn_type == 5 else (0.85 if warn_type == 4 else (0.6 if warn_type == 3 else 0.18))
+    warn_score = get_factor_score(cfg, "warn", warn_type)
 
     # 市值分
-    if circ_mv < 30:
-        market_score = 1.0
-    elif circ_mv < 60:
-        market_score = 0.88
-    elif circ_mv < 120:
-        market_score = 0.68
-    elif circ_mv < 250:
-        market_score = 0.45
-    else:
-        market_score = 0.22
+    market_score = get_factor_score(cfg, "market", circ_mv)
 
     # 昨日涨幅分
-    if 3 <= yesterday_approx < 9.5:
-        yesterday_score = 0.9
-    elif yesterday_approx >= 1:
-        yesterday_score = 0.65
-    elif yesterday_approx >= 0:
-        yesterday_score = 0.4
-    elif yesterday_approx > -3:
-        yesterday_score = 0.25
-    else:
-        yesterday_score = 0.15
+    yesterday_score = get_factor_score(cfg, "yesterday", yesterday_approx)
 
-    cfg = get_scoring_cfg()
     base = (bid_score * cfg["w_bid"] + activity_score * cfg["w_activity"]
             + warn_score * cfg["w_warn"] + market_score * cfg["w_market"]
             + yesterday_score * cfg["w_yesterday"])

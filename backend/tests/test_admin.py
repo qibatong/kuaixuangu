@@ -144,6 +144,103 @@ def test_admin_scoring_put_missing(client, first_user):
     assert r.status_code == 400
 
 
+# ---------- 打分明细(factors) ----------
+def test_get_scoring_returns_factors(client, first_user):
+    token, _, _ = first_user
+    r = client.get("/api/admin/scoring", headers=hdrs(token))
+    d = r.json()
+    fac = d["scoring"]["factors"]
+    assert set(fac.keys()) == {"bid", "activity", "warn", "market", "yesterday"}
+    assert fac["bid"]["buckets"][0] == ["3", "5.5", 1.0]
+    assert "default" in fac["bid"]
+
+
+def test_factor_buckets_default_consistency():
+    """默认分档打分与原硬编码逻辑一致(边界值抽样)"""
+    cfg = scorer.get_scoring_cfg()
+    # 竞价涨幅: 3~5.5=1.0, >5.5或2~3=0.88, 1.5~2=0.65, 0~1.5=0.4, 其余=0.1
+    assert scorer.get_factor_score(cfg, "bid", 3.0) == 1.0
+    assert scorer.get_factor_score(cfg, "bid", 5.49) == 1.0
+    assert scorer.get_factor_score(cfg, "bid", 5.5) == 0.88
+    assert scorer.get_factor_score(cfg, "bid", 2.5) == 0.88
+    assert scorer.get_factor_score(cfg, "bid", 1.8) == 0.65
+    assert scorer.get_factor_score(cfg, "bid", 0.5) == 0.4
+    assert scorer.get_factor_score(cfg, "bid", 0) == 0.1
+    # 换手率: >=0.8=1.0, 0.4~0.8=0.88, 0.2~0.4=0.72, 0.08~0.2=0.5, 0~0.08=0.3
+    assert scorer.get_factor_score(cfg, "activity", 0.8) == 1.0
+    assert scorer.get_factor_score(cfg, "activity", 0.5) == 0.88
+    assert scorer.get_factor_score(cfg, "activity", 0.3) == 0.72
+    assert scorer.get_factor_score(cfg, "activity", 0.1) == 0.5
+    assert scorer.get_factor_score(cfg, "activity", 0.05) == 0.3
+    # 异动: 5=1.0, 4=0.85, 3=0.6, 其余=0.18
+    assert scorer.get_factor_score(cfg, "warn", 5) == 1.0
+    assert scorer.get_factor_score(cfg, "warn", 4) == 0.85
+    assert scorer.get_factor_score(cfg, "warn", 3) == 0.6
+    assert scorer.get_factor_score(cfg, "warn", 2) == 0.18
+    # 市值: <30=1.0, 30~60=0.88, 60~120=0.68, 120~250=0.45, >=250=0.22
+    assert scorer.get_factor_score(cfg, "market", 29.9) == 1.0
+    assert scorer.get_factor_score(cfg, "market", 30) == 0.88
+    assert scorer.get_factor_score(cfg, "market", 100) == 0.68
+    assert scorer.get_factor_score(cfg, "market", 200) == 0.45
+    assert scorer.get_factor_score(cfg, "market", 250) == 0.22
+    # 昨日涨幅: 3~9.5=0.9, 1~3=0.65, 0~1=0.4, -3~0=0.25, 其余=0.15
+    assert scorer.get_factor_score(cfg, "yesterday", 3) == 0.9
+    assert scorer.get_factor_score(cfg, "yesterday", 9.49) == 0.9
+    assert scorer.get_factor_score(cfg, "yesterday", 9.5) == 0.65
+    assert scorer.get_factor_score(cfg, "yesterday", 2) == 0.65
+    assert scorer.get_factor_score(cfg, "yesterday", 0.5) == 0.4
+    assert scorer.get_factor_score(cfg, "yesterday", -1) == 0.25
+    assert scorer.get_factor_score(cfg, "yesterday", -5) == 0.15
+
+
+def test_put_custom_factor_bucket_affects_score(client, first_user):
+    """自定义竞价分档(全部区间都给满分)后, 概率应上升"""
+    token, _, _ = first_user
+    cfg = dict(DEFAULT)
+    cfg["factors"] = {
+        "bid": {"buckets": [["0", "99", 1.0]], "default": 0.1},
+        "activity": DEFAULT["factors"]["activity"],
+        "warn": DEFAULT["factors"]["warn"],
+        "market": DEFAULT["factors"]["market"],
+        "yesterday": DEFAULT["factors"]["yesterday"],
+    }
+    r = client.put("/api/admin/scoring", json={"scoring": cfg}, headers=hdrs(token))
+    assert r.status_code == 200
+    # 构造一个竞价涨幅 1.0(原得 0.4, 现应得 1.0)的标的
+    raw = {"f2": 18.50, "f3": 3.20, "f4": 3.10, "f5": 150000.0, "f6": 2800.0,
+           "f8": 5.50, "f10": 1.80, "f12": "600001", "f14": "测试甲",
+           "f17": 18.90, "f18": 17.90, "f20": 5.0e10, "f21": 4.0e9,
+           "f100": "软件服务", "f102": "广东", "f103": "AI概念",
+           "f615": 3.50, "f616": 5.0e7, "f617": 300.0, "f618": 400.0, "f630": 3}
+    raw["f615"] = 1.0   # 竞价涨幅 1%(默认档 0.4, 自定义全区间 1.0)
+    p_new = scorer.compute_score(raw)["probability"]
+    settings.set("scoring", DEFAULT)
+    scorer.reload_scoring_cfg()
+    p_default = scorer.compute_score(raw)["probability"]
+    assert p_new > p_default
+
+
+def test_put_invalid_factor_bucket(client, first_user):
+    token, _, _ = first_user
+    # 下限>=上限
+    bad = dict(DEFAULT)
+    bad["factors"] = {k: v for k, v in DEFAULT["factors"].items()}
+    bad["factors"]["bid"] = {"buckets": [["5", "3", 1.0]], "default": 0.1}
+    r = client.put("/api/admin/scoring", json={"scoring": bad}, headers=hdrs(token))
+    assert r.status_code == 400 and "下限需小于上限" in r.json().get("msg", "")
+    # 得分>1
+    bad = dict(DEFAULT)
+    bad["factors"] = {k: dict(v) for k, v in DEFAULT["factors"].items()}
+    bad["factors"]["warn"] = {"buckets": [["3", "4", 1.5]], "default": 0.1}
+    r = client.put("/api/admin/scoring", json={"scoring": bad}, headers=hdrs(token))
+    assert r.status_code == 400 and "0~1" in r.json().get("msg", "")
+    # 未知因子
+    bad = dict(DEFAULT)
+    bad["factors"] = {"hack": {"buckets": [["0", "1", 1.0]], "default": 0.1}}
+    r = client.put("/api/admin/scoring", json={"scoring": bad}, headers=hdrs(token))
+    assert r.status_code == 400 and "未知因子" in r.json().get("msg", "")
+
+
 # ---------- 权重生效到评分 ----------
 def test_scoring_cfg_affects_compute(client, first_user):
     """调高市值权重后, 小市值股票相对概率应上升"""
