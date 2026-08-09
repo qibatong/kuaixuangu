@@ -6,8 +6,9 @@
       <span class="health-dot" :class="'health-' + (healthStatus || 'none')" :title="healthTip || healthText">{{ healthText }}</span>
       <span class="yizi-card" :title="'近5日一字涨停趋势: ' + yiziTrend.map(d => d.date.slice(5) + ':' + d.yizi_count + '个').join('  ')">
         <i class="fa fa-fire" style="color:#ff5028;"></i>
-        <template v-if="yiziToday">一字 <b>{{ yiziToday.yizi_count }}</b> 个 · 竞价 <b>{{ yiziAmtText(yiziToday.bid_amt) }}</b></template>
-        <template v-else>一字统计加载中...</template>
+        <template v-if="!yiziLoaded">一字统计加载中...</template>
+        <template v-else-if="yiziToday">一字 <b>{{ yiziToday.yizi_count }}</b> 个 · 竞价 <b>{{ yiziAmtText(yiziToday.bid_amt) }}</b></template>
+        <template v-else>今日暂无一字涨停记录</template>
       </span>
       <div class="right-group">
         <div class="btn-group">
@@ -98,6 +99,7 @@ const healthText = ref('数据源检查中...')
 const healthTip = ref('')
 const yiziToday = ref(null)       // {yizi_count, bid_amt} 今日一字涨停
 const yiziTrend = ref([])         // 近 5 日趋势
+const yiziLoaded = ref(false)     // 接口已返回(区分 加载中/暂无)
 
 async function loadYizi() {
   try {
@@ -107,7 +109,9 @@ async function loadYizi() {
       yiziTrend.value = data.list
       yiziToday.value = data.list[0]
     }
-  } catch (e) { /* 静默 */ }
+  } catch (e) { /* 静默 */ } finally {
+    yiziLoaded.value = true
+  }
 }
 
 function yiziAmtText(amt) {
