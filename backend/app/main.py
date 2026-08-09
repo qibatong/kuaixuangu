@@ -15,7 +15,7 @@ import time
 
 from fastapi import FastAPI, Request
 
-from .api import auth, health, history, invite, prefs, stocks
+from .api import auth, health, history, invite, prefs, stats, stocks
 from .api.deps import client_ip, jr
 from .core import logger as app_logger
 from .db import database
@@ -62,6 +62,7 @@ app.include_router(history.router)
 app.include_router(invite.router)
 app.include_router(prefs.router)
 app.include_router(health.router)
+app.include_router(stats.router)
 
 
 @app.on_event("startup")

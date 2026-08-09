@@ -7,6 +7,44 @@
       <div class="history-head">
         <span class="history-title"><i class="fa fa-history"></i> 历史选股记录</span>
       </div>
+
+      <!-- 战绩统计 -->
+      <div v-if="stats" class="stats-panel">
+        <div class="stats-title"><i class="fa fa-line-chart"></i> 战绩统计
+          <span class="stats-range">{{ stats.range.from }} ~ {{ stats.range.to }}</span>
+          <span class="stats-tip">胜率 = 入选后当日实时涨幅&gt;0 的比例</span>
+        </div>
+        <div class="stats-cards">
+          <div class="stat-card"><div class="stat-num">{{ stats.overview.total }}</div><div class="stat-label">总入选(次)</div></div>
+          <div class="stat-card"><div class="stat-num" :class="rateCls(stats.overview.win_rate)">{{ pct(stats.overview.win_rate) }}</div><div class="stat-label">整体胜率</div></div>
+          <div class="stat-card medal-gold"><div class="stat-num" :class="rateCls(stats.top3.win_rate)">{{ pct(stats.top3.win_rate) }}</div><div class="stat-label">🥇前三强胜率</div></div>
+          <div class="stat-card"><div class="stat-num" :class="stats.overview.avg_real > 0 ? 'up' : stats.overview.avg_real < 0 ? 'down' : ''">{{ signed(stats.overview.avg_real) }}%</div><div class="stat-label">平均实时涨幅</div></div>
+          <div class="stat-card"><div class="stat-num" :class="stats.top3.avg_real > 0 ? 'up' : stats.top3.avg_real < 0 ? 'down' : ''">{{ signed(stats.top3.avg_real) }}%</div><div class="stat-label">前三强平均涨幅</div></div>
+        </div>
+        <div v-if="stats.by_score.length" class="stats-score">
+          <div class="stats-sub">评分有效性（评分越高胜率越高说明评分有效）</div>
+          <div class="score-bars">
+            <div v-for="g in stats.by_score" :key="g.range" class="score-bar" :title="`${g.range}分：${g.count}次，胜率${pct(g.win_rate)}，平均${signed(g.avg_real)}%`">
+              <div class="score-bar-label">{{ g.range }}分</div>
+              <div class="score-bar-track"><div class="score-bar-fill" :style="{ width: Math.max(3, g.win_rate * 100) + '%' }" :class="rateCls(g.win_rate)"></div></div>
+              <div class="score-bar-val">{{ pct(g.win_rate) }} <span class="dim">({{ g.count }})</span></div>
+            </div>
+          </div>
+        </div>
+        <div v-if="stats.daily.length" class="stats-daily">
+          <div class="stats-sub">每日趋势（最近 {{ stats.daily.length }} 个有记录的交易日）</div>
+          <div class="daily-list">
+            <div v-for="d in stats.daily" :key="d.date" class="daily-row">
+              <span class="daily-date">{{ d.date }}</span>
+              <span class="daily-cnt">{{ d.count }}次</span>
+              <span class="daily-rate" :class="rateCls(d.win_rate)">{{ pct(d.win_rate) }}</span>
+              <span class="daily-real" :class="d.avg_real > 0 ? 'up' : d.avg_real < 0 ? 'down' : 'dim'">{{ signed(d.avg_real) }}%</span>
+            </div>
+          </div>
+        </div>
+        <div v-else class="stats-empty">当前日期范围暂无历史数据，先选几次股再回来看战绩</div>
+      </div>
+
       <div class="history-query">
         <div class="query-form">
           <label>日期 <input type="date" v-model="f.date_from"> ~ <input type="date" v-model="f.date_to"></label>
@@ -56,6 +94,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { queryHistory } from '../api/history'
+import { fetchPerformance } from '../api/stats'
 import { showToast } from '../utils/toast'
 import { linkToSoftware } from '../utils/tdx'
 import { fmtDate } from '../utils/time'
@@ -75,6 +114,7 @@ const f = reactive({
 const rows = ref([])
 const total = ref(0)
 const loading = ref(false)
+const stats = ref(null)
 let page = 1
 
 function initDefaults() {
@@ -103,7 +143,19 @@ async function runQuery() {
   } finally {
     loading.value = false
   }
+  loadStats()
 }
+
+async function loadStats() {
+  try {
+    stats.value = await fetchPerformance(cleanParams())
+  } catch (e) {
+    stats.value = null
+  }
+}
+
+function pct(v) { return (v * 100).toFixed(1) + '%' }
+function rateCls(v) { return v >= 0.5 ? 'up' : v >= 0.3 ? '' : 'down' }
 
 async function loadMore() {
   page++

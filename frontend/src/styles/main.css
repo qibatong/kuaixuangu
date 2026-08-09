@@ -295,6 +295,36 @@ border-bottom: 1px solid rgba(255,120,80,0.25); background: rgba(255,80,60,0.08)
 background: rgba(255,80,80,0.15); border: 1px solid #ff5c5c; color: #ffdddd; width: 30px; height: 30px;
 border-radius: 6px; cursor: pointer; font-size: 14px; line-height: 1;
 }
+/* ===== 战绩统计面板 ===== */
+.stats-panel { padding: 10px 16px; border-bottom: 1px solid rgba(255,120,80,0.25); background: rgba(10,14,24,0.6); }
+.stats-title { font-size: 13px; font-weight: 700; color: #ffb347; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.stats-range { font-size: 11px; color: #88aacc; font-weight: 400; }
+.stats-tip { font-size: 10px; color: #6688aa; font-weight: 400; margin-left: auto; }
+.stats-cards { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.stat-card { flex: 1; min-width: 100px; background: rgba(25,32,50,0.9); border: 1px solid rgba(120,160,220,0.2); border-radius: 8px; padding: 8px 10px; text-align: center; }
+.stat-card.medal-gold { border-color: rgba(255,200,80,0.5); background: rgba(80,60,10,0.35); }
+.stat-num { font-size: 20px; font-weight: 800; color: #ffe0a0; }
+.stat-label { font-size: 11px; color: #88aacc; margin-top: 2px; }
+.stats-sub { font-size: 11px; color: #88aacc; margin-bottom: 6px; }
+.score-bars { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.score-bar { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.score-bar-label { width: 48px; color: #c0d0e8; text-align: right; flex-shrink: 0; }
+.score-bar-track { flex: 1; height: 10px; background: rgba(255,255,255,0.08); border-radius: 5px; overflow: hidden; }
+.score-bar-fill { height: 100%; border-radius: 5px; transition: width 0.4s; }
+.score-bar-fill.up { background: linear-gradient(90deg, #e03030, #ff5c5c); }
+.score-bar-fill.down { background: linear-gradient(90deg, #1e9e50, #2fca6e); }
+.score-bar-fill:not(.up):not(.down) { background: linear-gradient(90deg, #b8873a, #e0a040); }
+.score-bar-val { width: 90px; color: #e8e8f0; flex-shrink: 0; }
+.stats-daily { max-height: 150px; overflow-y: auto; }
+.daily-list { display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+.daily-row { display: flex; gap: 12px; padding: 2px 6px; border-radius: 4px; }
+.daily-row:nth-child(odd) { background: rgba(255,255,255,0.03); }
+.daily-date { width: 90px; color: #aabbdd; }
+.daily-cnt { width: 50px; color: #8899bb; }
+.daily-rate { width: 60px; font-weight: 700; }
+.daily-real { width: 70px; text-align: right; }
+.stats-empty { text-align: center; color: #667788; font-size: 12px; padding: 14px 0; }
+
 .history-close:hover { background: #ff3a3a; color: white; }
 .history-query { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px 14px 14px; }
 .query-form {
