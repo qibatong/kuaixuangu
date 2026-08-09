@@ -128,6 +128,18 @@ def bj_now():
     return t.tm_hour, t.tm_min, before930
 
 
+def in_auction_window():
+    """是否处于竞价数据窗口: 工作日 9:15-9:31(北京时间)。
+    此时 f616(竞价成交额)为当日真实竞价额, bidRatio=当日竞价/昨日全天 语义正确;
+    非窗口(收盘后/周末/盘前) f616 会退回最近交易日数据, 再算会变成"同日自比"误导, 故返回 None。
+    """
+    t = time.gmtime(time.time() + 8 * 3600)
+    if t.tm_wday >= 5:               # 周六/周日
+        return False
+    hm = t.tm_hour * 60 + t.tm_min
+    return 9 * 60 + 15 <= hm < 9 * 60 + 31
+
+
 def market_fs(markets):
     """根据市场范围生成东财 fs 参数"""
     if not markets:
@@ -316,11 +328,13 @@ def process_all_stocks(raw, f, yesterday_map=None):
     """yesterday_map: code -> 昨日成交额(万元), 用于计算竞价成交额占比"""
     yesterday_map = yesterday_map or {}
     scored = []
+    # 竞价数据窗口内才计算 bidRatio(避免非交易时段"同日自比"误导)
+    auction_ok = in_auction_window()
     for s in raw:
         sc = compute_score(s)
         bid_amt = get_bid_amt(s)   # 万元
         y_amt = yesterday_map.get(s.get("f12"))
-        bid_ratio = round(bid_amt / y_amt * 100, 2) if y_amt else None   # 竞价/昨日成交额占比(%)
+        bid_ratio = round(bid_amt / y_amt * 100, 2) if (auction_ok and y_amt) else None  # 竞价/昨日成交额占比(%)
         scored.append({
             "code": s.get("f12", ""),
             "name": s.get("f14", ""),

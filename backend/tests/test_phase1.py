@@ -99,8 +99,9 @@ def test_qiangchou_false_no_ratio():
     assert scorer.is_qiangchou(4.0, None) is False
 
 
-def test_process_all_stocks_has_qiangchou():
-    """筛选结果带 qiangchou 字段; 高竞价+高占比的标的应为 1"""
+def test_process_all_stocks_has_qiangchou(monkeypatch):
+    """筛选结果带 qiangchou 字段(竞价窗口内); 高竞价+高占比的标的应为 1"""
+    monkeypatch.setattr(scorer, "in_auction_window", lambda: True)
     # 该标的: f615=4(竞价4%) + 竞价额占比高
     yesterday = {"600001": 20000.0}   # 昨日成交 2 亿(万元) → 竞价 5000万/2亿 = 25%
     raw = dict(QC_RAW)
@@ -110,6 +111,20 @@ def test_process_all_stocks_has_qiangchou():
     result = scorer.process_all_stocks([raw], f, yesterday)
     assert len(result) == 1
     assert result[0]["qiangchou"] == 1
+
+
+# ---------- 竞价/昨比 窗口口径 ----------
+def test_bid_ratio_only_in_auction_window(monkeypatch):
+    """非竞价窗口(收盘后/周末)即使有昨日额也不算 bidRatio(防同日自比误导)"""
+    monkeypatch.setattr(scorer, "in_auction_window", lambda: False)
+    yesterday = {"600001": 20000.0}
+    raw = dict(QC_RAW)
+    raw["f616"] = 5.0e7
+    f = {"stSuspend": False, "limitUp": False, "bidGt": 7, "probLt": 65, "confLt": 65,
+         "floatMvFloor": 1, "floatMvGt": 5000, "priceGt": 5000, "bidAmtFloor": 0}
+    result = scorer.process_all_stocks([raw], f, yesterday)
+    assert result[0]["bidRatio"] is None
+    assert result[0]["qiangchou"] == 0
 
 
 # ---------- 接口 ----------
