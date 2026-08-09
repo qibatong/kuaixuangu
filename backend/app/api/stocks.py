@@ -41,6 +41,13 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw])
         # 9:20 快照(用于 9:25 涨幅加速度); 非竞价时段读库无数据返回空 map
         snapshot_map = auction_snapshot.load_snapshot()
+        # 竞价上下文日志(排查关键): 窗口状态/快照覆盖/昨日额命中
+        auction_ok = scorer.in_auction_window()
+        log.info("选股上下文 uid=%s action=%s auction_window=%s 9_20快照=%d只 昨日额命中=%d/%d raw=%d只",
+                 uid, action, auction_ok, len(snapshot_map), len(yesterday_map), len(raw), len(raw))
+        # 竞价窗口内 lock 但当日 9:20 快照缺失 → 加速度无法计算, 必须告警(数据过了点无法补采)
+        if action == "lock" and auction_ok and not snapshot_map:
+            log.warning("9:25 lock 时当日 9:20 快照缺失! 加速度无法计算, 请检查9:20调度/东财接口 uid=%s", uid)
         # 评分计算不持锁: 多用户并发选股互不阻塞, 只共享只读的行情快照
         result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map)
     except Exception as e:

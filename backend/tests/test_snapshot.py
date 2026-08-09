@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-"""二期测试: 9:20 快照存取 + 涨幅加速度"""
+"""二期测试: 9:20 快照存取 + 涨幅加速度 + 竞价排查日志"""
+import logging
+
 import pytest
 
-from app.services import auction_snapshot, scorer
+from app.services import auction_snapshot, scorer, stats
 
 # 与 conftest MOCK_RAW 兼容的行情样本
 RAW = {"f2": 18.50, "f3": 3.20, "f4": 3.10, "f5": 150000.0, "f6": 2800.0,
@@ -137,3 +139,41 @@ def test_accel_negative_when_pullback(monkeypatch):
     snap = {"600001": {"bid_change": 3.0}}
     result = scorer.process_all_stocks([raw], FILTER, {}, snap)
     assert result[0]["accel"] == -2.2
+
+
+# ---------- 竞价排查日志 ----------
+def test_lock_missing_snapshot_warns(client, first_user, monkeypatch, caplog):
+    """竞价窗口内 lock 但当日 9:20 快照缺失 → 必须产生 warning 告警(排查关键)"""
+    token, _, _ = first_user
+    monkeypatch.setattr(scorer, "in_auction_window", lambda: True)
+    monkeypatch.setattr(scorer, "bj_now", lambda: (9, 25, True))
+    monkeypatch.setattr(auction_snapshot, "load_snapshot", lambda *a, **k: {})
+    with caplog.at_level(logging.WARNING, logger="app"):
+        r = client.get("/api/stocks?action=lock&markets=sh_sz",
+                       headers={"Authorization": "Bearer " + token})
+    assert r.status_code == 200
+    msgs = [rec.getMessage() for rec in caplog.records]
+    assert any("9:20 快照缺失" in m for m in msgs)
+
+
+def test_lock_context_log(client, first_user, monkeypatch, caplog):
+    """lock 上下文日志包含 窗口/快照/昨日额 状态"""
+    token, _, _ = first_user
+    monkeypatch.setattr(scorer, "in_auction_window", lambda: True)
+    monkeypatch.setattr(scorer, "bj_now", lambda: (9, 25, True))
+    with caplog.at_level(logging.INFO, logger="app"):
+        r = client.get("/api/stocks?action=lock&markets=sh_sz",
+                       headers={"Authorization": "Bearer " + token})
+    assert r.status_code == 200
+    msgs = [rec.getMessage() for rec in caplog.records]
+    assert any("选股上下文" in m and "auction_window=True" in m for m in msgs)
+
+
+def test_daily_yizi_logs_result(client, caplog):
+    """一字涨停统计成功落库后必须记结果日志"""
+    yizi_a = dict(RAW)
+    yizi_a.update({"f12": "600001", "f18": 10.0, "f17": 11.0, "f616": 2.0e7})
+    with caplog.at_level(logging.INFO, logger="app"):
+        stats.record_daily_yizi([yizi_a])
+    msgs = [rec.getMessage() for rec in caplog.records]
+    assert any("一字涨停统计" in m and "数量1" in m for m in msgs)

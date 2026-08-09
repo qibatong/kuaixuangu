@@ -25,6 +25,7 @@ DEFAULT_POINT = "9_20"     # 加速度计算使用的时点
 
 _sched_lock = threading.Lock()
 _sched_done = set()        # {(date, time_point)} 已抓取, 防重复
+_sched_checked = set()     # {date} 已做采集盘点(9:31 后一次)
 
 
 def _bj_date():
@@ -106,7 +107,7 @@ def query_snapshot(date, time_point, limit=50):
 
 
 def _scheduler_loop():
-    """后台调度: 工作日按时点窗口抓取一次, 每 10 秒轮询"""
+    """后台调度: 工作日按时点窗口抓取一次, 每 10 秒轮询; 9:31 后盘点当日采集情况"""
     while True:
         try:
             g = time.gmtime(time.time() + 8 * 3600)
@@ -119,6 +120,15 @@ def _scheduler_loop():
                         if key not in _sched_done:
                             if snapshot_at(tp):
                                 _sched_done.add(key)
+            # 9:31-9:35 盘点当日采集: 缺失时点告警(排查关键, 数据过了点无法补)
+            if g.tm_wday < 5 and 9 * 60 + 31 <= hm <= 9 * 60 + 35 and date not in _sched_checked:
+                missing = [tp for tp in TIME_POINTS if (date, tp) not in _sched_done]
+                if missing:
+                    log.warning("今日快照采集缺失时点: %s (date=%s), 相关功能(加速度/回放)会缺数据",
+                                ",".join(missing), date)
+                else:
+                    log.info("今日快照采集完整: %s (date=%s)", ",".join(TIME_POINTS), date)
+                _sched_checked.add(date)
         except Exception as e:
             log.error("快照调度异常 err=%s", e)
         time.sleep(10)

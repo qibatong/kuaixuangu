@@ -8,8 +8,10 @@
 import sqlite3
 import time
 
-from ..core import config
+from ..core import config, logger
 from . import scorer
+
+log = logger.get_logger(__name__)
 
 
 def _conn():
@@ -42,6 +44,7 @@ def record_daily_yizi(raw_list):
         conn.commit()
     finally:
         conn.close()
+    log.info("一字涨停统计 date=%s 数量%d 竞价总额%.0f万(样本%d)", _bj_date(), yizi, bid_sum, len(raw_list or []))
     return {"date": _bj_date(), "yizi_count": yizi, "bid_amt": round(bid_sum, 2)}
 
 
