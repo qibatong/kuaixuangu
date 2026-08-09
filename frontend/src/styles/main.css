@@ -282,9 +282,9 @@ color: #dde8ff;
 
 /* 历史回看面板 */
 .history-panel {
-width: min(1100px, 96vw); height: min(82vh, 700px); background: rgba(15,19,32,0.98);
-border: 1px solid rgba(255,120,80,0.4); border-radius: 12px; display: flex; flex-direction: column; overflow: hidden;
-margin: 0 auto;
+width: min(1100px, 96vw); background: rgba(15,19,32,0.98);
+border: 1px solid rgba(255,120,80,0.4); border-radius: 12px; display: flex; flex-direction: column;
+margin: 0 auto 30px; padding-bottom: 20px;
 }
 .history-head {
 display: flex; align-items: center; justify-content: space-between; padding: 12px 16px;
@@ -299,12 +299,12 @@ border-radius: 6px; cursor: pointer; font-size: 14px; line-height: 1;
 .stats-panel { padding: 10px 16px; border-bottom: 1px solid rgba(255,120,80,0.25); background: rgba(10,14,24,0.6); }
 .stats-title { font-size: 13px; font-weight: 700; color: #ffb347; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .stats-range { font-size: 11px; color: #88aacc; font-weight: 400; }
-.stats-tip { font-size: 10px; color: #6688aa; font-weight: 400; margin-left: auto; }
-.stats-cards { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-.stat-card { flex: 1; min-width: 100px; background: rgba(25,32,50,0.9); border: 1px solid rgba(120,160,220,0.2); border-radius: 8px; padding: 8px 10px; text-align: center; }
+.stats-toggle { font-size: 10px; color: #ffb347; font-weight: 400; margin-left: auto; opacity: 0.8; }
+.stats-cards { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.stat-card { flex: 1; min-width: 88px; background: rgba(25,32,50,0.9); border: 1px solid rgba(120,160,220,0.2); border-radius: 8px; padding: 6px 8px; text-align: center; }
 .stat-card.medal-gold { border-color: rgba(255,200,80,0.5); background: rgba(80,60,10,0.35); }
-.stat-num { font-size: 20px; font-weight: 800; color: #ffe0a0; }
-.stat-label { font-size: 11px; color: #88aacc; margin-top: 2px; }
+.stat-num { font-size: 18px; font-weight: 800; color: #ffe0a0; }
+.stat-label { font-size: 10px; color: #88aacc; margin-top: 2px; }
 .stats-sub { font-size: 11px; color: #88aacc; margin-bottom: 6px; }
 .score-bars { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
 .score-bar { display: flex; align-items: center; gap: 8px; font-size: 11px; }
@@ -326,7 +326,7 @@ border-radius: 6px; cursor: pointer; font-size: 14px; line-height: 1;
 .stats-empty { text-align: center; color: #667788; font-size: 12px; padding: 14px 0; }
 
 .history-close:hover { background: #ff3a3a; color: white; }
-.history-query { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px 14px 14px; }
+.history-query { display: flex; flex-direction: column; padding: 12px 14px 14px; }
 .query-form {
 display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 6px 2px 10px;
 border-bottom: 1px dashed rgba(255,160,120,0.25); row-gap: 8px;
@@ -341,7 +341,7 @@ border-radius: 4px; font-size: 12px; outline: none;
 .query-form input[type="number"] { width: 64px; font-family: monospace; }
 .query-form input[type="date"] { width: 128px; color-scheme: dark; }
 .query-tip { font-size: 11px; color: #7788aa; padding: 6px 2px 0; }
-.query-result { flex: 1; overflow: auto; margin-top: 8px; border-radius: 8px; min-height: 0; }
+.query-result { margin-top: 8px; border-radius: 8px; }
 .query-summary { font-size: 12px; color: #88aacc; padding: 4px 6px 8px; }
 
 /* 独立页面容器(历史/邀请从弹窗升级为页面) */

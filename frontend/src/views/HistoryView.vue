@@ -3,16 +3,18 @@
     <div class="page-back">
       <router-link to="/" class="tdx-export-btn" style="background:rgba(255,180,0,0.18);border:1px solid #ffb400;color:#ffe0a0;"><i class="fa fa-arrow-left"></i> 返回选股</router-link>
     </div>
-    <div class="history-panel" style="height:min(80vh, 720px);">
+    <div class="history-panel">
       <div class="history-head">
         <span class="history-title"><i class="fa fa-history"></i> 历史选股记录</span>
       </div>
 
-      <!-- 战绩统计 -->
+      <!-- 战绩统计(可折叠) -->
       <div v-if="stats" class="stats-panel">
-        <div class="stats-title"><i class="fa fa-line-chart"></i> 战绩统计
+        <div class="stats-title" @click="statsCollapsed = !statsCollapsed" style="cursor:pointer;">
+          <i class="fa" :class="statsCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'"></i>
+          <i class="fa fa-line-chart"></i> 战绩统计
           <span class="stats-range">{{ stats.range.from }} ~ {{ stats.range.to }}</span>
-          <span class="stats-tip">胜率 = 入选后当日实时涨幅&gt;0 的比例</span>
+          <span class="stats-toggle">{{ statsCollapsed ? '展开详情' : '收起详情' }}</span>
         </div>
         <div class="stats-cards">
           <div class="stat-card"><div class="stat-num">{{ stats.overview.total }}</div><div class="stat-label">总入选(次)</div></div>
@@ -21,28 +23,30 @@
           <div class="stat-card"><div class="stat-num" :class="stats.overview.avg_real > 0 ? 'up' : stats.overview.avg_real < 0 ? 'down' : ''">{{ signed(stats.overview.avg_real) }}%</div><div class="stat-label">平均实时涨幅</div></div>
           <div class="stat-card"><div class="stat-num" :class="stats.top3.avg_real > 0 ? 'up' : stats.top3.avg_real < 0 ? 'down' : ''">{{ signed(stats.top3.avg_real) }}%</div><div class="stat-label">前三强平均涨幅</div></div>
         </div>
-        <div v-if="stats.by_score.length" class="stats-score">
-          <div class="stats-sub">评分有效性（评分越高胜率越高说明评分有效）</div>
-          <div class="score-bars">
-            <div v-for="g in stats.by_score" :key="g.range" class="score-bar" :title="`${g.range}分：${g.count}次，胜率${pct(g.win_rate)}，平均${signed(g.avg_real)}%`">
-              <div class="score-bar-label">{{ g.range }}分</div>
-              <div class="score-bar-track"><div class="score-bar-fill" :style="{ width: Math.max(3, g.win_rate * 100) + '%' }" :class="rateCls(g.win_rate)"></div></div>
-              <div class="score-bar-val">{{ pct(g.win_rate) }} <span class="dim">({{ g.count }})</span></div>
+        <template v-if="!statsCollapsed">
+          <div v-if="stats.by_score.length" class="stats-score">
+            <div class="stats-sub">评分有效性（评分越高胜率越高说明评分有效）</div>
+            <div class="score-bars">
+              <div v-for="g in stats.by_score" :key="g.range" class="score-bar" :title="`${g.range}分：${g.count}次，胜率${pct(g.win_rate)}，平均${signed(g.avg_real)}%`">
+                <div class="score-bar-label">{{ g.range }}分</div>
+                <div class="score-bar-track"><div class="score-bar-fill" :style="{ width: Math.max(3, g.win_rate * 100) + '%' }" :class="rateCls(g.win_rate)"></div></div>
+                <div class="score-bar-val">{{ pct(g.win_rate) }} <span class="dim">({{ g.count }})</span></div>
+              </div>
             </div>
           </div>
-        </div>
-        <div v-if="stats.daily.length" class="stats-daily">
-          <div class="stats-sub">每日趋势（最近 {{ stats.daily.length }} 个有记录的交易日）</div>
-          <div class="daily-list">
-            <div v-for="d in stats.daily" :key="d.date" class="daily-row">
-              <span class="daily-date">{{ d.date }}</span>
-              <span class="daily-cnt">{{ d.count }}次</span>
-              <span class="daily-rate" :class="rateCls(d.win_rate)">{{ pct(d.win_rate) }}</span>
-              <span class="daily-real" :class="d.avg_real > 0 ? 'up' : d.avg_real < 0 ? 'down' : 'dim'">{{ signed(d.avg_real) }}%</span>
+          <div v-if="stats.daily.length" class="stats-daily">
+            <div class="stats-sub">每日趋势（最近 {{ stats.daily.length }} 个有记录的交易日）</div>
+            <div class="daily-list">
+              <div v-for="d in stats.daily" :key="d.date" class="daily-row">
+                <span class="daily-date">{{ d.date }}</span>
+                <span class="daily-cnt">{{ d.count }}次</span>
+                <span class="daily-rate" :class="rateCls(d.win_rate)">{{ pct(d.win_rate) }}</span>
+                <span class="daily-real" :class="d.avg_real > 0 ? 'up' : d.avg_real < 0 ? 'down' : 'dim'">{{ signed(d.avg_real) }}%</span>
+              </div>
             </div>
           </div>
-        </div>
-        <div v-else class="stats-empty">当前日期范围暂无历史数据，先选几次股再回来看战绩</div>
+          <div v-else class="stats-empty">当前日期范围暂无历史数据，先选几次股再回来看战绩</div>
+        </template>
       </div>
 
       <div class="history-query">
@@ -115,6 +119,7 @@ const rows = ref([])
 const total = ref(0)
 const loading = ref(false)
 const stats = ref(null)
+const statsCollapsed = ref(true)    // 评分/每日趋势默认收起(面板更紧凑)
 let page = 1
 
 function initDefaults() {
