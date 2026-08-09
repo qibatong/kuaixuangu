@@ -1,0 +1,94 @@
+# -*- coding: utf-8 -*-
+"""
+pytest 公共夹具: 临时数据库 + 数据源 Mock(不依赖外部网络) + TestClient
+运行: cd backend && python -m pytest tests/ -v
+"""
+import os
+import tempfile
+
+# 必须在 import app 之前设置临时数据库路径
+_tmp = tempfile.NamedTemporaryFile(suffix=".db", prefix="kuaixuan_test_", delete=False)
+os.environ["BID_DB_PATH"] = _tmp.name
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.main import app
+from app.services import fetcher, scorer
+
+# ---------- Mock 行情数据(字段与东财 FIELDS 对应) ----------
+# 数值设计为能通过默认筛选: 竞价涨幅<=7 / f630<=4(非首板) / 流通30-100亿 / 价格<30 / 竞价额>3000万
+MOCK_RAW = [
+    {"f2": 18.50, "f3": 3.20, "f4": 3.10, "f5": 150000.0, "f6": 2800.0,
+     "f8": 5.50, "f10": 1.80, "f12": "600001", "f14": "测试甲",
+     "f17": 18.90, "f18": 17.90, "f20": 5.0e10, "f21": 4.0e9,
+     "f100": "软件服务", "f102": "广东", "f103": "AI概念",
+     "f615": 3.50, "f616": 5.0e7, "f617": 300.0, "f618": 400.0, "f630": 3},
+    {"f2": 9.80, "f3": 5.10, "f4": 5.00, "f5": 90000.0, "f6": 1600.0,
+     "f8": 4.20, "f10": 1.50, "f12": "000002", "f14": "测试乙",
+     "f17": 9.90, "f18": 9.30, "f20": 2.0e10, "f21": 5.0e9,
+     "f100": "医药", "f102": "上海", "f103": "创新药",
+     "f615": 4.80, "f616": 4.0e7, "f617": 220.0, "f618": 300.0, "f630": 4},
+    {"f2": 22.30, "f3": 2.20, "f4": 2.10, "f5": 60000.0, "f6": 900.0,
+     "f8": 1.10, "f10": 0.80, "f12": "300003", "f14": "测试丙",
+     "f17": 22.60, "f18": 21.60, "f20": 8.0e9, "f21": 6.0e9,
+     "f100": "半导体", "f102": "江苏", "f103": "芯片",
+     "f615": 2.20, "f616": 3.5e7, "f617": 80.0, "f618": 100.0, "f630": 2},
+    {"f2": 25.60, "f3": 6.80, "f4": 6.60, "f5": 200000.0, "f6": 4000.0,
+     "f8": 8.00, "f10": 2.50, "f12": "000004", "f14": "测试丁",
+     "f17": 26.10, "f18": 24.90, "f20": 4.0e10, "f21": 8.0e9,
+     "f100": "汽车", "f102": "浙江", "f103": "新能源车",
+     "f615": 5.50, "f616": 6.0e7, "f617": 350.0, "f618": 450.0, "f630": 4},
+]
+
+
+@pytest.fixture(scope="session")
+def monkeypatch_session():
+    """session 级 monkeypatch(标准 monkeypatch 是 function 级)"""
+    from _pytest.monkeypatch import MonkeyPatch
+    mp = MonkeyPatch()
+    yield mp
+    mp.undo()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def mock_data_source(monkeypatch_session):
+    """全局 mock 数据源: 不发起任何真实网络请求"""
+
+    def fake_ensure_cache(action, fs, before930):
+        if action == "lock" and not before930:
+            return None, "9:30 后禁止重新选股"
+        import time
+        fetcher._cache[fs] = {"raw": MOCK_RAW, "ts": time.time()}
+        return fetcher._cache[fs]["raw"], None
+
+    def fake_yesterday_amounts(codes):
+        return {}
+
+    monkeypatch_session.setattr(fetcher, "ensure_cache", fake_ensure_cache)
+    monkeypatch_session.setattr(fetcher, "fetch_yesterday_amounts", fake_yesterday_amounts)
+
+
+@pytest.fixture(scope="session")
+def _pytest_session():
+    yield
+
+
+@pytest.fixture(scope="session")
+def client():
+    """TestClient: 每个测试间共享(进程内单实例), 数据库独立"""
+    with TestClient(app) as c:
+        yield c
+
+
+@pytest.fixture(scope="session")
+def first_user(client):
+    """注册一个唯一用户(避免与其他测试的用户名冲突), 返回 (token, username, invite_code)"""
+    import uuid
+    uname = "tester_" + uuid.uuid4().hex[:8]
+    r = client.post("/api/register", json={"username": uname, "password": "Test123456"})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d.get("ok")
+    inv = client.get("/api/invite", headers={"Authorization": "Bearer " + d["token"]})
+    return d["token"], d["username"], inv.json().get("invite_code")
