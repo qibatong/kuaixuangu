@@ -49,6 +49,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { login as apiLogin, register as apiRegister, forgot as apiForgot, reset as apiReset } from '../api/auth'
 import { useUserStore } from '../stores/user'
+import { showToast } from '../utils/toast'
 
 const route = useRoute()
 const router = useRouter()
@@ -90,6 +91,9 @@ async function submit() {
       : { login: username.value.trim(), password: password.value }
     const data = mode.value === 'register' ? await apiRegister(body) : await apiLogin(body)
     user.setSession(data.username, data.token, data.is_admin)
+    if (data.expired) {
+      showToast('⚠️ 账号已过期，请联系管理员续费', 'error')
+    }
     const redirect = route.query.redirect || '/'
     router.replace(redirect)
   } catch (e) {

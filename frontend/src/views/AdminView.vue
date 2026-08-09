@@ -36,7 +36,7 @@
             <thead>
               <tr>
                 <th>ID</th><th>用户名</th><th>手机/邮箱</th><th>注册时间</th>
-                <th>邀请人数</th><th>选股次数</th><th>角色</th>
+                <th>到期时间</th><th>邀请人数</th><th>选股次数</th><th>角色</th><th style="min-width:150px;">设置使用期限</th>
               </tr>
             </thead>
             <tbody>
@@ -45,11 +45,26 @@
                 <td>{{ u.username }}</td>
                 <td>{{ u.phone || u.email || '-' }}</td>
                 <td>{{ fmtTime(u.created_at) }}</td>
+                <td>
+                  <span v-if="expireState(u) === 'forever'" class="user-tag">永久</span>
+                  <span v-else-if="expireState(u) === 'expired'" class="expired-tag">已过期 {{ fmtDate(u.expire_at) }}</span>
+                  <span v-else class="ok-tag">{{ fmtDate(u.expire_at) }}</span>
+                </td>
                 <td>{{ u.invited_count }}</td>
                 <td>{{ u.batch_count }}</td>
                 <td><span v-if="u.is_admin" class="admin-tag">管理员</span><span v-else class="user-tag">普通用户</span></td>
+                <td>
+                  <div v-if="u.is_admin" style="color:#888;font-size:12px;">管理员永久有效</div>
+                  <div v-else class="expire-ops">
+                    <button class="mini-btn" @click="extendUser(u, 'week')">+1周</button>
+                    <button class="mini-btn" @click="extendUser(u, 'month')">+1月</button>
+                    <button class="mini-btn" @click="extendUser(u, 'quarter')">+1季</button>
+                    <button class="mini-btn" @click="extendUser(u, 'year')">+1年</button>
+                    <button class="mini-btn" title="设为永久" @click="extendUser(u, 'forever')">永久</button>
+                  </div>
+                </td>
               </tr>
-              <tr v-if="!rows.length"><td colspan="7" style="text-align:center;color:#888;padding:20px;">暂无用户</td></tr>
+              <tr v-if="!rows.length"><td colspan="9" style="text-align:center;color:#888;padding:20px;">暂无用户</td></tr>
             </tbody>
           </table>
         </div>
@@ -119,7 +134,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { adminScoring, adminUsers, saveScoring as apiSaveScoring } from '../api/admin'
+import { adminScoring, adminUsers, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
 import { showToast as toast } from '../utils/toast'
 
 const stats = ref({})
@@ -153,6 +168,29 @@ function fmtTime(ts) {
     return d.toISOString().replace('T', ' ').slice(0, 16)
   }
   return String(ts)
+}
+
+function fmtDate(ts) {
+  if (!ts) return '-'
+  const d = new Date((Number(ts) + 8 * 3600) * 1000)
+  return d.toISOString().slice(0, 10)
+}
+
+function expireState(u) {
+  if (!u.expire_at) return 'forever'
+  return Date.now() / 1000 > u.expire_at ? 'expired' : 'active'
+}
+
+async function extendUser(u, action) {
+  const label = { week: '+1周', month: '+1月', quarter: '+1季', year: '+1年', forever: '永久' }[action]
+  try {
+    const payload = action === 'forever' ? { days: 0 } : { duration: action }
+    const d = await setUserExpire(u.id, payload)
+    toast(`${u.username} ${label}设置成功，到期 ${fmtDate(d.expire_at)}`, 'success')
+    loadUsers(page.value)
+  } catch (e) {
+    toast(e.message || '设置失败', 'error')
+  }
 }
 
 async function loadUsers(p) {
@@ -246,6 +284,11 @@ onMounted(() => {
 .admin-table th { color: #999; font-weight: 500; }
 .admin-tag { color: #ffd700; border: 1px solid #ffd700; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
 .user-tag { color: #999; border: 1px solid #666; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
+.expired-tag { color: #ff6a6a; border: 1px solid #ff5050; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
+.ok-tag { color: #7ce8a0; border: 1px solid #4caf70; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
+.expire-ops { display: flex; gap: 4px; flex-wrap: wrap; }
+.mini-btn { background: rgba(0,180,255,0.12); border: 1px solid #00b4ff; color: #a0e0ff; border-radius: 4px; padding: 2px 8px; font-size: 12px; cursor: pointer; }
+.mini-btn:hover { background: rgba(0,180,255,0.25); }
 .pager { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 12px; }
 .page-btn { background: rgba(0,180,255,0.12); border: 1px solid #00b4ff; color: #a0e0ff; border-radius: 6px; padding: 4px 14px; cursor: pointer; }
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }

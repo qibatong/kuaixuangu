@@ -2,10 +2,14 @@
 """
 管理端路由: 仅管理员可访问
 ==========================
-- GET  /api/admin/users    用户列表(分页) + 统计
-- GET  /api/admin/scoring  当前评分权重
-- PUT  /api/admin/scoring  更新评分权重(保存后即时生效)
+- GET  /api/admin/users          用户列表(分页) + 统计
+- POST /api/admin/users/expire   设置/续费账号到期时间
+- GET  /api/admin/scoring        当前评分权重
+- PUT  /api/admin/scoring        更新评分权重(保存后即时生效)
 """
+import time
+from datetime import datetime, timezone, timedelta
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from ..core import logger
@@ -56,6 +60,58 @@ def api_admin_users(request: Request, uid: int = Depends(get_admin)):
     stats = users.user_stats()
     log.info("管理端用户列表 uid=%s page=%s total=%s", uid, page, page_data["total"])
     return jr({"ok": True, "stats": stats, **page_data})
+
+
+# 时长档位(天): 周/月/季/年
+EXPIRE_DURATIONS = {"week": 7, "month": 30, "quarter": 90, "year": 365}
+
+
+@router.post("/api/admin/users/expire")
+def api_admin_user_expire(request: Request, body: dict = Body(...), uid: int = Depends(get_admin)):
+    """设置账号到期: 支持
+    - {uid, duration: week|month|quarter|year} 从 max(现在,当前到期) 累加
+    - {uid, days: N}                           累加 N 天(0=永久)
+    - {uid, expire_at: "YYYY-MM-DD"}           直接设到期日期(北京当日 23:59:59)
+    返回该用户最新到期时间戳。
+    """
+    target = int(body.get("uid") or 0)
+    if target <= 0:
+        return jr({"ok": False, "msg": "缺少 uid"}, 400)
+    u = users.find_user_by_id(target)
+    if not u:
+        return jr({"ok": False, "msg": "用户不存在"}, 404)
+
+    expire_at = body.get("expire_at")
+    duration = body.get("duration")
+    days = body.get("days")
+
+    if expire_at:
+        try:
+            dt = datetime.strptime(str(expire_at), "%Y-%m-%d")
+        except ValueError:
+            return jr({"ok": False, "msg": "日期格式应为 YYYY-MM-DD"}, 400)
+        bj = timezone(timedelta(hours=8))
+        ts = int(dt.replace(tzinfo=bj).timestamp()) + 86399   # 北京当日 23:59:59
+        users.set_expire(target, ts)
+    elif duration in EXPIRE_DURATIONS:
+        users.extend_expire(target, EXPIRE_DURATIONS[duration])
+    elif days is not None:
+        try:
+            d = int(days)
+        except (TypeError, ValueError):
+            return jr({"ok": False, "msg": "days 应为整数"}, 400)
+        if d <= 0:
+            users.set_expire(target, 0)    # 0/负 = 永久
+        else:
+            users.extend_expire(target, d)
+    else:
+        return jr({"ok": False, "msg": "需要 duration / days / expire_at 之一"}, 400)
+
+    row = users.find_user_by_id(target)
+    log.info("管理端设置到期 uid=%s target=%s(%s) expire_at=%s",
+             uid, target, u["username"], row.get("expire_at"))
+    return jr({"ok": True, "msg": "已设置", "uid": target,
+               "username": u["username"], "expire_at": row.get("expire_at")})
 
 
 @router.get("/api/admin/scoring")

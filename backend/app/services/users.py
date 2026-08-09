@@ -8,6 +8,7 @@ import re
 import secrets
 import smtplib
 import sqlite3
+import time
 from email.header import Header
 from email.mime.text import MIMEText
 from email.utils import formataddr
@@ -58,6 +59,38 @@ def is_admin(uid):
     return bool(row and row.get("is_admin"))
 
 
+# ---------- 账号到期(使用权限) ----------
+def set_expire(uid, expire_ts):
+    """直接设置到期时间戳(0 或 None 表示永久), 返回是否成功"""
+    try:
+        conn = _conn()
+        conn.execute("UPDATE users SET expire_at=? WHERE id=?", (int(expire_ts or 0), uid))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def extend_expire(uid, days):
+    """从 max(现在, 当前到期) 累加 days 天(续费可叠加), 返回新到期时间戳"""
+    row = find_user_by_id(uid)
+    cur = int(row.get("expire_at") or 0) if row else 0
+    base = max(int(time.time()), cur)
+    new = base + int(days) * 86400
+    set_expire(uid, new)
+    return new
+
+
+def is_expired(uid):
+    """是否已过期: expire_at>0 且 当前时间 > expire_at"""
+    row = find_user_by_id(uid)
+    if not row:
+        return False
+    et = int(row.get("expire_at") or 0)
+    return bool(et) and time.time() > et
+
+
 def list_users_page(page=1, page_size=20, keyword=""):
     """管理端用户列表(分页), 附带每个用户的基础统计"""
     conn = _conn()
@@ -71,7 +104,7 @@ def list_users_page(page=1, page_size=20, keyword=""):
         "SELECT COUNT(*) FROM users WHERE 1=1" + cond, params).fetchone()[0]
     rows = conn.execute(
         "SELECT u.id, u.username, u.created_at, u.is_admin, u.invite_code, u.invited_by, "
-        "u.phone, u.email, "
+        "u.phone, u.email, u.expire_at, "
         "(SELECT COUNT(*) FROM users x WHERE x.invited_by=u.id) AS invited_count, "
         "(SELECT COUNT(*) FROM batches b WHERE b.user_id=u.id) AS batch_count "
         "FROM users u WHERE 1=1" + cond + " ORDER BY u.id DESC LIMIT ? OFFSET ?",
@@ -91,12 +124,15 @@ def user_stats():
         "SELECT COUNT(DISTINCT user_id) FROM batches").fetchone()[0]
     invited = conn.execute(
         "SELECT COUNT(*) FROM users WHERE invited_by IS NOT NULL").fetchone()[0]
+    expired = conn.execute(
+        "SELECT COUNT(*) FROM users WHERE expire_at>0 AND expire_at<?", (int(time.time()),)).fetchone()[0]
     top_inviter = conn.execute(
         "SELECT u.username, COUNT(*) n FROM users x JOIN users u ON u.id=x.invited_by "
         "GROUP BY x.invited_by ORDER BY n DESC LIMIT 1").fetchone()
     conn.close()
     return {
         "total": total, "today": today, "active": active, "invited": invited,
+        "expired": expired,
         "top_inviter": (dict(top_inviter) if top_inviter else None),
     }
 

@@ -14,3 +14,8 @@ export function adminScoring() {
 export function saveScoring(scoring) {
   return request('/api/admin/scoring', { method: 'PUT', body: { scoring } })
 }
+
+export function setUserExpire(uid, payload) {
+  // payload: {duration:'week'|'month'|'quarter'|'year'} | {days:N} | {expire_at:'YYYY-MM-DD'}
+  return request('/api/admin/users/expire', { method: 'POST', body: { uid, ...payload } })
+}
