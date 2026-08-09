@@ -10,7 +10,11 @@
           <td class="rank-col">{{ idx + 1 }}</td>
           <td class="code-click" @click="linkToSoftware(item.code)">{{ item.code }}</td>
           <td>{{ item.name }}</td>
-          <td><span v-if="item.qiangchou" class="qc-badge" title="竞价涨幅≥2% 且 竞价/昨比≥20%">🔥抢筹</span><span v-else-if="isAuction" title="竞价涨幅≥2% 且 竞价/昨比≥20%">-</span><span v-else class="qc-pending" title="9:25-9:30 竞价时段才判定抢筹信号">竞价时</span></td>
+          <td>
+            <span v-if="item.qiangchou" class="qc-badge" title="竞价涨幅≥2% 且 竞价/昨比≥20%">🔥抢筹</span>
+            <span v-else-if="item._snapshot || isAuction" title="竞价涨幅≥2% 且 竞价/昨比≥20%">-</span>
+            <span v-else class="qc-pending" title="9:25-9:30 竞价时段才判定抢筹信号">竞价时</span>
+          </td>
           <td :class="item.bidChange > 0 ? 'up' : 'down'">{{ signed(item.bidChange) }}%</td>
           <td :class="realCls(item)">{{ signed(item.realChange) }}%</td>
           <td :class="item.entityChange > 0 ? 'up' : 'down'">{{ signed(item.entityChange) }}%</td>

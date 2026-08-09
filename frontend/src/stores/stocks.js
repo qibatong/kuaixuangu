@@ -5,6 +5,11 @@ import { showToast } from '../utils/toast'
 import { isBefore930 } from '../utils/time'
 import { useUserStore } from './user'
 
+function bjDateStr() {
+  const d = new Date(Date.now() + 8 * 3600 * 1000)
+  return d.toISOString().slice(0, 10)
+}
+
 export const defaultFilterSettings = {
   stSuspend: true,
   markets: ['hs', 'cyb', 'kcb'],
@@ -96,13 +101,51 @@ export const useStocksStore = defineStore('stocks', {
       }
     },
 
+    // ---- 竞价结论快照(9:30 后保留抢筹标记) ----
+    // lock(9:30前)时保存 竞价结论; refresh(9:30后)时用快照覆盖 qiangchou/bidRatio,
+    // 避免收盘数据把"竞价抢筹"结论冲掉
+    snapshotKey() {
+      const user = useUserStore()
+      return 'kuaixuan_bid_snapshot_' + (user.username || 'guest') + '_' + bjDateStr()
+    },
+    saveBidSnapshot(list) {
+      try {
+        const snap = {}
+        ;(list || []).forEach((it) => {
+          snap[it.code] = { qiangchou: it.qiangchou ? 1 : 0, bidRatio: it.bidRatio }
+        })
+        localStorage.setItem(this.snapshotKey(), JSON.stringify(snap))
+      } catch (e) { /* ignore */ }
+    },
+    loadBidSnapshot() {
+      try {
+        const raw = localStorage.getItem(this.snapshotKey())
+        return raw ? JSON.parse(raw) : null
+      } catch (e) { return null }
+    },
+    applyBidSnapshot(list) {
+      const snap = this.loadBidSnapshot()
+      if (!snap) return list
+      return (list || []).map((it) => {
+        const s = snap[it.code]
+        if (s) return { ...it, qiangchou: s.qiangchou, bidRatio: s.bidRatio, _snapshot: true }
+        return it
+      })
+    },
+
     // ---- 数据操作 ----
     async fetchAndCache() {
       if (this.isDataCached) return
       // 9:30 前锁定最新竞价数据(落库); 9:30 后拉取/更新实时数据
       const action = isBefore930() ? 'lock' : 'refresh'
       const data = await fetchStocks(action, this.buildFilterParams())
-      this.cachedStocks = data.list
+      let list = data.list
+      if (action === 'lock') {
+        this.saveBidSnapshot(list)          // 保存竞价抢筹结论
+      } else {
+        list = this.applyBidSnapshot(list)  // 9:30 后保留竞价结论
+      }
+      this.cachedStocks = list
       this.isDataCached = true
       this.before930 = data.before930
       this.realTimeRefreshUsed = false
@@ -111,7 +154,7 @@ export const useStocksStore = defineStore('stocks', {
     async updateRealTimeOnly() {
       if (!this.isDataCached) { await this.fetchAndCache(); return }
       const data = await fetchStocks('refresh', this.buildFilterParams())
-      this.cachedStocks = data.list
+      this.cachedStocks = this.applyBidSnapshot(data.list)   // 保留竞价抢筹结论
       this.before930 = data.before930
       this.realTimeRefreshUsed = true
       showToast('✅ 实时涨幅更新完成', 'success')
@@ -129,7 +172,7 @@ export const useStocksStore = defineStore('stocks', {
         return
       }
       const data = await fetchStocks('filter', this.buildFilterParams())
-      this.cachedStocks = data.list
+      this.cachedStocks = isBefore930() ? data.list : this.applyBidSnapshot(data.list)
       this.isDataCached = true
       this.before930 = data.before930
       this.saveUserPrefs()
