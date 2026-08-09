@@ -10,7 +10,7 @@
           <td class="rank-col">{{ idx + 1 }}</td>
           <td class="code-click" @click="linkToSoftware(item.code)">{{ item.code }}</td>
           <td>{{ item.name }}</td>
-          <td><span v-if="item.qiangchou" class="qc-badge" title="竞价涨幅≥2% 且 竞价/昨比≥20%">🔥抢筹</span><span v-else>-</span></td>
+          <td><span v-if="item.qiangchou" class="qc-badge" title="竞价涨幅≥2% 且 竞价/昨比≥20%">🔥抢筹</span><span v-else-if="isAuction" title="竞价涨幅≥2% 且 竞价/昨比≥20%">-</span><span v-else class="qc-pending" title="9:25-9:30 竞价时段才判定抢筹信号">竞价时</span></td>
           <td :class="item.bidChange > 0 ? 'up' : 'down'">{{ signed(item.bidChange) }}%</td>
           <td :class="realCls(item)">{{ signed(item.realChange) }}%</td>
           <td :class="item.entityChange > 0 ? 'up' : 'down'">{{ signed(item.entityChange) }}%</td>
@@ -30,10 +30,14 @@
 
 <script setup>
 import { linkToSoftware } from '../utils/tdx'
+import { isBefore930 } from '../utils/time'
 
 defineProps({
   stocks: { type: Array, default: () => [] }
 })
+
+// 是否处于竞价时段(9:30 前): 非竞价时段不判定抢筹, 显示"竞价时"
+const isAuction = isBefore930()
 
 function signed(v) { return (v > 0 ? '+' : '') + v.toFixed(2) }
 function realCls(item) {
@@ -66,6 +70,13 @@ function ratioText(br) {
   padding: 0 6px;
   font-size: 12px;
   animation: qc-pulse 1.6s ease-in-out infinite;
+}
+.qc-pending {
+  color: #777;
+  font-size: 12px;
+  border: 1px dashed #555;
+  border-radius: 4px;
+  padding: 0 6px;
 }
 @keyframes qc-pulse {
   0%, 100% { opacity: 1; }
