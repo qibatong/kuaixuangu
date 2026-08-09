@@ -37,6 +37,14 @@ def hdrs(token):
     return {"Authorization": "Bearer " + token}
 
 
+def test_settings_set_idempotent():
+    """settings 覆盖写入(INSERT OR REPLACE, 兼容老 SQLite)"""
+    assert settings.set("scoring", {"w_bid": 0.5}) is True
+    assert settings.get("scoring")["w_bid"] == 0.5
+    assert settings.set("scoring", {"w_bid": 0.4}) is True
+    assert settings.get("scoring")["w_bid"] == 0.4
+
+
 # ---------- 权限 ----------
 def test_admin_requires_auth(client):
     r = client.get("/api/admin/users")

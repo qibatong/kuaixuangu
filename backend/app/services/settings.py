@@ -31,12 +31,13 @@ def get(key, default=None):
 
 
 def set(key, value):
-    """写入设置项(JSON 序列化), 返回是否成功"""
+    """写入设置项(JSON 序列化), 返回是否成功。
+    注意: 用 INSERT OR REPLACE(老 SQLite 3.7 不支持 ON CONFLICT UPSERT)
+    """
     try:
         conn = database.get_conn()
         conn.execute(
-            "INSERT INTO settings (key, value, updated_at) VALUES (?,?,?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?,?,?)",
             (key, json.dumps(value, ensure_ascii=False), int(time.time())))
         conn.commit()
         conn.close()
