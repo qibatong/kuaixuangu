@@ -8,7 +8,7 @@ import time
 from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
-from ..services import fetcher, history, scorer
+from ..services import fetcher, history, notify, scorer
 from .deps import get_uid, jr, qs
 
 log = logger.get_logger(__name__)
@@ -53,6 +53,13 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
     else:
         log.info("选股刷新 uid=%s action=%s markets=%s 返回%d只 耗时%.0fms",
                  uid, action, ",".join(f["markets"]), len(result), (time.time() - t0) * 1000)
+
+    # 竞价锁定选股成功后, 后台推送结果到微信/飞书(失败不影响选股主流程)
+    if action == "lock" and result:
+        try:
+            notify.push_result_async(result, f)
+        except Exception as e:
+            log.error("推送触发失败 err=%s", e)
 
     return jr({
         "ok": True,

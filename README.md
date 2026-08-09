@@ -87,6 +87,21 @@ Nginx 关键配置（/etc/nginx/conf.d/kuaixuan.conf）：
 - `/api/` → 反代 127.0.0.1:8010（传 X-Real-IP / X-Forwarded-For）
 - `/download/` → 通达信工具静态下载
 
+## 推送提醒（微信 / 飞书）
+
+竞价锁定选股（action=lock）成功后，自动把当日 Top N 结果推送到已配置的渠道（后台线程，不影响选股响应；任一渠道失败不影响其他渠道与主流程；相同内容 120 秒内去重防刷屏）。
+
+| 环境变量 | 说明 |
+|---|---|
+| NOTIFY_FEISHU_WEBHOOK | 飞书群机器人 webhook（可选） |
+| NOTIFY_SERVERCHAN_KEY | Server酱 SendKey，推送到个人微信（可选） |
+| NOTIFY_WECHAT_WEBHOOK | 企业微信群机器人 webhook（可选） |
+| NOTIFY_TOP_N | 推送展示 Top N 只（默认 8） |
+| NOTIFY_TIMEOUT | 单渠道请求超时秒数（默认 5） |
+| NOTIFY_DEDUP_SECONDS | 相同内容去重窗口秒数（默认 120） |
+
+任一渠道配置后即启用，全部未配置则推送自动跳过（不影响选股功能）。systemd 里用 `Environment=` 注入。
+
 ## 日志与排查
 
 - **后端日志**：`/opt/kuaixuan/logs/app.log`（10MB 大小轮转保留 5 份，可用 `BID_LOG_DIR` 覆盖）
