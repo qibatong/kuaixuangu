@@ -59,12 +59,12 @@
           <select v-model="f.action"><option value="">全部类型</option><option value="lock">锁定选股</option><option value="filter">筛选重算</option></select>
           <button class="tdx-export-btn query-submit-btn" style="background:#ff5c5c;" @click="runQuery"><i class="fa fa-search"></i> 查询</button>
         </div>
-        <div class="query-tip">打开时已自动查询当月记录；同一只票一天内多次入选会全部保留（按入选时间展示，方便追踪调整轨迹）；竞价涨幅、流通市值、评分、可信度等条件可留空，留空表示不限制</div>
+        <div class="query-tip">打开时已自动查询当月记录；<b>同一天同一只股票评分相同自动去重</b>（只保留一条）；竞价涨幅、流通市值、评分、可信度等条件可留空，留空表示不限制</div>
         <div class="query-result">
           <div v-if="loading" class="loading-placeholder"><div class="spinner"></div><div>正在查询...</div></div>
           <div v-else-if="!rows.length" class="empty-state">没有符合条件的记录<br><span style="font-size:11px">可放宽日期范围或属性条件</span></div>
           <template v-else>
-            <div class="query-summary">共 {{ total }} 条记录（同一只票一天多次入选会都展示，可按日期+时间区分）</div>
+            <div class="query-summary">共 {{ total }} 条记录（同一天同评分自动去重）</div>
             <div style="overflow-x:auto;">
               <table class="stock-table" style="min-width:1180px">
                 <thead><tr><th>日期</th><th>时间</th><th>类型</th><th>代码</th><th>名称</th><th>竞价涨幅</th><th>实时涨幅</th><th>实体涨幅</th><th>异动</th><th>竞价金额(万)</th><th>竞价/昨比</th><th>流通市值(亿)</th><th>行业</th><th>评分</th><th>可信度</th></tr></thead>

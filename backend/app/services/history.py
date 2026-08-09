@@ -117,10 +117,12 @@ def query_history(uid, q):
     except (TypeError, ValueError):
         page_size = 100
 
+    # 同一日期内, 同一股票 + 相同评分 视为"重复入选", 只保留一条(去重)
     base_sql = """
         FROM batch_stocks s
         JOIN batches b ON b.id = s.batch_id
         WHERE b.user_id = ? AND b.batch_date BETWEEN ? AND ? AND %s
+        GROUP BY b.batch_date, s.code, s.probability
     """ % cond_sql
     base_params = [uid, date_from, date_to] + params
 
@@ -131,13 +133,15 @@ def query_history(uid, q):
                s.bid_amt, s.circulation_mv, s.industry, s.concept, s.warn_type,
                s.bid_ratio
         %s
-        ORDER BY b.batch_date DESC, b.batch_time DESC, s.probability DESC
+        ORDER BY b.batch_date DESC, s.probability DESC, s.code
         LIMIT ? OFFSET ?
     """ % base_sql
 
     conn = _conn()
     try:
-        total = conn.execute("SELECT COUNT(*) " + base_sql, base_params).fetchone()[0]
+        # 注意: GROUP BY 后 COUNT(*) 是每组行数, 必须子查询包裹才算组数
+        total = conn.execute(
+            "SELECT COUNT(*) FROM (SELECT 1 " + base_sql + ")", base_params).fetchone()[0]
         rows = conn.execute(sql, base_params + [page_size, (page - 1) * page_size]).fetchall()
     except Exception:
         conn.close()
