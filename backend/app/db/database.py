@@ -105,6 +105,17 @@ def init_db():
             ts INTEGER NOT NULL
         )
     """)
+    # 9:20 竞价时点快照(全市场): 用于 9:25 计算涨幅加速度
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS snapshot_920 (
+            date TEXT NOT NULL,
+            code TEXT NOT NULL,
+            bid_change REAL NOT NULL DEFAULT 0,
+            bid_amt REAL NOT NULL DEFAULT 0,
+            ts INTEGER NOT NULL,
+            PRIMARY KEY (date, code)
+        )
+    """)
     # 密码重置令牌
     cur.execute("""
         CREATE TABLE IF NOT EXISTS reset_tokens (

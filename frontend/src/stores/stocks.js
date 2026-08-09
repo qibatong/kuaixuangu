@@ -112,7 +112,7 @@ export const useStocksStore = defineStore('stocks', {
       try {
         const snap = {}
         ;(list || []).forEach((it) => {
-          snap[it.code] = { qiangchou: it.qiangchou ? 1 : 0, bidRatio: it.bidRatio }
+          snap[it.code] = { qiangchou: it.qiangchou ? 1 : 0, bidRatio: it.bidRatio, accel: it.accel }
         })
         localStorage.setItem(this.snapshotKey(), JSON.stringify(snap))
       } catch (e) { /* ignore */ }
@@ -128,7 +128,7 @@ export const useStocksStore = defineStore('stocks', {
       if (!snap) return list
       return (list || []).map((it) => {
         const s = snap[it.code]
-        if (s) return { ...it, qiangchou: s.qiangchou, bidRatio: s.bidRatio, _snapshot: true }
+        if (s) return { ...it, qiangchou: s.qiangchou, bidRatio: s.bidRatio, accel: s.accel, _snapshot: true }
         return it
       })
     },

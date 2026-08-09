@@ -3,7 +3,7 @@
     <div v-if="!stocks.length" class="empty-state">暂无符合条件股票</div>
     <table v-else class="stock-table">
       <thead>
-        <tr><th>排名</th><th>股票代码</th><th>股票名称</th><th>抢筹</th><th>竞价涨幅</th><th>实时涨幅</th><th>实体涨幅</th><th>异动</th><th>竞价金额(万)</th><th>竞价/昨比</th><th>流通市值(亿)</th><th>行业</th><th>概念</th><th>综合评分</th><th>可信度</th></tr>
+        <tr><th>排名</th><th>股票代码</th><th>股票名称</th><th>抢筹</th><th>竞价涨幅</th><th>加速度</th><th>实时涨幅</th><th>实体涨幅</th><th>异动</th><th>竞价金额(万)</th><th>竞价/昨比</th><th>流通市值(亿)</th><th>行业</th><th>概念</th><th>综合评分</th><th>可信度</th></tr>
       </thead>
       <tbody>
         <tr v-for="(item, idx) in stocks" :key="item.code">
@@ -16,6 +16,7 @@
             <span v-else class="qc-pending" title="9:25-9:30 竞价时段才判定抢筹信号">竞价时</span>
           </td>
           <td :class="item.bidChange > 0 ? 'up' : 'down'">{{ signed(item.bidChange) }}%</td>
+          <td :class="accelCls(item.accel)">{{ accelText(item.accel) }}</td>
           <td :class="realCls(item)">{{ signed(item.realChange) }}%</td>
           <td :class="item.entityChange > 0 ? 'up' : 'down'">{{ signed(item.entityChange) }}%</td>
           <td>{{ warnLabel(item.warnType) }}</td>
@@ -44,6 +45,14 @@ defineProps({
 const isAuction = isBefore930()
 
 function signed(v) { return (v > 0 ? '+' : '') + v.toFixed(2) }
+function accelText(v) {
+  if (v === null || v === undefined || isNaN(v)) return '-'
+  return (v > 0 ? '+' : '') + v.toFixed(2) + '%'
+}
+function accelCls(v) {
+  if (v === null || v === undefined || isNaN(v)) return 'dim'
+  return v >= 1.5 ? 'accel-hot' : v > 0 ? 'up' : v < 0 ? 'down' : 'dim'
+}
 function realCls(item) {
   if (item.realChange < item.bidChange) return 'real-green'
   return item.realChange > 0 ? 'up' : 'down'
@@ -81,6 +90,10 @@ function ratioText(br) {
   border: 1px dashed #555;
   border-radius: 4px;
   padding: 0 6px;
+}
+.accel-hot {
+  color: #ff5028;
+  font-weight: 700;
 }
 @keyframes qc-pulse {
   0%, 100% { opacity: 1; }

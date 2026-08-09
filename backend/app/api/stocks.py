@@ -8,7 +8,7 @@ import time
 from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
-from ..services import fetcher, history, notify, scorer, stats
+from ..services import auction_snapshot, fetcher, history, notify, scorer, stats
 from .deps import get_uid, jr, qs
 
 log = logger.get_logger(__name__)
@@ -39,8 +39,10 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
             return jr({"ok": False, "msg": err}, 403)
         # 昨日成交额(并发拉日K, 当日缓存), 用于计算竞价/昨日成交占比
         yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw])
+        # 9:20 快照(用于 9:25 涨幅加速度); 非竞价时段读库无数据返回空 map
+        snapshot_map = auction_snapshot.load_snapshot()
         # 评分计算不持锁: 多用户并发选股互不阻塞, 只共享只读的行情快照
-        result = scorer.process_all_stocks(raw, f, yesterday_map)
+        result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map)
     except Exception as e:
         log.error("选股处理失败 uid=%s action=%s err=%s", uid, action, e, exc_info=True)
         return jr({"ok": False, "msg": "服务端处理失败: %s" % e}, 500)
