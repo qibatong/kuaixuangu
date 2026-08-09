@@ -81,6 +81,14 @@ def client():
         yield c
 
 
+@pytest.fixture(scope="session", autouse=True)
+def mock_rate_limits(monkeypatch_session):
+    """测试环境放开限流(注册防刷 + 每IP每分钟), 避免多文件用例互相干扰"""
+    from app.services import security
+    monkeypatch_session.setattr(security, "register_allowed", lambda ip: True)
+    monkeypatch_session.setattr(security, "rate_allow", lambda ip: True)
+
+
 @pytest.fixture(scope="session")
 def first_user(client):
     """注册一个唯一用户(避免与其他测试的用户名冲突), 返回 (token, username, invite_code)"""
@@ -92,3 +100,17 @@ def first_user(client):
     assert d.get("ok")
     inv = client.get("/api/invite", headers={"Authorization": "Bearer " + d["token"]})
     return d["token"], d["username"], inv.json().get("invite_code")
+
+
+@pytest.fixture(scope="session")
+def second_user(client, first_user):
+    """第二个普通用户(非管理员, 用 first_user 的邀请码注册), 用于权限类测试"""
+    import uuid
+    _, _, invite = first_user
+    uname = "tester2_" + uuid.uuid4().hex[:8]
+    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
+                                            "invite_code": invite})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d.get("ok")
+    return d["token"], d["username"]

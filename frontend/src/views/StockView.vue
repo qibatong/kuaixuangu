@@ -10,6 +10,7 @@
           <button class="tdx-export-btn real-time-btn" @click="refreshRealTime"><i class="fa fa-refresh"></i> 刷新实时涨幅</button>
           <router-link to="/history" class="tdx-export-btn" style="background:rgba(255,180,0,0.18);border:1px solid #ffb400;color:#ffe0a0;"><i class="fa fa-history"></i> 历史回看</router-link>
           <router-link to="/invite" class="tdx-export-btn" style="background:rgba(0,180,255,0.15);border:1px solid #00b4ff;color:#a0e0ff;"><i class="fa fa-share-alt"></i> 邀请</router-link>
+          <router-link v-if="user.isAdmin" to="/admin" class="tdx-export-btn" style="background:rgba(255,215,0,0.15);border:1px solid #ffd700;color:#ffe9a0;"><i class="fa fa-shield"></i> 管理</router-link>
           <a href="/download/tdx_import.exe" class="tdx-export-btn tdx-only" style="background:rgba(255,150,50,0.15);border:1px solid #ff9632;color:#ffd0a0;"><i class="fa fa-windows"></i> 下载通达信工具</a>
           <button class="tdx-export-btn tdx-only" style="background:rgba(120,200,80,0.15);border:1px solid #78c850;color:#c0e8a0;" data-tip="💡 首次用：先点「下载通达信工具」并运行，再在通达信『选项/工具』勾选『监控剪贴板』，之后点下载即可自动导入" @click="downloadAll"><i class="fa fa-download"></i> 下载自选股(自动导入)</button>
         </div>

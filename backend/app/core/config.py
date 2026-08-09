@@ -13,6 +13,8 @@ TOKEN_TTL = 12 * 3600                     # Token 有效期(秒), 默认 12 小�
 RATE_LIMIT_PER_MIN = int(os.environ.get("RATE_LIMIT", "60"))   # 每 IP 每分钟最大请求数
 PBKDF2_ITERS = int(os.environ.get("PBKDF2_ITERS", "50000"))    # 密码哈希迭代次数
 CACHE_TTL = int(os.environ.get("CACHE_TTL", "30"))             # 行情缓存新鲜度(秒)
+# 管理员: 逗号分隔的用户名; 空则自动把 id 最小的用户设为管理员(种子账号)
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "")
 
 # ---------- 路径 ----------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))          # .../backend/app/core

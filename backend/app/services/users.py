@@ -12,10 +12,11 @@ from email.header import Header
 from email.mime.text import MIMEText
 from email.utils import formataddr
 
-from ..core import config
+from ..core import config, logger
 from ..db import database
-from . import security
+from . import security, settings
 
+log = logger.get_logger(__name__)
 INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 
@@ -23,6 +24,81 @@ def _conn():
     conn = sqlite3.connect(config.DB_FILE)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def ensure_admin():
+    """确保至少一个管理员(幂等, 只初始化一次):
+    优先 ADMIN_USERNAME 指定用户, 否则取 id 最小的用户(种子账号)。
+    首次调用后写标记, 后续不覆盖用户手动调整的管理员。
+    """
+    if settings.get("admin_initialized", False):
+        return
+    conn = _conn()
+    try:
+        names = [n.strip() for n in (config.ADMIN_USERNAME or "").split(",") if n.strip()]
+        if names:
+            cur = conn.execute(
+                "UPDATE users SET is_admin=1 WHERE username IN (%s) AND is_admin=0"
+                % ",".join("?" * len(names)), names)
+        else:
+            cur = conn.execute(
+                "UPDATE users SET is_admin=1 WHERE id=(SELECT MIN(id) FROM users) AND is_admin=0")
+        if cur.rowcount:
+            conn.commit()
+            log.info("已初始化管理员: %s", names or "id 最小用户")
+    except Exception as e:
+        log.error("初始化管理员失败 err=%s", e)
+    finally:
+        conn.close()
+    settings.set("admin_initialized", True)
+
+
+def is_admin(uid):
+    row = find_user_by_id(uid)
+    return bool(row and row.get("is_admin"))
+
+
+def list_users_page(page=1, page_size=20, keyword=""):
+    """管理端用户列表(分页), 附带每个用户的基础统计"""
+    conn = _conn()
+    cond = ""
+    params = []
+    if keyword:
+        cond = " AND (username LIKE ? OR COALESCE(phone,'') LIKE ? OR COALESCE(email,'') LIKE ?)"
+        kw = "%" + keyword + "%"
+        params = [kw, kw, kw]
+    total = conn.execute(
+        "SELECT COUNT(*) FROM users WHERE 1=1" + cond, params).fetchone()[0]
+    rows = conn.execute(
+        "SELECT u.id, u.username, u.created_at, u.is_admin, u.invite_code, u.invited_by, "
+        "u.phone, u.email, "
+        "(SELECT COUNT(*) FROM users x WHERE x.invited_by=u.id) AS invited_count, "
+        "(SELECT COUNT(*) FROM batches b WHERE b.user_id=u.id) AS batch_count "
+        "FROM users u WHERE 1=1" + cond + " ORDER BY u.id DESC LIMIT ? OFFSET ?",
+        params + [page_size, (page - 1) * page_size]).fetchall()
+    conn.close()
+    return {"total": total, "page": page, "pageSize": page_size, "rows": [dict(r) for r in rows]}
+
+
+def user_stats():
+    """管理端用户统计: 总数/今日注册/邀请关系/活跃(有选股记录)用户"""
+    conn = _conn()
+    total = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    today = conn.execute(
+        "SELECT COUNT(*) FROM users WHERE datetime(created_at+8*3600,'unixepoch','localtime') >= date('now','localtime')"
+    ).fetchone()[0]
+    active = conn.execute(
+        "SELECT COUNT(DISTINCT user_id) FROM batches").fetchone()[0]
+    invited = conn.execute(
+        "SELECT COUNT(*) FROM users WHERE invited_by IS NOT NULL").fetchone()[0]
+    top_inviter = conn.execute(
+        "SELECT u.username, COUNT(*) n FROM users x JOIN users u ON u.id=x.invited_by "
+        "GROUP BY x.invited_by ORDER BY n DESC LIMIT 1").fetchone()
+    conn.close()
+    return {
+        "total": total, "today": today, "active": active, "invited": invited,
+        "top_inviter": (dict(top_inviter) if top_inviter else None),
+    }
 
 
 def _is_phone(s):

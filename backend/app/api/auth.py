@@ -31,7 +31,8 @@ def api_login(request: Request, body: dict = Body(...)):
         return jr({"ok": False, "msg": "用户名或密码错误"}, 401)
     log.info("登录成功 uid=%s user=%s ip=%s", user["id"], user["username"], client_ip(request))
     return jr({"ok": True, "token": security.issue_token(user["id"]),
-               "username": user["username"]})
+               "username": user["username"],
+               "is_admin": 1 if user.get("is_admin") else 0})
 
 
 @router.post("/api/register")

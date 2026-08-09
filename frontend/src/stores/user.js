@@ -20,7 +20,8 @@ export const useUserStore = defineStore('user', {
     return {
       session,
       apiToken: (session && session.token) || '',
-      username: (session && session.username) || ''
+      username: (session && session.username) || '',
+      isAdmin: !!(session && session.is_admin)
     }
   },
   getters: {
@@ -30,16 +31,18 @@ export const useUserStore = defineStore('user', {
     filterKey: (s) => 'kuaixuan_locked_filter_' + (s.username || 'guest')
   },
   actions: {
-    setSession(username, token) {
-      this.session = { username, token }
+    setSession(username, token, isAdmin) {
+      this.session = { username, token, is_admin: isAdmin ? 1 : 0 }
       this.apiToken = token
       this.username = username
+      this.isAdmin = !!isAdmin
       try { localStorage.setItem(SESSION_KEY, JSON.stringify(this.session)) } catch (e) { /* ignore */ }
     },
     clearSession() {
       this.session = null
       this.apiToken = ''
       this.username = ''
+      this.isAdmin = false
       try { localStorage.removeItem(SESSION_KEY) } catch (e) { /* ignore */ }
     },
     // 旧 key 迁移: 改名前的股票池/锁定条件数据

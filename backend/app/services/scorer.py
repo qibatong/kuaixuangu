@@ -7,6 +7,46 @@ import math
 import re
 import time
 
+from . import settings
+
+# ---------- 评分权重配置(管理员可调, 存 settings 表 "scoring") ----------
+# 五项因子权重和应=1.0; 改动经管理端 PUT /api/admin/scoring 保存后即时生效
+DEFAULT_SCORING = {
+    "w_bid": 0.34,        # 竞价分权重
+    "w_activity": 0.32,   # 活跃度(竞价换手/量比)权重
+    "w_warn": 0.17,       # 异动(封单/抢筹)权重
+    "w_market": 0.11,     # 流通市值权重
+    "w_yesterday": 0.06,  # 昨日涨幅权重
+    "conf_warn_high": 10,  # 置信度: 强异动加成
+    "conf_turnover": 8,    # 置信度: 高换手加成
+    "conf_bid": 7,         # 置信度: 竞价温和区间加成
+}
+_scoring_cfg = None
+
+
+def get_scoring_cfg(force=False):
+    """读取评分权重(内存缓存; 管理端更新后调 reload 生效)"""
+    global _scoring_cfg
+    if _scoring_cfg is None or force:
+        cfg = settings.get("scoring")
+        if isinstance(cfg, dict):
+            merged = dict(DEFAULT_SCORING)
+            for k, v in cfg.items():
+                if k in DEFAULT_SCORING:
+                    try:
+                        merged[k] = float(v)
+                    except (TypeError, ValueError):
+                        pass
+            _scoring_cfg = merged
+        else:
+            _scoring_cfg = dict(DEFAULT_SCORING)
+    return _scoring_cfg
+
+
+def reload_scoring_cfg():
+    """管理端更新权重后强制刷新内存缓存, 返回新配置"""
+    return get_scoring_cfg(force=True)
+
 
 # ---------- 工具 ----------
 def parse_float(v, default=0.0):
@@ -167,17 +207,19 @@ def compute_score(s):
     else:
         yesterday_score = 0.15
 
-    base = (bid_score * 0.34 + activity_score * 0.32 + warn_score * 0.17
-            + market_score * 0.11 + yesterday_score * 0.06)
+    cfg = get_scoring_cfg()
+    base = (bid_score * cfg["w_bid"] + activity_score * cfg["w_activity"]
+            + warn_score * cfg["w_warn"] + market_score * cfg["w_market"]
+            + yesterday_score * cfg["w_yesterday"])
     prob = max(5.0, min(95.0, base * 100))
 
     conf = 65.0
     if warn_type >= 4:
-        conf += 10
+        conf += cfg["conf_warn_high"]
     if bid_turnover >= 0.4:
-        conf += 8
+        conf += cfg["conf_turnover"]
     if 2 <= bid_change <= 6.5:
-        conf += 7
+        conf += cfg["conf_bid"]
     conf = min(90.0, max(55.0, conf))
 
     return {

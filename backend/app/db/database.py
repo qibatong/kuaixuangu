@@ -81,9 +81,19 @@ def init_db():
         cur.execute("ALTER TABLE users ADD COLUMN email TEXT")
     if "filter_prefs" not in ucols:
         cur.execute("ALTER TABLE users ADD COLUMN filter_prefs TEXT")
+    if "is_admin" not in ucols:
+        cur.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_users_invited_by ON users(invited_by)")
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone)")
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+    # 系统设置表(key-value, JSON 值): 评分权重等管理配置
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+    """)
     # 密码重置令牌
     cur.execute("""
         CREATE TABLE IF NOT EXISTS reset_tokens (

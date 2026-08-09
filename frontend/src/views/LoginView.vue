@@ -89,7 +89,7 @@ async function submit() {
       ? { username: username.value.trim(), password: password.value, invite_code: invite.value.trim(), phone: phone.value.trim(), email: email.value.trim() }
       : { login: username.value.trim(), password: password.value }
     const data = mode.value === 'register' ? await apiRegister(body) : await apiLogin(body)
-    user.setSession(data.username, data.token)
+    user.setSession(data.username, data.token, data.is_admin)
     const redirect = route.query.redirect || '/'
     router.replace(redirect)
   } catch (e) {
