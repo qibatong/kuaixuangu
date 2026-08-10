@@ -20,6 +20,57 @@ def test_limit_pct_by_board():
     assert scorer.limit_pct("000001", "*ST测试", 10) == 0.05
 
 
+# ---------- 昨日涨停判定(f103 概念标签) ----------
+def test_is_first_board_yesterday_limit():
+    """f103 含 '昨日涨停' 标签 → 昨日涨停, 应剔除"""
+    raw = dict(QC_RAW)
+    raw["f103"] = "AI概念,昨日涨停,华为概念"
+    assert scorer.is_first_board(raw) is True
+
+
+def test_is_first_board_yesterday_chain():
+    """f103 含 '昨日连板' 标签 → 昨日涨停(连板), 应剔除"""
+    raw = dict(QC_RAW)
+    raw["f103"] = "AI概念,昨日连板,昨日连板_含一字"
+    assert scorer.is_first_board(raw) is True
+
+
+def test_is_first_board_yizi_tag():
+    """f103 含 '昨日涨停_含一字' → 子串命中, 应剔除"""
+    raw = dict(QC_RAW)
+    raw["f103"] = "华为概念,昨日涨停_含一字"
+    assert scorer.is_first_board(raw) is True
+
+
+def test_is_first_board_no_tag():
+    """f103 无昨日涨停/连板标签 → 非昨日涨停, 保留"""
+    raw = dict(QC_RAW)
+    raw["f103"] = "AI概念,华为概念,固态电池"
+    assert scorer.is_first_board(raw) is False
+
+
+def test_is_first_board_empty_concept():
+    """f103 缺失/为空 → 非昨日涨停, 保留"""
+    raw = dict(QC_RAW)
+    raw["f103"] = ""
+    assert scorer.is_first_board(raw) is False
+    raw2 = dict(QC_RAW)
+    raw2.pop("f103", None)
+    assert scorer.is_first_board(raw2) is False
+
+
+def test_is_first_board_ignores_f630():
+    """回归: 旧逻辑 f630>=5 已废弃, f630 值不影响昨日涨停判断(f630 实际只有 0/1/2)"""
+    raw = dict(QC_RAW)
+    raw["f630"] = 5          # 旧逻辑会误判为昨日涨停
+    raw["f103"] = "AI概念"    # 但概念无标签
+    assert scorer.is_first_board(raw) is False
+    raw2 = dict(QC_RAW)
+    raw2["f630"] = 0          # f630=0 但概念有标签
+    raw2["f103"] = "昨日涨停,AI概念"
+    assert scorer.is_first_board(raw2) is True
+
+
 def test_is_yizi_true():
     """今开直接封涨停价 → 一字"""
     raw = dict(QC_RAW)

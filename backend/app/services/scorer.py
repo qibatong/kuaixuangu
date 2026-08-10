@@ -201,7 +201,10 @@ def get_warn_type(s):
 
 
 def is_first_board(s):
-    return get_warn_type(s) >= 5
+    """昨日涨停判断: f103 概念标签含 昨日涨停/昨日连板(含一字)
+    (原实现用 f630>=5, 但实测 f630 取值只有 0/1/2, 该条件永不成立, 过滤从未生效)"""
+    concept = s.get("f103") or ""
+    return ("昨日涨停" in concept) or ("昨日连板" in concept)
 
 
 def limit_pct(code, name, pre_close):
