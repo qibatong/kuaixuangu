@@ -267,10 +267,13 @@ def get_bid_turnover(s):
     return 0.0 if not math.isfinite(t) else t
 
 
-def get_bid_amt(s):
-    """竞价成交额(万元): f616 固定竞价额优先, 缺失退回 f6"""
+def get_bid_amt(s, auction_ok=True):
+    """竞价成交额(万元): f616 固定竞价额优先。
+    仅竞价窗口内缺失时退回 f6(此时 f6≈竞价额);
+    非窗口(盘中/收盘) f6=累计成交额, 不可作竞价额 → 缺失直接返回 0。
+    (修复: 盘中 f616 缺失时误用 f6 会把累计成交额当竞价额, 竞价/昨比可算出 1000%+ 荒谬值)"""
     amt = parse_float(s.get("f616"))
-    if not amt > 0:
+    if not amt > 0 and auction_ok:
         amt = parse_float(s.get("f6"))
     return 0.0 if (not math.isfinite(amt) or amt <= 0) else amt / 10000
 
@@ -538,14 +541,16 @@ def process_all_stocks(raw, f, yesterday_map=None, snapshot_map=None):
     snapshot_map = snapshot_map or {}
     scored = []
     # 竞价数据窗口内: f616=当日竞价额, 分母取最近交易日(T=昨日, 今天无日K)
-    # 非窗口: f616=最近交易日竞价额, 分母取 T 的前一交易日(T-1), 避免"同日自比"
+    # 非窗口(盘中/收盘): "竞价/昨比"语义已失效, 一律置 None(前端显示"-"), 避免地量日/累计额失真
     auction_ok = in_auction_window()
     for s in raw:
         sc = compute_score(s)
-        bid_amt = get_bid_amt(s)   # 万元
+        bid_amt = get_bid_amt(s, auction_ok)   # 万元
         pair = yesterday_map.get(s.get("f12"))   # [T日全天额, T-1日全天额] 万元
-        y_amt = pair[0] if (auction_ok and pair) else (pair[1] if pair else None)
-        bid_ratio = round(bid_amt / y_amt * 100, 2) if y_amt else None  # 竞价/前一交易日成交额占比(%)
+        bid_ratio = None
+        if auction_ok and pair:
+            y_amt = pair[0]
+            bid_ratio = round(bid_amt / y_amt * 100, 2) if y_amt else None
         # 涨幅加速度: 9:25 竞价涨幅 - 9:20 竞价涨幅(最后5分钟抢筹; 仅竞价窗口内有意义)
         accel = None
         if auction_ok:
