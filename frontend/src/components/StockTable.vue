@@ -60,7 +60,6 @@
           <th class="sortable num" :class="{ active: sortKey === 'realChange' }" @click="onSort('realChange', 'number')" title="实时涨幅：当前价相对昨收的涨幅">实时涨幅<span class="sort-ind">{{ sortInd('realChange') }}</span></th>
           <th class="sortable" :class="{ active: sortKey === 'qiangchou' }" @click="onSort('qiangchou', 'number')" title="竞价涨幅≥2% 且 竞价/昨比≥20% 时标记 🔥抢筹：代表资金在集合竞价阶段大幅抢筹，是当日强势启动的先行信号">抢筹<span class="sort-ind">{{ sortInd('qiangchou') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'bidChange' }" @click="onSort('bidChange', 'number')" title="竞价涨幅">竞价涨幅<span class="sort-ind">{{ sortInd('bidChange') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'accel' }" @click="onSort('accel', 'number')" title="最后5分钟抢筹加速度：9:25竞价涨幅 − 9:20竞价涨幅(百分点)。正值=9:20后资金加速抢筹，≥+1.5% 显著(红色加粗)；负值=竞价冲高回落，警惕">加速度<span class="sort-ind">{{ sortInd('accel') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'entityChange' }" @click="onSort('entityChange', 'number')">实体涨幅<span class="sort-ind">{{ sortInd('entityChange') }}</span></th>
           <th class="sortable" :class="{ active: sortKey === 'warnType' }" @click="onSort('warnType', 'number')">异动<span class="sort-ind">{{ sortInd('warnType') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'bidAmt' }" @click="onSort('bidAmt', 'number')">竞价金额(万)<span class="sort-ind">{{ sortInd('bidAmt') }}</span></th>
@@ -88,7 +87,6 @@
             <span v-else class="qc-pending" title="9:25-9:30 竞价时段才判定抢筹信号">竞价时</span>
           </td>
           <td :class="item.bidChange > 0 ? 'up' : 'down'" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'">{{ signed(item.bidChange) }}%</td>
-          <td :class="accelCls(item.accel)" :title="accelTitle(item.accel)">{{ accelText(item.accel) }}</td>
           <td :class="item.entityChange === null || item.entityChange === undefined ? 'dim' : (item.entityChange > 0 ? 'up' : 'down')" :title="item.entityChange === null || item.entityChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + fmtPct(item._staleEntity) + '）') : ''">{{ item.entityChange === null || item.entityChange === undefined ? '-' : signed(item.entityChange) + '%' }}</td>
           <td>{{ warnLabel(item.warnType) }}</td>
           <td :title="'集合竞价阶段撮合成交金额(万元)'">{{ bidAmtText(item.bidAmt) }}</td>
@@ -185,18 +183,6 @@ function addToPool(item) {
 // 是否已在池中
 function inPool(code) {
   return pool.stockPool.some(x => x.code === code)
-}
-function accelText(v) {
-  if (v === null || v === undefined || isNaN(v)) return '-'
-  return (v > 0 ? '+' : '') + v.toFixed(2) + '%'
-}
-function accelCls(v) {
-  if (v === null || v === undefined || isNaN(v)) return 'dim'
-  return v >= 1.5 ? 'accel-hot' : v > 0 ? 'up' : v < 0 ? 'down' : 'dim'
-}
-function accelTitle(v) {
-  if (v === null || v === undefined || isNaN(v)) return '最后5分钟抢筹加速度：9:25竞价涨幅 − 9:20竞价涨幅（需当天9:20自动采集，非竞价时段显示 -）'
-  return `9:25竞价涨幅 − 9:20竞价涨幅 = ${v > 0 ? '+' : ''}${v.toFixed(2)}%${v >= 1.5 ? '（显著抢筹，资金最后5分钟加速买入）' : v > 0 ? '（小幅走强）' : v < 0 ? '（竞价冲高回落，谨慎）' : ''}`
 }
 function ratioTitle(br) {
   if (br === null || br === undefined || isNaN(br)) return '竞价成交额 ÷ 前一交易日全天成交额(%)，非竞价时段/无数据时显示 -'
