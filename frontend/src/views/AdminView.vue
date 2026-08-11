@@ -83,9 +83,21 @@
           </table>
         </div>
         <div class="pager">
-          <button class="page-btn" :disabled="page <= 1" @click="loadUsers(page - 1)">上一页</button>
-          <span style="color:#bbb;">第 {{ page }} / {{ totalPages }} 页 · 共 {{ total }} 人</span>
-          <button class="page-btn" :disabled="page >= totalPages" @click="loadUsers(page + 1)">下一页</button>
+          <div class="pager-left">
+            <span style="color:#888;font-size:12px;">每页</span>
+            <select v-model.number="pageSize" class="admin-input" style="width:70px;padding:5px 8px;" @change="changePageSize">
+              <option :value="10">10</option>
+              <option :value="20">20</option>
+              <option :value="50">50</option>
+              <option :value="100">100</option>
+            </select>
+            <span style="color:#888;font-size:12px;">条</span>
+          </div>
+          <div class="pager-right">
+            <button class="page-btn" :disabled="page <= 1" @click="loadUsers(page - 1)">上一页</button>
+            <span style="color:#bbb;">第 {{ page }} / {{ totalPages }} 页 · 共 {{ total }} 人</span>
+            <button class="page-btn" :disabled="page >= totalPages" @click="loadUsers(page + 1)">下一页</button>
+          </div>
         </div>
       </div>
 
@@ -270,7 +282,7 @@ const stats = ref({})
 const rows = ref([])
 const page = ref(1)
 const total = ref(0)
-const pageSize = 20
+const pageSize = ref(10)
 const keyword = ref('')
 const denied = ref(false)
 
@@ -298,7 +310,7 @@ const curWeightSum = computed(() => {
   return s
 })
 
-const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 
 function switchScoringMode(m) {
   scoringMode.value = m
@@ -371,7 +383,7 @@ async function extendUser(u, action) {
 
 async function loadUsers(p) {
   try {
-    const d = await adminUsers({ page: p, pageSize, keyword: keyword.value })
+    const d = await adminUsers({ page: p, pageSize: pageSize.value, keyword: keyword.value })
     rows.value = d.rows || []
     total.value = d.total || 0
     page.value = d.page || 1
@@ -380,6 +392,11 @@ async function loadUsers(p) {
     if (e.status === 403) denied.value = true
     else toast(e.message || '加载失败', 'error')
   }
+}
+
+// 每页条数变更: 回第 1 页重载
+function changePageSize() {
+  loadUsers(1)
 }
 
 async function loadScoring(mode = 'auction') {
@@ -560,7 +577,9 @@ onMounted(() => {
 .pwd-pop { background: #1a1a1a; border: 1px solid #444; border-radius: 10px; padding: 18px 20px; min-width: 320px; box-shadow: 0 6px 24px rgba(0,0,0,0.7); }
 .pwd-title { font-size: 14px; color: #ffe0a0; margin-bottom: 12px; }
 .mini-date { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; color: #eee; padding: 3px 6px; font-size: 12px; color-scheme: dark; }
-.pager { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 12px; }
+.pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.pager-left { display: flex; align-items: center; gap: 6px; }
+.pager-right { display: flex; align-items: center; gap: 12px; }
 .page-btn { background: rgba(0,180,255,0.12); border: 1px solid #00b4ff; color: #a0e0ff; border-radius: 6px; padding: 4px 14px; cursor: pointer; }
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .weight-table input { color: #ffd700; }
