@@ -540,15 +540,16 @@ def process_all_stocks(raw, f, yesterday_map=None, snapshot_map=None):
     yesterday_map = yesterday_map or {}
     snapshot_map = snapshot_map or {}
     scored = []
-    # 竞价数据窗口内: f616=当日竞价额, 分母取最近交易日(T=昨日, 今天无日K)
-    # 非窗口(盘中/收盘): "竞价/昨比"语义已失效, 一律置 None(前端显示"-"), 避免地量日/累计额失真
+    # 竞价/昨比: 分子=今日竞价额(f616, 9:25定格), 分母=最近已收盘交易日(T)全天额。
+    # pair 由 _kline_amount_pair 保证 [最近已收盘T日, T-1日], 任何时间(窗口/盘中/收盘)都可算,
+    # 分母恒为最近已收盘交易日, 避免"今日累计额/地量日/前天"错位导致失真。
     auction_ok = in_auction_window()
     for s in raw:
         sc = compute_score(s)
         bid_amt = get_bid_amt(s, auction_ok)   # 万元
-        pair = yesterday_map.get(s.get("f12"))   # [T日全天额, T-1日全天额] 万元
+        pair = yesterday_map.get(s.get("f12"))   # [最近已收盘T日, T-1日] 万元
         bid_ratio = None
-        if auction_ok and pair:
+        if pair:
             y_amt = pair[0]
             bid_ratio = round(bid_amt / y_amt * 100, 2) if y_amt else None
         # 涨幅加速度: 9:25 竞价涨幅 - 9:20 竞价涨幅(最后5分钟抢筹; 仅竞价窗口内有意义)

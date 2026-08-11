@@ -257,20 +257,38 @@ def _fetch_yesterday_amount_one(code):
 
 
 def _kline_amount_pair(klines):
-    """从日K行(逗号分隔, 第7字段=成交额元)提取 [T日万元, T-1日万元]; 不足/无效返回 None"""
+    """从日K行(逗号分隔, 第0字段=日期, 第7字段=成交额元)提取 [最近已收盘T日万元, T-1日万元];
+    自动跳过"今天"(未收盘)的K线, 保证 pair[0] 恒为最近已收盘交易日全天额。
+    东财日期格式 YYYY-MM-DD, 同花顺 YYYYMMDD, 两种都兼容; 不足/无效返回 None。
+    (修复: 东财盘中含今天未收盘K线, 同花顺不含 → 两源 pair 语义曾不一致, 导致分母错位)"""
+    today = _bj_date_str()
     def amt_of(row):
         parts = row.split(",")
         if len(parts) < 7:
-            return None
+            return None, None
         try:
             v = float(parts[6])
+            if not (math.isfinite(v) and v > 0):
+                return None, None
+            return v / 10000.0, parts[0]
         except (TypeError, ValueError):
-            return None
-        return v / 10000.0 if (math.isfinite(v) and v > 0) else None
-    if not klines:
+            return None, None
+    def is_today(dstr):
+        if not dstr:
+            return False
+        d = dstr.replace("-", "")
+        return d == today.replace("-", "")
+    # 收集所有 (日期, 金额), 跳过今天
+    rows = []
+    for row in klines:
+        amt, dstr = amt_of(row)
+        if amt is not None and not is_today(dstr):
+            rows.append((dstr, amt))
+    if not rows:
         return None
-    t = amt_of(klines[-1])
-    t1 = amt_of(klines[-2]) if len(klines) >= 2 else None
+    # 最近已收盘 = 最后一行(按日期), 取它和它前一行
+    t = rows[-1][1]
+    t1 = rows[-2][1] if len(rows) >= 2 else None
     if t is None and t1 is None:
         return None
     return [t, t1]

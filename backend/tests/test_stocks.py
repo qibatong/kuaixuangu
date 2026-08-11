@@ -150,3 +150,31 @@ def test_spot_filters(monkeypatch):
     ]
     result = scorer.apply_spot_filters(items, f)
     assert [x["code"] for x in result] == ["1"]
+
+
+# ---------- 昨日成交额 pair 日期错位回归 ----------
+def test_kline_amount_pair_skips_today(monkeypatch):
+    """东财日K盘中含'今天'(未收盘)K线 → 必须跳过, pair[0] 恒为最近已收盘交易日
+    (修复: 宏昌科技分母错用8/7(前天), 宝莱特错用地量日 的根因)"""
+    import datetime
+    # 构造: 今天(未收盘,累计额大) + 昨天 + 前天
+    today = datetime.date.today().strftime("%Y-%m-%d")
+    from datetime import timedelta
+    yest = (datetime.date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+    before = (datetime.date.today() - timedelta(days=2)).strftime("%Y-%m-%d")
+    # 同花顺格式 YYYYMMDD
+    yest8 = yest.replace("-", "")
+    before8 = before.replace("-", "")
+    today8 = today.replace("-", "")
+
+    # 东财格式(含今天): 今天1.5亿, 昨天2亿, 前天1亿 → pair[0] 应为 2亿(昨天)
+    east = [f"{before},10,10,10,10,100,{1.0e8}", f"{yest},10,10,10,10,200,{2.0e8}", f"{today},10,10,10,10,300,{1.5e8}"]
+    p = fetcher._kline_amount_pair(east)
+    assert p is not None and abs(p[0] - 20000.0) < 1   # 2亿(昨天, 万元)
+    assert abs(p[1] - 10000.0) < 1                       # 1亿(前天)
+
+    # 同花顺格式(不含今天): 昨天2亿, 前天1亿 → pair[0]=2亿
+    ths = [f"{before8},10,10,10,10,100,{1.0e8}", f"{yest8},10,10,10,10,200,{2.0e8}"]
+    p2 = fetcher._kline_amount_pair(ths)
+    assert p2 is not None and abs(p2[0] - 20000.0) < 1
+    assert abs(p2[1] - 10000.0) < 1

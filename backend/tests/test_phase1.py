@@ -165,22 +165,25 @@ def test_process_all_stocks_has_qiangchou(monkeypatch):
 
 
 # ---------- 竞价/昨比 窗口口径 ----------
-def test_bid_ratio_off_window_is_none(monkeypatch):
-    """非竞价窗口(盘中/收盘): '竞价/昨比'语义失效, bidRatio 一律 None(前端显示-)
-    (修复: 盘中 f616 仍为竞价定格值, 而分母可能为地量日/累计额, 导致 100%+ 荒谬比值)"""
-    monkeypatch.setattr(scorer, "in_auction_window", lambda: False)
-    # f616=5000万, T日2亿/T-1日1.5亿 → 非窗口不再计算比值
+def test_bid_ratio_any_time_uses_last_closed_day(monkeypatch):
+    """竞价/昨比任何时间都计算: 分子=今日竞价额(f616), 分母=最近已收盘交易日(T)。
+    pair=[最近已收盘T, T-1], 窗口/盘中/收盘同一口径, 避免今日累计额/地量日/前天错位失真。"""
+    # 窗口内: pair[0]=最近已收盘 2亿 → 5000万/2亿 = 25%
+    monkeypatch.setattr(scorer, "in_auction_window", lambda: True)
     yesterday = {"600001": [20000.0, 15000.0]}
     raw = dict(QC_RAW)
     raw["f616"] = 5.0e7
     f = {"stSuspend": False, "limitUp": False, "bidGt": 7, "probLt": 65, "confLt": 65,
          "floatMvFloor": 1, "floatMvGt": 5000, "priceGt": 5000, "bidAmtFloor": 0}
     result = scorer.process_all_stocks([raw], f, yesterday)
-    assert result[0]["bidRatio"] is None
-    # 窗口内则用 T=2亿 → 25%
-    monkeypatch.setattr(scorer, "in_auction_window", lambda: True)
+    assert abs(result[0]["bidRatio"] - 25.0) < 0.01
+    # 非窗口(盘中/收盘): 同样用 pair[0]=最近已收盘交易日, 仍计算显示
+    monkeypatch.setattr(scorer, "in_auction_window", lambda: False)
     result2 = scorer.process_all_stocks([raw], f, yesterday)
     assert abs(result2[0]["bidRatio"] - 25.0) < 0.01
+    # pair 缺失 → None
+    result3 = scorer.process_all_stocks([raw], f, {})
+    assert result3[0]["bidRatio"] is None
 
 
 def test_get_bid_amt_off_window_no_f6_fallback(monkeypatch):
