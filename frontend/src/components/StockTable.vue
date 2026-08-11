@@ -81,7 +81,7 @@
             <div class="name-main">{{ item.name }}</div>
             <div v-if="item._offline" class="offline-tag" title="9:30 竞价锁定名单中的股票，当前实时榜已无此票（竞价结论恒定保留）">已跌出实时榜</div>
           </td>
-          <td :class="item._offline ? 'dim' : realCls(item)" :title="item._offline ? ('已跌出实时榜，无当前实时涨幅（竞价锁定时刻 ' + fmtPct(item._staleReal) + '）') : ''">{{ item._offline ? '-' : signed(item.realChange) + '%' }}</td>
+          <td :class="item.realChange === null || item.realChange === undefined ? 'dim' : realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + fmtPct(item._staleReal) + '）') : ''">{{ item.realChange === null || item.realChange === undefined ? '-' : signed(item.realChange) + '%' }}</td>
           <td>
             <span v-if="item.qiangchou" class="qc-badge" title="竞价涨幅≥2% 且 竞价/昨比≥20%">🔥抢筹</span>
             <span v-else-if="item._snapshot || isAuction" title="竞价涨幅≥2% 且 竞价/昨比≥20%">-</span>
@@ -89,7 +89,7 @@
           </td>
           <td :class="item.bidChange > 0 ? 'up' : 'down'" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'">{{ signed(item.bidChange) }}%</td>
           <td :class="accelCls(item.accel)" :title="accelTitle(item.accel)">{{ accelText(item.accel) }}</td>
-          <td :class="item._offline ? 'dim' : (item.entityChange > 0 ? 'up' : 'down')" :title="item._offline ? ('已跌出实时榜，无当前实体涨幅（竞价锁定时刻 ' + fmtPct(item._staleEntity) + '）') : ''">{{ item._offline ? '-' : signed(item.entityChange) + '%' }}</td>
+          <td :class="item.entityChange === null || item.entityChange === undefined ? 'dim' : (item.entityChange > 0 ? 'up' : 'down')" :title="item.entityChange === null || item.entityChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + fmtPct(item._staleEntity) + '）') : ''">{{ item.entityChange === null || item.entityChange === undefined ? '-' : signed(item.entityChange) + '%' }}</td>
           <td>{{ warnLabel(item.warnType) }}</td>
           <td :title="'集合竞价阶段撮合成交金额(万元)'">{{ bidAmtText(item.bidAmt) }}</td>
           <td :class="ratioCls(item.bidRatio)" :title="ratioTitle(item.bidRatio)">{{ ratioText(item.bidRatio) }}</td>

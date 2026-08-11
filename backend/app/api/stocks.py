@@ -39,19 +39,20 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
     t0 = time.time()
 
     try:
-        # 竞价模式: 沿用原缓存策略(lock 9:30 前强制拉取, refresh TTL, filter 建缓存)
-        # 盘中模式: 强制 refresh 语义(按 SPOT_CACHE_TTL 刷新), 不受 9:30 限制
+        # 盘中模式: 全市场拉取 + 盘中评分(按 SPOT_CACHE_TTL 刷新)
         if mode == "spot":
-            spot_action = "refresh"
-            raw, err = fetcher.ensure_spot_cache(spot_action, fs, before930)
-        else:
-            raw, err = fetcher.ensure_cache(action, fs, before930)
-        if err:
-            log.warning("选股被拒 uid=%s action=%s mode=%s err=%s", uid, action, mode, err)
-            return jr({"ok": False, "msg": err}, 403)
-
-        if mode == "spot":
-            # 盘中实时: 涨停池(封单/连板/炸板) + 实时评分 + 盘中过滤
+            raw, err = fetcher.ensure_spot_cache("refresh", fs, before930)
+            if err:
+                log.warning("选股被拒 uid=%s action=%s mode=%s err=%s", uid, action, mode, err)
+                return jr({"ok": False, "msg": err}, 403)
+            # 全市场实时行情 map(code -> 实时字段)
+            spot_map = {}
+            for s in raw:
+                spot_map[s.get("f12")] = {
+                    "realChange": scorer.parse_float(s.get("f3")),
+                    "entityChange": scorer.get_entity_change(s),
+                    "price": scorer.parse_float(s.get("f2")),
+                }
             zt_map = fetcher.fetch_zt_pool()
             result = scorer.process_spot_stocks(raw, f, zt_map)
             log.info("盘中选股 uid=%s markets=%s raw=%d只 涨停池=%d只 返回%d只 耗时%.0fms",
@@ -62,10 +63,24 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                 "ok": True, "mode": "spot",
                 "list": result, "count": len(result),
                 "before930": before930,
+                "spotMap": spot_map,
                 "dataTime": int(fetcher._cache[fs]["ts"]),
             })
 
-        # ---- 竞价模式(原逻辑) ----
+        # ---- 竞价模式 ----
+        # 评分筛选: 沿用原逻辑(9:30 前 lock 强制, refresh/filter 走 TTL 缓存, 至多200只)
+        raw, err = fetcher.ensure_cache(action, fs, before930)
+        if err:
+            log.warning("选股被拒 uid=%s action=%s mode=%s err=%s", uid, action, mode, err)
+            return jr({"ok": False, "msg": err}, 403)
+        # 全市场实时行情 map(仅 9:30 后需要; 独立拉取, 不参与评分, 供锁定名单 merge)
+        spot_map = {}
+        if not before930:
+            try:
+                all_raw = fetcher.fetch_spot_quote_map(fs)
+                spot_map = all_raw
+            except Exception as e:
+                log.warning("竞价模式全市场行情拉取失败(降级: spotMap 为空) err=%s", e)
         # 昨日成交额(并发拉日K, 当日缓存), 用于计算竞价/昨日成交占比
         yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw])
         # 9:20 快照(用于 9:25 涨幅加速度); 非竞价时段读库无数据返回空 map
@@ -110,5 +125,6 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         "list": result,
         "count": len(result),
         "before930": before930,
+        "spotMap": spot_map,   # 全市场实时行情(9:30 后锁定名单 merge 用)
         "dataTime": int(fetcher._cache[fs]["ts"]),
     })

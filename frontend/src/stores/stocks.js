@@ -176,9 +176,10 @@ export const useStocksStore = defineStore('stocks', {
         return raw ? JSON.parse(raw) : null
       } catch (e) { return null }
     },
-    // 9:30 后: 锁定名单不变, 用最新实时行情按 code 更新实时字段。
+    // 9:30 后: 锁定名单不变, 用全市场实时行情(spotMap)按 code 更新实时字段。
+    // 跌出过滤名单的票(不在 list)仍能从 spotMap 拿到实时涨幅 → 各列保持一致。
     // 权威名单优先取"当天 lock 批次"(后端落库, 跨设备/刷新一致), 失败退回本地快照。
-    async mergeSpotIntoLocked(spotList) {
+    async mergeSpotIntoLocked(spotList, spotMap) {
       let locked = null
       try {
         locked = await this.loadLockedBatchFromServer()
@@ -191,25 +192,34 @@ export const useStocksStore = defineStore('stocks', {
         // 无锁定名单(9:30 后首次打开且当天未 lock) → 实时名单(标 snapshot)
         return this.applyBidSnapshot(spotList || [])
       }
-      const spotMap = {}
-      ;(spotList || []).forEach((s) => { spotMap[s.code] = s })
+      const listMap = {}
+      ;(spotList || []).forEach((s) => { listMap[s.code] = s })
       return locked.map((it) => {
-        const rt = spotMap[it.code]
-        if (!rt) {
-          // 实时榜无此票(跌出) → 保留锁定名单, 实时涨幅/实体涨幅标为无当前值(用锁定时刻值作提示)
+        const lt = listMap[it.code]              // 在过滤名单里 → 有完整实时评分
+        const rt = (spotMap || {})[it.code]      // 全市场实时行情(跌出票也有)
+        if (lt) {
+          // 在榜: 更新实时字段 + 实时评分
           return {
             ...it,
-            realChange: null, entityChange: null,
-            _staleReal: it.realChange, _staleEntity: it.entityChange,
-            _snapshot: true, _offline: true
+            realChange: lt.realChange, entityChange: lt.entityChange,
+            probability: lt.probability, confidence: lt.confidence,
+            price: lt.price, _snapshot: true, _offline: false
           }
         }
-        // 更新实时字段, 保留竞价专属字段
+        if (rt) {
+          // 跌出过滤名单, 但全市场有实时行情 → 更新实时涨幅, 保留锁定评分, 标记跌出
+          return {
+            ...it,
+            realChange: rt.realChange, entityChange: rt.entityChange,
+            price: rt.price, _snapshot: true, _offline: true
+          }
+        }
+        // 全市场都没有(极端) → 保留锁定名单, 无实时值
         return {
           ...it,
-          realChange: rt.realChange, entityChange: rt.entityChange,
-          probability: rt.probability, confidence: rt.confidence,
-          price: rt.price, _snapshot: true, _offline: false
+          realChange: null, entityChange: null,
+          _staleReal: it.realChange, _staleEntity: it.entityChange,
+          _snapshot: true, _offline: true
         }
       })
     },
@@ -262,7 +272,7 @@ export const useStocksStore = defineStore('stocks', {
         this.cachedStocks = data.list
       } else {
         // 9:30 后: 锁定名单不变, 只把实时行情 merge 进名单(防"早盘跌出/午后复现")
-        this.cachedStocks = await this.mergeSpotIntoLocked(data.list)
+        this.cachedStocks = await this.mergeSpotIntoLocked(data.list, data.spotMap)
       }
       this.isDataCached = true
       this.before930 = data.before930
@@ -273,7 +283,7 @@ export const useStocksStore = defineStore('stocks', {
       if (!this.isDataCached) { await this.fetchAndCache(); return }
       const data = await fetchStocks('refresh', this.buildFilterParams())
       // 9:30 后: 锁定名单不变, 只更新实时字段
-      this.cachedStocks = await this.mergeSpotIntoLocked(data.list)
+      this.cachedStocks = await this.mergeSpotIntoLocked(data.list, data.spotMap)
       this.before930 = data.before930
       this.realTimeRefreshUsed = true
       showToast('✅ 实时涨幅更新完成', 'success')
@@ -293,7 +303,7 @@ export const useStocksStore = defineStore('stocks', {
       }
       const data = await fetchStocks('filter', this.buildFilterParams())
       // 9:30 后: 保持锁定名单, 只更新实时行情(9:30 前才允许重新筛选)
-      this.cachedStocks = isBefore930() ? data.list : await this.mergeSpotIntoLocked(data.list)
+      this.cachedStocks = isBefore930() ? data.list : await this.mergeSpotIntoLocked(data.list, data.spotMap)
       this.isDataCached = true
       this.before930 = data.before930
       this.saveUserPrefs()

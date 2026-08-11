@@ -207,6 +207,54 @@ def ensure_spot_cache(action, fs, before930):
         return _cache[fs]["raw"], None
 
 
+# 全市场实时行情 map 的独立缓存(避免与竞价200只缓存共用 key 串数据)
+_quote_map_cache = {}
+_quote_map_lock = threading.Lock()
+
+
+def fetch_spot_quote_map(fs):
+    """9:30 后竞价模式: 全市场实时行情 map(code -> {realChange, entityChange, price})。
+    独立缓存(SPOT_CACHE_TTL), 不参与评分, 供前端锁定名单 merge。"""
+    with _quote_map_lock:
+        now = time.time()
+        ent = _quote_map_cache.get(fs)
+        if ent is None or now - ent["ts"] > config.SPOT_CACHE_TTL:
+            try:
+                raw = fetch_eastmoney_all(fs)
+                _quote_map_cache[fs] = {"raw": raw, "ts": now}
+                log.info("全市场行情map刷新 fs=%s 共%d只", fs, len(raw))
+            except Exception as e:
+                if ent is not None:
+                    log.warning("全市场行情map拉取失败, 沿用旧缓存 fs=%s err=%s", fs, e)
+                else:
+                    raise
+        else:
+            log.info("全市场行情map命中 fs=%s 年龄%.0fs", fs, now - ent["ts"])
+        raw = _quote_map_cache[fs]["raw"]
+    out = {}
+    for s in raw:
+        out[s.get("f12")] = {
+            "realChange": _parse_float(s.get("f3")),
+            "entityChange": _entity_change(s),
+            "price": _parse_float(s.get("f2")),
+        }
+    return out
+
+
+def _parse_float(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _entity_change(s):
+    """实体涨幅 = (现价-今开)/今开*100; 与 scorer 保持一致"""
+    c = _parse_float(s.get("f2"))
+    o = _parse_float(s.get("f17"))
+    return 0.0 if o == 0 else (c - o) / o * 100
+
+
 def _host_blocked(host):
     ts = _broken_hosts.get(host)
     return ts is not None and time.time() - ts < _HOST_COOLDOWN
