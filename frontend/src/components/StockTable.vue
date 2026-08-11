@@ -4,17 +4,26 @@
     <table v-else class="stock-table">
       <thead>
         <tr>
-          <th>排名</th><th>股票代码</th><th>股票名称</th>
-          <th title="竞价涨幅≥2% 且 竞价/昨比≥20% 时标记 🔥抢筹：代表资金在集合竞价阶段大幅抢筹，是当日强势启动的先行信号">抢筹</th>
-          <th title="竞价涨幅">竞价涨幅</th>
-          <th title="最后5分钟抢筹加速度：9:25竞价涨幅 − 9:20竞价涨幅(百分点)。正值=9:20后资金加速抢筹，≥+1.5% 显著(红色加粗)；负值=竞价冲高回落，警惕">加速度</th>
-          <th>实时涨幅</th><th>实体涨幅</th><th>异动</th><th>竞价金额(万)</th>
-          <th title="竞价成交额 ÷ 前一交易日全天成交额(%)。衡量竞价资金强度：值越高说明竞价阶段成交越活跃；≥20% 视为强抢筹（配合抢筹列使用）。非竞价时段/无数据时显示 -">竞价/昨比</th>
-          <th>流通市值(亿)</th><th>行业</th><th>概念</th><th>综合评分</th><th>可信度</th>
+          <th>排名</th>
+          <th class="sortable" :class="{ active: sortKey === 'code' }" @click="onSort('code', 'string')">股票代码<span class="sort-ind">{{ sortInd('code') }}</span></th>
+          <th class="sortable" :class="{ active: sortKey === 'name' }" @click="onSort('name', 'string')">股票名称<span class="sort-ind">{{ sortInd('name') }}</span></th>
+          <th class="sortable" :class="{ active: sortKey === 'qiangchou' }" @click="onSort('qiangchou', 'number')" title="竞价涨幅≥2% 且 竞价/昨比≥20% 时标记 🔥抢筹：代表资金在集合竞价阶段大幅抢筹，是当日强势启动的先行信号">抢筹<span class="sort-ind">{{ sortInd('qiangchou') }}</span></th>
+          <th class="sortable num" :class="{ active: sortKey === 'bidChange' }" @click="onSort('bidChange', 'number')" title="竞价涨幅">竞价涨幅<span class="sort-ind">{{ sortInd('bidChange') }}</span></th>
+          <th class="sortable num" :class="{ active: sortKey === 'accel' }" @click="onSort('accel', 'number')" title="最后5分钟抢筹加速度：9:25竞价涨幅 − 9:20竞价涨幅(百分点)。正值=9:20后资金加速抢筹，≥+1.5% 显著(红色加粗)；负值=竞价冲高回落，警惕">加速度<span class="sort-ind">{{ sortInd('accel') }}</span></th>
+          <th class="sortable num" :class="{ active: sortKey === 'realChange' }" @click="onSort('realChange', 'number')">实时涨幅<span class="sort-ind">{{ sortInd('realChange') }}</span></th>
+          <th class="sortable num" :class="{ active: sortKey === 'entityChange' }" @click="onSort('entityChange', 'number')">实体涨幅<span class="sort-ind">{{ sortInd('entityChange') }}</span></th>
+          <th class="sortable" :class="{ active: sortKey === 'warnType' }" @click="onSort('warnType', 'number')">异动<span class="sort-ind">{{ sortInd('warnType') }}</span></th>
+          <th class="sortable num" :class="{ active: sortKey === 'bidAmt' }" @click="onSort('bidAmt', 'number')">竞价金额(万)<span class="sort-ind">{{ sortInd('bidAmt') }}</span></th>
+          <th class="sortable num" :class="{ active: sortKey === 'bidRatio' }" @click="onSort('bidRatio', 'number')" title="竞价成交额 ÷ 前一交易日全天成交额(%)。衡量竞价资金强度：值越高说明竞价阶段成交越活跃；≥20% 视为强抢筹（配合抢筹列使用）。非竞价时段/无数据时显示 -">竞价/昨比<span class="sort-ind">{{ sortInd('bidRatio') }}</span></th>
+          <th class="sortable num" :class="{ active: sortKey === 'circulationMV' }" @click="onSort('circulationMV', 'number')">流通市值(亿)<span class="sort-ind">{{ sortInd('circulationMV') }}</span></th>
+          <th class="sortable" :class="{ active: sortKey === 'industry' }" @click="onSort('industry', 'string')">行业<span class="sort-ind">{{ sortInd('industry') }}</span></th>
+          <th class="sortable" :class="{ active: sortKey === 'concept' }" @click="onSort('concept', 'string')">概念<span class="sort-ind">{{ sortInd('concept') }}</span></th>
+          <th class="sortable num" :class="{ active: sortKey === 'probability' }" @click="onSort('probability', 'number')">综合评分<span class="sort-ind">{{ sortInd('probability') }}</span></th>
+          <th class="sortable num" :class="{ active: sortKey === 'confidence' }" @click="onSort('confidence', 'number')">可信度<span class="sort-ind">{{ sortInd('confidence') }}</span></th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(item, idx) in stocks" :key="item.code">
+        <tr v-for="(item, idx) in sortedStocks" :key="item.code">
           <td class="rank-col">{{ idx + 1 }}</td>
           <td class="code-click" @click="linkToSoftware(item.code)">{{ item.code }}</td>
           <td>{{ item.name }}</td>
@@ -42,15 +51,63 @@
 </template>
 
 <script setup>
+import { ref, computed } from 'vue'
 import { linkToSoftware } from '../utils/tdx'
 import { isBefore930 } from '../utils/time'
 
-defineProps({
+const props = defineProps({
   stocks: { type: Array, default: () => [] }
 })
 
 // 是否处于竞价时段(9:30 前): 非竞价时段不判定抢筹, 显示"竞价时"
 const isAuction = isBefore930()
+
+// 排序状态: { key: 'bidChange', dir: 'asc' | 'desc' } 或 null
+const sortState = ref(null)
+
+// 切换排序状态: 无 → 降序(默认, 数值越大越靠前) → 升序 → 无
+// 字符串列默认升序(字典序), 数值列默认降序
+function onSort(key, type) {
+  if (!sortState.value || sortState.value.key !== key) {
+    sortState.value = { key, dir: type === 'string' ? 'asc' : 'desc' }
+  } else if (sortState.value.dir === 'desc') {
+    sortState.value = { key, dir: 'asc' }
+  } else {
+    sortState.value = null
+  }
+}
+
+function sortInd(key) {
+  if (!sortState.value || sortState.value.key !== key) return ''
+  return sortState.value.dir === 'desc' ? ' ↓' : ' ↑'
+}
+
+const sortKey = computed(() => sortState.value ? sortState.value.key : null)
+
+// 排序后的列表; null/undefined 始终排到末尾(无论升降)
+const sortedStocks = computed(() => {
+  if (!sortState.value) return props.stocks
+  const { key, dir } = sortState.value
+  const colDef = columnType(key)
+  const mult = dir === 'asc' ? 1 : -1
+  return [...props.stocks].sort((a, b) => {
+    const av = a[key], bv = b[key]
+    // null/undefined 排到末尾
+    const aNull = av === null || av === undefined
+    const bNull = bv === null || bv === undefined
+    if (aNull && bNull) return 0
+    if (aNull) return 1
+    if (bNull) return -1
+    if (colDef === 'string') return mult * String(av).localeCompare(String(bv), 'zh-Hans-CN')
+    return mult * (av - bv)
+  })
+})
+
+// 列类型映射(影响默认排序方向和比较方式)
+function columnType(key) {
+  const strKeys = new Set(['code', 'name', 'industry', 'concept'])
+  return strKeys.has(key) ? 'string' : 'number'
+}
 
 function signed(v) { return (v > 0 ? '+' : '') + v.toFixed(2) }
 function accelText(v) {
@@ -90,6 +147,31 @@ function ratioText(br) {
 </script>
 
 <style scoped>
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+th.sortable:hover {
+  color: #ff8a65;
+}
+th.sortable.active {
+  color: #ff5028;
+}
+.sort-ind {
+  display: inline-block;
+  width: 10px;
+  color: #ff5028;
+  font-weight: 700;
+}
+th.sortable:hover .sort-ind:not(:empty),
+th.sortable.active .sort-ind {
+  opacity: 1;
+}
+th.sortable .sort-ind:empty::before {
+  content: '↕';
+  opacity: 0.25;
+  font-weight: 400;
+}
 .qc-badge {
   display: inline-block;
   background: rgba(255, 80, 40, 0.18);
