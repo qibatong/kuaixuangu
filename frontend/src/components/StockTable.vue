@@ -77,7 +77,10 @@
         <tr v-for="(item, idx) in sortedStocks" :key="item.code" :class="{ 'row-offline': item._offline }">
           <td class="rank-col">{{ idx + 1 }}</td>
           <td class="code-click" @click="linkToSoftware(item.code)">{{ item.code }}</td>
-          <td>{{ item.name }}<span v-if="item._offline" class="offline-tag" title="9:30 竞价锁定名单中的股票，当前实时榜已无此票（竞价结论恒定保留）">已跌出</span></td>
+          <td class="name-col">
+            <div class="name-main">{{ item.name }}</div>
+            <div v-if="item._offline" class="offline-tag" title="9:30 竞价锁定名单中的股票，当前实时榜已无此票（竞价结论恒定保留）">已跌出实时榜</div>
+          </td>
           <td :class="realCls(item)">{{ signed(item.realChange) }}%</td>
           <td>
             <span v-if="item.qiangchou" class="qc-badge" title="竞价涨幅≥2% 且 竞价/昨比≥20%">🔥抢筹</span>
@@ -283,13 +286,17 @@ th.sortable .sort-ind:empty::before {
   cursor: default;
 }
 .row-offline td { opacity: 0.55; }
+.name-col { min-width: 90px; }
+.name-main { line-height: 1.4; }
 .offline-tag {
-  margin-left: 6px;
-  font-size: 11px;
-  color: #888;
-  border: 1px dashed #666;
+  display: inline-block;
+  margin-top: 3px;
+  font-size: 10px;
+  line-height: 1.3;
+  color: #999;
+  border: 1px dashed #777;
   border-radius: 4px;
-  padding: 0 5px;
+  padding: 1px 5px;
 }
 @keyframes qc-pulse {
   0%, 100% { opacity: 1; }
