@@ -156,20 +156,17 @@ export const useStocksStore = defineStore('stocks', {
       }
     },
 
-    // ---- 竞价结论快照(9:30 后保留抢筹标记) ----
-    // lock(9:30前)时保存 竞价结论; refresh(9:30后)时用快照覆盖 qiangchou/bidRatio,
-    // 避免收盘数据把"竞价抢筹"结论冲掉
+    // ---- 竞价锁定名单快照(9:30 后保持名单不变, 只更新实时行情) ----
+    // lock(9:30前)时保存完整名单; 9:30 后 refresh/筛选 都基于此名单 merge 实时数据,
+    // 避免"早盘跌出/午后复现"等名单漂移(竞价结论应恒定)
     snapshotKey() {
       const user = useUserStore()
       return 'kuaixuan_bid_snapshot_' + (user.username || 'guest') + '_' + bjDateStr()
     },
     saveBidSnapshot(list) {
       try {
-        const snap = {}
-        ;(list || []).forEach((it) => {
-          snap[it.code] = { qiangchou: it.qiangchou ? 1 : 0, bidRatio: it.bidRatio, accel: it.accel }
-        })
-        localStorage.setItem(this.snapshotKey(), JSON.stringify(snap))
+        // 完整名单 + 竞价专属结论(qiangchou/bidRatio/accel)
+        localStorage.setItem(this.snapshotKey(), JSON.stringify(list || []))
       } catch (e) { /* ignore */ }
     },
     loadBidSnapshot() {
@@ -178,9 +175,41 @@ export const useStocksStore = defineStore('stocks', {
         return raw ? JSON.parse(raw) : null
       } catch (e) { return null }
     },
+    // 9:30 后: 锁定名单不变, 用最新实时行情按 code 更新实时字段
+    mergeSpotIntoLocked(spotList) {
+      const locked = this.loadBidSnapshot()
+      if (!Array.isArray(locked) || !locked.length) {
+        // 无锁定快照(9:30 后首次打开) → 退化为实时名单(但仍标 snapshot 保留竞价字段)
+        return this.applyBidSnapshot(spotList || [])
+      }
+      const spotMap = {}
+      ;(spotList || []).forEach((s) => { spotMap[s.code] = s })
+      return locked.map((it) => {
+        const rt = spotMap[it.code]
+        if (!rt) {
+          return { ...it, _snapshot: true, _offline: true }   // 实时榜无此票(跌出) → 保留锁定名单, 标记
+        }
+        // 更新实时字段, 保留竞价专属字段
+        return {
+          ...it,
+          realChange: rt.realChange, entityChange: rt.entityChange,
+          probability: rt.probability, confidence: rt.confidence,
+          price: rt.price, _snapshot: true, _offline: false
+        }
+      })
+    },
     applyBidSnapshot(list) {
       const snap = this.loadBidSnapshot()
       if (!snap) return list
+      // 兼容旧格式(dict: code -> {qiangchou,bidRatio,accel}) 与 新格式(完整名单数组)
+      if (Array.isArray(snap)) {
+        // 新格式: 名单本身即锁定名单, 直接用(9:30 后无锁定名单时退化用实时名单)
+        return (list || []).map((it) => {
+          const s = snap.find((x) => x.code === it.code)
+          if (s) return { ...it, qiangchou: s.qiangchou, bidRatio: s.bidRatio, accel: s.accel, _snapshot: true }
+          return it
+        })
+      }
       return (list || []).map((it) => {
         const s = snap[it.code]
         if (s) return { ...it, qiangchou: s.qiangchou, bidRatio: s.bidRatio, accel: s.accel, _snapshot: true }
@@ -191,16 +220,16 @@ export const useStocksStore = defineStore('stocks', {
     // ---- 数据操作 ----
     async fetchAndCache() {
       if (this.isDataCached) return
-      // 9:30 前锁定最新竞价数据(落库); 9:30 后拉取/更新实时数据
+      // 9:30 前锁定最新竞价数据(落库); 9:30 后保持锁定名单, 只更新实时行情
       const action = isBefore930() ? 'lock' : 'refresh'
       const data = await fetchStocks(action, this.buildFilterParams())
-      let list = data.list
       if (action === 'lock') {
-        this.saveBidSnapshot(list)          // 保存竞价抢筹结论
+        this.saveBidSnapshot(data.list)          // 保存完整竞价锁定名单(含抢筹结论)
+        this.cachedStocks = data.list
       } else {
-        list = this.applyBidSnapshot(list)  // 9:30 后保留竞价结论
+        // 9:30 后: 锁定名单不变, 只把实时行情 merge 进名单(防"早盘跌出/午后复现")
+        this.cachedStocks = this.mergeSpotIntoLocked(data.list)
       }
-      this.cachedStocks = list
       this.isDataCached = true
       this.before930 = data.before930
       this.realTimeRefreshUsed = false
@@ -209,7 +238,8 @@ export const useStocksStore = defineStore('stocks', {
     async updateRealTimeOnly() {
       if (!this.isDataCached) { await this.fetchAndCache(); return }
       const data = await fetchStocks('refresh', this.buildFilterParams())
-      this.cachedStocks = this.applyBidSnapshot(data.list)   // 保留竞价抢筹结论
+      // 9:30 后: 锁定名单不变, 只更新实时字段
+      this.cachedStocks = this.mergeSpotIntoLocked(data.list)
       this.before930 = data.before930
       this.realTimeRefreshUsed = true
       showToast('✅ 实时涨幅更新完成', 'success')
@@ -228,7 +258,8 @@ export const useStocksStore = defineStore('stocks', {
         return
       }
       const data = await fetchStocks('filter', this.buildFilterParams())
-      this.cachedStocks = isBefore930() ? data.list : this.applyBidSnapshot(data.list)
+      // 9:30 后: 保持锁定名单, 只更新实时行情(9:30 前才允许重新筛选)
+      this.cachedStocks = isBefore930() ? data.list : this.mergeSpotIntoLocked(data.list)
       this.isDataCached = true
       this.before930 = data.before930
       this.saveUserPrefs()

@@ -74,10 +74,10 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(item, idx) in sortedStocks" :key="item.code">
+        <tr v-for="(item, idx) in sortedStocks" :key="item.code" :class="{ 'row-offline': item._offline }">
           <td class="rank-col">{{ idx + 1 }}</td>
           <td class="code-click" @click="linkToSoftware(item.code)">{{ item.code }}</td>
-          <td>{{ item.name }}</td>
+          <td>{{ item.name }}<span v-if="item._offline" class="offline-tag" title="9:30 竞价锁定名单中的股票，当前实时榜已无此票（竞价结论恒定保留）">已跌出</span></td>
           <td :class="realCls(item)">{{ signed(item.realChange) }}%</td>
           <td>
             <span v-if="item.qiangchou" class="qc-badge" title="竞价涨幅≥2% 且 竞价/昨比≥20%">🔥抢筹</span>
@@ -281,6 +281,15 @@ th.sortable .sort-ind:empty::before {
   border-color: #78c850;
   color: #e8ffd0;
   cursor: default;
+}
+.row-offline td { opacity: 0.55; }
+.offline-tag {
+  margin-left: 6px;
+  font-size: 11px;
+  color: #888;
+  border: 1px dashed #666;
+  border-radius: 4px;
+  padding: 0 5px;
 }
 @keyframes qc-pulse {
   0%, 100% { opacity: 1; }
