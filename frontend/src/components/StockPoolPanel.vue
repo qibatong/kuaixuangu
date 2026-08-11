@@ -8,6 +8,7 @@
       </div>
       <div class="pool-buttons">
         <button class="pool-btn" @click="manualAdd"><i class="fa fa-plus-circle"></i> 加入当前前三</button>
+        <button class="pool-btn" @click="manualAddAll"><i class="fa fa-plus"></i> 加入全部</button>
         <button class="pool-btn" @click="clearPool"><i class="fa fa-trash-o"></i> 清空股票池</button>
         <button class="pool-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="exportPool"><i class="fa fa-share-square-o"></i> 下载股票池</button>
       </div>
@@ -74,10 +75,23 @@ const expiryText = computed(() => {
   return ` 锁定剩余 <strong>${h}小时${m}分</strong>`
 })
 
+// 当前模式的选股结果(竞价 cachedStocks / 盘中 spotStocks)
+function currentList() {
+  return stocksStore.mode === 'spot' ? stocksStore.spotStocks : stocksStore.cachedStocks
+}
+
 function manualAdd() {
-  if (!stocksStore.isDataCached || !stocksStore.cachedStocks.length) { showToast('无缓存', 'error'); return }
-  pool.addStocks(stocksStore.cachedStocks.slice(0, 3))
-  showToast('✅ 已加入当前前三', 'success')
+  const list = currentList()
+  if (!list.length) { showToast('当前模式无数据', 'error'); return }
+  const n = pool.addStocks(list.slice(0, 3))
+  showToast(n ? `✅ 已加入当前前三 (新增${n}只)` : '前三已在池中', n ? 'success' : 'info')
+}
+
+function manualAddAll() {
+  const list = currentList()
+  if (!list.length) { showToast('当前模式无数据', 'error'); return }
+  const n = pool.addStocks(list)
+  showToast(n ? `✅ 已加入全部 (新增${n}只)` : '全部已在池中', n ? 'success' : 'info')
 }
 
 function clearPool() {

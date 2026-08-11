@@ -179,12 +179,17 @@ async function init() {
   }
   // 启动定时器: 时钟 / 自动收录 / 过期检查
   clockTimer = setInterval(() => { bjTime.value = bjTimeStr() }, 1000)
-  autoAddTimer = setInterval(() => pool.autoAdd(stocks.cachedStocks, stocks.isDataCached), 20000)
+  autoAddTimer = setInterval(() => pool.autoAdd(currentList(), stocks.isDataCached || stocks.isSpotCached), 20000)
   // 数据源健康状态(每 5 分钟刷新)
   loadHealth()
   healthTimer = setInterval(loadHealth, 300000)
   expiryTimer = setInterval(() => pool.checkExpiry(), 30000)
-  pool.autoAdd(stocks.cachedStocks, stocks.isDataCached)
+  pool.autoAdd(currentList(), stocks.isDataCached || stocks.isSpotCached)
+}
+
+// 当前模式的选股结果(竞价 cachedStocks / 盘中 spotStocks)
+function currentList() {
+  return stocks.mode === 'spot' ? stocks.spotStocks : stocks.cachedStocks
 }
 
 function reLock() {

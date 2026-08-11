@@ -22,6 +22,7 @@
           <th class="sortable" :class="{ active: sortKey === 'concept' }" @click="onSort('concept', 'string')">概念<span class="sort-ind">{{ sortInd('concept') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'probability' }" @click="onSort('probability', 'number')">综合评分<span class="sort-ind">{{ sortInd('probability') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'confidence' }" @click="onSort('confidence', 'number')">可信度<span class="sort-ind">{{ sortInd('confidence') }}</span></th>
+          <th class="op-col">操作</th>
         </tr>
       </thead>
       <tbody>
@@ -44,6 +45,7 @@
           <td style="max-width:180px;white-space:pre-wrap">{{ item.concept }}</td>
           <td class="up">{{ item.probability }}分</td>
           <td>{{ item.confidence }}%</td>
+          <td><button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click.stop="addToPool(item)">{{ inPool(item.code) ? '已入池' : '＋池' }}</button></td>
         </tr>
       </tbody>
     </table>
@@ -68,6 +70,7 @@
           <th class="sortable" :class="{ active: sortKey === 'concept' }" @click="onSort('concept', 'string')">概念<span class="sort-ind">{{ sortInd('concept') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'probability' }" @click="onSort('probability', 'number')">综合评分<span class="sort-ind">{{ sortInd('probability') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'confidence' }" @click="onSort('confidence', 'number')">可信度<span class="sort-ind">{{ sortInd('confidence') }}</span></th>
+          <th class="op-col">操作</th>
         </tr>
       </thead>
       <tbody>
@@ -92,6 +95,7 @@
           <td style="max-width:180px;white-space:pre-wrap">{{ item.concept }}</td>
           <td class="up">{{ item.probability }}分</td>
           <td>{{ item.confidence }}%</td>
+          <td><button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click.stop="addToPool(item)">{{ inPool(item.code) ? '已入池' : '＋池' }}</button></td>
         </tr>
       </tbody>
     </table>
@@ -102,6 +106,10 @@
 import { ref, computed } from 'vue'
 import { linkToSoftware } from '../utils/tdx'
 import { isBefore930 } from '../utils/time'
+import { usePoolStore } from '../stores/pool'
+import { showToast } from '../utils/toast'
+
+const pool = usePoolStore()
 
 const props = defineProps({
   stocks: { type: Array, default: () => [] },
@@ -159,6 +167,16 @@ function columnType(key) {
 }
 
 function signed(v) { return (v > 0 ? '+' : '') + v.toFixed(2) }
+
+// 手动收录单只股票到策略池(任意数量)
+function addToPool(item) {
+  const n = pool.addStocks([item])
+  showToast(n ? `✅ ${item.code} ${item.name} 已加入股票池` : `${item.code} 已在池中`, n ? 'success' : 'info')
+}
+// 是否已在池中
+function inPool(code) {
+  return pool.stockPool.some(x => x.code === code)
+}
 function accelText(v) {
   if (v === null || v === undefined || isNaN(v)) return '-'
   return (v > 0 ? '+' : '') + v.toFixed(2) + '%'
@@ -241,6 +259,28 @@ th.sortable .sort-ind:empty::before {
 .accel-hot {
   color: #ff5028;
   font-weight: 700;
+}
+.op-col {
+  min-width: 56px;
+}
+.pool-add-btn {
+  background: rgba(120, 200, 80, 0.15);
+  border: 1px solid #78c850;
+  color: #c0e8a0;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pool-add-btn:hover {
+  background: rgba(120, 200, 80, 0.3);
+}
+.pool-add-btn.added {
+  background: rgba(120, 200, 80, 0.35);
+  border-color: #78c850;
+  color: #e8ffd0;
+  cursor: default;
 }
 @keyframes qc-pulse {
   0%, 100% { opacity: 1; }
