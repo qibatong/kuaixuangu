@@ -141,25 +141,27 @@
       <!-- 打分明细配置(竞价/盘中 Tab 联动) -->
       <div class="admin-card">
         <div class="card-title"><i class="fa fa-table"></i> 打分明细（各因子分段得分） <span style="color:#888;font-size:12px;margin-left:8px;">命中区间 [下限, 上限) 得对应分，未命中取默认分</span></div>
-        <div v-for="fk in curFactorOrder" :key="fk" class="factor-box">
-          <div class="factor-title">{{ curFactors[fk] ? curFactors[fk].label : fk }} <span style="color:#888;font-size:12px;">（{{ curFactors[fk] ? curFactors[fk].unit : '' }}）</span>
-            <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
-              默认分 <input v-model.number="curFactors[fk].default" type="number" step="0.05" min="0" max="1" class="admin-input" style="width:70px;" />
-            </span>
+        <template v-for="fk in curFactorOrder" :key="fk">
+          <div v-if="curFactors[fk] && curFactors[fk].buckets" class="factor-box">
+            <div class="factor-title">{{ curFactors[fk] ? curFactors[fk].label : fk }} <span style="color:#888;font-size:12px;">（{{ curFactors[fk] ? curFactors[fk].unit : '' }}）</span>
+              <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+                默认分 <input v-model.number="curFactors[fk].default" type="number" step="0.05" min="0" max="1" class="admin-input" style="width:70px;" />
+              </span>
+            </div>
+            <table class="admin-table bucket-table">
+              <thead><tr><th style="width:120px;">下限</th><th style="width:120px;">上限</th><th>得分(0~1)</th><th style="width:70px;"></th></tr></thead>
+              <tbody>
+                <tr v-for="(b, idx) in curFactors[fk].buckets" :key="idx">
+                  <td><input v-model.number="b[0]" type="number" step="0.1" class="admin-input" style="width:100px;" /></td>
+                  <td><input v-model.number="b[1]" type="number" step="0.1" class="admin-input" style="width:100px;" /></td>
+                  <td><input v-model.number="b[2]" type="number" step="0.05" min="0" max="1" class="admin-input" style="width:100px;" /></td>
+                  <td><button class="del-btn" @click="delBucket(fk, idx)"><i class="fa fa-trash-o"></i></button></td>
+                </tr>
+                <tr><td colspan="4"><button class="add-btn" @click="addBucket(fk)"><i class="fa fa-plus"></i> 新增分档</button></td></tr>
+              </tbody>
+            </table>
           </div>
-          <table class="admin-table bucket-table">
-            <thead><tr><th style="width:120px;">下限</th><th style="width:120px;">上限</th><th>得分(0~1)</th><th style="width:70px;"></th></tr></thead>
-            <tbody>
-              <tr v-for="(b, idx) in curFactors[fk].buckets" :key="idx">
-                <td><input v-model.number="b[0]" type="number" step="0.1" class="admin-input" style="width:100px;" /></td>
-                <td><input v-model.number="b[1]" type="number" step="0.1" class="admin-input" style="width:100px;" /></td>
-                <td><input v-model.number="b[2]" type="number" step="0.05" min="0" max="1" class="admin-input" style="width:100px;" /></td>
-                <td><button class="del-btn" @click="delBucket(fk, idx)"><i class="fa fa-trash-o"></i></button></td>
-              </tr>
-              <tr><td colspan="4"><button class="add-btn" @click="addBucket(fk)"><i class="fa fa-plus"></i> 新增分档</button></td></tr>
-            </tbody>
-          </table>
-        </div>
+        </template>
       </div>
       <!-- 历史竞价回放 -->
       <div class="admin-card">
@@ -287,9 +289,21 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize))
 
 function switchScoringMode(m) {
   scoringMode.value = m
-  // 未加载过的 mode 首次切换时拉取
-  const loaded = m === 'spot' ? scoringSpotLoaded : scoringLoaded
-  if (!loaded) loadScoring(m)
+  // 未加载过的 mode 首次切换时拉取(注意 ref 需取 .value)
+  const loaded = m === 'spot' ? scoringSpotLoaded.value : scoringLoaded.value
+  if (!loaded) {
+    // 先预置空结构, 避免异步加载期间模板空白/闪烁
+    if (m === 'spot') {
+      SPOT_FACTOR_ORDER.forEach((fk) => {
+        if (!factorsSpot[fk]) factorsSpot[fk] = { label: fk, unit: '', buckets: [], default: 0.1 }
+      })
+    } else {
+      factorOrder.forEach((fk) => {
+        if (!factors[fk]) factors[fk] = { label: fk, unit: '', buckets: [], default: 0.1 }
+      })
+    }
+    loadScoring(m)
+  }
 }
 
 const factors = reactive({})        // 竞价打分明细
