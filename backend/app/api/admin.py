@@ -14,7 +14,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from ..core import logger
 from ..services import scorer, settings, users
-from .deps import get_uid, jr, qs
+from .deps import client_ip, get_uid, jr, qs
 
 log = logger.get_logger(__name__)
 
@@ -112,6 +112,37 @@ def api_admin_user_expire(request: Request, body: dict = Body(...), uid: int = D
              uid, target, u["username"], row.get("expire_at"))
     return jr({"ok": True, "msg": "已设置", "uid": target,
                "username": u["username"], "expire_at": row.get("expire_at")})
+
+
+@router.post("/api/admin/users/reset-password")
+def api_admin_user_reset_password(request: Request, body: dict = Body(...),
+                                  uid: int = Depends(get_admin)):
+    """管理员重置用户密码: {uid, password} 或 {username, password}
+    密码至少 6 位; 不能重置自己的密码(防止误操作锁死管理员)。"""
+    target = int(body.get("uid") or 0)
+    username = str(body.get("username") or "").strip()
+    new_pw = str(body.get("password") or "")
+
+    if not new_pw or len(new_pw) < 6:
+        return jr({"ok": False, "msg": "新密码至少 6 位"}, 400)
+    if len(new_pw) > 64:
+        return jr({"ok": False, "msg": "新密码过长(最多64位)"}, 400)
+
+    if target > 0:
+        u = users.find_user_by_id(target)
+    elif username:
+        u = users.find_user_by_login(username)
+    else:
+        return jr({"ok": False, "msg": "缺少 uid 或 username"}, 400)
+    if not u:
+        return jr({"ok": False, "msg": "用户不存在"}, 404)
+    if int(u.get("id")) == uid:
+        return jr({"ok": False, "msg": "不能重置自己的密码(请用修改密码功能)"}, 400)
+
+    if not users.set_password(u["id"], new_pw):
+        return jr({"ok": False, "msg": "重置失败"}, 500)
+    log.info("管理端重置密码 uid=%s target=%s(%s) ip=%s", uid, u["id"], u["username"], client_ip(request))
+    return jr({"ok": True, "msg": "密码已重置", "uid": u["id"], "username": u["username"]})
 
 
 @router.get("/api/admin/scoring")

@@ -72,6 +72,19 @@ def set_expire(uid, expire_ts):
         return False
 
 
+def set_password(uid, new_password):
+    """重置用户密码(管理员操作), 返回是否成功"""
+    try:
+        conn = _conn()
+        conn.execute("UPDATE users SET password_hash=? WHERE id=?",
+                     (security.hash_password(new_password), uid))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
 def extend_expire(uid, days):
     """从 max(现在, 当前到期) 累加 days 天(续费可叠加), 返回新到期时间戳"""
     row = find_user_by_id(uid)

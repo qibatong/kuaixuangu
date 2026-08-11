@@ -20,6 +20,11 @@ export function setUserExpire(uid, payload) {
   return request('/api/admin/users/expire', { method: 'POST', body: { uid, ...payload } })
 }
 
+export function resetUserPassword(uid, password) {
+  // 管理员重置用户密码: uid + 新密码
+  return request('/api/admin/users/reset-password', { method: 'POST', body: { uid, password } })
+}
+
 export function bidSnapshot(date, timePoint = '9_25', limit = 50) {
   return request(`/api/stats/bid-snapshot?date=${date}&time_point=${timePoint}&limit=${limit}`)
 }

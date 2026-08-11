@@ -57,6 +57,7 @@
                   <div v-if="u.is_admin" style="color:#888;font-size:12px;">管理员永久有效</div>
                   <div v-else class="expire-cell">
                     <button class="mini-btn" @click.stop="togglePanel(u)">⚙️ 设置期限</button>
+                    <button class="mini-btn pwd-btn" style="margin-left:6px;" @click.stop="openPwdReset(u)">🔑 重置密码</button>
                     <div v-if="openUid === u.id" class="expire-popover" @click.stop>
                       <div class="pop-label">延长时长</div>
                       <div class="pop-row">
@@ -85,6 +86,18 @@
           <button class="page-btn" :disabled="page <= 1" @click="loadUsers(page - 1)">上一页</button>
           <span style="color:#bbb;">第 {{ page }} / {{ totalPages }} 页 · 共 {{ total }} 人</span>
           <button class="page-btn" :disabled="page >= totalPages" @click="loadUsers(page + 1)">下一页</button>
+        </div>
+      </div>
+
+      <!-- 重置密码弹层 -->
+      <div v-if="pwdTarget" class="pwd-mask" @click.self="closePwdReset">
+        <div class="pwd-pop">
+          <div class="pwd-title">🔑 重置密码：{{ pwdTarget.username }}<span style="color:#999;font-size:12px;margin-left:8px;">({{ pwdTarget.phone || pwdTarget.email || '-' }})</span></div>
+          <input v-model="pwdNew" type="text" class="admin-input" style="width:100%;box-sizing:border-box;" placeholder="输入新密码(至少6位)" @keyup.enter="doResetPwd" />
+          <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
+            <button class="mini-btn" @click="closePwdReset">取消</button>
+            <button class="mini-btn danger" :disabled="pwdSaving" @click="doResetPwd">{{ pwdSaving ? '重置中...' : '确认重置' }}</button>
+          </div>
         </div>
       </div>
 
@@ -175,7 +188,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { adminScoring, adminUsers, bidSnapshot, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
+import { adminScoring, adminUsers, bidSnapshot, resetUserPassword, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
 import { showToast as toast } from '../utils/toast'
 
 // 默认回放日期 = 今天(北京时间)
@@ -202,6 +215,35 @@ function closePanel() { openUid.value = null }
 function onDocClick(e) { if (!e.target.closest('.expire-cell')) openUid.value = null }
 onMounted(() => document.addEventListener('click', onDocClick))
 onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
+
+// ---------- 管理员重置密码 ----------
+const pwdTarget = ref(null)
+const pwdNew = ref('')
+const pwdSaving = ref(false)
+function openPwdReset(u) {
+  pwdTarget.value = u
+  pwdNew.value = ''
+  closePanel()
+}
+function closePwdReset() {
+  pwdTarget.value = null
+  pwdNew.value = ''
+}
+async function doResetPwd() {
+  if (!pwdTarget.value) return
+  const pw = pwdNew.value.trim()
+  if (pw.length < 6) { toast('新密码至少 6 位', 'error'); return }
+  pwdSaving.value = true
+  try {
+    await resetUserPassword(pwdTarget.value.id, pw)
+    toast(`${pwdTarget.value.username} 密码已重置`, 'success')
+    closePwdReset()
+  } catch (e) {
+    toast(e.message || '重置失败', 'error')
+  } finally {
+    pwdSaving.value = false
+  }
+}
 
 const stats = ref({})
 const rows = ref([])
@@ -381,6 +423,11 @@ onMounted(() => {
 .mini-btn:hover { background: rgba(0,180,255,0.25); }
 .mini-btn.danger { background: rgba(255,80,80,0.12); border-color: #ff5050; color: #ff9a9a; }
 .mini-btn.danger:hover { background: rgba(255,80,80,0.25); }
+.pwd-btn { background: rgba(255,180,0,0.12); border: 1px solid #ffb400; color: #ffe0a0; }
+.pwd-btn:hover { background: rgba(255,180,0,0.25); }
+.pwd-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.pwd-pop { background: #1a1a1a; border: 1px solid #444; border-radius: 10px; padding: 18px 20px; min-width: 320px; box-shadow: 0 6px 24px rgba(0,0,0,0.7); }
+.pwd-title { font-size: 14px; color: #ffe0a0; margin-bottom: 12px; }
 .mini-date { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; color: #eee; padding: 3px 6px; font-size: 12px; color-scheme: dark; }
 .pager { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 12px; }
 .page-btn { background: rgba(0,180,255,0.12); border: 1px solid #00b4ff; color: #a0e0ff; border-radius: 6px; padding: 4px 14px; cursor: pointer; }

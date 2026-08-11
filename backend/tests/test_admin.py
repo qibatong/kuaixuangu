@@ -267,3 +267,58 @@ def test_scoring_cfg_affects_compute(client, first_user):
     p_big_high = scorer.compute_score(big)["probability"]
     p_small_high = scorer.compute_score(small)["probability"]
     assert (p_small_high - p_big_high) > (p_small_default - p_big_default) * 0.9
+
+
+# ---------- 管理员重置用户密码 ----------
+def test_admin_reset_password_ok(client, first_user, second_user):
+    """管理员给普通用户重置密码后, 新密码可登录, 旧密码失效"""
+    token, _, _ = first_user
+    _, uname2 = second_user
+    r = client.post("/api/admin/users/reset-password",
+                    json={"username": uname2, "password": "qwer1234"},
+                    headers=hdrs(token))
+    assert r.status_code == 200
+    d = r.json()
+    assert d.get("ok") and d["username"] == uname2
+    # 新密码登录成功
+    r2 = client.post("/api/login", json={"username": uname2, "password": "qwer1234"})
+    assert r2.status_code == 200 and r2.json().get("ok")
+    # 旧密码登录失败
+    r3 = client.post("/api/login", json={"username": uname2, "password": "test123456"})
+    assert r3.status_code == 401
+
+
+def test_admin_reset_password_short(client, first_user, second_user):
+    """密码少于6位被拒绝"""
+    token, _, _ = first_user
+    _, uname2 = second_user
+    r = client.post("/api/admin/users/reset-password",
+                    json={"username": uname2, "password": "123"},
+                    headers=hdrs(token))
+    assert r.status_code == 400
+
+
+def test_admin_reset_password_self_forbidden(client, first_user):
+    """不能重置自己的密码(防误操作锁死管理员)"""
+    token, uname, _ = first_user
+    r = client.post("/api/admin/users/reset-password",
+                    json={"username": uname, "password": "qwer1234"},
+                    headers=hdrs(token))
+    assert r.status_code == 400
+
+
+def test_admin_reset_password_not_found(client, first_user):
+    token, _, _ = first_user
+    r = client.post("/api/admin/users/reset-password",
+                    json={"username": "no_such_user_xyz", "password": "qwer1234"},
+                    headers=hdrs(token))
+    assert r.status_code == 404
+
+
+def test_admin_reset_password_requires_admin(client, second_user):
+    """非管理员调用返回403"""
+    token, _ = second_user
+    r = client.post("/api/admin/users/reset-password",
+                    json={"username": "anyone", "password": "qwer1234"},
+                    headers=hdrs(token))
+    assert r.status_code == 403
