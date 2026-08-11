@@ -5,6 +5,24 @@
 选股算法（评分权重、筛选逻辑、数据抓取）全部在服务端，浏览器只有界面代码；
 用户体系（注册/登录/邀请）、历史记录、筛选偏好按用户隔离。
 
+**双模式**：竞价选股（9:15-9:31 竞价锁定，9:30 后名单恒定） + 盘中实时选股（9:30-15:00 全市场实时筛选，含涨停池封单/连板信号）。主页 Tab 切换。
+
+## 双模式选股
+
+| 维度 | 竞价选股 (auction) | 盘中实时选股 (spot) |
+|---|---|---|
+| 时段 | 9:15-9:31 竞价锁定 | 9:30-15:00 实时 |
+| 数据 | 竞价字段(f615/f616) + 昨日成交额 | 实时行情 + 涨停池(封单/连板/炸板) |
+| 评分 | 竞价五因子(涨幅34/换手32/异动17/市值11/昨涨6) | 盘中六因子(实时涨幅/量比/换手/封单/市值/昨涨) |
+| 名单 | **9:30 前锁定后恒定**，9:30 后只更新实时行情 | 每次刷新全市场重筛 |
+| 筛选默认 | 剔除ST/停牌、剔除昨日涨停、竞价涨幅≤7% | 涨幅3-9.5%、量比≥2、换手2-20% |
+| 落库/推送 | lock 落库 + 推送 | 不落库不推送 |
+
+**竞价锁定名单语义**：9:30 前 lock 的名单恒定不变（后端批次 + 本地快照双保险）。9:30 后刷新时：
+- 名单不增删，只按 code 合并全市场实时行情（spotMap）更新实时涨幅/评分
+- 按**当前筛选条件**过滤：被条件剔除的票直接移除（如勾选剔除昨日涨停）；条件放行但行情不在榜的标"已跌出"
+- 涨回来的票自动恢复正常（每次刷新重新判定）
+
 ## 目录结构
 
 ```
@@ -17,14 +35,14 @@ kuaixuan/                        # 仓库根（GitHub: felix-rich/kuaixuan）
 │       ├── db/database.py         # 建表 + WAL + 老库自动迁移
 │       ├── services/              # 业务逻辑层
 │       │   ├── security.py        # 密码哈希 / Token / 限流 / 防刷
-│       │   ├── fetcher.py         # 东财+同花顺(兜底) 数据抓取 / 缓存 / 熔断
-│       │   ├── scorer.py          # 选股评分与筛选算法(核心机密)
+│       │   ├── fetcher.py         # 东财+同花顺(兜底) 数据抓取 / 缓存 / 熔断 / 涨停池 / 全市场分页
+│       │   ├── scorer.py          # 选股评分与筛选算法(核心机密: 竞价五因子 + 盘中六因子)
 │       │   ├── users.py           # 用户 / 邀请 / 密码重置邮件
 │       │   └── history.py         # 历史批次落库与分页查询
 │       └── api/                   # 路由层
 │           ├── deps.py            # 鉴权依赖 / 响应辅助 / 真实IP
 │           ├── auth.py            # 登录/注册/改密/忘记/重置
-│           ├── stocks.py          # 选股
+│           ├── stocks.py          # 选股(竞价 + 盘中 mode 参数)
 │           ├── history.py         # 历史
 │           ├── invite.py          # 邀请
 │           └── prefs.py           # 偏好
@@ -37,11 +55,11 @@ kuaixuan/                        # 仓库根（GitHub: felix-rich/kuaixuan）
 │   ├── vite.config.js             # 构建配置 + 开发代理
 │   └── src/
 │       ├── main.js / App.vue
-│       ├── router/index.js        # 路由: /(选股) /login /history /invite
-│       ├── stores/                # Pinia: user(会话) stocks(选股) pool(股票池)
+│       ├── router/index.js        # 路由: /(选股) /login /history /invite /admin
+│       ├── stores/                # Pinia: user(会话) stocks(选股/双模式) pool(股票池)
 │       ├── api/                   # request 封装 + 各模块接口
 │       ├── utils/                 # toast / 北京时间 / 通达信工具
-│       ├── views/                 # LoginView / StockView / HistoryView / InviteView
+│       ├── views/                 # LoginView / StockView(双模式Tab) / HistoryView(按批次/综合查询) / InviteView / AdminView
 │       ├── components/            # FilterPanel / MedalPanel / StockPoolPanel / StockTable / ChangePwdModal
 │       └── styles/main.css
 ├── tdx_import.py                  # 通达信导入小工具(独立, PyInstaller 打包)
@@ -118,8 +136,8 @@ Nginx 关键配置（/etc/nginx/conf.d/kuaixuan.conf）：
 | /api/login /register | POST | 登录(手机/邮箱/用户名)、注册(邀请码) |
 | /api/change-password | POST | 修改密码(改后强制下线) |
 | /api/forgot /reset | POST | 邮件重置密码 |
-| /api/stocks | GET | 选股: action=lock(9:30前锁定)/filter(重算)/refresh(实时)/ping |
-| /api/history, /api/history/query | GET | 历史批次 / 条件分页查询 |
+| /api/stocks | GET | 选股: action=lock(9:30前锁定)/filter(重算)/refresh(实时)/ping + mode=auction(默认)/spot |
+| /api/history, /api/history/query | GET | 历史批次(含按批次明细) / 条件分页查询 |
 | /api/invite, /api/invite/refresh | GET/POST | 邀请码与名单 |
 | /api/prefs | GET/POST | 账号级筛选偏好 |
 | /api/admin/users | GET | 管理端用户列表(分页/搜索) + 统计(仅管理员) |
@@ -127,7 +145,20 @@ Nginx 关键配置（/etc/nginx/conf.d/kuaixuan.conf）：
 
 鉴权：`Authorization: Bearer <token>`（或 ?token=），401 时前端自动跳登录。
 
-数据源容灾：昨日成交额 = 东财 K 线（被封时）→ 自动切同花顺兜底；选股主接口 clist(push2dycalc) 正常。
+数据源容灾：昨日成交额 = 东财 K 线（被封时）→ 自动切同花顺兜底；选股主接口 clist(push2dycalc) 正常；
+涨停池 = 东财 getTopicZTPool（15s 缓存 + 熔断）；盘中全市场行情 = clist 分页拉取（25页×200只，30s 缓存）。
+
+## 测试
+
+后端 pytest（约定：每次改动必须配套测试用例全量绿才提交/部署）：
+
+```bash
+cd backend
+python -m pytest tests/ -q     # 当前 127 个用例全绿
+```
+
+覆盖：选股接口(lock/filter/refresh/spot/权限)、评分与筛选算法、竞价/昨比窗口口径与日期错位回归、
+昨日成交额 pair 解析、全市场分页拉取、历史批次、邀请裂变、管理后台等。
 
 ## 安全说明
 
@@ -152,4 +183,13 @@ Nginx 关键配置（/etc/nginx/conf.d/kuaixuan.conf）：
   - 统一日志体系（HTTP + 业务全覆盖，10MB 轮转）
   - 工程定名「快选 Kuaixuan」+ 内部标识全链路统一（目录/服务/数据库/Nginx 全部 kuaixuan）
   - Logo 集成 + 浏览器 favicon
+- v3 (2026-08-11):
+  - **盘中实时选股模式**：全市场分页拉取(5000只) + 涨停池封单/连板数据 + 盘中六因子评分，主页双模式 Tab 切换
+  - **竞价锁定名单恒定**：9:30 后名单不漂移（后端 lock 批次为准），实时行情按 code 合并，跌出标记/自动恢复
+  - **竞价/昨比口径修复**：分母恒取最近已收盘交易日（跳过今日未收盘K线，兼容东财/同花顺日期格式）
+  - 历史页按批次分组视图（每次选股一组，可展开看明细）
+  - 策略股票池按当前模式收录 + 表格每行手动入池按钮 + 加入全部
+  - 管理后台（用户列表/重置密码/评分权重配置）
+  - 飞书/Server酱推送去重防刷屏（竞价窗口放大）
+  - pytest 自动化测试体系（127 用例）
 
