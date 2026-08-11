@@ -196,7 +196,13 @@ export const useStocksStore = defineStore('stocks', {
       return locked.map((it) => {
         const rt = spotMap[it.code]
         if (!rt) {
-          return { ...it, _snapshot: true, _offline: true }   // 实时榜无此票(跌出) → 保留锁定名单, 标记
+          // 实时榜无此票(跌出) → 保留锁定名单, 实时涨幅/实体涨幅标为无当前值(用锁定时刻值作提示)
+          return {
+            ...it,
+            realChange: null, entityChange: null,
+            _staleReal: it.realChange, _staleEntity: it.entityChange,
+            _snapshot: true, _offline: true
+          }
         }
         // 更新实时字段, 保留竞价专属字段
         return {
