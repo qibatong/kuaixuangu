@@ -101,15 +101,23 @@
         </div>
       </div>
 
-      <!-- 评分策略配置(竞价/盘中 Tab) -->
+      <!-- 评分策略页签(独立一行, 竞价/盘中切换) -->
+      <div class="scoring-mode-tabs">
+        <button class="scoring-mode-tab" :class="{ active: scoringMode === 'auction' }" @click="switchScoringMode('auction')">
+          <i class="fa fa-gavel"></i> 竞价评分
+          <span class="scoring-mode-desc">9:15-9:31 竞价锁定策略</span>
+        </button>
+        <button class="scoring-mode-tab" :class="{ active: scoringMode === 'spot' }" @click="switchScoringMode('spot')">
+          <i class="fa fa-line-chart"></i> 盘中评分
+          <span class="scoring-mode-desc">9:30-15:00 实时选股策略</span>
+        </button>
+      </div>
+
+      <!-- 评分策略配置 -->
       <div class="admin-card">
         <div class="card-title">
-          <i class="fa fa-sliders"></i> 评分策略配置
+          <i class="fa fa-sliders"></i> {{ scoringMode === 'spot' ? '盘中评分' : '竞价评分' }}·权重配置
           <span style="color:#888;font-size:12px;margin-left:8px;">保存后立即生效（影响后续选股评分）</span>
-          <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
-            <button class="scoring-tab" :class="{ active: scoringMode === 'auction' }" @click="switchScoringMode('auction')"><i class="fa fa-gavel"></i> 竞价评分</button>
-            <button class="scoring-tab" :class="{ active: scoringMode === 'spot' }" @click="switchScoringMode('spot')"><i class="fa fa-line-chart"></i> 盘中评分</button>
-          </div>
         </div>
         <table class="admin-table weight-table">
           <thead><tr><th style="width:140px;">因子</th><th>权重(0~1)</th><th>说明</th></tr></thead>
@@ -138,9 +146,9 @@
         </div>
       </div>
 
-      <!-- 打分明细配置(竞价/盘中 Tab 联动 + 因子 Tab 切换) -->
+      <!-- 打分明细配置(因子 Tab 切换) -->
       <div class="admin-card">
-        <div class="card-title"><i class="fa fa-table"></i> 打分明细（各因子分段得分） <span style="color:#888;font-size:12px;margin-left:8px;">命中区间 [下限, 上限) 得对应分，未命中取默认分</span></div>
+        <div class="card-title"><i class="fa fa-table"></i> {{ scoringMode === 'spot' ? '盘中评分' : '竞价评分' }}·打分明细 <span style="color:#888;font-size:12px;margin-left:8px;">命中区间 [下限, 上限) 得对应分，未命中取默认分</span></div>
         <div class="factor-tabs">
           <button v-for="fk in curFactorOrder" :key="fk" class="factor-tab" :class="{ active: activeFactor === fk }" @click="activeFactor = fk">
             {{ curFactors[fk] ? curFactors[fk].label : fk }}
@@ -463,22 +471,39 @@ onMounted(() => {
 .card-title { display: flex; align-items: center; font-size: 15px; color: #ffe0a0; margin-bottom: 12px; }
 .admin-input { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; color: #eee; padding: 6px 10px; font-size: 13px; }
 .admin-input:focus { outline: none; border-color: #ffb400; }
-.scoring-tab {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.15);
+.scoring-mode-tabs {
+  display: flex;
+  gap: 10px;
+  margin: 6px 0 14px;
+}
+.scoring-mode-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 14px;
   color: #bbb;
-  border-radius: 8px;
-  padding: 6px 14px;
-  font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
+  flex: 1;
+  max-width: 240px;
 }
-.scoring-tab:hover { border-color: #ffb400; color: #ffe0a0; }
-.scoring-tab.active {
+.scoring-mode-tab:hover { border-color: #ffb400; }
+.scoring-mode-tab.active {
   background: rgba(255,180,0,0.12);
   border-color: #ffb400;
   color: #ffd700;
 }
+.scoring-mode-desc {
+  font-size: 11px;
+  color: #777;
+  font-weight: 400;
+}
+.scoring-mode-tab.active .scoring-mode-desc { color: #c9a94a; }
 .factor-tabs {
   display: flex;
   gap: 8px;
