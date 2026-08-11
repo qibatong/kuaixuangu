@@ -8,48 +8,106 @@
         <span class="history-title"><i class="fa fa-history"></i> 历史选股记录</span>
       </div>
 
-      <!-- 战绩统计(可折叠) -->
-      <div v-if="stats" class="stats-panel">
-        <div class="stats-title" @click="statsCollapsed = !statsCollapsed" style="cursor:pointer;">
-          <i class="fa" :class="statsCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'"></i>
-          <i class="fa fa-line-chart"></i> 战绩统计
-          <span class="stats-range">{{ stats.range.from }} ~ {{ stats.range.to }}</span>
-          <span class="stats-toggle">{{ statsCollapsed ? '展开详情' : '收起详情' }}</span>
-        </div>
-        <div class="stats-cards">
-          <div class="stat-card"><div class="stat-num">{{ stats.overview.total }}</div><div class="stat-label">总入选(次)</div></div>
-          <div class="stat-card"><div class="stat-num" :class="rateCls(stats.overview.win_rate)">{{ pct(stats.overview.win_rate) }}</div><div class="stat-label">整体胜率</div></div>
-          <div class="stat-card medal-gold"><div class="stat-num" :class="rateCls(stats.top3.win_rate)">{{ pct(stats.top3.win_rate) }}</div><div class="stat-label">🥇前三强胜率</div></div>
-          <div class="stat-card"><div class="stat-num" :class="stats.overview.avg_real > 0 ? 'up' : stats.overview.avg_real < 0 ? 'down' : ''">{{ signed(stats.overview.avg_real) }}%</div><div class="stat-label">平均实时涨幅</div></div>
-          <div class="stat-card"><div class="stat-num" :class="stats.top3.avg_real > 0 ? 'up' : stats.top3.avg_real < 0 ? 'down' : ''">{{ signed(stats.top3.avg_real) }}%</div><div class="stat-label">前三强平均涨幅</div></div>
-        </div>
-        <template v-if="!statsCollapsed">
-          <div v-if="stats.by_score.length" class="stats-score">
-            <div class="stats-sub">评分有效性（评分越高胜率越高说明评分有效）</div>
-            <div class="score-bars">
-              <div v-for="g in stats.by_score" :key="g.range" class="score-bar" :title="`${g.range}分：${g.count}次，胜率${pct(g.win_rate)}，平均${signed(g.avg_real)}%`">
-                <div class="score-bar-label">{{ g.range }}分</div>
-                <div class="score-bar-track"><div class="score-bar-fill" :style="{ width: Math.max(3, g.win_rate * 100) + '%' }" :class="rateCls(g.win_rate)"></div></div>
-                <div class="score-bar-val">{{ pct(g.win_rate) }} <span class="dim">({{ g.count }})</span></div>
-              </div>
-            </div>
-          </div>
-          <div v-if="stats.daily.length" class="stats-daily">
-            <div class="stats-sub">每日趋势（最近 {{ stats.daily.length }} 个有记录的交易日）</div>
-            <div class="daily-list">
-              <div v-for="d in stats.daily" :key="d.date" class="daily-row">
-                <span class="daily-date">{{ d.date }}</span>
-                <span class="daily-cnt">{{ d.count }}次</span>
-                <span class="daily-rate" :class="rateCls(d.win_rate)">{{ pct(d.win_rate) }}</span>
-                <span class="daily-real" :class="d.avg_real > 0 ? 'up' : d.avg_real < 0 ? 'down' : 'dim'">{{ signed(d.avg_real) }}%</span>
-              </div>
-            </div>
-          </div>
-          <div v-else class="stats-empty">当前日期范围暂无历史数据，先选几次股再回来看战绩</div>
-        </template>
+      <!-- 视图切换 Tab: 按批次 / 综合查询 -->
+      <div class="view-tabs">
+        <button class="view-tab" :class="{ active: viewMode === 'batch' }" @click="switchView('batch')">
+          <i class="fa fa-folder-open-o"></i> 按批次 <span class="view-tab-desc">每次选股一组</span>
+        </button>
+        <button class="view-tab" :class="{ active: viewMode === 'query' }" @click="switchView('query')">
+          <i class="fa fa-search"></i> 综合查询 <span class="view-tab-desc">跨批次条件筛选</span>
+        </button>
       </div>
 
-      <div class="history-query">
+      <!-- ===== 按批次视图 ===== -->
+      <div v-if="viewMode === 'batch'" class="batch-view">
+        <div class="batch-tip">按选股批次分组展示：<b>每次选股操作（锁定/筛选）为一组</b>，点击批次可展开查看该批选出的股票明细</div>
+        <div v-if="batchesLoading" class="loading-placeholder"><div class="spinner"></div><div>正在加载批次...</div></div>
+        <div v-else-if="!batches.length" class="empty-state">暂无历史批次<br><span style="font-size:11px">先在主页选股（锁定/筛选）后，这里就会按批次展示</span></div>
+        <div v-else class="batch-list">
+          <div v-for="b in batches" :key="b.id" class="batch-card" :class="{ expanded: expandedId === b.id }">
+            <div class="batch-head" @click="toggleBatch(b.id)">
+              <span class="batch-time">
+                <i class="fa fa-clock-o"></i> {{ b.batch_date }} {{ b.batch_time }}
+              </span>
+              <span class="batch-type" :class="b.action === 'lock' ? 'type-lock' : 'type-filter'">{{ b.action === 'lock' ? '锁定选股' : '筛选重算' }}</span>
+              <span class="batch-meta">
+                <span class="batch-market">{{ b.markets }}</span>
+                <span class="batch-count">{{ b.stock_count }}只</span>
+              </span>
+              <span class="batch-toggle"><i class="fa" :class="expandedId === b.id ? 'fa-chevron-up' : 'fa-chevron-down'"></i></span>
+            </div>
+            <div v-if="expandedId === b.id" class="batch-body">
+              <div v-if="batchDetailLoading" class="loading-placeholder" style="padding:10px;"><div class="spinner"></div><div>加载明细...</div></div>
+              <div v-else-if="!batchStocks.length" class="empty-state" style="padding:12px;">该批次无股票</div>
+              <div v-else style="overflow-x:auto;">
+                <table class="stock-table" style="min-width:1100px">
+                  <thead><tr><th>排名</th><th>代码</th><th>名称</th><th>竞价涨幅</th><th>实时涨幅</th><th>实体涨幅</th><th>异动</th><th>竞价金额(万)</th><th>竞价/昨比</th><th>流通市值(亿)</th><th>行业</th><th>评分</th><th>可信度</th></tr></thead>
+                  <tbody>
+                    <tr v-for="s in batchStocks" :key="s.code">
+                      <td>{{ s.rank }}</td>
+                      <td class="code-click" @click="linkToSoftware(s.code)">{{ s.code }}</td><td>{{ s.name }}</td>
+                      <td :class="s.bid_change > 0 ? 'up' : 'down'">{{ signed(s.bid_change) }}%</td>
+                      <td :class="s.real_change > 0 ? 'up' : 'down'">{{ signed(s.real_change) }}%</td>
+                      <td :class="s.entity_change > 0 ? 'up' : 'down'">{{ signed(s.entity_change) }}%</td>
+                      <td>{{ warnLabel(s.warn_type) }}</td>
+                      <td>{{ bidAmtText(s.bid_amt) }}</td>
+                      <td :class="ratioCls(s.bid_ratio)">{{ ratioText(s.bid_ratio) }}</td>
+                      <td>{{ s.circulation_mv.toFixed(1) }}</td>
+                      <td>{{ s.industry }}</td>
+                      <td class="up">{{ s.probability }}分</td>
+                      <td>{{ s.confidence }}%</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 综合查询视图 ===== -->
+      <div v-else class="history-query">
+        <!-- 战绩统计(可折叠) -->
+        <div v-if="stats" class="stats-panel">
+          <div class="stats-title" @click="statsCollapsed = !statsCollapsed" style="cursor:pointer;">
+            <i class="fa" :class="statsCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'"></i>
+            <i class="fa fa-line-chart"></i> 战绩统计
+            <span class="stats-range">{{ stats.range.from }} ~ {{ stats.range.to }}</span>
+            <span class="stats-toggle">{{ statsCollapsed ? '展开详情' : '收起详情' }}</span>
+          </div>
+          <div class="stats-cards">
+            <div class="stat-card"><div class="stat-num">{{ stats.overview.total }}</div><div class="stat-label">总入选(次)</div></div>
+            <div class="stat-card"><div class="stat-num" :class="rateCls(stats.overview.win_rate)">{{ pct(stats.overview.win_rate) }}</div><div class="stat-label">整体胜率</div></div>
+            <div class="stat-card medal-gold"><div class="stat-num" :class="rateCls(stats.top3.win_rate)">{{ pct(stats.top3.win_rate) }}</div><div class="stat-label">🥇前三强胜率</div></div>
+            <div class="stat-card"><div class="stat-num" :class="stats.overview.avg_real > 0 ? 'up' : stats.overview.avg_real < 0 ? 'down' : ''">{{ signed(stats.overview.avg_real) }}%</div><div class="stat-label">平均实时涨幅</div></div>
+            <div class="stat-card"><div class="stat-num" :class="stats.top3.avg_real > 0 ? 'up' : stats.top3.avg_real < 0 ? 'down' : ''">{{ signed(stats.top3.avg_real) }}%</div><div class="stat-label">前三强平均涨幅</div></div>
+          </div>
+          <template v-if="!statsCollapsed">
+            <div v-if="stats.by_score.length" class="stats-score">
+              <div class="stats-sub">评分有效性（评分越高胜率越高说明评分有效）</div>
+              <div class="score-bars">
+                <div v-for="g in stats.by_score" :key="g.range" class="score-bar" :title="`${g.range}分：${g.count}次，胜率${pct(g.win_rate)}，平均${signed(g.avg_real)}%`">
+                  <div class="score-bar-label">{{ g.range }}分</div>
+                  <div class="score-bar-track"><div class="score-bar-fill" :style="{ width: Math.max(3, g.win_rate * 100) + '%' }" :class="rateCls(g.win_rate)"></div></div>
+                  <div class="score-bar-val">{{ pct(g.win_rate) }} <span class="dim">({{ g.count }})</span></div>
+                </div>
+              </div>
+            </div>
+            <div v-if="stats.daily.length" class="stats-daily">
+              <div class="stats-sub">每日趋势（最近 {{ stats.daily.length }} 个有记录的交易日）</div>
+              <div class="daily-list">
+                <div v-for="d in stats.daily" :key="d.date" class="daily-row">
+                  <span class="daily-date">{{ d.date }}</span>
+                  <span class="daily-cnt">{{ d.count }}次</span>
+                  <span class="daily-rate" :class="rateCls(d.win_rate)">{{ pct(d.win_rate) }}</span>
+                  <span class="daily-real" :class="d.avg_real > 0 ? 'up' : d.avg_real < 0 ? 'down' : 'dim'">{{ signed(d.avg_real) }}%</span>
+                </div>
+              </div>
+            </div>
+            <div v-else class="stats-empty">当前日期范围暂无历史数据，先选几次股再回来看战绩</div>
+          </template>
+        </div>
+
         <div class="query-form">
           <label>日期 <input type="date" v-model="f.date_from"> ~ <input type="date" v-model="f.date_to"></label>
           <label>竞价涨幅 <input type="number" v-model="f.bid_min" placeholder="不限"> ~ <input type="number" v-model="f.bid_max" placeholder="不限"> %</label>
@@ -97,13 +155,60 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
-import { queryHistory } from '../api/history'
+import { listBatches, queryHistory } from '../api/history'
 import { fetchPerformance } from '../api/stats'
 import { showToast } from '../utils/toast'
 import { linkToSoftware } from '../utils/tdx'
 import { fmtDate } from '../utils/time'
 
 const PAGE_SIZE = 100
+// ---------- 视图切换 ----------
+const viewMode = ref('batch')   // batch(按批次) / query(综合查询)
+function switchView(m) {
+  if (viewMode.value === m) return
+  viewMode.value = m
+  if (m === 'batch') loadBatches()
+}
+
+// ---------- 按批次视图 ----------
+const batches = ref([])
+const batchesLoading = ref(false)
+const expandedId = ref(null)
+const batchStocks = ref([])
+const batchDetailLoading = ref(false)
+
+async function loadBatches() {
+  batchesLoading.value = true
+  try {
+    const d = await listBatches()
+    batches.value = d.batches || []
+  } catch (e) {
+    showToast('❌ ' + e.message, 'error')
+  } finally {
+    batchesLoading.value = false
+  }
+}
+
+async function toggleBatch(id) {
+  if (expandedId.value === id) {
+    expandedId.value = null
+    batchStocks.value = []
+    return
+  }
+  expandedId.value = id
+  batchStocks.value = []
+  batchDetailLoading.value = true
+  try {
+    const d = await listBatches(id)
+    batchStocks.value = d.stocks || []
+  } catch (e) {
+    showToast('❌ ' + e.message, 'error')
+  } finally {
+    batchDetailLoading.value = false
+  }
+}
+
+// ---------- 综合查询视图 ----------
 const f = reactive({
   date_from: '',
   date_to: '',
@@ -190,6 +295,78 @@ function ratioText(br) {
 
 onMounted(() => {
   initDefaults()
+  loadBatches()
   runQuery()
 })
 </script>
+
+<style scoped>
+.view-tabs {
+  display: flex;
+  gap: 10px;
+  margin: 10px 0 12px;
+}
+.view-tab {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: #bbb;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.view-tab:hover { border-color: #ffb400; color: #ffe0a0; }
+.view-tab.active {
+  background: rgba(255,180,0,0.12);
+  border-color: #ffb400;
+  color: #ffd700;
+}
+.view-tab-desc { font-size: 11px; color: #888; }
+.view-tab.active .view-tab-desc { color: #c9a94a; }
+
+.batch-view { margin-top: 4px; }
+.batch-tip {
+  background: rgba(255,180,0,0.06);
+  border: 1px solid rgba(255,180,0,0.25);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #c9a94a;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.batch-tip b { color: #ffd700; }
+.batch-list { display: flex; flex-direction: column; gap: 8px; }
+.batch-card {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.batch-card.expanded { border-color: rgba(255,180,0,0.4); }
+.batch-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+.batch-head:hover { background: rgba(255,255,255,0.03); }
+.batch-time { color: #ffe0a0; font-size: 14px; font-weight: 500; }
+.batch-type {
+  font-size: 11px;
+  border-radius: 4px;
+  padding: 1px 8px;
+}
+.type-lock { color: #ff8a65; border: 1px solid #ff5028; background: rgba(255,80,40,0.1); }
+.type-filter { color: #a0e0ff; border: 1px solid #00b4ff; background: rgba(0,180,255,0.1); }
+.batch-meta { display: flex; gap: 10px; margin-left: auto; align-items: center; }
+.batch-market { color: #999; font-size: 12px; }
+.batch-count { color: #7ce8a0; font-size: 12px; }
+.batch-toggle { color: #888; font-size: 12px; }
+.batch-body { border-top: 1px solid rgba(255,255,255,0.08); padding: 8px 10px; }
+</style>
