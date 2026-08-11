@@ -104,29 +104,58 @@ def _secid(code):
     return ("1." if code.startswith(("6", "9")) else "0.") + code
 
 
-def fetch_eastmoney(fs):
-    """拉取一个市场分区的全部股票快照(至多 200 只, 按涨幅倒序)"""
+def _fetch_clist_page(fs, page):
+    """拉取 clist 单页(200只); 失败抛异常"""
     qs = urllib.parse.urlencode({
         "fs": fs, "fltt": 2, "invt": 2, "fields": config.FIELDS,
-        "fid": "f3", "po": 1, "pn": 1, "pz": 200, "np": 1, "ut": config.EASTMONEY_UT,
+        "fid": "f3", "po": 1, "pn": page, "pz": 200, "np": 1, "ut": config.EASTMONEY_UT,
     })
     req = urllib.request.Request(config.EASTMONEY_URL + "?" + qs, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "Referer": "https://quote.eastmoney.com/",
     })
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    if data.get("rc") != 0 or not data.get("data", {}).get("diff"):
+        raise RuntimeError("东方财富接口返回异常")
+    return data["data"]["diff"]
+
+
+def fetch_eastmoney(fs):
+    """拉取一个市场分区的全部股票快照(至多 200 只, 按涨幅倒序)"""
     t0 = time.time()
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        diff = _fetch_clist_page(fs, 1)
     except Exception as e:
         _record("eastmoney_clist", False)
         raise
     _record("eastmoney_clist", True, int((time.time() - t0) * 1000))
-    if data.get("rc") != 0 or not data.get("data", {}).get("diff"):
-        raise RuntimeError("东方财富接口返回异常")
-    diff = data["data"]["diff"]
     log.info("东财行情拉取成功 fs=%s 数量%d", fs, len(diff))
     return diff
+
+
+def fetch_eastmoney_all(fs):
+    """盘中实时模式: 分页拉取全市场股票快照(默认每页 200, 共 ~20 页), 
+    让过滤参数(涨幅/量比/换手)真正作用于全市场, 而不是只取涨幅前200。
+    任一分页失败则跳过该页(返回已成功页), 全部失败抛异常。"""
+    out = []
+    for page in range(1, config.SPOT_MAX_PAGES + 1):
+        t0 = time.time()
+        try:
+            diff = _fetch_clist_page(fs, page)
+            _record("eastmoney_clist", True, int((time.time() - t0) * 1000))
+        except Exception as e:
+            log.warning("全市场拉取分页失败 fs=%s page=%d err=%s", fs, page, e)
+            continue
+        if not diff:
+            break   # 空页 = 到底
+        out.extend(diff)
+        if len(diff) < 200:
+            break   # 最后一页
+    log.info("全市场行情拉取成功 fs=%s 共%d只(%d页)", fs, len(out), min(page, config.SPOT_MAX_PAGES))
+    if not out:
+        raise RuntimeError("东方财富接口返回异常")
+    return out
 
 
 def ensure_cache(action, fs, before930):
@@ -160,14 +189,14 @@ def ensure_cache(action, fs, before930):
 
 def ensure_spot_cache(action, fs, before930):
     """盘中实时模式缓存: 不受 9:30 限制, 缓存新鲜度用 SPOT_CACHE_TTL。
-    返回 (raw, 错误信息); 拉取失败沿用旧缓存(降级不报错)。"""
+    拉取全市场(分页), 返回 (raw, 错误信息); 拉取失败沿用旧缓存(降级不报错)。"""
     with _fetch_lock:
         now = time.time()
         entry = _cache.get(fs)
         if entry is None or now - entry["ts"] > config.SPOT_CACHE_TTL:
             try:
-                _cache[fs] = {"raw": fetch_eastmoney(fs), "ts": now}
-                log.info("盘中缓存刷新 fs=%s", fs)
+                _cache[fs] = {"raw": fetch_eastmoney_all(fs), "ts": now}
+                log.info("盘中全市场缓存刷新 fs=%s", fs)
             except Exception as e:
                 if entry is not None:
                     log.warning("盘中拉取失败, 沿用旧缓存 fs=%s err=%s", fs, e)

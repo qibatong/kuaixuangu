@@ -24,17 +24,19 @@ export const defaultFilterSettings = {
 }
 
 // 盘中实时模式筛选参数(独立于竞价)
+// 默认值基于盘中评分表满分区间 + 全市场实测(约72只候选):
+//   涨幅3~9.5%(健康区间,评分满分档) 量比>=2(显著放量) 换手2~20%(活跃度)
 export const defaultSpotFilterSettings = {
   stSuspend: true,
   markets: ['hs', 'cyb', 'kcb'],
   limitUp: true,
   spotExcludeZT: false,     // 不剔除已涨停(默认保留涨停股, 看封单强度)
-  chgFloor: 0,              // 实时涨幅下限
-  chgGt: 9.5,               // 实时涨幅上限
-  volRatioFloor: 1,         // 量比下限
-  turnoverFloor: 0,         // 换手率下限
-  turnoverGt: 0,            // 换手率上限(0=不限)
-  probLt: 55,
+  chgFloor: 3,              // 实时涨幅下限(去弱势, 3%以下启动信号弱)
+  chgGt: 9.5,               // 实时涨幅上限(高于此归涨停股, 由 spotExcludeZT 控制)
+  volRatioFloor: 2,         // 量比下限(显著放量确认)
+  turnoverFloor: 2,         // 换手率下限(活跃度)
+  turnoverGt: 20,           // 换手率上限(防出货)
+  probLt: 60,
   confLt: 60,
   floatMvFloor: 20,
   floatMvGt: 1000,

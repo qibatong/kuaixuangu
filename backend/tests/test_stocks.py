@@ -179,3 +179,35 @@ def test_kline_amount_pair_skips_today(monkeypatch):
     p2 = fetcher._kline_amount_pair(ths)
     assert p2 is not None and abs(p2[0] - 20000.0) < 1
     assert abs(p2[1] - 10000.0) < 1
+
+
+# ---------- 盘中全市场分页拉取 ----------
+def test_fetch_eastmoney_all_paginates(monkeypatch):
+    """盘中模式全市场拉取: 分页拉取全部股票(不限于涨幅前200), 末页不足200停止"""
+    calls = {"n": 0}
+    def fake_page(fs, page):
+        calls["n"] += 1
+        if page == 1:
+            return [{"f12": f"60000{i}", "f3": 8.0} for i in range(200)]   # 满页
+        return [{"f12": f"00000{i}", "f3": 3.0} for i in range(50)]        # 半页=末页
+    monkeypatch.setattr(fetcher, "_fetch_clist_page", fake_page)
+    monkeypatch.setattr(fetcher.config, "SPOT_MAX_PAGES", 5)
+    out = fetcher.fetch_eastmoney_all("m:1+t:2")
+    assert len(out) == 250
+    assert calls["n"] == 2   # 第二页不满200 → 停止
+
+
+def test_fetch_eastmoney_all_skips_failed_pages(monkeypatch):
+    """分页失败跳过, 不影响其他页"""
+    calls = {"n": 0}
+    def fake_page(fs, page):
+        calls["n"] += 1
+        if page == 2:
+            raise RuntimeError("boom")
+        return [{"f12": f"60000{i}", "f3": 8.0} for i in range(200)]
+    monkeypatch.setattr(fetcher, "_fetch_clist_page", fake_page)
+    monkeypatch.setattr(fetcher.config, "SPOT_MAX_PAGES", 5)
+    out = fetcher.fetch_eastmoney_all("m:1+t:2")
+    # page2 失败跳过, 1/3/4/5 页各200 → 800只, 共尝试5次(SPOT_MAX_PAGES)
+    assert len(out) == 800
+    assert calls["n"] == 5
