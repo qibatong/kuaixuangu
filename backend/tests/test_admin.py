@@ -322,3 +322,57 @@ def test_admin_reset_password_requires_admin(client, second_user):
                     json={"username": "anyone", "password": "qwer1234"},
                     headers=hdrs(token))
     assert r.status_code == 403
+
+
+# ---------- 盘中评分配置(spot) ----------
+SPOT_VALID = {"w_chg": 0.28, "w_vol_ratio": 0.26, "w_turnover": 0.18, "w_seal": 0.14,
+              "w_market": 0.08, "w_yesterday": 0.06,
+              "conf_seal_high": 12, "conf_vol_ratio": 8, "conf_chg": 6}
+
+
+def test_admin_scoring_spot_get_default(client, first_user):
+    """盘中评分配置 GET(mode=spot) 返回独立配置与键表"""
+    token, _, _ = first_user
+    r = client.get("/api/admin/scoring?mode=spot", headers=hdrs(token))
+    assert r.status_code == 200
+    d = r.json()
+    assert d.get("ok") and d.get("mode") == "spot"
+    sc = d["scoring"]
+    assert abs(sc["w_chg"] - 0.28) < 1e-9
+    assert abs(sc["w_vol_ratio"] - 0.26) < 1e-9
+    assert len(d["w_keys"]) == 6 and len(d["conf_keys"]) == 3
+    # 因子表含盘中特有因子
+    assert "vol_ratio" in sc["factors"] and "seal" in sc["factors"]
+
+
+def test_admin_scoring_spot_put_ok(client, first_user):
+    """盘中评分配置 PUT 保存到独立 key(scoring_spot), 不影响竞价配置"""
+    token, _, _ = first_user
+    r = client.put("/api/admin/scoring?mode=spot", json={"scoring": SPOT_VALID}, headers=hdrs(token))
+    assert r.status_code == 200
+    assert r.json().get("ok")
+    # 盘中缓存已刷新
+    assert abs(scorer.get_scoring_cfg(mode="spot")["w_chg"] - 0.28) < 1e-9
+    # 竞价配置不受影响
+    assert abs(scorer.get_scoring_cfg(mode="auction")["w_bid"] - 0.34) < 1e-9
+    # 存储 key 独立
+    assert settings.get("scoring_spot")["w_chg"] == 0.28
+
+
+def test_admin_scoring_spot_invalid_sum(client, first_user):
+    """盘中权重和必须约等于 1"""
+    token, _, _ = first_user
+    bad = dict(SPOT_VALID)
+    bad["w_chg"] = 0.9
+    r = client.put("/api/admin/scoring?mode=spot", json={"scoring": bad}, headers=hdrs(token))
+    assert r.status_code == 400
+    assert "权重之和" in r.json().get("msg", "")
+
+
+def test_admin_scoring_invalid_mode(client, first_user):
+    """非法 mode 400"""
+    token, _, _ = first_user
+    r = client.get("/api/admin/scoring?mode=xxx", headers=hdrs(token))
+    assert r.status_code == 400
+    r2 = client.put("/api/admin/scoring?mode=xxx", json={"scoring": SPOT_VALID}, headers=hdrs(token))
+    assert r2.status_code == 400

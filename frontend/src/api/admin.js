@@ -7,12 +7,12 @@ export function adminUsers(params = {}) {
   return request('/api/admin/users?' + q.toString())
 }
 
-export function adminScoring() {
-  return request('/api/admin/scoring')
+export function adminScoring(mode = 'auction') {
+  return request(`/api/admin/scoring?mode=${mode}`)
 }
 
-export function saveScoring(scoring) {
-  return request('/api/admin/scoring', { method: 'PUT', body: { scoring } })
+export function saveScoring(scoring, mode = 'auction') {
+  return request(`/api/admin/scoring?mode=${mode}`, { method: 'PUT', body: { scoring } })
 }
 
 export function setUserExpire(uid, payload) {

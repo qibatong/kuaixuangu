@@ -34,6 +34,23 @@ CONF_KEYS = [
     ("conf_bid", "温和竞价", "竞价涨幅2%~6.5%时置信度加成"),
 ]
 
+# 盘中实时评分(spot) 权重系数(key, 中文名, 说明)
+SPOT_W_KEYS = [
+    ("w_chg", "实时涨幅", "盘中实时涨幅区间得分(3%~6%为满分, 过高=追高风险)"),
+    ("w_vol_ratio", "量比", "量比放量确认得分(>=2 为满分)"),
+    ("w_turnover", "换手率", "盘中换手活跃度得分(3%~15%为满分)"),
+    ("w_seal", "封单强度", "涨停股封成比得分(>=2% 为满分; 非涨停=0分档)"),
+    ("w_market", "市值分", "流通市值越小分越高(小市值加分)"),
+    ("w_yesterday", "昨日涨幅", "昨日涨幅处于健康区间得分"),
+]
+
+# 盘中实时评分(spot) 置信度加成
+SPOT_CONF_KEYS = [
+    ("conf_seal_high", "强封单", "封成比>=2% 时置信度加成"),
+    ("conf_vol_ratio", "显著放量", "量比>=2 时置信度加成"),
+    ("conf_chg", "健康涨幅", "实时涨幅1.5%~6%时置信度加成"),
+]
+
 
 def get_admin(request: Request, uid: int = Depends(get_uid)):
     """管理员依赖: 未登录 401; 非管理员 403"""
@@ -147,29 +164,42 @@ def api_admin_user_reset_password(request: Request, body: dict = Body(...),
 
 @router.get("/api/admin/scoring")
 def api_admin_scoring_get(request: Request, uid: int = Depends(get_admin)):
-    cfg = scorer.get_scoring_cfg()
-    return jr({"ok": True, "scoring": cfg, "w_keys": W_KEYS, "conf_keys": CONF_KEYS})
+    mode = (qs(request).get("mode") or ["auction"])[0]
+    if mode not in ("auction", "spot"):
+        return jr({"ok": False, "msg": "非法 mode"}, 400)
+    cfg = scorer.get_scoring_cfg(mode=mode)
+    if mode == "spot":
+        return jr({"ok": True, "mode": "spot", "scoring": cfg,
+                   "w_keys": SPOT_W_KEYS, "conf_keys": SPOT_CONF_KEYS})
+    return jr({"ok": True, "mode": "auction", "scoring": cfg, "w_keys": W_KEYS, "conf_keys": CONF_KEYS})
 
 
 @router.put("/api/admin/scoring")
 def api_admin_scoring_put(request: Request, body: dict = Body(...), uid: int = Depends(get_admin)):
+    mode = (qs(request).get("mode") or ["auction"])[0]
+    if mode not in ("auction", "spot"):
+        return jr({"ok": False, "msg": "非法 mode"}, 400)
     new = body.get("scoring")
     if not isinstance(new, dict) or not new:
         return jr({"ok": False, "msg": "缺少 scoring 配置"}, 400)
-    # 五项权重: 0~1 且合计≈1; 置信度加成: 0~30
-    err = _validate_scoring(new)
+    err = _validate_scoring(new, mode)
     if err:
         return jr({"ok": False, "msg": err}, 400)
-    if not settings.set("scoring", new):
+    if not settings.set("scoring_spot" if mode == "spot" else "scoring", new):
         return jr({"ok": False, "msg": "保存失败"}, 500)
     scorer.reload_scoring_cfg()
-    log.info("管理端更新评分权重 uid=%s scoring=%s", uid, new)
-    return jr({"ok": True, "msg": "已保存并生效", "scoring": scorer.get_scoring_cfg()})
+    log.info("管理端更新%s评分权重 uid=%s scoring=%s", "盘中" if mode == "spot" else "竞价", uid, new)
+    return jr({"ok": True, "msg": "已保存并生效",
+               "scoring": scorer.get_scoring_cfg(mode=mode)})
 
 
-def _validate_scoring(new):
+def _validate_scoring(new, mode="auction"):
+    """校验权重/置信度/打分明细; mode=spot 用盘中因子表"""
+    default_cfg = scorer.DEFAULT_SCORING if mode == "auction" else scorer.DEFAULT_SCORING_SPOT
+    w_keys = W_KEYS if mode == "auction" else SPOT_W_KEYS
+    conf_keys = CONF_KEYS if mode == "auction" else SPOT_CONF_KEYS
     w_sum = 0.0
-    for k, _, _ in W_KEYS:
+    for k, _, _ in w_keys:
         try:
             v = float(new.get(k))
         except (TypeError, ValueError):
@@ -178,21 +208,21 @@ def _validate_scoring(new):
             return "权重 %s 需在 0~1 之间" % k
         w_sum += v
     if abs(w_sum - 1.0) > 0.03:
-        return "五项权重之和需约等于 1(当前 %.2f)" % w_sum
-    for k, _, _ in CONF_KEYS:
+        return "权重之和需约等于 1(当前 %.2f)" % w_sum
+    for k, _, _ in conf_keys:
         try:
             v = float(new.get(k))
         except (TypeError, ValueError):
             return "置信度加成 %s 必须是数字" % k
         if not (0 <= v <= 30):
             return "置信度加成 %s 需在 0~30 之间" % k
-    # 打分明细: 5 个因子, 每因子 buckets 为 [下限, 上限, 得分] 且 下限<上限, 得分 0~1
+    # 打分明细: 因子表, 每因子 buckets 为 [下限, 上限, 得分] 且 下限<上限, 得分 0~1
     factors = new.get("factors")
     if factors is not None:
         if not isinstance(factors, dict):
             return "打分明细格式错误"
         for fk, fv in factors.items():
-            if fk not in scorer.DEFAULT_SCORING["factors"]:
+            if fk not in default_cfg["factors"]:
                 return "未知因子: %s" % fk
             if not isinstance(fv, dict) or not isinstance(fv.get("buckets"), list) or not fv["buckets"]:
                 return "因子 %s 缺少有效的分档表" % fk
