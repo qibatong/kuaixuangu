@@ -54,12 +54,89 @@ DEFAULT_SCORING = {
         },
     },
 }
+# ---------- 盘中实时选股评分权重(管理员可调, 存 settings 表 "scoring_spot") ----------
+# 结构与竞价一致, 因子针对盘中实时数据: 实时涨幅/量比/换手/封单强度/市值/昨日涨幅
+DEFAULT_SCORING_SPOT = {
+    "w_chg": 0.28,        # 实时涨幅权重(健康涨幅区间优先, 过高=追高风险)
+    "w_vol_ratio": 0.26,  # 量比权重(放量确认)
+    "w_turnover": 0.18,   # 换手率权重(活跃度)
+    "w_seal": 0.14,       # 封单强度权重(涨停股封成比; 非涨停=0分档)
+    "w_market": 0.08,     # 流通市值权重
+    "w_yesterday": 0.06,  # 昨日涨幅权重
+    "conf_seal_high": 12, # 置信度: 强封单(封成比>=2%)加成
+    "conf_vol_ratio": 8,  # 置信度: 显著放量(量比>=2)加成
+    "conf_chg": 6,        # 置信度: 健康涨幅区间加成
+    "factors": {
+        "chg": {
+            "label": "实时涨幅", "unit": "%",
+            "buckets": [["3", "6", 1.0], ["1.5", "3", 0.85], ["6", "9.5", 0.85],
+                        ["0", "1.5", 0.5], ["9.5", "99", 0.35], ["-99", "0", 0.15]],
+            "default": 0.1,
+        },
+        "vol_ratio": {
+            "label": "量比", "unit": "倍",
+            "buckets": [["2", "99", 1.0], ["1.5", "2", 0.85], ["1", "1.5", 0.6],
+                        ["0.5", "1", 0.35]],
+            "default": 0.15,
+        },
+        "turnover": {
+            "label": "换手率", "unit": "%",
+            "buckets": [["3", "15", 1.0], ["1.5", "3", 0.8], ["15", "25", 0.7],
+                        ["0.5", "1.5", 0.45], ["25", "99", 0.35]],
+            "default": 0.15,
+        },
+        "seal": {
+            "label": "封单强度(封成比)", "unit": "%",
+            "buckets": [["2", "99", 1.0], ["1", "2", 0.85], ["0.5", "1", 0.65],
+                        ["0.1", "0.5", 0.4]],
+            "default": 0.12,
+        },
+        "market": {
+            "label": "流通市值", "unit": "亿",
+            "buckets": [["0", "30", 1.0], ["30", "60", 0.88], ["60", "120", 0.68],
+                        ["120", "250", 0.45]],
+            "default": 0.22,
+        },
+        "yesterday": {
+            "label": "昨日涨幅", "unit": "%",
+            "buckets": [["3", "9.5", 0.9], ["9.5", "99", 0.65], ["1", "3", 0.65],
+                        ["0", "1", 0.4], ["-3", "0", 0.25]],
+            "default": 0.15,
+        },
+    },
+}
 _scoring_cfg = None
+_scoring_spot_cfg = None
 
 
-def get_scoring_cfg(force=False):
-    """读取评分配置(权重+打分明细; 内存缓存; 管理端更新后调 reload 生效)"""
-    global _scoring_cfg
+def get_scoring_cfg(force=False, mode="auction"):
+    """读取评分配置(权重+打分明细; 内存缓存; 管理端更新后调 reload 生效)
+    mode: "auction"=竞价 / "spot"=盘中实时, 各自独立配置"""
+    global _scoring_cfg, _scoring_spot_cfg
+    if mode == "spot":
+        if _scoring_spot_cfg is None or force:
+            cfg = settings.get("scoring_spot")
+            if isinstance(cfg, dict):
+                merged = dict(DEFAULT_SCORING_SPOT)
+                num_keys = ("w_chg", "w_vol_ratio", "w_turnover", "w_seal",
+                            "w_market", "w_yesterday",
+                            "conf_seal_high", "conf_vol_ratio", "conf_chg")
+                for k, v in cfg.items():
+                    if k in num_keys:
+                        try:
+                            merged[k] = float(v)
+                        except (TypeError, ValueError):
+                            pass
+                if isinstance(cfg.get("factors"), dict):
+                    fac = dict(DEFAULT_SCORING_SPOT["factors"])
+                    for fk, fv in cfg["factors"].items():
+                        if fk in fac and isinstance(fv, dict):
+                            fac[fk] = dict(fac[fk], **fv)
+                    merged["factors"] = fac
+                _scoring_spot_cfg = merged
+            else:
+                _scoring_spot_cfg = dict(DEFAULT_SCORING_SPOT)
+        return _scoring_spot_cfg
     if _scoring_cfg is None or force:
         cfg = settings.get("scoring")
         if isinstance(cfg, dict):
@@ -87,7 +164,9 @@ def get_scoring_cfg(force=False):
 
 def reload_scoring_cfg():
     """管理端更新配置后强制刷新内存缓存, 返回新配置"""
-    return get_scoring_cfg(force=True)
+    get_scoring_cfg(force=True)
+    get_scoring_cfg(force=True, mode="spot")
+    return get_scoring_cfg()
 
 
 def get_factor_score(cfg, factor, value):
@@ -285,7 +364,132 @@ def compute_score(s):
     }
 
 
-# ---------- 过滤 ----------
+# ---------- 盘中实时评分 ----------
+def compute_score_spot(s, zt_info=None):
+    """盘中实时评分: 因子=实时涨幅/量比/换手率/封单强度/市值/昨日涨幅。
+    zt_info: 涨停池单股信息 {fund, lb, zbc, ...} 或 None(非涨停/无数据)。
+    封单强度 = 封单额(亿) / 流通市值(亿) ×100 (封成比%), 非涨停股按 0 计。
+    """
+    real_chg = parse_float(s.get("f3"))          # 实时涨幅 %
+    vol_ratio = parse_float(s.get("f10"))        # 量比
+    turnover = parse_float(s.get("f8"))          # 换手率 %
+    circ_mv = parse_float(s.get("f21")) / 1e8    # 流通市值(亿)
+    yesterday_approx = real_chg                  # 与竞价口径一致: f3 代理
+    fund = (zt_info or {}).get("fund") or 0      # 封单额(亿)
+    seal_ratio = round(fund / circ_mv * 100, 2) if (fund > 0 and circ_mv > 0) else 0.0
+
+    cfg = get_scoring_cfg(mode="spot")
+    chg_score = get_factor_score(cfg, "chg", real_chg)
+    vol_score = get_factor_score(cfg, "vol_ratio", vol_ratio)
+    turn_score = get_factor_score(cfg, "turnover", turnover)
+    seal_score = get_factor_score(cfg, "seal", seal_ratio)
+    market_score = get_factor_score(cfg, "market", circ_mv)
+    yesterday_score = get_factor_score(cfg, "yesterday", yesterday_approx)
+
+    base = (chg_score * cfg["w_chg"] + vol_score * cfg["w_vol_ratio"]
+            + turn_score * cfg["w_turnover"] + seal_score * cfg["w_seal"]
+            + market_score * cfg["w_market"] + yesterday_score * cfg["w_yesterday"])
+    prob = max(5.0, min(95.0, base * 100))
+
+    conf = 65.0
+    if seal_ratio >= 2:
+        conf += cfg["conf_seal_high"]
+    if vol_ratio >= 2:
+        conf += cfg["conf_vol_ratio"]
+    if 1.5 <= real_chg <= 6:
+        conf += cfg["conf_chg"]
+    conf = min(90.0, max(55.0, conf))
+
+    return {
+        "probability": js_round(prob),
+        "confidence": js_round(conf),
+        "sealRatio": seal_ratio,
+        "sealFund": fund,
+        "limitBoards": int((zt_info or {}).get("lb") or 0),
+        "breakCount": int((zt_info or {}).get("zbc") or 0),
+    }
+
+
+def process_spot_stocks(raw, f, zt_map=None):
+    """盘中实时选股主流程: 评分 + 过滤 + 排序。
+    zt_map: code -> 涨停池信息 {fund, lb, zbc, zdp}(fetcher.fetch_zt_pool 结果)"""
+    zt_map = zt_map or {}
+    scored = []
+    for s in raw:
+        zt = zt_map.get(s.get("f12"))
+        sc = compute_score_spot(s, zt)
+        scored.append({
+            "code": s.get("f12", ""),
+            "name": s.get("f14", ""),
+            "probability": sc["probability"],
+            "confidence": sc["confidence"],
+            "realChange": parse_float(s.get("f3")),
+            "volRatio": parse_float(s.get("f10")),
+            "turnover": parse_float(s.get("f8")),
+            "sealRatio": sc["sealRatio"],
+            "sealFund": sc["sealFund"],
+            "limitBoards": sc["limitBoards"],
+            "breakCount": sc["breakCount"],
+            "speed": parse_float(s.get("f8")),
+            "circulationMV": parse_float(s.get("f21")) / 1e8,
+            "price": parse_float(s.get("f2")),
+            "amount": parse_float(s.get("f6")) / 1e8,   # 成交额(亿)
+            "industry": s.get("f100") or "-",
+            "concept": s.get("f103") or "-",
+            "bidChange": get_bid_change(s),
+            "_raw": s,
+        })
+    scored.sort(key=lambda x: x["probability"], reverse=True)
+    result = apply_spot_filters(scored, f)
+    for it in result:
+        it.pop("_raw", None)
+    return result
+
+
+# ---------- 盘中过滤 ----------
+def apply_spot_filters(items, f):
+    """盘中实时过滤: ST/停牌、昨日涨停、实时涨幅区间、量比下限、换手率区间、
+    市值区间、价格上限、涨停封板剔除(可选)。"""
+    result = []
+    for it in items:
+        name = it["name"]
+        prob, conf = it["probability"], it["confidence"]
+        mv = it["circulationMV"]
+        price = it["price"]
+        real_chg = it["realChange"]
+        vol_ratio = it["volRatio"]
+        turnover = it["turnover"]
+
+        if f["stSuspend"]:
+            if is_st(name):
+                continue
+            if is_suspended(it["_raw"]):
+                continue
+        if f["limitUp"] and is_first_board(it["_raw"]):
+            continue
+        if f["spotExcludeZT"] and it["limitBoards"] > 0:   # 剔除已涨停封板(买不进)
+            continue
+        if real_chg < f["chgFloor"] or real_chg > f["chgGt"]:
+            continue
+        if f["volRatioFloor"] > 0 and vol_ratio < f["volRatioFloor"]:
+            continue
+        if f["turnoverFloor"] > 0 and turnover < f["turnoverFloor"]:
+            continue
+        if f["turnoverGt"] > 0 and turnover > f["turnoverGt"]:
+            continue
+        if prob < f["probLt"] and conf < f["confLt"]:
+            continue
+        if mv < f["floatMvFloor"]:
+            continue
+        if mv > f["floatMvGt"]:
+            continue
+        if price > f["priceGt"]:
+            continue
+        result.append(it)
+    return result
+
+
+# ---------- 竞价过滤 ----------
 def apply_filters(items, f):
     result = []
     for it in items:
@@ -423,4 +627,11 @@ def validate_filters(q):
         "floatMvGt": _clamp((q.get("floatMvGt") or ["100"])[0], 1, 5000, 100),
         "priceGt": _clamp((q.get("priceGt") or ["30"])[0], 1, 5000, 30),
         "bidAmtFloor": _clamp((q.get("bidAmtFloor") or ["3000"])[0], 0, 100000, 3000),
+        # ---- 盘中实时(mode=spot)参数 ----
+        "chgFloor": _clamp((q.get("chgFloor") or ["0"])[0], -20, 30, 0),       # 实时涨幅下限
+        "chgGt": _clamp((q.get("chgGt") or ["9.5"])[0], -20, 30, 9.5),         # 实时涨幅上限
+        "volRatioFloor": _clamp((q.get("volRatioFloor") or ["1"])[0], 0, 20, 1),  # 量比下限
+        "turnoverFloor": _clamp((q.get("turnoverFloor") or ["1"])[0], 0, 100, 1), # 换手率下限
+        "turnoverGt": _clamp((q.get("turnoverGt") or ["0"])[0], 0, 100, 0),    # 换手率上限(0=不限)
+        "spotExcludeZT": _truthy((q.get("spotExcludeZT") or ["0"])[0]),        # 剔除已涨停
     }

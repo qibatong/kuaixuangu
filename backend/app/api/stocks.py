@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-选股路由: GET /api/stocks?action=lock|filter|refresh|ping&筛选参数...
+选股路由: GET /api/stocks?action=lock|filter|refresh|ping&mode=auction|spot&筛选参数...
 ===================================================================
+mode=auction  竞价选股(默认, 行为不变): lock 9:30 前唯一锁定, 评分=竞价涨幅/竞价换手/异动...
+mode=spot     盘中实时选股: 随时 refresh, 评分=实时涨幅/量比/换手/封单强度..., 涨停留池接口
 """
 import time
 
@@ -20,9 +22,13 @@ router = APIRouter()
 def api_stocks(request: Request, uid: int = Depends(get_uid)):
     q = qs(request)
     action = (q.get("action") or ["filter"])[0]
+    mode = (q.get("mode") or ["auction"])[0]
     if action not in ("lock", "filter", "refresh", "ping"):
         log.warning("选股非法参数 action=%s uid=%s", action, uid)
         return jr({"ok": False, "msg": "非法参数"}, 400)
+    if mode not in ("auction", "spot"):
+        log.warning("选股非法参数 mode=%s uid=%s", mode, uid)
+        return jr({"ok": False, "msg": "非法参数 mode"}, 400)
     if action == "ping":
         _, _, before930 = scorer.bj_now()
         return jr({"ok": True, "before930": before930})
@@ -33,10 +39,33 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
     t0 = time.time()
 
     try:
-        raw, err = fetcher.ensure_cache(action, fs, before930)
+        # 竞价模式: 沿用原缓存策略(lock 9:30 前强制拉取, refresh TTL, filter 建缓存)
+        # 盘中模式: 强制 refresh 语义(按 SPOT_CACHE_TTL 刷新), 不受 9:30 限制
+        if mode == "spot":
+            spot_action = "refresh"
+            raw, err = fetcher.ensure_spot_cache(spot_action, fs, before930)
+        else:
+            raw, err = fetcher.ensure_cache(action, fs, before930)
         if err:
-            log.warning("选股被拒 uid=%s action=%s err=%s", uid, action, err)
+            log.warning("选股被拒 uid=%s action=%s mode=%s err=%s", uid, action, mode, err)
             return jr({"ok": False, "msg": err}, 403)
+
+        if mode == "spot":
+            # 盘中实时: 涨停池(封单/连板/炸板) + 实时评分 + 盘中过滤
+            zt_map = fetcher.fetch_zt_pool()
+            result = scorer.process_spot_stocks(raw, f, zt_map)
+            log.info("盘中选股 uid=%s markets=%s raw=%d只 涨停池=%d只 返回%d只 耗时%.0fms",
+                     uid, ",".join(f["markets"]), len(raw), len(zt_map), len(result),
+                     (time.time() - t0) * 1000)
+            # 盘中 refresh 不落库、不推送(避免高频刷屏); 只返回实时结果
+            return jr({
+                "ok": True, "mode": "spot",
+                "list": result, "count": len(result),
+                "before930": before930,
+                "dataTime": int(fetcher._cache[fs]["ts"]),
+            })
+
+        # ---- 竞价模式(原逻辑) ----
         # 昨日成交额(并发拉日K, 当日缓存), 用于计算竞价/昨日成交占比
         yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw])
         # 9:20 快照(用于 9:25 涨幅加速度); 非竞价时段读库无数据返回空 map
@@ -51,7 +80,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         # 评分计算不持锁: 多用户并发选股互不阻塞, 只共享只读的行情快照
         result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map)
     except Exception as e:
-        log.error("选股处理失败 uid=%s action=%s err=%s", uid, action, e, exc_info=True)
+        log.error("选股处理失败 uid=%s action=%s mode=%s err=%s", uid, action, mode, e, exc_info=True)
         return jr({"ok": False, "msg": "服务端处理失败: %s" % e}, 500)
 
     # 落库: 锁定选股与筛选重算都保存为该用户的历史批次, 实时刷新(refresh)不落库
@@ -77,6 +106,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
 
     return jr({
         "ok": True,
+        "mode": "auction",
         "list": result,
         "count": len(result),
         "before930": before930,

@@ -40,6 +40,12 @@ EASTMONEY_URL = "https://push2dycalc.eastmoney.com/api/qt/clist/get"
 EASTMONEY_UT = "c92c50e6b0fab2c17cd5e276e9a79c42"
 FIELDS = "f2,f3,f4,f5,f6,f8,f10,f12,f14,f17,f18,f20,f21,f615,f616,f617,f618,f630,f100,f102,f103"
 
+# 盘中实时选股: 东财涨停池(封单/连板/炸板) + 涨停池缓存 TTL
+EASTMONEY_ZT_URL = "https://push2ex.eastmoney.com/getTopicZTPool"
+EASTMONEY_ZT_UT = "7eea3edcaed734bea9cbfc24409ed989"
+ZT_CACHE_TTL = int(os.environ.get("ZT_CACHE_TTL", "15"))       # 涨停池缓存新鲜度(秒)
+SPOT_CACHE_TTL = int(os.environ.get("SPOT_CACHE_TTL", "30"))   # 盘中实时行情缓存新鲜度(秒)
+
 # 昨日成交额(日K)抓取: 低并发 + 多域名轮询 + 熔断, 避免触发东财限流
 YESTERDAY_FETCH_WORKERS = 8
 KLINE_TIMEOUT = 5

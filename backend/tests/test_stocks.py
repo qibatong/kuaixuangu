@@ -80,3 +80,73 @@ def test_filter_with_ratio(client, first_user, monkeypatch):
             assert s["bidRatio"] is not None and s["bidRatio"] >= 0
     finally:
         fetcher.fetch_yesterday_amounts = orig
+
+
+# ---------- 盘中实时选股(mode=spot) ----------
+def test_spot_mode_returns_stocks(client, first_user, monkeypatch):
+    """盘中模式: 返回实时评分结果, 含盘中特有字段(量比/换手/封单)"""
+    token, _, _ = first_user
+    monkeypatch.setattr(fetcher, "fetch_zt_pool", lambda *a, **k: {})  # 涨停池无数据
+    r = client.get("/api/stocks?action=refresh&mode=spot&markets=sh_sz&probLt=0&confLt=0",
+                   headers=hdrs(token))
+    assert r.status_code == 200
+    d = r.json()
+    assert d.get("ok") and d.get("mode") == "spot"
+    assert len(d.get("list", [])) > 0
+    for s in d["list"]:
+        assert s["code"] and s["name"]
+        assert "realChange" in s and "volRatio" in s and "turnover" in s
+        assert "sealRatio" in s and "limitBoards" in s
+
+
+def test_spot_mode_uses_zt_pool(client, first_user, monkeypatch):
+    """盘中模式: 涨停池数据进入评分(封单/连板字段生效)"""
+    token, _, _ = first_user
+    # 给 600001 加封单 2亿, 流通市值 40亿 → 封成比 5% → 封单分满分
+    monkeypatch.setattr(fetcher, "fetch_zt_pool",
+                        lambda *a, **k: {"600001": {"fund": 2.0, "fb": 930, "lb": 3, "zbc": 0, "zdp": 10.0}})
+    r = client.get("/api/stocks?action=refresh&mode=spot&markets=sh_sz&probLt=0&confLt=0",
+                   headers=hdrs(token))
+    d = r.json()
+    items = {s["code"]: s for s in d.get("list", [])}
+    assert "600001" in items
+    assert items["600001"]["limitBoards"] == 3
+    assert items["600001"]["sealRatio"] > 0
+
+
+def test_spot_mode_invalid_mode(client, first_user):
+    token, _, _ = first_user
+    r = client.get("/api/stocks?action=refresh&mode=hack", headers=hdrs(token))
+    assert r.status_code == 400
+
+
+def test_spot_compute_score():
+    """盘中评分: 健康涨幅+高量比+高换手+强封单 → 高分; 无封单 → 封单分低"""
+    raw = {"f2": 18.50, "f3": 4.0, "f8": 6.0, "f10": 2.5, "f12": "600001", "f14": "甲", "f21": 4.0e9}
+    sc = scorer.compute_score_spot(raw, {"fund": 2.0})   # 封单2亿/市值40亿=5%
+    assert sc["probability"] > 70
+    assert sc["sealRatio"] == 5.0
+    # 无封单 → 封单分为默认档, 总分较低
+    sc2 = scorer.compute_score_spot(raw, None)
+    assert sc2["sealRatio"] == 0.0
+    assert sc2["probability"] <= sc["probability"]
+
+
+def test_spot_filters(monkeypatch):
+    """盘中过滤: 涨幅区间/量比下限/换手区间生效"""
+    f = {"stSuspend": False, "limitUp": False, "spotExcludeZT": False,
+         "chgFloor": 0, "chgGt": 9.5, "volRatioFloor": 1, "turnoverFloor": 0, "turnoverGt": 0,
+         "probLt": 0, "confLt": 0, "floatMvFloor": 0, "floatMvGt": 9999, "priceGt": 9999}
+    items = [
+        {"code": "1", "name": "甲", "probability": 80, "confidence": 70, "circulationMV": 50,
+         "price": 10, "realChange": 4.0, "volRatio": 2.0, "turnover": 5.0, "limitBoards": 0,
+         "_raw": {"f4": 1.0, "f5": 1000}},
+        {"code": "2", "name": "乙", "probability": 70, "confidence": 60, "circulationMV": 50,
+         "price": 10, "realChange": 12.0, "volRatio": 2.0, "turnover": 5.0, "limitBoards": 0,
+         "_raw": {"f4": 1.0, "f5": 1000}},   # 涨幅超上限 → 剔除
+        {"code": "3", "name": "丙", "probability": 70, "confidence": 60, "circulationMV": 50,
+         "price": 10, "realChange": 4.0, "volRatio": 0.5, "turnover": 5.0, "limitBoards": 0,
+         "_raw": {"f4": 1.0, "f5": 1000}},   # 量比低于下限 → 剔除
+    ]
+    result = scorer.apply_spot_filters(items, f)
+    assert [x["code"] for x in result] == ["1"]

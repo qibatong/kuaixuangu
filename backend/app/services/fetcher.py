@@ -35,6 +35,7 @@ _HOST_COOLDOWN = 300   # 冷却 5 分钟
 _HEALTH = {
     "eastmoney_clist": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
     "eastmoney_kline": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
+    "eastmoney_zt_pool": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
     "ths_kline":       {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
 }
 _health_lock = threading.Lock()
@@ -154,6 +155,26 @@ def ensure_cache(action, fs, before930):
                 log.info("缓存初建 fs=%s", fs)
             else:
                 log.info("缓存命中 fs=%s", fs)
+        return _cache[fs]["raw"], None
+
+
+def ensure_spot_cache(action, fs, before930):
+    """盘中实时模式缓存: 不受 9:30 限制, 缓存新鲜度用 SPOT_CACHE_TTL。
+    返回 (raw, 错误信息); 拉取失败沿用旧缓存(降级不报错)。"""
+    with _fetch_lock:
+        now = time.time()
+        entry = _cache.get(fs)
+        if entry is None or now - entry["ts"] > config.SPOT_CACHE_TTL:
+            try:
+                _cache[fs] = {"raw": fetch_eastmoney(fs), "ts": now}
+                log.info("盘中缓存刷新 fs=%s", fs)
+            except Exception as e:
+                if entry is not None:
+                    log.warning("盘中拉取失败, 沿用旧缓存 fs=%s err=%s", fs, e)
+                    return entry["raw"], None
+                raise
+        else:
+            log.info("盘中缓存命中 fs=%s 年龄%.0fs", fs, now - entry["ts"])
         return _cache[fs]["raw"], None
 
 
@@ -284,3 +305,55 @@ def fetch_yesterday_amounts(codes):
             if ent and ent[0] == today:
                 out[c] = ent[1]
     return out
+
+
+# ---------- 盘中实时选股: 东财涨停池(封单/连板/炸板) ----------
+# date -> {"raw": {"code": zt_info}, "ts": epoch}; 涨停池数据当日有效, 盘中按 TTL 刷新
+_zt_cache = {}
+_zt_lock = threading.Lock()
+
+
+def fetch_zt_pool(date=None):
+    """拉取东财涨停池(含封单额/封板时间/炸板次数/连板数), 带缓存。
+    date: YYYYMMDD, 默认今天(北京); 返回 {code: {fund, fb, lb, zbc, zdp}} 或 {}
+    失败返回空 dict(不影响选股主流程, 盘中封单因子降级为无数据)。
+    """
+    date = date or _bj_date_str().replace("-", "")
+    with _zt_lock:
+        ent = _zt_cache.get(date)
+        if ent and time.time() - ent["ts"] < config.ZT_CACHE_TTL:
+            return ent["raw"]
+    qs = urllib.parse.urlencode({
+        "ut": config.EASTMONEY_ZT_UT, "dpt": "wz.ztzt",
+        "Pageindex": 0, "pagesize": 1000, "sort": "fbt:asc", "date": date,
+    })
+    t0 = time.time()
+    try:
+        req = urllib.request.Request(config.EASTMONEY_ZT_URL + "?" + qs, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Referer": "https://quote.eastmoney.com/",
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        pool = (data.get("data") or {}).get("pool") or []
+        out = {}
+        for p in pool:
+            code = str(p.get("c") or "")
+            if not code:
+                continue
+            out[code] = {
+                "fund": float(p.get("fund") or 0) / 1e8,   # 封单金额(亿)
+                "fb": int(p.get("fbt") or 0),              # 封板时间 HHMMSS
+                "lb": int(p.get("lbc") or 0),              # 连板数
+                "zbc": int(p.get("zbc") or 0),             # 炸板次数
+                "zdp": float(p.get("zdp") or 0),           # 涨停涨幅(%)
+            }
+        _record("eastmoney_zt_pool", True, int((time.time() - t0) * 1000))
+        with _zt_lock:
+            _zt_cache[date] = {"raw": out, "ts": time.time()}
+        log.info("涨停池拉取成功 date=%s 涨停数%d", date, len(out))
+        return out
+    except Exception as e:
+        _record("eastmoney_zt_pool", False)
+        log.warning("涨停池拉取失败 date=%s err=%s", date, e)
+        return {}

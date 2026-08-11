@@ -1,8 +1,8 @@
 // 选股相关 API
 import { request } from './request'
 
-export function fetchStocks(action, filterParams) {
-  return request('/api/stocks', { query: { action, ...filterParams } })
+export function fetchStocks(action, filterParams, mode = 'auction') {
+  return request('/api/stocks', { query: { action, mode, ...filterParams } })
 }
 
 export function getPrefs() {

@@ -23,14 +23,39 @@ export const defaultFilterSettings = {
   bidAmtFloor: 3000
 }
 
+// 盘中实时模式筛选参数(独立于竞价)
+export const defaultSpotFilterSettings = {
+  stSuspend: true,
+  markets: ['hs', 'cyb', 'kcb'],
+  limitUp: true,
+  spotExcludeZT: false,     // 不剔除已涨停(默认保留涨停股, 看封单强度)
+  chgFloor: 0,              // 实时涨幅下限
+  chgGt: 9.5,               // 实时涨幅上限
+  volRatioFloor: 1,         // 量比下限
+  turnoverFloor: 0,         // 换手率下限
+  turnoverGt: 0,            // 换手率上限(0=不限)
+  probLt: 55,
+  confLt: 60,
+  floatMvFloor: 20,
+  floatMvGt: 1000,
+  priceGt: 300
+}
+
 export const useStocksStore = defineStore('stocks', {
   state: () => ({
     cachedStocks: [],
     isDataCached: false,
     realTimeRefreshUsed: false,
     before930: true,
+    // 当前模式: auction(竞价) / spot(盘中实时)
+    mode: 'auction',
+    // 盘中实时结果(独立缓存, 避免切换模式互相覆盖)
+    spotStocks: [],
+    isSpotCached: false,
     // 当前工作筛选条件
     filterSettings: { ...defaultFilterSettings },
+    // 盘中筛选条件
+    spotFilterSettings: { ...defaultSpotFilterSettings },
     // 账号级筛选偏好(后端 users 表, 跨设备一致)
     userFilterPrefs: null,
     isFilterLocked: false
@@ -38,6 +63,7 @@ export const useStocksStore = defineStore('stocks', {
   actions: {
     // ---- 筛选参数 ----
     buildFilterParams() {
+      if (this.mode === 'spot') return this.buildSpotFilterParams()
       const f = this.filterSettings
       return {
         stSuspend: f.stSuspend ? '1' : '0',
@@ -51,6 +77,33 @@ export const useStocksStore = defineStore('stocks', {
         priceGt: f.priceGt,
         bidAmtFloor: f.bidAmtFloor
       }
+    },
+
+    // ---- 盘中筛选参数 ----
+    buildSpotFilterParams() {
+      const f = this.spotFilterSettings
+      return {
+        stSuspend: f.stSuspend ? '1' : '0',
+        limitUp: f.limitUp ? '1' : '0',
+        markets: f.markets.join(','),
+        chgFloor: f.chgFloor,
+        chgGt: f.chgGt,
+        volRatioFloor: f.volRatioFloor,
+        turnoverFloor: f.turnoverFloor,
+        turnoverGt: f.turnoverGt,
+        spotExcludeZT: f.spotExcludeZT ? '1' : '0',
+        probLt: f.probLt,
+        confLt: f.confLt,
+        floatMvFloor: f.floatMvFloor,
+        floatMvGt: f.floatMvGt,
+        priceGt: f.priceGt
+      }
+    },
+
+    // ---- 模式切换 ----
+    setMode(m) {
+      if (m !== 'auction' && m !== 'spot') return
+      this.mode = m
     },
 
     // ---- 账号级偏好 ----
@@ -166,7 +219,8 @@ export const useStocksStore = defineStore('stocks', {
       this.realTimeRefreshUsed = false
       await this.fetchAndCache()
     },
-    async applyCustomFilter() {
+    async     applyCustomFilter() {
+      if (this.mode === 'spot') return this.applySpotFilter()
       if (this.isFilterLocked) {
         showToast(' 筛选条件已锁定，无法手动应用', 'error')
         return
@@ -177,6 +231,32 @@ export const useStocksStore = defineStore('stocks', {
       this.before930 = data.before930
       this.saveUserPrefs()
       showToast('✅ 筛选条件已更新', 'success')
+    },
+
+    // ---- 盘中实时模式 ----
+    async fetchSpot() {
+      if (this.isSpotCached) return
+      const data = await fetchStocks('refresh', this.buildFilterParams(), 'spot')
+      this.spotStocks = data.list || []
+      this.isSpotCached = true
+      this.before930 = data.before930
+      showToast('✅ 盘中选股完成', 'success')
+    },
+    async updateSpotRealTime() {
+      const data = await fetchStocks('refresh', this.buildFilterParams(), 'spot')
+      this.spotStocks = data.list || []
+      this.isSpotCached = true
+      this.before930 = data.before930
+      this.realTimeRefreshUsed = true
+      showToast('✅ 实时刷新完成', 'success')
+    },
+    async applySpotFilter() {
+      const data = await fetchStocks('refresh', this.buildFilterParams(), 'spot')
+      this.spotStocks = data.list || []
+      this.isSpotCached = true
+      this.before930 = data.before930
+      this.saveUserPrefs()
+      showToast('✅ 盘中筛选条件已更新', 'success')
     },
     toggleFilterLock() {
       this.isFilterLocked = !this.isFilterLocked

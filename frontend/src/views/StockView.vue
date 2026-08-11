@@ -33,22 +33,34 @@
       </div>
     </div>
 
+    <!-- 模式切换 Tab: 竞价选股 / 盘中实时选股 -->
+    <div class="mode-tabs">
+      <button class="mode-tab" :class="{ active: stocks.mode === 'auction' }" @click="switchMode('auction')">
+        <i class="fa fa-sun-o"></i> 竞价选股 <span class="mode-desc">9:15-9:31 · 竞价锁定</span>
+      </button>
+      <button class="mode-tab" :class="{ active: stocks.mode === 'spot' }" @click="switchMode('spot')">
+        <i class="fa fa-bolt"></i> 盘中实时选股 <span class="mode-desc">9:30-15:00 · 实时刷新</span>
+      </button>
+    </div>
+
     <!-- 筛选面板 -->
     <FilterPanel />
 
-    <!-- 奖牌区 -->
-    <MedalPanel :stocks="stocks.cachedStocks" />
+    <!-- 奖牌区(仅竞价模式) -->
+    <template v-if="stocks.mode === 'auction'">
+      <MedalPanel :stocks="stocks.cachedStocks" />
 
-    <!-- 奖牌导出 -->
-    <div style="display:flex;justify-content:flex-end;margin:6px 0;">
-      <div class="export-medal-group">
-        <span style="color:#ffbcbc;font-size:12px;">导出前</span>
-        <select v-model="medalExportCount" class="export-select">
-          <option :value="3">3只</option><option :value="5">5只</option><option :value="8">8只</option><option :value="10">10只</option>
-        </select>
-        <button class="tdx-export-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="downloadMedal"><i class="fa fa-download"></i> 下载自选股</button>
+      <!-- 奖牌导出 -->
+      <div style="display:flex;justify-content:flex-end;margin:6px 0;">
+        <div class="export-medal-group">
+          <span style="color:#ffbcbc;font-size:12px;">导出前</span>
+          <select v-model="medalExportCount" class="export-select">
+            <option :value="3">3只</option><option :value="5">5只</option><option :value="8">8只</option><option :value="10">10只</option>
+          </select>
+          <button class="tdx-export-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="downloadMedal"><i class="fa fa-download"></i> 下载自选股</button>
+        </div>
       </div>
-    </div>
+    </template>
 
     <!-- 策略股票池 -->
     <StockPoolPanel />
@@ -58,11 +70,19 @@
       <button class="tdx-export-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="downloadAll"><i class="fa fa-download"></i> 下载全部筛选结果</button>
     </div>
 
-    <!-- 主表 -->
-    <div v-if="!stocks.isDataCached" class="stock-table-container">
-      <div class="loading-placeholder"><div class="spinner"></div><div>正在初始化选股数据...</div></div>
-    </div>
-    <StockTable v-else :stocks="stocks.cachedStocks" />
+    <!-- 主表: 按模式显示 -->
+    <template v-if="stocks.mode === 'spot'">
+      <div v-if="!stocks.isSpotCached" class="stock-table-container">
+        <div class="loading-placeholder"><div class="spinner"></div><div>正在初始化盘中数据...</div></div>
+      </div>
+      <StockTable v-else :stocks="stocks.spotStocks" mode="spot" />
+    </template>
+    <template v-else>
+      <div v-if="!stocks.isDataCached" class="stock-table-container">
+        <div class="loading-placeholder"><div class="spinner"></div><div>正在初始化选股数据...</div></div>
+      </div>
+      <StockTable v-else :stocks="stocks.cachedStocks" mode="auction" />
+    </template>
 
     <div style="display:flex;justify-content:flex-end;margin:6px 0;">
       <button class="tdx-export-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="downloadAll"><i class="fa fa-download"></i> 下载全部筛选结果</button>
@@ -171,7 +191,25 @@ function reLock() {
   stocks.reLockData().catch(e => showToast('❌ ' + e.message, 'error'))
 }
 function refreshRealTime() {
+  if (stocks.mode === 'spot') {
+    stocks.updateSpotRealTime().catch(e => showToast('❌ 更新失败：' + e.message, 'error'))
+    return
+  }
   stocks.updateRealTimeOnly().catch(e => showToast('❌ 更新失败：' + e.message, 'error'))
+}
+async function switchMode(m) {
+  if (stocks.mode === m) return
+  stocks.setMode(m)
+  // 首次进入该模式时拉一次数据
+  try {
+    if (m === 'spot') {
+      if (!stocks.isSpotCached) await stocks.fetchSpot()
+    } else {
+      if (!stocks.isDataCached) await stocks.fetchAndCache()
+    }
+  } catch (e) {
+    showToast('❌ ' + e.message, 'error')
+  }
 }
 function downloadMedal() { downloadBlkFile(stocks.cachedStocks, medalExportCount.value) }
 function downloadAll() { downloadBlkFile(stocks.cachedStocks, 0) }
@@ -213,4 +251,33 @@ onBeforeUnmount(() => {
   cursor: default;
 }
 .yizi-card b { color: #ff6a4a; }
+.mode-tabs {
+  display: flex;
+  gap: 10px;
+  margin: 10px 0 4px;
+}
+.mode-tab {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: #bbb;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.mode-tab:hover { border-color: #ffb400; color: #ffe0a0; }
+.mode-tab.active {
+  background: rgba(255,180,0,0.12);
+  border-color: #ffb400;
+  color: #ffd700;
+}
+.mode-desc {
+  font-size: 11px;
+  color: #888;
+}
+.mode-tab.active .mode-desc { color: #c9a94a; }
 </style>
