@@ -246,6 +246,45 @@ def test_dedup_differs_after_window(monkeypatch):
     assert calls["n"] == 2
 
 
+def test_dedup_key_ignores_timestamp_and_minor_changes(monkeypatch):
+    """去重键稳定性: 时间戳/分钟变化不影响; 涨幅0.01级别波动不影响; 明显变化才算新内容"""
+    # 同批标的(仅概率/涨幅微小差异) → 键相同 → 窗口内只推一条
+    r1 = [dict(x) for x in RESULT]
+    r2 = [dict(x) for x in RESULT]
+    r2[0]["bidChange"] = 3.21          # 0.01 差异 → 取1位小数后仍 3.2
+    r2[0]["probability"] = 92.4        # 0.1 差异 → 取整后仍 92
+    assert notify._dedup_key(r1, FILTERS) == notify._dedup_key(r2, FILTERS)
+    # 明显变化(涨幅跨档/标的更换) → 键不同 → 视为新内容可推
+    r3 = [dict(x) for x in RESULT]
+    r3[0]["bidChange"] = 5.5
+    assert notify._dedup_key(r3, FILTERS) != notify._dedup_key(r1, FILTERS)
+    r4 = [dict(x) for x in RESULT]
+    r4[0]["code"] = "600999"
+    assert notify._dedup_key(r4, FILTERS) != notify._dedup_key(r1, FILTERS)
+
+
+def test_dedup_key_differs_by_markets():
+    """筛选范围不同(市场不同) → 键不同 → 各自可推(不误伤不同筛选条件)"""
+    f1 = {"markets": ["hs"]}
+    f2 = {"markets": ["hs", "cyb"]}
+    assert notify._dedup_key(RESULT, f1) != notify._dedup_key(RESULT, f2)
+
+
+def test_dedup_window_extended_in_auction():
+    """竞价时段(9:25-9:31)去重窗口自动放大, 覆盖整个竞价时段, 防刷屏"""
+    from datetime import datetime, timezone, timedelta
+    bj = timezone(timedelta(hours=8))
+    # 9:26:30 → 距 9:31 还有 270 秒 → 窗口 >= 270
+    ts = datetime(2026, 8, 11, 9, 26, 30, tzinfo=bj).timestamp()
+    assert notify._dedup_window(now=ts) >= 270
+    # 9:30:50 → 距 9:31 还有 10 秒, 但窗口至少取配置默认(120) → 防临收盘刷屏
+    ts2 = datetime(2026, 8, 11, 9, 30, 50, tzinfo=bj).timestamp()
+    assert notify._dedup_window(now=ts2) >= 120
+    # 非竞价时段(12:00) → 默认窗口
+    ts3 = datetime(2026, 8, 11, 12, 0, 0, tzinfo=bj).timestamp()
+    assert notify._dedup_window(now=ts3) == config.NOTIFY_DEDUP_SECONDS
+
+
 # ---------- 接口触发 ----------
 def test_lock_triggers_async_push(client, first_user, monkeypatch):
     token, _, _ = first_user

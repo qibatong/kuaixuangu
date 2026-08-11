@@ -77,10 +77,42 @@ def _dedup(content, now=None):
     h = hashlib.md5(content.encode("utf-8")).hexdigest()
     with _dedup_lock:
         last = _last_push.get(h, 0)
-        if now - last < config.NOTIFY_DEDUP_SECONDS:
+        if now - last < _dedup_window(now):
             return True
         _last_push[h] = now
     return False
+
+
+def _dedup_window(now=None):
+    """去重窗口(秒): 竞价时段(9:25-9:31 北京时间)自动放大到覆盖整个竞价时段,
+    防止 9:25-9:30 多用户反复 lock 刷屏; 其他时段用配置默认窗口。"""
+    now = now if now is not None else time.time()
+    g = time.gmtime(now + 8 * 3600)
+    hm = g.tm_hour * 60 + g.tm_min
+    if 9 * 60 + 25 <= hm <= 9 * 60 + 31:
+        remain = (9 * 60 + 31 - hm) * 60   # 距 9:31 剩余秒数
+        return max(remain, config.NOTIFY_DEDUP_SECONDS)
+    return config.NOTIFY_DEDUP_SECONDS
+
+
+def _dedup_key(result, filters=None):
+    """稳定去重键: 市场 + TopN 标的(代码|竞价涨幅1位小数|概率取整)。
+    不含时间戳/实时易变尾巴 → 同一竞价窗口内同批标的只推一次;
+    筛选范围不同(市场不同)或结果显著变化(涨幅/概率明显变)才视为新内容。"""
+    markets = "、".join((filters or {}).get("markets", [])) or "沪深A股"
+    top = (result or [])[:config.NOTIFY_TOP_N]
+    items = []
+    for s in top:
+        try:
+            bc = round(float(s.get("bidChange") or 0), 1)
+        except (TypeError, ValueError):
+            bc = 0.0
+        try:
+            prob = int(round(float(s.get("probability") or 0)))
+        except (TypeError, ValueError):
+            prob = 0
+        items.append("%s|%.1f|%d" % (s.get("code", ""), bc, prob))
+    return "%s#%s" % (markets, ";".join(items))
 
 
 # ---------- 底层发送(可被测试 monkeypatch) ----------
@@ -158,8 +190,8 @@ def push_result(result, filters=None):
     任何渠道异常都会被捕获, 不会向上抛。
     """
     text = build_message(result, filters)
-    if _dedup(text):
-        log.info("推送去重: 相同内容窗口内跳过")
+    if _dedup(_dedup_key(result, filters)):
+        log.info("推送去重: 同批标的窗口内跳过")
         return {}
 
     channels = []
