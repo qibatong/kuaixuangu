@@ -97,6 +97,7 @@ def test_spot_mode_returns_stocks(client, first_user, monkeypatch):
         assert s["code"] and s["name"]
         assert "realChange" in s and "volRatio" in s and "turnover" in s
         assert "sealRatio" in s and "limitBoards" in s
+        assert "bidAmt" in s and "bidChange" in s   # 盘中保留竞价字段展示
 
 
 def test_spot_mode_uses_zt_pool(client, first_user, monkeypatch):

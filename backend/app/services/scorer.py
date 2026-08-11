@@ -440,6 +440,7 @@ def process_spot_stocks(raw, f, zt_map=None):
             "industry": s.get("f100") or "-",
             "concept": s.get("f103") or "-",
             "bidChange": get_bid_change(s),
+            "bidAmt": get_bid_amt(s),   # 竞价金额(万元), 盘中保留展示(9:25定格)
             "_raw": s,
         })
     scored.sort(key=lambda x: x["probability"], reverse=True)

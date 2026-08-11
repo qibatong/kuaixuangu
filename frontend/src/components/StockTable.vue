@@ -10,6 +10,7 @@
           <th class="sortable" :class="{ active: sortKey === 'code' }" @click="onSort('code', 'string')">股票代码<span class="sort-ind">{{ sortInd('code') }}</span></th>
           <th class="sortable" :class="{ active: sortKey === 'name' }" @click="onSort('name', 'string')">股票名称<span class="sort-ind">{{ sortInd('name') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'realChange' }" @click="onSort('realChange', 'number')" title="实时涨幅：当前价相对昨收的涨幅">实时涨幅<span class="sort-ind">{{ sortInd('realChange') }}</span></th>
+          <th class="sortable num" :class="{ active: sortKey === 'bidAmt' }" @click="onSort('bidAmt', 'number')" title="集合竞价阶段撮合成交金额(万元)，9:25 定格">竞价金额(万)<span class="sort-ind">{{ sortInd('bidAmt') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'volRatio' }" @click="onSort('volRatio', 'number')" title="量比：当前每分钟平均成交量 / 过去5日每分钟平均成交量。≥2 显著放量">量比<span class="sort-ind">{{ sortInd('volRatio') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'turnover' }" @click="onSort('turnover', 'number')" title="实时换手率：成交量/流通股本">换手率<span class="sort-ind">{{ sortInd('turnover') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'sealRatio' }" @click="onSort('sealRatio', 'number')" title="封单强度 = 封单金额/流通市值(封成比)。≥2% 强封单；非涨停股为 0">封单强度<span class="sort-ind">{{ sortInd('sealRatio') }}</span></th>
@@ -29,6 +30,7 @@
           <td class="code-click" @click="linkToSoftware(item.code)">{{ item.code }}</td>
           <td>{{ item.name }}</td>
           <td :class="item.realChange > 0 ? 'up' : 'down'" :title="'实时涨幅: 当前价相对昨收'">{{ signed(item.realChange) }}%</td>
+          <td :title="'集合竞价阶段撮合成交金额(万元)'">{{ bidAmtText(item.bidAmt) }}</td>
           <td :class="item.volRatio >= 2 ? 'ratio-hot' : item.volRatio >= 1 ? 'ratio-warm' : ''">{{ item.volRatio.toFixed(2) }}</td>
           <td :class="item.turnover >= 3 ? 'ratio-hot' : ''">{{ item.turnover.toFixed(2) }}%</td>
           <td :class="item.sealRatio >= 2 ? 'accel-hot' : ''" :title="item.sealRatio > 0 ? '封成比 ' + item.sealRatio.toFixed(2) + '%' : '非涨停/无封单'">
@@ -53,10 +55,10 @@
           <th>排名</th>
           <th class="sortable" :class="{ active: sortKey === 'code' }" @click="onSort('code', 'string')">股票代码<span class="sort-ind">{{ sortInd('code') }}</span></th>
           <th class="sortable" :class="{ active: sortKey === 'name' }" @click="onSort('name', 'string')">股票名称<span class="sort-ind">{{ sortInd('name') }}</span></th>
+          <th class="sortable num" :class="{ active: sortKey === 'realChange' }" @click="onSort('realChange', 'number')" title="实时涨幅：当前价相对昨收的涨幅">实时涨幅<span class="sort-ind">{{ sortInd('realChange') }}</span></th>
           <th class="sortable" :class="{ active: sortKey === 'qiangchou' }" @click="onSort('qiangchou', 'number')" title="竞价涨幅≥2% 且 竞价/昨比≥20% 时标记 🔥抢筹：代表资金在集合竞价阶段大幅抢筹，是当日强势启动的先行信号">抢筹<span class="sort-ind">{{ sortInd('qiangchou') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'bidChange' }" @click="onSort('bidChange', 'number')" title="竞价涨幅">竞价涨幅<span class="sort-ind">{{ sortInd('bidChange') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'accel' }" @click="onSort('accel', 'number')" title="最后5分钟抢筹加速度：9:25竞价涨幅 − 9:20竞价涨幅(百分点)。正值=9:20后资金加速抢筹，≥+1.5% 显著(红色加粗)；负值=竞价冲高回落，警惕">加速度<span class="sort-ind">{{ sortInd('accel') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'realChange' }" @click="onSort('realChange', 'number')">实时涨幅<span class="sort-ind">{{ sortInd('realChange') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'entityChange' }" @click="onSort('entityChange', 'number')">实体涨幅<span class="sort-ind">{{ sortInd('entityChange') }}</span></th>
           <th class="sortable" :class="{ active: sortKey === 'warnType' }" @click="onSort('warnType', 'number')">异动<span class="sort-ind">{{ sortInd('warnType') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'bidAmt' }" @click="onSort('bidAmt', 'number')">竞价金额(万)<span class="sort-ind">{{ sortInd('bidAmt') }}</span></th>
@@ -73,6 +75,7 @@
           <td class="rank-col">{{ idx + 1 }}</td>
           <td class="code-click" @click="linkToSoftware(item.code)">{{ item.code }}</td>
           <td>{{ item.name }}</td>
+          <td :class="realCls(item)">{{ signed(item.realChange) }}%</td>
           <td>
             <span v-if="item.qiangchou" class="qc-badge" title="竞价涨幅≥2% 且 竞价/昨比≥20%">🔥抢筹</span>
             <span v-else-if="item._snapshot || isAuction" title="竞价涨幅≥2% 且 竞价/昨比≥20%">-</span>
@@ -80,7 +83,6 @@
           </td>
           <td :class="item.bidChange > 0 ? 'up' : 'down'" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'">{{ signed(item.bidChange) }}%</td>
           <td :class="accelCls(item.accel)" :title="accelTitle(item.accel)">{{ accelText(item.accel) }}</td>
-          <td :class="realCls(item)">{{ signed(item.realChange) }}%</td>
           <td :class="item.entityChange > 0 ? 'up' : 'down'">{{ signed(item.entityChange) }}%</td>
           <td>{{ warnLabel(item.warnType) }}</td>
           <td :title="'集合竞价阶段撮合成交金额(万元)'">{{ bidAmtText(item.bidAmt) }}</td>
