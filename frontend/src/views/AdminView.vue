@@ -113,39 +113,27 @@
         </div>
       </div>
 
-      <!-- 评分策略页签(独立一行, 竞价/盘中切换) -->
-      <div class="scoring-mode-tabs">
-        <button class="scoring-mode-tab" :class="{ active: scoringMode === 'auction' }" @click="switchScoringMode('auction')">
-          <i class="fa fa-gavel"></i> 竞价评分
-          <span class="scoring-mode-desc">9:15-9:31 竞价锁定策略</span>
-        </button>
-        <button class="scoring-mode-tab" :class="{ active: scoringMode === 'spot' }" @click="switchScoringMode('spot')">
-          <i class="fa fa-line-chart"></i> 盘中评分
-          <span class="scoring-mode-desc">9:30-15:00 实时选股策略</span>
-        </button>
-      </div>
-
-      <!-- 评分策略配置 -->
+      <!-- 评分权重配置(竞价, 盘中已合并为同一套逻辑) -->
       <div class="admin-card">
         <div class="card-title">
-          <i class="fa fa-sliders"></i> {{ scoringMode === 'spot' ? '盘中评分' : '竞价评分' }}·权重配置
+          <i class="fa fa-sliders"></i> 竞价评分·权重配置
           <span style="color:#888;font-size:12px;margin-left:8px;">保存后立即生效（影响后续选股评分）</span>
         </div>
         <table class="admin-table weight-table">
           <thead><tr><th style="width:140px;">因子</th><th>权重(0~1)</th><th>说明</th></tr></thead>
           <tbody>
-            <tr v-for="wk in curWKeys" :key="wk[0]">
+            <tr v-for="wk in wKeys" :key="wk[0]">
               <td>{{ wk[1] }}</td>
-              <td><input v-model.number="curScoring[wk[0]]" type="number" step="0.01" min="0" max="1" class="admin-input" style="width:90px;" /></td>
+              <td><input v-model.number="scoring[wk[0]]" type="number" step="0.01" min="0" max="1" class="admin-input" style="width:90px;" /></td>
               <td style="color:#999;font-size:12px;">{{ wk[2] }}</td>
             </tr>
             <tr>
-              <td colspan="2" style="color:#ffbcbc;font-size:13px;">权重合计：{{ curWeightSum.toFixed(2) }} <span v-if="Math.abs(curWeightSum - 1) > 0.03" style="color:#ff6a6a;">（需约等于 1 才能保存）</span></td>
+              <td colspan="2" style="color:#ffbcbc;font-size:13px;">权重合计：{{ weightSum.toFixed(2) }} <span v-if="Math.abs(weightSum - 1) > 0.03" style="color:#ff6a6a;">（需约等于 1 才能保存）</span></td>
               <td></td>
             </tr>
-            <tr v-for="ck in curConfKeys" :key="ck[0]">
+            <tr v-for="ck in confKeys" :key="ck[0]">
               <td>置信度·{{ ck[1] }}</td>
-              <td><input v-model.number="curScoring[ck[0]]" type="number" step="1" min="0" max="30" class="admin-input" style="width:90px;" /></td>
+              <td><input v-model.number="scoring[ck[0]]" type="number" step="1" min="0" max="30" class="admin-input" style="width:90px;" /></td>
               <td style="color:#999;font-size:12px;">{{ ck[2] }}</td>
             </tr>
           </tbody>
@@ -160,22 +148,22 @@
 
       <!-- 打分明细配置(因子 Tab 切换) -->
       <div class="admin-card">
-        <div class="card-title"><i class="fa fa-table"></i> {{ scoringMode === 'spot' ? '盘中评分' : '竞价评分' }}·打分明细 <span style="color:#888;font-size:12px;margin-left:8px;">命中区间 [下限, 上限) 得对应分，未命中取默认分</span></div>
+        <div class="card-title"><i class="fa fa-table"></i> 竞价评分·打分明细 <span style="color:#888;font-size:12px;margin-left:8px;">命中区间 [下限, 上限) 得对应分，未命中取默认分</span></div>
         <div class="factor-tabs">
-          <button v-for="fk in curFactorOrder" :key="fk" class="factor-tab" :class="{ active: activeFactor === fk }" @click="activeFactor = fk">
-            {{ curFactors[fk] ? curFactors[fk].label : fk }}
+          <button v-for="fk in factorOrder" :key="fk" class="factor-tab" :class="{ active: activeFactor === fk }" @click="activeFactor = fk">
+            {{ factors[fk] ? factors[fk].label : fk }}
           </button>
         </div>
-        <div v-if="curFactors[activeFactor] && curFactors[activeFactor].buckets" class="factor-box">
-          <div class="factor-title">{{ curFactors[activeFactor].label }} <span style="color:#888;font-size:12px;">（{{ curFactors[activeFactor].unit }}）</span>
+        <div v-if="factors[activeFactor] && factors[activeFactor].buckets" class="factor-box">
+          <div class="factor-title">{{ factors[activeFactor].label }} <span style="color:#888;font-size:12px;">（{{ factors[activeFactor].unit }}）</span>
             <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
-              默认分 <input v-model.number="curFactors[activeFactor].default" type="number" step="0.05" min="0" max="1" class="admin-input" style="width:70px;" />
+              默认分 <input v-model.number="factors[activeFactor].default" type="number" step="0.05" min="0" max="1" class="admin-input" style="width:70px;" />
             </span>
           </div>
           <table class="admin-table bucket-table">
             <thead><tr><th style="width:120px;">下限</th><th style="width:120px;">上限</th><th>得分(0~1)</th><th style="width:70px;"></th></tr></thead>
             <tbody>
-              <tr v-for="(b, idx) in curFactors[activeFactor].buckets" :key="idx">
+              <tr v-for="(b, idx) in factors[activeFactor].buckets" :key="idx">
                 <td><input v-model.number="b[0]" type="number" step="0.1" class="admin-input" style="width:100px;" /></td>
                 <td><input v-model.number="b[1]" type="number" step="0.1" class="admin-input" style="width:100px;" /></td>
                 <td><input v-model.number="b[2]" type="number" step="0.05" min="0" max="1" class="admin-input" style="width:100px;" /></td>
@@ -354,59 +342,25 @@ const pageSize = ref(10)
 const keyword = ref('')
 const denied = ref(false)
 
-const scoring = reactive({})        // 竞价评分配置
-const scoringSpot = reactive({})    // 盘中评分配置
+const scoring = reactive({})        // 竞价评分配置(盘中已合并为同一套)
 const wKeys = ref([])
 const confKeys = ref([])
-const wKeysSpot = ref([])
-const confKeysSpot = ref([])
-const scoringMode = ref('auction')  // auction(竞价) / spot(盘中)
 const activeFactor = ref('bid')     // 打分明细当前激活的因子Tab
 const saving = ref(false)
 const saveMsg = ref('')
 const saveErr = ref(false)
 
-// 当前 mode 的评分数据/键表/因子顺序(computed 联动 Tab)
-const curScoring = computed(() => (scoringMode.value === 'spot' ? scoringSpot : scoring))
-const curWKeys = computed(() => (scoringMode.value === 'spot' ? wKeysSpot.value : wKeys.value))
-const curConfKeys = computed(() => (scoringMode.value === 'spot' ? confKeysSpot.value : confKeys.value))
-const curFactorOrder = computed(() => (scoringMode.value === 'spot' ? SPOT_FACTOR_ORDER : factorOrder))
-const curFactors = computed(() => (scoringMode.value === 'spot' ? factorsSpot : factors))
-const curWeightSum = computed(() => {
+const weightSum = computed(() => {
   let s = 0
-  curWKeys.value.forEach(([k]) => { const v = Number(curScoring.value[k]); if (!isNaN(v)) s += v })
+  wKeys.value.forEach(([k]) => { const v = Number(scoring[k]); if (!isNaN(v)) s += v })
   return s
 })
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 
-function switchScoringMode(m) {
-  scoringMode.value = m
-  // 切换评分模式时, 因子 Tab 重置到该模式第一个因子
-  activeFactor.value = m === 'spot' ? SPOT_FACTOR_ORDER[0] : factorOrder[0]
-  // 未加载过的 mode 首次切换时拉取(注意 ref 需取 .value)
-  const loaded = m === 'spot' ? scoringSpotLoaded.value : scoringLoaded.value
-  if (!loaded) {
-    // 先预置空结构, 避免异步加载期间模板空白/闪烁
-    if (m === 'spot') {
-      SPOT_FACTOR_ORDER.forEach((fk) => {
-        if (!factorsSpot[fk]) factorsSpot[fk] = { label: fk, unit: '', buckets: [], default: 0.1 }
-      })
-    } else {
-      factorOrder.forEach((fk) => {
-        if (!factors[fk]) factors[fk] = { label: fk, unit: '', buckets: [], default: 0.1 }
-      })
-    }
-    loadScoring(m)
-  }
-}
-
 const factors = reactive({})        // 竞价打分明细
-const factorsSpot = reactive({})    // 盘中打分明细
 const factorOrder = ['bid', 'activity', 'warn', 'market', 'yesterday']
-const SPOT_FACTOR_ORDER = ['chg', 'vol_ratio', 'turnover', 'seal', 'market', 'yesterday']
 const scoringLoaded = ref(false)
-const scoringSpotLoaded = ref(false)
 
 function fmtTime(ts) {
   if (!ts) return '-'
@@ -467,31 +421,19 @@ function changePageSize() {
   loadUsers(1)
 }
 
-async function loadScoring(mode = 'auction') {
+async function loadScoring() {
   try {
-    const d = await adminScoring(mode)
-    if (mode === 'spot') {
-      Object.assign(scoringSpot, d.scoring || {})
-      wKeysSpot.value = d.w_keys || []
-      confKeysSpot.value = d.conf_keys || []
-      const fac = (d.scoring && d.scoring.factors) || {}
-      SPOT_FACTOR_ORDER.forEach((fk) => {
-        factorsSpot[fk] = fac[fk] || { label: fk, unit: '', buckets: [], default: 0.1 }
-        factorsSpot[fk].buckets = (factorsSpot[fk].buckets || []).map((b) => [Number(b[0]), Number(b[1]), Number(b[2])])
-      })
-      scoringSpotLoaded.value = true
-    } else {
-      Object.assign(scoring, d.scoring || {})
-      wKeys.value = d.w_keys || []
-      confKeys.value = d.conf_keys || []
-      const fac = (d.scoring && d.scoring.factors) || {}
-      factorOrder.forEach((fk) => {
-        factors[fk] = fac[fk] || { label: fk, unit: '', buckets: [], default: 0.1 }
-        // buckets 行转数组, 便于 v-model.number 双向绑定
-        factors[fk].buckets = (factors[fk].buckets || []).map((b) => [Number(b[0]), Number(b[1]), Number(b[2])])
-      })
-      scoringLoaded.value = true
-    }
+    const d = await adminScoring()
+    Object.assign(scoring, d.scoring || {})
+    wKeys.value = d.w_keys || []
+    confKeys.value = d.conf_keys || []
+    const fac = (d.scoring && d.scoring.factors) || {}
+    factorOrder.forEach((fk) => {
+      factors[fk] = fac[fk] || { label: fk, unit: '', buckets: [], default: 0.1 }
+      // buckets 行转数组, 便于 v-model.number 双向绑定
+      factors[fk].buckets = (factors[fk].buckets || []).map((b) => [Number(b[0]), Number(b[1]), Number(b[2])])
+    })
+    scoringLoaded.value = true
   } catch (e) {
     if (e.status === 403) denied.value = true
     else toast(e.message || '加载失败', 'error')
@@ -499,26 +441,22 @@ async function loadScoring(mode = 'auction') {
 }
 
 function addBucket(fk) {
-  curFactors.value[fk].buckets.push([0, 1, 0.5])
+  factors[fk].buckets.push([0, 1, 0.5])
 }
 
 function delBucket(fk, idx) {
-  curFactors.value[fk].buckets.splice(idx, 1)
+  factors[fk].buckets.splice(idx, 1)
 }
 
 async function saveScoring() {
   saveMsg.value = ''
-  const mode = scoringMode.value
-  const sc = mode === 'spot' ? scoringSpot : scoring
-  const fo = mode === 'spot' ? SPOT_FACTOR_ORDER : factorOrder
-  const fac = mode === 'spot' ? factorsSpot : factors
   const payload = {}
-  Object.keys(sc).forEach((k) => {
-    if (!k.startsWith('factors')) payload[k] = Number(sc[k])
+  Object.keys(scoring).forEach((k) => {
+    if (!k.startsWith('factors')) payload[k] = Number(scoring[k])
   })
   payload.factors = {}
-  fo.forEach((fk) => {
-    const f = fac[fk]
+  factorOrder.forEach((fk) => {
+    const f = factors[fk]
     payload.factors[fk] = {
       label: f.label, unit: f.unit, default: Number(f.default),
       buckets: f.buckets.map((b) => [String(b[0]), String(b[1]), Number(b[2])])
@@ -526,10 +464,10 @@ async function saveScoring() {
   })
   saving.value = true
   try {
-    const d = await apiSaveScoring(payload, mode)
+    const d = await apiSaveScoring(payload)
     saveMsg.value = d.msg || '已保存'
     saveErr.value = false
-    toast((mode === 'spot' ? '盘中' : '竞价') + '权重与打分明细已保存并生效', 'success')
+    toast('竞价权重与打分明细已保存并生效', 'success')
   } catch (e) {
     saveMsg.value = e.message || '保存失败'
     saveErr.value = true
@@ -557,39 +495,6 @@ onMounted(() => {
 .card-title { display: flex; align-items: center; font-size: 15px; color: #ffe0a0; margin-bottom: 12px; }
 .admin-input { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; color: #eee; padding: 6px 10px; font-size: 13px; }
 .admin-input:focus { outline: none; border-color: #ffb400; }
-.scoring-mode-tabs {
-  display: flex;
-  gap: 10px;
-  margin: 6px 0 14px;
-}
-.scoring-mode-tab {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 10px;
-  padding: 10px 18px;
-  font-size: 14px;
-  color: #bbb;
-  cursor: pointer;
-  transition: all 0.2s;
-  flex: 1;
-  max-width: 240px;
-}
-.scoring-mode-tab:hover { border-color: #ffb400; }
-.scoring-mode-tab.active {
-  background: rgba(255,180,0,0.12);
-  border-color: #ffb400;
-  color: #ffd700;
-}
-.scoring-mode-desc {
-  font-size: 11px;
-  color: #777;
-  font-weight: 400;
-}
-.scoring-mode-tab.active .scoring-mode-desc { color: #c9a94a; }
 .factor-tabs {
   display: flex;
   gap: 8px;
