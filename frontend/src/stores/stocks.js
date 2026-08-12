@@ -25,14 +25,24 @@ export const defaultFilterSettings = {
 }
 
 // 锁定名单按"当前筛选条件"过滤: 条件不允许的票直接移除(不显示)。
-// 复刻后端 apply_filters 的剔除规则(剔除昨日涨停/竞价涨幅过高/市值/价格/竞价金额),
-// 避免"涨停票却显示已跌出"(哈药场景: 勾了剔除昨日涨停, 它是昨日涨停 → 移除)。
+// 与后端 apply_spot_filters 保持一致(剔除昨日涨停/实时涨幅区间/量比/换手/市值/价格/竞价金额/评分),
+// 避免"量比不足却标已跌出"等前后端不一致(晓程黄金场景: 量比0.79<1 被后端过滤, 前端也应移除)。
 function passLockedFilter(it, rt, f) {
   if (f.limitUp) {
     const concept = it.concept || ''
     if (concept.includes('昨日涨停') || concept.includes('昨日连板')) return false
   }
   if (it.bidChange > f.bidGt) return false                 // 竞价涨幅过高剔除
+  // 实时维度(用 spotMap 实时值): 涨幅区间 / 量比 / 换手(与后端 apply_spot_filters 一致)
+  if (rt) {
+    const rc = rt.realChange
+    if (rc !== undefined && rc !== null) {
+      if (rc < f.chgFloor || rc > f.chgGt) return false    // 实时涨幅区间
+    }
+    if (f.volRatioFloor > 0 && rt.volRatio < f.volRatioFloor) return false  // 量比下限
+    if (f.turnoverFloor > 0 && rt.turnover < f.turnoverFloor) return false  // 换手下限
+    if (f.turnoverGt > 0 && rt.turnover > f.turnoverGt) return false        // 换手上限
+  }
   if (it.circulationMV < f.floatMvFloor) return false      // 市值过小
   if (it.circulationMV > f.floatMvGt) return false         // 市值过大
   const price = rt ? rt.price : it.price
@@ -201,10 +211,13 @@ export const useStocksStore = defineStore('stocks', {
     // 权威名单优先取"当天 lock 批次"(后端落库), 失败退回本地快照。
     async mergeSpotIntoLocked(spotList, spotMap, filterSettings) {
       let locked = null
+      let hasLockBatch = false
       try {
         locked = await this.loadLockedBatchFromServer()
+        hasLockBatch = Array.isArray(locked) && locked.length > 0
       } catch (e) { /* 后端失败则退回本地 */ }
-      if (!Array.isArray(locked) || !locked.length) {
+      // 只有"当天确实 lock 过"才用本地快照兜底; 否则快照可能混入 filter 结果, 导致假"已跌出"
+      if (!hasLockBatch) {
         const snap = this.loadBidSnapshot()
         if (Array.isArray(snap) && snap.length) locked = snap   // 新格式完整名单
       }
@@ -236,6 +249,7 @@ export const useStocksStore = defineStore('stocks', {
           out.push({
             ...it,
             realChange: rt.realChange, entityChange: rt.entityChange,
+            volRatio: rt.volRatio, turnover: rt.turnover,
             price: rt.price, _snapshot: true, _offline: true
           })
           return

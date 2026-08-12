@@ -185,7 +185,7 @@ def test_kline_amount_pair_skips_today(monkeypatch):
 def test_fetch_eastmoney_all_paginates(monkeypatch):
     """盘中模式全市场拉取: 分页拉取全部股票(不限于涨幅前200), 末页不足200停止"""
     calls = {"n": 0}
-    def fake_page(fs, page):
+    def fake_page(fs, page, fid="f3"):
         calls["n"] += 1
         if page == 1:
             return [{"f12": f"60000{i}", "f3": 8.0} for i in range(200)]   # 满页
@@ -200,7 +200,7 @@ def test_fetch_eastmoney_all_paginates(monkeypatch):
 def test_fetch_eastmoney_all_skips_failed_pages(monkeypatch):
     """分页失败跳过, 不影响其他页"""
     calls = {"n": 0}
-    def fake_page(fs, page):
+    def fake_page(fs, page, fid="f3"):
         calls["n"] += 1
         if page == 2:
             raise RuntimeError("boom")

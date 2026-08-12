@@ -104,11 +104,12 @@ def _secid(code):
     return ("1." if code.startswith(("6", "9")) else "0.") + code
 
 
-def _fetch_clist_page(fs, page):
-    """拉取 clist 单页(200只); 失败抛异常"""
+def _fetch_clist_page(fs, page, fid="f3"):
+    """拉取 clist 单页(200只); 失败抛异常。
+    fid: "f3"=按涨幅排序(竞价模式取强票榜) / "f12"=按代码排序(全市场分页, 稳定不漏票)。"""
     qs = urllib.parse.urlencode({
         "fs": fs, "fltt": 2, "invt": 2, "fields": config.FIELDS,
-        "fid": "f3", "po": 1, "pn": page, "pz": 200, "np": 1, "ut": config.EASTMONEY_UT,
+        "fid": fid, "po": 1, "pn": page, "pz": 200, "np": 1, "ut": config.EASTMONEY_UT,
     })
     req = urllib.request.Request(config.EASTMONEY_URL + "?" + qs, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
@@ -137,12 +138,13 @@ def fetch_eastmoney(fs):
 def fetch_eastmoney_all(fs):
     """盘中实时模式: 分页拉取全市场股票快照(默认每页 200, 共 ~20 页), 
     让过滤参数(涨幅/量比/换手)真正作用于全市场, 而不是只取涨幅前200。
+    按代码(f12)排序分页: 位置稳定, 任一分页失败只跳过该页, 不漏已跌出榜单的票。
     任一分页失败则跳过该页(返回已成功页), 全部失败抛异常。"""
     out = []
     for page in range(1, config.SPOT_MAX_PAGES + 1):
         t0 = time.time()
         try:
-            diff = _fetch_clist_page(fs, page)
+            diff = _fetch_clist_page(fs, page, fid="f12")
             _record("eastmoney_clist", True, int((time.time() - t0) * 1000))
         except Exception as e:
             log.warning("全市场拉取分页失败 fs=%s page=%d err=%s", fs, page, e)
@@ -213,8 +215,8 @@ _quote_map_lock = threading.Lock()
 
 
 def fetch_spot_quote_map(fs):
-    """9:30 后竞价模式: 全市场实时行情 map(code -> {realChange, entityChange, price})。
-    独立缓存(SPOT_CACHE_TTL), 不参与评分, 供前端锁定名单 merge。"""
+    """9:30 后竞价模式: 全市场实时行情 map(code -> {realChange, entityChange, price, volRatio, turnover, name})。
+    独立缓存(SPOT_CACHE_TTL), 不参与评分, 供前端锁定名单 merge + 按当前筛选条件过滤。"""
     with _quote_map_lock:
         now = time.time()
         ent = _quote_map_cache.get(fs)
@@ -237,6 +239,9 @@ def fetch_spot_quote_map(fs):
             "realChange": _parse_float(s.get("f3")),
             "entityChange": _entity_change(s),
             "price": _parse_float(s.get("f2")),
+            "volRatio": _parse_float(s.get("f10")),
+            "turnover": _parse_float(s.get("f8")),
+            "name": s.get("f14") or "",
         }
     return out
 
