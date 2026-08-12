@@ -25,16 +25,18 @@ export const defaultFilterSettings = {
 }
 
 // 锁定名单按"当前筛选条件"过滤: 条件不允许的票直接移除(不显示)。
-// 与后端 apply_spot_filters 保持一致(剔除昨日涨停/实时涨幅区间/量比/换手/市值/价格/竞价金额/评分),
-// 避免"量比不足却标已跌出"等前后端不一致(晓程黄金场景: 量比0.79<1 被后端过滤, 前端也应移除)。
-function passLockedFilter(it, rt, f) {
+// 竞价/盘中两套条件语义不同:
+//   · 竞价模式(auction): 只用竞价条件(剔除昨日涨停/竞价涨幅/市值/价格/竞价金额)——与后端 apply_filters 一致
+//   · 盘中模式(spot):    追加实时维度(涨幅区间/量比/换手)——与后端 apply_spot_filters 一致
+// 避免把盘中条件误用到竞价名单(晓程场景: 量比0.79<1 是盘中条件, 竞价模式不应据此剔除)。
+function passLockedFilter(it, rt, f, mode) {
   if (f.limitUp) {
     const concept = it.concept || ''
     if (concept.includes('昨日涨停') || concept.includes('昨日连板')) return false
   }
   if (it.bidChange > f.bidGt) return false                 // 竞价涨幅过高剔除
-  // 实时维度(用 spotMap 实时值): 涨幅区间 / 量比 / 换手(与后端 apply_spot_filters 一致)
-  if (rt) {
+  // 盘中模式才检查实时维度(量比/换手/涨幅区间); 竞价模式不查(后端 apply_filters 也不查)
+  if (mode === 'spot' && rt) {
     const rc = rt.realChange
     if (rc !== undefined && rc !== null) {
       if (rc < f.chgFloor || rc > f.chgGt) return false    // 实时涨幅区间
@@ -231,7 +233,7 @@ export const useStocksStore = defineStore('stocks', {
       const out = []
       locked.forEach((it) => {
         // 1) 当前筛选条件不允许 → 直接移除(哈药场景: 剔除昨日涨停)
-        if (!passLockedFilter(it, (spotMap || {})[it.code], fs)) return
+        if (!passLockedFilter(it, (spotMap || {})[it.code], fs, this.mode)) return
         const lt = listMap[it.code]              // 在过滤名单里 → 有完整实时评分
         const rt = (spotMap || {})[it.code]      // 全市场实时行情
         if (lt) {
