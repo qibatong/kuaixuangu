@@ -7,14 +7,14 @@
         <span class="pool-expiry-info" v-if="expiryText" v-html="expiryText"></span>
       </div>
       <div class="pool-buttons">
-        <button class="pool-btn" @click="manualAdd"><i class="fa fa-plus-circle"></i> 加入当前前三</button>
+        <button class="pool-btn" @click="manualAdd"><i class="fa fa-plus-circle"></i> 加入当前前五</button>
         <button class="pool-btn" @click="manualAddAll"><i class="fa fa-plus"></i> 加入全部</button>
         <button class="pool-btn" @click="clearPool"><i class="fa fa-trash-o"></i> 清空股票池</button>
         <button class="pool-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="exportPool"><i class="fa fa-share-square-o"></i> 下载股票池</button>
       </div>
     </div>
     <div class="pool-list">
-      <div v-if="!pool.stockPool.length" class="empty-pool">暂无股票，9:30前系统自动将前三名选入池中</div>
+      <div v-if="!pool.stockPool.length" class="empty-pool">暂无股票，9:30前系统自动将前五名选入池中</div>
       <div v-for="(item, idx) in pool.stockPool" :key="item.code" class="pool-item" :class="medalCls(idx)">
         <div class="pool-item-main">
           <span class="pool-medal" v-if="idx < 3">{{ ['🥇', '🥈', '🥉'][idx] }}</span>
@@ -83,8 +83,8 @@ function currentList() {
 function manualAdd() {
   const list = currentList()
   if (!list.length) { showToast('当前模式无数据', 'error'); return }
-  const n = pool.addStocks(list.slice(0, 3))
-  showToast(n ? `✅ 已加入当前前三 (新增${n}只)` : '前三已在池中', n ? 'success' : 'info')
+  const n = pool.addStocks(list.slice(0, 5))
+  showToast(n ? `✅ 已加入当前前五 (新增${n}只)` : '前五已在池中', n ? 'success' : 'info')
 }
 
 function manualAddAll() {
