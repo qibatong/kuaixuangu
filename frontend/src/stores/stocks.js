@@ -325,8 +325,24 @@ export const useStocksStore = defineStore('stocks', {
     async updateRealTimeOnly() {
       if (!this.isDataCached) { await this.fetchAndCache(); return }
       const data = await fetchStocks('refresh', this.buildFilterParams())
-      // 9:30 后: 锁定名单不变, 只更新实时字段
-      this.cachedStocks = await this.mergeSpotIntoLocked(data.list, data.spotMap, this.filterSettings)
+      // 刷新实时涨幅: 基于当前列表更新实时字段, 不回到锁定名单
+      // (改过筛选条件后点刷新, 应在当前新名单上更新, 而不是跳回早上 lock 的名单)
+      const listMap = {}
+      ;(data.list || []).forEach((s) => { listMap[s.code] = s })
+      const sm = data.spotMap || {}
+      this.cachedStocks = (this.cachedStocks || []).map((it) => {
+        const lt = listMap[it.code]
+        const rt = sm[it.code]
+        if (lt) {
+          return { ...it, realChange: lt.realChange, entityChange: lt.entityChange,
+                   probability: lt.probability, confidence: lt.confidence, price: lt.price, _offline: false }
+        }
+        if (rt) {
+          return { ...it, realChange: rt.realChange, entityChange: rt.entityChange,
+                   volRatio: rt.volRatio, turnover: rt.turnover, price: rt.price, _offline: true }
+        }
+        return { ...it, _offline: true }
+      })
       this.before930 = data.before930
       this.realTimeRefreshUsed = true
       showToast('✅ 实时涨幅更新完成', 'success')
@@ -345,8 +361,9 @@ export const useStocksStore = defineStore('stocks', {
         return
       }
       const data = await fetchStocks('filter', this.buildFilterParams())
-      // 9:30 后: 保持锁定名单, 只更新实时行情(9:30 前才允许重新筛选)
-      this.cachedStocks = isBefore930() ? data.list : await this.mergeSpotIntoLocked(data.list, data.spotMap, this.filterSettings)
+      // 筛选重算 = 按当前条件重新筛, 直接用后端新名单(不是锁定名单)
+      // 锁定名单恒定仅用于"刷新实时涨幅", 不影响筛选重算(否则改条件永远同一批票)
+      this.cachedStocks = data.list || []
       this.isDataCached = true
       this.before930 = data.before930
       this.saveUserPrefs()
