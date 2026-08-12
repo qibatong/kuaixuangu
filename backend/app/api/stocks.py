@@ -39,25 +39,29 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
     t0 = time.time()
 
     try:
-        # 盘中模式: 全市场拉取 + 盘中评分(按 SPOT_CACHE_TTL 刷新)
+        # 盘中模式: 全市场拉取 + 与竞价同一套评分/过滤逻辑(诗人需求: 盘中=不锁定的竞价)
         if mode == "spot":
             raw, err = fetcher.ensure_spot_cache("refresh", fs, before930)
             if err:
                 log.warning("选股被拒 uid=%s action=%s mode=%s err=%s", uid, action, mode, err)
                 return jr({"ok": False, "msg": err}, 403)
-            # 全市场实时行情 map(code -> 实时字段)
+            # 全市场实时行情 map(供锁定名单 merge 用, 不参与评分)
             spot_map = {}
             for s in raw:
                 spot_map[s.get("f12")] = {
                     "realChange": scorer.parse_float(s.get("f3")),
                     "entityChange": scorer.get_entity_change(s),
                     "price": scorer.parse_float(s.get("f2")),
+                    "volRatio": scorer.parse_float(s.get("f10")),
+                    "turnover": scorer.parse_float(s.get("f8")),
+                    "name": s.get("f14") or "",
                 }
-            zt_map = fetcher.fetch_zt_pool()
-            result = scorer.process_spot_stocks(raw, f, zt_map)
-            log.info("盘中选股 uid=%s markets=%s raw=%d只 涨停池=%d只 返回%d只 耗时%.0fms",
-                     uid, ",".join(f["markets"]), len(raw), len(zt_map), len(result),
-                     (time.time() - t0) * 1000)
+            # 复用竞价评分 + 竞价过滤: 盘中=不锁定的竞价, 9:30 后持续刷新, 名单会变(符合诗人预期)
+            yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw])
+            snapshot_map = auction_snapshot.load_snapshot()
+            result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map)
+            log.info("盘中选股(同竞价逻辑) uid=%s markets=%s raw=%d只 返回%d只 耗时%.0fms",
+                     uid, ",".join(f["markets"]), len(raw), len(result), (time.time() - t0) * 1000)
             # 盘中 refresh 不落库、不推送(避免高频刷屏); 只返回实时结果
             return jr({
                 "ok": True, "mode": "spot",

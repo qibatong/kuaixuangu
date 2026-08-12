@@ -84,9 +84,9 @@ def test_filter_with_ratio(client, first_user, monkeypatch):
 
 # ---------- 盘中实时选股(mode=spot) ----------
 def test_spot_mode_returns_stocks(client, first_user, monkeypatch):
-    """盘中模式: 返回实时评分结果, 含盘中特有字段(量比/换手/封单)"""
+    """盘中模式: 返回实时评分结果(同竞价逻辑, 字段含实时维度量比/换手用于展示)"""
     token, _, _ = first_user
-    monkeypatch.setattr(fetcher, "fetch_zt_pool", lambda *a, **k: {})  # 涨停池无数据
+    monkeypatch.setattr(fetcher, "fetch_zt_pool", lambda *a, **k: {})
     r = client.get("/api/stocks?action=refresh&mode=spot&markets=sh_sz&probLt=0&confLt=0",
                    headers=hdrs(token))
     assert r.status_code == 200
@@ -95,24 +95,28 @@ def test_spot_mode_returns_stocks(client, first_user, monkeypatch):
     assert len(d.get("list", [])) > 0
     for s in d["list"]:
         assert s["code"] and s["name"]
-        assert "realChange" in s and "volRatio" in s and "turnover" in s
-        assert "sealRatio" in s and "limitBoards" in s
-        assert "bidAmt" in s and "bidChange" in s   # 盘中保留竞价字段展示
+        # 盘中=竞价逻辑: 字段同竞价模式(竞价涨幅/金额等) + 实时维度字段(用于展示,不是过滤)
+        assert "realChange" in s and "bidChange" in s and "bidAmt" in s
+        assert "volRatio" in s and "turnover" in s  # 实时展示字段
+        # 盘中原评分独有字段(封单/连板)已统一到竞价评分, 不再输出
+        assert "sealRatio" not in s and "limitBoards" not in s
 
 
 def test_spot_mode_uses_zt_pool(client, first_user, monkeypatch):
-    """盘中模式: 涨停池数据进入评分(封单/连板字段生效)"""
+    """盘中模式: 盘中和竞价共用一套评分, 不再读涨停池(zt_pool 注入不影响评分结果)"""
     token, _, _ = first_user
-    # 给 600001 加封单 2亿, 流通市值 40亿 → 封成比 5% → 封单分满分
+    # 即使注入 zt 池数据, 盘中模式也不再使用(评分逻辑统一为竞价五因子)
     monkeypatch.setattr(fetcher, "fetch_zt_pool",
                         lambda *a, **k: {"600001": {"fund": 2.0, "fb": 930, "lb": 3, "zbc": 0, "zdp": 10.0}})
     r = client.get("/api/stocks?action=refresh&mode=spot&markets=sh_sz&probLt=0&confLt=0",
                    headers=hdrs(token))
     d = r.json()
-    items = {s["code"]: s for s in d.get("list", [])}
-    assert "600001" in items
-    assert items["600001"]["limitBoards"] == 3
-    assert items["600001"]["sealRatio"] > 0
+    assert d.get("ok")
+    items = d.get("list", [])
+    assert len(items) > 0
+    # 任何返回项都不应含 limitBoards/sealRatio(盘中不再用 zt)
+    for s in items:
+        assert "limitBoards" not in s and "sealRatio" not in s
 
 
 def test_spot_mode_invalid_mode(client, first_user):

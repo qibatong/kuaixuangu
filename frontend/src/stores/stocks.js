@@ -25,26 +25,14 @@ export const defaultFilterSettings = {
 }
 
 // 锁定名单按"当前筛选条件"过滤: 条件不允许的票直接移除(不显示)。
-// 竞价/盘中两套条件语义不同:
-//   · 竞价模式(auction): 只用竞价条件(剔除昨日涨停/竞价涨幅/市值/价格/竞价金额)——与后端 apply_filters 一致
-//   · 盘中模式(spot):    追加实时维度(涨幅区间/量比/换手)——与后端 apply_spot_filters 一致
-// 避免把盘中条件误用到竞价名单(晓程场景: 量比0.79<1 是盘中条件, 竞价模式不应据此剔除)。
-function passLockedFilter(it, rt, f, mode) {
+// 诗人需求: 盘中与竞价逻辑统一——都用同一套筛选条件(竞价涨幅/昨日涨停/市值/价格/竞价金额),
+// 不再分模式查量比/换手/实时涨幅区间(因为这些是盘中的评分维度, 不是筛选维度)。
+function passLockedFilter(it, rt, f) {
   if (f.limitUp) {
     const concept = it.concept || ''
     if (concept.includes('昨日涨停') || concept.includes('昨日连板')) return false
   }
   if (it.bidChange > f.bidGt) return false                 // 竞价涨幅过高剔除
-  // 盘中模式才检查实时维度(量比/换手/涨幅区间); 竞价模式不查(后端 apply_filters 也不查)
-  if (mode === 'spot' && rt) {
-    const rc = rt.realChange
-    if (rc !== undefined && rc !== null) {
-      if (rc < f.chgFloor || rc > f.chgGt) return false    // 实时涨幅区间
-    }
-    if (f.volRatioFloor > 0 && rt.volRatio < f.volRatioFloor) return false  // 量比下限
-    if (f.turnoverFloor > 0 && rt.turnover < f.turnoverFloor) return false  // 换手下限
-    if (f.turnoverGt > 0 && rt.turnover > f.turnoverGt) return false        // 换手上限
-  }
   if (it.circulationMV < f.floatMvFloor) return false      // 市值过小
   if (it.circulationMV > f.floatMvGt) return false         // 市值过大
   const price = rt ? rt.price : it.price
@@ -113,25 +101,10 @@ export const useStocksStore = defineStore('stocks', {
       }
     },
 
-    // ---- 盘中筛选参数 ----
+    // ---- 盘中筛选参数(复用竞价筛选, 诗人需求: 盘中=不锁定的竞价, 逻辑一致) ----
     buildSpotFilterParams() {
-      const f = this.spotFilterSettings
-      return {
-        stSuspend: f.stSuspend ? '1' : '0',
-        limitUp: f.limitUp ? '1' : '0',
-        markets: f.markets.join(','),
-        chgFloor: f.chgFloor,
-        chgGt: f.chgGt,
-        volRatioFloor: f.volRatioFloor,
-        turnoverFloor: f.turnoverFloor,
-        turnoverGt: f.turnoverGt,
-        spotExcludeZT: f.spotExcludeZT ? '1' : '0',
-        probLt: f.probLt,
-        confLt: f.confLt,
-        floatMvFloor: f.floatMvFloor,
-        floatMvGt: f.floatMvGt,
-        priceGt: f.priceGt
-      }
+      // 盘中模式与竞价模式用同一套筛选条件(逻辑一致, 区别是数据来源/刷新频率)
+      return this.buildFilterParams()
     },
 
     // ---- 模式切换 ----
@@ -246,7 +219,7 @@ export const useStocksStore = defineStore('stocks', {
       const out = []
       locked.forEach((it) => {
         // 1) 当前筛选条件不允许 → 直接移除(哈药场景: 剔除昨日涨停)
-        if (!passLockedFilter(it, (spotMap || {})[it.code], fs, this.mode)) return
+        if (!passLockedFilter(it, (spotMap || {})[it.code], fs)) return
         const lt = listMap[it.code]              // 在过滤名单里 → 有完整实时评分
         const rt = (spotMap || {})[it.code]      // 全市场实时行情
         if (lt) {

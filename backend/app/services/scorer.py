@@ -580,6 +580,9 @@ def process_all_stocks(raw, f, yesterday_map=None, snapshot_map=None):
             "accel": accel,             # 9:25-9:20 涨幅加速度(%)
             "price": parse_float(s.get("f2")),
             "qiangchou": 1 if is_qiangchou(get_bid_change(s), bid_ratio) else 0,
+            # 实时维度字段(盘中模式同竞价模式都用, 前端展示; 不参与竞价评分/过滤)
+            "volRatio": parse_float(s.get("f10")),
+            "turnover": parse_float(s.get("f8")),
             "_raw": s,
         })
     scored.sort(key=lambda x: x["probability"], reverse=True)
