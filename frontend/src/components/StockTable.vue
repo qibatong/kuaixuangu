@@ -2,55 +2,7 @@
   <div class="stock-table-container">
     <div v-if="!stocks.length" class="empty-state">暂无符合条件股票</div>
 
-    <!-- 盘中实时模式表 -->
-    <table v-else-if="mode === 'spot'" class="stock-table">
-      <thead>
-        <tr>
-          <th>排名</th>
-          <th class="sortable" :class="{ active: sortKey === 'code' }" @click="onSort('code', 'string')">股票代码<span class="sort-ind">{{ sortInd('code') }}</span></th>
-          <th class="sortable" :class="{ active: sortKey === 'name' }" @click="onSort('name', 'string')">股票名称<span class="sort-ind">{{ sortInd('name') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'realChange' }" @click="onSort('realChange', 'number')" title="实时涨幅：当前价相对昨收的涨幅">实时涨幅<span class="sort-ind">{{ sortInd('realChange') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'bidChange' }" @click="onSort('bidChange', 'number')" title="竞价涨幅：集合竞价撮合价相对昨收的涨幅，9:25 定格">竞价涨幅<span class="sort-ind">{{ sortInd('bidChange') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'volRatio' }" @click="onSort('volRatio', 'number')" title="量比：当前每分钟平均成交量 / 过去5日每分钟平均成交量。≥2 显著放量">量比<span class="sort-ind">{{ sortInd('volRatio') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'turnover' }" @click="onSort('turnover', 'number')" title="实时换手率：成交量/流通股本">换手率<span class="sort-ind">{{ sortInd('turnover') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'sealRatio' }" @click="onSort('sealRatio', 'number')" title="封单强度 = 封单金额/流通市值(封成比)。≥2% 强封单；非涨停股为 0">封单强度<span class="sort-ind">{{ sortInd('sealRatio') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'sealFund' }" @click="onSort('sealFund', 'number')" title="封单金额(亿)：涨停板排队买入资金">封单(亿)<span class="sort-ind">{{ sortInd('sealFund') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'limitBoards' }" @click="onSort('limitBoards', 'number')" title="连板数：连续涨停天数">连板<span class="sort-ind">{{ sortInd('limitBoards') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'amount' }" @click="onSort('amount', 'number')" title="今日累计成交额(亿)">成交额(亿)<span class="sort-ind">{{ sortInd('amount') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'circulationMV' }" @click="onSort('circulationMV', 'number')">流通市值(亿)<span class="sort-ind">{{ sortInd('circulationMV') }}</span></th>
-          <th class="sortable" :class="{ active: sortKey === 'industry' }" @click="onSort('industry', 'string')">行业<span class="sort-ind">{{ sortInd('industry') }}</span></th>
-          <th class="sortable" :class="{ active: sortKey === 'concept' }" @click="onSort('concept', 'string')">概念<span class="sort-ind">{{ sortInd('concept') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'probability' }" @click="onSort('probability', 'number')">综合评分<span class="sort-ind">{{ sortInd('probability') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'confidence' }" @click="onSort('confidence', 'number')">可信度<span class="sort-ind">{{ sortInd('confidence') }}</span></th>
-          <th class="op-col">操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="(item, idx) in sortedStocks" :key="item.code">
-          <td class="rank-col">{{ idx + 1 }}</td>
-          <td class="code-click" @click="linkToSoftware(item.code)">{{ item.code }}</td>
-          <td>{{ item.name }}</td>
-          <td :class="item.realChange > 0 ? 'up' : 'down'" :title="'实时涨幅: 当前价相对昨收'">{{ signed(item.realChange) }}%</td>
-          <td :class="item.bidChange > 0 ? 'up' : 'down'" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'">{{ signed(item.bidChange) }}%</td>
-          <td :class="item.volRatio >= 2 ? 'ratio-hot' : item.volRatio >= 1 ? 'ratio-warm' : ''">{{ item.volRatio.toFixed(2) }}</td>
-          <td :class="item.turnover >= 3 ? 'ratio-hot' : ''">{{ item.turnover.toFixed(2) }}%</td>
-          <td :class="item.sealRatio >= 2 ? 'accel-hot' : ''" :title="item.sealRatio > 0 ? '封成比 ' + item.sealRatio.toFixed(2) + '%' : '非涨停/无封单'">
-            {{ item.sealRatio > 0 ? item.sealRatio.toFixed(2) + '%' : '-' }}
-          </td>
-          <td>{{ item.sealFund > 0 ? item.sealFund.toFixed(2) : '-' }}</td>
-          <td>{{ item.limitBoards > 0 ? item.limitBoards + '板' : '-' }}</td>
-          <td>{{ item.amount > 0 ? item.amount.toFixed(2) : '-' }}</td>
-          <td>{{ item.circulationMV.toFixed(1) }}</td>
-          <td>{{ item.industry }}</td>
-          <td style="max-width:180px;white-space:pre-wrap">{{ item.concept }}</td>
-          <td class="up">{{ item.probability }}分</td>
-          <td>{{ item.confidence }}%</td>
-          <td><button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click.stop="addToPool(item)">{{ inPool(item.code) ? '已入池' : '＋池' }}</button></td>
-        </tr>
-      </tbody>
-    </table>
-
-    <!-- 竞价模式表 -->
+    <!-- 选股表(竞价/盘中共用同一套列; 盘中=不锁定的竞价, 逻辑一致) -->
     <table v-else class="stock-table">
       <thead>
         <tr>
