@@ -44,22 +44,6 @@ function passLockedFilter(it, rt, f) {
 // 盘中实时模式筛选参数(独立于竞价)
 // 默认值基于盘中评分表满分区间 + 全市场实测(约72只候选):
 //   涨幅3~9.5%(健康区间,评分满分档) 量比>=2(显著放量) 换手2~20%(活跃度)
-export const defaultSpotFilterSettings = {
-  stSuspend: true,
-  markets: ['hs', 'cyb', 'kcb'],
-  limitUp: true,
-  spotExcludeZT: false,     // 不剔除已涨停(默认保留涨停股, 看封单强度)
-  chgFloor: 3,              // 实时涨幅下限(去弱势, 3%以下启动信号弱)
-  chgGt: 9.5,               // 实时涨幅上限(高于此归涨停股, 由 spotExcludeZT 控制)
-  volRatioFloor: 2,         // 量比下限(显著放量确认)
-  turnoverFloor: 2,         // 换手率下限(活跃度)
-  turnoverGt: 20,           // 换手率上限(防出货)
-  probLt: 60,
-  confLt: 60,
-  floatMvFloor: 20,
-  floatMvGt: 1000,
-  priceGt: 300
-}
 
 export const useStocksStore = defineStore('stocks', {
   state: () => ({
@@ -77,15 +61,13 @@ export const useStocksStore = defineStore('stocks', {
     // 全局默认筛选参数(管理员后台可调), 未自定义偏好的用户使用
     globalDefaults: null,
     // 盘中筛选条件
-    spotFilterSettings: { ...defaultSpotFilterSettings },
     // 账号级筛选偏好(后端 users 表, 跨设备一致)
     userFilterPrefs: null,
     isFilterLocked: false
   }),
   actions: {
-    // ---- 筛选参数 ----
+    // ---- 筛选参数(盘中/竞价共用 filterSettings) ----
     buildFilterParams() {
-      if (this.mode === 'spot') return this.buildSpotFilterParams()
       const f = this.filterSettings
       return {
         stSuspend: f.stSuspend ? '1' : '0',
@@ -99,12 +81,6 @@ export const useStocksStore = defineStore('stocks', {
         priceGt: f.priceGt,
         bidAmtFloor: f.bidAmtFloor
       }
-    },
-
-    // ---- 盘中筛选参数(复用竞价筛选, 诗人需求: 盘中=不锁定的竞价, 逻辑一致) ----
-    buildSpotFilterParams() {
-      // 盘中模式与竞价模式用同一套筛选条件(逻辑一致, 区别是数据来源/刷新频率)
-      return this.buildFilterParams()
     },
 
     // ---- 模式切换 ----
