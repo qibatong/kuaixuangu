@@ -244,3 +244,52 @@ def _validate_scoring(new, mode="auction"):
                 if not (0 <= sc <= 1):
                     return "因子 %s 分档得分需在 0~1 之间" % fk
     return ""
+
+
+# ---------- 全局默认筛选参数(管理员可调, 存 settings 表 key=default_filters) ----------
+# 所有用户首次进入/未自定义偏好时使用的默认值(如默认竞价金额下限 1000万)
+# 前端加载顺序: 后端默认值 > 用户偏好 > 前端内置默认
+DEFAULT_FILTERS_DEFAULT = {
+    "stSuspend": True, "limitUp": True, "bidGt": 7.0,
+    "probLt": 65.0, "confLt": 65.0,
+    "floatMvFloor": 30.0, "floatMvGt": 1000.0, "priceGt": 300.0,
+    "bidAmtFloor": 1000.0,   # 诗人需求: 默认竞价金额下限 1000万(原3000)
+}
+
+
+def get_default_filters():
+    """读取全局默认筛选参数(不存在则返回内置默认)"""
+    cfg = settings.get("default_filters")
+    if isinstance(cfg, dict):
+        merged = dict(DEFAULT_FILTERS_DEFAULT)
+        for k, v in cfg.items():
+            if k in merged:
+                merged[k] = v
+        return merged
+    return dict(DEFAULT_FILTERS_DEFAULT)
+
+
+@router.get("/api/admin/defaults")
+def api_admin_defaults_get(request: Request, uid: int = Depends(get_admin)):
+    return jr({"ok": True, "defaults": get_default_filters()})
+
+
+@router.put("/api/admin/defaults")
+def api_admin_defaults_put(request: Request, body: dict = Body(...), uid: int = Depends(get_admin)):
+    new = body.get("defaults")
+    if not isinstance(new, dict) or not new:
+        return jr({"ok": False, "msg": "缺少 defaults 配置"}, 400)
+    # 只接受已知字段, 数字/布尔校验
+    cur = get_default_filters()
+    for k, v in new.items():
+        if k not in cur:
+            return jr({"ok": False, "msg": "未知字段: %s" % k}, 400)
+        if isinstance(cur[k], bool) and not isinstance(v, bool):
+            return jr({"ok": False, "msg": "%s 需为布尔值" % k}, 400)
+        if isinstance(cur[k], (int, float)) and not isinstance(v, (int, float)):
+            return jr({"ok": False, "msg": "%s 需为数字" % k}, 400)
+        cur[k] = v
+    if not settings.set("default_filters", cur):
+        return jr({"ok": False, "msg": "保存失败"}, 500)
+    log.info("管理端更新全局默认筛选参数 uid=%s defaults=%s", uid, cur)
+    return jr({"ok": True, "msg": "全局默认筛选参数已更新", "defaults": cur})

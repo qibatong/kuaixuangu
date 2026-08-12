@@ -67,7 +67,7 @@ export const usePoolStore = defineStore('pool', {
         this.saveToStorage()
       }
     },
-    // 9:30 前自动将选股前三名收录进池
+    // 9:30 前自动将选股前五名收录进池(诗人需求: 前3→前5)
     autoAdd(cachedStocks, isDataCached) {
       const now = new Date()
       const h = now.getHours(), m = now.getMinutes()
@@ -79,7 +79,7 @@ export const usePoolStore = defineStore('pool', {
       }
       if (h < 9 || (h === 9 && m < 30)) {
         if (isDataCached && cachedStocks.length) {
-          const top = cachedStocks.slice(0, 3)
+          const top = cachedStocks.slice(0, 5)
           if (top.length && !this.stockPool.length) {
             this.addStocks(top)
             this.autoPoolLockTime = Date.now()

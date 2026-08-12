@@ -1,6 +1,6 @@
 // 主选股数据 store: 缓存结果 / 筛选条件 / 锁定状态 / 账号级偏好
 import { defineStore } from 'pinia'
-import { fetchStocks, getPrefs, savePrefs } from '../api/stocks'
+import { fetchStocks, getDefaultFilters, getPrefs, savePrefs } from '../api/stocks'
 import { listBatches } from '../api/history'
 import { showToast } from '../utils/toast'
 import { isBefore930 } from '../utils/time'
@@ -86,6 +86,8 @@ export const useStocksStore = defineStore('stocks', {
     isSpotCached: false,
     // 当前工作筛选条件
     filterSettings: { ...defaultFilterSettings },
+    // 全局默认筛选参数(管理员后台可调), 未自定义偏好的用户使用
+    globalDefaults: null,
     // 盘中筛选条件
     spotFilterSettings: { ...defaultSpotFilterSettings },
     // 账号级筛选偏好(后端 users 表, 跨设备一致)
@@ -147,6 +149,15 @@ export const useStocksStore = defineStore('stocks', {
         }
       } catch (e) { /* 忽略, 用默认 */ }
     },
+    // 全局默认筛选参数(管理员后台可调): 未自定义偏好的用户使用
+    async loadGlobalDefaults() {
+      try {
+        const d = await getDefaultFilters()
+        if (d.defaults && typeof d.defaults === 'object') {
+          this.globalDefaults = { ...defaultFilterSettings, ...d.defaults }
+        }
+      } catch (e) { /* 忽略, 用内置默认 */ }
+    },
     saveUserPrefs() {
       try { savePrefs(this.filterSettings).catch(() => {}) } catch (e) { /* ignore */ }
     },
@@ -176,13 +187,15 @@ export const useStocksStore = defineStore('stocks', {
     // ---- 初始化筛选状态 ----
     initFilterFromStorage() {
       const locked = this.loadLockedFilter()
+      // 默认基准: 管理员后台配置的全局默认(优先) > 前端内置默认
+      const base = this.globalDefaults || { ...defaultFilterSettings }
       if (locked && locked.settings) {
         this.isFilterLocked = true
         this.filterSettings = { ...locked.settings }
       } else if (this.userFilterPrefs) {
-        this.filterSettings = { ...defaultFilterSettings, ...this.userFilterPrefs }
+        this.filterSettings = { ...base, ...this.userFilterPrefs }
       } else {
-        this.filterSettings = { ...defaultFilterSettings }
+        this.filterSettings = { ...base }
       }
     },
 

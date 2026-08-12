@@ -187,6 +187,42 @@
         </div>
         <div v-else class="empty-state" style="padding:16px;">该因子暂未加载</div>
       </div>
+
+      <!-- 全局默认筛选参数(所有用户未自定义时使用) -->
+      <div class="admin-card">
+        <div class="card-title"><i class="fa fa-filter"></i> 全局默认筛选参数 <span style="color:#888;font-size:12px;margin-left:8px;">所有用户未自定义偏好时的默认值，保存后新用户/未自定义用户立即生效</span></div>
+        <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;padding:6px 0 2px;">
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#bbb;">
+            竞价金额下限(万) <input v-model.number="adminDefaults.bidAmtFloor" type="number" min="0" class="admin-input" style="width:110px;" />
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#bbb;">
+            竞价涨幅上限(%) <input v-model.number="adminDefaults.bidGt" type="number" min="0" class="admin-input" style="width:110px;" />
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#bbb;">
+            流通市值下限(亿) <input v-model.number="adminDefaults.floatMvFloor" type="number" min="0" class="admin-input" style="width:110px;" />
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#bbb;">
+            流通市值上限(亿) <input v-model.number="adminDefaults.floatMvGt" type="number" min="0" class="admin-input" style="width:110px;" />
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#bbb;">
+            股价上限(元) <input v-model.number="adminDefaults.priceGt" type="number" min="0" class="admin-input" style="width:110px;" />
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#bbb;">
+            评分下限 <input v-model.number="adminDefaults.probLt" type="number" min="0" max="100" class="admin-input" style="width:110px;" />
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#bbb;">
+            <input type="checkbox" v-model="adminDefaults.limitUp" /> 剔除昨日涨停
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#bbb;">
+            <input type="checkbox" v-model="adminDefaults.stSuspend" /> 剔除ST/停牌
+          </label>
+          <button class="tdx-export-btn" style="background:rgba(120,200,80,0.2);border:1px solid #78c850;color:#c0e8a0;" :disabled="savingDefaults" @click="saveDefaults">
+            <i class="fa fa-save"></i> {{ savingDefaults ? '保存中...' : '保存默认值' }}
+          </button>
+          <span v-if="defaultsMsg" :style="{ color: defaultsErr ? '#ff6a6a' : '#7ce8a0', fontSize: '12px' }">{{ defaultsMsg }}</span>
+        </div>
+      </div>
+
       <!-- 历史竞价回放 -->
       <div class="admin-card">
         <div class="card-title"><i class="fa fa-video-camera"></i> 历史竞价回放 <span style="color:#888;font-size:12px;margin-left:8px;">9:15/9:20/9:25 全市场快照(每个交易日自动归档)</span>
@@ -221,7 +257,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { adminScoring, adminUsers, bidSnapshot, resetUserPassword, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
+import { adminScoring, adminUsers, bidSnapshot, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
 import { showToast as toast } from '../utils/toast'
 
 // 默认回放日期 = 今天(北京时间)
@@ -232,6 +268,38 @@ function todayBj() {
 const playDate = ref(todayBj())
 const playTime = ref('9_25')
 const playList = ref([])
+
+// 全局默认筛选参数
+const adminDefaults = reactive({ bidAmtFloor: 1000, bidGt: 7, floatMvFloor: 30, floatMvGt: 1000, priceGt: 300, probLt: 65, limitUp: true, stSuspend: true })
+const savingDefaults = ref(false)
+const defaultsMsg = ref('')
+const defaultsErr = ref(false)
+
+async function loadDefaults() {
+  try {
+    const d = await getAdminDefaults()
+    if (d.defaults) Object.assign(adminDefaults, d.defaults)
+  } catch (e) {
+    if (e.status === 403) denied.value = true
+    else toast(e.message || '加载默认参数失败', 'error')
+  }
+}
+
+async function saveDefaults() {
+  defaultsMsg.value = ''
+  savingDefaults.value = true
+  try {
+    const d = await saveAdminDefaults({ ...adminDefaults })
+    defaultsMsg.value = d.msg || '已保存'
+    defaultsErr.value = false
+    toast('全局默认筛选参数已保存并生效', 'success')
+  } catch (e) {
+    defaultsMsg.value = e.message || '保存失败'
+    defaultsErr.value = true
+  } finally {
+    savingDefaults.value = false
+  }
+}
 
 async function loadPlayback() {
   try {
@@ -473,6 +541,7 @@ async function saveScoring() {
 onMounted(() => {
   loadUsers(1)
   loadScoring()
+  loadDefaults()
 })
 </script>
 

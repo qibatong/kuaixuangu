@@ -15,6 +15,14 @@ export function saveScoring(scoring, mode = 'auction') {
   return request(`/api/admin/scoring?mode=${mode}`, { method: 'PUT', body: { scoring } })
 }
 
+export function getAdminDefaults() {
+  return request('/api/admin/defaults')
+}
+
+export function saveAdminDefaults(defaults) {
+  return request('/api/admin/defaults', { method: 'PUT', body: { defaults } })
+}
+
 export function setUserExpire(uid, payload) {
   // payload: {duration:'week'|'month'|'quarter'|'year'} | {days:N} | {expire_at:'YYYY-MM-DD'}
   return request('/api/admin/users/expire', { method: 'POST', body: { uid, ...payload } })

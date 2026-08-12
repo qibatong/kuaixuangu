@@ -8,10 +8,17 @@ from fastapi import APIRouter, Body, Depends, Request
 from ..core import logger
 from ..services import users
 from .deps import get_uid, jr
+from .admin import get_default_filters
 
 log = logger.get_logger(__name__)
 
 router = APIRouter()
+
+
+@router.get("/api/prefs/defaults")
+def api_get_default_filters(request: Request, uid: int = Depends(get_uid)):
+    """全局默认筛选参数(管理员可调, 所有用户未自定义时使用)"""
+    return jr({"ok": True, "defaults": get_default_filters()})
 
 
 @router.get("/api/prefs")

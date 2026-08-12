@@ -168,8 +168,8 @@ async function init() {
   user.migrateLegacyKeys()
   // 初始化股票池
   pool.loadFromStorage()
-  // 初始化筛选状态(本地锁定 > 账号偏好 > 默认)
-  await stocks.loadUserPrefs()
+  // 初始化筛选状态(本地锁定 > 账号偏好 > 全局默认 > 内置默认)
+  await Promise.all([stocks.loadUserPrefs(), stocks.loadGlobalDefaults()])
   stocks.initFilterFromStorage()
   // 首次拉数据
   try {
