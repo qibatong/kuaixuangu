@@ -399,7 +399,7 @@ onBeforeUnmount(() => {
 .auc-panel { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 14px; }
 /* 竞价抢筹左右双表 */
 .qc-dual { display: flex; gap: 10px; align-items: flex-start; }
-.qc-panel { flex: 1 1 0; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px; }
+.qc-panel { flex: 1 1 0; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px; overflow-x: auto; }
 .qc-panel-title { font-size: 14px; font-weight: 700; color: #ffe0a0; margin-bottom: 8px; }
 .qc-panel .stock-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
 /* 所有列间距紧凑: padding 一律 4px 2px(列间 4px, 数值紧凑) */
@@ -418,14 +418,8 @@ onBeforeUnmount(() => {
 .qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { width: 78px; }
 .qc-panel .qc-board { white-space: normal; }
 .qc-panel .qc-board-item { line-height: 1.4; word-break: break-all; font-size: 11px; }
-/* 操作列 sticky 钉右, 始终可见 */
-.qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) {
-  width: 52px; text-align: center; padding: 4px 2px;
-  position: sticky; right: 0; z-index: 2;
-  background: #1c1f26;
-  box-shadow: -2px 0 4px rgba(0,0,0,0.4);
-}
-.qc-panel .stock-table thead th:nth-child(10) { background: #252830; }
+/* 操作列(普通列, 不 sticky, 避免 flex 失衡; 通过 overflow-x: auto 横向滚动可见) */
+.qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) { width: 52px; text-align: center; padding: 4px 2px; }
 .qc-panel .code-sub { font-size: 11px; color: #889; cursor: pointer; margin-top: 1px; line-height: 1.2; }
 .qc-panel .code-sub:hover { color: #ffb400; }
 .qc-panel .name-main { font-size: 13px; line-height: 1.3; }
