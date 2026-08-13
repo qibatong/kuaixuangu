@@ -87,17 +87,59 @@
             <td>{{ l.turnover.toFixed(2) }}</td>
             <td>{{ l.amplitude.toFixed(2) }}</td>
             <td>{{ yi(l.floatMv) }}</td>
-            <td><button class="pool-add-btn" @click="addToPool(l)">＋池</button></td>
+            <td>
+              <button class="pool-add-btn" style="margin-right:4px;" @click="viewLhbDetail(l)">明细</button>
+              <button class="pool-add-btn" @click="addToPool(l)">＋池</button>
+            </td>
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- 龙虎榜营业部明细弹窗 -->
+    <div v-if="lhbModal.show" class="modal-mask" @click.self="lhbModal.show = false">
+      <div class="reason-modal">
+        <div class="reason-head">
+          <span><i class="fa fa-list-alt" style="color:#ffb400;"></i> {{ lhbModal.detail.name }} {{ lhbModal.code }} · 龙虎榜营业部</span>
+          <button class="close-btn" @click="lhbModal.show = false"><i class="fa fa-close"></i></button>
+        </div>
+        <div v-if="lhbLoading" class="reason-loading">查询中...</div>
+        <template v-else>
+          <div v-if="lhbModal.detail.upReason" class="lhb-reason">涨停原因：{{ lhbModal.detail.upReason }}</div>
+          <div class="lhb-total">
+            <span>买入总计 <b class="up">{{ yi(lhbModal.detail.buyTotal) }}亿</b></span>
+            <span>卖出总计 <b class="down">{{ yi(lhbModal.detail.sellTotal) }}亿</b></span>
+            <span>换手 {{ (lhbModal.detail.turnover || 0).toFixed(2) }}%</span>
+          </div>
+          <div class="lhb-cols">
+            <div class="lhb-col">
+              <div class="lhb-col-title buy">买入营业部</div>
+              <div v-for="(b, i) in lhbModal.detail.buyList" :key="i" class="lhb-row">
+                <span class="lhb-idx">{{ i + 1 }}</span>
+                <span class="lhb-name">{{ b.name }}</span>
+                <span class="lhb-amt up">+{{ (b.buy / 1e8).toFixed(2) }}亿</span>
+              </div>
+              <div v-if="!lhbModal.detail.buyList.length" class="lhb-empty">无</div>
+            </div>
+            <div class="lhb-col">
+              <div class="lhb-col-title sell">卖出营业部</div>
+              <div v-for="(s, i) in lhbModal.detail.sellList" :key="i" class="lhb-row">
+                <span class="lhb-idx">{{ i + 1 }}</span>
+                <span class="lhb-name">{{ s.name }}</span>
+                <span class="lhb-amt down">-{{ (s.sell / 1e8).toFixed(2) }}亿</span>
+              </div>
+              <div v-if="!lhbModal.detail.sellList.length" class="lhb-empty">无</div>
+            </div>
+          </div>
+        </template>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { kplBoardRank, kplHotRank, kplLhb } from '../api/kpl'
+import { onBeforeUnmount, onMounted, ref, reactive } from 'vue'
+import { kplBoardRank, kplHotRank, kplLhb, kplLhbDetail } from '../api/kpl'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
 import { usePoolStore } from '../stores/pool'
@@ -115,8 +157,23 @@ const bjTime = ref('--:--:--')
 let clockTimer = null
 let refreshTimer = null
 
+const lhbModal = reactive({ show: false, code: '', detail: { name: '', buyList: [], sellList: [], buyTotal: 0, sellTotal: 0, upReason: '', turnover: 0 } })
+
 function yi(v) { return (v / 1e8).toFixed(2) }
 function signed(v) { return (v > 0 ? '+' : '') + Number(v).toFixed(2) }
+
+async function viewLhbDetail(l) {
+  lhbModal.show = true
+  lhbModal.code = l.code
+  lhbModal.detail = { name: l.name, buyList: [], sellList: [], buyTotal: 0, sellTotal: 0, upReason: '', turnover: 0 }
+  lhbLoading.value = true
+  try {
+    const d = await kplLhbDetail(l.code)
+    if (d && d.detail) lhbModal.detail = d.detail
+  } catch (e) { /* 静默 */ } finally {
+    lhbLoading.value = false
+  }
+}
 
 function addToPool(h) {
   const n = pool.addStocks([{ code: h.code, name: h.name }])
@@ -188,4 +245,22 @@ onBeforeUnmount(() => {
 .board-code { font-size: 11px; color: #777; }
 .strength { color: #ffb400; font-weight: 700; }
 .lb-badge { display: inline-block; color: #ff8a5c; border: 1px solid rgba(255,80,40,0.5); border-radius: 4px; padding: 0 5px; font-size: 11px; background: rgba(255,80,40,0.12); }
+.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.reason-modal { background: #1c1f26; border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; width: 640px; max-width: 92vw; max-height: 76vh; overflow: auto; padding: 18px; }
+.reason-head { display: flex; align-items: center; justify-content: space-between; color: #ffe0a0; font-size: 16px; margin-bottom: 14px; }
+.close-btn { background: none; border: none; color: #999; cursor: pointer; font-size: 16px; }
+.close-btn:hover { color: #ff6a6a; }
+.reason-loading { color: #888; padding: 20px; text-align: center; }
+.lhb-reason { color: #ffb400; font-size: 13px; margin-bottom: 10px; line-height: 1.5; }
+.lhb-total { display: flex; gap: 20px; color: #aaa; font-size: 13px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.lhb-cols { display: flex; gap: 16px; }
+.lhb-col { flex: 1; }
+.lhb-col-title { font-size: 13px; margin-bottom: 8px; }
+.lhb-col-title.buy { color: #ff8a8a; }
+.lhb-col-title.sell { color: #8ae08a; }
+.lhb-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.lhb-idx { width: 16px; color: #777; }
+.lhb-name { flex: 1; color: #ddd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lhb-amt { font-family: monospace; }
+.lhb-empty { color: #666; font-size: 12px; padding: 8px 0; }
 </style>

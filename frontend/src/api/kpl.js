@@ -25,10 +25,18 @@ export function kplLhb() {
   return request('/api/kpl/lhb')
 }
 
+export function kplLhbDetail(code, date = '') {
+  return request('/api/kpl/lhb-detail', { query: { code, date } })
+}
+
 export function kplZtReason(code) {
   return request('/api/kpl/zt-reason', { query: { code } })
 }
 
 export function kplWpqc() {
   return request('/api/kpl/wpqc')
+}
+
+export function kplYesterdayPerf() {
+  return request('/api/kpl/yesterday-perf')
 }

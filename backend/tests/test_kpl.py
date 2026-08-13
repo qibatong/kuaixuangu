@@ -148,6 +148,50 @@ def test_fetch_lhb(monkeypatch):
     assert rows[1]["limitBoards"] == 3
 
 
+# ---------- 龙虎榜营业部明细解析 ----------
+def test_fetch_lhb_detail(monkeypatch):
+    monkeypatch.setattr(kpl, "_call", lambda *a, **k: {
+        "Name": "宝鼎科技", "Time": "2026-08-12", "QuoteChange": "10%", "lbnum": "2",
+        "BuyIn": "26482652", "Turnover": "2053271665", "TurnoverRatio": "9.88",
+        "List": [{
+            "BuyTotal": "123456789", "SellTotal": "98765432", "UpReason": "机器人概念",
+            "BuyList": [{"Name": "深股通专用", "Buy": "92083446", "Sell": "99048114"}],
+            "SellList": [{"Name": "机构专用", "Buy": "100", "Sell": "50000000"}],
+        }],
+    })
+    kpl._cache.clear()
+    d = kpl.fetch_lhb_detail("002552", "2026-08-12")
+    assert d["name"] == "宝鼎科技"
+    assert d["change"] == 10
+    assert d["limitBoards"] == 2
+    assert d["buyTotal"] == 123456789
+    assert d["upReason"] == "机器人概念"
+    assert len(d["buyList"]) == 1
+    assert d["buyList"][0]["name"] == "深股通专用"
+    assert d["buyList"][0]["buy"] == 92083446
+    assert d["sellList"][0]["sell"] == 50000000
+
+
+# ---------- 昨日涨停今表现解析 ----------
+def test_fetch_yesterday_perf(monkeypatch):
+    calls = {}
+    def fake_call(host_key, params, timeout=12):
+        pid = params.get("PlateID")
+        calls[pid] = True
+        change = {"801900": 2.117, "801901": 1.171, "801902": 6.77}[pid]
+        return {"List": ["--", 0, 79350794569, -30594498, change, 0, 0, 0],
+                "Date": "2026-08-13", "errcode": "0"}
+    monkeypatch.setattr(kpl, "_call", fake_call)
+    kpl._cache.clear()
+    perf = kpl.fetch_yesterday_perf()
+    assert set(perf.keys()) == {"zt", "lb", "pb"}
+    assert abs(perf["zt"]["change"] - 2.117) < 1e-9
+    assert abs(perf["lb"]["change"] - 1.171) < 1e-9
+    assert abs(perf["pb"]["change"] - 6.77) < 1e-9
+    assert perf["zt"]["date"] == "2026-08-13"
+    assert len(calls) == 3  # 三个板块接口都调了
+
+
 # ---------- 调用失败降级 ----------
 def test_call_failure_returns_none(monkeypatch):
     monkeypatch.setattr(kpl, "_call", lambda *a, **k: None)

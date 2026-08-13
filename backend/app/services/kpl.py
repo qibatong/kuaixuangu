@@ -386,6 +386,59 @@ def fetch_lhb():
     return _cached("lhb", 120, loader)
 
 
+def fetch_lhb_detail(code, date=""):
+    """龙虎榜个股营业部明细: {name,time,change,limitBoards,buyTotal,sellTotal,upReason,
+    buyList:[{name,buy,sell}], sellList:[{name,buy,sell}]}"""
+    def loader():
+        d = _call("lhb", {"c": "Stock", "a": "GetNewOneStockInfo", "Type": "0",
+                          "Time": date, "StockID": str(code)})
+        if not d:
+            return None
+        lst = d.get("List")
+        item = {}
+        if isinstance(lst, list) and lst and isinstance(lst[0], dict):
+            item = lst[0]
+        return {
+            "name": str(d.get("Name", "")),
+            "time": str(d.get("Time", "")),
+            "change": _pct(d.get("QuoteChange")),
+            "limitBoards": int(_num(d.get("lbnum"))),
+            "buyIn": _f(d.get("BuyIn")),
+            "amount": _f(d.get("Turnover")),
+            "turnover": _f(d.get("TurnoverRatio")),
+            "buyTotal": _f(item.get("BuyTotal")),
+            "sellTotal": _f(item.get("SellTotal")),
+            "upReason": str(item.get("UpReason", "") or ""),
+            "buyList": [{"name": str(x.get("Name", "")), "buy": _f(x.get("Buy")), "sell": _f(x.get("Sell"))}
+                        for x in (item.get("BuyList") or []) if isinstance(x, dict)],
+            "sellList": [{"name": str(x.get("Name", "")), "buy": _f(x.get("Buy")), "sell": _f(x.get("Sell"))}
+                         for x in (item.get("SellList") or []) if isinstance(x, dict)],
+        }
+    return _cached("lhb_detail_" + str(code) + "_" + str(date), 300, loader)
+
+
+# ==================== 昨日涨停今表现(策略验证) ====================
+def fetch_yesterday_perf():
+    """昨日涨停/连板/破板今日平均表现: {zt:{change,net,date}, lb:{...}, pb:{...}}
+    List[4]=平均涨幅(%), List[3]=主力净额(元)。用于验证"剔除昨日涨停"策略合理性。"""
+    def loader():
+        out = {}
+        for pid, key in [("801900", "zt"), ("801901", "lb"), ("801902", "pb")]:
+            d = _call("after", {"a": "GetPlate_Info_QJ", "apiv": "w42",
+                                "c": "ZhiShuRanking", "PlateID": pid, "Date": ""})
+            if not d:
+                continue
+            lst = d.get("List")
+            if isinstance(lst, list) and len(lst) >= 5:
+                out[key] = {
+                    "change": _f(lst[4]),   # 今日平均涨幅(%)
+                    "net": _f(lst[3]),      # 主力净额(元)
+                    "date": d.get("Date", ""),
+                }
+        return out
+    return _cached("yesterday_perf", 300, loader)
+
+
 # ==================== 工具函数 ====================
 def _f(v):
     try:

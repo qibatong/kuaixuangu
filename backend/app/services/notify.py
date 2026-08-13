@@ -223,3 +223,36 @@ def push_result_async(result, filters=None):
     """后台线程推送, 不阻塞选股接口响应"""
     t = threading.Thread(target=push_result, args=(result, filters), daemon=True)
     t.start()
+
+
+def send_text(text, title=None):
+    """直接推送文本到所有已配置渠道(带去重)。title 会拼到文本头部。
+
+    用于非选股场景的推送(尾盘抢筹/情绪提醒等)。返回 {channel: {ok, msg}}。
+    """
+    content = ("%s\n%s" % (title, text)) if title else text
+    if _dedup(content):
+        log.info("推送去重: 同内容窗口内跳过")
+        return {}
+    channels = []
+    if config.NOTIFY_FEISHU_WEBHOOK:
+        channels.append(("feishu", _send_feishu))
+    if config.NOTIFY_SERVERCHAN_KEY:
+        channels.append(("serverchan", _send_serverchan))
+    if config.NOTIFY_WECHAT_WEBHOOK:
+        channels.append(("wecom", _send_wecom))
+    if not channels:
+        return {}
+    out = {}
+    for name, fn in channels:
+        try:
+            ok, msg = fn(content)
+            out[name] = {"ok": ok, "msg": msg}
+            if ok:
+                log.info("推送成功 channel=%s", name)
+            else:
+                log.warning("推送失败 channel=%s resp=%s", name, msg)
+        except Exception as e:
+            out[name] = {"ok": False, "msg": str(e)[:200]}
+            log.error("推送异常 channel=%s err=%s", name, e)
+    return out

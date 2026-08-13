@@ -26,6 +26,22 @@
         <span class="senti-val dim">{{ s.dfNum }}</span>
       </div>
       <div class="senti-item senti-day">{{ s.day }}</div>
+
+      <!-- 昨日涨停今表现(策略验证: 验证"剔除昨日涨停"是否合理) -->
+      <div class="yp-sep"></div>
+      <div class="yp-block">
+        <span class="senti-label">昨日涨停今表现</span>
+        <span class="yp-item" :title="'昨日涨停股今日平均涨幅。正值=昨日涨停今天仍强(剔除可能错过), 负值=昨日涨停今天普遍回调(剔除合理)'">
+          涨停 <b :class="ypCls(yp.zt)">{{ signed(yp.zt) }}%</b>
+        </span>
+        <span class="yp-item" :title="'昨日连板股今日平均涨幅'">
+          连板 <b :class="ypCls(yp.lb)">{{ signed(yp.lb) }}%</b>
+        </span>
+        <span class="yp-item" :title="'昨日破板(炸板)股今日平均涨幅'">
+          破板 <b :class="ypCls(yp.pb)">{{ signed(yp.pb) }}%</b>
+        </span>
+        <span v-if="yp.zt && yp.zt.date" class="yp-date">{{ yp.zt.date.slice(5) }}</span>
+      </div>
     </template>
 
     <div v-else class="senti-loading dim">情绪数据暂不可用（开盘啦源未就绪）</div>
@@ -34,10 +50,11 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { kplSentiment } from '../api/kpl'
+import { kplSentiment, kplYesterdayPerf } from '../api/kpl'
 
 const s = ref(null)
 const loading = ref(true)
+const yp = ref({})
 
 const strongCls = computed(() => {
   if (!s.value) return ''
@@ -51,6 +68,16 @@ const strongText = computed(() => {
   return v >= 75 ? '偏高·防风险' : v <= 25 ? '冰点·看回暖' : '中性'
 })
 
+function ypCls(v) {
+  if (v === undefined || v === null) return 'dim'
+  return v > 0 ? 'up' : v < 0 ? 'down' : 'dim'
+}
+
+function signed(v) {
+  if (v === undefined || v === null || isNaN(v)) return '-'
+  return (v > 0 ? '+' : '') + Number(v).toFixed(2)
+}
+
 onMounted(async () => {
   try {
     const d = await kplSentiment()
@@ -60,6 +87,11 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  // 昨日涨停今表现(策略验证)
+  try {
+    const p = await kplYesterdayPerf()
+    if (p && p.perf) yp.value = p.perf
+  } catch (e) { /* 静默 */ }
 })
 </script>
 
@@ -125,4 +157,11 @@ onMounted(async () => {
 .senti-tag.normal { color: #ccc; border: 1px solid rgba(255, 255, 255, 0.2); }
 .senti-day { color: #666; font-size: 11px; margin-left: auto; }
 .senti-loading { color: #888; font-size: 13px; }
+.yp-sep { width: 1px; height: 26px; background: rgba(255,255,255,0.15); }
+.yp-block { display: flex; align-items: center; gap: 12px; }
+.yp-item { color: #aaa; font-size: 12px; }
+.yp-item b.up { color: #ff6a6a; }
+.yp-item b.down { color: #6ad66a; }
+.yp-item b.dim { color: #999; }
+.yp-date { color: #666; font-size: 11px; }
 </style>

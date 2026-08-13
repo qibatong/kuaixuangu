@@ -57,6 +57,15 @@ def api_kpl_lhb(request: Request, uid: int = Depends(get_uid)):
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
 
 
+@router.get("/api/kpl/lhb-detail")
+def api_kpl_lhb_detail(request: Request, code: str = "", date: str = "", uid: int = Depends(get_uid)):
+    """龙虎榜个股营业部明细(买入/卖出营业部)"""
+    if not code:
+        return jr({"ok": False, "msg": "缺少 code"}, 400)
+    d = kpl.fetch_lhb_detail(code, date)
+    return jr({"ok": True, "detail": d})
+
+
 @router.get("/api/kpl/zt-reason")
 def api_kpl_zt_reason(request: Request, code: str = "", uid: int = Depends(get_uid)):
     """个股涨停原因(当天/历史)"""
@@ -71,3 +80,10 @@ def api_kpl_wpqc(request: Request, uid: int = Depends(get_uid)):
     """尾盘竞价抢筹(14:57 后)"""
     d = kpl.fetch_wpqc()
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+
+
+@router.get("/api/kpl/yesterday-perf")
+def api_kpl_yesterday_perf(request: Request, uid: int = Depends(get_uid)):
+    """昨日涨停/连板/破板今日平均表现(策略验证)"""
+    d = kpl.fetch_yesterday_perf()
+    return jr({"ok": True, "perf": d})
