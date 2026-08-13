@@ -334,6 +334,8 @@ def test_fetch_bid_qiangcang(monkeypatch):
         def __init__(self): self.executed = []
         def execute(self, sql, params=()):
             self.executed.append(sql)
+            if "snapshot_lastsec" in sql:
+                return FakeCursor([])   # 秒级序列空 → 走 9_24 兜底
             if "9_24" in sql:
                 return FakeCursor([(1, 5.0, 500.0), (2, 5.5, 800.0)])
             # 9_25: code, bid_change, bid_amt, float_mv, name
@@ -399,6 +401,8 @@ def test_fetch_bid_qiangcang_persist(monkeypatch):
         def __init__(self): self.executed = []
         def execute(self, sql, params=()):
             self.executed.append(sql)
+            if "snapshot_lastsec" in sql:
+                return FakeCursor([])   # 秒级序列空 → 走 9_24 兜底
             if "9_24" in sql:
                 return FakeCursor([])
             if sql.strip().startswith("SELECT code, name, real_change"):
@@ -443,3 +447,22 @@ def test_fetch_bid_qiangcang_persist(monkeypatch):
     assert d2["list20"][0]["qcDelta"] == 12.3
     monkeypatch.setattr("sqlite3.connect", real_connect)
     monkeypatch.setattr(_t, "gmtime", real_gmtime)
+
+
+def test_calc_lastsec_qc():
+    """最后一秒差值回退: 9_25 差值大直接用; 小则向前回退找大差值"""
+    # 场景1: 9_25(6.0) vs 最新秒(5.0) 差 1.0 ≥ 0.5 → 直接用
+    d, ts = kpl._calc_lastsec_qc(6.0, [(34200, 5.0, 100.0), (34201, 5.0, 120.0)])
+    assert d == 1.0
+    # 场景2: 9_25 vs 最新秒差 0.2(小) → 回退: 最新秒(5.2) vs 前一秒(4.0) 差 1.2 ≥ 0.5 → 用 1.2
+    # 序列: t1=4.0, t2=5.2(最后一秒实际变化发生在 t1→t2 之间)
+    d, ts = kpl._calc_lastsec_qc(5.4, [(34200, 4.0, 100.0), (34201, 5.2, 150.0)])
+    assert d == 1.2
+    # 场景3: 全部差值小(0.1/0.2) → 返回最大差值 0.2(仍标记)
+    d, ts = kpl._calc_lastsec_qc(5.3, [(34200, 5.2, 100.0), (34201, 5.1, 120.0)])
+    assert abs(abs(d) - 0.2) < 1e-9
+    # 场景4: 空序列 → None
+    assert kpl._calc_lastsec_qc(5.0, []) == (None, None)
+    # 场景5: 单点序列(9_25 vs 唯一秒) 差大
+    d, ts = kpl._calc_lastsec_qc(6.5, [(34200, 5.0, 100.0)])
+    assert d == 1.5

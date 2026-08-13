@@ -168,6 +168,18 @@ def init_db():
             PRIMARY KEY (date, code)
         )
     """)
+    # 最后一秒抢筹高频采样(9:24:55-9:25:03 每秒一次, ts 记实际时刻;
+    # 计算时用序列做"差值回退", 对抗接口延迟)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS snapshot_lastsec (
+            date TEXT NOT NULL,
+            code TEXT NOT NULL,
+            bid_change REAL NOT NULL DEFAULT 0,
+            bid_amt REAL NOT NULL DEFAULT 0,
+            ts INTEGER NOT NULL,
+            PRIMARY KEY (date, code, ts)
+        )
+    """)
     # 老库迁移: batches 增加 user_id 列(用户隔离)
     cols = [r[1] for r in cur.execute("PRAGMA table_info(batches)").fetchall()]
     if "user_id" not in cols:

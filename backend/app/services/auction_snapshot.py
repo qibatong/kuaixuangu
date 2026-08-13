@@ -16,8 +16,8 @@ from . import fetcher, scorer
 log = logger.get_logger(__name__)
 
 # 时点 -> (开始分钟, 结束分钟) 北京时间(每 10 秒轮询, 窗口 1 分钟防漏)
-# 9_24 用于"最后一秒抢筹": 调度器在 9:24:30 后每轮询重采覆盖, 最后一份≈9:24:5x
-# (与 9_25 的涨幅差才是秒级, 而非 9:24:05→9:25:05 的整分钟差)
+# 9_24 用于"最后一秒抢筹"兜底: 调度器在 9:24:30 后每轮询重采覆盖, 最后一份≈9:24:5x
+# 真正秒级用 snapshot_lastsec(9:24:55-9:25:03 每秒高频采样 + 差值回退, 见 _lastsec_loop)
 TIME_POINTS = {
     "9_15": (9 * 60 + 15, 9 * 60 + 16),
     "9_20": (9 * 60 + 20, 9 * 60 + 21),
@@ -26,9 +26,14 @@ TIME_POINTS = {
 }
 DEFAULT_POINT = "9_20"     # 加速度计算使用的时点
 
+# 最后一秒高频采样窗口: (9:24:55) ~ (9:25:03), 每秒一次(ts 记实际时刻)
+LASTSEC_START = 9 * 3600 + 24 * 60 + 55
+LASTSEC_END = 9 * 3600 + 25 * 60 + 3
+
 _sched_lock = threading.Lock()
 _sched_done = set()        # {(date, time_point)} 已抓取, 防重复
 _sched_checked = set()     # {date} 已做采集盘点(9:31 后一次)
+_lastsec_done = set()      # {(date, ts秒)} 该秒已采, 防重复
 
 
 def _bj_date():
@@ -88,6 +93,50 @@ def snapshot_at(time_point):
         return 0
     log.info("快照已存 date=%s time=%s 数量%d", date, time_point, len(raw_all))
     return len(raw_all)
+
+
+def snapshot_lastsec_at(ts_sec):
+    """最后一秒高频采样: 抓取当前全市场快照存入 snapshot_lastsec(ts=实际时刻秒)
+    返回入库数量; 失败返回 0(该秒跳过, 序列仍可用)"""
+    date = _bj_date()
+    raw_all = _fetch_market_map()
+    if not raw_all:
+        log.warning("最后一秒采样为空 ts=%d (东财接口无返回, 该秒跳过)", ts_sec)
+        return 0
+    try:
+        conn = database.get_conn()
+        conn.executemany(
+            "INSERT OR REPLACE INTO snapshot_lastsec (date, code, bid_change, bid_amt, ts) "
+            "VALUES (?,?,?,?,?)",
+            [(date, code, v["bid_change"], v["bid_amt"], ts_sec)
+             for code, v in raw_all.items()])
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.error("最后一秒采样落库失败 ts=%d err=%s", ts_sec, e)
+        return 0
+    log.info("最后一秒采样已存 date=%s ts=%d 数量%d", date, ts_sec, len(raw_all))
+    return len(raw_all)
+
+
+def _lastsec_loop():
+    """最后一秒高频采样线程: 9:24:55-9:25:03 窗口内每秒尝试一次(接口耗时>1s时自动降频),
+    ts 记录实际采集时刻 → 序列用于"差值回退"计算最后一秒抢筹"""
+    while True:
+        try:
+            g = time.gmtime(time.time() + 8 * 3600)
+            date = _bj_date()
+            ts_total = g.tm_hour * 3600 + g.tm_min * 60 + g.tm_sec
+            if g.tm_wday < 5 and LASTSEC_START <= ts_total <= LASTSEC_END:
+                # 秒级去重: 同一秒只采一次(接口耗时>1s时自然降频, 不会并发堆积)
+                sec_key = (date, ts_total)
+                if sec_key not in _lastsec_done:
+                    if snapshot_lastsec_at(ts_total):
+                        _lastsec_done.add(sec_key)
+            time.sleep(1)
+        except Exception as e:
+            log.error("最后一秒采样调度异常 err=%s", e)
+            time.sleep(1)
 
 
 def load_snapshot(date=None, time_point=DEFAULT_POINT):
@@ -192,4 +241,6 @@ def start_scheduler():
     """main.py startup 调用: 启动后台抓取线程(单 worker 下唯一实例)"""
     t = threading.Thread(target=_scheduler_loop, daemon=True)
     t.start()
-    log.info("竞价多时点快照调度已启动(9:15/9:20/9:25/9:29抢筹结果快照)")
+    t2 = threading.Thread(target=_lastsec_loop, daemon=True)
+    t2.start()
+    log.info("竞价多时点快照调度已启动(9:15/9:20/9:24/9:25/9:29抢筹结果快照/9:24:55-9:25:03最后一秒高频采样)")

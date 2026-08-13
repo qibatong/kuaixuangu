@@ -883,6 +883,38 @@ def _load_qc_snapshot(date):
     } for r in rows]
 
 
+LASTSEC_DIFF_THRESHOLD = 0.5   # 最后一秒"明显抢筹"差值阈值(%), 可调
+
+
+def _calc_lastsec_qc(chg25, seq):
+    """最后一秒抢筹(差值回退, 对抗接口延迟):
+    seq = [(ts, bid_change, bid_amt), ...] 按 ts 升序(9:24:55-9:25:03 每秒采样)
+    规则:
+      ① 优先 9_25涨幅 − 最新一秒涨幅: |差|≥阈值 → 视为最后一秒抢筹
+      ② 差太小(接口延迟导致最新秒已含变化, 或该秒无变化) → 向前回退:
+         最新秒 − 倒数第二秒, 依此类推, 取第一个 |差|≥阈值的相邻对
+      ③ 全部差值都小 → 返回差值最大的对(或 None 表示无抢筹)
+    返回 (qcDeltaLast, base_ts); 无可用序列返回 (None, None)"""
+    if not seq:
+        return None, None
+    points = sorted(seq, key=lambda x: x[0])          # 升序
+    pairs = []
+    cur_chg = chg25                                    # 9_25 视为最新锚点
+    cur_ts = None
+    for ts, chg, _amt in reversed(points):             # 从最新一秒往前
+        pairs.append((round(cur_chg - chg, 2), cur_ts, ts))
+        cur_chg, cur_ts = chg, ts
+    # ① 找第一个 |差| ≥ 阈值的相邻对
+    for diff, ts_a, ts_b in pairs:
+        if abs(diff) >= LASTSEC_DIFF_THRESHOLD:
+            return diff, ts_b or ts_a
+    # ② 全部小 → 取差值最大的一对(仍可能有参考意义)
+    if pairs:
+        best = max(pairs, key=lambda x: abs(x[0]))
+        return best[0], best[2] or best[1]
+    return None, None
+
+
 def fetch_bid_qiangcang():
     """竞价抢筹(左右双表, 对标短线侠):
     左表 list20  = 开盘啦 MorningBiddingList Type=4 全市场竞价异动(200只)
@@ -959,11 +991,16 @@ def fetch_bid_qiangcang():
             log.info("抢筹[saved] date=%s %s 非竞价时段读库 list20=%d只(忽略Type4僵尸数据)",
                      today, hhmm, len(list20))
 
-        # 右表: 9:24→9:25 段, 沿用 snapshot_bid 历史快照(明天 9:24 自动采, 今天 9_24=0 条为采集失败)
+        # 右表"最后一秒": 优先 snapshot_lastsec 秒级序列(差值回退对抗接口延迟),
+        # 无秒级数据时回退 9_24 时点(9:24:5x 重采型)
         listLast = []
         try:
             import sqlite3
             conn = sqlite3.connect(config.DB_FILE)
+            # 秒级序列: code -> [(ts, bid_change, bid_amt), ...] 升序
+            rows_ls = conn.execute(
+                "SELECT code, bid_change, bid_amt, ts FROM snapshot_lastsec WHERE date=? ORDER BY ts",
+                (today,)).fetchall()
             rows24 = conn.execute(
                 "SELECT code, bid_change, bid_amt FROM snapshot_bid WHERE date=? AND time_point='9_24'",
                 (today,)).fetchall()
@@ -971,37 +1008,59 @@ def fetch_bid_qiangcang():
                 "SELECT code, bid_change, bid_amt, float_mv, name FROM snapshot_bid "
                 "WHERE date=? AND time_point='9_25'", (today,)).fetchall()
             conn.close()
+            seq = {}
+            for code, chg, amt, ts in rows_ls:
+                seq.setdefault(code, []).append((ts, chg, amt))
+            if not rows_ls:
+                log.warning("抢筹[listLast] date=%s %s snapshot_lastsec=0条(9:24:55-9:25:03高频采样缺失!), "
+                            "右表将回退 9_24 时点", today, hhmm)
             if not rows24:
                 log.warning("抢筹[listLast] date=%s %s 9_24时点快照=0条(snapshot_bid采集缺失!), "
-                            "右表将为空", today, hhmm)
+                            "右表兜底数据为空", today, hhmm)
             if not rows25:
                 log.warning("抢筹[listLast] date=%s %s 9_25时点快照=0条, 右表将为空", today, hhmm)
             if rows25:
                 seal_map = _seal_map()
                 m24 = {r[0]: (r[1], r[2]) for r in rows24}
+                used_lastsec = 0
                 for code, chg, amt25, fmv, name in rows25:
                     if fmv <= 0 or amt25 <= 0 or fmv < 5e8:
                         continue
+                    t4 = seal_map.get(code, {})
+                    base = {
+                        "code": code,
+                        "name": name or t4.get("name", ""),
+                        "realChange": t4.get("realChange") or chg,
+                        "bidAmt": amt25 * 10000,
+                        "bidChange": chg,
+                        "bidTurnover": t4.get("bidTurnover"),
+                        "floatMv": fmv,
+                        "board": t4.get("board", ""),
+                    }
+                    # ① 秒级序列差值回退(优先): 9_25 − 最新秒; 差值小则向前回退找大差值
+                    s = seq.get(code)
+                    if s and len(s) >= 2:
+                        qc, base_ts = _calc_lastsec_qc(chg, s)
+                        if qc is not None:
+                            base["bidChange24"] = None   # 秒级无 9_24 语义, 标记为秒级口径
+                            base["lastsecTs"] = base_ts
+                            base["qcDeltaLast"] = qc
+                            listLast.append(base)
+                            used_lastsec += 1
+                            continue
+                    # ② 兜底: 9_24 时点(9:24:5x 重采型)
                     v24 = m24.get(code)
                     if v24:
                         chg24, amt24 = v24
                         if amt24 > 0 and abs(amt25 - amt24) > 1e-6:
-                            t4 = seal_map.get(code, {})
-                            listLast.append({
-                                "code": code,
-                                "name": name or t4.get("name", ""),
-                                "realChange": t4.get("realChange") or chg,
-                                "bidAmt": amt25 * 10000,
-                                "bidChange": chg,
-                                "bidChange24": chg24,
-                                "bidTurnover": t4.get("bidTurnover"),
-                                "floatMv": fmv,
-                                "board": t4.get("board", ""),
-                                "qcDeltaLast": round(chg - chg24, 2),
-                            })
+                            base["bidChange24"] = chg24
+                            base["qcDeltaLast"] = round(chg - chg24, 2)
+                            listLast.append(base)
                 listLast.sort(key=lambda x: x["qcDeltaLast"], reverse=True)
-                log.info("抢筹[listLast] date=%s %s 9_24=%d条 9_25=%d条 匹配后listLast=%d只",
-                         today, hhmm, len(rows24), len(rows25), len(listLast))
+                log.info("抢筹[listLast] date=%s %s 秒级序列=%d只 9_24=%d条 9_25=%d条 "
+                         "匹配后listLast=%d只(秒级%d只/兜底%d只)",
+                         today, hhmm, len(seq), len(rows24), len(rows25),
+                         len(listLast), used_lastsec, len(listLast) - used_lastsec)
         except Exception as e:
             log.warning("抢筹 listLast 快照读取失败 err=%s", e)
 
