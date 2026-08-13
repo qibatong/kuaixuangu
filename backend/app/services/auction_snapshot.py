@@ -34,7 +34,7 @@ def _bj_date():
 
 
 def _fetch_market_map():
-    """抓取当前全市场(沪深/创业/科创)快照, 返回 {code: {bid_change, bid_amt}}
+    """抓取当前全市场(沪深/创业/科创)快照, 返回 {code: {bid_change, bid_amt, name}}
     过滤异常涨幅(±30% 外, A股涨跌停上限20%/新股44%, 非交易时段字段可能异常)"""
     raw_all = {}
     for m in ("hs", "cyb", "kcb"):
@@ -50,7 +50,11 @@ def _fetch_market_map():
             bc = scorer.get_bid_change(s)
             if bc < -30 or bc > 30:    # 明显异常数据(非交易时段字段污染)
                 continue
-            raw_all[code] = {"bid_change": bc, "bid_amt": scorer.get_bid_amt(s)}
+            raw_all[code] = {
+                "bid_change": bc,
+                "bid_amt": scorer.get_bid_amt(s),
+                "name": str(s.get("f14") or ""),   # 名称(回放/个股弹窗展示)
+            }
     return raw_all
 
 
@@ -65,9 +69,9 @@ def snapshot_at(time_point):
     try:
         conn = database.get_conn()
         conn.executemany(
-            "INSERT OR REPLACE INTO snapshot_bid (date, time_point, code, bid_change, bid_amt, ts) "
-            "VALUES (?,?,?,?,?,?)",
-            [(date, time_point, code, v["bid_change"], v["bid_amt"], int(time.time()))
+            "INSERT OR REPLACE INTO snapshot_bid (date, time_point, code, bid_change, bid_amt, name, ts) "
+            "VALUES (?,?,?,?,?,?,?)",
+            [(date, time_point, code, v["bid_change"], v["bid_amt"], v.get("name", ""), int(time.time()))
              for code, v in raw_all.items()])
         conn.commit()
         conn.close()
@@ -93,17 +97,17 @@ def load_snapshot(date=None, time_point=DEFAULT_POINT):
 
 
 def query_snapshot(date, time_point, limit=50):
-    """历史回放: 某日某时点全市场快照(按竞价涨幅降序)"""
+    """历史回放: 某日某时点全市场快照(按竞价涨幅降序, 带名称)"""
     try:
         conn = database.get_conn()
         rows = conn.execute(
-            "SELECT code, bid_change, bid_amt, ts FROM snapshot_bid "
+            "SELECT code, bid_change, bid_amt, name, ts FROM snapshot_bid "
             "WHERE date=? AND time_point=? ORDER BY bid_change DESC LIMIT ?",
             (date, time_point, min(limit, 500))).fetchall()
         conn.close()
     except Exception:
         return []
-    return [{"code": r[0], "bid_change": r[1], "bid_amt": r[2]} for r in rows]
+    return [{"code": r[0], "bid_change": r[1], "bid_amt": r[2], "name": r[3] or ""} for r in rows]
 
 
 def _scheduler_loop():

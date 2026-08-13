@@ -61,7 +61,9 @@ def api_stats_auction_snapshot(request: Request, date: str = "", time_point: str
     except Exception:
         name_map = {}
     for it in lst:
-        it["name"] = name_map.get(it["code"], "")
+        # snapshot_bid.name 优先(新采集+回填), 历史缺失时从竞价委买榜兜底
+        if not it.get("name"):
+            it["name"] = name_map.get(it["code"], "")
     return jr({"ok": True, "list": lst, "date": date, "time_point": time_point})
 
 

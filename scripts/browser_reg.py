@@ -220,8 +220,13 @@ def run(shot_dir, user, pwd):
         })()
         """))
         log("  弹窗标题: %s 首行: %s" % (d.get("title"), (d.get("rows") or [[]])[0]))
-        if d.get("rows") and len(d["rows"][0]) >= 4 and d["rows"][0][3] not in ("", "-"):
-            log("✅ 时点个股弹窗 首行涨幅=%s 竞价额=%s" % (d["rows"][0][3], d["rows"][0][4]))
+        row0 = (d.get("rows") or [[]])[0]
+        # [1]=代码 [2]=名称 [3]=涨幅 [4]=竞价额; 名称列应显示真实名称(非代码)
+        name_ok = len(row0) >= 5 and row0[2] not in ("", "-") and row0[2] != row0[1]
+        if d.get("rows") and len(row0) >= 4 and row0[3] not in ("", "-"):
+            log("✅ 时点个股弹窗 名称=%s 涨幅=%s 竞价额=%s" % (row0[2], row0[3], row0[4]))
+            if not name_ok:
+                failed.append("时点个股弹窗 名称列异常(显示代码): %s" % row0)
         else:
             failed.append("时点个股弹窗异常: %s" % d)
         shot("06_snapshot_modal.png")
