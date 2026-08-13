@@ -164,7 +164,7 @@ def run(shot_dir, user, pwd):
             log("✅ 表1[%s] 表2[%s] 上下堆叠正确" % (r0["title"], r1["title"]))
         shot("qc_vertical_layout.png")
 
-        # 表格列头完整性(两张表各10列)
+        # 表格列头完整性(两张表各11列: 排名/代码/名称/实时涨幅/竞价金额/抢筹幅度/竞价换手/竞价涨幅/流通/概念/操作)
         cols = json.loads(ev("""
         (() => {
           const panels = [...document.querySelectorAll('.qc-panel')];
@@ -176,10 +176,12 @@ def run(shot_dir, user, pwd):
         """))
         log("  表头: %s" % json.dumps(cols, ensure_ascii=False))
         for c in cols:
-            if c.get("cols") != 10:
-                failed.append("表[%s] 列数=%s 应为10: %s" % (c.get("title"), c.get("cols"), c))
+            if c.get("cols") != 11:
+                failed.append("表[%s] 列数=%s 应为11: %s" % (c.get("title"), c.get("cols"), c))
+            elif c.get("ths", [])[1] != "代码" or c.get("ths", [])[2] != "名称":
+                failed.append("表[%s] 第2/3列应为 代码/名称: %s" % (c.get("title"), c.get("ths")))
         if not failed:
-            log("✅ 两表各10列完整, 无错位")
+            log("✅ 两表各11列完整(代码|名称分列), 无错位")
 
         ws.close()
     finally:

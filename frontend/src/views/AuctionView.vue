@@ -86,26 +86,24 @@
           <div class="qc-panel-title"><i class="fa fa-clock-o"></i> 9:20 - 9:25 竞价涨幅</div>
           <table class="stock-table">
             <thead>
-              <tr><th>排名</th><th>名称/代码</th><th>实时涨幅</th><th>竞价金额</th><th>抢筹幅度</th><th>竞价换手</th><th>竞价涨幅</th><th>流通</th><th>概念</th><th>操作</th></tr>
+              <tr><th>排名</th><th>代码</th><th>名称</th><th>实时涨幅</th><th>竞价金额</th><th>抢筹幅度</th><th>竞价换手</th><th>竞价涨幅</th><th>流通</th><th>概念</th><th>操作</th></tr>
             </thead>
             <tbody>
               <tr v-for="(q, idx) in qcList" :key="'a' + q.code">
                 <td class="rank-col">{{ idx + 1 }}</td>
-                <td class="name-col">
-                  <div class="name-main">{{ q.name }}</div>
-                  <div class="code-sub" @click="linkToSoftware(q.code)">{{ q.code }}</div>
-                </td>
+                <td class="code-click" @click="linkToSoftware(q.code)">{{ q.code }}</td>
+                <td class="name-col"><div class="name-main">{{ q.name }}</div></td>
                 <td :class="q.realChange > 0 ? 'up' : q.realChange < 0 ? 'down' : 'dim'">{{ q.realChange !== null && q.realChange !== undefined ? signed(q.realChange) + '%' : '-' }}</td>
                 <td :class="q.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(q.bidAmt) }}</td>
                 <td :class="q.qcDelta > 0 ? 'up' : q.qcDelta < 0 ? 'down' : 'dim'"><b>{{ signed(q.qcDelta) }}%</b></td>
                 <td>{{ q.bidTurnover ? q.bidTurnover.toFixed(2) : '-' }}</td>
                 <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
-                <td class="dim qc-board"><div v-for="c in boardList(q.board)" :key="c" class="qc-board-item">{{ c }}</div></td>
+                <td class="dim qc-board" :title="q.board">{{ q.board ? q.board.split('、').join(' ') : '-' }}</td>
                 <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已入池' : '＋池' }}</button></td>
               </tr>
               <tr v-if="!qcList.length">
-                <td colspan="10" class="snap-empty">9:20-9:25 抢筹数据 9:15-9:30 竞价时段可用</td>
+                <td colspan="11" class="snap-empty">9:20-9:25 抢筹数据 9:15-9:30 竞价时段可用</td>
               </tr>
             </tbody>
           </table>
@@ -114,26 +112,24 @@
           <div class="qc-panel-title"><i class="fa fa-bolt"></i> 最后一秒竞价涨幅</div>
           <table class="stock-table">
             <thead>
-              <tr><th>排名</th><th>名称/代码</th><th>实时涨幅</th><th>竞价金额</th><th>抢筹幅度</th><th>竞价换手</th><th>竞价涨幅</th><th>流通</th><th>概念</th><th>操作</th></tr>
+              <tr><th>排名</th><th>代码</th><th>名称</th><th>实时涨幅</th><th>竞价金额</th><th>抢筹幅度</th><th>竞价换手</th><th>竞价涨幅</th><th>流通</th><th>概念</th><th>操作</th></tr>
             </thead>
             <tbody>
               <tr v-for="(q, idx) in qcLastList" :key="'b' + q.code">
                 <td class="rank-col">{{ idx + 1 }}</td>
-                <td class="name-col">
-                  <div class="name-main">{{ q.name }}</div>
-                  <div class="code-sub" @click="linkToSoftware(q.code)">{{ q.code }}</div>
-                </td>
+                <td class="code-click" @click="linkToSoftware(q.code)">{{ q.code }}</td>
+                <td class="name-col"><div class="name-main">{{ q.name }}</div></td>
                 <td :class="q.realChange > 0 ? 'up' : q.realChange < 0 ? 'down' : 'dim'">{{ q.realChange !== null && q.realChange !== undefined ? signed(q.realChange) + '%' : '-' }}</td>
                 <td :class="q.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(q.bidAmt) }}</td>
                 <td :class="q.qcDeltaLast > 0 ? 'up' : q.qcDeltaLast < 0 ? 'down' : 'dim'"><b>{{ signed(q.qcDeltaLast) }}%</b></td>
                 <td>{{ q.bidTurnover ? q.bidTurnover.toFixed(2) : '-' }}</td>
                 <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
-                <td class="dim qc-board"><div v-for="c in boardList(q.board)" :key="c" class="qc-board-item">{{ c }}</div></td>
+                <td class="dim qc-board" :title="q.board">{{ q.board ? q.board.split('、').join(' ') : '-' }}</td>
                 <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已入池' : '＋池' }}</button></td>
               </tr>
               <tr v-if="!qcLastList.length">
-                <td colspan="10" class="snap-empty">最后一秒数据 9:25 后可用（9:24 时点采集后）</td>
+                <td colspan="11" class="snap-empty">最后一秒数据 9:25 后可用（9:24 时点采集后）</td>
               </tr>
             </tbody>
           </table>
@@ -295,11 +291,6 @@ const brokenTitle = computed(() => (tab.value === 'brokenYest' ? '昨炸板' : '
 
 function yi(v) { return (v / 1e8).toFixed(2) }
 function signed(v) { return (v > 0 ? '+' : '') + Number(v).toFixed(2) }
-// 概念按"、"拆分, 每个概念换行显示(缩短列宽)
-function boardList(b) {
-  if (!b) return []
-  return String(b).split('、').map(s => s.trim()).filter(Boolean)
-}
 // 金额自适应: >=1亿 显示亿(2位), 否则显示万
 function amtText(v) {
   if (!v || v <= 0) return '-'
@@ -406,22 +397,19 @@ onBeforeUnmount(() => {
 .qc-panel .stock-table th, .qc-panel .stock-table td { padding: 4px 2px; font-size: 12px; white-space: nowrap; }
 .qc-panel .stock-table th { color: #ffe0a0; font-weight: 600; border-bottom: 1px solid rgba(255,180,0,0.3); }
 .qc-panel .stock-table td { border-bottom: 1px solid rgba(255,255,255,0.04); }
-/* 缩列宽到适应窄屏(>=600px panel): 10 列总宽 ≈ 568px */
+/* 缩列宽到适应窄屏(>=600px panel): 11 列总宽 ≈ 582px(概念列随内容, 不换行) */
 .qc-panel .stock-table th:nth-child(1), .qc-panel .stock-table td:nth-child(1) { width: 26px; text-align: center; }
-.qc-panel .stock-table th:nth-child(2), .qc-panel .stock-table td:nth-child(2) { width: 88px; }
-.qc-panel .stock-table th:nth-child(3), .qc-panel .stock-table td:nth-child(3) { width: 56px; text-align: right; }
-.qc-panel .stock-table th:nth-child(4), .qc-panel .stock-table td:nth-child(4) { width: 62px; text-align: right; }
-.qc-panel .stock-table th:nth-child(5), .qc-panel .stock-table td:nth-child(5) { width: 64px; text-align: right; }
-.qc-panel .stock-table th:nth-child(6), .qc-panel .stock-table td:nth-child(6) { width: 42px; text-align: right; }
-.qc-panel .stock-table th:nth-child(7), .qc-panel .stock-table td:nth-child(7) { width: 50px; text-align: right; }
+.qc-panel .stock-table th:nth-child(2), .qc-panel .stock-table td:nth-child(2) { width: 56px; }
+.qc-panel .stock-table th:nth-child(3), .qc-panel .stock-table td:nth-child(3) { width: 72px; }
+.qc-panel .stock-table th:nth-child(4), .qc-panel .stock-table td:nth-child(4) { width: 56px; text-align: right; }
+.qc-panel .stock-table th:nth-child(5), .qc-panel .stock-table td:nth-child(5) { width: 62px; text-align: right; }
+.qc-panel .stock-table th:nth-child(6), .qc-panel .stock-table td:nth-child(6) { width: 64px; text-align: right; }
+.qc-panel .stock-table th:nth-child(7), .qc-panel .stock-table td:nth-child(7) { width: 42px; text-align: right; }
 .qc-panel .stock-table th:nth-child(8), .qc-panel .stock-table td:nth-child(8) { width: 50px; text-align: right; }
-.qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { width: 78px; }
-.qc-panel .qc-board { white-space: normal; }
-.qc-panel .qc-board-item { line-height: 1.4; word-break: break-all; font-size: 11px; }
+.qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { width: 50px; text-align: right; }
+.qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) { width: 240px; overflow: hidden; text-overflow: ellipsis; }
 /* 操作列(普通列, 不 sticky, 避免 flex 失衡; 通过 overflow-x: auto 横向滚动可见) */
-.qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) { width: 52px; text-align: center; padding: 4px 2px; }
-.qc-panel .code-sub { font-size: 11px; color: #889; cursor: pointer; margin-top: 1px; line-height: 1.2; }
-.qc-panel .code-sub:hover { color: #ffb400; }
+.qc-panel .stock-table th:nth-child(11), .qc-panel .stock-table td:nth-child(11) { width: 52px; text-align: center; padding: 4px 2px; }
 .qc-panel .name-main { font-size: 13px; line-height: 1.3; }
 /* 窄屏(<1280px) 纵向堆叠; <1100 已原有 fallback */
 @media (max-width: 1280px) { .qc-dual { gap: 8px; } }
