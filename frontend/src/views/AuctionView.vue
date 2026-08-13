@@ -80,7 +80,7 @@
         </tbody>
       </table>
 
-      <!-- 竞价抢筹(左右双表: 左 9:20-9:25 / 右 最后1秒 9:24-9:25, 对标短线侠) -->
+      <!-- 竞价抢筹(上下双表: 上 9:20-9:25 / 下 最后1秒 9:24-9:25, 对标短线侠) -->
       <div v-else-if="tab === 'qc'" class="qc-dual">
         <div class="qc-panel">
           <div class="qc-panel-title"><i class="fa fa-clock-o"></i> 9:20 - 9:25 竞价涨幅</div>
@@ -398,8 +398,8 @@ onBeforeUnmount(() => {
 .auc-tab.active { background: rgba(255,180,0,0.15); border-color: #ffb400; color: #ffd700; font-weight: 600; }
 .auc-panel { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 14px; }
 /* 竞价抢筹左右双表 */
-.qc-dual { display: flex; gap: 10px; align-items: flex-start; }
-.qc-panel { flex: 1 1 0; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px; overflow-x: auto; }
+.qc-dual { display: flex; flex-direction: column; gap: 10px; }
+.qc-panel { width: 100%; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px; overflow-x: auto; }
 .qc-panel-title { font-size: 14px; font-weight: 700; color: #ffe0a0; margin-bottom: 8px; }
 .qc-panel .stock-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
 /* 所有列间距紧凑: padding 一律 4px 2px(列间 4px, 数值紧凑) */
@@ -424,7 +424,7 @@ onBeforeUnmount(() => {
 .qc-panel .code-sub:hover { color: #ffb400; }
 .qc-panel .name-main { font-size: 13px; line-height: 1.3; }
 /* 窄屏(<1280px) 纵向堆叠; <1100 已原有 fallback */
-@media (max-width: 1280px) { .qc-dual { flex-direction: column; } }
+@media (max-width: 1280px) { .qc-dual { gap: 8px; } }
 .loading-placeholder { text-align: center; padding: 40px; color: #888; }
 .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
 @keyframes spin { to { transform: rotate(360deg); } }

@@ -44,6 +44,12 @@ frontend/deploy_dist.py
 frontend/shots/
 frontend/vite.config.js.timestamp-*
 
+# ========== 本地部署/回归脚本(含测试机密码, 严禁入库) ==========
+scripts/deploy_frontend.py
+scripts/run_qc_layout_reg.py
+scripts/deploy_*.py
+scripts/run_*reg.py
+
 # ========== Python 缓存 ==========
 __pycache__/
 *.pyc
