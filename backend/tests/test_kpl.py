@@ -319,26 +319,20 @@ def test_fetch_yest_broken(monkeypatch):
 
 
 def test_fetch_bid_qiangcang(monkeypatch):
-    """左右双表抢筹: 返回 {list20, listLast}
-    - list20  = 9:20→9:25: 抢筹幅度 qcDelta = 9:25涨幅 − 9:20涨幅
-    - listLast= 9:24→9:25: 抢筹幅度 qcDeltaLast = 9:25涨幅 − 9:24涨幅"""
+    """左右双表抢筹:
+    - list20 = 开盘啦 Type4 全市场竞价异动, 抢筹强度 qcDelta = bidNetAmt/floatMv*100
+    - listLast = snapshot_bid 9:24→9:25 段: 抢筹幅度 = 9:25涨幅 − 9:24涨幅"""
     import sqlite3
     class FakeCursor:
         def __init__(self, rows): self.rows = rows
         def fetchall(self): return self.rows
     class FakeConn:
-        def __init__(self, rows):
-            self.rows = rows
-            self.executed = []
+        def __init__(self): self.executed = []
         def execute(self, sql, params=()):
             self.executed.append(sql)
             if "9_24" in sql:
-                # code, bid_change(9_24涨幅), bid_amt
                 return FakeCursor([(1, 5.0, 500.0), (2, 5.5, 800.0)])
-            if "9_20" in sql:
-                # code, bid_change(9_20涨幅), bid_amt
-                return FakeCursor([(1, 4.5, 100.0), (2, 5.0, 200.0)])
-            # 9_25: code, bid_change, bid_amt(万), float_mv(元), name
+            # 9_25: code, bid_change, bid_amt, float_mv, name
             return FakeCursor([
                 (1, 6.0, 1000.0, 5e9, "A"),
                 (2, 6.0, 900.0, 8e9, "B"),
@@ -346,21 +340,39 @@ def test_fetch_bid_qiangcang(monkeypatch):
         def close(self): pass
     real = sqlite3.connect
     monkeypatch.setattr(kpl, "_seal_map", lambda: {})
-    monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn(None))
+    monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
+    # 模拟开盘啦 Type4 返回: bidNetAmt/floatMv*100 控制 qcDelta
+    # code1: 6e8/6e9=10%, code2: 4.8e8/8e9=6%, code3: 1e8/3e9=3.33%(被过滤), code4: fmv=1e9(=10亿)>2e8 通过, qcDelta=50%
+    fake_seal = [
+        {"code": "1", "name": "A", "realChange": 1.0, "bidNetAmt": 6e8, "floatMv": 6e9,
+         "bidAmt": 1e8, "bidTurnover": 0.5, "bidChange": 5.0, "board": "板块A"},
+        {"code": "2", "name": "B", "realChange": 0.5, "bidNetAmt": 4.8e8, "floatMv": 8e9,
+         "bidAmt": 5e7, "bidTurnover": 0.3, "bidChange": 4.0, "board": "板块B"},
+        {"code": "3", "name": "C", "realChange": 0.0, "bidNetAmt": 1e8, "floatMv": 3e9,
+         "bidAmt": 3e7, "bidTurnover": 0.1, "bidChange": 3.0, "board": "板块C"},   # 3.33% 被过滤
+        {"code": "4", "name": "D", "realChange": 0.0, "bidNetAmt": 5e8, "floatMv": 1e8,
+         "bidAmt": 5e7, "bidTurnover": 0.2, "bidChange": 2.0, "board": "板块D"},   # fmv=1亿<2e8被过滤
+        {"code": "5", "name": "E", "realChange": 0.0, "bidNetAmt": 0, "floatMv": 5e9,
+         "bidAmt": 5e7, "bidTurnover": 0.2, "bidChange": 2.0, "board": "板块E"},   # bidNetAmt=0被过滤
+    ]
+    monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: fake_seal)
     kpl._cache.clear()
     d = kpl.fetch_bid_qiangcang()
     monkeypatch.setattr("sqlite3.connect", real)
     assert isinstance(d, dict)
     l20 = d["list20"]
     lLast = d["listLast"]
-    # 左表过滤 >5%: mock 数据 qcDelta=1.5/1.0 都被过滤 → 空
-    assert l20 == []
+    # 左表过滤 >5%: code1(10%) + code2(6%) 入选, code3(3.33%) code4(<2亿) code5(bidNetAmt=0) 过滤
+    assert len(l20) == 2
+    assert l20[0]["code"] == "1" and l20[0]["qcDelta"] == 10.0
+    assert l20[1]["code"] == "2" and l20[1]["qcDelta"] == 6.0
+    # 右表 9:24→9:25 段
     assert len(lLast) == 2
     mLast = {r["code"]: r for r in lLast}
-    # 右表 code1: qcDeltaLast = 6.0 - 5.0 = 1.0%
+    # code1: qcDeltaLast = 6.0 - 5.0 = 1.0%
     assert mLast[1]["qcDeltaLast"] == 1.0
     assert mLast[1]["bidChange24"] == 5.0
-    # 右表 code2: qcDeltaLast = 6.0 - 5.5 = 0.5%
+    # code2: qcDeltaLast = 6.0 - 5.5 = 0.5%
     assert mLast[2]["qcDeltaLast"] == 0.5
     # 右表按抢筹幅度降序: code1(1.0) > code2(0.5)
     assert lLast[0]["code"] == 1
