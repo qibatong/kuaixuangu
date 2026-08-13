@@ -214,9 +214,11 @@ def test_fetch_broken_zt(monkeypatch):
     import urllib.request
     class FakeResp:
         def read(self):
-            return ('{"code":20000,"data":[{"code":"000001","name":"PingAnBank",'
+            return ('{"code":20000,"data":[{"symbol":"000001.SZ","stock_chi_name":"PingAnBank",'
                     '"change_percent":0.05,"limit_up_days":2,"break_limit_up_times":3,'
-                    '"first_limit_up":1786586004,"first_break_limit_up":1786586148}]}').encode()
+                    '"first_limit_up":1786586004,"first_break_limit_up":1786586148,'
+                    '"surge_reason":{"symbol":"000001.SZ","stock_reason":"金融科技龙头",'
+                    '"related_plates":[{"plate_name":"银行","plate_reason":"降息预期"}]}}]}').encode()
         def __enter__(self): return self
         def __exit__(self, *a): return False
     monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: FakeResp())
@@ -224,10 +226,13 @@ def test_fetch_broken_zt(monkeypatch):
     rows = kpl.fetch_broken_zt()
     assert len(rows) == 1
     r = rows[0]
-    assert r["code"] == "000001"
-    assert abs(r["change"] - 5.0) < 1e-9   # 0.05 -> 5%
+    assert r["code"] == "000001"            # 去 .SZ 后缀
+    assert r["name"] == "PingAnBank"
+    assert abs(r["change"] - 5.0) < 1e-9    # 0.05 -> 5%
     assert r["limitUpDays"] == 2
     assert r["breakTimes"] == 3
+    assert "金融科技龙头" in r["reason"]     # 个股原因
+    assert "银行" in r["reason"]             # 板块原因
 
 
 # ---------- 调用失败降级 ----------

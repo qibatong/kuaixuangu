@@ -500,17 +500,34 @@ def fetch_broken_zt():
         for it in lst:
             if not isinstance(it, dict):
                 continue
+            sym = str(it.get("symbol", "") or "")
             out.append({
-                "code": str(it.get("code", "")),
-                "name": str(it.get("name", "")),
+                "code": sym.split(".")[0],                        # 去掉 .SZ/.SS 后缀
+                "name": str(it.get("stock_chi_name", "") or ""),  # 名称字段是stock_chi_name
                 "change": _f(it.get("change_percent")) * 100,          # 涨幅(%)
                 "limitUpDays": int(_num(it.get("limit_up_days"))),     # 连板数
                 "breakTimes": int(_num(it.get("break_limit_up_times"))),  # 炸板次数
                 "firstLimitUp": int(_num(it.get("first_limit_up"))),   # 首次涨停时间戳
                 "firstBreak": int(_num(it.get("first_break_limit_up"))),  # 首次炸板时间戳
+                "reason": _surge_reason(it.get("surge_reason")),       # 涨停原因
             })
         return out
     return _cached("broken_zt", 30, loader)
+
+
+def _surge_reason(sr):
+    """surge_reason 是 dict: {stock_reason, related_plates:[{plate_name, plate_reason}]} → 拼接文本"""
+    if not isinstance(sr, dict):
+        return str(sr or "")
+    parts = []
+    if sr.get("stock_reason"):
+        parts.append(str(sr["stock_reason"]))
+    plates = sr.get("related_plates")
+    if isinstance(plates, list):
+        for p in plates:
+            if isinstance(p, dict) and p.get("plate_name"):
+                parts.append("%s:%s" % (p["plate_name"], p.get("plate_reason", "")))
+    return "；".join(p for p in parts if p)
 
 
 # ==================== 工具函数 ====================

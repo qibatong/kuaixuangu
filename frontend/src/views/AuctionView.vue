@@ -97,7 +97,7 @@
       <!-- 炸板 -->
       <table v-else class="stock-table">
         <thead>
-          <tr><th>代码</th><th>名称</th><th>涨幅%</th><th>连板</th><th>炸板次数</th><th>涨停时间</th><th>炸板时间</th><th>操作</th></tr>
+          <tr><th>代码</th><th>名称</th><th>涨幅%</th><th>连板</th><th>炸板次数</th><th>涨停时间</th><th>炸板时间</th><th>涨停原因</th><th>操作</th></tr>
         </thead>
         <tbody>
           <tr v-for="b in brokenList" :key="b.code">
@@ -108,6 +108,7 @@
             <td><span v-if="b.breakTimes > 1" class="bk-hot">{{ b.breakTimes }}次</span><span v-else>{{ b.breakTimes }}</span></td>
             <td class="dim">{{ fmtT(b.firstLimitUp) }}</td>
             <td class="dim">{{ fmtT(b.firstBreak) }}</td>
+            <td class="dim" style="max-width:220px;white-space:pre-wrap;font-size:12px;">{{ b.reason || '-' }}</td>
             <td><button class="pool-add-btn" @click="addToPool(b)">＋池</button></td>
           </tr>
         </tbody>
