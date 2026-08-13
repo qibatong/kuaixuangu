@@ -466,3 +466,72 @@ def test_calc_lastsec_qc():
     # 场景5: 单点序列(9_25 vs 唯一秒) 差大
     d, ts = kpl._calc_lastsec_qc(6.5, [(34200, 5.0, 100.0)])
     assert d == 1.5
+
+
+def test_fetch_bid_qiangcang_lastsec_full(monkeypatch):
+    """完整 mock 端到端: 秒级差值回退全场景(listLast)
+    A: 9_25−最新秒差大(1.0) → 直接用
+    B: 9_25−最新秒差小(0.2) → 回退 最新秒−前一秒(1.2) → 取 1.2
+    C: 全部差值小 → 取最大差(0.2)
+    D: 无秒级序列 → 9_24 兜底(0.5)
+    E: fmv=4亿<5亿 → 过滤
+    F: 无秒级且无9_24 → 不进列表
+    期望排序: B(1.2) > A(1.0) > D(0.5) > C(0.2)"""
+    import sqlite3
+    import time as _t
+    class FakeT:
+        tm_hour, tm_min, tm_wday = 9, 20, 3   # 竞价时段
+    monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
+    class FakeCursor:
+        def __init__(self, rows): self.rows = rows
+        def fetchall(self): return self.rows
+    class FakeConn:
+        def __init__(self): self.executed = []
+        def execute(self, sql, params=()):
+            self.executed.append(sql)
+            if "snapshot_lastsec" in sql:
+                # code -> [(ts, bid_change, bid_amt), ...] 升序
+                return FakeCursor([
+                    ("A", 5.0, 100.0, 35495), ("A", 5.0, 120.0, 35501),
+                    ("B", 4.0, 100.0, 35495), ("B", 5.2, 150.0, 35501),
+                    ("C", 5.2, 100.0, 35495), ("C", 5.1, 110.0, 35501),
+                    # D 无秒级; E/F 无秒级
+                ])
+            if "9_24" in sql:
+                # D 有 9_24: 6.0 → 9_25(6.5)−6.0=0.5
+                return FakeCursor([("D", 6.0, 800.0)])
+            if sql.strip().startswith("SELECT code, name, real_change"):
+                return FakeCursor([])
+            # 9_25: code, bid_change, bid_amt, float_mv, name
+            return FakeCursor([
+                ("A", 6.0, 1000.0, 6e9, "甲"),
+                ("B", 5.4, 800.0, 8e9, "乙"),
+                ("C", 5.3, 700.0, 7e9, "丙"),
+                ("D", 6.5, 900.0, 9e9, "丁"),
+                ("E", 6.0, 500.0, 4e8, "戊"),   # fmv=4亿<5亿
+                ("F", 6.0, 800.0, 8e9, "己"),   # 无秒级无9_24
+            ])
+        def close(self): pass
+    real = sqlite3.connect
+    monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
+    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+    monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: [])   # 只看 listLast
+    kpl._cache.clear()
+    d = kpl.fetch_bid_qiangcang()
+    monkeypatch.setattr("sqlite3.connect", real)
+    lLast = d["listLast"]
+    m = {r["code"]: r for r in lLast}
+    # 6 只中 E 过滤(fmv<5亿), F 无数据源 → 4 只入选
+    assert len(lLast) == 4, lLast
+    # A: 9_25(6.0)−最新秒(5.0)=1.0
+    assert m["A"]["qcDeltaLast"] == 1.0
+    # B: 9_25(5.4)−5.2=0.2 小 → 回退 5.2−4.0=1.2
+    assert m["B"]["qcDeltaLast"] == 1.2
+    # C: 全小 → 最大差 5.2−5.1=0.1? 9_25(5.3)−5.1=0.2 更大 → 0.2
+    assert m["C"]["qcDeltaLast"] == 0.2
+    # D: 9_24 兜底 6.5−6.0=0.5
+    assert m["D"]["qcDeltaLast"] == 0.5
+    # E/F 不在
+    assert "E" not in m and "F" not in m
+    # 排序: B(1.2) > A(1.0) > D(0.5) > C(0.2)
+    assert [r["code"] for r in lLast] == ["B", "A", "D", "C"]
