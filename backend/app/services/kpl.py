@@ -659,59 +659,53 @@ def fetch_yest_broken():
 
 
 def fetch_bid_qiangcang():
-    """竞价抢筹: 实时抢筹资金占比(buy_amt / floatMv), 量级与短线侠抢筹幅度一致(5-10%).
-    开盘啦无专用接口, 无"最后1秒"数据源.
-    计算策略: 若 9_20/9_25 两时点 bid_buy_amt 都有真实历史值(明天起新采集), 用 9:20→9:25 增量版
-    = (buy25-buy20)/floatMv (对标短线侠); 否则用 buy25/floatMv (当前实时抢筹资金).
-    merge Type4 补换手; 过滤 buy_amt/floatMv 缺失或太小的票."""
+    """竞价抢筹: 板块竞价异动(GetBKJJ_W36) + 异动板块个股(GetBKJJBL) 聚合
+    个股字段(与 /docs/80 对齐): [code,name,现价,实时涨幅,竞价量比,竞价金额,竞价涨幅,
+    竞价大单净额(抢筹),竞价换手率,实际流通市值,所属板块]
+    按竞价大单净额降序 = 抢筹资金榜(对标短线侠'9:20-9:25 抢筹')
+    仅竞价时段(9:15-9:30)有数据, 非时段返回空"""
     def loader():
-        import sqlite3
-        today = time.strftime("%Y-%m-%d")
-        conn = sqlite3.connect(config.DB_FILE)
-        rows25 = []
-        rows20 = []
-        try:
-            rows20 = conn.execute(
-                "SELECT code, bid_buy_amt FROM snapshot_bid "
-                "WHERE date=? AND time_point='9_20' AND bid_buy_amt > 0", (today,)).fetchall()
-            rows25 = conn.execute(
-                "SELECT code, bid_change, bid_amt, bid_buy_amt, float_mv, name FROM snapshot_bid "
-                "WHERE date=? AND time_point='9_25' AND bid_buy_amt > 0", (today,)).fetchall()
-        finally:
-            conn.close()
-        # 判断是否有真实历史 9:20 委买额(明日新采集后才有)
-        use_increment = bool(rows20)
-        if not rows25:
+        d = _call("default", {"a": "GetBKJJ_W36", "c": "StockBidYiDong", "apiv": "w41"})
+        if not d:
+            return None
+        boards = d.get("List1")   # [板块代码, 板块名, 竞价爆量, 异动金额, ?, 主力净额]
+        if not isinstance(boards, list):
             return []
-        m20 = {r[0]: r[1] for r in rows20} if rows20 else {}
-        seal_map = _seal_map()
         out = []
-        for code, chg, amt, buy25, fmv, name in rows25:
-            buy20 = m20.get(code, 0)
-            if fmv <= 0 or buy25 <= 0:
+        seen = set()
+        for b in boards[:10]:     # 最多10个异动板块, 控制调用次数
+            if not isinstance(b, list) or len(b) < 2:
                 continue
-            if fmv < 5e8:    # 流通市值<5亿 跳过
+            bid_code = str(b[0])
+            try:
+                dd = _call("default", {"Order": "1", "st": "50", "a": "GetBKJJBL", "IsLB": "0",
+                                       "c": "StockBidYiDong", "Index": "0", "filter": "1",
+                                       "apiv": "w41", "Type": "1", "StockID": bid_code})
+            except Exception:
                 continue
-            if use_increment and buy20 > 0:
-                # 9:20→9:25 委买增量/流通市值(对标短线侠)
-                qc = round((buy25 - buy20) * 10000 / fmv * 100, 2)
-            else:
-                # 当前实时抢筹资金/流通市值(过渡, 等真实 buy20 上线)
-                qc = round(buy25 * 10000 / fmv * 100, 2)
-            t4 = seal_map.get(code, {})
-            out.append({
-                "code": code,
-                "name": name or t4.get("name", ""),
-                "change": chg,
-                "bidAmt": amt * 10000,
-                "qcPct": qc,
-                "bidNetAmt": t4.get("bidNetAmt"),
-                "bidTurnover": t4.get("bidTurnover"),
-                "floatMv": fmv,
-                "board": t4.get("board", ""),
-                "use_increment": use_increment,    # 前端可显示当前是哪种算法
-            })
-        out.sort(key=lambda x: x["qcPct"], reverse=True)
+            lst = dd.get("List") if dd else None
+            if not isinstance(lst, list):
+                continue
+            for r in lst:
+                if not isinstance(r, list) or len(r) < 11:
+                    continue
+                code = str(r[0])
+                if code in seen:
+                    continue
+                seen.add(code)
+                out.append({
+                    "code": code,
+                    "name": str(r[1]),
+                    "realChange": _f(r[3]),          # 实时涨幅(%)
+                    "bidVolRatio": _f(r[4]),         # 竞价量比
+                    "bidAmt": _f(r[5]),              # 竞价金额(元)
+                    "bidChange": _f(r[6]),           # 竞价涨幅(%)
+                    "qcNet": _f(r[7]),               # 竞价大单净额(元)=抢筹
+                    "bidTurnover": _f(r[8]),         # 竞价换手率(%)
+                    "floatMv": _f(r[9]),             # 实际流通市值(元)
+                    "board": str(r[10]),             # 所属板块
+                })
+        out.sort(key=lambda x: x["qcNet"], reverse=True)
         return out[:100]
     return _cached("bid_qiangcang", 30, loader)
 

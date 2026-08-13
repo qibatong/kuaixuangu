@@ -319,28 +319,24 @@ def test_fetch_yest_broken(monkeypatch):
 
 
 def test_fetch_bid_qiangcang(monkeypatch):
-    """双算法: 有 9:20 buy 历史用增量(对标短线侠), 否则用 buy25/floatMv 实时"""
-    import sqlite3
-    class FakeCursor:
-        def __init__(self, rows): self.rows = rows
-        def fetchall(self): return self.rows
-
-    class FakeConn:
-        def execute(self, sql, params=()):
-            if "9_20" in sql and "bid_buy_amt > 0" in sql:
-                return FakeCursor([(1, 100.0), (2, 200.0)])   # 模拟明日有 buy20 历史
-            if "9_25" in sql:
-                return FakeCursor([(1, 6.0, 300.0, 2000.0, 5e9, "A"), (2, 6.0, 220.0, 600.0, 8e9, "B")])
-            return FakeCursor([])
-        def close(self): pass
-    real = sqlite3.connect
-    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
-    monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
+    """竞价抢筹: GetBKJJ_W36 异动板块 + GetBKJJBL 板块个股 聚合, 按竞价大单净额降序"""
+    def fake_call(host, params, timeout=12):
+        if params.get("a") == "GetBKJJ_W36":
+            return {"List1": [["801519", "医药", 6.3, 507679648], ["801045", "算力", 5.2, 300000000]]}
+        # GetBKJJBL 板块个股
+        return {"List": [
+            ["600118", "中国卫星", 73.92, -10, 1.2, 296739608, -6.14, 50000000, 0.5, 43049226453, "商业航天"],
+            ["300308", "中际旭创", 921.04, 0, 3.4, 478656000, 4.23, -20000000, 0.1, 759772567101, "光模块"],
+        ]}
+    monkeypatch.setattr(kpl, "_call", fake_call)
     kpl._cache.clear()
     rows = kpl.fetch_bid_qiangcang()
-    monkeypatch.setattr("sqlite3.connect", real)
     assert len(rows) == 2
     m = {r["code"]: r for r in rows}
-    assert m[1]["use_increment"] is True
-    assert abs(m[1]["qcPct"] - 0.38) < 0.01
-    assert abs(m[2]["qcPct"] - 0.05) < 0.01
+    assert m["600118"]["qcNet"] == 50000000
+    assert m["600118"]["name"] == "中国卫星"
+    assert m["600118"]["bidChange"] == -6.14
+    assert m["600118"]["floatMv"] == 43049226453
+    # qcNet 降序: 5000万(中国卫星) > -2000万(中际旭创)
+    assert rows[0]["code"] == "600118"
+    assert rows[1]["code"] == "300308"

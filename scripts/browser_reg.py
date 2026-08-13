@@ -188,18 +188,18 @@ def run(shot_dir, user, pwd):
             failed.append("竞价净额异常: %s" % d)
         shot("03_net.png")
 
-        # Tab4 尾盘抢筹
-        log("Tab=尾盘抢筹")
-        click_tab("尾盘抢筹")
+        # Tab4 竞价抢筹
+        log("Tab=竞价抢筹")
+        click_tab("竞价抢筹")
         time.sleep(2)
         d = json.loads(ev(rows_js))
         rows = d.get("rows") or []
         if rows:
             log("  首行: %s" % rows[0])
-            log("✅ 尾盘抢筹 %d 只" % len(rows))
+            log("✅ 竞价抢筹 %d 只" % len(rows))
         else:
-            log("  尾盘抢筹数据 14:57 后可用(当前非尾盘时段,空数据正常)")
-        shot("04_wpqc.png")
+            log("  竞价抢筹数据 9:15-9:30 竞价时段可用(当前非竞价时段,空数据正常)")
+        shot("04_qc.png")
 
         # Tab5 昨日涨停
         log("Tab=昨日涨停")
@@ -295,7 +295,7 @@ def run(shot_dir, user, pwd):
         for f in failed:
             log("  - " + f)
         sys.exit(2)
-    log("✅✅ 竞价异动页八 Tab(委买/爆量/净额/尾盘抢筹/昨日涨停/昨断板/昨上榜/昨炸板/今炸板) + 时点个股弹窗真实浏览器验证全部通过, 截图: %s" % shot_dir)
+    log("✅✅ 竞价异动页八 Tab(委买/爆量/抢筹/净额/昨日涨停/昨断板/昨上榜/昨炸板/今炸板) + 时点个股弹窗真实浏览器验证全部通过, 截图: %s" % shot_dir)
 
 
 def main():
