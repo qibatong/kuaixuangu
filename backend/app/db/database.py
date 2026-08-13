@@ -151,6 +151,23 @@ def init_db():
         )
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_reset_tokens_token ON reset_tokens(token)")
+    # 竞价抢筹结果快照(开盘啦 Type4 竞价时段抓取持久化, 非竞价时段读库展示)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS qc_snapshot (
+            date TEXT NOT NULL,
+            code TEXT NOT NULL,
+            name TEXT,
+            real_change REAL NOT NULL DEFAULT 0,
+            bid_amt REAL NOT NULL DEFAULT 0,
+            qc_delta REAL NOT NULL DEFAULT 0,
+            bid_turnover REAL NOT NULL DEFAULT 0,
+            bid_change REAL NOT NULL DEFAULT 0,
+            float_mv REAL NOT NULL DEFAULT 0,
+            board TEXT,
+            ts INTEGER NOT NULL,
+            PRIMARY KEY (date, code)
+        )
+    """)
     # 老库迁移: batches 增加 user_id 列(用户隔离)
     cols = [r[1] for r in cur.execute("PRAGMA table_info(batches)").fetchall()]
     if "user_id" not in cols:

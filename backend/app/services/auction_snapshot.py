@@ -117,6 +117,7 @@ def query_snapshot(date, time_point, limit=50):
 
 def _scheduler_loop():
     """后台调度: 工作日按时点窗口抓取一次, 每 10 秒轮询; 9:31 后盘点当日采集情况"""
+    _qc_done = set()   # {(date)} 抢筹结果快照已抓取(9:29-9:30 窗口)
     while True:
         try:
             g = time.gmtime(time.time() + 8 * 3600)
@@ -129,6 +130,19 @@ def _scheduler_loop():
                         if key not in _sched_done:
                             if snapshot_at(tp):
                                 _sched_done.add(key)
+            # 9:29-9:30 抢筹结果快照: 触发 fetch_bid_qiangcang 落库(竞价结束前最后一份,
+            # 非竞价时段页面读库展示不丢失)
+            if (g.tm_wday < 5 and 9 * 60 + 29 <= hm <= 9 * 60 + 30
+                    and date not in _qc_done):
+                try:
+                    from . import kpl
+                    kpl._cache.clear()
+                    d = kpl.fetch_bid_qiangcang()
+                    n = len((d or {}).get("list20", []))
+                    log.info("竞价抢筹结果快照已存 date=%s list20=%d只", date, n)
+                    _qc_done.add(date)
+                except Exception as e:
+                    log.warning("竞价抢筹结果快照失败 err=%s", e)
             # 9:31-9:35 盘点当日采集: 缺失时点告警(排查关键, 数据过了点无法补)
             if g.tm_wday < 5 and 9 * 60 + 31 <= hm <= 9 * 60 + 35 and date not in _sched_checked:
                 missing = [tp for tp in TIME_POINTS if (date, tp) not in _sched_done]
@@ -147,4 +161,4 @@ def start_scheduler():
     """main.py startup 调用: 启动后台抓取线程(单 worker 下唯一实例)"""
     t = threading.Thread(target=_scheduler_loop, daemon=True)
     t.start()
-    log.info("竞价多时点快照调度已启动(9:15/9:20/9:25)")
+    log.info("竞价多时点快照调度已启动(9:15/9:20/9:25/9:29抢筹结果快照)")

@@ -376,3 +376,48 @@ def test_fetch_bid_qiangcang(monkeypatch):
     assert mLast[2]["qcDeltaLast"] == 0.5
     # 右表按抢筹幅度降序: code1(1.0) > code2(0.5)
     assert lLast[0]["code"] == 1
+
+
+def test_fetch_bid_qiangcang_persist(monkeypatch):
+    """抢筹结果持久化: 竞价时段(接口有数据)存库 → 非竞价时段(接口空)读库, 不丢失"""
+    import sqlite3
+    class FakeCursor:
+        def __init__(self, rows): self.rows = rows
+        def fetchall(self): return self.rows
+    class FakeConn:
+        def __init__(self): self.executed = []
+        def execute(self, sql, params=()):
+            self.executed.append(sql)
+            if "9_24" in sql:
+                return FakeCursor([])
+            if sql.strip().startswith("SELECT code, name, real_change"):
+                return FakeCursor([
+                    ("600001", "测试甲", 1.5, 1e8, 12.3, 0.2, 5.0, 8e9, "AI概念"),
+                    ("600002", "测试乙", 0.8, 5e7, 8.9, 0.1, 4.0, 6e9, "医药"),
+                ])
+            return FakeCursor([])
+        def executemany(self, sql, params=()): self.executed.append(sql)
+        def commit(self): pass
+        def close(self): pass
+    real = sqlite3.connect
+    monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
+    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+    # 阶段1: 竞价时段 mock 接口有数据
+    fake_seal = [
+        {"code": "600001", "name": "测试甲", "realChange": 1.5, "bidNetAmt": 9.84e8,
+         "floatMv": 8e9, "bidAmt": 1e8, "bidTurnover": 0.2, "bidChange": 5.0, "board": "AI概念"},
+        {"code": "600002", "name": "测试乙", "realChange": 0.8, "bidNetAmt": 5.34e8,
+         "floatMv": 6e9, "bidAmt": 5e7, "bidTurnover": 0.1, "bidChange": 4.0, "board": "医药"},
+    ]
+    monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: fake_seal)
+    kpl._cache.clear()
+    d1 = kpl.fetch_bid_qiangcang()
+    assert len(d1["list20"]) == 2, d1
+    # 阶段2: 非竞价时段 mock 接口空 → 应读库返回同样结果(不丢失)
+    monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: [])
+    kpl._cache.clear()
+    d2 = kpl.fetch_bid_qiangcang()
+    assert len(d2["list20"]) == 2, d2
+    assert d2["list20"][0]["code"] == "600001"
+    assert d2["list20"][0]["qcDelta"] == 12.3
+    monkeypatch.setattr("sqlite3.connect", real)

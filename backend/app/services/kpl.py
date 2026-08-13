@@ -841,14 +841,52 @@ def fetch_yest_broken():
     return _cached("yest_broken", 60 * 5, loader)
 
 
+def _save_qc_snapshot(date, items):
+    """竞价时段抢筹结果持久化(qc_snapshot 表), 非竞价时段读库展示"""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(config.DB_FILE)
+        conn.executemany(
+            "INSERT OR REPLACE INTO qc_snapshot (date, code, name, real_change, bid_amt, qc_delta, "
+            "bid_turnover, bid_change, float_mv, board, ts) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            [(date, x["code"], x.get("name", ""), x.get("realChange", 0), x.get("bidAmt", 0),
+              x.get("qcDelta", 0), x.get("bidTurnover", 0), x.get("bidChange", 0),
+              x.get("floatMv", 0), x.get("board", ""), int(time.time()))
+             for x in items])
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.warning("抢筹结果落库失败 err=%s", e)
+
+
+def _load_qc_snapshot(date):
+    """读取某日竞价抢筹快照(按 qc_delta 降序)"""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(config.DB_FILE)
+        rows = conn.execute(
+            "SELECT code, name, real_change, bid_amt, qc_delta, bid_turnover, bid_change, float_mv, board "
+            "FROM qc_snapshot WHERE date=? ORDER BY qc_delta DESC", (date,)).fetchall()
+        conn.close()
+    except Exception:
+        return []
+    return [{
+        "code": r[0], "name": r[1], "realChange": r[2], "bidAmt": r[3], "qcDelta": r[4],
+        "bidTurnover": r[5], "bidChange": r[6], "floatMv": r[7], "board": r[8] or "",
+    } for r in rows]
+
+
 def fetch_bid_qiangcang():
     """竞价抢筹(左右双表, 对标短线侠):
     左表 list20  = 开盘啦 MorningBiddingList Type=4 全市场竞价异动(200只)
                    抢筹强度 qcDelta = 竞价净额 / 流通市值 * 100 (开盘啦自带"抢筹资金"指标)
                    过滤: 流通市值≥2亿, 抢筹强度>5%
+                   竞价时段(9:15-9:30)实时拉取并持久化 qc_snapshot 表;
+                   非竞价时段接口为空 → 读库展示今天已选出的结果(不丢失)
     右表 listLast= snapshot_bid 9:24→9:25 段: 抢筹幅度 = 9:25涨幅 − 9:24涨幅
     返回 {"list20": [...], "listLast": [...]}"""
     def loader():
+        today = time.strftime("%Y-%m-%d")
         # 左表: 开盘啦 Type4 (200只竞价涨停委买额榜, 覆盖度远超东财 snapshot_bid 单页100只)
         try:
             seal_list = fetch_bid_seal() or []
@@ -856,33 +894,43 @@ def fetch_bid_qiangcang():
             log.warning("抢筹 Type4 拉取失败 err=%s", e)
             seal_list = []
         list20 = []
-        for s in seal_list:
+        if seal_list:
+            for s in seal_list:
+                try:
+                    code = str(s.get("code", ""))
+                    if not code:
+                        continue
+                    bidNetAmt = float(s.get("bidNetAmt") or 0)      # 竞价净额(元) - 开盘啦 row[6]
+                    floatMv = float(s.get("floatMv") or 0)          # 流通市值(元) - 开盘啦 row[12]
+                    bidAmt = float(s.get("bidAmt") or 0)            # 竞价成交额(元) - 开盘啦 row[8]
+                    if floatMv < 2e8 or bidNetAmt <= 0:             # 放宽阈值 5亿→2亿, 纳入中盘股
+                        continue
+                    qcDelta = round(bidNetAmt / floatMv * 100, 2)   # 抢筹强度%(开盘啦自家口径)
+                    if qcDelta <= 5:
+                        continue
+                    list20.append({
+                        "code": code,
+                        "name": str(s.get("name", "")),
+                        "realChange": float(s.get("realChange") or 0),
+                        "bidAmt": bidAmt,
+                        "qcDelta": qcDelta,
+                        "bidTurnover": float(s.get("bidTurnover") or 0),
+                        "bidChange": float(s.get("bidChange") or 0),
+                        "floatMv": floatMv,
+                        "board": str(s.get("board") or ""),
+                    })
+                except (ValueError, TypeError):
+                    continue
+            list20.sort(key=lambda x: x["qcDelta"], reverse=True)
+            if list20:
+                _save_qc_snapshot(today, list20)   # 竞价时段持久化, 供非竞价时段展示
+        else:
+            # 非竞价时段(开盘啦接口 9:15-9:30 外为空): 读库今天最后一份已选结果
             try:
-                code = str(s.get("code", ""))
-                if not code:
-                    continue
-                bidNetAmt = float(s.get("bidNetAmt") or 0)      # 竞价净额(元) - 开盘啦 row[6]
-                floatMv = float(s.get("floatMv") or 0)          # 流通市值(元) - 开盘啦 row[12]
-                bidAmt = float(s.get("bidAmt") or 0)            # 竞价成交额(元) - 开盘啦 row[8]
-                if floatMv < 2e8 or bidNetAmt <= 0:             # 放宽阈值 5亿→2亿, 纳入中盘股
-                    continue
-                qcDelta = round(bidNetAmt / floatMv * 100, 2)   # 抢筹强度%(开盘啦自家口径)
-                if qcDelta <= 5:
-                    continue
-                list20.append({
-                    "code": code,
-                    "name": str(s.get("name", "")),
-                    "realChange": float(s.get("realChange") or 0),
-                    "bidAmt": bidAmt,
-                    "qcDelta": qcDelta,
-                    "bidTurnover": float(s.get("bidTurnover") or 0),
-                    "bidChange": float(s.get("bidChange") or 0),
-                    "floatMv": floatMv,
-                    "board": str(s.get("board") or ""),
-                })
-            except (ValueError, TypeError):
-                continue
-        list20.sort(key=lambda x: x["qcDelta"], reverse=True)
+                list20 = _load_qc_snapshot(today)
+            except Exception as e:
+                log.warning("抢筹结果读库失败 err=%s", e)
+                list20 = []
 
         # 右表: 9:24→9:25 段, 沿用 snapshot_bid 历史快照(明天 9:24 自动采, 今天 9_24=0 条为采集失败)
         listLast = []
