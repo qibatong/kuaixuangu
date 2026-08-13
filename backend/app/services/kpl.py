@@ -842,53 +842,78 @@ def fetch_yest_broken():
 
 
 def fetch_bid_qiangcang():
-    """竞价抢筹: 板块竞价异动(GetBKJJ_W36) + 异动板块个股(GetBKJJBL) 聚合
-    个股字段(与 /docs/80 对齐): [code,name,现价,实时涨幅,竞价量比,竞价金额,竞价涨幅,
-    竞价大单净额(抢筹),竞价换手率,实际流通市值,所属板块]
-    按竞价大单净额降序 = 抢筹资金榜(对标短线侠'9:20-9:25 抢筹')
-    仅竞价时段(9:15-9:30)有数据, 非时段返回空"""
+    """竞价抢筹(双段, 对标短线侠):
+    数据源: snapshot_bid 三时点委买额(9_20/9_24/9_25) + 流通市值 + GetBKJJBL 补展示字段
+    - qc20  = 9:20→9:25 抢筹幅度% = (buy25-buy20)*10000/floatMv*100  (增量算法)
+    - qcLast= 9:24→9:25 最后阶段抢筹% = (buy25-buy24)*10000/floatMv*100 (对标短线侠'最后1秒'近似)
+    过渡: 今日无真实 9_20/9_24 历史(同一份快照) → qc20/qcLast 退回 buy25/floatMv 单时点占比
+    仅竞价时段(9:15-9:30)有真实增量数据; merge Type4 补实时涨幅/换手/概念"""
     def loader():
-        d = _call("default", {"a": "GetBKJJ_W36", "c": "StockBidYiDong", "apiv": "w41"})
-        if not d:
-            return None
-        boards = d.get("List1")   # [板块代码, 板块名, 竞价爆量, 异动金额, ?, 主力净额]
-        if not isinstance(boards, list):
+        import sqlite3
+        today = time.strftime("%Y-%m-%d")
+        try:
+            conn = sqlite3.connect(config.DB_FILE)
+            rows20 = conn.execute(
+                "SELECT code, bid_buy_amt FROM snapshot_bid WHERE date=? AND time_point='9_20' AND bid_buy_amt > 0",
+                (today,)).fetchall()
+            rows24 = conn.execute(
+                "SELECT code, bid_buy_amt FROM snapshot_bid WHERE date=? AND time_point='9_24' AND bid_buy_amt > 0",
+                (today,)).fetchall()
+            rows25 = conn.execute(
+                "SELECT code, bid_change, bid_amt, bid_buy_amt, float_mv, name FROM snapshot_bid "
+                "WHERE date=? AND time_point='9_25' AND bid_buy_amt > 0", (today,)).fetchall()
+            conn.close()
+        except Exception as e:
+            log.warning("抢筹快照读取失败 err=%s", e)
             return []
+        if not rows25:
+            return []
+        m20 = {r[0]: r[1] for r in rows20}
+        m24 = {r[0]: r[1] for r in rows24}
+        # 判断是否真实历史: 若某时点与 9_25 委买额大量相同 → 同一份快照(非真实历史)
+        def _real_hist(m):
+            if not m:
+                return False
+            m25v = {c: v for c, _, _, v, _, _ in rows25 if c in m}
+            if not m25v:
+                return False
+            same = sum(1 for c, v in m25v.items() if abs(m.get(c, 0) - v) < 1e-6)
+            return same < max(2, len(m25v) * 0.2)   # >80% 不同才算真实历史
+        has20 = _real_hist(m20)
+        has24 = _real_hist(m24)
+        seal_map = _seal_map()
         out = []
-        seen = set()
-        for b in boards[:10]:     # 最多10个异动板块, 控制调用次数
-            if not isinstance(b, list) or len(b) < 2:
+        for code, chg, amt, buy25, fmv, name in rows25:
+            if fmv <= 0 or buy25 <= 0 or fmv < 5e8:
                 continue
-            bid_code = str(b[0])
-            try:
-                dd = _call("default", {"Order": "1", "st": "50", "a": "GetBKJJBL", "IsLB": "0",
-                                       "c": "StockBidYiDong", "Index": "0", "filter": "1",
-                                       "apiv": "w41", "Type": "1", "StockID": bid_code})
-            except Exception:
-                continue
-            lst = dd.get("List") if dd else None
-            if not isinstance(lst, list):
-                continue
-            for r in lst:
-                if not isinstance(r, list) or len(r) < 11:
-                    continue
-                code = str(r[0])
-                if code in seen:
-                    continue
-                seen.add(code)
-                out.append({
-                    "code": code,
-                    "name": str(r[1]),
-                    "realChange": _f(r[3]),          # 实时涨幅(%)
-                    "bidVolRatio": _f(r[4]),         # 竞价量比
-                    "bidAmt": _f(r[5]),              # 竞价金额(元)
-                    "bidChange": _f(r[6]),           # 竞价涨幅(%)
-                    "qcNet": _f(r[7]),               # 竞价大单净额(元)=抢筹
-                    "bidTurnover": _f(r[8]),         # 竞价换手率(%)
-                    "floatMv": _f(r[9]),             # 实际流通市值(元)
-                    "board": str(r[10]),             # 所属板块
-                })
-        out.sort(key=lambda x: x["qcNet"], reverse=True)
+            t4 = seal_map.get(code, {})
+            # 9:20→9:25 增量抢筹(有真实 9_20 才用增量, 否则单时点占比过渡)
+            buy20 = m20.get(code, 0)
+            if has20 and buy20 > 0 and abs(buy25 - buy20) > 1e-6:
+                qc20 = round((buy25 - buy20) * 10000 / fmv * 100, 2)
+            else:
+                qc20 = round(buy25 * 10000 / fmv * 100, 2)     # 单时点占比(过渡)
+            # 9:24→9:25 最后阶段抢筹
+            buy24 = m24.get(code, 0)
+            if has24 and buy24 > 0 and abs(buy25 - buy24) > 1e-6:
+                qc_last = round((buy25 - buy24) * 10000 / fmv * 100, 2)
+            else:
+                qc_last = None     # 无 9_24 历史 → 前端显示 '-' 或回退
+            out.append({
+                "code": code,
+                "name": name or t4.get("name", ""),
+                "realChange": t4.get("realChange") or chg,     # 实时涨幅(GetBKJJBL/Type4 优先)
+                "bidChange": chg,                               # 9:25 竞价涨幅
+                "bidAmt": amt * 10000,                          # 9:25 竞价额(元)
+                "qc20": qc20,                                   # 9:20-9:25 抢筹幅度%
+                "qcLast": qc_last,                              # 9:24-9:25 最后阶段抢筹%(可能 None)
+                "bidTurnover": t4.get("bidTurnover"),           # 竞价换手(%)
+                "floatMv": fmv,                                 # 流通市值(元)
+                "board": t4.get("board", ""),                   # 所属板块
+                "has20": has20, "has24": has24,                 # 前端可判断数据质量
+            })
+        # 排序: 主按 qc20(抢筹幅度) 降序
+        out.sort(key=lambda x: x["qc20"], reverse=True)
         return out[:100]
     return _cached("bid_qiangcang", 30, loader)
 

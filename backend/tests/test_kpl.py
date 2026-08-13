@@ -319,24 +319,42 @@ def test_fetch_yest_broken(monkeypatch):
 
 
 def test_fetch_bid_qiangcang(monkeypatch):
-    """竞价抢筹: GetBKJJ_W36 异动板块 + GetBKJJBL 板块个股 聚合, 按竞价大单净额降序"""
-    def fake_call(host, params, timeout=12):
-        if params.get("a") == "GetBKJJ_W36":
-            return {"List1": [["801519", "医药", 6.3, 507679648], ["801045", "算力", 5.2, 300000000]]}
-        # GetBKJJBL 板块个股
-        return {"List": [
-            ["600118", "中国卫星", 73.92, -10, 1.2, 296739608, -6.14, 50000000, 0.5, 43049226453, "商业航天"],
-            ["300308", "中际旭创", 921.04, 0, 3.4, 478656000, 4.23, -20000000, 0.1, 759772567101, "光模块"],
-        ]}
-    monkeypatch.setattr(kpl, "_call", fake_call)
+    """双段抢筹: snapshot_bid 9_20/9_24/9_25 委买额增量 / 流通市值
+    - qc20 = 9:20→9:25 抢筹幅度%
+    - qcLast = 9:24→9:25 最后阶段抢筹%(对标短线侠'最后1秒'近似)"""
+    import sqlite3
+    class FakeCursor:
+        def __init__(self, rows): self.rows = rows
+        def fetchall(self): return self.rows
+    class FakeConn:
+        def __init__(self, rows):
+            self.rows = rows
+            self.executed = []
+        def execute(self, sql, params=()):
+            self.executed.append(sql)
+            if "9_24" in sql:
+                return FakeCursor([(1, 500.0), (2, 800.0)])    # code1: 9_24 委买 500万
+            if "9_20" in sql:
+                return FakeCursor([(1, 100.0), (2, 200.0)])    # code1: 9_20 委买 100万
+            # 9_25: code, bid_change, bid_amt, bid_buy_amt(万), float_mv(元), name
+            return FakeCursor([
+                (1, 6.0, 300.0, 1000.0, 5e9, "A"),
+                (2, 6.0, 220.0, 900.0, 8e9, "B"),
+            ])
+        def close(self): pass
+    real = sqlite3.connect
+    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+    monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn(None))
     kpl._cache.clear()
     rows = kpl.fetch_bid_qiangcang()
+    monkeypatch.setattr("sqlite3.connect", real)
     assert len(rows) == 2
     m = {r["code"]: r for r in rows}
-    assert m["600118"]["qcNet"] == 50000000
-    assert m["600118"]["name"] == "中国卫星"
-    assert m["600118"]["bidChange"] == -6.14
-    assert m["600118"]["floatMv"] == 43049226453
-    # qcNet 降序: 5000万(中国卫星) > -2000万(中际旭创)
-    assert rows[0]["code"] == "600118"
-    assert rows[1]["code"] == "300308"
+    # code1: qc20 = (1000-100)万*10000/5e9*100 = 9e6/5e9*100 = 0.18%
+    assert abs(m[1]["qc20"] - 0.18) < 0.01
+    # code1: qcLast = (1000-500)万*10000/5e9*100 = 5e6/5e9*100 = 0.1%
+    assert abs(m[1]["qcLast"] - 0.1) < 0.01
+    # code2: qc20 = (900-200)万*10000/8e9*100 = 7e6/8e9*100 = 0.0875 → round 0.09
+    assert abs(m[2]["qc20"] - 0.09) < 0.001
+    # qc20 降序: code1(0.18) > code2(0.0875)
+    assert rows[0]["code"] == 1

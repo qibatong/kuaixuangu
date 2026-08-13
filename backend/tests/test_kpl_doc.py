@@ -63,9 +63,9 @@ def test_fetch_bid_qiangcang_integration():
     # 非竞价时段返回空 list 或带数据 list
     assert d is None or isinstance(d, list)
     if d:
-        # 数据项含必填字段
+        # 数据项含必填字段(双段抢筹)
         for r in d[:3]:
-            assert "code" in r and "qcNet" in r
+            assert "code" in r and "qc20" in r
 
 
 # ---------- xuangubao 免费接口(kaipanla 文档收录, 无需 Token) ----------
