@@ -27,19 +27,19 @@
         <thead>
           <tr>
             <th>排名</th>
-            <th>代码</th>
-            <th>名称</th>
-            <th>涨停时间</th>
-            <th>涨停原因</th>
-            <th>封单(亿)</th>
-            <th>主力净额(亿)</th>
-            <th>换手%</th>
-            <th>振幅%</th>
-            <th>板块</th>
+            <th class="sortable" :class="{ active: ladderSort.keyOf('code') }" @click="ladderSort.onSort('code', 'string')">代码<span class="sort-ind">{{ ladderSort.ind('code') }}</span></th>
+            <th class="sortable" :class="{ active: ladderSort.keyOf('name') }" @click="ladderSort.onSort('name', 'string')">名称<span class="sort-ind">{{ ladderSort.ind('name') }}</span></th>
+            <th class="sortable" :class="{ active: ladderSort.keyOf('limitTime') }" @click="ladderSort.onSort('limitTime')">涨停时间<span class="sort-ind">{{ ladderSort.ind('limitTime') }}</span></th>
+            <th class="sortable" :class="{ active: ladderSort.keyOf('reason') }" @click="ladderSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ ladderSort.ind('reason') }}</span></th>
+            <th class="sortable" :class="{ active: ladderSort.keyOf('seal') }" @click="ladderSort.onSort('seal')">封单(亿)<span class="sort-ind">{{ ladderSort.ind('seal') }}</span></th>
+            <th class="sortable" :class="{ active: ladderSort.keyOf('mainNet') }" @click="ladderSort.onSort('mainNet')">主力净额(亿)<span class="sort-ind">{{ ladderSort.ind('mainNet') }}</span></th>
+            <th class="sortable" :class="{ active: ladderSort.keyOf('turnover') }" @click="ladderSort.onSort('turnover')">换手%<span class="sort-ind">{{ ladderSort.ind('turnover') }}</span></th>
+            <th class="sortable" :class="{ active: ladderSort.keyOf('amplitude') }" @click="ladderSort.onSort('amplitude')">振幅%<span class="sort-ind">{{ ladderSort.ind('amplitude') }}</span></th>
+            <th class="sortable" :class="{ active: ladderSort.keyOf('boardName') }" @click="ladderSort.onSort('boardName', 'string')">板块<span class="sort-ind">{{ ladderSort.ind('boardName') }}</span></th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(it, idx) in ladder[active]" :key="it.code">
+          <tr v-for="(it, idx) in ladderSort.sorted(ladder[active] || [])" :key="it.code">
             <td class="rank-col">{{ idx + 1 }}</td>
             <td class="code-click" @click="linkToSoftware(it.code)">{{ it.code }}</td>
             <td class="name-col"><div class="name-main">{{ it.name }}</div></td>
@@ -84,6 +84,7 @@ import { onBeforeUnmount, onMounted, ref, reactive } from 'vue'
 import { kplLadder, kplZtReason } from '../api/kpl'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
+import { useSortable } from '../composables/useSortable'
 
 const ladder = ref({})
 const active = ref(1)
@@ -91,6 +92,8 @@ const loading = ref(true)
 const bjTime = ref('--:--:--')
 let clockTimer = null
 let refreshTimer = null
+
+const ladderSort = useSortable()
 
 const reasonModal = reactive({ show: false, code: '', name: '', list: [] })
 const reasonLoading = ref(false)

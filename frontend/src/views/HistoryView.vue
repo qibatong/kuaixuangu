@@ -41,9 +41,25 @@
               <div v-else-if="!batchStocks.length" class="empty-state" style="padding:12px;">该批次无股票</div>
               <div v-else style="overflow-x:auto;">
                 <table class="stock-table" style="min-width:1100px">
-                  <thead><tr><th>排名</th><th>代码</th><th>名称</th><th>竞价涨幅</th><th>实时涨幅</th><th>实体涨幅</th><th>异动</th><th>竞价金额(万)</th><th>竞价/昨比</th><th>流通市值(亿)</th><th>行业</th><th>评分</th><th>可信度</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th>排名</th>
+                      <th class="sortable" :class="{ active: batchSort.keyOf('code') }" @click="batchSort.onSort('code', 'string')">代码<span class="sort-ind">{{ batchSort.ind('code') }}</span></th>
+                      <th class="sortable" :class="{ active: batchSort.keyOf('name') }" @click="batchSort.onSort('name', 'string')">名称<span class="sort-ind">{{ batchSort.ind('name') }}</span></th>
+                      <th class="sortable" :class="{ active: batchSort.keyOf('bid_change') }" @click="batchSort.onSort('bid_change')">竞价涨幅<span class="sort-ind">{{ batchSort.ind('bid_change') }}</span></th>
+                      <th class="sortable" :class="{ active: batchSort.keyOf('real_change') }" @click="batchSort.onSort('real_change')">实时涨幅<span class="sort-ind">{{ batchSort.ind('real_change') }}</span></th>
+                      <th class="sortable" :class="{ active: batchSort.keyOf('entity_change') }" @click="batchSort.onSort('entity_change')">实体涨幅<span class="sort-ind">{{ batchSort.ind('entity_change') }}</span></th>
+                      <th class="sortable" :class="{ active: batchSort.keyOf('warn_type') }" @click="batchSort.onSort('warn_type')">异动<span class="sort-ind">{{ batchSort.ind('warn_type') }}</span></th>
+                      <th class="sortable" :class="{ active: batchSort.keyOf('bid_amt') }" @click="batchSort.onSort('bid_amt')">竞价金额(万)<span class="sort-ind">{{ batchSort.ind('bid_amt') }}</span></th>
+                      <th class="sortable" :class="{ active: batchSort.keyOf('bid_ratio') }" @click="batchSort.onSort('bid_ratio')">竞价/昨比<span class="sort-ind">{{ batchSort.ind('bid_ratio') }}</span></th>
+                      <th class="sortable" :class="{ active: batchSort.keyOf('circulation_mv') }" @click="batchSort.onSort('circulation_mv')">流通市值(亿)<span class="sort-ind">{{ batchSort.ind('circulation_mv') }}</span></th>
+                      <th class="sortable" :class="{ active: batchSort.keyOf('industry') }" @click="batchSort.onSort('industry', 'string')">行业<span class="sort-ind">{{ batchSort.ind('industry') }}</span></th>
+                      <th class="sortable" :class="{ active: batchSort.keyOf('probability') }" @click="batchSort.onSort('probability')">评分<span class="sort-ind">{{ batchSort.ind('probability') }}</span></th>
+                      <th class="sortable" :class="{ active: batchSort.keyOf('confidence') }" @click="batchSort.onSort('confidence')">可信度<span class="sort-ind">{{ batchSort.ind('confidence') }}</span></th>
+                    </tr>
+                  </thead>
                   <tbody>
-                    <tr v-for="s in batchStocks" :key="s.code">
+                    <tr v-for="s in batchSort.sorted(batchStocks)" :key="s.code">
                       <td>{{ s.rank }}</td>
                       <td class="code-click" @click="linkToSoftware(s.code)">{{ s.code }}</td><td>{{ s.name }}</td>
                       <td :class="s.bid_change > 0 ? 'up' : 'down'">{{ signed(s.bid_change) }}%</td>
@@ -125,9 +141,27 @@
             <div class="query-summary">共 {{ total }} 条记录（同一天同评分自动去重）</div>
             <div style="overflow-x:auto;">
               <table class="stock-table" style="min-width:1180px">
-                <thead><tr><th>日期</th><th>时间</th><th>类型</th><th>代码</th><th>名称</th><th>竞价涨幅</th><th>实时涨幅</th><th>实体涨幅</th><th>异动</th><th>竞价金额(万)</th><th>竞价/昨比</th><th>流通市值(亿)</th><th>行业</th><th>评分</th><th>可信度</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th class="sortable" :class="{ active: querySort.keyOf('batch_date') }" @click="querySort.onSort('batch_date', 'string')">日期<span class="sort-ind">{{ querySort.ind('batch_date') }}</span></th>
+                    <th class="sortable" :class="{ active: querySort.keyOf('batch_time') }" @click="querySort.onSort('batch_time', 'string')">时间<span class="sort-ind">{{ querySort.ind('batch_time') }}</span></th>
+                    <th class="sortable" :class="{ active: querySort.keyOf('action') }" @click="querySort.onSort('action', 'string')">类型<span class="sort-ind">{{ querySort.ind('action') }}</span></th>
+                    <th class="sortable" :class="{ active: querySort.keyOf('code') }" @click="querySort.onSort('code', 'string')">代码<span class="sort-ind">{{ querySort.ind('code') }}</span></th>
+                    <th class="sortable" :class="{ active: querySort.keyOf('name') }" @click="querySort.onSort('name', 'string')">名称<span class="sort-ind">{{ querySort.ind('name') }}</span></th>
+                    <th class="sortable" :class="{ active: querySort.keyOf('bid_change') }" @click="querySort.onSort('bid_change')">竞价涨幅<span class="sort-ind">{{ querySort.ind('bid_change') }}</span></th>
+                    <th class="sortable" :class="{ active: querySort.keyOf('real_change') }" @click="querySort.onSort('real_change')">实时涨幅<span class="sort-ind">{{ querySort.ind('real_change') }}</span></th>
+                    <th class="sortable" :class="{ active: querySort.keyOf('entity_change') }" @click="querySort.onSort('entity_change')">实体涨幅<span class="sort-ind">{{ querySort.ind('entity_change') }}</span></th>
+                    <th class="sortable" :class="{ active: querySort.keyOf('warn_type') }" @click="querySort.onSort('warn_type')">异动<span class="sort-ind">{{ querySort.ind('warn_type') }}</span></th>
+                    <th class="sortable" :class="{ active: querySort.keyOf('bid_amt') }" @click="querySort.onSort('bid_amt')">竞价金额(万)<span class="sort-ind">{{ querySort.ind('bid_amt') }}</span></th>
+                    <th class="sortable" :class="{ active: querySort.keyOf('bid_ratio') }" @click="querySort.onSort('bid_ratio')">竞价/昨比<span class="sort-ind">{{ querySort.ind('bid_ratio') }}</span></th>
+                    <th class="sortable" :class="{ active: querySort.keyOf('circulation_mv') }" @click="querySort.onSort('circulation_mv')">流通市值(亿)<span class="sort-ind">{{ querySort.ind('circulation_mv') }}</span></th>
+                    <th class="sortable" :class="{ active: querySort.keyOf('industry') }" @click="querySort.onSort('industry', 'string')">行业<span class="sort-ind">{{ querySort.ind('industry') }}</span></th>
+                    <th class="sortable" :class="{ active: querySort.keyOf('probability') }" @click="querySort.onSort('probability')">评分<span class="sort-ind">{{ querySort.ind('probability') }}</span></th>
+                    <th class="sortable" :class="{ active: querySort.keyOf('confidence') }" @click="querySort.onSort('confidence')">可信度<span class="sort-ind">{{ querySort.ind('confidence') }}</span></th>
+                  </tr>
+                </thead>
                 <tbody>
-                  <tr v-for="(s, i) in rows" :key="i">
+                  <tr v-for="(s, i) in querySort.sorted(rows)" :key="i">
                     <td>{{ s.batch_date }}</td><td>{{ s.batch_time }}</td>
                     <td>{{ s.action === 'lock' ? '锁定' : '筛选' }}</td>
                     <td class="code-click" @click="linkToSoftware(s.code)">{{ s.code }}</td><td>{{ s.name }}</td>
@@ -160,8 +194,12 @@ import { fetchPerformance } from '../api/stats'
 import { showToast } from '../utils/toast'
 import { linkToSoftware } from '../utils/tdx'
 import { fmtDate } from '../utils/time'
+import { useSortable } from '../composables/useSortable'
 
 const PAGE_SIZE = 100
+// 表格排序实例
+const batchSort = useSortable()
+const querySort = useSortable()
 // ---------- 视图切换 ----------
 const viewMode = ref('batch')   // batch(按批次) / query(综合查询)
 function switchView(m) {

@@ -386,7 +386,7 @@ def fetch_wpqc():
 
 # ==================== 人气热榜 ====================
 def fetch_hot_rank():
-    """盘中人气热榜: List [[code,name,?,涨跌幅,排名,?,?], ...]"""
+    """盘中人气热榜: List [[code,name,涨跌幅,?,排名,?,?], ...]"""
     def loader():
         d = _call("market", {"Order": "1", "a": "GetHotPHB", "st": "50",
                              "apiv": "w29", "Type": "1", "c": "StockBidYiDong"})
@@ -403,7 +403,7 @@ def fetch_hot_rank():
                 out.append({
                     "code": str(row[0]),
                     "name": str(row[1]),
-                    "change": _f(row[3]),        # 涨跌幅(%)
+                    "change": _f(row[2]),        # 涨跌幅(%)
                     "rank": int(_num(row[4])),   # 人气排名
                 })
             except (IndexError, ValueError, TypeError):

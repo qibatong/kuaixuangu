@@ -35,12 +35,19 @@
           <table class="admin-table">
             <thead>
               <tr>
-                <th>ID</th><th>用户名</th><th>手机/邮箱</th><th>注册时间</th>
-                <th>到期时间</th><th>邀请人数</th><th>选股次数</th><th>角色</th><th style="min-width:150px;">设置使用期限</th>
+                <th class="sortable" :class="{ active: userSort.keyOf('id') }" @click="userSort.onSort('id')">ID<span class="sort-ind">{{ userSort.ind('id') }}</span></th>
+                <th class="sortable" :class="{ active: userSort.keyOf('username') }" @click="userSort.onSort('username', 'string')">用户名<span class="sort-ind">{{ userSort.ind('username') }}</span></th>
+                <th class="sortable" :class="{ active: userSort.keyOf('phone') }" @click="userSort.onSort('phone', 'string')">手机/邮箱<span class="sort-ind">{{ userSort.ind('phone') }}</span></th>
+                <th class="sortable" :class="{ active: userSort.keyOf('created_at') }" @click="userSort.onSort('created_at')">注册时间<span class="sort-ind">{{ userSort.ind('created_at') }}</span></th>
+                <th class="sortable" :class="{ active: userSort.keyOf('expire_at') }" @click="userSort.onSort('expire_at')">到期时间<span class="sort-ind">{{ userSort.ind('expire_at') }}</span></th>
+                <th class="sortable" :class="{ active: userSort.keyOf('invited_count') }" @click="userSort.onSort('invited_count')">邀请人数<span class="sort-ind">{{ userSort.ind('invited_count') }}</span></th>
+                <th class="sortable" :class="{ active: userSort.keyOf('batch_count') }" @click="userSort.onSort('batch_count')">选股次数<span class="sort-ind">{{ userSort.ind('batch_count') }}</span></th>
+                <th class="sortable" :class="{ active: userSort.keyOf('is_admin') }" @click="userSort.onSort('is_admin')">角色<span class="sort-ind">{{ userSort.ind('is_admin') }}</span></th>
+                <th style="min-width:150px;">设置使用期限</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="u in rows" :key="u.id">
+              <tr v-for="u in userSort.sorted(rows, userVal)" :key="u.id">
                 <td>{{ u.id }}</td>
                 <td>{{ u.username }}</td>
                 <td>{{ u.phone || u.email || '-' }}</td>
@@ -226,9 +233,16 @@
         </div>
         <div class="table-scroll">
           <table class="admin-table">
-            <thead><tr><th style="width:60px;">排名</th><th>代码</th><th>竞价涨幅</th><th>竞价额(万)</th></tr></thead>
+            <thead>
+              <tr>
+                <th style="width:60px;">排名</th>
+                <th class="sortable" :class="{ active: playSort.keyOf('code') }" @click="playSort.onSort('code', 'string')">代码<span class="sort-ind">{{ playSort.ind('code') }}</span></th>
+                <th class="sortable" :class="{ active: playSort.keyOf('bid_change') }" @click="playSort.onSort('bid_change')">竞价涨幅<span class="sort-ind">{{ playSort.ind('bid_change') }}</span></th>
+                <th class="sortable" :class="{ active: playSort.keyOf('bid_amt') }" @click="playSort.onSort('bid_amt')">竞价额(万)<span class="sort-ind">{{ playSort.ind('bid_amt') }}</span></th>
+              </tr>
+            </thead>
             <tbody>
-              <tr v-for="(s, i) in playList" :key="s.code">
+              <tr v-for="(s, i) in playSort.sorted(playList)" :key="s.code">
                 <td>{{ i + 1 }}</td>
                 <td>{{ s.code }}</td>
                 <td :class="s.bid_change >= 0 ? 'up' : 'down'">{{ s.bid_change >= 0 ? '+' : '' }}{{ s.bid_change.toFixed(2) }}%</td>
@@ -247,6 +261,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { adminScoring, adminUsers, bidSnapshot, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
 import { showToast as toast } from '../utils/toast'
+import { useSortable } from '../composables/useSortable'
 
 // 默认回放日期 = 今天(北京时间)
 function todayBj() {
@@ -256,6 +271,17 @@ function todayBj() {
 const playDate = ref(todayBj())
 const playTime = ref('9_25')
 const playList = ref([])
+
+// 表格排序实例(用户列表 / 历史回放)
+const userSort = useSortable()
+const playSort = useSortable()
+
+// 用户表取值函数: "手机/邮箱"列实际存 phone 或 email, 需合并取
+function userVal(u) {
+  const k = userSort.sortState.value ? userSort.sortState.value.key : null
+  if (k === 'phone') return u.phone || u.email || ''
+  return u[k]
+}
 
 // 全局默认筛选参数
 const adminDefaults = reactive({ bidAmtFloor: 1000, bidGt: 7, floatMvFloor: 30, floatMvGt: 1000, priceGt: 300, probLt: 65, limitUp: true, stSuspend: true })

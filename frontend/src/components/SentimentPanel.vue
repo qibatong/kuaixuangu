@@ -32,13 +32,13 @@
       <div class="yp-block">
         <span class="senti-label">昨日涨停今表现</span>
         <span class="yp-item" :title="'昨日涨停股今日平均涨幅。正值=昨日涨停今天仍强(剔除可能错过), 负值=昨日涨停今天普遍回调(剔除合理)'">
-          涨停 <b :class="ypCls(yp.zt)">{{ signed(yp.zt) }}%</b>
+          涨停 <b :class="ypCls(yp.zt?.change)">{{ signed(yp.zt?.change) }}%</b>
         </span>
         <span class="yp-item" :title="'昨日连板股今日平均涨幅'">
-          连板 <b :class="ypCls(yp.lb)">{{ signed(yp.lb) }}%</b>
+          连板 <b :class="ypCls(yp.lb?.change)">{{ signed(yp.lb?.change) }}%</b>
         </span>
         <span class="yp-item" :title="'昨日破板(炸板)股今日平均涨幅'">
-          破板 <b :class="ypCls(yp.pb)">{{ signed(yp.pb) }}%</b>
+          破板 <b :class="ypCls(yp.pb?.change)">{{ signed(yp.pb?.change) }}%</b>
         </span>
         <span v-if="yp.zt && yp.zt.date" class="yp-date">{{ yp.zt.date.slice(5) }}</span>
       </div>

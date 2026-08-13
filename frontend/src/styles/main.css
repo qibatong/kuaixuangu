@@ -374,3 +374,30 @@ border-radius: 4px; font-size: 12px; outline: none; flex-shrink: 0;
   color: #e8ffd0;
   cursor: default;
 }
+
+/* ==================== 通用表头排序(各视图复用, 与 StockTable 交互一致) ==================== */
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+th.sortable:hover {
+  color: #ff8a65;
+}
+th.sortable.active {
+  color: #ff5028;
+}
+.sort-ind {
+  display: inline-block;
+  width: 10px;
+  color: #ff5028;
+  font-weight: 700;
+}
+th.sortable:hover .sort-ind:not(:empty),
+th.sortable.active .sort-ind {
+  opacity: 1;
+}
+th.sortable .sort-ind:empty::before {
+  content: '↕';
+  opacity: 0.25;
+  font-weight: 400;
+}

@@ -41,15 +41,15 @@
 
     <!-- Tab 切换 -->
     <div class="auc-tabs">
-      <button class="auc-tab" :class="{ active: tab === 'seal' }" @click="tab = 'seal'"><i class="fa fa-gavel"></i> 竞价委买</button>
-      <button class="auc-tab" :class="{ active: tab === 'boom' }" @click="tab = 'boom'"><i class="fa fa-bolt"></i> 竞价爆量</button>
-      <button class="auc-tab" :class="{ active: tab === 'net' }" @click="tab = 'net'"><i class="fa fa-exchange"></i> 竞价净额</button>
-      <button class="auc-tab" :class="{ active: tab === 'qc' }" @click="tab = 'qc'" title="9:15-9:30 竞价抢筹(异动板块大单)"><i class="fa fa-fire"></i> 竞价抢筹</button>
-      <button class="auc-tab" :class="{ active: tab === 'yestZt' }" @click="tab = 'yestZt'"><i class="fa fa-sun-o"></i> 昨日涨停</button>
-      <button class="auc-tab" :class="{ active: tab === 'yestBroken' }" @click="tab = 'yestBroken'"><i class="fa fa-bell-slash"></i> 昨断板</button>
-      <button class="auc-tab" :class="{ active: tab === 'lhb' }" @click="tab = 'lhb'"><i class="fa fa-list-alt"></i> 昨上榜</button>
-      <button class="auc-tab" :class="{ active: tab === 'brokenYest' }" @click="tab = 'brokenYest'"><i class="fa fa-history"></i> 昨炸板</button>
-      <button class="auc-tab" :class="{ active: tab === 'brokenToday' }" @click="tab = 'brokenToday'"><i class="fa fa-chain-broken"></i> 今炸板</button>
+      <button class="auc-tab" :class="{ active: tab === 'seal' }" @click="switchTab('seal')"><i class="fa fa-gavel"></i> 竞价委买</button>
+      <button class="auc-tab" :class="{ active: tab === 'boom' }" @click="switchTab('boom')"><i class="fa fa-bolt"></i> 竞价爆量</button>
+      <button class="auc-tab" :class="{ active: tab === 'net' }" @click="switchTab('net')"><i class="fa fa-exchange"></i> 竞价净额</button>
+      <button class="auc-tab" :class="{ active: tab === 'qc' }" @click="switchTab('qc')" title="9:15-9:30 竞价抢筹(异动板块大单)"><i class="fa fa-fire"></i> 竞价抢筹</button>
+      <button class="auc-tab" :class="{ active: tab === 'yestZt' }" @click="switchTab('yestZt')"><i class="fa fa-sun-o"></i> 昨日涨停</button>
+      <button class="auc-tab" :class="{ active: tab === 'yestBroken' }" @click="switchTab('yestBroken')"><i class="fa fa-bell-slash"></i> 昨断板</button>
+      <button class="auc-tab" :class="{ active: tab === 'lhb' }" @click="switchTab('lhb')"><i class="fa fa-list-alt"></i> 昨上榜</button>
+      <button class="auc-tab" :class="{ active: tab === 'brokenYest' }" @click="switchTab('brokenYest')"><i class="fa fa-history"></i> 昨炸板</button>
+      <button class="auc-tab" :class="{ active: tab === 'brokenToday' }" @click="switchTab('brokenToday')"><i class="fa fa-chain-broken"></i> 今炸板</button>
     </div>
 
     <div class="auc-panel">
@@ -59,12 +59,20 @@
       <table v-else-if="tab === 'seal' || tab === 'boom' || tab === 'net'" class="stock-table">
         <thead>
           <tr>
-            <th>排名</th><th>代码</th><th>名称</th><th>实时涨幅</th><th>竞价涨幅</th>
-            <th>{{ tab === 'boom' ? '竞价成交额(亿)' : '涨停委买额(亿)' }}</th><th>竞价净额(亿)</th><th>连板</th><th>板块</th><th>操作</th>
+            <th>排名</th>
+            <th class="sortable" :class="{ active: sealSort.keyOf('code') }" @click="sealSort.onSort('code', 'string')">代码<span class="sort-ind">{{ sealSort.ind('code') }}</span></th>
+            <th class="sortable" :class="{ active: sealSort.keyOf('name') }" @click="sealSort.onSort('name', 'string')">名称<span class="sort-ind">{{ sealSort.ind('name') }}</span></th>
+            <th class="sortable" :class="{ active: sealSort.keyOf('realChange') }" @click="sealSort.onSort('realChange')">实时涨幅<span class="sort-ind">{{ sealSort.ind('realChange') }}</span></th>
+            <th class="sortable" :class="{ active: sealSort.keyOf('bidChange') }" @click="sealSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ sealSort.ind('bidChange') }}</span></th>
+            <th class="sortable" :class="{ active: sealSort.keyOf(tab === 'boom' ? 'bidAmt' : 'bidSealAmt') }" @click="sealSort.onSort(tab === 'boom' ? 'bidAmt' : 'bidSealAmt')">{{ tab === 'boom' ? '竞价成交额(亿)' : '涨停委买额(亿)' }}<span class="sort-ind">{{ sealSort.ind(tab === 'boom' ? 'bidAmt' : 'bidSealAmt') }}</span></th>
+            <th class="sortable" :class="{ active: sealSort.keyOf('bidNetAmt') }" @click="sealSort.onSort('bidNetAmt')">竞价净额(亿)<span class="sort-ind">{{ sealSort.ind('bidNetAmt') }}</span></th>
+            <th class="sortable" :class="{ active: sealSort.keyOf('limitBoards') }" @click="sealSort.onSort('limitBoards')">连板<span class="sort-ind">{{ sealSort.ind('limitBoards') }}</span></th>
+            <th class="sortable" :class="{ active: sealSort.keyOf('board') }" @click="sealSort.onSort('board', 'string')">板块<span class="sort-ind">{{ sealSort.ind('board') }}</span></th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(it, idx) in sealList" :key="it.code">
+          <tr v-for="(it, idx) in sealSort.sorted(sealList)" :key="it.code">
             <td class="rank-col">{{ idx + 1 }}</td>
             <td class="code-click" @click="linkToSoftware(it.code)">{{ it.code }}</td>
             <td class="name-col"><div class="name-main">{{ it.name }}</div></td>
@@ -86,10 +94,22 @@
           <div class="qc-panel-title"><i class="fa fa-clock-o"></i> 9:20 - 9:25 竞价涨幅</div>
           <table class="stock-table">
             <thead>
-              <tr><th>排名</th><th>代码</th><th>名称</th><th>实时涨幅</th><th>竞价金额</th><th>抢筹幅度</th><th>竞价换手</th><th>竞价涨幅</th><th>流通</th><th>概念</th><th>操作</th></tr>
+              <tr>
+                <th>排名</th>
+                <th class="sortable" :class="{ active: qcSort.keyOf('code') }" @click="qcSort.onSort('code', 'string')">代码<span class="sort-ind">{{ qcSort.ind('code') }}</span></th>
+                <th class="sortable" :class="{ active: qcSort.keyOf('name') }" @click="qcSort.onSort('name', 'string')">名称<span class="sort-ind">{{ qcSort.ind('name') }}</span></th>
+                <th class="sortable" :class="{ active: qcSort.keyOf('realChange') }" @click="qcSort.onSort('realChange')">实时涨幅<span class="sort-ind">{{ qcSort.ind('realChange') }}</span></th>
+                <th class="sortable" :class="{ active: qcSort.keyOf('bidAmt') }" @click="qcSort.onSort('bidAmt')">竞价金额<span class="sort-ind">{{ qcSort.ind('bidAmt') }}</span></th>
+                <th class="sortable" :class="{ active: qcSort.keyOf('qcDelta') }" @click="qcSort.onSort('qcDelta')">抢筹幅度<span class="sort-ind">{{ qcSort.ind('qcDelta') }}</span></th>
+                <th class="sortable" :class="{ active: qcSort.keyOf('bidTurnover') }" @click="qcSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ qcSort.ind('bidTurnover') }}</span></th>
+                <th class="sortable" :class="{ active: qcSort.keyOf('bidChange') }" @click="qcSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ qcSort.ind('bidChange') }}</span></th>
+                <th class="sortable" :class="{ active: qcSort.keyOf('floatMv') }" @click="qcSort.onSort('floatMv')">流通<span class="sort-ind">{{ qcSort.ind('floatMv') }}</span></th>
+                <th class="sortable" :class="{ active: qcSort.keyOf('board') }" @click="qcSort.onSort('board', 'string')">概念<span class="sort-ind">{{ qcSort.ind('board') }}</span></th>
+                <th>操作</th>
+              </tr>
             </thead>
             <tbody>
-              <tr v-for="(q, idx) in qcList" :key="'a' + q.code">
+              <tr v-for="(q, idx) in qcSort.sorted(qcList)" :key="'a' + q.code">
                 <td class="rank-col">{{ idx + 1 }}</td>
                 <td class="code-click" @click="linkToSoftware(q.code)">{{ q.code }}</td>
                 <td class="name-col"><div class="name-main">{{ q.name }}</div></td>
@@ -112,10 +132,22 @@
           <div class="qc-panel-title"><i class="fa fa-bolt"></i> 最后一秒竞价涨幅</div>
           <table class="stock-table">
             <thead>
-              <tr><th>排名</th><th>代码</th><th>名称</th><th>实时涨幅</th><th>竞价金额</th><th>抢筹幅度</th><th>竞价换手</th><th>竞价涨幅</th><th>流通</th><th>概念</th><th>操作</th></tr>
+              <tr>
+                <th>排名</th>
+                <th class="sortable" :class="{ active: qcLastSort.keyOf('code') }" @click="qcLastSort.onSort('code', 'string')">代码<span class="sort-ind">{{ qcLastSort.ind('code') }}</span></th>
+                <th class="sortable" :class="{ active: qcLastSort.keyOf('name') }" @click="qcLastSort.onSort('name', 'string')">名称<span class="sort-ind">{{ qcLastSort.ind('name') }}</span></th>
+                <th class="sortable" :class="{ active: qcLastSort.keyOf('realChange') }" @click="qcLastSort.onSort('realChange')">实时涨幅<span class="sort-ind">{{ qcLastSort.ind('realChange') }}</span></th>
+                <th class="sortable" :class="{ active: qcLastSort.keyOf('bidAmt') }" @click="qcLastSort.onSort('bidAmt')">竞价金额<span class="sort-ind">{{ qcLastSort.ind('bidAmt') }}</span></th>
+                <th class="sortable" :class="{ active: qcLastSort.keyOf('qcDeltaLast') }" @click="qcLastSort.onSort('qcDeltaLast')">抢筹幅度<span class="sort-ind">{{ qcLastSort.ind('qcDeltaLast') }}</span></th>
+                <th class="sortable" :class="{ active: qcLastSort.keyOf('bidTurnover') }" @click="qcLastSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ qcLastSort.ind('bidTurnover') }}</span></th>
+                <th class="sortable" :class="{ active: qcLastSort.keyOf('bidChange') }" @click="qcLastSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ qcLastSort.ind('bidChange') }}</span></th>
+                <th class="sortable" :class="{ active: qcLastSort.keyOf('floatMv') }" @click="qcLastSort.onSort('floatMv')">流通<span class="sort-ind">{{ qcLastSort.ind('floatMv') }}</span></th>
+                <th class="sortable" :class="{ active: qcLastSort.keyOf('board') }" @click="qcLastSort.onSort('board', 'string')">概念<span class="sort-ind">{{ qcLastSort.ind('board') }}</span></th>
+                <th>操作</th>
+              </tr>
             </thead>
             <tbody>
-              <tr v-for="(q, idx) in qcLastList" :key="'b' + q.code">
+              <tr v-for="(q, idx) in qcLastSort.sorted(qcLastList)" :key="'b' + q.code">
                 <td class="rank-col">{{ idx + 1 }}</td>
                 <td class="code-click" @click="linkToSoftware(q.code)">{{ q.code }}</td>
                 <td class="name-col"><div class="name-main">{{ q.name }}</div></td>
@@ -139,10 +171,20 @@
       <!-- 昨日涨停(今日竞价表现) -->
       <table v-else-if="tab === 'yestZt'" class="stock-table">
         <thead>
-          <tr><th>排名</th><th>代码</th><th>名称</th><th>连板</th><th>实时涨幅</th><th>竞价换手</th><th>竞额(亿)</th><th>概念</th><th>操作</th></tr>
+          <tr>
+            <th>排名</th>
+            <th class="sortable" :class="{ active: yestZtSort.keyOf('code') }" @click="yestZtSort.onSort('code', 'string')">代码<span class="sort-ind">{{ yestZtSort.ind('code') }}</span></th>
+            <th class="sortable" :class="{ active: yestZtSort.keyOf('name') }" @click="yestZtSort.onSort('name', 'string')">名称<span class="sort-ind">{{ yestZtSort.ind('name') }}</span></th>
+            <th class="sortable" :class="{ active: yestZtSort.keyOf('limitUpDays') }" @click="yestZtSort.onSort('limitUpDays')">连板<span class="sort-ind">{{ yestZtSort.ind('limitUpDays') }}</span></th>
+            <th class="sortable" :class="{ active: yestZtSort.keyOf('change') }" @click="yestZtSort.onSort('change')">实时涨幅<span class="sort-ind">{{ yestZtSort.ind('change') }}</span></th>
+            <th class="sortable" :class="{ active: yestZtSort.keyOf('bidTurnover') }" @click="yestZtSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ yestZtSort.ind('bidTurnover') }}</span></th>
+            <th class="sortable" :class="{ active: yestZtSort.keyOf('bidAmt') }" @click="yestZtSort.onSort('bidAmt')">竞额(亿)<span class="sort-ind">{{ yestZtSort.ind('bidAmt') }}</span></th>
+            <th class="sortable" :class="{ active: yestZtSort.keyOf('board') }" @click="yestZtSort.onSort('board', 'string')">概念<span class="sort-ind">{{ yestZtSort.ind('board') }}</span></th>
+            <th>操作</th>
+          </tr>
         </thead>
         <tbody>
-          <tr v-for="(z, idx) in yestZtList" :key="z.code">
+          <tr v-for="(z, idx) in yestZtSort.sorted(yestZtList)" :key="z.code">
             <td class="rank-col">{{ idx + 1 }}</td>
             <td class="code-click" @click="linkToSoftware(z.code)">{{ z.code }}</td>
             <td class="name-col"><div class="name-main">{{ z.name }}</div>
@@ -160,10 +202,20 @@
       <!-- 昨断板(昨涨停今断) -->
       <table v-else-if="tab === 'yestBroken'" class="stock-table">
         <thead>
-          <tr><th>排名</th><th>代码</th><th>名称</th><th>昨涨幅</th><th>今日竞价涨幅</th><th>竞额(亿)</th><th>竞价换手</th><th>概念</th><th>操作</th></tr>
+          <tr>
+            <th>排名</th>
+            <th class="sortable" :class="{ active: yestBrokenSort.keyOf('code') }" @click="yestBrokenSort.onSort('code', 'string')">代码<span class="sort-ind">{{ yestBrokenSort.ind('code') }}</span></th>
+            <th class="sortable" :class="{ active: yestBrokenSort.keyOf('name') }" @click="yestBrokenSort.onSort('name', 'string')">名称<span class="sort-ind">{{ yestBrokenSort.ind('name') }}</span></th>
+            <th class="sortable" :class="{ active: yestBrokenSort.keyOf('yestChange') }" @click="yestBrokenSort.onSort('yestChange')">昨涨幅<span class="sort-ind">{{ yestBrokenSort.ind('yestChange') }}</span></th>
+            <th class="sortable" :class="{ active: yestBrokenSort.keyOf('bidChange') }" @click="yestBrokenSort.onSort('bidChange')">今日竞价涨幅<span class="sort-ind">{{ yestBrokenSort.ind('bidChange') }}</span></th>
+            <th class="sortable" :class="{ active: yestBrokenSort.keyOf('bidAmt') }" @click="yestBrokenSort.onSort('bidAmt')">竞额(亿)<span class="sort-ind">{{ yestBrokenSort.ind('bidAmt') }}</span></th>
+            <th class="sortable" :class="{ active: yestBrokenSort.keyOf('bidTurnover') }" @click="yestBrokenSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ yestBrokenSort.ind('bidTurnover') }}</span></th>
+            <th class="sortable" :class="{ active: yestBrokenSort.keyOf('board') }" @click="yestBrokenSort.onSort('board', 'string')">概念<span class="sort-ind">{{ yestBrokenSort.ind('board') }}</span></th>
+            <th>操作</th>
+          </tr>
         </thead>
         <tbody>
-          <tr v-for="(b2, idx) in yestBrokenList" :key="b2.code">
+          <tr v-for="(b2, idx) in yestBrokenSort.sorted(yestBrokenList)" :key="b2.code">
             <td class="rank-col">{{ idx + 1 }}</td>
             <td class="code-click" @click="linkToSoftware(b2.code)">{{ b2.code }}</td>
             <td class="name-col"><div class="name-main">{{ b2.name }}</div></td>
@@ -180,10 +232,20 @@
       <!-- 昨上榜(龙虎榜) -->
       <table v-else-if="tab === 'lhb'" class="stock-table">
         <thead>
-          <tr><th>代码</th><th>名称</th><th>涨幅%</th><th>连板</th><th>买入(亿)</th><th>成交额(亿)</th><th>换手%</th><th>振幅%</th><th>操作</th></tr>
+          <tr>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('code') }" @click="lhbSort.onSort('code', 'string')">代码<span class="sort-ind">{{ lhbSort.ind('code') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('name') }" @click="lhbSort.onSort('name', 'string')">名称<span class="sort-ind">{{ lhbSort.ind('name') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('change') }" @click="lhbSort.onSort('change')">涨幅%<span class="sort-ind">{{ lhbSort.ind('change') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('limitBoards') }" @click="lhbSort.onSort('limitBoards')">连板<span class="sort-ind">{{ lhbSort.ind('limitBoards') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('buyIn') }" @click="lhbSort.onSort('buyIn')">买入(亿)<span class="sort-ind">{{ lhbSort.ind('buyIn') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('amount') }" @click="lhbSort.onSort('amount')">成交额(亿)<span class="sort-ind">{{ lhbSort.ind('amount') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('turnover') }" @click="lhbSort.onSort('turnover')">换手%<span class="sort-ind">{{ lhbSort.ind('turnover') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('amplitude') }" @click="lhbSort.onSort('amplitude')">振幅%<span class="sort-ind">{{ lhbSort.ind('amplitude') }}</span></th>
+            <th>操作</th>
+          </tr>
         </thead>
         <tbody>
-          <tr v-for="l in lhbList" :key="l.code">
+          <tr v-for="l in lhbSort.sorted(lhbList)" :key="l.code">
             <td class="code-click" @click="linkToSoftware(l.code)">{{ l.code }}</td>
             <td class="name-col"><div class="name-main">{{ l.name }}</div></td>
             <td :class="l.change > 0 ? 'up' : 'down'">{{ signed(l.change) }}%</td>
@@ -197,22 +259,28 @@
         </tbody>
       </table>
 
-      <!-- 炸板(昨/今): 昨炸板去掉连板列, 今炸板保留(昨日涨停的显示板数) -->
+      <!-- 炸板(昨/今) -->
       <table v-else-if="tab === 'brokenYest' || tab === 'brokenToday'" class="stock-table">
         <thead>
           <tr>
-            <th>代码</th><th>名称</th><th>涨幅%</th>
-            <th v-if="tab === 'brokenToday'">连板</th>
-            <th>炸板次数</th><th>涨停时间</th><th>炸板时间</th><th>涨停原因</th><th>操作</th>
+            <th class="sortable" :class="{ active: brokenSort.keyOf('code') }" @click="brokenSort.onSort('code', 'string')">代码<span class="sort-ind">{{ brokenSort.ind('code') }}</span></th>
+            <th class="sortable" :class="{ active: brokenSort.keyOf('name') }" @click="brokenSort.onSort('name', 'string')">名称<span class="sort-ind">{{ brokenSort.ind('name') }}</span></th>
+            <th class="sortable" :class="{ active: brokenSort.keyOf('change') }" @click="brokenSort.onSort('change')">涨幅%<span class="sort-ind">{{ brokenSort.ind('change') }}</span></th>
+            <th class="sortable" :class="{ active: brokenSort.keyOf('limitUpDays') }" @click="brokenSort.onSort('limitUpDays')">连板<span class="sort-ind">{{ brokenSort.ind('limitUpDays') }}</span></th>
+            <th class="sortable" :class="{ active: brokenSort.keyOf('breakTimes') }" @click="brokenSort.onSort('breakTimes')">炸板次数<span class="sort-ind">{{ brokenSort.ind('breakTimes') }}</span></th>
+            <th class="sortable" :class="{ active: brokenSort.keyOf('firstLimitUp') }" @click="brokenSort.onSort('firstLimitUp')">涨停时间<span class="sort-ind">{{ brokenSort.ind('firstLimitUp') }}</span></th>
+            <th class="sortable" :class="{ active: brokenSort.keyOf('firstBreak') }" @click="brokenSort.onSort('firstBreak')">炸板时间<span class="sort-ind">{{ brokenSort.ind('firstBreak') }}</span></th>
+            <th class="sortable" :class="{ active: brokenSort.keyOf('reason') }" @click="brokenSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ brokenSort.ind('reason') }}</span></th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="b in brokenList" :key="b.code">
+          <tr v-for="b in brokenSort.sorted(brokenList)" :key="b.code">
             <td class="code-click" @click="linkToSoftware(b.code)">{{ b.code }}</td>
             <td class="name-col"><div class="name-main">{{ b.name }}</div></td>
             <td :class="b.change > 0 ? 'up' : 'down'">{{ signed(b.change) }}%</td>
-            <td v-if="tab === 'brokenToday'"><span v-if="b.limitUpDays > 0" class="lb-badge">{{ b.limitUpDays }}板</span><span v-else class="dim">-</span></td>
-            <td><span class="bk-hot" v-if="b.breakTimes > 1">{{ b.breakTimes }}次</span><span v-else>{{ b.breakTimes || '-' }}</span></td>
+            <td><span v-if="b.limitUpDays > 0" class="lb-badge">{{ b.limitUpDays }}板</span><span v-else class="dim">-</span></td>
+            <td><span v-if="b.breakTimes > 1" class="bk-hot">{{ b.breakTimes }}次</span><span v-else>{{ b.breakTimes }}</span></td>
             <td class="dim">{{ fmtT(b.firstLimitUp) }}</td>
             <td class="dim">{{ fmtT(b.firstBreak) }}</td>
             <td class="dim" style="max-width:220px;white-space:pre-wrap;font-size:12px;">{{ b.reason || '-' }}</td>
@@ -231,10 +299,17 @@
         </div>
         <table v-if="snapModal.list.length" class="stock-table">
           <thead>
-            <tr><th>#</th><th>代码</th><th>名称</th><th>竞价涨幅</th><th>竞价额(万)</th><th>操作</th></tr>
+            <tr>
+              <th>#</th>
+              <th class="sortable" :class="{ active: snapSort.keyOf('code') }" @click="snapSort.onSort('code', 'string')">代码<span class="sort-ind">{{ snapSort.ind('code') }}</span></th>
+              <th class="sortable" :class="{ active: snapSort.keyOf('name') }" @click="snapSort.onSort('name', 'string')">名称<span class="sort-ind">{{ snapSort.ind('name') }}</span></th>
+              <th class="sortable" :class="{ active: snapSort.keyOf('bid_change') }" @click="snapSort.onSort('bid_change')">竞价涨幅<span class="sort-ind">{{ snapSort.ind('bid_change') }}</span></th>
+              <th class="sortable" :class="{ active: snapSort.keyOf('bid_amt') }" @click="snapSort.onSort('bid_amt')">竞价额(万)<span class="sort-ind">{{ snapSort.ind('bid_amt') }}</span></th>
+              <th>操作</th>
+            </tr>
           </thead>
           <tbody>
-            <tr v-for="(s, i) in snapModal.list" :key="s.code">
+            <tr v-for="(s, i) in snapSort.sorted(snapModal.list)" :key="s.code">
               <td class="rank-col">{{ i + 1 }}</td>
               <td class="code-click" @click="linkToSoftware(s.code)">{{ s.code }}</td>
               <td>{{ s.name || s.code }}</td>
@@ -258,6 +333,7 @@ import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
 import { usePoolStore } from '../stores/pool'
 import { showToast } from '../utils/toast'
+import { useSortable } from '../composables/useSortable'
 
 const pool = usePoolStore()
 const tab = ref('seal')
@@ -275,6 +351,23 @@ const loading = ref(true)
 const bjTime = ref('--:--:--')
 let clockTimer = null
 let refreshTimer = null
+
+// 各表独立排序实例
+const sealSort = useSortable()
+const qcSort = useSortable()
+const qcLastSort = useSortable()
+const yestZtSort = useSortable()
+const yestBrokenSort = useSortable()
+const lhbSort = useSortable()
+const brokenSort = useSortable()
+const snapSort = useSortable()
+
+// 切 Tab 时清掉排序(避免跨表残留的 key 干扰)
+function switchTab(t) {
+  tab.value = t
+  sealSort.clear(); qcSort.clear(); qcLastSort.clear(); yestZtSort.clear()
+  yestBrokenSort.clear(); lhbSort.clear(); brokenSort.clear()
+}
 
 const timePoints = [
   { key: '9_15', label: '9:15 竞价' },

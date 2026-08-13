@@ -108,18 +108,20 @@ def test_fetch_zt_reason(monkeypatch):
 
 # ---------- 人气热榜解析 ----------
 def test_fetch_hot_rank(monkeypatch):
+    # 真实返回结构: [code, name, 当日涨幅(%), 其他指标, 排名, ...]
     monkeypatch.setattr(kpl, "_call", lambda *a, **k: {
         "Day": "2026-08-13",
-        "List": [["600721", "百花医药", 0, 0, 1, 0, 0], ["600664", "哈药股份", 0, 5, 2, 0, 0]],
+        "List": [["600721", "百花医药", 3.35, 0, 1, 0, 0], ["600664", "哈药股份", 0.57, 44, 2, 0, 0]],
     })
     kpl._cache.clear()
     rows = kpl.fetch_hot_rank()
     assert len(rows) == 2
     assert rows[0]["code"] == "600721"
-    assert rows[0]["change"] == 0
+    assert rows[0]["change"] == 3.35
     assert rows[0]["rank"] == 1
     assert rows[1]["name"] == "哈药股份"
-    assert rows[1]["change"] == 5
+    # 涨幅必须取 row[2](当日涨跌幅), 不能取 row[3](该列是 44, 超出 A 股单日涨停限制)
+    assert rows[1]["change"] == 0.57
 
 
 # ---------- 龙虎榜解析 ----------

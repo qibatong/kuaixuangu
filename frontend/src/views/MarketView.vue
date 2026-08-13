@@ -9,13 +9,13 @@
     </div>
 
     <div class="mrk-tabs">
-      <button class="mrk-tab" :class="{ active: tab === 'board' }" @click="tab = 'board'">
+      <button class="mrk-tab" :class="{ active: tab === 'board' }" @click="switchTab('board')">
         <i class="fa fa-th-large"></i> 板块轮动
       </button>
-      <button class="mrk-tab" :class="{ active: tab === 'hot' }" @click="tab = 'hot'">
+      <button class="mrk-tab" :class="{ active: tab === 'hot' }" @click="switchTab('hot')">
         <i class="fa fa-fire"></i> 人气热榜
       </button>
-      <button class="mrk-tab" :class="{ active: tab === 'lhb' }" @click="tab = 'lhb'">
+      <button class="mrk-tab" :class="{ active: tab === 'lhb' }" @click="switchTab('lhb')">
         <i class="fa fa-list-alt"></i> 龙虎榜
       </button>
     </div>
@@ -27,12 +27,20 @@
       <table v-else class="stock-table">
         <thead>
           <tr>
-            <th>排名</th><th>板块</th><th>强度</th><th>涨幅%</th><th>涨速%</th>
-            <th>主力净额(亿)</th><th>量比</th><th>成交额(亿)</th><th>总市值(亿)</th><th>今PE</th>
+            <th>排名</th>
+            <th class="sortable" :class="{ active: boardSort.keyOf('name') }" @click="boardSort.onSort('name', 'string')">板块<span class="sort-ind">{{ boardSort.ind('name') }}</span></th>
+            <th class="sortable" :class="{ active: boardSort.keyOf('strength') }" @click="boardSort.onSort('strength')">强度<span class="sort-ind">{{ boardSort.ind('strength') }}</span></th>
+            <th class="sortable" :class="{ active: boardSort.keyOf('change') }" @click="boardSort.onSort('change')">涨幅%<span class="sort-ind">{{ boardSort.ind('change') }}</span></th>
+            <th class="sortable" :class="{ active: boardSort.keyOf('speed') }" @click="boardSort.onSort('speed')">涨速%<span class="sort-ind">{{ boardSort.ind('speed') }}</span></th>
+            <th class="sortable" :class="{ active: boardSort.keyOf('mainNet') }" @click="boardSort.onSort('mainNet')">主力净额(亿)<span class="sort-ind">{{ boardSort.ind('mainNet') }}</span></th>
+            <th class="sortable" :class="{ active: boardSort.keyOf('volRatio') }" @click="boardSort.onSort('volRatio')">量比<span class="sort-ind">{{ boardSort.ind('volRatio') }}</span></th>
+            <th class="sortable" :class="{ active: boardSort.keyOf('amount') }" @click="boardSort.onSort('amount')">成交额(亿)<span class="sort-ind">{{ boardSort.ind('amount') }}</span></th>
+            <th class="sortable" :class="{ active: boardSort.keyOf('totalMv') }" @click="boardSort.onSort('totalMv')">总市值(亿)<span class="sort-ind">{{ boardSort.ind('totalMv') }}</span></th>
+            <th class="sortable" :class="{ active: boardSort.keyOf('peNow') }" @click="boardSort.onSort('peNow')">今PE<span class="sort-ind">{{ boardSort.ind('peNow') }}</span></th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(b, idx) in boardList" :key="b.boardCode">
+          <tr v-for="(b, idx) in boardSort.sorted(boardList)" :key="b.boardCode">
             <td class="rank-col">{{ idx + 1 }}</td>
             <td class="name-col"><div class="name-main">{{ b.name }}</div><div class="board-code">{{ b.boardCode }}</div></td>
             <td class="strength">{{ Math.round(b.strength) }}</td>
@@ -54,10 +62,16 @@
       <div v-else-if="!hotList.length" class="empty-state">暂无热榜数据</div>
       <table v-else class="stock-table">
         <thead>
-          <tr><th>人气排名</th><th>代码</th><th>名称</th><th>涨跌幅%</th><th>操作</th></tr>
+          <tr>
+            <th class="sortable" :class="{ active: hotSort.keyOf('rank') }" @click="hotSort.onSort('rank')">人气排名<span class="sort-ind">{{ hotSort.ind('rank') }}</span></th>
+            <th class="sortable" :class="{ active: hotSort.keyOf('code') }" @click="hotSort.onSort('code', 'string')">代码<span class="sort-ind">{{ hotSort.ind('code') }}</span></th>
+            <th class="sortable" :class="{ active: hotSort.keyOf('name') }" @click="hotSort.onSort('name', 'string')">名称<span class="sort-ind">{{ hotSort.ind('name') }}</span></th>
+            <th class="sortable" :class="{ active: hotSort.keyOf('change') }" @click="hotSort.onSort('change')">涨跌幅%<span class="sort-ind">{{ hotSort.ind('change') }}</span></th>
+            <th>操作</th>
+          </tr>
         </thead>
         <tbody>
-          <tr v-for="h in hotList" :key="h.code">
+          <tr v-for="h in hotSort.sorted(hotList)" :key="h.code">
             <td class="rank-col">{{ h.rank }}</td>
             <td class="code-click" @click="linkToSoftware(h.code)">{{ h.code }}</td>
             <td>{{ h.name }}</td>
@@ -74,10 +88,21 @@
       <div v-else-if="!lhbList.length" class="empty-state">暂无龙虎榜数据</div>
       <table v-else class="stock-table">
         <thead>
-          <tr><th>代码</th><th>名称</th><th>涨跌幅%</th><th>连板</th><th>买入(亿)</th><th>成交额(亿)</th><th>换手%</th><th>振幅%</th><th>流通市值(亿)</th><th>操作</th></tr>
+          <tr>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('code') }" @click="lhbSort.onSort('code', 'string')">代码<span class="sort-ind">{{ lhbSort.ind('code') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('name') }" @click="lhbSort.onSort('name', 'string')">名称<span class="sort-ind">{{ lhbSort.ind('name') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('change') }" @click="lhbSort.onSort('change')">涨跌幅%<span class="sort-ind">{{ lhbSort.ind('change') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('limitBoards') }" @click="lhbSort.onSort('limitBoards')">连板<span class="sort-ind">{{ lhbSort.ind('limitBoards') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('buyIn') }" @click="lhbSort.onSort('buyIn')">买入(亿)<span class="sort-ind">{{ lhbSort.ind('buyIn') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('amount') }" @click="lhbSort.onSort('amount')">成交额(亿)<span class="sort-ind">{{ lhbSort.ind('amount') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('turnover') }" @click="lhbSort.onSort('turnover')">换手%<span class="sort-ind">{{ lhbSort.ind('turnover') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('amplitude') }" @click="lhbSort.onSort('amplitude')">振幅%<span class="sort-ind">{{ lhbSort.ind('amplitude') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('floatMv') }" @click="lhbSort.onSort('floatMv')">流通市值(亿)<span class="sort-ind">{{ lhbSort.ind('floatMv') }}</span></th>
+            <th>操作</th>
+          </tr>
         </thead>
         <tbody>
-          <tr v-for="l in lhbList" :key="l.code">
+          <tr v-for="l in lhbSort.sorted(lhbList)" :key="l.code">
             <td class="code-click" @click="linkToSoftware(l.code)">{{ l.code }}</td>
             <td class="name-col"><div class="name-main">{{ l.name }}</div></td>
             <td :class="l.change > 0 ? 'up' : 'down'">{{ signed(l.change) }}%</td>
@@ -144,6 +169,7 @@ import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
 import { usePoolStore } from '../stores/pool'
 import { showToast } from '../utils/toast'
+import { useSortable } from '../composables/useSortable'
 
 const pool = usePoolStore()
 const tab = ref('board')
@@ -158,6 +184,17 @@ let clockTimer = null
 let refreshTimer = null
 
 const lhbModal = reactive({ show: false, code: '', detail: { name: '', buyList: [], sellList: [], buyTotal: 0, sellTotal: 0, upReason: '', turnover: 0 } })
+
+// 各表独立排序实例
+const boardSort = useSortable()
+const hotSort = useSortable()
+const lhbSort = useSortable()
+
+// 切 Tab 清排序
+function switchTab(t) {
+  tab.value = t
+  boardSort.clear(); hotSort.clear(); lhbSort.clear()
+}
 
 function yi(v) { return (v / 1e8).toFixed(2) }
 function signed(v) { return (v > 0 ? '+' : '') + Number(v).toFixed(2) }
