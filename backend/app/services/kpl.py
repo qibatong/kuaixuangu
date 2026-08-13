@@ -133,7 +133,7 @@ def fetch_bid_seal():
     """竞价涨停委买额(实时, 9:15-9:30 有效)"""
     def loader():
         t0 = time.time()
-        d = _call("default", {"Order": "1", "a": "MorningBiddingList", "st": "200",
+        d = _call("default", {"Order": "1", "a": "MorningBiddingList", "st": config.KPL_BID_ST,
                               "c": "HomeDingPan", "Index": "0", "PidType": "0",
                               "apiv": "w41", "Type": "4"})
         lst = _parse_bid_seal(d) if d else None

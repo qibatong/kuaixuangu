@@ -72,6 +72,7 @@ KPL_HOSTS = {
     "lhb": "applhb.longhuvip.com",            # 龙虎榜
 }
 KPL_BID_TTL = int(os.environ.get("KPL_BID_TTL", "30"))        # 竞价委买额缓存新鲜度(秒)
+KPL_BID_ST = os.environ.get("KPL_BID_ST", "200")              # Type4 涨停委买额榜条数(200=涨停榜, 实测更大值是否生效)
 KPL_SENTI_TTL = int(os.environ.get("KPL_SENTI_TTL", "60"))    # 情绪值缓存新鲜度(秒)
 KPL_LADDER_TTL = int(os.environ.get("KPL_LADDER_TTL", "60"))  # 连板梯队缓存新鲜度(秒)
 KPL_BOARD_TTL = int(os.environ.get("KPL_BOARD_TTL", "30"))    # 板块强度缓存新鲜度(秒)
