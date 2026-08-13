@@ -139,7 +139,7 @@
       <!-- 昨日涨停(今日竞价表现) -->
       <table v-else-if="tab === 'yestZt'" class="stock-table">
         <thead>
-          <tr><th>排名</th><th>代码</th><th>名称</th><th>连板</th><th>实时涨幅</th><th>竞价换手</th><th>竞价净额(亿)</th><th>竞额(亿)</th><th>概念</th><th>操作</th></tr>
+          <tr><th>排名</th><th>代码</th><th>名称</th><th>连板</th><th>实时涨幅</th><th>竞价换手</th><th>竞额(亿)</th><th>概念</th><th>操作</th></tr>
         </thead>
         <tbody>
           <tr v-for="(z, idx) in yestZtList" :key="z.code">
@@ -150,7 +150,6 @@
             <td><span v-if="z.limitUpDays > 0" class="lb-badge">{{ z.limitUpDays }}板</span><span v-else class="dim">-</span></td>
             <td :class="z.change > 0 ? 'up' : z.change < 0 ? 'down' : 'dim'">{{ z.change !== null && z.change !== undefined ? signed(z.change) + '%' : '-' }}</td>
             <td>{{ z.bidTurnover ? z.bidTurnover.toFixed(2) : '-' }}</td>
-            <td :class="z.bidNetAmt > 0 ? 'up' : z.bidNetAmt < 0 ? 'down' : 'dim'">{{ z.bidNetAmt ? amtText(z.bidNetAmt) : '-' }}</td>
             <td>{{ z.bidAmt ? amtText(z.bidAmt) : '-' }}</td>
             <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ z.board || '-' }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(z.code) }" @click.stop="addToPool(z)">{{ inPool(z.code) ? '已入池' : '＋池' }}</button></td>
