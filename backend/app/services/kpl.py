@@ -140,17 +140,28 @@ def fetch_bid_seal():
 
 
 def fetch_bid_boom():
-    """竞价爆量/撮合>2000万(实时): Type=10, 字段语义与委买额榜(Type=4)不同"""
+    """竞价爆量/竞价成交额榜(实时): Type=10; 涨停委买额从 Type=4 榜单按代码合并补充"""
     def loader():
         d = _call("after", {"Order": "1", "a": "MorningBiddingList", "st": "60",
                             "c": "HomeDingPan", "Index": "0", "PidType": "1",
                             "apiv": "w44", "Type": "10"})
-        return _parse_bid_boom(d) if d else None
+        lst = _parse_bid_boom(d) if d else None
+        if lst is None:
+            return None
+        # Type=10 无委买额(恒0), 用 Type=4(涨停委买额榜, st=200) 按代码补齐
+        try:
+            seal_map = {s["code"]: s.get("bidSealAmt") or 0 for s in (fetch_bid_seal() or [])}
+        except Exception:
+            seal_map = {}
+        for it in lst:
+            it["bidSealAmt"] = seal_map.get(it["code"], 0)
+        return lst
     return _cached("bid_boom", config.KPL_BID_TTL, loader)
 
 
 def _parse_bid_boom(data):
-    """Type=10 竞价爆量榜: [code,name,现价,实时涨幅,?,竞价涨幅,竞价成交额,0,0,0,20分后委买,
+    """Type=10 竞价爆量榜(实测字段, 2026-08-13 验证):
+    [code,name,现价,实时涨幅,委买额(恒0),竞价涨幅,竞价净额,0,0,0,竞价成交额,
     板块,实际流通,主买,主卖,主力净额,连板]"""
     info = data.get("info")
     if not isinstance(info, list):
@@ -165,8 +176,8 @@ def _parse_bid_boom(data):
                 "name": str(row[1]),
                 "realChange": _f(row[3]),
                 "bidChange": _f(row[5]),
-                "bidAmt": _f(row[6]),            # 竞价成交额(元)
-                "bidAfter20": _f(row[10]),       # 20分后委买
+                "bidNetAmt": _f(row[6]),         # 竞价净额(元)
+                "bidAmt": _f(row[10]),           # 竞价成交额(元) - 爆量主指标
                 "board": str(row[11]) if len(row) > 11 else "",
                 "floatMv": _f(row[12]),
                 "mainBuy": _f(row[13]),

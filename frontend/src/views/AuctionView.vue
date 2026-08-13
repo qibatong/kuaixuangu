@@ -55,7 +55,7 @@
         <thead>
           <tr>
             <th>排名</th><th>代码</th><th>名称</th><th>实时涨幅</th><th>竞价涨幅</th>
-            <th>涨停委买额(亿)</th><th>竞价净额(亿)</th><th>连板</th><th>板块</th><th>操作</th>
+            <th>{{ tab === 'boom' ? '竞价成交额(亿)' : '涨停委买额(亿)' }}</th><th>竞价净额(亿)</th><th>连板</th><th>板块</th><th>操作</th>
           </tr>
         </thead>
         <tbody>
@@ -65,7 +65,8 @@
             <td class="name-col"><div class="name-main">{{ it.name }}</div></td>
             <td :class="it.realChange > 0 ? 'up' : 'down'">{{ signed(it.realChange) }}%</td>
             <td :class="it.bidChange > 0 ? 'up' : 'down'">{{ signed(it.bidChange) }}%</td>
-            <td :class="it.bidSealAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidSealAmt) }}</td>
+            <td v-if="tab === 'boom'" :class="it.bidAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidAmt) }}</td>
+            <td v-else :class="it.bidSealAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidSealAmt) }}</td>
             <td :class="it.bidNetAmt > 0 ? 'up' : it.bidNetAmt < 0 ? 'down' : 'dim'">{{ yi(it.bidNetAmt) }}</td>
             <td><span v-if="it.limitBoards > 0" class="lb-badge">{{ it.limitBoards }}板</span><span v-else class="dim">-</span></td>
             <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ it.board }}</td>

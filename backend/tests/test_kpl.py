@@ -204,7 +204,11 @@ def test_fetch_bid_boom(monkeypatch):
     assert len(rows) == 1
     r = rows[0]
     assert r["code"] == "688825"
-    assert r["bidAmt"] == 56546659
+    # 实测字段语义(2026-08-13): row6=竞价净额, row10=竞价成交额(爆量主指标)
+    assert r["bidAmt"] == 579284936
+    assert r["bidNetAmt"] == 56546659
+    # Type=10 无委买额(row4 恒0), 从 Type=4 按代码合并补充
+    assert r["bidSealAmt"] == 0
     assert r["limitBoards"] == 1
     assert r["board"] == "储存、芯片"
 
