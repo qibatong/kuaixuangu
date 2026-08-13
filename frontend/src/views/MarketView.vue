@@ -15,6 +15,9 @@
       <button class="mrk-tab" :class="{ active: tab === 'hot' }" @click="tab = 'hot'">
         <i class="fa fa-fire"></i> 人气热榜
       </button>
+      <button class="mrk-tab" :class="{ active: tab === 'lhb' }" @click="tab = 'lhb'">
+        <i class="fa fa-list-alt"></i> 龙虎榜
+      </button>
     </div>
 
     <!-- 板块强度 -->
@@ -46,7 +49,7 @@
     </div>
 
     <!-- 人气热榜 -->
-    <div v-else class="mrk-panel">
+    <div v-else-if="tab === 'hot'" class="mrk-panel">
       <div v-if="hotLoading" class="loading-placeholder"><div class="spinner"></div><div>加载人气热榜...</div></div>
       <div v-else-if="!hotList.length" class="empty-state">暂无热榜数据</div>
       <table v-else class="stock-table">
@@ -64,12 +67,37 @@
         </tbody>
       </table>
     </div>
+
+    <!-- 龙虎榜 -->
+    <div v-else class="mrk-panel">
+      <div v-if="lhbLoading" class="loading-placeholder"><div class="spinner"></div><div>加载龙虎榜...</div></div>
+      <div v-else-if="!lhbList.length" class="empty-state">暂无龙虎榜数据</div>
+      <table v-else class="stock-table">
+        <thead>
+          <tr><th>代码</th><th>名称</th><th>涨跌幅%</th><th>连板</th><th>买入(亿)</th><th>成交额(亿)</th><th>换手%</th><th>振幅%</th><th>流通市值(亿)</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="l in lhbList" :key="l.code">
+            <td class="code-click" @click="linkToSoftware(l.code)">{{ l.code }}</td>
+            <td class="name-col"><div class="name-main">{{ l.name }}</div></td>
+            <td :class="l.change > 0 ? 'up' : 'down'">{{ signed(l.change) }}%</td>
+            <td><span v-if="l.limitBoards > 0" class="lb-badge">{{ l.limitBoards }}板</span><span v-else class="dim">-</span></td>
+            <td :class="l.buyIn > 0 ? 'up' : l.buyIn < 0 ? 'down' : 'dim'">{{ yi(l.buyIn) }}</td>
+            <td>{{ yi(l.amount) }}</td>
+            <td>{{ l.turnover.toFixed(2) }}</td>
+            <td>{{ l.amplitude.toFixed(2) }}</td>
+            <td>{{ yi(l.floatMv) }}</td>
+            <td><button class="pool-add-btn" @click="addToPool(l)">＋池</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { kplBoardRank, kplHotRank } from '../api/kpl'
+import { kplBoardRank, kplHotRank, kplLhb } from '../api/kpl'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
 import { usePoolStore } from '../stores/pool'
@@ -79,8 +107,10 @@ const pool = usePoolStore()
 const tab = ref('board')
 const boardList = ref([])
 const hotList = ref([])
+const lhbList = ref([])
 const boardLoading = ref(true)
 const hotLoading = ref(true)
+const lhbLoading = ref(true)
 const bjTime = ref('--:--:--')
 let clockTimer = null
 let refreshTimer = null
@@ -111,12 +141,22 @@ async function loadHot() {
   }
 }
 
+async function loadLhb() {
+  try {
+    const d = await kplLhb()
+    lhbList.value = d.list || []
+  } catch (e) { /* 静默 */ } finally {
+    lhbLoading.value = false
+  }
+}
+
 onMounted(() => {
   bjTime.value = bjTimeStr()
   clockTimer = setInterval(() => { bjTime.value = bjTimeStr() }, 1000)
   loadBoard()
   loadHot()
-  refreshTimer = setInterval(() => { loadBoard(); loadHot() }, 60000)
+  loadLhb()
+  refreshTimer = setInterval(() => { loadBoard(); loadHot(); loadLhb() }, 60000)
 })
 onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
@@ -147,4 +187,5 @@ onBeforeUnmount(() => {
 .empty-state { text-align: center; padding: 40px; color: #888; }
 .board-code { font-size: 11px; color: #777; }
 .strength { color: #ffb400; font-weight: 700; }
+.lb-badge { display: inline-block; color: #ff8a5c; border: 1px solid rgba(255,80,40,0.5); border-radius: 4px; padding: 0 5px; font-size: 11px; background: rgba(255,80,40,0.12); }
 </style>

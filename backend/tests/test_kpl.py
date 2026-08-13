@@ -122,6 +122,32 @@ def test_fetch_hot_rank(monkeypatch):
     assert rows[1]["change"] == 5
 
 
+# ---------- 龙虎榜解析 ----------
+def test_fetch_lhb(monkeypatch):
+    monkeypatch.setattr(kpl, "_call", lambda *a, **k: {
+        "Time": "2026-08-12",
+        "list": [
+            {"ID": "002552", "Name": "宝鼎科技", "IncreaseAmount": "10.00%", "D3": "0",
+             "BuyIn": "26482652", "JoinNum": 0, "Turnover": "2053271665",
+             "CircPrice": 22135992570.23, "Amplitude": "12.05", "TurnoverRatio": "9.88",
+             "Capitalization": 23306278833.17},
+            {"ID": "600721", "Name": "百花医药", "IncreaseAmount": "10.04%", "D3": "3",
+             "BuyIn": "149643072.72", "JoinNum": 12, "Turnover": "1840794640",
+             "CircPrice": 5395203319.05, "Amplitude": "5.96", "TurnoverRatio": "34.43",
+             "Capitalization": 5395203319.05},
+        ],
+    })
+    kpl._cache.clear()
+    rows = kpl.fetch_lhb()
+    assert len(rows) == 2
+    assert rows[0]["code"] == "002552"
+    assert rows[0]["change"] == 10.0
+    assert rows[0]["limitBoards"] == 0
+    assert rows[1]["name"] == "百花医药"
+    assert rows[1]["change"] == 10.04
+    assert rows[1]["limitBoards"] == 3
+
+
 # ---------- 调用失败降级 ----------
 def test_call_failure_returns_none(monkeypatch):
     monkeypatch.setattr(kpl, "_call", lambda *a, **k: None)

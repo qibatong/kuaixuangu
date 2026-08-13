@@ -69,6 +69,7 @@ KPL_HOSTS = {
     "default": "apphwhq.longhuvip.com",       # 竞价委买额/连板梯队
     "market": "apphq.longhuvip.com",          # 情绪值/板块强度/热榜/涨停原因
     "after": "apphwshhq.longhuvip.com",       # 尾盘抢筹/竞价砸盘/竞价>2000万
+    "lhb": "applhb.longhuvip.com",            # 龙虎榜
 }
 KPL_BID_TTL = int(os.environ.get("KPL_BID_TTL", "30"))        # 竞价委买额缓存新鲜度(秒)
 KPL_SENTI_TTL = int(os.environ.get("KPL_SENTI_TTL", "60"))    # 情绪值缓存新鲜度(秒)

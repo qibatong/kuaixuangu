@@ -21,6 +21,10 @@ export function kplHotRank() {
   return request('/api/kpl/hot-rank')
 }
 
+export function kplLhb() {
+  return request('/api/kpl/lhb')
+}
+
 export function kplZtReason(code) {
   return request('/api/kpl/zt-reason', { query: { code } })
 }

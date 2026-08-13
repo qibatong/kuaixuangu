@@ -354,6 +354,38 @@ def fetch_hot_rank():
     return _cached("hot_rank", 60, loader)
 
 
+# ==================== 龙虎榜 ====================
+def fetch_lhb():
+    """龙虎榜上榜股票(当天): [{code,name,change,limitBoards,buyIn,amount,floatMv,turnover,amplitude,totalMv,joinNum}, ...]"""
+    def loader():
+        d = _call("lhb", {"a": "GetStockList", "st": "500", "c": "LongHuBang",
+                          "Time": "", "Index": "0", "apiv": "w44", "Type": "2"})
+        if not d:
+            return None
+        lst = d.get("list")
+        if not isinstance(lst, list):
+            return []
+        out = []
+        for it in lst:
+            if not isinstance(it, dict):
+                continue
+            out.append({
+                "code": str(it.get("ID", "")),
+                "name": str(it.get("Name", "")),
+                "change": _pct(it.get("IncreaseAmount")),   # 涨幅(%)
+                "limitBoards": int(_num(it.get("D3"))),     # 连板数
+                "buyIn": _f(it.get("BuyIn")),               # 买入金额(元)
+                "joinNum": int(_num(it.get("JoinNum"))),    # 上榜营业部数
+                "amount": _f(it.get("Turnover")),           # 成交额(元)
+                "floatMv": _f(it.get("CircPrice")),         # 流通市值(元)
+                "amplitude": _f(it.get("Amplitude")),       # 振幅(%)
+                "turnover": _f(it.get("TurnoverRatio")),    # 换手率(%)
+                "totalMv": _f(it.get("Capitalization")),    # 总市值(元)
+            })
+        return out
+    return _cached("lhb", 120, loader)
+
+
 # ==================== 工具函数 ====================
 def _f(v):
     try:
@@ -369,6 +401,14 @@ def _num(v):
         return int(float(v))
     except (TypeError, ValueError):
         return 0
+
+
+def _pct(v):
+    """解析百分比字符串: "10.00%" -> 10.0, "-2.95%" -> -2.95"""
+    try:
+        return float(str(v).replace("%", "").strip())
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _lb(v):
