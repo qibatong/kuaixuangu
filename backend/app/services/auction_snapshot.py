@@ -6,6 +6,7 @@
 - 每日积累 → 形成"历史多时点回放库"(短线侠式核心壁垒)
 - 9:25 lock 时读取 9:20 快照, 计算涨幅加速度
 """
+import concurrent.futures
 import threading
 import time
 
@@ -48,32 +49,39 @@ def _fetch_market_map(full=False):
     full=True : fetch_eastmoney_all 分页全市场(~5500只, 按代码f12排序, 时点快照用)
     full=False: fetch_eastmoney 单页200只×3分区(按涨幅倒序=竞价最强前600, 秒级采样用,
                 9:24:55-9:25:03 仅8秒窗口, 分页全市场需60s+, 无法每秒完成)
+    并发: 沪深创科 3 分区 ThreadPoolExecutor 并发拉取(全市场分页内部仍串行防限流),
+          单页模式耗时 3×~1.5s → ~1.5s, 秒级采样 8 秒窗口可采 5-8 个点
     """
     with _fetch_lock:
         raw_all = {}
-        for m in ("hs", "cyb", "kcb"):
+
+        def _grab(m):
             try:
                 if full:
-                    raw = fetcher.fetch_eastmoney_all(scorer.market_fs([m]))
-                else:
-                    raw = fetcher.fetch_eastmoney(scorer.market_fs([m]))
+                    return m, fetcher.fetch_eastmoney_all(scorer.market_fs([m]))
+                return m, fetcher.fetch_eastmoney(scorer.market_fs([m]))
             except Exception as e:
                 log.warning("快照拉取失败 market=%s full=%s err=%s", m, full, e)
-                continue
-            for s in raw:
-                code = s.get("f12")
-                if not code:
+                return m, None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+            for m, raw in ex.map(_grab, ("hs", "cyb", "kcb")):
+                if not raw:
                     continue
-                bc = scorer.get_bid_change(s)
-                if bc < -30 or bc > 30:    # 明显异常数据(非交易时段字段污染)
-                    continue
-                raw_all[code] = {
-                    "bid_change": bc,
-                    "bid_amt": scorer.get_bid_amt(s),
-                    "name": str(s.get("f14") or ""),          # 名称
-                    "bid_buy_amt": scorer.parse_float(s.get("f5")) / 10000,   # 委买额(万元)
-                    "float_mv": scorer.parse_float(s.get("f6")),              # 流通市值(元)
-                }
+                for s in raw:
+                    code = s.get("f12")
+                    if not code:
+                        continue
+                    bc = scorer.get_bid_change(s)
+                    if bc < -30 or bc > 30:    # 明显异常数据(非交易时段字段污染)
+                        continue
+                    raw_all[code] = {
+                        "bid_change": bc,
+                        "bid_amt": scorer.get_bid_amt(s),
+                        "name": str(s.get("f14") or ""),          # 名称
+                        "bid_buy_amt": scorer.parse_float(s.get("f5")) / 10000,   # 委买额(万元)
+                        "float_mv": scorer.parse_float(s.get("f6")),              # 流通市值(元)
+                    }
         return raw_all
 
 
