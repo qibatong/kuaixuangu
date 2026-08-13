@@ -762,3 +762,801 @@ def _lb(v):
     if m2:
         return int(m2.group(2))
     return 0
+
+
+
+
+
+
+
+
+
+# ==================== 开盘啦 Kaipanla 全部接口封装 (按 /docs/{id} 编号) ====================
+# 自动生成于 2026-08-13, 共 87 个 longhuvip.com 原始接口
+# 调用约定: fetch_kpl_doc{N}(**extra) -> dict | None
+
+def fetch_kpl_doc7(**extra):
+    r"""k线-个股 (apphis.longhuvip.com) -> dict
+    a=GetKLineDay_W14, c=StockLineData, apiv=w40 + extra
+    resp 示例: {\"StockID\":\"302132\",\"name\":\"\",\"Time\":1786610805,\"x\":[\"20260305\",\"20260306\",\"20260309\",\"20260310\",\"20260311\",\"20260312\",\"20260
+    """
+    base = {"a": "GetKLineDay_W14", "c": "StockLineData", "apiv": "w40"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc8(**extra):
+    r"""分时与、实时涨幅 (apphwhq.longhuvip.com) -> dict
+    a=GetStockTrendIncremental, c=StockL2Data, apiv=w41 + extra
+    resp 示例: {\"trend\":[[\"09:30\",8.07,8.07,114,0],[\"09:31\",8.04,8.054,744,0],[\"09:32\",7.99,8.01,2662,0],[\"09:33\",7.97,7.996,2032,0],[\"09:34\",7.98,7.984,
+    """
+    base = {"a": "GetStockTrendIncremental", "c": "StockL2Data", "apiv": "w41"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc9(**extra):
+    r"""盘口五档 (apphwhq.longhuvip.com) -> dict
+    a=GetStockPanKou, c=StockL2Data, apiv=w41 + extra
+    resp 示例: {\"day\":20260813,\"code\":\"000001\",\"name\":\"\\u5e73\\u5b89\\u94f6\\u884c\",\"preclose_px\":11.25,\"status\":86,\"real\":{\"time\":154603000,\"las
+    """
+    base = {"a": "GetStockPanKou", "c": "StockL2Data", "apiv": "w41"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc13(**extra):
+    r"""大单成交 (apphq.longhuvip.com) -> dict
+    a=GetMainMonitor_w30, c=StockYiDongKanPan, apiv=w31 + extra
+    resp 示例: {\"List\":[[\"2\",\"1786604400\",\"1498\",\"1044106\",\"6.97\",\"2026-08-13 15:00:00\"],[\"2\",\"1786604400\",\"3434\",\"2393498\",\"6.97\",\"2026-08-
+    """
+    base = {"a": "GetMainMonitor_w30", "c": "StockYiDongKanPan", "apiv": "w31"}
+    base.update(extra)
+    return _call("q", base)
+
+def fetch_kpl_doc14(**extra):
+    r"""大单委托 (apphq.longhuvip.com) -> dict
+    a=GetWeiTuo_W14, c=StockL2Data, apiv=w39 + extra
+    resp 示例: {\"start\":1404,\"end\":1503,\"List\":[[\"14:47:22\",\"52421517_CD\",\"11.24\",\"309\",\"347316\",\"2\",\"2\",\"0\",\"1\",\"1786603642\"],[\"14:47:22\
+    """
+    base = {"a": "GetWeiTuo_W14", "c": "StockL2Data", "apiv": "w39"}
+    base.update(extra)
+    return _call("q", base)
+
+def fetch_kpl_doc15(**extra):
+    r"""涨停复盘 - 复盘啦 (apphwshhq.longhuvip.com) -> dict
+    a=GetPlateInfo_w38, c=DailyLimitResumption, apiv=w42 + extra
+    resp 示例: {\"nums\":{\"SZJS\":1142,\"XDJS\":4317,\"ZT\":59,\"DT\":4,\"ZBL\":37.8947,\"yestRase\":1.188},\"list\":[],\"date\":\"2026-08-13\",\"Day\":[\"2026-08-1
+    """
+    base = {"a": "GetPlateInfo_w38", "c": "DailyLimitResumption", "apiv": "w42"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc16(**extra):
+    r"""涨停跌停-数量 (apphwshhq.longhuvip.com) -> dict
+    a=RiseFallAnalysis, c=HomeDingPan, apiv=w43 + extra
+    resp 示例: {\"info\":[[59,4,47,1,37.8947,36,\"2026-08-13\"]],\"ttag\":0.0009409999999999696,\"errcode\":\"0\"}
+    """
+    base = {"a": "RiseFallAnalysis", "c": "HomeDingPan", "apiv": "w43"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc17(**extra):
+    r"""涨停数量历史 (apphis.longhuvip.com) -> dict
+    a=RiseFallAnalysis, c=HisHomeDingPan, apiv=w43 + extra
+    resp 示例: {\"info\":[[62,4,47,1,37.8947,36,\"2026-08-13\"],[96,0,85,1,11.5385,12,\"2026-08-12\"],[60,2,54,4,22.6667,17,\"2026-08-11\"],[103,5,96,3,12.3894,14,\"
+    """
+    base = {"a": "RiseFallAnalysis", "c": "HisHomeDingPan", "apiv": "w43"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc18(**extra):
+    r"""上涨/下跌家数 (apphwshhq.longhuvip.com) -> dict
+    a=MoodNumCount, c=MarketMood, apiv=w43 + extra
+    resp 示例: {\"list\":{\"SZJS\":1142,\"XDJS\":4317,\"ZTJS\":59,\"DTJS\":4,\"qscln\":255091673,\"q_zrcs\":215242310,\"bl\":18.51,\"color\":1},\"ttag\":0.0061760000
+    """
+    base = {"a": "MoodNumCount", "c": "MarketMood", "apiv": "w43"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc19(**extra):
+    r"""昨日涨停今表现 (apphwshhq.longhuvip.com) -> dict
+    a=GetPlate_Info_QJ, c=ZhiShuRanking, apiv=w42 + extra
+    resp 示例: {\"List\":[\"--\",-175,113518654777,-19041063,-1.26,0,0,0],\"Time\":1786610811,\"Date\":\"2026-08-13\",\"Min\":\"0925\",\"Max\":\"1500\",\"ttag\":0.00
+    """
+    base = {"a": "GetPlate_Info_QJ", "c": "ZhiShuRanking", "apiv": "w42"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc20(**extra):
+    r"""昨日连板今表现 (apphwshhq.longhuvip.com) -> dict
+    a=GetPlate_Info_QJ, c=ZhiShuRanking, apiv=w42 + extra
+    resp 示例: {\"List\":[\"--\",219,17928168874,0,0.32,0,0,0],\"Time\":1786610812,\"Date\":\"2026-08-13\",\"Min\":\"0925\",\"Max\":\"1500\",\"ttag\":0.0030540000000
+    """
+    base = {"a": "GetPlate_Info_QJ", "c": "ZhiShuRanking", "apiv": "w42"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc21(**extra):
+    r"""昨日破板今日表现 (apphwshhq.longhuvip.com) -> dict
+    a=GetPlate_Info_QJ, c=ZhiShuRanking, apiv=w42 + extra
+    resp 示例: {\"List\":[\"--\",-145,17020349482,0,-0.84,0,0,0],\"Time\":1786610812,\"Date\":\"2026-08-13\",\"Min\":\"0925\",\"Max\":\"1500\",\"ttag\":0.00369799999
+    """
+    base = {"a": "GetPlate_Info_QJ", "c": "ZhiShuRanking", "apiv": "w42"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc22(**extra):
+    r"""今日破板率 (apphwshhq.longhuvip.com) -> dict
+    a=RiseFallAnalysis, c=HomeDingPan, apiv=w43 + extra
+    resp 示例: {\"info\":[[59,4,47,1,37.8947,36,\"2026-08-13\"]],\"ttag\":0.0010620000000000074,\"errcode\":\"0\"}
+    """
+    base = {"a": "RiseFallAnalysis", "c": "HomeDingPan", "apiv": "w43"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc23(**extra):
+    r"""情绪值指标/连板高度 (apphq.longhuvip.com) -> dict
+    a=ChangeStatistics, c=HomeDingPan, apiv=w41 + extra
+    resp 示例: {\"info\":[{\"ztjs\":\"59\",\"Day\":\"2026-08-13\",\"df_num\":\"15\",\"strong\":\"51\",\"lbgd\":\"5\"}],\"tip\":\"\\u6e29\\u99a8\\u63d0\\u793a\\uff1a\
+    """
+    base = {"a": "ChangeStatistics", "c": "HomeDingPan", "apiv": "w41"}
+    base.update(extra)
+    return _call("q", base)
+
+def fetch_kpl_doc24(**extra):
+    r"""情绪-强度-历史 (apphis.longhuvip.com) -> dict
+    a=ChangeStatistics, c=HisHomeDingPan, apiv=w44 + extra
+    resp 示例: {\"info\":[{\"strong\":\"51\",\"ztjs\":\"59\",\"lbgd\":\"5\",\"Day\":\"2026-08-13\",\"df_num\":\"15\"},{\"strong\":\"78\",\"ztjs\":\"92\",\"lbgd\":\"7
+    """
+    base = {"a": "ChangeStatistics", "c": "HisHomeDingPan", "apiv": "w44"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc30(**extra):
+    r"""竞价涨停委买额-历史接口 (apphis.longhuvip.com) -> dict
+    a=MorningBiddingList, c=HisHomeDingPan, apiv=w41 + extra
+    resp 示例: {\"info\":[[\"002579\",\"\\u4e2d\\u4eac\\u7535\\u5b50\",0,9.99,926858516,9.9889,36522513,1.26,47704956,138678558,0,\"\\u5370\\u5236\\u7535\\u8def\\u67
+    """
+    base = {"a": "MorningBiddingList", "c": "HisHomeDingPan", "apiv": "w41"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc31(**extra):
+    r"""竞价-个股竞价分时 (apphwhq.longhuvip.com) -> dict
+    a=GetStockBid, c=StockL2Data, apiv=w41 + extra
+    resp 示例: {\"code\":\"000785\",\"day\":20260813,\"bid\":[[\"09:15\",2.29,1,25],[\"09:15\",2.3,1,188],[\"09:16\",2.3,1,189],[\"09:16\",2.3,1,188],[\"09:17\",2.3,
+    """
+    base = {"a": "GetStockBid", "c": "StockL2Data", "apiv": "w41"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc33(**extra):
+    r"""历史 (apphis.longhuvip.com) -> dict
+    a=ZhiBoContent, c=HisConceptionPoint, apiv=w40 + extra
+    resp 示例: {\"JHJJYD\":[\"\",\"\",0],\"List\":[],\"Notice\":\"\\u76f4\\u64ad\\u5373\\u5c06\\u5f00\\u59cb\\uff01\\uff01\\uff01\",\"Time\":1786550400,\"Status\":0,
+    """
+    base = {"a": "ZhiBoContent", "c": "HisConceptionPoint", "apiv": "w40"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc41(**extra):
+    r"""精选板块列表-实时： (apphq.longhuvip.com) -> dict
+    a=RealRankingInfo, c=ZhiShuRanking, apiv=w26 + extra
+    resp 示例: {\"list\":[[\"801045\",\"\\u533b\\u836f\",9969,0.712,0.616,271057587087,4072089148,50934541266,-46862452118,1.218,7675361415847,0.83,1565506580,907194
+    """
+    base = {"a": "RealRankingInfo", "c": "ZhiShuRanking", "apiv": "w26"}
+    base.update(extra)
+    return _call("q", base)
+
+def fetch_kpl_doc42(**extra):
+    r"""精选板块列表-历史 (apphis.longhuvip.com) -> dict
+    a=RealRankingInfo, c=ZhiShuRanking, apiv=w41 + extra
+    resp 示例: {\"list\":[[\"801057\",\"\\u77f3\\u6cb9\\u77f3\\u5316\",7271,3.349,0.242,30557059554,1527890563,7324844425,-5796953862,2.791,2929208764309,0.6,6610840
+    """
+    base = {"a": "RealRankingInfo", "c": "ZhiShuRanking", "apiv": "w41"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc43(**extra):
+    r"""精选板块-当天历史 (apphwshhq.longhuvip.com) -> dict
+    a=RealRankingInfo, c=ZhiShuRanking, apiv=w42 + extra
+    resp 示例: {\"list\":[[\"801807\",\"\\u7b97\\u529b\",2473,0.767,0,9139413402,289778705,1723841474,-1434062769,2.664,25212470958016,0,169194018,30764529295442,263
+    """
+    base = {"a": "RealRankingInfo", "c": "ZhiShuRanking", "apiv": "w42"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc46(**extra):
+    r"""板块成分股 (apphis.longhuvip.com) -> dict
+    a=ZhiShuStockList_W8, c=ZhiShuRanking, apiv=w41 + extra
+    resp 示例: {\"list\":[[\"300164\",\"\\u901a\\u6e90\\u77f3\\u6cb9\",\"\",0,\"\\u77f3\\u6cb9\\u77f3\\u5316\\u3001\\u897f\\u90e8\\u5927\\u5f00\\u53d1\",5.06,19.91,1
+    """
+    base = {"a": "ZhiShuStockList_W8", "c": "ZhiShuRanking", "apiv": "w41"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc47(**extra):
+    r"""当天涨停原因： (apphq.longhuvip.com) -> dict
+    a=GetKLineZhangTing, c=StockLineData, apiv=w24 + extra
+    resp 示例: {\"StockID\":\"000001\",\"List\":[],\"Time\":1786610831,\"ttag\":0.0003049999999999997,\"errcode\":\"0\"}
+    """
+    base = {"a": "GetKLineZhangTing", "c": "StockLineData", "apiv": "w24"}
+    base.update(extra)
+    return _call("q", base)
+
+def fetch_kpl_doc48(**extra):
+    r"""历史涨停原因： (apphis.longhuvip.com) -> dict
+    a=GetKLineZhangTing, c=StockLineData, apiv=w24 + extra
+    resp 示例: 
+    """
+    base = {"a": "GetKLineZhangTing", "c": "StockLineData", "apiv": "w24"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc49(**extra):
+    r"""1，涨停的首板 (apphwhq.longhuvip.com) -> dict
+    a=DailyLimitPerformance, c=HomeDingPan, apiv=w39 + extra
+    resp 示例: {\"info\":[[[\"002322\",\"\\u7406\\u5de5\\u80fd\\u79d1\",0,\"\",1786584300,\"\\u4e2d\\u62a5\\u589e\\u957f\",78142528,132711224,40581357,53265627,-1268
+    """
+    base = {"a": "DailyLimitPerformance", "c": "HomeDingPan", "apiv": "w39"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc50(**extra):
+    r"""2，涨停的2板 (apphwhq.longhuvip.com) -> dict
+    a=DailyLimitPerformance, c=HomeDingPan, apiv=w39 + extra
+    resp 示例: {\"info\":[[[\"001260\",\"\\u5764\\u6cf0\\u80a1\\u4efd\",0,\"\",1786584300,\"\\u6c7d\\u8f66\\u96f6\\u90e8\\u4ef6\",292252896,310460672,17041676,394585
+    """
+    base = {"a": "DailyLimitPerformance", "c": "HomeDingPan", "apiv": "w39"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc51(**extra):
+    r"""3，涨停的3板 (apphwhq.longhuvip.com) -> dict
+    a=DailyLimitPerformance, c=HomeDingPan, apiv=w39 + extra
+    resp 示例: {\"info\":[[[\"603887\",\"\\u57ce\\u5730\\u9999\\u6c5f\",1,\"\",1786584331,\"\\u7b97\\u529b\",271131680,971528404,107874665,223678217,-115803552,22805
+    """
+    base = {"a": "DailyLimitPerformance", "c": "HomeDingPan", "apiv": "w39"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc52(**extra):
+    r"""4，涨停的4板 (apphwhq.longhuvip.com) -> dict
+    a=DailyLimitPerformance, c=HomeDingPan, apiv=w39 + extra
+    resp 示例: {\"info\":[[[\"000802\",\"\\u5317\\u4eac\\u6587\\u5316\",0,\"\",1786584300,\"\\u6587\\u5316\\u4f20\\u5a92\",167948928,350260576,-150012849,449495967,-
+    """
+    base = {"a": "DailyLimitPerformance", "c": "HomeDingPan", "apiv": "w39"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc53(**extra):
+    r"""5，涨停的更高 (apphwhq.longhuvip.com) -> dict
+    a=DailyLimitPerformance, c=HomeDingPan, apiv=w39 + extra
+    resp 示例: {\"info\":[[[\"603758\",\"\\u79e6\\u5b89\\u80a1\\u4efd\",1,\"\",1786584333,\"\\u673a\\u5668\\u4eba\\u6982\\u5ff5\",179320240,303773449,16890234,460223
+    """
+    base = {"a": "DailyLimitPerformance", "c": "HomeDingPan", "apiv": "w39"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc54(**extra):
+    r"""1，历史涨停的首板 (apphis.longhuvip.com) -> dict
+    a=DailyLimitPerformance, c=HisHomeDingPan, apiv=w31 + extra
+    resp 示例: {\"info\":[[[\"603887\",\"\\u57ce\\u5730\\u9999\\u6c5f\",0,\"\",1728955559,\"\\u5b9e\\u63a7\\u4eba\\u53d8\\u66f4\",551947392,3058554835,13281816,16827
+    """
+    base = {"a": "DailyLimitPerformance", "c": "HisHomeDingPan", "apiv": "w31"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc55(**extra):
+    r"""2，涨停的2板 (apphis.longhuvip.com) -> dict
+    a=DailyLimitPerformance, c=HisHomeDingPan, apiv=w31 + extra
+    resp 示例: {\"info\":[[[\"002628\",\"\\u6210\\u90fd\\u8def\\u6865\",0,\"\",1728955551,\"\\u897f\\u90e8\\u5927\\u5f00\\u53d1\",125249472,170181152,371185,15692555
+    """
+    base = {"a": "DailyLimitPerformance", "c": "HisHomeDingPan", "apiv": "w31"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc56(**extra):
+    r"""3，涨停的3板 (apphis.longhuvip.com) -> dict
+    a=DailyLimitPerformance, c=HisHomeDingPan, apiv=w31 + extra
+    resp 示例: {\"info\":[[[\"600622\",\"\\u5149\\u5927\\u5609\\u5b9d\",0,\"\",1728955551,\"\\u5730\\u4ea7\\u94fe\",330943808,1527980573,36962441,81879174,-44916733,
+    """
+    base = {"a": "DailyLimitPerformance", "c": "HisHomeDingPan", "apiv": "w31"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc57(**extra):
+    r"""4，涨停的4板 (apphis.longhuvip.com) -> dict
+    a=DailyLimitPerformance, c=HisHomeDingPan, apiv=w31 + extra
+    resp 示例: {\"info\":[[],\"2024-10-15\"],\"ttag\":0.0009799999999999809,\"errcode\":\"0\"}
+    """
+    base = {"a": "DailyLimitPerformance", "c": "HisHomeDingPan", "apiv": "w31"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc58(**extra):
+    r"""5，涨停的更高 (apphis.longhuvip.com) -> dict
+    a=DailyLimitPerformance, c=HisHomeDingPan, apiv=w31 + extra
+    resp 示例: {\"info\":[[],\"2024-10-15\"],\"ttag\":0.0009430000000000271,\"errcode\":\"0\"}
+    """
+    base = {"a": "DailyLimitPerformance", "c": "HisHomeDingPan", "apiv": "w31"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc59(**extra):
+    r"""1，未涨停的首板 (apphwhq.longhuvip.com) -> dict
+    a=DailyLimitPerformance2, c=HomeDingPan, apiv=w40 + extra
+    resp 示例: {\"info\":[[[\"920367\",\"\\u65b0\\u8d63\\u6c5f\",0,\"\",31.13,29.6,\"\\u533b\\u836f\\u3001\\u5317\\u4ea4AI\\u533b\\u7597\",0,0,0,378548380,647078331,
+    """
+    base = {"a": "DailyLimitPerformance2", "c": "HomeDingPan", "apiv": "w40"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc60(**extra):
+    r"""2，未涨停的2板 (apphwhq.longhuvip.com) -> dict
+    a=DailyLimitPerformance2, c=HomeDingPan, apiv=w40 + extra
+    resp 示例: {\"info\":[[[\"301602\",\"\\u8d85\\u7814\\u80a1\\u4efd\",1,\"\",20.4,10.99,\"AI\\u533b\\u7597\\u3001AI\\u5e94\\u7528\",18735671,110116516,-91380845,56
+    """
+    base = {"a": "DailyLimitPerformance2", "c": "HomeDingPan", "apiv": "w40"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc61(**extra):
+    r"""3，未涨停的3板 (apphwhq.longhuvip.com) -> dict
+    a=DailyLimitPerformance2, c=HomeDingPan, apiv=w40 + extra
+    resp 示例: {\"info\":[[[\"603897\",\"\\u957f\\u57ce\\u79d1\\u6280\",1,\"\",34.68,8.21,\"\\u673a\\u5668\\u4eba\\u6982\\u5ff5\\u3001\\u6241\\u7ebf\",91351854,35975
+    """
+    base = {"a": "DailyLimitPerformance2", "c": "HomeDingPan", "apiv": "w40"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc62(**extra):
+    r"""4，未涨停的4板 (apphwhq.longhuvip.com) -> dict
+    a=DailyLimitPerformance2, c=HomeDingPan, apiv=w40 + extra
+    resp 示例: {\"info\":[[[\"002248\",\"\\u534e\\u4e1c\\u6570\\u63a7\",0,\"\",11.74,-3.53,\"\\u5de5\\u4e1a\\u6bcd\\u673a\\u3001\\u4e00\\u5b63\\u62a5\\u589e\\u957f\"
+    """
+    base = {"a": "DailyLimitPerformance2", "c": "HomeDingPan", "apiv": "w40"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc63(**extra):
+    r"""5，未涨停的更高 (apphwhq.longhuvip.com) -> dict
+    a=DailyLimitPerformance2, c=HomeDingPan, apiv=w40 + extra
+    resp 示例: {\"info\":[[[\"600721\",\"\\u767e\\u82b1\\u533b\\u836f\",0,\"\",14.5,3.35,\"CRO\\u3001\\u51cf\\u80a5\\u836f\",-309427187,594053313,-903480500,25717093
+    """
+    base = {"a": "DailyLimitPerformance2", "c": "HomeDingPan", "apiv": "w40"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc64(**extra):
+    r"""1，未涨停首板 (apphis.longhuvip.com) -> dict
+    a=DailyLimitPerformance2, c=HisHomeDingPan, apiv=w42 + extra
+    resp 示例: {\"info\":[[[\"688591\",\"\\u6cf0\\u51cc\\u5fae  \",0,\"\",58.47,10.57,\"\\u5e76\\u8d2d\\u91cd\\u7ec4\\u3001\\u6570\\u5b57\\u7ecf\\u6d4e\",-28478897,7
+    """
+    base = {"a": "DailyLimitPerformance2", "c": "HisHomeDingPan", "apiv": "w42"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc65(**extra):
+    r"""2，未涨停2板 (apphis.longhuvip.com) -> dict
+    a=DailyLimitPerformance2, c=HisHomeDingPan, apiv=w42 + extra
+    resp 示例: {\"info\":[[[\"688006\",\"\\u676d\\u53ef\\u79d1\\u6280\",0,\"\",30.15,17.13,\"\\u56fa\\u6001\\u7535\\u6c60\\u3001\\u9502\\u7535\\u8bbe\\u5907\",-18730
+    """
+    base = {"a": "DailyLimitPerformance2", "c": "HisHomeDingPan", "apiv": "w42"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc66(**extra):
+    r"""3，未涨停3板 (apphis.longhuvip.com) -> dict
+    a=DailyLimitPerformance2, c=HisHomeDingPan, apiv=w42 + extra
+    resp 示例: {\"info\":[[[\"000831\",\"\\u4e2d\\u56fd\\u7a00\\u571f\",0,\"\",59.12,1.37,\"\\u7a00\\u571f\\u6c38\\u78c1\\u3001\\u6709\\u8272\\u91d1\\u5c5e\",-142416
+    """
+    base = {"a": "DailyLimitPerformance2", "c": "HisHomeDingPan", "apiv": "w42"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc67(**extra):
+    r"""4，未涨停4板 (apphis.longhuvip.com) -> dict
+    a=DailyLimitPerformance2, c=HisHomeDingPan, apiv=w42 + extra
+    resp 示例: {\"info\":[[[\"002053\",\"\\u4e91\\u5357\\u80fd\\u6295\",0,\"\",14.47,-3.47,\"\\u7eff\\u8272\\u7535\\u529b\\u3001\\u5929\\u7136\\u6c14\",-7477684,2805
+    """
+    base = {"a": "DailyLimitPerformance2", "c": "HisHomeDingPan", "apiv": "w42"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc68(**extra):
+    r"""5，未涨停 更高 (apphis.longhuvip.com) -> dict
+    a=DailyLimitPerformance2, c=HisHomeDingPan, apiv=w42 + extra
+    resp 示例: {\"info\":[[[\"002053\",\"\\u4e91\\u5357\\u80fd\\u6295\",0,\"\",14.47,-3.47,\"\\u7eff\\u8272\\u7535\\u529b\\u3001\\u5929\\u7136\\u6c14\",-7477684,2805
+    """
+    base = {"a": "DailyLimitPerformance2", "c": "HisHomeDingPan", "apiv": "w42"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc69(**extra):
+    r"""百日新高-板块排序 (apphwshhq.longhuvip.com) -> dict
+    a=GroupCount_w28, c=StockNewHigh, apiv=w41 + extra
+    resp 示例: {\"List\":[[\"\\u533b\\u836f\",\"46,19\",801045],[\"AI\\u5e94\\u7528\",\"8,4\",803023],[\"\\u5730\\u4ea7\\u94fe\",\"4,1\",801676],[\"\\u673a\\u5668\\u
+    """
+    base = {"a": "GroupCount_w28", "c": "StockNewHigh", "apiv": "w41"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc70(**extra):
+    r"""短线精灵 (apphq.longhuvip.com) -> dict
+    a=Radar, c=HomeDingPan, apiv=w33 + extra
+    resp 示例: {\"list\":[{\"time\":1786604219,\"status\":\"\\u5c01\\u6da8\\u5927\\u51cf\",\"stock_name\":\"\\u795e\\u5947\\u5236\\u836f\",\"plate_type\":1,\"status_
+    """
+    base = {"a": "Radar", "c": "HomeDingPan", "apiv": "w33"}
+    base.update(extra)
+    return _call("q", base)
+
+def fetch_kpl_doc71(**extra):
+    r"""盘中人气热榜 (apphq.longhuvip.com) -> dict
+    a=GetHotPHB, c=StockBidYiDong, apiv=w29 + extra
+    resp 示例: {\"Day\":\"2026-08-13\",\"List\":[[\"600721\",\"\\u767e\\u82b1\\u533b\\u836f\",3.35,0,1,0,0],[\"600664\",\"\\u54c8\\u836f\\u80a1\\u4efd\",0.57,0,2,0,0
+    """
+    base = {"a": "GetHotPHB", "c": "StockBidYiDong", "apiv": "w29"}
+    base.update(extra)
+    return _call("q", base)
+
+def fetch_kpl_doc72(**extra):
+    r"""全球指数 (apphwshhq.longhuvip.com) -> dict
+    a=GlobalCommon, c=GlobalIndex, apiv=w44 + extra
+    resp 示例: {\"CYWWZS\":[{\"code\":\"DJI\",\"prod_name\":\"\\u9053\\u743c\\u65af\",\"last_px\":\"53770.270\",\"turnover\":\"0.000\",\"increase_rate\":\"-0.04%\",\
+    """
+    base = {"a": "GlobalCommon", "c": "GlobalIndex", "apiv": "w44"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc74(**extra):
+    r"""历史： (apphis.longhuvip.com) -> dict
+    a=GetStockChouMa_New, c=StockL2History, apiv=w41 + extra
+    resp 示例: {\"List\":[[0,-30458,-578717,609153,0,0,2453334,315666,-346124,\"09:30\",0.02],[-3245806,1148760,-331922,2428867,0,8,53159424,8009574,-10106620,\"09:3
+    """
+    base = {"a": "GetStockChouMa_New", "c": "StockL2History", "apiv": "w41"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc76(**extra):
+    r"""涨停基因 (apphwhq.longhuvip.com) -> dict
+    a=GetZhangTingGene, c=StockL2Data, apiv=w42 + extra
+    resp 示例: {\"List\":[12,4,88.8889,64.2857,35.7143,20],\"ttag\":0.00023400000000001198,\"errcode\":\"0\"}
+    """
+    base = {"a": "GetZhangTingGene", "c": "StockL2Data", "apiv": "w42"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc77(**extra):
+    r"""大面股 (apphis.longhuvip.com) -> dict
+    a=GetPMSL_KQXY, c=FuPanLa, apiv=w35 + extra
+    resp 示例: {\"List\":[[\"002676\",\"\\u987a\\u5a01\\u80a1\\u4efd\",\"-1.18%\",-10.2,\"\",0,\"\\u805a\\u4e19\\u70ef\\u3001\\u58f3\\u8d44\\u6e90\"],[\"300889\",\"\
+    """
+    base = {"a": "GetPMSL_KQXY", "c": "FuPanLa", "apiv": "w35"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc78(**extra):
+    r"""板块内涨停数 (apphwhq.longhuvip.com) -> dict
+    a=GetPlate_Info_QJ, c=ZhiShuRanking, apiv=w41 + extra
+    resp 示例: {\"List\":[28,295,352854517421,-1282084796,-1.97,1,72905796,35879198],\"Time\":1786610857,\"Date\":\"2026-08-13\",\"Min\":\"0925\",\"Max\":\"1500\",\"
+    """
+    base = {"a": "GetPlate_Info_QJ", "c": "ZhiShuRanking", "apiv": "w41"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc79(**extra):
+    r"""板块竞价异动 (apphwhq.longhuvip.com) -> dict
+    a=GetBKJJ_W36, c=StockBidYiDong, apiv=w41 + extra
+    resp 示例: {\"Day\":\"2026-08-13\",\"List1\":[[\"801003\",\"5G\",12.3,969312364,163,28233453],[\"801004\",\"\\u9502\\u7535\\u6c60\",6.5,166418828,663,16296398],[
+    """
+    base = {"a": "GetBKJJ_W36", "c": "StockBidYiDong", "apiv": "w41"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc80(**extra):
+    r"""异动板块的个股 (apphwhq.longhuvip.com) -> dict
+    a=GetBKJJBL, c=StockBidYiDong, apiv=w41 + extra
+    resp 示例: {\"Day\":\"2026-08-13\",\"List\":[[\"301107\",\"\\u745c\\u6b23\\u7535\\u5b50\",21.1,-5.8,84,1126356,-0.62,0,0.12,863416093,\"\\u673a\\u5668\\u4eba\\u6
+    """
+    base = {"a": "GetBKJJBL", "c": "StockBidYiDong", "apiv": "w41"}
+    base.update(extra)
+    return _call("after", base)
+
+def fetch_kpl_doc81(**extra):
+    r"""板块列表（end为当日） (apphwshhq.longhuvip.com) -> dict
+    a=GetInterviewsByDateZS, c=StockLineData, apiv=w41 + extra
+    resp 示例: {\"List\":[],\"Count\":0,\"ttag\":0.001762999999999959,\"errcode\":\"0\"}
+    """
+    base = {"a": "GetInterviewsByDateZS", "c": "StockLineData", "apiv": "w41"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc82(**extra):
+    r"""全市场个股区间统计（end为当日） (apphwshhq.longhuvip.com) -> dict
+    a=GetInterviewsByDateStock, c=StockLineData, apiv=w41 + extra
+    resp 示例: {\"List\":[],\"Count\":0,\"ttag\":0.0018840000000000245,\"errcode\":\"0\"}
+    """
+    base = {"a": "GetInterviewsByDateStock", "c": "StockLineData", "apiv": "w41"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc83(**extra):
+    r"""实时接口（最新季度）: (apphis.longhuvip.com) -> dict
+    a=GGList_JGCC, c=ZhuLiChiCang, apiv=w41 + extra
+    resp 示例: {\"List\":[[\"801001\",\"\\u82af\\u7247\",\"210781176639\",\"32.3844\",\"1230624973443\",\"36.09\",\"37.15\",\"76764146365125\",\"0\"],[\"801660\",\"\
+    """
+    base = {"a": "GGList_JGCC", "c": "ZhuLiChiCang", "apiv": "w41"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc84(**extra):
+    r"""历史 (apphis.longhuvip.com) -> dict
+    a=GGList_JGCC, c=ZhuLiChiCang, apiv=w41 + extra
+    resp 示例: {\"List\":[[\"801660\",\"\\u901a\\u4fe1\",\"58971507956\",\"16.6\",\"489677063576\",\"25.45\",\"31.85\",\"25570439788797\",\"0\"],[\"801081\",\"\\u8bc
+    """
+    base = {"a": "GGList_JGCC", "c": "ZhuLiChiCang", "apiv": "w41"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc85(**extra):
+    r"""实时接口（最新季度）、历史接口： (apphis.longhuvip.com) -> dict
+    a=GGList_JGCC_Plate_Stocks, c=ZhuLiChiCang, apiv=w41 + extra
+    resp 示例: {\"List\":[[\"688256\",\"\\u5bd2\\u6b66\\u7eaa  \",\"13877500939\",\"15.51\",\"103140966888\",\"753951562800\",\"16181148\",\"76177030\",\"2.31\",\"27
+    """
+    base = {"a": "GGList_JGCC_Plate_Stocks", "c": "ZhuLiChiCang", "apiv": "w41"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc86(**extra):
+    r"""实时接口：（最新季度） (apphis.longhuvip.com) -> dict
+    a=GGList_BXZJ, c=ZhuLiChiCang, apiv=w44 + extra
+    resp 示例: {\"List\":[[\"801001\",\"\\u82af\\u7247\",\"85882395225\",\"35.77\",\"541406743418\",\"36.09\",\"37.15\",\"76764146365125\",\"1\"],[\"801004\",\"\\u95
+    """
+    base = {"a": "GGList_BXZJ", "c": "ZhuLiChiCang", "apiv": "w44"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc87(**extra):
+    r"""历史 (apphis.longhuvip.com) -> dict
+    a=GGList_BXZJ, c=ZhuLiChiCang, apiv=w44 + extra
+    resp 示例: {\"List\":[[\"801088\",\"\\u6709\\u8272\\u91d1\\u5c5e\",\"20122564633\",\"21.76\",\"131838432453\",\"12.3\",\"15.38\",\"8580912833302\",\"0\"],[\"8010
+    """
+    base = {"a": "GGList_BXZJ", "c": "ZhuLiChiCang", "apiv": "w44"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc88(**extra):
+    r"""实时接口：（最新季度） (apphis.longhuvip.com) -> dict
+    a=GGList_BXZJ_Stocks, c=ZhuLiChiCang, apiv=w44 + extra
+    resp 示例: {\"State\":1,\"Date\":\"2026-06-30\",\"DateList\":[\"2026-06-30\",\"2026-03-31\",\"2025-12-31\",\"2025-09-30\",\"2025-06-30\",\"2025-03-31\",\"2024-12
+    """
+    base = {"a": "GGList_BXZJ_Stocks", "c": "ZhuLiChiCang", "apiv": "w44"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc89(**extra):
+    r"""历史 (apphis.longhuvip.com) -> dict
+    a=GGList_BXZJ_Stocks, c=ZhuLiChiCang, apiv=w44 + extra
+    resp 示例: {\"State\":1,\"Date\":\"2025-12-31\",\"DateList\":[\"2026-06-30\",\"2026-03-31\",\"2025-12-31\",\"2025-09-30\",\"2025-06-30\",\"2025-03-31\",\"2024-12
+    """
+    base = {"a": "GGList_BXZJ_Stocks", "c": "ZhuLiChiCang", "apiv": "w44"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc90(**extra):
+    r"""异动实时接口 (apphwshhq.longhuvip.com) -> dict
+    a=GetPianLiZhi_Index, c=StockBidYiDong, apiv=w44 + extra
+    resp 示例: {\"Day\":\"2026-08-13\",\"Many_Num\":19,\"Time\":1786610872,\"List\":[[\"603221\",\"\\u7231\\u4e3d\\u5bb6\\u5c45\",0,\"\\u80a1\\u7968\\u4ea4\\u6613\\u
+    """
+    base = {"a": "GetPianLiZhi_Index", "c": "StockBidYiDong", "apiv": "w44"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc91(**extra):
+    r"""股东变更 (applhb.longhuvip.com) -> dict
+    a=GuDongRenShu, c=YiDianCangWei, apiv=w44 + extra
+    resp 示例: {\"DateList\":[{\"StratDate\":\"2026-08-01\",\"EndDate\":\"2026-08-15\",\"ShowDate\":\"08\\u670801\\u65e5-08\\u670815\\u65e5\"},{\"StratDate\":\"2026-
+    """
+    base = {"a": "GuDongRenShu", "c": "YiDianCangWei", "apiv": "w44"}
+    base.update(extra)
+    return _call("lhb", base)
+
+def fetch_kpl_doc92(**extra):
+    r"""股东追踪，追股东 (applhb.longhuvip.com) -> dict
+    a=JGStockListox, c=JGTracking, apiv=w41 + extra
+    resp 示例: {\"Time\":1786610871,\"StockList\":[{\"StockID\":\"603986\",\"name\":\"\\u5146\\u6613\\u521b\\u65b0\",\"lpx\":\"404.50\",\"rate\":\"-2.10%\"}],\"List\
+    """
+    base = {"a": "JGStockListox", "c": "JGTracking", "apiv": "w41"}
+    base.update(extra)
+    return _call("lhb", base)
+
+def fetch_kpl_doc93(**extra):
+    r"""股东追踪，追个股 (applhb.longhuvip.com) -> dict
+    a=GetJGNameID, c=JGTracking, apiv=w44 + extra
+    resp 示例: {\"List\":[{\"JG\":\"\\u5f20\\u5f3a\",\"JGID\":\"11828\"}],\"errcode\":\"0\",\"t\":0.0020139999999999603}
+    """
+    base = {"a": "GetJGNameID", "c": "JGTracking", "apiv": "w44"}
+    base.update(extra)
+    return _call("lhb", base)
+
+def fetch_kpl_doc94(**extra):
+    r"""个股 - 全部相关 概念板块 (apphwshhq.longhuvip.com) -> dict
+    a=GetStockIDPlate, c=StockL2Data, apiv=w43 + extra
+    resp 示例: {\"List\":[],\"ListJX\":[[\"801159\",\"\\u673a\\u5668\\u4eba\\u6982\\u5ff5\",-1.343],[\"801273\",\"\\u80a1\\u6743\\u8f6c\\u8ba9\",-1.147],[\"801256\",
+    """
+    base = {"a": "GetStockIDPlate", "c": "StockL2Data", "apiv": "w43"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc95(**extra):
+    r"""头条 (apparticle.longhuvip.com) -> dict
+    a=GetTopList, c=PCNewsFlash, apiv=w44 + extra
+    resp 示例: {\"List\":[{\"Date\":\"2026-08-13\",\"Detail\":[{\"ID\":\"80872996205972158\",\"Date\":\"2026-08-13\",\"Title\":\"DeepSeek V4 Pro\\u6b63\\u5f0f\\u7248
+    """
+    base = {"a": "GetTopList", "c": "PCNewsFlash", "apiv": "w44"}
+    base.update(extra)
+    return _call("article", base)
+
+def fetch_kpl_doc96(**extra):
+    r"""新闻 (apparticle.longhuvip.com) -> dict
+    a=GetList, c=PCNewsFlash, apiv=w44 + extra
+    resp 示例: {\"List\":[{\"CID\":\"1783359\",\"Time\":\"1786610643\",\"Title\":\"\",\"Type\":\"1\",\"PushUrl\":\"\",\"Source\":\"\\u534e\\u5c14\\u8857\",\"IsSDXZ\"
+    """
+    base = {"a": "GetList", "c": "PCNewsFlash", "apiv": "w44"}
+    base.update(extra)
+    return _call("article", base)
+
+def fetch_kpl_doc97(**extra):
+    r"""明天炒什么（列表） (applhb.longhuvip.com) -> dict
+    a=InfoList, c=Topic, apiv=w44 + extra
+    resp 示例: {\"List\":[{\"Day\":\"2026-08-12\",\"List\":[{\"ID\":\"2359\",\"Title\":\"\\u9ad8\\u6807\\uff1a\\u518d\\u6da8\\u5c31\\u505c\\u724c\\uff01\\u6bb5\\u6c3
+    """
+    base = {"a": "InfoList", "c": "Topic", "apiv": "w44"}
+    base.update(extra)
+    return _call("lhb", base)
+
+def fetch_kpl_doc98(**extra):
+    r"""明天炒什么 利好个股 (applhb.longhuvip.com) -> dict
+    a=InfoZS, c=Topic, apiv=w44 + extra
+    resp 示例: {\"List\":[{\"StockID\":\"000066\",\"Name\":\"\\u4e2d\\u56fd\\u957f\\u57ce\",\"last_px\":\"1.61\",\"HotVal\":53766,\"HotTag\":3,\"Click\":0,\"Trad\":\
+    """
+    base = {"a": "InfoZS", "c": "Topic", "apiv": "w44"}
+    base.update(extra)
+    return _call("lhb", base)
+
+def fetch_kpl_doc99(**extra):
+    r"""明天炒什么 文章内容 (applhb.longhuvip.com) -> dict
+    a=InfoGet, c=Topic, apiv=w44 + extra
+    resp 示例: {\"Title\":\"\\u8054\\u624b\\u82f1\\u4f1f\\u8fbe\\uff01\\u5eb7\\u5b81\\u62df\\u5341\\u500d\\u6269\\u4ea7\\u5149\\u8fde\\u63a5\\uff0c\\u5149\\u7ea4\\u4
+    """
+    base = {"a": "InfoGet", "c": "Topic", "apiv": "w44"}
+    base.update(extra)
+    return _call("lhb", base)
+
+def fetch_kpl_doc100(**extra):
+    r"""上榜股票 (applhb.longhuvip.com) -> dict
+    a=GetStockList, c=LongHuBang, apiv=w44 + extra
+    resp 示例: {\"Time\":\"2026-08-13\",\"UserType\":0,\"list\":[{\"ID\":\"002792\",\"Name\":\"\\u901a\\u5b87\\u901a\\u8baf\",\"IncreaseAmount\":\"4.10%\",\"D3\":\"0
+    """
+    base = {"a": "GetStockList", "c": "LongHuBang", "apiv": "w44"}
+    base.update(extra)
+    return _call("lhb", base)
+
+def fetch_kpl_doc101(**extra):
+    r"""买入、卖出营业部详细数据 (applhb.longhuvip.com) -> dict
+    a=GetNewOneStockInfo, c=Stock, apiv=w41 + extra
+    resp 示例: {\"Name\":\"\\u65b0\\u80fd\\u6cf0\\u5c71\",\"Time\":\"2026-04-02\",\"Group\":{\"Buy\":[],\"Sell\":[]},\"KlineDay\":{\"S\":\"2026-04-10\",\"E\":\"2026-
+    """
+    base = {"a": "GetNewOneStockInfo", "c": "Stock", "apiv": "w41"}
+    base.update(extra)
+    return _call("lhb", base)
+
+def fetch_kpl_doc103(**extra):
+    r"""尾盘竞价抢筹 (apphwshhq.longhuvip.com) -> dict
+    a=GetWPQC, c=StockBidYiDong, apiv=w44 + extra
+    resp 示例: {\"Day\":\"2026-08-13\",\"State\":0,\"List\":[[\"603***\",\"****\",\"\\u6e38\\u8d44\",0,\"\\u7b97\\u529b\\u79df\\u8d41\\u3001\\u7b97\\u529b\",4.73,731
+    """
+    base = {"a": "GetWPQC", "c": "StockBidYiDong", "apiv": "w44"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc104(**extra):
+    r"""竞价砸盘 (apphwshhq.longhuvip.com) -> dict
+    a=MorningBiddingList, c=HomeDingPan, apiv=w44 + extra
+    resp 示例: {\"info\":[[\"600272\",\"\\u5f00\\u5f00\\u5b9e\\u4e1a\",16,-7.35,0,-9.9,9438701,0,0,0,27413608,\"\\u533b\\u836f\\u96f6\\u552e\\u3001SPD\",1529344000,5
+    """
+    base = {"a": "MorningBiddingList", "c": "HomeDingPan", "apiv": "w44"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc105(**extra):
+    r"""竞价撮合大于2000万 (apphwshhq.longhuvip.com) -> dict
+    a=MorningBiddingList, c=HomeDingPan, apiv=w44 + extra
+    resp 示例: {\"info\":[[\"688825\",\"\\u957f\\u946b\\u79d1\\u6280\",52.88,-1.2,0,2.39,56546659,0,0,0,579284936,\"\\u5b58\\u50a8\\u3001\\u4e2d\\u62a5\\u589e\\u957f
+    """
+    base = {"a": "MorningBiddingList", "c": "HomeDingPan", "apiv": "w44"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc106(**extra):
+    r"""历史分时 (apphis.longhuvip.com) -> dict
+    a=GetStockTrend, c=StockL2History, apiv=w41 + extra
+    resp 示例: {\"trend\":[[\"09:30\",15,15,909,1],[\"09:31\",14.95,14.982,5750,0],[\"09:32\",14.91,14.962,4951,0],[\"09:33\",14.95,14.958,2505,1],[\"09:34\",14.97,1
+    """
+    base = {"a": "GetStockTrend", "c": "StockL2History", "apiv": "w41"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc107(**extra):
+    r"""指数k线 (apphis.longhuvip.com) -> dict
+    a=GetZhiShuKLine, c=ZhiShuKLine, apiv=w44 + extra
+    resp 示例: {\"StockID\":\"SH000001\",\"x\":[20240105,20240108,20240109,20240110,20240111,20240112,20240115,20240116,20240117,20240118,20240119,20240122,20240123,
+    """
+    base = {"a": "GetZhiShuKLine", "c": "ZhiShuKLine", "apiv": "w44"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc108(**extra):
+    r"""重点监控股票 (apphwshhq.longhuvip.com) -> dict
+    a=GetYDTP_ZDJK_Today, c=StockBidYiDong, apiv=w43 + extra
+    resp 示例: {\"Time\":1786610881,\"List\":[[\"600721\",\"\\u767e\\u82b1\\u533b\\u836f\",\"2026-08-13\",\"2026-08-26\",2],[\"605255\",\"\\u5929\\u666e\\u80a1\\u4ef
+    """
+    base = {"a": "GetYDTP_ZDJK_Today", "c": "StockBidYiDong", "apiv": "w43"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc109(**extra):
+    r"""多次异动个股 (apphwshhq.longhuvip.com) -> dict
+    a=GetPianLiZhi_Many, c=StockBidYiDong, apiv=w43 + extra
+    resp 示例: {\"Day\":\"2026-08-13\",\"Time\":1786610883,\"List\":[[\"000593\",\"\\u5fb7\\u9f99\\u6c47\\u80fd\",1,\"10\\u65e5\\u51852\\u6b21\\u5f02\\u52a8\\u4e2a\\
+    """
+    base = {"a": "GetPianLiZhi_Many", "c": "StockBidYiDong", "apiv": "w43"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc110(**extra):
+    r"""实时接口 (apphis.longhuvip.com) -> dict
+    a=MarketSCLNKLine, c=HisHomeDingPan, apiv=w44 + extra
+    resp 示例: {\"info\":[{\"lastPoint\":\"255091673\",\"Date\":\"2026-08-13\"},{\"lastPoint\":\"215242310\",\"Date\":\"2026-08-12\"},{\"lastPoint\":\"232098591\",\"
+    """
+    base = {"a": "MarketSCLNKLine", "c": "HisHomeDingPan", "apiv": "w44"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc111(**extra):
+    r"""历史接口 (apphis.longhuvip.com) -> dict
+    a=MarketSCLNKLine, c=HisHomeDingPan, apiv=w44 + extra
+    resp 示例: {\"info\":[{\"lastPoint\":\"255091673\",\"Date\":\"2026-08-13\"},{\"lastPoint\":\"215242310\",\"Date\":\"2026-08-12\"},{\"lastPoint\":\"232098591\",\"
+    """
+    base = {"a": "MarketSCLNKLine", "c": "HisHomeDingPan", "apiv": "w44"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc112(**extra):
+    r"""竞价大于1000万 (apphwshhq.longhuvip.com) -> dict
+    a=MorningBiddingList, c=HomeDingPan, apiv=w44 + extra
+    resp 示例: {\"info\":[[\"300308\",\"\\u4e2d\\u9645\\u65ed\\u521b\",921.04,0,0,4.23,130182720,0,0,0,478656000,\"\\u5149\\u6a21\\u5757\\u3001OCS\\u4ea4\\u6362\\u67
+    """
+    base = {"a": "MorningBiddingList", "c": "HomeDingPan", "apiv": "w44"}
+    base.update(extra)
+    return _call("default", base)
+
+def fetch_kpl_doc113(**extra):
+    r"""副图688523 (apphis.longhuvip.com) -> dict
+    a=GetBidVolKLine, c=StockLineData, apiv=w44 + extra
+    resp 示例: {\"ZJJE\":[0,0,-715017,484999,0,0,0,0,0,0,0,0,0,0,-336154,427825,0,0,0,0,311907,60020,-307949,-3477854,-476202,0,-357327,0,-693120,0,0,359041,563813,0
+    """
+    base = {"a": "GetBidVolKLine", "c": "StockLineData", "apiv": "w44"}
+    base.update(extra)
+    return _call("his", base)
+
+def fetch_kpl_doc115(**extra):
+    r"""竞价涨停委买额-实时接口： (apphwhq.longhuvip.com) -> dict
+    a=MorningBiddingList, c=HomeDingPan, apiv=w41 + extra
+    resp 示例: {\"info\":[[\"300862\",\"\\u84dd\\u76fe\\u5149\\u7535\",39.41,20.01,2352414428,20.01,17708290,1.39,76736590,65369367,76736590,\"\\u5e76\\u8d2d\\u91cd\
+    """
+    base = {"a": "MorningBiddingList", "c": "HomeDingPan", "apiv": "w41"}
+    base.update(extra)
+    return _call("after", base)
+
+
+# 共生成 87 个 fetch_kpl_doc{N} 函数
