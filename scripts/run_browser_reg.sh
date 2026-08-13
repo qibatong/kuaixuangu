@@ -21,6 +21,8 @@ if [ "$RC" -eq 0 ]; then
 else
   echo "[$(date '+%F %T')] FAIL 浏览器回归失败 rc=$RC" >> "$LOG"
   TAIL=$(tail -n 10 "$LOG" | tr '\n' ';')
+  # systemd-run 瞬态服务不继承 kuaixuan 的 Environment, 需手动加载 notify 渠道配置
+  export $(sed -n 's/^Environment=//p' /etc/systemd/system/kuaixuan.service.d/notify.conf 2>/dev/null)
   "$PY" - "$TAIL" <<'PY' >> "$LOG" 2>&1
 import sys
 sys.path.insert(0, "/opt/kuaixuan")

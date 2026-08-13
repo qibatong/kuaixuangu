@@ -490,8 +490,41 @@ def fetch_yesterday_perf():
     return _cached("yesterday_perf", 300, loader)
 
 
-# ==================== 炸板(东财 flash 公开接口, 无需 Token) ====================
-_BROKEN_URL = "https://flash-api.xuangubao.cn/api/pool/detail?pool_name=limit_up_broken"
+# ==================== 炸板/涨停池(东财 flash 公开接口, 无需 Token) ====================
+_FLASH_BASE = "https://flash-api.xuangubao.cn/api/pool/detail?pool_name="
+
+
+def _flash_pool(pool_name, date=None):
+    """东财 flash 池通用请求: pool_name=limit_up_broken/limit_up_pool 等, date 可选(YYYY-MM-DD)
+    返回 [{code,name,change,limitUpDays,breakTimes,reason,...}, ...]; 失败返回 []"""
+    url = _FLASH_BASE + pool_name + (("&date=" + date) if date else "")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10, context=_ssl_ctx) as r:
+            d = json.loads(r.read().decode("utf-8", "ignore"))
+    except Exception as e:
+        log.warning("flash 池请求失败 pool=%s date=%s err=%s", pool_name, date or "-", e)
+        return []
+    lst = d.get("data")
+    if not isinstance(lst, list):
+        return []
+    out = []
+    for it in lst:
+        if not isinstance(it, dict):
+            continue
+        sym = str(it.get("symbol", "") or "")
+        out.append({
+            "code": sym.split(".")[0],
+            "name": str(it.get("stock_chi_name", "") or ""),
+            "change": _f(it.get("change_percent")) * 100,
+            "limitUpDays": int(_num(it.get("limit_up_days"))),
+            "breakTimes": int(_num(it.get("break_limit_up_times"))),
+            "firstLimitUp": int(_num(it.get("first_limit_up"))),
+            "firstBreak": int(_num(it.get("first_break_limit_up"))),
+            "reason": _surge_reason(it.get("surge_reason")),
+            "day": date or time.strftime("%Y-%m-%d"),
+        })
+    return out
 
 
 def _prev_trade_day():
@@ -527,37 +560,153 @@ def fetch_broken_zt(day=None):
     if day:
         is_hist = True
     cache_key = "broken_zt" + (("_" + day.replace("-", "")) if day else "")
-    url = _BROKEN_URL + (("&date=" + day) if day else "")
 
     def loader():
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=10, context=_ssl_ctx) as r:
-                d = json.loads(r.read().decode("utf-8", "ignore"))
-        except Exception as e:
-            log.warning("炸板接口失败 err=%s", e)
+        return _flash_pool("limit_up_broken", day)
+    return _cached(cache_key, (30 * 60) if is_hist else 30, loader)
+
+
+# ==================== 昨日涨停(flash 涨停池 + 今日竞价表现) ====================
+def _seal_map():
+    """竞价委买榜 code → 完整行(概念/流通/换手/净额/连板), 用于字段补全"""
+    try:
+        return {s["code"]: s for s in (fetch_bid_seal() or [])}
+    except Exception:
+        return {}
+
+
+def fetch_yest_zt():
+    """昨日涨停股今日竞价表现: flash limit_up_pool&date=上一交易日(95只) + merge Type4
+    返回 [{code,name,yestChange,limitUpDays,stillLimit,change,bidChange,bidNetAmt,bidAmt,
+           bidTurnover,floatMv,board}, ...]"""
+    def loader():
+        day = _prev_trade_day()
+        if not day:
             return []
-        lst = d.get("data")
-        if not isinstance(lst, list):
+        lst = _flash_pool("limit_up_pool", day)
+        if not lst:
             return []
+        today_codes = {x["code"] for x in _flash_pool("limit_up_pool")}
+        seal_map = _seal_map()
         out = []
         for it in lst:
-            if not isinstance(it, dict):
-                continue
-            sym = str(it.get("symbol", "") or "")
+            code = it["code"]
+            s = seal_map.get(code, {})
             out.append({
-                "code": sym.split(".")[0],                        # 去掉 .SZ/.SS 后缀
-                "name": str(it.get("stock_chi_name", "") or ""),  # 名称字段是stock_chi_name
-                "change": _f(it.get("change_percent")) * 100,          # 涨幅(%)
-                "limitUpDays": int(_num(it.get("limit_up_days"))),     # 连板数
-                "breakTimes": int(_num(it.get("break_limit_up_times"))),  # 炸板次数
-                "firstLimitUp": int(_num(it.get("first_limit_up"))),   # 首次涨停时间戳
-                "firstBreak": int(_num(it.get("first_break_limit_up"))),  # 首次炸板时间戳
-                "reason": _surge_reason(it.get("surge_reason")),       # 涨停原因
-                "day": day or time.strftime("%Y-%m-%d"),
+                "code": code,
+                "name": it["name"],
+                "yestChange": it["change"],              # 昨日涨停涨幅
+                "limitUpDays": it["limitUpDays"],        # 昨日连板数
+                "stillLimit": code in today_codes,       # 今日是否仍涨停(连板)
+                "change": s.get("realChange"),           # 今日实时涨幅
+                "bidChange": s.get("bidChange"),         # 竞价涨幅
+                "bidNetAmt": s.get("bidNetAmt"),         # 竞价承接(净额,元)
+                "bidAmt": s.get("bidAmt"),               # 竞价额(元)
+                "bidTurnover": s.get("bidTurnover"),     # 竞价换手(%)
+                "floatMv": s.get("floatMv"),             # 流通市值(元)
+                "board": s.get("board"),                 # 概念
             })
         return out
-    return _cached(cache_key, (30 * 60) if is_hist else 30, loader)
+    return _cached("yest_zt", 60 * 5, loader)
+
+
+def fetch_yest_broken():
+    """昨断板: 昨日涨停池中今日未涨停的股票(今日竞价表现从 snapshot_bid 9:25 补)
+    返回 [{code,name,yestChange,limitUpDays,change,bidChange,bidAmt,bidNetAmt,bidTurnover,floatMv,board}, ...]"""
+    def loader():
+        import sqlite3
+        day = _prev_trade_day()
+        if not day:
+            return []
+        yest = _flash_pool("limit_up_pool", day)
+        if not yest:
+            return []
+        today_codes = {x["code"] for x in _flash_pool("limit_up_pool")}
+        broken = [x for x in yest if x["code"] not in today_codes]
+        # 今日竞价快照(9:25)补: 涨幅/竞额 (表不存在/无数据时降级)
+        conn = sqlite3.connect(config.DB_FILE)
+        snap = {}
+        try:
+            for r in conn.execute(
+                    "SELECT code, bid_change, bid_amt, name FROM snapshot_bid "
+                    "WHERE date=? AND time_point='9_25'", (time.strftime("%Y-%m-%d"),)):
+                snap[r[0]] = {"bid_change": r[1], "bid_amt": r[2], "name": r[3]}
+        except Exception as e:
+            log.warning("昨断板快照查询失败(降级) err=%s", e)
+        finally:
+            conn.close()
+        seal_map = _seal_map()
+        out = []
+        for it in broken:
+            code = it["code"]
+            s = snap.get(code, {})
+            t4 = seal_map.get(code, {})
+            out.append({
+                "code": code,
+                "name": t4.get("name") or s.get("name") or it["name"],
+                "yestChange": it["change"],              # 昨日涨停涨幅
+                "limitUpDays": it["limitUpDays"],        # 昨日连板数
+                "change": t4.get("realChange"),          # 今日实时涨幅(有则)
+                "bidChange": s.get("bid_change") if s else None,   # 今日竞价涨幅
+                "bidAmt": (s["bid_amt"] * 10000) if s and s.get("bid_amt") else None,  # 竞价额(元)
+                "bidNetAmt": t4.get("bidNetAmt"),
+                "bidTurnover": t4.get("bidTurnover"),
+                "floatMv": t4.get("floatMv"),
+                "board": t4.get("board") or "",
+            })
+        return out
+    return _cached("yest_broken", 60 * 5, loader)
+
+
+def fetch_bid_qiangcang():
+    """竞价抢筹: 基于 snapshot_bid 三时点快照计算 9:20→9:25 竞价额增速(抢筹幅度),
+    merge Type4 补概念/流通/换手; 按抢筹幅度降序。开盘啦无专用接口, 此为等效计算。
+    返回 [{code,name,change,bidAmt,qcPct,bidChange20,bidNetAmt,bidTurnover,floatMv,board}, ...]"""
+    def loader():
+        import sqlite3
+        today = time.strftime("%Y-%m-%d")
+        conn = sqlite3.connect(config.DB_FILE)
+        m20 = {}
+        m25 = {}
+        try:
+            for r in conn.execute(
+                    "SELECT code, bid_change, bid_amt FROM snapshot_bid WHERE date=? AND time_point='9_20'",
+                    (today,)):
+                m20[r[0]] = {"chg": r[1], "amt": r[2]}
+            for r in conn.execute(
+                    "SELECT code, bid_change, bid_amt, name FROM snapshot_bid WHERE date=? AND time_point='9_25'",
+                    (today,)):
+                m25[r[0]] = {"chg": r[1], "amt": r[2], "name": r[3]}
+        finally:
+            conn.close()
+        if not m20 or not m25:
+            return []
+        seal_map = _seal_map()
+        out = []
+        for code, v25 in m25.items():
+            v20 = m20.get(code)
+            if not v20 or not v25["amt"] or not v20["amt"]:
+                continue
+            # 基数过小(竞价额<50万)的票抢筹幅度无意义(9:20 几千块放大到几百万会虚高上万%), 过滤
+            if v20["amt"] < 50 or v25["amt"] < 50:
+                continue
+            qc = round((v25["amt"] / v20["amt"] - 1) * 100, 2)   # 抢筹幅度(%)
+            t4 = seal_map.get(code, {})
+            out.append({
+                "code": code,
+                "name": v25["name"] or t4.get("name", ""),
+                "change": v25["chg"],                          # 9:25 竞价涨幅
+                "bidAmt": v25["amt"] * 10000,                  # 9:25 竞价额(元)
+                "qcPct": qc,                                   # 抢筹幅度(%)
+                "bidChange20": v20["chg"],                     # 9:20 竞价涨幅(竞涨)
+                "bidNetAmt": t4.get("bidNetAmt"),
+                "bidTurnover": t4.get("bidTurnover"),
+                "floatMv": t4.get("floatMv"),
+                "board": t4.get("board", ""),
+            })
+        out.sort(key=lambda x: x["qcPct"], reverse=True)
+        return out[:100]
+    return _cached("bid_qiangcang", 30, loader)
 
 
 def _surge_reason(sr):

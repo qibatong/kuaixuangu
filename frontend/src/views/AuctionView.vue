@@ -43,7 +43,10 @@
     <div class="auc-tabs">
       <button class="auc-tab" :class="{ active: tab === 'seal' }" @click="tab = 'seal'"><i class="fa fa-gavel"></i> 竞价委买</button>
       <button class="auc-tab" :class="{ active: tab === 'boom' }" @click="tab = 'boom'"><i class="fa fa-bolt"></i> 竞价爆量</button>
+      <button class="auc-tab" :class="{ active: tab === 'qc' }" @click="tab = 'qc'"><i class="fa fa-fire"></i> 竞价抢筹</button>
       <button class="auc-tab" :class="{ active: tab === 'net' }" @click="tab = 'net'"><i class="fa fa-exchange"></i> 竞价净额</button>
+      <button class="auc-tab" :class="{ active: tab === 'yestZt' }" @click="tab = 'yestZt'"><i class="fa fa-sun-o"></i> 昨日涨停</button>
+      <button class="auc-tab" :class="{ active: tab === 'yestBroken' }" @click="tab = 'yestBroken'"><i class="fa fa-bell-slash"></i> 昨断板</button>
       <button class="auc-tab" :class="{ active: tab === 'lhb' }" @click="tab = 'lhb'"><i class="fa fa-list-alt"></i> 昨上榜</button>
       <button class="auc-tab" :class="{ active: tab === 'brokenYest' }" @click="tab = 'brokenYest'"><i class="fa fa-history"></i> 昨炸板</button>
       <button class="auc-tab" :class="{ active: tab === 'brokenToday' }" @click="tab = 'brokenToday'"><i class="fa fa-chain-broken"></i> 今炸板</button>
@@ -53,7 +56,7 @@
       <div v-if="loading" class="loading-placeholder"><div class="spinner"></div><div>加载中...</div></div>
 
       <!-- 竞价委买/爆量/净额 共用表 -->
-      <table v-else-if="tab !== 'lhb' && tab !== 'brokenYest' && tab !== 'brokenToday'" class="stock-table">
+      <table v-else-if="tab === 'seal' || tab === 'boom' || tab === 'net'" class="stock-table">
         <thead>
           <tr>
             <th>排名</th><th>代码</th><th>名称</th><th>实时涨幅</th><th>竞价涨幅</th>
@@ -73,6 +76,70 @@
             <td><span v-if="it.limitBoards > 0" class="lb-badge">{{ it.limitBoards }}板</span><span v-else class="dim">-</span></td>
             <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ it.board }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已入池' : '＋池' }}</button></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- 竞价抢筹(9:20→9:25 竞价额增速) -->
+      <table v-else-if="tab === 'qc'" class="stock-table">
+        <thead>
+          <tr><th>排名</th><th>代码</th><th>名称</th><th>竞价涨幅</th><th>竞额(亿)</th><th>抢筹幅度%</th><th>竞涨9:20</th><th>竞价换手</th><th>流通Z(亿)</th><th>概念</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="(q, idx) in qcList" :key="q.code">
+            <td class="rank-col">{{ idx + 1 }}</td>
+            <td class="code-click" @click="linkToSoftware(q.code)">{{ q.code }}</td>
+            <td class="name-col"><div class="name-main">{{ q.name }}</div></td>
+            <td :class="q.change > 0 ? 'up' : 'down'">{{ signed(q.change) }}%</td>
+            <td :class="q.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(q.bidAmt) }}</td>
+            <td :class="q.qcPct > 0 ? 'up' : q.qcPct < 0 ? 'down' : 'dim'"><b>{{ signed(q.qcPct) }}%</b></td>
+            <td :class="q.bidChange20 > 0 ? 'up' : 'down'">{{ signed(q.bidChange20) }}%</td>
+            <td>{{ q.bidTurnover ? q.bidTurnover.toFixed(2) : '-' }}</td>
+            <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) : '-' }}</td>
+            <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ q.board || '-' }}</td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已入池' : '＋池' }}</button></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- 昨日涨停(今日竞价表现) -->
+      <table v-else-if="tab === 'yestZt'" class="stock-table">
+        <thead>
+          <tr><th>排名</th><th>代码</th><th>名称</th><th>连板</th><th>实时涨幅</th><th>竞价换手</th><th>竞价净额(亿)</th><th>竞额(亿)</th><th>概念</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="(z, idx) in yestZtList" :key="z.code">
+            <td class="rank-col">{{ idx + 1 }}</td>
+            <td class="code-click" @click="linkToSoftware(z.code)">{{ z.code }}</td>
+            <td class="name-col"><div class="name-main">{{ z.name }}</div>
+              <span v-if="z.stillLimit" class="lb-badge">连板</span></td>
+            <td><span v-if="z.limitUpDays > 0" class="lb-badge">{{ z.limitUpDays }}板</span><span v-else class="dim">-</span></td>
+            <td :class="z.change > 0 ? 'up' : z.change < 0 ? 'down' : 'dim'">{{ z.change !== null && z.change !== undefined ? signed(z.change) + '%' : '-' }}</td>
+            <td>{{ z.bidTurnover ? z.bidTurnover.toFixed(2) : '-' }}</td>
+            <td :class="z.bidNetAmt > 0 ? 'up' : z.bidNetAmt < 0 ? 'down' : 'dim'">{{ z.bidNetAmt ? amtText(z.bidNetAmt) : '-' }}</td>
+            <td>{{ z.bidAmt ? amtText(z.bidAmt) : '-' }}</td>
+            <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ z.board || '-' }}</td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(z.code) }" @click.stop="addToPool(z)">{{ inPool(z.code) ? '已入池' : '＋池' }}</button></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- 昨断板(昨涨停今断) -->
+      <table v-else-if="tab === 'yestBroken'" class="stock-table">
+        <thead>
+          <tr><th>排名</th><th>代码</th><th>名称</th><th>昨涨幅</th><th>今日竞价涨幅</th><th>竞额(亿)</th><th>竞价换手</th><th>概念</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="(b2, idx) in yestBrokenList" :key="b2.code">
+            <td class="rank-col">{{ idx + 1 }}</td>
+            <td class="code-click" @click="linkToSoftware(b2.code)">{{ b2.code }}</td>
+            <td class="name-col"><div class="name-main">{{ b2.name }}</div></td>
+            <td :class="b2.yestChange > 0 ? 'up' : 'down'">{{ signed(b2.yestChange) }}%</td>
+            <td :class="b2.bidChange > 0 ? 'up' : b2.bidChange < 0 ? 'down' : 'dim'">{{ b2.bidChange !== null && b2.bidChange !== undefined ? signed(b2.bidChange) + '%' : '-' }}</td>
+            <td>{{ b2.bidAmt ? amtText(b2.bidAmt) : '-' }}</td>
+            <td>{{ b2.bidTurnover ? b2.bidTurnover.toFixed(2) : '-' }}</td>
+            <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ b2.board || '-' }}</td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(b2.code) }" @click.stop="addToPool(b2)">{{ inPool(b2.code) ? '已入池' : '＋池' }}</button></td>
           </tr>
         </tbody>
       </table>
@@ -147,7 +214,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { kplBidSeal, kplBidBoom, kplBroken, kplLhb } from '../api/kpl'
+import { kplBidSeal, kplBidBoom, kplBidQiangcang, kplBroken, kplLhb, kplYestBroken, kplYestZt } from '../api/kpl'
 import { auctionOverview, auctionSnapshot } from '../api/stats'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
@@ -162,6 +229,9 @@ const boomList = ref([])
 const lhbList = ref([])
 const brokenYestList = ref([])
 const brokenTodayList = ref([])
+const qcList = ref([])
+const yestZtList = ref([])
+const yestBrokenList = ref([])
 const loading = ref(true)
 const bjTime = ref('--:--:--')
 let clockTimer = null
@@ -186,6 +256,11 @@ const brokenTitle = computed(() => (tab.value === 'brokenYest' ? '昨炸板' : '
 
 function yi(v) { return (v / 1e8).toFixed(2) }
 function signed(v) { return (v > 0 ? '+' : '') + Number(v).toFixed(2) }
+// 金额自适应: >=1亿 显示亿(2位), 否则显示万
+function amtText(v) {
+  if (!v || v <= 0) return '-'
+  return v >= 1e8 ? (v / 1e8).toFixed(2) + '亿' : (v / 1e4).toFixed(0) + '万'
+}
 function fmtAvg(v) { return v === null || v === undefined ? '-' : (v > 0 ? '+' : '') + v.toFixed(2) + '%' }
 function fmtT(ts) {
   if (!ts) return '-'
@@ -220,13 +295,16 @@ function wan(v) { return v ? Number(v).toFixed(0) : '0' }
 
 async function loadAll() {
   try {
-    const [ov, seal, boom, lhb, brokenYest, brokenToday] = await Promise.all([
-      auctionOverview(), kplBidSeal(), kplBidBoom(), kplLhb(),
-      kplBroken('yesterday'), kplBroken()
+    const [ov, seal, boom, qc, yestZt, yestBroken, lhb, brokenYest, brokenToday] = await Promise.all([
+      auctionOverview(), kplBidSeal(), kplBidBoom(), kplBidQiangcang(), kplYestZt(), kplYestBroken(),
+      kplLhb(), kplBroken('yesterday'), kplBroken()
     ])
     days.value = ov.days || []
     sealRaw.value = seal.list || []
     boomList.value = boom.list || []
+    qcList.value = qc.list || []
+    yestZtList.value = yestZt.list || []
+    yestBrokenList.value = yestBroken.list || []
     lhbList.value = lhb.list || []
     brokenYestList.value = brokenYest.list || []
     brokenTodayList.value = brokenToday.list || []

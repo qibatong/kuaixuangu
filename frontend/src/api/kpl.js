@@ -46,6 +46,18 @@ export function kplWpqc() {
   return request('/api/kpl/wpqc')
 }
 
+export function kplBidQiangcang() {
+  return request('/api/kpl/bid-qiangcang')
+}
+
+export function kplYestZt() {
+  return request('/api/kpl/yest-zt')
+}
+
+export function kplYestBroken() {
+  return request('/api/kpl/yest-broken')
+}
+
 export function kplYesterdayPerf() {
   return request('/api/kpl/yesterday-perf')
 }

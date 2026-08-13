@@ -278,3 +278,69 @@ def test_call_failure_returns_none(monkeypatch):
     kpl._cache.clear()
     assert kpl.fetch_bid_seal() is None
     assert kpl.fetch_sentiment() is None
+
+
+# ---------- 昨日涨停 / 昨断板 / 竞价抢筹 ----------
+def _mk_flash_pool(monkeypatch, day_pool, today_codes):
+    """mock _flash_pool: 昨日池返回 day_pool, 今日池返回 today_codes 对应的简单行"""
+    def fake(pool_name, date=None):
+        if date:  # 昨日
+            return [{"code": x[0], "name": x[1], "change": x[2], "limitUpDays": x[3]}
+                    for x in day_pool]
+        return [{"code": c, "name": c, "change": 10.0, "limitUpDays": 1} for c in today_codes]
+    monkeypatch.setattr(kpl, "_flash_pool", fake)
+    monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: [])
+    monkeypatch.setattr(kpl, "_prev_trade_day", lambda: "2026-08-12")
+    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+
+
+def test_fetch_yest_zt(monkeypatch):
+    _mk_flash_pool(monkeypatch,
+                   [("600266", "城建发展", 10.0, 1), ("600683", "京投发展", 10.0, 3)],
+                   today_codes=["600683"])   # 京投发展今仍涨停
+    kpl._cache.clear()
+    rows = kpl.fetch_yest_zt()
+    assert len(rows) == 2
+    m = {r["code"]: r for r in rows}
+    assert m["600266"]["stillLimit"] is False      # 今断
+    assert m["600683"]["stillLimit"] is True       # 连板
+    assert m["600683"]["limitUpDays"] == 3
+
+
+def test_fetch_yest_broken(monkeypatch):
+    _mk_flash_pool(monkeypatch,
+                   [("600266", "城建发展", 10.0, 1), ("600683", "京投发展", 10.0, 3)],
+                   today_codes=["600683"])   # 600266 今日未涨停 → 断板
+    kpl._cache.clear()
+    rows = kpl.fetch_yest_broken()
+    codes = [r["code"] for r in rows]
+    assert "600266" in codes
+    assert "600683" not in codes
+
+
+def test_fetch_bid_qiangcang(monkeypatch):
+    # mock snapshot_bid: 9:20/9:25 竞价额
+    import sqlite3
+    class FakeConn:
+        def __init__(self, rows):
+            self._rows = rows
+            self.executed = []
+        def execute(self, sql, params=()):
+            self.executed.append(sql)
+            if "9_20" in sql:
+                return [(c, 5.0, amt) for c, amt in [(1, 100), (2, 200)]]
+            return [(c, 6.0, amt, "N%d" % c) for c, amt in [(1, 300), (2, 220)]]
+        def close(self): pass
+    real = sqlite3.connect
+    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+    monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn(None))
+    kpl._cache.clear()
+    rows = kpl.fetch_bid_qiangcang()
+    monkeypatch.setattr("sqlite3.connect", real)
+    assert len(rows) == 2
+    m = {r["code"]: r for r in rows}
+    assert m[1]["qcPct"] == 200.0    # (300/100-1)*100
+    assert m[2]["qcPct"] == 10.0     # (220/200-1)*100
+    assert m[1]["bidAmt"] == 300 * 10000  # 万元→元
+    # 抢筹幅度降序: 200% 排在 10% 前
+    assert rows[0]["code"] == 1

@@ -98,6 +98,27 @@ def api_kpl_wpqc(request: Request, uid: int = Depends(get_uid)):
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
 
 
+@router.get("/api/kpl/bid-qiangcang")
+def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(get_uid)):
+    """竞价抢筹: 9:20→9:25 竞价额增速(基于三时点快照计算)"""
+    d = kpl.fetch_bid_qiangcang()
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+
+
+@router.get("/api/kpl/yest-zt")
+def api_kpl_yest_zt(request: Request, uid: int = Depends(get_uid)):
+    """昨日涨停股今日竞价表现(flash 昨日涨停池 + Type4 merge)"""
+    d = kpl.fetch_yest_zt()
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+
+
+@router.get("/api/kpl/yest-broken")
+def api_kpl_yest_broken(request: Request, uid: int = Depends(get_uid)):
+    """昨断板: 昨日涨停池中今日未涨停的股票"""
+    d = kpl.fetch_yest_broken()
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+
+
 @router.get("/api/kpl/yesterday-perf")
 def api_kpl_yesterday_perf(request: Request, uid: int = Depends(get_uid)):
     """昨日涨停/连板/破板今日平均表现(策略验证)"""

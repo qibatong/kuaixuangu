@@ -91,7 +91,17 @@ def run(shot_dir, user, pwd):
         # ---- 登录 ----
         log("登录 %s" % user)
         cdp("Page.navigate", {"url": BASE + "/login"})
-        time.sleep(3)
+        # 轮询等待登录表单(服务冷启动/首次并发接口慢时最多等 20s)
+        form_ok = False
+        for _ in range(20):
+            if ev("!!document.querySelector('input[placeholder*=\"用户名\"]')"):
+                form_ok = True
+                break
+            time.sleep(1)
+        if not form_ok:
+            log("❌ 登录表单未出现")
+            shot("00_login_fail.png")
+            sys.exit(1)
         r = ev("""
         (() => {
           const setVal = (el, v) => {
@@ -178,7 +188,46 @@ def run(shot_dir, user, pwd):
             failed.append("竞价净额异常: %s" % d)
         shot("03_net.png")
 
-        # Tab4 昨炸板
+        # Tab4 竞价抢筹
+        log("Tab=竞价抢筹")
+        click_tab("竞价抢筹")
+        time.sleep(2)
+        d = json.loads(ev(rows_js))
+        rows = d.get("rows") or []
+        log("  首行: %s" % (rows[0] if rows else d))
+        if rows and len(rows[0]) >= 6 and rows[0][5] not in ("", "-", "NaN"):
+            log("✅ 竞价抢筹 首行抢筹幅度=%s" % rows[0][5])
+        else:
+            failed.append("竞价抢筹异常: %s" % d)
+        shot("04_qc.png")
+
+        # Tab5 昨日涨停
+        log("Tab=昨日涨停")
+        click_tab("昨日涨停")
+        time.sleep(2)
+        d = json.loads(ev(rows_js))
+        rows = d.get("rows") or []
+        log("  首行: %s" % (rows[0] if rows else d))
+        if rows and len(rows[0]) >= 7 and rows[0][1] and rows[0][1] != "-":
+            log("✅ 昨日涨停 首行=%s" % rows[0])
+        else:
+            failed.append("昨日涨停异常: %s" % d)
+        shot("05_yest_zt.png")
+
+        # Tab6 昨断板
+        log("Tab=昨断板")
+        click_tab("昨断板")
+        time.sleep(2)
+        d = json.loads(ev(rows_js))
+        rows = d.get("rows") or []
+        log("  首行: %s" % (rows[0] if rows else d))
+        if rows and len(rows[0]) >= 5 and rows[0][1] and rows[0][1] != "-":
+            log("✅ 昨断板 首行=%s" % rows[0])
+        else:
+            failed.append("昨断板异常: %s" % d)
+        shot("06_yest_broken.png")
+
+        # Tab7 昨炸板
         log("Tab=昨炸板")
         click_tab("昨炸板")
         time.sleep(2)
@@ -246,7 +295,7 @@ def run(shot_dir, user, pwd):
         for f in failed:
             log("  - " + f)
         sys.exit(2)
-    log("✅✅ 竞价异动页五 Tab + 时点个股弹窗真实浏览器验证全部通过, 截图: %s" % shot_dir)
+    log("✅✅ 竞价异动页八 Tab(委买/爆量/抢筹/净额/昨日涨停/昨断板/昨炸板/今炸板) + 时点个股弹窗真实浏览器验证全部通过, 截图: %s" % shot_dir)
 
 
 def main():
