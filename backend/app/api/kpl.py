@@ -37,10 +37,12 @@ def api_kpl_bid_boom(request: Request, uid: int = Depends(get_uid)):
 
 
 @router.get("/api/kpl/broken")
-def api_kpl_broken(request: Request, uid: int = Depends(get_uid)):
-    """炸板实时(东财 flash, 无需Token)"""
-    d = kpl.fetch_broken_zt()
-    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+def api_kpl_broken(request: Request, day: str = "", uid: int = Depends(get_uid)):
+    """炸板(东财 flash, 无需Token): 默认今日; day=yesterday 上一交易日; day=YYYY-MM-DD 指定日"""
+    d = kpl.fetch_broken_zt(day or None)
+    lst = d or []
+    return jr({"ok": True, "list": lst, "count": len(lst),
+               "day": (lst[0].get("day") if lst else "")})
 
 
 @router.get("/api/kpl/ladder")

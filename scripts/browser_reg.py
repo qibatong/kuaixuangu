@@ -178,6 +178,32 @@ def run(shot_dir, user, pwd):
             failed.append("竞价净额异常: %s" % d)
         shot("03_net.png")
 
+        # Tab4 昨炸板
+        log("Tab=昨炸板")
+        click_tab("昨炸板")
+        time.sleep(2)
+        d = json.loads(ev(rows_js))
+        rows = d.get("rows") or []
+        log("  行数(前3): %d 首行: %s" % (len(rows), rows[0] if rows else d))
+        if rows and len(rows[0]) >= 5 and rows[0][2] not in ("", "-"):
+            log("✅ 昨炸板 首行涨幅=%s 炸板次数=%s" % (rows[0][2], rows[0][4]))
+        else:
+            failed.append("昨炸板异常: %s" % d)
+        shot("04_broken_yest.png")
+
+        # Tab5 今炸板
+        log("Tab=今炸板")
+        click_tab("今炸板")
+        time.sleep(2)
+        d = json.loads(ev(rows_js))
+        rows = d.get("rows") or []
+        log("  行数(前3): %d 首行: %s" % (len(rows), rows[0] if rows else d))
+        if rows and len(rows[0]) >= 5 and rows[0][2] not in ("", "-"):
+            log("✅ 今炸板 首行涨幅=%s 炸板次数=%s" % (rows[0][2], rows[0][4]))
+        else:
+            failed.append("今炸板异常: %s" % d)
+        shot("05_broken_today.png")
+
         ws.close()
     finally:
         proc.terminate()
@@ -192,7 +218,7 @@ def run(shot_dir, user, pwd):
         for f in failed:
             log("  - " + f)
         sys.exit(2)
-    log("✅✅ 竞价异动页三 Tab 真实浏览器验证全部通过, 截图: %s" % shot_dir)
+    log("✅✅ 竞价异动页五 Tab(委买/爆量/净额/昨炸板/今炸板)真实浏览器验证全部通过, 截图: %s" % shot_dir)
 
 
 def main():

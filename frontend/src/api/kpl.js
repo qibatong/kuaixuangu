@@ -13,8 +13,9 @@ export function kplBidBoom() {
   return request('/api/kpl/bid-boom')
 }
 
-export function kplBroken() {
-  return request('/api/kpl/broken')
+export function kplBroken(day = '') {
+  // day: ''=今日 / 'yesterday'=上一交易日 / 'YYYY-MM-DD'=指定日
+  return request('/api/kpl/broken', { query: day ? { day } : {} })
 }
 
 export function kplLadder() {

@@ -237,6 +237,39 @@ def test_fetch_broken_zt(monkeypatch):
     assert r["breakTimes"] == 3
     assert "金融科技龙头" in r["reason"]     # 个股原因
     assert "银行" in r["reason"]             # 板块原因
+    assert r["day"]                          # 行内带日期
+
+
+# ---------- 炸板指定日期(昨炸板) ----------
+def test_fetch_broken_zt_by_day(monkeypatch):
+    import urllib.request
+    urls = []
+
+    class FakeResp:
+        def read(self):
+            return ('{"code":20000,"data":[{"symbol":"002536.SZ","stock_chi_name":"飞龙股份",'
+                    '"change_percent":0.0788,"limit_up_days":0,"break_limit_up_times":1,'
+                    '"first_limit_up":1786584600,"first_break_limit_up":1786584700}]}').encode()
+
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake_urlopen(req, *a, **k):
+        urls.append(req.full_url)
+        return FakeResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    kpl._cache.clear()
+    rows = kpl.fetch_broken_zt("2026-08-12")
+    assert len(rows) == 1
+    assert rows[0]["day"] == "2026-08-12"
+    assert rows[0]["code"] == "002536"
+    assert urls and "date=2026-08-12" in urls[0]   # URL 带 date 参数
+    # yesterday → 解析为具体日期(日历兜底: 跳过周末)
+    kpl._cache.clear()
+    monkeypatch.setattr(kpl, "_prev_trade_day", lambda: "2026-08-12")
+    rows2 = kpl.fetch_broken_zt("yesterday")
+    assert rows2[0]["day"] == "2026-08-12"
 
 
 # ---------- 调用失败降级 ----------

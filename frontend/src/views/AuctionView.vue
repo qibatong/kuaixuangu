@@ -44,14 +44,15 @@
       <button class="auc-tab" :class="{ active: tab === 'boom' }" @click="tab = 'boom'"><i class="fa fa-bolt"></i> 竞价爆量</button>
       <button class="auc-tab" :class="{ active: tab === 'net' }" @click="tab = 'net'"><i class="fa fa-exchange"></i> 竞价净额</button>
       <button class="auc-tab" :class="{ active: tab === 'lhb' }" @click="tab = 'lhb'"><i class="fa fa-list-alt"></i> 昨上榜</button>
-      <button class="auc-tab" :class="{ active: tab === 'broken' }" @click="tab = 'broken'"><i class="fa fa-chain-broken"></i> 炸板</button>
+      <button class="auc-tab" :class="{ active: tab === 'brokenYest' }" @click="tab = 'brokenYest'"><i class="fa fa-history"></i> 昨炸板</button>
+      <button class="auc-tab" :class="{ active: tab === 'brokenToday' }" @click="tab = 'brokenToday'"><i class="fa fa-chain-broken"></i> 今炸板</button>
     </div>
 
     <div class="auc-panel">
       <div v-if="loading" class="loading-placeholder"><div class="spinner"></div><div>加载中...</div></div>
 
       <!-- 竞价委买/爆量/净额 共用表 -->
-      <table v-else-if="tab !== 'lhb' && tab !== 'broken'" class="stock-table">
+      <table v-else-if="tab !== 'lhb' && tab !== 'brokenYest' && tab !== 'brokenToday'" class="stock-table">
         <thead>
           <tr>
             <th>排名</th><th>代码</th><th>名称</th><th>实时涨幅</th><th>竞价涨幅</th>
@@ -95,8 +96,8 @@
         </tbody>
       </table>
 
-      <!-- 炸板 -->
-      <table v-else class="stock-table">
+      <!-- 炸板(昨/今) -->
+      <table v-else-if="tab === 'brokenYest' || tab === 'brokenToday'" class="stock-table">
         <thead>
           <tr><th>代码</th><th>名称</th><th>涨幅%</th><th>连板</th><th>炸板次数</th><th>涨停时间</th><th>炸板时间</th><th>涨停原因</th><th>操作</th></tr>
         </thead>
@@ -133,7 +134,8 @@ const days = ref([])
 const sealRaw = ref([])
 const boomList = ref([])
 const lhbList = ref([])
-const brokenList = ref([])
+const brokenYestList = ref([])
+const brokenTodayList = ref([])
 const loading = ref(true)
 const bjTime = ref('--:--:--')
 let clockTimer = null
@@ -152,6 +154,10 @@ const sealList = computed(() => {
   return sealRaw.value
 })
 
+// 炸板: 昨/今 按 Tab 切换
+const brokenList = computed(() => (tab.value === 'brokenYest' ? brokenYestList.value : brokenTodayList.value))
+const brokenTitle = computed(() => (tab.value === 'brokenYest' ? '昨炸板' : '今炸板'))
+
 function yi(v) { return (v / 1e8).toFixed(2) }
 function signed(v) { return (v > 0 ? '+' : '') + Number(v).toFixed(2) }
 function fmtAvg(v) { return v === null || v === undefined ? '-' : (v > 0 ? '+' : '') + v.toFixed(2) + '%' }
@@ -168,14 +174,16 @@ function addToPool(s) {
 
 async function loadAll() {
   try {
-    const [ov, seal, boom, lhb, broken] = await Promise.all([
-      auctionOverview(), kplBidSeal(), kplBidBoom(), kplLhb(), kplBroken()
+    const [ov, seal, boom, lhb, brokenYest, brokenToday] = await Promise.all([
+      auctionOverview(), kplBidSeal(), kplBidBoom(), kplLhb(),
+      kplBroken('yesterday'), kplBroken()
     ])
     days.value = ov.days || []
     sealRaw.value = seal.list || []
     boomList.value = boom.list || []
     lhbList.value = lhb.list || []
-    brokenList.value = broken.list || []
+    brokenYestList.value = brokenYest.list || []
+    brokenTodayList.value = brokenToday.list || []
   } catch (e) { /* 静默 */ } finally {
     loading.value = false
   }

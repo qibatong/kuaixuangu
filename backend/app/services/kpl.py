@@ -494,11 +494,44 @@ def fetch_yesterday_perf():
 _BROKEN_URL = "https://flash-api.xuangubao.cn/api/pool/detail?pool_name=limit_up_broken"
 
 
-def fetch_broken_zt():
-    """炸板实时列表(东财 flash): [{code,name,change,limitUpDays,breakTimes,firstLimitUp,firstBreak}, ...]"""
+def _prev_trade_day():
+    """上一交易日: snapshot_bid 记录优先(自动跳过节假日); 失败降级为日历跳过周末"""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(config.DB_FILE)
+        today = time.strftime("%Y-%m-%d")
+        rows = conn.execute(
+            "SELECT DISTINCT date FROM snapshot_bid WHERE date < ? ORDER BY date DESC LIMIT 1",
+            (today,),
+        ).fetchall()
+        conn.close()
+        if rows:
+            return rows[0][0]
+    except Exception as e:
+        log.warning("上一交易日查询失败(降级日历) err=%s", e)
+    from datetime import datetime, timedelta
+    d = datetime.now() - timedelta(days=1)
+    while d.weekday() >= 5:  # 跳过周末(法定节假日由 snapshot_bid 路径覆盖)
+        d -= timedelta(days=1)
+    return d.strftime("%Y-%m-%d")
+
+
+def fetch_broken_zt(day=None):
+    """炸板列表(东财 flash, 无需Token): day=None 今日; 'yesterday' 上一交易日; 'YYYY-MM-DD' 指定日
+    返回 [{code,name,change,limitUpDays,breakTimes,firstLimitUp,firstBreak,reason,day}, ...]"""
+    is_hist = False
+    if day == "yesterday":
+        day = _prev_trade_day()
+        if not day:
+            return []
+    if day:
+        is_hist = True
+    cache_key = "broken_zt" + (("_" + day.replace("-", "")) if day else "")
+    url = _BROKEN_URL + (("&date=" + day) if day else "")
+
     def loader():
         try:
-            req = urllib.request.Request(_BROKEN_URL, headers={"User-Agent": "Mozilla/5.0"})
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req, timeout=10, context=_ssl_ctx) as r:
                 d = json.loads(r.read().decode("utf-8", "ignore"))
         except Exception as e:
@@ -521,9 +554,10 @@ def fetch_broken_zt():
                 "firstLimitUp": int(_num(it.get("first_limit_up"))),   # 首次涨停时间戳
                 "firstBreak": int(_num(it.get("first_break_limit_up"))),  # 首次炸板时间戳
                 "reason": _surge_reason(it.get("surge_reason")),       # 涨停原因
+                "day": day or time.strftime("%Y-%m-%d"),
             })
         return out
-    return _cached("broken_zt", 30, loader)
+    return _cached(cache_key, (30 * 60) if is_hist else 30, loader)
 
 
 def _surge_reason(sr):
