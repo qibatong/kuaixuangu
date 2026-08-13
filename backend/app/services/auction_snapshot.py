@@ -69,6 +69,8 @@ def snapshot_at(time_point):
     date = _bj_date()
     raw_all = _fetch_market_map()
     if not raw_all:
+        log.warning("快照拉取为空 time=%s date=%s (东财全市场接口无返回, 该时点数据缺失!)",
+                    time_point, date)
         return 0
     try:
         conn = database.get_conn()
@@ -142,7 +144,7 @@ def _scheduler_loop():
                     log.info("竞价抢筹结果快照已存 date=%s list20=%d只", date, n)
                     _qc_done.add(date)
                 except Exception as e:
-                    log.warning("竞价抢筹结果快照失败 err=%s", e)
+                    log.warning("竞价抢筹结果快照失败 err=%s", e, exc_info=True)
             # 9:31-9:35 盘点当日采集: 缺失时点告警(排查关键, 数据过了点无法补)
             if g.tm_wday < 5 and 9 * 60 + 31 <= hm <= 9 * 60 + 35 and date not in _sched_checked:
                 missing = [tp for tp in TIME_POINTS if (date, tp) not in _sched_done]

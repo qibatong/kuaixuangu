@@ -323,6 +323,10 @@ def test_fetch_bid_qiangcang(monkeypatch):
     - list20 = 开盘啦 Type4 全市场竞价异动, 抢筹强度 qcDelta = bidNetAmt/floatMv*100
     - listLast = snapshot_bid 9:24→9:25 段: 抢筹幅度 = 9:25涨幅 − 9:24涨幅"""
     import sqlite3
+    import time as _t
+    class FakeT:
+        tm_hour, tm_min, tm_wday = 9, 20, 3   # 竞价时段(9:20 周四)
+    monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
     class FakeCursor:
         def __init__(self, rows): self.rows = rows
         def fetchall(self): return self.rows
@@ -379,8 +383,15 @@ def test_fetch_bid_qiangcang(monkeypatch):
 
 
 def test_fetch_bid_qiangcang_persist(monkeypatch):
-    """抢筹结果持久化: 竞价时段(接口有数据)存库 → 非竞价时段(接口空)读库, 不丢失"""
+    """抢筹结果持久化: 竞价时段(接口有数据)存库 → 非竞价时段读库, 不丢失
+    注: fetch_bid_qiangcang 按时间窗(9:15-9:30)决定 live/读库, 测试必须 mock gmtime 固定时段"""
     import sqlite3
+    import time as _t
+    class FakeT:
+        def __init__(self, hour, minute, wday=3):  # wday=3 周四, 工作日
+            self.tm_hour, self.tm_min, self.tm_wday = hour, minute, wday
+    def fake_gmtime(t=None):
+        return _FIXED[0]
     class FakeCursor:
         def __init__(self, rows): self.rows = rows
         def fetchall(self): return self.rows
@@ -399,10 +410,13 @@ def test_fetch_bid_qiangcang_persist(monkeypatch):
         def executemany(self, sql, params=()): self.executed.append(sql)
         def commit(self): pass
         def close(self): pass
-    real = sqlite3.connect
+    real_connect = sqlite3.connect
+    real_gmtime = _t.gmtime
     monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
     monkeypatch.setattr(kpl, "_seal_map", lambda: {})
-    # 阶段1: 竞价时段 mock 接口有数据
+    # 阶段1: 竞价时段(9:20) mock 接口有数据 → live 分支 → 落库
+    _FIXED = [FakeT(9, 20)]
+    monkeypatch.setattr(_t, "gmtime", fake_gmtime)
     fake_seal = [
         {"code": "600001", "name": "测试甲", "realChange": 1.5, "bidNetAmt": 9.84e8,
          "floatMv": 8e9, "bidAmt": 1e8, "bidTurnover": 0.2, "bidChange": 5.0, "board": "AI概念"},
@@ -413,11 +427,19 @@ def test_fetch_bid_qiangcang_persist(monkeypatch):
     kpl._cache.clear()
     d1 = kpl.fetch_bid_qiangcang()
     assert len(d1["list20"]) == 2, d1
-    # 阶段2: 非竞价时段 mock 接口空 → 应读库返回同样结果(不丢失)
-    monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: [])
+    # 阶段2: 非竞价时段(14:00) 即使接口返回"僵尸数据"(bidNetAmt=0)也必须走读库, 不丢失
+    _FIXED = [FakeT(14, 0)]
+    zombie_seal = [
+        {"code": "600001", "name": "测试甲", "realChange": 0, "bidNetAmt": 0,
+         "floatMv": 8e9, "bidAmt": 0, "bidTurnover": 0, "bidChange": 0, "board": ""},
+        {"code": "600002", "name": "测试乙", "realChange": 0, "bidNetAmt": 0,
+         "floatMv": 6e9, "bidAmt": 0, "bidTurnover": 0, "bidChange": 0, "board": ""},
+    ]
+    monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: zombie_seal)
     kpl._cache.clear()
     d2 = kpl.fetch_bid_qiangcang()
-    assert len(d2["list20"]) == 2, d2
+    assert len(d2["list20"]) == 2, d2   # 读库返回, 非僵尸数据
     assert d2["list20"][0]["code"] == "600001"
     assert d2["list20"][0]["qcDelta"] == 12.3
-    monkeypatch.setattr("sqlite3.connect", real)
+    monkeypatch.setattr("sqlite3.connect", real_connect)
+    monkeypatch.setattr(_t, "gmtime", real_gmtime)

@@ -132,10 +132,17 @@ def _parse_bid_seal(data):
 def fetch_bid_seal():
     """竞价涨停委买额(实时, 9:15-9:30 有效)"""
     def loader():
+        t0 = time.time()
         d = _call("default", {"Order": "1", "a": "MorningBiddingList", "st": "200",
                               "c": "HomeDingPan", "Index": "0", "PidType": "0",
                               "apiv": "w41", "Type": "4"})
-        return _parse_bid_seal(d) if d else None
+        lst = _parse_bid_seal(d) if d else None
+        ms = int((time.time() - t0) * 1000)
+        if lst is None:
+            log.warning("竞价委买额(Type4)返回空/解析失败 耗时%dms", ms)
+        else:
+            log.info("竞价委买额(Type4)返回%d只 耗时%dms", len(lst), ms)
+        return lst
     return _cached("bid_seal", config.KPL_BID_TTL, loader)
 
 
@@ -886,57 +893,76 @@ def fetch_bid_qiangcang():
     右表 listLast= snapshot_bid 9:24→9:25 段: 抢筹幅度 = 9:25涨幅 − 9:24涨幅
     返回 {"list20": [...], "listLast": [...]}"""
     def loader():
+        t0 = time.time()
         today = time.strftime("%Y-%m-%d")
-        # 左表: 开盘啦 Type4 (200只竞价涨停委买额榜, 覆盖度远超东财 snapshot_bid 单页100只)
-        try:
-            seal_list = fetch_bid_seal() or []
-        except Exception as e:
-            log.warning("抢筹 Type4 拉取失败 err=%s", e)
-            seal_list = []
+        hhmm = time.strftime("%H:%M")
+        g = time.gmtime(time.time() + 8 * 3600)
+        hm = g.tm_hour * 60 + g.tm_min
+        # 竞价时段 9:15-9:30 (工作日); 注意: 非竞价时段开盘啦接口也可能返回
+        # 200只"僵尸数据"(bidNetAmt=0), 必须按时间窗强制走读库, 否则 9:30 后今天结果会丢
+        in_bid = g.tm_wday < 5 and (9 * 60 + 15) <= hm <= (9 * 60 + 30)
         list20 = []
-        if seal_list:
-            for s in seal_list:
-                try:
-                    code = str(s.get("code", ""))
-                    if not code:
+        if in_bid:
+            # ===== 竞价时段: 实时拉取 + 落库 =====
+            try:
+                seal_list = fetch_bid_seal() or []
+            except Exception as e:
+                log.warning("抢筹 Type4 拉取失败 err=%s", e)
+                seal_list = []
+            if seal_list:
+                log.info("抢筹[live] date=%s %s Type4返回%d只", today, hhmm, len(seal_list))
+                for s in seal_list:
+                    try:
+                        code = str(s.get("code", ""))
+                        if not code:
+                            continue
+                        bidNetAmt = float(s.get("bidNetAmt") or 0)      # 竞价净额(元) - 开盘啦 row[6]
+                        floatMv = float(s.get("floatMv") or 0)          # 流通市值(元) - 开盘啦 row[12]
+                        bidAmt = float(s.get("bidAmt") or 0)            # 竞价成交额(元) - 开盘啦 row[8]
+                        if floatMv < 2e8 or bidNetAmt <= 0:             # 放宽阈值 5亿→2亿, 纳入中盘股
+                            continue
+                        qcDelta = round(bidNetAmt / floatMv * 100, 2)   # 抢筹强度%(开盘啦自家口径)
+                        if qcDelta <= 5:
+                            continue
+                        list20.append({
+                            "code": code,
+                            "name": str(s.get("name", "")),
+                            "realChange": float(s.get("realChange") or 0),
+                            "bidAmt": bidAmt,
+                            "qcDelta": qcDelta,
+                            "bidTurnover": float(s.get("bidTurnover") or 0),
+                            "bidChange": float(s.get("bidChange") or 0),
+                            "floatMv": floatMv,
+                            "board": str(s.get("board") or ""),
+                        })
+                    except (ValueError, TypeError):
                         continue
-                    bidNetAmt = float(s.get("bidNetAmt") or 0)      # 竞价净额(元) - 开盘啦 row[6]
-                    floatMv = float(s.get("floatMv") or 0)          # 流通市值(元) - 开盘啦 row[12]
-                    bidAmt = float(s.get("bidAmt") or 0)            # 竞价成交额(元) - 开盘啦 row[8]
-                    if floatMv < 2e8 or bidNetAmt <= 0:             # 放宽阈值 5亿→2亿, 纳入中盘股
-                        continue
-                    qcDelta = round(bidNetAmt / floatMv * 100, 2)   # 抢筹强度%(开盘啦自家口径)
-                    if qcDelta <= 5:
-                        continue
-                    list20.append({
-                        "code": code,
-                        "name": str(s.get("name", "")),
-                        "realChange": float(s.get("realChange") or 0),
-                        "bidAmt": bidAmt,
-                        "qcDelta": qcDelta,
-                        "bidTurnover": float(s.get("bidTurnover") or 0),
-                        "bidChange": float(s.get("bidChange") or 0),
-                        "floatMv": floatMv,
-                        "board": str(s.get("board") or ""),
-                    })
-                except (ValueError, TypeError):
-                    continue
-            list20.sort(key=lambda x: x["qcDelta"], reverse=True)
-            if list20:
-                _save_qc_snapshot(today, list20)   # 竞价时段持久化, 供非竞价时段展示
+                list20.sort(key=lambda x: x["qcDelta"], reverse=True)
+                if list20:
+                    _save_qc_snapshot(today, list20)   # 竞价时段持久化, 供非竞价时段展示
+                    log.info("抢筹[live] date=%s %s 过滤后list20=%d只 已落库qc_snapshot",
+                             today, hhmm, len(list20))
+                else:
+                    log.warning("抢筹[live] date=%s %s Type4返回%d只但过滤后0只"
+                                "(可能: 全部 qcDelta<=5 或 流通市值<2亿 或 bidNetAmt=0, 需检查阈值口径)",
+                                today, hhmm, len(seal_list))
+            else:
+                log.warning("抢筹[live→空] date=%s %s 竞价时段内Type4返回空!"
+                            "(可能 Token失效/接口限流/服务未起/非交易日)", today, hhmm)
         else:
-            # 非竞价时段(开盘啦接口 9:15-9:30 外为空): 读库今天最后一份已选结果
+            # ===== 非竞价时段: 忽略接口僵尸数据, 直接读库展示今天已选结果 =====
             try:
                 list20 = _load_qc_snapshot(today)
             except Exception as e:
                 log.warning("抢筹结果读库失败 err=%s", e)
                 list20 = []
+            log.info("抢筹[saved] date=%s %s 非竞价时段读库 list20=%d只(忽略Type4僵尸数据)",
+                     today, hhmm, len(list20))
 
         # 右表: 9:24→9:25 段, 沿用 snapshot_bid 历史快照(明天 9:24 自动采, 今天 9_24=0 条为采集失败)
         listLast = []
         try:
             import sqlite3
-            today = time.strftime("%Y-%m-%d")
             conn = sqlite3.connect(config.DB_FILE)
             rows24 = conn.execute(
                 "SELECT code, bid_change, bid_amt FROM snapshot_bid WHERE date=? AND time_point='9_24'",
@@ -945,6 +971,11 @@ def fetch_bid_qiangcang():
                 "SELECT code, bid_change, bid_amt, float_mv, name FROM snapshot_bid "
                 "WHERE date=? AND time_point='9_25'", (today,)).fetchall()
             conn.close()
+            if not rows24:
+                log.warning("抢筹[listLast] date=%s %s 9_24时点快照=0条(snapshot_bid采集缺失!), "
+                            "右表将为空", today, hhmm)
+            if not rows25:
+                log.warning("抢筹[listLast] date=%s %s 9_25时点快照=0条, 右表将为空", today, hhmm)
             if rows25:
                 seal_map = _seal_map()
                 m24 = {r[0]: (r[1], r[2]) for r in rows24}
@@ -969,9 +1000,14 @@ def fetch_bid_qiangcang():
                                 "qcDeltaLast": round(chg - chg24, 2),
                             })
                 listLast.sort(key=lambda x: x["qcDeltaLast"], reverse=True)
+                log.info("抢筹[listLast] date=%s %s 9_24=%d条 9_25=%d条 匹配后listLast=%d只",
+                         today, hhmm, len(rows24), len(rows25), len(listLast))
         except Exception as e:
             log.warning("抢筹 listLast 快照读取失败 err=%s", e)
 
+        log.info("抢筹[result] date=%s %s list20=%d只 listLast=%d只 耗时%dms",
+                 today, hhmm, len(list20[:100]), len(listLast[:100]),
+                 int((time.time() - t0) * 1000))
         return {"list20": list20[:100], "listLast": listLast[:100]}
     return _cached("bid_qiangcang", 30, loader)
 
