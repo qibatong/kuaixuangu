@@ -319,9 +319,9 @@ def test_fetch_yest_broken(monkeypatch):
 
 
 def test_fetch_bid_qiangcang(monkeypatch):
-    """双段抢筹: snapshot_bid 9_20/9_24/9_25 竞价额增量 / 流通市值
-    - qc20 = 9:20→9:25 抢筹幅度%(委买额 f5 竞价时段不更新, 用竞价额 bid_amt)
-    - qcLast = 9:24→9:25 最后阶段抢筹%(对标短线侠'最后1秒'近似)"""
+    """左右双表抢筹: 返回 {list20, listLast}
+    - list20  = 9:20→9:25: 抢筹幅度 qcDelta = 9:25涨幅 − 9:20涨幅
+    - listLast= 9:24→9:25: 抢筹幅度 qcDeltaLast = 9:25涨幅 − 9:24涨幅"""
     import sqlite3
     class FakeCursor:
         def __init__(self, rows): self.rows = rows
@@ -333,7 +333,8 @@ def test_fetch_bid_qiangcang(monkeypatch):
         def execute(self, sql, params=()):
             self.executed.append(sql)
             if "9_24" in sql:
-                return FakeCursor([(1, 500.0), (2, 800.0)])    # code1: 9_24 竞价额 500万
+                # code, bid_change(9_24涨幅), bid_amt
+                return FakeCursor([(1, 5.0, 500.0), (2, 5.5, 800.0)])
             if "9_20" in sql:
                 # code, bid_change(9_20涨幅), bid_amt
                 return FakeCursor([(1, 4.5, 100.0), (2, 5.0, 200.0)])
@@ -347,23 +348,25 @@ def test_fetch_bid_qiangcang(monkeypatch):
     monkeypatch.setattr(kpl, "_seal_map", lambda: {})
     monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn(None))
     kpl._cache.clear()
-    rows = kpl.fetch_bid_qiangcang()
+    d = kpl.fetch_bid_qiangcang()
     monkeypatch.setattr("sqlite3.connect", real)
-    assert len(rows) == 2
-    m = {r["code"]: r for r in rows}
-    # code1: qc20 = (1000-100)万*10000/5e9*100 = 9e6/5e9*100 = 0.18%
-    assert abs(m[1]["qc20"] - 0.18) < 0.01
-    # code1: qcLast = (1000-500)万*10000/5e9*100 = 5e6/5e9*100 = 0.1%
-    assert abs(m[1]["qcLast"] - 0.1) < 0.01
-    # code2: qc20 = (900-200)万*10000/8e9*100 = 7e6/8e9*100 = 0.0875 → round 0.09
-    assert abs(m[2]["qc20"] - 0.09) < 0.001
-    # qc20 降序: code1(0.18) > code2(0.0875)
-    assert rows[0]["code"] == 1
-    # has20/has24 为真(竞价额各时点不同 = 真实历史)
-    assert rows[0]["has20"] is True
-    assert rows[0]["has24"] is True
-    # 竞价涨幅变化: code1 = 9_25涨幅(6.0) - 9_20涨幅(4.5) = 1.5%
-    assert m[1]["bidChangeDelta"] == 1.5
-    assert m[1]["bidChange20"] == 4.5
-    # code2: 9_25(6.0) - 9_20(5.0) = 1.0%
-    assert m[2]["bidChangeDelta"] == 1.0
+    assert isinstance(d, dict)
+    l20 = d["list20"]
+    lLast = d["listLast"]
+    assert len(l20) == 2
+    assert len(lLast) == 2
+    m20 = {r["code"]: r for r in l20}
+    mLast = {r["code"]: r for r in lLast}
+    # 左表 code1: qcDelta = 6.0 - 4.5 = 1.5%
+    assert m20[1]["qcDelta"] == 1.5
+    assert m20[1]["bidChange20"] == 4.5
+    # 左表 code2: qcDelta = 6.0 - 5.0 = 1.0%
+    assert m20[2]["qcDelta"] == 1.0
+    # 右表 code1: qcDeltaLast = 6.0 - 5.0 = 1.0%
+    assert mLast[1]["qcDeltaLast"] == 1.0
+    assert mLast[1]["bidChange24"] == 5.0
+    # 右表 code2: qcDeltaLast = 6.0 - 5.5 = 0.5%
+    assert mLast[2]["qcDeltaLast"] == 0.5
+    # 各自按抢筹幅度降序: code1(1.5/1.0) > code2(1.0/0.5)
+    assert l20[0]["code"] == 1
+    assert lLast[0]["code"] == 1

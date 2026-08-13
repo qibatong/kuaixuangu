@@ -100,9 +100,13 @@ def api_kpl_wpqc(request: Request, uid: int = Depends(get_uid)):
 
 @router.get("/api/kpl/bid-qiangcang")
 def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(get_uid)):
-    """竞价抢筹: 9:20→9:25 竞价额增速(基于三时点快照计算)"""
-    d = kpl.fetch_bid_qiangcang()
-    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+    """竞价抢筹(左右双表): list20=9:20→9:25 段, listLast=9:24→9:25 最后1秒段
+    抢筹幅度 = 两个时点竞价涨幅差"""
+    d = kpl.fetch_bid_qiangcang() or {}
+    l20 = d.get("list20") or []
+    lLast = d.get("listLast") or []
+    return jr({"ok": True, "list20": l20, "listLast": lLast,
+               "count20": len(l20), "countLast": len(lLast)})
 
 
 @router.get("/api/kpl/yest-zt")

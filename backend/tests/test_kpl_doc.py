@@ -60,12 +60,15 @@ def test_kpl_doc79_boards():
 def test_fetch_bid_qiangcang_integration():
     """集成测试: fetch_bid_qiangcang 调通(主人最迫切需要的功能)"""
     d = kpl.fetch_bid_qiangcang()
-    # 非竞价时段返回空 list 或带数据 list
-    assert d is None or isinstance(d, list)
-    if d:
-        # 数据项含必填字段(双段抢筹)
-        for r in d[:3]:
-            assert "code" in r and "qc20" in r
+    # 返回 dict {list20, listLast}(任一为空 list 也算正常)
+    assert isinstance(d, dict)
+    assert "list20" in d and "listLast" in d
+    assert isinstance(d["list20"], list) and isinstance(d["listLast"], list)
+    for lst in (d["list20"], d["listLast"]):
+        if lst:
+            # 数据项含必填字段(左右双表)
+            for r in lst[:3]:
+                assert "code" in r and "qcDelta" in r or "qcDeltaLast" in r
 
 
 # ---------- xuangubao 免费接口(kaipanla 文档收录, 无需 Token) ----------

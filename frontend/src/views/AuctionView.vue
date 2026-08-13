@@ -80,32 +80,65 @@
         </tbody>
       </table>
 
-      <!-- 竞价抢筹(双段: 9:20→9:25 + 9:24→9:25 最后阶段, 对标短线侠) -->
-      <table v-else-if="tab === 'qc'" class="stock-table">
-        <thead>
-          <tr><th>排名</th><th>代码</th><th>名称</th><th>涨幅%</th><th>竞额</th><th>9:20-9:25抢筹%</th><th>9:24-9:25最后%</th><th>竞涨%</th><th>竞涨变化%</th><th>竞价换手</th><th>流通Z</th><th>概念</th><th>操作</th></tr>
-        </thead>
-        <tbody>
-          <tr v-for="(q, idx) in qcList" :key="q.code">
-            <td class="rank-col">{{ idx + 1 }}</td>
-            <td class="code-click" @click="linkToSoftware(q.code)">{{ q.code }}</td>
-            <td class="name-col"><div class="name-main">{{ q.name }}</div></td>
-            <td :class="q.realChange > 0 ? 'up' : q.realChange < 0 ? 'down' : 'dim'">{{ q.realChange !== null && q.realChange !== undefined ? signed(q.realChange) + '%' : '-' }}</td>
-            <td :class="q.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(q.bidAmt) }}</td>
-            <td :class="q.qc20 > 0 ? 'up' : q.qc20 < 0 ? 'down' : 'dim'"><b>{{ signed(q.qc20) }}%</b></td>
-            <td :class="q.qcLast > 0 ? 'up' : q.qcLast < 0 ? 'down' : 'dim'">{{ q.qcLast !== null && q.qcLast !== undefined ? signed(q.qcLast) + '%' : '-' }}</td>
-            <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ q.bidChange !== null && q.bidChange !== undefined ? signed(q.bidChange) + '%' : '-' }}</td>
-            <td :class="q.bidChangeDelta > 0 ? 'up' : q.bidChangeDelta < 0 ? 'down' : 'dim'"><b>{{ q.bidChangeDelta !== null && q.bidChangeDelta !== undefined ? signed(q.bidChangeDelta) + '%' : '-' }}</b></td>
-            <td>{{ q.bidTurnover ? q.bidTurnover.toFixed(2) : '-' }}</td>
-            <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) : '-' }}</td>
-            <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ q.board || '-' }}</td>
-            <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已入池' : '＋池' }}</button></td>
-          </tr>
-          <tr v-if="!qcList.length">
-            <td colspan="13" class="snap-empty">竞价抢筹数据 9:15-9:30 竞价时段可用（当前非竞价时段）</td>
-          </tr>
-        </tbody>
-      </table>
+      <!-- 竞价抢筹(左右双表: 左 9:20-9:25 / 右 最后1秒 9:24-9:25, 对标短线侠) -->
+      <div v-else-if="tab === 'qc'" class="qc-dual">
+        <div class="qc-panel">
+          <div class="qc-panel-title"><i class="fa fa-clock-o"></i> 9:20 - 9:25 竞价涨幅</div>
+          <table class="stock-table">
+            <thead>
+              <tr><th>排名</th><th>名称/代码</th><th>实时涨幅</th><th>竞价金额</th><th>抢筹幅度%</th><th>竞价换手</th><th>竞价涨幅</th><th>流通</th><th>概念</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="(q, idx) in qcList" :key="'a' + q.code">
+                <td class="rank-col">{{ idx + 1 }}</td>
+                <td class="name-col">
+                  <div class="name-main">{{ q.name }}</div>
+                  <div class="code-sub" @click="linkToSoftware(q.code)">{{ q.code }}</div>
+                </td>
+                <td :class="q.realChange > 0 ? 'up' : q.realChange < 0 ? 'down' : 'dim'">{{ q.realChange !== null && q.realChange !== undefined ? signed(q.realChange) + '%' : '-' }}</td>
+                <td :class="q.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(q.bidAmt) }}</td>
+                <td :class="q.qcDelta > 0 ? 'up' : q.qcDelta < 0 ? 'down' : 'dim'"><b>{{ signed(q.qcDelta) }}%</b></td>
+                <td>{{ q.bidTurnover ? q.bidTurnover.toFixed(2) : '-' }}</td>
+                <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
+                <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
+                <td class="dim" style="max-width:110px;white-space:pre-wrap;">{{ q.board || '-' }}</td>
+                <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已入池' : '＋池' }}</button></td>
+              </tr>
+              <tr v-if="!qcList.length">
+                <td colspan="10" class="snap-empty">9:20-9:25 抢筹数据 9:15-9:30 竞价时段可用</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="qc-panel">
+          <div class="qc-panel-title"><i class="fa fa-bolt"></i> 最后一秒竞价涨幅</div>
+          <table class="stock-table">
+            <thead>
+              <tr><th>排名</th><th>名称/代码</th><th>实时涨幅</th><th>竞价金额</th><th>抢筹幅度%</th><th>竞价换手</th><th>竞价涨幅</th><th>流通</th><th>概念</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="(q, idx) in qcLastList" :key="'b' + q.code">
+                <td class="rank-col">{{ idx + 1 }}</td>
+                <td class="name-col">
+                  <div class="name-main">{{ q.name }}</div>
+                  <div class="code-sub" @click="linkToSoftware(q.code)">{{ q.code }}</div>
+                </td>
+                <td :class="q.realChange > 0 ? 'up' : q.realChange < 0 ? 'down' : 'dim'">{{ q.realChange !== null && q.realChange !== undefined ? signed(q.realChange) + '%' : '-' }}</td>
+                <td :class="q.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(q.bidAmt) }}</td>
+                <td :class="q.qcDeltaLast > 0 ? 'up' : q.qcDeltaLast < 0 ? 'down' : 'dim'"><b>{{ signed(q.qcDeltaLast) }}%</b></td>
+                <td>{{ q.bidTurnover ? q.bidTurnover.toFixed(2) : '-' }}</td>
+                <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
+                <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
+                <td class="dim" style="max-width:110px;white-space:pre-wrap;">{{ q.board || '-' }}</td>
+                <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已入池' : '＋池' }}</button></td>
+              </tr>
+              <tr v-if="!qcLastList.length">
+                <td colspan="10" class="snap-empty">最后一秒数据 9:25 后可用（9:24 时点采集后）</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       <!-- 昨日涨停(今日竞价表现) -->
       <table v-else-if="tab === 'yestZt'" class="stock-table">
@@ -235,6 +268,7 @@ const lhbList = ref([])
 const brokenYestList = ref([])
 const brokenTodayList = ref([])
 const qcList = ref([])
+const qcLastList = ref([])
 const yestZtList = ref([])
 const yestBrokenList = ref([])
 const loading = ref(true)
@@ -307,7 +341,8 @@ async function loadAll() {
     days.value = ov.days || []
     sealRaw.value = seal.list || []
     boomList.value = boom.list || []
-    qcList.value = qc.list || []
+    qcList.value = qc.list20 || []
+    qcLastList.value = qc.listLast || []
     yestZtList.value = yestZt.list || []
     yestBrokenList.value = yestBroken.list || []
     lhbList.value = lhb.list || []
@@ -357,6 +392,20 @@ onBeforeUnmount(() => {
 .auc-tab:hover { border-color: #ffb400; color: #ffe0a0; }
 .auc-tab.active { background: rgba(255,180,0,0.15); border-color: #ffb400; color: #ffd700; font-weight: 600; }
 .auc-panel { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 14px; }
+/* 竞价抢筹左右双表 */
+.qc-dual { display: flex; gap: 14px; }
+.qc-panel { flex: 1; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px; }
+.qc-panel-title { font-size: 14px; font-weight: 700; color: #ffe0a0; margin-bottom: 10px; }
+.qc-panel .stock-table { width: 100%; }
+.qc-panel .stock-table th, .qc-panel .stock-table td { padding: 4px 6px; font-size: 12px; white-space: nowrap; }
+.qc-panel .stock-table th:nth-child(1), .qc-panel .stock-table td:nth-child(1) { width: 32px; text-align: center; }
+.qc-panel .stock-table th:nth-child(3), .qc-panel .stock-table td:nth-child(3) { width: 64px; text-align: right; }
+.qc-panel .stock-table th:nth-child(4), .qc-panel .stock-table td:nth-child(4) { width: 72px; text-align: right; }
+.qc-panel .stock-table th:nth-child(5), .qc-panel .stock-table td:nth-child(5) { width: 74px; text-align: right; }
+.qc-panel .stock-table th:nth-child(7), .qc-panel .stock-table td:nth-child(7) { width: 62px; text-align: right; }
+.qc-panel .code-sub { font-size: 11px; color: #889; cursor: pointer; margin-top: 1px; }
+.qc-panel .code-sub:hover { color: #ffb400; }
+@media (max-width: 1100px) { .qc-dual { flex-direction: column; } }
 .loading-placeholder { text-align: center; padding: 40px; color: #888; }
 .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
 @keyframes spin { to { transform: rotate(360deg); } }
