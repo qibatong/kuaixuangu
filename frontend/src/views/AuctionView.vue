@@ -71,7 +71,7 @@
             <td :class="it.bidNetAmt > 0 ? 'up' : it.bidNetAmt < 0 ? 'down' : 'dim'">{{ yi(it.bidNetAmt) }}</td>
             <td><span v-if="it.limitBoards > 0" class="lb-badge">{{ it.limitBoards }}板</span><span v-else class="dim">-</span></td>
             <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ it.board }}</td>
-            <td><button class="pool-add-btn" @click="addToPool(it)">＋池</button></td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已入池' : '＋池' }}</button></td>
           </tr>
         </tbody>
       </table>
@@ -91,7 +91,7 @@
             <td>{{ yi(l.amount) }}</td>
             <td>{{ l.turnover.toFixed(2) }}</td>
             <td>{{ l.amplitude.toFixed(2) }}</td>
-            <td><button class="pool-add-btn" @click="addToPool(l)">＋池</button></td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(l.code) }" @click.stop="addToPool(l)">{{ inPool(l.code) ? '已入池' : '＋池' }}</button></td>
           </tr>
         </tbody>
       </table>
@@ -111,7 +111,7 @@
             <td class="dim">{{ fmtT(b.firstLimitUp) }}</td>
             <td class="dim">{{ fmtT(b.firstBreak) }}</td>
             <td class="dim" style="max-width:220px;white-space:pre-wrap;font-size:12px;">{{ b.reason || '-' }}</td>
-            <td><button class="pool-add-btn" @click="addToPool(b)">＋池</button></td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(b.code) }" @click.stop="addToPool(b)">{{ inPool(b.code) ? '已入池' : '＋池' }}</button></td>
           </tr>
         </tbody>
       </table>
@@ -170,6 +170,11 @@ function fmtT(ts) {
 function addToPool(s) {
   const n = pool.addStocks([{ code: s.code, name: s.name }])
   showToast(n ? `✅ ${s.code} ${s.name} 已加入股票池` : `${s.code} 已在池中`, n ? 'success' : 'info')
+}
+
+// 是否已在股票池(与主页面 StockTable 一致: 已入池按钮变绿禁用)
+function inPool(code) {
+  return pool.stockPool.some(x => x.code === code)
 }
 
 async function loadAll() {

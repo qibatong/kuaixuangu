@@ -353,3 +353,24 @@ border-radius: 4px; font-size: 12px; outline: none; flex-shrink: 0;
 /* 独立页面容器(历史/邀请从弹窗升级为页面) */
 .page-shell { max-width: 1500px; margin: 0 auto; padding: 10px 4px; }
 .page-back { margin-bottom: 10px; }
+
+/* ==================== 股票池收录按钮(全局统一, 与主页面 StockTable 一致) ==================== */
+.pool-add-btn {
+  background: rgba(120, 200, 80, 0.15);
+  border: 1px solid #78c850;
+  color: #c0e8a0;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pool-add-btn:hover {
+  background: rgba(120, 200, 80, 0.3);
+}
+.pool-add-btn.added {
+  background: rgba(120, 200, 80, 0.35);
+  border-color: #78c850;
+  color: #e8ffd0;
+  cursor: default;
+}

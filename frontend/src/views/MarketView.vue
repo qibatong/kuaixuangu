@@ -62,7 +62,7 @@
             <td class="code-click" @click="linkToSoftware(h.code)">{{ h.code }}</td>
             <td>{{ h.name }}</td>
             <td :class="h.change > 0 ? 'up' : h.change < 0 ? 'down' : 'dim'">{{ signed(h.change) }}%</td>
-            <td><button class="pool-add-btn" @click="addToPool(h)">＋池</button></td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(h.code) }" @click.stop="addToPool(h)">{{ inPool(h.code) ? '已入池' : '＋池' }}</button></td>
           </tr>
         </tbody>
       </table>
@@ -89,7 +89,7 @@
             <td>{{ yi(l.floatMv) }}</td>
             <td>
               <button class="pool-add-btn" style="margin-right:4px;" @click="viewLhbDetail(l)">明细</button>
-              <button class="pool-add-btn" @click="addToPool(l)">＋池</button>
+              <button class="pool-add-btn" :class="{ added: inPool(l.code) }" @click.stop="addToPool(l)">{{ inPool(l.code) ? '已入池' : '＋池' }}</button>
             </td>
           </tr>
         </tbody>
@@ -178,6 +178,11 @@ async function viewLhbDetail(l) {
 function addToPool(h) {
   const n = pool.addStocks([{ code: h.code, name: h.name }])
   showToast(n ? `✅ ${h.code} ${h.name} 已加入股票池` : `${h.code} 已在池中`, n ? 'success' : 'info')
+}
+
+// 是否已在股票池(与主页面 StockTable 一致: 已入池按钮变绿禁用)
+function inPool(code) {
+  return pool.stockPool.some(x => x.code === code)
 }
 
 async function loadBoard() {
