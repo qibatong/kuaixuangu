@@ -399,29 +399,29 @@ onBeforeUnmount(() => {
 .auc-panel { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 14px; }
 /* 竞价抢筹左右双表 */
 .qc-dual { display: flex; gap: 12px; align-items: flex-start; }
-.qc-panel { flex: 1 1 0; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px; overflow-x: auto; }
+.qc-panel { flex: 1 1 0; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px; }
+/* 表格自然宽度(列宽总和<panel宽), 不强制横向滚动(sticky 操作列才不会被推到右边缘覆盖概念列) */
 .qc-panel-title { font-size: 14px; font-weight: 700; color: #ffe0a0; margin-bottom: 10px; }
-.qc-panel .stock-table { width: 100%; table-layout: fixed; min-width: 720px; border-collapse: collapse; }
-/* 所有列间距统一: padding 一律 4px 8px */
-.qc-panel .stock-table th, .qc-panel .stock-table td { padding: 4px 8px; font-size: 12px; white-space: nowrap; }
+.qc-panel .stock-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+/* 所有列间距紧凑: padding 一律 4px 4px(列间 8px, 减小原 16px) */
+.qc-panel .stock-table th, .qc-panel .stock-table td { padding: 4px 4px; font-size: 12px; white-space: nowrap; }
 .qc-panel .stock-table th { color: #ffe0a0; font-weight: 600; border-bottom: 1px solid rgba(255,180,0,0.3); }
 .qc-panel .stock-table td { border-bottom: 1px solid rgba(255,255,255,0.04); }
-.qc-panel .stock-table th:nth-child(1), .qc-panel .stock-table td:nth-child(1) { width: 36px; text-align: center; }
-.qc-panel .stock-table th:nth-child(2), .qc-panel .stock-table td:nth-child(2) { width: 110px; }
-.qc-panel .stock-table th:nth-child(3), .qc-panel .stock-table td:nth-child(3) { width: 64px; text-align: right; }
-.qc-panel .stock-table th:nth-child(4), .qc-panel .stock-table td:nth-child(4) { width: 72px; text-align: right; }
-.qc-panel .stock-table th:nth-child(5), .qc-panel .stock-table td:nth-child(5) { width: 76px; text-align: right; }
-.qc-panel .stock-table th:nth-child(6), .qc-panel .stock-table td:nth-child(6) { width: 54px; text-align: right; }
-.qc-panel .stock-table th:nth-child(7), .qc-panel .stock-table td:nth-child(7) { width: 56px; text-align: right; }
-.qc-panel .stock-table th:nth-child(8), .qc-panel .stock-table td:nth-child(8) { width: 56px; text-align: right; }
-/* 概念列: 换行多行显示(缩短列宽) */
-.qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { width: 100px; }
+.qc-panel .stock-table th:nth-child(1), .qc-panel .stock-table td:nth-child(1) { width: 32px; text-align: center; }
+.qc-panel .stock-table th:nth-child(2), .qc-panel .stock-table td:nth-child(2) { width: 96px; }
+.qc-panel .stock-table th:nth-child(3), .qc-panel .stock-table td:nth-child(3) { width: 58px; text-align: right; }
+.qc-panel .stock-table th:nth-child(4), .qc-panel .stock-table td:nth-child(4) { width: 66px; text-align: right; }
+.qc-panel .stock-table th:nth-child(5), .qc-panel .stock-table td:nth-child(5) { width: 70px; text-align: right; }
+.qc-panel .stock-table th:nth-child(6), .qc-panel .stock-table td:nth-child(6) { width: 48px; text-align: right; }
+.qc-panel .stock-table th:nth-child(7), .qc-panel .stock-table td:nth-child(7) { width: 50px; text-align: right; }
+.qc-panel .stock-table th:nth-child(8), .qc-panel .stock-table td:nth-child(8) { width: 54px; text-align: right; }
+/* 概念列: 紧凑换行, 全部可见不被操作列遮 */
+.qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { width: 86px; }
 .qc-panel .qc-board { white-space: normal; }
 .qc-panel .qc-board-item { line-height: 1.5; word-break: break-all; }
-/* 操作列(列间距与其它列一致: padding 4px 8px)
-   sticky 粘右侧: 表格内容滚动时操作列始终可见可点 */
+/* 操作列(sticky 钉右边缘, 始终可见可点) */
 .qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) {
-  width: 64px; text-align: center;
+  width: 56px; text-align: center; padding: 4px 2px;
   position: sticky; right: 0; z-index: 2;
   background: #1c1f26;
   box-shadow: -2px 0 4px rgba(0,0,0,0.4);
