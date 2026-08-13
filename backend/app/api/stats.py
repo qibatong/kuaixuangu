@@ -4,7 +4,7 @@
 """
 from fastapi import APIRouter, Depends, Request
 
-from ..services import scorer, stats
+from ..services import auction_snapshot, kpl, scorer, stats
 from ..db import database
 from .deps import get_uid, jr, qs
 
@@ -13,7 +13,8 @@ router = APIRouter()
 
 @router.get("/api/stats/auction-overview")
 def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid)):
-    """竞价多时点对比(最近4个交易日): 每日期 9:15/9:20/9:25 竞价涨幅均值/竞价额 + 一字涨停数"""
+    """竞价多时点对比(最近4个交易日): 每日期 9:15/9:20/9:25 竞价涨幅均值/竞价额 + 一字涨停数
+    金额单位统一为元(bid_amt 原始单位为万元, 聚合时转元)"""
     conn = database.get_conn()
     try:
         dates = [r[0] for r in conn.execute(
@@ -30,7 +31,7 @@ def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid)):
                     amts = [r[1] for r in rows if r[1] is not None]
                     day["points"][tp] = {
                         "avg_change": round(sum(chgs) / len(chgs), 2) if chgs else None,
-                        "total_amt": round(sum(amts)) if amts else None,
+                        "total_amt": round(sum(amts) * 10000) if amts else None,  # 万元→元
                         "count": len(rows),
                     }
                 else:
@@ -39,11 +40,29 @@ def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid)):
                 "SELECT yizi_count, bid_amt FROM daily_yizi WHERE date=?", (date,)).fetchone()
             if yizi:
                 day["yizi_count"] = yizi[0]
-                day["yizi_amt"] = yizi[1]
+                day["yizi_amt"] = (yizi[1] * 10000) if yizi[1] is not None else None  # 万元→元
             out.append(day)
     finally:
         conn.close()
     return jr({"ok": True, "days": out})
+
+
+@router.get("/api/stats/auction-snapshot")
+def api_stats_auction_snapshot(request: Request, date: str = "", time_point: str = "9_25",
+                               uid: int = Depends(get_uid)):
+    """某日某时点竞价快照个股列表(按竞价涨幅降序, 名称从竞价委买榜尽力补全)"""
+    if not date:
+        return jr({"ok": False, "msg": "缺少 date"}, 400)
+    if time_point not in ("9_15", "9_20", "9_25"):
+        return jr({"ok": False, "msg": "time_point 需为 9_15/9_20/9_25"}, 400)
+    lst = auction_snapshot.query_snapshot(date, time_point, limit=100)
+    try:
+        name_map = {s["code"]: s["name"] for s in (kpl.fetch_bid_seal() or [])}
+    except Exception:
+        name_map = {}
+    for it in lst:
+        it["name"] = name_map.get(it["code"], "")
+    return jr({"ok": True, "list": lst, "date": date, "time_point": time_point})
 
 
 @router.get("/api/stats/performance")

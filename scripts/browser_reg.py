@@ -204,6 +204,29 @@ def run(shot_dir, user, pwd):
             failed.append("今炸板异常: %s" % d)
         shot("05_broken_today.png")
 
+        # Tab6 时点个股弹窗(点击多时点对比卡)
+        log("时点个股弹窗(点击对比卡)")
+        ev("(function(){var c=document.querySelector('.ov-click');if(c){c.click();return true;}return false;})()")
+        time.sleep(2)
+        d = json.loads(ev("""
+        (function(){
+          var m = document.querySelector('.snap-modal');
+          if (!m) return JSON.stringify({err:'NO_MODAL'});
+          var rows = Array.prototype.slice.call(m.querySelectorAll('tbody tr')).slice(0,3).map(function(tr){
+            return Array.prototype.slice.call(tr.querySelectorAll('td')).map(function(td){ return td.innerText.trim(); });
+          });
+          var title = m.querySelector('.snap-title');
+          return JSON.stringify({title: title ? title.innerText.trim() : '', rows: rows});
+        })()
+        """))
+        log("  弹窗标题: %s 首行: %s" % (d.get("title"), (d.get("rows") or [[]])[0]))
+        if d.get("rows") and len(d["rows"][0]) >= 4 and d["rows"][0][3] not in ("", "-"):
+            log("✅ 时点个股弹窗 首行涨幅=%s 竞价额=%s" % (d["rows"][0][3], d["rows"][0][4]))
+        else:
+            failed.append("时点个股弹窗异常: %s" % d)
+        shot("06_snapshot_modal.png")
+        ev("(function(){var c=document.querySelector('.snap-close');if(c){c.click();return true;}return false;})()")
+
         ws.close()
     finally:
         proc.terminate()
@@ -218,7 +241,7 @@ def run(shot_dir, user, pwd):
         for f in failed:
             log("  - " + f)
         sys.exit(2)
-    log("✅✅ 竞价异动页五 Tab(委买/爆量/净额/昨炸板/今炸板)真实浏览器验证全部通过, 截图: %s" % shot_dir)
+    log("✅✅ 竞价异动页五 Tab + 时点个股弹窗真实浏览器验证全部通过, 截图: %s" % shot_dir)
 
 
 def main():

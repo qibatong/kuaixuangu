@@ -24,7 +24,8 @@
         <tbody>
           <tr v-for="tp in timePoints" :key="tp.key">
             <td class="ov-dim">{{ tp.label }}</td>
-            <td v-for="d in days" :key="d.date + tp.key" class="ov-cell">
+            <td v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击查看该时点个股"
+                @click="showSnapshot(d.date, tp.key)">
               <template v-if="d.points[tp.key]">
                 <div :class="d.points[tp.key].avg_change !== null && d.points[tp.key].avg_change >= 0 ? 'up' : 'down'">
                   {{ fmtAvg(d.points[tp.key].avg_change) }}
@@ -99,8 +100,7 @@
       <!-- 炸板(昨/今) -->
       <table v-else-if="tab === 'brokenYest' || tab === 'brokenToday'" class="stock-table">
         <thead>
-          <tr><th>代码</th><th>名称</th><th>涨幅%</th><th>连板</th><th>炸板次数</th><th>涨停时间</th><th>炸板时间</th><th>涨停原因</th><th>操作</th></tr>
-        </thead>
+          <tr><th>代码</th><th>名称</th><th>涨幅%</th><th>连板</th><th>炸板次数</th><th>涨停时间</th><th>炸板时间</th><th>涨停原因</th><th>操作</th></tr>        </thead>
         <tbody>
           <tr v-for="b in brokenList" :key="b.code">
             <td class="code-click" @click="linkToSoftware(b.code)">{{ b.code }}</td>
@@ -116,13 +116,39 @@
         </tbody>
       </table>
     </div>
+
+    <!-- 时点个股弹窗(点击多时点对比卡) -->
+    <div v-if="snapModal.show" class="modal-mask" @click.self="snapModal.show = false">
+      <div class="snap-modal">
+        <div class="snap-head">
+          <span class="snap-title">{{ snapModal.date }} {{ snapPointLabel }} · 竞价个股 <span class="dim">(点击格子查看, 共 {{ snapModal.list.length }} 只)</span></span>
+          <span class="snap-close" @click="snapModal.show = false">✕</span>
+        </div>
+        <table v-if="snapModal.list.length" class="stock-table">
+          <thead>
+            <tr><th>#</th><th>代码</th><th>名称</th><th>竞价涨幅</th><th>竞价额(万)</th><th>操作</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="(s, i) in snapModal.list" :key="s.code">
+              <td class="rank-col">{{ i + 1 }}</td>
+              <td class="code-click" @click="linkToSoftware(s.code)">{{ s.code }}</td>
+              <td>{{ s.name || s.code }}</td>
+              <td :class="s.bid_change > 0 ? 'up' : s.bid_change < 0 ? 'down' : 'dim'">{{ signed(s.bid_change) }}%</td>
+              <td>{{ wan(s.bid_amt) }}</td>
+              <td><button class="pool-add-btn" :class="{ added: inPool(s.code) }" @click.stop="addToPool(s)">{{ inPool(s.code) ? '已入池' : '＋池' }}</button></td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-else class="snap-empty">该时点暂无数据</div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { kplBidSeal, kplBidBoom, kplBroken, kplLhb } from '../api/kpl'
-import { auctionOverview } from '../api/stats'
+import { auctionOverview, auctionSnapshot } from '../api/stats'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
 import { usePoolStore } from '../stores/pool'
@@ -176,6 +202,21 @@ function addToPool(s) {
 function inPool(code) {
   return pool.stockPool.some(x => x.code === code)
 }
+
+// ---- 时点个股弹窗 ----
+const snapModal = ref({ show: false, date: '', tp: '', list: [] })
+const snapPointLabel = computed(() => {
+  const t = timePoints.find(x => x.key === snapModal.value.tp)
+  return t ? t.label : snapModal.value.tp
+})
+async function showSnapshot(date, tp) {
+  snapModal.value = { show: true, date, tp, list: [] }
+  try {
+    const d = await auctionSnapshot(date, tp)
+    snapModal.value.list = d.list || []
+  } catch (e) { /* 静默 */ }
+}
+function wan(v) { return v ? Number(v).toFixed(0) : '0' }
 
 async function loadAll() {
   try {
@@ -238,4 +279,15 @@ onBeforeUnmount(() => {
 @keyframes spin { to { transform: rotate(360deg); } }
 .lb-badge { display: inline-block; color: #ff8a5c; border: 1px solid rgba(255,80,40,0.5); border-radius: 4px; padding: 0 5px; font-size: 11px; background: rgba(255,80,40,0.12); }
 .bk-hot { color: #ff5028; font-weight: 700; }
+.ov-click { cursor: pointer; }
+.ov-click:hover { background: rgba(255,180,0,0.08); }
+
+/* 时点个股弹窗 */
+.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.snap-modal { background: #1c1f26; border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; width: 720px; max-width: 94vw; max-height: 78vh; overflow: auto; padding: 16px 18px; }
+.snap-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.snap-title { font-size: 15px; font-weight: 700; color: #ffe0a0; }
+.snap-close { cursor: pointer; color: #99a; font-size: 16px; padding: 2px 6px; }
+.snap-close:hover { color: #ffb400; }
+.snap-empty { text-align: center; color: #667; padding: 30px 0; font-size: 13px; }
 </style>
