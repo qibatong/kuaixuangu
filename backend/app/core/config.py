@@ -58,6 +58,23 @@ KLINE_HOSTS = [
     "https://92.push2his.eastmoney.com",
 ]
 
+# ---------- 开盘啦(龙虎榜 App)数据源 ----------
+# 付费接口(每日 80000 次), 用于竞价委买额/连板梯队/情绪值/涨停原因/板块强度等
+# Token/UserID/DeviceID 通过 systemd Environment= 注入(不进代码库, 避免泄露)
+KPL_TOKEN = os.environ.get("KPL_TOKEN", "")
+KPL_USERID = os.environ.get("KPL_USERID", "")
+KPL_DEVICEID = os.environ.get("KPL_DEVICEID", "")
+KPL_UA = "Dalvik/2.1.0 (Linux; U; Android 14; V2178A Build/UP1A.231005.007)"
+KPL_HOSTS = {
+    "default": "apphwhq.longhuvip.com",       # 竞价委买额/连板梯队
+    "market": "apphq.longhuvip.com",          # 情绪值/板块强度/热榜/涨停原因
+    "after": "apphwshhq.longhuvip.com",       # 尾盘抢筹/竞价砸盘/竞价>2000万
+}
+KPL_BID_TTL = int(os.environ.get("KPL_BID_TTL", "30"))        # 竞价委买额缓存新鲜度(秒)
+KPL_SENTI_TTL = int(os.environ.get("KPL_SENTI_TTL", "60"))    # 情绪值缓存新鲜度(秒)
+KPL_LADDER_TTL = int(os.environ.get("KPL_LADDER_TTL", "60"))  # 连板梯队缓存新鲜度(秒)
+KPL_BOARD_TTL = int(os.environ.get("KPL_BOARD_TTL", "30"))    # 板块强度缓存新鲜度(秒)
+
 # ---------- 推送提醒(选股结果 → 微信/飞书) ----------
 # 任一渠道配置后即启用; 全部未配置则推送自动跳过(不影响选股主流程)
 NOTIFY_FEISHU_WEBHOOK = os.environ.get("NOTIFY_FEISHU_WEBHOOK", "")          # 飞书群机器人 webhook

@@ -31,6 +31,7 @@
           <td class="name-col">
             <div class="name-main">{{ item.name }}</div>
             <div v-if="item._offline" class="offline-tag" title="9:30 竞价锁定名单中的股票，当前实时榜已无此票（竞价结论恒定保留）">已跌出实时榜</div>
+            <div v-else-if="ladderLabel(item.code)" class="ladder-tag" :title="sealTitle(item.code)">{{ ladderLabel(item.code) }}</div>
           </td>
           <td :class="item.realChange === null || item.realChange === undefined ? 'dim' : realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + fmtPct(item._staleReal) + '）') : ''">{{ item.realChange === null || item.realChange === undefined ? '-' : signed(item.realChange) + '%' }}</td>
           <td>
@@ -66,7 +67,8 @@ const pool = usePoolStore()
 
 const props = defineProps({
   stocks: { type: Array, default: () => [] },
-  mode: { type: String, default: 'auction' }
+  mode: { type: String, default: 'auction' },
+  bidSealMap: { type: Object, default: () => ({}) }  // code -> {limitBoards, bidSealAmt, bidNetAmt}
 })
 
 // 是否处于竞价时段(9:30 前): 非竞价时段不判定抢筹, 显示"竞价时"
@@ -135,6 +137,20 @@ function addToPool(item) {
 // 是否已在池中
 function inPool(code) {
   return pool.stockPool.some(x => x.code === code)
+}
+// 连板标签(来自开盘啦竞价委买额榜): 首板/2连板/3连板...
+function ladderLabel(code) {
+  const s = props.bidSealMap[code]
+  if (!s || !s.limitBoards) return ''
+  return s.limitBoards <= 1 ? '首板' : s.limitBoards + '连板'
+}
+// 涨停委买额 tooltip
+function sealTitle(code) {
+  const s = props.bidSealMap[code]
+  if (!s) return ''
+  const seal = s.bidSealAmt || 0
+  const net = s.bidNetAmt || 0
+  return `涨停委买额 ${(seal / 1e8).toFixed(2)}亿 · 竞价净额 ${(net / 1e8).toFixed(2)}亿`
 }
 function ratioTitle(br) {
   if (br === null || br === undefined || isNaN(br)) return '竞价成交额 ÷ 前一交易日全天成交额(%)，非竞价时段/无数据时显示 -'
@@ -241,6 +257,17 @@ th.sortable .sort-ind:empty::before {
   border: 1px dashed #777;
   border-radius: 4px;
   padding: 1px 5px;
+}
+.ladder-tag {
+  display: inline-block;
+  margin-top: 3px;
+  font-size: 10px;
+  line-height: 1.3;
+  color: #ff8a5c;
+  border: 1px solid rgba(255, 80, 40, 0.5);
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: rgba(255, 80, 40, 0.12);
 }
 @keyframes qc-pulse {
   0%, 100% { opacity: 1; }

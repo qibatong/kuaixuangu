@@ -43,6 +43,9 @@
       </button>
     </div>
 
+    <!-- 市场情绪面板(开盘啦: 涨停家数/情绪值/连板高度) -->
+    <SentimentPanel />
+
     <!-- 筛选面板 -->
     <FilterPanel />
 
@@ -75,13 +78,13 @@
       <div v-if="!stocks.isSpotCached" class="stock-table-container">
         <div class="loading-placeholder"><div class="spinner"></div><div>正在初始化盘中数据...</div></div>
       </div>
-      <StockTable v-else :stocks="stocks.spotStocks" mode="spot" />
+      <StockTable v-else :stocks="stocks.spotStocks" mode="spot" :bid-seal-map="bidSealMap" />
     </template>
     <template v-else>
       <div v-if="!stocks.isDataCached" class="stock-table-container">
         <div class="loading-placeholder"><div class="spinner"></div><div>正在初始化选股数据...</div></div>
       </div>
-      <StockTable v-else :stocks="stocks.cachedStocks" mode="auction" />
+      <StockTable v-else :stocks="stocks.cachedStocks" mode="auction" :bid-seal-map="bidSealMap" />
     </template>
 
     <div style="display:flex;justify-content:flex-end;margin:6px 0;">
@@ -96,6 +99,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import FilterPanel from '../components/FilterPanel.vue'
+import SentimentPanel from '../components/SentimentPanel.vue'
 import MedalPanel from '../components/MedalPanel.vue'
 import StockPoolPanel from '../components/StockPoolPanel.vue'
 import StockTable from '../components/StockTable.vue'
@@ -103,6 +107,7 @@ import ChangePwdModal from '../components/ChangePwdModal.vue'
 import { useStocksStore } from '../stores/stocks'
 import { usePoolStore } from '../stores/pool'
 import { useUserStore } from '../stores/user'
+import { kplBidSeal } from '../api/kpl'
 import { showToast } from '../utils/toast'
 import { copyText, downloadBlkFile } from '../utils/tdx'
 import { bjTimeStr, isBefore930 } from '../utils/time'
@@ -120,6 +125,16 @@ const healthTip = ref('')
 const yiziToday = ref(null)       // {yizi_count, bid_amt} 今日一字涨停
 const yiziTrend = ref([])         // 近 5 日趋势
 const yiziLoaded = ref(false)     // 接口已返回(区分 加载中/暂无)
+const bidSealMap = ref({})        // 竞价涨停委买额 map: code -> {limitBoards, bidSealAmt, bidNetAmt}
+
+async function loadBidSeal() {
+  try {
+    const d = await kplBidSeal()
+    const map = {}
+    ;(d.list || []).forEach((it) => { map[it.code] = it })
+    bidSealMap.value = map
+  } catch (e) { /* 竞价委买额可选, 失败静默 */ }
+}
 
 async function loadYizi() {
   try {
@@ -231,6 +246,7 @@ onMounted(() => {
   bjTime.value = bjTimeStr()
   init()
   loadYizi()
+  loadBidSeal()
 })
 onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
