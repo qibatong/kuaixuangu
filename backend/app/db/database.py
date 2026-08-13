@@ -126,13 +126,19 @@ def init_db():
             bid_amt REAL NOT NULL DEFAULT 0,
             ts INTEGER NOT NULL,
             name TEXT,
+            bid_buy_amt REAL NOT NULL DEFAULT 0,
+            float_mv REAL NOT NULL DEFAULT 0,
             PRIMARY KEY (date, time_point, code)
         )
     """)
-    # 老库迁移: snapshot_bid 增加名称列(回放/个股弹窗展示用)
+    # 老库迁移: snapshot_bid 增加 名称/委买额/流通市值 列(回放/抢筹计算用)
     bcols2 = [r[1] for r in cur.execute("PRAGMA table_info(snapshot_bid)").fetchall()]
     if "name" not in bcols2:
         cur.execute("ALTER TABLE snapshot_bid ADD COLUMN name TEXT")
+    if "bid_buy_amt" not in bcols2:
+        cur.execute("ALTER TABLE snapshot_bid ADD COLUMN bid_buy_amt REAL NOT NULL DEFAULT 0")
+    if "float_mv" not in bcols2:
+        cur.execute("ALTER TABLE snapshot_bid ADD COLUMN float_mv REAL NOT NULL DEFAULT 0")
     # 密码重置令牌
     cur.execute("""
         CREATE TABLE IF NOT EXISTS reset_tokens (

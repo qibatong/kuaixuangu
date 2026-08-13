@@ -319,28 +319,28 @@ def test_fetch_yest_broken(monkeypatch):
 
 
 def test_fetch_bid_qiangcang(monkeypatch):
-    # mock snapshot_bid: 9:20/9:25 竞价额
+    """双算法: 有 9:20 buy 历史用增量(对标短线侠), 否则用 buy25/floatMv 实时"""
     import sqlite3
+    class FakeCursor:
+        def __init__(self, rows): self.rows = rows
+        def fetchall(self): return self.rows
+
     class FakeConn:
-        def __init__(self, rows):
-            self._rows = rows
-            self.executed = []
         def execute(self, sql, params=()):
-            self.executed.append(sql)
-            if "9_20" in sql:
-                return [(c, 5.0, amt) for c, amt in [(1, 100), (2, 200)]]
-            return [(c, 6.0, amt, "N%d" % c) for c, amt in [(1, 300), (2, 220)]]
+            if "9_20" in sql and "bid_buy_amt > 0" in sql:
+                return FakeCursor([(1, 100.0), (2, 200.0)])   # 模拟明日有 buy20 历史
+            if "9_25" in sql:
+                return FakeCursor([(1, 6.0, 300.0, 2000.0, 5e9, "A"), (2, 6.0, 220.0, 600.0, 8e9, "B")])
+            return FakeCursor([])
         def close(self): pass
     real = sqlite3.connect
     monkeypatch.setattr(kpl, "_seal_map", lambda: {})
-    monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn(None))
+    monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
     kpl._cache.clear()
     rows = kpl.fetch_bid_qiangcang()
     monkeypatch.setattr("sqlite3.connect", real)
     assert len(rows) == 2
     m = {r["code"]: r for r in rows}
-    assert m[1]["qcPct"] == 200.0    # (300/100-1)*100
-    assert m[2]["qcPct"] == 10.0     # (220/200-1)*100
-    assert m[1]["bidAmt"] == 300 * 10000  # 万元→元
-    # 抢筹幅度降序: 200% 排在 10% 前
-    assert rows[0]["code"] == 1
+    assert m[1]["use_increment"] is True
+    assert abs(m[1]["qcPct"] - 0.38) < 0.01
+    assert abs(m[2]["qcPct"] - 0.05) < 0.01

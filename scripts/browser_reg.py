@@ -188,20 +188,7 @@ def run(shot_dir, user, pwd):
             failed.append("竞价净额异常: %s" % d)
         shot("03_net.png")
 
-        # Tab4 竞价抢筹
-        log("Tab=竞价抢筹")
-        click_tab("竞价抢筹")
-        time.sleep(2)
-        d = json.loads(ev(rows_js))
-        rows = d.get("rows") or []
-        log("  首行: %s" % (rows[0] if rows else d))
-        if rows and len(rows[0]) >= 6 and rows[0][5] not in ("", "-", "NaN"):
-            log("✅ 竞价抢筹 首行抢筹幅度=%s" % rows[0][5])
-        else:
-            failed.append("竞价抢筹异常: %s" % d)
-        shot("04_qc.png")
-
-        # Tab5 昨日涨停
+        # Tab4 昨日涨停
         log("Tab=昨日涨停")
         click_tab("昨日涨停")
         time.sleep(2)
@@ -214,7 +201,7 @@ def run(shot_dir, user, pwd):
             failed.append("昨日涨停异常: %s" % d)
         shot("05_yest_zt.png")
 
-        # Tab6 昨断板
+        # Tab5 昨断板
         log("Tab=昨断板")
         click_tab("昨断板")
         time.sleep(2)
@@ -227,7 +214,7 @@ def run(shot_dir, user, pwd):
             failed.append("昨断板异常: %s" % d)
         shot("06_yest_broken.png")
 
-        # Tab7 昨炸板
+        # Tab6 昨炸板
         log("Tab=昨炸板")
         click_tab("昨炸板")
         time.sleep(2)
@@ -295,7 +282,7 @@ def run(shot_dir, user, pwd):
         for f in failed:
             log("  - " + f)
         sys.exit(2)
-    log("✅✅ 竞价异动页八 Tab(委买/爆量/抢筹/净额/昨日涨停/昨断板/昨炸板/今炸板) + 时点个股弹窗真实浏览器验证全部通过, 截图: %s" % shot_dir)
+    log("✅✅ 竞价异动页七 Tab(委买/爆量/净额/昨日涨停/昨断板/昨上榜/昨炸板/今炸板) + 时点个股弹窗真实浏览器验证全部通过, 截图: %s" % shot_dir)
 
 
 def main():

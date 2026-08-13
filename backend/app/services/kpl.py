@@ -659,50 +659,57 @@ def fetch_yest_broken():
 
 
 def fetch_bid_qiangcang():
-    """竞价抢筹: 基于 snapshot_bid 三时点快照计算 9:20→9:25 竞价额增速(抢筹幅度),
-    merge Type4 补概念/流通/换手; 按抢筹幅度降序。开盘啦无专用接口, 此为等效计算。
-    返回 [{code,name,change,bidAmt,qcPct,bidChange20,bidNetAmt,bidTurnover,floatMv,board}, ...]"""
+    """竞价抢筹: 实时抢筹资金占比(buy_amt / floatMv), 量级与短线侠抢筹幅度一致(5-10%).
+    开盘啦无专用接口, 无"最后1秒"数据源.
+    计算策略: 若 9_20/9_25 两时点 bid_buy_amt 都有真实历史值(明天起新采集), 用 9:20→9:25 增量版
+    = (buy25-buy20)/floatMv (对标短线侠); 否则用 buy25/floatMv (当前实时抢筹资金).
+    merge Type4 补换手; 过滤 buy_amt/floatMv 缺失或太小的票."""
     def loader():
         import sqlite3
         today = time.strftime("%Y-%m-%d")
         conn = sqlite3.connect(config.DB_FILE)
-        m20 = {}
-        m25 = {}
+        rows25 = []
+        rows20 = []
         try:
-            for r in conn.execute(
-                    "SELECT code, bid_change, bid_amt FROM snapshot_bid WHERE date=? AND time_point='9_20'",
-                    (today,)):
-                m20[r[0]] = {"chg": r[1], "amt": r[2]}
-            for r in conn.execute(
-                    "SELECT code, bid_change, bid_amt, name FROM snapshot_bid WHERE date=? AND time_point='9_25'",
-                    (today,)):
-                m25[r[0]] = {"chg": r[1], "amt": r[2], "name": r[3]}
+            rows20 = conn.execute(
+                "SELECT code, bid_buy_amt FROM snapshot_bid "
+                "WHERE date=? AND time_point='9_20' AND bid_buy_amt > 0", (today,)).fetchall()
+            rows25 = conn.execute(
+                "SELECT code, bid_change, bid_amt, bid_buy_amt, float_mv, name FROM snapshot_bid "
+                "WHERE date=? AND time_point='9_25' AND bid_buy_amt > 0", (today,)).fetchall()
         finally:
             conn.close()
-        if not m20 or not m25:
+        # 判断是否有真实历史 9:20 委买额(明日新采集后才有)
+        use_increment = bool(rows20)
+        if not rows25:
             return []
+        m20 = {r[0]: r[1] for r in rows20} if rows20 else {}
         seal_map = _seal_map()
         out = []
-        for code, v25 in m25.items():
-            v20 = m20.get(code)
-            if not v20 or not v25["amt"] or not v20["amt"]:
+        for code, chg, amt, buy25, fmv, name in rows25:
+            buy20 = m20.get(code, 0)
+            if fmv <= 0 or buy25 <= 0:
                 continue
-            # 基数过小(竞价额<50万)的票抢筹幅度无意义(9:20 几千块放大到几百万会虚高上万%), 过滤
-            if v20["amt"] < 50 or v25["amt"] < 50:
+            if fmv < 5e8:    # 流通市值<5亿 跳过
                 continue
-            qc = round((v25["amt"] / v20["amt"] - 1) * 100, 2)   # 抢筹幅度(%)
+            if use_increment and buy20 > 0:
+                # 9:20→9:25 委买增量/流通市值(对标短线侠)
+                qc = round((buy25 - buy20) * 10000 / fmv * 100, 2)
+            else:
+                # 当前实时抢筹资金/流通市值(过渡, 等真实 buy20 上线)
+                qc = round(buy25 * 10000 / fmv * 100, 2)
             t4 = seal_map.get(code, {})
             out.append({
                 "code": code,
-                "name": v25["name"] or t4.get("name", ""),
-                "change": v25["chg"],                          # 9:25 竞价涨幅
-                "bidAmt": v25["amt"] * 10000,                  # 9:25 竞价额(元)
-                "qcPct": qc,                                   # 抢筹幅度(%)
-                "bidChange20": v20["chg"],                     # 9:20 竞价涨幅(竞涨)
+                "name": name or t4.get("name", ""),
+                "change": chg,
+                "bidAmt": amt * 10000,
+                "qcPct": qc,
                 "bidNetAmt": t4.get("bidNetAmt"),
                 "bidTurnover": t4.get("bidTurnover"),
-                "floatMv": t4.get("floatMv"),
+                "floatMv": fmv,
                 "board": t4.get("board", ""),
+                "use_increment": use_increment,    # 前端可显示当前是哪种算法
             })
         out.sort(key=lambda x: x["qcPct"], reverse=True)
         return out[:100]
