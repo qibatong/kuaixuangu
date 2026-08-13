@@ -319,8 +319,8 @@ def test_fetch_yest_broken(monkeypatch):
 
 
 def test_fetch_bid_qiangcang(monkeypatch):
-    """双段抢筹: snapshot_bid 9_20/9_24/9_25 委买额增量 / 流通市值
-    - qc20 = 9:20→9:25 抢筹幅度%
+    """双段抢筹: snapshot_bid 9_20/9_24/9_25 竞价额增量 / 流通市值
+    - qc20 = 9:20→9:25 抢筹幅度%(委买额 f5 竞价时段不更新, 用竞价额 bid_amt)
     - qcLast = 9:24→9:25 最后阶段抢筹%(对标短线侠'最后1秒'近似)"""
     import sqlite3
     class FakeCursor:
@@ -333,13 +333,13 @@ def test_fetch_bid_qiangcang(monkeypatch):
         def execute(self, sql, params=()):
             self.executed.append(sql)
             if "9_24" in sql:
-                return FakeCursor([(1, 500.0), (2, 800.0)])    # code1: 9_24 委买 500万
+                return FakeCursor([(1, 500.0), (2, 800.0)])    # code1: 9_24 竞价额 500万
             if "9_20" in sql:
-                return FakeCursor([(1, 100.0), (2, 200.0)])    # code1: 9_20 委买 100万
-            # 9_25: code, bid_change, bid_amt, bid_buy_amt(万), float_mv(元), name
+                return FakeCursor([(1, 100.0), (2, 200.0)])    # code1: 9_20 竞价额 100万
+            # 9_25: code, bid_change, bid_amt(万), float_mv(元), name
             return FakeCursor([
-                (1, 6.0, 300.0, 1000.0, 5e9, "A"),
-                (2, 6.0, 220.0, 900.0, 8e9, "B"),
+                (1, 6.0, 1000.0, 5e9, "A"),
+                (2, 6.0, 900.0, 8e9, "B"),
             ])
         def close(self): pass
     real = sqlite3.connect
@@ -358,3 +358,6 @@ def test_fetch_bid_qiangcang(monkeypatch):
     assert abs(m[2]["qc20"] - 0.09) < 0.001
     # qc20 降序: code1(0.18) > code2(0.0875)
     assert rows[0]["code"] == 1
+    # has20/has24 为真(竞价额各时点不同 = 真实历史)
+    assert rows[0]["has20"] is True
+    assert rows[0]["has24"] is True

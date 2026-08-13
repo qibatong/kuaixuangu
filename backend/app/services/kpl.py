@@ -843,25 +843,25 @@ def fetch_yest_broken():
 
 def fetch_bid_qiangcang():
     """竞价抢筹(双段, 对标短线侠):
-    数据源: snapshot_bid 三时点委买额(9_20/9_24/9_25) + 流通市值 + GetBKJJBL 补展示字段
-    - qc20  = 9:20→9:25 抢筹幅度% = (buy25-buy20)*10000/floatMv*100  (增量算法)
-    - qcLast= 9:24→9:25 最后阶段抢筹% = (buy25-buy24)*10000/floatMv*100 (对标短线侠'最后1秒'近似)
-    过渡: 今日无真实 9_20/9_24 历史(同一份快照) → qc20/qcLast 退回 buy25/floatMv 单时点占比
-    仅竞价时段(9:15-9:30)有真实增量数据; merge Type4 补实时涨幅/换手/概念"""
+    数据源: snapshot_bid 多时点竞价额(bid_amt) + 流通市值
+    - qc20  = 9:20→9:25 抢筹幅度% = (amt25-amt20)*10000/floatMv*100
+    - qcLast= 9:24→9:25 最后阶段抢筹% = (amt25-amt24)*10000/floatMv*100 (对标短线侠'最后1秒'近似)
+    注意: 委买额 f5 竞价时段不更新(东财 clist 限制), 用竞价额 bid_amt(实时更新)算增量
+    有 9_20/9_24 历史才出增量, 否则 qc20/qcLast 为 None(前端显示 '-')"""
     def loader():
         import sqlite3
         today = time.strftime("%Y-%m-%d")
         try:
             conn = sqlite3.connect(config.DB_FILE)
             rows20 = conn.execute(
-                "SELECT code, bid_buy_amt FROM snapshot_bid WHERE date=? AND time_point='9_20' AND bid_buy_amt > 0",
+                "SELECT code, bid_amt FROM snapshot_bid WHERE date=? AND time_point='9_20'",
                 (today,)).fetchall()
             rows24 = conn.execute(
-                "SELECT code, bid_buy_amt FROM snapshot_bid WHERE date=? AND time_point='9_24' AND bid_buy_amt > 0",
+                "SELECT code, bid_amt FROM snapshot_bid WHERE date=? AND time_point='9_24'",
                 (today,)).fetchall()
             rows25 = conn.execute(
-                "SELECT code, bid_change, bid_amt, bid_buy_amt, float_mv, name FROM snapshot_bid "
-                "WHERE date=? AND time_point='9_25' AND bid_buy_amt > 0", (today,)).fetchall()
+                "SELECT code, bid_change, bid_amt, float_mv, name FROM snapshot_bid "
+                "WHERE date=? AND time_point='9_25'", (today,)).fetchall()
             conn.close()
         except Exception as e:
             log.warning("抢筹快照读取失败 err=%s", e)
@@ -870,41 +870,45 @@ def fetch_bid_qiangcang():
             return []
         m20 = {r[0]: r[1] for r in rows20}
         m24 = {r[0]: r[1] for r in rows24}
-        # 判断是否真实历史: 若某时点与 9_25 委买额大量相同 → 同一份快照(非真实历史)
-        def _real_hist(m):
+        # 9:20 有数据且与 9:25 竞价额显著不同 → 有真实增量
+        def _has_real(m):
             if not m:
                 return False
-            m25v = {c: v for c, _, _, v, _, _ in rows25 if c in m}
-            if not m25v:
+            n = 0
+            same = 0
+            for row in rows25:
+                code, amt25 = row[0], row[2]
+                if code in m:
+                    n += 1
+                    if abs(m[code] - amt25) < 1e-6:
+                        same += 1
+            if n == 0:
                 return False
-            same = sum(1 for c, v in m25v.items() if abs(m.get(c, 0) - v) < 1e-6)
-            return same < max(2, len(m25v) * 0.2)   # >80% 不同才算真实历史
-        has20 = _real_hist(m20)
-        has24 = _real_hist(m24)
+            return same < max(2, n * 0.3)   # 不一致比例 >70% → 真实历史
+        has20 = _has_real(m20)
+        has24 = _has_real(m24)
         seal_map = _seal_map()
         out = []
-        for code, chg, amt, buy25, fmv, name in rows25:
-            if fmv <= 0 or buy25 <= 0 or fmv < 5e8:
+        for code, chg, amt25, fmv, name in rows25:
+            if fmv <= 0 or amt25 <= 0 or fmv < 5e8:
                 continue
             t4 = seal_map.get(code, {})
-            # 9:20→9:25 增量抢筹(有真实 9_20 才用增量, 否则单时点占比过渡)
-            buy20 = m20.get(code, 0)
-            if has20 and buy20 > 0 and abs(buy25 - buy20) > 1e-6:
-                qc20 = round((buy25 - buy20) * 10000 / fmv * 100, 2)
+            amt20 = m20.get(code, 0)
+            if has20 and amt20 > 0 and abs(amt25 - amt20) > 1e-6:
+                qc20 = round((amt25 - amt20) * 10000 / fmv * 100, 2)
             else:
-                qc20 = round(buy25 * 10000 / fmv * 100, 2)     # 单时点占比(过渡)
-            # 9:24→9:25 最后阶段抢筹
-            buy24 = m24.get(code, 0)
-            if has24 and buy24 > 0 and abs(buy25 - buy24) > 1e-6:
-                qc_last = round((buy25 - buy24) * 10000 / fmv * 100, 2)
+                qc20 = None
+            amt24 = m24.get(code, 0)
+            if has24 and amt24 > 0 and abs(amt25 - amt24) > 1e-6:
+                qc_last = round((amt25 - amt24) * 10000 / fmv * 100, 2)
             else:
-                qc_last = None     # 无 9_24 历史 → 前端显示 '-' 或回退
+                qc_last = None
             out.append({
                 "code": code,
                 "name": name or t4.get("name", ""),
                 "realChange": t4.get("realChange") or chg,     # 实时涨幅(GetBKJJBL/Type4 优先)
                 "bidChange": chg,                               # 9:25 竞价涨幅
-                "bidAmt": amt * 10000,                          # 9:25 竞价额(元)
+                "bidAmt": amt25 * 10000,                        # 9:25 竞价额(元)
                 "qc20": qc20,                                   # 9:20-9:25 抢筹幅度%
                 "qcLast": qc_last,                              # 9:24-9:25 最后阶段抢筹%(可能 None)
                 "bidTurnover": t4.get("bidTurnover"),           # 竞价换手(%)
@@ -912,8 +916,8 @@ def fetch_bid_qiangcang():
                 "board": t4.get("board", ""),                   # 所属板块
                 "has20": has20, "has24": has24,                 # 前端可判断数据质量
             })
-        # 排序: 主按 qc20(抢筹幅度) 降序
-        out.sort(key=lambda x: x["qc20"], reverse=True)
+        # 排序: 主按 qc20(抢筹幅度) 降序, 无增量的排最后
+        out.sort(key=lambda x: (x["qc20"] is None, -(x["qc20"] or 0)))
         return out[:100]
     return _cached("bid_qiangcang", 30, loader)
 
