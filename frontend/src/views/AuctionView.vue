@@ -44,6 +44,7 @@
       <button class="auc-tab" :class="{ active: tab === 'seal' }" @click="tab = 'seal'"><i class="fa fa-gavel"></i> 竞价委买</button>
       <button class="auc-tab" :class="{ active: tab === 'boom' }" @click="tab = 'boom'"><i class="fa fa-bolt"></i> 竞价爆量</button>
       <button class="auc-tab" :class="{ active: tab === 'net' }" @click="tab = 'net'"><i class="fa fa-exchange"></i> 竞价净额</button>
+      <button class="auc-tab" :class="{ active: tab === 'qc' }" @click="tab = 'qc'" title="尾盘抢筹(14:57 后)"><i class="fa fa-fire"></i> 尾盘抢筹</button>
       <button class="auc-tab" :class="{ active: tab === 'yestZt' }" @click="tab = 'yestZt'"><i class="fa fa-sun-o"></i> 昨日涨停</button>
       <button class="auc-tab" :class="{ active: tab === 'yestBroken' }" @click="tab = 'yestBroken'"><i class="fa fa-bell-slash"></i> 昨断板</button>
       <button class="auc-tab" :class="{ active: tab === 'lhb' }" @click="tab = 'lhb'"><i class="fa fa-list-alt"></i> 昨上榜</button>
@@ -75,6 +76,32 @@
             <td><span v-if="it.limitBoards > 0" class="lb-badge">{{ it.limitBoards }}板</span><span v-else class="dim">-</span></td>
             <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ it.board }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已入池' : '＋池' }}</button></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- 尾盘竞价抢筹(14:57 后, 开盘啦 GetWPQC 接口) -->
+      <table v-else-if="tab === 'qc'" class="stock-table">
+        <thead>
+          <tr><th>排名</th><th>代码</th><th>名称</th><th>涨幅%</th><th>连板</th><th>抢筹委托</th><th>抢筹净额</th><th>抢筹涨幅%</th><th>抢筹强度</th><th>流通Z</th><th>概念</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="(q, idx) in wpqcList" :key="q.code">
+            <td class="rank-col">{{ idx + 1 }}</td>
+            <td class="code-click" @click="linkToSoftware(q.code)">{{ q.code }}</td>
+            <td class="name-col"><div class="name-main">{{ q.name }}</div></td>
+            <td :class="q.change > 0 ? 'up' : 'down'">{{ signed(q.change) }}%</td>
+            <td><span v-if="q.limitBoards > 0" class="lb-badge">{{ q.limitBoards }}板</span><span v-else class="dim">-</span></td>
+            <td :class="q.qcAmt > 0 ? 'up' : 'dim'">{{ amtText(q.qcAmt) }}</td>
+            <td :class="q.qcNet > 0 ? 'up' : q.qcNet < 0 ? 'down' : 'dim'">{{ amtText(q.qcNet) }}</td>
+            <td :class="q.qcChange > 0 ? 'up' : 'down'">{{ signed(q.qcChange) }}%</td>
+            <td :class="q.qcStrength > 0 ? 'up' : 'dim'"><b>{{ q.qcStrength ? q.qcStrength.toFixed(2) : '-' }}</b></td>
+            <td class="dim">-</td>
+            <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ q.concept || '-' }}</td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已入池' : '＋池' }}</button></td>
+          </tr>
+          <tr v-if="!wpqcList.length">
+            <td colspan="12" class="snap-empty">尾盘抢筹数据 14:57 后可用</td>
           </tr>
         </tbody>
       </table>
@@ -191,7 +218,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { kplBidSeal, kplBidBoom, kplBroken, kplLhb, kplYestBroken, kplYestZt } from '../api/kpl'
+import { kplBidSeal, kplBidBoom, kplBroken, kplLhb, kplWpqc, kplYestBroken, kplYestZt } from '../api/kpl'
 import { auctionOverview, auctionSnapshot } from '../api/stats'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
@@ -206,6 +233,7 @@ const boomList = ref([])
 const lhbList = ref([])
 const brokenYestList = ref([])
 const brokenTodayList = ref([])
+const wpqcList = ref([])
 const yestZtList = ref([])
 const yestBrokenList = ref([])
 const loading = ref(true)
@@ -271,13 +299,14 @@ function wan(v) { return v ? Number(v).toFixed(0) : '0' }
 
 async function loadAll() {
   try {
-    const [ov, seal, boom, yestZt, yestBroken, lhb, brokenYest, brokenToday] = await Promise.all([
-      auctionOverview(), kplBidSeal(), kplBidBoom(), kplYestZt(), kplYestBroken(),
+    const [ov, seal, boom, wpqc, yestZt, yestBroken, lhb, brokenYest, brokenToday] = await Promise.all([
+      auctionOverview(), kplBidSeal(), kplBidBoom(), kplWpqc(), kplYestZt(), kplYestBroken(),
       kplLhb(), kplBroken('yesterday'), kplBroken()
     ])
     days.value = ov.days || []
     sealRaw.value = seal.list || []
     boomList.value = boom.list || []
+    wpqcList.value = wpqc.list || []
     yestZtList.value = yestZt.list || []
     yestBrokenList.value = yestBroken.list || []
     lhbList.value = lhb.list || []
