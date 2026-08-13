@@ -418,8 +418,15 @@ onBeforeUnmount(() => {
 .qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { width: 100px; }
 .qc-panel .qc-board { white-space: normal; }
 .qc-panel .qc-board-item { line-height: 1.5; word-break: break-all; }
-/* 操作列(列间距与其它列一致: padding 4px 8px) */
-.qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) { width: 64px; text-align: center; }
+/* 操作列(列间距与其它列一致: padding 4px 8px)
+   sticky 粘右侧: 表格内容滚动时操作列始终可见可点 */
+.qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) {
+  width: 64px; text-align: center;
+  position: sticky; right: 0; z-index: 2;
+  background: #1c1f26;
+  box-shadow: -2px 0 4px rgba(0,0,0,0.4);
+}
+.qc-panel .stock-table thead th:nth-child(10) { background: #252830; }
 .qc-panel .code-sub { font-size: 11px; color: #889; cursor: pointer; margin-top: 1px; line-height: 1.2; }
 .qc-panel .code-sub:hover { color: #ffb400; }
 .qc-panel .name-main { font-size: 13px; line-height: 1.3; }
