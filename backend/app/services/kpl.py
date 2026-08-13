@@ -326,6 +326,34 @@ def fetch_wpqc():
     return _cached("wpqc", 30, loader)
 
 
+# ==================== 人气热榜 ====================
+def fetch_hot_rank():
+    """盘中人气热榜: List [[code,name,?,涨跌幅,排名,?,?], ...]"""
+    def loader():
+        d = _call("market", {"Order": "1", "a": "GetHotPHB", "st": "50",
+                             "apiv": "w29", "Type": "1", "c": "StockBidYiDong"})
+        if not d:
+            return None
+        lst = d.get("List")
+        if not isinstance(lst, list):
+            return []
+        out = []
+        for row in lst:
+            if not isinstance(row, list) or len(row) < 5:
+                continue
+            try:
+                out.append({
+                    "code": str(row[0]),
+                    "name": str(row[1]),
+                    "change": _f(row[3]),        # 涨跌幅(%)
+                    "rank": int(_num(row[4])),   # 人气排名
+                })
+            except (IndexError, ValueError, TypeError):
+                continue
+        return out
+    return _cached("hot_rank", 60, loader)
+
+
 # ==================== 工具函数 ====================
 def _f(v):
     try:

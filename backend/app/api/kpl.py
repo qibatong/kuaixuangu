@@ -43,6 +43,13 @@ def api_kpl_board_rank(request: Request, uid: int = Depends(get_uid)):
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
 
 
+@router.get("/api/kpl/hot-rank")
+def api_kpl_hot_rank(request: Request, uid: int = Depends(get_uid)):
+    """盘中人气热榜(实时)"""
+    d = kpl.fetch_hot_rank()
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+
+
 @router.get("/api/kpl/zt-reason")
 def api_kpl_zt_reason(request: Request, code: str = "", uid: int = Depends(get_uid)):
     """个股涨停原因(当天/历史)"""

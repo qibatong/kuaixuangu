@@ -16,6 +16,7 @@
           <button class="tdx-export-btn real-time-btn" @click="refreshRealTime"><i class="fa fa-refresh"></i> 刷新实时涨幅</button>
           <router-link to="/history" class="tdx-export-btn" style="background:rgba(255,180,0,0.18);border:1px solid #ffb400;color:#ffe0a0;"><i class="fa fa-history"></i> 历史回看</router-link>
           <router-link to="/ladder" class="tdx-export-btn" style="background:rgba(255,80,40,0.15);border:1px solid #ff5028;color:#ffa080;"><i class="fa fa-sitemap"></i> 连板天梯</router-link>
+          <router-link to="/market" class="tdx-export-btn" style="background:rgba(0,200,150,0.15);border:1px solid #00c896;color:#a0ffe0;"><i class="fa fa-radar"></i> 市场雷达</router-link>
           <router-link to="/invite" class="tdx-export-btn" style="background:rgba(0,180,255,0.15);border:1px solid #00b4ff;color:#a0e0ff;"><i class="fa fa-share-alt"></i> 邀请</router-link>
           <router-link v-if="user.isAdmin" to="/admin" class="tdx-export-btn" style="background:rgba(255,215,0,0.15);border:1px solid #ffd700;color:#ffe9a0;"><i class="fa fa-shield"></i> 管理</router-link>
           <a href="/download/tdx_import.exe" class="tdx-export-btn tdx-only" style="background:rgba(255,150,50,0.15);border:1px solid #ff9632;color:#ffd0a0;"><i class="fa fa-windows"></i> 下载通达信工具</a>
