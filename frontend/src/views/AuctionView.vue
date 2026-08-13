@@ -398,30 +398,29 @@ onBeforeUnmount(() => {
 .auc-tab.active { background: rgba(255,180,0,0.15); border-color: #ffb400; color: #ffd700; font-weight: 600; }
 .auc-panel { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 14px; }
 /* 竞价抢筹左右双表 */
-.qc-dual { display: flex; gap: 12px; align-items: flex-start; }
-.qc-panel { flex: 1 1 0; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px; }
-/* 表格自然宽度(列宽总和<panel宽), 不强制横向滚动(sticky 操作列才不会被推到右边缘覆盖概念列) */
-.qc-panel-title { font-size: 14px; font-weight: 700; color: #ffe0a0; margin-bottom: 10px; }
+.qc-dual { display: flex; gap: 10px; align-items: flex-start; }
+.qc-panel { flex: 1 1 0; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px; }
+.qc-panel-title { font-size: 14px; font-weight: 700; color: #ffe0a0; margin-bottom: 8px; }
 .qc-panel .stock-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
-/* 所有列间距紧凑: padding 一律 4px 4px(列间 8px, 减小原 16px) */
-.qc-panel .stock-table th, .qc-panel .stock-table td { padding: 4px 4px; font-size: 12px; white-space: nowrap; }
+/* 所有列间距紧凑: padding 一律 4px 2px(列间 4px, 数值紧凑) */
+.qc-panel .stock-table th, .qc-panel .stock-table td { padding: 4px 2px; font-size: 12px; white-space: nowrap; }
 .qc-panel .stock-table th { color: #ffe0a0; font-weight: 600; border-bottom: 1px solid rgba(255,180,0,0.3); }
 .qc-panel .stock-table td { border-bottom: 1px solid rgba(255,255,255,0.04); }
-.qc-panel .stock-table th:nth-child(1), .qc-panel .stock-table td:nth-child(1) { width: 32px; text-align: center; }
-.qc-panel .stock-table th:nth-child(2), .qc-panel .stock-table td:nth-child(2) { width: 96px; }
-.qc-panel .stock-table th:nth-child(3), .qc-panel .stock-table td:nth-child(3) { width: 58px; text-align: right; }
-.qc-panel .stock-table th:nth-child(4), .qc-panel .stock-table td:nth-child(4) { width: 66px; text-align: right; }
-.qc-panel .stock-table th:nth-child(5), .qc-panel .stock-table td:nth-child(5) { width: 70px; text-align: right; }
-.qc-panel .stock-table th:nth-child(6), .qc-panel .stock-table td:nth-child(6) { width: 48px; text-align: right; }
+/* 缩列宽到适应窄屏(>=600px panel): 10 列总宽 ≈ 568px */
+.qc-panel .stock-table th:nth-child(1), .qc-panel .stock-table td:nth-child(1) { width: 26px; text-align: center; }
+.qc-panel .stock-table th:nth-child(2), .qc-panel .stock-table td:nth-child(2) { width: 88px; }
+.qc-panel .stock-table th:nth-child(3), .qc-panel .stock-table td:nth-child(3) { width: 56px; text-align: right; }
+.qc-panel .stock-table th:nth-child(4), .qc-panel .stock-table td:nth-child(4) { width: 62px; text-align: right; }
+.qc-panel .stock-table th:nth-child(5), .qc-panel .stock-table td:nth-child(5) { width: 64px; text-align: right; }
+.qc-panel .stock-table th:nth-child(6), .qc-panel .stock-table td:nth-child(6) { width: 42px; text-align: right; }
 .qc-panel .stock-table th:nth-child(7), .qc-panel .stock-table td:nth-child(7) { width: 50px; text-align: right; }
-.qc-panel .stock-table th:nth-child(8), .qc-panel .stock-table td:nth-child(8) { width: 54px; text-align: right; }
-/* 概念列: 紧凑换行, 全部可见不被操作列遮 */
-.qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { width: 86px; }
+.qc-panel .stock-table th:nth-child(8), .qc-panel .stock-table td:nth-child(8) { width: 50px; text-align: right; }
+.qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { width: 78px; }
 .qc-panel .qc-board { white-space: normal; }
-.qc-panel .qc-board-item { line-height: 1.5; word-break: break-all; }
-/* 操作列(sticky 钉右边缘, 始终可见可点) */
+.qc-panel .qc-board-item { line-height: 1.4; word-break: break-all; font-size: 11px; }
+/* 操作列 sticky 钉右, 始终可见 */
 .qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) {
-  width: 56px; text-align: center; padding: 4px 2px;
+  width: 52px; text-align: center; padding: 4px 2px;
   position: sticky; right: 0; z-index: 2;
   background: #1c1f26;
   box-shadow: -2px 0 4px rgba(0,0,0,0.4);
@@ -430,7 +429,8 @@ onBeforeUnmount(() => {
 .qc-panel .code-sub { font-size: 11px; color: #889; cursor: pointer; margin-top: 1px; line-height: 1.2; }
 .qc-panel .code-sub:hover { color: #ffb400; }
 .qc-panel .name-main { font-size: 13px; line-height: 1.3; }
-@media (max-width: 1100px) { .qc-dual { flex-direction: column; } }
+/* 窄屏(<1280px) 纵向堆叠; <1100 已原有 fallback */
+@media (max-width: 1280px) { .qc-dual { flex-direction: column; } }
 .loading-placeholder { text-align: center; padding: 40px; color: #888; }
 .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
 @keyframes spin { to { transform: rotate(360deg); } }
