@@ -80,7 +80,7 @@ def _fetch_market_map(full=False):
                         "bid_amt": scorer.get_bid_amt(s),
                         "name": str(s.get("f14") or ""),          # 名称
                         "bid_buy_amt": scorer.parse_float(s.get("f5")) / 10000,   # 委买额(万元)
-                        "float_mv": scorer.parse_float(s.get("f6")),              # 流通市值(元)
+                        "float_mv": scorer.parse_float(s.get("f21")),             # 流通市值(元) - f21 才是流通市值, f6 是成交额!
                         "board": str(s.get("f103") or s.get("f100") or ""),       # 概念(f103优先, 行业f100兜底)
                     }
         return raw_all

@@ -779,15 +779,17 @@ def _seal_map():
 
 
 def _snap25_map():
-    """今日 9_25 全市场快照 code → {bid_change, bid_amt, name, board}(全市场5549只, 字段补全兜底)"""
+    """今日 9_25 全市场快照 code → {bid_change, bid_amt, name, float_mv, board}
+    (全市场5549只, 字段补全兜底)"""
     import sqlite3
     out = {}
     try:
         conn = sqlite3.connect(config.DB_FILE)
         for r in conn.execute(
-                "SELECT code, bid_change, bid_amt, name, board FROM snapshot_bid "
+                "SELECT code, bid_change, bid_amt, name, float_mv, board FROM snapshot_bid "
                 "WHERE date=? AND time_point='9_25'", (time.strftime("%Y-%m-%d"),)):
-            out[r[0]] = {"bid_change": r[1], "bid_amt": r[2], "name": r[3] or "", "board": r[4] or ""}
+            out[r[0]] = {"bid_change": r[1], "bid_amt": r[2], "name": r[3] or "",
+                         "float_mv": r[4] or 0, "board": r[5] or ""}
         conn.close()
     except Exception as e:
         log.warning("9_25快照查询失败(降级) err=%s", e)
@@ -814,6 +816,12 @@ def fetch_yest_zt():
             code = it["code"]
             s = seal_map.get(code, {})
             sn = snap25.get(code, {})
+            bid_amt = s.get("bidAmt") or (sn["bid_amt"] * 10000 if sn and sn.get("bid_amt") else None)
+            float_mv = s.get("floatMv") or (sn.get("float_mv") if sn else None)
+            # 竞价换手: Type4 真值优先, 无则 竞价额/流通市值 近似(与短线侠 0.1-0.4% 量级一致)
+            bid_turnover = s.get("bidTurnover")
+            if not bid_turnover and bid_amt and float_mv:
+                bid_turnover = round(bid_amt / float_mv * 100, 2)
             out.append({
                 "code": code,
                 "name": it["name"],
@@ -826,9 +834,9 @@ def fetch_yest_zt():
                 "bidChange": s.get("bidChange") if s.get("bidChange") is not None
                              else (sn.get("bid_change") if sn else None),
                 "bidNetAmt": s.get("bidNetAmt"),         # 竞价承接(净额,元) Type4 专有
-                "bidAmt": s.get("bidAmt") or (sn["bid_amt"] * 10000 if sn and sn.get("bid_amt") else None),
-                "bidTurnover": s.get("bidTurnover"),     # 竞价换手(%): Type4 专有, 无则空
-                "floatMv": s.get("floatMv"),             # 流通市值(元): Type4 专有
+                "bidAmt": bid_amt,
+                "bidTurnover": bid_turnover,
+                "floatMv": float_mv,
                 "board": s.get("board") or sn.get("board") or "",   # 概念: Type4 → 9_25快照(f103/f100)
             })
         return out
@@ -855,6 +863,12 @@ def fetch_yest_broken():
             code = it["code"]
             s = snap.get(code, {})
             t4 = seal_map.get(code, {})
+            bid_amt = (s["bid_amt"] * 10000) if s and s.get("bid_amt") else None
+            float_mv = t4.get("floatMv") or (s.get("float_mv") if s else None)
+            # 竞价换手: Type4 真值优先, 无则 竞价额/流通市值 近似
+            bid_turnover = t4.get("bidTurnover")
+            if not bid_turnover and bid_amt and float_mv:
+                bid_turnover = round(bid_amt / float_mv * 100, 2)
             out.append({
                 "code": code,
                 "name": t4.get("name") or s.get("name") or it["name"],
@@ -863,10 +877,10 @@ def fetch_yest_broken():
                 "change": t4.get("realChange") if t4.get("realChange") is not None
                           else (s.get("bid_change") if s else None),   # 今日实时涨幅(9_25竞价涨幅兜底)
                 "bidChange": (s.get("bid_change") if s else None),     # 今日竞价涨幅
-                "bidAmt": (s["bid_amt"] * 10000) if s and s.get("bid_amt") else None,  # 竞价额(元)
+                "bidAmt": bid_amt,
                 "bidNetAmt": t4.get("bidNetAmt"),
-                "bidTurnover": t4.get("bidTurnover"),
-                "floatMv": t4.get("floatMv"),
+                "bidTurnover": bid_turnover,
+                "floatMv": float_mv,
                 "board": t4.get("board") or s.get("board") or "",   # 概念: Type4 → 9_25快照(f103/f100)
             })
         return out
