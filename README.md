@@ -42,6 +42,7 @@ kuaixuan/                        # 仓库根（GitHub: felix-rich/kuaixuan）
 │       │   ├── security.py        # 密码哈希 / Token / 限流 / 防刷
 │       │   ├── fetcher.py         # 东财+同花顺(兜底) 数据抓取 / 缓存 / 熔断 / 全市场分页(f12排序30页)
 │       │   ├── scorer.py          # 选股评分与筛选算法(核心机密: 竞价五因子, 盘中共用)
+│       │   ├── kpl.py             # 开盘啦数据源(竞价委买额/连板/情绪/涨停原因/板块/热榜/龙虎榜, 缓存+降级)
 │       │   ├── users.py           # 用户 / 邀请 / 密码重置邮件
 │       │   └── history.py         # 历史批次落库与分页查询
 │       └── api/                   # 路由层
@@ -152,6 +153,13 @@ Nginx 关键配置（/etc/nginx/conf.d/kuaixuan.conf）：
 | /api/admin/users | GET | 管理端用户列表(分页/搜索) + 统计(仅管理员) |
 | /api/admin/scoring | GET/PUT | 管理端竞价评分权重 + 打分明细读写(仅管理员) |
 | /api/admin/defaults | GET/PUT | 管理端全局默认筛选参数读写(仅管理员, 存 settings 表) |
+| /api/kpl/sentiment | GET | 市场情绪(涨停家数/情绪值/连板高度/大幅回撤) |
+| /api/kpl/bid-seal | GET | 竞价涨停委买额(涨停委买额/竞价净额/连板数) |
+| /api/kpl/ladder | GET | 连板梯队(首板~五板+) |
+| /api/kpl/zt-reason?code= | GET | 个股涨停原因(题材归因/龙一龙二) |
+| /api/kpl/board-rank | GET | 板块强度排行 |
+| /api/kpl/hot-rank | GET | 盘中人气热榜 |
+| /api/kpl/lhb | GET | 龙虎榜上榜股票 |
 
 鉴权：`Authorization: Bearer <token>`（或 ?token=），401 时前端自动跳登录。
 
@@ -214,4 +222,10 @@ python -m pytest tests/ -q     # 当前 131 个用例全绿
   - 策略股票池自动收录前三 → **前五**（含文案/manualAdd 同步）
   - 正式域名 www.kuaixuangu.cn 上线（阿里云备案 + Nginx server_name 绑定 + 裸域 301）
   - 生产/测试环境部署流程标准化（备份→上传→py_compile→重启→验证）；pytest 131 用例
+- v3.2 (2026-08-13): **接入开盘啦数据源（对标短线侠）**
+  - 新增 `services/kpl.py` 数据层 + `/api/kpl/*` 路由：竞价涨停委买额、市场情绪值、连板梯队、涨停原因、板块强度、人气热榜、龙虎榜、尾盘抢筹（均缓存 + 失败降级，Token 走 systemd drop-in 注入不进 git）
+  - **首页市场情绪面板**（涨停家数/情绪值/连板高度/大幅回撤）+ **竞价表连板标签**（涨停委买额/连板数，替代 f103 概念标签判断）
+  - **连板天梯页** `/ladder`（首板~五板+实时梯队 + 涨停原因题材归因查询）
+  - **市场雷达页** `/market`（板块强度排行 + 盘中人气热榜 + 龙虎榜三 Tab）
+  - pytest 139 用例
 
