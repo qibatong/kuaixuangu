@@ -282,12 +282,23 @@ onBeforeUnmount(() => {
 .ov-click { cursor: pointer; }
 .ov-click:hover { background: rgba(255,180,0,0.08); }
 
-/* 时点个股弹窗 */
-.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.snap-modal { background: #1c1f26; border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; width: 720px; max-width: 94vw; max-height: 78vh; overflow: auto; padding: 16px 18px; }
-.snap-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+/* 时点个股弹窗(脱离 flex, 固定定位自居中, 不受 flex item 收缩影响) */
+.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; }
+.snap-modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); background: #1c1f26; border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; width: min(1100px, 98vw); max-height: 85vh; overflow: auto; padding: 12px 14px; box-sizing: border-box; }
+.snap-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .snap-title { font-size: 15px; font-weight: 700; color: #ffe0a0; }
 .snap-close { cursor: pointer; color: #99a; font-size: 16px; padding: 2px 6px; }
 .snap-close:hover { color: #ffb400; }
 .snap-empty { text-align: center; color: #667; padding: 30px 0; font-size: 13px; }
+/* 弹窗表格: 列间距紧凑, 6 列全部可见 */
+.snap-modal .stock-table { width: 100%; }
+.snap-modal .stock-table th, .snap-modal .stock-table td {
+  padding: 3px 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.snap-modal .stock-table th:nth-child(1), .snap-modal .stock-table td:nth-child(1) { width: 28px; text-align: center; padding-left: 0; padding-right: 4px; }
+.snap-modal .stock-table th:nth-child(2), .snap-modal .stock-table td:nth-child(2) { width: 72px; }
+.snap-modal .stock-table th:nth-child(4), .snap-modal .stock-table td:nth-child(4) { width: 74px; text-align: right; }
+.snap-modal .stock-table th:nth-child(5), .snap-modal .stock-table td:nth-child(5) { text-align: right; }
 </style>
