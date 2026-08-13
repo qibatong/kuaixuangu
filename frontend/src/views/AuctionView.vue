@@ -86,7 +86,7 @@
           <div class="qc-panel-title"><i class="fa fa-clock-o"></i> 9:20 - 9:25 竞价涨幅</div>
           <table class="stock-table">
             <thead>
-              <tr><th>排名</th><th>名称/代码</th><th>实时涨幅</th><th>竞价金额</th><th>抢筹幅度%</th><th>竞价换手</th><th>竞价涨幅</th><th>流通</th><th>概念</th><th>操作</th></tr>
+              <tr><th>排名</th><th>名称/代码</th><th>实时涨幅</th><th>竞价金额</th><th>抢筹幅度</th><th>竞价换手</th><th>竞价涨幅</th><th>流通</th><th>概念</th><th>操作</th></tr>
             </thead>
             <tbody>
               <tr v-for="(q, idx) in qcList" :key="'a' + q.code">
@@ -101,7 +101,7 @@
                 <td>{{ q.bidTurnover ? q.bidTurnover.toFixed(2) : '-' }}</td>
                 <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
-                <td class="dim" style="max-width:110px;white-space:pre-wrap;">{{ q.board || '-' }}</td>
+                <td class="dim qc-board"><div v-for="c in boardList(q.board)" :key="c" class="qc-board-item">{{ c }}</div></td>
                 <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已入池' : '＋池' }}</button></td>
               </tr>
               <tr v-if="!qcList.length">
@@ -114,7 +114,7 @@
           <div class="qc-panel-title"><i class="fa fa-bolt"></i> 最后一秒竞价涨幅</div>
           <table class="stock-table">
             <thead>
-              <tr><th>排名</th><th>名称/代码</th><th>实时涨幅</th><th>竞价金额</th><th>抢筹幅度%</th><th>竞价换手</th><th>竞价涨幅</th><th>流通</th><th>概念</th><th>操作</th></tr>
+              <tr><th>排名</th><th>名称/代码</th><th>实时涨幅</th><th>竞价金额</th><th>抢筹幅度</th><th>竞价换手</th><th>竞价涨幅</th><th>流通</th><th>概念</th><th>操作</th></tr>
             </thead>
             <tbody>
               <tr v-for="(q, idx) in qcLastList" :key="'b' + q.code">
@@ -129,7 +129,7 @@
                 <td>{{ q.bidTurnover ? q.bidTurnover.toFixed(2) : '-' }}</td>
                 <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
-                <td class="dim" style="max-width:110px;white-space:pre-wrap;">{{ q.board || '-' }}</td>
+                <td class="dim qc-board"><div v-for="c in boardList(q.board)" :key="c" class="qc-board-item">{{ c }}</div></td>
                 <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已入池' : '＋池' }}</button></td>
               </tr>
               <tr v-if="!qcLastList.length">
@@ -295,6 +295,11 @@ const brokenTitle = computed(() => (tab.value === 'brokenYest' ? '昨炸板' : '
 
 function yi(v) { return (v / 1e8).toFixed(2) }
 function signed(v) { return (v > 0 ? '+' : '') + Number(v).toFixed(2) }
+// 概念按"、"拆分, 每个概念换行显示(缩短列宽)
+function boardList(b) {
+  if (!b) return []
+  return String(b).split('、').map(s => s.trim()).filter(Boolean)
+}
 // 金额自适应: >=1亿 显示亿(2位), 否则显示万
 function amtText(v) {
   if (!v || v <= 0) return '-'
@@ -397,10 +402,11 @@ onBeforeUnmount(() => {
 .qc-panel { flex: 1 1 0; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px; overflow-x: auto; }
 .qc-panel-title { font-size: 14px; font-weight: 700; color: #ffe0a0; margin-bottom: 10px; }
 .qc-panel .stock-table { width: 100%; table-layout: fixed; min-width: 720px; border-collapse: collapse; }
+/* 所有列间距统一: padding 一律 4px 8px */
 .qc-panel .stock-table th, .qc-panel .stock-table td { padding: 4px 8px; font-size: 12px; white-space: nowrap; }
 .qc-panel .stock-table th { color: #ffe0a0; font-weight: 600; border-bottom: 1px solid rgba(255,180,0,0.3); }
 .qc-panel .stock-table td { border-bottom: 1px solid rgba(255,255,255,0.04); }
-.qc-panel .stock-table th:nth-child(1), .qc-panel .stock-table td:nth-child(1) { width: 32px; text-align: center; padding-left: 4px; padding-right: 4px; }
+.qc-panel .stock-table th:nth-child(1), .qc-panel .stock-table td:nth-child(1) { width: 36px; text-align: center; }
 .qc-panel .stock-table th:nth-child(2), .qc-panel .stock-table td:nth-child(2) { width: 110px; }
 .qc-panel .stock-table th:nth-child(3), .qc-panel .stock-table td:nth-child(3) { width: 64px; text-align: right; }
 .qc-panel .stock-table th:nth-child(4), .qc-panel .stock-table td:nth-child(4) { width: 72px; text-align: right; }
@@ -408,9 +414,12 @@ onBeforeUnmount(() => {
 .qc-panel .stock-table th:nth-child(6), .qc-panel .stock-table td:nth-child(6) { width: 54px; text-align: right; }
 .qc-panel .stock-table th:nth-child(7), .qc-panel .stock-table td:nth-child(7) { width: 56px; text-align: right; }
 .qc-panel .stock-table th:nth-child(8), .qc-panel .stock-table td:nth-child(8) { width: 56px; text-align: right; }
-.qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { width: 120px; }
-.qc-panel .stock-table td:nth-child(9) { white-space: pre-wrap; overflow: hidden; text-overflow: ellipsis; word-break: break-all; }
-.qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) { width: 60px; text-align: center; padding-left: 4px; padding-right: 4px; }
+/* 概念列: 换行多行显示(缩短列宽) */
+.qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { width: 100px; }
+.qc-panel .qc-board { white-space: normal; }
+.qc-panel .qc-board-item { line-height: 1.5; word-break: break-all; }
+/* 操作列(列间距与其它列一致: padding 4px 8px) */
+.qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) { width: 64px; text-align: center; }
 .qc-panel .code-sub { font-size: 11px; color: #889; cursor: pointer; margin-top: 1px; line-height: 1.2; }
 .qc-panel .code-sub:hover { color: #ffb400; }
 .qc-panel .name-main { font-size: 13px; line-height: 1.3; }
