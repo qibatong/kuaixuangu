@@ -335,7 +335,8 @@ def test_fetch_bid_qiangcang(monkeypatch):
             if "9_24" in sql:
                 return FakeCursor([(1, 500.0), (2, 800.0)])    # code1: 9_24 竞价额 500万
             if "9_20" in sql:
-                return FakeCursor([(1, 100.0), (2, 200.0)])    # code1: 9_20 竞价额 100万
+                # code, bid_change(9_20涨幅), bid_amt
+                return FakeCursor([(1, 4.5, 100.0), (2, 5.0, 200.0)])
             # 9_25: code, bid_change, bid_amt(万), float_mv(元), name
             return FakeCursor([
                 (1, 6.0, 1000.0, 5e9, "A"),
@@ -361,3 +362,8 @@ def test_fetch_bid_qiangcang(monkeypatch):
     # has20/has24 为真(竞价额各时点不同 = 真实历史)
     assert rows[0]["has20"] is True
     assert rows[0]["has24"] is True
+    # 竞价涨幅变化: code1 = 9_25涨幅(6.0) - 9_20涨幅(4.5) = 1.5%
+    assert m[1]["bidChangeDelta"] == 1.5
+    assert m[1]["bidChange20"] == 4.5
+    # code2: 9_25(6.0) - 9_20(5.0) = 1.0%
+    assert m[2]["bidChangeDelta"] == 1.0

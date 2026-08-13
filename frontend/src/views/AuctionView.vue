@@ -83,7 +83,7 @@
       <!-- 竞价抢筹(双段: 9:20→9:25 + 9:24→9:25 最后阶段, 对标短线侠) -->
       <table v-else-if="tab === 'qc'" class="stock-table">
         <thead>
-          <tr><th>排名</th><th>代码</th><th>名称</th><th>涨幅%</th><th>竞额</th><th>9:20-9:25抢筹%</th><th>9:24-9:25最后%</th><th>竞涨%</th><th>竞价换手</th><th>流通Z</th><th>概念</th><th>操作</th></tr>
+          <tr><th>排名</th><th>代码</th><th>名称</th><th>涨幅%</th><th>竞额</th><th>9:20-9:25抢筹%</th><th>9:24-9:25最后%</th><th>竞涨%</th><th>竞涨变化%</th><th>竞价换手</th><th>流通Z</th><th>概念</th><th>操作</th></tr>
         </thead>
         <tbody>
           <tr v-for="(q, idx) in qcList" :key="q.code">
@@ -95,13 +95,14 @@
             <td :class="q.qc20 > 0 ? 'up' : q.qc20 < 0 ? 'down' : 'dim'"><b>{{ signed(q.qc20) }}%</b></td>
             <td :class="q.qcLast > 0 ? 'up' : q.qcLast < 0 ? 'down' : 'dim'">{{ q.qcLast !== null && q.qcLast !== undefined ? signed(q.qcLast) + '%' : '-' }}</td>
             <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ q.bidChange !== null && q.bidChange !== undefined ? signed(q.bidChange) + '%' : '-' }}</td>
+            <td :class="q.bidChangeDelta > 0 ? 'up' : q.bidChangeDelta < 0 ? 'down' : 'dim'"><b>{{ q.bidChangeDelta !== null && q.bidChangeDelta !== undefined ? signed(q.bidChangeDelta) + '%' : '-' }}</b></td>
             <td>{{ q.bidTurnover ? q.bidTurnover.toFixed(2) : '-' }}</td>
             <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) : '-' }}</td>
             <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ q.board || '-' }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已入池' : '＋池' }}</button></td>
           </tr>
           <tr v-if="!qcList.length">
-            <td colspan="12" class="snap-empty">竞价抢筹数据 9:15-9:30 竞价时段可用（当前非竞价时段）</td>
+            <td colspan="13" class="snap-empty">竞价抢筹数据 9:15-9:30 竞价时段可用（当前非竞价时段）</td>
           </tr>
         </tbody>
       </table>

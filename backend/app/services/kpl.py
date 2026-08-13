@@ -854,7 +854,7 @@ def fetch_bid_qiangcang():
         try:
             conn = sqlite3.connect(config.DB_FILE)
             rows20 = conn.execute(
-                "SELECT code, bid_amt FROM snapshot_bid WHERE date=? AND time_point='9_20'",
+                "SELECT code, bid_change, bid_amt FROM snapshot_bid WHERE date=? AND time_point='9_20'",
                 (today,)).fetchall()
             rows24 = conn.execute(
                 "SELECT code, bid_amt FROM snapshot_bid WHERE date=? AND time_point='9_24'",
@@ -868,7 +868,7 @@ def fetch_bid_qiangcang():
             return []
         if not rows25:
             return []
-        m20 = {r[0]: r[1] for r in rows20}
+        m20 = {r[0]: (r[1], r[2]) for r in rows20}   # code -> (9_20竞价涨幅, 9_20竞价额)
         m24 = {r[0]: r[1] for r in rows24}
         # 9:20 有数据且与 9:25 竞价额显著不同 → 有真实增量
         def _has_real(m):
@@ -880,7 +880,9 @@ def fetch_bid_qiangcang():
                 code, amt25 = row[0], row[2]
                 if code in m:
                     n += 1
-                    if abs(m[code] - amt25) < 1e-6:
+                    v = m[code]
+                    v_amt = v[1] if isinstance(v, (tuple, list)) else v
+                    if abs(v_amt - amt25) < 1e-6:
                         same += 1
             if n == 0:
                 return False
@@ -893,7 +895,8 @@ def fetch_bid_qiangcang():
             if fmv <= 0 or amt25 <= 0 or fmv < 5e8:
                 continue
             t4 = seal_map.get(code, {})
-            amt20 = m20.get(code, 0)
+            v20 = m20.get(code)            # (9_20涨幅, 9_20竞价额) 或 None
+            amt20 = v20[1] if v20 else 0
             if has20 and amt20 > 0 and abs(amt25 - amt20) > 1e-6:
                 qc20 = round((amt25 - amt20) * 10000 / fmv * 100, 2)
             else:
@@ -903,11 +906,16 @@ def fetch_bid_qiangcang():
                 qc_last = round((amt25 - amt24) * 10000 / fmv * 100, 2)
             else:
                 qc_last = None
+            # 竞价涨幅变化 = 9:25 竞价涨幅 − 9:20 竞价涨幅(抢筹拉升/回落幅度)
+            chg20 = v20[0] if v20 else None
+            chg_delta = round(chg - chg20, 2) if chg20 is not None else None
             out.append({
                 "code": code,
                 "name": name or t4.get("name", ""),
                 "realChange": t4.get("realChange") or chg,     # 实时涨幅(GetBKJJBL/Type4 优先)
                 "bidChange": chg,                               # 9:25 竞价涨幅
+                "bidChange20": chg20,                           # 9:20 竞价涨幅(可能 None)
+                "bidChangeDelta": chg_delta,                    # 9:25-9:20 竞价涨幅变化%
                 "bidAmt": amt25 * 10000,                        # 9:25 竞价额(元)
                 "qc20": qc20,                                   # 9:20-9:25 抢筹幅度%
                 "qcLast": qc_last,                              # 9:24-9:25 最后阶段抢筹%(可能 None)
