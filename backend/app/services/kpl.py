@@ -741,6 +741,7 @@ def _prev_trade_day():
 
 def fetch_broken_zt(day=None):
     """炸板列表(东财 flash, 无需Token): day=None 今日; 'yesterday' 上一交易日; 'YYYY-MM-DD' 指定日
+    今日炸板: merge 昨日涨停池补连板数(今日炸板票若昨日涨停 → 显示昨日连板数)
     返回 [{code,name,change,limitUpDays,breakTimes,firstLimitUp,firstBreak,reason,day}, ...]"""
     is_hist = False
     if day == "yesterday":
@@ -752,7 +753,19 @@ def fetch_broken_zt(day=None):
     cache_key = "broken_zt" + (("_" + day.replace("-", "")) if day else "")
 
     def loader():
-        return _flash_pool("limit_up_broken", day)
+        lst = _flash_pool("limit_up_broken", day)
+        if not lst or day:      # 历史日不做连板补全(无昨日池语义)
+            return lst
+        # 今日炸板: 接口 limit_up_days 常为0, 用昨日涨停池补连板数(昨日N板 → 今日炸板显示N板)
+        yest_day = _prev_trade_day()
+        yest_map = {}
+        if yest_day:
+            yest_map = {x["code"]: x["limitUpDays"]
+                        for x in _flash_pool("limit_up_pool", yest_day)}
+        for it in lst:
+            if not it.get("limitUpDays") and it["code"] in yest_map:
+                it["limitUpDays"] = yest_map[it["code"]]
+        return lst
     return _cached(cache_key, (30 * 60) if is_hist else 30, loader)
 
 
@@ -765,8 +778,25 @@ def _seal_map():
         return {}
 
 
+def _snap25_map():
+    """今日 9_25 全市场快照 code → {bid_change, bid_amt, name, board}(全市场5549只, 字段补全兜底)"""
+    import sqlite3
+    out = {}
+    try:
+        conn = sqlite3.connect(config.DB_FILE)
+        for r in conn.execute(
+                "SELECT code, bid_change, bid_amt, name, board FROM snapshot_bid "
+                "WHERE date=? AND time_point='9_25'", (time.strftime("%Y-%m-%d"),)):
+            out[r[0]] = {"bid_change": r[1], "bid_amt": r[2], "name": r[3] or "", "board": r[4] or ""}
+        conn.close()
+    except Exception as e:
+        log.warning("9_25快照查询失败(降级) err=%s", e)
+    return out
+
+
 def fetch_yest_zt():
     """昨日涨停股今日竞价表现: flash limit_up_pool&date=上一交易日(95只) + merge Type4
+    字段补全: Type4(今日竞价涨停榜)优先 → snapshot_bid 9_25(全市场)兜底
     返回 [{code,name,yestChange,limitUpDays,stillLimit,change,bidChange,bidNetAmt,bidAmt,
            bidTurnover,floatMv,board}, ...]"""
     def loader():
@@ -778,33 +808,37 @@ def fetch_yest_zt():
             return []
         today_codes = {x["code"] for x in _flash_pool("limit_up_pool")}
         seal_map = _seal_map()
+        snap25 = _snap25_map()
         out = []
         for it in lst:
             code = it["code"]
             s = seal_map.get(code, {})
+            sn = snap25.get(code, {})
             out.append({
                 "code": code,
                 "name": it["name"],
                 "yestChange": it["change"],              # 昨日涨停涨幅
                 "limitUpDays": it["limitUpDays"],        # 昨日连板数
                 "stillLimit": code in today_codes,       # 今日是否仍涨停(连板)
-                "change": s.get("realChange"),           # 今日实时涨幅
-                "bidChange": s.get("bidChange"),         # 竞价涨幅
-                "bidNetAmt": s.get("bidNetAmt"),         # 竞价承接(净额,元)
-                "bidAmt": s.get("bidAmt"),               # 竞价额(元)
-                "bidTurnover": s.get("bidTurnover"),     # 竞价换手(%)
-                "floatMv": s.get("floatMv"),             # 流通市值(元)
-                "board": s.get("board"),                 # 概念
+                # 今日实时涨幅: Type4 实时涨幅优先, 无则 9_25 竞价涨幅
+                "change": s.get("realChange") if s.get("realChange") is not None
+                          else (sn.get("bid_change") if sn else None),
+                "bidChange": s.get("bidChange") if s.get("bidChange") is not None
+                             else (sn.get("bid_change") if sn else None),
+                "bidNetAmt": s.get("bidNetAmt"),         # 竞价承接(净额,元) Type4 专有
+                "bidAmt": s.get("bidAmt") or (sn["bid_amt"] * 10000 if sn and sn.get("bid_amt") else None),
+                "bidTurnover": s.get("bidTurnover"),     # 竞价换手(%): Type4 专有, 无则空
+                "floatMv": s.get("floatMv"),             # 流通市值(元): Type4 专有
+                "board": s.get("board") or sn.get("board") or "",   # 概念: Type4 → 9_25快照(f103/f100)
             })
         return out
     return _cached("yest_zt", 60 * 5, loader)
 
 
 def fetch_yest_broken():
-    """昨断板: 昨日涨停池中今日未涨停的股票(今日竞价表现从 snapshot_bid 9:25 补)
+    """昨断板: 昨日涨停池中今日未涨停的股票(今日竞价表现从 snapshot_bid 9:25 全市场补)
     返回 [{code,name,yestChange,limitUpDays,change,bidChange,bidAmt,bidNetAmt,bidTurnover,floatMv,board}, ...]"""
     def loader():
-        import sqlite3
         day = _prev_trade_day()
         if not day:
             return []
@@ -813,18 +847,8 @@ def fetch_yest_broken():
             return []
         today_codes = {x["code"] for x in _flash_pool("limit_up_pool")}
         broken = [x for x in yest if x["code"] not in today_codes]
-        # 今日竞价快照(9:25)补: 涨幅/竞额 (表不存在/无数据时降级)
-        conn = sqlite3.connect(config.DB_FILE)
-        snap = {}
-        try:
-            for r in conn.execute(
-                    "SELECT code, bid_change, bid_amt, name FROM snapshot_bid "
-                    "WHERE date=? AND time_point='9_25'", (time.strftime("%Y-%m-%d"),)):
-                snap[r[0]] = {"bid_change": r[1], "bid_amt": r[2], "name": r[3]}
-        except Exception as e:
-            log.warning("昨断板快照查询失败(降级) err=%s", e)
-        finally:
-            conn.close()
+        # 今日竞价快照(9_25 全市场)补: 涨幅/竞额/概念
+        snap = _snap25_map()
         seal_map = _seal_map()
         out = []
         for it in broken:
@@ -836,13 +860,14 @@ def fetch_yest_broken():
                 "name": t4.get("name") or s.get("name") or it["name"],
                 "yestChange": it["change"],              # 昨日涨停涨幅
                 "limitUpDays": it["limitUpDays"],        # 昨日连板数
-                "change": t4.get("realChange"),          # 今日实时涨幅(有则)
-                "bidChange": s.get("bid_change") if s else None,   # 今日竞价涨幅
+                "change": t4.get("realChange") if t4.get("realChange") is not None
+                          else (s.get("bid_change") if s else None),   # 今日实时涨幅(9_25竞价涨幅兜底)
+                "bidChange": (s.get("bid_change") if s else None),     # 今日竞价涨幅
                 "bidAmt": (s["bid_amt"] * 10000) if s and s.get("bid_amt") else None,  # 竞价额(元)
                 "bidNetAmt": t4.get("bidNetAmt"),
                 "bidTurnover": t4.get("bidTurnover"),
                 "floatMv": t4.get("floatMv"),
-                "board": t4.get("board") or "",
+                "board": t4.get("board") or s.get("board") or "",   # 概念: Type4 → 9_25快照(f103/f100)
             })
         return out
     return _cached("yest_broken", 60 * 5, loader)

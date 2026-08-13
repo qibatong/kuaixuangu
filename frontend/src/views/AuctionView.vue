@@ -198,17 +198,22 @@
         </tbody>
       </table>
 
-      <!-- 炸板(昨/今) -->
+      <!-- 炸板(昨/今): 昨炸板去掉连板列, 今炸板保留(昨日涨停的显示板数) -->
       <table v-else-if="tab === 'brokenYest' || tab === 'brokenToday'" class="stock-table">
         <thead>
-          <tr><th>代码</th><th>名称</th><th>涨幅%</th><th>连板</th><th>炸板次数</th><th>涨停时间</th><th>炸板时间</th><th>涨停原因</th><th>操作</th></tr>        </thead>
+          <tr>
+            <th>代码</th><th>名称</th><th>涨幅%</th>
+            <th v-if="tab === 'brokenToday'">连板</th>
+            <th>炸板次数</th><th>涨停时间</th><th>炸板时间</th><th>涨停原因</th><th>操作</th>
+          </tr>
+        </thead>
         <tbody>
           <tr v-for="b in brokenList" :key="b.code">
             <td class="code-click" @click="linkToSoftware(b.code)">{{ b.code }}</td>
             <td class="name-col"><div class="name-main">{{ b.name }}</div></td>
             <td :class="b.change > 0 ? 'up' : 'down'">{{ signed(b.change) }}%</td>
-            <td><span v-if="b.limitUpDays > 0" class="lb-badge">{{ b.limitUpDays }}板</span><span v-else class="dim">-</span></td>
-            <td><span v-if="b.breakTimes > 1" class="bk-hot">{{ b.breakTimes }}次</span><span v-else>{{ b.breakTimes }}</span></td>
+            <td v-if="tab === 'brokenToday'"><span v-if="b.limitUpDays > 0" class="lb-badge">{{ b.limitUpDays }}板</span><span v-else class="dim">-</span></td>
+            <td><span class="bk-hot" v-if="b.breakTimes > 1">{{ b.breakTimes }}次</span><span v-else>{{ b.breakTimes || '-' }}</span></td>
             <td class="dim">{{ fmtT(b.firstLimitUp) }}</td>
             <td class="dim">{{ fmtT(b.firstBreak) }}</td>
             <td class="dim" style="max-width:220px;white-space:pre-wrap;font-size:12px;">{{ b.reason || '-' }}</td>

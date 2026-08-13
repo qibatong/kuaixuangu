@@ -81,6 +81,7 @@ def _fetch_market_map(full=False):
                         "name": str(s.get("f14") or ""),          # 名称
                         "bid_buy_amt": scorer.parse_float(s.get("f5")) / 10000,   # 委买额(万元)
                         "float_mv": scorer.parse_float(s.get("f6")),              # 流通市值(元)
+                        "board": str(s.get("f103") or s.get("f100") or ""),       # 概念(f103优先, 行业f100兜底)
                     }
         return raw_all
 
@@ -99,10 +100,10 @@ def snapshot_at(time_point):
     try:
         conn = database.get_conn()
         conn.executemany(
-            "INSERT OR REPLACE INTO snapshot_bid (date, time_point, code, bid_change, bid_amt, name, bid_buy_amt, float_mv, ts) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO snapshot_bid (date, time_point, code, bid_change, bid_amt, name, bid_buy_amt, float_mv, board, ts) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
             [(date, time_point, code, v["bid_change"], v["bid_amt"], v.get("name", ""),
-              v.get("bid_buy_amt", 0), v.get("float_mv", 0), int(time.time()))
+              v.get("bid_buy_amt", 0), v.get("float_mv", 0), v.get("board", ""), int(time.time()))
              for code, v in raw_all.items()])
         conn.commit()
         conn.close()

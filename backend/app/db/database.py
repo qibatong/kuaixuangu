@@ -139,6 +139,9 @@ def init_db():
         cur.execute("ALTER TABLE snapshot_bid ADD COLUMN bid_buy_amt REAL NOT NULL DEFAULT 0")
     if "float_mv" not in bcols2:
         cur.execute("ALTER TABLE snapshot_bid ADD COLUMN float_mv REAL NOT NULL DEFAULT 0")
+    if "board" not in bcols2:
+        # 概念/行业标签(f103概念优先, f100行业兜底), 供 昨日涨停/昨断板 等概念列补全
+        cur.execute("ALTER TABLE snapshot_bid ADD COLUMN board TEXT")
     # 密码重置令牌
     cur.execute("""
         CREATE TABLE IF NOT EXISTS reset_tokens (
