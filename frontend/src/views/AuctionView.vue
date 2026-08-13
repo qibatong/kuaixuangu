@@ -393,18 +393,27 @@ onBeforeUnmount(() => {
 .auc-tab.active { background: rgba(255,180,0,0.15); border-color: #ffb400; color: #ffd700; font-weight: 600; }
 .auc-panel { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 14px; }
 /* 竞价抢筹左右双表 */
-.qc-dual { display: flex; gap: 14px; }
-.qc-panel { flex: 1; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px; }
+.qc-dual { display: flex; gap: 12px; align-items: flex-start; }
+.qc-panel { flex: 1 1 0; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px; overflow-x: auto; }
 .qc-panel-title { font-size: 14px; font-weight: 700; color: #ffe0a0; margin-bottom: 10px; }
-.qc-panel .stock-table { width: 100%; }
-.qc-panel .stock-table th, .qc-panel .stock-table td { padding: 4px 6px; font-size: 12px; white-space: nowrap; }
-.qc-panel .stock-table th:nth-child(1), .qc-panel .stock-table td:nth-child(1) { width: 32px; text-align: center; }
+.qc-panel .stock-table { width: 100%; table-layout: fixed; min-width: 720px; border-collapse: collapse; }
+.qc-panel .stock-table th, .qc-panel .stock-table td { padding: 4px 8px; font-size: 12px; white-space: nowrap; }
+.qc-panel .stock-table th { color: #ffe0a0; font-weight: 600; border-bottom: 1px solid rgba(255,180,0,0.3); }
+.qc-panel .stock-table td { border-bottom: 1px solid rgba(255,255,255,0.04); }
+.qc-panel .stock-table th:nth-child(1), .qc-panel .stock-table td:nth-child(1) { width: 32px; text-align: center; padding-left: 4px; padding-right: 4px; }
+.qc-panel .stock-table th:nth-child(2), .qc-panel .stock-table td:nth-child(2) { width: 110px; }
 .qc-panel .stock-table th:nth-child(3), .qc-panel .stock-table td:nth-child(3) { width: 64px; text-align: right; }
 .qc-panel .stock-table th:nth-child(4), .qc-panel .stock-table td:nth-child(4) { width: 72px; text-align: right; }
-.qc-panel .stock-table th:nth-child(5), .qc-panel .stock-table td:nth-child(5) { width: 74px; text-align: right; }
-.qc-panel .stock-table th:nth-child(7), .qc-panel .stock-table td:nth-child(7) { width: 62px; text-align: right; }
-.qc-panel .code-sub { font-size: 11px; color: #889; cursor: pointer; margin-top: 1px; }
+.qc-panel .stock-table th:nth-child(5), .qc-panel .stock-table td:nth-child(5) { width: 76px; text-align: right; }
+.qc-panel .stock-table th:nth-child(6), .qc-panel .stock-table td:nth-child(6) { width: 54px; text-align: right; }
+.qc-panel .stock-table th:nth-child(7), .qc-panel .stock-table td:nth-child(7) { width: 56px; text-align: right; }
+.qc-panel .stock-table th:nth-child(8), .qc-panel .stock-table td:nth-child(8) { width: 56px; text-align: right; }
+.qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { width: 120px; }
+.qc-panel .stock-table td:nth-child(9) { white-space: pre-wrap; overflow: hidden; text-overflow: ellipsis; word-break: break-all; }
+.qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) { width: 60px; text-align: center; padding-left: 4px; padding-right: 4px; }
+.qc-panel .code-sub { font-size: 11px; color: #889; cursor: pointer; margin-top: 1px; line-height: 1.2; }
 .qc-panel .code-sub:hover { color: #ffb400; }
+.qc-panel .name-main { font-size: 13px; line-height: 1.3; }
 @media (max-width: 1100px) { .qc-dual { flex-direction: column; } }
 .loading-placeholder { text-align: center; padding: 40px; color: #888; }
 .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
