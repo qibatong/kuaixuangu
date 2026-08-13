@@ -903,6 +903,8 @@ def fetch_bid_qiangcang():
         # 各自按抢筹幅度(涨幅差)降序
         list20.sort(key=lambda x: x["qcDelta"], reverse=True)
         listLast.sort(key=lambda x: x["qcDeltaLast"], reverse=True)
+        # 左表只保留抢筹幅度 > 5%(主人筛选口径)
+        list20 = [x for x in list20 if (x["qcDelta"] or 0) > 5]
         return {"list20": list20[:100], "listLast": listLast[:100]}
     return _cached("bid_qiangcang", 30, loader)
 

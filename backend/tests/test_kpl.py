@@ -353,20 +353,14 @@ def test_fetch_bid_qiangcang(monkeypatch):
     assert isinstance(d, dict)
     l20 = d["list20"]
     lLast = d["listLast"]
-    assert len(l20) == 2
+    # 左表过滤 >5%: mock 数据 qcDelta=1.5/1.0 都被过滤 → 空
+    assert l20 == []
     assert len(lLast) == 2
-    m20 = {r["code"]: r for r in l20}
     mLast = {r["code"]: r for r in lLast}
-    # 左表 code1: qcDelta = 6.0 - 4.5 = 1.5%
-    assert m20[1]["qcDelta"] == 1.5
-    assert m20[1]["bidChange20"] == 4.5
-    # 左表 code2: qcDelta = 6.0 - 5.0 = 1.0%
-    assert m20[2]["qcDelta"] == 1.0
     # 右表 code1: qcDeltaLast = 6.0 - 5.0 = 1.0%
     assert mLast[1]["qcDeltaLast"] == 1.0
     assert mLast[1]["bidChange24"] == 5.0
     # 右表 code2: qcDeltaLast = 6.0 - 5.5 = 0.5%
     assert mLast[2]["qcDeltaLast"] == 0.5
-    # 各自按抢筹幅度降序: code1(1.5/1.0) > code2(1.0/0.5)
-    assert l20[0]["code"] == 1
+    # 右表按抢筹幅度降序: code1(1.0) > code2(0.5)
     assert lLast[0]["code"] == 1
