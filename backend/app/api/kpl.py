@@ -124,3 +124,68 @@ def api_kpl_yesterday_perf(request: Request, uid: int = Depends(get_uid)):
     """昨日涨停/连板/破板今日平均表现(策略验证)"""
     d = kpl.fetch_yesterday_perf()
     return jr({"ok": True, "perf": d})
+
+
+# ==================== xuangubao 免费接口(无需 Token) ====================
+@router.get("/api/kpl/zt-pool")
+def api_kpl_zt_pool(request: Request, uid: int = Depends(get_uid), day: str = ""):
+    """涨停池: day 可选(YYYY-MM-DD 历史)"""
+    d = kpl.fetch_zt_pool(day or None)
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+
+
+@router.get("/api/kpl/dt-pool")
+def api_kpl_dt_pool(request: Request, uid: int = Depends(get_uid), day: str = ""):
+    """跌停池: day 可选"""
+    d = kpl.fetch_dt_pool(day or None)
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+
+
+@router.get("/api/kpl/yest-zt-pool")
+def api_kpl_yest_zt_pool(request: Request, uid: int = Depends(get_uid), day: str = ""):
+    """昨日涨停池: day 可选"""
+    d = kpl.fetch_yest_zt_pool(day or None)
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+
+
+@router.get("/api/kpl/market-line")
+def api_kpl_market_line(request: Request, uid: int = Depends(get_uid), date: str = ""):
+    """市场曲线全家桶: 涨跌家数/涨停跌停数/炸板率/昨涨停今表现/市场温度"""
+    return jr({
+        "ok": True,
+        "updown": kpl.fetch_updown_line(date or None),
+        "zt_dt": kpl.fetch_zt_dt_line(date or None),
+        "broken": kpl.fetch_broken_line(date or None),
+        "yest_perf": kpl.fetch_yest_zt_perf_line(date or None),
+        "temperature": kpl.fetch_market_temp_line(date or None),
+    })
+
+
+@router.get("/api/kpl/hot-stocks")
+def api_kpl_hot_stocks(request: Request, uid: int = Depends(get_uid)):
+    """热点解读-强势股(涨停原因/题材/封单时间)"""
+    d = kpl.fetch_hot_stocks()
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+
+
+@router.get("/api/kpl/hot-plates")
+def api_kpl_hot_plates(request: Request, uid: int = Depends(get_uid)):
+    """板块名称与对应题材"""
+    d = kpl.fetch_hot_plates()
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+
+
+@router.get("/api/kpl/live-room")
+def api_kpl_live_room(request: Request, uid: int = Depends(get_uid)):
+    """涨停直播"""
+    d = kpl.fetch_live_room()
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+
+
+@router.get("/api/kpl/dadan-net")
+def api_kpl_dadan_net(request: Request, uid: int = Depends(get_uid), code: str = ""):
+    """指定个股大单净额分时"""
+    if not code:
+        return jr({"ok": False, "msg": "缺少 code 参数"})
+    d = kpl.fetch_dadan_net(code)
+    return jr({"ok": True, **d})

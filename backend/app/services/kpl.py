@@ -527,6 +527,189 @@ def _flash_pool(pool_name, date=None):
     return out
 
 
+
+# ==================== xuangubao 免费接口封装(kaipanla 文档收录, 无需 Token) ====================
+# 16 个接口: 涨停/炸板/跌停(实时+历史) + 曲线(涨跌家数/涨停跌停/炸板率/昨涨停今表现/市场温度)
+# + 热点解读/板块题材 + 直播 + 个股大单净额
+# 响应格式: {code:20000, message:OK, data:...}
+
+_FLASH_LINE = "https://flash-api.xuangubao.cn/api/market_indicator/line?fields="
+_FLASH_SURGE = "https://flash-api.xuangubao.cn/api/surge_stock/"
+
+
+def _flash_line(fields, date=None):
+    """xuangubao 曲线接口: fields=逗号分隔指标; date 可选(YYYY-MM-DD)
+    返回 [{field: value, timestamp: 秒}, ...]; 失败返回 []"""
+    url = _FLASH_LINE + fields + (("&date=" + date) if date else "")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10, context=_ssl_ctx) as r:
+            d = json.loads(r.read().decode("utf-8", "ignore"))
+    except Exception as e:
+        log.warning("xuangubao 曲线失败 fields=%s err=%s", fields, e)
+        return []
+    data = d.get("data")
+    if not isinstance(data, list):
+        return []
+    out = []
+    for it in data:
+        if isinstance(it, dict):
+            row = {k: v for k, v in it.items() if k != "timestamp"}
+            row["ts"] = it.get("timestamp")
+            out.append(row)
+    return out
+
+
+def fetch_zt_pool(day=None):
+    """涨停实时池(doc10): day=None 今日; YYYY-MM-DD 历史. 复用 _flash_pool"""
+    def loader():
+        rows = _flash_pool("limit_up", day)
+        if not rows and not day:
+            return []
+        return rows
+    key = "zt_pool" + (("_" + day.replace("-", "")) if day else "")
+    return _cached(key, (30 * 60) if day else 30, loader)
+
+
+def fetch_dt_pool(day=None):
+    """跌停实时池(doc12): day=None 今日; YYYY-MM-DD 历史"""
+    def loader():
+        return _flash_pool("limit_down", day) or []
+    key = "dt_pool" + (("_" + day.replace("-", "")) if day else "")
+    return _cached(key, (30 * 60) if day else 30, loader)
+
+
+def fetch_yest_zt_pool(day=None):
+    """昨日涨停池(doc28): 默认今日的昨日; 可指定 YYYY-MM-DD"""
+    def loader():
+        d = day or _prev_trade_day()
+        if not d:
+            return []
+        return _flash_pool("yesterday_limit_up", d) or []
+    key = "yest_zt_pool" + (("_" + day.replace("-", "")) if day else "")
+    return _cached(key, 30 * 60, loader)
+
+
+def fetch_updown_line(date=None):
+    """上涨/下跌家数曲线(doc34)"""
+    return _cached("updown_line" + (("_" + date.replace("-", "")) if date else ""), 60,
+                   lambda: _flash_line("rise_count,fall_count", date) or [])
+
+
+def fetch_zt_dt_line(date=None):
+    """涨停数与跌停数曲线(doc35)"""
+    return _cached("zt_dt_line" + (("_" + date.replace("-", "")) if date else ""), 60,
+                   lambda: _flash_line("limit_up_count,limit_down_count", date) or [])
+
+
+def fetch_broken_line(date=None):
+    """炸板数量曲线(doc36): limit_up_broken_count + ratio"""
+    return _cached("broken_line" + (("_" + date.replace("-", "")) if date else ""), 60,
+                   lambda: _flash_line("limit_up_broken_count,limit_up_broken_ratio", date) or [])
+
+
+def fetch_yest_zt_perf_line(date=None):
+    """昨日涨停今日表现曲线(doc37): yesterday_limit_up_avg_pcp"""
+    return _cached("yest_zt_perf_line" + (("_" + date.replace("-", "")) if date else ""), 60,
+                   lambda: _flash_line("yesterday_limit_up_avg_pcp", date) or [])
+
+
+def fetch_market_temp_line(date=None):
+    """市场温度曲线(doc38): market_temperature"""
+    return _cached("mkt_temp_line" + (("_" + date.replace("-", "")) if date else ""), 60,
+                   lambda: _flash_line("market_temperature", date) or [])
+
+
+def _flash_surge(path, params=""):
+    """xuangubao 热点接口: path=stocks/plates; params 查询串"""
+    url = _FLASH_SURGE + path + (("?" + params) if params else "")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10, context=_ssl_ctx) as r:
+            d = json.loads(r.read().decode("utf-8", "ignore"))
+    except Exception as e:
+        log.warning("xuangubao 热点失败 path=%s err=%s", path, e)
+        return {}
+    data = d.get("data")
+    return data if isinstance(data, dict) else {}
+
+
+def fetch_hot_stocks():
+    """热点解读-强势股列表(doc39): items 是二维数组(fields 作列头)
+    → [{code,name,price,change,circulation,desc,plates}, ...]"""
+    d = _flash_surge("stocks", "normal=true&uplimit=true")
+    fields = d.get("fields") or []
+    lst = d.get("items") or []
+    if not isinstance(lst, list):
+        return []
+    out = []
+    for row in lst:
+        if not isinstance(row, list):
+            continue
+        it = dict(zip(fields, row))
+        code = str(it.get("code", "")).split(".")[0]      # 去 .SZ/.SH 后缀
+        plates = it.get("plates") or []
+        if isinstance(plates, list):
+            plates = "、".join(str(p.get("name", "")) for p in plates if isinstance(p, dict) and p.get("name"))
+        out.append({
+            "code": code,
+            "name": str(it.get("prod_name", "") or ""),
+            "price": it.get("cur_price"),
+            "change": round(_f(it.get("px_change_rate")) * 100, 2),
+            "circulation": it.get("circulation_value"),     # 流通市值(元)
+            "desc": str(it.get("description", "") or ""),
+            "plates": plates,                               # 所属板块(拼接)
+            "enterTime": it.get("enter_time"),
+            "upLimit": it.get("up_limit"),
+        })
+    return out[:100]
+
+
+def fetch_hot_plates():
+    """板块名称与对应题材(doc40): [{id,name,description}, ...]"""
+    d = _flash_surge("plates")
+    items = d.get("items") or []
+    if not isinstance(items, list):
+        return []
+    out = []
+    for it in items:
+        if isinstance(it, dict) and it.get("name"):
+            out.append({"id": it.get("id"), "name": it.get("name"), "description": it.get("description", "")})
+    return out[:100]
+
+
+def fetch_live_room():
+    """涨停直播(doc32): fupanwang 实时涨停播报"""
+    url = "https://api.fupanwang.com/kpl/zhibo"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10, context=_ssl_ctx) as r:
+            d = json.loads(r.read().decode("utf-8", "ignore"))
+    except Exception as e:
+        log.warning("涨停直播失败 err=%s", e)
+        return []
+    lst = d.get("data") or d.get("list") or []
+    return lst if isinstance(lst, list) else []
+
+
+def fetch_dadan_net(StockID, Time=None):
+    """指定个股-大单净额分时(doc75): GetStockDaDanTrendIncremental
+    返回 {dadanjinge: [[时间, 大单净额], ...], max, min, ...}"""
+    if not Time:
+        Time = int(time.time())
+    d = _call("default", {"a": "GetStockDaDanTrendIncremental", "c": "StockL2Data",
+                           "apiv": "w44", "StockID": str(StockID), "Time": str(Time)})
+    if not d:
+        return {}
+    return {
+        "code": str(d.get("code", "")),
+        "dadanjinge": d.get("dadanjinge") or [],
+        "max": d.get("max"),
+        "min": d.get("min"),
+        "day": d.get("day", ""),
+    }
+
+
 def _prev_trade_day():
     """上一交易日: snapshot_bid 记录优先(自动跳过节假日); 失败降级为日历跳过周末"""
     try:

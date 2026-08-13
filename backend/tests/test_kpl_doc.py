@@ -66,3 +66,48 @@ def test_fetch_bid_qiangcang_integration():
         # 数据项含必填字段
         for r in d[:3]:
             assert "code" in r and "qcNet" in r
+
+
+# ---------- xuangubao 免费接口(kaipanla 文档收录, 无需 Token) ----------
+def test_flash_line(monkeypatch):
+    """曲线接口: 返回 [{field:value, ts}, ...]"""
+    monkeypatch.setattr(kpl, "_flash_line", lambda fields, date=None: [{"rise_count": 100, "fall_count": 50, "ts": 1}])
+    rows = kpl.fetch_updown_line()
+    assert len(rows) == 1
+    assert rows[0]["rise_count"] == 100
+
+
+def test_fetch_zt_dt_pool(monkeypatch):
+    """涨停/跌停池复用 _flash_pool"""
+    monkeypatch.setattr(kpl, "_flash_pool", lambda pool, date=None: [{"code": "000001", "name": "A"}])
+    kpl._cache.clear()
+    zt = kpl.fetch_zt_pool()
+    assert len(zt) == 1 and zt[0]["code"] == "000001"
+    dt = kpl.fetch_dt_pool()
+    assert len(dt) == 1
+
+
+def test_fetch_hot_plates(monkeypatch):
+    """板块题材: items 是 dict 列表"""
+    monkeypatch.setattr(kpl, "_flash_surge", lambda path, params="": {"items": [{"id": 1, "name": "医药", "description": "创新药"}]})
+    kpl._cache.clear()
+    rows = kpl.fetch_hot_plates()
+    assert len(rows) == 1
+    assert rows[0]["name"] == "医药"
+
+
+def test_fetch_hot_stocks(monkeypatch):
+    """热点强势股: items 是二维数组(fields 作列头)"""
+    fields = ["code", "prod_name", "cur_price", "px_change_rate", "circulation_value", "description", "plates"]
+    monkeypatch.setattr(kpl, "_flash_surge", lambda path, params="": {
+        "fields": fields,
+        "items": [["300603.SZ", "立昂技术", 9.5, 0.183, 3552346438, "算力", [{"name": "云计算数据中心"}]]]
+    })
+    kpl._cache.clear()
+    rows = kpl.fetch_hot_stocks()
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["code"] == "300603"          # 去 .SZ 后缀
+    assert r["name"] == "立昂技术"
+    assert abs(r["change"] - 18.3) < 0.1  # 0.183 -> 18.3%
+    assert "云计算数据中心" in r["plates"]
