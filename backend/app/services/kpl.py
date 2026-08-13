@@ -890,7 +890,7 @@ def fetch_bid_qiangcang():
                    过滤: 流通市值≥2亿, 抢筹强度>5%
                    竞价时段(9:15-9:30)实时拉取并持久化 qc_snapshot 表;
                    非竞价时段接口为空 → 读库展示今天已选出的结果(不丢失)
-    右表 listLast= snapshot_bid 9:24→9:25 段: 抢筹幅度 = 9:25涨幅 − 9:24涨幅
+    右表 listLast= snapshot_bid 9_24(最后一秒≈9:24:5x) → 9_25 段: 抢筹幅度 = 9:25涨幅 − 9:24涨幅
     返回 {"list20": [...], "listLast": [...]}"""
     def loader():
         t0 = time.time()

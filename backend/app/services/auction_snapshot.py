@@ -16,7 +16,8 @@ from . import fetcher, scorer
 log = logger.get_logger(__name__)
 
 # 时点 -> (开始分钟, 结束分钟) 北京时间(每 10 秒轮询, 窗口 1 分钟防漏)
-# 9_24 用于"最后一分钟抢筹"计算(对标短线侠"最后1秒"的近似)
+# 9_24 用于"最后一秒抢筹": 调度器在 9:24:30 后每轮询重采覆盖, 最后一份≈9:24:5x
+# (与 9_25 的涨幅差才是秒级, 而非 9:24:05→9:25:05 的整分钟差)
 TIME_POINTS = {
     "9_15": (9 * 60 + 15, 9 * 60 + 16),
     "9_20": (9 * 60 + 20, 9 * 60 + 21),
@@ -117,6 +118,19 @@ def query_snapshot(date, time_point, limit=50):
     return [{"code": r[0], "bid_change": r[1], "bid_amt": r[2], "name": r[3] or ""} for r in rows]
 
 
+def _has_snapshot(date, time_point):
+    """某日某时点是否已有快照数据(9_24 重采型时点用, 不依赖 _sched_done 标记)"""
+    try:
+        conn = database.get_conn()
+        n = conn.execute(
+            "SELECT COUNT(*) FROM snapshot_bid WHERE date=? AND time_point=?",
+            (date, time_point)).fetchone()[0]
+        conn.close()
+        return n > 0
+    except Exception:
+        return False
+
+
 def _scheduler_loop():
     """后台调度: 工作日按时点窗口抓取一次, 每 10 秒轮询; 9:31 后盘点当日采集情况"""
     _qc_done = set()   # {(date)} 抢筹结果快照已抓取(9:29-9:30 窗口)
@@ -128,10 +142,16 @@ def _scheduler_loop():
             for tp, (start, end) in TIME_POINTS.items():
                 key = (date, tp)
                 if g.tm_wday < 5 and start <= hm <= end and key not in _sched_done:
-                    with _sched_lock:
-                        if key not in _sched_done:
-                            if snapshot_at(tp):
-                                _sched_done.add(key)
+                    if tp == "9_24":
+                        # 最后一秒专用时点: 窗口后半段(9:24:30起)每轮询重采覆盖,
+                        # 保证最后一份快照 ≈ 9:24:5x(真正"最后一秒", 而非整分钟差)
+                        if hm >= 9 * 60 + 30:
+                            snapshot_at(tp)
+                    else:
+                        with _sched_lock:
+                            if key not in _sched_done:
+                                if snapshot_at(tp):
+                                    _sched_done.add(key)
             # 9:29-9:30 抢筹结果快照: 触发 fetch_bid_qiangcang 落库(竞价结束前最后一份,
             # 非竞价时段页面读库展示不丢失)
             if (g.tm_wday < 5 and 9 * 60 + 29 <= hm <= 9 * 60 + 30
@@ -147,7 +167,16 @@ def _scheduler_loop():
                     log.warning("竞价抢筹结果快照失败 err=%s", e, exc_info=True)
             # 9:31-9:35 盘点当日采集: 缺失时点告警(排查关键, 数据过了点无法补)
             if g.tm_wday < 5 and 9 * 60 + 31 <= hm <= 9 * 60 + 35 and date not in _sched_checked:
-                missing = [tp for tp in TIME_POINTS if (date, tp) not in _sched_done]
+                missing = []
+                for tp in TIME_POINTS:
+                    if (date, tp) in _sched_done:
+                        continue
+                    if tp == "9_24":
+                        # 9_24 是重采型时点(不标记 _sched_done), 用数据存在性判断
+                        if not _has_snapshot(date, tp):
+                            missing.append(tp)
+                    else:
+                        missing.append(tp)
                 if missing:
                     log.warning("今日快照采集缺失时点: %s (date=%s), 相关功能(加速度/回放)会缺数据",
                                 ",".join(missing), date)
