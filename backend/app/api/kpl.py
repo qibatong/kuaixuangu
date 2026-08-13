@@ -29,6 +29,20 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(get_uid)):
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
 
 
+@router.get("/api/kpl/bid-boom")
+def api_kpl_bid_boom(request: Request, uid: int = Depends(get_uid)):
+    """竞价爆量/撮合>2000万(实时)"""
+    d = kpl.fetch_bid_boom()
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+
+
+@router.get("/api/kpl/broken")
+def api_kpl_broken(request: Request, uid: int = Depends(get_uid)):
+    """炸板实时(东财 flash, 无需Token)"""
+    d = kpl.fetch_broken_zt()
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+
+
 @router.get("/api/kpl/ladder")
 def api_kpl_ladder(request: Request, uid: int = Depends(get_uid)):
     """连板梯队(实时): 首板~五板+"""

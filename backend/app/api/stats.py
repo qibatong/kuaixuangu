@@ -5,9 +5,45 @@
 from fastapi import APIRouter, Depends, Request
 
 from ..services import scorer, stats
+from ..db import database
 from .deps import get_uid, jr, qs
 
 router = APIRouter()
+
+
+@router.get("/api/stats/auction-overview")
+def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid)):
+    """竞价多时点对比(最近4个交易日): 每日期 9:15/9:20/9:25 竞价涨幅均值/竞价额 + 一字涨停数"""
+    conn = database.get_conn()
+    try:
+        dates = [r[0] for r in conn.execute(
+            "SELECT DISTINCT date FROM snapshot_bid ORDER BY date DESC LIMIT 4")]
+        out = []
+        for date in dates:
+            day = {"date": date, "points": {}, "yizi_count": None, "yizi_amt": None}
+            for tp in ("9_15", "9_20", "9_25"):
+                rows = conn.execute(
+                    "SELECT bid_change, bid_amt FROM snapshot_bid WHERE date=? AND time_point=?",
+                    (date, tp)).fetchall()
+                if rows:
+                    chgs = [r[0] for r in rows if r[0] is not None]
+                    amts = [r[1] for r in rows if r[1] is not None]
+                    day["points"][tp] = {
+                        "avg_change": round(sum(chgs) / len(chgs), 2) if chgs else None,
+                        "total_amt": round(sum(amts)) if amts else None,
+                        "count": len(rows),
+                    }
+                else:
+                    day["points"][tp] = None
+            yizi = conn.execute(
+                "SELECT yizi_count, bid_amt FROM daily_yizi WHERE date=?", (date,)).fetchone()
+            if yizi:
+                day["yizi_count"] = yizi[0]
+                day["yizi_amt"] = yizi[1]
+            out.append(day)
+    finally:
+        conn.close()
+    return jr({"ok": True, "days": out})
 
 
 @router.get("/api/stats/performance")

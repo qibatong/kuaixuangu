@@ -9,6 +9,14 @@ export function kplBidSeal() {
   return request('/api/kpl/bid-seal')
 }
 
+export function kplBidBoom() {
+  return request('/api/kpl/bid-boom')
+}
+
+export function kplBroken() {
+  return request('/api/kpl/broken')
+}
+
 export function kplLadder() {
   return request('/api/kpl/ladder')
 }

@@ -9,6 +9,7 @@ const router = createRouter({
     { path: '/history', name: 'history', component: () => import('../views/HistoryView.vue') },
     { path: '/ladder', name: 'ladder', component: () => import('../views/LadderView.vue') },
     { path: '/market', name: 'market', component: () => import('../views/MarketView.vue') },
+    { path: '/auction', name: 'auction', component: () => import('../views/AuctionView.vue') },
     { path: '/invite', name: 'invite', component: () => import('../views/InviteView.vue') },
     { path: '/admin', name: 'admin', component: () => import('../views/AdminView.vue'), meta: { admin: true } },
     { path: '/:pathMatch(.*)*', redirect: '/' }

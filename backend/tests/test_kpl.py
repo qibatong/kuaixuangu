@@ -192,6 +192,44 @@ def test_fetch_yesterday_perf(monkeypatch):
     assert len(calls) == 3  # 三个板块接口都调了
 
 
+# ---------- 竞价爆量(Type=10, 同源解析) ----------
+def test_fetch_bid_boom(monkeypatch):
+    monkeypatch.setattr(kpl, "_call", lambda *a, **k: {
+        "info": [["688825", "长鑫科技", 54.39, 1.63, 0, 2.39, 56546659, 0, 0, 0,
+                  579284936, "储存、芯片", 244920289633, 199735586, 11806006154,
+                  -11606270568, "首板"]],
+    })
+    kpl._cache.clear()
+    rows = kpl.fetch_bid_boom()
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["code"] == "688825"
+    assert r["bidAmt"] == 56546659
+    assert r["limitBoards"] == 1
+    assert r["board"] == "储存、芯片"
+
+
+# ---------- 炸板(东财 flash) ----------
+def test_fetch_broken_zt(monkeypatch):
+    import urllib.request
+    class FakeResp:
+        def read(self):
+            return ('{"code":20000,"data":[{"code":"000001","name":"PingAnBank",'
+                    '"change_percent":0.05,"limit_up_days":2,"break_limit_up_times":3,'
+                    '"first_limit_up":1786586004,"first_break_limit_up":1786586148}]}').encode()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: FakeResp())
+    kpl._cache.clear()
+    rows = kpl.fetch_broken_zt()
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["code"] == "000001"
+    assert abs(r["change"] - 5.0) < 1e-9   # 0.05 -> 5%
+    assert r["limitUpDays"] == 2
+    assert r["breakTimes"] == 3
+
+
 # ---------- 调用失败降级 ----------
 def test_call_failure_returns_none(monkeypatch):
     monkeypatch.setattr(kpl, "_call", lambda *a, **k: None)

@@ -139,6 +139,46 @@ def fetch_bid_seal():
     return _cached("bid_seal", config.KPL_BID_TTL, loader)
 
 
+def fetch_bid_boom():
+    """竞价爆量/撮合>2000万(实时): Type=10, 字段语义与委买额榜(Type=4)不同"""
+    def loader():
+        d = _call("after", {"Order": "1", "a": "MorningBiddingList", "st": "60",
+                            "c": "HomeDingPan", "Index": "0", "PidType": "1",
+                            "apiv": "w44", "Type": "10"})
+        return _parse_bid_boom(d) if d else None
+    return _cached("bid_boom", config.KPL_BID_TTL, loader)
+
+
+def _parse_bid_boom(data):
+    """Type=10 竞价爆量榜: [code,name,现价,实时涨幅,?,竞价涨幅,竞价成交额,0,0,0,20分后委买,
+    板块,实际流通,主买,主卖,主力净额,连板]"""
+    info = data.get("info")
+    if not isinstance(info, list):
+        return []
+    out = []
+    for row in info:
+        if not isinstance(row, list) or len(row) < 17:
+            continue
+        try:
+            out.append({
+                "code": str(row[0]),
+                "name": str(row[1]),
+                "realChange": _f(row[3]),
+                "bidChange": _f(row[5]),
+                "bidAmt": _f(row[6]),            # 竞价成交额(元)
+                "bidAfter20": _f(row[10]),       # 20分后委买
+                "board": str(row[11]) if len(row) > 11 else "",
+                "floatMv": _f(row[12]),
+                "mainBuy": _f(row[13]),
+                "mainSell": _f(row[14]),
+                "mainNet": _f(row[15]),
+                "limitBoards": _lb(str(row[16])) if len(row) > 16 else 0,
+            })
+        except (IndexError, ValueError, TypeError):
+            continue
+    return out
+
+
 # ==================== 市场情绪 ====================
 def fetch_sentiment():
     """情绪值/连板高度: {ztjs 涨停家数, strong 情绪, lbgd 连板高度, df_num 大幅回撤}"""
@@ -437,6 +477,40 @@ def fetch_yesterday_perf():
                 }
         return out
     return _cached("yesterday_perf", 300, loader)
+
+
+# ==================== 炸板(东财 flash 公开接口, 无需 Token) ====================
+_BROKEN_URL = "https://flash-api.xuangubao.cn/api/pool/detail?pool_name=limit_up_broken"
+
+
+def fetch_broken_zt():
+    """炸板实时列表(东财 flash): [{code,name,change,limitUpDays,breakTimes,firstLimitUp,firstBreak}, ...]"""
+    def loader():
+        try:
+            req = urllib.request.Request(_BROKEN_URL, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10, context=_ssl_ctx) as r:
+                d = json.loads(r.read().decode("utf-8", "ignore"))
+        except Exception as e:
+            log.warning("炸板接口失败 err=%s", e)
+            return []
+        lst = d.get("data")
+        if not isinstance(lst, list):
+            return []
+        out = []
+        for it in lst:
+            if not isinstance(it, dict):
+                continue
+            out.append({
+                "code": str(it.get("code", "")),
+                "name": str(it.get("name", "")),
+                "change": _f(it.get("change_percent")) * 100,          # 涨幅(%)
+                "limitUpDays": int(_num(it.get("limit_up_days"))),     # 连板数
+                "breakTimes": int(_num(it.get("break_limit_up_times"))),  # 炸板次数
+                "firstLimitUp": int(_num(it.get("first_limit_up"))),   # 首次涨停时间戳
+                "firstBreak": int(_num(it.get("first_break_limit_up"))),  # 首次炸板时间戳
+            })
+        return out
+    return _cached("broken_zt", 30, loader)
 
 
 # ==================== 工具函数 ====================

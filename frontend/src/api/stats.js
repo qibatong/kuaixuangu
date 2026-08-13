@@ -4,3 +4,7 @@ import { request } from './request'
 export function fetchPerformance(query = {}) {
   return request('/api/stats/performance', { query })
 }
+
+export function auctionOverview() {
+  return request('/api/stats/auction-overview')
+}
