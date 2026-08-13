@@ -31,6 +31,7 @@ LASTSEC_START = 9 * 3600 + 24 * 60 + 55
 LASTSEC_END = 9 * 3600 + 25 * 60 + 3
 
 _sched_lock = threading.Lock()
+_fetch_lock = threading.Lock()       # 东财拉取串行化(时点快照 vs 秒级采样 双线程防并发限流)
 _sched_done = set()        # {(date, time_point)} 已抓取, 防重复
 _sched_checked = set()     # {date} 已做采集盘点(9:31 后一次)
 _lastsec_done = set()      # {(date, ts秒)} 该秒已采, 防重复
@@ -41,39 +42,48 @@ def _bj_date():
     return "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
 
 
-def _fetch_market_map():
-    """抓取当前全市场(沪深/创业/科创)快照, 返回 {code: {bid_change, bid_amt, name, bid_buy_amt, float_mv}}
-    过滤异常涨幅(±30% 外, A股涨跌停上限20%/新股44%, 非交易时段字段可能异常)"""
-    raw_all = {}
-    for m in ("hs", "cyb", "kcb"):
-        try:
-            raw = fetcher.fetch_eastmoney(scorer.market_fs([m]))
-        except Exception as e:
-            log.warning("快照拉取失败 market=%s err=%s", m, e)
-            continue
-        for s in raw:
-            code = s.get("f12")
-            if not code:
+def _fetch_market_map(full=False):
+    """抓取全市场快照, 返回 {code: {bid_change, bid_amt, name, bid_buy_amt, float_mv}}
+    过滤异常涨幅(±30% 外, A股涨跌停上限20%/新股44%, 非交易时段字段可能异常)
+    full=True : fetch_eastmoney_all 分页全市场(~5500只, 按代码f12排序, 时点快照用)
+    full=False: fetch_eastmoney 单页200只×3分区(按涨幅倒序=竞价最强前600, 秒级采样用,
+                9:24:55-9:25:03 仅8秒窗口, 分页全市场需60s+, 无法每秒完成)
+    """
+    with _fetch_lock:
+        raw_all = {}
+        for m in ("hs", "cyb", "kcb"):
+            try:
+                if full:
+                    raw = fetcher.fetch_eastmoney_all(scorer.market_fs([m]))
+                else:
+                    raw = fetcher.fetch_eastmoney(scorer.market_fs([m]))
+            except Exception as e:
+                log.warning("快照拉取失败 market=%s full=%s err=%s", m, full, e)
                 continue
-            bc = scorer.get_bid_change(s)
-            if bc < -30 or bc > 30:    # 明显异常数据(非交易时段字段污染)
-                continue
-            raw_all[code] = {
-                "bid_change": bc,
-                "bid_amt": scorer.get_bid_amt(s),
-                "name": str(s.get("f14") or ""),          # 名称
-                "bid_buy_amt": scorer.parse_float(s.get("f5")) / 10000,   # 委买额(万元)
-                "float_mv": scorer.parse_float(s.get("f6")),              # 流通市值(元)
-            }
-    return raw_all
+            for s in raw:
+                code = s.get("f12")
+                if not code:
+                    continue
+                bc = scorer.get_bid_change(s)
+                if bc < -30 or bc > 30:    # 明显异常数据(非交易时段字段污染)
+                    continue
+                raw_all[code] = {
+                    "bid_change": bc,
+                    "bid_amt": scorer.get_bid_amt(s),
+                    "name": str(s.get("f14") or ""),          # 名称
+                    "bid_buy_amt": scorer.parse_float(s.get("f5")) / 10000,   # 委买额(万元)
+                    "float_mv": scorer.parse_float(s.get("f6")),              # 流通市值(元)
+                }
+        return raw_all
 
 
 def snapshot_at(time_point):
-    """抓取并归档某时点全市场快照, 返回入库数量; 失败返回 0"""
+    """抓取并归档某时点全市场快照, 返回入库数量; 失败返回 0
+    时点快照用全市场分页(fetch_eastmoney_all ~5500只), 非单页600只"""
     if time_point not in TIME_POINTS:
         return 0
     date = _bj_date()
-    raw_all = _fetch_market_map()
+    raw_all = _fetch_market_map(full=True)
     if not raw_all:
         log.warning("快照拉取为空 time=%s date=%s (东财全市场接口无返回, 该时点数据缺失!)",
                     time_point, date)
@@ -97,9 +107,10 @@ def snapshot_at(time_point):
 
 def snapshot_lastsec_at(ts_sec):
     """最后一秒高频采样: 抓取当前全市场快照存入 snapshot_lastsec(ts=实际时刻秒)
-    返回入库数量; 失败返回 0(该秒跳过, 序列仍可用)"""
+    返回入库数量; 失败返回 0(该秒跳过, 序列仍可用)
+    秒级采样用单页600只(8秒窗口限制, 分页全市场需60s+), 覆盖竞价最强前600"""
     date = _bj_date()
-    raw_all = _fetch_market_map()
+    raw_all = _fetch_market_map(full=False)
     if not raw_all:
         log.warning("最后一秒采样为空 ts=%d (东财接口无返回, 该秒跳过)", ts_sec)
         return 0

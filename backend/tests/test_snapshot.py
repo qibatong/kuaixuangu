@@ -30,7 +30,7 @@ def test_snapshot_save_load(client, monkeypatch):
         b.update({"f12": "000002", "f14": "测试乙", "f615": 1.2})
         return [a, b]
 
-    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney", fake_fetch)
+    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", fake_fetch)
     n = auction_snapshot.snapshot_at("9_20")
     assert n == 2 and calls["n"] == 3   # hs/cyb/kcb 三分区
     snap = auction_snapshot.load_snapshot()
@@ -52,7 +52,7 @@ def test_snapshot_multi_time_points(client, monkeypatch):
         a["f615"] = [1.0, 2.5, 4.0][min((seq["n"] - 1) // 3, 2)]   # 每时点三分区同值, 依次 1.0/2.5/4.0
         return [a]
 
-    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney", fake_fetch2)
+    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", fake_fetch2)
     auction_snapshot.snapshot_at("9_15")
     auction_snapshot.snapshot_at("9_20")
     auction_snapshot.snapshot_at("9_25")
@@ -70,7 +70,7 @@ def test_snapshot_fetch_fail_returns_0(client, monkeypatch):
     """三分区全失败时返回 0"""
     def boom(fs):
         raise RuntimeError("network down")
-    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney", boom)
+    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", boom)
     assert auction_snapshot.snapshot_at("9_20") == 0
 
 
@@ -84,7 +84,7 @@ def test_snapshot_filters_abnormal_change(client, monkeypatch):
         a = dict(RAW); a["f12"] = "600001"; a["f615"] = 4.0       # 正常
         b = dict(RAW); b.update({"f12": "000002", "f615": 360.5})  # 异常
         return [a, b]
-    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney", fake_fetch)
+    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", fake_fetch)
     n = auction_snapshot.snapshot_at("9_25")
     assert n == 1
     snap = auction_snapshot.load_snapshot(time_point="9_25")
@@ -99,7 +99,7 @@ def test_query_snapshot_sorted(client, monkeypatch):
         b = dict(RAW); b.update({"f12": "000002", "f615": 6.0})
         c = dict(RAW); c.update({"f12": "300003", "f615": 3.0})
         return [a, b, c]
-    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney", fake_fetch)
+    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", fake_fetch)
     auction_snapshot.snapshot_at("9_25")
     rows = auction_snapshot.query_snapshot(auction_snapshot._bj_date(), "9_25", 50)
     assert [r["code"] for r in rows] == ["000002", "300003", "600001"]   # 6.0 > 3.0 > 1.0
