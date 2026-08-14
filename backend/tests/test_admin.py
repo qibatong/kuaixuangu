@@ -376,3 +376,85 @@ def test_admin_scoring_invalid_mode(client, first_user):
     assert r.status_code == 400
     r2 = client.put("/api/admin/scoring?mode=xxx", json={"scoring": SPOT_VALID}, headers=hdrs(token))
     assert r2.status_code == 400
+
+
+# ---------- 全局默认筛选参数(defaults) ----------
+def _restore_default_filters():
+    """测试后恢复 default_filters, 避免污染其他用例"""
+    settings.set("default_filters", {})
+
+
+def test_admin_defaults_put_ok(client, first_user):
+    """普通保存: 写入 settings, 不带 force 时 forceCleared=0"""
+    token, _, _ = first_user
+    try:
+        r = client.put("/api/admin/defaults",
+                       json={"defaults": {"bidAmtFloor": 2000}},
+                       headers=hdrs(token))
+        assert r.status_code == 200
+        d = r.json()
+        assert d.get("ok") and d.get("forceCleared") == 0
+        assert d["defaults"]["bidAmtFloor"] == 2000
+        assert settings.get("default_filters")["bidAmtFloor"] == 2000
+    finally:
+        _restore_default_filters()
+
+
+def test_admin_defaults_put_invalid(client, first_user):
+    """非法字段/类型/缺参 400"""
+    token, _, _ = first_user
+    r = client.put("/api/admin/defaults", json={"defaults": {"hack": 1}}, headers=hdrs(token))
+    assert r.status_code == 400 and "未知字段" in r.json().get("msg", "")
+    r = client.put("/api/admin/defaults", json={"defaults": {"bidAmtFloor": "x"}}, headers=hdrs(token))
+    assert r.status_code == 400 and "需为数字" in r.json().get("msg", "")
+    r = client.put("/api/admin/defaults", json={"defaults": {"limitUp": "yes"}}, headers=hdrs(token))
+    assert r.status_code == 400 and "需为布尔值" in r.json().get("msg", "")
+    r = client.put("/api/admin/defaults", json={}, headers=hdrs(token))
+    assert r.status_code == 400
+
+
+def test_admin_defaults_force_clears_user_filters(client, first_user, second_user):
+    """force=true: 清除所有用户筛选偏好(仅筛选字段), 保留主题(bg/font)"""
+    token, _, _ = first_user
+    token2, _ = second_user
+    # 用户先保存: 筛选字段 + 主题字段
+    r = client.post("/api/prefs",
+                    json={"settings": {"bidGt": 9, "stSuspend": False, "bg": "light", "font": "lg"}},
+                    headers=hdrs(token2))
+    assert r.status_code == 200
+    try:
+        r = client.put("/api/admin/defaults",
+                       json={"defaults": {"bidAmtFloor": 2000}, "force": True},
+                       headers=hdrs(token))
+        assert r.status_code == 200
+        d = r.json()
+        assert d.get("ok") and d.get("forceCleared", 0) >= 1
+        assert d["defaults"]["bidAmtFloor"] == 2000
+        # 用户偏好: 筛选字段被清除, 主题保留
+        r2 = client.get("/api/prefs", headers=hdrs(token2))
+        s = r2.json().get("settings") or {}
+        assert "bidGt" not in s and "stSuspend" not in s
+        assert s.get("bg") == "light" and s.get("font") == "lg"
+    finally:
+        _restore_default_filters()
+
+
+def test_admin_defaults_no_force_keeps_user_filters(client, first_user, second_user):
+    """不带 force: 用户已存筛选偏好不受影响"""
+    token, _, _ = first_user
+    token2, _ = second_user
+    r = client.post("/api/prefs",
+                    json={"settings": {"bidGt": 9, "bg": "dark"}},
+                    headers=hdrs(token2))
+    assert r.status_code == 200
+    try:
+        r = client.put("/api/admin/defaults",
+                       json={"defaults": {"bidAmtFloor": 2000}},
+                       headers=hdrs(token))
+        assert r.status_code == 200
+        assert r.json().get("forceCleared") == 0
+        r2 = client.get("/api/prefs", headers=hdrs(token2))
+        s = r2.json().get("settings") or {}
+        assert s.get("bidGt") == 9 and s.get("bg") == "dark"
+    finally:
+        _restore_default_filters()

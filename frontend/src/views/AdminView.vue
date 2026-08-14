@@ -185,7 +185,7 @@
 
       <!-- 全局默认筛选参数(所有用户未自定义时使用) -->
       <div class="admin-card">
-        <div class="card-title"><i class="fa fa-filter"></i> 全局默认筛选参数 <span class="admin-tip">所有用户未自定义偏好时的默认值，保存后新用户/未自定义用户立即生效</span></div>
+        <div class="card-title"><i class="fa fa-filter"></i> 全局默认筛选参数 <span class="admin-tip">所有用户未自定义偏好时的默认值；「保存并强制生效」会清除所有用户已保存的筛选偏好(保留背景/字号)，全量立即生效</span></div>
         <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;padding:6px 0 2px;">
           <label class="field-label" style="display:flex;flex-direction:column;gap:4px;">
             竞价金额下限(万) <input v-model.number="adminDefaults.bidAmtFloor" type="number" min="0" class="admin-input" style="width:110px;" />
@@ -211,8 +211,11 @@
           <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size:13px;">
             <input type="checkbox" v-model="adminDefaults.stSuspend" /> 剔除ST/停牌
           </label>
-          <button class="tdx-export-btn admin-save-btn" :disabled="savingDefaults" @click="saveDefaults">
+          <button class="tdx-export-btn admin-save-btn" :disabled="savingDefaults" @click="saveDefaults(false)">
             <i class="fa fa-save"></i> {{ savingDefaults ? '保存中...' : '保存默认值' }}
+          </button>
+          <button class="tdx-export-btn admin-save-btn" style="background:#A32D2D;border-color:#A32D2D;" :disabled="savingDefaultsForce" @click="saveDefaults(true)">
+            <i class="fa fa-bolt"></i> {{ savingDefaultsForce ? '生效中...' : '保存并强制生效' }}
           </button>
           <span v-if="defaultsMsg" :class="defaultsErr ? 'admin-msg-err' : 'admin-msg-ok'" style="font-size:12px;">{{ defaultsMsg }}</span>
         </div>
@@ -286,6 +289,7 @@ function userVal(u) {
 // 全局默认筛选参数
 const adminDefaults = reactive({ bidAmtFloor: 1000, bidGt: 7, floatMvFloor: 30, floatMvGt: 1000, priceGt: 300, probLt: 65, limitUp: true, stSuspend: true })
 const savingDefaults = ref(false)
+const savingDefaultsForce = ref(false)
 const defaultsMsg = ref('')
 const defaultsErr = ref(false)
 
@@ -299,19 +303,22 @@ async function loadDefaults() {
   }
 }
 
-async function saveDefaults() {
+async function saveDefaults(force = false) {
+  // force=true: 保存默认值 + 强制清除所有用户筛选偏好(保留背景/字号), 全量立即生效
+  if (force && !window.confirm('「保存并强制生效」将清除所有用户已保存的筛选偏好(保留背景/字号设置)，改为使用新的全局默认值。确定继续？')) return
+  const saving = force ? savingDefaultsForce : savingDefaults
   defaultsMsg.value = ''
-  savingDefaults.value = true
+  saving.value = true
   try {
-    const d = await saveAdminDefaults({ ...adminDefaults })
+    const d = await saveAdminDefaults({ ...adminDefaults }, force)
     defaultsMsg.value = d.msg || '已保存'
     defaultsErr.value = false
-    toast('全局默认筛选参数已保存并生效', 'success')
+    toast(force ? '已保存并强制所有用户生效' : '全局默认筛选参数已保存', 'success')
   } catch (e) {
     defaultsMsg.value = e.message || '保存失败'
     defaultsErr.value = true
   } finally {
-    savingDefaults.value = false
+    saving.value = false
   }
 }
 

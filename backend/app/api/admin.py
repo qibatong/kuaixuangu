@@ -277,6 +277,7 @@ def api_admin_defaults_get(request: Request, uid: int = Depends(get_admin)):
 @router.put("/api/admin/defaults")
 def api_admin_defaults_put(request: Request, body: dict = Body(...), uid: int = Depends(get_admin)):
     new = body.get("defaults")
+    force = bool(body.get("force"))   # force=true: 保存后清除所有用户筛选偏好, 强制全量生效(保留主题)
     if not isinstance(new, dict) or not new:
         return jr({"ok": False, "msg": "缺少 defaults 配置"}, 400)
     # 只接受已知字段, 数字/布尔校验
@@ -291,5 +292,11 @@ def api_admin_defaults_put(request: Request, body: dict = Body(...), uid: int = 
         cur[k] = v
     if not settings.set("default_filters", cur):
         return jr({"ok": False, "msg": "保存失败"}, 500)
-    log.info("管理端更新全局默认筛选参数 uid=%s defaults=%s", uid, cur)
-    return jr({"ok": True, "msg": "全局默认筛选参数已更新", "defaults": cur})
+    cleared = 0
+    msg = "全局默认筛选参数已更新"
+    if force:
+        cleared = users.clear_filter_prefs_all()
+        msg += "，已强制重置 %d 个用户的筛选偏好" % cleared
+    log.info("管理端更新全局默认筛选参数 uid=%s force=%s defaults=%s cleared=%d",
+             uid, force, cur, cleared)
+    return jr({"ok": True, "msg": msg, "defaults": cur, "forceCleared": cleared})

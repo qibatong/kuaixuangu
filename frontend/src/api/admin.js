@@ -19,8 +19,9 @@ export function getAdminDefaults() {
   return request('/api/admin/defaults')
 }
 
-export function saveAdminDefaults(defaults) {
-  return request('/api/admin/defaults', { method: 'PUT', body: { defaults } })
+export function saveAdminDefaults(defaults, force = false) {
+  // force=true: 保存后强制清除所有用户筛选偏好, 全量立即生效(保留主题设置)
+  return request('/api/admin/defaults', { method: 'PUT', body: { defaults, force } })
 }
 
 export function setUserExpire(uid, payload) {

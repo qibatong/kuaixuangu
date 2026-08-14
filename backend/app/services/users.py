@@ -295,6 +295,49 @@ def save_prefs(uid, settings):
     conn.close()
 
 
+# ---------- 全局默认筛选参数强制覆盖 ----------
+# 筛选偏好字段(与前端 defaultFilterSettings + 盘中参数一致); 主题字段(bg/font) 不在此集合
+FILTER_PREFS_KEYS = {
+    "stSuspend", "markets", "limitUp", "bidGt", "probLt", "confLt",
+    "floatMvFloor", "floatMvGt", "priceGt", "bidAmtFloor",
+    "chgFloor", "chgGt", "volRatioFloor", "turnoverFloor", "turnoverGt",
+    "spotExcludeZT",
+}
+
+
+def clear_filter_prefs_all():
+    """强制覆盖: 清除所有用户 filter_prefs 中的筛选字段(保留 bg/font 等主题字段),
+    使所有用户回到"未自定义偏好"状态 → 前端下次加载自动使用最新全局默认。
+    返回受影响(清除了筛选字段)的用户数; 无 prefs / 仅有主题字段的用户不受影响。
+    注: 本地 localStorage 的锁定(9:30 竞价名单锁定)属于浏览器端状态, 服务端无法清除。"""
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT id, filter_prefs FROM users WHERE filter_prefs IS NOT NULL AND filter_prefs != ''"
+    ).fetchall()
+    affected = 0
+    for uid, raw in rows:
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        removed = [k for k in FILTER_PREFS_KEYS if k in data]
+        if not removed:
+            continue
+        for k in removed:
+            data.pop(k, None)
+        if data:
+            conn.execute("UPDATE users SET filter_prefs=? WHERE id=?",
+                         (json.dumps(data, ensure_ascii=False), uid))
+        else:
+            conn.execute("UPDATE users SET filter_prefs=NULL WHERE id=?", (uid,))
+        affected += 1
+    conn.commit()
+    conn.close()
+    return affected
+
+
 # ---------- 邮件(忘记密码) ----------
 def smtp_configured():
     return bool(config.SMTP_HOST and config.SMTP_USER and config.SMTP_PASS)
