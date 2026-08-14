@@ -156,20 +156,20 @@ def build_daily_top(days):
     return out
 
 
-def do_import(path):
-    """读取 JSON 落库 daily_sector_top"""
+def do_import(path, source="em"):
+    """读取 JSON 落库 daily_sector_top(source='em' for backfill data)"""
     sys.path.insert(0, "/opt/kuaixuan/backend")
     from app.db import database
     with open(path, "r", encoding="utf-8") as f:
         out = json.load(f)
     dates = sorted(out.keys())
-    print("待落库交易日: %d (跳过保留: %s)" % (len(dates), sorted(KEEP_KPL & set(dates)) or "-"), flush=True)
+    print("待落库交易日: %d source=%s (跳过保留: %s)" % (len(dates), source, sorted(KEEP_KPL & set(dates)) or "-"), flush=True)
     conn = database.get_conn()
     n = 0
     for d in dates:
         conn.execute(
-            "INSERT OR REPLACE INTO daily_sector_top (date, boards, ts) VALUES (?,?,?)",
-            (d, json.dumps(out[d], ensure_ascii=False), int(time.time())))
+            "INSERT OR REPLACE INTO daily_sector_top (date, source, boards, ts) VALUES (?,?,?,?)",
+            (d, source, json.dumps(out[d], ensure_ascii=False), int(time.time())))
         n += 1
     conn.commit()
     conn.close()
@@ -191,9 +191,10 @@ def main():
         return 0
     elif mode == "import":
         path = sys.argv[2] if len(sys.argv) > 2 else "sector_history.json"
-        return 0 if do_import(path) else 1
+        src = sys.argv[3] if len(sys.argv) > 3 else "em"
+        return 0 if do_import(path, source=src) else 1
     else:
-        print("用法: export [天数] [out.json] | import [in.json]", flush=True)
+        print("用法: export [天数] [out.json] | import [in.json] [source]", flush=True)
         return 1
 
 

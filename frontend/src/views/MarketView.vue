@@ -63,6 +63,14 @@
     <div v-else-if="tab === 'history'" class="mrk-panel">
       <div class="rot-toolbar">
         <span class="rot-tip"><i class="fa fa-info-circle"></i> 工作日 15:30 后自动保存当日 Top10；近期数据积累后展示趋势</span>
+        <div class="rot-source">
+          <button v-for="s in sourceOptions" :key="s.key"
+                  :class="{ active: rotSource === s.key }"
+                  class="rot-source-btn"
+                  @click="switchSource(s.key)">
+            <i :class="s.icon"></i> {{ s.label }}
+          </button>
+        </div>
         <select v-model.number="rotDays" class="admin-input" style="width:90px;padding:5px 8px;" @change="loadHistory">
           <option :value="10">近 10 日</option>
           <option :value="20">近 20 日</option>
@@ -317,8 +325,13 @@ async function loadLhb() {
 
 // ===================== 板块轮动历史 =====================
 const rotDays = ref(10)
+const rotSource = ref(localStorage.getItem('kuaixuan_sector_source') || 'kpl')
+const sourceOptions = [
+  { key: 'kpl', label: '开盘啦',     icon: 'fa fa-bullseye' },
+  { key: 'em',  label: '东方财富',   icon: 'fa fa-bar-chart' },
+]
 const rotLoading = ref(false)
-const rot = reactive({ dates: [], days: [], windows: [], common_names: [] })
+const rot = reactive({ dates: [], days: [], windows: [], common_names: [], source: 'kpl' })
 const windowColors = ['#E24B4A', '#EF9F27', '#378ADD', '#888780']
 
 const rotMap = computed(() => {
@@ -350,13 +363,21 @@ function boardAt(date, rank) {
 async function loadHistory() {
   rotLoading.value = true
   try {
-    const d = await sectorRotation(rotDays.value)
+    const d = await sectorRotation(rotDays.value, rotSource.value)
+    rot.source = (d && d.source) || rotSource.value
     rot.dates = (d && d.dates) || []
     rot.days = (d && d.rotation && d.rotation.days) || []
     rot.windows = (d && d.windows && d.windows.windows) || []
     rot.common_names = (d && d.windows && d.windows.common_names) || []
   } catch (e) { /* ignore */ }
   finally { rotLoading.value = false }
+}
+
+function switchSource(src) {
+  if (src === rotSource.value) return
+  rotSource.value = src
+  localStorage.setItem('kuaixuan_sector_source', src)
+  loadHistory()
 }
 
 const strengthLineSvg = computed(() => {
@@ -533,6 +554,14 @@ body[data-bg="light"] .reason-modal { background: rgba(255,255,255,0.98); border
 /* ===================== 板块轮动历史视图 ===================== */
 .rot-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
 .rot-tip { color: var(--text-muted); font-size: 12px; flex: 1; }
+.rot-source { display: flex; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-soft, #444); }
+.rot-source-btn { background: var(--bg-input, #1a1a1a); color: var(--text-secondary, #aaa); border: none; padding: 5px 12px; font-size: 12px; cursor: pointer; transition: background 0.15s; }
+.rot-source-btn:hover { background: var(--bg-card, #222); }
+.rot-source-btn.active { background: var(--accent-warm, #ffb400); color: #1a1a1a; font-weight: 600; }
+body[data-bg="light"] .rot-source { border-color: #d0d0d0; }
+body[data-bg="light"] .rot-source-btn { background: #f5f5f5; color: #555; }
+body[data-bg="light"] .rot-source-btn:hover { background: #eaeaea; }
+body[data-bg="light"] .rot-source-btn.active { background: #d97b00; color: #fff; }
 .rot-table-scroll { overflow-x: auto; border: 1px solid var(--border-soft); border-radius: 6px; }
 .rot-table { border-collapse: collapse; min-width: 100%; font-size: 12px; }
 .rot-table th, .rot-table td { padding: 5px 8px; text-align: center; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }

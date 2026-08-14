@@ -108,11 +108,18 @@ def init_db():
     # 板块轮动历史快照: 每日收盘后保存板块强度 Top10, 形成轮动数据基础
     cur.execute("""
         CREATE TABLE IF NOT EXISTS daily_sector_top (
-            date TEXT PRIMARY KEY,
+            date TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'kpl',
             boards TEXT NOT NULL,
-            ts INTEGER NOT NULL
+            ts INTEGER NOT NULL,
+            PRIMARY KEY (date, source)
         )
     """)
+    # 旧库升级: 已存在且无 source 列时补上(单字段主键), 历史数据默认 kpl
+    try:
+        cur.execute("ALTER TABLE daily_sector_top ADD COLUMN source TEXT NOT NULL DEFAULT 'kpl'")
+    except Exception:
+        pass   # 列已存在, ignore
     # 9:20 竞价时点快照(全市场): 用于 9:25 计算涨幅加速度
     cur.execute("""
         CREATE TABLE IF NOT EXISTS snapshot_920 (

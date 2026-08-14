@@ -197,11 +197,14 @@ def api_kpl_dadan_net(request: Request, uid: int = Depends(get_uid), code: str =
 
 
 @router.get("/api/kpl/sector-rotation")
-def api_kpl_sector_rotation(request: Request, uid: int = Depends(get_uid), days: int = 10):
+def api_kpl_sector_rotation(request: Request, uid: int = Depends(get_uid), days: int = 10, source: str = "kpl"):
     """板块轮动历史: 返回最近 N 个交易日的板块强度 Top10(表格+趋势) + 多窗口排名(近10/20/30/50日)
-    无历史数据时返回空(等待调度器每日 15:30 后抓取积累)"""
+    source: 数据源 kpl(开盘啦)/ em(东方财富), 默认 kpl"""
     days = max(1, min(int(days or 10), 60))
-    rot = sector_rotation.query_rotation(days)
-    win = sector_rotation.query_window_ranking((10, 20, 30, 50))
+    source = (source or "kpl").lower()
+    if source not in ("kpl", "em"):
+        source = "kpl"
+    rot = sector_rotation.query_rotation(days, source)
+    win = sector_rotation.query_window_ranking((10, 20, 30, 50), source=source)
     return jr({"ok": True, "rotation": rot, "windows": win,
-               "dates": rot.get("dates") or []})
+               "dates": rot.get("dates") or [], "source": source})
