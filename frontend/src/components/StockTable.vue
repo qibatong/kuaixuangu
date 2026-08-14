@@ -182,15 +182,15 @@ th.sortable {
   user-select: none;
 }
 th.sortable:hover {
-  color: #ff8a65;
+  color: var(--accent);
 }
 th.sortable.active {
-  color: #ff5028;
+  color: var(--accent-deep);
 }
 .sort-ind {
   display: inline-block;
   width: 10px;
-  color: #ff5028;
+  color: var(--accent-deep);
   font-weight: 700;
 }
 th.sortable:hover .sort-ind:not(:empty),
@@ -204,23 +204,23 @@ th.sortable .sort-ind:empty::before {
 }
 .qc-badge {
   display: inline-block;
-  background: rgba(255, 80, 40, 0.18);
-  border: 1px solid #ff5028;
-  color: #ffa07a;
+  background: rgba(var(--accent-rgb), 0.18);
+  border: 1px solid var(--accent);
+  color: var(--accent-text);
   border-radius: 4px;
   padding: 0 6px;
   font-size: 12px;
   animation: qc-pulse 1.6s ease-in-out infinite;
 }
 .qc-pending {
-  color: #777;
+  color: var(--text-muted);
   font-size: 12px;
   border: 1px dashed #555;
   border-radius: 4px;
   padding: 0 6px;
 }
 .accel-hot {
-  color: #ff5028;
+  color: var(--accent-deep);
   font-weight: 700;
 }
 .op-col {
@@ -253,7 +253,7 @@ th.sortable .sort-ind:empty::before {
   margin-top: 3px;
   font-size: 10px;
   line-height: 1.3;
-  color: #999;
+  color: var(--text-muted);
   border: 1px dashed #777;
   border-radius: 4px;
   padding: 1px 5px;
@@ -263,7 +263,7 @@ th.sortable .sort-ind:empty::before {
   margin-top: 3px;
   font-size: 10px;
   line-height: 1.3;
-  color: #ff8a5c;
+  color: var(--accent);
   border: 1px solid rgba(255, 80, 40, 0.5);
   border-radius: 4px;
   padding: 1px 5px;
@@ -273,4 +273,12 @@ th.sortable .sort-ind:empty::before {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
 }
+
+/* 浅色主题覆盖 */
+body[data-bg="light"] th.sortable {  color: #5a4a3a;  }
+body[data-bg="light"] th.sortable:hover {  color: #b83010;  }
+body[data-bg="light"] th.sortable.active {  color: #b83010;  }
+body[data-bg="light"] .sort-ind {  color: #b83010;  }
+body[data-bg="light"] .qc-badge {  color: #8a5500; background: rgba(184,48,16,0.15); border-color: #b83010;  }
+body[data-bg="light"] .qc-pending {  color: #6a7a90; border-color: #999;  }
 </style>

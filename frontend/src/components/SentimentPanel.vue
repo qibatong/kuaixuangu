@@ -119,7 +119,7 @@ onMounted(async () => {
   gap: 6px;
 }
 .senti-label {
-  color: #999;
+  color: var(--text-muted);
   font-size: 12px;
 }
 .senti-val {
@@ -128,7 +128,7 @@ onMounted(async () => {
 }
 .senti-val.zt { color: #ff6a6a; }
 .senti-val.lbg { color: #ffb400; }
-.senti-val.dim { color: #bbb; }
+.senti-val.dim { color: var(--text-secondary); }
 .senti-val.hot { color: #ff6a6a; }
 .senti-val.cold { color: #6ad66a; }
 .senti-val.normal { color: #ffe0a0; }
@@ -156,12 +156,28 @@ onMounted(async () => {
 .senti-tag.cold { color: #8ae08a; border: 1px solid rgba(106, 214, 106, 0.5); }
 .senti-tag.normal { color: #ccc; border: 1px solid rgba(255, 255, 255, 0.2); }
 .senti-day { color: #666; font-size: 11px; margin-left: auto; }
-.senti-loading { color: #888; font-size: 13px; }
-.yp-sep { width: 1px; height: 26px; background: rgba(255,255,255,0.15); }
+.senti-loading { color: var(--text-muted); font-size: 13px; }
+.yp-sep { width: 1px; height: 26px; background: var(--border-soft); }
 .yp-block { display: flex; align-items: center; gap: 12px; }
 .yp-item { color: #aaa; font-size: 12px; }
 .yp-item b.up { color: #ff6a6a; }
 .yp-item b.down { color: #6ad66a; }
-.yp-item b.dim { color: #999; }
+.yp-item b.dim { color: var(--text-muted); }
 .yp-date { color: #666; font-size: 11px; }
+
+/* 浅色主题覆盖 */
+body[data-bg="light"] .senti-title {  color: #5a4a3a;  }
+body[data-bg="light"] .senti-title .fa {  color: #c79100;  }
+body[data-bg="light"] .senti-val.zt {  color: #b83010;  }
+body[data-bg="light"] .senti-val.lbg {  color: #8a5500;  }
+body[data-bg="light"] .senti-val.hot {  color: #b83010;  }
+body[data-bg="light"] .senti-val.normal {  color: #5a4a3a;  }
+body[data-bg="light"] .senti-block-label {  color: #5a6b85;  }
+body[data-bg="light"] .senti-block-title {  color: #5a4a3a;  }
+body[data-bg="light"] .senti-bar-track {  background: rgba(0,0,0,0.06);  }
+body[data-bg="light"] .senti-bar-fill.hot {  background: linear-gradient(90deg, #c79100, #b83010);  }
+body[data-bg="light"] .senti-bar-fill.normal {  background: linear-gradient(90deg, #c79100, #8a5500);  }
+body[data-bg="light"] .yp-block {  color: #5a4a3a;  }
+body[data-bg="light"] .yp-date {  color: #5a6b85;  }
+body[data-bg="light"] .yp-item b {  color: #1a1d26;  }
 </style>

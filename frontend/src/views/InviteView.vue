@@ -1,7 +1,7 @@
 <template>
   <div class="page-shell">
     <div class="page-back">
-      <router-link to="/" class="tdx-export-btn" style="background:rgba(0,180,255,0.15);border:1px solid #00b4ff;color:#a0e0ff;"><i class="fa fa-arrow-left"></i> 返回选股</router-link>
+      <router-link to="/" class="tdx-export-btn nav-btn nav-invite"><i class="fa fa-arrow-left"></i> 返回选股</router-link>
     </div>
     <div class="invite-panel" style="width:min(480px, 94vw); margin:0 auto;">
       <div class="invite-head">

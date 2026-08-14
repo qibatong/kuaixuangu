@@ -1,7 +1,7 @@
 <template>
   <div class="page-shell">
     <div class="page-back">
-      <router-link to="/" class="tdx-export-btn" style="background:rgba(255,180,0,0.18);border:1px solid #ffb400;color:#ffe0a0;"><i class="fa fa-arrow-left"></i> 返回选股</router-link>
+      <router-link to="/" class="tdx-export-btn nav-btn nav-history"><i class="fa fa-arrow-left"></i> 返回选股</router-link>
     </div>
     <div class="history-panel">
       <div class="history-head">
@@ -131,7 +131,7 @@
           <label>评分≥ <input type="number" v-model="f.prob_min" placeholder="不限"></label>
           <label>可信度≥ <input type="number" v-model="f.conf_min" placeholder="不限"></label>
           <select v-model="f.action"><option value="">全部类型</option><option value="lock">锁定选股</option><option value="filter">筛选重算</option></select>
-          <button class="tdx-export-btn query-submit-btn" style="background:#ff5c5c;" @click="runQuery"><i class="fa fa-search"></i> 查询</button>
+          <button class="tdx-export-btn query-submit-btn" style="background:var(--accent-deep);" @click="runQuery"><i class="fa fa-search"></i> 查询</button>
         </div>
         <div class="query-tip">打开时已自动查询当月记录；<b>同一天同一只股票评分相同自动去重</b>（只保留一条）；竞价涨幅、流通市值、评分、可信度等条件可留空，留空表示不限制</div>
         <div class="query-result">
@@ -178,7 +178,7 @@
               </table>
             </div>
             <div v-if="rows.length < total" style="text-align:center;margin:12px 0;">
-              <button class="tdx-export-btn" style="background:rgba(255,180,0,0.15);border:1px solid #ffb400;color:#ffe0a0;" @click="loadMore"><i class="fa fa-plus-circle"></i> 加载更多（已显示 {{ rows.length }} / {{ total }} 条）</button>
+              <button class="tdx-export-btn nav-btn nav-history" @click="loadMore"><i class="fa fa-plus-circle"></i> 加载更多（已显示 {{ rows.length }} / {{ total }} 条）</button>
             </div>
           </template>
         </div>
@@ -348,9 +348,9 @@ onMounted(() => {
   display: inline-flex;
   align-items: baseline;
   gap: 8px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.15);
-  color: #bbb;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-soft);
+  color: var(--text-secondary);
   border-radius: 8px;
   padding: 8px 16px;
   font-size: 14px;
@@ -363,7 +363,7 @@ onMounted(() => {
   border-color: #ffb400;
   color: #ffd700;
 }
-.view-tab-desc { font-size: 11px; color: #888; }
+.view-tab-desc { font-size: 11px; color: var(--text-muted); }
 .view-tab.active .view-tab-desc { color: #c9a94a; }
 
 .batch-view { margin-top: 4px; }
@@ -379,8 +379,8 @@ onMounted(() => {
 .batch-tip b { color: #ffd700; }
 .batch-list { display: flex; flex-direction: column; gap: 8px; }
 .batch-card {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-soft);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -393,18 +393,27 @@ onMounted(() => {
   cursor: pointer;
   flex-wrap: wrap;
 }
-.batch-head:hover { background: rgba(255,255,255,0.03); }
+.batch-head:hover { background: var(--bg-hover); }
 .batch-time { color: #ffe0a0; font-size: 14px; font-weight: 500; }
 .batch-type {
   font-size: 11px;
   border-radius: 4px;
   padding: 1px 8px;
 }
-.type-lock { color: #ff8a65; border: 1px solid #ff5028; background: rgba(255,80,40,0.1); }
+.type-lock { color: var(--accent); border: 1px solid var(--accent-deep); background: rgba(var(--accent-rgb), 0.1); }
 .type-filter { color: #a0e0ff; border: 1px solid #00b4ff; background: rgba(0,180,255,0.1); }
 .batch-meta { display: flex; gap: 10px; margin-left: auto; align-items: center; }
-.batch-market { color: #999; font-size: 12px; }
+.batch-market { color: var(--text-muted); font-size: 12px; }
 .batch-count { color: #7ce8a0; font-size: 12px; }
-.batch-toggle { color: #888; font-size: 12px; }
-.batch-body { border-top: 1px solid rgba(255,255,255,0.08); padding: 8px 10px; }
+.batch-toggle { color: var(--text-muted); font-size: 12px; }
+.batch-body { border-top: 1px solid var(--border-soft); padding: 8px 10px; }
+
+/* 浅色主题覆盖 */
+body[data-bg="light"] .view-tab:hover {  color: #5a4a3a; border-color: #b83010;  }
+body[data-bg="light"] .view-tab {  color: #5a4a3a; border-color: #d0d0d0; background: rgba(255,255,255,0.6);  }
+body[data-bg="light"] .view-tab.active .view-tab-desc {  color: #6a5a20;  }
+body[data-bg="light"] .batch-tip b {  color: #8a5500;  }
+body[data-bg="light"] .batch-time {  color: #5a4a3a;  }
+body[data-bg="light"] .type-lock {  color: #b83010; border-color: #b83010; background: rgba(255,80,80,0.12);  }
+body[data-bg="light"] .batch-type {  color: #1a1d26;  }
 </style>

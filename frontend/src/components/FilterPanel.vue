@@ -4,7 +4,7 @@
     <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px;">
       <label><input type="checkbox" v-model="store.filterSettings.stSuspend" :disabled="store.isFilterLocked"> 剔除ST/停牌</label>
       <span class="filter-divider">|</span>
-      <span style="color:#ffbcbc; font-size:12px; font-weight:600;">市场范围：</span>
+      <span style="color:var(--accent-text); font-size:12px; font-weight:600;">市场范围：</span>
       <label v-for="m in marketOptions" :key="m.value">
         <input type="checkbox" :value="m.value" v-model="store.filterSettings.markets" :disabled="store.isFilterLocked"> {{ m.label }}
       </label>
@@ -24,7 +24,7 @@
     </div>
 
     <div class="filter-actions">
-      <button class="tdx-export-btn" style="background:#ff5c5c;" :disabled="store.isFilterLocked && store.mode === 'auction'" @click="apply">应用筛选</button>
+      <button class="tdx-export-btn" style="background:var(--accent-deep);" :disabled="store.isFilterLocked && store.mode === 'auction'" @click="apply">应用筛选</button>
       <button class="tdx-export-btn reset-filter-btn" :disabled="store.isFilterLocked && store.mode === 'auction'" @click="reset"><i class="fa fa-undo"></i> 重置</button>
       <button v-if="store.mode === 'auction'" class="tdx-export-btn lock-filter-btn" :class="{ locked: store.isFilterLocked }" @click="store.toggleFilterLock()">{{ store.isFilterLocked ? ' 解锁' : ' 锁定' }}</button>
       <span v-if="store.mode === 'auction'" class="lock-indicator" :style="{ display: store.isFilterLocked ? 'inline-block' : 'none' }"> 筛选已锁定</span>

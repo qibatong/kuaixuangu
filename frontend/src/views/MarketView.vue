@@ -265,44 +265,68 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .page-shell { max-width: 1400px; margin: 0 auto; padding: 16px; }
-.page-back { color: #9aa; cursor: pointer; font-size: 13px; margin-bottom: 12px; display: inline-block; }
+.page-back { color: var(--text-muted); cursor: pointer; font-size: 13px; margin-bottom: 12px; display: inline-block; }
 .page-back:hover { color: #ffb400; }
 .mrk-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .mrk-title { font-size: 20px; font-weight: 700; color: #ffe0a0; }
 .mrk-title .fa { color: #ffb400; }
-.mrk-sub { color: #999; font-size: 13px; }
+.mrk-sub { color: var(--text-muted); font-size: 13px; }
 .mrk-time { margin-left: auto; color: #aaa; font-size: 14px; font-family: monospace; }
 .mrk-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
 .mrk-tab {
-  padding: 8px 18px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15);
-  background: rgba(255,255,255,0.04); color: #bbb; font-size: 14px; cursor: pointer; transition: all 0.2s;
+  padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border-soft);
+  background: var(--bg-hover); color: var(--text-secondary); font-size: 14px; cursor: pointer; transition: all 0.2s;
 }
 .mrk-tab:hover { border-color: #ffb400; color: #ffe0a0; }
 .mrk-tab.active { background: rgba(255,180,0,0.15); border-color: #ffb400; color: #ffd700; font-weight: 600; }
-.mrk-panel { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 14px; }
-.loading-placeholder { text-align: center; padding: 40px; color: #888; }
+.mrk-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 14px; }
+.loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
 .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.empty-state { text-align: center; padding: 40px; color: #888; }
-.board-code { font-size: 11px; color: #777; }
+.empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
+.board-code { font-size: 11px; color: var(--text-muted); }
 .strength { color: #ffb400; font-weight: 700; }
 .lb-badge { display: inline-block; color: #ff8a5c; border: 1px solid rgba(255,80,40,0.5); border-radius: 4px; padding: 0 5px; font-size: 11px; background: rgba(255,80,40,0.12); }
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.reason-modal { background: #1c1f26; border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; width: 640px; max-width: 92vw; max-height: 76vh; overflow: auto; padding: 18px; }
+.reason-modal { background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 12px; width: 640px; max-width: 92vw; max-height: 76vh; overflow: auto; padding: 18px; }
 .reason-head { display: flex; align-items: center; justify-content: space-between; color: #ffe0a0; font-size: 16px; margin-bottom: 14px; }
-.close-btn { background: none; border: none; color: #999; cursor: pointer; font-size: 16px; }
+.close-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; }
 .close-btn:hover { color: #ff6a6a; }
-.reason-loading { color: #888; padding: 20px; text-align: center; }
+.reason-loading { color: var(--text-muted); padding: 20px; text-align: center; }
 .lhb-reason { color: #ffb400; font-size: 13px; margin-bottom: 10px; line-height: 1.5; }
-.lhb-total { display: flex; gap: 20px; color: #aaa; font-size: 13px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.lhb-total { display: flex; gap: 20px; color: #aaa; font-size: 13px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border-soft); }
 .lhb-cols { display: flex; gap: 16px; }
 .lhb-col { flex: 1; }
 .lhb-col-title { font-size: 13px; margin-bottom: 8px; }
 .lhb-col-title.buy { color: #ff8a8a; }
 .lhb-col-title.sell { color: #8ae08a; }
 .lhb-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
-.lhb-idx { width: 16px; color: #777; }
-.lhb-name { flex: 1; color: #ddd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lhb-idx { width: 16px; color: var(--text-muted); }
+.lhb-name { flex: 1; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lhb-amt { font-family: monospace; }
 .lhb-empty { color: #666; font-size: 12px; padding: 8px 0; }
+
+/* 浅色主题覆盖 */
+body[data-bg="light"] .page-back { color: #5a6b85; }
+body[data-bg="light"] .page-back:hover { color: #c79100; }
+body[data-bg="light"] .mrk-title { color: #8a5500; }
+body[data-bg="light"] .mrk-title .fa { color: #c79100; }
+body[data-bg="light"] .mrk-sub { color: #5a6b85; }
+body[data-bg="light"] .mrk-time { color: #5a6b85; }
+body[data-bg="light"] .mrk-tab { color: #5a6b85; border-color: var(--border-soft); background: rgba(255,255,255,0.6); }
+body[data-bg="light"] .mrk-tab:hover { color: #5a4a3a; border-color: #c79100; }
+body[data-bg="light"] .mrk-tab.active { color: #5a4a3a; background: rgba(255,180,0,0.15); border-color: #c79100; }
+body[data-bg="light"] .mrk-panel { background: rgba(255,255,255,0.85); border-color: var(--border-soft); }
+body[data-bg="light"] .strength { color: #8a5500; }
+body[data-bg="light"] .lb-badge { color: #b83010; border-color: rgba(184,48,16,0.5); background: rgba(255,80,80,0.1); }
+body[data-bg="light"] .reason-head { color: #5a4a3a; }
+body[data-bg="light"] .close-btn:hover { color: #b83010; }
+body[data-bg="light"] .lhb-reason { color: #8a5500; }
+body[data-bg="light"] .lhb-col-title { color: #5a4a3a; }
+body[data-bg="light"] .lhb-col-title.buy { color: #b83010; }
+body[data-bg="light"] .lhb-name { color: #1a1d26; }
+body[data-bg="light"] .lhb-row { border-bottom-color: rgba(0,0,0,0.08); }
+body[data-bg="light"] .lhb-empty { color: #6a7a90; }
+body[data-bg="light"] .board-code { color: #1a1d26; }
+body[data-bg="light"] .reason-modal { background: rgba(255,255,255,0.98); border-color: var(--border-soft); }
 </style>
