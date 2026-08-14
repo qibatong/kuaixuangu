@@ -235,6 +235,15 @@ def _scheduler_loop():
                     _qc_done.add(date)
                 except Exception as e:
                     log.warning("竞价抢筹结果快照失败 err=%s", e, exc_info=True)
+            # 15:30-15:35 板块轮动日终快照: 抓当日板块强度 Top10 落库, 形成轮动数据基础
+            if (g.tm_wday < 5 and 15 * 60 + 30 <= hm <= 15 * 60 + 35
+                    and ("sector_" + date) not in _sched_done):
+                try:
+                    from . import sector_rotation
+                    sector_rotation.record_today_top()
+                    _sched_done.add("sector_" + date)
+                except Exception as e:
+                    log.warning("板块轮动日终快照失败 err=%s", e, exc_info=True)
             # 9:31-9:35 盘点当日采集: 缺失时点告警(排查关键, 数据过了点无法补)
             if g.tm_wday < 5 and 9 * 60 + 31 <= hm <= 9 * 60 + 35 and date not in _sched_checked:
                 missing = []

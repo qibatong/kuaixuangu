@@ -105,6 +105,14 @@ def init_db():
             ts INTEGER NOT NULL
         )
     """)
+    # 板块轮动历史快照: 每日收盘后保存板块强度 Top10, 形成轮动数据基础
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS daily_sector_top (
+            date TEXT PRIMARY KEY,
+            boards TEXT NOT NULL,
+            ts INTEGER NOT NULL
+        )
+    """)
     # 9:20 竞价时点快照(全市场): 用于 9:25 计算涨幅加速度
     cur.execute("""
         CREATE TABLE IF NOT EXISTS snapshot_920 (

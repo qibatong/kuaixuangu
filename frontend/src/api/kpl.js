@@ -61,3 +61,8 @@ export function kplYestBroken() {
 export function kplYesterdayPerf() {
   return request('/api/kpl/yesterday-perf')
 }
+
+// 板块轮动历史(多日 Top10 + 强度/量能/多窗口排名趋势)
+export function sectorRotation(days = 10) {
+  return request(`/api/kpl/sector-rotation?days=${days}`)
+}

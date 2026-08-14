@@ -7,7 +7,7 @@
 from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
-from ..services import kpl
+from ..services import kpl, sector_rotation
 from .deps import get_uid, jr
 
 log = logger.get_logger(__name__)
@@ -194,3 +194,14 @@ def api_kpl_dadan_net(request: Request, uid: int = Depends(get_uid), code: str =
         return jr({"ok": False, "msg": "缺少 code 参数"})
     d = kpl.fetch_dadan_net(code)
     return jr({"ok": True, **d})
+
+
+@router.get("/api/kpl/sector-rotation")
+def api_kpl_sector_rotation(request: Request, uid: int = Depends(get_uid), days: int = 10):
+    """板块轮动历史: 返回最近 N 个交易日的板块强度 Top10(表格+趋势) + 多窗口排名(近10/20/30/50日)
+    无历史数据时返回空(等待调度器每日 15:30 后抓取积累)"""
+    days = max(1, min(int(days or 10), 60))
+    rot = sector_rotation.query_rotation(days)
+    win = sector_rotation.query_window_ranking((10, 20, 30, 50))
+    return jr({"ok": True, "rotation": rot, "windows": win,
+               "dates": rot.get("dates") or []})

@@ -10,7 +10,10 @@
 
     <div class="mrk-tabs">
       <button class="mrk-tab" :class="{ active: tab === 'board' }" @click="switchTab('board')">
-        <i class="fa fa-th-large"></i> 板块轮动
+        <i class="fa fa-th-large"></i> 板块强度
+      </button>
+      <button class="mrk-tab" :class="{ active: tab === 'history' }" @click="switchTab('history')">
+        <i class="fa fa-history"></i> 板块轮动历史
       </button>
       <button class="mrk-tab" :class="{ active: tab === 'hot' }" @click="switchTab('hot')">
         <i class="fa fa-fire"></i> 人气热榜
@@ -54,6 +57,75 @@
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- 板块轮动历史 -->
+    <div v-else-if="tab === 'history'" class="mrk-panel">
+      <div class="rot-toolbar">
+        <span class="rot-tip"><i class="fa fa-info-circle"></i> 工作日 15:30 后自动保存当日 Top10；近期数据积累后展示趋势</span>
+        <select v-model.number="rotDays" class="admin-input" style="width:90px;padding:5px 8px;" @change="loadHistory">
+          <option :value="10">近 10 日</option>
+          <option :value="20">近 20 日</option>
+          <option :value="30">近 30 日</option>
+          <option :value="50">近 50 日</option>
+        </select>
+        <button class="admin-search-btn" @click="loadHistory"><i class="fa fa-refresh"></i> 刷新</button>
+      </div>
+      <div v-if="rotLoading" class="loading-placeholder"><div class="spinner"></div></div>
+      <div v-else-if="!rot.dates.length" class="empty-state">
+        暂无历史数据(每日 15:30 后调度器抓取积累)
+      </div>
+      <template v-else>
+        <!-- 顶部表格: 行=排名, 列=日期 -->
+        <div class="rot-table-scroll">
+          <table class="rot-table">
+            <thead>
+              <tr>
+                <th class="rot-rownum">排名</th>
+                <th v-for="d in rot.dates" :key="d" class="rot-date">{{ d.slice(5) }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="rank in 10" :key="rank">
+                <td class="rot-rownum">{{ rank }}</td>
+                <td v-for="d in rot.dates" :key="d+rank" class="rot-cell">
+                  <template v-for="b in boardAt(d, rank)" :key="b.name">
+                    <div :class="['rot-board', { highlight: highlightSet.has(b.name) }]">{{ b.name }}</div>
+                    <div class="rot-strength">{{ Math.round(b.strength) }}</div>
+                  </template>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- 强度趋势线 + 量能柱状 -->
+        <div class="rot-charts">
+          <div class="rot-chart-block">
+            <div class="rot-chart-title">板块强度(每日第 1 名)</div>
+            <svg viewBox="0 0 600 120" class="rot-svg" preserveAspectRatio="none">
+              <g v-html="strengthLineSvg"></g>
+            </svg>
+          </div>
+          <div class="rot-chart-block">
+            <div class="rot-chart-title">板块量能(每日第 1 名成交额, 亿元)</div>
+            <svg viewBox="0 0 600 120" class="rot-svg" preserveAspectRatio="none">
+              <g v-html="amountBarSvg"></g>
+            </svg>
+          </div>
+        </div>
+        <!-- 多窗口排名 -->
+        <div class="rot-windows">
+          <div class="rot-chart-title">多窗口排名(基于不同时间窗口 Top10 排名加权)</div>
+          <svg viewBox="0 0 600 220" class="rot-svg" preserveAspectRatio="none">
+            <g v-html="windowLineSvg"></g>
+          </svg>
+          <div class="rot-window-legend">
+            <span v-for="(w, idx) in rot.windows" :key="w.window" :style="{ color: windowColors[idx] }">
+              <i class="fa fa-circle"></i> 近 {{ w.window }} 日
+            </span>
+          </div>
+        </div>
+      </template>
     </div>
 
     <!-- 人气热榜 -->
@@ -164,7 +236,7 @@
 
 <script setup>
 import { onBeforeUnmount, onMounted, ref, reactive } from 'vue'
-import { kplBoardRank, kplHotRank, kplLhb, kplLhbDetail } from '../api/kpl'
+import { kplBoardRank, kplHotRank, kplLhb, kplLhbDetail, sectorRotation } from '../api/kpl'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
 import { usePoolStore } from '../stores/pool'
@@ -249,10 +321,135 @@ async function loadLhb() {
   }
 }
 
+// ===================== 板块轮动历史 =====================
+const rotDays = ref(10)
+const rotLoading = ref(false)
+const rot = reactive({ dates: [], days: [], windows: [], common_names: [] })
+const windowColors = ['#E24B4A', '#EF9F27', '#378ADD', '#888780']
+
+const rotMap = computed(() => {
+  const m = {}
+  for (const day of rot.days) {
+    m[day.date] = day.boards || []
+  }
+  return m
+})
+const highlightSet = computed(() => {
+  const cnt = {}
+  for (const day of rot.days) {
+    for (const b of (day.boards || []).slice(0, 3)) {
+      cnt[b.name] = (cnt[b.name] || 0) + 1
+    }
+  }
+  const s = new Set()
+  for (const [n, c] of Object.entries(cnt)) {
+    if (c >= Math.max(2, Math.ceil(rot.dates.length / 4))) s.add(n)
+  }
+  return s
+})
+
+function boardAt(date, rank) {
+  const day = rotMap.value[date] || []
+  return day.filter(b => b.rank === rank)
+}
+
+async function loadHistory() {
+  rotLoading.value = true
+  try {
+    const d = await sectorRotation(rotDays.value)
+    rot.dates = (d && d.dates) || []
+    rot.days = (d && d.rotation && d.rotation.days) || []
+    rot.windows = (d && d.windows && d.windows.windows) || []
+    rot.common_names = (d && d.windows && d.windows.common_names) || []
+  } catch (e) { /* ignore */ }
+  finally { rotLoading.value = false }
+}
+
+const strengthLineSvg = computed(() => {
+  const days = rot.dates
+  const data = days.map(d => {
+    const b = (rotMap.value[d] || []).find(x => x.rank === 1)
+    return b ? Number(b.strength) || 0 : 0
+  })
+  if (!data.length || data.every(x => x === 0)) return '<text x="300" y="60" text-anchor="middle" fill="#888">暂无强度数据</text>'
+  const W = 600, H = 120, padL = 40, padR = 10, padT = 10, padB = 18
+  const maxV = Math.max(...data, 1)
+  const minV = Math.min(...data, 0)
+  const range = maxV - minV || 1
+  const xs = data.map((_, i) => padL + i * (W - padL - padR) / Math.max(1, data.length - 1))
+  const ys = data.map(v => padT + (H - padT - padB) * (1 - (v - minV) / range))
+  const points = xs.map((x, i) => `${x},${ys[i]}`).join(' ')
+  const labels = data.map((v, i) => `<text x="${xs[i]}" y="${ys[i] - 4}" font-size="9" fill="#E24B4A" text-anchor="middle">${Math.round(v)}</text>`).join('')
+  const axisY = `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H - padB}" stroke="#888" stroke-width="0.5"/>` +
+                `<line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#888" stroke-width="0.5"/>`
+  const xLabels = days.map((d, i) => `<text x="${xs[i]}" y="${H - 4}" font-size="8" fill="#888" text-anchor="middle">${d.slice(5)}</text>`).join('')
+  return `<polyline points="${points}" fill="none" stroke="#E24B4A" stroke-width="1.5"/>${labels}${axisY}${xLabels}` +
+         `<circle cx="${xs[0]}" cy="${ys[0]}" r="2.5" fill="#E24B4A"/>` +
+         `<circle cx="${xs[xs.length - 1]}" cy="${ys[ys.length - 1]}" r="2.5" fill="#E24B4A"/>`
+})
+
+const amountBarSvg = computed(() => {
+  const days = rot.dates
+  const data = days.map(d => {
+    const b = (rotMap.value[d] || []).find(x => x.rank === 1)
+    return b ? Number(b.amount) / 1e8 : 0
+  })
+  if (!data.length || data.every(x => x === 0)) return '<text x="300" y="60" text-anchor="middle" fill="#888">暂无量能数据</text>'
+  const W = 600, H = 120, padL = 40, padR = 10, padT = 10, padB = 18
+  const maxV = Math.max(...data, 1)
+  const barW = Math.max(4, (W - padL - padR) / data.length - 2)
+  let bars = ''
+  for (let i = 0; i < data.length; i++) {
+    const x = padL + i * (W - padL - padR) / data.length + 1
+    const h = data[i] / maxV * (H - padT - padB)
+    const y = H - padB - h
+    bars += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="#378ADD"/>`
+    bars += `<text x="${x + barW / 2}" y="${y - 2}" font-size="8" fill="#378ADD" text-anchor="middle">${Math.round(data[i])}</text>`
+  }
+  const axisY = `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H - padB}" stroke="#888" stroke-width="0.5"/>` +
+                `<line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#888" stroke-width="0.5"/>`
+  const xLabels = days.map((d, i) => {
+    const x = padL + i * (W - padL - padR) / data.length + barW / 2 + 1
+    return `<text x="${x}" y="${H - 4}" font-size="8" fill="#888" text-anchor="middle">${d.slice(5)}</text>`
+  }).join('')
+  return bars + axisY + xLabels
+})
+
+const windowLineSvg = computed(() => {
+  const wins = rot.windows
+  if (!wins.length) return '<text x="300" y="100" text-anchor="middle" fill="#888">暂无多窗口数据</text>'
+  const names = rot.common_names.slice(0, 6)
+  if (!names.length) return '<text x="300" y="100" text-anchor="middle" fill="#888">暂无多窗口数据</text>'
+  const W = 600, H = 220, padL = 30, padR = 10, padT = 20, padB = 60
+  let lines = ''
+  for (let wi = 0; wi < wins.length; wi++) {
+    const top = wins[wi].top || []
+    const color = windowColors[wi % windowColors.length]
+    const pts = names.map((nm, ni) => {
+      const idx = top.findIndex(t => t.name === nm)
+      const rank = idx >= 0 ? idx + 1 : 99
+      const x = padL + ni * (W - padL - padR) / Math.max(1, names.length - 1)
+      const y = padT + (rank > 50 ? (H - padT - padB) * 0.95 : (rank - 1) / 5 * (H - padT - padB) * 0.6 + padT)
+      return `${x},${y}`
+    }).join(' ')
+    lines += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.2" stroke-dasharray="${wi === 0 ? '' : (wi === 1 ? '4,3' : '1,3')}"/>`
+    lines += pts.split(' ').map((p) => `<circle cx="${p.split(',')[0]}" cy="${p.split(',')[1]}" r="2.5" fill="${color}"/>`).join('')
+  }
+  const axisX = `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H - padB}" stroke="#888" stroke-width="0.5"/>`
+              + `<line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#888" stroke-width="0.5"/>`
+  const xLabels = names.map((nm, ni) => {
+    const x = padL + ni * (W - padL - padR) / Math.max(1, names.length - 1)
+    return `<text x="${x}" y="${H - padB + 14}" font-size="9" fill="#888" text-anchor="middle">${nm}</text>`
+  }).join('')
+  const yLabels = ['1', '3', '5'].map((v, i) => `<text x="${padL - 6}" y="${padT + (i / 3) * (H - padT - padB) * 0.6 + 4}" font-size="9" fill="#888" text-anchor="end">${v}</text>`).join('')
+  return axisX + lines + xLabels + yLabels
+})
+
 onMounted(() => {
   bjTime.value = bjTimeStr()
   clockTimer = setInterval(() => { bjTime.value = bjTimeStr() }, 1000)
   loadBoard()
+  loadHistory()
   loadHot()
   loadLhb()
   refreshTimer = setInterval(() => { loadBoard(); loadHot(); loadLhb() }, 60000)
@@ -329,4 +526,28 @@ body[data-bg="light"] .lhb-row { border-bottom-color: rgba(0,0,0,0.08); }
 body[data-bg="light"] .lhb-empty { color: #6a7a90; }
 body[data-bg="light"] .board-code { color: #1a1d26; }
 body[data-bg="light"] .reason-modal { background: rgba(255,255,255,0.98); border-color: var(--border-soft); }
+/* ===================== 板块轮动历史视图 ===================== */
+.rot-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.rot-tip { color: var(--text-muted); font-size: 12px; flex: 1; }
+.rot-table-scroll { overflow-x: auto; border: 1px solid var(--border-soft); border-radius: 6px; }
+.rot-table { border-collapse: collapse; min-width: 100%; font-size: 12px; }
+.rot-table th, .rot-table td { padding: 5px 8px; text-align: center; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
+.rot-table th { background: var(--bg-hover); color: var(--text-secondary); font-weight: 500; position: sticky; top: 0; }
+.rot-rownum { color: var(--text-muted); font-size: 11px; min-width: 40px; }
+.rot-date { color: var(--text-secondary); font-size: 11px; min-width: 70px; }
+.rot-cell { min-width: 80px; padding: 3px 4px !important; vertical-align: middle; }
+.rot-board { font-size: 12px; color: var(--text-main); }
+.rot-board.highlight { color: #fff; background: #E24B4A; border-radius: 4px; padding: 1px 6px; display: inline-block; }
+.rot-strength { font-size: 10px; color: var(--text-muted); margin-top: 1px; }
+.rot-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+.rot-chart-block { background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px; }
+.rot-chart-title { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+.rot-svg { width: 100%; height: auto; }
+.rot-windows { margin-top: 16px; background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px; }
+.rot-window-legend { display: flex; gap: 16px; justify-content: center; margin-top: 6px; font-size: 12px; }
+.rot-window-legend i { margin-right: 4px; }
+@media (max-width: 768px) {
+  .rot-charts { grid-template-columns: 1fr; }
+}
+
 </style>
