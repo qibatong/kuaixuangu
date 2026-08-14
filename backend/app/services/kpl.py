@@ -1046,8 +1046,8 @@ def fetch_bid_qiangcang():
             m20c = {r[0]: r[1] for r in rows20c}
             seal_map = _seal_map()
             for code, chg25, amt25, fmv, name, board in rows25c:
-                # 过滤: 流通市值≥2亿, 竞价额>0, 竞价成交额≥500万(主人口径: 过滤小资金抢筹)
-                if fmv < 2e8 or amt25 <= 0 or amt25 < 500:
+                # 过滤: 流通市值≥2亿, 竞价额>0, 竞价成交额≥500万, 竞价涨幅>2%(9_25涨幅)
+                if fmv < 2e8 or amt25 <= 0 or amt25 < 500 or chg25 <= 2:
                     continue
                 chg20 = m20c.get(code)
                 if chg20 is None:
