@@ -71,6 +71,48 @@ body[data-bg="light"] .lock-indicator { background: rgba(255,140,30,0.15); color
 body[data-bg="light"] .empty-state { background: var(--bg-card); color: var(--text-muted); }
 body[data-bg="light"] .footnote { color: var(--text-muted); border-top-color: var(--border-soft); }
 body[data-bg="light"] .alert-rule { background: linear-gradient(90deg, rgba(255,60,60,0.04), rgba(200,40,40,0.02)); border-left-color: var(--accent-deep); }
+
+/* ---- 亮色按钮/文字在白底看不清, 统一换深色(绿色系/蓝色系/黄色系) ---- */
+body[data-bg="light"] .pool-add-btn {
+  background: rgba(74, 158, 40, 0.10);
+  border-color: #4a9e28;
+  color: #2e7d1e;
+}
+body[data-bg="light"] .pool-add-btn:hover { background: rgba(74, 158, 40, 0.22); }
+body[data-bg="light"] .pool-add-btn.added {
+  background: rgba(74, 158, 40, 0.22);
+  border-color: #4a9e28;
+  color: #1f520c;
+}
+body[data-bg="light"] .nav-pool-import {
+  background: rgba(74, 158, 40, 0.10);
+  border-color: #4a9e28;
+  color: #2e7d1e;
+}
+body[data-bg="light"] .admin-save-btn {
+  background: rgba(74, 158, 40, 0.12);
+  border-color: #4a9e28;
+  color: #2e7d1e;
+}
+body[data-bg="light"] .admin-save-btn:hover:not(:disabled) { background: rgba(74, 158, 40, 0.24); }
+body[data-bg="light"] .nav-invite,
+body[data-bg="light"] .type-filter,
+body[data-bg="light"] .admin-search-btn,
+body[data-bg="light"] .mini-btn,
+body[data-bg="light"] .page-btn,
+body[data-bg="light"] .add-btn {
+  background: rgba(11, 134, 200, 0.10);
+  border-color: #0b86c8;
+  color: #0b63a0;
+}
+body[data-bg="light"] .bucket-table input { color: var(--text-main); }
+body[data-bg="light"] .stat-num.small { color: #0b63a0; }
+body[data-bg="light"] .admin-msg-ok,
+body[data-bg="light"] .admin-ok-text { color: #2e7d1e; }
+body[data-bg="light"] .card-title { color: #7a5200; }
+body[data-bg="light"] .stat-label,
+body[data-bg="light"] .field-label,
+body[data-bg="light"] .weight-desc { color: var(--text-secondary); }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {

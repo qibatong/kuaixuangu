@@ -28,7 +28,7 @@
         <div class="card-title"><i class="fa fa-users"></i> 用户列表
           <div style="display:flex;gap:8px;margin-left:auto;">
             <input v-model="keyword" class="admin-input" placeholder="搜索用户名/手机/邮箱" @keyup.enter="loadUsers(1)" />
-            <button class="tdx-export-btn" style="background:rgba(0,180,255,0.15);border:1px solid #00b4ff;color:#a0e0ff;" @click="loadUsers(1)"><i class="fa fa-search"></i> 搜索</button>
+            <button class="admin-search-btn" @click="loadUsers(1)"><i class="fa fa-search"></i> 搜索</button>
           </div>
         </div>
         <div class="table-scroll">
@@ -549,6 +549,15 @@ onMounted(() => {
 .card-title { display: flex; align-items: center; font-size: 15px; color: #ffe0a0; margin-bottom: 12px; }
 .admin-input { background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: 6px; color: var(--text-main); padding: 6px 10px; font-size: 13px; }
 .admin-input:focus { outline: none; border-color: #ffb400; }
+.admin-search-btn {
+  background: rgba(0,180,255,0.15);
+  border: 1px solid #00b4ff;
+  color: #a0e0ff;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
 .factor-tabs {
   display: flex;
   gap: 8px;
