@@ -270,21 +270,26 @@ def test_scoring_cfg_affects_compute(client, first_user):
 
 
 # ---------- 管理员重置用户密码 ----------
-def test_admin_reset_password_ok(client, first_user, second_user):
-    """管理员给普通用户重置密码后, 新密码可登录, 旧密码失效"""
-    token, _, _ = first_user
-    _, uname2 = second_user
+def test_admin_reset_password_ok(client, first_user):
+    """管理员给普通用户重置密码后, 新密码可登录, 旧密码失效。
+    用临时用户(避免 SSO 登录踢 token 时污染 second_user session fixture)"""
+    import uuid
+    token, _, invite = first_user
+    target = "rst_" + uuid.uuid4().hex[:8]
+    r = client.post("/api/register", json={"username": target, "password": "Test123456",
+                                           "invite_code": invite})
+    assert r.status_code == 200
     r = client.post("/api/admin/users/reset-password",
-                    json={"username": uname2, "password": "qwer1234"},
+                    json={"username": target, "password": "qwer1234"},
                     headers=hdrs(token))
     assert r.status_code == 200
     d = r.json()
-    assert d.get("ok") and d["username"] == uname2
+    assert d.get("ok") and d["username"] == target
     # 新密码登录成功
-    r2 = client.post("/api/login", json={"username": uname2, "password": "qwer1234"})
+    r2 = client.post("/api/login", json={"username": target, "password": "qwer1234"})
     assert r2.status_code == 200 and r2.json().get("ok")
     # 旧密码登录失败
-    r3 = client.post("/api/login", json={"username": uname2, "password": "test123456"})
+    r3 = client.post("/api/login", json={"username": target, "password": "test123456"})
     assert r3.status_code == 401
 
 

@@ -29,7 +29,10 @@ def api_login(request: Request, body: dict = Body(...)):
     if not ok:
         log.warning("登录失败 login=%s ip=%s", login, client_ip(request))
         return jr({"ok": False, "msg": "用户名或密码错误"}, 401)
-    log.info("登录成功 uid=%s user=%s ip=%s", user["id"], user["username"], client_ip(request))
+    # 单点登录: 密码校验通过后, 作废该用户所有旧 token, 强制只保留当前会话(防账号共享)
+    revoked = security.revoke_user_tokens(user["id"])
+    log.info("登录成功 uid=%s user=%s ip=%s 已踢旧会话%d个",
+             user["id"], user["username"], client_ip(request), revoked)
     et = int(user.get("expire_at") or 0)
     return jr({"ok": True, "token": security.issue_token(user["id"]),
                "username": user["username"],

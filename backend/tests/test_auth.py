@@ -19,9 +19,14 @@ def test_register_duplicate_username(client, first_user):
 
 
 def test_login_ok(client, first_user):
-    """正确密码登录"""
-    token, username, _ = first_user
-    r = client.post("/api/login", json={"login": username, "password": "Test123456"})
+    """正确密码登录(用独立注册的用户,避免踢掉 first_user session token 影响其他测试)"""
+    import uuid
+    _, _, invite = first_user
+    uname = "login_" + uuid.uuid4().hex[:8]
+    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
+                                           "invite_code": invite})
+    assert r.status_code == 200
+    r = client.post("/api/login", json={"login": uname, "password": "Test123456"})
     assert r.status_code == 200
     assert r.json().get("token")
 
@@ -37,6 +42,46 @@ def test_login_nonexist_user(client):
     """不存在用户 401"""
     r = client.post("/api/login", json={"login": "nobody", "password": "x"})
     assert r.status_code == 401
+
+
+def test_login_revokes_previous_token(client, first_user):
+    """单点登录: 同一账号再次登录后, 旧 token 立即失效, 新 token 有效。
+    用独立注册用户避免污染 first_user/second_user session。"""
+    import uuid
+    _, _, invite = first_user
+    uname = "sso_" + uuid.uuid4().hex[:8]
+    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
+                                           "invite_code": invite})
+    assert r.status_code == 200
+    token1 = r.json()["token"]
+    # token1 当前有效
+    assert client.get("/api/invite", headers=hdrs(token1)).status_code == 200
+    # 再次登录(同账号同密码)
+    r = client.post("/api/login", json={"login": uname, "password": "Test123456"})
+    assert r.status_code == 200
+    d = r.json()
+    token2 = d.get("token")
+    assert token2 and token2 != token1
+    # token1 失效(被踢)
+    assert client.get("/api/invite", headers=hdrs(token1)).status_code == 401
+    # token2 有效
+    assert client.get("/api/invite", headers=hdrs(token2)).status_code == 200
+
+
+def test_login_failed_does_not_revoke(client, first_user):
+    """密码错误时不应踢掉该用户的旧会话(避免错误登录导致在线用户被误踢)"""
+    import uuid
+    _, _, invite = first_user
+    uname = "fakelogin_" + uuid.uuid4().hex[:8]
+    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
+                                           "invite_code": invite})
+    assert r.status_code == 200
+    token1 = r.json()["token"]
+    # 错误密码登录
+    r = client.post("/api/login", json={"login": uname, "password": "WrongPass1"})
+    assert r.status_code == 401
+    # token1 仍然有效(没被踢)
+    assert client.get("/api/invite", headers=hdrs(token1)).status_code == 200
 
 
 def test_no_token_401(client):

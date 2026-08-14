@@ -64,11 +64,14 @@ def valid_token(t):
 
 
 def revoke_user_tokens(user_id):
-    """使某用户所有已签发 token 失效(改密/重置后踢下线)"""
+    """使某用户所有已签发 token 失效(改密/重置/新登录踢旧会话)。返回被踢掉的 token 数。"""
     with _tokens_lock:
+        n = 0
         for t, (u, _e) in list(_tokens.items()):
             if u == user_id:
                 _tokens.pop(t, None)
+                n += 1
+        return n
 
 
 # ---------- 接口限流: 每 IP 每分钟 N 次 ----------
