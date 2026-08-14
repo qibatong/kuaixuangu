@@ -14,13 +14,15 @@
 | 能力 | 说明 |
 |---|---|
 | **双模式选股** | 竞价选股（9:15-9:31 锁定）+ 盘中实时（同一套评分/筛选，名单不锁定） |
+| **会员体系** | 竞价选股 / 盘中实时选股 / 竞价异动 仅会员可用（工作日 9:15-15:00 拦截）；**新注册默认 5 天试用**；管理后台可续费/永久/自定义到期日；管理员豁免 |
+| **主题自定义** | 背景黑白切换（深色/浅色）+ 字号三档（小/标准/大），按账号存服务端 prefs |
 | **竞价异动页** | 8 个 Tab：竞价委买 / 竞价爆量 / 竞价抢筹 / 竞价净额 / 昨日涨停 / 昨断板 / 昨上榜 / 昨炸板 + 今炸板，全部表头可排序 |
-| **竞价抢筹双表** | 左表 = 开盘啦 Type4 竞价净额强度（200 只涨停委买榜）；右表 = **最后一秒秒级差值回退**（9:24:55-9:25:03 每秒采样） |
+| **竞价抢筹双表** | 左表 = 开盘啦 Type4 竞价净额强度（200 只涨停委买榜）；右表 = **最后一秒秒级差值回退**（9:24:55-9:25:03 每秒采样）；双表含「竞额/昨比」（今日竞价额 ÷ 昨日成交额） |
 | **全市场快照库** | 9:15 / 9:20 / 9:24 / 9:25 四时点全市场（5549 只）自动归档，形成历史回放库 |
 | **结果持久化** | 9:29 竞价结果自动落库，非竞价时段读库展示，全天可回看 |
 | **多数据源容灾** | 开盘啦（付费 8 万次/天）+ 东方财富 + 同花顺兜底 + 通达信导入 |
 | **推送提醒** | 竞价锁定结果推飞书 / Server酱 / 企业微信；尾盘抢筹 14:57 自动推送 |
-| **管理后台** | 用户列表 / 评分权重 / 全局默认筛选参数，仅管理员可访问 |
+| **管理后台** | 用户列表（含会员到期管理）/ 评分权重 / 全局默认筛选参数，仅管理员可访问 |
 | **邀请裂变** | 用户级邀请码注册（生产 `LCFV77U8` / 测试 `T2FUR4ZC`） |
 
 ---
@@ -42,17 +44,39 @@
 
 ---
 
+## 会员体系
+
+**会员专属功能**：竞价选股、盘中实时选股、竞价异动（3 个页面）。
+
+- **拦截规则**：仅**工作日 9:15-15:00**（竞价 9:15-9:30 + 盘中 9:30-15:00）对非会员拦截；盘前 / 收盘后 / 周末 放开（历史快照所有人可看）
+- **新用户**：注册即送 **5 天试用**（`create_user` 默认 `expire_at = now + 5天`）
+- **管理员豁免**：`isMember = isAdmin || !expired`，管理员永远有权限
+- **到期判定**：`users.expire_at` 时间戳（0 = 永久）；登录/注册接口返回 `expire_at` / `expired`
+- **开通/续费**：管理后台用户列表弹窗 → 永久 / 本周 / 本月 / 季度 / 年 / 自定义到期日（`/api/admin/users/expire`）
+- **前端拦截**：`VipGate` 组件（皇冠图标 + 剩余天数 / 已过期提示 + 联系管理员引导）；拦截条件 `!user.isMember && isMemberOnlyTime()`
+
+---
+
+## 主题与字号
+
+- **背景明暗切换**（右上角 ⚫/⚪）：黑色（默认）/ 白色，全站通过 CSS 变量 `--bg-*` / `--text-*` / `--border-soft` 双套主题；涨跌语义色（红涨绿跌）、金银铜、健康灯不随主题变
+- **字号三档**（右上角 A / A / A）：小 `0.92` / 标准 `1` / 大 `1.12`，用 `document.documentElement.style.zoom` 整体缩放（表格/按钮/文字全生效）
+- **持久化**：登录用户存服务端 `prefs`（`{ bg, font }`，后端合并保存不覆盖其他字段），未登录存 localStorage；换设备登录自动跟随
+- 实现：`composables/useTheme.js` + `App.vue` 顶部切换器
+
+---
+
 ## 页面总览
 
 | 页面 | 路由 | 功能 |
 |---|---|---|
-| 选股主页 | `/` | 双模式 Tab（竞价/盘中）+ 筛选面板 + 评分面板 + 策略股票池 + 市场情绪面板 |
-| **竞价异动** | `/auction` | 8 Tab 竞价分析 + 顶部多时点对比卡 + 时点个股弹窗 + 表头排序 |
+| 选股主页 | `/` | 双模式 Tab（竞价/盘中，**会员专属**）+ 筛选面板 + 评分面板 + 策略股票池 + 市场情绪面板 |
+| **竞价异动** | `/auction` | 8 Tab 竞价分析（**会员专属**）+ 顶部多时点对比卡 + 时点个股弹窗 + 表头排序 |
 | 连板天梯 | `/ladder` | 首板~五板+ 实时梯队 + 涨停原因题材归因 |
 | 市场雷达 | `/market` | 板块强度 + 人气热榜 + 龙虎榜（含营业部明细弹窗） |
 | 历史回看 | `/history` | 按批次分组视图 / 条件分页查询，全表排序 |
 | 邀请裂变 | `/invite` | 邀请码生成与名单 |
-| 管理后台 | `/admin` | 用户列表/重置密码/评分权重/全局默认参数（仅管理员） |
+| 管理后台 | `/admin` | 用户列表/重置密码/**会员到期管理**/评分权重/全局默认参数（仅管理员） |
 
 ### 竞价异动页（/auction）8 Tab
 
@@ -71,11 +95,12 @@
 
 ### 竞价抢筹双表（核心）
 
-- **左表（9:20-9:25 段）**：开盘啦 Type4 全市场竞价异动 200 只，`抢筹强度 = 竞价净额 / 流通市值 × 100`，过滤 `>5%` 且 `流通市值 ≥ 2亿`；竞价时段实时拉取 + 持久化 `qc_snapshot` 表
+- **左表（9:20-9:25 段）**：开盘啦 Type4 全市场竞价异动 200 只，`抢筹强度 = 竞价净额 / 流通市值 × 100`，过滤 `>5%` 且 `流通市值 ≥ 2亿`；竞价时段实时拉取 + 持久化 `qc_snapshot` 表。**涨幅抢筹**（第二表）过滤链：流通市值≥2亿 + 竞价额>0 + 竞价额≥500万 + 竞价涨幅>2%
 - **右表（最后一秒）**：`snapshot_lastsec` 秒级高频采样（9:24:55-9:25:03 每秒一次，ts 记实际时刻），**差值回退算法**：
   1. `9_25 涨幅 − 最新秒涨幅`，|差| ≥ 0.5% → 直接用（最后一秒抢筹）
   2. 差太小（接口延迟导致最新秒已含变化）→ 向前回退：最新秒 − 倒数第二秒，依此类推取第一个大差值
   3. 全部差值小 → 取最大差（弱信号）；无秒级序列 → 回退 9_24 时点兜底
+- **竞额/昨比列**：双表「竞价换手」列改为「竞额/昨比」= 今日竞价额 ÷ 昨日全天成交额（`fetcher.fetch_yesterday_amounts` pair[0]），≥20% 橙色高亮 / ≥10% 黄色
 - **非竞价时段**：读库展示今天已选结果（不丢失）
 
 ---
@@ -138,9 +163,10 @@ kuaixuan/                        # 仓库根（GitHub: felix-rich/kuaixuan）
 │   │       ├── kpl.py            # 开盘啦全部路由(23 个)
 │   │       ├── stats.py          # 统计路由(auction-overview/auction-snapshot 等)
 │   │       └── health.py         # 健康检查
-│   └── tests/                    # pytest (169 用例)
+│   └── tests/                    # pytest (177 用例)
 │       ├── conftest.py           # 临时库 + 数据源 Mock + TestClient
 │       ├── test_kpl.py           # 抢筹双表/差值回退/持久化/昨涨停/断板/炸板
+│       ├── test_expire.py        # 会员到期: 默认5天/续费叠加/过期拦截/管理员豁免
 │       ├── test_snapshot.py      # 快照存取/多时点/回放
 │       └── ...                   # auth/admin/history/invite/notify/phase1 等
 ├── frontend/                     # 前端 (Vue 3 + Vite)
@@ -148,9 +174,9 @@ kuaixuan/                        # 仓库根（GitHub: felix-rich/kuaixuan）
 │       ├── router/index.js       # / /login /auction /ladder /market /history /invite /admin
 │       ├── stores/               # Pinia: user / stocks / pool
 │       ├── views/                # StockView / AuctionView(8Tab) / LadderView / MarketView / HistoryView / LoginView / InviteView / AdminView
-│       ├── components/           # FilterPanel / MedalPanel / StockPoolPanel / StockTable / SentimentPanel / ChangePwdModal
-│       ├── composables/          # useSortable(通用表头排序)
-│       └── styles/main.css       # 全局样式(含 .sortable / .pool-add-btn)
+│       ├── components/           # FilterPanel / MedalPanel / StockPoolPanel / StockTable / SentimentPanel / ChangePwdModal / VipGate(会员拦截)
+│       ├── composables/          # useSortable(通用表头排序) / useTheme(背景黑白+字号三档)
+│       └── styles/main.css       # 全局样式(含 .sortable / .pool-add-btn / 明暗主题变量)
 ├── scripts/                      # 运维/回归脚本
 │   ├── browser_reg.py            # 测试机真实浏览器回归(八Tab+弹窗)
 │   ├── qc_layout_reg.py          # 抢筹双表布局专项回归
@@ -226,7 +252,7 @@ systemd 用 `Environment=` 注入；未配置的渠道自动跳过。
 
 ## 接口概览
 
-**选股/用户**：`/api/stocks`（lock/filter/refresh/ping + mode=auction/spot）、`/api/login`、`/api/register`、`/api/change-password`、`/api/forgot`、`/api/reset`、`/api/history`、`/api/invite`、`/api/prefs`、`/api/admin/*`
+**选股/用户**：`/api/stocks`（lock/filter/refresh/ping + mode=auction/spot）、`/api/login`（返回 expire_at/expired）、`/api/register`（新用户默认 5 天，返回 expire_at/expired）、`/api/change-password`、`/api/forgot`、`/api/reset`、`/api/history`、`/api/invite`、`/api/prefs`（合并保存，不覆盖其他字段）、`/api/admin/*`（含 `/api/admin/users/expire` 会员续费/永久/自定义到期）
 
 **开盘啦/选股宝（/api/kpl/）**：
 
@@ -254,10 +280,10 @@ systemd 用 `Environment=` 注入；未配置的渠道自动跳过。
 
 | 表 | 说明 |
 |---|---|
-| users / batches / batch_stocks | 用户 / 选股批次 / 批次明细 |
+| users / batches / batch_stocks | 用户（含 expire_at 到期时间戳）/ 选股批次 / 批次明细 |
 | snapshot_bid | 四时点全市场快照（date+time_point+code，含 float_mv/board） |
 | snapshot_lastsec | 最后一秒高频采样（date+code+ts，差值回退用） |
-| qc_snapshot | 竞价抢筹结果快照（date+code，非竞价时段读库展示） |
+| qc_snapshot | 竞价抢筹结果快照（date+code，含 bid_ratio 竞额昨比，非竞价时段读库展示） |
 | daily_yizi | 每日一字涨停汇总 |
 | settings | 全局默认筛选参数 / 评分权重 |
 | reset_tokens | 密码重置令牌 |
@@ -268,10 +294,10 @@ systemd 用 `Environment=` 注入；未配置的渠道自动跳过。
 
 ```bash
 cd backend
-python -m pytest tests/ -q     # 169 用例全绿
+python -m pytest tests/ -q     # 177 用例全绿
 ```
 
-覆盖：选股接口、评分筛选算法、抢筹双表（差值回退/持久化/兜底）、快照存取与多时点、昨涨停/断板/炸板、开盘啦接口、权限、邀请裂变、管理后台等。
+覆盖：选股接口、评分筛选算法、抢筹双表（差值回退/持久化/兜底）、快照存取与多时点、昨涨停/断板/炸板、开盘啦接口、权限、**会员到期（默认5天/续费叠加/过期拦截/管理员豁免）**、邀请裂变、管理后台等。
 
 **真实浏览器回归**（测试机 chromium CDP，`scripts/browser_reg.py`）：登录 → /auction 八 Tab 数据断言 + 时点弹窗 + 抢筹双表布局 + 排序交互，全过才算部署成功；systemd `ExecStartPost` 自动触发，失败推飞书。
 
@@ -288,12 +314,13 @@ python -m pytest tests/ -q     # 169 用例全绿
 - 密码 PBKDF2-SHA256 加盐；Token 12 小时有效、改密后全部失效
 - 每 IP 限流（按 X-Real-IP）；注册防刷（同 IP 10 分钟 5 次）；重置邮件防轰炸
 - 历史查询按 user_id 隔离；数据源 Token 走 systemd drop-in 不进 git
+- 会员过期后竞价/盘中/竞价异动 3 个页面按权限拦截，管理员豁免；到期时间服务端为准（`users.expire_at`）
 - 建议尽快上 HTTPS（当前 http 明文传输密码）
 
 ## 品牌
 
 - 中文品牌：**快选 Kuaixuan**（AI 助手「悟空」同名 IP）
-- Logo：`frontend/public/logo.png`；favicon 自动加载
+- Logo：`frontend/public/logo.jpg`（红色实底 + 柱状图 + 上升箭头）；favicon 自动加载
 
 ## 历史里程碑
 
@@ -304,3 +331,4 @@ python -m pytest tests/ -q     # 169 用例全绿
 - **v3.2 (08-13 上午)**：接入开盘啦数据源（87 接口）+ 情绪面板 + 连板天梯 + 市场雷达 + 龙虎榜明细 + 尾盘抢筹推送 + 昨日涨停今表现（pytest 142）
 - **v3.3 (08-13 下午)**：竞价异动页 8 Tab（委买/爆量/抢筹/净额/昨涨停/断板/上榜/炸板）+ 多时点对比卡 + 时点个股弹窗 + 抢筹双表（开盘啦 Type4）+ 全市场快照 5549 只 + 结果持久化 + 秒级高频采样差值回退（pytest 169）
 - **v3.4 (08-13 晚)**：采集器 3 分区并发（600只 0.14s / 5549只 2.2s）+ 全表排序（useSortable）+ 字段补全（概念 f103 / 流通市值 f21）+ 浏览器回归体系（browser_reg / qc_layout_reg / sort_reg）
+- **v3.5 (08-14)**：会员体系（竞价/盘中/竞价异动专属，工作日 9:15-15:00 拦截，新注册送 5 天，管理端续费）+ 背景黑白 / 字号三档主题 + 抢筹「竞额/昨比」列 + 抢筹过滤迭代（竞价额≥500万、竞价涨幅>2%）+ 全站浅色主题适配 + 新 Logo（pytest 177）
