@@ -91,7 +91,13 @@
       <!-- 竞价抢筹(上下双表: 上 9:20-9:25 / 下 最后1秒 9:24-9:25, 对标短线侠) -->
       <div v-else-if="tab === 'qc'" class="qc-dual">
         <div class="qc-panel">
-          <div class="qc-panel-title"><i class="fa fa-clock-o"></i> 9:20 - 9:25 竞价涨幅</div>
+          <div class="qc-panel-title">
+            <i class="fa fa-clock-o"></i> 9:20 - 9:25 竞价涨幅
+            <span class="qc-mode-switch">
+              <button :class="{ active: qc20Mode === 'amt' }" @click="qc20Mode = 'amt'">竞额抢筹</button>
+              <button :class="{ active: qc20Mode === 'chg' }" @click="qc20Mode = 'chg'">涨幅抢筹</button>
+            </span>
+          </div>
           <table class="stock-table">
             <thead>
               <tr>
@@ -100,7 +106,7 @@
                 <th class="sortable" :class="{ active: qcSort.keyOf('name') }" @click="qcSort.onSort('name', 'string')">名称<span class="sort-ind">{{ qcSort.ind('name') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('realChange') }" @click="qcSort.onSort('realChange')">实时涨幅<span class="sort-ind">{{ qcSort.ind('realChange') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('bidAmt') }" @click="qcSort.onSort('bidAmt')">竞价金额<span class="sort-ind">{{ qcSort.ind('bidAmt') }}</span></th>
-                <th class="sortable" :class="{ active: qcSort.keyOf('qcDelta') }" @click="qcSort.onSort('qcDelta')">抢筹幅度<span class="sort-ind">{{ qcSort.ind('qcDelta') }}</span></th>
+                <th class="sortable" :class="{ active: qcSort.keyOf(qc20Mode === 'amt' ? 'qcDelta' : 'qcDeltaChg') }" @click="qcSort.onSort(qc20Mode === 'amt' ? 'qcDelta' : 'qcDeltaChg')">抢筹幅度<span class="sort-ind">{{ qcSort.ind(qc20Mode === 'amt' ? 'qcDelta' : 'qcDeltaChg') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('bidTurnover') }" @click="qcSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ qcSort.ind('bidTurnover') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('bidChange') }" @click="qcSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ qcSort.ind('bidChange') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('floatMv') }" @click="qcSort.onSort('floatMv')">流通<span class="sort-ind">{{ qcSort.ind('floatMv') }}</span></th>
@@ -109,21 +115,21 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(q, idx) in qcSort.sorted(qcList)" :key="'a' + q.code">
+              <tr v-for="(q, idx) in qcSort.sorted(qc20Mode === 'amt' ? qcList : qcChgList)" :key="'a' + q.code + qc20Mode">
                 <td class="rank-col">{{ idx + 1 }}</td>
                 <td class="code-click" @click="linkToSoftware(q.code)">{{ q.code }}</td>
                 <td class="name-col"><div class="name-main">{{ q.name }}</div></td>
                 <td :class="q.realChange > 0 ? 'up' : q.realChange < 0 ? 'down' : 'dim'">{{ q.realChange !== null && q.realChange !== undefined ? signed(q.realChange) + '%' : '-' }}</td>
                 <td :class="q.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(q.bidAmt) }}</td>
-                <td :class="q.qcDelta > 0 ? 'up' : q.qcDelta < 0 ? 'down' : 'dim'"><b>{{ signed(q.qcDelta) }}%</b></td>
+                <td :class="(qc20Mode === 'amt' ? q.qcDelta : q.qcDeltaChg) > 0 ? 'up' : (qc20Mode === 'amt' ? q.qcDelta : q.qcDeltaChg) < 0 ? 'down' : 'dim'"><b>{{ signed(qc20Mode === 'amt' ? q.qcDelta : q.qcDeltaChg) }}%</b></td>
                 <td>{{ q.bidTurnover ? q.bidTurnover.toFixed(2) : '-' }}</td>
                 <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
                 <td class="dim qc-board" :title="q.board">{{ q.board ? q.board.split('、').join(' ') : '-' }}</td>
                 <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已入池' : '＋池' }}</button></td>
               </tr>
-              <tr v-if="!qcList.length">
-                <td colspan="11" class="snap-empty">9:20-9:25 抢筹数据 9:15-9:30 竞价时段可用</td>
+              <tr v-if="(qc20Mode === 'amt' ? qcList : qcChgList).length === 0">
+                <td colspan="11" class="snap-empty">{{ qc20Mode === 'amt' ? '9:20-9:25 竞额抢筹数据 9:15-9:30 竞价时段可用' : '9:20-9:25 涨幅抢筹数据 9:20/9:25 快照采集后可用' }}</td>
               </tr>
             </tbody>
           </table>
@@ -344,11 +350,13 @@ const lhbList = ref([])
 const brokenYestList = ref([])
 const brokenTodayList = ref([])
 const qcList = ref([])
+const qcChgList = ref([])     // 涨幅抢筹(9:25涨幅−9:20涨幅, 全市场快照)
 const qcLastList = ref([])
 const yestZtList = ref([])
 const yestBrokenList = ref([])
 const loading = ref(true)
 const bjTime = ref('--:--:--')
+const qc20Mode = ref('amt')   // 左表口径: amt=竞额抢筹(开盘啦净额) / chg=涨幅抢筹(快照涨幅差)
 let clockTimer = null
 let refreshTimer = null
 
@@ -435,6 +443,7 @@ async function loadAll() {
     sealRaw.value = seal.list || []
     boomList.value = boom.list || []
     qcList.value = qc.list20 || []
+    qcChgList.value = qc.list20Chg || []
     qcLastList.value = qc.listLast || []
     yestZtList.value = yestZt.list || []
     yestBrokenList.value = yestBroken.list || []
@@ -488,7 +497,15 @@ onBeforeUnmount(() => {
 /* 竞价抢筹左右双表 */
 .qc-dual { display: flex; flex-direction: column; gap: 10px; }
 .qc-panel { width: 100%; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px; overflow-x: auto; }
-.qc-panel-title { font-size: 14px; font-weight: 700; color: #ffe0a0; margin-bottom: 8px; }
+.qc-panel-title { font-size: 14px; font-weight: 700; color: #ffe0a0; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+.qc-mode-switch { display: inline-flex; gap: 4px; margin-left: auto; }
+.qc-mode-switch button {
+  font-size: 11px; padding: 2px 10px; border-radius: 4px; cursor: pointer;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.18);
+  color: #aaa; transition: all 0.2s;
+}
+.qc-mode-switch button.active { background: rgba(255,180,0,0.18); border-color: #ffb400; color: #ffd700; font-weight: 600; }
+.qc-mode-switch button:hover { border-color: #ffb400; color: #ffe0a0; }
 .qc-panel .stock-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
 /* 所有列间距紧凑: padding 一律 4px 2px(列间 4px, 数值紧凑) */
 .qc-panel .stock-table th, .qc-panel .stock-table td { padding: 4px 2px; font-size: 12px; white-space: nowrap; }

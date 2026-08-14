@@ -537,3 +537,55 @@ def test_fetch_bid_qiangcang_lastsec_full(monkeypatch):
     assert "E" not in m and "F" not in m
     # 排序: B(1.2) > A(1.0) > D(0.5) > C(0.2)
     assert [r["code"] for r in lLast] == ["B", "A", "D", "C"]
+
+
+def test_fetch_bid_qiangcang_list20chg(monkeypatch):
+    """涨幅抢筹(全市场快照): qcDeltaChg = 9_25涨幅 − 9_20涨幅, 过滤>5%, fmv≥2亿
+    A: 9_20=1.5 → 9_25=8.64, qcDeltaChg=7.14 ✅ 入选
+    B: 9_20=3.0 → 9_25=7.0,  qcDeltaChg=4.0  被过滤
+    C: fmv=1e8(<2亿) 被过滤
+    D: 9_20 无数据 → 不进"""
+    import sqlite3
+    import time as _t
+    class FakeT:
+        tm_hour, tm_min, tm_wday = 9, 20, 3
+    monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
+    class FakeCursor:
+        def __init__(self, rows): self.rows = rows
+        def fetchall(self): return self.rows
+    class FakeConn:
+        def __init__(self): self.executed = []
+        def execute(self, sql, params=()):
+            self.executed.append(sql)
+            if "9_20" in sql and "snapshot_lastsec" not in sql:
+                # code, bid_change
+                return FakeCursor([("A", 1.5), ("B", 3.0), ("C", 1.0)])
+            if "snapshot_lastsec" in sql:
+                return FakeCursor([])
+            if "9_24" in sql:
+                return FakeCursor([])
+            if sql.strip().startswith("SELECT code, name, real_change"):
+                return FakeCursor([])
+            # 9_25: code, bid_change, bid_amt, float_mv, name, board
+            return FakeCursor([
+                ("A", 8.64, 991.5, 6.4e9, "甲", "AI概念"),
+                ("B", 7.0, 800.0, 8e9, "乙", "医药"),
+                ("C", 6.0, 500.0, 1e8, "丙", "芯片"),
+                ("D", 6.5, 900.0, 9e9, "丁", "军工"),
+            ])
+        def close(self): pass
+    real = sqlite3.connect
+    monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
+    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+    monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: [])
+    kpl._cache.clear()
+    d = kpl.fetch_bid_qiangcang()
+    monkeypatch.setattr("sqlite3.connect", real)
+    l20c = d["list20Chg"]
+    m = {r["code"]: r for r in l20c}
+    # A 入选 7.14; B 4.0 过滤; C fmv<2亿 过滤; D 无9_20 不进
+    assert len(l20c) == 1, l20c
+    assert m["A"]["qcDeltaChg"] == 7.14
+    assert m["A"]["bidChange20"] == 1.5
+    assert m["A"]["bidChange"] == 8.64
+    assert m["A"]["board"] == "AI概念"

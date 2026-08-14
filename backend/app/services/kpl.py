@@ -1030,6 +1030,54 @@ def fetch_bid_qiangcang():
             log.info("抢筹[saved] date=%s %s 非竞价时段读库 list20=%d只(忽略Type4僵尸数据)",
                      today, hhmm, len(list20))
 
+        # 涨幅抢筹(全市场5549只, 短线侠真实口径): qcDeltaChg = 9_25竞价涨幅 − 9_20竞价涨幅
+        # 数据源 snapshot_bid 9_20/9_25(库内历史), 非竞价时段也能计算 → 全天可回看
+        list20Chg = []
+        try:
+            import sqlite3
+            conn = sqlite3.connect(config.DB_FILE)
+            rows20c = conn.execute(
+                "SELECT code, bid_change FROM snapshot_bid WHERE date=? AND time_point='9_20'",
+                (today,)).fetchall()
+            rows25c = conn.execute(
+                "SELECT code, bid_change, bid_amt, float_mv, name, board FROM snapshot_bid "
+                "WHERE date=? AND time_point='9_25'", (today,)).fetchall()
+            conn.close()
+            m20c = {r[0]: r[1] for r in rows20c}
+            seal_map = _seal_map()
+            for code, chg25, amt25, fmv, name, board in rows25c:
+                if fmv < 2e8 or amt25 <= 0:
+                    continue
+                chg20 = m20c.get(code)
+                if chg20 is None:
+                    continue
+                qcChg = round(chg25 - chg20, 2)          # 涨幅抢筹(9:20→9:25 涨幅差)
+                if qcChg <= 5:
+                    continue
+                t4 = seal_map.get(code, {})
+                bid_amt = amt25 * 10000
+                bid_turnover = t4.get("bidTurnover")
+                if not bid_turnover and fmv:
+                    bid_turnover = round(bid_amt / fmv * 100, 2)
+                list20Chg.append({
+                    "code": code,
+                    "name": name or t4.get("name", ""),
+                    "realChange": t4.get("realChange") if t4.get("realChange") is not None else chg25,
+                    "bidAmt": bid_amt,
+                    "qcDeltaChg": qcChg,
+                    "bidChange20": chg20,
+                    "bidTurnover": bid_turnover,
+                    "bidChange": chg25,
+                    "floatMv": fmv,
+                    "board": t4.get("board") or board or "",
+                })
+            list20Chg.sort(key=lambda x: x["qcDeltaChg"], reverse=True)
+            log.info("抢筹[涨幅] date=%s %s 9_20=%d条 9_25=%d条 全市场涨幅抢筹=%d只",
+                     today, hhmm, len(rows20c), len(rows25c), len(list20Chg))
+        except Exception as e:
+            log.warning("抢筹涨幅列表计算失败 err=%s", e)
+            list20Chg = []
+
         # 右表"最后一秒": 优先 snapshot_lastsec 秒级序列(差值回退对抗接口延迟),
         # 无秒级数据时回退 9_24 时点(9:24:5x 重采型)
         listLast = []
@@ -1103,10 +1151,10 @@ def fetch_bid_qiangcang():
         except Exception as e:
             log.warning("抢筹 listLast 快照读取失败 err=%s", e)
 
-        log.info("抢筹[result] date=%s %s list20=%d只 listLast=%d只 耗时%dms",
-                 today, hhmm, len(list20[:100]), len(listLast[:100]),
+        log.info("抢筹[result] date=%s %s list20=%d只 list20Chg=%d只 listLast=%d只 耗时%dms",
+                 today, hhmm, len(list20[:100]), len(list20Chg[:100]), len(listLast[:100]),
                  int((time.time() - t0) * 1000))
-        return {"list20": list20[:100], "listLast": listLast[:100]}
+        return {"list20": list20[:100], "list20Chg": list20Chg[:100], "listLast": listLast[:100]}
     return _cached("bid_qiangcang", 30, loader)
 
 
