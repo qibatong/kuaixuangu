@@ -14,14 +14,14 @@
         <div class="btn-group">
           <button class="tdx-export-btn reset-lock-btn" :disabled="!isBefore930()" @click="reLock"><i class="fa fa-refresh"></i> 重新锁定(9:30前可用)</button>
           <button class="tdx-export-btn real-time-btn" @click="refreshRealTime"><i class="fa fa-refresh"></i> 刷新实时涨幅</button>
-          <router-link to="/history" class="tdx-export-btn" style="background:rgba(255,180,0,0.18);border:1px solid #ffb400;color:#ffe0a0;"><i class="fa fa-history"></i> 历史回看</router-link>
-          <router-link to="/ladder" class="tdx-export-btn" style="background:rgba(255,80,40,0.15);border:1px solid #ff5028;color:#ffa080;"><i class="fa fa-sitemap"></i> 连板天梯</router-link>
-          <router-link to="/market" class="tdx-export-btn" style="background:rgba(0,200,150,0.15);border:1px solid #00c896;color:#a0ffe0;"><i class="fa fa-radar"></i> 市场雷达</router-link>
-          <router-link to="/auction" class="tdx-export-btn" style="background:rgba(180,120,255,0.15);border:1px solid #b478ff;color:#d0b0ff;"><i class="fa fa-bullhorn"></i> 竞价异动</router-link>
-          <router-link to="/invite" class="tdx-export-btn" style="background:rgba(0,180,255,0.15);border:1px solid #00b4ff;color:#a0e0ff;"><i class="fa fa-share-alt"></i> 邀请</router-link>
-          <router-link v-if="user.isAdmin" to="/admin" class="tdx-export-btn" style="background:rgba(255,215,0,0.15);border:1px solid #ffd700;color:#ffe9a0;"><i class="fa fa-shield"></i> 管理</router-link>
-          <a href="/download/tdx_import.exe" class="tdx-export-btn tdx-only" style="background:rgba(255,150,50,0.15);border:1px solid #ff9632;color:#ffd0a0;"><i class="fa fa-windows"></i> 下载通达信工具</a>
-          <button class="tdx-export-btn tdx-only" style="background:rgba(120,200,80,0.15);border:1px solid #78c850;color:#c0e8a0;" data-tip="💡 首次用：先点「下载通达信工具」并运行，再在通达信『选项/工具』勾选『监控剪贴板』，之后点下载即可自动导入" @click="downloadAll"><i class="fa fa-download"></i> 下载自选股(自动导入)</button>
+          <router-link to="/history" class="tdx-export-btn nav-btn nav-history"><i class="fa fa-history"></i> 历史回看</router-link>
+          <router-link to="/ladder" class="tdx-export-btn nav-btn nav-ladder"><i class="fa fa-sitemap"></i> 连板天梯</router-link>
+          <router-link to="/market" class="tdx-export-btn nav-btn nav-market"><i class="fa fa-radar"></i> 市场雷达</router-link>
+          <router-link to="/auction" class="tdx-export-btn nav-btn nav-auction"><i class="fa fa-bullhorn"></i> 竞价异动</router-link>
+          <router-link to="/invite" class="tdx-export-btn nav-btn nav-invite"><i class="fa fa-share-alt"></i> 邀请</router-link>
+          <router-link v-if="user.isAdmin" to="/admin" class="tdx-export-btn nav-btn nav-admin"><i class="fa fa-shield"></i> 管理</router-link>
+          <a href="/download/tdx_import.exe" class="tdx-export-btn tdx-only nav-btn nav-tdx"><i class="fa fa-windows"></i> 下载通达信工具</a>
+          <button class="tdx-export-btn tdx-only nav-btn nav-pool-import" data-tip="💡 首次用：先点「下载通达信工具」并运行，再在通达信『选项/工具』勾选『监控剪贴板』，之后点下载即可自动导入" @click="downloadAll"><i class="fa fa-download"></i> 下载自选股(自动导入)</button>
         </div>
         <div id="mobileTdxHint">
           📱 通达信导入需在<b>电脑端</b>操作（电脑上点「下载自选股」即可自动导入）。手机上可点此
@@ -36,6 +36,10 @@
       </div>
     </div>
 
+    <!-- 会员门禁: 竞价选股 / 盘中实时选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
+    <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价选股" />
+
+    <template v-else>
     <!-- 模式切换 Tab: 竞价选股 / 盘中实时选股 -->
     <div class="mode-tabs">
       <button class="mode-tab" :class="{ active: stocks.mode === 'auction' }" @click="switchMode('auction')">
@@ -59,7 +63,7 @@
       <!-- 奖牌导出 -->
       <div style="display:flex;justify-content:flex-end;margin:6px 0;">
         <div class="export-medal-group">
-          <span style="color:#ffbcbc;font-size:12px;">导出前</span>
+          <span style="color:var(--accent-text);font-size:12px;">导出前</span>
           <select v-model="medalExportCount" class="export-select">
             <option :value="3">3只</option><option :value="5">5只</option><option :value="8">8只</option><option :value="10">10只</option>
           </select>
@@ -93,6 +97,7 @@
     <div style="display:flex;justify-content:flex-end;margin:6px 0;">
       <button class="tdx-export-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="downloadAll"><i class="fa fa-download"></i> 下载全部筛选结果</button>
     </div>
+    </template>
 
     <ChangePwdModal ref="changePwdModal" />
   </div>
@@ -107,13 +112,14 @@ import MedalPanel from '../components/MedalPanel.vue'
 import StockPoolPanel from '../components/StockPoolPanel.vue'
 import StockTable from '../components/StockTable.vue'
 import ChangePwdModal from '../components/ChangePwdModal.vue'
+import VipGate from '../components/VipGate.vue'
 import { useStocksStore } from '../stores/stocks'
 import { usePoolStore } from '../stores/pool'
 import { useUserStore } from '../stores/user'
 import { kplBidSeal } from '../api/kpl'
 import { showToast } from '../utils/toast'
 import { copyText, downloadBlkFile } from '../utils/tdx'
-import { bjTimeStr, isBefore930 } from '../utils/time'
+import { bjTimeStr, isBefore930, isMemberOnlyTime } from '../utils/time'
 
 const router = useRouter()
 const stocks = useStocksStore()
@@ -266,15 +272,15 @@ onBeforeUnmount(() => {
   gap: 5px;
   margin-left: 10px;
   padding: 3px 10px;
-  border: 1px solid rgba(255, 80, 40, 0.4);
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
   border-radius: 12px;
-  background: rgba(255, 80, 40, 0.08);
-  color: #ffbc9a;
+  background: rgba(var(--accent-rgb), 0.08);
+  color: var(--accent-text);
   font-size: 12px;
   white-space: nowrap;
   cursor: default;
 }
-.yizi-card b { color: #ff6a4a; }
+.yizi-card b { color: var(--accent-deep); }
 .mode-tabs {
   display: flex;
   gap: 10px;
@@ -284,9 +290,9 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: baseline;
   gap: 8px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.15);
-  color: #bbb;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-soft);
+  color: var(--text-secondary);
   border-radius: 8px;
   padding: 8px 16px;
   font-size: 14px;
@@ -301,7 +307,18 @@ onBeforeUnmount(() => {
 }
 .mode-desc {
   font-size: 11px;
-  color: #888;
+  color: var(--text-muted);
 }
 .mode-tab.active .mode-desc { color: #c9a94a; }
+
+/* 浅色主题覆盖 */
+body[data-bg="light"] .mode-tab:hover {  color: #5a4a3a;  }
+body[data-bg="light"] .mode-tab {  color: #5a4a3a; border-color: #b83010; background: rgba(255,255,255,0.6);  }
+body[data-bg="light"] .mode-tab.active .mode-desc {  color: #6a5a20;  }
+body[data-bg="light"] .page-back {  color: #5a6b85;  }
+body[data-bg="light"] .page-back:hover {  color: #c79100;  }
+body[data-bg="light"] .yizi-card {  color: #8a5500; background: rgba(255,150,50,0.12); border-color: rgba(255,150,50,0.5);  }
+body[data-bg="light"] .yizi-card b {  color: #8a4a00;  }
+body[data-bg="light"] .filter-tag {  color: #8a5500; background: rgba(255,80,80,0.12);  }
+body[data-bg="light"] .filter-divider {  color: rgba(0,0,0,0.3);  }
 </style>

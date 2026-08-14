@@ -224,11 +224,15 @@ def gen_unique_invite_code():
     return None
 
 
-def create_user(username, password, invited_by=None, invite_code=None, phone=None, email=None):
+def create_user(username, password, invited_by=None, invite_code=None, phone=None, email=None,
+                expire_days=5):
+    """创建用户. expire_days>0 注册即送 N 天会员(默认 5 天试用); 0 表示永久"""
+    now = int(__import__("time").time())
+    expire_at = now + int(expire_days) * 86400 if (expire_days or 0) > 0 else 0
     conn = database.get_conn()
     cur = conn.cursor()
-    cur.execute("INSERT INTO users (username, password_hash, created_at, invited_by, invite_code, phone, email) VALUES (?,?,?,?,?,?,?)",
-                (username, security.hash_password(password), int(__import__("time").time()),
+    cur.execute("INSERT INTO users (username, password_hash, created_at, expire_at, invited_by, invite_code, phone, email) VALUES (?,?,?,?,?,?,?,?)",
+                (username, security.hash_password(password), now, expire_at,
                  invited_by, invite_code, phone, email))
     uid = cur.lastrowid
     conn.commit()

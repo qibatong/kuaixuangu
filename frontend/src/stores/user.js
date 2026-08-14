@@ -21,21 +21,32 @@ export const useUserStore = defineStore('user', {
       session,
       apiToken: (session && session.token) || '',
       username: (session && session.username) || '',
-      isAdmin: !!(session && session.is_admin)
+      isAdmin: !!(session && session.is_admin),
+      expireAt: (session && session.expire_at) || 0,   // 0 = 永久会员
+      expired: !!(session && session.expired)          // 已过期(非会员)
     }
   },
   getters: {
     isLoggedIn: (s) => !!s.apiToken,
+    // 会员判断: 管理员永远有权限; 其余要求未过期(expire_at=0 永久 或 未到到期时间)
+    isMember: (s) => s.isAdmin || !s.expired,
+    // 剩余试用天数(-1 表示永久, 仅提示用)
+    memberDaysLeft: (s) => {
+      if (s.isAdmin || !s.expireAt) return -1
+      return Math.max(0, Math.ceil((s.expireAt - Date.now() / 1000) / 86400))
+    },
     // localStorage 数据按用户隔离的 key 前缀
     poolKey: (s) => 'kuaixuan_stock_pool_' + (s.username || 'guest'),
     filterKey: (s) => 'kuaixuan_locked_filter_' + (s.username || 'guest')
   },
   actions: {
-    setSession(username, token, isAdmin) {
-      this.session = { username, token, is_admin: isAdmin ? 1 : 0 }
+    setSession(username, token, isAdmin, expireAt, expired) {
+      this.session = { username, token, is_admin: isAdmin ? 1 : 0, expire_at: expireAt || 0, expired: expired ? 1 : 0 }
       this.apiToken = token
       this.username = username
       this.isAdmin = !!isAdmin
+      this.expireAt = expireAt || 0
+      this.expired = !!expired
       try { localStorage.setItem(SESSION_KEY, JSON.stringify(this.session)) } catch (e) { /* ignore */ }
     },
     clearSession() {
@@ -43,6 +54,8 @@ export const useUserStore = defineStore('user', {
       this.apiToken = ''
       this.username = ''
       this.isAdmin = false
+      this.expireAt = 0
+      this.expired = false
       try { localStorage.removeItem(SESSION_KEY) } catch (e) { /* ignore */ }
     },
     // 旧 key 迁移: 改名前的股票池/锁定条件数据

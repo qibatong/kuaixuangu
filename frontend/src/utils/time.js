@@ -23,3 +23,13 @@ export function fmtDate(d) {
 export function fmtTsDate(ts) {
   return fmtDate(new Date(ts * 1000))
 }
+
+// 会员专属时段: 工作日 9:15-15:00 (竞价 9:15-9:30 + 盘中 9:30-15:00)
+// 其他时段 (盘前 / 收盘后 / 周末) 允许所有人查看(读历史快照)
+export function isMemberOnlyTime() {
+  const bj = bjNow()
+  const day = bj.getDay()
+  if (day === 0 || day === 6) return false   // 周末
+  const mins = bj.getHours() * 60 + bj.getMinutes()
+  return mins >= 9 * 60 + 15 && mins < 15 * 60   // 9:15-15:00
+}

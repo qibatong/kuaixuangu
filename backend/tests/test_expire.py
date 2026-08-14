@@ -37,8 +37,23 @@ def _new_user(client, inv):
 
 
 # ---------- 服务层 ----------
+def test_create_user_default_5days():
+    """新注册用户默认 5 天会员试用期"""
+    u = users.create_user("exp_d_" + uuid.uuid4().hex[:6], "Test123456")
+    row = users.find_user_by_id(u)
+    et = int(row["expire_at"] or 0)
+    assert abs(et - (int(time.time()) + 5 * 86400)) < 5
+
+
+def test_create_user_permanent_when_zero():
+    """expire_days=0 → 永久(不设到期)"""
+    u = users.create_user("exp_e_" + uuid.uuid4().hex[:6], "Test123456", expire_days=0)
+    row = users.find_user_by_id(u)
+    assert int(row["expire_at"] or 0) == 0
+
+
 def test_extend_from_now():
-    u = users.create_user("exp_a_" + uuid.uuid4().hex[:6], "Test123456")
+    u = users.create_user("exp_a_" + uuid.uuid4().hex[:6], "Test123456", expire_days=0)
     new = users.extend_expire(u, 7)
     assert abs(new - (int(time.time()) + 7 * 86400)) < 5
 
@@ -126,7 +141,7 @@ def test_login_returns_expire(client, first_user):
 
 # ---------- 管理端接口 ----------
 def test_admin_expire_duration(client, first_user):
-    """管理端: duration=week → 到期 ≈ 现在+7天"""
+    """管理端: duration=week → 续费叠加(新用户默认5天 + 7天 = 12天后)"""
     token, _, inv = first_user
     _, uname = _new_user(client, inv)
     u = users.find_user(uname)["id"]
@@ -134,7 +149,8 @@ def test_admin_expire_duration(client, first_user):
                     headers=hdrs(token))
     assert r.status_code == 200
     et = r.json().get("expire_at")
-    assert abs(et - (int(time.time()) + 7 * 86400)) < 60
+    # 注册默认 5 天 + 续费 7 天
+    assert abs(et - (int(time.time()) + 12 * 86400)) < 60
 
 
 def test_admin_expire_days_zero_permanent(client, first_user):

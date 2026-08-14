@@ -2,6 +2,10 @@
   <div class="page-shell">
     <div class="page-back" @click="$router.push('/')"><i class="fa fa-arrow-left"></i> 返回选股</div>
 
+    <!-- 会员门禁: 竞价异动仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
+    <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价异动" />
+
+    <template v-else>
     <div class="auc-head">
       <span class="auc-title"><i class="fa fa-bullhorn"></i> 竞价异动</span>
       <span class="auc-sub">多时点对比 · 竞价委买/爆量/净额/上榜/炸板（开盘啦 + 东财）</span>
@@ -107,7 +111,7 @@
                 <th class="sortable" :class="{ active: qcSort.keyOf('realChange') }" @click="qcSort.onSort('realChange')">实时涨幅<span class="sort-ind">{{ qcSort.ind('realChange') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('bidAmt') }" @click="qcSort.onSort('bidAmt')">竞价金额<span class="sort-ind">{{ qcSort.ind('bidAmt') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf(qc20Mode === 'amt' ? 'qcDelta' : 'qcDeltaChg') }" @click="qcSort.onSort(qc20Mode === 'amt' ? 'qcDelta' : 'qcDeltaChg')">抢筹幅度<span class="sort-ind">{{ qcSort.ind(qc20Mode === 'amt' ? 'qcDelta' : 'qcDeltaChg') }}</span></th>
-                <th class="sortable" :class="{ active: qcSort.keyOf('bidTurnover') }" @click="qcSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ qcSort.ind('bidTurnover') }}</span></th>
+                <th class="sortable" :class="{ active: qcSort.keyOf('bidRatio') }" @click="qcSort.onSort('bidRatio')">竞额/昨比<span class="sort-ind">{{ qcSort.ind('bidRatio') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('bidChange') }" @click="qcSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ qcSort.ind('bidChange') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('floatMv') }" @click="qcSort.onSort('floatMv')">流通<span class="sort-ind">{{ qcSort.ind('floatMv') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('board') }" @click="qcSort.onSort('board', 'string')">概念<span class="sort-ind">{{ qcSort.ind('board') }}</span></th>
@@ -122,7 +126,7 @@
                 <td :class="q.realChange > 0 ? 'up' : q.realChange < 0 ? 'down' : 'dim'">{{ q.realChange !== null && q.realChange !== undefined ? signed(q.realChange) + '%' : '-' }}</td>
                 <td :class="q.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(q.bidAmt) }}</td>
                 <td :class="(qc20Mode === 'amt' ? q.qcDelta : q.qcDeltaChg) > 0 ? 'up' : (qc20Mode === 'amt' ? q.qcDelta : q.qcDeltaChg) < 0 ? 'down' : 'dim'"><b>{{ signed(qc20Mode === 'amt' ? q.qcDelta : q.qcDeltaChg) }}%</b></td>
-                <td>{{ q.bidTurnover ? q.bidTurnover.toFixed(2) : '-' }}</td>
+                <td :class="q.bidRatio !== null && q.bidRatio !== undefined ? (q.bidRatio >= 20 ? 'ratio-hot' : q.bidRatio >= 10 ? 'ratio-warm' : '') : 'dim'" :title="q.bidRatio !== null && q.bidRatio !== undefined ? ('今日竞价额 ÷ 昨日全天成交额 = ' + q.bidRatio.toFixed(2) + '%') : ''">{{ q.bidRatio !== null && q.bidRatio !== undefined ? q.bidRatio.toFixed(2) + '%' : '-' }}</td>
                 <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
                 <td class="dim qc-board" :title="q.board">{{ q.board ? q.board.split('、').join(' ') : '-' }}</td>
@@ -145,7 +149,7 @@
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('realChange') }" @click="qcLastSort.onSort('realChange')">实时涨幅<span class="sort-ind">{{ qcLastSort.ind('realChange') }}</span></th>
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('bidAmt') }" @click="qcLastSort.onSort('bidAmt')">竞价金额<span class="sort-ind">{{ qcLastSort.ind('bidAmt') }}</span></th>
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('qcDeltaLast') }" @click="qcLastSort.onSort('qcDeltaLast')">抢筹幅度<span class="sort-ind">{{ qcLastSort.ind('qcDeltaLast') }}</span></th>
-                <th class="sortable" :class="{ active: qcLastSort.keyOf('bidTurnover') }" @click="qcLastSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ qcLastSort.ind('bidTurnover') }}</span></th>
+                <th class="sortable" :class="{ active: qcLastSort.keyOf('bidRatio') }" @click="qcLastSort.onSort('bidRatio')">竞额/昨比<span class="sort-ind">{{ qcLastSort.ind('bidRatio') }}</span></th>
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('bidChange') }" @click="qcLastSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ qcLastSort.ind('bidChange') }}</span></th>
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('floatMv') }" @click="qcLastSort.onSort('floatMv')">流通<span class="sort-ind">{{ qcLastSort.ind('floatMv') }}</span></th>
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('board') }" @click="qcLastSort.onSort('board', 'string')">概念<span class="sort-ind">{{ qcLastSort.ind('board') }}</span></th>
@@ -160,7 +164,7 @@
                 <td :class="q.realChange > 0 ? 'up' : q.realChange < 0 ? 'down' : 'dim'">{{ q.realChange !== null && q.realChange !== undefined ? signed(q.realChange) + '%' : '-' }}</td>
                 <td :class="q.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(q.bidAmt) }}</td>
                 <td :class="q.qcDeltaLast > 0 ? 'up' : q.qcDeltaLast < 0 ? 'down' : 'dim'"><b>{{ signed(q.qcDeltaLast) }}%</b></td>
-                <td>{{ q.bidTurnover ? q.bidTurnover.toFixed(2) : '-' }}</td>
+                <td :class="q.bidRatio !== null && q.bidRatio !== undefined ? (q.bidRatio >= 20 ? 'ratio-hot' : q.bidRatio >= 10 ? 'ratio-warm' : '') : 'dim'" :title="q.bidRatio !== null && q.bidRatio !== undefined ? ('今日竞价额 ÷ 昨日全天成交额 = ' + q.bidRatio.toFixed(2) + '%') : ''">{{ q.bidRatio !== null && q.bidRatio !== undefined ? q.bidRatio.toFixed(2) + '%' : '-' }}</td>
                 <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
                 <td class="dim qc-board" :title="q.board">{{ q.board ? q.board.split('、').join(' ') : '-' }}</td>
@@ -328,6 +332,7 @@
         <div v-else class="snap-empty">该时点暂无数据</div>
       </div>
     </div>
+    </template>
   </div>
 </template>
 
@@ -336,11 +341,14 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { kplBidSeal, kplBidBoom, kplBidQiangcang, kplBroken, kplLhb, kplYestBroken, kplYestZt } from '../api/kpl'
 import { auctionOverview, auctionSnapshot } from '../api/stats'
 import { linkToSoftware } from '../utils/tdx'
-import { bjTimeStr } from '../utils/time'
+import { bjTimeStr, isMemberOnlyTime } from '../utils/time'
 import { usePoolStore } from '../stores/pool'
 import { showToast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
+import { useUserStore } from '../stores/user'
+import VipGate from '../components/VipGate.vue'
 
+const user = useUserStore()
 const pool = usePoolStore()
 const tab = ref('seal')
 const days = ref([])
@@ -469,17 +477,17 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .page-shell { max-width: 1500px; margin: 0 auto; padding: 16px; }
-.page-back { color: #9aa; cursor: pointer; font-size: 13px; margin-bottom: 12px; display: inline-block; }
+.page-back { color: var(--text-muted); cursor: pointer; font-size: 13px; margin-bottom: 12px; display: inline-block; }
 .page-back:hover { color: #ffb400; }
 .auc-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .auc-title { font-size: 20px; font-weight: 700; color: #ffe0a0; }
 .auc-title .fa { color: #ffb400; }
-.auc-sub { color: #999; font-size: 13px; }
+.auc-sub { color: var(--text-muted); font-size: 13px; }
 .auc-time { margin-left: auto; color: #aaa; font-size: 14px; font-family: monospace; }
-.ov-panel { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+.ov-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
 .ov-table { width: 100%; border-collapse: collapse; }
-.ov-table th, .ov-table td { padding: 8px 10px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.06); }
-.ov-dim { color: #999; font-size: 12px; text-align: left; width: 90px; }
+.ov-table th, .ov-table td { padding: 8px 10px; text-align: center; border-bottom: 1px solid var(--border-soft); }
+.ov-dim { color: var(--text-muted); font-size: 12px; text-align: center; width: 90px; }
 .ov-day { color: #ffe0a0; font-size: 13px; }
 .ov-date { font-size: 14px; font-weight: 700; }
 .ov-yizi { font-size: 12px; color: #ffb400; margin-top: 2px; }
@@ -488,20 +496,20 @@ onBeforeUnmount(() => {
 .ov-amt { font-size: 11px; font-weight: 400; }
 .auc-tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .auc-tab {
-  padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15);
-  background: rgba(255,255,255,0.04); color: #bbb; font-size: 14px; cursor: pointer; transition: all 0.2s;
+  padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border-soft);
+  background: var(--bg-hover); color: var(--text-secondary); font-size: 14px; cursor: pointer; transition: all 0.2s;
 }
 .auc-tab:hover { border-color: #ffb400; color: #ffe0a0; }
 .auc-tab.active { background: rgba(255,180,0,0.15); border-color: #ffb400; color: #ffd700; font-weight: 600; }
-.auc-panel { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 14px; }
+.auc-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 14px; }
 /* 竞价抢筹左右双表 */
 .qc-dual { display: flex; flex-direction: column; gap: 10px; }
-.qc-panel { width: 100%; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px; overflow-x: auto; }
+.qc-panel { width: 100%; background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px; overflow-x: auto; }
 .qc-panel-title { font-size: 14px; font-weight: 700; color: #ffe0a0; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
 .qc-mode-switch { display: inline-flex; gap: 4px; margin-left: auto; }
 .qc-mode-switch button {
   font-size: 11px; padding: 2px 10px; border-radius: 4px; cursor: pointer;
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.18);
+  background: var(--border-soft); border: 1px solid rgba(255,255,255,0.18);
   color: #aaa; transition: all 0.2s;
 }
 .qc-mode-switch button.active { background: rgba(255,180,0,0.18); border-color: #ffb400; color: #ffd700; font-weight: 600; }
@@ -515,34 +523,34 @@ onBeforeUnmount(() => {
 .qc-panel .stock-table th:nth-child(1), .qc-panel .stock-table td:nth-child(1) { width: 26px; text-align: center; }
 .qc-panel .stock-table th:nth-child(2), .qc-panel .stock-table td:nth-child(2) { width: 56px; }
 .qc-panel .stock-table th:nth-child(3), .qc-panel .stock-table td:nth-child(3) { width: 72px; }
-.qc-panel .stock-table th:nth-child(4), .qc-panel .stock-table td:nth-child(4) { width: 56px; text-align: right; }
-.qc-panel .stock-table th:nth-child(5), .qc-panel .stock-table td:nth-child(5) { width: 62px; text-align: right; }
-.qc-panel .stock-table th:nth-child(6), .qc-panel .stock-table td:nth-child(6) { width: 64px; text-align: right; }
-.qc-panel .stock-table th:nth-child(7), .qc-panel .stock-table td:nth-child(7) { width: 42px; text-align: right; }
-.qc-panel .stock-table th:nth-child(8), .qc-panel .stock-table td:nth-child(8) { width: 50px; text-align: right; }
-.qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { width: 50px; text-align: right; }
+.qc-panel .stock-table th:nth-child(4), .qc-panel .stock-table td:nth-child(4) { width: 56px; }
+.qc-panel .stock-table th:nth-child(5), .qc-panel .stock-table td:nth-child(5) { width: 62px; }
+.qc-panel .stock-table th:nth-child(6), .qc-panel .stock-table td:nth-child(6) { width: 64px; }
+.qc-panel .stock-table th:nth-child(7), .qc-panel .stock-table td:nth-child(7) { width: 42px; }
+.qc-panel .stock-table th:nth-child(8), .qc-panel .stock-table td:nth-child(8) { width: 50px; }
+.qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { width: 50px; }
 .qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) { width: 240px; overflow: hidden; text-overflow: ellipsis; }
 /* 操作列(普通列, 不 sticky, 避免 flex 失衡; 通过 overflow-x: auto 横向滚动可见) */
 .qc-panel .stock-table th:nth-child(11), .qc-panel .stock-table td:nth-child(11) { width: 52px; text-align: center; padding: 4px 2px; }
 .qc-panel .name-main { font-size: 13px; line-height: 1.3; }
 /* 窄屏(<1280px) 纵向堆叠; <1100 已原有 fallback */
 @media (max-width: 1280px) { .qc-dual { gap: 8px; } }
-.loading-placeholder { text-align: center; padding: 40px; color: #888; }
+.loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
 .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .lb-badge { display: inline-block; color: #ff8a5c; border: 1px solid rgba(255,80,40,0.5); border-radius: 4px; padding: 0 5px; font-size: 11px; background: rgba(255,80,40,0.12); }
-.bk-hot { color: #ff5028; font-weight: 700; }
+.bk-hot { color: var(--accent-deep); font-weight: 700; }
 .ov-click { cursor: pointer; }
 .ov-click:hover { background: rgba(255,180,0,0.08); }
 
 /* 时点个股弹窗(脱离 flex, 固定定位自居中, 不受 flex item 收缩影响) */
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; }
-.snap-modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); background: #1c1f26; border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; width: min(1100px, 98vw); max-height: 85vh; overflow: auto; padding: 12px 14px; box-sizing: border-box; }
+.snap-modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 12px; width: min(1100px, 98vw); max-height: 85vh; overflow: auto; padding: 12px 14px; box-sizing: border-box; }
 .snap-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .snap-title { font-size: 15px; font-weight: 700; color: #ffe0a0; }
-.snap-close { cursor: pointer; color: #99a; font-size: 16px; padding: 2px 6px; }
+.snap-close { cursor: pointer; color: var(--text-muted); font-size: 16px; padding: 2px 6px; }
 .snap-close:hover { color: #ffb400; }
-.snap-empty { text-align: center; color: #667; padding: 30px 0; font-size: 13px; }
+.snap-empty { text-align: center; color: var(--text-dim); padding: 30px 0; font-size: 13px; }
 /* 弹窗表格: 列间距紧凑, 6 列全部可见 */
 .snap-modal .stock-table { width: 100%; }
 .snap-modal .stock-table th, .snap-modal .stock-table td {
@@ -552,6 +560,32 @@ onBeforeUnmount(() => {
 }
 .snap-modal .stock-table th:nth-child(1), .snap-modal .stock-table td:nth-child(1) { width: 28px; text-align: center; padding-left: 0; padding-right: 4px; }
 .snap-modal .stock-table th:nth-child(2), .snap-modal .stock-table td:nth-child(2) { width: 72px; }
-.snap-modal .stock-table th:nth-child(4), .snap-modal .stock-table td:nth-child(4) { width: 74px; text-align: right; }
-.snap-modal .stock-table th:nth-child(5), .snap-modal .stock-table td:nth-child(5) { text-align: right; }
+.snap-modal .stock-table th:nth-child(4), .snap-modal .stock-table td:nth-child(4) { width: 74px; }
+
+/* 浅色主题: 加深原 scoped 内的浅色文字 */
+body[data-bg="light"] .auc-title { color: #8a5500; }
+body[data-bg="light"] .auc-title .fa { color: #c79100; }
+body[data-bg="light"] .auc-tab:hover { color: #8a5500; border-color: #c79100; }
+body[data-bg="light"] .auc-tab.active { color: #8a5500; background: rgba(255,180,0,0.12); border-color: #c79100; }
+body[data-bg="light"] .ov-day { color: #8a5500; }
+body[data-bg="light"] .ov-yizi { color: #8a5500; }
+body[data-bg="light"] .ov-yizi b { color: #b83010; }
+body[data-bg="light"] .page-back { color: #5a6b85; }
+body[data-bg="light"] .page-back:hover { color: #c79100; }
+body[data-bg="light"] .auc-panel { background: rgba(255,255,255,0.85); border-color: var(--border-soft); }
+body[data-bg="light"] .qc-panel { background: rgba(255,255,255,0.85); border-color: var(--border-soft); }
+body[data-bg="light"] .qc-panel-title { color: #5a4a3a; }
+body[data-bg="light"] .qc-mode-switch button { color: #5a6b85; border-color: var(--border-soft); background: rgba(255,255,255,0.6); }
+body[data-bg="light"] .qc-mode-switch button.active { color: #5a4a3a; background: rgba(255,180,0,0.15); border-color: #c79100; }
+body[data-bg="light"] .qc-mode-switch button:hover { color: #5a4a3a; border-color: #c79100; }
+body[data-bg="light"] .qc-panel .stock-table th { color: #5a4a3a; border-bottom-color: rgba(199,145,0,0.4); }
+body[data-bg="light"] .qc-panel .stock-table td { border-bottom-color: rgba(0,0,0,0.08); }
+body[data-bg="light"] .qc-panel .stock-table tbody tr:hover { background: rgba(184,48,16,0.04); }
+body[data-bg="light"] .lb-badge { color: #b83010; border-color: rgba(184,48,16,0.5); background: rgba(255,80,80,0.1); }
+body[data-bg="light"] .bk-hot { color: #b83010; }
+body[data-bg="light"] .snap-title { color: #5a4a3a; }
+body[data-bg="light"] .snap-close { color: #5a6b85; }
+body[data-bg="light"] .snap-close:hover { color: #c79100; }
+body[data-bg="light"] .snap-empty { color: #6a7a90; }
+body[data-bg="light"] .modal-mask { background: rgba(0,0,0,0.45); }
 </style>

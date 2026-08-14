@@ -76,7 +76,12 @@ def api_register(request: Request, body: dict = Body(...)):
         log.warning("注册冲突 username=%s ip=%s", username, client_ip(request))
         return jr({"ok": False, "msg": "用户名或手机号/邮箱已被占用"}, 409)
     log.info("注册成功 uid=%s user=%s invited_by=%s ip=%s", uid, username, invited_by or "-", client_ip(request))
-    return jr({"ok": True, "token": security.issue_token(uid), "username": username})
+    # 新用户默认 5 天会员试用
+    u = users.find_user_by_id(uid)
+    et = int(u.get("expire_at") or 0) if u else 0
+    return jr({"ok": True, "token": security.issue_token(uid), "username": username,
+               "expire_at": et,
+               "expired": 1 if (et and time.time() > et) else 0})
 
 
 @router.post("/api/change-password")

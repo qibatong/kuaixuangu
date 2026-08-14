@@ -1,7 +1,7 @@
 <template>
   <div class="auth-overlay">
     <div class="login-box">
-      <img src="/logo.png" class="login-logo" alt="快选 Kuaixuan">
+      <img src="/logo.jpg" class="login-logo" alt="快选 Kuaixuan">
       <div class="login-title">快选</div>
       <div class="login-sub">{{ subText }}</div>
 
@@ -90,7 +90,7 @@ async function submit() {
       ? { username: username.value.trim(), password: password.value, invite_code: invite.value.trim(), phone: phone.value.trim(), email: email.value.trim() }
       : { login: username.value.trim(), password: password.value }
     const data = mode.value === 'register' ? await apiRegister(body) : await apiLogin(body)
-    user.setSession(data.username, data.token, data.is_admin)
+    user.setSession(data.username, data.token, data.is_admin, data.expire_at, data.expired)
     if (data.expired) {
       showToast('⚠️ 账号已过期，请联系管理员续费', 'error')
     }
