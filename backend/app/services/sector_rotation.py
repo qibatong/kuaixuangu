@@ -20,10 +20,11 @@ def _bj_date():
     return "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
 
 
-def record_today_top(top_n=10):
+def record_today_top(top_n=10, date=None):
     """抓取当日板块强度 TopN 落库 daily_sector_top(覆盖式)
+    date: 覆盖落库日期(用于补抓历史, 如 '2026-08-14'); 默认北京时间今天
     返回入库条数; 抓取失败返回 0"""
-    date = _bj_date()
+    date = date or _bj_date()
     try:
         boards = kpl.fetch_board_rank() or []
     except Exception as e:
