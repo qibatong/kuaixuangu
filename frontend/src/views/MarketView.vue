@@ -229,7 +229,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref, reactive } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, reactive } from 'vue'
 import { kplBoardRank, kplHotRank, kplLhb, kplLhbDetail, sectorRotation } from '../api/kpl'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
