@@ -36,9 +36,12 @@ def api_save_prefs(request: Request, uid: int = Depends(get_uid),
         log.warning("偏好保存参数错误 uid=%s", uid)
         return jr({"ok": False, "msg": "参数错误"}, 400)
     try:
-        users.save_prefs(uid, settings)
+        # 合并保存: 只覆盖本次提交的字段, 保留已有偏好(筛选/主题互不覆盖)
+        merged = dict(users.get_prefs(uid) or {})
+        merged.update(settings)
+        users.save_prefs(uid, merged)
     except (TypeError, ValueError):
         log.warning("偏好保存序列化失败 uid=%s", uid)
         return jr({"ok": False, "msg": "参数错误"}, 400)
-    log.info("保存筛选偏好 uid=%s 字段数%d", uid, len(settings))
+    log.info("保存筛选偏好 uid=%s 字段数%d", uid, len(merged))
     return jr({"ok": True, "msg": "筛选偏好已保存"})

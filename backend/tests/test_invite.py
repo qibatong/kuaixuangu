@@ -64,3 +64,16 @@ def test_prefs_save_load(client, first_user):
     assert r2.status_code == 200
     s = r2.json().get("settings") or {}
     assert s.get("bidGt") == 8
+
+
+def test_prefs_save_merge(client, first_user):
+    """偏好合并保存: 第二次只提交部分字段时, 已有字段保留(筛选/主题互不覆盖)"""
+    token, _, _ = first_user
+    r = client.post("/api/prefs", json={"settings": {"bidGt": 8}}, headers=hdrs(token))
+    assert r.json().get("ok")
+    r = client.post("/api/prefs", json={"settings": {"theme": "blue"}}, headers=hdrs(token))
+    assert r.json().get("ok")
+    r2 = client.get("/api/prefs", headers=hdrs(token))
+    s = r2.json().get("settings") or {}
+    assert s.get("bidGt") == 8       # 已有字段保留
+    assert s.get("theme") == "blue"  # 新字段写入
