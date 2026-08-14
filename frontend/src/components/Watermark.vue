@@ -6,8 +6,10 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useUserStore } from '../stores/user'
+import { useTheme } from '../composables/useTheme'
 
 const user = useUserStore()
+const { bg: themeBg } = useTheme()
 const show = computed(() => user.isLoggedIn && !!user.username)
 const bg = ref('')
 const force = ref(true)
@@ -18,6 +20,10 @@ function makeBg() {
   try {
     const text = '快选 · ' + user.username
     const sub = new Date().toLocaleString('zh-CN', { hour12: false })
+    // 颜色随主题: 深色背景用浅色文字, 浅色背景用深色文字(两种背景下都清晰可见)
+    const isDark = themeBg.value !== 'light'
+    const mainColor = isDark ? 'rgba(220,220,220,0.65)' : 'rgba(40,40,40,0.55)'
+    const subColor  = isDark ? 'rgba(220,220,220,0.45)' : 'rgba(40,40,40,0.40)'
     const c = document.createElement('canvas')
     c.width = 300
     c.height = 180
@@ -29,10 +35,10 @@ function makeBg() {
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.font = '17px sans-serif'
-    ctx.fillStyle = 'rgba(90,90,90,0.45)'
+    ctx.fillStyle = mainColor
     ctx.fillText(text, 0, -8)
     ctx.font = '11px sans-serif'
-    ctx.fillStyle = 'rgba(90,90,90,0.28)'
+    ctx.fillStyle = subColor
     ctx.fillText(sub, 0, 16)
     ctx.restore()
     bg.value = c.toDataURL('image/png')
@@ -63,6 +69,10 @@ watch(show, (v) => {
     startGuard()
   }
 })
+// 主题切换(深/浅)时重新生成背景图, 让文字色适配当前背景
+watch(themeBg, () => {
+  if (show.value) makeBg()
+})
 onBeforeUnmount(() => {
   if (obs) obs.disconnect()
 })
@@ -74,6 +84,7 @@ onBeforeUnmount(() => {
   inset: 0;
   z-index: 2147483000;
   pointer-events: none;
-  opacity: 0.10;
+  /* 深色/浅色背景都用较高不透明度, 保证水印可见; pointer-events:none 不挡交互 */
+  opacity: 0.18;
 }
 </style>
