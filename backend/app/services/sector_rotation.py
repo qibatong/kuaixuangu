@@ -82,9 +82,12 @@ def fetch_em_board_rank():
     return out
 
 
-def _fetch(source, top_n):
-    """按数据源抓取当日 TopN 列表"""
+def _fetch(source, top_n, date=None):
+    """按数据源抓取当日 TopN 列表
+    date: kpl 源支持按日期抓取(开盘啦 doc42 历史, 保留期最近 3 个交易日)"""
     if source == "kpl":
+        if date:
+            return (kpl.fetch_board_rank_by_date(date) or [])[:top_n]
         return (kpl.fetch_board_rank() or [])[:top_n]
     if source == "em":
         return fetch_em_board_rank()[:top_n]
@@ -101,7 +104,7 @@ def record_today_top(top_n=10, date=None, source="kpl"):
         log.warning("不支持的数据源 source=%s", source)
         return 0
     date = date or _bj_date()
-    boards = _fetch(source, top_n)
+    boards = _fetch(source, top_n, date=date)
     if not boards:
         log.warning("板块轮动抓取为空 source=%s date=%s", source, date)
         return 0

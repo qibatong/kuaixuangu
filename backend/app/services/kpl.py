@@ -348,6 +348,18 @@ def fetch_board_rank():
     return _cached("board_rank", config.KPL_BOARD_TTL, loader)
 
 
+def fetch_board_rank_by_date(date):
+    """精选板块列表-历史(doc42 apiv=w41, apphis host):
+    按 Date='YYYY-MM-DD' 取指定交易日 9:25-15:00 期间的板块强度 Top60
+    实测保留期=最近 3 个交易日(超出日期返回空)
+    返回 [{boardCode, name, strength, change, amount, mainNet, volRatio, floatMv, ...}]"""
+    d = _call("his", {"Order": "1", "a": "RealRankingInfo", "st": "60", "apiv": "w41",
+                      "c": "ZhiShuRanking", "PhoneOSNew": "1",
+                      "Start": "0925", "VerSion": "5.20.0.2", "End": "1500",
+                      "Date": date, "Type": "5", "ZSType": "7"})
+    return _parse_board_rank(d) if d else []
+
+
 # ==================== 尾盘竞价抢筹 ====================
 def fetch_wpqc():
     """尾盘竞价抢筹(14:57 后): List [[code,name,资金标签,类型,概念,涨跌幅,抢筹委托,收盘金额,

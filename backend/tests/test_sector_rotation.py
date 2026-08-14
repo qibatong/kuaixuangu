@@ -34,7 +34,10 @@ def _raw_conn():
 
 def test_record_today_top_saves_to_db(client, monkeypatch):
     """抓取当日板块 Top10 落库(默认 source=kpl)"""
+    # mock kpl.fetch_board_rank 实时接口 + fetch_board_rank_by_date 历史接口,
+    # 避免非交易时段拿不到数据 + record_today_top 默认会按今天走 by_date 路径
     monkeypatch.setattr(kpl, "fetch_board_rank", lambda: list(SAMPLE_KPL))
+    monkeypatch.setattr(kpl, "fetch_board_rank_by_date", lambda date=None: list(SAMPLE_KPL))
     n = sector_rotation.record_today_top(top_n=10)
     assert n == 10
     conn = _raw_conn()

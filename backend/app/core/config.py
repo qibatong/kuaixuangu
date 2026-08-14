@@ -67,8 +67,9 @@ KPL_DEVICEID = os.environ.get("KPL_DEVICEID", "")
 KPL_UA = "Dalvik/2.1.0 (Linux; U; Android 14; V2178A Build/UP1A.231005.007)"
 KPL_HOSTS = {
     "default": "apphwhq.longhuvip.com",       # 竞价委买额/连板梯队
-    "market": "apphq.longhuvip.com",          # 情绪值/板块强度/热榜/涨停原因
-    "after": "apphwshhq.longhuvip.com",       # 尾盘抢筹/竞价砸盘/竞价>2000万
+    "market": "apphq.longhuvip.com",          # 情绪值/板块强度(实时)/热榜/涨停原因
+    "his": "apphis.longhuvip.com",            # 板块强度(历史)+板块成分股
+    "after": "apphwshhq.longhuvip.com",       # 板块强度(当天分时)+尾盘抢筹/竞价砸盘/竞价>2000万
     "lhb": "applhb.longhuvip.com",            # 龙虎榜
 }
 KPL_BID_TTL = int(os.environ.get("KPL_BID_TTL", "30"))        # 竞价委买额缓存新鲜度(秒)
