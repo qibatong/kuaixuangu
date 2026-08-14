@@ -98,8 +98,8 @@
           <div class="qc-panel-title">
             <i class="fa fa-clock-o"></i> 9:20 - 9:25 竞价涨幅
             <span class="qc-mode-switch">
-              <button :class="{ active: qc20Mode === 'amt' }" @click="qc20Mode = 'amt'">竞额抢筹</button>
               <button :class="{ active: qc20Mode === 'chg' }" @click="qc20Mode = 'chg'">涨幅抢筹</button>
+              <button :class="{ active: qc20Mode === 'amt' }" @click="qc20Mode = 'amt'">竞额抢筹</button>
             </span>
           </div>
           <table class="stock-table">
