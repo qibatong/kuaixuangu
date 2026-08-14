@@ -540,11 +540,12 @@ def test_fetch_bid_qiangcang_lastsec_full(monkeypatch):
 
 
 def test_fetch_bid_qiangcang_list20chg(monkeypatch):
-    """涨幅抢筹(全市场快照): qcDeltaChg = 9_25涨幅 − 9_20涨幅, 过滤>5%, fmv≥2亿
-    A: 9_20=1.5 → 9_25=8.64, qcDeltaChg=7.14 ✅ 入选
-    B: 9_20=3.0 → 9_25=7.0,  qcDeltaChg=4.0  被过滤
+    """涨幅抢筹(全市场快照): qcDeltaChg = 9_25涨幅 − 9_20涨幅, 过滤>5%, fmv≥2亿, 竞价额≥500万
+    A: 9_20=1.5 → 9_25=8.64, qcDeltaChg=7.14, amt=991.5 ✅ 入选
+    B: 9_20=3.0 → 9_25=7.0,  qcDeltaChg=4.0  被过滤(差<5)
     C: fmv=1e8(<2亿) 被过滤
-    D: 9_20 无数据 → 不进"""
+    D: 9_20 无数据 → 不进
+    E: amt=300(<500万) 被过滤"""
     import sqlite3
     import time as _t
     class FakeT:
@@ -559,7 +560,7 @@ def test_fetch_bid_qiangcang_list20chg(monkeypatch):
             self.executed.append(sql)
             if "9_20" in sql and "snapshot_lastsec" not in sql:
                 # code, bid_change
-                return FakeCursor([("A", 1.5), ("B", 3.0), ("C", 1.0)])
+                return FakeCursor([("A", 1.5), ("B", 3.0), ("C", 1.0), ("E", 1.0)])
             if "snapshot_lastsec" in sql:
                 return FakeCursor([])
             if "9_24" in sql:
@@ -572,6 +573,7 @@ def test_fetch_bid_qiangcang_list20chg(monkeypatch):
                 ("B", 7.0, 800.0, 8e9, "乙", "医药"),
                 ("C", 6.0, 500.0, 1e8, "丙", "芯片"),
                 ("D", 6.5, 900.0, 9e9, "丁", "军工"),
+                ("E", 8.0, 300.0, 7e9, "戊", "芯片"),   # 竞价额300万<500万
             ])
         def close(self): pass
     real = sqlite3.connect
@@ -583,7 +585,7 @@ def test_fetch_bid_qiangcang_list20chg(monkeypatch):
     monkeypatch.setattr("sqlite3.connect", real)
     l20c = d["list20Chg"]
     m = {r["code"]: r for r in l20c}
-    # A 入选 7.14; B 4.0 过滤; C fmv<2亿 过滤; D 无9_20 不进
+    # A 入选 7.14; B 差<5 过滤; C fmv<2亿 过滤; D 无9_20 不进; E 竞价额<500万 过滤
     assert len(l20c) == 1, l20c
     assert m["A"]["qcDeltaChg"] == 7.14
     assert m["A"]["bidChange20"] == 1.5
