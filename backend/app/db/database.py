@@ -167,10 +167,15 @@ def init_db():
             bid_change REAL NOT NULL DEFAULT 0,
             float_mv REAL NOT NULL DEFAULT 0,
             board TEXT,
+            bid_ratio REAL NOT NULL DEFAULT 0,
             ts INTEGER NOT NULL,
             PRIMARY KEY (date, code)
         )
     """)
+    # 老库迁移: qc_snapshot 增加 竞额/昨比 列(2026-08-14, 抢筹表"竞价换手"改为"竞额/昨比")
+    qcols = [r[1] for r in cur.execute("PRAGMA table_info(qc_snapshot)").fetchall()]
+    if "bid_ratio" not in qcols:
+        cur.execute("ALTER TABLE qc_snapshot ADD COLUMN bid_ratio REAL NOT NULL DEFAULT 0")
     # 最后一秒抢筹高频采样(9:24:55-9:25:03 每秒一次, ts 记实际时刻;
     # 计算时用序列做"差值回退", 对抗接口延迟)
     cur.execute("""

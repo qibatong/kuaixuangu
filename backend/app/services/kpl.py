@@ -894,10 +894,10 @@ def _save_qc_snapshot(date, items):
         conn = sqlite3.connect(config.DB_FILE)
         conn.executemany(
             "INSERT OR REPLACE INTO qc_snapshot (date, code, name, real_change, bid_amt, qc_delta, "
-            "bid_turnover, bid_change, float_mv, board, ts) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "bid_turnover, bid_change, float_mv, board, bid_ratio, ts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             [(date, x["code"], x.get("name", ""), x.get("realChange", 0), x.get("bidAmt", 0),
               x.get("qcDelta", 0), x.get("bidTurnover", 0), x.get("bidChange", 0),
-              x.get("floatMv", 0), x.get("board", ""), int(time.time()))
+              x.get("floatMv", 0), x.get("board", ""), x.get("bidRatio", 0) or 0, int(time.time()))
              for x in items])
         conn.commit()
         conn.close()
@@ -911,7 +911,7 @@ def _load_qc_snapshot(date):
         import sqlite3
         conn = sqlite3.connect(config.DB_FILE)
         rows = conn.execute(
-            "SELECT code, name, real_change, bid_amt, qc_delta, bid_turnover, bid_change, float_mv, board "
+            "SELECT code, name, real_change, bid_amt, qc_delta, bid_turnover, bid_change, float_mv, board, bid_ratio "
             "FROM qc_snapshot WHERE date=? ORDER BY qc_delta DESC", (date,)).fetchall()
         conn.close()
     except Exception:
@@ -919,6 +919,7 @@ def _load_qc_snapshot(date):
     return [{
         "code": r[0], "name": r[1], "realChange": r[2], "bidAmt": r[3], "qcDelta": r[4],
         "bidTurnover": r[5], "bidChange": r[6], "floatMv": r[7], "board": r[8] or "",
+        "bidRatio": r[9],
     } for r in rows]
 
 
@@ -1152,9 +1153,37 @@ def fetch_bid_qiangcang():
         except Exception as e:
             log.warning("抢筹 listLast 快照读取失败 err=%s", e)
 
-        log.info("抢筹[result] date=%s %s list20=%d只 list20Chg=%d只 listLast=%d只 耗时%dms",
+        # 竞额/昨比: 今日竞价额(元) / 昨日全天成交额(万元) → 百分比。昨日额按 code 并发拉取(当日缓存)
+        try:
+            from . import fetcher as _fetcher
+            codes = []
+            for it in list20 + list20Chg + listLast:
+                c = str(it.get("code", ""))
+                if c and c not in codes:
+                    codes.append(c)
+            yest_map = _fetcher.fetch_yesterday_amounts(codes) if codes else {}
+        except Exception as e:
+            log.warning("抢筹 昨日成交额拉取失败(昨比置空) err=%s", e)
+            yest_map = {}
+
+        def _fill_ratio(items):
+            for it in items:
+                if it.get("bidRatio") is not None:   # 读库项已有昨比, 不覆盖
+                    continue
+                pair = yest_map.get(str(it.get("code", "")))
+                y_amt = pair[0] if isinstance(pair, (list, tuple)) else pair
+                bid_amt = float(it.get("bidAmt") or 0)
+                if y_amt and bid_amt > 0:
+                    it["bidRatio"] = round(bid_amt / y_amt / 100, 2)   # 元 / 万元 / 100 → %
+                else:
+                    it["bidRatio"] = None
+        _fill_ratio(list20)
+        _fill_ratio(list20Chg)
+        _fill_ratio(listLast)
+
+        log.info("抢筹[result] date=%s %s list20=%d只 list20Chg=%d只 listLast=%d只 昨比命中=%d/%d 耗时%dms",
                  today, hhmm, len(list20[:100]), len(list20Chg[:100]), len(listLast[:100]),
-                 int((time.time() - t0) * 1000))
+                 len(yest_map), len(codes), int((time.time() - t0) * 1000))
         return {"list20": list20[:100], "list20Chg": list20Chg[:100], "listLast": listLast[:100]}
     return _cached("bid_qiangcang", 30, loader)
 

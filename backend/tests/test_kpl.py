@@ -384,6 +384,10 @@ def test_fetch_bid_qiangcang(monkeypatch):
     assert mLast[2]["qcDeltaLast"] == 0.5
     # 右表按抢筹幅度降序: code1(1.0) > code2(0.5)
     assert lLast[0]["code"] == 1
+    # 竞额/昨比: bidAmt(元) / 昨日额pair[0](万元) / 100 → %; code1 l20 bidAmt=1e8元 → 50%
+    assert l20[0]["bidRatio"] == 50.0
+    # listLast code1 bidAmt=9_25快照1000万*10000=1e7元 → 1e7/20000/100=5.0%
+    assert lLast[0]["bidRatio"] == 5.0
 
 
 def test_fetch_bid_qiangcang_persist(monkeypatch):
@@ -409,8 +413,9 @@ def test_fetch_bid_qiangcang_persist(monkeypatch):
                 return FakeCursor([])
             if sql.strip().startswith("SELECT code, name, real_change"):
                 return FakeCursor([
-                    ("600001", "测试甲", 1.5, 1e8, 12.3, 0.2, 5.0, 8e9, "AI概念"),
-                    ("600002", "测试乙", 0.8, 5e7, 8.9, 0.1, 4.0, 6e9, "医药"),
+                    # code, name, real_change, bid_amt, qc_delta, bid_turnover, bid_change, float_mv, board, bid_ratio
+                    ("600001", "测试甲", 1.5, 1e8, 12.3, 0.2, 5.0, 8e9, "AI概念", 50.0),
+                    ("600002", "测试乙", 0.8, 5e7, 8.9, 0.1, 4.0, 6e9, "医药", 25.0),
                 ])
             return FakeCursor([])
         def executemany(self, sql, params=()): self.executed.append(sql)
@@ -447,6 +452,7 @@ def test_fetch_bid_qiangcang_persist(monkeypatch):
     assert len(d2["list20"]) == 2, d2   # 读库返回, 非僵尸数据
     assert d2["list20"][0]["code"] == "600001"
     assert d2["list20"][0]["qcDelta"] == 12.3
+    assert d2["list20"][0]["bidRatio"] == 50.0   # 竞额/昨比读库保留
     monkeypatch.setattr("sqlite3.connect", real_connect)
     monkeypatch.setattr(_t, "gmtime", real_gmtime)
 

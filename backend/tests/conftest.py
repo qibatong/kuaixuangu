@@ -63,7 +63,8 @@ def mock_data_source(monkeypatch_session):
         return fetcher._cache[fs]["raw"], None
 
     def fake_yesterday_amounts(codes):
-        return {}
+        # 真实结构: {code: [T日全天额(万元), T-1日全天额(万元)]}
+        return {c: [20000.0, 15000.0] for c in codes}
 
     monkeypatch_session.setattr(fetcher, "ensure_cache", fake_ensure_cache)
     monkeypatch_session.setattr(fetcher, "fetch_yesterday_amounts", fake_yesterday_amounts)
