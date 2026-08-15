@@ -917,6 +917,54 @@ def fetch_board_map():
     return _cached("board_map", 30, loader)
 
 
+def apply_board_concept(result, log_tag="", deep=True):
+    """用开盘啦概念覆盖选股/历史回看结果 concept(2 层覆盖)
+    1) 榜单合并(ladder+bid_seal+bid_boom+hot_stocks+snap25) - 快速覆盖热点/板块
+    2) 按股查询(doc94 fetch_stock_plate) - 百分百覆盖, 1 天缓存限制频次
+    result: [{code, concept, ...}, ...], 原地修改 concept 字段; 返回覆盖数
+    deep=False: 只做榜单合并层(历史回看/大列表用, 避免海量按股查询拖慢接口)"""
+    if not result:
+        return 0
+    # 第一层: 榜单合并（全市场一次接口）
+    board_map = {}
+    n = 0
+    try:
+        board_map = fetch_board_map() or {}
+        for it in result:
+            b = board_map.get(str(it.get("code")))
+            if b:
+                it["concept"] = b
+                n += 1
+        if n:
+            log.info("选股概念开盘啦覆盖[榜单] %s 覆盖%d只/共%d只", log_tag, n, len(result))
+    except Exception as e:
+        log.warning("选股概念开盘啦覆盖[榜单]失败 %s err=%s", log_tag, e)
+    # 第二层: 按股查询 GetStockIDPlate (仅针对榜单未覆盖到的股票, 避免 KPL 资源浪费)
+    if not deep:
+        return n
+    miss_codes = [str(it.get("code")) for it in result if it.get("code") and not board_map.get(str(it.get("code")))]
+    if not miss_codes:
+        return n
+    # 第二层按股查询: 并发拉取(历史聚合上百只也能秒回), 每只 1 天缓存限频
+    n2 = 0
+    try:
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+            plates = list(ex.map(fetch_stock_plate, miss_codes))
+        for code, plate in zip(miss_codes, plates):
+            if plate:
+                for it in result:
+                    if str(it.get("code")) == code:
+                        it["concept"] = plate
+                        n2 += 1
+                        break
+        if n2:
+            log.info("选股概念开盘啦覆盖[按股] %s 补%d只/共%d只", log_tag, n2, len(result))
+    except Exception as e:
+        log.warning("选股概念开盘啦覆盖[按股]失败 %s err=%s", log_tag, e)
+    return n + n2
+
+
 def fetch_yest_zt():
     """昨日涨停股今日竞价表现: flash limit_up_pool&date=上一交易日(95只) + merge Type4
     字段补全: Type4(今日竞价涨停榜)优先 → snapshot_bid 9_25(全市场)兜底

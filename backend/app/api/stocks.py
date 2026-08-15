@@ -19,45 +19,9 @@ router = APIRouter()
 
 
 def _apply_kpl_board(result, log_tag=""):
-    """用开盘啦概念覆盖选股结果 concept(2 层覆盖)
-    1) 榜单合并(ladder+bid_seal+bid_boom+hot_stocks+snap25) - 快速覆盖热点/板块
-    2) 按股查询(doc94 fetch_stock_plate) - 百分百覆盖, 1 天缓存限制频次
+    """用开盘啦概念覆盖选股结果 concept(统一走 kpl.apply_board_concept 双层覆盖)
     result: scorer.process_all_stocks 输出, 每项含 code/concept"""
-    if not result:
-        return
-    # 第一层: 榜单合并（全市场一次接口）
-    board_map = {}
-    try:
-        board_map = kpl.fetch_board_map() or {}
-        n = 0
-        for it in result:
-            b = board_map.get(str(it.get("code")))
-            if b:
-                it["concept"] = b
-                n += 1
-        if n:
-            log.info("选股概念开盘啦覆盖[榜单] %s 覆盖%d只/共%d只", log_tag, n, len(result))
-    except Exception as e:
-        log.warning("选股概念开盘啦覆盖[榜单]失败 %s err=%s", log_tag, e)
-    # 第二层: 按股查询 GetStockIDPlate (仅针对榜单未覆盖到的股票, 避免 KPL 资源浪费)
-    miss_codes = [str(it.get("code")) for it in result if it.get("code") and not board_map.get(str(it.get("code")))]
-    if not miss_codes:
-        return
-    n2 = 0
-    try:
-        for code in miss_codes:
-            plate = kpl.fetch_stock_plate(code)
-            if plate:
-                for it in result:
-                    if str(it.get("code")) == code:
-                        it["concept"] = plate
-                        n2 += 1
-                        break
-        if n2:
-            log.info("选股概念开盘啦覆盖[按股] %s 补%d只/共%d只", log_tag, n2, len(result))
-    except Exception as e:
-        log.warning("选股概念开盘啦覆盖[按股]失败 %s err=%s", log_tag, e)
-
+    kpl.apply_board_concept(result, log_tag)
 
 
 @router.get("/api/stocks")
@@ -141,6 +105,8 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
             log.warning("9:25 lock 时当日 9:20 快照缺失! 加速度无法计算, 请检查9:20调度/东财接口 uid=%s", uid)
         # 评分计算不持锁: 多用户并发选股互不阻塞, 只共享只读的行情快照
         result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map)
+        # 概念用开盘啦覆盖(落库前覆盖: 页面/历史批次/推送全部统一开盘啦概念)
+        _apply_kpl_board(result, "auction")
     except Exception as e:
         log.error("选股处理失败 uid=%s action=%s mode=%s err=%s", uid, action, mode, e, exc_info=True)
         return jr({"ok": False, "msg": "服务端处理失败: %s" % e}, 500)
@@ -153,8 +119,6 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
     else:
         log.info("选股刷新 uid=%s action=%s markets=%s 返回%d只 耗时%.0fms",
                  uid, action, ",".join(f["markets"]), len(result), (time.time() - t0) * 1000)
-    # 概念用开盘啦覆盖(落库后覆盖, 页面展示用开盘啦概念, 历史批次存的是东财f103)
-    _apply_kpl_board(result, "auction")
 
     # 竞价锁定选股成功后, 后台推送结果到微信/飞书(失败不影响选股主流程)
     if action == "lock" and result:
