@@ -188,6 +188,37 @@ def query_snapshot(date, time_point, limit=50):
     return [{"code": r[0], "bid_change": r[1], "bid_amt": r[2], "name": r[3] or ""} for r in rows]
 
 
+# 个股三时点对比展示的时点(9:15/9:20/9:25)
+STOCK_POINTS = ["9_15", "9_20", "9_25"]
+
+
+def query_stock_snapshot(date, code):
+    """个股三时点封单对比: 某日该股 9:15/9:20/9:25 各时点快照(bid_change/bid_amt/委买额/市值)
+    返回 {name, points: {9_15: {...}, ...}}, 缺时点为 None"""
+    try:
+        conn = database.get_conn()
+        rows = conn.execute(
+            "SELECT time_point, code, bid_change, bid_amt, bid_buy_amt, float_mv, name FROM snapshot_bid "
+            "WHERE date=? AND code=?", (date, code)).fetchall()
+        conn.close()
+    except Exception:
+        return {"name": "", "points": {}}
+    name = ""
+    points = {}
+    for tp, c, bc, amt, buy, mv, nm in rows:
+        if tp in STOCK_POINTS:
+            if not name and nm:
+                name = nm
+            points[tp] = {
+                "code": c,
+                "bid_change": bc,
+                "bid_amt": amt,
+                "bid_buy_amt": buy,
+                "float_mv": mv,
+            }
+    return {"name": name, "points": points}
+
+
 def _has_snapshot(date, time_point):
     """某日某时点是否已有快照数据(9_24 重采型时点用, 不依赖 _sched_done 标记)"""
     try:

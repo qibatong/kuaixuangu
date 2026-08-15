@@ -117,3 +117,27 @@ def api_stats_bid_snapshot(request: Request, uid: int = Depends(get_uid)):
         limit = 50
     rows = auction_snapshot.query_snapshot(date, tp, limit) if date else []
     return jr({"ok": True, "date": date, "time_point": tp, "count": len(rows), "list": rows})
+
+
+@router.get("/api/stats/bid-snapshot-stock")
+def api_stats_bid_snapshot_stock(request: Request, uid: int = Depends(get_uid)):
+    """个股三时点封单对比: ?date=YYYY-MM-DD&code=600000
+    返回该股 9:15/9:20/9:25 三个时点的快照(bid_change/bid_amt/委买额/流通市值),
+    一个视图直接看封单变化(无需分别点开各时点)"""
+    q = qs(request)
+    date = (q.get("date") or [""])[0]
+    code = (q.get("code") or [""])[0].strip()
+    if not date or not code:
+        return jr({"ok": False, "msg": "date 与 code 必填"}, 400)
+    # 周末/节假日自动对齐最近交易日(与多时点对比一致)
+    conn = database.get_conn()
+    try:
+        row = conn.execute(
+            "SELECT MAX(date) FROM snapshot_bid WHERE date <= ?", (date,)).fetchone()
+        resolved = str(row[0]) if row and row[0] else date
+    except Exception:
+        resolved = date
+    finally:
+        conn.close()
+    d = auction_snapshot.query_stock_snapshot(resolved, code)
+    return jr({"ok": True, "date": resolved, "code": code, "name": d["name"], "points": d["points"]})

@@ -56,6 +56,13 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
       </table>
     </div>
 
+    <!-- 个股三时点封单: 一个视图看 9:15/9:20/9:25 三个时刻封单变化 -->
+    <div class="stock3-toolbar">
+      <span class="rot-tip"><i class="fa fa-eye"></i> 个股三时点封单（9:15 / 9:20 / 9:25）</span>
+      <input v-model="stock3.code" class="stock3-input" placeholder="输入6位代码，如 300410" maxlength="6" @keydown.enter="loadStock3" />
+      <button class="stock3-btn" @click="loadStock3"><i class="fa fa-search"></i> 查询</button>
+    </div>
+
     <!-- Tab 切换 -->
     <div class="auc-tabs">
       <button class="auc-tab" :class="{ active: tab === 'seal' }" @click="switchTab('seal')"><i class="fa fa-gavel"></i> 竞价委买</button>
@@ -347,6 +354,46 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
         <div v-else class="snap-empty">该时点暂无数据</div>
       </div>
     </div>
+
+    <!-- 个股三时点封单弹窗: 同一视图对比 9:15/9:20/9:25 -->
+    <div v-if="stock3.show" class="modal-mask" @click.self="stock3.show = false">
+      <div class="snap-modal">
+        <div class="snap-head">
+          <span class="snap-title">{{ stock3.data.name || stock3.code }}（{{ stock3.code }}）· {{ stock3.data.date }} 三时点封单</span>
+          <span class="snap-close" @click="stock3.show = false">✕</span>
+        </div>
+        <table class="stock-table">
+          <thead>
+            <tr>
+              <th>时点</th>
+              <th>竞价涨幅</th>
+              <th>竞价额(万)</th>
+              <th>委买额(万)</th>
+              <th>流通市值(亿)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="tp in stock3Points" :key="tp">
+              <td class="stock3-tp">{{ tpLabel(tp) }}</td>
+              <td
+v-if="stock3.data.points && stock3.data.points[tp]"
+                  :class="stock3.data.points[tp].bid_change > 0 ? 'up' : stock3.data.points[tp].bid_change < 0 ? 'down' : 'dim'"
+>
+                {{ signed(stock3.data.points[tp].bid_change) }}%
+              </td>
+              <td v-else class="dim">-</td>
+              <td v-if="stock3.data.points && stock3.data.points[tp]">{{ wan(stock3.data.points[tp].bid_amt) }}</td>
+              <td v-else class="dim">-</td>
+              <td v-if="stock3.data.points && stock3.data.points[tp]">{{ wan(stock3.data.points[tp].bid_buy_amt) }}</td>
+              <td v-else class="dim">-</td>
+              <td v-if="stock3.data.points && stock3.data.points[tp]">{{ (stock3.data.points[tp].float_mv / 1e8).toFixed(1) }}</td>
+              <td v-else class="dim">-</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-if="!hasStock3Points" class="snap-empty">该日该股暂无三时点快照（需交易日 9:15/9:20/9:25 自动采集后才有）</div>
+      </div>
+    </div>
     </template>
   </div>
 </template>
@@ -355,9 +402,9 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
 import { computed, onMounted, ref } from 'vue'
 import { usePolling } from '../composables/usePolling'
 import { kplBidSeal, kplBidBoom, kplBidQiangcang, kplBroken, kplLhb, kplYestBroken, kplYestZt } from '../api/kpl'
-import { auctionOverview, auctionSnapshot } from '../api/stats'
+import { auctionOverview, auctionSnapshot, bidSnapshotStock } from '../api/stats'
 import { linkToSoftware } from '../utils/tdx'
-import { bjTimeStr, isMemberOnlyTime } from '../utils/time'
+import { bjTimeStr, isMemberOnlyTime, todayBj } from '../utils/time'
 import { usePoolStore } from '../stores/pool'
 import { showToast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
@@ -385,6 +432,32 @@ const qc20Mode = ref('amt')   // 左表口径: amt=竞额抢筹(开盘啦净额)
 const datePicker = ref('')    // 用户选的日期(空=实时)
 const dataDate = ref('')      // 后端实际返回的数据日期(可能被对齐)
 let autoFallback = false      // 已自动回退(避免清空后无限循环)
+
+// ---- 个股三时点封单(9:15/9:20/9:25 一视图对比) ----
+const stock3 = ref({ show: false, code: '', data: { date: '', name: '', points: {} }, loaded: false })
+const stock3Points = ['9_15', '9_20', '9_25']
+const TP_LABEL = { '9_15': '9:15', '9_20': '9:20', '9_25': '9:25' }
+function tpLabel(tp) { return TP_LABEL[tp] || tp }
+
+const hasStock3Points = computed(() => {
+  const pts = stock3.value && stock3.value.data && stock3.value.data.points
+  if (!pts) return false
+  return Object.values(pts).some((v) => v)
+})
+
+async function loadStock3() {
+  const code = (stock3.value.code || '').trim()
+  if (!/^\d{6}$/.test(code)) { showToast('请输入 6 位股票代码', 'error'); return }
+  stock3.value.loaded = false
+  try {
+    const d = await bidSnapshotStock(datePicker.value || todayBj(), code)
+    stock3.value.data = d
+    stock3.value.loaded = true
+    stock3.value.show = true
+  } catch (e) {
+    showToast(e.message || '查询失败', 'error')
+  }
+}
 
 // 各表独立排序实例
 const sealSort = useSortable()
@@ -581,6 +654,38 @@ onMounted(() => {
 
 /* 时点个股弹窗(脱离 flex, 固定定位自居中, 不受 flex item 收缩影响) */
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; }
+
+/* 个股三时点封单工具条 */
+.stock3-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  flex-wrap: wrap;
+}
+.stock3-input {
+  background: var(--bg-input);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  color: var(--text-main);
+  padding: 6px 10px;
+  font-size: 13px;
+  width: 200px;
+  box-sizing: border-box;
+}
+.stock3-input:focus { outline: none; border-color: var(--accent-warm, #ffb400); }
+.stock3-btn {
+  background: rgba(0, 180, 255, 0.15);
+  border: 1px solid #00b4ff;
+  color: #a0e0ff;
+  border-radius: 6px;
+  padding: 6px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.stock3-btn:hover { background: rgba(0, 180, 255, 0.28); }
+.stock3-tp { color: var(--accent-warm, #ffb400); font-weight: 600; }
 .snap-modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 12px; width: min(1100px, 98vw); max-height: 85vh; overflow: auto; padding: 12px 14px; box-sizing: border-box; }
 .snap-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .snap-title { font-size: 15px; font-weight: 700; color: #ffe0a0; }
