@@ -97,3 +97,25 @@ def test_api_hot_rank_history(client, first_user, monkeypatch):
     r2 = client.get("/api/kpl/hot-rank?date=2026-01-01",
                     headers={"Authorization": "Bearer " + token})
     assert r2.json().get("list") == []
+
+
+def test_api_date_resolve_weekend(client, first_user, monkeypatch):
+    """周末/节假日日期自动对齐到最近交易日(daily_sector_top 存在性反推)"""
+    token, _, _ = first_user
+    # 预置 daily_sector_top: 8.14 是最近交易日
+    conn = sqlite3.connect(os.environ["BID_DB_PATH"])
+    conn.execute("DELETE FROM daily_sector_top")
+    conn.execute("INSERT INTO daily_sector_top (date, source, boards, ts) VALUES ('2026-08-14','kpl',?,0)",
+                 (json.dumps([{"rank": 1, "name": "算力", "strength": 7686}]),))
+    conn.commit()
+    conn.close()
+    # 8.15 周六 -> 对齐到 8.14
+    r = client.get("/api/kpl/hot-rank?date=2026-08-15",
+                   headers={"Authorization": "Bearer " + token})
+    d = r.json()
+    assert d.get("date") == "2026-08-14"
+    assert d.get("requestedDate") == "2026-08-15"
+    # 8.17 周日 -> 对齐到 8.14
+    r2 = client.get("/api/kpl/hot-rank?date=2026-08-17",
+                    headers={"Authorization": "Bearer " + token})
+    assert r2.json().get("date") == "2026-08-14"

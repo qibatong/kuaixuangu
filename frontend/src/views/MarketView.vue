@@ -29,6 +29,7 @@
         <span class="rot-tip"><i class="fa fa-info-circle"></i> 实时板块强度排行；选日期可回看历史(开盘啦保留最近5交易日)</span>
         <input type="date" v-model="datePicker" class="admin-input" style="width:140px;padding:5px 8px;" @change="loadBoard">
         <button class="admin-search-btn" @click="clearDate('board')"><i class="fa fa-bolt"></i> 实时</button>
+        <span v-if="boardDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ boardDataDate }}<template v-if="boardDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
       </div>
       <div v-if="boardLoading" class="loading-placeholder"><div class="spinner"></div><div>加载板块强度...</div></div>
       <div v-else-if="!boardList.length" class="empty-state">暂无板块强度数据</div>
@@ -149,6 +150,7 @@
         </div>
         <input type="date" v-model="datePicker" class="admin-input" style="width:140px;padding:5px 8px;" @change="loadHot">
         <button class="admin-search-btn" @click="clearDate('hot')"><i class="fa fa-bolt"></i> 实时</button>
+        <span v-if="hotDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ hotDataDate }}<template v-if="hotDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
       </div>
       <div v-if="hotLoading" class="loading-placeholder"><div class="spinner"></div><div>加载人气热榜...</div></div>
       <div v-else-if="!hotList.length" class="empty-state">暂无热榜数据</div>
@@ -180,6 +182,7 @@
         <span class="rot-tip"><i class="fa fa-info-circle"></i> 龙虎榜当日/历史；选日期可回看</span>
         <input type="date" v-model="datePicker" class="admin-input" style="width:140px;padding:5px 8px;" @change="loadLhb">
         <button class="admin-search-btn" @click="clearDate('lhb')"><i class="fa fa-bolt"></i> 实时</button>
+        <span v-if="lhbDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ lhbDataDate }}<template v-if="lhbDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
       </div>
       <div v-if="lhbLoading" class="loading-placeholder"><div class="spinner"></div><div>加载龙虎榜...</div></div>
       <div v-else-if="!lhbList.length" class="empty-state">暂无龙虎榜数据</div>
@@ -278,6 +281,9 @@ const hotLoading = ref(true)
 const lhbLoading = ref(true)
 const hotSource = ref(localStorage.getItem('kuaixuan_hot_source') || 'kpl')
 const datePicker = ref('')
+const boardDataDate = ref('')
+const hotDataDate = ref('')
+const lhbDataDate = ref('')
 const bjTime = ref('--:--:--')
 let clockTimer = null
 let refreshTimer = null
@@ -325,6 +331,7 @@ async function loadBoard() {
   try {
     const d = await kplBoardRank(datePicker.value)
     boardList.value = d.list || []
+    boardDataDate.value = d.date || ''
   } catch (e) { /* 静默 */ } finally {
     boardLoading.value = false
   }
@@ -341,6 +348,7 @@ async function loadHot() {
   try {
     const d = await kplHotRank(hotSource.value, datePicker.value)
     hotList.value = d.list || []
+    hotDataDate.value = d.date || ''
   } catch (e) { /* 静默 */ } finally {
     hotLoading.value = false
   }
@@ -358,6 +366,7 @@ async function loadLhb() {
   try {
     const d = await kplLhb(datePicker.value)
     lhbList.value = d.list || []
+    lhbDataDate.value = d.date || ''
   } catch (e) { /* 静默 */ } finally {
     lhbLoading.value = false
   }
@@ -595,6 +604,8 @@ body[data-bg="light"] .reason-modal { background: rgba(255,255,255,0.98); border
 /* ===================== 板块轮动历史视图 ===================== */
 .rot-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
 .rot-tip { color: var(--text-muted); font-size: 12px; flex: 1; }
+.rot-data-date { color: var(--accent-warm, #ffb400); font-size: 12px; white-space: nowrap; }
+body[data-bg="light"] .rot-data-date { color: #b36a00; }
 .rot-source { display: flex; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-soft, #444); }
 .rot-source-btn { background: var(--bg-input, #1a1a1a); color: var(--text-secondary, #aaa); border: none; padding: 5px 12px; font-size: 12px; cursor: pointer; transition: background 0.15s; }
 .rot-source-btn:hover { background: var(--bg-card, #222); }

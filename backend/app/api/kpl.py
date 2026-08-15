@@ -15,6 +15,26 @@ log = logger.get_logger(__name__)
 router = APIRouter()
 
 
+def _resolve_date(date):
+    """把用户选的日期对齐到最近交易日(返回对齐后的 'YYYY-MM-DD')
+    原理: 周末/节假日/未开盘日没有落库数据, 查 daily_sector_top 中
+    <= 所选日期的最大日期即为最近交易日 —— 无需任何节假日日历, 天然准确
+    无任何历史时返回原日期"""
+    if not date:
+        return ""
+    try:
+        from ..db import database
+        conn = database.get_conn()
+        row = conn.execute(
+            "SELECT MAX(date) FROM daily_sector_top WHERE date <= ?", (date,)).fetchone()
+        conn.close()
+        if row and row[0]:
+            return str(row[0])
+    except Exception:
+        pass
+    return date
+
+
 @router.get("/api/kpl/sentiment")
 def api_kpl_sentiment(request: Request, uid: int = Depends(get_uid)):
     """市场情绪: 涨停家数/情绪指标/连板高度/大幅回撤"""
@@ -54,37 +74,45 @@ def api_kpl_ladder(request: Request, uid: int = Depends(get_uid)):
 
 @router.get("/api/kpl/board-rank")
 def api_kpl_board_rank(request: Request, uid: int = Depends(get_uid), date: str = ""):
-    """板块强度排行; date 空=实时, 指定 'YYYY-MM-DD' 查历史(开盘啦 doc42 保留最近 5 交易日)"""
+    """板块强度排行; date 空=实时, 指定 'YYYY-MM-DD' 查历史(开盘啦 doc42 保留最近 5 交易日)
+    周末/节假日自动对齐到最近交易日(resolvedDate)"""
     if date:
-        d = kpl.fetch_board_rank_by_date(date)
-    else:
-        d = kpl.fetch_board_rank()
-    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0, "date": date or ""})
+        resolved = _resolve_date(date)
+        d = kpl.fetch_board_rank_by_date(resolved)
+        return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
+                   "date": resolved, "requestedDate": date})
+    d = kpl.fetch_board_rank()
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0, "date": ""})
 
 
 @router.get("/api/kpl/hot-rank")
 def api_kpl_hot_rank(request: Request, uid: int = Depends(get_uid), source: str = "kpl", date: str = ""):
-    """人气热榜; source: kpl/em/ths; date 空=实时, 指定日期回看历史(hot_rank_history)"""
+    """人气热榜; source: kpl/em/ths; date 空=实时, 指定日期回看历史(hot_rank_history)
+    周末/节假日自动对齐到最近交易日"""
     from ..services import hot_rank
     source = (source or "kpl").lower()
     if source not in ("kpl", "em", "ths"):
         source = "kpl"
     if date:
-        d = hot_rank.query_hot_rank_history(date, source)
-    else:
-        d = hot_rank.fetch_hot_rank(source)
+        resolved = _resolve_date(date)
+        d = hot_rank.query_hot_rank_history(resolved, source)
+        return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
+                   "source": source, "date": resolved, "requestedDate": date})
+    d = hot_rank.fetch_hot_rank(source)
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
-               "source": source, "date": date or ""})
+               "source": source, "date": ""})
 
 
 @router.get("/api/kpl/lhb")
 def api_kpl_lhb(request: Request, uid: int = Depends(get_uid), date: str = ""):
-    """龙虎榜上榜股票; date 空=当天实时, 指定 'YYYY-MM-DD' 回看历史(lhb_history 快照)"""
+    """龙虎榜上榜股票; date 空=当天实时, 指定 'YYYY-MM-DD' 回看历史(lhb_history 快照)
+    周末/节假日自动对齐到最近交易日"""
     if date:
+        resolved = _resolve_date(date)
         import json as _json
         from ..db import database
         conn = database.get_conn()
-        row = conn.execute("SELECT list FROM lhb_history WHERE date=?", (date,)).fetchone()
+        row = conn.execute("SELECT list FROM lhb_history WHERE date=?", (resolved,)).fetchone()
         conn.close()
         lst = []
         if row and row[0]:
@@ -92,7 +120,7 @@ def api_kpl_lhb(request: Request, uid: int = Depends(get_uid), date: str = ""):
                 lst = _json.loads(row[0])
             except (ValueError, TypeError):
                 lst = []
-        return jr({"ok": True, "list": lst, "count": len(lst), "date": date})
+        return jr({"ok": True, "list": lst, "count": len(lst), "date": resolved, "requestedDate": date})
     d = kpl.fetch_lhb()
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0, "date": ""})
 
