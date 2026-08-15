@@ -219,6 +219,63 @@ def query_stock_snapshot(date, code):
     return {"name": name, "points": points}
 
 
+def _is_zt(code, bid_change):
+    """竞价涨停判断(按板块涨停幅度, 涨幅达到阈值视为涨停):
+    创业/科创(30/68) 20%, 北交所(8/4) 30%, 主板 10%"""
+    if bid_change is None:
+        return False
+    if code[:2] in ("30", "68"):
+        return bid_change >= 19.9
+    if code[:1] in ("8", "4"):
+        return bid_change >= 29.9
+    return bid_change >= 9.9
+
+
+# 榜单分层: 1=9:25 涨停(封死) / 2=9:20 涨停(9:25 回落) / 3=仅 9:15 涨停(9:20/9:25 回落)
+LAYER_TAGS = {1: "9:25封死", 2: "9:20封板回落", 3: "9:15封板回落"}
+
+
+def query_3points_board(date, limit=100):
+    """三时点封单榜: 全市场按三层原则排序(短线侠式)
+    1. 9:25 涨停 → 按 9:25 竞价额排序
+    2. 9:25 未涨停但 9:20 涨停 → 按 9:20 竞价额排序
+    3. 9:25/9:20 均未涨停但 9:15 涨停 → 按 9:15 竞价额排序
+    返回 [{code, name, layer, tag, sort_amt, points:{9_15..}}]"""
+    try:
+        conn = database.get_conn()
+        rows = conn.execute(
+            "SELECT time_point, code, bid_change, bid_amt, name, bid_buy_amt, float_mv FROM snapshot_bid "
+            "WHERE date=? AND time_point IN ('9_15','9_20','9_25')", (date,)).fetchall()
+        conn.close()
+    except Exception:
+        return []
+    agg = {}
+    for tp, code, bc, amt, name, buy, mv in rows:
+        d = agg.setdefault(code, {"code": code, "name": name or "", "points": {}})
+        if name:
+            d["name"] = name
+        d["points"][tp] = {"bid_change": bc, "bid_amt": amt, "bid_buy_amt": buy, "float_mv": mv}
+    out = []
+    for code, d in agg.items():
+        p15, p20, p25 = d["points"].get("9_15"), d["points"].get("9_20"), d["points"].get("9_25")
+        layer = None
+        sort_amt = 0.0
+        if p25 and _is_zt(code, p25["bid_change"]):
+            layer, sort_amt = 1, p25["bid_amt"] or 0
+        elif p20 and _is_zt(code, p20["bid_change"]):
+            layer, sort_amt = 2, p20["bid_amt"] or 0
+        elif p15 and _is_zt(code, p15["bid_change"]):
+            layer, sort_amt = 3, p15["bid_amt"] or 0
+        if layer is None:
+            continue
+        out.append({"code": code, "name": d["name"], "layer": layer,
+                    "tag": LAYER_TAGS[layer], "sort_amt": round(sort_amt, 2),
+                    "points": d["points"]})
+    # 分层优先(小→大), 层内按封单额降序
+    out.sort(key=lambda x: (x["layer"], -x["sort_amt"]))
+    return out[: min(limit, 300)]
+
+
 def _has_snapshot(date, time_point):
     """某日某时点是否已有快照数据(9_24 重采型时点用, 不依赖 _sched_done 标记)"""
     try:

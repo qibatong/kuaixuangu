@@ -74,6 +74,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
       <button class="auc-tab" :class="{ active: tab === 'lhb' }" @click="switchTab('lhb')"><i class="fa fa-list-alt"></i> 昨上榜</button>
       <button class="auc-tab" :class="{ active: tab === 'brokenYest' }" @click="switchTab('brokenYest')"><i class="fa fa-history"></i> 昨炸板</button>
       <button class="auc-tab" :class="{ active: tab === 'brokenToday' }" @click="switchTab('brokenToday')"><i class="fa fa-chain-broken"></i> 今炸板</button>
+      <button class="auc-tab" :class="{ active: tab === 's3' }" title="全市场三时点封单榜: 9:25涨停→9:20涨停回落→9:15涨停回落 三层排序" @click="switchTab('s3')"><i class="fa fa-th-list"></i> 三时点封单</button>
     </div>
 
     <div class="auc-panel">
@@ -109,6 +110,37 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ it.board }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已入池' : '＋池' }}</button></td>
           </tr>
+        </tbody>
+      </table>
+
+      <!-- 三时点封单榜(短线侠式三层排序: 9:25涨停 > 9:20涨停回落 > 9:15涨停回落) -->
+      <table v-else-if="tab === 's3'" class="stock-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th class="sortable" :class="{ active: s3Sort.keyOf('code') }" @click="s3Sort.onSort('code', 'string')">代码<span class="sort-ind">{{ s3Sort.ind('code') }}</span></th>
+            <th>名称</th>
+            <th>状态</th>
+            <th>9:15</th>
+            <th>9:20</th>
+            <th>9:25</th>
+            <th>流通市值(亿)</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(it, idx) in s3Sort.sorted(s3List)" :key="it.code">
+            <td class="rank-col">{{ idx + 1 }}</td>
+            <td class="code-click" @click="linkToSoftware(it.code)">{{ it.code }}</td>
+            <td class="name-col"><div class="name-main">{{ it.name || it.code }}</div></td>
+            <td><span class="s3-tag" :class="'s3-tag-' + it.layer">{{ it.tag }}</span></td>
+            <td :class="tpCls(it, '9_15')">{{ tpCell(it, '9_15') }}</td>
+            <td :class="tpCls(it, '9_20')">{{ tpCell(it, '9_20') }}</td>
+            <td :class="tpCls(it, '9_25')">{{ tpCell(it, '9_25') }}</td>
+            <td class="dim">{{ mvText(it) }}</td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已入池' : '＋池' }}</button></td>
+          </tr>
+          <tr v-if="!s3List.length"><td colspan="9" class="snap-empty">暂无三时点封单数据（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
         </tbody>
       </table>
 
@@ -402,7 +434,7 @@ v-if="stock3.data.points && stock3.data.points[tp]"
 import { computed, onMounted, ref } from 'vue'
 import { usePolling } from '../composables/usePolling'
 import { kplBidSeal, kplBidBoom, kplBidQiangcang, kplBroken, kplLhb, kplYestBroken, kplYestZt } from '../api/kpl'
-import { auctionOverview, auctionSnapshot, bidSnapshotStock } from '../api/stats'
+import { auctionOverview, auctionSnapshot, bidSnapshotStock, bidSnapshot3points } from '../api/stats'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr, isMemberOnlyTime, todayBj } from '../utils/time'
 import { usePoolStore } from '../stores/pool'
@@ -421,6 +453,7 @@ const boomList = ref([])
 const lhbList = ref([])
 const brokenYestList = ref([])
 const brokenTodayList = ref([])
+const s3List = ref([])        // 三时点封单榜(后端已按三层排序)
 const qcList = ref([])
 const qcChgList = ref([])     // 涨幅抢筹(9:25涨幅−9:20涨幅, 全市场快照)
 const qcLastList = ref([])
@@ -468,6 +501,24 @@ const yestBrokenSort = useSortable()
 const lhbSort = useSortable()
 const brokenSort = useSortable()
 const snapSort = useSortable()
+const s3Sort = useSortable()
+
+// ---- 三时点封单榜单元格: 涨幅% + 竞价额(万) ----
+function tpCell(it, tp) {
+  const p = it.points && it.points[tp]
+  if (!p || p.bid_change === null || p.bid_change === undefined) return '-'
+  const amt = p.bid_amt ? wan(p.bid_amt) + '万' : '-'
+  return `${signed(p.bid_change)}% ${amt}`
+}
+function tpCls(it, tp) {
+  const p = it.points && it.points[tp]
+  if (!p || p.bid_change === null || p.bid_change === undefined) return 'dim'
+  return p.bid_change > 0 ? 'up' : p.bid_change < 0 ? 'down' : 'dim'
+}
+function mvText(it) {
+  const p = it.points && (it.points['9_25'] || it.points['9_20'] || it.points['9_15'])
+  return p && p.float_mv ? (p.float_mv / 1e8).toFixed(1) : '-'
+}
 
 // 切 Tab 时清掉排序(避免跨表残留的 key 干扰)
 function switchTab(t) {
@@ -521,9 +572,10 @@ async function loadAll(fromUser = false) {
   loading.value = true
   try {
     // 历史回看: 所有接口带 date; 实时: 不带
-    const [ov, seal, boom, qc, yestZt, yestBroken, lhb, brokenYest, brokenToday] = await Promise.all([
+    const [ov, seal, boom, qc, yestZt, yestBroken, lhb, brokenYest, brokenToday, s3] = await Promise.all([
       auctionOverview(dt), kplBidSeal(dt), kplBidBoom(dt), kplBidQiangcang(dt), kplYestZt(dt),
-      kplYestBroken(dt), kplLhb(dt), kplBroken('', dt), kplBroken(dt ? '' : 'yesterday', dt)
+      kplYestBroken(dt), kplLhb(dt), kplBroken('', dt), kplBroken(dt ? '' : 'yesterday', dt),
+      bidSnapshot3points(dt || todayBj())
     ])
     // 非交易时段(周末/节假日/盘前盘后)自动回退: 实时模式且各 tab 全空时,
     // 自动切到最近交易日(overview.days[0].date = 最近有 snapshot_bid 数据的日期)
@@ -551,6 +603,7 @@ async function loadAll(fromUser = false) {
     lhbList.value = lhb.list || []
     brokenYestList.value = brokenYest.list || []
     brokenTodayList.value = brokenToday.list || []
+    s3List.value = s3.list || []
     // 记录实际数据日期(后端可能对齐到最近交易日)
     const d = seal.date || (ov.days && ov.days.length ? ov.days[0].date : '')
     dataDate.value = d || dt || ''
@@ -686,6 +739,15 @@ onMounted(() => {
 }
 .stock3-btn:hover { background: rgba(0, 180, 255, 0.28); }
 .stock3-tp { color: var(--accent-warm, #ffb400); font-weight: 600; }
+
+/* 三时点封单榜状态标签: 层1(9:25封死)=红金 / 层2(9:20回落)=橙 / 层3(9:15回落)=黄 */
+.s3-tag { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+.s3-tag-1 { color: #ffd700; border: 1px solid #ffd700; background: rgba(255, 215, 0, 0.1); }
+.s3-tag-2 { color: #ffb347; border: 1px solid #ffb347; background: rgba(255, 180, 71, 0.1); }
+.s3-tag-3 { color: #a0e0ff; border: 1px solid #00b4ff; background: rgba(0, 180, 255, 0.1); }
+body[data-bg="light"] .s3-tag-1 { color: #8a6a00; border-color: #c79100; }
+body[data-bg="light"] .s3-tag-2 { color: #a05a10; border-color: #c79100; }
+body[data-bg="light"] .s3-tag-3 { color: #005c8a; border-color: #0080a0; }
 .snap-modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 12px; width: min(1100px, 98vw); max-height: 85vh; overflow: auto; padding: 12px 14px; box-sizing: border-box; }
 .snap-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .snap-title { font-size: 15px; font-weight: 700; color: #ffe0a0; }

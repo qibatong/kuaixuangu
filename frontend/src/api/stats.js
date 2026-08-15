@@ -17,3 +17,8 @@ export function auctionSnapshot(date, timePoint) {
 export function bidSnapshotStock(date, code) {
   return request('/api/stats/bid-snapshot-stock', { query: { date, code } })
 }
+
+// 全市场三时点封单榜(三层排序: 9:25涨停 > 9:20涨停回落 > 9:15涨停回落)
+export function bidSnapshot3points(date, limit = 100) {
+  return request('/api/stats/bid-snapshot-3points', { query: { date, limit } })
+}

@@ -141,3 +141,28 @@ def api_stats_bid_snapshot_stock(request: Request, uid: int = Depends(get_uid)):
         conn.close()
     d = auction_snapshot.query_stock_snapshot(resolved, code)
     return jr({"ok": True, "date": resolved, "code": code, "name": d["name"], "points": d["points"]})
+
+
+@router.get("/api/stats/bid-snapshot-3points")
+def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)):
+    """三时点封单榜(全市场): ?date=YYYY-MM-DD&limit=100
+    三层排序: ①9:25涨停(按9:25竞价额) ②9:20涨停9:25回落(按9:20) ③仅9:15涨停(按9:15)"""
+    q = qs(request)
+    date = (q.get("date") or [""])[0]
+    if not date:
+        return jr({"ok": False, "msg": "date 必填"}, 400)
+    try:
+        limit = min(300, max(10, int((q.get("limit") or [100])[0])))
+    except (TypeError, ValueError):
+        limit = 100
+    conn = database.get_conn()
+    try:
+        row = conn.execute(
+            "SELECT MAX(date) FROM snapshot_bid WHERE date <= ?", (date,)).fetchone()
+        resolved = str(row[0]) if row and row[0] else date
+    except Exception:
+        resolved = date
+    finally:
+        conn.close()
+    rows = auction_snapshot.query_3points_board(resolved, limit)
+    return jr({"ok": True, "date": resolved, "count": len(rows), "list": rows})
