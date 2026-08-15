@@ -195,6 +195,7 @@ import { showToast } from '../utils/toast'
 import { linkToSoftware } from '../utils/tdx'
 import { fmtDate } from '../utils/time'
 import { useSortable } from '../composables/useSortable'
+import { signed } from '../utils/format'
 
 const PAGE_SIZE = 100
 // 表格排序实例
@@ -315,7 +316,6 @@ async function loadMore() {
   }
 }
 
-function signed(v) { return (v > 0 ? '+' : '') + v.toFixed(2) }
 function realCls(s) {
   if (s.real_change < s.bid_change) return 'real-green'
   return s.real_change > 0 ? 'up' : 'down'

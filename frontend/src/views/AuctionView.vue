@@ -361,6 +361,7 @@ import { usePoolStore } from '../stores/pool'
 import { showToast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
 import { useUserStore } from '../stores/user'
+import { yi, signed, amtText, fmtAvg, fmtT, wan } from '../utils/format'
 import VipGate from '../components/VipGate.vue'
 
 const user = useUserStore()
@@ -419,20 +420,6 @@ const sealList = computed(() => {
 // 炸板: 昨/今 按 Tab 切换
 const brokenList = computed(() => (tab.value === 'brokenYest' ? brokenYestList.value : brokenTodayList.value))
 
-function yi(v) { return (v / 1e8).toFixed(2) }
-function signed(v) { return (v > 0 ? '+' : '') + Number(v).toFixed(2) }
-// 金额自适应: >=1亿 显示亿(2位), 否则显示万
-function amtText(v) {
-  if (!v || v <= 0) return '-'
-  return v >= 1e8 ? (v / 1e8).toFixed(2) + '亿' : (v / 1e4).toFixed(0) + '万'
-}
-function fmtAvg(v) { return v === null || v === undefined ? '-' : (v > 0 ? '+' : '') + v.toFixed(2) + '%' }
-function fmtT(ts) {
-  if (!ts) return '-'
-  const d = new Date((ts + 8 * 3600) * 1000)
-  return d.toISOString().slice(11, 16)
-}
-
 function addToPool(s) {
   const n = pool.addStocks([{ code: s.code, name: s.name }])
   showToast(n ? `✅ ${s.code} ${s.name} 已加入股票池` : `${s.code} 已在池中`, n ? 'success' : 'info')
@@ -456,7 +443,6 @@ async function showSnapshot(date, tp) {
     snapModal.value.list = d.list || []
   } catch (e) { /* 静默 */ }
 }
-function wan(v) { return v ? Number(v).toFixed(0) : '0' }
 
 async function loadAll(fromUser = false) {
   const dt = datePicker.value
