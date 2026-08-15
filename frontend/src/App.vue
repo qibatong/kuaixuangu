@@ -30,9 +30,9 @@ A
 </button>
       </div>
     </div>
+    <NavBar />
     <router-view />
-    <Watermark />
-    <div class="footnote">
+    <Watermark />    <div class="footnote">
       <i class="fa fa-bullhorn"></i> 9:30前可唯一选股并缓存 | 9:30后仅更新实时涨幅 | 实时涨幅＜竞价涨幅自动标绿 | 通达信导入：首次需下载工具并勾选通达信「监控剪贴板」一次 | 股票池10小时防刷新锁定
     </div>
     <div class="disclaimer">本平台仅提供软件工具使用权，不构成任何投资建议，股市有风险，投资需谨慎。</div>
@@ -43,6 +43,7 @@ A
 import { onMounted } from 'vue'
 import { useTheme, BGS, FONTS } from './composables/useTheme'
 import Watermark from './components/Watermark.vue'
+import NavBar from './components/NavBar.vue'
 
 const { bg, font, setBg, setFont, load } = useTheme()
 

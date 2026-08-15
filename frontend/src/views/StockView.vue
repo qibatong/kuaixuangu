@@ -14,12 +14,6 @@
         <div class="btn-group">
           <button class="tdx-export-btn reset-lock-btn" :disabled="!isBefore930()" @click="reLock"><i class="fa fa-refresh"></i> 重新锁定(9:30前可用)</button>
           <button class="tdx-export-btn real-time-btn" @click="refreshRealTime"><i class="fa fa-refresh"></i> 刷新实时涨幅</button>
-          <router-link to="/history" class="tdx-export-btn nav-btn nav-history"><i class="fa fa-history"></i> 历史回看</router-link>
-          <router-link to="/ladder" class="tdx-export-btn nav-btn nav-ladder"><i class="fa fa-sitemap"></i> 连板天梯</router-link>
-          <router-link to="/market" class="tdx-export-btn nav-btn nav-market"><i class="fa fa-radar"></i> 市场雷达</router-link>
-          <router-link to="/auction" class="tdx-export-btn nav-btn nav-auction"><i class="fa fa-bullhorn"></i> 竞价异动</router-link>
-          <router-link to="/invite" class="tdx-export-btn nav-btn nav-invite"><i class="fa fa-share-alt"></i> 邀请</router-link>
-          <router-link v-if="user.isAdmin" to="/admin" class="tdx-export-btn nav-btn nav-admin"><i class="fa fa-shield"></i> 管理</router-link>
           <a href="/download/tdx_import.exe" class="tdx-export-btn tdx-only nav-btn nav-tdx"><i class="fa fa-windows"></i> 下载通达信工具</a>
           <button class="tdx-export-btn tdx-only nav-btn nav-pool-import" data-tip="💡 首次用：先点「下载通达信工具」并运行，再在通达信『选项/工具』勾选『监控剪贴板』，之后点下载即可自动导入" @click="downloadAll"><i class="fa fa-download"></i> 下载自选股(自动导入)</button>
         </div>
