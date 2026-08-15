@@ -65,6 +65,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
 
     <!-- Tab 切换 -->
     <div class="auc-tabs">
+      <button class="auc-tab" :class="{ active: tab === 's3' }" title="全市场三时点封单榜: 9:25涨停→9:20涨停回落→9:15涨停回落 三层排序" @click="switchTab('s3')"><i class="fa fa-th-list"></i> 三时点封单</button>
       <button class="auc-tab" :class="{ active: tab === 'seal' }" @click="switchTab('seal')"><i class="fa fa-gavel"></i> 竞价委买</button>
       <button class="auc-tab" :class="{ active: tab === 'boom' }" @click="switchTab('boom')"><i class="fa fa-bolt"></i> 竞价爆量</button>
       <button class="auc-tab" :class="{ active: tab === 'net' }" @click="switchTab('net')"><i class="fa fa-exchange"></i> 竞价净额</button>
@@ -74,7 +75,6 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
       <button class="auc-tab" :class="{ active: tab === 'lhb' }" @click="switchTab('lhb')"><i class="fa fa-list-alt"></i> 昨上榜</button>
       <button class="auc-tab" :class="{ active: tab === 'brokenYest' }" @click="switchTab('brokenYest')"><i class="fa fa-history"></i> 昨炸板</button>
       <button class="auc-tab" :class="{ active: tab === 'brokenToday' }" @click="switchTab('brokenToday')"><i class="fa fa-chain-broken"></i> 今炸板</button>
-      <button class="auc-tab" :class="{ active: tab === 's3' }" title="全市场三时点封单榜: 9:25涨停→9:20涨停回落→9:15涨停回落 三层排序" @click="switchTab('s3')"><i class="fa fa-th-list"></i> 三时点封单</button>
     </div>
 
     <div class="auc-panel">
@@ -399,8 +399,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <tr>
               <th>时点</th>
               <th>竞价涨幅</th>
-              <th>竞价额(万)</th>
-              <th>委买额(万)</th>
+              <th>封单额(万)</th>
               <th>流通市值(亿)</th>
             </tr>
           </thead>
@@ -414,9 +413,7 @@ v-if="stock3.data.points && stock3.data.points[tp]"
                 {{ signed(stock3.data.points[tp].bid_change) }}%
               </td>
               <td v-else class="dim">-</td>
-              <td v-if="stock3.data.points && stock3.data.points[tp]">{{ wan(stock3.data.points[tp].bid_amt) }}</td>
-              <td v-else class="dim">-</td>
-              <td v-if="stock3.data.points && stock3.data.points[tp]">{{ wan(stock3.data.points[tp].bid_buy_amt) }}</td>
+              <td v-if="stock3.data.points && stock3.data.points[tp] && stock3.data.points[tp].bid_buy_amt">{{ (stock3.data.points[tp].bid_buy_amt / 1e4).toFixed(0) }}</td>
               <td v-else class="dim">-</td>
               <td v-if="stock3.data.points && stock3.data.points[tp]">{{ (stock3.data.points[tp].float_mv / 1e8).toFixed(1) }}</td>
               <td v-else class="dim">-</td>
@@ -503,11 +500,11 @@ const brokenSort = useSortable()
 const snapSort = useSortable()
 const s3Sort = useSortable()
 
-// ---- 三时点封单榜单元格: 涨幅% + 竞价额(万) ----
+// ---- 三时点封单榜单元格: 涨幅% + 封单额(万, 来自 bid_buy_amt 元) ----
 function tpCell(it, tp) {
   const p = it.points && it.points[tp]
   if (!p || p.bid_change === null || p.bid_change === undefined) return '-'
-  const amt = p.bid_amt ? wan(p.bid_amt) + '万' : '-'
+  const amt = p.bid_buy_amt ? (p.bid_buy_amt / 1e4).toFixed(0) + '万' : '-'
   return `${signed(p.bid_change)}% ${amt}`
 }
 function tpCls(it, tp) {

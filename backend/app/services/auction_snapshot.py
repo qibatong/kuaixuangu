@@ -80,7 +80,9 @@ def _fetch_market_map(full=False):
                         "bid_change": bc,
                         "bid_amt": scorer.get_bid_amt(s),
                         "name": str(s.get("f14") or ""),          # 名称
-                        "bid_buy_amt": scorer.parse_float(s.get("f5")) / 10000,   # 委买额(万元)
+                        # 竞价封单额(元) = f10 买一量(手) × f5 买一价 × 100(股/手)
+                        # 涨停时买一委托即封单; 非涨停时=买一委托金额(竞价强弱参考)
+                        "bid_buy_amt": scorer.parse_float(s.get("f10")) * scorer.parse_float(s.get("f5")) * 100,
                         "float_mv": scorer.parse_float(s.get("f21")),             # 流通市值(元) - f21 才是流通市值, f6 是成交额!
                         "board": str(s.get("f103") or s.get("f100") or ""),       # 概念(f103优先, 行业f100兜底)
                     }
@@ -237,9 +239,9 @@ LAYER_TAGS = {1: "9:25封死", 2: "9:20封板回落", 3: "9:15封板回落"}
 
 def query_3points_board(date, limit=100):
     """三时点封单榜: 全市场按三层原则排序(短线侠式)
-    1. 9:25 涨停 → 按 9:25 竞价额排序
-    2. 9:25 未涨停但 9:20 涨停 → 按 9:20 竞价额排序
-    3. 9:25/9:20 均未涨停但 9:15 涨停 → 按 9:15 竞价额排序
+    1. 9:25 涨停 → 按 9:25 封单额排序(无封单降级竞价额)
+    2. 9:25 未涨停但 9:20 涨停 → 按 9:20 封单额排序
+    3. 9:25/9:20 均未涨停但 9:15 涨停 → 按 9:15 封单额排序
     返回 [{code, name, layer, tag, sort_amt, points:{9_15..}}]"""
     try:
         conn = database.get_conn()
@@ -261,11 +263,14 @@ def query_3points_board(date, limit=100):
         layer = None
         sort_amt = 0.0
         if p25 and _is_zt(code, p25["bid_change"]):
-            layer, sort_amt = 1, p25["bid_amt"] or 0
+            layer = 1
+            sort_amt = (p25["bid_buy_amt"] or 0) or (p25["bid_amt"] or 0)
         elif p20 and _is_zt(code, p20["bid_change"]):
-            layer, sort_amt = 2, p20["bid_amt"] or 0
+            layer = 2
+            sort_amt = (p20["bid_buy_amt"] or 0) or (p20["bid_amt"] or 0)
         elif p15 and _is_zt(code, p15["bid_change"]):
-            layer, sort_amt = 3, p15["bid_amt"] or 0
+            layer = 3
+            sort_amt = (p15["bid_buy_amt"] or 0) or (p15["bid_amt"] or 0)
         if layer is None:
             continue
         out.append({"code": code, "name": d["name"], "layer": layer,
