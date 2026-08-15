@@ -663,15 +663,15 @@ body[data-bg="light"] .rot-source-btn.active { background: #d97b00; color: #fff;
 .rot-board { font-size: 12px; color: var(--text-main); border-radius: 4px; padding: 1px 6px; display: inline-block; }
 .rot-board.rot-c-0 { /* 仅出现 1 次: 不高亮 */ color: var(--text-main); background: transparent; }
 .rot-c-1 { color: #fff; background: #E24B4A; } .rot-c-2 { color: #fff; background: #F08C3F; }
-.rot-c-3 { color: #222; background: #E6BE2A; } .rot-c-4 { color: #fff; background: #4CB050; }
-.rot-c-5 { color: #fff; background: #2EA9A6; } .rot-c-6 { color: #fff; background: #3D8DD1; }
+.rot-c-3 { color: #222; background: #E6BE2A; } .rot-c-4 { color: #fff; background: #5C6BC0; }
+.rot-c-5 { color: #fff; background: #38A6DF; } .rot-c-6 { color: #fff; background: #2851A8; }
 .rot-c-7 { color: #fff; background: #9A57C9; } .rot-c-8 { color: #fff; background: #D45B92; }
 body[data-bg="light"] .rot-c-1 { background: #C32D2C; }
 body[data-bg="light"] .rot-c-2 { background: #D86A1B; }
 body[data-bg="light"] .rot-c-3 { color: #4a3a00; background: #F0CB3F; }
-body[data-bg="light"] .rot-c-4 { background: #2D7A33; }
-body[data-bg="light"] .rot-c-5 { background: #1A7A77; }
-body[data-bg="light"] .rot-c-6 { background: #1E64A8; }
+body[data-bg="light"] .rot-c-4 { background: #3F51B5; }
+body[data-bg="light"] .rot-c-5 { background: #1E7FB5; }
+body[data-bg="light"] .rot-c-6 { background: #1D3F8C; }
 body[data-bg="light"] .rot-c-7 { background: #6B2B9A; }
 body[data-bg="light"] .rot-c-8 { background: #A82C6C; }
 .rot-strength { font-size: 10px; color: var(--text-muted); margin-top: 1px; }
