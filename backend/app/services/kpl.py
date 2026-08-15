@@ -27,6 +27,9 @@ _health_lock = threading.Lock()
 _cache = {}
 _cache_lock = threading.Lock()
 
+# 全局并发信号量: 限制同时打开盘啦的请求数(并发 8 触发限流 → 降至 3), 保护每日 80000 配额
+_SEM = threading.Semaphore(3)
+
 _ssl_ctx = ssl.create_default_context()
 _ssl_ctx.check_hostname = False
 _ssl_ctx.verify_mode = ssl.CERT_NONE
@@ -71,8 +74,9 @@ def _call(host_key, params, timeout=12):
     })
     t0 = time.time()
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx) as r:
-            body = r.read().decode("utf-8", "ignore")
+        with _SEM:   # 并发限流: 最多 3 个请求同时打开盘啦
+            with urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx) as r:
+                body = r.read().decode("utf-8", "ignore")
         data = json.loads(body)
         _record(True, int((time.time() - t0) * 1000))
         if data.get("errcode") not in (None, "0"):
@@ -947,17 +951,23 @@ def apply_board_concept(result, log_tag="", deep=True):
         return n
     # 第二层按股查询: 并发拉取(历史聚合上百只也能秒回), 每只 1 天缓存限频
     n2 = 0
+    hit = set()
     try:
         import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-            plates = list(ex.map(fetch_stock_plate, miss_codes))
-        for code, plate in zip(miss_codes, plates):
-            if plate:
-                for it in result:
-                    if str(it.get("code")) == code:
-                        it["concept"] = plate
-                        n2 += 1
-                        break
+        # 并发受限流信号量(_SEM=3)保护, 分批执行避免一次开太多线程
+        BATCH = 20
+        for i in range(0, len(miss_codes), BATCH):
+            chunk = miss_codes[i:i + BATCH]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+                plates = list(ex.map(fetch_stock_plate, chunk))
+            for code, plate in zip(chunk, plates):
+                if plate:
+                    hit.add(code)
+        # 已命中的赋值
+        for it in result:
+            if str(it.get("code")) in hit:
+                it["concept"] = fetch_stock_plate(str(it.get("code"))) or it.get("concept", "")
+                n2 += 1
         if n2:
             log.info("选股概念开盘啦覆盖[按股] %s 补%d只/共%d只", log_tag, n2, len(result))
     except Exception as e:
@@ -2057,8 +2067,13 @@ def fetch_stock_plate(code):
     key = "stock_plate_" + str(code)
     def loader():
         d = fetch_kpl_doc94(StockID=str(code))
+        # 接口失败/返回异常(err None 或非 "0")→ 返回 None, _cached 不缓存, 下次重试
+        # 避免瞬时失败被缓存 1 天空串导致概念永远覆盖不上
         if not d:
-            return ""
+            return None
+        err = d.get("errcode")
+        if err is not None and str(err) != "0":
+            return None
         lst = d.get("ListJX") or []
         names = []
         for it in lst:
@@ -2066,8 +2081,8 @@ def fetch_stock_plate(code):
                 nm = str(it[1]).strip()
                 if nm:
                     names.append(nm)
-        return "\u3001".join(names)
-    return _cached(key, 86400, loader)  # 1 \u5929\u7f13\u5b58, \u677f\u5757\u5f52\u5c5e\u7a33\u5b9a
+        return "\u3001".join(names) if names else None
+    return _cached(key, 86400, loader)  # 1 \u5929\u7f13\u5b58(仅成功结果), \u677f\u5757\u5f52\u5c5e\u7a33\u5b9a
 
 
 def fetch_kpl_doc95(**extra):
