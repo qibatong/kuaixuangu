@@ -239,7 +239,7 @@ def _scheduler_loop():
             if g.tm_wday < 5 and 15 * 60 + 30 <= hm <= 15 * 60 + 35:
                 try:
                     from . import sector_rotation
-                    for src in ("kpl", "em"):
+                    for src in ("kpl", "em", "ths"):
                         if ("sector_" + src + "_" + date) not in _sched_done:
                             sector_rotation.record_today_top(source=src)
                             _sched_done.add("sector_" + src + "_" + date)

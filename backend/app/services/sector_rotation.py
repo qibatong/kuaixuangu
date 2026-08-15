@@ -82,6 +82,60 @@ def fetch_em_board_rank():
     return out
 
 
+def fetch_ths_board_rank():
+    """同花顺行业板块当日榜(列表页按涨跌幅排序, 取前 60 条)
+    列表页 https://q.10jqka.com.cn/thshy/ (GBK) 默认按涨跌幅降序显示行业板块,
+    一行 = 序号|板块(链接含 code/88xxxx)|涨跌幅%|总成交量万手|总成交额亿|净流入...
+    返回 [{"boardCode": 88xxxx, "name": ..., "strength": 涨跌幅%×100, "change": 涨跌幅%, "amount": 成交额(元)}, ...]"""
+    out = []
+    try:
+        import gzip
+        import re
+        ctx = _ssl_ctx()
+        req = urllib.request.Request("https://q.10jqka.com.cn/thshy/", headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Referer": "https://q.10jqka.com.cn/",
+            "Accept-Encoding": "gzip",
+        })
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as r:
+            data = r.read()
+        if r.headers.get("Content-Encoding") == "gzip":
+            data = gzip.decompress(data)
+        html = data.decode("gbk", "ignore")
+        # 提取表格行(跳过表头第一行)
+        rows = re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S)[1:]
+        for tr in rows:
+            # 板块: 序号|名称链接|涨跌幅|总成交量|总成交额亿|...
+            cells = re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)
+            if len(cells) < 5:
+                continue
+            code_m = re.search(r"code/(88\d{4})/", cells[1])
+            name_m = re.search(r">([^<]+)</a>", cells[1])
+            if not code_m or not name_m:
+                continue
+            try:
+                chg = float(cells[2].strip())
+                amount_yi = float(cells[4].strip())   # 总成交额(亿元)
+            except (ValueError, IndexError):
+                continue
+            out.append({
+                "boardCode": code_m.group(1),
+                "name": name_m.group(1).strip(),
+                "strength": round(chg * 100, 1),
+                "change": round(chg, 2),
+                "amount": round(amount_yi * 1e8, 2),   # 亿 -> 元
+                "mainNet": 0.0,
+                "volRatio": 0.0,
+                "floatMv": 0.0,
+            })
+            if len(out) >= 60:
+                break
+    except Exception as e:
+        log.warning("同花顺板块榜抓取失败 err=%s", e)
+        return []
+    return out
+
+
 def _fetch(source, top_n, date=None):
     """按数据源抓取当日 TopN 列表
     date: kpl 源支持按日期抓取(开盘啦 doc42 历史, 保留期最近 3 个交易日)"""
@@ -91,6 +145,8 @@ def _fetch(source, top_n, date=None):
         return (kpl.fetch_board_rank() or [])[:top_n]
     if source == "em":
         return fetch_em_board_rank()[:top_n]
+    if source == "ths":
+        return fetch_ths_board_rank()[:top_n]
     log.warning("未知数据源 source=%s", source)
     return []
 
