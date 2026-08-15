@@ -26,7 +26,7 @@ def resolve_date(d):
 
 def parse_row(row):
     """开盘啦行: [code, name, ?, realChange, bidSealAmt, bidChange, netAmt, turnover, bidAmt, ...]
-    参考 _parse_bid_seal: row[4]=涨停委买额(元)"""
+    参考 _parse_bid_seal: row[4]=涨停委买额(元), row[11]=板块/概念"""
     if not isinstance(row, list) or len(row) < 9:
         return None
     try:
@@ -36,6 +36,7 @@ def parse_row(row):
             "real_change": float(row[3]) if row[3] is not None else None,
             "bid_seal_amt": float(row[4]) if row[4] is not None else None,
             "bid_change": float(row[5]) if row[5] is not None else None,
+            "board": str(row[11]) if len(row) > 11 else "",
         }
     except (IndexError, ValueError, TypeError):
         return None
@@ -69,7 +70,7 @@ def backfill_one(date):
     try:
         for r in parsed:
             seal = r["bid_seal_amt"] or 0
-            if seal <= 0:
+            if seal <= 0 and not r.get("board"):
                 continue
             for tp in ("9_15", "9_20", "9_25"):
                 cur = conn.execute(
@@ -77,9 +78,18 @@ def backfill_one(date):
                     (date, tp, r["code"])).fetchone()
                 if not cur:
                     continue
+                sets, vals = [], []
+                if seal > 0:
+                    sets.append("bid_buy_amt=?")
+                    vals.append(seal)
+                if r.get("board"):
+                    sets.append("board=?")
+                    vals.append(r["board"])
+                if not sets:
+                    continue
                 conn.execute(
-                    "UPDATE snapshot_bid SET bid_buy_amt=? WHERE date=? AND time_point=? AND code=?",
-                    (seal, date, tp, r["code"]))
+                    "UPDATE snapshot_bid SET %s WHERE date=? AND time_point=? AND code=?" % ",".join(sets),
+                    vals + [date, tp, r["code"]])
                 n += 1
         conn.commit()
     finally:

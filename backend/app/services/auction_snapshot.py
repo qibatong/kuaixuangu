@@ -102,21 +102,28 @@ def snapshot_at(time_point):
         log.warning("快照拉取为空 time=%s date=%s (东财全市场接口无返回, 该时点数据缺失!)",
                     time_point, date)
         return 0
-    # 叠加开盘啦涨停委买额(真实封单): MorningBiddingList Type=4 返回该时点涨停股封单额
-    # 涨停股才有封单概念(涨停委买=封单), 非涨停股 bidSealAmt=0 不覆盖东财 f10×f5 值
+    # 叠加开盘啦涨停委买额(真实封单) + 概念: MorningBiddingList Type=4 返回该时点
+    # 涨停股封单额与概念(开盘啦概念优先, 东财 f103/f100 兜底)
     try:
         from . import kpl
         kpl._cache.clear()          # 保证拿到当前时点的新鲜数据(非前一时点缓存)
         kpl_seal = kpl.fetch_bid_seal() or []
-        kpl_map = {s["code"]: s.get("bidSealAmt") or 0 for s in kpl_seal}
+        kpl_map = {s["code"]: s for s in kpl_seal}
         n_seal = 0
+        n_board = 0
         for code, v in raw_all.items():
-            seal = kpl_map.get(code)
-            if seal:
-                v["bid_buy_amt"] = seal
-                n_seal += 1
-        if n_seal:
-            log.info("时点%s 开盘啦封单叠加 %d 只 (涨停委买额)", time_point, n_seal)
+            s = kpl_map.get(code)
+            if s:
+                seal = s.get("bidSealAmt") or 0
+                if seal:
+                    v["bid_buy_amt"] = seal
+                    n_seal += 1
+                b = s.get("board") or ""
+                if b:
+                    v["board"] = b     # 开盘啦概念覆盖东财
+                    n_board += 1
+        if n_seal or n_board:
+            log.info("时点%s 开盘啦叠加 封单%d只 概念%d只", time_point, n_seal, n_board)
     except Exception as e:
         log.warning("开盘啦封单叠加失败 time=%s err=%s", time_point, e)
     try:

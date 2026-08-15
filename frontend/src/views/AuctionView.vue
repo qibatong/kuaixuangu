@@ -155,9 +155,9 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td class="tp-th-15 chg-col" :class="tpChgCls(it, '9_15')">{{ tpChg(it, '9_15') }}</td>
             <td class="tp-th-15 seal-col">{{ tpSeal(it, '9_15') }}</td>
             <td class="tp-th-20 chg-col" :class="tpChgCls(it, '9_20')">{{ tpChg(it, '9_20') }}</td>
-            <td class="tp-th-20 seal-col">{{ tpSeal(it, '9_20') }}<span v-if="sealDelta(it, '9_20')" class="seal-delta" :class="sealDelta(it, '9_20').cls">{{ sealDelta(it, '9_20').text }}</span></td>
+            <td class="tp-th-20 seal-col">{{ tpSeal(it, '9_20') }}</td>
             <td class="tp-th-25 chg-col" :class="tpChgCls(it, '9_25')">{{ tpChg(it, '9_25') }}</td>
-            <td class="tp-th-25 seal-col">{{ tpSeal(it, '9_25') }}<span v-if="sealDelta(it, '9_25')" class="seal-delta" :class="sealDelta(it, '9_25').cls">{{ sealDelta(it, '9_25').text }}</span></td>
+            <td class="tp-th-25 seal-col">{{ tpSeal(it, '9_25') }}</td>
             <td class="dim">{{ mvText(it) }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已入池' : '＋池' }}</button></td>
           </tr>
@@ -574,19 +574,6 @@ function tpSeal(it, tp) {
   return s.isBidAmt ? '竞 ' + txt : txt
 }
 
-// 加单差异: 当前时点强度额 vs 前一时点(9:20 vs 9:15, 9:25 vs 9:20)
-// 返回 {text:'+120%', cls:'up|down|flat'} 或 null(任一缺失)
-function sealDelta(it, tp) {
-  const prev = tp === '9_20' ? '9_15' : tp === '9_25' ? '9_20' : null
-  if (!prev) return null
-  const cur = sealVal(it, tp)
-  const pre = sealVal(it, prev)
-  if (!cur || !pre) return null
-  const pct = (cur.v / pre.v - 1) * 100
-  if (pct > 5) return { text: '↑' + (pct >= 100 ? (pct / 100).toFixed(1) + '倍' : Math.round(pct) + '%'), cls: 'up' }
-  if (pct < -5) return { text: '↓' + Math.abs(Math.round(pct)) + '%', cls: 'down' }
-  return { text: '≈' + Math.round(pct) + '%', cls: 'flat' }
-}
 // 加单趋势(整行): 9:15→9:20→9:25 强度额走势, 判断加单/撤单模式
 function sealMode(it) {
   const s15 = sealVal(it, '9_15')
@@ -896,13 +883,7 @@ body[data-bg="light"] .chg-up-15 { color: #0068b4; }
 body[data-bg="light"] .chg-up-20 { color: #8a5a00; }
 body[data-bg="light"] .chg-up-25 { color: #c82020; }
 
-/* === 加单差异: 封单变化小箭头 + 趋势标签 === */
-.seal-delta { display: inline-block; margin-left: 3px; font-size: 11px; font-weight: 700; }
-.seal-delta.up { color: #ff6a6a; }
-.seal-delta.down { color: #6aa0ff; }
-.seal-delta.flat { color: var(--text-muted); }
-body[data-bg="light"] .seal-delta.up { color: #c82020; }
-body[data-bg="light"] .seal-delta.down { color: #2060c0; }
+/* === 加单趋势标签 === */
 .seal-mode { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .seal-mode-strong { color: #ffb400; border: 1px solid #ffb400; background: rgba(255, 180, 0, 0.12); }
 .seal-mode-mid { color: #7fe0c0; border: 1px solid #4fc0a0; background: rgba(79, 192, 160, 0.12); }
