@@ -4,7 +4,7 @@
 
     <div class="mrk-head">
       <span class="mrk-title"><i class="fa fa-radar"></i> 市场雷达</span>
-      <span class="mrk-sub">板块强度排行 · 盘中人气热榜 · 龙虎榜（三数据源）</span>
+      <span class="mrk-sub">板块强度排行 · 盘中人气热榜 · 龙虎榜</span>
       <span class="mrk-time">{{ bjTime }}</span>
     </div>
 
@@ -26,7 +26,7 @@
     <!-- 板块强度 -->
     <div v-if="tab === 'board'" class="mrk-panel">
       <div class="rot-toolbar">
-        <span class="rot-tip"><i class="fa fa-info-circle"></i> 实时板块强度排行；选日期可回看历史(开盘啦保留最近5交易日)</span>
+        <span class="rot-tip"><i class="fa fa-info-circle"></i> 实时板块强度排行；选日期可回看历史</span>
         <input v-model="datePicker" type="date" class="rot-date" @change="loadBoard">
         <button class="rot-reset-btn" title="回到实时" @click="clearDate('board')"><i class="fa fa-bolt"></i></button>
         <span v-if="boardDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ boardDataDate }}<template v-if="boardDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
@@ -122,7 +122,7 @@ v-for="s in sourceOptions" :key="s.key"
     <!-- 人气热榜 -->
     <div v-else-if="tab === 'hot'" class="mrk-panel">
       <div class="rot-toolbar">
-        <span class="rot-tip"><i class="fa fa-info-circle"></i> 各数据源人气热榜；选日期可回看历史</span>
+        <span class="rot-tip"><i class="fa fa-info-circle"></i> 人气热榜；选日期可回看历史</span>
         <div class="rot-source">
           <button
 v-for="s in sourceOptions" :key="s.key"
@@ -359,9 +359,10 @@ async function loadLhb() {
 const rotDays = ref(10)
 const rotSource = ref(localStorage.getItem('kuaixuan_sector_source') || 'kpl')
 const sourceOptions = [
-  { key: 'kpl', label: '开盘啦',     icon: 'fa fa-bullseye' },
-  { key: 'em',  label: '东方财富',   icon: 'fa fa-bar-chart' },
-  { key: 'ths', label: '同花顺',     icon: 'fa fa-line-chart' },
+  // 切换按钮不暴露第三方厂商名(非官方数据源, 页面不体现来源)
+  { key: 'kpl', label: '源1', icon: 'fa fa-bullseye' },
+  { key: 'em',  label: '源2', icon: 'fa fa-bar-chart' },
+  { key: 'ths', label: '源3', icon: 'fa fa-line-chart' },
 ]
 const rotLoading = ref(false)
 const rot = reactive({ dates: [], days: [], windows: [], common_names: [], source: 'kpl' })

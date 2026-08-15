@@ -44,7 +44,7 @@
       </div>
     </template>
 
-    <div v-else class="senti-loading dim">情绪数据暂不可用（开盘啦源未就绪）</div>
+    <div v-else class="senti-loading dim">情绪数据暂不可用</div>
   </div>
 </template>
 

@@ -8,7 +8,7 @@
     <template v-else>
     <div class="auc-head">
       <span class="auc-title"><i class="fa fa-bullhorn"></i> 竞价异动</span>
-      <span class="auc-sub">多时点对比 · 竞价委买/爆量/净额/上榜/炸板（开盘啦 + 东财）</span>
+      <span class="auc-sub">多时点对比 · 竞价委买/爆量/净额/上榜/炸板</span>
       <span class="auc-time">{{ bjTime }}</span>
     </div>
 

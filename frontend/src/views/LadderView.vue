@@ -4,7 +4,7 @@
 
     <div class="ladder-head">
       <span class="ladder-title"><i class="fa fa-sitemap"></i> 连板天梯</span>
-      <span class="ladder-sub">实时连板梯队（开盘啦数据，盘中持续刷新）</span>
+      <span class="ladder-sub">实时连板梯队（盘中持续刷新）</span>
       <span class="ladder-time">{{ bjTime }}</span>
     </div>
 

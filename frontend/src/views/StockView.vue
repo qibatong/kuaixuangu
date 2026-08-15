@@ -129,7 +129,7 @@ const changePwdModal = ref(null)
 const medalExportCount = ref(3)
 const bjTime = ref('--:--:--')
 const healthStatus = ref('')      // ok / degraded / down / ''
-const healthText = ref('数据源检查中...')
+const healthText = ref('检查中...')
 const healthTip = ref('')
 const yiziToday = ref(null)       // {yizi_count, bid_amt} 今日一字涨停
 const yiziTrend = ref([])         // 近 5 日趋势
@@ -172,13 +172,14 @@ async function loadHealth() {
       const s = data.sources || {}
       const parts = []
       for (const [k, v] of Object.entries(s)) {
-        const names = { eastmoney_clist: '东财行情', eastmoney_kline: '东财日K', ths_kline: '同花顺' }
-        parts.push(`${names[k] || k}:${v.status === 'ok' ? '正常' : v.status === 'degraded' ? '降级' : '异常'}(成功${v.ok}/失败${v.fail})`)
+        // 不暴露第三方厂商名(非官方数据源)
+        const names = { eastmoney_clist: '行情', eastmoney_kline: '日K', ths_kline: '板块' }
+        parts.push(`${names[k] || '行情'}:${v.status === 'ok' ? '正常' : v.status === 'degraded' ? '降级' : '异常'}(成功${v.ok}/失败${v.fail})`)
       }
       healthTip.value = parts.join('；')
-      healthText.value = data.overall === 'ok' ? '数据源正常'
-        : data.overall === 'degraded' ? '数据源降级'
-        : data.overall === 'down' ? '数据源异常' : '数据源检查中...'
+      healthText.value = data.overall === 'ok' ? '数据正常'
+        : data.overall === 'degraded' ? '数据降级'
+        : data.overall === 'down' ? '数据异常' : '检查中...'
     }
   } catch (e) { /* 静默: 不影响主流程 */ }
 }
