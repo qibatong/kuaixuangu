@@ -4,9 +4,12 @@
 """
 from fastapi import APIRouter, Depends, Request
 
+from ..core import logger
 from ..services import auction_snapshot, kpl, scorer, stats
 from ..db import database
 from .deps import get_uid, jr, qs
+
+log = logger.get_logger(__name__)
 
 router = APIRouter()
 
@@ -164,6 +167,11 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
         resolved = date
     finally:
         conn.close()
+    if resolved != date:
+        log.info("三时点榜 date=%s 请求无当日快照, 回退显示 %s (说明: 当日 9:15/9:20/9:25 未采集或非交易日)",
+                 date, resolved)
+    else:
+        log.info("三时点榜 date=%s 命中当日数据", date)
     rows = auction_snapshot.query_3points_board(resolved, limit)
     # 叠加开盘啦实时涨幅(realChange): 历史榜单看的是已归档快照, 实时涨幅补充当前盘口状态
     try:
@@ -177,4 +185,5 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
                     it["real_change"] = rc
     except Exception:
         pass
+    log.info("三时点榜 date=%s 返回 %d 条 (实时涨幅叠加 %d 只)", resolved, len(rows), len(kpl_real))
     return jr({"ok": True, "date": resolved, "count": len(rows), "list": rows})

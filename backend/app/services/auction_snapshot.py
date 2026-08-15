@@ -97,20 +97,24 @@ def snapshot_at(time_point):
     if time_point not in TIME_POINTS:
         return 0
     date = _bj_date()
+    t0 = time.time()
+    log.info("[快照采集] 开始 time=%s date=%s", time_point, date)
     raw_all = _fetch_market_map(full=True)
     if not raw_all:
-        log.warning("快照拉取为空 time=%s date=%s (东财全市场接口无返回, 该时点数据缺失!)",
-                    time_point, date)
+        log.warning("[快照采集] 拉取为空 time=%s date=%s 耗时%.0fms (东财全市场接口无返回, 该时点数据缺失!)",
+                    time_point, date, (time.time() - t0) * 1000)
         return 0
     # 叠加开盘啦涨停委买额(真实封单) + 概念: MorningBiddingList Type=4 返回该时点
     # 涨停股封单额与概念(开盘啦概念优先, 东财 f103/f100 兜底)
+    n_seal = 0
+    n_board = 0
+    kpl_cnt = 0
     try:
         from . import kpl
         kpl._cache.clear()          # 保证拿到当前时点的新鲜数据(非前一时点缓存)
         kpl_seal = kpl.fetch_bid_seal() or []
         kpl_map = {s["code"]: s for s in kpl_seal}
-        n_seal = 0
-        n_board = 0
+        kpl_cnt = len(kpl_seal)
         for code, v in raw_all.items():
             s = kpl_map.get(code)
             if s:
@@ -123,9 +127,13 @@ def snapshot_at(time_point):
                     v["board"] = b     # 开盘啦概念覆盖东财
                     n_board += 1
         if n_seal or n_board:
-            log.info("时点%s 开盘啦叠加 封单%d只 概念%d只", time_point, n_seal, n_board)
+            log.info("[快照采集] time=%s 开盘啦叠加 封单%d只 概念%d只 (开盘啦返回%d只)",
+                     time_point, n_seal, n_board, kpl_cnt)
+        else:
+            log.info("[快照采集] time=%s 开盘啦叠加 0 只 (开盘啦返回%d只, 可能非交易时段或接口异常)",
+                     time_point, kpl_cnt)
     except Exception as e:
-        log.warning("开盘啦封单叠加失败 time=%s err=%s", time_point, e)
+        log.warning("[快照采集] time=%s 开盘啦封单叠加失败 err=%s", time_point, e, exc_info=True)
     try:
         conn = database.get_conn()
         conn.executemany(
@@ -137,9 +145,10 @@ def snapshot_at(time_point):
         conn.commit()
         conn.close()
     except Exception as e:
-        log.error("快照落库失败 time=%s err=%s", time_point, e)
+        log.error("[快照采集] 落库失败 time=%s err=%s", time_point, e, exc_info=True)
         return 0
-    log.info("快照已存 date=%s time=%s 数量%d", date, time_point, len(raw_all))
+    log.info("[快照采集] 完成 date=%s time=%s 数量%d 耗时%.0fms (封单覆盖%d只)",
+             date, time_point, len(raw_all), (time.time() - t0) * 1000, n_seal)
     return len(raw_all)
 
 
@@ -325,6 +334,7 @@ def _has_snapshot(date, time_point):
 def _scheduler_loop():
     """后台调度: 工作日按时点窗口抓取一次, 每 10 秒轮询; 9:31 后盘点当日采集情况"""
     _qc_done = set()   # {(date)} 抢筹结果快照已抓取(9:29-9:30 窗口)
+    _sched_weekend_logged = set()   # {date} 非交易日已打过跳过日志(每日期一次)
     while True:
         try:
             g = time.gmtime(time.time() + 8 * 3600)
@@ -332,18 +342,31 @@ def _scheduler_loop():
             hm = g.tm_hour * 60 + g.tm_min
             for tp, (start, end) in TIME_POINTS.items():
                 key = (date, tp)
-                if g.tm_wday < 5 and start <= hm <= end and key not in _sched_done:
-                    if tp == "9_24":
-                        # 最后一秒专用时点: 9:24:00-9:25:00 窗口内每轮询重采覆盖,
-                        # 最后一份快照 ≈ 9:24:5x(真正"最后一秒", 而非整分钟差)
-                        # 注意: 此处判断必须 < 9*60+25(窗口内), 写 9*60+30(9:30) 会导致永不采集!
-                        if hm < 9 * 60 + 25:
-                            snapshot_at(tp)
-                    else:
-                        with _sched_lock:
-                            if key not in _sched_done:
-                                if snapshot_at(tp):
-                                    _sched_done.add(key)
+                if key in _sched_done:
+                    continue
+                if g.tm_wday >= 5:
+                    # 周末/节假日: 只在 9:20 记录一次, 避免每分钟刷日志
+                    if date not in _sched_weekend_logged:
+                        log.info("[快照采集] 非交易日(周%d) date=%s 跳过采集", g.tm_wday, date)
+                        _sched_weekend_logged.add(date)
+                    continue
+                if not (start <= hm <= end):
+                    continue
+                if tp == "9_24":
+                    # 最后一秒专用时点: 9:24:00-9:25:00 窗口内每轮询重采覆盖,
+                    # 最后一份快照 ≈ 9:24:5x(真正"最后一秒", 而非整分钟差)
+                    # 注意: 此处判断必须 < 9*60+25(窗口内), 写 9*60+30(9:30) 会导致永不采集!
+                    if hm < 9 * 60 + 25:
+                        snapshot_at(tp)
+                else:
+                    with _sched_lock:
+                        if key not in _sched_done:
+                            log.info("[快照采集] 触发时点窗口 tp=%s hm=%d:%02d date=%s", tp, hm // 60, hm % 60, date)
+                            if snapshot_at(tp):
+                                _sched_done.add(key)
+                                log.info("[快照采集] 时点完成并入完成集 tp=%s date=%s", tp, date)
+                            else:
+                                log.warning("[快照采集] 时点失败(返回0) tp=%s date=%s 窗口已过无法重试", tp, date)
             # 9:29-9:30 抢筹结果快照: 触发 fetch_bid_qiangcang 落库(竞价结束前最后一份,
             # 非竞价时段页面读库展示不丢失)
             if (g.tm_wday < 5 and 9 * 60 + 29 <= hm <= 9 * 60 + 30
