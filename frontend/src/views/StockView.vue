@@ -3,7 +3,6 @@
     <!-- 规则条 + 顶栏按钮组 -->
     <div class="alert-rule">
       <div class="rule-text"><i class="fa fa-clock-o"></i> <strong>9:30前可重新选股 · 9:30后仅更新实时涨幅</strong></div>
-      <span class="health-dot" :class="'health-' + (healthStatus || 'none')" :title="healthTip || healthText">{{ healthText }}</span>
       <span class="yizi-card" :title="'近5日一字涨停趋势: ' + yiziTrend.map(d => d.date.slice(5) + ':' + d.yizi_count + '个').join('  ')">
         <i class="fa fa-fire" style="color:#ff5028;"></i>
         <template v-if="!yiziLoaded">一字统计加载中...</template>
@@ -111,9 +110,6 @@ const pool = usePoolStore()
 const user = useUserStore()
 const medalExportCount = ref(3)
 const bjTime = ref('--:--:--')
-const healthStatus = ref('')      // ok / degraded / down / ''
-const healthText = ref('检查中...')
-const healthTip = ref('')
 const yiziToday = ref(null)       // {yizi_count, bid_amt} 今日一字涨停
 const yiziTrend = ref([])         // 近 5 日趋势
 const yiziLoaded = ref(false)     // 接口已返回(区分 加载中/暂无)
@@ -146,31 +142,9 @@ function yiziAmtText(amt) {
   return (amt / 10000).toFixed(1) + '亿'
 }
 
-async function loadHealth() {
-  try {
-    const resp = await fetch('/api/health', { headers: { 'Authorization': 'Bearer ' + user.apiToken } })
-    const data = await resp.json()
-    if (data.ok) {
-      healthStatus.value = data.overall || ''
-      const s = data.sources || {}
-      const parts = []
-      for (const [k, v] of Object.entries(s)) {
-        // 不暴露第三方厂商名(非官方数据源)
-        const names = { eastmoney_clist: '行情', eastmoney_kline: '日K', ths_kline: '板块' }
-        parts.push(`${names[k] || '行情'}:${v.status === 'ok' ? '正常' : v.status === 'degraded' ? '降级' : '异常'}(成功${v.ok}/失败${v.fail})`)
-      }
-      healthTip.value = parts.join('；')
-      healthText.value = data.overall === 'ok' ? '数据正常'
-        : data.overall === 'degraded' ? '数据降级'
-        : data.overall === 'down' ? '数据异常' : '检查中...'
-    }
-  } catch (e) { /* 静默: 不影响主流程 */ }
-}
-
 let clockTimer = null
 let autoAddTimer = null
 let expiryTimer = null
-let healthTimer = null
 
 async function init() {
   user.migrateLegacyKeys()
@@ -188,9 +162,6 @@ async function init() {
   // 启动定时器: 时钟 / 自动收录 / 过期检查
   clockTimer = setInterval(() => { bjTime.value = bjTimeStr() }, 1000)
   autoAddTimer = setInterval(() => pool.autoAdd(currentList(), stocks.isDataCached || stocks.isSpotCached), 20000)
-  // 数据源健康状态(每 5 分钟刷新)
-  loadHealth()
-  healthTimer = setInterval(loadHealth, 300000)
   expiryTimer = setInterval(() => pool.checkExpiry(), 30000)
   pool.autoAdd(currentList(), stocks.isDataCached || stocks.isSpotCached)
 }
@@ -241,7 +212,6 @@ onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
   if (autoAddTimer) clearInterval(autoAddTimer)
   if (expiryTimer) clearInterval(expiryTimer)
-  if (healthTimer) clearInterval(healthTimer)
 })
 </script>
 
