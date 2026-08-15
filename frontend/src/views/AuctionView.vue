@@ -58,14 +58,14 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
 
     <!-- 个股三时点封单: 一个视图看 9:15/9:20/9:25 三个时刻封单变化 -->
     <div class="stock3-toolbar">
-      <span class="rot-tip"><i class="fa fa-eye"></i> 个股三时点封单（9:15 / 9:20 / 9:25）</span>
+      <span class="rot-tip"><i class="fa fa-eye"></i> 个股竞价封单（9:15 / 9:20 / 9:25）</span>
       <input v-model="stock3.code" class="stock3-input" placeholder="输入6位代码，如 300410" maxlength="6" @keydown.enter="loadStock3" />
       <button class="stock3-btn" @click="loadStock3"><i class="fa fa-search"></i> 查询</button>
     </div>
 
     <!-- Tab 切换 -->
     <div class="auc-tabs">
-      <button class="auc-tab" :class="{ active: tab === 's3' }" title="全市场三时点封单榜: 9:25涨停→9:20涨停回落→9:15涨停回落 三层排序" @click="switchTab('s3')"><i class="fa fa-th-list"></i> 三时点封单</button>
+      <button class="auc-tab" :class="{ active: tab === 's3' }" title="全市场竞价封单榜: 9:25涨停→9:20涨停回落→9:15涨停回落 三层排序" @click="switchTab('s3')"><i class="fa fa-th-list"></i> 竞价封单</button>
       <button class="auc-tab" :class="{ active: tab === 'seal' }" @click="switchTab('seal')"><i class="fa fa-gavel"></i> 竞价委买</button>
       <button class="auc-tab" :class="{ active: tab === 'boom' }" @click="switchTab('boom')"><i class="fa fa-bolt"></i> 竞价爆量</button>
       <button class="auc-tab" :class="{ active: tab === 'net' }" @click="switchTab('net')"><i class="fa fa-exchange"></i> 竞价净额</button>
@@ -113,7 +113,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
         </tbody>
       </table>
 
-      <!-- 三时点封单榜(短线侠式三层排序: 9:25涨停 > 9:20涨停回落 > 9:15涨停回落) -->
+      <!-- 竞价封单榜(短线侠式三层排序: 9:25涨停 > 9:20涨停回落 > 9:15涨停回落) -->
       <template v-else-if="tab === 's3'">
       <div v-if="sealMissing" class="s3-hint">
         <i class="fa fa-info-circle"></i> 该日期<b>封单额与竞价额均未采集</b>（历史委托数据不提供，无法回填），
@@ -128,13 +128,12 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <th>#</th>
             <th>代码</th>
             <th>名称</th>
+            <th class="tp-th tp-th-25">9:25 封单</th>
+            <th class="tp-th tp-th-20">9:20 封单</th>
+            <th class="tp-th tp-th-15">9:15 封单</th>
+            <th class="tp-th tp-th-25">竞价涨幅</th>
             <th>状态</th>
             <th>加单趋势</th>
-            <th class="board-col">概念(所属板块)</th>
-            <th class="tp-th tp-th-15">9:15 封单</th>
-            <th class="tp-th tp-th-20">9:20 封单</th>
-            <th class="tp-th tp-th-25">9:25 封单</th>
-            <th class="tp-th tp-th-25">竞价涨幅</th>
             <th>实时涨幅</th>
             <th>流通市值(亿)</th>
             <th>操作</th>
@@ -145,21 +144,20 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td class="rank-col">{{ idx + 1 }}</td>
             <td class="code-click" @click="linkToSoftware(it.code)">{{ it.code }}</td>
             <td class="name-col"><div class="name-main">{{ it.name || it.code }}</div></td>
+            <td class="seal-col seal-col-25">{{ tpSeal(it, '9_25') }}</td>
+            <td class="seal-col seal-col-20">{{ tpSeal(it, '9_20') }}</td>
+            <td class="seal-col seal-col-15">{{ tpSeal(it, '9_15') }}</td>
+            <td class="tp-th-25 chg-col" :class="tpChgCls(it, '9_25')">{{ tpChg(it, '9_25') }}</td>
             <td><span class="s3-tag" :class="'s3-tag-' + it.layer">{{ it.tag }}</span></td>
             <td>
               <span v-if="sealMode(it)" class="seal-mode" :class="'seal-mode-' + sealMode(it).cls" :title="sealMode(it).tip">{{ sealMode(it).label }}</span>
               <span v-else class="dim">-</span>
             </td>
-            <td class="board-col" :title="it.board"><span class="board-text">{{ boardText(it.board) }}</span></td>
-            <td class="seal-col seal-col-15">{{ tpSeal(it, '9_15') }}</td>
-            <td class="seal-col seal-col-20">{{ tpSeal(it, '9_20') }}</td>
-            <td class="seal-col seal-col-25">{{ tpSeal(it, '9_25') }}</td>
-            <td class="tp-th-25 chg-col" :class="tpChgCls(it, '9_25')">{{ tpChg(it, '9_25') }}</td>
             <td class="real-chg-col" :class="realChgCls(it)">{{ realChg(it) }}</td>
             <td class="dim">{{ mvText(it) }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已加自选' : '＋自选' }}</button></td>
           </tr>
-          <tr v-if="!s3List.length"><td colspan="13" class="snap-empty">暂无三时点封单数据（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
+          <tr v-if="!s3List.length"><td colspan="12" class="snap-empty">暂无竞价封单数据（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
         </tbody>
       </table>
       </template>
@@ -411,7 +409,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
     <div v-if="stock3.show" class="modal-mask" @click.self="stock3.show = false">
       <div class="snap-modal">
         <div class="snap-head">
-          <span class="snap-title">{{ stock3.data.name || stock3.code }}（{{ stock3.code }}）· {{ stock3.data.date }} 三时点封单</span>
+          <span class="snap-title">{{ stock3.data.name || stock3.code }}（{{ stock3.code }}）· {{ stock3.data.date }} 竞价封单</span>
           <span class="snap-close" @click="stock3.show = false">✕</span>
         </div>
         <table class="stock-table">
@@ -440,7 +438,7 @@ v-if="stock3.data.points && stock3.data.points[tp]"
             </tr>
           </tbody>
         </table>
-        <div v-if="!hasStock3Points" class="snap-empty">该日该股暂无三时点快照（需交易日 9:15/9:20/9:25 自动采集后才有）</div>
+        <div v-if="!hasStock3Points" class="snap-empty">该日该股暂无竞价封单快照（需交易日 9:15/9:20/9:25 自动采集后才有）</div>
       </div>
     </div>
     </template>
@@ -603,12 +601,6 @@ function sealMode(it) {
   if (s1 === 0 && s2 === -1) return { label: '尾盘撤单', cls: 'weak', tip: '9:25 相对 9:20 撤单' + alt }
   if (s1 === -1 && s2 === 0) return { label: '撤单后走平', cls: 'weak', tip: '9:20 撤单, 9:25 持平' + alt }
   return { label: '封单走平', cls: 'flat', tip: '三个时点封单额基本持平' + alt }
-}
-// 概念文本: 取前 3 个标签(开盘啦 board 是逗号分隔的多概念, 避免一格撑破)
-function boardText(b) {
-  if (!b) return '-'
-  const tags = b.split(',').map(s => s.trim()).filter(Boolean)
-  return tags.slice(0, 3).join('·') + (tags.length > 3 ? '…' : '')
 }
 function mvText(it) {
   const p = it.points && (it.points['9_25'] || it.points['9_20'] || it.points['9_15'])
