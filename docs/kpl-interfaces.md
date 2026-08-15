@@ -7,7 +7,7 @@
 > 调用方式: 统一走 `_call(host_key, params)` (POST form-urlencoded + Token/UserID/DeviceID 注入), 新增接口只需写 `fetch_kpl_docXX` + `_cached` 缓存。
 
 
-## 一、编号接口 (fetch_kpl_docXX, 共 87 个)
+## 一、编号接口 (fetch_kpl_docXX, 共 88 个)
 
 | 编号 | 功能 | host | a= | c= | apiv | 已接入业务 |
 |------|------|------|----|----|------|:---:|
@@ -98,6 +98,7 @@
 | doc112 | **个股** — 竞价大于1000万 (apphwshhq.longhuvip.com) -> dict | apphwshhq.longhuvip.com | `MorningBiddingList` | `HomeDingPan` | w44 | ⬜ 未接入 |
 | doc113 | **个股** — 副图688523 (apphis.longhuvip.com) -> dict | apphis.longhuvip.com | `GetBidVolKLine` | `StockLineData` | w44 | ⬜ 未接入 |
 | doc115 | **竞价-涨停委买额(实时)** — 竞价涨停委买额-实时接口： (apphwhq.longhuvip.com) -> dict | apphwhq.longhuvip.com | `MorningBiddingList` | `HomeDingPan` | w41 | ⬜ 未接入 |
+| doc116 | **其他** — 大面股-实时 (apphwshhq.longhuvip.com) -> dict | apphwshhq.longhuvip.com | `GetPMSL_KQXY` | `FuPanLa` | w35 | ⬜ 未接入 |
 
 ## 二、具名业务封装 (fetch_xxx, 共 31 个)
 

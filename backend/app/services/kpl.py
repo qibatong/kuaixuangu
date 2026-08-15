@@ -1825,6 +1825,18 @@ def fetch_kpl_doc76(**extra):
     base.update(extra)
     return _call("after", base)
 
+
+def fetch_kpl_doc116(**extra):
+    r"""大面股-实时 (apphwshhq.longhuvip.com) -> dict
+    a=GetPMSL_KQXY, c=FuPanLa, apiv=w35 + extra (与 doc77 历史同参, host 换实时)
+    resp 示例: {"date":"2026-08-14","Time":1786760421,"List":[["000692","惠天热电","-6.15%",-14.07,"",0,"热力、股权转让"],...]}
+    实测: after host 返回当日实时 9 条; doc77 走 his(历史) 需 Date 参数
+    """
+    base = {"a": "GetPMSL_KQXY", "c": "FuPanLa", "apiv": "w35"}
+    base.update(extra)
+    return _call("after", base)
+
+
 def fetch_kpl_doc77(**extra):
     r"""大面股 (apphis.longhuvip.com) -> dict
     a=GetPMSL_KQXY, c=FuPanLa, apiv=w35 + extra
