@@ -352,7 +352,8 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { usePolling } from '../composables/usePolling'
 import { kplBidSeal, kplBidBoom, kplBidQiangcang, kplBroken, kplLhb, kplYestBroken, kplYestZt } from '../api/kpl'
 import { auctionOverview, auctionSnapshot } from '../api/stats'
 import { linkToSoftware } from '../utils/tdx'
@@ -384,8 +385,6 @@ const qc20Mode = ref('amt')   // 左表口径: amt=竞额抢筹(开盘啦净额)
 const datePicker = ref('')    // 用户选的日期(空=实时)
 const dataDate = ref('')      // 后端实际返回的数据日期(可能被对齐)
 let autoFallback = false      // 已自动回退(避免清空后无限循环)
-let clockTimer = null
-let refreshTimer = null
 
 // 各表独立排序实例
 const sealSort = useSortable()
@@ -506,13 +505,10 @@ function clearDate() {
 
 onMounted(() => {
   bjTime.value = bjTimeStr()
-  clockTimer = setInterval(() => { bjTime.value = bjTimeStr() }, 1000)
+  usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
   loadAll()
-  refreshTimer = setInterval(() => { if (!datePicker.value) loadAll() }, 60000)
-})
-onBeforeUnmount(() => {
-  if (clockTimer) clearInterval(clockTimer)
-  if (refreshTimer) clearInterval(refreshTimer)
+  // 历史回看模式暂停实时刷新(每分钟拉历史无意义)
+  usePolling(() => { if (!datePicker.value) loadAll() }, 60000)
 })
 </script>
 

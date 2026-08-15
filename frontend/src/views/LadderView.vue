@@ -90,7 +90,8 @@ v-for="pid in [1, 2, 3, 4, 5]" :key="pid" class="ladder-tab"
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref, reactive } from 'vue'
+import { onMounted, ref, reactive } from 'vue'
+import { usePolling } from '../composables/usePolling'
 import { kplLadder, kplZtReason } from '../api/kpl'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
@@ -102,8 +103,6 @@ const loading = ref(true)
 const bjTime = ref('--:--:--')
 const datePicker = ref('')
 const dataDate = ref('')
-let clockTimer = null
-let refreshTimer = null
 
 const ladderSort = useSortable()
 
@@ -157,13 +156,9 @@ function clearDate() {
 
 onMounted(() => {
   bjTime.value = bjTimeStr()
-  clockTimer = setInterval(() => { bjTime.value = bjTimeStr() }, 1000)
+  usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
   load()
-  refreshTimer = setInterval(load, 60000)  // 每分钟刷新
-})
-onBeforeUnmount(() => {
-  if (clockTimer) clearInterval(clockTimer)
-  if (refreshTimer) clearInterval(refreshTimer)
+  usePolling(load, 60000)  // 每分钟刷新
 })
 </script>
 

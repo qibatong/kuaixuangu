@@ -248,7 +248,8 @@ v-for="s in sourceOptions" :key="s.key"
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, reactive } from 'vue'
+import { computed, onMounted, ref, reactive } from 'vue'
+import { usePolling } from '../composables/usePolling'
 import { kplBoardRank, kplHotRank, kplLhb, kplLhbDetail, sectorRotation } from '../api/kpl'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
@@ -272,8 +273,6 @@ const boardDataDate = ref('')
 const hotDataDate = ref('')
 const lhbDataDate = ref('')
 const bjTime = ref('--:--:--')
-let clockTimer = null
-let refreshTimer = null
 
 const lhbModal = reactive({ show: false, code: '', detail: { name: '', buyList: [], sellList: [], buyTotal: 0, sellTotal: 0, upReason: '', turnover: 0 } })
 
@@ -418,16 +417,12 @@ function switchSource(src) {
 
 onMounted(() => {
   bjTime.value = bjTimeStr()
-  clockTimer = setInterval(() => { bjTime.value = bjTimeStr() }, 1000)
+  usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
   loadBoard()
   loadHistory()
   loadHot()
   loadLhb()
-  refreshTimer = setInterval(() => { loadBoard(); loadHot(); loadLhb() }, 60000)
-})
-onBeforeUnmount(() => {
-  if (clockTimer) clearInterval(clockTimer)
-  if (refreshTimer) clearInterval(refreshTimer)
+  usePolling(() => { loadBoard(); loadHot(); loadLhb() }, 60000)
 })
 </script>
 
