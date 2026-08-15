@@ -127,7 +127,7 @@ function signed(v) { return (v > 0 ? '+' : '') + v.toFixed(2) }
 function shortConcept(c) {
   if (!c) return '-'
   const parts = String(c).split(/[、,，]/).map(s => s.trim()).filter(Boolean)
-  return parts.length <= 2 ? parts.join('、') : parts.slice(0, 2).join('、') + ` 等${parts.length}个`
+  return parts.slice(0, 2).join('、')
 }
 
 // 涨跌百分比显示(兼容 null/undefined, 用于 tooltip 的锁定时刻值)
