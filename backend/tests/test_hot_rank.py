@@ -67,3 +67,33 @@ def test_api_hot_rank_source(client, first_user, monkeypatch):
         d = r.json()
         assert d.get("ok") and d.get("source") == src
         assert d.get("list") and d["list"][0]["name"] == "亨通光电"
+
+
+def test_hot_rank_history_save_and_query(client, monkeypatch):
+    """人气榜历史落库 + 按日期回看"""
+    monkeypatch.setattr(hot_rank, "fetch_hot_rank", lambda src="kpl", top_n=50: [
+        {"code": "600487", "name": "亨通光电", "change": 10.01, "rank": 1}])
+    n = hot_rank.save_hot_rank_history("2026-08-13", source="kpl")
+    assert n == 1
+    d = hot_rank.query_hot_rank_history("2026-08-13", source="kpl")
+    assert len(d) == 1 and d[0]["code"] == "600487"
+    # 不同 source 隔离
+    d2 = hot_rank.query_hot_rank_history("2026-08-13", source="em")
+    assert d2 == []
+
+
+def test_api_hot_rank_history(client, first_user, monkeypatch):
+    """API hot-rank?date= 读历史表"""
+    token, _, _ = first_user
+    monkeypatch.setattr(hot_rank, "fetch_hot_rank", lambda src="kpl", top_n=50: [
+        {"code": "600487", "name": "亨通光电", "change": 10.01, "rank": 1}])
+    hot_rank.save_hot_rank_history("2026-08-12", source="kpl")
+    r = client.get("/api/kpl/hot-rank?date=2026-08-12",
+                   headers={"Authorization": "Bearer " + token})
+    d = r.json()
+    assert d.get("ok") and d.get("date") == "2026-08-12"
+    assert d.get("list") and d["list"][0]["name"] == "亨通光电"
+    # 无历史日期返回空
+    r2 = client.get("/api/kpl/hot-rank?date=2026-01-01",
+                    headers={"Authorization": "Bearer " + token})
+    assert r2.json().get("list") == []

@@ -425,11 +425,12 @@ def fetch_hot_rank():
 
 
 # ==================== 龙虎榜 ====================
-def fetch_lhb():
-    """龙虎榜上榜股票(当天): [{code,name,change,limitBoards,buyIn,amount,floatMv,turnover,amplitude,totalMv,joinNum}, ...]"""
+def fetch_lhb(date=""):
+    """龙虎榜上榜股票(当天/指定历史日期): [{code,name,change,limitBoards,buyIn,amount,floatMv,turnover,amplitude,totalMv,joinNum}, ...]
+    date: 空=当天; 'YYYY-MM-DD' 查历史(实测 Time 参数支持历史)"""
     def loader():
         d = _call("lhb", {"a": "GetStockList", "st": "500", "c": "LongHuBang",
-                          "Time": "", "Index": "0", "apiv": "w44", "Type": "2"})
+                          "Time": date, "Index": "0", "apiv": "w44", "Type": "2"})
         if not d:
             return None
         lst = d.get("list")
@@ -453,7 +454,7 @@ def fetch_lhb():
                 "totalMv": _f(it.get("Capitalization")),    # 总市值(元)
             })
         return out
-    return _cached("lhb", 120, loader)
+    return _cached("lhb:" + (date or "today"), 120, loader)
 
 
 def fetch_lhb_detail(code, date=""):

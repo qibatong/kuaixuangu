@@ -7,6 +7,7 @@
 - 9:25 lock 时读取 9:20 快照, 计算涨幅加速度
 """
 import concurrent.futures
+import json
 import threading
 import time
 
@@ -243,6 +244,25 @@ def _scheduler_loop():
                         if ("sector_" + src + "_" + date) not in _sched_done:
                             sector_rotation.record_today_top(source=src)
                             _sched_done.add("sector_" + src + "_" + date)
+                    # 人气热榜历史快照(三源): 供人气榜回看历史
+                    from . import hot_rank
+                    for src in ("kpl", "em", "ths"):
+                        if ("hot_" + src + "_" + date) not in _sched_done:
+                            hot_rank.save_hot_rank_history(date, source=src)
+                            _sched_done.add("hot_" + src + "_" + date)
+                    # 龙虎榜当日快照: 供龙虎榜回看历史(接口支持 Time 参数, 但落库保证数据在)
+                    if ("lhb_" + date) not in _sched_done:
+                        from . import kpl
+                        lst = kpl.fetch_lhb(date)
+                        if lst:
+                            from ..db import database
+                            conn = database.get_conn()
+                            conn.execute(
+                                "INSERT OR REPLACE INTO lhb_history (date, list, ts) VALUES (?,?,?)",
+                                (date, json.dumps(lst, ensure_ascii=False), int(time.time())))
+                            conn.commit()
+                            conn.close()
+                            _sched_done.add("lhb_" + date)
                 except Exception as e:
                     log.warning("板块轮动日终快照失败 err=%s", e, exc_info=True)
             # 9:31-9:35 盘点当日采集: 缺失时点告警(排查关键, 数据过了点无法补)

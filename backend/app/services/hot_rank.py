@@ -155,3 +155,36 @@ def fetch_hot_rank(source="kpl", top_n=50):
         return fetch_ths_hot_rank(top_n)
     log.warning("未知人气榜数据源 source=%s", source)
     return []
+
+
+# ==================== 历史落库与回看 ====================
+
+def save_hot_rank_history(date, source="kpl", top_n=50):
+    """抓取当日人气榜落库 hot_rank_history(覆盖式), 返回条数"""
+    lst = fetch_hot_rank(source, top_n)
+    if not lst:
+        return 0
+    from ..db import database
+    conn = database.get_conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO hot_rank_history (date, source, list, ts) VALUES (?,?,?,?)",
+        (date, source, json.dumps(lst, ensure_ascii=False), int(time.time())))
+    conn.commit()
+    conn.close()
+    return len(lst)
+
+
+def query_hot_rank_history(date, source="kpl"):
+    """按日期回看人气榜(无数据返回空列表)"""
+    from ..db import database
+    conn = database.get_conn()
+    row = conn.execute(
+        "SELECT list FROM hot_rank_history WHERE date=? AND source=?",
+        (date, source)).fetchone()
+    conn.close()
+    if not row or not row[0]:
+        return []
+    try:
+        return json.loads(row[0])
+    except (ValueError, TypeError):
+        return []

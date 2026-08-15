@@ -115,6 +115,25 @@ def init_db():
             PRIMARY KEY (date, source)
         )
     """)
+    # 人气热榜每日快照: date+source 唯一, 回看历史人气榜
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS hot_rank_history (
+            date TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'kpl',
+            list TEXT NOT NULL,
+            ts INTEGER NOT NULL,
+            PRIMARY KEY (date, source)
+        )
+    """)
+    # 龙虎榜每日快照: date 唯一, 回看历史龙虎榜
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS lhb_history (
+            date TEXT NOT NULL,
+            list TEXT NOT NULL,
+            ts INTEGER NOT NULL,
+            PRIMARY KEY (date)
+        )
+    """)
     # 旧库升级: 已存在且无 source 列时补上(单字段主键), 历史数据默认 kpl
     try:
         cur.execute("ALTER TABLE daily_sector_top ADD COLUMN source TEXT NOT NULL DEFAULT 'kpl'")

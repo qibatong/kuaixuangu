@@ -22,16 +22,16 @@ export function kplLadder() {
   return request('/api/kpl/ladder')
 }
 
-export function kplBoardRank() {
-  return request('/api/kpl/board-rank')
+export function kplBoardRank(date = '') {
+  return request(`/api/kpl/board-rank${date ? `?date=${date}` : ''}`)
 }
 
-export function kplHotRank(source = 'kpl') {
-  return request(`/api/kpl/hot-rank?source=${source}`)
+export function kplHotRank(source = 'kpl', date = '') {
+  return request(`/api/kpl/hot-rank?source=${source}${date ? `&date=${date}` : ''}`)
 }
 
-export function kplLhb() {
-  return request('/api/kpl/lhb')
+export function kplLhb(date = '') {
+  return request(`/api/kpl/lhb${date ? `?date=${date}` : ''}`)
 }
 
 export function kplLhbDetail(code, date = '') {

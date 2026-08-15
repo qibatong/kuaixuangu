@@ -4,7 +4,7 @@
 
     <div class="mrk-head">
       <span class="mrk-title"><i class="fa fa-radar"></i> 市场雷达</span>
-      <span class="mrk-sub">板块强度排行 · 盘中人气热榜（开盘啦数据）</span>
+      <span class="mrk-sub">板块强度排行 · 盘中人气热榜 · 龙虎榜（三数据源）</span>
       <span class="mrk-time">{{ bjTime }}</span>
     </div>
 
@@ -25,6 +25,11 @@
 
     <!-- 板块强度 -->
     <div v-if="tab === 'board'" class="mrk-panel">
+      <div class="rot-toolbar">
+        <span class="rot-tip"><i class="fa fa-info-circle"></i> 实时板块强度排行；选日期可回看历史(开盘啦保留最近5交易日)</span>
+        <input type="date" v-model="datePicker" class="admin-input" style="width:140px;padding:5px 8px;" @change="loadBoard">
+        <button class="admin-search-btn" @click="clearDate('board')"><i class="fa fa-bolt"></i> 实时</button>
+      </div>
       <div v-if="boardLoading" class="loading-placeholder"><div class="spinner"></div><div>加载板块强度...</div></div>
       <div v-else-if="!boardList.length" class="empty-state">暂无板块强度数据</div>
       <table v-else class="stock-table">
@@ -133,7 +138,7 @@
     <!-- 人气热榜 -->
     <div v-else-if="tab === 'hot'" class="mrk-panel">
       <div class="rot-toolbar">
-        <span class="rot-tip"><i class="fa fa-info-circle"></i> 各数据源人气热榜(关注度/热度排序)</span>
+        <span class="rot-tip"><i class="fa fa-info-circle"></i> 各数据源人气热榜；选日期可回看历史</span>
         <div class="rot-source">
           <button v-for="s in sourceOptions" :key="s.key"
                   :class="{ active: hotSource === s.key }"
@@ -142,7 +147,8 @@
             <i :class="s.icon"></i> {{ s.label }}
           </button>
         </div>
-        <button class="admin-search-btn" @click="loadHot"><i class="fa fa-refresh"></i> 刷新</button>
+        <input type="date" v-model="datePicker" class="admin-input" style="width:140px;padding:5px 8px;" @change="loadHot">
+        <button class="admin-search-btn" @click="clearDate('hot')"><i class="fa fa-bolt"></i> 实时</button>
       </div>
       <div v-if="hotLoading" class="loading-placeholder"><div class="spinner"></div><div>加载人气热榜...</div></div>
       <div v-else-if="!hotList.length" class="empty-state">暂无热榜数据</div>
@@ -170,6 +176,11 @@
 
     <!-- 龙虎榜 -->
     <div v-else class="mrk-panel">
+      <div class="rot-toolbar">
+        <span class="rot-tip"><i class="fa fa-info-circle"></i> 龙虎榜当日/历史；选日期可回看</span>
+        <input type="date" v-model="datePicker" class="admin-input" style="width:140px;padding:5px 8px;" @change="loadLhb">
+        <button class="admin-search-btn" @click="clearDate('lhb')"><i class="fa fa-bolt"></i> 实时</button>
+      </div>
       <div v-if="lhbLoading" class="loading-placeholder"><div class="spinner"></div><div>加载龙虎榜...</div></div>
       <div v-else-if="!lhbList.length" class="empty-state">暂无龙虎榜数据</div>
       <table v-else class="stock-table">
@@ -266,6 +277,7 @@ const boardLoading = ref(true)
 const hotLoading = ref(true)
 const lhbLoading = ref(true)
 const hotSource = ref(localStorage.getItem('kuaixuan_hot_source') || 'kpl')
+const datePicker = ref('')
 const bjTime = ref('--:--:--')
 let clockTimer = null
 let refreshTimer = null
@@ -311,16 +323,23 @@ function inPool(code) {
 
 async function loadBoard() {
   try {
-    const d = await kplBoardRank()
+    const d = await kplBoardRank(datePicker.value)
     boardList.value = d.list || []
   } catch (e) { /* 静默 */ } finally {
     boardLoading.value = false
   }
 }
 
+function clearDate(which) {
+  datePicker.value = ''
+  if (which === 'board') { boardLoading.value = true; loadBoard() }
+  else if (which === 'hot') { hotLoading.value = true; loadHot() }
+  else { lhbLoading.value = true; loadLhb() }
+}
+
 async function loadHot() {
   try {
-    const d = await kplHotRank(hotSource.value)
+    const d = await kplHotRank(hotSource.value, datePicker.value)
     hotList.value = d.list || []
   } catch (e) { /* 静默 */ } finally {
     hotLoading.value = false
@@ -337,7 +356,7 @@ function switchHotSource(src) {
 
 async function loadLhb() {
   try {
-    const d = await kplLhb()
+    const d = await kplLhb(datePicker.value)
     lhbList.value = d.list || []
   } catch (e) { /* 静默 */ } finally {
     lhbLoading.value = false

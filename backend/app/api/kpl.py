@@ -53,28 +53,48 @@ def api_kpl_ladder(request: Request, uid: int = Depends(get_uid)):
 
 
 @router.get("/api/kpl/board-rank")
-def api_kpl_board_rank(request: Request, uid: int = Depends(get_uid)):
-    """板块强度排行(实时)"""
-    d = kpl.fetch_board_rank()
-    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+def api_kpl_board_rank(request: Request, uid: int = Depends(get_uid), date: str = ""):
+    """板块强度排行; date 空=实时, 指定 'YYYY-MM-DD' 查历史(开盘啦 doc42 保留最近 5 交易日)"""
+    if date:
+        d = kpl.fetch_board_rank_by_date(date)
+    else:
+        d = kpl.fetch_board_rank()
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0, "date": date or ""})
 
 
 @router.get("/api/kpl/hot-rank")
-def api_kpl_hot_rank(request: Request, uid: int = Depends(get_uid), source: str = "kpl"):
-    """盘中人气热榜(实时); source: kpl(开盘啦)/ em(东方财富)/ ths(同花顺)"""
+def api_kpl_hot_rank(request: Request, uid: int = Depends(get_uid), source: str = "kpl", date: str = ""):
+    """人气热榜; source: kpl/em/ths; date 空=实时, 指定日期回看历史(hot_rank_history)"""
     from ..services import hot_rank
     source = (source or "kpl").lower()
     if source not in ("kpl", "em", "ths"):
         source = "kpl"
-    d = hot_rank.fetch_hot_rank(source)
-    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0, "source": source})
+    if date:
+        d = hot_rank.query_hot_rank_history(date, source)
+    else:
+        d = hot_rank.fetch_hot_rank(source)
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
+               "source": source, "date": date or ""})
 
 
 @router.get("/api/kpl/lhb")
-def api_kpl_lhb(request: Request, uid: int = Depends(get_uid)):
-    """龙虎榜上榜股票(当天)"""
+def api_kpl_lhb(request: Request, uid: int = Depends(get_uid), date: str = ""):
+    """龙虎榜上榜股票; date 空=当天实时, 指定 'YYYY-MM-DD' 回看历史(lhb_history 快照)"""
+    if date:
+        import json as _json
+        from ..db import database
+        conn = database.get_conn()
+        row = conn.execute("SELECT list FROM lhb_history WHERE date=?", (date,)).fetchone()
+        conn.close()
+        lst = []
+        if row and row[0]:
+            try:
+                lst = _json.loads(row[0])
+            except (ValueError, TypeError):
+                lst = []
+        return jr({"ok": True, "list": lst, "count": len(lst), "date": date})
     d = kpl.fetch_lhb()
-    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0, "date": ""})
 
 
 @router.get("/api/kpl/lhb-detail")
