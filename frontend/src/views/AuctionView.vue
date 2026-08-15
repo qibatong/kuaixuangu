@@ -121,6 +121,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <th>代码</th>
             <th>名称</th>
             <th>状态</th>
+            <th>加单趋势</th>
             <th class="board-col">概念(所属板块)</th>
             <th class="tp-th tp-th-15">9:15 涨幅</th>
             <th class="tp-th tp-th-15">9:15 封单</th>
@@ -138,17 +139,21 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td class="code-click" @click="linkToSoftware(it.code)">{{ it.code }}</td>
             <td class="name-col"><div class="name-main">{{ it.name || it.code }}</div></td>
             <td><span class="s3-tag" :class="'s3-tag-' + it.layer">{{ it.tag }}</span></td>
+            <td>
+              <span v-if="sealMode(it)" class="seal-mode" :class="'seal-mode-' + sealMode(it).cls" :title="sealMode(it).tip">{{ sealMode(it).label }}</span>
+              <span v-else class="dim">-</span>
+            </td>
             <td class="board-col" :title="it.board"><span class="board-text">{{ boardText(it.board) }}</span></td>
             <td class="tp-th-15 chg-col" :class="tpChgCls(it, '9_15')">{{ tpChg(it, '9_15') }}</td>
             <td class="tp-th-15 seal-col">{{ tpSeal(it, '9_15') }}</td>
             <td class="tp-th-20 chg-col" :class="tpChgCls(it, '9_20')">{{ tpChg(it, '9_20') }}</td>
-            <td class="tp-th-20 seal-col">{{ tpSeal(it, '9_20') }}</td>
+            <td class="tp-th-20 seal-col">{{ tpSeal(it, '9_20') }}<span v-if="sealDelta(it, '9_20')" class="seal-delta" :class="sealDelta(it, '9_20').cls">{{ sealDelta(it, '9_20').text }}</span></td>
             <td class="tp-th-25 chg-col" :class="tpChgCls(it, '9_25')">{{ tpChg(it, '9_25') }}</td>
-            <td class="tp-th-25 seal-col">{{ tpSeal(it, '9_25') }}</td>
+            <td class="tp-th-25 seal-col">{{ tpSeal(it, '9_25') }}<span v-if="sealDelta(it, '9_25')" class="seal-delta" :class="sealDelta(it, '9_25').cls">{{ sealDelta(it, '9_25').text }}</span></td>
             <td class="dim">{{ mvText(it) }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已入池' : '＋池' }}</button></td>
           </tr>
-          <tr v-if="!s3List.length"><td colspan="13" class="snap-empty">暂无三时点封单数据（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
+          <tr v-if="!s3List.length"><td colspan="14" class="snap-empty">暂无三时点封单数据（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
         </tbody>
       </table>
 
@@ -530,6 +535,41 @@ function tpSeal(it, tp) {
   if (v >= 1e8) return (v / 1e8).toFixed(2) + ' 亿'
   return (v / 1e4).toFixed(0) + ' 万'
 }
+
+// 加单差异: 当前时点封单额 vs 前一时点(9:20 vs 9:15, 9:25 vs 9:20)
+// 返回 {text:'+120%', cls:'up|down|flat'} 或 null(任一缺失)
+function sealDelta(it, tp) {
+  const prev = tp === '9_20' ? '9_15' : tp === '9_25' ? '9_20' : null
+  if (!prev) return null
+  const cur = it.points && it.points[tp]
+  const pre = it.points && it.points[prev]
+  const cv = cur && cur.bid_buy_amt
+  const pv = pre && pre.bid_buy_amt
+  if (!cv || !pv) return null
+  const pct = (cv / pv - 1) * 100
+  if (pct > 5) return { text: '↑' + (pct >= 100 ? (pct / 100).toFixed(1) + '倍' : Math.round(pct) + '%'), cls: 'up' }
+  if (pct < -5) return { text: '↓' + Math.abs(Math.round(pct)) + '%', cls: 'down' }
+  return { text: '≈' + Math.round(pct) + '%', cls: 'flat' }
+}
+// 加单趋势(整行): 9:15→9:20→9:25 封单额走势, 判断加单/撤单模式
+function sealMode(it) {
+  const v15 = it.points && it.points['9_15'] && it.points['9_15'].bid_buy_amt
+  const v20 = it.points && it.points['9_20'] && it.points['9_20'].bid_buy_amt
+  const v25 = it.points && it.points['9_25'] && it.points['9_25'].bid_buy_amt
+  const seg = (a, b) => { if (!a || !b) return null; const r = b / a; return r >= 1.1 ? 1 : r <= 0.9 ? -1 : 0 }
+  const s1 = seg(v15, v20)
+  const s2 = seg(v20, v25)
+  if (s1 === null || s2 === null) return null
+  if (s1 === 1 && s2 === 1) return { label: '持续加单', cls: 'strong', tip: '9:15→9:20→9:25 封单持续放大, 主力不断加单' }
+  if (s1 === -1 && s2 === 1) return { label: '尾盘回补', cls: 'mid', tip: '9:20 撤单后 9:25 重新加单, 关注是否回封' }
+  if (s1 === 1 && s2 === -1) return { label: '冲高回落', cls: 'weak', tip: '9:20 加单后 9:25 大幅撤单, 警惕炸板' }
+  if (s1 === -1 && s2 === -1) return { label: '持续撤单', cls: 'danger', tip: '9:15→9:20→9:25 封单持续减少, 开板风险高' }
+  if (s1 === 1 && s2 === 0) return { label: '加单后走平', cls: 'mid', tip: '9:20 加单, 9:25 持平' }
+  if (s1 === 0 && s2 === 1) return { label: '尾盘加单', cls: 'mid', tip: '9:25 相对 9:20 加单, 尾盘资金抢筹' }
+  if (s1 === 0 && s2 === -1) return { label: '尾盘撤单', cls: 'weak', tip: '9:25 相对 9:20 撤单' }
+  if (s1 === -1 && s2 === 0) return { label: '撤单后走平', cls: 'weak', tip: '9:20 撤单, 9:25 持平' }
+  return { label: '封单走平', cls: 'flat', tip: '三个时点封单额基本持平' }
+}
 // 概念文本: 取前 3 个标签(开盘啦 board 是逗号分隔的多概念, 避免一格撑破)
 function boardText(b) {
   if (!b) return '-'
@@ -803,6 +843,24 @@ body[data-bg="light"] .tp-th-25 + .seal-col { color: #8048cc; }
 body[data-bg="light"] .chg-up-15 { color: #0068b4; }
 body[data-bg="light"] .chg-up-20 { color: #8a5a00; }
 body[data-bg="light"] .chg-up-25 { color: #6830a8; }
+
+/* === 加单差异: 封单变化小箭头 + 趋势标签 === */
+.seal-delta { display: inline-block; margin-left: 3px; font-size: 11px; font-weight: 700; }
+.seal-delta.up { color: #ff6a6a; }
+.seal-delta.down { color: #6aa0ff; }
+.seal-delta.flat { color: var(--text-muted); }
+body[data-bg="light"] .seal-delta.up { color: #c82020; }
+body[data-bg="light"] .seal-delta.down { color: #2060c0; }
+.seal-mode { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.seal-mode-strong { color: #ffb400; border: 1px solid #ffb400; background: rgba(255, 180, 0, 0.12); }
+.seal-mode-mid { color: #7fe0c0; border: 1px solid #4fc0a0; background: rgba(79, 192, 160, 0.12); }
+.seal-mode-weak { color: #a0b8d0; border: 1px solid #6a88a8; background: rgba(106, 136, 168, 0.12); }
+.seal-mode-danger { color: #ff6a6a; border: 1px solid #ff6a6a; background: rgba(255, 106, 106, 0.12); }
+.seal-mode-flat { color: var(--text-muted); border: 1px solid var(--border-soft); background: transparent; }
+body[data-bg="light"] .seal-mode-strong { color: #8a5a00; border-color: #c79100; background: rgba(255, 180, 0, 0.12); }
+body[data-bg="light"] .seal-mode-mid { color: #1a7a60; border-color: #2a9a7a; }
+body[data-bg="light"] .seal-mode-weak { color: #486080; border-color: #6a88a8; }
+body[data-bg="light"] .seal-mode-danger { color: #c82020; border-color: #c82020; }
 
 .snap-modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 12px; width: min(1100px, 98vw); max-height: 85vh; overflow: auto; padding: 12px 14px; box-sizing: border-box; }
 .snap-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
