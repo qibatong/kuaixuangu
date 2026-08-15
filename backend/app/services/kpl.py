@@ -1979,13 +1979,36 @@ def fetch_kpl_doc93(**extra):
     return _call("lhb", base)
 
 def fetch_kpl_doc94(**extra):
-    r"""个股 - 全部相关 概念板块 (apphwshhq.longhuvip.com) -> dict
-    a=GetStockIDPlate, c=StockL2Data, apiv=w43 + extra
-    resp 示例: {\"List\":[],\"ListJX\":[[\"801159\",\"\\u673a\\u5668\\u4eba\\u6982\\u5ff5\",-1.343],[\"801273\",\"\\u80a1\\u6743\\u8f6c\\u8ba9\",-1.147],[\"801256\",
-    """
-    base = {"a": "GetStockIDPlate", "c": "StockL2Data", "apiv": "w43"}
+    r"""\u4e2a\u80a1 - \u5168\u90e8\u76f8\u5173 \u6982\u5ff5\u677f\u5757 (apphwhq/apphwshhq.longhuvip.com) -> dict
+    a=GetStockIDPlate, c=StockL2Data, apiv=w43, Type=2 + extra(StockID=xxx \u5fc5\u4f20)
+    resp \u793a\u4f8b: {"List":[],"ListJX":[["801159","\u673a\u5668\u4eba\u6982\u5ff5",-1.343],["801273","\u80a1\u6743\u8f6c\u8ba9",-1.147],...]
+    \u6ce8: Type=2 \u5fc5\u4f20, \u9ed8\u8ba4 0 \u65f6 ListJX \u8fd4\u7a7a; host \u662f default(apphwhq) \u6216 after(apphwshhq) \u90fd\u53ef
+    \u6587\u6863\u793a\u4f8b URL appvipshhq.longhuvip.com \u5b9e\u9645 DNS \u65e0\u6cd5\u89e3\u6790, \u8d70 default host"""
+    base = {"a": "GetStockIDPlate", "c": "StockL2Data", "apiv": "w43", "Type": "2"}
     base.update(extra)
     return _call("default", base)
+
+
+def fetch_stock_plate(code):
+    """\u4e2a\u80a1\u5168\u90e8\u76f8\u5173\u6982\u5ff5\u677f\u5757(\u5f00\u76d8\u5566 doc94 GetStockIDPlate):
+    \u8fd4\u56de\u62fc\u63a5\u7684\u677f\u5757\u5b57\u7b26\u4e32(\u5982 "\u673a\u5668\u4eba\u6982\u5ff5\u3001\u80a1\u6743\u8f6c\u8ba9\u3001\u6c7d\u8f66\u96f6\u90e8\u4ef6"), \u5931\u8d25\u8fd4\u56de ""
+    \u6309\u80a1\u7f13\u5b58 1 \u5929(\u677f\u5757\u5f52\u5c5e\u53d8\u52a8\u4f4e), \u5927\u5e45\u51cf\u5c11 KPL \u8c03\u7528\u6b21\u6570
+    \u9009\u80a1\u7ed3\u679c 39 \u53ea \xd7 30s \u7f13\u5b58\u5237\u65b0 \u2192 \u9996\u6b21 39 \u6b21, \u4e4b\u540e\u547d\u4e2d"""
+    key = "stock_plate_" + str(code)
+    def loader():
+        d = fetch_kpl_doc94(StockID=str(code))
+        if not d:
+            return ""
+        lst = d.get("ListJX") or []
+        names = []
+        for it in lst:
+            if isinstance(it, list) and len(it) >= 2 and it[1]:
+                nm = str(it[1]).strip()
+                if nm:
+                    names.append(nm)
+        return "\u3001".join(names)
+    return _cached(key, 86400, loader)  # 1 \u5929\u7f13\u5b58, \u677f\u5757\u5f52\u5c5e\u7a33\u5b9a
+
 
 def fetch_kpl_doc95(**extra):
     r"""头条 (apparticle.longhuvip.com) -> dict

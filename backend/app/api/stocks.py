@@ -19,14 +19,16 @@ router = APIRouter()
 
 
 def _apply_kpl_board(result, log_tag=""):
-    """用开盘啦概念覆盖选股结果 concept(开盘啦概念优先, 东财 f103 兜底)
+    """用开盘啦概念覆盖选股结果 concept(2 层覆盖)
+    1) 榜单合并(ladder+bid_seal+bid_boom+hot_stocks+snap25) - 快速覆盖热点/板块
+    2) 按股查询(doc94 fetch_stock_plate) - 百分百覆盖, 1 天缓存限制频次
     result: scorer.process_all_stocks 输出, 每项含 code/concept"""
     if not result:
         return
+    # 第一层: 榜单合并（全市场一次接口）
+    board_map = {}
     try:
-        board_map = kpl.fetch_board_map()
-        if not board_map:
-            return
+        board_map = kpl.fetch_board_map() or {}
         n = 0
         for it in result:
             b = board_map.get(str(it.get("code")))
@@ -34,9 +36,27 @@ def _apply_kpl_board(result, log_tag=""):
                 it["concept"] = b
                 n += 1
         if n:
-            log.info("选股概念开盘啦覆盖 %s 覆盖%d只/共%d只", log_tag, n, len(result))
+            log.info("选股概念开盘啦覆盖[榜单] %s 覆盖%d只/共%d只", log_tag, n, len(result))
     except Exception as e:
-        log.warning("选股概念开盘啦覆盖失败 %s err=%s", log_tag, e)
+        log.warning("选股概念开盘啦覆盖[榜单]失败 %s err=%s", log_tag, e)
+    # 第二层: 按股查询 GetStockIDPlate (仅针对榜单未覆盖到的股票, 避免 KPL 资源浪费)
+    miss_codes = [str(it.get("code")) for it in result if it.get("code") and not board_map.get(str(it.get("code")))]
+    if not miss_codes:
+        return
+    n2 = 0
+    try:
+        for code in miss_codes:
+            plate = kpl.fetch_stock_plate(code)
+            if plate:
+                for it in result:
+                    if str(it.get("code")) == code:
+                        it["concept"] = plate
+                        n2 += 1
+                        break
+        if n2:
+            log.info("选股概念开盘啦覆盖[按股] %s 补%d只/共%d只", log_tag, n2, len(result))
+    except Exception as e:
+        log.warning("选股概念开盘啦覆盖[按股]失败 %s err=%s", log_tag, e)
 
 
 
