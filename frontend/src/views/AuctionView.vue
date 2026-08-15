@@ -869,7 +869,7 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 .s3-table th.tp-th { text-align: center; font-weight: 600; }
 .s3-table th.tp-th-15 { color: #5fb4ff; border-bottom: 2px solid rgba(95, 180, 255, 0.35); }
 .s3-table th.tp-th-20 { color: #ffb400; border-bottom: 2px solid rgba(255, 180, 0, 0.35); }
-.s3-table th.tp-th-25 { color: #b56cff; border-bottom: 2px solid rgba(181, 108, 255, 0.35); }
+.s3-table th.tp-th-25 { color: #ff5a5a; border-bottom: 2px solid rgba(255, 90, 90, 0.4); }
 .s3-table td.tp-th-15, .s3-table td.tp-th-20, .s3-table td.tp-th-25 { text-align: center; white-space: nowrap; }
 .s3-table td.chg-col { font-weight: 600; }
 /* 9:15 涨幅: 青蓝系(亮=涨, 暗=跌) */
@@ -880,21 +880,21 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 .chg-up-20 { color: #ffd566; text-shadow: 0 0 6px rgba(255, 180, 0, 0.3); }
 .chg-dn-20 { color: #c08600; }
 .dim-20    { color: #8a7a5a; }
-/* 9:25 涨幅: 紫系 */
-.chg-up-25 { color: #d095ff; text-shadow: 0 0 6px rgba(181, 108, 255, 0.3); }
-.chg-dn-25 { color: #8260c0; }
-.dim-25    { color: #7858a0; }
+/* 9:25 涨幅: 红系(亮=涨停封死, 暗=回落, 灰=平) - 9:25 最终竞价结果用 A 股主色红 */
+.chg-up-25 { color: #ff6a6a; text-shadow: 0 0 6px rgba(255, 90, 90, 0.35); font-weight: 700; }
+.chg-dn-25 { color: #c04848; }
+.dim-25    { color: #9a5a5a; }
 /* 封单额: 按时点主色, 弱色 */
 .seal-col { font-variant-numeric: tabular-nums; }
 .tp-th-15 + .seal-col { color: #80d4ff; }
 .tp-th-20 + .seal-col { color: #ffb400; }
-.tp-th-25 + .seal-col { color: #d095ff; }
+.tp-th-25 + .seal-col { color: #ff6a6a; }
 body[data-bg="light"] .tp-th-15 + .seal-col { color: #0068b4; }
 body[data-bg="light"] .tp-th-20 + .seal-col { color: #b07800; }
-body[data-bg="light"] .tp-th-25 + .seal-col { color: #8048cc; }
+body[data-bg="light"] .tp-th-25 + .seal-col { color: #c82020; }
 body[data-bg="light"] .chg-up-15 { color: #0068b4; }
 body[data-bg="light"] .chg-up-20 { color: #8a5a00; }
-body[data-bg="light"] .chg-up-25 { color: #6830a8; }
+body[data-bg="light"] .chg-up-25 { color: #c82020; }
 
 /* === 加单差异: 封单变化小箭头 + 趋势标签 === */
 .seal-delta { display: inline-block; margin-left: 3px; font-size: 11px; font-weight: 700; }

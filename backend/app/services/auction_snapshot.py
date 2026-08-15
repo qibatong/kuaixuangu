@@ -91,7 +91,9 @@ def _fetch_market_map(full=False):
 
 def snapshot_at(time_point):
     """抓取并归档某时点全市场快照, 返回入库数量; 失败返回 0
-    时点快照用全市场分页(fetch_eastmoney_all ~5500只), 非单页600只"""
+    时点快照用全市场分页(fetch_eastmoney_all ~5500只), 非单页600只
+    封单额 bid_buy_amt 优先用开盘啦涨停委买额(真实封单, 非涨停股为0),
+    其次东财 f10×f5 计算; 三者皆无则为 0"""
     if time_point not in TIME_POINTS:
         return 0
     date = _bj_date()
@@ -100,6 +102,23 @@ def snapshot_at(time_point):
         log.warning("快照拉取为空 time=%s date=%s (东财全市场接口无返回, 该时点数据缺失!)",
                     time_point, date)
         return 0
+    # 叠加开盘啦涨停委买额(真实封单): MorningBiddingList Type=4 返回该时点涨停股封单额
+    # 涨停股才有封单概念(涨停委买=封单), 非涨停股 bidSealAmt=0 不覆盖东财 f10×f5 值
+    try:
+        from . import kpl
+        kpl._cache.clear()          # 保证拿到当前时点的新鲜数据(非前一时点缓存)
+        kpl_seal = kpl.fetch_bid_seal() or []
+        kpl_map = {s["code"]: s.get("bidSealAmt") or 0 for s in kpl_seal}
+        n_seal = 0
+        for code, v in raw_all.items():
+            seal = kpl_map.get(code)
+            if seal:
+                v["bid_buy_amt"] = seal
+                n_seal += 1
+        if n_seal:
+            log.info("时点%s 开盘啦封单叠加 %d 只 (涨停委买额)", time_point, n_seal)
+    except Exception as e:
+        log.warning("开盘啦封单叠加失败 time=%s err=%s", time_point, e)
     try:
         conn = database.get_conn()
         conn.executemany(
