@@ -114,33 +114,41 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
       </table>
 
       <!-- 三时点封单榜(短线侠式三层排序: 9:25涨停 > 9:20涨停回落 > 9:15涨停回落) -->
-      <table v-else-if="tab === 's3'" class="stock-table">
+      <table v-else-if="tab === 's3'" class="stock-table s3-table">
         <thead>
           <tr>
             <th>#</th>
-            <th class="sortable" :class="{ active: s3Sort.keyOf('code') }" @click="s3Sort.onSort('code', 'string')">代码<span class="sort-ind">{{ s3Sort.ind('code') }}</span></th>
+            <th>代码</th>
             <th>名称</th>
             <th>状态</th>
-            <th>9:15</th>
-            <th>9:20</th>
-            <th>9:25</th>
+            <th class="board-col">概念(所属板块)</th>
+            <th class="tp-th tp-th-15">9:15 涨幅</th>
+            <th class="tp-th tp-th-15">9:15 封单</th>
+            <th class="tp-th tp-th-20">9:20 涨幅</th>
+            <th class="tp-th tp-th-20">9:20 封单</th>
+            <th class="tp-th tp-th-25">9:25 涨幅</th>
+            <th class="tp-th tp-th-25">9:25 封单</th>
             <th>流通市值(亿)</th>
             <th>操作</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(it, idx) in s3Sort.sorted(s3List)" :key="it.code">
+          <tr v-for="(it, idx) in s3List" :key="it.code">
             <td class="rank-col">{{ idx + 1 }}</td>
             <td class="code-click" @click="linkToSoftware(it.code)">{{ it.code }}</td>
             <td class="name-col"><div class="name-main">{{ it.name || it.code }}</div></td>
             <td><span class="s3-tag" :class="'s3-tag-' + it.layer">{{ it.tag }}</span></td>
-            <td :class="tpCls(it, '9_15')">{{ tpCell(it, '9_15') }}</td>
-            <td :class="tpCls(it, '9_20')">{{ tpCell(it, '9_20') }}</td>
-            <td :class="tpCls(it, '9_25')">{{ tpCell(it, '9_25') }}</td>
+            <td class="board-col" :title="it.board"><span class="board-text">{{ boardText(it.board) }}</span></td>
+            <td class="tp-th-15 chg-col" :class="tpChgCls(it, '9_15')">{{ tpChg(it, '9_15') }}</td>
+            <td class="tp-th-15 seal-col">{{ tpSeal(it, '9_15') }}</td>
+            <td class="tp-th-20 chg-col" :class="tpChgCls(it, '9_20')">{{ tpChg(it, '9_20') }}</td>
+            <td class="tp-th-20 seal-col">{{ tpSeal(it, '9_20') }}</td>
+            <td class="tp-th-25 chg-col" :class="tpChgCls(it, '9_25')">{{ tpChg(it, '9_25') }}</td>
+            <td class="tp-th-25 seal-col">{{ tpSeal(it, '9_25') }}</td>
             <td class="dim">{{ mvText(it) }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已入池' : '＋池' }}</button></td>
           </tr>
-          <tr v-if="!s3List.length"><td colspan="9" class="snap-empty">暂无三时点封单数据（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
+          <tr v-if="!s3List.length"><td colspan="13" class="snap-empty">暂无三时点封单数据（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
         </tbody>
       </table>
 
@@ -498,19 +506,35 @@ const yestBrokenSort = useSortable()
 const lhbSort = useSortable()
 const brokenSort = useSortable()
 const snapSort = useSortable()
-const s3Sort = useSortable()
 
-// ---- 三时点封单榜单元格: 涨幅% + 封单额(万, 来自 bid_buy_amt 元) ----
-function tpCell(it, tp) {
+// ---- 三时点封单榜单元格(拆分涨幅/封单两列) ----
+// 涨幅: 按时点色系分涨(亮)/跌(暗)/0(灰), 避开 A 股红绿
+function tpChg(it, tp) {
   const p = it.points && it.points[tp]
   if (!p || p.bid_change === null || p.bid_change === undefined) return '-'
-  const amt = p.bid_buy_amt ? (p.bid_buy_amt / 1e4).toFixed(0) + '万' : '-'
-  return `${signed(p.bid_change)}% ${amt}`
+  return signed(p.bid_change) + '%'
 }
-function tpCls(it, tp) {
+function tpChgCls(it, tp) {
   const p = it.points && it.points[tp]
   if (!p || p.bid_change === null || p.bid_change === undefined) return 'dim'
-  return p.bid_change > 0 ? 'up' : p.bid_change < 0 ? 'down' : 'dim'
+  // 按时点配色: tp-th-15 chg-up / tp-th-15 chg-down / dim
+  const v = tp.slice(2) // "15" / "20" / "25"
+  return p.bid_change > 0 ? 'chg-up-' + v : p.bid_change < 0 ? 'chg-dn-' + v : 'dim-' + v
+}
+// 封单额: > 1亿 显示「X.X 亿」, 否则「X.X 万」, 数据缺失显示 -
+function tpSeal(it, tp) {
+  const p = it.points && it.points[tp]
+  if (!p || p.bid_change === null || p.bid_change === undefined) return '-'
+  const v = p.bid_buy_amt || 0
+  if (!v) return '-'
+  if (v >= 1e8) return (v / 1e8).toFixed(2) + ' 亿'
+  return (v / 1e4).toFixed(0) + ' 万'
+}
+// 概念文本: 取前 3 个标签(开盘啦 board 是逗号分隔的多概念, 避免一格撑破)
+function boardText(b) {
+  if (!b) return '-'
+  const tags = b.split(',').map(s => s.trim()).filter(Boolean)
+  return tags.slice(0, 3).join('·') + (tags.length > 3 ? '…' : '')
 }
 function mvText(it) {
   const p = it.points && (it.points['9_25'] || it.points['9_20'] || it.points['9_15'])
@@ -745,6 +769,41 @@ onMounted(() => {
 body[data-bg="light"] .s3-tag-1 { color: #8a6a00; border-color: #c79100; }
 body[data-bg="light"] .s3-tag-2 { color: #a05a10; border-color: #c79100; }
 body[data-bg="light"] .s3-tag-3 { color: #005c8a; border-color: #0080a0; }
+
+/* === 三时点封单榜表格样式: 三色分组 + 概念列 + 拆列 === */
+.s3-table { table-layout: auto; }
+.s3-table .board-col { max-width: 180px; min-width: 120px; }
+.board-text { color: var(--text-secondary); font-size: 12px; line-height: 1.3; }
+.s3-table th.tp-th { text-align: center; font-weight: 600; }
+.s3-table th.tp-th-15 { color: #5fb4ff; border-bottom: 2px solid rgba(95, 180, 255, 0.35); }
+.s3-table th.tp-th-20 { color: #ffb400; border-bottom: 2px solid rgba(255, 180, 0, 0.35); }
+.s3-table th.tp-th-25 { color: #b56cff; border-bottom: 2px solid rgba(181, 108, 255, 0.35); }
+.s3-table td.tp-th-15, .s3-table td.tp-th-20, .s3-table td.tp-th-25 { text-align: center; white-space: nowrap; }
+.s3-table td.chg-col { font-weight: 600; }
+/* 9:15 涨幅: 青蓝系(亮=涨, 暗=跌) */
+.chg-up-15 { color: #80d4ff; text-shadow: 0 0 6px rgba(95, 180, 255, 0.3); }
+.chg-dn-15 { color: #5080c0; }
+.dim-15    { color: #5a7898; }
+/* 9:20 涨幅: 橙系 */
+.chg-up-20 { color: #ffd566; text-shadow: 0 0 6px rgba(255, 180, 0, 0.3); }
+.chg-dn-20 { color: #c08600; }
+.dim-20    { color: #8a7a5a; }
+/* 9:25 涨幅: 紫系 */
+.chg-up-25 { color: #d095ff; text-shadow: 0 0 6px rgba(181, 108, 255, 0.3); }
+.chg-dn-25 { color: #8260c0; }
+.dim-25    { color: #7858a0; }
+/* 封单额: 按时点主色, 弱色 */
+.seal-col { font-variant-numeric: tabular-nums; }
+.tp-th-15 + .seal-col { color: #80d4ff; }
+.tp-th-20 + .seal-col { color: #ffb400; }
+.tp-th-25 + .seal-col { color: #d095ff; }
+body[data-bg="light"] .tp-th-15 + .seal-col { color: #0068b4; }
+body[data-bg="light"] .tp-th-20 + .seal-col { color: #b07800; }
+body[data-bg="light"] .tp-th-25 + .seal-col { color: #8048cc; }
+body[data-bg="light"] .chg-up-15 { color: #0068b4; }
+body[data-bg="light"] .chg-up-20 { color: #8a5a00; }
+body[data-bg="light"] .chg-up-25 { color: #6830a8; }
+
 .snap-modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 12px; width: min(1100px, 98vw); max-height: 85vh; overflow: auto; padding: 12px 14px; box-sizing: border-box; }
 .snap-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .snap-title { font-size: 15px; font-weight: 700; color: #ffe0a0; }

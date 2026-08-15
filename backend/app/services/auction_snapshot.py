@@ -246,16 +246,18 @@ def query_3points_board(date, limit=100):
     try:
         conn = database.get_conn()
         rows = conn.execute(
-            "SELECT time_point, code, bid_change, bid_amt, name, bid_buy_amt, float_mv FROM snapshot_bid "
+            "SELECT time_point, code, bid_change, bid_amt, name, bid_buy_amt, float_mv, board FROM snapshot_bid "
             "WHERE date=? AND time_point IN ('9_15','9_20','9_25')", (date,)).fetchall()
         conn.close()
     except Exception:
         return []
     agg = {}
-    for tp, code, bc, amt, name, buy, mv in rows:
-        d = agg.setdefault(code, {"code": code, "name": name or "", "points": {}})
+    for tp, code, bc, amt, name, buy, mv, board in rows:
+        d = agg.setdefault(code, {"code": code, "name": name or "", "board": board or "", "points": {}})
         if name:
             d["name"] = name
+        if board:
+            d["board"] = board
         d["points"][tp] = {"bid_change": bc, "bid_amt": amt, "bid_buy_amt": buy, "float_mv": mv}
     out = []
     for code, d in agg.items():
@@ -275,7 +277,7 @@ def query_3points_board(date, limit=100):
             continue
         out.append({"code": code, "name": d["name"], "layer": layer,
                     "tag": LAYER_TAGS[layer], "sort_amt": round(sort_amt, 2),
-                    "points": d["points"]})
+                    "board": d["board"], "points": d["points"]})
     # 分层优先(小→大), 层内按封单额降序
     out.sort(key=lambda x: (x["layer"], -x["sort_amt"]))
     return out[: min(limit, 300)]
