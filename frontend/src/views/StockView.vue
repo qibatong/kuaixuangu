@@ -29,6 +29,9 @@
     <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价选股" />
 
     <template v-else>
+    <!-- 市场情绪面板: 涨停家数/情绪值/连板高度(置于模式切换上方, 整体大盘氛围先行) -->
+    <SentimentPanel />
+
     <!-- 模式切换 Tab: 竞价选股 / 盘中实时选股 -->
     <div class="mode-tabs">
       <button class="mode-tab" :class="{ active: stocks.mode === 'auction' }" @click="switchMode('auction')">
@@ -38,9 +41,6 @@
         <i class="fa fa-bolt"></i> 盘中实时选股 <span class="mode-desc">9:30-15:00 · 实时刷新</span>
       </button>
     </div>
-
-    <!-- 市场情绪面板(开盘啦: 涨停家数/情绪值/连板高度) -->
-    <SentimentPanel />
 
     <!-- 筛选面板 -->
     <FilterPanel />
