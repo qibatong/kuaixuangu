@@ -122,7 +122,7 @@ color: var(--text-main); padding: 2px; line-height: 1.5; min-height: 100vh;
 transition: background 0.3s, color 0.3s;
 }
 a { color: inherit; }
-.container { max-width: 1500px; margin: 0 auto; }
+.container { max-width: 1500px; margin: 0 auto; padding: 0 4px; }
 .hero-section { text-align: center; margin: 14px 0 8px; display: flex; align-items: center; justify-content: center; gap: 18px; padding: 4px 0; }
 .hero-logo { height: 60px; width: 60px; border-radius: 6px; box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.25), 0 6px 18px rgba(var(--accent-rgb), 0.3); flex-shrink: 0; }
 .hero-text { text-align: left; line-height: 1.1; }

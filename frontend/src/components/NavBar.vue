@@ -41,7 +41,8 @@ const user = useUserStore()
   background: var(--bg-card);
   border: 1px solid var(--border-soft);
   border-radius: 10px;
-  padding: 8px 10px;
+  /* 横向 4px 自身 padding + .container 4px = 8px 总缩进, 与 .page-shell(自身 4 + 容器 4 = 8) 一致对齐 */
+  padding: 8px 4px;
   margin: 0 0 18px;
 }
 .nav-item {
