@@ -46,10 +46,34 @@ def _get(url, timeout=12):
 
 
 def fetch_board_list():
-    """行业板块列表 -> [(code, name)] (GBK 页面)"""
-    html = _get(LIST_URL).decode("gbk", "ignore")
-    pairs = re.findall(r'code/(88\d{4})/"[^>]*>([^<]{1,12})</a>', html)
-    return [(c, n.strip()) for c, n in pairs]
+    """同花顺板块列表(行业 + 概念) -> [(code, name)]
+    行业: https://q.10jqka.com.cn/thshy/ (GBK 表格, code/88xxxx)
+    概念: https://q.10jqka.com.cn/gn/ 内嵌 gnSection JSON(platecode 88系 + platename)
+    去重: 同名保留行业"""
+    seen = set()
+    pairs = []
+    # 1. 行业
+    html = _get("https://q.10jqka.com.cn/thshy/").decode("gbk", "ignore")
+    for c, n in re.findall(r'code/(88\d{4})/"[^>]*>([^<]{1,12})</a>', html):
+        n = n.strip()
+        if c and n and n not in seen:
+            seen.add(n)
+            pairs.append((c, n))
+    # 2. 概念 (gnSection JSON)
+    try:
+        html2 = _get("https://q.10jqka.com.cn/gn/").decode("gbk", "ignore")
+        m = re.search(r'id="gnSection" value=[\'"](\{.*?\})[\'"]', html2, re.S)
+        if m:
+            data = json.loads(m.group(1))
+            for it in data.values():
+                c = it.get("platecode") or ""
+                n = (it.get("platename") or "").strip()
+                if c and n and n not in seen:
+                    seen.add(n)
+                    pairs.append((c, n))
+    except Exception as e:
+        print("概念板块列表抓取失败(仅用行业): %s" % e, flush=True)
+    return pairs
 
 
 def fetch_kline(code, days=35):
@@ -91,7 +115,7 @@ def fetch_kline(code, days=35):
 def build_daily_top(days=30):
     """拉取 -> {date: [top10]}, 按日期升序"""
     boards = fetch_board_list()
-    print("行业板块数: %d" % len(boards), flush=True)
+    print("板块数(行业+概念): %d" % len(boards), flush=True)
     if not boards:
         return None
 

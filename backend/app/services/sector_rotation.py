@@ -82,30 +82,36 @@ def fetch_em_board_rank():
     return out
 
 
+def _ths_get(url):
+    """同花顺页面抓取(GBK)"""
+    import gzip
+    ctx = _ssl_ctx()
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Referer": "https://q.10jqka.com.cn/",
+        "Accept-Encoding": "gzip",
+    })
+    with urllib.request.urlopen(req, timeout=10, context=ctx) as r:
+        data = r.read()
+    if r.headers.get("Content-Encoding") == "gzip":
+        data = gzip.decompress(data)
+    return data.decode("gbk", "ignore")
+
+
 def fetch_ths_board_rank():
-    """同花顺行业板块当日榜(列表页按涨跌幅排序, 取前 60 条)
-    列表页 https://q.10jqka.com.cn/thshy/ (GBK) 默认按涨跌幅降序显示行业板块,
-    一行 = 序号|板块(链接含 code/88xxxx)|涨跌幅%|总成交量万手|总成交额亿|净流入...
+    """同花顺板块当日榜(行业 + 概念, 按涨跌幅降序, 取前 60 条)
+    行业: https://q.10jqka.com.cn/thshy/ (GBK 表格, code/88xxxx)
+    概念: https://q.10jqka.com.cn/gn/ 内嵌 gnSection JSON(platecode/platename/199112涨跌幅/zjjlr主力净流入/zfl涨停数)
     返回 [{"boardCode": 88xxxx, "name": ..., "strength": 涨跌幅%×100, "change": 涨跌幅%, "amount": 成交额(元)}, ...]"""
+    import json
+    import re
     out = []
+    seen = set()
     try:
-        import gzip
-        import re
-        ctx = _ssl_ctx()
-        req = urllib.request.Request("https://q.10jqka.com.cn/thshy/", headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-            "Referer": "https://q.10jqka.com.cn/",
-            "Accept-Encoding": "gzip",
-        })
-        with urllib.request.urlopen(req, timeout=10, context=ctx) as r:
-            data = r.read()
-        if r.headers.get("Content-Encoding") == "gzip":
-            data = gzip.decompress(data)
-        html = data.decode("gbk", "ignore")
-        # 提取表格行(跳过表头第一行)
+        # 1. 行业板块(表格)
+        html = _ths_get("https://q.10jqka.com.cn/thshy/")
         rows = re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S)[1:]
         for tr in rows:
-            # 板块: 序号|名称链接|涨跌幅|总成交量|总成交额亿|...
             cells = re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)
             if len(cells) < 5:
                 continue
@@ -118,9 +124,11 @@ def fetch_ths_board_rank():
                 amount_yi = float(cells[4].strip())   # 总成交额(亿元)
             except (ValueError, IndexError):
                 continue
+            name = name_m.group(1).strip()
+            seen.add(name)
             out.append({
                 "boardCode": code_m.group(1),
-                "name": name_m.group(1).strip(),
+                "name": name,
                 "strength": round(chg * 100, 1),
                 "change": round(chg, 2),
                 "amount": round(amount_yi * 1e8, 2),   # 亿 -> 元
@@ -128,12 +136,37 @@ def fetch_ths_board_rank():
                 "volRatio": 0.0,
                 "floatMv": 0.0,
             })
-            if len(out) >= 60:
-                break
+        # 2. 概念板块(gnSection JSON)
+        html2 = _ths_get("https://q.10jqka.com.cn/gn/")
+        m = re.search(r"id=\"gnSection\" value=['\"](\{.*?\})['\"]", html2, re.S)
+        if m:
+            data = json.loads(m.group(1))
+            for it in data.values():
+                name = it.get("platename") or ""
+                if not name or name in seen:
+                    continue
+                try:
+                    chg = float(it.get("199112", 0) or 0)
+                    zjjlr = float(it.get("zjjlr", 0) or 0)   # 主力净流入(亿)
+                except (ValueError, TypeError):
+                    continue
+                seen.add(name)
+                out.append({
+                    "boardCode": it.get("platecode", ""),
+                    "name": name,
+                    "strength": round(chg * 100, 1),
+                    "change": round(chg, 2),
+                    "amount": 0.0,   # 概念页无成交额
+                    "mainNet": round(zjjlr * 1e8, 2),
+                    "volRatio": 0.0,
+                    "floatMv": 0.0,
+                })
     except Exception as e:
         log.warning("同花顺板块榜抓取失败 err=%s", e)
         return []
-    return out
+    # 按涨跌幅降序
+    out.sort(key=lambda x: x["change"], reverse=True)
+    return out[:60]
 
 
 def _fetch(source, top_n, date=None):
