@@ -27,8 +27,8 @@
     <div v-if="tab === 'board'" class="mrk-panel">
       <div class="rot-toolbar">
         <span class="rot-tip"><i class="fa fa-info-circle"></i> 实时板块强度排行；选日期可回看历史(开盘啦保留最近5交易日)</span>
-        <input type="date" v-model="datePicker" class="admin-input" style="width:140px;padding:5px 8px;" @change="loadBoard">
-        <button class="admin-search-btn" @click="clearDate('board')"><i class="fa fa-bolt"></i> 实时</button>
+        <input type="date" v-model="datePicker" class="rot-date" @change="loadBoard">
+        <button class="rot-reset-btn" title="回到实时" @click="clearDate('board')"><i class="fa fa-bolt"></i></button>
         <span v-if="boardDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ boardDataDate }}<template v-if="boardDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
       </div>
       <div v-if="boardLoading" class="loading-placeholder"><div class="spinner"></div><div>加载板块强度...</div></div>
@@ -148,8 +148,8 @@
             <i :class="s.icon"></i> {{ s.label }}
           </button>
         </div>
-        <input type="date" v-model="datePicker" class="admin-input" style="width:140px;padding:5px 8px;" @change="loadHot">
-        <button class="admin-search-btn" @click="clearDate('hot')"><i class="fa fa-bolt"></i> 实时</button>
+        <input type="date" v-model="datePicker" class="rot-date" @change="loadHot">
+        <button class="rot-reset-btn" title="回到实时" @click="clearDate('hot')"><i class="fa fa-bolt"></i></button>
         <span v-if="hotDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ hotDataDate }}<template v-if="hotDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
       </div>
       <div v-if="hotLoading" class="loading-placeholder"><div class="spinner"></div><div>加载人气热榜...</div></div>
@@ -180,8 +180,8 @@
     <div v-else class="mrk-panel">
       <div class="rot-toolbar">
         <span class="rot-tip"><i class="fa fa-info-circle"></i> 龙虎榜当日/历史；选日期可回看</span>
-        <input type="date" v-model="datePicker" class="admin-input" style="width:140px;padding:5px 8px;" @change="loadLhb">
-        <button class="admin-search-btn" @click="clearDate('lhb')"><i class="fa fa-bolt"></i> 实时</button>
+        <input type="date" v-model="datePicker" class="rot-date" @change="loadLhb">
+        <button class="rot-reset-btn" title="回到实时" @click="clearDate('lhb')"><i class="fa fa-bolt"></i></button>
         <span v-if="lhbDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ lhbDataDate }}<template v-if="lhbDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
       </div>
       <div v-if="lhbLoading" class="loading-placeholder"><div class="spinner"></div><div>加载龙虎榜...</div></div>
@@ -602,10 +602,63 @@ body[data-bg="light"] .lhb-empty { color: #6a7a90; }
 body[data-bg="light"] .board-code { color: #1a1d26; }
 body[data-bg="light"] .reason-modal { background: rgba(255,255,255,0.98); border-color: var(--border-soft); }
 /* ===================== 板块轮动历史视图 ===================== */
-.rot-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
-.rot-tip { color: var(--text-muted); font-size: 12px; flex: 1; }
+.rot-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.rot-tip { color: var(--text-muted, #aaa); font-size: 12px; flex: 1; min-width: 0; }
 .rot-data-date { color: var(--accent-warm, #ffb400); font-size: 12px; white-space: nowrap; }
 body[data-bg="light"] .rot-data-date { color: #b36a00; }
+
+/* 日期选择器美化: 浏览器原生 input 丑, 全局压扁 + 暗色适配 + 聚焦高亮 */
+input[type="date"].rot-date {
+  background: var(--bg-input, #1a1a1a);
+  border: 1px solid var(--border-soft, #444);
+  border-radius: 14px;
+  color: var(--text-main, #e8e8e8);
+  padding: 5px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  color-scheme: dark;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+input[type="date"].rot-date:hover { border-color: var(--accent-warm, #ffb400); }
+input[type="date"].rot-date:focus {
+  border-color: var(--accent-warm, #ffb400);
+  box-shadow: 0 0 0 2px rgba(255, 180, 0, 0.15);
+}
+input[type="date"].rot-date::-webkit-calendar-picker-indicator {
+  opacity: 0.5;
+  cursor: pointer;
+  margin-left: 4px;
+}
+input[type="date"].rot-date::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+input[type="date"].rot-date::-webkit-datetime-edit { color: var(--text-main, #e8e8e8); }
+body[data-bg="light"] input[type="date"].rot-date {
+  background: #fff;
+  border-color: #d0d0d0;
+  color: #333;
+  color-scheme: light;
+}
+body[data-bg="light"] input[type="date"].rot-date:hover,
+body[data-bg="light"] input[type="date"].rot-date:focus { border-color: #d97b00; box-shadow: 0 0 0 2px rgba(217, 123, 0, 0.1); }
+
+/* 实时按钮: 圆角图标按钮 */
+.rot-reset-btn {
+  background: var(--bg-input, #1a1a1a);
+  border: 1px solid var(--border-soft, #444);
+  border-radius: 14px;
+  width: 32px; height: 30px;
+  color: var(--text-secondary, #aaa);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  font-size: 13px;
+}
+.rot-reset-btn:hover { border-color: var(--accent-warm, #ffb400); color: var(--accent-warm, #ffb400); }
+body[data-bg="light"] .rot-reset-btn { background: #fff; border-color: #d0d0d0; color: #666; }
+body[data-bg="light"] .rot-reset-btn:hover { border-color: #d97b00; color: #d97b00; }
 .rot-source { display: flex; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-soft, #444); }
 .rot-source-btn { background: var(--bg-input, #1a1a1a); color: var(--text-secondary, #aaa); border: none; padding: 5px 12px; font-size: 12px; cursor: pointer; transition: background 0.15s; }
 .rot-source-btn:hover { background: var(--bg-card, #222); }
