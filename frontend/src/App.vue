@@ -1,37 +1,42 @@
 <template>
   <div class="container">
     <div class="hero-section">
-      <img src="/logo.jpg" class="hero-logo" alt="快选 Kuaixuan">
+      <!-- 第一行: logo + 主题/字号工具(横向) -->
+      <div class="hero-top">
+        <img src="/logo.jpg" class="hero-logo" alt="快选 Kuaixuan">
+        <!-- 背景明暗切换器 -->
+        <div class="theme-picker" title="切换背景(登录后自动保存)">
+          <span class="theme-label"><i class="fa fa-adjust"></i></span>
+          <button
+v-for="b in BGS" :key="b.key"
+                  class="theme-dot bg-dot" :class="{ active: bg === b.key }"
+                  :style="{ background: b.color }" :title="b.label"
+                  @click="setBg(b.key)"
+></button>
+        </div>
+        <!-- 字号切换器 -->
+        <div class="font-picker" title="字体大小(登录后自动保存)">
+          <span class="theme-label"><i class="fa fa-font"></i></span>
+          <button
+v-for="f in FONTS" :key="f.key"
+                  class="font-btn" :class="{ active: font === f.key }"
+                  :style="{ fontSize: f.key === 'sm' ? '11px' : f.key === 'lg' ? '16px' : '13px' }"
+                  :title="f.label" @click="setFont(f.key)"
+>
+A
+</button>
+        </div>
+      </div>
+      <!-- 第二行: 品牌名 + slogan(独立居中, 不与 logo 横排挤在一起) -->
       <div class="hero-text">
         <span class="dominant-title">快选</span>
         <div class="hero-slogan">一键筛选 · 高效复盘 · 客观输出标的</div>
       </div>
-      <!-- 背景明暗切换器 -->
-      <div class="theme-picker" title="切换背景(登录后自动保存)">
-        <span class="theme-label"><i class="fa fa-adjust"></i></span>
-        <button
-v-for="b in BGS" :key="b.key"
-                class="theme-dot bg-dot" :class="{ active: bg === b.key }"
-                :style="{ background: b.color }" :title="b.label"
-                @click="setBg(b.key)"
-></button>
-      </div>
-      <!-- 字号切换器 -->
-      <div class="font-picker" title="字体大小(登录后自动保存)">
-        <span class="theme-label"><i class="fa fa-font"></i></span>
-        <button
-v-for="f in FONTS" :key="f.key"
-                class="font-btn" :class="{ active: font === f.key }"
-                :style="{ fontSize: f.key === 'sm' ? '11px' : f.key === 'lg' ? '16px' : '13px' }"
-                :title="f.label" @click="setFont(f.key)"
->
-A
-</button>
-      </div>
     </div>
     <NavBar />
     <router-view />
-    <Watermark />    <div class="footnote">
+    <Watermark />
+    <div class="footnote">
       <i class="fa fa-bullhorn"></i> 9:30前可唯一选股并缓存 | 9:30后仅更新实时涨幅 | 实时涨幅＜竞价涨幅自动标绿 | 通达信导入：首次需下载工具并勾选通达信「监控剪贴板」一次 | 股票池10小时防刷新锁定
     </div>
     <div class="disclaimer">本平台仅提供软件工具使用权，不构成任何投资建议，股市有风险，投资需谨慎。</div>
@@ -56,6 +61,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* hero-section 改纵向布局: logo+工具 一行, 品牌+slogan 独立居中一行 */
+.hero-section { flex-direction: column; gap: 4px; }
+.hero-top { display: flex; align-items: center; gap: 12px; }
+.hero-text { text-align: center; }
 .theme-picker {
   display: inline-flex;
   align-items: center;
