@@ -131,9 +131,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <th>状态</th>
             <th>加单趋势</th>
             <th class="board-col">概念(所属板块)</th>
-            <th class="tp-th tp-th-15">9:15 涨幅</th>
             <th class="tp-th tp-th-15">9:15 封单</th>
-            <th class="tp-th tp-th-20">9:20 涨幅</th>
             <th class="tp-th tp-th-20">9:20 封单</th>
             <th class="tp-th tp-th-25">9:25 涨幅</th>
             <th class="tp-th tp-th-25">9:25 封单</th>
@@ -152,16 +150,14 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
               <span v-else class="dim">-</span>
             </td>
             <td class="board-col" :title="it.board"><span class="board-text">{{ boardText(it.board) }}</span></td>
-            <td class="tp-th-15 chg-col" :class="tpChgCls(it, '9_15')">{{ tpChg(it, '9_15') }}</td>
             <td class="tp-th-15 seal-col">{{ tpSeal(it, '9_15') }}</td>
-            <td class="tp-th-20 chg-col" :class="tpChgCls(it, '9_20')">{{ tpChg(it, '9_20') }}</td>
             <td class="tp-th-20 seal-col">{{ tpSeal(it, '9_20') }}</td>
             <td class="tp-th-25 chg-col" :class="tpChgCls(it, '9_25')">{{ tpChg(it, '9_25') }}</td>
             <td class="tp-th-25 seal-col">{{ tpSeal(it, '9_25') }}</td>
             <td class="dim">{{ mvText(it) }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已入池' : '＋池' }}</button></td>
           </tr>
-          <tr v-if="!s3List.length"><td colspan="14" class="snap-empty">暂无三时点封单数据（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
+          <tr v-if="!s3List.length"><td colspan="12" class="snap-empty">暂无三时点封单数据（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
         </tbody>
       </table>
       </template>
