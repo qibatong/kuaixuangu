@@ -133,9 +133,9 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <th class="board-col">概念(所属板块)</th>
             <th class="tp-th tp-th-15">9:15 封单</th>
             <th class="tp-th tp-th-20">9:20 封单</th>
+            <th class="tp-th tp-th-25">9:25 封单</th>
             <th>实时涨幅</th>
             <th class="tp-th tp-th-25">竞价涨幅</th>
-            <th class="tp-th tp-th-25">9:25 封单</th>
             <th>流通市值(亿)</th>
             <th>操作</th>
           </tr>
@@ -153,9 +153,9 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td class="board-col" :title="it.board"><span class="board-text">{{ boardText(it.board) }}</span></td>
             <td class="tp-th-15 seal-col">{{ tpSeal(it, '9_15') }}</td>
             <td class="tp-th-20 seal-col">{{ tpSeal(it, '9_20') }}</td>
+            <td class="tp-th-25 seal-col">{{ tpSeal(it, '9_25') }}</td>
             <td class="real-chg-col" :class="realChgCls(it)">{{ realChg(it) }}</td>
             <td class="tp-th-25 chg-col" :class="tpChgCls(it, '9_25')">{{ tpChg(it, '9_25') }}</td>
-            <td class="tp-th-25 seal-col">{{ tpSeal(it, '9_25') }}</td>
             <td class="dim">{{ mvText(it) }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已入池' : '＋池' }}</button></td>
           </tr>
