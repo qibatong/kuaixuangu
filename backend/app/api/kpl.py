@@ -302,3 +302,51 @@ def api_kpl_sector_rotation(request: Request, uid: int = Depends(get_uid), days:
     win = sector_rotation.query_window_ranking((10, 20, 30, 50), source=source)
     return jr({"ok": True, "rotation": rot, "windows": win,
                "dates": rot.get("dates") or [], "source": source})
+
+
+@router.get("/api/kpl/interfaces")
+def api_kpl_interfaces(request: Request, uid: int = Depends(get_uid)):
+    """已封装开盘啦接口索引(开发调试用):
+    返回 kpl 模块所有 fetch_* 函数的:
+    name / 第一行 docstring(功能描述) / 是否被其他代码调用
+    相关文档: docs/kpl-interfaces.md (自动生成脚本 scripts/kpl_interface_index.py)"""
+    import ast
+    import inspect
+    import os
+    # 统计整个 backend 目录的调用点(跨模块, 如 stocks.py 里 kpl.fetch_board_map())
+    def _called_count(name):
+        cnt = 0
+        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        for root, dirs, files in os.walk(base):
+            dirs[:] = [d for d in dirs if d not in ("__pycache__", ".pytest_cache", "venv", ".venv", "tests")]
+            for fn in files:
+                if not fn.endswith(".py"):
+                    continue
+                try:
+                    t2 = ast.parse(open(os.path.join(root, fn), encoding="utf-8").read())
+                except Exception:
+                    continue
+                for node in ast.walk(t2):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    f = node.func
+                    if (isinstance(f, ast.Name) and f.id == name) or \
+                       (isinstance(f, ast.Attribute) and f.attr == name):
+                        cnt += 1
+        return cnt
+    out = []
+    for name, fn in vars(kpl).items():
+        if not name.startswith("fetch_"):
+            continue
+        if not inspect.isfunction(fn):
+            continue
+        doc = (inspect.getdoc(fn) or "").strip()
+        title = doc.splitlines()[0] if doc else ""
+        called = _called_count(name) > 0
+        # doc 编号
+        m = name[len("fetch_kpl_doc"):] if name.startswith("fetch_kpl_doc") else ""
+        doc_no = int(m) if m.isdigit() else None
+        out.append({"name": name, "doc_no": doc_no, "title": title, "called": called})
+    out.sort(key=lambda x: (0 if x["doc_no"] is None else 1, x["doc_no"] or 0, x["name"]))
+    return jr({"ok": True, "count": len(out), "interfaces": out,
+               "hint": "可用 scripts/kpl_interface_index.py 生成 docs/kpl-interfaces.md 文档"})
