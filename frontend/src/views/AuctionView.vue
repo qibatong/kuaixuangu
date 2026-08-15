@@ -151,9 +151,9 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
               <span v-else class="dim">-</span>
             </td>
             <td class="board-col" :title="it.board"><span class="board-text">{{ boardText(it.board) }}</span></td>
-            <td class="tp-th-15 seal-col">{{ tpSeal(it, '9_15') }}</td>
-            <td class="tp-th-20 seal-col">{{ tpSeal(it, '9_20') }}</td>
-            <td class="tp-th-25 seal-col">{{ tpSeal(it, '9_25') }}</td>
+            <td class="seal-col seal-col-15">{{ tpSeal(it, '9_15') }}</td>
+            <td class="seal-col seal-col-20">{{ tpSeal(it, '9_20') }}</td>
+            <td class="seal-col seal-col-25">{{ tpSeal(it, '9_25') }}</td>
             <td class="tp-th-25 chg-col" :class="tpChgCls(it, '9_25')">{{ tpChg(it, '9_25') }}</td>
             <td class="real-chg-col" :class="realChgCls(it)">{{ realChg(it) }}</td>
             <td class="dim">{{ mvText(it) }}</td>
@@ -887,12 +887,12 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 .dim-25    { color: #9a5a5a; }
 /* 封单额: 按时点主色, 弱色 */
 .seal-col { font-variant-numeric: tabular-nums; }
-.tp-th-15 + .seal-col { color: #80d4ff; }
-.tp-th-20 + .seal-col { color: #ffb400; }
-.tp-th-25 + .seal-col { color: #ff6a6a; }
-body[data-bg="light"] .tp-th-15 + .seal-col { color: #0068b4; }
-body[data-bg="light"] .tp-th-20 + .seal-col { color: #b07800; }
-body[data-bg="light"] .tp-th-25 + .seal-col { color: #c82020; }
+.seal-col-15 { color: #80d4ff; }
+.seal-col-20 { color: #ffb400; }
+.seal-col-25 { color: #ff6a6a; }
+body[data-bg="light"] .seal-col-15 { color: #0068b4; }
+body[data-bg="light"] .seal-col-20 { color: #b07800; }
+body[data-bg="light"] .seal-col-25 { color: #c82020; }
 body[data-bg="light"] .chg-up-15 { color: #0068b4; }
 body[data-bg="light"] .chg-up-20 { color: #8a5a00; }
 body[data-bg="light"] .chg-up-25 { color: #c82020; }
