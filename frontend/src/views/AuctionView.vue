@@ -944,4 +944,43 @@ body[data-bg="light"] .snap-close { color: #5a6b85; }
 body[data-bg="light"] .snap-close:hover { color: #c79100; }
 body[data-bg="light"] .snap-empty { color: #6a7a90; }
 body[data-bg="light"] .modal-mask { background: rgba(0,0,0,0.45); }
+
+/* ===================== 移动端适配 (<=768px 手机/小平板) ===================== */
+@media (max-width: 768px) {
+  /* 宽表格横向滚动: auc-panel 内 900px 表格可左右滑动, 保留全部列不截断 */
+  .auc-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 10px 8px; }
+  .auc-panel .stock-table { min-width: 880px; }
+  /* Tab 横向滑动(10 个 tab 一排滑, 不换行占用纵向空间) */
+  .auc-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 4px; }
+  .auc-tabs::-webkit-scrollbar { display: none; }
+  .auc-tab { flex-shrink: 0; white-space: nowrap; padding: 7px 12px; font-size: 13px; }
+  /* 头部紧凑: 标题一行, 副标题/时间换行 */
+  .auc-head { gap: 6px; }
+  .auc-title { font-size: 17px; }
+  .auc-sub { font-size: 11px; width: 100%; }
+  .auc-time { margin-left: 0; font-size: 12px; }
+  /* 多时点对比表紧凑 */
+  .ov-panel { padding: 8px 6px; }
+  .ov-table th, .ov-table td { padding: 5px 4px; }
+  .ov-dim { width: 54px; font-size: 11px; }
+  .ov-date { font-size: 12px; }
+  .ov-yizi { font-size: 10px; }
+  .ov-cell { font-size: 12px; }
+  .ov-amt { font-size: 10px; }
+  /* 表格字号/行高压缩 */
+  .stock-table th { padding: 7px 4px; font-size: 11px; }
+  .stock-table td { padding: 6px 4px; font-size: 11px; }
+  /* 弹窗近全屏 */
+  .snap-modal { width: 96vw; max-height: 88vh; padding: 10px 8px; }
+  .snap-title { font-size: 13px; }
+  /* 操作按钮触控加大 */
+  .pool-add-btn { padding: 5px 10px; font-size: 12px; }
+  /* 三时点提示条 */
+  .s3-hint { font-size: 11.5px; padding: 7px 10px; }
+  /* 个股查询工具条 */
+  .stock3-input { width: 130px; font-size: 12px; }
+  .stock3-btn { padding: 6px 12px; font-size: 12px; }
+  /* 页面留白压缩 */
+  .page-back { font-size: 12px; margin-bottom: 8px; }
+}
 </style>

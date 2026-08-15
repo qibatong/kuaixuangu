@@ -188,4 +188,24 @@ function logout() {
 body[data-bg="light"] .nav-item.router-link-active {
   background: rgba(255, 180, 0, 0.2); border-color: #c79100; color: #8a5500;
 }
+
+/* ===================== 移动端适配 (<=768px) ===================== */
+@media (max-width: 768px) {
+  .nav-bar { padding: 6px 4px; gap: 6px; margin-bottom: 10px; }
+  /* 导航项横向滑动(7 个入口一排滑, 不换行占纵向空间) */
+  .nav-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px; width: 100%; }
+  .nav-tabs::-webkit-scrollbar { display: none; }
+  .nav-item { flex-shrink: 0; padding: 5px 10px; font-size: 12px; gap: 4px; }
+  /* 工具区紧凑 */
+  .nav-tools { gap: 6px; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; max-width: 100%; }
+  .nav-tools::-webkit-scrollbar { display: none; }
+  .theme-picker, .font-picker { padding: 3px 8px; gap: 4px; }
+  .theme-label { display: none; }
+  .theme-dot { width: 14px; height: 14px; }
+  .font-btn { min-width: 20px; height: 20px; }
+  /* 手机上隐藏用户名文本(保留会员徽标), 节省空间 */
+  .user-name { display: none; }
+  .mini-btn { padding: 4px 8px; font-size: 11px; white-space: nowrap; }
+  .member-badge { font-size: 10px; padding: 1px 6px; }
+}
 </style>

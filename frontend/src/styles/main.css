@@ -782,3 +782,26 @@ body[data-bg="light"] select.rot-select {
 body[data-bg="light"] select.rot-select:hover,
 body[data-bg="light"] select.rot-select:focus { border-color: #d97b00; box-shadow: 0 0 0 2px rgba(217, 123, 0, 0.1); }
 body[data-bg="light"] select.rot-select option { background: #fff; color: #333; }
+
+/* ===================== 移动端基础适配 (<=768px) ===================== */
+@media (max-width: 768px) {
+  /* 页面留白压缩: 手机屏窄, 左右留 2px 即可 */
+  .page-shell { padding: 6px 2px; }
+  .container { padding: 0 2px; }
+  body { padding: 1px; }
+  /* 全站表格容器: 紧凑内边距 */
+  .stock-table-container { padding: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* 日期回看工具条: 紧凑 */
+  .rot-toolbar { gap: 6px; }
+  .rot-tip { font-size: 11px; }
+  /* 日期输入框手机可点击(触控目标) */
+  input[type="date"].rot-date { min-height: 30px; }
+  /* 加单趋势/状态标签字号 */
+  .seal-mode { font-size: 11px; padding: 1px 5px; }
+  .s3-tag { font-size: 11px; }
+  /* 轻量滚动条提示: 表格容器右侧渐变遮罩由 overflow 本身提供, 无需额外 */
+}
+/* 超窄屏(<=480px 小手机): 表格最小宽进一步收紧, 减少滑动距离 */
+@media (max-width: 480px) {
+  .stock-table { min-width: 860px; }
+}

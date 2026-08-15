@@ -224,4 +224,10 @@ body[data-bg="light"] .page-back { color: #5a6b85; }
 body[data-bg="light"] .page-back:hover { color: #c79100; }
 body[data-bg="light"] .ladder-panel { background: rgba(255,255,255,0.85); border-color: var(--border-soft); }
 body[data-bg="light"] .ladder-row { border-bottom-color: rgba(0,0,0,0.08); }
+
+/* 移动端: 宽表格横向滚动 */
+@media (max-width: 768px) {
+  .ladder-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 10px 8px; }
+  .ladder-panel .stock-table { min-width: 880px; }
+}
 </style>
