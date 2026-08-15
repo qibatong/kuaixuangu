@@ -502,6 +502,8 @@ const amountBarSvg = computed(() => {
   return `<svg viewBox="0 0 600 120" preserveAspectRatio="none" class="rot-svg">` + bars + axisY + xLabels + `</svg>`
 })
 
+/* 多窗口排名折线: X=板块(近 N 日的 Top 板块并集), Y=窗口内累计强度均值
+   窗口越大/板块越强势 → 强度越高, 4 条线自然分开; 虚线表示更大窗口(数据嵌套) */
 const windowLineSvg = computed(() => {
   const wins = rot.windows
   if (!wins.length) {
@@ -511,29 +513,50 @@ const windowLineSvg = computed(() => {
   if (!names.length) {
     return '<svg viewBox="0 0 600 220" preserveAspectRatio="none" class="rot-svg"><text x="300" y="100" text-anchor="middle" fill="#888">暂无多窗口数据</text></svg>'
   }
-  const W = 600, H = 220, padL = 30, padR = 10, padT = 20, padB = 60
+  // 收集最大累计强度值归一化 Y 轴
+  let maxV = 0
+  for (const w of wins) {
+    for (const t of (w.top || [])) {
+      if ((t.strengthSum || 0) > maxV) maxV = t.strengthSum
+    }
+  }
+  if (maxV <= 0) {
+    return '<svg viewBox="0 0 600 220" preserveAspectRatio="none" class="rot-svg"><text x="300" y="100" text-anchor="middle" fill="#888">暂无强度数据</text></svg>'
+  }
+  const W = 600, H = 220, padL = 38, padR = 10, padT = 22, padB = 64
   let lines = ''
+  const dashes = ['', '6,4', '3,3', '1,3']   // 虚线越密表示窗口越大
   for (let wi = 0; wi < wins.length; wi++) {
     const top = wins[wi].top || []
     const color = windowColors[wi % windowColors.length]
     const pts = names.map((nm, ni) => {
-      const idx = top.findIndex(t => t.name === nm)
-      const rank = idx >= 0 ? idx + 1 : 99
+      // 板块在该窗口 Top 内? 取 strengthSum(累计强度), 不在则 0(沉底)
+      const t = top.find(x => x.name === nm)
+      const v = t ? t.strengthSum : 0
       const x = padL + ni * (W - padL - padR) / Math.max(1, names.length - 1)
-      const y = padT + (rank > 50 ? (H - padT - padB) * 0.95 : (rank - 1) / 5 * (H - padT - padB) * 0.6 + padT)
+      const y = padT + (1 - v / maxV) * (H - padT - padB - 8) + 4
       return `${x},${y}`
     }).join(' ')
-    lines += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.2" stroke-dasharray="${wi === 0 ? '' : (wi === 1 ? '4,3' : '1,3')}"/>`
-    lines += pts.split(' ').map((p) => `<circle cx="${p.split(',')[0]}" cy="${p.split(',')[1]}" r="2.5" fill="${color}"/>`).join('')
+    lines += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-dasharray="${dashes[wi % 4]}"/>`
+    lines += pts.split(' ').map((p) => {
+      const c = p.split(',')
+      return `<circle cx="${c[0]}" cy="${c[1]}" r="3" fill="${color}"/>`
+    }).join('')
   }
+  // 坐标轴
   const axisX = `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H - padB}" stroke="#888" stroke-width="0.5"/>`
               + `<line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#888" stroke-width="0.5"/>`
+  // Y 轴 0/0.5/1.0 倍 maxV 标签
+  const yLabels = [0, 0.5, 1.0].map((p, i) => {
+    const v = Math.round(maxV * p)
+    const y = padT + (1 - p) * (H - padT - padB - 8) + 4
+    return `<text x="${padL - 6}" y="${y + 3}" font-size="8" fill="#888" text-anchor="end">${v}</text>`
+  }).join('')
   const xLabels = names.map((nm, ni) => {
     const x = padL + ni * (W - padL - padR) / Math.max(1, names.length - 1)
     return `<text x="${x}" y="${H - padB + 14}" font-size="9" fill="#888" text-anchor="middle">${nm}</text>`
   }).join('')
-  const yLabels = ['1', '3', '5'].map((v, i) => `<text x="${padL - 6}" y="${padT + (i / 3) * (H - padT - padB) * 0.6 + 4}" font-size="9" fill="#888" text-anchor="end">${v}</text>`).join('')
-  return `<svg viewBox="0 0 600 220" preserveAspectRatio="none" class="rot-svg">` + axisX + lines + xLabels + yLabels + `</svg>`
+  return `<svg viewBox="0 0 600 220" preserveAspectRatio="none" class="rot-svg">` + axisX + yLabels + xLabels + lines + `</svg>`
 })
 
 onMounted(() => {

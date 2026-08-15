@@ -272,19 +272,29 @@ def query_window_ranking(days_list=(10, 20, 30, 50), top_k=5, source="kpl"):
                 name = b.get("name") or ""
                 if not name:
                     continue
-                weight = (top_k + 1 - b.get("rank", 99)) if b.get("rank", 99) <= top_k else 0
-                if weight <= 0:
+                rank = b.get("rank", 99)
+                if rank > top_k:
                     continue
+                # 排名权重(Top1=5, Top5=1, 排名越前权重越高)
+                weight = top_k + 1 - rank
+                strength = float(b.get("strength") or 0)
                 if name not in agg:
-                    agg[name] = [0.0, 0]
-                agg[name][0] += float(b.get("strength") or 0) * weight
-                agg[name][1] += weight
+                    agg[name] = {"sum": 0.0, "count": 0, "weighted_sum": 0.0}
+                agg[name]["sum"] += strength * weight            # 累计强度
+                agg[name]["count"] += 1                          # 进入 TopK 的天数
+                agg[name]["weighted_sum"] += strength * weight   # 同 sum(用于平均)
         top = []
-        for name, (s_sum, w_sum) in agg.items():
-            avg = s_sum / w_sum if w_sum else 0
-            top.append({"name": name, "avgStrength": round(avg, 2)})
+        for name, v in agg.items():
+            weighted = v["weighted_sum"]
+            avg = weighted / v["count"] if v["count"] else 0
+            top.append({
+                "name": name,
+                "avgStrength": round(avg, 2),                       # 排名加权强度均值
+                "strengthSum": round(v["sum"], 2),                  # 累计强度(用于多窗口排名折线, 明显区分窗口)
+                "daysInTop": v["count"],
+            })
             name_pool.add(name)
-        top.sort(key=lambda x: x["avgStrength"], reverse=True)
+        top.sort(key=lambda x: x["strengthSum"], reverse=True)
         top = top[:top_k]
         result["windows"].append({"window": win, "top": top})
     result["common_names"] = sorted(name_pool)
