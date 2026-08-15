@@ -2,7 +2,7 @@
   <div class="stock-pool-panel">
     <div class="pool-header">
       <div class="pool-title">
-        <i class="fa fa-database"></i> 策略股票池
+        <i class="fa fa-database"></i> 自选股票池
         <span class="auto-tag">{{ statusTag }}</span>
         <span v-if="expiryText" class="pool-expiry-info" v-html="expiryText"></span>
       </div>

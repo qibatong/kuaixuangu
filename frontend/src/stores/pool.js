@@ -1,4 +1,4 @@
-// 策略股票池 store (localStorage 持久化, key 与旧版一致)
+// 自选股票池 store (localStorage 持久化, key 与旧版一致)
 import { defineStore } from 'pinia'
 import { useUserStore } from './user'
 
