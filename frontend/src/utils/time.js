@@ -24,6 +24,29 @@ export function fmtTsDate(ts) {
   return fmtDate(new Date(ts * 1000))
 }
 
+// 今天(北京时间) → 'YYYY-MM-DD'
+export function todayBj() {
+  const d = new Date(Date.now() + 8 * 3600 * 1000)
+  return d.toISOString().slice(0, 10)
+}
+
+// 秒级时间戳(按北京时间显示) → 'YYYY-MM-DD HH:MM'；非时间戳原样返回
+export function fmtTsTime(ts) {
+  if (!ts) return '-'
+  if (typeof ts === 'number' && ts > 1000000000) {
+    const d = new Date((ts + 8 * 3600) * 1000)
+    return d.toISOString().replace('T', ' ').slice(0, 16)
+  }
+  return String(ts)
+}
+
+// 秒级时间戳(按北京时间显示) → 'YYYY-MM-DD'
+export function fmtBjDay(ts) {
+  if (!ts) return '-'
+  const d = new Date((Number(ts) + 8 * 3600) * 1000)
+  return d.toISOString().slice(0, 10)
+}
+
 // 会员专属时段: 工作日 9:15-15:00 (竞价 9:15-9:30 + 盘中 9:30-15:00)
 // 其他时段 (盘前 / 收盘后 / 周末) 允许所有人查看(读历史快照)
 export function isMemberOnlyTime() {

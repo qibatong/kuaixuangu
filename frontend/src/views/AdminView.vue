@@ -15,13 +15,7 @@
 
     <template v-else>
       <!-- 用户统计卡片 -->
-      <div class="stat-cards">
-        <div class="stat-card"><div class="stat-num">{{ stats.total ?? '-' }}</div><div class="stat-label">注册用户</div></div>
-        <div class="stat-card"><div class="stat-num">{{ stats.today ?? '-' }}</div><div class="stat-label">今日注册</div></div>
-        <div class="stat-card"><div class="stat-num">{{ stats.active ?? '-' }}</div><div class="stat-label">活跃用户(有选股)</div></div>
-        <div class="stat-card"><div class="stat-num">{{ stats.invited ?? '-' }}</div><div class="stat-label">受邀注册</div></div>
-        <div class="stat-card"><div class="stat-num small">{{ stats.top_inviter ? stats.top_inviter.username : '-' }}</div><div class="stat-label">Top邀请人({{ stats.top_inviter ? stats.top_inviter.n + '人' : '' }})</div></div>
-      </div>
+      <StatCards :stats="stats" />
 
       <!-- 用户列表 -->
       <div class="admin-card">
@@ -52,11 +46,11 @@
                 <td>{{ u.id }}</td>
                 <td>{{ u.username }}</td>
                 <td>{{ u.phone || u.email || '-' }}</td>
-                <td>{{ fmtTime(u.created_at) }}</td>
+                <td>{{ fmtTsTime(u.created_at) }}</td>
                 <td>
                   <span v-if="expireState(u) === 'forever'" class="user-tag">永久</span>
-                  <span v-else-if="expireState(u) === 'expired'" class="expired-tag">已过期 {{ fmtDate(u.expire_at) }}</span>
-                  <span v-else class="ok-tag">{{ fmtDate(u.expire_at) }}</span>
+                  <span v-else-if="expireState(u) === 'expired'" class="expired-tag">已过期 {{ fmtBjDay(u.expire_at) }}</span>
+                  <span v-else class="ok-tag">{{ fmtBjDay(u.expire_at) }}</span>
                 </td>
                 <td>{{ u.invited_count }}</td>
                 <td>{{ u.batch_count }}</td>
@@ -224,63 +218,23 @@
       </div>
 
       <!-- 历史竞价回放 -->
-      <div class="admin-card">
-        <div class="card-title">
-<i class="fa fa-video-camera"></i> 历史竞价回放 <span class="admin-tip">9:15/9:20/9:25 全市场快照(每个交易日自动归档)</span>
-          <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
-            <input v-model="playDate" type="date" class="admin-input" :max="'2099-12-31'" />
-            <select v-model="playTime" class="admin-input">
-              <option value="9_15">9:15</option>
-              <option value="9_20">9:20</option>
-              <option value="9_25">9:25</option>
-            </select>
-            <button class="tdx-export-btn admin-save-btn" @click="loadPlayback"><i class="fa fa-play"></i> 回放</button>
-          </div>
-        </div>
-        <div class="table-scroll">
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th style="width:60px;">排名</th>
-                <th class="sortable" :class="{ active: playSort.keyOf('code') }" @click="playSort.onSort('code', 'string')">代码<span class="sort-ind">{{ playSort.ind('code') }}</span></th>
-                <th class="sortable" :class="{ active: playSort.keyOf('bid_change') }" @click="playSort.onSort('bid_change')">竞价涨幅<span class="sort-ind">{{ playSort.ind('bid_change') }}</span></th>
-                <th class="sortable" :class="{ active: playSort.keyOf('bid_amt') }" @click="playSort.onSort('bid_amt')">竞价额(万)<span class="sort-ind">{{ playSort.ind('bid_amt') }}</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(s, i) in playSort.sorted(playList)" :key="s.code">
-                <td>{{ i + 1 }}</td>
-                <td>{{ s.code }}</td>
-                <td :class="s.bid_change >= 0 ? 'up' : 'down'">{{ s.bid_change >= 0 ? '+' : '' }}{{ s.bid_change.toFixed(2) }}%</td>
-                <td>{{ s.bid_amt ? s.bid_amt.toFixed(0) : '-' }}</td>
-              </tr>
-              <tr v-if="!playList.length"><td colspan="4" style="text-align:center;color:#888;padding:16px;">该日期该时点暂无快照（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <PlaybackCard />
     </template>
   </div>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { adminScoring, adminUsers, bidSnapshot, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
+import { adminScoring, adminUsers, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
 import { showToast as toast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
+import { expireState } from '../utils/admin'
+import { fmtBjDay, fmtTsTime } from '../utils/time'
+import StatCards from '../components/admin/StatCards.vue'
+import PlaybackCard from '../components/admin/PlaybackCard.vue'
 
-// 默认回放日期 = 今天(北京时间)
-function todayBj() {
-  const d = new Date(Date.now() + 8 * 3600 * 1000)
-  return d.toISOString().slice(0, 10)
-}
-const playDate = ref(todayBj())
-const playTime = ref('9_25')
-const playList = ref([])
-
-// 表格排序实例(用户列表 / 历史回放)
+// 表格排序实例(用户列表)
 const userSort = useSortable()
-const playSort = useSortable()
 
 // 用户表取值函数: "手机/邮箱"列实际存 phone 或 email, 需合并取
 function userVal(u) {
@@ -322,15 +276,6 @@ async function saveDefaults(force = false) {
     defaultsErr.value = true
   } finally {
     saving.value = false
-  }
-}
-
-async function loadPlayback() {
-  try {
-    const d = await bidSnapshot(playDate.value, playTime.value, 50)
-    playList.value = d.list || []
-  } catch (e) {
-    toast(e.message || '查询失败', 'error')
   }
 }
 
@@ -398,26 +343,6 @@ const factors = reactive({})        // 竞价打分明细
 const factorOrder = ['bid', 'activity', 'warn', 'market', 'yesterday']
 const scoringLoaded = ref(false)
 
-function fmtTime(ts) {
-  if (!ts) return '-'
-  if (typeof ts === 'number' && ts > 1000000000) {
-    const d = new Date((ts + 8 * 3600) * 1000)
-    return d.toISOString().replace('T', ' ').slice(0, 16)
-  }
-  return String(ts)
-}
-
-function fmtDate(ts) {
-  if (!ts) return '-'
-  const d = new Date((Number(ts) + 8 * 3600) * 1000)
-  return d.toISOString().slice(0, 10)
-}
-
-function expireState(u) {
-  if (!u.expire_at) return 'forever'
-  return Date.now() / 1000 > u.expire_at ? 'expired' : 'active'
-}
-
 async function extendUser(u, action) {
   const label = { week: '+1周', month: '+1月', quarter: '+1季', year: '+1年', forever: '永久', date: '设日期' }[action]
   try {
@@ -430,7 +355,7 @@ async function extendUser(u, action) {
       payload = { duration: action }
     }
     const d = await setUserExpire(u.id, payload)
-    toast(`${u.username} ${label}设置成功，到期 ${fmtDate(d.expire_at)}`, 'success')
+    toast(`${u.username} ${label}设置成功，到期 ${fmtBjDay(d.expire_at)}`, 'success')
     u._expireDate = ''
     closePanel()
     loadUsers(page.value)
@@ -522,11 +447,6 @@ onMounted(() => {
 <style scoped>
 .admin-wrap { max-width: 1500px; margin: 0 auto; padding: 14px 16px; }
 .admin-head { display: flex; align-items: center; margin-bottom: 14px; }
-.stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 14px; }
-.stat-card { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 16px; text-align: center; }
-.stat-num { font-size: 26px; font-weight: 700; color: #ffd700; }
-.stat-num.small { font-size: 16px; color: #a0e0ff; }
-.stat-label { margin-top: 6px; color: #aaa; font-size: 12px; }
 .admin-card { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
 .field-label { color: #bbb; font-size: 12px; }
 .admin-tip { color: #888; font-size: 12px; margin-left: 8px; }
@@ -645,15 +565,12 @@ body[data-bg="light"] .factor-title {  color: #8a5500;  }
 body[data-bg="light"] .factor-tab {  color: #5a6b85; border-color: var(--border-soft);  }
 body[data-bg="light"] .factor-tab:hover {  color: #5a4a3a; border-color: #c79100;  }
 body[data-bg="light"] .factor-tab.active {  color: #5a4a3a; border-color: #c79100; background: rgba(255,180,0,0.15);  }
-body[data-bg="light"] .stat-num {  color: #1a1d26;  }
 body[data-bg="light"] .page-btn {  color: #005c5a; background: rgba(0,180,180,0.12); border-color: #0080a0;  }
 body[data-bg="light"] .mini-date {  color: #1a1d26; background: rgba(255,255,255,0.95); border-color: var(--border-soft);  }
 body[data-bg="light"] .mini-btn {  color: #1a1d26; background: rgba(240,245,250,0.9); border-color: var(--border-soft);  }
 body[data-bg="light"] .admin-tag {  color: #8a5500; border-color: #c79100;  }
 body[data-bg="light"] .expired-tag {  color: #b83010; border-color: #b83010;  }
 body[data-bg="light"] .ok-tag {  color: #2d7020; border-color: #4caf70;  }
-body[data-bg="light"] .stat-num { color: #1a1d26; }
-body[data-bg="light"] .stat-num.small { color: #1a1d26; }
 body[data-bg="light"] .weight-table input { color: #1a1d26; background: rgba(255,255,255,0.95); }
 body[data-bg="light"] .bucket-table input { color: #1a1d26; background: rgba(255,255,255,0.95); }
 body[data-bg="light"] .factor-title { color: #8a5500; }
