@@ -60,10 +60,14 @@ def api_kpl_board_rank(request: Request, uid: int = Depends(get_uid)):
 
 
 @router.get("/api/kpl/hot-rank")
-def api_kpl_hot_rank(request: Request, uid: int = Depends(get_uid)):
-    """盘中人气热榜(实时)"""
-    d = kpl.fetch_hot_rank()
-    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+def api_kpl_hot_rank(request: Request, uid: int = Depends(get_uid), source: str = "kpl"):
+    """盘中人气热榜(实时); source: kpl(开盘啦)/ em(东方财富)/ ths(同花顺)"""
+    from ..services import hot_rank
+    source = (source or "kpl").lower()
+    if source not in ("kpl", "em", "ths"):
+        source = "kpl"
+    d = hot_rank.fetch_hot_rank(source)
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0, "source": source})
 
 
 @router.get("/api/kpl/lhb")

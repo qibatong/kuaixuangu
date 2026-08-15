@@ -132,6 +132,18 @@
 
     <!-- 人气热榜 -->
     <div v-else-if="tab === 'hot'" class="mrk-panel">
+      <div class="rot-toolbar">
+        <span class="rot-tip"><i class="fa fa-info-circle"></i> 各数据源人气热榜(关注度/热度排序)</span>
+        <div class="rot-source">
+          <button v-for="s in sourceOptions" :key="s.key"
+                  :class="{ active: hotSource === s.key }"
+                  class="rot-source-btn"
+                  @click="switchHotSource(s.key)">
+            <i :class="s.icon"></i> {{ s.label }}
+          </button>
+        </div>
+        <button class="admin-search-btn" @click="loadHot"><i class="fa fa-refresh"></i> 刷新</button>
+      </div>
       <div v-if="hotLoading" class="loading-placeholder"><div class="spinner"></div><div>加载人气热榜...</div></div>
       <div v-else-if="!hotList.length" class="empty-state">暂无热榜数据</div>
       <table v-else class="stock-table">
@@ -253,6 +265,7 @@ const lhbList = ref([])
 const boardLoading = ref(true)
 const hotLoading = ref(true)
 const lhbLoading = ref(true)
+const hotSource = ref(localStorage.getItem('kuaixuan_hot_source') || 'kpl')
 const bjTime = ref('--:--:--')
 let clockTimer = null
 let refreshTimer = null
@@ -307,11 +320,19 @@ async function loadBoard() {
 
 async function loadHot() {
   try {
-    const d = await kplHotRank()
+    const d = await kplHotRank(hotSource.value)
     hotList.value = d.list || []
   } catch (e) { /* 静默 */ } finally {
     hotLoading.value = false
   }
+}
+
+function switchHotSource(src) {
+  if (src === hotSource.value) return
+  hotSource.value = src
+  localStorage.setItem('kuaixuan_hot_source', src)
+  hotLoading.value = true
+  loadHot()
 }
 
 async function loadLhb() {

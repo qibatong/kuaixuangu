@@ -26,8 +26,8 @@ export function kplBoardRank() {
   return request('/api/kpl/board-rank')
 }
 
-export function kplHotRank() {
-  return request('/api/kpl/hot-rank')
+export function kplHotRank(source = 'kpl') {
+  return request(`/api/kpl/hot-rank?source=${source}`)
 }
 
 export function kplLhb() {
