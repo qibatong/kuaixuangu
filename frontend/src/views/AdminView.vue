@@ -210,7 +210,7 @@
           <button class="tdx-export-btn admin-save-btn" :disabled="savingDefaults" @click="saveDefaults(false)">
             <i class="fa fa-save"></i> {{ savingDefaults ? '保存中...' : '保存默认值' }}
           </button>
-          <button class="tdx-export-btn admin-save-btn" style="background:#A32D2D;border-color:#A32D2D;" :disabled="savingDefaultsForce" @click="saveDefaults(true)">
+          <button class="tdx-export-btn admin-save-btn save-force-btn" :disabled="savingDefaultsForce" @click="saveDefaults(true)">
             <i class="fa fa-bolt"></i> {{ savingDefaultsForce ? '生效中...' : '保存并强制生效' }}
           </button>
           <span v-if="defaultsMsg" :class="defaultsErr ? 'admin-msg-err' : 'admin-msg-ok'" style="font-size:12px;">{{ defaultsMsg }}</span>
@@ -462,6 +462,9 @@ onMounted(() => {
 }
 .admin-save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .admin-save-btn:hover:not(:disabled) { background: rgba(120,200,80,0.32); }
+/* 「保存并强制生效」按钮: 深色主题用深红警示色 */
+.save-force-btn { background: #A32D2D; border: 1px solid #A32D2D; color: #fff; }
+.save-force-btn:hover:not(:disabled) { background: #c93838; border-color: #c93838; }
 .admin-msg-ok { color: #7ce8a0; }
 .admin-msg-err { color: #ff6a6a; }
 .weight-desc { color: #999; font-size: 12px; }
@@ -580,6 +583,9 @@ body[data-bg="light"] .field-label { color: #5a4a3a; }
 body[data-bg="light"] .admin-tip { color: #5a6b85; }
 body[data-bg="light"] .admin-save-btn { background: rgba(34,139,34,0.1); border: 1px solid #228722; color: #1a6b1a; }
 body[data-bg="light"] .admin-save-btn:hover { background: #228722; color: #fff; }
+/* 浅色主题: 「保存并强制生效」改用浅红底 + 深红字(对应「保存默认值」浅绿底 + 深绿字) */
+body[data-bg="light"] .save-force-btn { background: rgba(163,45,45,0.12); border-color: #A32D2D; color: #A32D2D; }
+body[data-bg="light"] .save-force-btn:hover:not(:disabled) { background: #A32D2D; color: #fff; }
 body[data-bg="light"] .admin-msg-ok { color: #1a6b1a; }
 body[data-bg="light"] .weight-desc { color: #5a6b85; }
 body[data-bg="light"] .weight-total { color: #8a5500; }
