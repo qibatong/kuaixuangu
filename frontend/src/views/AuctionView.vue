@@ -114,6 +114,10 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
       </table>
 
       <!-- 三时点封单榜(短线侠式三层排序: 9:25涨停 > 9:20涨停回落 > 9:15涨停回落) -->
+      <div v-else-if="tab === 's3' && sealMissing" class="s3-hint">
+        <i class="fa fa-info-circle"></i> 封单额需<b>交易日 9:15 / 9:20 / 9:25</b> 实时采集（历史委托数据不提供，无法回填）。
+        当前显示 {{ dataDate || '实时' }} 暂无封单采集，<b>下个交易日开盘后自动生效</b>。涨幅/概念/流通市值不受影响。
+      </div>
       <table v-else-if="tab === 's3'" class="stock-table s3-table">
         <thead>
           <tr>
@@ -464,6 +468,15 @@ const lhbList = ref([])
 const brokenYestList = ref([])
 const brokenTodayList = ref([])
 const s3List = ref([])        // 三时点封单榜(后端已按三层排序)
+
+// 封单数据缺失提示: 榜有数据但所有 bid_buy_amt 为 0(历史日期未采集/无法回填)
+const sealMissing = computed(() => {
+  if (!s3List.value.length) return false
+  return s3List.value.every(it => {
+    const pts = it.points || {}
+    return ['9_15', '9_20', '9_25'].every(tp => !(pts[tp] && pts[tp].bid_buy_amt))
+  })
+})
 const qcList = ref([])
 const qcChgList = ref([])     // 涨幅抢筹(9:25涨幅−9:20涨幅, 全市场快照)
 const qcLastList = ref([])
@@ -811,6 +824,17 @@ body[data-bg="light"] .s3-tag-2 { color: #a05a10; border-color: #c79100; }
 body[data-bg="light"] .s3-tag-3 { color: #005c8a; border-color: #0080a0; }
 
 /* === 三时点封单榜表格样式: 三色分组 + 概念列 + 拆列 === */
+.s3-hint {
+  margin: 8px 0 12px;
+  padding: 9px 12px;
+  border: 1px dashed var(--accent-warm, #ffb400);
+  border-radius: 8px;
+  background: rgba(255, 180, 0, 0.06);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.s3-hint b { color: var(--accent-warm, #ffb400); }
 .s3-table { table-layout: auto; }
 .s3-table .board-col { max-width: 180px; min-width: 120px; }
 .board-text { color: var(--text-secondary); font-size: 12px; line-height: 1.3; }
