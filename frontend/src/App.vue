@@ -3,8 +3,7 @@
     <div class="hero-section">
       <img src="/logo.jpg" class="hero-logo" alt="快选 Kuaixuan">
       <div class="hero-text">
-        <span class="dominant-title">快选</span><br>
-        <span class="title-sub">AI选股，仅供参考</span>
+        <span class="dominant-title">快选</span>
         <div class="hero-slogan">一键筛选 · 高效复盘 · 客观输出标的</div>
       </div>
       <!-- 背景明暗切换器 -->
