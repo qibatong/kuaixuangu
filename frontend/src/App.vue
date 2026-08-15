@@ -1,37 +1,13 @@
 <template>
   <div class="container">
     <div class="hero-section">
-      <!-- 第一行: logo + 主题/字号工具(横向) -->
-      <div class="hero-top">
+      <!-- 第一行: logo + 品牌名(横排, 视觉中心) -->
+      <div class="hero-brand">
         <img src="/logo.jpg" class="hero-logo" alt="快选 Kuaixuan">
-        <!-- 背景明暗切换器 -->
-        <div class="theme-picker" title="切换背景(登录后自动保存)">
-          <span class="theme-label"><i class="fa fa-adjust"></i></span>
-          <button
-v-for="b in BGS" :key="b.key"
-                  class="theme-dot bg-dot" :class="{ active: bg === b.key }"
-                  :style="{ background: b.color }" :title="b.label"
-                  @click="setBg(b.key)"
-></button>
-        </div>
-        <!-- 字号切换器 -->
-        <div class="font-picker" title="字体大小(登录后自动保存)">
-          <span class="theme-label"><i class="fa fa-font"></i></span>
-          <button
-v-for="f in FONTS" :key="f.key"
-                  class="font-btn" :class="{ active: font === f.key }"
-                  :style="{ fontSize: f.key === 'sm' ? '11px' : f.key === 'lg' ? '16px' : '13px' }"
-                  :title="f.label" @click="setFont(f.key)"
->
-A
-</button>
-        </div>
-      </div>
-      <!-- 第二行: 品牌名 + slogan(独立居中, 不与 logo 横排挤在一起) -->
-      <div class="hero-text">
         <span class="dominant-title">快选</span>
-        <div class="hero-slogan">一键筛选 · 高效复盘 · 客观输出标的</div>
       </div>
+      <!-- 第二行: slogan(独立居中, 在 logo+快选 下方) -->
+      <div class="hero-slogan">一键筛选 · 高效复盘 · 客观输出标的</div>
     </div>
     <NavBar />
     <router-view />
@@ -45,68 +21,24 @@ A
 
 <script setup>
 import { onMounted } from 'vue'
-import { useTheme, BGS, FONTS } from './composables/useTheme'
 import Watermark from './components/Watermark.vue'
 import NavBar from './components/NavBar.vue'
 
-const { bg, font, setBg, setFont, load } = useTheme()
-
-// 启动加载主题(prefs/本地); 移动端检测
-onMounted(async () => {
+onMounted(() => {
   if (/Android|iPhone|iPad|iPod|Mobile|MicroMessenger/i.test(navigator.userAgent)) {
     document.body.classList.add('is-mobile')
   }
-  load()
 })
 </script>
 
 <style scoped>
-/* hero-section 改纵向布局: logo+工具 一行, 品牌+slogan 独立居中一行 */
-.hero-section { flex-direction: column; gap: 4px; }
-.hero-top { display: flex; align-items: center; gap: 12px; }
-.hero-text { text-align: center; }
-.theme-picker {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-soft);
-  border-radius: 20px;
-  padding: 6px 12px;
-}
-.theme-label { color: var(--text-muted); font-size: 13px; }
-.theme-dot {
-  width: 18px; height: 18px; border-radius: 50%;
-  border: 2px solid var(--border-soft);
-  cursor: pointer; padding: 0; transition: transform 0.15s, border-color 0.15s;
-}
-.theme-dot:hover { transform: scale(1.2); }
-.theme-dot.active { border-color: var(--text-main); box-shadow: 0 0 6px var(--border-soft); }
-.font-picker {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-soft);
-  border-radius: 20px;
-  padding: 6px 12px;
-}
-.font-btn {
-  min-width: 22px; height: 22px; line-height: 1;
-  border: 1px solid var(--border-soft);
-  border-radius: 12px;
-  background: var(--bg-input);
-  color: var(--text-secondary);
-  font-size: 13px; font-weight: 600;
-  cursor: pointer; padding: 0 5px;
-  transition: transform 0.15s, border-color 0.15s, background 0.15s, color 0.15s;
-}
-.font-btn:hover { transform: scale(1.1); border-color: var(--accent); }
-.font-btn.active { border-color: var(--accent); background: var(--accent); color: #fff; }
+/* hero 改纵向布局: 第一行 logo+品牌名 横排居中, 第二行 slogan 独立居中 */
+.hero-section { flex-direction: column; gap: 6px; align-items: center; }
+.hero-brand { display: flex; align-items: center; gap: 12px; }
 
-/* 品牌 slogan: 紧邻 logo 与品牌名, 体现产品定位 */
+/* 品牌 slogan: 紧邻品牌名下方, 体现产品定位 */
 .hero-slogan {
-  margin-top: 6px;
+  margin-top: 2px;
   font-size: 13px;
   color: var(--accent);
   letter-spacing: 1px;

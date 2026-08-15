@@ -21,11 +21,6 @@
           📱 通达信导入需在<b>电脑端</b>操作（电脑上点「下载自选股」即可自动导入）。手机上可点此
           <button class="pool-btn" @click="copyCodes"><i class="fa fa-copy"></i> 复制代码列表</button>
         </div>
-        <div class="user-box">
-          <i class="fa fa-user-circle"></i> <span>{{ user.username || '未登录' }}</span>
-          <button class="logout-btn" title="修改密码" @click="changePwdModal.open()">改密</button>
-          <button class="logout-btn" title="退出当前账号" @click="logout">退出</button>
-        </div>
         <div class="live-time"><div class="time-digital">{{ bjTime }}</div></div>
       </div>
     </div>
@@ -92,20 +87,16 @@
       <button class="tdx-export-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="downloadAll"><i class="fa fa-download"></i> 下载全部筛选结果</button>
     </div>
     </template>
-
-    <ChangePwdModal ref="changePwdModal" />
   </div>
 </template>
 
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import FilterPanel from '../components/FilterPanel.vue'
 import SentimentPanel from '../components/SentimentPanel.vue'
 import MedalPanel from '../components/MedalPanel.vue'
 import StockPoolPanel from '../components/StockPoolPanel.vue'
 import StockTable from '../components/StockTable.vue'
-import ChangePwdModal from '../components/ChangePwdModal.vue'
 import VipGate from '../components/VipGate.vue'
 import { useStocksStore } from '../stores/stocks'
 import { usePoolStore } from '../stores/pool'
@@ -115,11 +106,9 @@ import { showToast } from '../utils/toast'
 import { copyText, downloadBlkFile } from '../utils/tdx'
 import { bjTimeStr, isBefore930, isMemberOnlyTime } from '../utils/time'
 
-const router = useRouter()
 const stocks = useStocksStore()
 const pool = usePoolStore()
 const user = useUserStore()
-const changePwdModal = ref(null)
 const medalExportCount = ref(3)
 const bjTime = ref('--:--:--')
 const healthStatus = ref('')      // ok / degraded / down / ''
@@ -240,10 +229,6 @@ function downloadAll() { downloadBlkFile(stocks.cachedStocks, 0) }
 function copyCodes() {
   if (!stocks.cachedStocks.length) { showToast('无数据', 'error'); return }
   copyText(stocks.cachedStocks.map(s => s.code).join('\n'), `✅ 已复制 ${stocks.cachedStocks.length} 个代码，可粘贴到电脑端导入`)
-}
-function logout() {
-  user.clearSession()
-  router.replace('/login')
 }
 
 onMounted(() => {
