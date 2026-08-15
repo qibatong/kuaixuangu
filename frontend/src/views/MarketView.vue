@@ -77,13 +77,13 @@
             <i :class="s.icon"></i> {{ s.label }}
           </button>
         </div>
-        <select v-model.number="rotDays" class="admin-input" style="width:90px;padding:5px 8px;" @change="loadHistory">
+        <select v-model.number="rotDays" class="rot-select" @change="loadHistory">
           <option :value="10">近 10 日</option>
           <option :value="20">近 20 日</option>
           <option :value="30">近 30 日</option>
           <option :value="50">近 50 日</option>
         </select>
-        <button class="admin-search-btn" @click="loadHistory"><i class="fa fa-refresh"></i> 刷新</button>
+        <button class="rot-reset-btn" title="刷新" @click="loadHistory"><i class="fa fa-refresh"></i></button>
       </div>
       <div v-if="rotLoading" class="loading-placeholder"><div class="spinner"></div></div>
       <div v-else-if="!rot.dates.length" class="empty-state">
@@ -633,6 +633,38 @@ input[type="date"].rot-date::-webkit-calendar-picker-indicator {
 }
 input[type="date"].rot-date::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 input[type="date"].rot-date::-webkit-datetime-edit { color: var(--text-main, #e8e8e8); }
+
+/* 下拉框美化: 与日期框一致圆角暗色风格 */
+select.rot-select {
+  background: var(--bg-input, #1a1a1a);
+  border: 1px solid var(--border-soft, #444);
+  border-radius: 14px;
+  color: var(--text-main, #e8e8e8);
+  padding: 5px 28px 5px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23aaa' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 8px 5px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+select.rot-select:hover { border-color: var(--accent-warm, #ffb400); }
+select.rot-select:focus { border-color: var(--accent-warm, #ffb400); box-shadow: 0 0 0 2px rgba(255, 180, 0, 0.15); }
+select.rot-select option { background: var(--bg-input, #1a1a1a); color: var(--text-main, #e8e8e8); }
+body[data-bg="light"] select.rot-select {
+  background-color: #fff;
+  border-color: #d0d0d0;
+  color: #333;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23666' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+}
+body[data-bg="light"] select.rot-select:hover,
+body[data-bg="light"] select.rot-select:focus { border-color: #d97b00; box-shadow: 0 0 0 2px rgba(217, 123, 0, 0.1); }
+body[data-bg="light"] select.rot-select option { background: #fff; color: #333; }
 body[data-bg="light"] input[type="date"].rot-date {
   background: #fff;
   border-color: #d0d0d0;
