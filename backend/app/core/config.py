@@ -10,6 +10,7 @@ import os
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8010"))
 TOKEN_TTL = 12 * 3600                     # Token 有效期(秒), 默认 12 小时
+TOKEN_TTL_REMEMBER = 30 * 24 * 3600       # 「记住我」Token 有效期(秒), 30 天免登录
 RATE_LIMIT_PER_MIN = int(os.environ.get("RATE_LIMIT", "60"))   # 每 IP 每分钟最大请求数
 PBKDF2_ITERS = int(os.environ.get("PBKDF2_ITERS", "50000"))    # 密码哈希迭代次数
 CACHE_TTL = int(os.environ.get("CACHE_TTL", "30"))             # 行情缓存新鲜度(秒)

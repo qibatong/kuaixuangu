@@ -1,7 +1,19 @@
 // 用户会话 store (localStorage key 与旧版完全一致, 老用户数据无缝衔接)
+// 「记住我」→ token 存 localStorage(30 天, 重开浏览器免登录)
+// 不勾选   → token 存 sessionStorage(关闭浏览器标签即失效, 更安全)
 import { defineStore } from 'pinia'
 
 const SESSION_KEY = 'kuaixuan_session_v1'
+const SESSION_KEY_TMP = 'kuaixuan_session_tmp'
+
+function readSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY_TMP) || 'null'
+    return JSON.parse(raw)
+  } catch (e) {
+    return null
+  }
+}
 
 // 旧版 key 迁移: 品牌改名(shunshi -> kuaixuan)
 function migrateSession() {
@@ -15,8 +27,7 @@ function migrateSession() {
 export const useUserStore = defineStore('user', {
   state: () => {
     migrateSession()
-    let session = null
-    try { session = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null') } catch (e) { session = null }
+    const session = readSession()
     return {
       session,
       apiToken: (session && session.token) || '',
@@ -40,14 +51,24 @@ export const useUserStore = defineStore('user', {
     filterKey: (s) => 'kuaixuan_locked_filter_' + (s.username || 'guest')
   },
   actions: {
-    setSession(username, token, isAdmin, expireAt, expired) {
+    // remember=true → localStorage(持久, 30 天); false → sessionStorage(临时会话)
+    setSession(username, token, isAdmin, expireAt, expired, remember = true) {
       this.session = { username, token, is_admin: isAdmin ? 1 : 0, expire_at: expireAt || 0, expired: expired ? 1 : 0 }
       this.apiToken = token
       this.username = username
       this.isAdmin = !!isAdmin
       this.expireAt = expireAt || 0
       this.expired = !!expired
-      try { localStorage.setItem(SESSION_KEY, JSON.stringify(this.session)) } catch (e) { /* ignore */ }
+      try {
+        const s = JSON.stringify(this.session)
+        if (remember) {
+          localStorage.setItem(SESSION_KEY, s)
+          sessionStorage.removeItem(SESSION_KEY_TMP)
+        } else {
+          sessionStorage.setItem(SESSION_KEY_TMP, s)
+          localStorage.removeItem(SESSION_KEY)
+        }
+      } catch (e) { /* ignore */ }
     },
     clearSession() {
       this.session = null
@@ -56,7 +77,10 @@ export const useUserStore = defineStore('user', {
       this.isAdmin = false
       this.expireAt = 0
       this.expired = false
-      try { localStorage.removeItem(SESSION_KEY) } catch (e) { /* ignore */ }
+      try {
+        localStorage.removeItem(SESSION_KEY)
+        sessionStorage.removeItem(SESSION_KEY_TMP)
+      } catch (e) { /* ignore */ }
     },
     // 旧 key 迁移: 改名前的股票池/锁定条件数据
     migrateLegacyKeys() {

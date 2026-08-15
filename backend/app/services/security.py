@@ -10,6 +10,7 @@ import time
 from collections import deque
 
 from ..core import config
+from ..db.database import get_conn
 
 # ---------- 密码哈希 (PBKDF2-SHA256) ----------
 def hash_password(password, salt=None, iterations=None):
@@ -39,39 +40,52 @@ def verify_password(password, stored):
     return hash_password(password, salt, iterations).split("$", 2)[2] == digest
 
 
-# ---------- Token ----------
-_tokens = {}          # token -> (user_id, expire_ts)
+# ---------- Token (持久化到 DB, 进程重启不失效; 支持「记住我」长有效期) ----------
 _tokens_lock = threading.Lock()
 
 
-def issue_token(user_id):
+def issue_token(user_id, remember=False):
+    """签发新 token。remember=True → 30 天有效期(前端「记住我」), 否则 12 小时。"""
     t = secrets.token_hex(16)
-    with _tokens_lock:
-        _tokens[t] = (user_id, time.time() + config.TOKEN_TTL)
+    ttl = config.TOKEN_TTL_REMEMBER if remember else config.TOKEN_TTL
+    conn = get_conn()
+    try:
+        conn.execute("INSERT INTO tokens (token, user_id, expire_ts, created_at) VALUES (?,?,?,?)",
+                     (t, user_id, int(time.time()) + ttl, int(time.time())))
+        conn.commit()
+    finally:
+        conn.close()
     return t
 
 
 def valid_token(t):
-    with _tokens_lock:
-        v = _tokens.get(t)
-        if not v:
+    """校验 token 是否有效, 返回 user_id; 过期/不存在返回 None。"""
+    if not t:
+        return None
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT user_id, expire_ts FROM tokens WHERE token=?", (t,)).fetchone()
+        if not row:
             return None
-        uid, exp = v
+        uid, exp = row
         if time.time() > exp:
-            _tokens.pop(t, None)
+            conn.execute("DELETE FROM tokens WHERE token=?", (t,))
+            conn.commit()
             return None
         return uid
+    finally:
+        conn.close()
 
 
 def revoke_user_tokens(user_id):
     """使某用户所有已签发 token 失效(改密/重置/新登录踢旧会话)。返回被踢掉的 token 数。"""
-    with _tokens_lock:
-        n = 0
-        for t, (u, _e) in list(_tokens.items()):
-            if u == user_id:
-                _tokens.pop(t, None)
-                n += 1
-        return n
+    conn = get_conn()
+    try:
+        cur = conn.execute("DELETE FROM tokens WHERE user_id=?", (user_id,))
+        conn.commit()
+        return cur.rowcount or 0
+    finally:
+        conn.close()
 
 
 # ---------- 接口限流: 每 IP 每分钟 N 次 ----------

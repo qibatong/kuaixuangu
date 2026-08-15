@@ -24,6 +24,7 @@ router = APIRouter()
 def api_login(request: Request, body: dict = Body(...)):
     login = str(body.get("login") or body.get("username") or "").strip()
     password = str(body.get("password") or "")
+    remember = bool(body.get("remember"))   # 前端「记住我」→ 30 天 token
     user = users.find_user_by_login(login)
     ok = user is not None and security.verify_password(password, user.get("password_hash") or "")
     if not ok:
@@ -31,10 +32,10 @@ def api_login(request: Request, body: dict = Body(...)):
         return jr({"ok": False, "msg": "用户名或密码错误"}, 401)
     # 单点登录: 密码校验通过后, 作废该用户所有旧 token, 强制只保留当前会话(防账号共享)
     revoked = security.revoke_user_tokens(user["id"])
-    log.info("登录成功 uid=%s user=%s ip=%s 已踢旧会话%d个",
-             user["id"], user["username"], client_ip(request), revoked)
+    log.info("登录成功 uid=%s user=%s ip=%s remember=%s 已踢旧会话%d个",
+             user["id"], user["username"], client_ip(request), remember, revoked)
     et = int(user.get("expire_at") or 0)
-    return jr({"ok": True, "token": security.issue_token(user["id"]),
+    return jr({"ok": True, "token": security.issue_token(user["id"], remember),
                "username": user["username"],
                "is_admin": 1 if user.get("is_admin") else 0,
                "expire_at": et,

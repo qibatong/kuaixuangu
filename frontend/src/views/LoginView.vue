@@ -7,15 +7,21 @@
 
       <!-- 登录/注册 -->
       <template v-if="mode === 'login' || mode === 'register'">
-        <input v-model="username" type="text" :placeholder="mode === 'login' ? '用户名 / 手机号 / 邮箱' : '用户名(必填)'" autocomplete="off" maxlength="40" @keydown.enter="submit">
-        <input v-model="password" type="password" placeholder="密码" autocomplete="off" @keydown.enter="submit">
-        <template v-if="mode === 'register'">
-          <input v-model="invite" type="text" placeholder="邀请码(注册必填)" autocomplete="off" maxlength="12">
-          <input v-model="phone" type="text" placeholder="手机号(选填,以后可用它登录)" autocomplete="off" maxlength="11">
-          <input v-model="email" type="text" placeholder="邮箱(选填,以后可用它登录)" autocomplete="off" maxlength="60">
-        </template>
-        <button class="login-btn" :disabled="busy" @click="submit">{{ mode === 'login' ? '登录' : '注册' }}</button>
-        <div class="login-err">{{ err }}</div>
+        <form class="login-form" @submit.prevent="submit">
+          <input v-model="username" type="text" :placeholder="mode === 'login' ? '用户名 / 手机号 / 邮箱' : '用户名(必填)'" :autocomplete="mode === 'login' ? 'username' : 'off'" maxlength="40">
+          <input v-model="password" type="password" placeholder="密码" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'">
+          <template v-if="mode === 'register'">
+            <input v-model="invite" type="text" placeholder="邀请码(注册必填)" autocomplete="off" maxlength="12">
+            <input v-model="phone" type="text" placeholder="手机号(选填,以后可用它登录)" autocomplete="off" maxlength="11">
+            <input v-model="email" type="text" placeholder="邮箱(选填,以后可用它登录)" autocomplete="off" maxlength="60">
+          </template>
+          <label v-if="mode === 'login'" class="remember-row">
+            <input v-model="remember" type="checkbox" class="remember-check" />
+            <span>记住我，30 天内免登录</span>
+          </label>
+          <button class="login-btn" type="submit" :disabled="busy">{{ mode === 'login' ? '登录' : '注册' }}</button>
+          <div class="login-err">{{ err }}</div>
+        </form>
         <div class="login-switch">
           还没有账号？<a href="javascript:void(0)" @click="toggleMode">{{ mode === 'login' ? '注册一个' : '返回登录' }}</a>
           <span style="margin:0 6px;color:#334;">|</span>
@@ -58,6 +64,7 @@ const user = useUserStore()
 const mode = ref('login')          // login | register | forgot | reset
 const busy = ref(false)
 const err = ref('')
+const remember = ref(true)         // 「记住我」默认勾选: 30 天免登录
 const username = ref('')
 const password = ref('')
 const invite = ref('')
@@ -88,9 +95,10 @@ async function submit() {
   try {
     const body = mode.value === 'register'
       ? { username: username.value.trim(), password: password.value, invite_code: invite.value.trim(), phone: phone.value.trim(), email: email.value.trim() }
-      : { login: username.value.trim(), password: password.value }
+      : { login: username.value.trim(), password: password.value, remember: remember.value }
     const data = mode.value === 'register' ? await apiRegister(body) : await apiLogin(body)
-    user.setSession(data.username, data.token, data.is_admin, data.expire_at, data.expired)
+    // 注册自动登录的 token 为 12h 会话, 存 sessionStorage; 登录按「记住我」选择
+    user.setSession(data.username, data.token, data.is_admin, data.expire_at, data.expired, mode.value === 'login' && remember.value)
     if (data.expired) {
       showToast('⚠️ 账号已过期，请联系管理员续费', 'error')
     }
@@ -155,3 +163,18 @@ onMounted(() => {
   }
 })
 </script>
+
+<style scoped>
+.login-form { display: flex; flex-direction: column; gap: 10px; }
+.remember-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  margin-top: 2px;
+}
+.remember-check { width: 14px; height: 14px; accent-color: var(--accent); cursor: pointer; }
+</style>

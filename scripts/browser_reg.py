@@ -35,10 +35,15 @@ def log(msg):
 
 def run(shot_dir, user, pwd):
     os.makedirs(shot_dir, exist_ok=True)
-    log("启动 headless chromium :%d" % PORT)
+    # 独立 user-data-dir 避免共享默认 profile 残留 token(路由守卫会把 /login 重定向走)
+    # host-resolver-rules: 测试机外网受限, cdnjs 的 render-blocking CSS 会卡死 Vue 初始化
+    user_data = "/tmp/browser_reg_chrome"
+    subprocess.run(["rm", "-rf", user_data], check=False)
+    log("启动 headless chromium :%d (独立 profile)" % PORT)
     proc = subprocess.Popen(
         [CHROME, "--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
-         "--remote-allow-origins=*",
+         "--remote-allow-origins=*", "--user-data-dir=%s" % user_data,
+         "--host-resolver-rules=MAP cdnjs.cloudflare.com 127.0.0.1:0",
          "--remote-debugging-port=%d" % PORT, "--window-size=1440,900", "about:blank"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )

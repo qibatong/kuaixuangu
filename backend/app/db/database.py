@@ -5,6 +5,7 @@
 所有表结构与历史版本的自动迁移逻辑集中在此。
 """
 import sqlite3
+import time
 
 from ..core import config, logger
 
@@ -87,6 +88,19 @@ def init_db():
         cur.execute("ALTER TABLE users ADD COLUMN expire_at INTEGER NOT NULL DEFAULT 0")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_users_invited_by ON users(invited_by)")
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone)")
+    # 登录 Token 持久化表(进程重启不失效, 支持「记住我」30 天)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS tokens (
+            token TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            expire_ts INTEGER NOT NULL,
+            created_at INTEGER NOT NULL
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_tokens_user ON tokens(user_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_tokens_expire ON tokens(expire_ts)")
+    # 启动顺手清一次过期 token
+    cur.execute("DELETE FROM tokens WHERE expire_ts < ?", (int(time.time()),))
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)")
     # 系统设置表(key-value, JSON 值): 评分权重等管理配置
     cur.execute("""
