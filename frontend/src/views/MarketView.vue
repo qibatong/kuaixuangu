@@ -428,7 +428,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page-shell { max-width: 1400px; margin: 0 auto; padding: 16px; }
 .page-back { color: var(--text-muted); cursor: pointer; font-size: 13px; margin-bottom: 12px; display: inline-block; }
 .page-back:hover { color: #ffb400; }
 .mrk-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
