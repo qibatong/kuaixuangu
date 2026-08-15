@@ -114,11 +114,15 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
       </table>
 
       <!-- 三时点封单榜(短线侠式三层排序: 9:25涨停 > 9:20涨停回落 > 9:15涨停回落) -->
-      <div v-else-if="tab === 's3' && sealMissing" class="s3-hint">
-        <i class="fa fa-info-circle"></i> 封单额需<b>交易日 9:15 / 9:20 / 9:25</b> 实时采集（历史委托数据不提供，无法回填）。
-        当前显示 {{ dataDate || '实时' }} 暂无封单采集，<b>下个交易日开盘后自动生效</b>。涨幅/概念/流通市值不受影响。
+      <template v-else-if="tab === 's3'">
+      <div v-if="sealMissing" class="s3-hint">
+        <i class="fa fa-info-circle"></i> 该日期<b>封单额与竞价额均未采集</b>（历史委托数据不提供，无法回填），
+        下个交易日 9:15 / 9:20 / 9:25 自动采集后生效。涨幅/概念/流通市值不受影响。
       </div>
-      <table v-else-if="tab === 's3'" class="stock-table s3-table">
+      <div v-else-if="sealDegraded" class="s3-hint s3-hint-soft">
+        <i class="fa fa-info-circle"></i> 历史日期无封单采集，当前显示<b>竞价额</b>（前缀「竞」）作为强弱参考；<b>下个交易日 9:15/9:20/9:25 采集后显示真实封单额</b>。
+      </div>
+      <table class="stock-table s3-table">
         <thead>
           <tr>
             <th>#</th>
@@ -160,6 +164,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
           <tr v-if="!s3List.length"><td colspan="14" class="snap-empty">暂无三时点封单数据（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
         </tbody>
       </table>
+      </template>
 
       <!-- 竞价抢筹(上下双表: 上 9:20-9:25 / 下 最后1秒 9:24-9:25, 对标短线侠) -->
       <div v-else-if="tab === 'qc'" class="qc-dual">
@@ -469,13 +474,25 @@ const brokenYestList = ref([])
 const brokenTodayList = ref([])
 const s3List = ref([])        // 三时点封单榜(后端已按三层排序)
 
-// 封单数据缺失提示: 榜有数据但所有 bid_buy_amt 为 0(历史日期未采集/无法回填)
+// 封单数据缺失提示: 榜有数据但所有 bid_buy_amt/bid_amt 都为 0(完全无数据)
 const sealMissing = computed(() => {
   if (!s3List.value.length) return false
   return s3List.value.every(it => {
     const pts = it.points || {}
-    return ['9_15', '9_20', '9_25'].every(tp => !(pts[tp] && pts[tp].bid_buy_amt))
+    return ['9_15', '9_20', '9_25'].every(tp => {
+      const p = pts[tp]
+      return !(p && (p.bid_buy_amt || p.bid_amt))
+    })
   })
+})
+// 降级提示: 有数据但全部来自竞价额兜底(历史无封单采集)
+const sealDegraded = computed(() => {
+  if (!s3List.value.length) return false
+  const anySeal = s3List.value.some(it => {
+    const pts = it.points || {}
+    return ['9_15', '9_20', '9_25'].some(tp => pts[tp] && pts[tp].bid_buy_amt)
+  })
+  return !anySeal
 })
 const qcList = ref([])
 const qcChgList = ref([])     // 涨幅抢筹(9:25涨幅−9:20涨幅, 全市场快照)
@@ -539,49 +556,57 @@ function tpChgCls(it, tp) {
   const v = tp.slice(2) // "15" / "20" / "25"
   return p.bid_change > 0 ? 'chg-up-' + v : p.bid_change < 0 ? 'chg-dn-' + v : 'dim-' + v
 }
-// 封单额: > 1亿 显示「X.X 亿」, 否则「X.X 万」, 数据缺失显示 -
-function tpSeal(it, tp) {
+// 该时点的强度金额(元): 真实封单额 bid_buy_amt 优先; 历史缺封单时用竞价额
+// bid_amt(万→元) 兜底, 并标记 isBidAmt 区分。返回 {v, isBidAmt} 或 null
+function sealVal(it, tp) {
   const p = it.points && it.points[tp]
-  if (!p || p.bid_change === null || p.bid_change === undefined) return '-'
-  const v = p.bid_buy_amt || 0
-  if (!v) return '-'
-  if (v >= 1e8) return (v / 1e8).toFixed(2) + ' 亿'
-  return (v / 1e4).toFixed(0) + ' 万'
+  if (!p || p.bid_change === null || p.bid_change === undefined) return null
+  if (p.bid_buy_amt) return { v: p.bid_buy_amt, isBidAmt: false }
+  if (p.bid_amt) return { v: p.bid_amt * 1e4, isBidAmt: true }
+  return null
+}
+// 封单额: > 1亿 显示「X.X 亿」, 否则「X.X 万」; 封单缺失用竞价额兜底(前缀「竞」)
+function tpSeal(it, tp) {
+  const s = sealVal(it, tp)
+  if (!s) return '-'
+  const v = s.v
+  const txt = v >= 1e8 ? (v / 1e8).toFixed(2) + ' 亿' : (v / 1e4).toFixed(0) + ' 万'
+  return s.isBidAmt ? '竞 ' + txt : txt
 }
 
-// 加单差异: 当前时点封单额 vs 前一时点(9:20 vs 9:15, 9:25 vs 9:20)
+// 加单差异: 当前时点强度额 vs 前一时点(9:20 vs 9:15, 9:25 vs 9:20)
 // 返回 {text:'+120%', cls:'up|down|flat'} 或 null(任一缺失)
 function sealDelta(it, tp) {
   const prev = tp === '9_20' ? '9_15' : tp === '9_25' ? '9_20' : null
   if (!prev) return null
-  const cur = it.points && it.points[tp]
-  const pre = it.points && it.points[prev]
-  const cv = cur && cur.bid_buy_amt
-  const pv = pre && pre.bid_buy_amt
-  if (!cv || !pv) return null
-  const pct = (cv / pv - 1) * 100
+  const cur = sealVal(it, tp)
+  const pre = sealVal(it, prev)
+  if (!cur || !pre) return null
+  const pct = (cur.v / pre.v - 1) * 100
   if (pct > 5) return { text: '↑' + (pct >= 100 ? (pct / 100).toFixed(1) + '倍' : Math.round(pct) + '%'), cls: 'up' }
   if (pct < -5) return { text: '↓' + Math.abs(Math.round(pct)) + '%', cls: 'down' }
   return { text: '≈' + Math.round(pct) + '%', cls: 'flat' }
 }
-// 加单趋势(整行): 9:15→9:20→9:25 封单额走势, 判断加单/撤单模式
+// 加单趋势(整行): 9:15→9:20→9:25 强度额走势, 判断加单/撤单模式
 function sealMode(it) {
-  const v15 = it.points && it.points['9_15'] && it.points['9_15'].bid_buy_amt
-  const v20 = it.points && it.points['9_20'] && it.points['9_20'].bid_buy_amt
-  const v25 = it.points && it.points['9_25'] && it.points['9_25'].bid_buy_amt
-  const seg = (a, b) => { if (!a || !b) return null; const r = b / a; return r >= 1.1 ? 1 : r <= 0.9 ? -1 : 0 }
-  const s1 = seg(v15, v20)
-  const s2 = seg(v20, v25)
+  const s15 = sealVal(it, '9_15')
+  const s20 = sealVal(it, '9_20')
+  const s25 = sealVal(it, '9_25')
+  const seg = (a, b) => { if (!a || !b) return null; const r = b.v / a.v; return r >= 1.1 ? 1 : r <= 0.9 ? -1 : 0 }
+  const s1 = seg(s15, s20)
+  const s2 = seg(s20, s25)
   if (s1 === null || s2 === null) return null
-  if (s1 === 1 && s2 === 1) return { label: '持续加单', cls: 'strong', tip: '9:15→9:20→9:25 封单持续放大, 主力不断加单' }
-  if (s1 === -1 && s2 === 1) return { label: '尾盘回补', cls: 'mid', tip: '9:20 撤单后 9:25 重新加单, 关注是否回封' }
-  if (s1 === 1 && s2 === -1) return { label: '冲高回落', cls: 'weak', tip: '9:20 加单后 9:25 大幅撤单, 警惕炸板' }
-  if (s1 === -1 && s2 === -1) return { label: '持续撤单', cls: 'danger', tip: '9:15→9:20→9:25 封单持续减少, 开板风险高' }
-  if (s1 === 1 && s2 === 0) return { label: '加单后走平', cls: 'mid', tip: '9:20 加单, 9:25 持平' }
-  if (s1 === 0 && s2 === 1) return { label: '尾盘加单', cls: 'mid', tip: '9:25 相对 9:20 加单, 尾盘资金抢筹' }
-  if (s1 === 0 && s2 === -1) return { label: '尾盘撤单', cls: 'weak', tip: '9:25 相对 9:20 撤单' }
-  if (s1 === -1 && s2 === 0) return { label: '撤单后走平', cls: 'weak', tip: '9:20 撤单, 9:25 持平' }
-  return { label: '封单走平', cls: 'flat', tip: '三个时点封单额基本持平' }
+  // 降级说明: 历史日期无封单采集, 用竞价额(bid_amt)兜底计算
+  const alt = (s15 && s15.isBidAmt) || (s20 && s20.isBidAmt) || (s25 && s25.isBidAmt) ? ' (按竞价额)' : ''
+  if (s1 === 1 && s2 === 1) return { label: '持续加单', cls: 'strong', tip: '9:15→9:20→9:25 封单持续放大, 主力不断加单' + alt }
+  if (s1 === -1 && s2 === 1) return { label: '尾盘回补', cls: 'mid', tip: '9:20 撤单后 9:25 重新加单, 关注是否回封' + alt }
+  if (s1 === 1 && s2 === -1) return { label: '冲高回落', cls: 'weak', tip: '9:20 加单后 9:25 大幅撤单, 警惕炸板' + alt }
+  if (s1 === -1 && s2 === -1) return { label: '持续撤单', cls: 'danger', tip: '9:15→9:20→9:25 封单持续减少, 开板风险高' + alt }
+  if (s1 === 1 && s2 === 0) return { label: '加单后走平', cls: 'mid', tip: '9:20 加单, 9:25 持平' + alt }
+  if (s1 === 0 && s2 === 1) return { label: '尾盘加单', cls: 'mid', tip: '9:25 相对 9:20 加单, 尾盘资金抢筹' + alt }
+  if (s1 === 0 && s2 === -1) return { label: '尾盘撤单', cls: 'weak', tip: '9:25 相对 9:20 撤单' + alt }
+  if (s1 === -1 && s2 === 0) return { label: '撤单后走平', cls: 'weak', tip: '9:20 撤单, 9:25 持平' + alt }
+  return { label: '封单走平', cls: 'flat', tip: '三个时点封单额基本持平' + alt }
 }
 // 概念文本: 取前 3 个标签(开盘啦 board 是逗号分隔的多概念, 避免一格撑破)
 function boardText(b) {
@@ -835,6 +860,9 @@ body[data-bg="light"] .s3-tag-3 { color: #005c8a; border-color: #0080a0; }
   line-height: 1.6;
 }
 .s3-hint b { color: var(--accent-warm, #ffb400); }
+.s3-hint-soft { border-color: var(--border-soft); background: rgba(127, 224, 192, 0.05); color: var(--text-secondary); }
+.s3-hint-soft b { color: #7fe0c0; }
+body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 .s3-table { table-layout: auto; }
 .s3-table .board-col { max-width: 180px; min-width: 120px; }
 .board-text { color: var(--text-secondary); font-size: 12px; line-height: 1.3; }
