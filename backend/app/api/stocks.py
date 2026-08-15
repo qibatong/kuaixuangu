@@ -10,12 +10,34 @@ import time
 from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
-from ..services import auction_snapshot, fetcher, history, notify, scorer, stats
+from ..services import auction_snapshot, fetcher, history, kpl, notify, scorer, stats
 from .deps import get_uid, jr, qs
 
 log = logger.get_logger(__name__)
 
 router = APIRouter()
+
+
+def _apply_kpl_board(result, log_tag=""):
+    """用开盘啦概念覆盖选股结果 concept(开盘啦概念优先, 东财 f103 兜底)
+    result: scorer.process_all_stocks 输出, 每项含 code/concept"""
+    if not result:
+        return
+    try:
+        board_map = kpl.fetch_board_map()
+        if not board_map:
+            return
+        n = 0
+        for it in result:
+            b = board_map.get(str(it.get("code")))
+            if b:
+                it["concept"] = b
+                n += 1
+        if n:
+            log.info("选股概念开盘啦覆盖 %s 覆盖%d只/共%d只", log_tag, n, len(result))
+    except Exception as e:
+        log.warning("选股概念开盘啦覆盖失败 %s err=%s", log_tag, e)
+
 
 
 @router.get("/api/stocks")
@@ -60,6 +82,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
             yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw])
             snapshot_map = auction_snapshot.load_snapshot()
             result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map)
+            _apply_kpl_board(result, "spot")
             log.info("盘中选股(同竞价逻辑) uid=%s markets=%s raw=%d只 返回%d只 耗时%.0fms",
                      uid, ",".join(f["markets"]), len(raw), len(result), (time.time() - t0) * 1000)
             # 盘中 refresh 不落库、不推送(避免高频刷屏); 只返回实时结果
@@ -110,6 +133,8 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
     else:
         log.info("选股刷新 uid=%s action=%s markets=%s 返回%d只 耗时%.0fms",
                  uid, action, ",".join(f["markets"]), len(result), (time.time() - t0) * 1000)
+    # 概念用开盘啦覆盖(落库后覆盖, 页面展示用开盘啦概念, 历史批次存的是东财f103)
+    _apply_kpl_board(result, "auction")
 
     # 竞价锁定选股成功后, 后台推送结果到微信/飞书(失败不影响选股主流程)
     if action == "lock" and result:

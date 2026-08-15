@@ -835,11 +835,36 @@ def _snap25_map():
         for r in conn.execute(
                 "SELECT code, bid_change, bid_amt, name, float_mv, board FROM snapshot_bid "
                 "WHERE date=? AND time_point='9_25'", (time.strftime("%Y-%m-%d"),)):
-            out[r[0]] = {"bid_change": r[1], "bid_amt": r[2], "name": r[3] or "",
-                         "float_mv": r[4] or 0, "board": r[5] or ""}
+            out[r[0]] = {"bid_change": r[1], "bid_amt": r[2], "name": r[3] or "",                         "float_mv": r[4] or 0, "board": r[5] or ""}
         conn.close()
     except Exception as e:
         log.warning("9_25快照查询失败(降级) err=%s", e)
+    return out
+
+
+def fetch_board_map():
+    """全市场个股概念 map: {code: "概念1、概念2"}
+    开盘啦概念优先: 竞价时段用 MorningBiddingList Type4(实时涨停榜, 含板块),
+    盘后/全天兜底用当日 9_25 快照 board(采集时已叠加开盘啦概念)。
+    返回 {code: board}; 覆盖不到的概念为空(前端显示东财 f103)"""
+    out = {}
+    # 1) 竞价/盘中: 开盘啦实时涨停榜概念(覆盖涨停/异动股)
+    try:
+        for s in (fetch_bid_seal() or []):
+            b = s.get("board") or ""
+            if b:
+                out[s["code"]] = b
+    except Exception:
+        pass
+    # 2) 全天兜底: 当日 9_25 快照 board(采集时开盘啦概念覆盖东财)
+    if not out:
+        try:
+            for code, d in _snap25_map().items():
+                b = d.get("board") or ""
+                if b:
+                    out[code] = b
+        except Exception:
+            pass
     return out
 
 
