@@ -36,21 +36,21 @@ const user = useUserStore()
 .nav-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex-wrap: wrap;
   background: var(--bg-card);
   border: 1px solid var(--border-soft);
   border-radius: 10px;
-  padding: 6px 8px;
-  margin: 0 0 10px;
+  padding: 8px 10px;
+  margin: 0 0 18px;
 }
 .nav-item {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 6px 14px;
-  border-radius: 7px;
-  font-size: 13px;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 14px;
   color: var(--text-secondary);
   text-decoration: none;
   border: 1px solid transparent;
