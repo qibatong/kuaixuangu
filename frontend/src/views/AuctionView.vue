@@ -499,7 +499,7 @@ const yestZtList = ref([])
 const yestBrokenList = ref([])
 const loading = ref(true)
 const bjTime = ref('--:--:--')
-const qc20Mode = ref('amt')   // 左表口径: amt=竞额抢筹(开盘啦净额) / chg=涨幅抢筹(快照涨幅差)
+const qc20Mode = ref('chg')   // 左表口径: amt=竞额抢筹(开盘啦净额) / chg=涨幅抢筹(快照涨幅差) 默认涨幅抢筹
 const datePicker = ref('')    // 用户选的日期(空=实时)
 const dataDate = ref('')      // 后端实际返回的数据日期(可能被对齐)
 let autoFallback = false      // 已自动回退(避免清空后无限循环)
