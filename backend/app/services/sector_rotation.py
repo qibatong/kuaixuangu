@@ -17,7 +17,7 @@ from . import kpl
 
 log = logger.get_logger(__name__)
 
-VALID_SOURCES = ("kpl", "em")   # ths 预留
+VALID_SOURCES = ("kpl", "em", "ths")
 
 
 def _bj_date():

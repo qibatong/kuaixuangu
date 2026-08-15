@@ -27,13 +27,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 # 东财接口与本地环境无关的常量(硬编码, 避免依赖 backend config)
 EM_CLIST = "https://push2dycalc.eastmoney.com/api/qt/clist/get"   # 行情计算域名(测试机也通)
-EM_KLINE_HOSTS = [                                                 # 日K多域名轮询
-    "https://push2delay.eastmoney.com",                            # 延迟行情(实测可用, 风控宽松)
+EM_KLINE_HOSTS = [                                                 # 日K多域名轮询(push2his 优先)
     "https://push2his.eastmoney.com",
     "https://1.push2his.eastmoney.com",
     "https://33.push2his.eastmoney.com",
     "https://48.push2his.eastmoney.com",
     "https://92.push2his.eastmoney.com",
+    "https://push2delay.eastmoney.com",                            # 兜底(可能无历史K线)
 ]
 UT = "c92c50e6b0fab2c17cd5e276e9a79c42"
 HDRS = {
@@ -106,7 +106,8 @@ def fetch_kline(bk, beg, end, retries=2):
                 if len(parts) >= 4:
                     out[parts[0]] = (float(parts[3]), float(parts[2]))  # 涨跌幅%, 成交额(元)
             return out
-        time.sleep(0.5 * (attempt + 1))
+        # 全域名失败: 指数退避(0.5s/1.5s/4.5s...), 避免持续打触发风控
+        time.sleep(0.5 * (3 ** attempt))
     return {}
 
 
@@ -126,7 +127,7 @@ def build_daily_top(days):
         return None
 
     agg = {}   # date -> {bk: (name, change, amount)}
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex:   # 低并发避免触发 push2his 风控
         for bk, name, klines in ex.map(lambda b: (b[0], b[1], fetch_kline(b[0], beg, end)), boards):
             for d, (chg, amt) in klines.items():
                 agg.setdefault(d, {})[bk] = (name, chg, amt)

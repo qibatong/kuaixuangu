@@ -120,6 +120,30 @@ def init_db():
         cur.execute("ALTER TABLE daily_sector_top ADD COLUMN source TEXT NOT NULL DEFAULT 'kpl'")
     except Exception:
         pass   # 列已存在, ignore
+    # 旧库主键检测: 早期版本 daily_sector_top 是单字段 date 主键, 加 source 列后主键仍为
+    # (date), 会导致不同 source 同日期 INSERT OR REPLACE 互相覆盖 —— 必须重建为 (date, source)
+    try:
+        cols = cur.execute("PRAGMA table_info(daily_sector_top)").fetchall()
+        pk_cols = [c[1] for c in cols if c[5]]
+        if pk_cols != ["date", "source"]:
+            cur.execute("DROP TABLE IF EXISTS daily_sector_top_migrate")
+            cur.execute("""
+                CREATE TABLE daily_sector_top_migrate (
+                    date TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'kpl',
+                    boards TEXT NOT NULL,
+                    ts INTEGER NOT NULL,
+                    PRIMARY KEY (date, source)
+                )
+            """)
+            cur.execute(
+                "INSERT OR IGNORE INTO daily_sector_top_migrate (date, source, boards, ts) "
+                "SELECT date, COALESCE(source, 'kpl'), boards, ts FROM daily_sector_top")
+            cur.execute("DROP TABLE daily_sector_top")
+            cur.execute("ALTER TABLE daily_sector_top_migrate RENAME TO daily_sector_top")
+            log.info("daily_sector_top 主键迁移完成 (date,source)")
+    except Exception:
+        pass   # 兼容异常场景, 不阻塞启动
     # 9:20 竞价时点快照(全市场): 用于 9:25 计算涨幅加速度
     cur.execute("""
         CREATE TABLE IF NOT EXISTS snapshot_920 (

@@ -329,6 +329,7 @@ const rotSource = ref(localStorage.getItem('kuaixuan_sector_source') || 'kpl')
 const sourceOptions = [
   { key: 'kpl', label: '开盘啦',     icon: 'fa fa-bullseye' },
   { key: 'em',  label: '东方财富',   icon: 'fa fa-bar-chart' },
+  { key: 'ths', label: '同花顺',     icon: 'fa fa-line-chart' },
 ]
 const rotLoading = ref(false)
 const rot = reactive({ dates: [], days: [], windows: [], common_names: [], source: 'kpl' })

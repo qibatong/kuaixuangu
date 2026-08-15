@@ -202,7 +202,7 @@ def api_kpl_sector_rotation(request: Request, uid: int = Depends(get_uid), days:
     source: 数据源 kpl(开盘啦)/ em(东方财富), 默认 kpl"""
     days = max(1, min(int(days or 10), 60))
     source = (source or "kpl").lower()
-    if source not in ("kpl", "em"):
+    if source not in ("kpl", "em", "ths"):
         source = "kpl"
     rot = sector_rotation.query_rotation(days, source)
     win = sector_rotation.query_window_ranking((10, 20, 30, 50), source=source)
