@@ -133,7 +133,8 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <th class="board-col">概念(所属板块)</th>
             <th class="tp-th tp-th-15">9:15 封单</th>
             <th class="tp-th tp-th-20">9:20 封单</th>
-            <th class="tp-th tp-th-25">9:25 涨幅</th>
+            <th>实时涨幅</th>
+            <th class="tp-th tp-th-25">竞价涨幅</th>
             <th class="tp-th tp-th-25">9:25 封单</th>
             <th>流通市值(亿)</th>
             <th>操作</th>
@@ -152,12 +153,13 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td class="board-col" :title="it.board"><span class="board-text">{{ boardText(it.board) }}</span></td>
             <td class="tp-th-15 seal-col">{{ tpSeal(it, '9_15') }}</td>
             <td class="tp-th-20 seal-col">{{ tpSeal(it, '9_20') }}</td>
+            <td class="real-chg-col" :class="realChgCls(it)">{{ realChg(it) }}</td>
             <td class="tp-th-25 chg-col" :class="tpChgCls(it, '9_25')">{{ tpChg(it, '9_25') }}</td>
             <td class="tp-th-25 seal-col">{{ tpSeal(it, '9_25') }}</td>
             <td class="dim">{{ mvText(it) }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已入池' : '＋池' }}</button></td>
           </tr>
-          <tr v-if="!s3List.length"><td colspan="12" class="snap-empty">暂无三时点封单数据（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
+          <tr v-if="!s3List.length"><td colspan="13" class="snap-empty">暂无三时点封单数据（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
         </tbody>
       </table>
       </template>
@@ -539,6 +541,17 @@ const brokenSort = useSortable()
 const snapSort = useSortable()
 
 // ---- 三时点封单榜单元格(拆分涨幅/封单两列) ----
+// 实时涨幅: 后端从开盘啦 fetch_bid_seal 叠加 realChange(元)
+function realChg(it) {
+  const v = it.real_change
+  if (v === null || v === undefined || isNaN(v)) return '-'
+  return signed(v) + '%'
+}
+function realChgCls(it) {
+  const v = it.real_change
+  if (v === null || v === undefined || isNaN(v)) return 'dim'
+  return v > 0 ? 'up' : v < 0 ? 'down' : 'dim'
+}
 // 涨幅: 按时点色系分涨(亮)/跌(暗)/0(灰), 避开 A 股红绿
 function tpChg(it, tp) {
   const p = it.points && it.points[tp]
@@ -855,6 +868,11 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 .s3-table th.tp-th-25 { color: #ff5a5a; border-bottom: 2px solid rgba(255, 90, 90, 0.4); }
 .s3-table td.tp-th-15, .s3-table td.tp-th-20, .s3-table td.tp-th-25 { text-align: center; white-space: nowrap; }
 .s3-table td.chg-col { font-weight: 600; }
+/* 实时涨幅列(开盘啦 realChange): 涨=红, 跌=蓝(A股忌讳绿, 避开绿色系) */
+.real-chg-col { text-align: center; white-space: nowrap; font-weight: 600; font-variant-numeric: tabular-nums; }
+.real-chg-col.up { color: #ff5a5a; }
+.real-chg-col.down { color: #6aa0ff; }
+.real-chg-col.dim { color: var(--text-muted); }
 /* 9:15 涨幅: 青蓝系(亮=涨, 暗=跌) */
 .chg-up-15 { color: #80d4ff; text-shadow: 0 0 6px rgba(95, 180, 255, 0.3); }
 .chg-dn-15 { color: #5080c0; }

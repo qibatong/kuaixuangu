@@ -165,4 +165,16 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
     finally:
         conn.close()
     rows = auction_snapshot.query_3points_board(resolved, limit)
+    # 叠加开盘啦实时涨幅(realChange): 历史榜单看的是已归档快照, 实时涨幅补充当前盘口状态
+    try:
+        from app.services import kpl
+        kpl_seal = kpl.fetch_bid_seal() or []
+        kpl_real = {s["code"]: s.get("realChange") for s in kpl_seal if s.get("realChange") is not None}
+        if kpl_real:
+            for it in rows:
+                rc = kpl_real.get(it.get("code"))
+                if rc is not None:
+                    it["real_change"] = rc
+    except Exception:
+        pass
     return jr({"ok": True, "date": resolved, "count": len(rows), "list": rows})
