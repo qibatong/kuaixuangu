@@ -12,20 +12,33 @@ router = APIRouter()
 
 
 @router.get("/api/stats/auction-overview")
-def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid)):
-    """竞价多时点对比(最近4个交易日): 每日期 9:15/9:20/9:25 竞价涨幅均值/竞价额 + 一字涨停数
+def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid), date: str = ""):
+    """竞价多时点对比: date 空=最近4个交易日; 指定 'YYYY-MM-DD' 回看该日(自动对齐最近交易日)
+    每日期 9:15/9:20/9:25 竞价涨幅均值/竞价额 + 一字涨停数
     金额单位统一为元(bid_amt 原始单位为万元, 聚合时转元)"""
     conn = database.get_conn()
     try:
-        dates = [r[0] for r in conn.execute(
-            "SELECT DISTINCT date FROM snapshot_bid ORDER BY date DESC LIMIT 4")]
+        if date:
+            # 对齐到最近交易日(与市场雷达一致: 周末/节假日回退)
+            try:
+                row = conn.execute(
+                    "SELECT MAX(date) FROM snapshot_bid WHERE date <= ?", (date,)).fetchone()
+                resolved = str(row[0]) if row and row[0] else date
+            except Exception:
+                resolved = date
+            has = conn.execute(
+                "SELECT COUNT(*) FROM snapshot_bid WHERE date=?", (resolved,)).fetchone()[0]
+            dates = [resolved] if has else []
+        else:
+            dates = [r[0] for r in conn.execute(
+                "SELECT DISTINCT date FROM snapshot_bid ORDER BY date DESC LIMIT 4")]
         out = []
-        for date in dates:
-            day = {"date": date, "points": {}, "yizi_count": None, "yizi_amt": None}
+        for d in dates:
+            day = {"date": d, "points": {}, "yizi_count": None, "yizi_amt": None}
             for tp in ("9_15", "9_20", "9_25"):
                 rows = conn.execute(
                     "SELECT bid_change, bid_amt FROM snapshot_bid WHERE date=? AND time_point=?",
-                    (date, tp)).fetchall()
+                    (d, tp)).fetchall()
                 if rows:
                     chgs = [r[0] for r in rows if r[0] is not None]
                     amts = [r[1] for r in rows if r[1] is not None]
@@ -37,7 +50,7 @@ def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid)):
                 else:
                     day["points"][tp] = None
             yizi = conn.execute(
-                "SELECT yizi_count, bid_amt FROM daily_yizi WHERE date=?", (date,)).fetchone()
+                "SELECT yizi_count, bid_amt FROM daily_yizi WHERE date=?", (d,)).fetchone()
             if yizi:
                 day["yizi_count"] = yizi[0]
                 day["yizi_amt"] = (yizi[1] * 10000) if yizi[1] is not None else None  # 万元→元

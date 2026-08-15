@@ -43,22 +43,47 @@ def api_kpl_sentiment(request: Request, uid: int = Depends(get_uid)):
 
 
 @router.get("/api/kpl/bid-seal")
-def api_kpl_bid_seal(request: Request, uid: int = Depends(get_uid)):
-    """竞价涨停委买额(实时): 涨停委买额/竞价净额/连板数"""
+def api_kpl_bid_seal(request: Request, uid: int = Depends(get_uid), date: str = ""):
+    """竞价涨停委买额: date 空=实时, 指定 'YYYY-MM-DD' 回看历史(auction_daily_history)"""
+    if date:
+        resolved = _resolve_date(date)
+        d = kpl.query_auction_history(resolved, "seal")
+        return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
+                   "date": resolved, "requestedDate": date})
     d = kpl.fetch_bid_seal()
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
 
 
 @router.get("/api/kpl/bid-boom")
-def api_kpl_bid_boom(request: Request, uid: int = Depends(get_uid)):
-    """竞价爆量/撮合>2000万(实时)"""
+def api_kpl_bid_boom(request: Request, uid: int = Depends(get_uid), date: str = ""):
+    """竞价爆量/撮合>2000万: date 空=实时, 指定日期回看历史"""
+    if date:
+        resolved = _resolve_date(date)
+        d = kpl.query_auction_history(resolved, "boom")
+        return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
+                   "date": resolved, "requestedDate": date})
     d = kpl.fetch_bid_boom()
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
 
 
 @router.get("/api/kpl/broken")
-def api_kpl_broken(request: Request, day: str = "", uid: int = Depends(get_uid)):
-    """炸板(东财 flash, 无需Token): 默认今日; day=yesterday 上一交易日; day=YYYY-MM-DD 指定日"""
+def api_kpl_broken(request: Request, day: str = "", date: str = "",
+                   uid: int = Depends(get_uid)):
+    """炸板(东财 flash, 无需Token): 默认今日; day=yesterday 上一交易日; day=YYYY-MM-DD 指定日;
+    date 参数统一回看历史(优先 date, 读 auction_daily_history broken_yest/broken_today)"""
+    if date:
+        resolved = _resolve_date(date)
+        lst = kpl.query_auction_history(resolved, "broken_today")
+        return jr({"ok": True, "list": lst or [], "count": len(lst),
+                   "date": resolved, "requestedDate": date,
+                   "day": (lst[0].get("day") if lst else "")})
+    if day == "yesterday":
+        # 昨炸板: 读历史快照(优先), 无则实时接口
+        prev = kpl._prev_trade_day()
+        if prev:
+            lst = kpl.query_auction_history(prev, "broken_yest")
+            if lst:
+                return jr({"ok": True, "list": lst, "count": len(lst), "day": prev})
     d = kpl.fetch_broken_zt(day or None)
     lst = d or []
     return jr({"ok": True, "list": lst, "count": len(lst),
@@ -156,27 +181,39 @@ def api_kpl_wpqc(request: Request, uid: int = Depends(get_uid)):
 
 
 @router.get("/api/kpl/bid-qiangcang")
-def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(get_uid)):
+def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(get_uid), date: str = ""):
     """竞价抢筹(左右双表): list20=9:20→9:25 竞额抢筹(开盘啦净额强度),
-    list20Chg=9:20→9:25 涨幅抢筹(全市场快照涨幅差), listLast=9:24→9:25 最后1秒段"""
-    d = kpl.fetch_bid_qiangcang() or {}
+    list20Chg=9:20→9:25 涨幅抢筹(全市场快照涨幅差), listLast=9:24→9:25 最后1秒段
+    date 空=实时; 指定 'YYYY-MM-DD' 回看历史(qc_snapshot + snapshot_bid)"""
+    d = kpl.fetch_bid_qiangcang(date or None) or {}
     l20 = d.get("list20") or []
     l20Chg = d.get("list20Chg") or []
     lLast = d.get("listLast") or []
     return jr({"ok": True, "list20": l20, "list20Chg": l20Chg, "listLast": lLast,
-               "count20": len(l20), "count20Chg": len(l20Chg), "countLast": len(lLast)})
+               "count20": len(l20), "count20Chg": len(l20Chg), "countLast": len(lLast),
+               "date": date or ""})
 
 
 @router.get("/api/kpl/yest-zt")
-def api_kpl_yest_zt(request: Request, uid: int = Depends(get_uid)):
-    """昨日涨停股今日竞价表现(flash 昨日涨停池 + Type4 merge)"""
+def api_kpl_yest_zt(request: Request, uid: int = Depends(get_uid), date: str = ""):
+    """昨日涨停股今日竞价表现: date 空=实时, 指定日期回看历史(auction_daily_history yest_zt)"""
+    if date:
+        resolved = _resolve_date(date)
+        d = kpl.query_auction_history(resolved, "yest_zt")
+        return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
+                   "date": resolved, "requestedDate": date})
     d = kpl.fetch_yest_zt()
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
 
 
 @router.get("/api/kpl/yest-broken")
-def api_kpl_yest_broken(request: Request, uid: int = Depends(get_uid)):
-    """昨断板: 昨日涨停池中今日未涨停的股票"""
+def api_kpl_yest_broken(request: Request, uid: int = Depends(get_uid), date: str = ""):
+    """昨断板: 昨日涨停池中今日未涨停的股票; date 空=实时, 指定日期回看历史"""
+    if date:
+        resolved = _resolve_date(date)
+        d = kpl.query_auction_history(resolved, "yest_broken")
+        return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
+                   "date": resolved, "requestedDate": date})
     d = kpl.fetch_yest_broken()
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
 

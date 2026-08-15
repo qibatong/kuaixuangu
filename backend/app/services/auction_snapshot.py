@@ -270,6 +270,14 @@ def _scheduler_loop():
                         if n:
                             _sched_done.add("ladder_" + date)
                             log.info("连板梯队快照已存 date=%s 共%d只", date, n)
+                    # 竞价异动日终快照(全部 tab): 供竞价异动页按日期回看历史
+                    # (竞价委买/爆量/昨日涨停/昨断板/炸板 接口不支持历史日期, 必须落库)
+                    if ("auction_" + date) not in _sched_done:
+                        from . import kpl as _kpl2
+                        n2 = _kpl2.save_auction_history(date)
+                        if n2:
+                            _sched_done.add("auction_" + date)
+                            log.info("竞价异动日终快照已存 date=%s 共%d个tab", date, n2)
                 except Exception as e:
                     log.warning("板块轮动日终快照失败 err=%s", e, exc_info=True)
             # 9:31-9:35 盘点当日采集: 缺失时点告警(排查关键, 数据过了点无法补)

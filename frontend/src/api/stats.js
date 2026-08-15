@@ -5,8 +5,8 @@ export function fetchPerformance(query = {}) {
   return request('/api/stats/performance', { query })
 }
 
-export function auctionOverview() {
-  return request('/api/stats/auction-overview')
+export function auctionOverview(date = '') {
+  return request('/api/stats/auction-overview', { query: date ? { date } : {} })
 }
 
 export function auctionSnapshot(date, timePoint) {

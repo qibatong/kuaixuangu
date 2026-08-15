@@ -12,7 +12,18 @@
       <span class="auc-time">{{ bjTime }}</span>
     </div>
 
-    <!-- 顶部多时点对比(最近4个交易日) -->
+    <!-- 日期回看: 选历史交易日查看当天竞价异动(周末/节假日自动对齐最近交易日) -->
+    <div class="rot-toolbar">
+      <span class="rot-tip"><i class="fa fa-info-circle"></i> 选日期回看历史竞价异动(15:30 落库积累)</span>
+      <input type="date" v-model="datePicker" class="rot-date" @change="loadAll(true)">
+      <button class="rot-reset-btn" title="回到实时" @click="clearDate"><i class="fa fa-bolt"></i></button>
+      <span v-if="dataDate && datePicker" class="rot-data-date">
+        <i class="fa fa-calendar"></i> 数据日期 {{ dataDate }}
+        <template v-if="dataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template>
+      </span>
+    </div>
+
+    <!-- 顶部多时点对比(最近4个交易日 / 指定日期) -->
     <div class="ov-panel">
       <table class="ov-table">
         <thead>
@@ -365,6 +376,9 @@ const yestBrokenList = ref([])
 const loading = ref(true)
 const bjTime = ref('--:--:--')
 const qc20Mode = ref('amt')   // 左表口径: amt=竞额抢筹(开盘啦净额) / chg=涨幅抢筹(快照涨幅差)
+const datePicker = ref('')    // 用户选的日期(空=实时)
+const dataDate = ref('')      // 后端实际返回的数据日期(可能被对齐)
+let autoFallback = false      // 已自动回退(避免清空后无限循环)
 let clockTimer = null
 let refreshTimer = null
 
@@ -441,12 +455,30 @@ async function showSnapshot(date, tp) {
 }
 function wan(v) { return v ? Number(v).toFixed(0) : '0' }
 
-async function loadAll() {
+async function loadAll(fromUser = false) {
+  const dt = datePicker.value
+  loading.value = true
   try {
+    // 历史回看: 所有接口带 date; 实时: 不带
     const [ov, seal, boom, qc, yestZt, yestBroken, lhb, brokenYest, brokenToday] = await Promise.all([
-      auctionOverview(), kplBidSeal(), kplBidBoom(), kplBidQiangcang(), kplYestZt(), kplYestBroken(),
-      kplLhb(), kplBroken('yesterday'), kplBroken()
+      auctionOverview(dt), kplBidSeal(dt), kplBidBoom(dt), kplBidQiangcang(dt), kplYestZt(dt),
+      kplYestBroken(dt), kplLhb(dt), kplBroken('', dt), kplBroken(dt ? '' : 'yesterday', dt)
     ])
+    // 非交易时段(周末/节假日/盘前盘后)自动回退: 实时模式且各 tab 全空时,
+    // 自动切到最近交易日(overview.days[0].date = 最近有 snapshot_bid 数据的日期)
+    if (!dt && !autoFallback && ov.days && ov.days.length) {
+      const lastTrading = ov.days[0].date
+      const allEmpty = !(seal.list && seal.list.length) && !(boom.list && boom.list.length) &&
+                       !(qc.list20 && qc.list20.length) && !(qc.list20Chg && qc.list20Chg.length)
+      if (allEmpty && lastTrading) {
+        autoFallback = true
+        datePicker.value = lastTrading
+        showToast(`当前非交易时段，自动显示最近交易日 ${lastTrading} 的数据`, 'info')
+        loadAll(false)
+        return
+      }
+    }
+    autoFallback = false
     days.value = ov.days || []
     sealRaw.value = seal.list || []
     boomList.value = boom.list || []
@@ -458,16 +490,36 @@ async function loadAll() {
     lhbList.value = lhb.list || []
     brokenYestList.value = brokenYest.list || []
     brokenTodayList.value = brokenToday.list || []
+    // 记录实际数据日期(后端可能对齐到最近交易日)
+    const d = seal.date || (ov.days && ov.days.length ? ov.days[0].date : '')
+    dataDate.value = d || dt || ''
+    if (dt && fromUser) {
+      if (!dataDate.value || dataDate.value !== dt) {
+        // 对齐了或该日无历史: 提示
+        if (dataDate.value) {
+          showToast(`数据日期 ${dataDate.value}${dataDate.value !== dt ? '（非交易日自动对齐）' : ''}`, 'info')
+        } else {
+          showToast('该日期暂无历史数据（15:30 落库后可用）', 'warning')
+        }
+      }
+    }
   } catch (e) { /* 静默 */ } finally {
     loading.value = false
   }
+}
+
+function clearDate() {
+  datePicker.value = ''
+  dataDate.value = ''
+  autoFallback = false
+  loadAll(true)
 }
 
 onMounted(() => {
   bjTime.value = bjTimeStr()
   clockTimer = setInterval(() => { bjTime.value = bjTimeStr() }, 1000)
   loadAll()
-  refreshTimer = setInterval(loadAll, 60000)
+  refreshTimer = setInterval(() => { if (!datePicker.value) loadAll() }, 60000)
 })
 onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)

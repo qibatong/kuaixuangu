@@ -1002,7 +1002,7 @@ def _calc_lastsec_qc(chg25, seq):
     return None, None
 
 
-def fetch_bid_qiangcang():
+def fetch_bid_qiangcang(date=None):
     """竞价抢筹(左右双表, 对标短线侠):
     左表 list20  = 开盘啦 MorningBiddingList Type=4 全市场竞价异动(200只)
                    抢筹强度 qcDelta = 竞价净额 / 流通市值 * 100 (开盘啦自带"抢筹资金"指标)
@@ -1010,16 +1010,17 @@ def fetch_bid_qiangcang():
                    竞价时段(9:15-9:30)实时拉取并持久化 qc_snapshot 表;
                    非竞价时段接口为空 → 读库展示今天已选出的结果(不丢失)
     右表 listLast= snapshot_bid 9_24(最后一秒≈9:24:5x) → 9_25 段: 抢筹幅度 = 9:25涨幅 − 9:24涨幅
+    date: 空=今天; 指定 'YYYY-MM-DD' 回看历史(qc_snapshot + snapshot_bid 历史数据)
     返回 {"list20": [...], "listLast": [...]}"""
     def loader():
         t0 = time.time()
-        today = time.strftime("%Y-%m-%d")
+        today = date or time.strftime("%Y-%m-%d")
         hhmm = time.strftime("%H:%M")
         g = time.gmtime(time.time() + 8 * 3600)
         hm = g.tm_hour * 60 + g.tm_min
         # 竞价时段 9:15-9:30 (工作日); 注意: 非竞价时段开盘啦接口也可能返回
         # 200只"僵尸数据"(bidNetAmt=0), 必须按时间窗强制走读库, 否则 9:30 后今天结果会丢
-        in_bid = g.tm_wday < 5 and (9 * 60 + 15) <= hm <= (9 * 60 + 30)
+        in_bid = (not date) and g.tm_wday < 5 and (9 * 60 + 15) <= hm <= (9 * 60 + 30)
         list20 = []
         if in_bid:
             # ===== 竞价时段: 实时拉取 + 落库 =====
@@ -1092,7 +1093,7 @@ def fetch_bid_qiangcang():
                 "WHERE date=? AND time_point='9_25'", (today,)).fetchall()
             conn.close()
             m20c = {r[0]: r[1] for r in rows20c}
-            seal_map = _seal_map()
+            seal_map = {} if date else _seal_map()   # 历史日期不拉今天 Type4(字段用快照自身)
             for code, chg25, amt25, fmv, name, board in rows25c:
                 # 过滤: 流通市值≥2亿, 竞价额>0, 竞价成交额≥500万, 竞价涨幅>2%(9_25涨幅)
                 if fmv < 2e8 or amt25 <= 0 or amt25 < 500 or chg25 <= 2:
@@ -1156,7 +1157,7 @@ def fetch_bid_qiangcang():
             if not rows25:
                 log.warning("抢筹[listLast] date=%s %s 9_25时点快照=0条, 右表将为空", today, hhmm)
             if rows25:
-                seal_map = _seal_map()
+                seal_map = {} if date else _seal_map()   # 历史日期不拉今天 Type4
                 m24 = {r[0]: (r[1], r[2]) for r in rows24}
                 used_lastsec = 0
                 for code, chg, amt25, fmv, name in rows25:
@@ -1232,7 +1233,7 @@ def fetch_bid_qiangcang():
                  today, hhmm, len(list20[:100]), len(list20Chg[:100]), len(listLast[:100]),
                  len(yest_map), len(codes), int((time.time() - t0) * 1000))
         return {"list20": list20[:100], "list20Chg": list20Chg[:100], "listLast": listLast[:100]}
-    return _cached("bid_qiangcang", 30, loader)
+    return _cached("bid_qiangcang" + (("_" + date.replace("-", "")) if date else ""), 30, loader)
 
 
 def _surge_reason(sr):
@@ -2085,3 +2086,53 @@ def fetch_kpl_doc115(**extra):
 
 
 # 共生成 87 个 fetch_kpl_doc{N} 函数
+
+# ==================== 竞价异动日终快照(历史回看) ====================
+def save_auction_history(date):
+    """抓当日竞价异动各 tab 落库 auction_daily_history(15:30 调度调用)
+    tab: seal(竞价委买)/boom(竞价爆量)/qiangcang(抢筹list20)/
+         yest_zt(昨日涨停)/yest_broken(昨断板)/broken_yest(昨炸板)/broken_today(今炸板)
+    返回落库 tab 数; 某 tab 抓取失败不影响其他"""
+    import sqlite3 as _sql
+    items = [
+        ("seal", fetch_bid_seal()),
+        ("boom", fetch_bid_boom()),
+        ("qiangcang", (fetch_bid_qiangcang() or {}).get("list20", [])),
+        ("yest_zt", fetch_yest_zt()),
+        ("yest_broken", fetch_yest_broken()),
+        ("broken_yest", fetch_broken_zt("yesterday")),
+        ("broken_today", fetch_broken_zt()),
+    ]
+    n = 0
+    for tab, lst in items:
+        if not lst:
+            log.warning("竞价异动快照[%s] date=%s 抓取为空, 跳过", tab, date)
+            continue
+        try:
+            conn = _sql.connect(config.DB_FILE)
+            conn.execute(
+                "INSERT OR REPLACE INTO auction_daily_history (date, tab, list, ts) VALUES (?,?,?,?)",
+                (date, tab, json.dumps(lst, ensure_ascii=False), int(time.time())))
+            conn.commit()
+            conn.close()
+            n += 1
+        except Exception as e:
+            log.warning("竞价异动快照落库失败 date=%s tab=%s err=%s", date, tab, e)
+    log.info("竞价异动日终快照 date=%s 落库 %d 个 tab", date, n)
+    return n
+
+
+def query_auction_history(date, tab):
+    """读取某日某 tab 竞价异动历史快照; 无数据返回 []"""
+    try:
+        import sqlite3 as _sql
+        conn = _sql.connect(config.DB_FILE)
+        row = conn.execute(
+            "SELECT list FROM auction_daily_history WHERE date=? AND tab=?",
+            (date, tab)).fetchone()
+        conn.close()
+        if row and row[0]:
+            return json.loads(row[0])
+    except Exception as e:
+        log.warning("竞价异动历史查询失败 date=%s tab=%s err=%s", date, tab, e)
+    return []

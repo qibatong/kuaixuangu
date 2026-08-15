@@ -5,17 +5,17 @@ export function kplSentiment() {
   return request('/api/kpl/sentiment')
 }
 
-export function kplBidSeal() {
-  return request('/api/kpl/bid-seal')
+export function kplBidSeal(date = '') {
+  return request('/api/kpl/bid-seal', { query: date ? { date } : {} })
 }
 
-export function kplBidBoom() {
-  return request('/api/kpl/bid-boom')
+export function kplBidBoom(date = '') {
+  return request('/api/kpl/bid-boom', { query: date ? { date } : {} })
 }
 
-export function kplBroken(day = '') {
-  // day: ''=今日 / 'yesterday'=上一交易日 / 'YYYY-MM-DD'=指定日
-  return request('/api/kpl/broken', { query: day ? { day } : {} })
+export function kplBroken(day = '', date = '') {
+  // day: ''=今日 / 'yesterday'=上一交易日 / 'YYYY-MM-DD'=指定日; date: 历史回看
+  return request('/api/kpl/broken', { query: date ? { date } : (day ? { day } : {}) })
 }
 
 export function kplLadder(date = '') {
@@ -46,16 +46,16 @@ export function kplWpqc() {
   return request('/api/kpl/wpqc')
 }
 
-export function kplBidQiangcang() {
-  return request('/api/kpl/bid-qiangcang')
+export function kplBidQiangcang(date = '') {
+  return request('/api/kpl/bid-qiangcang', { query: date ? { date } : {} })
 }
 
-export function kplYestZt() {
-  return request('/api/kpl/yest-zt')
+export function kplYestZt(date = '') {
+  return request('/api/kpl/yest-zt', { query: date ? { date } : {} })
 }
 
-export function kplYestBroken() {
-  return request('/api/kpl/yest-broken')
+export function kplYestBroken(date = '') {
+  return request('/api/kpl/yest-broken', { query: date ? { date } : {} })
 }
 
 export function kplYesterdayPerf() {

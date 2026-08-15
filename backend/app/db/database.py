@@ -144,6 +144,18 @@ def init_db():
             PRIMARY KEY (date, pid_type)
         )
     """)
+    # 竞价异动日终快照: date+tab 唯一, 供竞价异动页按日期回看历史
+    # tab: seal(竞价委买)/boom(竞价爆量)/qiangcang(竞价抢筹list20)/
+    #      yest_zt(昨日涨停)/yest_broken(昨断板)/broken_yest(昨炸板)/broken_today(今炸板)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS auction_daily_history (
+            date TEXT NOT NULL,
+            tab TEXT NOT NULL,
+            list TEXT NOT NULL,
+            ts INTEGER NOT NULL,
+            PRIMARY KEY (date, tab)
+        )
+    """)
     # 旧库升级: 已存在且无 source 列时补上(单字段主键), 历史数据默认 kpl
     try:
         cur.execute("ALTER TABLE daily_sector_top ADD COLUMN source TEXT NOT NULL DEFAULT 'kpl'")
