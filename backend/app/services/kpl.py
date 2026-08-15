@@ -842,30 +842,79 @@ def _snap25_map():
     return out
 
 
+def _snap25_kpl_map():
+    """9_25 快照中『已被开盘啦覆盖』的涨停股 board map: code → 开盘啦 board
+    启发式: 涨停股(board 已是开盘啦概念, 短字符串 2-30 字符, 顿号或短逗号分隔)
+    非涨停股的 snapshot_bid.board 是东财 f103(短线侠多概念, 字符串长), 不进入此 map
+    用于 fetch_board_map 兜底: 周末/非交易时段 KPL 实时接口空时仍能给涨停股用开盘啦 board"""
+    import sqlite3
+    out = {}
+    try:
+        conn = sqlite3.connect(config.DB_FILE)
+        for r in conn.execute(
+                "SELECT code, board FROM snapshot_bid "
+                "WHERE date=? AND time_point='9_25' AND board IS NOT NULL AND board != ''",
+                (time.strftime("%Y-%m-%d"),)):
+            b = r[1] or ""
+            # 启发式: 开盘啦概念短 (典型 2-30 字符), 东财 f103 短线侠长 (平均 60+)
+            # 例: "创新药、AI应用"(9字), "股权转让、算力"(7字), "实控人变更、金融概念"(10字)
+            if 2 <= len(b) <= 30:
+                out[r[0]] = b
+        conn.close()
+    except Exception as e:
+        log.warning("9_25快照KPL board 查询失败(降级) err=%s", e)
+    return out
+
+
 def fetch_board_map():
     """全市场个股概念 map: {code: "概念1、概念2"}
-    开盘啦概念优先: 竞价时段用 MorningBiddingList Type4(实时涨停榜, 含板块),
-    盘后/全天兜底用当日 9_25 快照 board(采集时已叠加开盘啦概念)。
+    开盘啦概念优先: 多接口合并(连板梯队 + 竞价封板 + 竞价爆量) 覆盖一字板/连板/封板/爆量
+    9_25 快照 board 兜底(已含采集时的开盘啦覆盖)。
     返回 {code: board}; 覆盖不到的概念为空(前端显示东财 f103)"""
-    out = {}
-    # 1) 竞价/盘中: 开盘啦实时涨停榜概念(覆盖涨停/异动股)
-    try:
-        for s in (fetch_bid_seal() or []):
-            b = s.get("board") or ""
-            if b:
-                out[s["code"]] = b
-    except Exception:
-        pass
-    # 2) 全天兜底: 当日 9_25 快照 board(采集时开盘啦概念覆盖东财)
-    if not out:
+    def loader():
+        out = {}
+        # 1) 连板梯队(覆盖一字板/连板/封板股, 主力: 用户截图 9 只里有 8 只涨幅 200%+ 一字板在这里)
         try:
-            for code, d in _snap25_map().items():
-                b = d.get("board") or ""
-                if b:
+            for pid in (1, 2, 3, 4, 5):
+                for s in (fetch_ladder(pid) or []):
+                    b = s.get("concept") or ""
+                    if b and s.get("code") not in out:
+                        out[s["code"]] = b
+        except Exception:
+            pass
+        # 2) 竞价涨停委买额(竞价时段刚封板股, Type=4 榜 - 早晨刚封涨停)
+        try:
+            for s in (fetch_bid_seal() or []):
+                b = s.get("board") or ""
+                if b and s["code"] not in out:
+                    out[s["code"]] = b
+        except Exception:
+            pass
+        # 3) 竞价爆量榜(竞价量异动非涨停股, 开盘啦也带 board)
+        try:
+            for s in (fetch_bid_boom() or []):
+                b = s.get("board") or ""
+                if b and s["code"] not in out:
+                    out[s["code"]] = b
+        except Exception:
+            pass
+        # 4) 热点解读强势股(doc39) - plates 是开盘啦风格的板块拼接
+        try:
+            for s in (fetch_hot_stocks() or []):
+                p = s.get("plates") or ""
+                if p and s["code"] not in out:
+                    out[s["code"]] = p
+        except Exception:
+            pass
+        # 4) 全天兜底: 当日 9_25 快照中已被开盘啦覆盖的 board (短字符串启发式, 避免短线侠污染)
+        try:
+            for code, b in _snap25_kpl_map().items():
+                if code not in out:
                     out[code] = b
         except Exception:
             pass
-    return out
+        return out
+    return _cached("board_map", 30, loader)
 
 
 def fetch_yest_zt():
