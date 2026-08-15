@@ -11,7 +11,7 @@
           <input v-model="username" type="text" :placeholder="mode === 'login' ? '用户名 / 手机号 / 邮箱' : '用户名(必填)'" :autocomplete="mode === 'login' ? 'username' : 'off'" maxlength="40">
           <input v-model="password" type="password" placeholder="密码" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'">
           <template v-if="mode === 'register'">
-            <input v-model="invite" type="text" placeholder="邀请码(注册必填)" autocomplete="off" maxlength="12">
+            <input v-model="invite" type="text" placeholder="邀请码(选填, 填了邀请人+5天使用时间)" autocomplete="off" maxlength="12">
             <input v-model="phone" type="text" placeholder="手机号(选填,以后可用它登录)" autocomplete="off" maxlength="11">
             <input v-model="email" type="text" placeholder="邮箱(选填,以后可用它登录)" autocomplete="off" maxlength="60">
           </template>
@@ -89,7 +89,6 @@ async function submit() {
   err.value = ''
   if (!username.value.trim()) { err.value = '请输入用户名/手机号/邮箱'; return }
   if (!password.value) { err.value = '请输入密码'; return }
-  if (mode.value === 'register' && !invite.value.trim()) { err.value = '请输入邀请码'; return }
   busy.value = true
   err.value = mode.value === 'login' ? '登录中...' : '注册中...'
   try {
@@ -98,7 +97,7 @@ async function submit() {
       : { login: username.value.trim(), password: password.value, remember: remember.value }
     const data = mode.value === 'register' ? await apiRegister(body) : await apiLogin(body)
     // 注册自动登录的 token 为 12h 会话, 存 sessionStorage; 登录按「记住我」选择
-    user.setSession(data.username, data.token, data.is_admin, data.expire_at, data.expired, mode.value === 'login' && remember.value)
+    user.setSession(data.username, data.token, data.is_admin, data.expire_at, data.expired, mode.value === 'login' && remember.value, data.member_level)
     if (data.expired) {
       showToast('⚠️ 账号已过期，请联系管理员续费', 'error')
     }

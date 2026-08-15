@@ -34,16 +34,19 @@ export const useUserStore = defineStore('user', {
       username: (session && session.username) || '',
       isAdmin: !!(session && session.is_admin),
       expireAt: (session && session.expire_at) || 0,   // 0 = 永久会员
-      expired: !!(session && session.expired)          // 已过期(非会员)
+      expired: !!(session && session.expired),         // 已过期(非会员)
+      memberLevel: (session && session.member_level) || 0   // 0=免费试用 1=付费会员 2=VIP老师
     }
   },
   getters: {
     isLoggedIn: (s) => !!s.apiToken,
-    // 会员判断: 管理员永远有权限; 其余要求未过期(expire_at=0 永久 或 未到到期时间)
-    isMember: (s) => s.isAdmin || !s.expired,
+    // 会员判断: 管理员永远有权限; VIP老师 永久权限; 其余要求未过期(expire_at=0 永久 或 未到到期时间)
+    isMember: (s) => s.isAdmin || s.memberLevel === 2 || !s.expired,
+    // 会员等级标签
+    memberLabel: (s) => s.memberLevel === 2 ? 'VIP老师' : s.memberLevel === 1 ? '付费会员' : (s.isAdmin ? '管理员' : '免费试用'),
     // 剩余试用天数(-1 表示永久, 仅提示用)
     memberDaysLeft: (s) => {
-      if (s.isAdmin || !s.expireAt) return -1
+      if (s.isAdmin || s.memberLevel === 2 || !s.expireAt) return -1
       return Math.max(0, Math.ceil((s.expireAt - Date.now() / 1000) / 86400))
     },
     // localStorage 数据按用户隔离的 key 前缀
@@ -52,13 +55,14 @@ export const useUserStore = defineStore('user', {
   },
   actions: {
     // remember=true → localStorage(持久, 30 天); false → sessionStorage(临时会话)
-    setSession(username, token, isAdmin, expireAt, expired, remember = true) {
-      this.session = { username, token, is_admin: isAdmin ? 1 : 0, expire_at: expireAt || 0, expired: expired ? 1 : 0 }
+    setSession(username, token, isAdmin, expireAt, expired, remember = true, memberLevel = 0) {
+      this.session = { username, token, is_admin: isAdmin ? 1 : 0, expire_at: expireAt || 0, expired: expired ? 1 : 0, member_level: memberLevel || 0 }
       this.apiToken = token
       this.username = username
       this.isAdmin = !!isAdmin
       this.expireAt = expireAt || 0
       this.expired = !!expired
+      this.memberLevel = memberLevel || 0
       try {
         const s = JSON.stringify(this.session)
         if (remember) {
@@ -77,6 +81,7 @@ export const useUserStore = defineStore('user', {
       this.isAdmin = false
       this.expireAt = 0
       this.expired = false
+      this.memberLevel = 0
       try {
         localStorage.removeItem(SESSION_KEY)
         sessionStorage.removeItem(SESSION_KEY_TMP)

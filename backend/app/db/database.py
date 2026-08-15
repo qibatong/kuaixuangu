@@ -86,6 +86,9 @@ def init_db():
         cur.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
     if "expire_at" not in ucols:
         cur.execute("ALTER TABLE users ADD COLUMN expire_at INTEGER NOT NULL DEFAULT 0")
+    if "member_level" not in ucols:
+        # 会员等级: 0=免费试用 1=付费会员 2=VIP老师(管理后台指定)
+        cur.execute("ALTER TABLE users ADD COLUMN member_level INTEGER NOT NULL DEFAULT 0")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_users_invited_by ON users(invited_by)")
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone)")
     # 登录 Token 持久化表(进程重启不失效, 支持「记住我」30 天)

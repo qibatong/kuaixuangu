@@ -10,6 +10,9 @@
         <template v-else-if="user.expireAt > 0">
           您的新用户试用期还剩 <b class="highlight">{{ days }} 天</b>，到期后需开通会员。
         </template>
+        <template v-else-if="user.memberLevel === 2">
+          VIP老师权限：{{ title || '该功能' }}永久可用。
+        </template>
         <template v-else>
           此功能仅限会员使用，请联系管理员开通。
         </template>

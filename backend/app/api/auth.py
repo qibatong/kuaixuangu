@@ -39,6 +39,7 @@ def api_login(request: Request, body: dict = Body(...)):
                "username": user["username"],
                "is_admin": 1 if user.get("is_admin") else 0,
                "expire_at": et,
+               "member_level": users.get_member_level(user["id"]),
                "expired": 1 if (et and time.time() > et) else 0})
 
 
@@ -61,9 +62,12 @@ def api_register(request: Request, body: dict = Body(...)):
         return jr({"ok": False, "msg": "手机号格式不正确"}, 400)
     if email and not users._is_email(email):
         return jr({"ok": False, "msg": "邮箱格式不正确"}, 400)
-    inviter = users.find_user_by_invite_code(invite_code)
-    if inviter is None and users.count_users() > 0:
-        return jr({"ok": False, "msg": "邀请码无效，请找邀请你的人获取"}, 400)
+    inviter = None
+    if invite_code:
+        inviter = users.find_user_by_invite_code(invite_code)
+        if inviter is None:
+            return jr({"ok": False, "msg": "邀请码无效，请找邀请你的人获取"}, 400)
+    # 邀请码非必填: 不填直接注册(无邀请关系); 填了才校验有效性
     invited_by = inviter["id"] if inviter else None
     if users.find_user(username):
         return jr({"ok": False, "msg": "用户名已存在"}, 409)
@@ -80,11 +84,17 @@ def api_register(request: Request, body: dict = Body(...)):
         log.warning("注册冲突 username=%s ip=%s", username, client_ip(request))
         return jr({"ok": False, "msg": "用户名或手机号/邮箱已被占用"}, 409)
     log.info("注册成功 uid=%s user=%s invited_by=%s ip=%s", uid, username, invited_by or "-", client_ip(request))
+    # 邀请奖励: 每成功邀请一个新用户, 邀请人 +5 天使用时间(永久/VIP 老师跳过)
+    if invited_by:
+        new_et = users.grant_invite_reward(invited_by, days=config.INVITE_REWARD_DAYS)
+        log.info("邀请奖励 uid=%s inviter=%s +%d天 新到期=%s", uid, invited_by,
+                 config.INVITE_REWARD_DAYS, new_et or "-")
     # 新用户默认 5 天会员试用
     u = users.find_user_by_id(uid)
     et = int(u.get("expire_at") or 0) if u else 0
     return jr({"ok": True, "token": security.issue_token(uid), "username": username,
                "expire_at": et,
+               "member_level": users.get_member_level(uid),
                "expired": 1 if (et and time.time() > et) else 0})
 
 

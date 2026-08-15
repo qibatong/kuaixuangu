@@ -131,6 +131,27 @@ def api_admin_user_expire(request: Request, body: dict = Body(...), uid: int = D
                "username": u["username"], "expire_at": row.get("expire_at")})
 
 
+@router.post("/api/admin/users/member-level")
+def api_admin_user_member_level(request: Request, body: dict = Body(...),
+                                uid: int = Depends(get_admin)):
+    """设置用户会员等级: {uid, level: 0|1|2}
+    0=免费试用 1=付费会员 2=VIP老师(永久权限, 永不拦截)
+    注: VIP老师 建议同时 expire_at 设为 0(永久); 等级只是标识, 实际拦截仍看 expire_at"""
+    target = int(body.get("uid") or 0)
+    if target <= 0:
+        return jr({"ok": False, "msg": "缺少 uid"}, 400)
+    u = users.find_user_by_id(target)
+    if not u:
+        return jr({"ok": False, "msg": "用户不存在"}, 404)
+    level = body.get("level")
+    if not users.set_member_level(target, level):
+        return jr({"ok": False, "msg": "等级非法(仅支持 0/1/2)"}, 400)
+    log.info("管理端设置会员等级 uid=%s target=%s(%s) level=%s", uid, target, u["username"], level)
+    return jr({"ok": True, "msg": "会员等级已更新",
+               "uid": target, "username": u["username"], "member_level": int(level),
+               "label": users.MEMBER_LEVEL_LABEL.get(int(level), "")})
+
+
 @router.post("/api/admin/users/reset-password")
 def api_admin_user_reset_password(request: Request, body: dict = Body(...),
                                   uid: int = Depends(get_admin)):

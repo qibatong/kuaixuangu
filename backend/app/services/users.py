@@ -85,6 +85,61 @@ def set_password(uid, new_password):
         return False
 
 
+# ---------- 会员等级 ----------
+# member_level: 0=免费试用 1=付费会员 2=VIP老师(管理后台指定, 永久权限)
+MEMBER_LEVEL_LABEL = {0: "免费试用", 1: "付费会员", 2: "VIP老师"}
+
+
+def get_member_level(uid):
+    """读取用户会员等级(默认 0 免费试用)"""
+    row = find_user_by_id(uid)
+    if not row:
+        return 0
+    try:
+        return int(row.get("member_level") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def set_member_level(uid, level):
+    """设置会员等级: 0=免费试用 1=付费会员 2=VIP老师; 非法值拒绝"""
+    try:
+        lv = int(level)
+    except (TypeError, ValueError):
+        return False
+    if lv not in (0, 1, 2):
+        return False
+    try:
+        conn = _conn()
+        conn.execute("UPDATE users SET member_level=? WHERE id=?", (lv, uid))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def grant_invite_reward(inviter_id, days=5):
+    """邀请奖励: 邀请人每成功邀请一个新注册用户 +days 天使用时间
+    永久会员(expire_at=0)或 VIP老师(member_level=2)已是永久, 不再叠加(避免把永久变有限)
+    返回新到期时间戳(跳过/失败返回 0)"""
+    if not inviter_id:
+        return 0
+    try:
+        inviter = find_user_by_id(inviter_id)
+        if not inviter:
+            return 0
+        # 永久会员(expire_at=0)或 VIP老师: 已是永久权限, 跳过奖励
+        if not int(inviter.get("expire_at") or 0):
+            return 0
+        if int(inviter.get("member_level") or 0) == 2:
+            return 0
+        return extend_expire(inviter_id, days)
+    except Exception as e:
+        log.warning("邀请奖励发放失败 inviter=%s days=%s err=%s", inviter_id, days, e)
+        return 0
+
+
 def extend_expire(uid, days):
     """从 max(现在, 当前到期) 累加 days 天(续费可叠加), 返回新到期时间戳"""
     row = find_user_by_id(uid)
@@ -117,7 +172,7 @@ def list_users_page(page=1, page_size=20, keyword=""):
         "SELECT COUNT(*) FROM users WHERE 1=1" + cond, params).fetchone()[0]
     rows = conn.execute(
         "SELECT u.id, u.username, u.created_at, u.is_admin, u.invite_code, u.invited_by, "
-        "u.phone, u.email, u.expire_at, "
+        "u.phone, u.email, u.expire_at, u.member_level, "
         "(SELECT COUNT(*) FROM users x WHERE x.invited_by=u.id) AS invited_count, "
         "(SELECT COUNT(*) FROM batches b WHERE b.user_id=u.id) AS batch_count "
         "FROM users u WHERE 1=1" + cond + " ORDER BY u.id DESC LIMIT ? OFFSET ?",

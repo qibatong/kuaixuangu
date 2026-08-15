@@ -88,3 +88,6 @@ NOTIFY_WECHAT_WEBHOOK = os.environ.get("NOTIFY_WECHAT_WEBHOOK", "")          # �
 NOTIFY_TOP_N = int(os.environ.get("NOTIFY_TOP_N", "8"))                      # 推送展示 Top N 只
 NOTIFY_TIMEOUT = float(os.environ.get("NOTIFY_TIMEOUT", "5"))                # 单渠道请求超时(秒)
 NOTIFY_DEDUP_SECONDS = int(os.environ.get("NOTIFY_DEDUP_SECONDS", "120"))    # 相同内容去重窗口(秒)
+
+# ---------- 会员/邀请 ----------
+INVITE_REWARD_DAYS = int(os.environ.get("INVITE_REWARD_DAYS", "5"))          # 每成功邀请一个新用户, 邀请人 +N 天使用时间

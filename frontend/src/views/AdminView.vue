@@ -38,6 +38,7 @@
                 <th class="sortable" :class="{ active: userSort.keyOf('invited_count') }" @click="userSort.onSort('invited_count')">邀请人数<span class="sort-ind">{{ userSort.ind('invited_count') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('batch_count') }" @click="userSort.onSort('batch_count')">选股次数<span class="sort-ind">{{ userSort.ind('batch_count') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('is_admin') }" @click="userSort.onSort('is_admin')">角色<span class="sort-ind">{{ userSort.ind('is_admin') }}</span></th>
+                <th>会员等级</th>
                 <th style="min-width:150px;">设置使用期限</th>
               </tr>
             </thead>
@@ -55,6 +56,16 @@
                 <td>{{ u.invited_count }}</td>
                 <td>{{ u.batch_count }}</td>
                 <td><span v-if="u.is_admin" class="admin-tag">管理员</span><span v-else class="user-tag">普通用户</span></td>
+                <td>
+                  <div class="level-cell">
+                    <span :class="'level-tag level-' + (u.member_level || 0)">{{ levelLabel(u.member_level || 0) }}</span>
+                    <select v-model.number="u._level" class="level-select" @change="setLevel(u)">
+                      <option :value="0">免费试用</option>
+                      <option :value="1">付费会员</option>
+                      <option :value="2">VIP老师</option>
+                    </select>
+                  </div>
+                </td>
                 <td>
                   <div v-if="u.is_admin" style="color:#888;font-size:12px;">管理员永久有效</div>
                   <div v-else class="expire-cell">
@@ -80,7 +91,7 @@
                   </div>
                 </td>
               </tr>
-              <tr v-if="!rows.length"><td colspan="9" style="text-align:center;color:#888;padding:20px;">暂无用户</td></tr>
+              <tr v-if="!rows.length"><td colspan="10" style="text-align:center;color:#888;padding:20px;">暂无用户</td></tr>
             </tbody>
           </table>
         </div>
@@ -225,7 +236,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { adminScoring, adminUsers, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
+import { adminScoring, adminSetMemberLevel, adminUsers, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
 import { showToast as toast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
 import { expireState } from '../utils/admin'
@@ -367,7 +378,7 @@ async function extendUser(u, action) {
 async function loadUsers(p) {
   try {
     const d = await adminUsers({ page: p, pageSize: pageSize.value, keyword: keyword.value })
-    rows.value = d.rows || []
+    rows.value = (d.rows || []).map(r => ({ ...r, _level: r.member_level || 0 }))
     total.value = d.total || 0
     page.value = d.page || 1
     stats.value = d.stats || {}
@@ -380,6 +391,21 @@ async function loadUsers(p) {
 // 每页条数变更: 回第 1 页重载
 function changePageSize() {
   loadUsers(1)
+}
+
+// 会员等级: 0=免费试用 1=付费会员 2=VIP老师
+function levelLabel(lv) {
+  return lv === 2 ? 'VIP老师' : lv === 1 ? '付费会员' : '免费试用'
+}
+async function setLevel(u) {
+  try {
+    const d = await adminSetMemberLevel(u.id, u._level)
+    toast(`${u.username} 已设为「${d.label}」`, 'success')
+    u.member_level = u._level
+  } catch (e) {
+    toast(e.message || '设置失败', 'error')
+    u._level = u.member_level || 0
+  }
 }
 
 async function loadScoring() {
@@ -515,6 +541,18 @@ onMounted(() => {
 .expired-tag { color: #ff6a6a; border: 1px solid #ff5050; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
 .ok-tag { color: #7ce8a0; border: 1px solid #4caf70; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
 .expire-cell { position: relative; display: inline-block; }
+
+/* 会员等级 */
+.level-cell { display: inline-flex; align-items: center; gap: 6px; }
+.level-tag { border-radius: 4px; padding: 1px 8px; font-size: 12px; white-space: nowrap; }
+.level-0 { color: var(--text-muted); border: 1px solid #666; }
+.level-1 { color: #ff6a6a; border: 1px solid rgba(255, 90, 90, 0.55); }
+.level-2 { color: #ffd700; border: 1px solid #ffd700; }
+.level-select {
+  background: var(--bg-input); color: var(--text-secondary);
+  border: 1px solid var(--border-soft); border-radius: 4px;
+  font-size: 12px; padding: 2px 4px; cursor: pointer; max-width: 90px;
+}
 .expire-popover {
   position: absolute;
   top: 28px;
@@ -573,6 +611,8 @@ body[data-bg="light"] .mini-date {  color: #1a1d26; background: rgba(255,255,255
 body[data-bg="light"] .mini-btn {  color: #1a1d26; background: rgba(240,245,250,0.9); border-color: var(--border-soft);  }
 body[data-bg="light"] .admin-tag {  color: #8a5500; border-color: #c79100;  }
 body[data-bg="light"] .expired-tag {  color: #b83010; border-color: #b83010;  }
+body[data-bg="light"] .level-2 { color: #8a5500; border-color: #c79100; }
+body[data-bg="light"] .level-1 { color: #c03030; border-color: #e06060; }
 body[data-bg="light"] .ok-tag {  color: #2d7020; border-color: #4caf70;  }
 body[data-bg="light"] .weight-table input { color: #1a1d26; background: rgba(255,255,255,0.95); }
 body[data-bg="light"] .bucket-table input { color: #1a1d26; background: rgba(255,255,255,0.95); }

@@ -34,6 +34,11 @@ export function resetUserPassword(uid, password) {
   return request('/api/admin/users/reset-password', { method: 'POST', body: { uid, password } })
 }
 
+export function adminSetMemberLevel(uid, level) {
+  // 设置会员等级: level 0=免费试用 1=付费会员 2=VIP老师
+  return request('/api/admin/users/member-level', { method: 'POST', body: { uid, level } })
+}
+
 export function bidSnapshot(date, timePoint = '9_25', limit = 50) {
   return request(`/api/stats/bid-snapshot?date=${date}&time_point=${timePoint}&limit=${limit}`)
 }
