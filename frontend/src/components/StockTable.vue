@@ -46,7 +46,7 @@
           <td :class="ratioCls(item.bidRatio)" :title="ratioTitle(item.bidRatio)">{{ ratioText(item.bidRatio) }}</td>
           <td>{{ item.circulationMV.toFixed(1) }}</td>
           <td>{{ item.industry }}</td>
-          <td style="max-width:180px;white-space:pre-wrap">{{ item.concept }}</td>
+          <td style="max-width:180px;white-space:pre-wrap" :title="'概念: ' + (item.concept || '')">{{ shortConcept(item.concept) }}</td>
           <td class="up">{{ item.probability }}分</td>
           <td>{{ item.confidence }}%</td>
           <td><button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click.stop="addToPool(item)">{{ inPool(item.code) ? '已加自选' : '＋自选' }}</button></td>
@@ -122,6 +122,13 @@ function columnType(key) {
 }
 
 function signed(v) { return (v > 0 ? '+' : '') + v.toFixed(2) }
+
+// 概念只显示前 2 个(开盘啦概念可能 10+ 个板块, 全显太长; 完整放 title hover)
+function shortConcept(c) {
+  if (!c) return '-'
+  const parts = String(c).split(/[、,，]/).map(s => s.trim()).filter(Boolean)
+  return parts.length <= 2 ? parts.join('、') : parts.slice(0, 2).join('、') + ` 等${parts.length}个`
+}
 
 // 涨跌百分比显示(兼容 null/undefined, 用于 tooltip 的锁定时刻值)
 function fmtPct(v) {
