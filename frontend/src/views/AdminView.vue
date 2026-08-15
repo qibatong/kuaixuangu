@@ -132,6 +132,7 @@
           <i class="fa fa-sliders"></i> 竞价评分·权重配置
           <span class="admin-tip">保存后立即生效（影响后续选股评分）</span>
         </div>
+        <div class="table-scroll">
         <table class="admin-table weight-table">
           <thead><tr><th style="width:140px;">因子</th><th>权重(0~1)</th><th>说明</th></tr></thead>
           <tbody>
@@ -151,6 +152,7 @@
             </tr>
           </tbody>
         </table>
+        </div>
         <div style="display:flex;gap:10px;margin-top:14px;align-items:center;">
           <button class="tdx-export-btn admin-save-btn" :disabled="saving" @click="saveScoring">
             <i class="fa fa-save"></i> {{ saving ? '保存中...' : '保存并生效' }}
@@ -174,6 +176,7 @@
               默认分 <input v-model.number="factors[activeFactor].default" type="number" step="0.05" min="0" max="1" class="admin-input" style="width:70px;" />
             </span>
           </div>
+          <div class="table-scroll">
           <table class="admin-table bucket-table">
             <thead><tr><th style="width:120px;">下限</th><th style="width:120px;">上限</th><th>得分(0~1)</th><th style="width:70px;"></th></tr></thead>
             <tbody>
@@ -186,6 +189,7 @@
               <tr><td colspan="4"><button class="add-btn" @click="addBucket(activeFactor)"><i class="fa fa-plus"></i> 新增分档</button></td></tr>
             </tbody>
           </table>
+          </div>
         </div>
         <div v-else class="empty-state" style="padding:16px;">该因子暂未加载</div>
       </div>
@@ -630,4 +634,29 @@ body[data-bg="light"] .admin-msg-ok { color: #1a6b1a; }
 body[data-bg="light"] .weight-desc { color: #5a6b85; }
 body[data-bg="light"] .weight-total { color: #8a5500; }
 body[data-bg="light"] .weight-warn { color: #b83010; }
+
+/* ===================== 移动端适配 (<=768px) ===================== */
+@media (max-width: 768px) {
+  /* 页面留白压缩 */
+  .admin-wrap { padding: 8px 4px; }
+  .admin-card { padding: 10px 8px; margin-bottom: 10px; }
+  /* 头部紧凑: 返回按钮/标题 */
+  .admin-head { gap: 6px; }
+  .admin-head h2 { font-size: 17px; }
+  /* 宽表格横向滚动(用户列表 11 列 / 权重表 / 打分明细表) */
+  .table-scroll { -webkit-overflow-scrolling: touch; }
+  .table-scroll .admin-table { min-width: 860px; }
+  .weight-table { min-width: 640px; }
+  .bucket-table { min-width: 560px; }
+  /* 表格字号压缩 */
+  .admin-table th, .admin-table td { padding: 6px 6px; font-size: 12px; }
+  /* 输入框触控加大(手机点不中小输入框) */
+  .admin-input { min-height: 32px; padding: 6px 8px; font-size: 13px; }
+  /* 因子 Tab 紧凑 */
+  .factor-tab { padding: 5px 10px; font-size: 12px; }
+  /* 搜索栏/操作行换行 */
+  .admin-card > div[style*="flex"] { flex-wrap: wrap; }
+  /* 保存按钮触控加大 */
+  .admin-save-btn { padding: 8px 14px; }
+}
 </style>
