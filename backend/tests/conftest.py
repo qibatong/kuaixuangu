@@ -9,6 +9,8 @@ import tempfile
 # 必须在 import app 之前设置临时数据库路径
 _tmp = tempfile.NamedTemporaryFile(suffix=".db", prefix="kuaixuan_test_", delete=False)
 os.environ["BID_DB_PATH"] = _tmp.name
+# 测试日志写到临时目录, 避免污染/占用真实 logs/app.log(Windows 文件锁导致 PermissionError)
+os.environ["BID_LOG_DIR"] = tempfile.gettempdir()
 
 import pytest
 from fastapi.testclient import TestClient

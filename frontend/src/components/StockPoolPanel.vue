@@ -4,7 +4,7 @@
       <div class="pool-title">
         <i class="fa fa-database"></i> 策略股票池
         <span class="auto-tag">{{ statusTag }}</span>
-        <span class="pool-expiry-info" v-if="expiryText" v-html="expiryText"></span>
+        <span v-if="expiryText" class="pool-expiry-info" v-html="expiryText"></span>
       </div>
       <div class="pool-buttons">
         <button class="pool-btn" @click="manualAdd"><i class="fa fa-plus-circle"></i> 加入当前前五</button>
@@ -17,8 +17,8 @@
       <div v-if="!pool.stockPool.length" class="empty-pool">暂无股票，9:30前系统自动将前五名选入池中</div>
       <div v-for="(item, idx) in pool.stockPool" :key="item.code" class="pool-item" :class="medalCls(idx)">
         <div class="pool-item-main">
-          <span class="pool-medal" v-if="idx < 3">{{ ['🥇', '🥈', '🥉'][idx] }}</span>
-          <span class="pool-rank" v-else>{{ idx + 1 }}</span>
+          <span v-if="idx < 3" class="pool-medal">{{ ['🥇', '🥈', '🥉'][idx] }}</span>
+          <span v-else class="pool-rank">{{ idx + 1 }}</span>
           <div class="pool-item-info">
             <div class="pool-stock-code code-click" @click="linkToSoftware(item.code)">{{ item.code }}</div>
             <div class="pool-stock-name">{{ item.name }}</div>

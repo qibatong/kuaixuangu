@@ -85,7 +85,7 @@
       <div v-else class="history-query">
         <!-- 战绩统计(可折叠) -->
         <div v-if="stats" class="stats-panel">
-          <div class="stats-title" @click="statsCollapsed = !statsCollapsed" style="cursor:pointer;">
+          <div class="stats-title" style="cursor:pointer;" @click="statsCollapsed = !statsCollapsed">
             <i class="fa" :class="statsCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'"></i>
             <i class="fa fa-line-chart"></i> 战绩统计
             <span class="stats-range">{{ stats.range.from }} ~ {{ stats.range.to }}</span>
@@ -125,11 +125,11 @@
         </div>
 
         <div class="query-form">
-          <label>日期 <input type="date" v-model="f.date_from"> ~ <input type="date" v-model="f.date_to"></label>
-          <label>竞价涨幅 <input type="number" v-model="f.bid_min" placeholder="不限"> ~ <input type="number" v-model="f.bid_max" placeholder="不限"> %</label>
-          <label>流通市值 <input type="number" v-model="f.mv_min" placeholder="不限"> ~ <input type="number" v-model="f.mv_max" placeholder="不限"> 亿</label>
-          <label>评分≥ <input type="number" v-model="f.prob_min" placeholder="不限"></label>
-          <label>可信度≥ <input type="number" v-model="f.conf_min" placeholder="不限"></label>
+          <label>日期 <input v-model="f.date_from" type="date"> ~ <input v-model="f.date_to" type="date"></label>
+          <label>竞价涨幅 <input v-model="f.bid_min" type="number" placeholder="不限"> ~ <input v-model="f.bid_max" type="number" placeholder="不限"> %</label>
+          <label>流通市值 <input v-model="f.mv_min" type="number" placeholder="不限"> ~ <input v-model="f.mv_max" type="number" placeholder="不限"> 亿</label>
+          <label>评分≥ <input v-model="f.prob_min" type="number" placeholder="不限"></label>
+          <label>可信度≥ <input v-model="f.conf_min" type="number" placeholder="不限"></label>
           <select v-model="f.action"><option value="">全部类型</option><option value="lock">锁定选股</option><option value="filter">筛选重算</option></select>
           <button class="tdx-export-btn query-submit-btn" style="background:var(--accent-deep);" @click="runQuery"><i class="fa fa-search"></i> 查询</button>
         </div>

@@ -27,7 +27,7 @@
     <div v-if="tab === 'board'" class="mrk-panel">
       <div class="rot-toolbar">
         <span class="rot-tip"><i class="fa fa-info-circle"></i> 实时板块强度排行；选日期可回看历史(开盘啦保留最近5交易日)</span>
-        <input type="date" v-model="datePicker" class="rot-date" @change="loadBoard">
+        <input v-model="datePicker" type="date" class="rot-date" @change="loadBoard">
         <button class="rot-reset-btn" title="回到实时" @click="clearDate('board')"><i class="fa fa-bolt"></i></button>
         <span v-if="boardDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ boardDataDate }}<template v-if="boardDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
       </div>
@@ -70,10 +70,12 @@
       <div class="rot-toolbar">
         <span class="rot-tip"><i class="fa fa-info-circle"></i> 工作日 15:30 后自动保存当日 Top10；近期数据积累后展示趋势</span>
         <div class="rot-source">
-          <button v-for="s in sourceOptions" :key="s.key"
+          <button
+v-for="s in sourceOptions" :key="s.key"
                   :class="{ active: rotSource === s.key }"
                   class="rot-source-btn"
-                  @click="switchSource(s.key)">
+                  @click="switchSource(s.key)"
+>
             <i :class="s.icon"></i> {{ s.label }}
           </button>
         </div>
@@ -141,14 +143,16 @@
       <div class="rot-toolbar">
         <span class="rot-tip"><i class="fa fa-info-circle"></i> 各数据源人气热榜；选日期可回看历史</span>
         <div class="rot-source">
-          <button v-for="s in sourceOptions" :key="s.key"
+          <button
+v-for="s in sourceOptions" :key="s.key"
                   :class="{ active: hotSource === s.key }"
                   class="rot-source-btn"
-                  @click="switchHotSource(s.key)">
+                  @click="switchHotSource(s.key)"
+>
             <i :class="s.icon"></i> {{ s.label }}
           </button>
         </div>
-        <input type="date" v-model="datePicker" class="rot-date" @change="loadHot">
+        <input v-model="datePicker" type="date" class="rot-date" @change="loadHot">
         <button class="rot-reset-btn" title="回到实时" @click="clearDate('hot')"><i class="fa fa-bolt"></i></button>
         <span v-if="hotDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ hotDataDate }}<template v-if="hotDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
       </div>
@@ -180,7 +184,7 @@
     <div v-else class="mrk-panel">
       <div class="rot-toolbar">
         <span class="rot-tip"><i class="fa fa-info-circle"></i> 龙虎榜当日/历史；选日期可回看</span>
-        <input type="date" v-model="datePicker" class="rot-date" @change="loadLhb">
+        <input v-model="datePicker" type="date" class="rot-date" @change="loadLhb">
         <button class="rot-reset-btn" title="回到实时" @click="clearDate('lhb')"><i class="fa fa-bolt"></i></button>
         <span v-if="lhbDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ lhbDataDate }}<template v-if="lhbDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
       </div>
@@ -407,19 +411,6 @@ const colorMap = computed(() => {
   ranks.forEach(([name], i) => { m[name] = (i % 8) + 1 })
   return m
 })
-const highlightSet = computed(() => {
-  const cnt = {}
-  for (const day of rot.days) {
-    for (const b of (day.boards || []).slice(0, 3)) {
-      cnt[b.name] = (cnt[b.name] || 0) + 1
-    }
-  }
-  const s = new Set()
-  for (const [n, c] of Object.entries(cnt)) {
-    if (c >= Math.max(2, Math.ceil(rot.dates.length / 4))) s.add(n)
-  }
-  return s
-})
 
 function boardAt(date, rank) {
   const day = rotMap.value[date] || []
@@ -547,7 +538,7 @@ const windowLineSvg = computed(() => {
   const axisX = `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H - padB}" stroke="#888" stroke-width="0.5"/>`
               + `<line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#888" stroke-width="0.5"/>`
   // Y 轴 0/0.5/1.0 倍 maxV 标签
-  const yLabels = [0, 0.5, 1.0].map((p, i) => {
+  const yLabels = [0, 0.5, 1.0].map((p) => {
     const v = Math.round(maxV * p)
     const y = padT + (1 - p) * (H - padT - padB - 8) + 4
     return `<text x="${padL - 6}" y="${y + 3}" font-size="8" fill="#888" text-anchor="end">${v}</text>`

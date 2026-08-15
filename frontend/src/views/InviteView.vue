@@ -21,7 +21,7 @@
           <div class="invite-list-title">被邀请的用户</div>
           <div v-if="loading" class="invite-empty">加载中...</div>
           <div v-else-if="!invitees.length" class="invite-empty">还没有人通过你的邀请码注册</div>
-          <div v-else class="invite-item" v-for="u in invitees" :key="u.username">
+          <div v-for="u in invitees" v-else :key="u.username" class="invite-item">
             <span>{{ u.username }}</span><span class="invite-item-date">{{ fmtTsDate(u.created_at) }}</span>
           </div>
         </div>

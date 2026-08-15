@@ -11,15 +11,17 @@
     <!-- 日期选择: 回看历史连板梯队 -->
     <div class="ladder-toolbar">
       <span class="ladder-tip"><i class="fa fa-info-circle"></i> 实时连板梯队；选日期可回看历史(每日 15:30 落库)</span>
-      <input type="date" v-model="datePicker" class="rot-date" @change="load">
+      <input v-model="datePicker" type="date" class="rot-date" @change="load">
       <button class="rot-reset-btn" title="回到实时" @click="clearDate"><i class="fa fa-bolt"></i></button>
       <span v-if="dataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ dataDate }}<template v-if="dataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
     </div>
 
     <!-- 梯队 Tab -->
     <div class="ladder-tabs">
-      <button v-for="pid in [1, 2, 3, 4, 5]" :key="pid" class="ladder-tab"
-        :class="{ active: active === pid }" @click="active = pid">
+      <button
+v-for="pid in [1, 2, 3, 4, 5]" :key="pid" class="ladder-tab"
+        :class="{ active: active === pid }" @click="active = pid"
+>
         {{ labelOf(pid) }} <span class="tab-count">{{ (ladder[pid] || []).length }}</span>
       </button>
     </div>

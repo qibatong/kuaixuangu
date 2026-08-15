@@ -9,18 +9,24 @@
       <!-- 背景明暗切换器 -->
       <div class="theme-picker" title="切换背景(登录后自动保存)">
         <span class="theme-label"><i class="fa fa-adjust"></i></span>
-        <button v-for="b in BGS" :key="b.key"
+        <button
+v-for="b in BGS" :key="b.key"
                 class="theme-dot bg-dot" :class="{ active: bg === b.key }"
                 :style="{ background: b.color }" :title="b.label"
-                @click="setBg(b.key)"></button>
+                @click="setBg(b.key)"
+></button>
       </div>
       <!-- 字号切换器 -->
       <div class="font-picker" title="字体大小(登录后自动保存)">
         <span class="theme-label"><i class="fa fa-font"></i></span>
-        <button v-for="f in FONTS" :key="f.key"
+        <button
+v-for="f in FONTS" :key="f.key"
                 class="font-btn" :class="{ active: font === f.key }"
                 :style="{ fontSize: f.key === 'sm' ? '11px' : f.key === 'lg' ? '16px' : '13px' }"
-                :title="f.label" @click="setFont(f.key)">A</button>
+                :title="f.label" @click="setFont(f.key)"
+>
+A
+</button>
       </div>
     </div>
     <router-view />

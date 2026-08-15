@@ -15,7 +15,7 @@
     <!-- 日期回看: 选历史交易日查看当天竞价异动(周末/节假日自动对齐最近交易日) -->
     <div class="rot-toolbar">
       <span class="rot-tip"><i class="fa fa-info-circle"></i> 选日期回看历史竞价异动(15:30 落库积累)</span>
-      <input type="date" v-model="datePicker" class="rot-date" @change="loadAll(true)">
+      <input v-model="datePicker" type="date" class="rot-date" @change="loadAll(true)">
       <button class="rot-reset-btn" title="回到实时" @click="clearDate"><i class="fa fa-bolt"></i></button>
       <span v-if="dataDate && datePicker" class="rot-data-date">
         <i class="fa fa-calendar"></i> 数据日期 {{ dataDate }}
@@ -39,8 +39,10 @@
         <tbody>
           <tr v-for="tp in timePoints" :key="tp.key">
             <td class="ov-dim">{{ tp.label }}</td>
-            <td v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击查看该时点个股"
-                @click="showSnapshot(d.date, tp.key)">
+            <td
+v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击查看该时点个股"
+                @click="showSnapshot(d.date, tp.key)"
+>
               <template v-if="d.points[tp.key]">
                 <div :class="d.points[tp.key].avg_change !== null && d.points[tp.key].avg_change >= 0 ? 'up' : 'down'">
                   {{ fmtAvg(d.points[tp.key].avg_change) }}
@@ -59,7 +61,7 @@
       <button class="auc-tab" :class="{ active: tab === 'seal' }" @click="switchTab('seal')"><i class="fa fa-gavel"></i> 竞价委买</button>
       <button class="auc-tab" :class="{ active: tab === 'boom' }" @click="switchTab('boom')"><i class="fa fa-bolt"></i> 竞价爆量</button>
       <button class="auc-tab" :class="{ active: tab === 'net' }" @click="switchTab('net')"><i class="fa fa-exchange"></i> 竞价净额</button>
-      <button class="auc-tab" :class="{ active: tab === 'qc' }" @click="switchTab('qc')" title="9:15-9:30 竞价抢筹(异动板块大单)"><i class="fa fa-fire"></i> 竞价抢筹</button>
+      <button class="auc-tab" :class="{ active: tab === 'qc' }" title="9:15-9:30 竞价抢筹(异动板块大单)" @click="switchTab('qc')"><i class="fa fa-fire"></i> 竞价抢筹</button>
       <button class="auc-tab" :class="{ active: tab === 'yestZt' }" @click="switchTab('yestZt')"><i class="fa fa-sun-o"></i> 昨日涨停</button>
       <button class="auc-tab" :class="{ active: tab === 'yestBroken' }" @click="switchTab('yestBroken')"><i class="fa fa-bell-slash"></i> 昨断板</button>
       <button class="auc-tab" :class="{ active: tab === 'lhb' }" @click="switchTab('lhb')"><i class="fa fa-list-alt"></i> 昨上榜</button>
@@ -208,8 +210,10 @@
           <tr v-for="(z, idx) in yestZtSort.sorted(yestZtList)" :key="z.code">
             <td class="rank-col">{{ idx + 1 }}</td>
             <td class="code-click" @click="linkToSoftware(z.code)">{{ z.code }}</td>
-            <td class="name-col"><div class="name-main">{{ z.name }}</div>
-              <span v-if="z.stillLimit" class="lb-badge">连板</span></td>
+            <td class="name-col">
+<div class="name-main">{{ z.name }}</div>
+              <span v-if="z.stillLimit" class="lb-badge">连板</span>
+</td>
             <td><span v-if="z.limitUpDays > 0" class="lb-badge">{{ z.limitUpDays }}板</span><span v-else class="dim">-</span></td>
             <td :class="z.change > 0 ? 'up' : z.change < 0 ? 'down' : 'dim'">{{ z.change !== null && z.change !== undefined ? signed(z.change) + '%' : '-' }}</td>
             <td>{{ z.bidTurnover ? z.bidTurnover.toFixed(2) : '-' }}</td>
@@ -414,7 +418,6 @@ const sealList = computed(() => {
 
 // 炸板: 昨/今 按 Tab 切换
 const brokenList = computed(() => (tab.value === 'brokenYest' ? brokenYestList.value : brokenTodayList.value))
-const brokenTitle = computed(() => (tab.value === 'brokenYest' ? '昨炸板' : '今炸板'))
 
 function yi(v) { return (v / 1e8).toFixed(2) }
 function signed(v) { return (v > 0 ? '+' : '') + Number(v).toFixed(2) }

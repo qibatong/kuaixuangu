@@ -2,9 +2,9 @@
   <div v-if="visible" class="auth-overlay">
     <div class="login-box">
       <div class="login-title">修改密码</div>
-      <input type="password" v-model="oldPwd" placeholder="旧密码" autocomplete="off" @keydown.enter="submit">
-      <input type="password" v-model="newPwd" placeholder="新密码（至少6位）" autocomplete="off" @keydown.enter="submit">
-      <input type="password" v-model="newPwd2" placeholder="确认新密码" autocomplete="off" @keydown.enter="submit">
+      <input v-model="oldPwd" type="password" placeholder="旧密码" autocomplete="off" @keydown.enter="submit">
+      <input v-model="newPwd" type="password" placeholder="新密码（至少6位）" autocomplete="off" @keydown.enter="submit">
+      <input v-model="newPwd2" type="password" placeholder="确认新密码" autocomplete="off" @keydown.enter="submit">
       <button class="login-btn" :disabled="busy" @click="submit">确认修改</button>
       <div class="login-err">{{ err }}</div>
       <div class="login-switch"><a href="javascript:void(0)" @click="close">取消</a></div>

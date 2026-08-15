@@ -7,12 +7,12 @@
 
       <!-- 登录/注册 -->
       <template v-if="mode === 'login' || mode === 'register'">
-        <input type="text" v-model="username" :placeholder="mode === 'login' ? '用户名 / 手机号 / 邮箱' : '用户名(必填)'" autocomplete="off" maxlength="40" @keydown.enter="submit">
-        <input type="password" v-model="password" placeholder="密码" autocomplete="off" @keydown.enter="submit">
+        <input v-model="username" type="text" :placeholder="mode === 'login' ? '用户名 / 手机号 / 邮箱' : '用户名(必填)'" autocomplete="off" maxlength="40" @keydown.enter="submit">
+        <input v-model="password" type="password" placeholder="密码" autocomplete="off" @keydown.enter="submit">
         <template v-if="mode === 'register'">
-          <input type="text" v-model="invite" placeholder="邀请码(注册必填)" autocomplete="off" maxlength="12">
-          <input type="text" v-model="phone" placeholder="手机号(选填,以后可用它登录)" autocomplete="off" maxlength="11">
-          <input type="text" v-model="email" placeholder="邮箱(选填,以后可用它登录)" autocomplete="off" maxlength="60">
+          <input v-model="invite" type="text" placeholder="邀请码(注册必填)" autocomplete="off" maxlength="12">
+          <input v-model="phone" type="text" placeholder="手机号(选填,以后可用它登录)" autocomplete="off" maxlength="11">
+          <input v-model="email" type="text" placeholder="邮箱(选填,以后可用它登录)" autocomplete="off" maxlength="60">
         </template>
         <button class="login-btn" :disabled="busy" @click="submit">{{ mode === 'login' ? '登录' : '注册' }}</button>
         <div class="login-err">{{ err }}</div>
@@ -26,7 +26,7 @@
       <!-- 忘记密码 -->
       <template v-else-if="mode === 'forgot'">
         <div class="login-sub">输入注册时绑定的邮箱，我们会发送重置链接</div>
-        <input type="text" v-model="email" placeholder="绑定邮箱" autocomplete="off" maxlength="60" @keydown.enter="sendMail">
+        <input v-model="email" type="text" placeholder="绑定邮箱" autocomplete="off" maxlength="60" @keydown.enter="sendMail">
         <button class="login-btn" :disabled="busy" @click="sendMail">发送重置邮件</button>
         <div class="login-err">{{ err }}</div>
         <div class="login-switch"><a href="javascript:void(0)" @click="mode = 'login'">返回登录</a></div>
@@ -35,8 +35,8 @@
       <!-- 设置新密码(邮件重置链接) -->
       <template v-else-if="mode === 'reset'">
         <div class="login-sub">请输入新密码（至少 6 位）</div>
-        <input type="password" v-model="resetPwd" placeholder="新密码" autocomplete="off" @keydown.enter="doReset">
-        <input type="password" v-model="resetPwd2" placeholder="确认新密码" autocomplete="off" @keydown.enter="doReset">
+        <input v-model="resetPwd" type="password" placeholder="新密码" autocomplete="off" @keydown.enter="doReset">
+        <input v-model="resetPwd2" type="password" placeholder="确认新密码" autocomplete="off" @keydown.enter="doReset">
         <button class="login-btn" :disabled="busy" @click="doReset">确认重置</button>
         <div class="login-err">{{ err }}</div>
       </template>

@@ -25,7 +25,8 @@
 
       <!-- 用户列表 -->
       <div class="admin-card">
-        <div class="card-title"><i class="fa fa-users"></i> 用户列表
+        <div class="card-title">
+<i class="fa fa-users"></i> 用户列表
           <div style="display:flex;gap:8px;margin-left:auto;">
             <input v-model="keyword" class="admin-input" placeholder="搜索用户名/手机/邮箱" @keyup.enter="loadUsers(1)" />
             <button class="admin-search-btn" @click="loadUsers(1)"><i class="fa fa-search"></i> 搜索</button>
@@ -75,7 +76,7 @@
                       </div>
                       <div class="pop-label">自定义到期日</div>
                       <div class="pop-row">
-                        <input type="date" v-model="u._expireDate" class="mini-date" :max="'2099-12-31'" />
+                        <input v-model="u._expireDate" type="date" class="mini-date" :max="'2099-12-31'" />
                         <button class="mini-btn" @click="extendUser(u, 'date')">设为该日</button>
                       </div>
                       <div class="pop-row">
@@ -162,7 +163,8 @@
           </button>
         </div>
         <div v-if="factors[activeFactor] && factors[activeFactor].buckets" class="factor-box">
-          <div class="factor-title">{{ factors[activeFactor].label }} <span style="color:#888;font-size:12px;">（{{ factors[activeFactor].unit }}）</span>
+          <div class="factor-title">
+{{ factors[activeFactor].label }} <span style="color:#888;font-size:12px;">（{{ factors[activeFactor].unit }}）</span>
             <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
               默认分 <input v-model.number="factors[activeFactor].default" type="number" step="0.05" min="0" max="1" class="admin-input" style="width:70px;" />
             </span>
@@ -206,10 +208,10 @@
             评分下限 <input v-model.number="adminDefaults.probLt" type="number" min="0" max="100" class="admin-input" style="width:110px;" />
           </label>
           <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size:13px;">
-            <input type="checkbox" v-model="adminDefaults.limitUp" /> 剔除昨日涨停
+            <input v-model="adminDefaults.limitUp" type="checkbox" /> 剔除昨日涨停
           </label>
           <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size:13px;">
-            <input type="checkbox" v-model="adminDefaults.stSuspend" /> 剔除ST/停牌
+            <input v-model="adminDefaults.stSuspend" type="checkbox" /> 剔除ST/停牌
           </label>
           <button class="tdx-export-btn admin-save-btn" :disabled="savingDefaults" @click="saveDefaults(false)">
             <i class="fa fa-save"></i> {{ savingDefaults ? '保存中...' : '保存默认值' }}
@@ -223,9 +225,10 @@
 
       <!-- 历史竞价回放 -->
       <div class="admin-card">
-        <div class="card-title"><i class="fa fa-video-camera"></i> 历史竞价回放 <span class="admin-tip">9:15/9:20/9:25 全市场快照(每个交易日自动归档)</span>
+        <div class="card-title">
+<i class="fa fa-video-camera"></i> 历史竞价回放 <span class="admin-tip">9:15/9:20/9:25 全市场快照(每个交易日自动归档)</span>
           <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
-            <input type="date" v-model="playDate" class="admin-input" :max="'2099-12-31'" />
+            <input v-model="playDate" type="date" class="admin-input" :max="'2099-12-31'" />
             <select v-model="playTime" class="admin-input">
               <option value="9_15">9:15</option>
               <option value="9_20">9:20</option>

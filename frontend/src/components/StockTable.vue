@@ -9,13 +9,13 @@
           <th>排名</th>
           <th class="sortable" :class="{ active: sortKey === 'code' }" @click="onSort('code', 'string')">股票代码<span class="sort-ind">{{ sortInd('code') }}</span></th>
           <th class="sortable" :class="{ active: sortKey === 'name' }" @click="onSort('name', 'string')">股票名称<span class="sort-ind">{{ sortInd('name') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'realChange' }" @click="onSort('realChange', 'number')" title="实时涨幅：当前价相对昨收的涨幅">实时涨幅<span class="sort-ind">{{ sortInd('realChange') }}</span></th>
-          <th class="sortable" :class="{ active: sortKey === 'qiangchou' }" @click="onSort('qiangchou', 'number')" title="竞价涨幅≥2% 且 竞价/昨比≥20% 时标记 🔥抢筹：代表资金在集合竞价阶段大幅抢筹，是当日强势启动的先行信号">抢筹<span class="sort-ind">{{ sortInd('qiangchou') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'bidChange' }" @click="onSort('bidChange', 'number')" title="竞价涨幅">竞价涨幅<span class="sort-ind">{{ sortInd('bidChange') }}</span></th>
+          <th class="sortable num" :class="{ active: sortKey === 'realChange' }" title="实时涨幅：当前价相对昨收的涨幅" @click="onSort('realChange', 'number')">实时涨幅<span class="sort-ind">{{ sortInd('realChange') }}</span></th>
+          <th class="sortable" :class="{ active: sortKey === 'qiangchou' }" title="竞价涨幅≥2% 且 竞价/昨比≥20% 时标记 🔥抢筹：代表资金在集合竞价阶段大幅抢筹，是当日强势启动的先行信号" @click="onSort('qiangchou', 'number')">抢筹<span class="sort-ind">{{ sortInd('qiangchou') }}</span></th>
+          <th class="sortable num" :class="{ active: sortKey === 'bidChange' }" title="竞价涨幅" @click="onSort('bidChange', 'number')">竞价涨幅<span class="sort-ind">{{ sortInd('bidChange') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'entityChange' }" @click="onSort('entityChange', 'number')">实体涨幅<span class="sort-ind">{{ sortInd('entityChange') }}</span></th>
           <th class="sortable" :class="{ active: sortKey === 'warnType' }" @click="onSort('warnType', 'number')">异动<span class="sort-ind">{{ sortInd('warnType') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'bidAmt' }" @click="onSort('bidAmt', 'number')">竞价金额(万)<span class="sort-ind">{{ sortInd('bidAmt') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'bidRatio' }" @click="onSort('bidRatio', 'number')" title="竞价成交额 ÷ 前一交易日全天成交额(%)。衡量竞价资金强度：值越高说明竞价阶段成交越活跃；≥20% 视为强抢筹（配合抢筹列使用）。非竞价时段/无数据时显示 -">竞价/昨比<span class="sort-ind">{{ sortInd('bidRatio') }}</span></th>
+          <th class="sortable num" :class="{ active: sortKey === 'bidRatio' }" title="竞价成交额 ÷ 前一交易日全天成交额(%)。衡量竞价资金强度：值越高说明竞价阶段成交越活跃；≥20% 视为强抢筹（配合抢筹列使用）。非竞价时段/无数据时显示 -" @click="onSort('bidRatio', 'number')">竞价/昨比<span class="sort-ind">{{ sortInd('bidRatio') }}</span></th>
           <th class="sortable num" :class="{ active: sortKey === 'circulationMV' }" @click="onSort('circulationMV', 'number')">流通市值(亿)<span class="sort-ind">{{ sortInd('circulationMV') }}</span></th>
           <th class="sortable" :class="{ active: sortKey === 'industry' }" @click="onSort('industry', 'string')">行业<span class="sort-ind">{{ sortInd('industry') }}</span></th>
           <th class="sortable" :class="{ active: sortKey === 'concept' }" @click="onSort('concept', 'string')">概念<span class="sort-ind">{{ sortInd('concept') }}</span></th>
