@@ -49,7 +49,7 @@
           <td style="max-width:180px;white-space:pre-wrap">{{ item.concept }}</td>
           <td class="up">{{ item.probability }}分</td>
           <td>{{ item.confidence }}%</td>
-          <td><button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click.stop="addToPool(item)">{{ inPool(item.code) ? '已入池' : '＋池' }}</button></td>
+          <td><button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click.stop="addToPool(item)">{{ inPool(item.code) ? '已加自选' : '＋自选' }}</button></td>
         </tr>
       </tbody>
     </table>
