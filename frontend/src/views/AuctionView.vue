@@ -14,8 +14,8 @@
 
     <!-- 日期回看: 选历史交易日查看当天竞价异动(周末/节假日自动对齐最近交易日) -->
     <div class="rot-toolbar">
-      <span class="rot-tip"><i class="fa fa-info-circle"></i> 选日期回看历史竞价异动(15:30 落库积累)</span>
-      <input v-model="datePicker" type="date" class="rot-date" @change="loadAll(true)">
+      <span class="rot-tip"><i class="fa fa-info-circle"></i> 选日期回看</span>
+      <input v-model="datePicker" type="date" class="rot-date" title="选择历史交易日" @change="loadAll(true)">
       <button class="rot-reset-btn" title="回到实时" @click="clearDate"><i class="fa fa-bolt"></i></button>
       <span v-if="dataDate && datePicker" class="rot-data-date">
         <i class="fa fa-calendar"></i> 数据日期 {{ dataDate }}

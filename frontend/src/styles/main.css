@@ -716,6 +716,24 @@ body[data-bg="light"] input[type="date"].rot-date {
 body[data-bg="light"] input[type="date"].rot-date:hover,
 body[data-bg="light"] input[type="date"].rot-date:focus { border-color: #d97b00; box-shadow: 0 0 0 2px rgba(217, 123, 0, 0.1); }
 
+/* 行情/竞价/连板 等多视图共享的日期回看工具条(全局化) */
+.rot-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.rot-tip { color: var(--text-muted, #aaa); font-size: 12px; flex: 1; min-width: 0; }
+.rot-data-date {
+  color: var(--accent-warm, #ffb400);
+  font-size: 12px;
+  background: rgba(255, 180, 0, 0.08);
+  padding: 3px 10px;
+  border-radius: 6px;
+}
+body[data-bg="light"] .rot-data-date { color: #8a5500; background: rgba(217, 123, 0, 0.1); }
+
 .rot-reset-btn {
   background: var(--bg-input, #1a1a1a);
   border: 1px solid var(--border-soft, #444);
