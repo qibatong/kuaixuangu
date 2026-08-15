@@ -280,6 +280,40 @@ def fetch_ladder_all():
     return out
 
 
+# ==================== 连板梯队历史落库与回看 ====================
+def save_ladder_history(date):
+    """抓取当日连板梯队全档落库 ladder_history(覆盖式), 返回总条数(失败 0)"""
+    all_ = fetch_ladder_all()
+    total = sum(len(v or []) for v in all_.values())
+    if total == 0:
+        return 0
+    from ..db import database
+    conn = database.get_conn()
+    for pid, lst in all_.items():
+        conn.execute(
+            "INSERT OR REPLACE INTO ladder_history (date, pid_type, list, ts) VALUES (?,?,?,?)",
+            (date, pid, json.dumps(lst, ensure_ascii=False), int(time.time())))
+    conn.commit()
+    conn.close()
+    return total
+
+
+def query_ladder_history(date):
+    """按日期回看连板梯队, 返回 {1:[...],2:[...],...}(无数据返回空 dict)"""
+    from ..db import database
+    conn = database.get_conn()
+    rows = conn.execute(
+        "SELECT pid_type, list FROM ladder_history WHERE date=?", (date,)).fetchall()
+    conn.close()
+    out = {}
+    for pid, raw in rows:
+        try:
+            out[int(pid)] = json.loads(raw) if raw else []
+        except (ValueError, TypeError):
+            out[int(pid)] = []
+    return out
+
+
 # ==================== 涨停原因 ====================
 def fetch_zt_reason(code):
     """个股当天/历史涨停原因: 返回 [{date, reason, sclt(龙一龙二), boom}, ...]"""

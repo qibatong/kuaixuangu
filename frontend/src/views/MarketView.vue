@@ -604,93 +604,9 @@ body[data-bg="light"] .reason-modal { background: rgba(255,255,255,0.98); border
 /* ===================== 板块轮动历史视图 ===================== */
 .rot-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .rot-tip { color: var(--text-muted, #aaa); font-size: 12px; flex: 1; min-width: 0; }
-.rot-data-date { color: var(--accent-warm, #ffb400); font-size: 12px; white-space: nowrap; }
-body[data-bg="light"] .rot-data-date { color: #b36a00; }
 
-/* 日期选择器美化: 浏览器原生 input 丑, 全局压扁 + 暗色适配 + 聚焦高亮 */
-input[type="date"].rot-date {
-  background: var(--bg-input, #1a1a1a);
-  border: 1px solid var(--border-soft, #444);
-  border-radius: 14px;
-  color: var(--text-main, #e8e8e8);
-  padding: 5px 12px;
-  font-size: 12px;
-  font-family: inherit;
-  color-scheme: dark;
-  outline: none;
-  cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-input[type="date"].rot-date:hover { border-color: var(--accent-warm, #ffb400); }
-input[type="date"].rot-date:focus {
-  border-color: var(--accent-warm, #ffb400);
-  box-shadow: 0 0 0 2px rgba(255, 180, 0, 0.15);
-}
-input[type="date"].rot-date::-webkit-calendar-picker-indicator {
-  opacity: 0.5;
-  cursor: pointer;
-  margin-left: 4px;
-}
-input[type="date"].rot-date::-webkit-calendar-picker-indicator:hover { opacity: 1; }
-input[type="date"].rot-date::-webkit-datetime-edit { color: var(--text-main, #e8e8e8); }
-
-/* 下拉框美化: 与日期框一致圆角暗色风格 */
-select.rot-select {
-  background: var(--bg-input, #1a1a1a);
-  border: 1px solid var(--border-soft, #444);
-  border-radius: 14px;
-  color: var(--text-main, #e8e8e8);
-  padding: 5px 28px 5px 12px;
-  font-size: 12px;
-  font-family: inherit;
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23aaa' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  background-size: 8px 5px;
-  outline: none;
-  transition: border-color 0.15s;
-}
-select.rot-select:hover { border-color: var(--accent-warm, #ffb400); }
-select.rot-select:focus { border-color: var(--accent-warm, #ffb400); box-shadow: 0 0 0 2px rgba(255, 180, 0, 0.15); }
-select.rot-select option { background: var(--bg-input, #1a1a1a); color: var(--text-main, #e8e8e8); }
-body[data-bg="light"] select.rot-select {
-  background-color: #fff;
-  border-color: #d0d0d0;
-  color: #333;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23666' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
-}
-body[data-bg="light"] select.rot-select:hover,
-body[data-bg="light"] select.rot-select:focus { border-color: #d97b00; box-shadow: 0 0 0 2px rgba(217, 123, 0, 0.1); }
-body[data-bg="light"] select.rot-select option { background: #fff; color: #333; }
-body[data-bg="light"] input[type="date"].rot-date {
-  background: #fff;
-  border-color: #d0d0d0;
-  color: #333;
-  color-scheme: light;
-}
-body[data-bg="light"] input[type="date"].rot-date:hover,
-body[data-bg="light"] input[type="date"].rot-date:focus { border-color: #d97b00; box-shadow: 0 0 0 2px rgba(217, 123, 0, 0.1); }
-
-/* 实时按钮: 圆角图标按钮 */
-.rot-reset-btn {
-  background: var(--bg-input, #1a1a1a);
-  border: 1px solid var(--border-soft, #444);
-  border-radius: 14px;
-  width: 32px; height: 30px;
-  color: var(--text-secondary, #aaa);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s;
-  font-size: 13px;
-}
-.rot-reset-btn:hover { border-color: var(--accent-warm, #ffb400); color: var(--accent-warm, #ffb400); }
-body[data-bg="light"] .rot-reset-btn { background: #fff; border-color: #d0d0d0; color: #666; }
-body[data-bg="light"] .rot-reset-btn:hover { border-color: #d97b00; color: #d97b00; }
+/* 注: rot-date / rot-select / rot-reset-btn / rot-data-date 为全局通用样式,
+   定义在 src/styles/main.css(市场雷达 & 连板天梯共用) */
 .rot-source { display: flex; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-soft, #444); }
 .rot-source-btn { background: var(--bg-input, #1a1a1a); color: var(--text-secondary, #aaa); border: none; padding: 5px 12px; font-size: 12px; cursor: pointer; transition: background 0.15s; }
 .rot-source-btn:hover { background: var(--bg-card, #222); }

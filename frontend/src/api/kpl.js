@@ -18,8 +18,8 @@ export function kplBroken(day = '') {
   return request('/api/kpl/broken', { query: day ? { day } : {} })
 }
 
-export function kplLadder() {
-  return request('/api/kpl/ladder')
+export function kplLadder(date = '') {
+  return request(`/api/kpl/ladder${date ? `?date=${date}` : ''}`)
 }
 
 export function kplBoardRank(date = '') {

@@ -134,6 +134,16 @@ def init_db():
             PRIMARY KEY (date)
         )
     """)
+    # 连板梯队每日快照: date+pid_type 唯一, 回看历史连板天梯
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ladder_history (
+            date TEXT NOT NULL,
+            pid_type INTEGER NOT NULL,
+            list TEXT NOT NULL,
+            ts INTEGER NOT NULL,
+            PRIMARY KEY (date, pid_type)
+        )
+    """)
     # 旧库升级: 已存在且无 source 列时补上(单字段主键), 历史数据默认 kpl
     try:
         cur.execute("ALTER TABLE daily_sector_top ADD COLUMN source TEXT NOT NULL DEFAULT 'kpl'")

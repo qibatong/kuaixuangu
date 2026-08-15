@@ -687,3 +687,80 @@ body[data-bg="light"] .daily-real { color: #5a6b85; }
 body[data-bg="light"] .batch-type { color: #1a1d26; }
 body[data-bg="light"] .empty-state { background: rgba(255,255,255,0.95); color: #5a6b85; }
 
+
+/* ===================== 通用日期选择器/重置按钮/数据日期提示(市场雷达&连板天梯共用) ===================== */
+input[type="date"].rot-date {
+  background: var(--bg-input, #1a1a1a);
+  border: 1px solid var(--border-soft, #444);
+  border-radius: 14px;
+  color: var(--text-main, #e8e8e8);
+  padding: 5px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  color-scheme: dark;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+input[type="date"].rot-date:hover { border-color: var(--accent-warm, #ffb400); }
+input[type="date"].rot-date:focus {
+  border-color: var(--accent-warm, #ffb400);
+  box-shadow: 0 0 0 2px rgba(255, 180, 0, 0.15);
+}
+input[type="date"].rot-date::-webkit-calendar-picker-indicator { opacity: 0.5; cursor: pointer; margin-left: 4px; }
+input[type="date"].rot-date::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+input[type="date"].rot-date::-webkit-datetime-edit { color: var(--text-main, #e8e8e8); }
+body[data-bg="light"] input[type="date"].rot-date {
+  background: #fff; border-color: #d0d0d0; color: #333; color-scheme: light;
+}
+body[data-bg="light"] input[type="date"].rot-date:hover,
+body[data-bg="light"] input[type="date"].rot-date:focus { border-color: #d97b00; box-shadow: 0 0 0 2px rgba(217, 123, 0, 0.1); }
+
+.rot-reset-btn {
+  background: var(--bg-input, #1a1a1a);
+  border: 1px solid var(--border-soft, #444);
+  border-radius: 14px;
+  width: 32px; height: 30px;
+  color: var(--text-secondary, #aaa);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  font-size: 13px;
+}
+.rot-reset-btn:hover { border-color: var(--accent-warm, #ffb400); color: var(--accent-warm, #ffb400); }
+body[data-bg="light"] .rot-reset-btn { background: #fff; border-color: #d0d0d0; color: #666; }
+body[data-bg="light"] .rot-reset-btn:hover { border-color: #d97b00; color: #d97b00; }
+
+.rot-data-date { color: var(--accent-warm, #ffb400); font-size: 12px; white-space: nowrap; }
+body[data-bg="light"] .rot-data-date { color: #b36a00; }
+
+select.rot-select {
+  background: var(--bg-input, #1a1a1a);
+  border: 1px solid var(--border-soft, #444);
+  border-radius: 14px;
+  color: var(--text-main, #e8e8e8);
+  padding: 5px 28px 5px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23aaa' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 8px 5px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+select.rot-select:hover { border-color: var(--accent-warm, #ffb400); }
+select.rot-select:focus { border-color: var(--accent-warm, #ffb400); box-shadow: 0 0 0 2px rgba(255, 180, 0, 0.15); }
+select.rot-select option { background: var(--bg-input, #1a1a1a); color: var(--text-main, #e8e8e8); }
+body[data-bg="light"] select.rot-select {
+  background-color: #fff; border-color: #d0d0d0; color: #333;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23666' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+}
+body[data-bg="light"] select.rot-select:hover,
+body[data-bg="light"] select.rot-select:focus { border-color: #d97b00; box-shadow: 0 0 0 2px rgba(217, 123, 0, 0.1); }
+body[data-bg="light"] select.rot-select option { background: #fff; color: #333; }

@@ -66,10 +66,15 @@ def api_kpl_broken(request: Request, day: str = "", uid: int = Depends(get_uid))
 
 
 @router.get("/api/kpl/ladder")
-def api_kpl_ladder(request: Request, uid: int = Depends(get_uid)):
-    """连板梯队(实时): 首板~五板+"""
+def api_kpl_ladder(request: Request, uid: int = Depends(get_uid), date: str = ""):
+    """连板梯队; date 空=实时(首板~五板+), 指定 'YYYY-MM-DD' 回看历史(ladder_history 快照)
+    周末/节假日自动对齐到最近交易日"""
+    if date:
+        resolved = _resolve_date(date)
+        d = kpl.query_ladder_history(resolved)
+        return jr({"ok": True, "ladder": d, "date": resolved, "requestedDate": date})
     d = kpl.fetch_ladder_all()
-    return jr({"ok": True, "ladder": d})
+    return jr({"ok": True, "ladder": d, "date": ""})
 
 
 @router.get("/api/kpl/board-rank")

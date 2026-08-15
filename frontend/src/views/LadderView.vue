@@ -8,6 +8,14 @@
       <span class="ladder-time">{{ bjTime }}</span>
     </div>
 
+    <!-- 日期选择: 回看历史连板梯队 -->
+    <div class="ladder-toolbar">
+      <span class="ladder-tip"><i class="fa fa-info-circle"></i> 实时连板梯队；选日期可回看历史(每日 15:30 落库)</span>
+      <input type="date" v-model="datePicker" class="rot-date" @change="load">
+      <button class="rot-reset-btn" title="回到实时" @click="clearDate"><i class="fa fa-bolt"></i></button>
+      <span v-if="dataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ dataDate }}<template v-if="dataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
+    </div>
+
     <!-- 梯队 Tab -->
     <div class="ladder-tabs">
       <button v-for="pid in [1, 2, 3, 4, 5]" :key="pid" class="ladder-tab"
@@ -90,6 +98,8 @@ const ladder = ref({})
 const active = ref(1)
 const loading = ref(true)
 const bjTime = ref('--:--:--')
+const datePicker = ref('')
+const dataDate = ref('')
 let clockTimer = null
 let refreshTimer = null
 
@@ -129,11 +139,18 @@ async function viewReason(it) {
 
 async function load() {
   try {
-    const d = await kplLadder()
+    const d = await kplLadder(datePicker.value)
     if (d && d.ladder) ladder.value = d.ladder
+    dataDate.value = d.date || ''
   } catch (e) { /* 静默 */ } finally {
     loading.value = false
   }
+}
+
+function clearDate() {
+  datePicker.value = ''
+  loading.value = true
+  load()
 }
 
 onMounted(() => {
@@ -153,6 +170,8 @@ onBeforeUnmount(() => {
 .page-back { color: var(--text-muted); cursor: pointer; font-size: 13px; margin-bottom: 12px; display: inline-block; }
 .page-back:hover { color: #ffb400; }
 .ladder-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.ladder-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.ladder-tip { color: var(--text-muted, #aaa); font-size: 12px; flex: 1; min-width: 0; }
 .ladder-title { font-size: 20px; font-weight: 700; color: #ffe0a0; }
 .ladder-title .fa { color: #ffb400; }
 .ladder-sub { color: var(--text-muted); font-size: 13px; }

@@ -263,6 +263,13 @@ def _scheduler_loop():
                             conn.commit()
                             conn.close()
                             _sched_done.add("lhb_" + date)
+                    # 连板梯队当日快照: 供连板天梯回看历史(接口不支持历史日期, 必须落库)
+                    if ("ladder_" + date) not in _sched_done:
+                        from . import kpl as _kpl
+                        n = _kpl.save_ladder_history(date)
+                        if n:
+                            _sched_done.add("ladder_" + date)
+                            log.info("连板梯队快照已存 date=%s 共%d只", date, n)
                 except Exception as e:
                     log.warning("板块轮动日终快照失败 err=%s", e, exc_info=True)
             # 9:31-9:35 盘点当日采集: 缺失时点告警(排查关键, 数据过了点无法补)
