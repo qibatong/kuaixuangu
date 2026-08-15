@@ -391,19 +391,41 @@ const rotMap = computed(() => {
   }
   return m
 })
-const colorMap = computed(() => {
-  // 每个出现 >= 2 次的板块分配独立颜色(8 色循环, 出现越多越靠前拿色)
-  const cnt = {}
-  for (const day of rot.days) {
-    for (const b of day.boards || []) {
-      cnt[b.name] = (cnt[b.name] || 0) + 1
+// 题材聚类: 板块名 -> 主题色 1-8 (按最长关键词命中, 同题材永远同色, 避免撞色)
+// 词典: [color_idx, [keywords] 长度不限, 内部按最长优先匹配]
+const THEMES = [
+  [1, ['半导体', 'PCB', '5G', '卫星导航', '消费电子', '元器件', '光学光电子', '芯片', '人工智能', '算力', '通信', '电子元件', '电子', '光电', '光学', '元件', '软件', '数字', '数据', '计算']],
+  [4, ['医疗器械', '医药商业', '化学制药', '制药', '中药', '生物制品', 'CRO', '医药', '生物', '医疗', '保健', '健康']],
+  [6, ['能源金属', '锂电池', '电子化学品', '新材料', '新材料', '化工', '化学', '材料', '电池', '钢铁', '光伏', '新能源', '天然气', '石油', '煤炭', '金属', '铜', '铝', '锂', '黄金']],
+  [2, ['自动化设备', '机器人', '工程机械', '航天航空', '船舶', '机械', '装备', '电机', '工业', '电气', '智能制造', '数控', '设备']],
+  [5, ['商贸', '零售', '消费', '电商', '物流', '贸易', '服务', '餐饮', '旅游', '酒店', '教育', '传媒', '广电', '广告', '体育', '游戏', '影视', '文化', '互联网', '团购']],
+  [3, ['银行', '证券', '保险', '金融', '信托', '多元金融', '创投', '租赁']],
+  [7, ['建筑', '建材', '水泥', '玻璃', '装饰', '园林', '基建', '工程', '房地产', '地产', '物业', '装修']],
+  [8, ['食品', '饮料', '酒', '茶', '乳', '农业', '种植', '养殖', '渔业', '种子', '粮食', '农药', '化肥', '林业']],
+]
+function themeIdx(name) {
+  let best = 0, bestLen = 0
+  for (const [idx, kws] of THEMES) {
+    for (const kw of kws) {
+      if (kw.length > bestLen && name.includes(kw)) {
+        best = idx; bestLen = kw.length
+      }
     }
   }
-  const ranks = Object.entries(cnt)
-    .filter(([_, c]) => c >= 2)
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  return best
+}
+const colorMap = computed(() => {
+  // 给所有出现过的板块按题材聚类配同色(取消"出现≥2次"门槛 — 所有板块都得色),
+  // 字典查 O(1), 同题材永远同色, 0=杂项不配色
   const m = {}
-  ranks.forEach(([name], i) => { m[name] = (i % 8) + 1 })
+  const seen = new Set()
+  for (const day of rot.days) {
+    for (const b of day.boards || []) {
+      if (seen.has(b.name)) continue
+      seen.add(b.name)
+      m[b.name] = themeIdx(b.name)
+    }
+  }
   return m
 })
 const highlightSet = computed(() => {
