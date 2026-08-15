@@ -14,6 +14,7 @@ import time
 from ..core import logger
 from ..db import database
 from . import fetcher, scorer
+from .cache_store import store
 
 log = logger.get_logger(__name__)
 
@@ -32,11 +33,9 @@ DEFAULT_POINT = "9_20"     # 加速度计算使用的时点
 LASTSEC_START = 9 * 3600 + 24 * 60 + 55
 LASTSEC_END = 9 * 3600 + 25 * 60 + 3
 
-_sched_lock = threading.Lock()
 _fetch_lock = threading.Lock()       # 东财拉取串行化(时点快照 vs 秒级采样 双线程防并发限流)
-_sched_done = set()        # {(date, time_point)} 已抓取, 防重复
-_sched_checked = set()     # {date} 已做采集盘点(9:31 后一次)
-_lastsec_done = set()      # {(date, ts秒)} 该秒已采, 防重复
+# 调度去重已外置 CacheStore(跨进程): setnx("sched:done:date:tp", ttl=1天) 等
+# 旧 _sched_lock/_sched_done/_sched_checked/_lastsec_done 移除(2026-08-16 Phase1)
 
 
 def _bj_date():
@@ -111,7 +110,7 @@ def snapshot_at(time_point):
     kpl_cnt = 0
     try:
         from . import kpl
-        kpl._cache.clear()          # 保证拿到当前时点的新鲜数据(非前一时点缓存)
+        kpl.clear_cache()          # 保证拿到当前时点的新鲜数据(非前一时点缓存)
         kpl_seal = kpl.fetch_bid_seal() or []
         kpl_map = {s["code"]: s for s in kpl_seal}
         kpl_cnt = len(kpl_seal)
@@ -187,10 +186,8 @@ def _lastsec_loop():
             ts_total = g.tm_hour * 3600 + g.tm_min * 60 + g.tm_sec
             if g.tm_wday < 5 and LASTSEC_START <= ts_total <= LASTSEC_END:
                 # 秒级去重: 同一秒只采一次(接口耗时>1s时自然降频, 不会并发堆积)
-                sec_key = (date, ts_total)
-                if sec_key not in _lastsec_done:
-                    if snapshot_lastsec_at(ts_total):
-                        _lastsec_done.add(sec_key)
+                if store.setnx("sched:lastsec:%s:%d" % (date, ts_total), 1, ttl=3600):
+                    snapshot_lastsec_at(ts_total)
             time.sleep(1)
         except Exception as e:
             log.error("最后一秒采样调度异常 err=%s", e)
@@ -333,22 +330,20 @@ def _has_snapshot(date, time_point):
 
 def _scheduler_loop():
     """后台调度: 工作日按时点窗口抓取一次, 每 10 秒轮询; 9:31 后盘点当日采集情况"""
-    _qc_done = set()   # {(date)} 抢筹结果快照已抓取(9:29-9:30 窗口)
-    _sched_weekend_logged = set()   # {date} 非交易日已打过跳过日志(每日期一次)
+    # 去重标记走 CacheStore: qc/weekend 各自 setnx 1 天
     while True:
         try:
             g = time.gmtime(time.time() + 8 * 3600)
             date = _bj_date()
             hm = g.tm_hour * 60 + g.tm_min
             for tp, (start, end) in TIME_POINTS.items():
-                key = (date, tp)
-                if key in _sched_done:
+                key = "sched:done:%s:%s" % (date, tp)
+                if store.get(key):
                     continue
                 if g.tm_wday >= 5:
                     # 周末/节假日: 只在 9:20 记录一次, 避免每分钟刷日志
-                    if date not in _sched_weekend_logged:
+                    if store.setnx("sched:weekend:" + date, 1, ttl=86400):
                         log.info("[快照采集] 非交易日(周%d) date=%s 跳过采集", g.tm_wday, date)
-                        _sched_weekend_logged.add(date)
                     continue
                 if not (start <= hm <= end):
                     continue
@@ -359,25 +354,22 @@ def _scheduler_loop():
                     if hm < 9 * 60 + 25:
                         snapshot_at(tp)
                 else:
-                    with _sched_lock:
-                        if key not in _sched_done:
-                            log.info("[快照采集] 触发时点窗口 tp=%s hm=%d:%02d date=%s", tp, hm // 60, hm % 60, date)
-                            if snapshot_at(tp):
-                                _sched_done.add(key)
-                                log.info("[快照采集] 时点完成并入完成集 tp=%s date=%s", tp, date)
-                            else:
-                                log.warning("[快照采集] 时点失败(返回0) tp=%s date=%s 窗口已过无法重试", tp, date)
+                    if store.setnx(key, 1, ttl=86400):
+                        log.info("[快照采集] 触发时点窗口 tp=%s hm=%d:%02d date=%s", tp, hm // 60, hm % 60, date)
+                        if snapshot_at(tp):
+                            log.info("[快照采集] 时点完成并入完成集 tp=%s date=%s", tp, date)
+                        else:
+                            log.warning("[快照采集] 时点失败(返回0) tp=%s date=%s 窗口已过无法重试", tp, date)
             # 9:29-9:30 抢筹结果快照: 触发 fetch_bid_qiangcang 落库(竞价结束前最后一份,
             # 非竞价时段页面读库展示不丢失)
             if (g.tm_wday < 5 and 9 * 60 + 29 <= hm <= 9 * 60 + 30
-                    and date not in _qc_done):
+                    and store.setnx("sched:qc:" + date, 1, ttl=86400)):
                 try:
                     from . import kpl
-                    kpl._cache.clear()
+                    kpl.clear_cache()
                     d = kpl.fetch_bid_qiangcang()
                     n = len((d or {}).get("list20", []))
                     log.info("竞价抢筹结果快照已存 date=%s list20=%d只", date, n)
-                    _qc_done.add(date)
                 except Exception as e:
                     log.warning("竞价抢筹结果快照失败 err=%s", e, exc_info=True)
             # 15:30-15:35 板块轮动日终快照: 抓当日板块强度 Top10 落库(多数据源), 形成轮动数据基础
@@ -385,17 +377,15 @@ def _scheduler_loop():
                 try:
                     from . import sector_rotation
                     for src in ("kpl", "em", "ths"):
-                        if ("sector_" + src + "_" + date) not in _sched_done:
+                        if store.setnx("sched:done:sector_%s_%s" % (src, date), 1, ttl=86400):
                             sector_rotation.record_today_top(source=src)
-                            _sched_done.add("sector_" + src + "_" + date)
                     # 人气热榜历史快照(三源): 供人气榜回看历史
                     from . import hot_rank
                     for src in ("kpl", "em", "ths"):
-                        if ("hot_" + src + "_" + date) not in _sched_done:
+                        if store.setnx("sched:done:hot_%s_%s" % (src, date), 1, ttl=86400):
                             hot_rank.save_hot_rank_history(date, source=src)
-                            _sched_done.add("hot_" + src + "_" + date)
                     # 龙虎榜当日快照: 供龙虎榜回看历史(接口支持 Time 参数, 但落库保证数据在)
-                    if ("lhb_" + date) not in _sched_done:
+                    if store.setnx("sched:done:lhb_" + date, 1, ttl=86400):
                         from . import kpl
                         lst = kpl.fetch_lhb(date)
                         if lst:
@@ -406,32 +396,29 @@ def _scheduler_loop():
                                 (date, json.dumps(lst, ensure_ascii=False), int(time.time())))
                             conn.commit()
                             conn.close()
-                            _sched_done.add("lhb_" + date)
                     # 连板梯队当日快照: 供连板天梯回看历史(接口不支持历史日期, 必须落库)
-                    if ("ladder_" + date) not in _sched_done:
+                    if store.setnx("sched:done:ladder_" + date, 1, ttl=86400):
                         from . import kpl as _kpl
                         n = _kpl.save_ladder_history(date)
                         if n:
-                            _sched_done.add("ladder_" + date)
                             log.info("连板梯队快照已存 date=%s 共%d只", date, n)
                     # 竞价异动日终快照(全部 tab): 供竞价异动页按日期回看历史
                     # (竞价委买/爆量/昨日涨停/昨断板/炸板 接口不支持历史日期, 必须落库)
-                    if ("auction_" + date) not in _sched_done:
+                    if store.setnx("sched:done:auction_" + date, 1, ttl=86400):
                         from . import kpl as _kpl2
                         n2 = _kpl2.save_auction_history(date)
                         if n2:
-                            _sched_done.add("auction_" + date)
                             log.info("竞价异动日终快照已存 date=%s 共%d个tab", date, n2)
                 except Exception as e:
                     log.warning("板块轮动日终快照失败 err=%s", e, exc_info=True)
             # 9:31-9:35 盘点当日采集: 缺失时点告警(排查关键, 数据过了点无法补)
-            if g.tm_wday < 5 and 9 * 60 + 31 <= hm <= 9 * 60 + 35 and date not in _sched_checked:
+            if g.tm_wday < 5 and 9 * 60 + 31 <= hm <= 9 * 60 + 35 and store.setnx("sched:checked:" + date, 1, ttl=86400):
                 missing = []
                 for tp in TIME_POINTS:
-                    if (date, tp) in _sched_done:
+                    if store.get("sched:done:%s:%s" % (date, tp)):
                         continue
                     if tp == "9_24":
-                        # 9_24 是重采型时点(不标记 _sched_done), 用数据存在性判断
+                        # 9_24 是重采型时点(不标记 setnx), 用数据存在性判断
                         if not _has_snapshot(date, tp):
                             missing.append(tp)
                     else:
@@ -441,7 +428,6 @@ def _scheduler_loop():
                                 ",".join(missing), date)
                 else:
                     log.info("今日快照采集完整: %s (date=%s)", ",".join(TIME_POINTS), date)
-                _sched_checked.add(date)
         except Exception as e:
             log.error("快照调度异常 err=%s", e)
         time.sleep(10)

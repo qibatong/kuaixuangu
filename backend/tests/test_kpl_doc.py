@@ -83,7 +83,7 @@ def test_flash_line(monkeypatch):
 def test_fetch_zt_dt_pool(monkeypatch):
     """涨停/跌停池复用 _flash_pool"""
     monkeypatch.setattr(kpl, "_flash_pool", lambda pool, date=None: [{"code": "000001", "name": "A"}])
-    kpl._cache.clear()
+    kpl.clear_cache()
     zt = kpl.fetch_zt_pool()
     assert len(zt) == 1 and zt[0]["code"] == "000001"
     dt = kpl.fetch_dt_pool()
@@ -93,7 +93,7 @@ def test_fetch_zt_dt_pool(monkeypatch):
 def test_fetch_hot_plates(monkeypatch):
     """板块题材: items 是 dict 列表"""
     monkeypatch.setattr(kpl, "_flash_surge", lambda path, params="": {"items": [{"id": 1, "name": "医药", "description": "创新药"}]})
-    kpl._cache.clear()
+    kpl.clear_cache()
     rows = kpl.fetch_hot_plates()
     assert len(rows) == 1
     assert rows[0]["name"] == "医药"
@@ -106,7 +106,7 @@ def test_fetch_hot_stocks(monkeypatch):
         "fields": fields,
         "items": [["300603.SZ", "立昂技术", 9.5, 0.183, 3552346438, "算力", [{"name": "云计算数据中心"}]]]
     })
-    kpl._cache.clear()
+    kpl.clear_cache()
     rows = kpl.fetch_hot_stocks()
     assert len(rows) == 1
     r = rows[0]

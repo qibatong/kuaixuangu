@@ -4,6 +4,7 @@
 ===================================
 所有表结构与历史版本的自动迁移逻辑集中在此。
 """
+import json
 import sqlite3
 import time
 
@@ -290,6 +291,63 @@ def init_db():
     if "user_id" not in cols:
         cur.execute("ALTER TABLE batches ADD COLUMN user_id INTEGER")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_batches_user ON batches(user_id)")
+    # 异步任务队列(Phase1 建立, worker 进程消费; save_batch 默认仍同步, 切异步后启用)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS task_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at INTEGER NOT NULL,
+            done_at INTEGER
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_task_queue_status ON task_queue(status)")
     conn.commit()
     conn.close()
+
+
+# ==================== 异步任务队列(worker 进程消费) ====================
+def enqueue_task(type_, payload, ts=None):
+    """投递异步任务, 返回任务 id; 失败返回 None(不抛异常)"""
+    try:
+        conn = get_conn()
+        conn.execute(
+            "INSERT INTO task_queue (type, payload, status, created_at) VALUES (?,?, 'pending', ?)",
+            (type_, json.dumps(payload, ensure_ascii=False), int(ts or time.time())))
+        conn.commit()
+        tid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.close()
+        return tid
+    except Exception as e:
+        log.warning("任务投递失败 type=%s err=%s", type_, e)
+        return None
+
+
+def get_pending_tasks(limit=20):
+    """取 pending 任务列表(worker 轮询消费)"""
+    try:
+        conn = get_conn()
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, type, payload FROM task_queue WHERE status='pending' ORDER BY id LIMIT ?",
+            (limit,)).fetchall()
+        out = [dict(r) for r in rows]
+        conn.close()
+        return out
+    except Exception as e:
+        log.warning("取 pending 任务失败 err=%s", e)
+        return []
+
+
+def mark_task_done(tid, failed=False):
+    """标记任务完成/失败(幂等)"""
+    try:
+        conn = get_conn()
+        conn.execute("UPDATE task_queue SET status=?, done_at=? WHERE id=?",
+                     ("failed" if failed else "done", int(time.time()), tid))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.warning("标记任务失败 id=%s err=%s", tid, e)
     log.info("数据库初始化/迁移完成: %s", config.DB_FILE)

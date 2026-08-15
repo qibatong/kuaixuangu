@@ -91,3 +91,8 @@ NOTIFY_DEDUP_SECONDS = int(os.environ.get("NOTIFY_DEDUP_SECONDS", "120"))    # �
 
 # ---------- 会员/邀请 ----------
 INVITE_REWARD_DAYS = int(os.environ.get("INVITE_REWARD_DAYS", "5"))          # 每成功邀请一个新用户, 邀请人 +N 天使用时间
+
+# ---------- 跨进程状态存储(CacheStore) ----------
+# redis=Redis(生产多 worker 共享) / sqlite=SQLite 表 kv_cache(测试/兜底, 零依赖)
+CACHE_BACKEND = os.environ.get("CACHE_BACKEND", "sqlite")
+REDIS_URL = os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0")

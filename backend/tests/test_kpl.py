@@ -35,7 +35,7 @@ def test_fetch_sentiment(monkeypatch):
         "tip": "温馨提示",
         "errcode": "0",
     })
-    kpl._cache.clear()
+    kpl.clear_cache()
     s = kpl.fetch_sentiment()
     assert s["ztCount"] == 92
     assert s["strong"] == 78
@@ -99,7 +99,7 @@ def test_fetch_zt_reason(monkeypatch):
                   "GNSM": "黄金：...", "Boom_ZS": "沪金主连价格突破"}],
         "errcode": "0",
     })
-    kpl._cache.clear()
+    kpl.clear_cache()
     r = kpl.fetch_zt_reason("001337")
     assert len(r) == 1
     assert r[0]["reason"] == "黄金；现货黄金创新高"
@@ -113,7 +113,7 @@ def test_fetch_hot_rank(monkeypatch):
         "Day": "2026-08-13",
         "List": [["600721", "百花医药", 3.35, 0, 1, 0, 0], ["600664", "哈药股份", 0.57, 44, 2, 0, 0]],
     })
-    kpl._cache.clear()
+    kpl.clear_cache()
     rows = kpl.fetch_hot_rank()
     assert len(rows) == 2
     assert rows[0]["code"] == "600721"
@@ -139,7 +139,7 @@ def test_fetch_lhb(monkeypatch):
              "Capitalization": 5395203319.05},
         ],
     })
-    kpl._cache.clear()
+    kpl.clear_cache()
     rows = kpl.fetch_lhb()
     assert len(rows) == 2
     assert rows[0]["code"] == "002552"
@@ -161,7 +161,7 @@ def test_fetch_lhb_detail(monkeypatch):
             "SellList": [{"Name": "机构专用", "Buy": "100", "Sell": "50000000"}],
         }],
     })
-    kpl._cache.clear()
+    kpl.clear_cache()
     d = kpl.fetch_lhb_detail("002552", "2026-08-12")
     assert d["name"] == "宝鼎科技"
     assert d["change"] == 10
@@ -184,7 +184,7 @@ def test_fetch_yesterday_perf(monkeypatch):
         return {"List": ["--", 0, 79350794569, -30594498, change, 0, 0, 0],
                 "Date": "2026-08-13", "errcode": "0"}
     monkeypatch.setattr(kpl, "_call", fake_call)
-    kpl._cache.clear()
+    kpl.clear_cache()
     perf = kpl.fetch_yesterday_perf()
     assert set(perf.keys()) == {"zt", "lb", "pb"}
     assert abs(perf["zt"]["change"] - 2.117) < 1e-9
@@ -201,7 +201,7 @@ def test_fetch_bid_boom(monkeypatch):
                   579284936, "储存、芯片", 244920289633, 199735586, 11806006154,
                   -11606270568, "首板"]],
     })
-    kpl._cache.clear()
+    kpl.clear_cache()
     rows = kpl.fetch_bid_boom()
     assert len(rows) == 1
     r = rows[0]
@@ -228,7 +228,7 @@ def test_fetch_broken_zt(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *a): return False
     monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: FakeResp())
-    kpl._cache.clear()
+    kpl.clear_cache()
     rows = kpl.fetch_broken_zt()
     assert len(rows) == 1
     r = rows[0]
@@ -261,14 +261,14 @@ def test_fetch_broken_zt_by_day(monkeypatch):
         return FakeResp()
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
-    kpl._cache.clear()
+    kpl.clear_cache()
     rows = kpl.fetch_broken_zt("2026-08-12")
     assert len(rows) == 1
     assert rows[0]["day"] == "2026-08-12"
     assert rows[0]["code"] == "002536"
     assert urls and "date=2026-08-12" in urls[0]   # URL 带 date 参数
     # yesterday → 解析为具体日期(日历兜底: 跳过周末)
-    kpl._cache.clear()
+    kpl.clear_cache()
     monkeypatch.setattr(kpl, "_prev_trade_day", lambda: "2026-08-12")
     rows2 = kpl.fetch_broken_zt("yesterday")
     assert rows2[0]["day"] == "2026-08-12"
@@ -277,7 +277,7 @@ def test_fetch_broken_zt_by_day(monkeypatch):
 # ---------- 调用失败降级 ----------
 def test_call_failure_returns_none(monkeypatch):
     monkeypatch.setattr(kpl, "_call", lambda *a, **k: None)
-    kpl._cache.clear()
+    kpl.clear_cache()
     assert kpl.fetch_bid_seal() is None
     assert kpl.fetch_sentiment() is None
 
@@ -300,7 +300,7 @@ def test_fetch_yest_zt(monkeypatch):
     _mk_flash_pool(monkeypatch,
                    [("600266", "城建发展", 10.0, 1), ("600683", "京投发展", 10.0, 3)],
                    today_codes=["600683"])   # 京投发展今仍涨停
-    kpl._cache.clear()
+    kpl.clear_cache()
     rows = kpl.fetch_yest_zt()
     assert len(rows) == 2
     m = {r["code"]: r for r in rows}
@@ -313,7 +313,7 @@ def test_fetch_yest_broken(monkeypatch):
     _mk_flash_pool(monkeypatch,
                    [("600266", "城建发展", 10.0, 1), ("600683", "京投发展", 10.0, 3)],
                    today_codes=["600683"])   # 600266 今日未涨停 → 断板
-    kpl._cache.clear()
+    kpl.clear_cache()
     rows = kpl.fetch_yest_broken()
     codes = [r["code"] for r in rows]
     assert "600266" in codes
@@ -364,7 +364,7 @@ def test_fetch_bid_qiangcang(monkeypatch):
          "bidAmt": 5e7, "bidTurnover": 0.2, "bidChange": 2.0, "board": "板块E"},   # bidNetAmt=0被过滤
     ]
     monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: fake_seal)
-    kpl._cache.clear()
+    kpl.clear_cache()
     d = kpl.fetch_bid_qiangcang()
     monkeypatch.setattr("sqlite3.connect", real)
     assert isinstance(d, dict)
@@ -435,7 +435,7 @@ def test_fetch_bid_qiangcang_persist(monkeypatch):
          "floatMv": 6e9, "bidAmt": 5e7, "bidTurnover": 0.1, "bidChange": 4.0, "board": "医药"},
     ]
     monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: fake_seal)
-    kpl._cache.clear()
+    kpl.clear_cache()
     d1 = kpl.fetch_bid_qiangcang()
     assert len(d1["list20"]) == 2, d1
     # 阶段2: 非竞价时段(14:00) 即使接口返回"僵尸数据"(bidNetAmt=0)也必须走读库, 不丢失
@@ -447,7 +447,7 @@ def test_fetch_bid_qiangcang_persist(monkeypatch):
          "floatMv": 6e9, "bidAmt": 0, "bidTurnover": 0, "bidChange": 0, "board": ""},
     ]
     monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: zombie_seal)
-    kpl._cache.clear()
+    kpl.clear_cache()
     d2 = kpl.fetch_bid_qiangcang()
     assert len(d2["list20"]) == 2, d2   # 读库返回, 非僵尸数据
     assert d2["list20"][0]["code"] == "600001"
@@ -524,7 +524,7 @@ def test_fetch_bid_qiangcang_lastsec_full(monkeypatch):
     monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
     monkeypatch.setattr(kpl, "_seal_map", lambda: {})
     monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: [])   # 只看 listLast
-    kpl._cache.clear()
+    kpl.clear_cache()
     d = kpl.fetch_bid_qiangcang()
     monkeypatch.setattr("sqlite3.connect", real)
     lLast = d["listLast"]
@@ -588,7 +588,7 @@ def test_fetch_bid_qiangcang_list20chg(monkeypatch):
     monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
     monkeypatch.setattr(kpl, "_seal_map", lambda: {})
     monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: [])
-    kpl._cache.clear()
+    kpl.clear_cache()
     d = kpl.fetch_bid_qiangcang()
     monkeypatch.setattr("sqlite3.connect", real)
     l20c = d["list20Chg"]

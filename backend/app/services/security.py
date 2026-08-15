@@ -7,10 +7,10 @@ import hashlib
 import secrets
 import threading
 import time
-from collections import deque
 
 from ..core import config
 from ..db.database import get_conn
+from .cache_store import store
 
 # ---------- 密码哈希 (PBKDF2-SHA256) ----------
 def hash_password(password, salt=None, iterations=None):
@@ -88,46 +88,19 @@ def revoke_user_tokens(user_id):
         conn.close()
 
 
-# ---------- 接口限流: 每 IP 每分钟 N 次 ----------
-_hits = {}
-
-
+# ---------- 接口限流: 每 IP 每分钟 N 次 (跨进程共享, CacheStore 固定窗口) ----------
 def rate_allow(ip):
-    now = time.time()
-    dq = _hits.setdefault(ip, deque())
-    while dq and now - dq[0] > 60:
-        dq.popleft()
-    if len(dq) >= config.RATE_LIMIT_PER_MIN:
-        return False
-    dq.append(now)
-    return True
+    n = store.incr("rate:%s" % ip, ttl=60)
+    return n <= config.RATE_LIMIT_PER_MIN
 
 
 # ---------- 注册防刷: 同 IP 10 分钟最多 5 次 ----------
-_register_hits = {}
-
-
 def register_allowed(ip):
-    now = time.time()
-    hits = _register_hits.setdefault(ip, deque())
-    while hits and now - hits[0] > 600:
-        hits.popleft()
-    if len(hits) >= 5:
-        return False
-    hits.append(now)
-    return True
+    n = store.incr("reg:%s" % ip, ttl=600)
+    return n <= 5
 
 
 # ---------- 重置邮件防刷: 每邮箱每小时 N 次 ----------
-_reset_hits = {}
-
-
 def reset_mail_allowed(email):
-    now = time.time()
-    hits = _reset_hits.setdefault(email, deque())
-    while hits and now - hits[0] > 3600:
-        hits.popleft()
-    if len(hits) >= config.RESET_RATE_LIMIT:
-        return False
-    hits.append(now)
-    return True
+    n = store.incr("reset:%s" % email, ttl=3600)
+    return n <= config.RESET_RATE_LIMIT

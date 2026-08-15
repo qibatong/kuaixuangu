@@ -19,7 +19,7 @@ from .api import admin, auth, health, history, invite, kpl, prefs, stats, stocks
 from .api.deps import client_ip, jr
 from .core import logger as app_logger
 from .db import database
-from .services import auction_snapshot, security, wpqc_push
+from .services import security
 
 log = app_logger.get_logger(__name__)
 
@@ -73,7 +73,6 @@ def on_startup():
     log.info("=== 服务启动 ===")
     database.init_db()
     log.info("数据库就绪: %s", database.config.DB_FILE)
-    # 9:20 竞价时点快照后台调度(工作日 9:20 自动抓取全市场)
-    auction_snapshot.start_scheduler()
-    # 14:57 尾盘竞价抢筹推送(工作日自动)
-    wpqc_push.start_scheduler()
+    # 注意: 快照采集/尾盘推送调度已拆分到独立进程 app/worker.py (kx-worker.service)
+    # web 进程只处理 API 请求: 避免 9:25 高峰采集与请求抢资源, web 重启不影响采集
+    # (Phase1 2026-08-16)

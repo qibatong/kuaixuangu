@@ -10,11 +10,10 @@ import time
 
 from ..core import logger
 from . import kpl, notify
+from .cache_store import store
 
 log = logger.get_logger(__name__)
-
-_sched_lock = threading.Lock()
-_pushed = set()          # date -> 已推送标记
+# 去重标记已外置 CacheStore(跨进程): setnx("wpqc:done:date", 1天)
 _PUSH_START = 14 * 60 + 55   # 14:55
 _PUSH_END = 15 * 60 + 5      # 15:05
 _TOP_N = 8
@@ -46,10 +45,8 @@ def _build_message(rows):
 def push_once():
     """拉取尾盘抢筹并推送(幂等: 当日已推过则跳过)"""
     date = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600))
-    with _sched_lock:
-        if date in _pushed:
-            return False
-        _pushed.add(date)
+    if not store.setnx("wpqc:done:" + date, 1, ttl=86400):
+        return False
     try:
         rows = kpl.fetch_wpqc() or []
         text = _build_message(rows)

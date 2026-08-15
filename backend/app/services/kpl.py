@@ -14,6 +14,7 @@ import urllib.parse
 import urllib.request
 
 from ..core import config, logger
+from .cache_store import store
 
 log = logger.get_logger(__name__)
 
@@ -23,16 +24,22 @@ _HEALTH = {
 }
 _health_lock = threading.Lock()
 
-# ---------- 内存缓存: key -> {"data": ..., "ts": epoch} ----------
-_cache = {}
-_cache_lock = threading.Lock()
-
-# 全局并发信号量: 限制同时打开盘啦的请求数(并发 8 触发限流 → 降至 3), 保护每日 80000 配额
-_SEM = threading.Semaphore(3)
+# 缓存与并发信号量已外置 CacheStore(跨进程共享):
+#   - 缓存: store.get/set("kpl:" + key) — 多 worker 共享, 避免付费配额 ×N
+#   - 信号量: store.acquire_sem("kpl", limit=3) — 全局并发仍 3
+# 旧进程内 _cache / _SEM 移除(2026-08-16 Phase1)
 
 _ssl_ctx = ssl.create_default_context()
 _ssl_ctx.check_hostname = False
 _ssl_ctx.verify_mode = ssl.CERT_NONE
+
+
+def clear_cache():
+    """清空全部 KPL 缓存(快照采集前强制拿当前时点新鲜数据)"""
+    try:
+        store.clear_prefix("kpl:")
+    except Exception:
+        pass
 
 
 def _record(ok, ms=0):
@@ -73,10 +80,15 @@ def _call(host_key, params, timeout=12):
         "User-Agent": config.KPL_UA,
     })
     t0 = time.time()
+    # 分布式信号量(跨进程全局并发 3): 保护每日 80000 付费配额
+    sem_key = store.acquire_sem("kpl", limit=3, timeout=timeout)
+    if sem_key is None:
+        _record(False)
+        log.warning("KPL 并发信号量获取超时(限流) a=%s", params.get("a"))
+        return None
     try:
-        with _SEM:   # 并发限流: 最多 3 个请求同时打开盘啦
-            with urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx) as r:
-                body = r.read().decode("utf-8", "ignore")
+        with urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx) as r:
+            body = r.read().decode("utf-8", "ignore")
         data = json.loads(body)
         _record(True, int((time.time() - t0) * 1000))
         if data.get("errcode") not in (None, "0"):
@@ -86,19 +98,19 @@ def _call(host_key, params, timeout=12):
         _record(False)
         log.warning("开盘啦调用失败 a=%s err=%s", params.get("a"), e)
         return None
+    finally:
+        store.release_lock(sem_key)
 
 
 def _cached(key, ttl, loader):
-    """带缓存的读取: TTL 内命中直接返回, 否则调 loader 刷新"""
-    now = time.time()
-    with _cache_lock:
-        ent = _cache.get(key)
-        if ent and now - ent["ts"] < ttl:
-            return ent["data"]
+    """带缓存的读取: TTL 内命中直接返回, 否则调 loader 刷新(跨进程共享)"""
+    k = "kpl:" + key
+    v = store.get(k)
+    if v is not None:
+        return v
     data = loader()
     if data is not None:
-        with _cache_lock:
-            _cache[key] = {"data": data, "ts": time.time()}
+        store.set(k, data, ttl)
     return data
 
 
