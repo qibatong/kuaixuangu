@@ -3,12 +3,6 @@
     <!-- 规则条 + 顶栏按钮组 -->
     <div class="alert-rule">
       <div class="rule-text"><i class="fa fa-clock-o"></i> <strong>9:30前可重新选股 · 9:30后仅更新实时涨幅</strong></div>
-      <span class="yizi-card" :title="'近5日一字涨停趋势: ' + yiziTrend.map(d => d.date.slice(5) + ':' + d.yizi_count + '个').join('  ')">
-        <i class="fa fa-fire" style="color:#ff5028;"></i>
-        <template v-if="!yiziLoaded">一字统计加载中...</template>
-        <template v-else-if="yiziToday">一字 <b>{{ yiziToday.yizi_count }}</b> 个 · 竞价 <b>{{ yiziAmtText(yiziToday.bid_amt) }}</b></template>
-        <template v-else>今日暂无一字涨停记录</template>
-      </span>
       <div class="right-group">
         <div class="btn-group">
           <button class="tdx-export-btn reset-lock-btn" :disabled="!isBefore930()" @click="reLock"><i class="fa fa-refresh"></i> 重新锁定(9:30前可用)</button>
@@ -29,7 +23,7 @@
 
     <template v-else>
     <!-- 市场情绪面板: 涨停家数/情绪值/连板高度(置于模式切换上方, 整体大盘氛围先行) -->
-    <SentimentPanel />
+    <SentimentPanel :yizi-today="yiziToday" :yizi-trend="yiziTrend" />
 
     <!-- 模式切换 Tab: 竞价选股 / 盘中实时选股 -->
     <div class="mode-tabs">
@@ -135,11 +129,6 @@ async function loadYizi() {
   } catch (e) { /* 静默 */ } finally {
     yiziLoaded.value = true
   }
-}
-
-function yiziAmtText(amt) {
-  if (amt === null || amt === undefined) return '-'
-  return (amt / 10000).toFixed(1) + '亿'
 }
 
 let clockTimer = null

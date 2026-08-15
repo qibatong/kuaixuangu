@@ -13,6 +13,19 @@
         <span class="senti-label">连板高度</span>
         <span class="senti-val lbg">{{ s.lbgd }}板</span>
       </div>
+      <!-- 一字涨停: 与连板高度同维度(强势涨停), 放中间位置视觉连贯 -->
+      <div class="senti-item yizi" :title="yiziTrend && yiziTrend.length ? ('近5日一字涨停趋势: ' + yiziTrend.map(d => d.date.slice(5) + ':' + d.yizi_count + '个').join('  ')) : ''">
+        <span class="senti-label">一字涨停</span>
+        <template v-if="yiziToday">
+          <span class="senti-val yz">{{ yiziToday.yizi_count }}</span>
+          <span class="senti-label">个</span>
+          <span class="senti-label" style="margin-left:4px;">竞价</span>
+          <span class="senti-val yz-amt">{{ yiziAmtText(yiziToday.bid_amt) }}</span>
+        </template>
+        <template v-else>
+          <span class="senti-val dim">0</span>
+        </template>
+      </div>
       <div class="senti-item senti-strong">
         <span class="senti-label">情绪值</span>
         <div class="senti-bar">
@@ -51,6 +64,17 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { kplSentiment, kplYesterdayPerf } from '../api/kpl'
+
+// 一字涨停统计(由父组件 StockView 传入; 解耦后 SentimentPanel 不再自取)
+const { yiziToday, yiziTrend } = defineProps({
+  yiziToday: { type: Object, default: null },  // {yizi_count, bid_amt}
+  yiziTrend: { type: Array, default: () => [] } // 近 5 日趋势
+})
+
+function yiziAmtText(amt) {
+  if (amt === null || amt === undefined) return '-'
+  return (amt / 10000).toFixed(1) + '亿'
+}
 
 const s = ref(null)
 const loading = ref(true)
@@ -128,6 +152,8 @@ onMounted(async () => {
 }
 .senti-val.zt { color: #ff6a6a; }
 .senti-val.lbg { color: #ffb400; }
+.senti-val.yz { color: #ff5028; }   /* 一字涨停数: 火焰红 */
+.senti-val.yz-amt { color: #ffb400; } /* 一字竞价额: 橙金 */
 .senti-val.dim { color: var(--text-secondary); }
 .senti-val.hot { color: #ff6a6a; }
 .senti-val.cold { color: #6ad66a; }
@@ -170,6 +196,8 @@ body[data-bg="light"] .senti-title {  color: #5a4a3a;  }
 body[data-bg="light"] .senti-title .fa {  color: #c79100;  }
 body[data-bg="light"] .senti-val.zt {  color: #b83010;  }
 body[data-bg="light"] .senti-val.lbg {  color: #8a5500;  }
+body[data-bg="light"] .senti-val.yz {  color: #b83010;  }
+body[data-bg="light"] .senti-val.yz-amt {  color: #8a5500;  }
 body[data-bg="light"] .senti-val.hot {  color: #b83010;  }
 body[data-bg="light"] .senti-val.normal {  color: #5a4a3a;  }
 body[data-bg="light"] .senti-block-label {  color: #5a6b85;  }
