@@ -536,8 +536,30 @@ body[data-bg="light"] .rot-c-8 { background: #A82C6C; }
 .rot-windows { margin-top: 16px; background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px; }
 .rot-window-legend { display: flex; gap: 16px; justify-content: center; margin-top: 6px; font-size: 12px; }
 .rot-window-legend i { margin-right: 4px; }
+/* 移动端适配(<=768px): 表格横滑 + Tab 横滑 + 布局紧凑 */
 @media (max-width: 768px) {
   .rot-charts { grid-template-columns: 1fr; }
+  /* 宽表格横向滚动(板块强度/人气热榜/龙虎榜) */
+  .mrk-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 10px 8px; }
+  .mrk-panel .stock-table { min-width: 880px; }
+  /* 历史轮动表横滑内容完整 */
+  .rot-table-scroll .rot-table { min-width: 680px; }
+  /* Tab 横向滑动(4 个 tab 一排滑, 不换行占纵向空间) */
+  .mrk-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 4px; }
+  .mrk-tabs::-webkit-scrollbar { display: none; }
+  .mrk-tab { flex-shrink: 0; white-space: nowrap; padding: 7px 12px; font-size: 13px; }
+  /* 头部紧凑 */
+  .mrk-head { gap: 6px; }
+  .mrk-title { font-size: 17px; }
+  .mrk-sub { font-size: 11px; width: 100%; }
+  .mrk-time { margin-left: 0; font-size: 12px; }
+  /* 表格字号压缩 */
+  .mrk-panel .stock-table th { padding: 7px 4px; font-size: 11px; }
+  .mrk-panel .stock-table td { padding: 6px 4px; font-size: 11px; }
+  /* 龙虎榜弹窗: 买卖盘双列改单列(手机宽不足, 双列挤) */
+  .lhb-cols { flex-direction: column; gap: 8px; }
+  /* 涨停原因弹窗近全屏 */
+  .reason-modal { width: 96vw; padding: 12px 10px; }
 }
 
 </style>
