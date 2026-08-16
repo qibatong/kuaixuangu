@@ -124,18 +124,22 @@ def snapshot_at(time_point, force=False):
         kpl_map = {s["code"]: s for s in kpl_seal}
         kpl_cnt = len(kpl_seal)
         for code, v in raw_all.items():
+            # 该时点是否涨停(与 _is_zt 一致): 决定封单额是否有效
+            bc = v.get("bid_change") or 0
+            if code[:2] in ("30", "68"):
+                is_zt = bc >= 19.9
+            elif code[:1] in ("8", "4"):
+                is_zt = bc >= 29.9
+            else:
+                is_zt = bc >= 9.9
+            # 核心修复(2026-08-16): 非涨停时点封单强制 0!
+            # _fetch_market_map 给所有股票都算了东财 f10×f5×100(买一委托金额),
+            # 若开板股不在 KPL 榜会保留该非零值 → 前端仍显示"封单"(用户反馈的同类问题)
+            if not is_zt:
+                v["bid_buy_amt"] = 0
             s = kpl_map.get(code)
             if s:
                 seal = s.get("bidSealAmt") or 0
-                # 防御(2026-08-16): 封单只写给该时点涨停的股票, 防 KPL 缓存/边界差异导致
-                # 非涨停股挂封单(用户反馈"封单额和标的不对应"的同类问题)
-                bc = v.get("bid_change") or 0
-                if code[:2] in ("30", "68"):
-                    is_zt = bc >= 19.9
-                elif code[:1] in ("8", "4"):
-                    is_zt = bc >= 29.9
-                else:
-                    is_zt = bc >= 9.9
                 if seal and is_zt:
                     v["bid_buy_amt"] = seal
                     n_seal += 1

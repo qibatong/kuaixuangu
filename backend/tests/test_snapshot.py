@@ -177,3 +177,38 @@ def test_daily_yizi_logs_result(client, caplog):
         stats.record_daily_yizi([yizi_a])
     msgs = [rec.getMessage() for rec in caplog.records]
     assert any("一字涨停统计" in m and "数量1" in m for m in msgs)
+
+
+def test_snapshot_non_zt_seal_zero(client, monkeypatch):
+    """回归(2026-08-16): 非涨停时点 bid_buy_amt 必须为 0!
+    之前 _fetch_market_map 给所有股票算了东财 f10×f5 默认值,
+    开板股若不在 KPL 榜会保留非零值 → 前端显示'封单'(用户反馈问题)"""
+    from app.db import database
+    import app.services.kpl as kpl_mod
+
+    def fake_fetch(fs):
+        rows = [
+            {**RAW, "f12": "600001", "f615": 10.0},      # 涨停(主板≥9.9)
+            {**RAW, "f12": "600002", "f615": 5.0, "f10": 2000, "f5": 10.5},  # 非涨停
+        ]
+        return rows
+
+    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", fake_fetch)
+    # KPL 榜只包含 600001(涨停); 600002 非涨停不在榜
+    monkeypatch.setattr(kpl_mod, "fetch_bid_seal",
+                        lambda: [{"code": "600001", "bidSealAmt": 1.2e8, "board": "测试"}])
+    monkeypatch.setattr(kpl_mod, "clear_cache", lambda: None)
+
+    conn = database.get_conn()
+    conn.execute("DELETE FROM snapshot_bid")
+    conn.commit()
+    conn.close()
+
+    n = auction_snapshot.snapshot_at("9_25", force=True)
+    assert n >= 2, "应至少写入 2 只股票"
+    conn = database.get_conn()
+    zt = conn.execute("SELECT bid_buy_amt FROM snapshot_bid WHERE code='600001' AND time_point='9_25'").fetchone()
+    nonzt = conn.execute("SELECT bid_buy_amt FROM snapshot_bid WHERE code='600002' AND time_point='9_25'").fetchone()
+    conn.close()
+    assert zt and zt[0] == 1.2e8, "涨停股应有 KPL 封单"
+    assert nonzt and nonzt[0] == 0, "非涨停股封单必须为 0(否则前端显示假封单)"
