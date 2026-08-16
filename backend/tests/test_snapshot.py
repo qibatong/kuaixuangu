@@ -31,13 +31,13 @@ def test_snapshot_save_load(client, monkeypatch):
         return [a, b]
 
     monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", fake_fetch)
-    n = auction_snapshot.snapshot_at("9_20")
+    n = auction_snapshot.snapshot_at("9_20", force=True)
     assert n == 2 and calls["n"] == 3   # hs/cyb/kcb 三分区
     snap = auction_snapshot.load_snapshot()
     assert snap["600001"]["bid_change"] == 4.0
     assert snap["000002"]["bid_change"] == 1.2
     # 幂等: 再次抓取覆盖同日期同时点, 行数不变
-    auction_snapshot.snapshot_at("9_20")
+    auction_snapshot.snapshot_at("9_20", force=True)
     assert len(auction_snapshot.load_snapshot()) == 2
 
 
@@ -53,9 +53,9 @@ def test_snapshot_multi_time_points(client, monkeypatch):
         return [a]
 
     monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", fake_fetch2)
-    auction_snapshot.snapshot_at("9_15")
-    auction_snapshot.snapshot_at("9_20")
-    auction_snapshot.snapshot_at("9_25")
+    auction_snapshot.snapshot_at("9_15", force=True)
+    auction_snapshot.snapshot_at("9_20", force=True)
+    auction_snapshot.snapshot_at("9_25", force=True)
     assert auction_snapshot.load_snapshot(time_point="9_15")["600001"]["bid_change"] == 1.0
     assert auction_snapshot.load_snapshot(time_point="9_20")["600001"]["bid_change"] == 2.5
     assert auction_snapshot.load_snapshot(time_point="9_25")["600001"]["bid_change"] == 4.0
@@ -71,11 +71,11 @@ def test_snapshot_fetch_fail_returns_0(client, monkeypatch):
     def boom(fs):
         raise RuntimeError("network down")
     monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", boom)
-    assert auction_snapshot.snapshot_at("9_20") == 0
+    assert auction_snapshot.snapshot_at("9_20", force=True) == 0
 
 
 def test_snapshot_invalid_time_point(client):
-    assert auction_snapshot.snapshot_at("9_99") == 0
+    assert auction_snapshot.snapshot_at("9_99", force=True) == 0
 
 
 def test_snapshot_filters_abnormal_change(client, monkeypatch):
@@ -85,7 +85,7 @@ def test_snapshot_filters_abnormal_change(client, monkeypatch):
         b = dict(RAW); b.update({"f12": "000002", "f615": 360.5})  # 异常
         return [a, b]
     monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", fake_fetch)
-    n = auction_snapshot.snapshot_at("9_25")
+    n = auction_snapshot.snapshot_at("9_25", force=True)
     assert n == 1
     snap = auction_snapshot.load_snapshot(time_point="9_25")
     assert "600001" in snap and "000002" not in snap
@@ -100,7 +100,7 @@ def test_query_snapshot_sorted(client, monkeypatch):
         c = dict(RAW); c.update({"f12": "300003", "f615": 3.0})
         return [a, b, c]
     monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", fake_fetch)
-    auction_snapshot.snapshot_at("9_25")
+    auction_snapshot.snapshot_at("9_25", force=True)
     rows = auction_snapshot.query_snapshot(auction_snapshot._bj_date(), "9_25", 50)
     assert [r["code"] for r in rows] == ["000002", "300003", "600001"]   # 6.0 > 3.0 > 1.0
     assert len(auction_snapshot.query_snapshot(auction_snapshot._bj_date(), "9_25", 2)) == 2

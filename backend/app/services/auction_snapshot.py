@@ -88,14 +88,23 @@ def _fetch_market_map(full=False):
         return raw_all
 
 
-def snapshot_at(time_point):
+def snapshot_at(time_point, force=False):
     """抓取并归档某时点全市场快照, 返回入库数量; 失败返回 0
     时点快照用全市场分页(fetch_eastmoney_all ~5500只), 非单页600只
     封单额 bid_buy_amt 优先用开盘啦涨停委买额(真实封单, 非涨停股为0),
-    其次东财 f10×f5 计算; 三者皆无则为 0"""
+    其次东财 f10×f5 计算; 三者皆无则为 0
+    force=True: 跳过非交易日检查(测试用, 允许任意日期落库)"""
     if time_point not in TIME_POINTS:
         return 0
     date = _bj_date()
+    # 防御(2026-08-16): 非交易日绝不写入! 之前手动调用/调试曾把周日数据写入库,
+    # 用户看到 8-16 周日金螳螂封单 39.78亿 等垃圾数据(来自东财非交易时段错误行情)
+    # 调度循环 _scheduler_loop 已加 g.tm_wday<5 判断; 此处再加防御防外部调用
+    if not force:
+        g = time.gmtime(time.time() + 8 * 3600)
+        if g.tm_wday >= 5:
+            log.warning("[快照采集] 拒绝非交易日写入 tp=%s date=%s(周%d) 防御性跳过", time_point, date, g.tm_wday)
+            return 0
     t0 = time.time()
     log.info("[快照采集] 开始 time=%s date=%s", time_point, date)
     raw_all = _fetch_market_map(full=True)
@@ -165,6 +174,10 @@ def snapshot_lastsec_at(ts_sec):
     返回入库数量; 失败返回 0(该秒跳过, 序列仍可用)
     秒级采样用单页600只(8秒窗口限制, 分页全市场需60s+), 覆盖竞价最强前600"""
     date = _bj_date()
+    # 防御(2026-08-16): 非交易日拒绝写入
+    g = time.gmtime(time.time() + 8 * 3600)
+    if g.tm_wday >= 5:
+        return 0
     raw_all = _fetch_market_map(full=False)
     if not raw_all:
         log.warning("最后一秒采样为空 ts=%d (东财接口无返回, 该秒跳过)", ts_sec)
