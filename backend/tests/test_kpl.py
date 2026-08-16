@@ -599,3 +599,74 @@ def test_fetch_bid_qiangcang_list20chg(monkeypatch):
     assert m["A"]["bidChange20"] == 1.5
     assert m["A"]["bidChange"] == 8.64
     assert m["A"]["board"] == "AI概念"
+
+
+# ---------- 市场概览: 涨跌家数分布 + 两市概况 (2026-08-16) ----------
+def test_market_breadth_rise_fall(client, monkeypatch):
+    """涨跌家数: 今日最新 + 昨日同时刻(对比)"""
+    from app.services import kpl
+
+    def fake_flash_line(fields, date=None):
+        # 今日曲线两条(升序), 昨日一条
+        if date:
+            return [{"rise_count": 2000, "fall_count": 3000, "timestamp": 1786000000}]
+        return [
+            {"rise_count": 2200, "fall_count": 2800, "timestamp": 1786077000},
+            {"rise_count": 2423, "fall_count": 1882, "timestamp": 1786077300},
+        ]
+
+    monkeypatch.setattr(kpl, "_flash_line", fake_flash_line)
+    b = kpl.fetch_market_breadth()
+    assert b is not None
+    assert b["rise"] == 2423 and b["fall"] == 1882          # 今日最新
+    assert b["yesterday"] and b["yesterday"]["rise"] == 2000  # 昨日
+    assert b["yesterday"]["fall"] == 3000
+
+
+def test_market_breadth_none_on_fail(client, monkeypatch):
+    """涨跌家数接口失败 -> None (前端静默降级)"""
+    from app.services import kpl
+    monkeypatch.setattr(kpl, "_flash_line", lambda *a, **k: [])
+    assert kpl.fetch_market_breadth() is None
+
+
+def test_market_brief_fetch(client, monkeypatch):
+    """两市概况: 全市场股票数 + 成交额(亿)"""
+    from app.services import fetcher
+
+    def fake_all(fs):
+        return [
+            {"f12": "600001", "f6": 1.0e10},   # 1 亿
+            {"f12": "000002", "f6": 2.0e10},   # 2 亿
+            {"f12": "300003", "f6": None},
+        ]
+
+    monkeypatch.setattr(fetcher, "fetch_eastmoney_all", fake_all)
+    fetcher._market_brief_cache.update({"ts": 0.0, "data": None})   # 清缓存
+    d = fetcher.fetch_market_brief(max_age=0)
+    assert d is not None
+    assert d["stockCount"] == 3
+    assert abs(d["amount"] - 300.0) < 0.01    # 3e10 元 = 300 亿
+
+
+def test_market_brief_api(client, first_user, monkeypatch):
+    def hdrs(token):
+        return {"Authorization": "Bearer " + token}
+
+    """/api/kpl/market-brief 聚合返回 breadth + market + last"""
+    from app.services import kpl, fetcher
+    import app.api.kpl as kpl_api
+
+    monkeypatch.setattr(kpl, "fetch_market_breadth",
+                        lambda: {"rise": 2423, "fall": 1882, "ts": 1, "day": "2026-08-17",
+                                 "yesterday": {"rise": 2000, "fall": 3000, "ts": 1, "day": "2026-08-14"}})
+    monkeypatch.setattr(fetcher, "fetch_market_brief",
+                        lambda *a, **k: {"stockCount": 5100, "amount": 21428.0, "date": "2026-08-17"})
+    token, _, _ = first_user
+    r = client.get("/api/kpl/market-brief", headers=hdrs(token))
+    assert r.status_code == 200
+    d = r.json()
+    assert d.get("ok")
+    assert d["breadth"]["rise"] == 2423
+    assert d["market"]["stockCount"] == 5100
+    assert "last" in d

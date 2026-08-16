@@ -214,6 +214,38 @@ def _parse_bid_boom(data):
 
 
 # ==================== 市场情绪 ====================
+def fetch_market_breadth():
+    """涨跌家数分布(2026-08-16): xuangubao rise_count,fall_count 分时曲线
+    今日取最新一点, 昨日取同时刻最近一点(对比用)
+    返回 {rise, fall, ts, day, yesterday: {rise, fall, ts, day}}; 失败 None"""
+    def _latest(fields, date=None):
+        rows = _flash_line(fields, date)
+        if not rows:
+            return None
+        return rows[-1]   # 曲线按时间升序, 最后一条最新
+
+    now_ts = int(time.time())
+    today = _latest("rise_count,fall_count")
+    if not today or today.get("rise_count") is None:
+        return None
+    # 昨日同时刻: 前一天日期, 取与 now_ts 最接近(不晚于)的点
+    from datetime import datetime, timedelta
+    ydate = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    yest = _latest("rise_count,fall_count", ydate)
+    y = None
+    if yest:
+        diff = abs(now_ts - int(yest.get("ts") or 0))
+        y = {"rise": int(yest["rise_count"]), "fall": int(yest["fall_count"]),
+             "ts": int(yest.get("ts") or 0), "day": ydate}
+    return {
+        "rise": int(today["rise_count"]),
+        "fall": int(today["fall_count"]),
+        "ts": int(today.get("ts") or now_ts),
+        "day": (datetime.now()).strftime("%Y-%m-%d"),
+        "yesterday": y,
+    }
+
+
 def fetch_sentiment():
     """情绪值/连板高度: {ztjs 涨停家数, strong 情绪, lbgd 连板高度, df_num 大幅回撤}"""
     def loader():

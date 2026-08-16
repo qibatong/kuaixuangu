@@ -42,6 +42,35 @@ def api_kpl_sentiment(request: Request, uid: int = Depends(get_uid)):
     return jr({"ok": True, "sentiment": d})
 
 
+@router.get("/api/kpl/market-brief")
+def api_kpl_market_brief(request: Request, uid: int = Depends(get_uid)):
+    """市场概览(2026-08-16):
+    - breadth: 涨跌家数分布(今日最新 + 昨日同时刻, xuangubao 开盘啦生态)
+    - market: 两市股票总数 + 成交额(东财全市场, 5min 缓存)
+    - last: 上一交易日收盘快照(settings market_brief_last, worker 15:30 存)
+    前端据此展示 '两市总量 + 较上一日差异' 与 '涨跌家数分布'"""
+    from ..db import database
+    from ..services import fetcher
+    import time as _time
+    breadth = kpl.fetch_market_breadth()
+    market = fetcher.fetch_market_brief()
+    last = None
+    try:
+        conn = database.get_conn()
+        row = conn.execute("SELECT value FROM settings WHERE key='market_brief_last'").fetchone()
+        conn.close()
+        if row and row[0]:
+            import json
+            last = json.loads(row[0])
+    except Exception:
+        last = None
+    return jr({"ok": True,
+               "breadth": breadth,
+               "market": market,
+               "last": last,
+               "ts": int(_time.time())})
+
+
 @router.get("/api/kpl/bid-seal")
 def api_kpl_bid_seal(request: Request, uid: int = Depends(get_uid), date: str = ""):
     """竞价涨停委买额: date 空=实时, 指定 'YYYY-MM-DD' 回看历史(auction_daily_history)"""

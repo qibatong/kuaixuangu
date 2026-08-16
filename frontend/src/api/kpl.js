@@ -5,6 +5,10 @@ export function kplSentiment() {
   return request('/api/kpl/sentiment')
 }
 
+export function kplMarketBrief() {
+  return request('/api/kpl/market-brief')
+}
+
 export function kplBidSeal(date = '') {
   return request('/api/kpl/bid-seal', { query: date ? { date } : {} })
 }

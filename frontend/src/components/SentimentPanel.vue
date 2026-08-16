@@ -5,6 +5,30 @@
     <div v-if="loading" class="senti-loading">加载中...</div>
 
     <template v-else-if="s">
+      <!-- 两市概况: 成交额(亿) + 较上一交易日差异 + 股票总数 -->
+      <div class="senti-item" v-if="brief.market" :title="'两市股票总数 ' + brief.market.stockCount + ' 只'">
+        <span class="senti-label">两市</span>
+        <span class="senti-val mkt-amt">{{ brief.market.amount.toFixed(0) }}亿</span>
+        <template v-if="diffAmt !== null">
+          <span class="senti-label" style="margin-left:4px;">较昨</span>
+          <span class="senti-val" :class="diffAmt < 0 ? 'mkt-shrink' : 'mkt-grow'">
+            {{ diffAmt < 0 ? '缩量' : '放量' }} {{ Math.abs(diffAmt).toFixed(0) }}亿
+          </span>
+        </template>
+      </div>
+      <!-- 涨跌家数分布(今日 + 昨日同时刻对比) -->
+      <div class="senti-item" v-if="brief.breadth" :title="briefBreadthTip">
+        <span class="senti-label">涨跌</span>
+        <span class="senti-val mkt-rise">{{ brief.breadth.rise }}</span>
+        <span class="senti-label">/</span>
+        <span class="senti-val mkt-fall">{{ brief.breadth.fall }}</span>
+        <template v-if="brief.breadth.yesterday">
+          <span class="senti-label" style="margin-left:4px;">昨同时</span>
+          <span class="senti-val dim" style="font-size:12px;">
+            {{ brief.breadth.yesterday.rise }}/{{ brief.breadth.yesterday.fall }}
+          </span>
+        </template>
+      </div>
       <div class="senti-item">
         <span class="senti-label">涨停家数</span>
         <span class="senti-val zt">{{ s.ztCount }}</span>
@@ -63,7 +87,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { kplSentiment, kplYesterdayPerf } from '../api/kpl'
+import { kplSentiment, kplYesterdayPerf, kplMarketBrief } from '../api/kpl'
 
 // 一字涨停统计(由父组件 StockView 传入; 解耦后 SentimentPanel 不再自取)
 const { yiziToday, yiziTrend } = defineProps({
@@ -79,6 +103,23 @@ function yiziAmtText(amt) {
 const s = ref(null)
 const loading = ref(true)
 const yp = ref({})
+const brief = ref({})    // {market:{stockCount,amount,date}, breadth:{rise,fall,...}, last:{...}}
+
+// 两市成交额较上一交易日差异(亿): last.amount 为昨日收盘全天额
+const diffAmt = computed(() => {
+  const m = brief.value.market
+  const last = brief.value.last
+  if (!m || !last || last.amount === undefined) return null
+  return Math.round((m.amount - last.amount) * 100) / 100
+})
+
+const briefBreadthTip = computed(() => {
+  const b = brief.value.breadth
+  if (!b) return ''
+  let tip = '今日涨跌家数: 涨 ' + b.rise + ' / 跌 ' + b.fall
+  if (b.yesterday) tip += '\n昨日同时刻: ' + b.yesterday.rise + ' / ' + b.yesterday.fall
+  return tip
+})
 
 const strongCls = computed(() => {
   if (!s.value) return ''
@@ -111,6 +152,11 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  // 市场概览: 两市成交额/股票数 + 涨跌家数(失败静默, 不阻塞主面板)
+  try {
+    const b = await kplMarketBrief()
+    if (b) brief.value = b
+  } catch (e) { /* 静默 */ }
   // 昨日涨停今表现(策略验证)
   try {
     const p = await kplYesterdayPerf()
@@ -152,6 +198,11 @@ onMounted(async () => {
 }
 .senti-val.zt { color: #ff6a6a; }
 .senti-val.lbg { color: #ffb400; }
+.mkt-amt { color: #ffd76a; }      /* 两市成交额: 金色 */
+.mkt-shrink { color: #6ad66a; }   /* 缩量: 绿(缩=情绪降温) */
+.mkt-grow { color: #ff8a5a; }     /* 放量: 橙红 */
+.mkt-rise { color: #ff6a6a; }     /* 涨家数: 红 */
+.mkt-fall { color: #6ad66a; }     /* 跌家数: 绿 */
 .senti-val.yz { color: #ff5028; }   /* 一字涨停数: 火焰红 */
 .senti-val.yz-amt { color: #ffb400; } /* 一字竞价额: 橙金 */
 .senti-val.dim { color: var(--text-secondary); }
@@ -196,6 +247,11 @@ body[data-bg="light"] .senti-title {  color: #5a4a3a;  }
 body[data-bg="light"] .senti-title .fa {  color: #c79100;  }
 body[data-bg="light"] .senti-val.zt {  color: #b83010;  }
 body[data-bg="light"] .senti-val.lbg {  color: #8a5500;  }
+body[data-bg="light"] .mkt-amt {  color: #8a6a00;  }
+body[data-bg="light"] .mkt-shrink {  color: #2a7a2a;  }
+body[data-bg="light"] .mkt-grow {  color: #b83010;  }
+body[data-bg="light"] .mkt-rise {  color: #b83010;  }
+body[data-bg="light"] .mkt-fall {  color: #2a7a2a;  }
 body[data-bg="light"] .senti-val.yz {  color: #b83010;  }
 body[data-bg="light"] .senti-val.yz-amt {  color: #8a5500;  }
 body[data-bg="light"] .senti-val.hot {  color: #b83010;  }

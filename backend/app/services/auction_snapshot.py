@@ -503,6 +503,31 @@ def _scheduler_loop():
             # 15:30-15:35 板块轮动日终快照: 抓当日板块强度 Top10 落库(多数据源), 形成轮动数据基础
             if g.tm_wday < 5 and 15 * 60 + 30 <= hm <= 15 * 60 + 35:
                 try:
+                    # 两市概况收盘快照(2026-08-16): 供次日"两市总量/较上一日"对比
+                    # 收盘后 f6=全天成交额, stockCount=全市场股票数
+                    if store.setnx("sched:done:market_brief_" + date, 1, ttl=86400):
+                        try:
+                            from . import fetcher
+                            brief = fetcher.fetch_market_brief(max_age=0)  # 强制刷新
+                            if brief:
+                                from ..db import database
+                                conn = database.get_conn()
+                                conn.execute(
+                                    "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?,?,?)",
+                                    ("market_brief_last",
+                                     json.dumps({"date": brief["date"],
+                                                 "stockCount": brief["stockCount"],
+                                                 "amount": brief["amount"]}),
+                                     int(time.time())))
+                                conn.commit()
+                                conn.close()
+                                log.info("两市概况收盘快照已存 date=%s 股票数=%d 成交额=%.0f亿",
+                                         brief["date"], brief["stockCount"], brief["amount"])
+                            else:
+                                store.delete("sched:done:market_brief_" + date)
+                        except Exception as e:
+                            store.delete("sched:done:market_brief_" + date)
+                            log.warning("两市概况收盘快照失败(窗口内重试) err=%s", e)
                     from . import sector_rotation
                     for src in ("kpl", "em", "ths"):
                         if store.setnx("sched:done:sector_%s_%s" % (src, date), 1, ttl=86400):

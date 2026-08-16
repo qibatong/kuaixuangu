@@ -13,6 +13,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 from ..core import config, logger
+from . import scorer   # 仅复用 parse_float / market_fs (无循环: scorer 不依赖 fetcher)
 
 log = logger.get_logger(__name__)
 
@@ -158,6 +159,35 @@ def fetch_eastmoney_all(fs):
     if not out:
         raise RuntimeError("东方财富接口返回异常")
     return out
+
+
+# 两市市场概况缓存(2026-08-16): 全市场股票数 + 成交额, 5 分钟新鲜度
+_market_brief_cache = {"ts": 0.0, "data": None}
+
+
+def fetch_market_brief(max_age=300):
+    """两市概况: {stockCount, amount(亿), date}
+    - stockCount = 全市场股票数(沪+深+北, fetch_eastmoney_all 返回列表长度)
+    - amount     = sum(f6) 全市场成交额(元 -> 亿)
+    - 非交易时段(周末/收盘后) f6 可能全 0 -> amount 0, 由调用方决定展示
+    5 分钟缓存, 首次全市场分页拉取 5-10s, 之后命中缓存"""
+    now = time.time()
+    if _market_brief_cache["data"] and now - _market_brief_cache["ts"] < max_age:
+        return _market_brief_cache["data"]
+    try:
+        raw = fetch_eastmoney_all(scorer.market_fs(["hs", "cyb", "kcb", "bj"]))
+    except Exception as e:
+        log.warning("两市概况拉取失败 err=%s", e)
+        return _market_brief_cache["data"] or None
+    total_amt = sum(scorer.parse_float(s.get("f6")) for s in raw)
+    g = time.gmtime(now + 8 * 3600)   # 北京时间
+    d = {
+        "stockCount": len(raw),
+        "amount": round(total_amt / 1e8, 2),          # 亿元
+        "date": "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday),
+    }
+    _market_brief_cache.update({"ts": now, "data": d})
+    return d
 
 
 def ensure_cache(action, fs, before930):
