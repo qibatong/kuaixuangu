@@ -187,3 +187,30 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
         pass
     log.info("三时点榜 date=%s 返回 %d 条 (实时涨幅叠加 %d 只)", resolved, len(rows), len(kpl_real))
     return jr({"ok": True, "date": resolved, "count": len(rows), "list": rows})
+
+
+@router.get("/api/stats/seal-quality")
+def api_stats_seal_quality(request: Request, uid: int = Depends(get_uid), date: str = ""):
+    """封单数据质量报表: ?date=YYYY-MM-DD(空=最近交易日)
+    返回该日各时点: 非涨停股挂封单数/涨停股缺封单数/封单流通比异常数
+    开发自查用: 采集后 curl 即可确认数据是否健康, 不需要人肉逐只核对"""
+    q = qs(request)
+    date = (q.get("date") or [""])[0]
+    conn = database.get_conn()
+    try:
+        if not date:
+            row = conn.execute("SELECT MAX(date) FROM snapshot_bid").fetchone()
+            date = str(row[0]) if row and row[0] else ""
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    if not date:
+        return jr({"ok": False, "msg": "无快照数据"}, 404)
+    out = {"date": date, "points": {}}
+    for tp in ("9_15", "9_20", "9_24", "9_25"):
+        r = auction_snapshot.check_seal_quality(date, tp, force=True)
+        if r is not None:
+            out["points"][tp] = r
+    return jr({"ok": True, "report": out,
+               "hint": "非涨停股挂封单数应为0; 涨停股缺封单数应远小于涨停数"})

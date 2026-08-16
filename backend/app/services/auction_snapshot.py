@@ -170,7 +170,89 @@ def snapshot_at(time_point, force=False):
         return 0
     log.info("[快照采集] 完成 date=%s time=%s 数量%d 耗时%.0fms (封单覆盖%d只)",
              date, time_point, len(raw_all), (time.time() - t0) * 1000, n_seal)
+    # 数据质量自检(2026-08-16): 采集后立即校验"封单是否只出现在涨停时点"等规则,
+    # 异常推飞书告警, 不等用户发现(用户连续 3 次发现同类问题, 改为系统自动把关)
+    try:
+        check_seal_quality(date, time_point, force=True)
+    except Exception as e:
+        log.warning("封单质量自检异常 err=%s", e)
     return len(raw_all)
+
+
+def check_seal_quality(date, time_point, force=False):
+    """采集后数据质量自检: 校验 snapshot_bid 该时点封单数据是否合理
+    规则:
+    1. 非涨停股 bid_buy_amt>0 的数量(应为 0, 否则是"开板股挂封单"问题)
+    2. 涨停股中 bid_buy_amt=0 的数量(应较少, KPL 未覆盖时会缺)
+    3. 封单额/流通市值比 > 0.5 的异常股(封单超过流通市值一半, 大概率数据错位)
+    异常时推飞书告警(限频: 同一 date+tp 只推一次)
+    force=True: 跳过限频(手动/测试调用也执行)"""
+    # 限频: 同一日期+时点只告警一次, 避免 9:31 盘点也触发重复推送
+    dedup_key = "seal_quality_warn:%s:%s" % (date, time_point)
+    if not force and store.get(dedup_key):
+        return None
+    try:
+        conn = database.get_conn()
+        rows = conn.execute(
+            "SELECT code, bid_change, bid_buy_amt, float_mv FROM snapshot_bid "
+            "WHERE date=? AND time_point=?", (date, time_point)).fetchall()
+        conn.close()
+    except Exception:
+        return None
+    if not rows:
+        return None
+    n_nonzt_seal = 0
+    nonzt_samples = []
+    n_zt_no_seal = 0
+    abnormal_ratio = []
+    n_zt = 0
+    for code, bc, buy, mv in rows:
+        if bc is None:
+            continue
+        if code[:2] in ("30", "68"):
+            is_zt = bc >= 19.9
+        elif code[:1] in ("8", "4"):
+            is_zt = bc >= 29.9
+        else:
+            is_zt = bc >= 9.9
+        buy = buy or 0
+        if is_zt:
+            n_zt += 1
+            if buy <= 0:
+                n_zt_no_seal += 1
+            elif mv and buy > mv * 0.5:
+                abnormal_ratio.append((code, round(buy / mv, 2)))
+        else:
+            if buy > 0:
+                n_nonzt_seal += 1
+                if len(nonzt_samples) < 5:
+                    nonzt_samples.append("%s(%.2f%%)封单%.2f亿" % (
+                        code, bc, buy / 1e8))
+    # 判定: 非涨停挂封单是明确 bug, 必须告警; 其余为提示
+    problems = []
+    if n_nonzt_seal > 0:
+        problems.append("非涨停股挂封单 %d 只! 示例: %s" % (n_nonzt_seal, ", ".join(nonzt_samples)))
+    if n_zt > 0 and n_zt_no_seal > n_zt * 0.3:
+        problems.append("涨停股缺封单 %d/%d 只(KPL 未覆盖?)" % (n_zt_no_seal, n_zt))
+    if abnormal_ratio:
+        problems.append("封单/流通比异常 >50%%: %s" % ", ".join("%s:%s" % (c, r) for c, r in abnormal_ratio[:5]))
+    if not problems:
+        log.info("[数据质量] date=%s tp=%s 自检通过(涨停%d只 缺封单%d 非涨停挂封单%d)",
+                 date, time_point, n_zt, n_zt_no_seal, n_nonzt_seal)
+        return {"ok": True, "n_zt": n_zt, "n_zt_no_seal": n_zt_no_seal,
+                "n_nonzt_seal": n_nonzt_seal}
+    # 有问题: 告警
+    msg = "竞价封单数据异常 [%s %s]\n%s" % (date, time_point, "\n".join(problems))
+    log.warning("[数据质量] %s", msg)
+    if not force:
+        store.set(dedup_key, 1, 3600)
+    try:
+        from . import notify
+        notify.send_text(msg, title="⚠️ 数据质量告警")
+    except Exception as e:
+        log.warning("数据质量告警推送失败 err=%s", e)
+    return {"ok": False, "problems": problems, "n_zt": n_zt,
+            "n_zt_no_seal": n_zt_no_seal, "n_nonzt_seal": n_nonzt_seal}
 
 
 def snapshot_lastsec_at(ts_sec):
