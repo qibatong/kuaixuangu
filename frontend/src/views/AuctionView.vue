@@ -875,15 +875,15 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 .real-chg-col.dim { color: var(--text-muted); }
 /* 9:15 涨幅: 青蓝系(亮=涨, 暗=跌) */
 .chg-up-15 { color: #80d4ff; text-shadow: 0 0 6px rgba(95, 180, 255, 0.3); }
-.chg-dn-15 { color: #5080c0; }
+.chg-dn-15 { color: #4fc07a; }
 .dim-15    { color: #5a7898; }
 /* 9:20 涨幅: 橙系 */
 .chg-up-20 { color: #ffd566; text-shadow: 0 0 6px rgba(255, 180, 0, 0.3); }
-.chg-dn-20 { color: #c08600; }
+.chg-dn-20 { color: #35b866; }
 .dim-20    { color: #8a7a5a; }
 /* 9:25 涨幅: 红系(亮=涨停封死, 暗=回落, 灰=平) - 9:25 最终竞价结果用 A 股主色红 */
 .chg-up-25 { color: #ff6a6a; text-shadow: 0 0 6px rgba(255, 90, 90, 0.35); font-weight: 700; }
-.chg-dn-25 { color: #c04848; }
+.chg-dn-25 { color: #30b060; }
 .dim-25    { color: #9a5a5a; }
 /* 封单额: 按时点主色, 弱色 */
 .seal-col { font-variant-numeric: tabular-nums; }
@@ -896,6 +896,10 @@ body[data-bg="light"] .seal-col-25 { color: #c82020; }
 body[data-bg="light"] .chg-up-15 { color: #0068b4; }
 body[data-bg="light"] .chg-up-20 { color: #8a5a00; }
 body[data-bg="light"] .chg-up-25 { color: #c82020; }
+/* 浅色主题: 竞价涨幅<0 绿色(中国股市惯例跌=绿) */
+body[data-bg="light"] .chg-dn-15 { color: #1a8a4a; }
+body[data-bg="light"] .chg-dn-20 { color: #1a8a4a; }
+body[data-bg="light"] .chg-dn-25 { color: #1a8a4a; }
 
 /* === 加单趋势标签 === */
 .seal-mode { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 12px; font-weight: 600; white-space: nowrap; }
