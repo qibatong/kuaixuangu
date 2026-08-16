@@ -544,3 +544,123 @@ def test_admin_profile_no_fields(client, first_user, second_user):
     uid2 = r.json()["rows"][0]["id"]
     r = client.post("/api/admin/users/profile", json={"uid": uid2}, headers=hdrs(token))
     assert r.status_code == 400
+
+
+# ---------- 管理员代创建/删除账号 + pay_remark ----------
+def test_admin_create_user_ok(client, first_user):
+    """管理员创建账号(带会员等级/到期/微信名/付款备注) -> 成功, 可登录"""
+    import uuid
+    token, _, _ = first_user
+    uname = "mk_" + uuid.uuid4().hex[:8]
+    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
+    email = uuid.uuid4().hex[:8] + "@test.local"
+    r = client.post("/api/admin/users/create",
+                    json={"username": uname, "password": "Test123456",
+                          "phone": phone, "email": email,
+                          "member_level": 1, "expire_at": "2026-12-31",
+                          "wx_name": "测试微信", "pay_remark": "8月微信月付"},
+                    headers=hdrs(token))
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d.get("ok") and d["username"] == uname and d["member_level"] == 1
+    assert d["wx_name"] == "测试微信" and d["pay_remark"] == "8月微信月付"
+    assert d["expire_at"] > 0  # 设置了具体日期
+    # 新账号可用初始密码登录
+    r2 = client.post("/api/login", json={"username": uname, "password": "Test123456"})
+    assert r2.status_code == 200
+
+
+def test_admin_create_duplicate(client, first_user, second_user):
+    """用户名/手机号/邮箱冲突时拒绝"""
+    token, _, _ = first_user
+    _, uname2 = second_user
+    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8) if False else "13800000000"
+    # 用 second_user 的用户名, 期望 409
+    r = client.post("/api/admin/users/create",
+                    json={"username": uname2, "password": "Test123456",
+                          "phone": phone, "email": "x@x.local"},
+                    headers=hdrs(token))
+    assert r.status_code == 409
+
+
+def test_admin_create_invalid_phone(client, first_user):
+    """手机号格式错 -> 400"""
+    import uuid
+    token, _, _ = first_user
+    r = client.post("/api/admin/users/create",
+                    json={"username": "mk_" + uuid.uuid4().hex[:8],
+                          "password": "Test123456",
+                          "phone": "123", "email": uuid.uuid4().hex[:8] + "@x.local"},
+                    headers=hdrs(token))
+    assert r.status_code == 400
+
+
+def test_admin_profile_pay_remark(client, first_user):
+    """资料接口支持 pay_remark 字段 (会员专属付款备注)"""
+    import uuid
+    token, _, invite = first_user
+    uname = "pay_" + uuid.uuid4().hex[:8]
+    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
+    email = uuid.uuid4().hex[:8] + "@test.local"
+    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
+                                           "invite_code": invite,
+                                           "phone": phone, "email": email})
+    assert r.status_code == 200
+    # 取 uid
+    rows = client.get("/api/admin/users", headers=hdrs(token)).json()["rows"]
+    uid = next(x["id"] for x in rows if x["username"] == uname)
+    # 写 pay_remark
+    r2 = client.post("/api/admin/users/profile",
+                     json={"uid": uid, "pay_remark": "8-16微信月付300元", "remark": "老用户"},
+                     headers=hdrs(token))
+    assert r2.status_code == 200
+    d = r2.json()
+    assert d["pay_remark"] == "8-16微信月付300元" and d["remark"] == "老用户"
+    # 列表返回 pay_remark
+    rows2 = client.get("/api/admin/users", headers=hdrs(token)).json()["rows"]
+    row2 = next(x for x in rows2 if x["id"] == uid)
+    assert row2.get("pay_remark") == "8-16微信月付300元"
+
+
+def test_admin_delete_user_ok(client, first_user):
+    """删除普通用户 -> 成功, 后续登录失败"""
+    import uuid
+    token, _, invite = first_user
+    uname = "del_" + uuid.uuid4().hex[:8]
+    phone = "139" + str(uuid.uuid4().int % 100000000).zfill(8)
+    email = uuid.uuid4().hex[:8] + "@test.local"
+    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
+                                           "invite_code": invite,
+                                           "phone": phone, "email": email})
+    assert r.status_code == 200
+    # 取 uid
+    rows = client.get("/api/admin/users", headers=hdrs(token)).json()["rows"]
+    uid = next(x["id"] for x in rows if x["username"] == uname)
+    # 删除
+    r2 = client.post("/api/admin/users/delete", json={"uid": uid}, headers=hdrs(token))
+    assert r2.status_code == 200, r2.text
+    assert r2.json().get("ok")
+    # 删除后不能登录
+    r3 = client.post("/api/login", json={"username": uname, "password": "Test123456"})
+    assert r3.status_code == 401
+
+
+def test_admin_delete_self_forbidden(client, first_user):
+    """不能删除自己"""
+    token, _, _ = first_user
+    # first_user 的 uid 需要从数据库查
+    import sqlite3, os
+    conn = sqlite3.connect(os.environ["BID_DB_PATH"])
+    me = next((r for r in conn.execute("SELECT id FROM users WHERE is_admin=1 LIMIT 1")), None)
+    conn.close()
+    assert me
+    r = client.post("/api/admin/users/delete", json={"uid": me[0]}, headers=hdrs(token))
+    assert r.status_code == 400
+
+
+def test_admin_delete_admin_forbidden(client, first_user):
+    """不能删除其他管理员(测试环境只有 first_user 一个管理员, 尝试按 username 删自己"""
+    token, uname, _ = first_user
+    r = client.post("/api/admin/users/delete", json={"username": uname}, headers=hdrs(token))
+    # 既触发"删除自己"也触发"管理员", 任何一个 400 都行
+    assert r.status_code == 400

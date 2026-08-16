@@ -7,6 +7,8 @@
 - GET  /api/admin/scoring        当前评分权重
 - PUT  /api/admin/scoring        更新评分权重(保存后即时生效)
 """
+import re
+import sqlite3
 import time
 from datetime import datetime, timezone, timedelta
 
@@ -134,29 +136,164 @@ def api_admin_user_expire(request: Request, body: dict = Body(...), uid: int = D
 @router.post("/api/admin/users/profile")
 def api_admin_user_profile(request: Request, body: dict = Body(...),
                            uid: int = Depends(get_admin)):
-    """管理员代编辑用户资料: {uid, phone?, email?, wx_name?, remark?}
+    """管理员代编辑用户资料: {uid, phone?, email?, wx_name?, remark?, pay_remark?}
     只更新提供的字段; 复用 update_profile 的格式+唯一性校验。
-    例如 {uid: 5, wx_name: "北棠", remark: "8月新用户"} 只改微信名与备注。"""
+    pay_remark 是会员专属付款备注(管理员可改, 用户自己改不动)。
+    例如 {uid: 5, wx_name: "北棠", remark: "8月新用户", pay_remark: "8-16微信月付"}"""
     target = int(body.get("uid") or 0)
     if target <= 0:
         return jr({"ok": False, "msg": "缺少 uid"}, 400)
     u = users.find_user_by_id(target)
     if not u:
         return jr({"ok": False, "msg": "用户不存在"}, 404)
-    fields = {}
+    # 用户自助字段: 走 update_profile (含格式/唯一性校验)
+    user_fields = {}
     for k in ("phone", "email", "wx_name", "remark"):
         if k in body and body.get(k) is not None:
-            fields[k] = body.get(k)
-    if not fields:
-        return jr({"ok": False, "msg": "没有要更新的字段(支持 phone/email/wx_name/remark)"}, 400)
-    ok, msg = users.update_profile(target, **fields)
-    if not ok:
-        return jr({"ok": False, "msg": msg}, 400)
+            user_fields[k] = body.get(k)
+    if user_fields:
+        ok, msg = users.update_profile(target, **user_fields)
+        if not ok:
+            return jr({"ok": False, "msg": msg}, 400)
+    # 会员付款备注: 仅管理员可改, 无格式校验(自由文本)
+    if "pay_remark" in body and body.get("pay_remark") is not None:
+        pay_remark = (str(body.get("pay_remark")) or "").strip() or None
+        if pay_remark and len(pay_remark) > 500:
+            return jr({"ok": False, "msg": "付款备注过长(限500字)"}, 400)
+        users.set_pay_remark(target, pay_remark)
+    if not user_fields and "pay_remark" not in body:
+        return jr({"ok": False, "msg": "没有要更新的字段(支持 phone/email/wx_name/remark/pay_remark)"}, 400)
     row = users.find_user_by_id(target)
-    log.info("管理端编辑资料 uid=%s target=%s(%s) fields=%s", uid, target, u["username"], list(fields))
+    log.info("管理端编辑资料 uid=%s target=%s(%s) fields=%s",
+             uid, target, u["username"],
+             list(user_fields.keys()) + (["pay_remark"] if "pay_remark" in body else []))
     return jr({"ok": True, "msg": "资料已更新", "uid": target, "username": u["username"],
                "phone": row.get("phone"), "email": row.get("email"),
-               "wx_name": row.get("wx_name"), "remark": row.get("remark")})
+               "wx_name": row.get("wx_name"), "remark": row.get("remark"),
+               "pay_remark": row.get("pay_remark")})
+
+
+@router.post("/api/admin/users/create")
+def api_admin_user_create(request: Request, body: dict = Body(...),
+                          uid: int = Depends(get_admin)):
+    """管理员代创建账号(开通会员): {username, password, phone, email,
+        member_level?, expire_at?, invite_code?, wx_name?, remark?, pay_remark?}
+    - member_level: 0=免费试用 1=付费会员 2=VIP老师 (默认 1)
+    - expire_at: 'YYYY-MM-DD' 或 'forever' 或 'days:N' 或 省略 (默认 30 天后到期)
+    - invite_code: 邀请码(管理员账号可填自己的, 也可空)
+    - wx_name/remark/pay_remark: 初始化资料
+    """
+    username = str(body.get("username") or "").strip()
+    password = str(body.get("password") or "")
+    phone = str(body.get("phone") or "").strip()
+    email = str(body.get("email") or "").strip()
+    if not re.match(r"^[\u4e00-\u9fa5a-zA-Z0-9_]{2,20}$", username):
+        return jr({"ok": False, "msg": "用户名需 2-20 位，支持中英文/数字/下划线"}, 400)
+    if len(password) < 6:
+        return jr({"ok": False, "msg": "密码至少 6 位"}, 400)
+    if not users._is_phone(phone):
+        return jr({"ok": False, "msg": "手机号格式不正确"}, 400)
+    if not users._is_email(email):
+        return jr({"ok": False, "msg": "邮箱格式不正确"}, 400)
+    if users.find_user(username):
+        return jr({"ok": False, "msg": "用户名已存在"}, 409)
+    if phone and users.find_user_by_phone(phone):
+        return jr({"ok": False, "msg": "该手机号已绑定其他账号"}, 409)
+    if email and users.find_user_by_email(email):
+        return jr({"ok": False, "msg": "该邮箱已绑定其他账号"}, 409)
+    # 邀请码: 可选(管理员代建时通常留空)
+    invite_code = str(body.get("invite_code") or "").strip().upper()
+    invited_by = None
+    if invite_code:
+        inv = users.find_user_by_invite_code(invite_code)
+        if inv is None:
+            return jr({"ok": False, "msg": "邀请码无效"}, 400)
+        invited_by = inv["id"]
+    my_code = users.gen_unique_invite_code()
+    try:
+        new_uid = users.create_user(username, password, invited_by=invited_by,
+                                    invite_code=my_code, phone=phone or None,
+                                    email=email or None)
+    except sqlite3.IntegrityError as e:
+        log.warning("管理员创建账号冲突 username=%s err=%s", username, e)
+        return jr({"ok": False, "msg": "用户名或手机号/邮箱已被占用"}, 409)
+    # 会员等级
+    member_level = int(body.get("member_level") or 1)
+    if not users.set_member_level(new_uid, member_level):
+        log.warning("管理员创建账号非法等级 uid=%s level=%s", new_uid, member_level)
+    # 到期时间: 默认 30 天后; 支持多种格式
+    expire_cfg = body.get("expire_at")
+    days_cfg = body.get("days")
+    if expire_cfg == "forever" or days_cfg == 0 or days_cfg == "0":
+        users.set_expire(new_uid, 0)
+    elif isinstance(expire_cfg, str) and re.match(r"^\d{4}-\d{2}-\d{2}$", expire_cfg):
+        try:
+            dt = datetime.strptime(expire_cfg, "%Y-%m-%d")
+            bj = timezone(timedelta(hours=8))
+            ts = int(dt.replace(tzinfo=bj).timestamp()) + 86399
+            users.set_expire(new_uid, ts)
+        except ValueError:
+            users.extend_expire(new_uid, 30)
+    elif days_cfg is not None:
+        try:
+            d = int(days_cfg)
+            users.extend_expire(new_uid, d if d > 0 else 30)
+        except (TypeError, ValueError):
+            users.extend_expire(new_uid, 30)
+    else:
+        users.extend_expire(new_uid, 30)
+    # 资料字段
+    user_fields = {}
+    for k in ("wx_name", "remark"):
+        if k in body and body.get(k) is not None:
+            v = str(body.get(k) or "").strip() or None
+            if v:
+                user_fields[k] = v
+    if user_fields:
+        users.update_profile(new_uid, **user_fields)
+    pay_remark = body.get("pay_remark")
+    if pay_remark is not None:
+        v = (str(pay_remark) or "").strip() or None
+        if v and len(v) > 500:
+            return jr({"ok": False, "msg": "付款备注过长(限500字)"}, 400)
+        users.set_pay_remark(new_uid, v)
+    row = users.find_user_by_id(new_uid)
+    log.info("管理端创建账号 uid=%s new_uid=%s(%s) level=%s expire_at=%s pay_remark=%s",
+             uid, new_uid, username, member_level, row.get("expire_at"), pay_remark)
+    return jr({"ok": True, "msg": "账号已创建", "uid": new_uid, "username": username,
+               "phone": row.get("phone"), "email": row.get("email"),
+               "member_level": row.get("member_level"),
+               "expire_at": row.get("expire_at"),
+               "wx_name": row.get("wx_name"), "remark": row.get("remark"),
+               "pay_remark": row.get("pay_remark"),
+               "password": password})   # 返回初始密码方便告知用户
+
+
+@router.post("/api/admin/users/delete")
+def api_admin_user_delete(request: Request, body: dict = Body(...),
+                          uid: int = Depends(get_admin)):
+    """管理员删除用户: {uid} 或 {username}
+    安全检查: 不能删除自己; 不能删除其他管理员; 会级联清理 tokens/选股记录等。
+    """
+    target = int(body.get("uid") or 0)
+    username = str(body.get("username") or "").strip()
+    if target > 0:
+        u = users.find_user_by_id(target)
+    elif username:
+        u = users.find_user_by_login(username)
+    else:
+        return jr({"ok": False, "msg": "缺少 uid 或 username"}, 400)
+    if not u:
+        return jr({"ok": False, "msg": "用户不存在"}, 404)
+    if int(u["id"]) == uid:
+        return jr({"ok": False, "msg": "不能删除自己(防误操作)"}, 400)
+    if int(u.get("is_admin") or 0):
+        return jr({"ok": False, "msg": "不能删除其他管理员账号"}, 400)
+    ok = users.delete_user(u["id"])
+    if not ok:
+        return jr({"ok": False, "msg": "删除失败"}, 500)
+    log.warning("管理端删除账号 uid=%s target=%s(%s) ip=%s", uid, u["id"], u["username"], client_ip(request))
+    return jr({"ok": True, "msg": "账号已删除", "uid": u["id"], "username": u["username"]})
 
 
 @router.post("/api/admin/users/member-level")

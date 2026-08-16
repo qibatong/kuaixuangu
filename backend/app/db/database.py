@@ -95,6 +95,10 @@ def init_db():
         cur.execute("ALTER TABLE users ADD COLUMN wx_name TEXT")
     if "remark" not in ucols:
         cur.execute("ALTER TABLE users ADD COLUMN remark TEXT")
+    # 会员专属付款备注(2026-08-16): 月费用户记录付款时间/方式/凭证等,
+    # 区别于通用 remark (内部备注), 仅管理员可改
+    if "pay_remark" not in ucols:
+        cur.execute("ALTER TABLE users ADD COLUMN pay_remark TEXT")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_users_invited_by ON users(invited_by)")
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone)")
     # 登录 Token 持久化表(进程重启不失效, 支持「记住我」30 天)

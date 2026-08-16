@@ -21,9 +21,15 @@
       <div class="admin-card">
         <div class="card-title">
 <i class="fa fa-users"></i> 用户列表
-          <div style="display:flex;gap:8px;margin-left:auto;">
+          <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
+            <!-- 会员筛选 tab -->
+            <div class="member-tabs">
+              <button v-for="t in memberTabs" :key="t.key" class="member-tab"
+                      :class="{ active: memberTab === t.key }" @click="setMemberTab(t.key)">{{ t.label }}</button>
+            </div>
             <input v-model="keyword" class="admin-input" placeholder="搜索用户名/手机/邮箱" @keyup.enter="loadUsers(1)" />
             <button class="admin-search-btn" @click="loadUsers(1)"><i class="fa fa-search"></i> 搜索</button>
+            <button class="admin-search-btn" style="background:rgba(0,200,120,0.15);border-color:#00c878;color:#80ffaa;" @click="openCreate()"><i class="fa fa-plus"></i> 新建会员</button>
           </div>
         </div>
         <div class="table-scroll">
@@ -49,6 +55,7 @@
                   {{ u.username }}
                   <div v-if="u.wx_name" class="user-sub">微信: {{ u.wx_name }}</div>
                   <div v-if="u.remark" class="user-sub user-remark" :title="u.remark">备注: {{ u.remark }}</div>
+                  <div v-if="u.pay_remark" class="user-sub user-pay" :title="u.pay_remark">[付款] {{ u.pay_remark }}</div>
                 </td>
                 <td>{{ u.phone || u.email || '-' }}</td>
                 <td>{{ fmtTsTime(u.created_at) }}</td>
@@ -76,6 +83,7 @@
                     <button class="mini-btn" @click.stop="openProfile(u)">📝 资料</button>
                     <button class="mini-btn" style="margin-left:6px;" @click.stop="togglePanel(u)">⚙️ 设置期限</button>
                     <button class="mini-btn pwd-btn" style="margin-left:6px;" @click.stop="openPwdReset(u)">🔑 重置密码</button>
+                    <button class="mini-btn danger" style="margin-left:6px;" @click.stop="deleteUser(u)">🗑️ 删除</button>
                     <div v-if="openUid === u.id" class="expire-popover" @click.stop>
                       <div class="pop-label">延长时长</div>
                       <div class="pop-row">
@@ -131,9 +139,57 @@
         </div>
       </div>
 
-      <!-- 编辑资料弹层(管理员代设置手机/邮箱/微信名/备注) -->
+      <!-- 创建会员弹层(管理员代创建账号) -->
+      <div v-if="createOpen" class="pwd-mask" @click.self="closeCreate">
+        <div class="pwd-pop" style="width:480px;">
+          <div class="pwd-title">➕ 新建会员账号</div>
+          <div class="profile-grid">
+            <label class="profile-label">用户名 <span style="color:#ff6a6a;">*</span>
+              <input v-model="createForm.username" type="text" maxlength="20" class="admin-input" placeholder="2-20 位, 中英文/数字/下划线" /></label>
+            <label class="profile-label">初始密码 <span style="color:#ff6a6a;">*</span>
+              <input v-model="createForm.password" type="text" maxlength="32" class="admin-input" placeholder="至少 6 位 (建议告知用户)" /></label>
+            <label class="profile-label">手机号 <span style="color:#ff6a6a;">*</span>
+              <input v-model="createForm.phone" type="text" maxlength="11" class="admin-input" placeholder="11 位手机号" /></label>
+            <label class="profile-label">邮箱 <span style="color:#ff6a6a;">*</span>
+              <input v-model="createForm.email" type="text" maxlength="60" class="admin-input" placeholder="用于找回密码" /></label>
+            <label class="profile-label">会员等级
+              <select v-model.number="createForm.member_level" class="admin-input">
+                <option :value="0">免费试用</option>
+                <option :value="1">付费会员</option>
+                <option :value="2">VIP 老师</option>
+              </select></label>
+            <label class="profile-label">到期日
+              <input v-model="createForm.expire_at" type="date" class="admin-input" :min="todayStr" /></label>
+            <label class="profile-label">微信名
+              <input v-model="createForm.wx_name" type="text" maxlength="40" class="admin-input" placeholder="联系用微信昵称" /></label>
+            <label class="profile-label">管理员备注
+              <input v-model="createForm.remark" type="text" maxlength="200" class="admin-input" placeholder="仅管理端可见" /></label>
+            <label class="profile-label profile-pay" style="grid-column:1 / -1;">付款备注 (月费用户必填)
+              <textarea v-model="createForm.pay_remark" maxlength="500" rows="2" class="admin-input"
+                        placeholder="例: 8-16 微信月付 300元; 下次续费 9-16"></textarea></label>
+          </div>
+          <div class="profile-tip">带 * 的字段必填; 创建成功后会显示初始密码, 请告知用户</div>
+          <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
+            <button class="mini-btn" @click="closeCreate">取消</button>
+            <button class="mini-btn danger" :disabled="createSaving" @click="doCreate">{{ createSaving ? '创建中...' : '创建账号' }}</button>
+          </div>
+          <!-- 创建成功结果展示 -->
+          <div v-if="createResult" class="create-result">
+            <div><b>{{ createResult.username }}</b> 创建成功!</div>
+            <div style="margin-top:6px;font-size:12px;color:#999;">
+              ID {{ createResult.uid }} · 到期 {{ fmtBjDay(createResult.expire_at) }} · 等级 {{ levelLabel(createResult.member_level) }}
+            </div>
+            <div style="margin-top:8px;padding:8px;background:rgba(255,200,80,0.15);border:1px solid #ffc850;border-radius:6px;color:#ffe0a0;">
+              初始密码: <b style="user-select:all;font-family:monospace;">{{ createResult.password }}</b>
+              <button class="mini-btn" style="margin-left:8px;" @click="copyText(createResult.password)">复制</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 编辑资料弹层(管理员代设置手机/邮箱/微信名/备注/付款备注) -->
       <div v-if="profileTarget" class="pwd-mask" @click.self="closeProfile">
-        <div class="pwd-pop" style="width:420px;">
+        <div class="pwd-pop" style="width:460px;">
           <div class="pwd-title">📝 编辑资料：{{ profileTarget.username }}
             <span style="color:#999;font-size:12px;margin-left:8px;">(ID {{ profileTarget.id }})</span></div>
           <div class="profile-grid">
@@ -143,8 +199,11 @@
               <input v-model="profileForm.email" type="text" maxlength="60" class="admin-input" placeholder="用于找回密码" /></label>
             <label class="profile-label">微信名
               <input v-model="profileForm.wx_name" type="text" maxlength="40" class="admin-input" placeholder="联系用微信昵称" /></label>
-            <label class="profile-label">备注
-              <input v-model="profileForm.remark" type="text" maxlength="200" class="admin-input" placeholder="管理员备注(仅管理端可见)" /></label>
+            <label class="profile-label">管理员备注
+              <input v-model="profileForm.remark" type="text" maxlength="200" class="admin-input" placeholder="仅管理端可见" /></label>
+            <label class="profile-label profile-pay" style="grid-column:1 / -1;">付款备注 (会员专属, 仅管理员可改)
+              <textarea v-model="profileForm.pay_remark" maxlength="500" rows="2" class="admin-input"
+                        placeholder="例: 8-16微信月付300元; 到期 9-16 自动提醒续费"></textarea></label>
           </div>
           <div class="profile-tip">留空表示不修改该字段；手机号/邮箱有格式+唯一性校验</div>
           <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
@@ -268,7 +327,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { adminScoring, adminSetMemberLevel, adminSetUserProfile, adminUsers, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
+import { adminCreateUser, adminDeleteUser, adminScoring, adminSetMemberLevel, adminSetUserProfile, adminUsers, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
 import { showToast as toast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
 import { expireState } from '../utils/admin'
@@ -358,9 +417,9 @@ async function doResetPwd() {
   }
 }
 
-// ---------- 管理员代编辑用户资料(手机/邮箱/微信名/备注) ----------
+// ---------- 管理员代编辑用户资料(手机/邮箱/微信名/备注/付款备注) ----------
 const profileTarget = ref(null)
-const profileForm = reactive({ phone: '', email: '', wx_name: '', remark: '' })
+const profileForm = reactive({ phone: '', email: '', wx_name: '', remark: '', pay_remark: '' })
 const profileSaving = ref(false)
 function openProfile(u) {
   profileTarget.value = u
@@ -368,11 +427,12 @@ function openProfile(u) {
   profileForm.email = u.email || ''
   profileForm.wx_name = u.wx_name || ''
   profileForm.remark = u.remark || ''
+  profileForm.pay_remark = u.pay_remark || ''
   closePanel()
 }
 function closeProfile() {
   profileTarget.value = null
-  profileForm.phone = profileForm.email = profileForm.wx_name = profileForm.remark = ''
+  profileForm.phone = profileForm.email = profileForm.wx_name = profileForm.remark = profileForm.pay_remark = ''
 }
 async function saveProfile() {
   if (!profileTarget.value) return
@@ -381,10 +441,11 @@ async function saveProfile() {
   if (profileForm.email.trim() !== (profileTarget.value.email || '')) fields.email = profileForm.email.trim()
   if (profileForm.wx_name.trim() !== (profileTarget.value.wx_name || '')) fields.wx_name = profileForm.wx_name.trim()
   if (profileForm.remark.trim() !== (profileTarget.value.remark || '')) fields.remark = profileForm.remark.trim()
+  if (profileForm.pay_remark.trim() !== (profileTarget.value.pay_remark || '')) fields.pay_remark = profileForm.pay_remark.trim()
   if (!Object.keys(fields).length) { toast('没有改动', 'error'); return }
   profileSaving.value = true
   try {
-    const d = await adminSetUserProfile(profileTarget.value.id, fields)
+    await adminSetUserProfile(profileTarget.value.id, fields)
     toast(`${profileTarget.value.username} 资料已更新`, 'success')
     closeProfile()
     loadUsers(page.value)
@@ -395,7 +456,113 @@ async function saveProfile() {
   }
 }
 
+// ---------- 管理员创建会员 ----------
+const createOpen = ref(false)
+const createSaving = ref(false)
+const createResult = ref(null)
+const createForm = reactive({
+  username: '', password: '', phone: '', email: '',
+  member_level: 1, expire_at: '', wx_name: '', remark: '', pay_remark: ''
+})
+const todayStr = new Date().toISOString().slice(0, 10)
+function openCreate() {
+  createOpen.value = true
+  createResult.value = null
+  // 默认 30 天后到期
+  const d = new Date(); d.setDate(d.getDate() + 30)
+  createForm.expire_at = d.toISOString().slice(0, 10)
+  Object.assign(createForm, { username: '', password: '', phone: '', email: '',
+    member_level: 1, wx_name: '', remark: '', pay_remark: '' })
+}
+function closeCreate() { createOpen.value = false; createResult.value = null }
+async function doCreate() {
+  if (!createForm.username.trim() || createForm.username.trim().length < 2) { toast('用户名 2-20 位', 'error'); return }
+  if (createForm.password.length < 6) { toast('密码至少 6 位', 'error'); return }
+  if (!/^1[3-9]\d{9}$/.test(createForm.phone.trim())) { toast('手机号格式不正确', 'error'); return }
+  if (!/^[\w.+-]+@[\w-]+(\.[\w-]+)+$/.test(createForm.email.trim())) { toast('邮箱格式不正确', 'error'); return }
+  createSaving.value = true
+  try {
+    const body = {
+      username: createForm.username.trim(),
+      password: createForm.password,
+      phone: createForm.phone.trim(),
+      email: createForm.email.trim(),
+      member_level: createForm.member_level,
+      expire_at: createForm.expire_at || undefined,
+      wx_name: createForm.wx_name.trim() || undefined,
+      remark: createForm.remark.trim() || undefined,
+      pay_remark: createForm.pay_remark.trim() || undefined,
+    }
+    const d = await adminCreateUser(body)
+    createResult.value = d
+    toast(`${d.username} 创建成功`, 'success')
+    loadUsers(page.value)
+  } catch (e) {
+    toast(e.message || '创建失败', 'error')
+  } finally {
+    createSaving.value = false
+  }
+}
+async function copyText(t) {
+  try {
+    await navigator.clipboard.writeText(t)
+    toast('已复制', 'success')
+  } catch {
+    toast('复制失败, 请手动选中', 'error')
+  }
+}
+
+// ---------- 管理员删除账号 ----------
+async function deleteUser(u) {
+  if (!window.confirm(`确认删除「${u.username}」？此操作会清除该用户的所有会话/选股记录/重置链接, 不可恢复。`)) return
+  if (!window.confirm(`再次确认: 真的要删除 ${u.username} (ID ${u.id}) 吗?`)) return
+  try {
+    await adminDeleteUser({ uid: u.id })
+    toast(`${u.username} 已删除`, 'success')
+    loadUsers(page.value)
+  } catch (e) {
+    toast(e.message || '删除失败', 'error')
+  }
+}
+
+// ---------- 会员筛选 tab ----------
+const memberTabs = [
+  { key: 'all', label: '全部' },
+  { key: 'member', label: '会员' },
+  { key: 'normal', label: '普通用户' },
+  { key: 'admin', label: '管理员' },
+]
+const memberTab = ref('all')
+function setMemberTab(k) {
+  memberTab.value = k
+  page.value = 1
+  loadUsers(1)
+}
+// 后端按 keyword 搜索, 这里前端按 memberTab 在 keyword 上附加过滤(简化: 直接 keyword 走原路径, 切 tab 仅影响客户端展示)
+async function loadUsers(p) {
+  try {
+    let kw = keyword.value || ''
+    if (memberTab.value === 'member') kw = kw ? `${kw}` : '__member__'   // 占位, 服务端不识别, 前端过滤
+    const d = await adminUsers({ page: p, pageSize: pageSize.value, keyword: kw })
+    let rows = d.rows || []
+    if (memberTab.value === 'member') rows = rows.filter(r => (r.member_level || 0) > 0 && !r.is_admin)
+    else if (memberTab.value === 'normal') rows = rows.filter(r => !r.is_admin && (r.member_level || 0) === 0)
+    else if (memberTab.value === 'admin') rows = rows.filter(r => r.is_admin)
+    rows = rows.map(r => ({ ...r, _level: r.member_level || 0 }))
+    // 替换原 rows (保持 total/page 不变, 仅前端过滤)
+    rowsAll.value = (d.rows || []).map(r => ({ ...r, _level: r.member_level || 0 }))
+    rows.value = rows
+    total.value = d.total || 0
+    page.value = d.page || 1
+    stats.value = d.stats || {}
+  } catch (e) {
+    if (e.status === 403) denied.value = true
+    else toast(e.message || '加载失败', 'error')
+  }
+}
+
 const stats = ref({})
+const rowsAll = ref([])       // 服务端返回的全量(分页内), 用于 tab 切换时客户端过滤
 const rows = ref([])
 const page = ref(1)
 const total = ref(0)
@@ -441,19 +608,6 @@ async function extendUser(u, action) {
     loadUsers(page.value)
   } catch (e) {
     toast(e.message || '设置失败', 'error')
-  }
-}
-
-async function loadUsers(p) {
-  try {
-    const d = await adminUsers({ page: p, pageSize: pageSize.value, keyword: keyword.value })
-    rows.value = (d.rows || []).map(r => ({ ...r, _level: r.member_level || 0 }))
-    total.value = d.total || 0
-    page.value = d.page || 1
-    stats.value = d.stats || {}
-  } catch (e) {
-    if (e.status === 403) denied.value = true
-    else toast(e.message || '加载失败', 'error')
   }
 }
 
@@ -650,10 +804,20 @@ onMounted(() => {
 .profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
 .profile-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-muted); text-align: left; }
 .profile-label .admin-input { width: 100%; box-sizing: border-box; }
+.profile-label textarea.admin-input { resize: vertical; min-height: 36px; font-family: inherit; }
+.profile-label.profile-pay { color: #6ab0ff; }
 .profile-tip { font-size: 11px; color: #888; margin-top: 10px; text-align: left; }
 /* 用户列表: 微信名/备注小字 */
-.user-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-remark { color: #b8965a; }
+.user-pay { color: #6ab0ff; font-weight: 500; }
+/* 会员筛选 tab */
+.member-tabs { display: flex; gap: 2px; background: rgba(255,255,255,0.04); padding: 2px; border-radius: 6px; }
+.member-tab { background: transparent; border: 0; color: var(--text-muted); padding: 4px 12px; font-size: 12px; cursor: pointer; border-radius: 4px; }
+.member-tab:hover { color: var(--text-main); }
+.member-tab.active { background: rgba(0,180,255,0.18); color: #a0e0ff; }
+/* 创建结果展示 */
+.create-result { margin-top: 14px; padding: 12px; background: rgba(0,200,120,0.10); border: 1px solid rgba(0,200,120,0.35); border-radius: 6px; font-size: 13px; }
 .mini-date { background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 4px; color: var(--text-main); padding: 3px 6px; font-size: 12px; color-scheme: light; }
 .pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
 .pager-left { display: flex; align-items: center; gap: 6px; }

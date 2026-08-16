@@ -40,8 +40,18 @@ export function adminSetMemberLevel(uid, level) {
 }
 
 export function adminSetUserProfile(uid, fields) {
-  // 管理员代编辑用户资料: fields = {phone?, email?, wx_name?, remark?}
+  // 管理员代编辑用户资料: fields = {phone?, email?, wx_name?, remark?, pay_remark?}
   return request('/api/admin/users/profile', { method: 'POST', body: { uid, ...fields } })
+}
+
+export function adminCreateUser(body) {
+  // 管理员代创建账号: body = {username, password, phone, email, member_level?, expire_at?, invite_code?, wx_name?, remark?, pay_remark?}
+  return request('/api/admin/users/create', { method: 'POST', body })
+}
+
+export function adminDeleteUser(payload) {
+  // 管理员删除用户: payload = {uid} 或 {username}
+  return request('/api/admin/users/delete', { method: 'POST', body: payload })
 }
 
 export function bidSnapshot(date, timePoint = '9_25', limit = 50) {

@@ -119,6 +119,41 @@ def set_member_level(uid, level):
         return False
 
 
+def set_pay_remark(uid, pay_remark):
+    """设置会员专属付款备注 (管理员调用, 用于月费用户的付款时间/方式/凭证记录)
+    pay_remark=None 清空"""
+    try:
+        conn = _conn()
+        conn.execute("UPDATE users SET pay_remark=? WHERE id=?", (pay_remark, uid))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def delete_user(uid):
+    """删除用户 + 级联清理(tokens / 选股记录 batches / 重置链接)
+    注意: 调用方需先校验目标不能是管理员/自己"""
+    try:
+        conn = _conn()
+        conn.execute("DELETE FROM tokens WHERE user_id=?", (uid,))
+        # batches/batch_stocks 用 ON DELETE CASCADE 时会自动清, 否则显式删
+        conn.execute("DELETE FROM batch_stocks WHERE batch_id IN (SELECT id FROM batches WHERE user_id=?)", (uid,))
+        conn.execute("DELETE FROM batches WHERE user_id=?", (uid,))
+        conn.execute("DELETE FROM reset_tokens WHERE user_id=?", (uid,))
+        # 用户被删后其 invited_by 指向失效 -> 置空(避免后续展示孤儿)
+        conn.execute("UPDATE users SET invited_by=NULL WHERE invited_by=?", (uid,))
+        cur = conn.execute("DELETE FROM users WHERE id=?", (uid,))
+        conn.commit()
+        ok = cur.rowcount > 0
+        conn.close()
+        return ok
+    except Exception as e:
+        log.warning("delete_user 失败 uid=%s err=%s", uid, e)
+        return False
+
+
 def grant_invite_reward(inviter_id, days=5):
     """邀请奖励: 邀请人每成功邀请一个新注册用户 +days 天使用时间
     永久会员(expire_at=0)或 VIP老师(member_level=2)已是永久, 不再叠加(避免把永久变有限)
@@ -172,7 +207,7 @@ def list_users_page(page=1, page_size=20, keyword=""):
         "SELECT COUNT(*) FROM users WHERE 1=1" + cond, params).fetchone()[0]
     rows = conn.execute(
         "SELECT u.id, u.username, u.created_at, u.is_admin, u.invite_code, u.invited_by, "
-        "u.phone, u.email, u.wx_name, u.remark, u.expire_at, u.member_level, "
+        "u.phone, u.email, u.wx_name, u.remark, u.pay_remark, u.expire_at, u.member_level, "
         "(SELECT COUNT(*) FROM users x WHERE x.invited_by=u.id) AS invited_count, "
         "(SELECT COUNT(*) FROM batches b WHERE b.user_id=u.id) AS batch_count "
         "FROM users u WHERE 1=1" + cond + " ORDER BY u.id DESC LIMIT ? OFFSET ?",
