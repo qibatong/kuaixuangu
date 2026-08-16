@@ -45,7 +45,11 @@
             <tbody>
               <tr v-for="u in userSort.sorted(rows, userVal)" :key="u.id">
                 <td>{{ u.id }}</td>
-                <td>{{ u.username }}</td>
+                <td>
+                  {{ u.username }}
+                  <div v-if="u.wx_name" class="user-sub">微信: {{ u.wx_name }}</div>
+                  <div v-if="u.remark" class="user-sub user-remark" :title="u.remark">备注: {{ u.remark }}</div>
+                </td>
                 <td>{{ u.phone || u.email || '-' }}</td>
                 <td>{{ fmtTsTime(u.created_at) }}</td>
                 <td>
@@ -69,7 +73,8 @@
                 <td>
                   <div v-if="u.is_admin" style="color:#888;font-size:12px;">管理员永久有效</div>
                   <div v-else class="expire-cell">
-                    <button class="mini-btn" @click.stop="togglePanel(u)">⚙️ 设置期限</button>
+                    <button class="mini-btn" @click.stop="openProfile(u)">📝 资料</button>
+                    <button class="mini-btn" style="margin-left:6px;" @click.stop="togglePanel(u)">⚙️ 设置期限</button>
                     <button class="mini-btn pwd-btn" style="margin-left:6px;" @click.stop="openPwdReset(u)">🔑 重置密码</button>
                     <div v-if="openUid === u.id" class="expire-popover" @click.stop>
                       <div class="pop-label">延长时长</div>
@@ -122,6 +127,29 @@
           <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
             <button class="mini-btn" @click="closePwdReset">取消</button>
             <button class="mini-btn danger" :disabled="pwdSaving" @click="doResetPwd">{{ pwdSaving ? '重置中...' : '确认重置' }}</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 编辑资料弹层(管理员代设置手机/邮箱/微信名/备注) -->
+      <div v-if="profileTarget" class="pwd-mask" @click.self="closeProfile">
+        <div class="pwd-pop" style="width:420px;">
+          <div class="pwd-title">📝 编辑资料：{{ profileTarget.username }}
+            <span style="color:#999;font-size:12px;margin-left:8px;">(ID {{ profileTarget.id }})</span></div>
+          <div class="profile-grid">
+            <label class="profile-label">手机号
+              <input v-model="profileForm.phone" type="text" maxlength="11" class="admin-input" placeholder="11 位手机号" /></label>
+            <label class="profile-label">邮箱
+              <input v-model="profileForm.email" type="text" maxlength="60" class="admin-input" placeholder="用于找回密码" /></label>
+            <label class="profile-label">微信名
+              <input v-model="profileForm.wx_name" type="text" maxlength="40" class="admin-input" placeholder="联系用微信昵称" /></label>
+            <label class="profile-label">备注
+              <input v-model="profileForm.remark" type="text" maxlength="200" class="admin-input" placeholder="管理员备注(仅管理端可见)" /></label>
+          </div>
+          <div class="profile-tip">留空表示不修改该字段；手机号/邮箱有格式+唯一性校验</div>
+          <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
+            <button class="mini-btn" @click="closeProfile">取消</button>
+            <button class="mini-btn danger" :disabled="profileSaving" @click="saveProfile">{{ profileSaving ? '保存中...' : '保存资料' }}</button>
           </div>
         </div>
       </div>
@@ -240,7 +268,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { adminScoring, adminSetMemberLevel, adminUsers, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
+import { adminScoring, adminSetMemberLevel, adminSetUserProfile, adminUsers, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
 import { showToast as toast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
 import { expireState } from '../utils/admin'
@@ -327,6 +355,43 @@ async function doResetPwd() {
     toast(e.message || '重置失败', 'error')
   } finally {
     pwdSaving.value = false
+  }
+}
+
+// ---------- 管理员代编辑用户资料(手机/邮箱/微信名/备注) ----------
+const profileTarget = ref(null)
+const profileForm = reactive({ phone: '', email: '', wx_name: '', remark: '' })
+const profileSaving = ref(false)
+function openProfile(u) {
+  profileTarget.value = u
+  profileForm.phone = u.phone || ''
+  profileForm.email = u.email || ''
+  profileForm.wx_name = u.wx_name || ''
+  profileForm.remark = u.remark || ''
+  closePanel()
+}
+function closeProfile() {
+  profileTarget.value = null
+  profileForm.phone = profileForm.email = profileForm.wx_name = profileForm.remark = ''
+}
+async function saveProfile() {
+  if (!profileTarget.value) return
+  const fields = {}
+  if (profileForm.phone.trim() !== (profileTarget.value.phone || '')) fields.phone = profileForm.phone.trim()
+  if (profileForm.email.trim() !== (profileTarget.value.email || '')) fields.email = profileForm.email.trim()
+  if (profileForm.wx_name.trim() !== (profileTarget.value.wx_name || '')) fields.wx_name = profileForm.wx_name.trim()
+  if (profileForm.remark.trim() !== (profileTarget.value.remark || '')) fields.remark = profileForm.remark.trim()
+  if (!Object.keys(fields).length) { toast('没有改动', 'error'); return }
+  profileSaving.value = true
+  try {
+    const d = await adminSetUserProfile(profileTarget.value.id, fields)
+    toast(`${profileTarget.value.username} 资料已更新`, 'success')
+    closeProfile()
+    loadUsers(page.value)
+  } catch (e) {
+    toast(e.message || '保存失败', 'error')
+  } finally {
+    profileSaving.value = false
   }
 }
 
@@ -581,6 +646,14 @@ onMounted(() => {
 .pwd-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .pwd-pop { background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 10px; padding: 18px 20px; min-width: 320px; box-shadow: 0 6px 24px rgba(0,0,0,0.35); }
 .pwd-title { font-size: 14px; color: #ffe0a0; margin-bottom: 12px; }
+/* 编辑资料弹窗: 2 列网格 */
+.profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.profile-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-muted); text-align: left; }
+.profile-label .admin-input { width: 100%; box-sizing: border-box; }
+.profile-tip { font-size: 11px; color: #888; margin-top: 10px; text-align: left; }
+/* 用户列表: 微信名/备注小字 */
+.user-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-remark { color: #b8965a; }
 .mini-date { background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 4px; color: var(--text-main); padding: 3px 6px; font-size: 12px; color-scheme: light; }
 .pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
 .pager-left { display: flex; align-items: center; gap: 6px; }

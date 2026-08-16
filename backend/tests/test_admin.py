@@ -466,3 +466,81 @@ def test_admin_defaults_no_force_keeps_user_filters(client, first_user, second_u
         assert s.get("bidGt") == 9 and s.get("bg") == "dark"
     finally:
         _restore_default_filters()
+
+
+# ---------- 管理员代编辑用户资料 ----------
+def test_admin_profile_edit_ok(client, first_user):
+    """管理员编辑用户资料(微信名/备注/手机号) -> 成功, 列表可见"""
+    import uuid
+    token, _, invite = first_user
+    uname = "pf_" + uuid.uuid4().hex[:8]
+    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
+    email = uuid.uuid4().hex[:8] + "@test.local"
+    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
+                                           "invite_code": invite,
+                                           "phone": phone, "email": email})
+    assert r.status_code == 200
+    uid = None
+    r2 = client.get("/api/admin/users", headers=hdrs(token))
+    for row in r2.json().get("rows", []):
+        if row["username"] == uname:
+            uid = row["id"]
+            break
+    assert uid is not None
+    # 只改微信名+备注(不动手机/邮箱)
+    r3 = client.post("/api/admin/users/profile",
+                     json={"uid": uid, "wx_name": "北棠", "remark": "8月微信用户"},
+                     headers=hdrs(token))
+    assert r3.status_code == 200, r3.text
+    d = r3.json()
+    assert d.get("ok") and d["wx_name"] == "北棠" and d["remark"] == "8月微信用户"
+    # 列表已返回 wx_name/remark 字段
+    r4 = client.get("/api/admin/users", headers=hdrs(token))
+    row2 = next(x for x in r4.json()["rows"] if x["id"] == uid)
+    assert row2.get("wx_name") == "北棠" and row2.get("remark") == "8月微信用户"
+
+
+def test_admin_profile_invalid_phone(client, first_user, second_user):
+    """资料手机号格式错 -> 400"""
+    token, _, _ = first_user
+    _, uname2 = second_user
+    r = client.get("/api/admin/users?keyword=" + uname2, headers=hdrs(token))
+    uid2 = r.json()["rows"][0]["id"]
+    r = client.post("/api/admin/users/profile",
+                    json={"uid": uid2, "phone": "123"}, headers=hdrs(token))
+    assert r.status_code == 400
+
+
+def test_admin_profile_duplicate_email(client, first_user, second_user):
+    """资料邮箱与其他用户重复 -> 400"""
+    import uuid
+    token, _, invite = first_user
+    # 注册两个用户, 用第二个用户的邮箱去改第一个 -> 应拒绝
+    u1 = "pfdup1_" + uuid.uuid4().hex[:8]
+    u2 = "pfdup2_" + uuid.uuid4().hex[:8]
+    p1 = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
+    p2 = "139" + str(uuid.uuid4().int % 100000000).zfill(8)
+    e1 = uuid.uuid4().hex[:8] + "@test.local"
+    e2 = uuid.uuid4().hex[:8] + "@test.local"
+    r1 = client.post("/api/register", json={"username": u1, "password": "Test123456",
+                                            "invite_code": invite, "phone": p1, "email": e1})
+    r2 = client.post("/api/register", json={"username": u2, "password": "Test123456",
+                                            "invite_code": invite, "phone": p2, "email": e2})
+    assert r1.status_code == 200 and r2.status_code == 200
+    rows = client.get("/api/admin/users", headers=hdrs(token)).json()["rows"]
+    id1 = next(x["id"] for x in rows if x["username"] == u1)
+    # 把 u1 邮箱改成 u2 的邮箱 -> 唯一性冲突
+    r = client.post("/api/admin/users/profile",
+                    json={"uid": id1, "email": e2}, headers=hdrs(token))
+    assert r.status_code == 400
+    assert "邮箱" in r.json().get("msg", "")
+
+
+def test_admin_profile_no_fields(client, first_user, second_user):
+    """没有要更新的字段 -> 400"""
+    token, _, _ = first_user
+    _, uname2 = second_user
+    r = client.get("/api/admin/users?keyword=" + uname2, headers=hdrs(token))
+    uid2 = r.json()["rows"][0]["id"]
+    r = client.post("/api/admin/users/profile", json={"uid": uid2}, headers=hdrs(token))
+    assert r.status_code == 400

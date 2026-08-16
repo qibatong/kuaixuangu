@@ -172,7 +172,7 @@ def list_users_page(page=1, page_size=20, keyword=""):
         "SELECT COUNT(*) FROM users WHERE 1=1" + cond, params).fetchone()[0]
     rows = conn.execute(
         "SELECT u.id, u.username, u.created_at, u.is_admin, u.invite_code, u.invited_by, "
-        "u.phone, u.email, u.expire_at, u.member_level, "
+        "u.phone, u.email, u.wx_name, u.remark, u.expire_at, u.member_level, "
         "(SELECT COUNT(*) FROM users x WHERE x.invited_by=u.id) AS invited_count, "
         "(SELECT COUNT(*) FROM batches b WHERE b.user_id=u.id) AS batch_count "
         "FROM users u WHERE 1=1" + cond + " ORDER BY u.id DESC LIMIT ? OFFSET ?",

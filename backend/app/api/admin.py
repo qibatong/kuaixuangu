@@ -131,6 +131,34 @@ def api_admin_user_expire(request: Request, body: dict = Body(...), uid: int = D
                "username": u["username"], "expire_at": row.get("expire_at")})
 
 
+@router.post("/api/admin/users/profile")
+def api_admin_user_profile(request: Request, body: dict = Body(...),
+                           uid: int = Depends(get_admin)):
+    """管理员代编辑用户资料: {uid, phone?, email?, wx_name?, remark?}
+    只更新提供的字段; 复用 update_profile 的格式+唯一性校验。
+    例如 {uid: 5, wx_name: "北棠", remark: "8月新用户"} 只改微信名与备注。"""
+    target = int(body.get("uid") or 0)
+    if target <= 0:
+        return jr({"ok": False, "msg": "缺少 uid"}, 400)
+    u = users.find_user_by_id(target)
+    if not u:
+        return jr({"ok": False, "msg": "用户不存在"}, 404)
+    fields = {}
+    for k in ("phone", "email", "wx_name", "remark"):
+        if k in body and body.get(k) is not None:
+            fields[k] = body.get(k)
+    if not fields:
+        return jr({"ok": False, "msg": "没有要更新的字段(支持 phone/email/wx_name/remark)"}, 400)
+    ok, msg = users.update_profile(target, **fields)
+    if not ok:
+        return jr({"ok": False, "msg": msg}, 400)
+    row = users.find_user_by_id(target)
+    log.info("管理端编辑资料 uid=%s target=%s(%s) fields=%s", uid, target, u["username"], list(fields))
+    return jr({"ok": True, "msg": "资料已更新", "uid": target, "username": u["username"],
+               "phone": row.get("phone"), "email": row.get("email"),
+               "wx_name": row.get("wx_name"), "remark": row.get("remark")})
+
+
 @router.post("/api/admin/users/member-level")
 def api_admin_user_member_level(request: Request, body: dict = Body(...),
                                 uid: int = Depends(get_admin)):

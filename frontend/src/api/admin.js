@@ -39,6 +39,11 @@ export function adminSetMemberLevel(uid, level) {
   return request('/api/admin/users/member-level', { method: 'POST', body: { uid, level } })
 }
 
+export function adminSetUserProfile(uid, fields) {
+  // 管理员代编辑用户资料: fields = {phone?, email?, wx_name?, remark?}
+  return request('/api/admin/users/profile', { method: 'POST', body: { uid, ...fields } })
+}
+
 export function bidSnapshot(date, timePoint = '9_25', limit = 50) {
   return request(`/api/stats/bid-snapshot?date=${date}&time_point=${timePoint}&limit=${limit}`)
 }
