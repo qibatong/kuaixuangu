@@ -12,8 +12,12 @@ def test_register_first_user(client, first_user):
 def test_register_duplicate_username(client, first_user):
     """重复用户名注册应 409(用有效邀请码绕过首用户校验)"""
     token, username, invite = first_user
+    import uuid
+    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
+    email = uuid.uuid4().hex[:8] + "@test.local"
     r = client.post("/api/register", json={"username": username, "password": "Other123",
-                                           "invite_code": invite})
+                                           "invite_code": invite,
+                                           "phone": phone, "email": email})
     assert r.status_code == 409
     assert not r.json().get("ok")
 
@@ -23,8 +27,11 @@ def test_login_ok(client, first_user):
     import uuid
     _, _, invite = first_user
     uname = "login_" + uuid.uuid4().hex[:8]
+    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
+    email = uuid.uuid4().hex[:8] + "@test.local"
     r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                           "invite_code": invite})
+                                           "invite_code": invite,
+                                           "phone": phone, "email": email})
     assert r.status_code == 200
     r = client.post("/api/login", json={"login": uname, "password": "Test123456"})
     assert r.status_code == 200
@@ -50,8 +57,11 @@ def test_login_revokes_previous_token(client, first_user):
     import uuid
     _, _, invite = first_user
     uname = "sso_" + uuid.uuid4().hex[:8]
+    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
+    email = uuid.uuid4().hex[:8] + "@test.local"
     r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                           "invite_code": invite})
+                                           "invite_code": invite,
+                                           "phone": phone, "email": email})
     assert r.status_code == 200
     token1 = r.json()["token"]
     # token1 当前有效
@@ -73,8 +83,11 @@ def test_login_failed_does_not_revoke(client, first_user):
     import uuid
     _, _, invite = first_user
     uname = "fakelogin_" + uuid.uuid4().hex[:8]
+    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
+    email = uuid.uuid4().hex[:8] + "@test.local"
     r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                           "invite_code": invite})
+                                           "invite_code": invite,
+                                           "phone": phone, "email": email})
     assert r.status_code == 200
     token1 = r.json()["token"]
     # 错误密码登录
@@ -96,8 +109,11 @@ def test_change_password_flow(client, first_user):
     import uuid
     _, _, invite = first_user
     uname = "cp_" + uuid.uuid4().hex[:8]
+    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
+    email = uuid.uuid4().hex[:8] + "@test.local"
     r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                           "invite_code": invite})
+                                           "invite_code": invite,
+                                           "phone": phone, "email": email})
     assert r.status_code == 200
     token = r.json()["token"]
     # 旧密码错误

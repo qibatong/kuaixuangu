@@ -30,8 +30,11 @@ def hdrs(token):
 
 def _new_user(client, inv):
     uname = "exp_" + uuid.uuid4().hex[:8]
+    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
+    email = uuid.uuid4().hex[:8] + "@test.local"
     r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                           "invite_code": inv})
+                                           "invite_code": inv,
+                                           "phone": phone, "email": email})
     assert r.status_code == 200, r.text
     return r.json()["token"], uname
 

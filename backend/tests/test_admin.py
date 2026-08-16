@@ -276,8 +276,11 @@ def test_admin_reset_password_ok(client, first_user):
     import uuid
     token, _, invite = first_user
     target = "rst_" + uuid.uuid4().hex[:8]
+    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
+    email = uuid.uuid4().hex[:8] + "@test.local"
     r = client.post("/api/register", json={"username": target, "password": "Test123456",
-                                           "invite_code": invite})
+                                           "invite_code": invite,
+                                           "phone": phone, "email": email})
     assert r.status_code == 200
     r = client.post("/api/admin/users/reset-password",
                     json={"username": target, "password": "qwer1234"},

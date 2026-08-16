@@ -58,9 +58,15 @@ def api_register(request: Request, body: dict = Body(...)):
         return jr({"ok": False, "msg": "用户名需 3-20 位字母/数字/下划线"}, 400)
     if len(password) < 6:
         return jr({"ok": False, "msg": "密码至少 6 位"}, 400)
-    if phone and not users._is_phone(phone):
+    # 防滥用(2026-08-16): 手机号+邮箱都必填, 堵"反复纯用户名注册绕过付费"漏洞
+    # (邀请码仍非强制, 防薅羊毛靠手机号+邮箱唯一性)
+    if not phone:
+        return jr({"ok": False, "msg": "请填写手机号"}, 400)
+    if not email:
+        return jr({"ok": False, "msg": "请填写邮箱"}, 400)
+    if not users._is_phone(phone):
         return jr({"ok": False, "msg": "手机号格式不正确"}, 400)
-    if email and not users._is_email(email):
+    if not users._is_email(email):
         return jr({"ok": False, "msg": "邮箱格式不正确"}, 400)
     inviter = None
     if invite_code:

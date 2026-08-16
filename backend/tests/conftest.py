@@ -96,8 +96,14 @@ def mock_rate_limits(monkeypatch_session):
 def first_user(client):
     """注册一个唯一用户(避免与其他测试的用户名冲突), 返回 (token, username, invite_code)"""
     import uuid
-    uname = "tester_" + uuid.uuid4().hex[:8]
-    r = client.post("/api/register", json={"username": uname, "password": "Test123456"})
+    uid_suffix = uuid.uuid4().hex[:8]
+    uname = "tester_" + uid_suffix
+    # 防滥用(2026-08-16): 注册需 phone+email
+    # phone 11 位纯数字(用 uuid int 取后 11 位, hex 含 a-f 不能直接用)
+    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
+    email = uid_suffix + "@test.local"
+    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
+                                            "phone": phone, "email": email})
     assert r.status_code == 200, r.text
     d = r.json()
     assert d.get("ok")
@@ -111,8 +117,11 @@ def second_user(client, first_user):
     import uuid
     _, _, invite = first_user
     uname = "tester2_" + uuid.uuid4().hex[:8]
+    phone = "139" + str(uuid.uuid4().int % 100000000).zfill(8)
+    email = uuid.uuid4().hex[:8] + "2@test.local"
     r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                            "invite_code": invite})
+                                            "invite_code": invite,
+                                            "phone": phone, "email": email})
     assert r.status_code == 200, r.text
     d = r.json()
     assert d.get("ok")
