@@ -206,9 +206,13 @@ th.sortable.active .sort-ind {
 }
 th.sortable .sort-ind:empty::before {
   content: '↕';
-  opacity: 0.25;
+  opacity: 0.6;   /* 默认排序提示: 0.25 太淡几乎不可见, 提到 0.6 */
   font-weight: 400;
 }
+/* 浅色主题: 排序箭头用深橙保证可见 */
+body[data-bg="light"] .sort-ind { color: #b83010; }
+body[data-bg="light"] th.sortable:hover { color: #b83010; }
+body[data-bg="light"] th.sortable.active { color: #c00; }
 .qc-badge {
   display: inline-block;
   background: rgba(var(--accent-rgb), 0.18);
