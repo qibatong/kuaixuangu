@@ -11,9 +11,9 @@
           <input v-model="username" type="text" :placeholder="mode === 'login' ? '用户名 / 手机号 / 邮箱' : '用户名(2-20位, 支持中英文)'" :autocomplete="mode === 'login' ? 'username' : 'off'" maxlength="20">
           <input v-model="password" type="password" placeholder="密码" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'">
           <template v-if="mode === 'register'">
-            <input v-model="invite" type="text" placeholder="邀请码(选填, 填了邀请人+5天使用时间)" autocomplete="off" maxlength="12">
             <input v-model="phone" type="text" placeholder="手机号(必填, 用于账号追溯+找回)" autocomplete="off" maxlength="11">
             <input v-model="email" type="text" placeholder="邮箱(必填, 用于账号追溯+找回)" autocomplete="off" maxlength="60">
+            <input v-model="invite" type="text" placeholder="邀请码(选填, 填了邀请人+5天使用时间)" autocomplete="off" maxlength="12">
           </template>
           <label v-if="mode === 'login'" class="remember-row">
             <input v-model="remember" type="checkbox" class="remember-check" />
