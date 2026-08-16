@@ -43,7 +43,6 @@
                 <th class="sortable" :class="{ active: userSort.keyOf('expire_at') }" @click="userSort.onSort('expire_at')">到期时间<span class="sort-ind">{{ userSort.ind('expire_at') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('invited_count') }" @click="userSort.onSort('invited_count')">邀请人数<span class="sort-ind">{{ userSort.ind('invited_count') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('batch_count') }" @click="userSort.onSort('batch_count')">选股次数<span class="sort-ind">{{ userSort.ind('batch_count') }}</span></th>
-                <th class="sortable" :class="{ active: userSort.keyOf('is_admin') }" @click="userSort.onSort('is_admin')">角色<span class="sort-ind">{{ userSort.ind('is_admin') }}</span></th>
                 <th>会员等级</th>
                 <th style="min-width:150px;">设置使用期限</th>
               </tr>
@@ -52,7 +51,14 @@
               <tr v-for="u in userSort.sorted(rows, userVal)" :key="u.id">
                 <td>{{ u.id }}</td>
                 <td>
-                  {{ u.username }}
+                  <span class="user-name-row">
+                    {{ u.username }}
+                    <!-- 角色徽标: 紧贴用户名后, 一眼看清身份 (不再单设列) -->
+                    <span v-if="u.is_admin" class="role-badge role-admin">管理员</span>
+                    <span v-else-if="u.member_level === 2" class="role-badge role-vip">VIP 老师</span>
+                    <span v-else-if="u.member_level === 1" class="role-badge role-paid">付费会员</span>
+                    <span v-else class="role-badge role-trial">普通用户</span>
+                  </span>
                   <div v-if="u.wx_name" class="user-sub">微信: {{ u.wx_name }}</div>
                   <div v-if="u.remark" class="user-sub user-remark" :title="u.remark">备注: {{ u.remark }}</div>
                   <div v-if="u.pay_remark" class="user-sub user-pay" :title="u.pay_remark">[付款] {{ u.pay_remark }}</div>
@@ -67,20 +73,11 @@
                 <td>{{ u.invited_count }}</td>
                 <td>{{ u.batch_count }}</td>
                 <td>
-                  <span v-if="u.is_admin" class="role-badge role-admin">管理员</span>
-                  <span v-else-if="u.member_level === 2" class="role-badge role-vip">VIP 老师</span>
-                  <span v-else-if="u.member_level === 1" class="role-badge role-paid">付费会员</span>
-                  <span v-else class="role-badge role-trial">普通用户</span>
-                </td>
-                <td>
-                  <div class="level-cell">
-                    <span :class="'level-tag level-' + (u.member_level || 0)">{{ levelLabel(u.member_level || 0) }}</span>
-                    <select v-model.number="u._level" class="level-select" @change="setLevel(u)">
-                      <option :value="0">免费试用</option>
-                      <option :value="1">付费会员</option>
-                      <option :value="2">VIP老师</option>
-                    </select>
-                  </div>
+                  <select v-model.number="u._level" class="level-select" @change="setLevel(u)" title="修改会员等级">
+                    <option :value="0">免费试用</option>
+                    <option :value="1">付费会员</option>
+                    <option :value="2">VIP老师</option>
+                  </select>
                 </td>
                 <td>
                   <div v-if="u.is_admin" style="color:#888;font-size:12px;">管理员永久有效</div>
@@ -109,7 +106,7 @@
                   </div>
                 </td>
               </tr>
-              <tr v-if="!rows.length"><td colspan="10" style="text-align:center;color:#888;padding:20px;">暂无用户</td></tr>
+              <tr v-if="!rows.length"><td colspan="9" style="text-align:center;color:#888;padding:20px;">暂无用户</td></tr>
             </tbody>
           </table>
         </div>
@@ -758,8 +755,9 @@ onMounted(() => {
 .admin-table th { color: var(--text-muted); font-weight: 500; }
 .admin-tag { color: #ffd700; border: 1px solid #ffd700; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
 .user-tag { color: var(--text-muted); border: 1px solid #666; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
-/* 角色徽标 (合并 is_admin + member_level 显示, 不再两列重复) */
-.role-badge { display: inline-block; border-radius: 4px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
+/* 角色徽标 (合并 is_admin + member_level 显示, 紧贴用户名) */
+.user-name-row { display: inline-flex; align-items: center; gap: 6px; }
+.role-badge { display: inline-block; border-radius: 4px; padding: 2px 10px; font-size: 11px; font-weight: 600; }
 .role-admin { color: #4a9eff; border: 1px solid #4a9eff; background: rgba(74,158,255,0.12); }
 .role-vip   { color: #ffb347; border: 1px solid #ffb347; background: rgba(255,179,71,0.15); }
 .role-paid  { color: #ff6a6a; border: 1px solid #ff6a6a; background: rgba(255,106,106,0.12); }
@@ -777,7 +775,7 @@ onMounted(() => {
 .level-select {
   background: var(--bg-input); color: var(--text-secondary);
   border: 1px solid var(--border-soft); border-radius: 4px;
-  font-size: 12px; padding: 2px 4px; cursor: pointer; max-width: 90px;
+  font-size: 12px; padding: 3px 6px; cursor: pointer; min-width: 100px;
 }
 .expire-popover {
   position: absolute;
