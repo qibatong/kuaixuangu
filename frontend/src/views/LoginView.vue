@@ -20,7 +20,7 @@
             <span>记住我，30 天内免登录</span>
           </label>
           <button class="login-btn" type="submit" :disabled="busy">{{ mode === 'login' ? '登录' : '注册' }}</button>
-          <div class="login-err">{{ err }}</div>
+          <div class="login-err" :class="{error: errIsError}">{{ err }}</div>
         </form>
         <div class="login-switch">
           还没有账号？<a href="javascript:void(0)" @click="toggleMode">{{ mode === 'login' ? '注册一个' : '返回登录' }}</a>
@@ -67,6 +67,8 @@ const user = useUserStore()
 const mode = ref('login')          // login | register | forgot | reset
 const busy = ref(false)
 const err = ref('')
+// 错误提示是否显示红色背景块: 仅"真正的错误"才上色 (loading/✅成功 不算)
+const errIsError = ref(false)
 const remember = ref(true)         // 「记住我」默认勾选: 30 天免登录
 const username = ref('')
 const password = ref('')
@@ -85,26 +87,33 @@ const subText = computed(() =>
 function toggleMode() {
   mode.value = mode.value === 'login' ? 'register' : 'login'
   err.value = ''
+  errIsError.value = false
+}
+
+function setErr(msg, isError = true) {
+  err.value = msg
+  errIsError.value = isError && !!msg
 }
 
 async function submit() {
   if (busy.value) return
-  err.value = ''
-  if (!username.value.trim()) { err.value = '请输入用户名/手机号/邮箱'; return }
-  if (!password.value) { err.value = '请输入密码'; return }
+  setErr('', false)
+  if (!username.value.trim()) { setErr('请输入用户名/手机号/邮箱'); return }
+  if (!password.value) { setErr('请输入密码'); return }
   if (mode.value === 'register') {
     // 前端预校验: 避免无效格式打到后端触发限流计数(后端是兜底校验)
     if (!/^[\u4e00-\u9fa5a-zA-Z0-9_]{2,20}$/.test(username.value.trim())) {
-      err.value = '用户名需 2-20 位，支持中英文/数字/下划线'; return
+      setErr('用户名需 2-20 位，支持中英文/数字/下划线'); return
     }
-    if (password.value.length < 6) { err.value = '密码至少 6 位'; return }
-    if (!phone.value.trim()) { err.value = '请填写手机号(必填, 用于账号追溯+找回)'; return }
-    if (!email.value.trim()) { err.value = '请填写邮箱(必填, 用于账号追溯+找回)'; return }
-    if (!/^1[3-9]\d{9}$/.test(phone.value.trim())) { err.value = '手机号格式不正确'; return }
-    if (!/^[\w.+-]+@[\w-]+(\.[\w-]+)+$/.test(email.value.trim())) { err.value = '邮箱格式不正确'; return }
+    if (password.value.length < 6) { setErr('密码至少 6 位'); return }
+    if (!phone.value.trim()) { setErr('请填写手机号(必填, 用于账号追溯+找回)'); return }
+    if (!email.value.trim()) { setErr('请填写邮箱(必填, 用于账号追溯+找回)'); return }
+    if (!/^1[3-9]\d{9}$/.test(phone.value.trim())) { setErr('手机号格式不正确'); return }
+    if (!/^[\w.+-]+@[\w-]+(\.[\w-]+)+$/.test(email.value.trim())) { setErr('邮箱格式不正确'); return }
   }
   busy.value = true
   err.value = mode.value === 'login' ? '登录中...' : '注册中...'
+  errIsError.value = false
   try {
     const body = mode.value === 'register'
       ? { username: username.value.trim(), password: password.value, invite_code: invite.value.trim(), phone: phone.value.trim(), email: email.value.trim() }
@@ -118,7 +127,7 @@ async function submit() {
     const redirect = route.query.redirect || '/'
     router.replace(redirect)
   } catch (e) {
-    err.value = e.message || '操作失败'
+    setErr(e.message || '操作失败')
   } finally {
     busy.value = false
   }
@@ -126,15 +135,17 @@ async function submit() {
 
 async function sendMail() {
   if (busy.value) return
-  err.value = ''
-  if (!email.value.trim()) { err.value = '请输入邮箱'; return }
+  setErr('', false)
+  if (!email.value.trim()) { setErr('请输入邮箱'); return }
   busy.value = true
   err.value = '发送中...'
+  errIsError.value = false
   try {
     const data = await apiForgot(email.value.trim())
     err.value = '✅ ' + (data.msg || '已发送，请查收邮件')
+    errIsError.value = false   // 成功不显示错误块
   } catch (e) {
-    err.value = e.message || '发送失败'
+    setErr(e.message || '发送失败')
   } finally {
     busy.value = false
   }
@@ -142,7 +153,7 @@ async function sendMail() {
 
 // 忘记密码: 输入用户名/手机号查询是否绑定邮箱(未绑定提示联系管理员)
 async function checkForgot() {
-  err.value = ''
+  setErr('', false)
   const login = window.prompt('请输入你的用户名或手机号(用于查询绑定邮箱)')
   if (!login || !login.trim()) return
   busy.value = true
@@ -150,11 +161,12 @@ async function checkForgot() {
     const data = await apiForgotCheck(login.trim())
     if (data.ok) {
       err.value = '✅ ' + (data.msg || '已绑定邮箱，请在输入框填该邮箱')
+      errIsError.value = false
     } else {
-      err.value = (data.msg || '未绑定邮箱，请联系管理员') 
+      setErr(data.msg || '未绑定邮箱，请联系管理员')
     }
   } catch (e) {
-    err.value = e.message || '查询失败'
+    setErr(e.message || '查询失败')
   } finally {
     busy.value = false
   }
@@ -162,14 +174,16 @@ async function checkForgot() {
 
 async function doReset() {
   if (busy.value) return
-  err.value = ''
-  if (!resetPwd.value || resetPwd.value.length < 6) { err.value = '新密码至少 6 位'; return }
-  if (resetPwd.value !== resetPwd2.value) { err.value = '两次输入的密码不一致'; return }
+  setErr('', false)
+  if (!resetPwd.value || resetPwd.value.length < 6) { setErr('新密码至少 6 位'); return }
+  if (resetPwd.value !== resetPwd2.value) { setErr('两次输入的密码不一致'); return }
   busy.value = true
   err.value = '提交中...'
+  errIsError.value = false
   try {
     const data = await apiReset(resetToken.value, resetPwd.value)
     err.value = '✅ ' + data.msg
+    errIsError.value = false
     setTimeout(() => {
       mode.value = 'login'
       resetPwd.value = resetPwd2.value = ''
@@ -177,7 +191,7 @@ async function doReset() {
       if (history.replaceState) history.replaceState({}, '', window.location.pathname)
     }, 1500)
   } catch (e) {
-    err.value = e.message || '重置失败'
+    setErr(e.message || '重置失败')
   } finally {
     busy.value = false
   }
