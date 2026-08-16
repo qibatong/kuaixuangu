@@ -7,8 +7,15 @@ import os
 import tempfile
 
 # 必须在 import app 之前设置临时数据库路径
-_tmp = tempfile.NamedTemporaryFile(suffix=".db", prefix="kuaixuan_test_", delete=False)
-os.environ["BID_DB_PATH"] = _tmp.name
+# 幂等守卫(2026-08-16 修复): test_stocks.py 有 `from conftest import MOCK_RAW`,
+# pytest 收集与普通 import 可能让 conftest 模块执行两次 → 若每次重建 _tmp,
+# 第二次会把 BID_DB_PATH 覆盖为新的空文件, 而 app.config.DB_FILE 已固定为
+# 第一次的文件 → app 建表在 A, 测试直连 env 读到 B(0字节) → no such table: users
+if not os.environ.get("BID_DB_PATH"):
+    _tmp = tempfile.NamedTemporaryFile(suffix=".db", prefix="kuaixuan_test_", delete=False)
+    os.environ["BID_DB_PATH"] = _tmp.name
+else:
+    _tmp = None
 # 测试日志写到临时目录, 避免污染/占用真实 logs/app.log(Windows 文件锁导致 PermissionError)
 os.environ["BID_LOG_DIR"] = tempfile.gettempdir()
 

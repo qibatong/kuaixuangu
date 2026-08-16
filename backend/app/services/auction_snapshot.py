@@ -489,11 +489,11 @@ def _scheduler_loop():
                     kpl.save_auction_history(date, phase="bid")
                     # 9:26 自动应用(2026-08-16 用户反馈): 用户打开应用但没点"应用"按钮,
                     # 当天历史为空; 抢筹落库后给所有活跃用户跑一次自动应用(标记 auto_applied=True).
-                    # 串行避免 KPL 配额压垮, 单用户失败不影响其他人.
+                    # 后台守护线程执行(全市场评分一次+按用户过滤), 不阻塞本调度循环.
+                    # 单用户失败不影响其他人; 失败也不影响抢筹落库.
                     try:
                         from . import auto_apply
-                        r = auto_apply.auto_apply_all_users()
-                        log.info("9:26 自动应用 摘要: %s", r)
+                        auto_apply.trigger_auto_apply()
                     except Exception as e:
                         log.warning("9:26 自动应用 调度失败(不影响抢筹落库) err=%s", e)
                 except Exception as e:

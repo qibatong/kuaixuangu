@@ -116,3 +116,31 @@ def test_auto_apply_skip_admin_and_expired(client, first_user):
         conn.execute("UPDATE users SET expire_at=0 WHERE id=?", (target[0],))
         conn.commit()
     conn.close()
+
+
+# ---------- score_all_stocks 拆分一致性 (2026-08-16) ----------
+def test_score_all_stocks_split_consistency():
+    """process_all_stocks == score_all_stocks + apply_filters (拆分不改变行为)"""
+    from app.services import scorer
+    raw = [
+        {"f12": "600001", "f14": "测试A", "f2": 10.0, "f3": 4.0, "f6": 50000000.0, "f616": 50000000.0,
+         "f8": 3.0, "f10": 1.5, "f21": 5e9, "f100": "行业", "f103": "", "f102": "省",
+         "f630": 0},
+        {"f12": "300001", "f14": "测试B", "f2": 20.0, "f3": -2.0, "f6": 10000000.0, "f616": 10000000.0,
+         "f8": 1.0, "f10": 0.8, "f21": 2e9, "f100": "行业2", "f103": "", "f102": "省2",
+         "f630": 0},
+    ]
+    f = {"stSuspend": True, "limitUp": True, "bidGt": 7.0, "probLt": 0.0, "confLt": 0.0,
+         "floatMvFloor": 0.0, "floatMvGt": 99999.0, "priceGt": 999.0, "bidAmtFloor": 0.0,
+         "markets": ["hs"]}
+    # 原入口
+    r1 = scorer.process_all_stocks(raw, f)
+    # 拆分后等价调用
+    scored = scorer.score_all_stocks(raw)
+    r2 = scorer.apply_filters(scored, f)
+    for it in r2:
+        it.pop("_raw", None)
+    assert [s["code"] for s in r1] == [s["code"] for s in r2], "拆分前后结果必须一致"
+    assert len(r1) == len(r2)
+    # score_all_stocks 返回全量(未过滤)
+    assert len(scored) >= len(r1)

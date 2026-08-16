@@ -535,9 +535,10 @@ def is_qiangchou(bid_change, bid_ratio):
     return bid_change >= 2
 
 
-def process_all_stocks(raw, f, yesterday_map=None, snapshot_map=None):
-    """yesterday_map: code -> [T日全天额, T-1日全天额](万元), 用于计算竞价成交额占比
-    snapshot_map: code -> {bid_change, bid_amt} (9:20 时点快照), 用于计算涨幅加速度"""
+def score_all_stocks(raw, yesterday_map=None, snapshot_map=None):
+    """全市场评分 + 排序(不按用户过滤); 返回 scored 列表(含 _raw)
+    2026-08-16 拆分: 9:26 自动应用按用户复用同一份评分, 只各自过滤,
+    避免 150+ 用户各跑一次全市场评分(性能 150 倍差距)。"""
     yesterday_map = yesterday_map or {}
     snapshot_map = snapshot_map or {}
     scored = []
@@ -586,6 +587,12 @@ def process_all_stocks(raw, f, yesterday_map=None, snapshot_map=None):
             "_raw": s,
         })
     scored.sort(key=lambda x: x["probability"], reverse=True)
+    return scored
+
+
+def process_all_stocks(raw, f, yesterday_map=None, snapshot_map=None):
+    """评分 + 过滤 + 清理 _raw (兼容入口, 内部复用 score_all_stocks)"""
+    scored = score_all_stocks(raw, yesterday_map, snapshot_map)
     result = apply_filters(scored, f)
     for it in result:
         it.pop("_raw", None)

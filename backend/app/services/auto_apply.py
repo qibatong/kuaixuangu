@@ -8,12 +8,14 @@
       用户主动 lock/filter 触发的批次 auto_applied=False, 优先展示。
 
 设计要点:
-- 串行执行(避免并发压垮 KPL 配额)
+- 全市场评分只跑一次, 按用户偏好各自过滤 (score_all_stocks 拆分, 性能 150 倍差距)
+- 后台守护线程执行, 不阻塞 auction_snapshot 调度循环 (9:26-9:30 抢筹重试/9:31 盘点)
 - 单用户失败不影响其他人
 - 跳过当天已应用的用户(避免覆盖主动选择)
-- 过期/管理员/VIP 老师(member_level=2 且 expire_at=0) 自动跳过
+- 管理员/过期账号跳过; VIP(member_level=2) 也自动应用(VIP 有权限, 同样需要历史)
 - 用户偏好 filter_prefs 解析失败时回退全局默认
 """
+import threading
 import time
 
 from ..core import logger
@@ -30,8 +32,6 @@ def _today_bj():
 
 def _user_already_applied_today(uid, bdate):
     """用户当天是否已有批次记录(无论主动/自动); 用于跳过避免重复"""
-    conn = history._conn() if hasattr(history, "_conn") else None
-    # 直接查库
     from ..db import database
     conn = database.get_conn()
     try:
@@ -59,7 +59,7 @@ def _get_user_filter(uid):
 
 
 def _is_user_active(uid):
-    """用户是否活跃 (未过期 且 非管理员 且 非 VIP 老师自动跳过)"""
+    """用户是否可自动应用: 存在 且 非管理员 且 未过期"""
     u = users.find_user_by_id(uid)
     if not u:
         return False, "用户不存在"
@@ -71,42 +71,43 @@ def _is_user_active(uid):
     return True, ""
 
 
-def auto_apply_one_user(uid, raw, yesterday_map, snapshot_map, bdate):
-    """给单个用户跑一次选股 + 落库(标记 auto_applied=True)
-    raw/yesterday_map/snapshot_map 由调用方预热(避免每用户重复拉)
-    返回 batch_id 或 None"""
-    ok, reason = _is_user_active(uid)
-    if not ok:
-        log.info("auto_apply 跳过 uid=%s 原因=%s", uid, reason)
-        return None
-    if _user_already_applied_today(uid, bdate):
-        log.info("auto_apply 跳过 uid=%s 原因=今天已有批次", uid)
-        return None
-    f = _get_user_filter(uid)
-    try:
-        result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map)
-    except Exception as e:
-        log.warning("auto_apply 评分失败 uid=%s err=%s", uid, e)
-        return None
-    bid = history.save_batch(uid, "lock", result, f, auto_applied=True)
-    log.info("auto_apply 完成 uid=%s 返回%d只 batch=%s", uid, len(result), bid)
-    return bid
+def _run_in_background(func, *args, **kwargs):
+    """后台守护线程执行, 不阻塞调度主循环; 异常全部吞掉只记日志"""
+    def _wrapped():
+        try:
+            func(*args, **kwargs)
+        except Exception as e:
+            log.error("auto_apply 后台任务异常 err=%s", e, exc_info=True)
+    t = threading.Thread(target=_wrapped, daemon=True, name="auto_apply")
+    t.start()
+    log.info("auto_apply 后台线程已启动(%s)", t.name)
+    return t
 
 
 def auto_apply_all_users(max_users=None):
-    """9:26 抢筹快照落库后调用: 给所有活跃用户自动应用一次
-    max_users: 限制本次处理用户数 (调试/分批用, 默认 None=不限)
-    返回 {applied: int, skipped: int, failed: int}"""
+    """给所有活跃用户自动应用一次 (应在后台线程调用)
+    全市场评分一次 -> 按用户偏好过滤 -> 各自落库
+    max_users: 限制本次处理用户数 (调试用, 默认 None=不限)
+    返回 {applied, skipped, failed, total, cost_ms}"""
     t0 = time.time()
     bdate = _today_bj()
-    # 复用当前行情缓存(9:25 撮合时已拉取)
-    raw, err = fetcher.ensure_cache("filter", ("hs", "bj"), before930=True)
+    # 与 9:25 撮合同样的默认市场范围(前端默认 hs+cyb+kcb), 确保命中同一份行情缓存
+    fs = scorer.market_fs(["hs", "cyb", "kcb"])
+    raw, err = fetcher.ensure_cache("filter", fs, before930=True)
     if not raw:
         log.warning("auto_apply 行情缓存缺失 err=%s, 跳过本轮", err)
-        return {"applied": 0, "skipped": 0, "failed": 0, "error": str(err)}
+        return {"applied": 0, "skipped": 0, "failed": 0, "total": 0,
+                "cost_ms": 0, "error": str(err)}
     snapshot_map = auction_snapshot.load_snapshot() or {}
     yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw]) or {}
-    # 候选用户: 活跃 + 当天未应用
+    # 全市场评分只跑一次 (核心优化: 150+ 用户不再各算一次)
+    try:
+        scored = scorer.score_all_stocks(raw, yesterday_map, snapshot_map)
+    except Exception as e:
+        log.error("auto_apply 全市场评分失败 err=%s", e, exc_info=True)
+        return {"applied": 0, "skipped": 0, "failed": 0, "total": 0,
+                "cost_ms": 0, "error": str(e)}
+    # 候选用户: 非管理员 + 未过期
     from ..db import database
     conn = database.get_conn()
     try:
@@ -119,14 +120,29 @@ def auto_apply_all_users(max_users=None):
     if max_users is not None:
         user_ids = user_ids[:max_users]
     applied = skipped = failed = 0
-    log.info("auto_apply 开始 候选=%d 当日=%s", len(user_ids), bdate)
+    log.info("auto_apply 开始 候选=%d 当日=%s 评分池=%d只",
+             len(user_ids), bdate, len(scored))
     for uid in user_ids:
         try:
-            r = auto_apply_one_user(uid, raw, yesterday_map, snapshot_map, bdate)
-            if r:
+            # 每个用户: 存在性/过期/当天已应用 三重跳过
+            ok, reason = _is_user_active(uid)
+            if not ok:
+                log.info("auto_apply 跳过 uid=%s 原因=%s", uid, reason)
+                skipped += 1
+                continue
+            if _user_already_applied_today(uid, bdate):
+                log.info("auto_apply 跳过 uid=%s 原因=今天已有批次", uid)
+                skipped += 1
+                continue
+            f = _get_user_filter(uid)
+            result = scorer.apply_filters(scored, f)
+            for it in result:
+                it.pop("_raw", None)
+            bid = history.save_batch(uid, "lock", result, f, auto_applied=True)
+            if bid:
                 applied += 1
             else:
-                skipped += 1
+                failed += 1
         except Exception as e:
             failed += 1
             log.warning("auto_apply 单用户失败 uid=%s err=%s", uid, e)
@@ -135,3 +151,8 @@ def auto_apply_all_users(max_users=None):
              applied, skipped, failed, cost)
     return {"applied": applied, "skipped": skipped, "failed": failed,
             "total": len(user_ids), "cost_ms": int(cost)}
+
+
+def trigger_auto_apply():
+    """9:26 抢筹落库后由 auction_snapshot 调用: 后台线程执行, 立即返回"""
+    return _run_in_background(auto_apply_all_users)
