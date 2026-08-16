@@ -198,7 +198,9 @@ def list_users_page(page=1, page_size=20, keyword="", member_tab="all"):
     """管理端用户列表(分页), 附带每个用户的基础统计
     member_tab:
       - 'all'    不限(默认)
-      - 'member' member_level > 0 且非管理员(付费会员/VIP老师)
+      - 'member' member_level > 0 且非管理员(付费会员+VIP)
+      - 'paid'   member_level = 1 且非管理员(付费会员)
+      - 'vip'    member_level = 2 且非管理员(VIP)
       - 'normal' member_level = 0 且非管理员(普通/试用)
       - 'admin'  is_admin = 1"""
     conn = _conn()
@@ -212,6 +214,10 @@ def list_users_page(page=1, page_size=20, keyword="", member_tab="all"):
         params += [kw, kw, kw, kw, kw, kw]
     if member_tab == "member":
         cond += " AND COALESCE(u.member_level,0) > 0 AND COALESCE(u.is_admin,0) = 0"
+    elif member_tab == "paid":
+        cond += " AND COALESCE(u.member_level,0) = 1 AND COALESCE(u.is_admin,0) = 0"
+    elif member_tab == "vip":
+        cond += " AND COALESCE(u.member_level,0) = 2 AND COALESCE(u.is_admin,0) = 0"
     elif member_tab == "normal":
         cond += " AND COALESCE(u.member_level,0) = 0 AND COALESCE(u.is_admin,0) = 0"
     elif member_tab == "admin":

@@ -769,3 +769,64 @@ def test_admin_search_wx_name_remark(client, first_user):
     # 无关关键词不应命中
     r = client.get("/api/admin/users?keyword=" + "绝不存在xyz", headers=hdrs(token))
     assert not any(x["id"] == uid for x in r.json()["rows"]), "无关关键词不应命中"
+
+
+# ---------- 付费 / VIP tab 分别过滤 ----------
+def test_admin_users_paid_vip_tab(client, first_user):
+    """付费 tab 只返回 member_level=1; VIP tab 只返回 member_level=2"""
+    import uuid
+    token, _, invite = first_user
+    # 创建 2 个新用户
+    paid_uname = "paid_" + uuid.uuid4().hex[:6]
+    vip_uname = "vip_" + uuid.uuid4().hex[:6]
+    for u in (paid_uname, vip_uname):
+        r = client.post("/api/register", json={"username": u, "password": "Test123456",
+                                               "invite_code": invite,
+                                               "phone": "13" + str(uuid.uuid4().int % 100000000).zfill(9),
+                                               "email": uuid.uuid4().hex[:6] + "@test.local"})
+        assert r.status_code == 200
+    # 取新用户 uid
+    rows_all = client.get("/api/admin/users?keyword=paid_&pageSize=20",
+                           headers=hdrs(token)).json()["rows"]
+    paid_uid = next((r["id"] for r in rows_all if r["username"] == paid_uname), None)
+    rows_all = client.get("/api/admin/users?keyword=vip_&pageSize=20",
+                           headers=hdrs(token)).json()["rows"]
+    vip_uid = next((r["id"] for r in rows_all if r["username"] == vip_uname), None)
+    # paid_uname -> level=1; vip_uname -> level=2
+    r = client.post("/api/admin/users/member-level",
+                    json={"uid": paid_uid, "level": 1}, headers=hdrs(token))
+    assert r.status_code == 200
+    r = client.post("/api/admin/users/member-level",
+                    json={"uid": vip_uid, "level": 2}, headers=hdrs(token))
+    assert r.status_code == 200
+    # paid tab: 只返回付费用户
+    r = client.get("/api/admin/users?memberTab=paid&pageSize=100",
+                   headers=hdrs(token))
+    assert r.status_code == 200
+    rows = r.json()["rows"]
+    # 所有 paid tab 行 member_level==1
+    for row in rows:
+        assert row["member_level"] == 1
+        assert not row["is_admin"]
+    # paid_uname 在内, vip_uname 不在内
+    paid_in = any(x["id"] == paid_uid for x in rows)
+    vip_in = any(x["id"] == vip_uid for x in rows)
+    assert paid_in and not vip_in, "paid tab 应只含付费用户"
+    # vip tab: 只返回 VIP
+    r = client.get("/api/admin/users?memberTab=vip&pageSize=100",
+                   headers=hdrs(token))
+    rows = r.json()["rows"]
+    for row in rows:
+        assert row["member_level"] == 2
+        assert not row["is_admin"]
+    vip_in = any(x["id"] == vip_uid for x in rows)
+    paid_in = any(x["id"] == paid_uid for x in rows)
+    assert vip_in and not paid_in, "vip tab 应只含 VIP 用户"
+    # member tab 总数 = paid + vip
+    r_m = client.get("/api/admin/users?memberTab=member&pageSize=1", headers=hdrs(token))
+    r_p = client.get("/api/admin/users?memberTab=paid&pageSize=1", headers=hdrs(token))
+    r_v = client.get("/api/admin/users?memberTab=vip&pageSize=1", headers=hdrs(token))
+    total_m = r_m.json()["total"]
+    total_p = r_p.json()["total"]
+    total_v = r_v.json()["total"]
+    assert total_m == total_p + total_v, f"member({total_m}) 应等于 paid({total_p})+vip({total_v})"

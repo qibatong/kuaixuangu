@@ -62,7 +62,8 @@
                 </td>
                 <td>{{ fmtTsTime(u.created_at) }}</td>
                 <td>
-                  <span v-if="u.is_admin || u.member_level === 2" class="user-tag">永久</span>
+                  <!-- VIP(member_level=2) 默认按 expire_at 显示; 仅管理员/expire_at=0 显示永久 -->
+                  <span v-if="u.is_admin || expireState(u) === 'forever'" class="user-tag">永久</span>
                   <span v-else-if="expireState(u) === 'expired'" class="expired-tag">已过期 {{ fmtBjDay(u.expire_at) }}</span>
                   <span v-else class="ok-tag">{{ fmtBjDay(u.expire_at) }}</span>
                 </td>
@@ -556,6 +557,8 @@ async function deleteUser(u) {
 const memberTabs = [
   { key: 'all', label: '全部' },
   { key: 'member', label: '会员' },
+  { key: 'paid', label: '付费' },
+  { key: 'vip', label: 'VIP' },
   { key: 'normal', label: '普通用户' },
   { key: 'admin', label: '管理员' },
 ]
@@ -852,8 +855,8 @@ onMounted(() => {
 .user-remark { color: #b8965a; }
 .user-pay { color: #6ab0ff; font-weight: 500; }
 /* 会员筛选 tab */
-.member-tabs { display: flex; gap: 2px; background: rgba(255,255,255,0.04); padding: 2px; border-radius: 6px; }
-.member-tab { background: transparent; border: 0; color: var(--text-muted); padding: 4px 12px; font-size: 12px; cursor: pointer; border-radius: 4px; }
+.member-tabs { display: flex; flex-wrap: wrap; gap: 2px; background: rgba(255,255,255,0.04); padding: 2px; border-radius: 6px; }
+.member-tab { background: transparent; border: 0; color: var(--text-muted); padding: 4px 10px; font-size: 12px; cursor: pointer; border-radius: 4px; white-space: nowrap; }
 .member-tab:hover { color: var(--text-main); }
 .member-tab.active { background: rgba(0,180,255,0.18); color: #a0e0ff; }
 /* 创建结果展示 */
