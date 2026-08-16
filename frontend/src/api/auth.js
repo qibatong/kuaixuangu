@@ -25,3 +25,15 @@ export function reset(token, password) {
 export function ping() {
   return request('/api/stocks?action=ping')
 }
+
+export function getProfile() {
+  return request('/api/profile')
+}
+
+export function updateProfile(body) {
+  return request('/api/profile', { method: 'POST', body })
+}
+
+export function forgotCheck(login) {
+  return request('/api/forgot/check', { method: 'POST', auth: false, body: { login } })
+}

@@ -66,10 +66,10 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
     <!-- Tab 切换 -->
     <div class="auc-tabs">
       <button class="auc-tab" :class="{ active: tab === 's3' }" title="全市场竞价封单榜: 9:25涨停→9:20涨停回落→9:15涨停回落 三层排序" @click="switchTab('s3')"><i class="fa fa-th-list"></i> 竞价封单</button>
-      <button class="auc-tab" :class="{ active: tab === 'seal' }" @click="switchTab('seal')"><i class="fa fa-gavel"></i> 竞价委买</button>
       <button class="auc-tab" :class="{ active: tab === 'boom' }" @click="switchTab('boom')"><i class="fa fa-bolt"></i> 竞价爆量</button>
-      <button class="auc-tab" :class="{ active: tab === 'net' }" @click="switchTab('net')"><i class="fa fa-exchange"></i> 竞价净额</button>
       <button class="auc-tab" :class="{ active: tab === 'qc' }" title="9:15-9:30 竞价抢筹(异动板块大单)" @click="switchTab('qc')"><i class="fa fa-fire"></i> 竞价抢筹</button>
+      <button class="auc-tab" :class="{ active: tab === 'seal' }" @click="switchTab('seal')"><i class="fa fa-gavel"></i> 竞价委买</button>
+      <button class="auc-tab" :class="{ active: tab === 'net' }" @click="switchTab('net')"><i class="fa fa-exchange"></i> 竞价净额</button>
       <button class="auc-tab" :class="{ active: tab === 'yestZt' }" @click="switchTab('yestZt')"><i class="fa fa-sun-o"></i> 昨日涨停</button>
       <button class="auc-tab" :class="{ active: tab === 'yestBroken' }" @click="switchTab('yestBroken')"><i class="fa fa-bell-slash"></i> 昨断板</button>
       <button class="auc-tab" :class="{ active: tab === 'brokenYest' }" @click="switchTab('brokenYest')"><i class="fa fa-history"></i> 昨炸板</button>

@@ -55,6 +55,12 @@ A
         <span v-else-if="user.memberLevel === 1" class="member-badge paid-badge" title="付费会员">付费会员</span>
         <span v-else-if="user.isAdmin" class="member-badge admin-badge" title="管理员">管理员</span>
         <span v-else-if="user.memberDaysLeft >= 0" class="member-badge trial-badge" :title="'免费试用剩余 ' + user.memberDaysLeft + ' 天'">试用{{ user.memberDaysLeft }}天</span>
+        <!-- 到期前 2 天续费提醒(付费会员+试用都提示, 联系管理员续费) -->
+        <span v-if="!user.isAdmin && user.memberLevel !== 2 && user.memberDaysLeft >= 0 && user.memberDaysLeft <= 2"
+              class="member-badge renew-badge" title="请尽快续费, 联系管理员(微信号 poet-1986)">
+          <i class="fa fa-exclamation-circle"></i> 还剩{{ user.memberDaysLeft }}天续费
+        </span>
+        <button class="mini-btn" title="修改个人资料(手机号/邮箱/微信名)" @click="profileModal.open()">资料</button>
         <button class="mini-btn" title="修改密码" @click="changePwdModal.open()">改密</button>
         <button class="mini-btn logout-btn" title="退出当前账号" @click="logout">退出</button>
       </div>
@@ -65,6 +71,8 @@ A
 
     <!-- 改密弹层(全站唯一, 改密按钮来自 NavBar) -->
     <ChangePwdModal ref="changePwdModal" />
+    <!-- 个人资料弹层(手机号/邮箱/微信名) -->
+    <ProfileModal ref="profileModal" />
   </nav>
 </template>
 
@@ -76,12 +84,14 @@ import { useTheme, BGS, FONTS } from '../composables/useTheme'
 import { useUserStore } from '../stores/user'
 import { showToast } from '../utils/toast'
 import ChangePwdModal from './ChangePwdModal.vue'
+import ProfileModal from './ProfileModal.vue'
 
 const router = useRouter()
 const user = useUserStore()
 const { bg, font, setBg, setFont } = useTheme()
 
 const changePwdModal = ref(null)
+const profileModal = ref(null)
 
 function logout() {
   if (!confirm('确定退出当前账号？')) return
@@ -183,6 +193,10 @@ function logout() {
 .paid-badge { background: rgba(255, 90, 90, 0.15); color: #ff6a6a; border: 1px solid rgba(255, 90, 90, 0.5); }
 .admin-badge { background: rgba(90, 160, 255, 0.15); color: #5aa0ff; border: 1px solid rgba(90, 160, 255, 0.5); }
 .trial-badge { background: rgba(180, 108, 255, 0.12); color: #b56cff; border: 1px solid rgba(180, 108, 255, 0.4); }
+/* 到期前 2 天续费提醒: 橙色高亮(紧急) */
+.renew-badge { background: rgba(255, 160, 40, 0.15); color: #ffa028; border: 1px solid rgba(255, 160, 40, 0.55); animation: renew-pulse 1.8s infinite; }
+@keyframes renew-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+body[data-bg="light"] .renew-badge { color: #b05e00; border-color: #c07a10; }
 
 /* 浅色主题高亮 */
 body[data-bg="light"] .nav-item.router-link-active {

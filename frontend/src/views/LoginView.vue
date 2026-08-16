@@ -35,7 +35,10 @@
         <input v-model="email" type="text" placeholder="绑定邮箱" autocomplete="off" maxlength="60" @keydown.enter="sendMail">
         <button class="login-btn" :disabled="busy" @click="sendMail">发送重置邮件</button>
         <div class="login-err">{{ err }}</div>
-        <div class="login-switch"><a href="javascript:void(0)" @click="mode = 'login'">返回登录</a></div>
+        <div class="login-switch">
+          <a href="javascript:void(0)" @click="checkForgot">不记得绑定邮箱？输入用户名/手机号查询</a>
+          <a href="javascript:void(0)" @click="mode = 'login'">返回登录</a>
+        </div>
       </template>
 
       <!-- 设置新密码(邮件重置链接) -->
@@ -53,7 +56,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { login as apiLogin, register as apiRegister, forgot as apiForgot, reset as apiReset } from '../api/auth'
+import { login as apiLogin, register as apiRegister, forgot as apiForgot, reset as apiReset, forgotCheck as apiForgotCheck } from '../api/auth'
 import { useUserStore } from '../stores/user'
 import { showToast } from '../utils/toast'
 
@@ -125,6 +128,26 @@ async function sendMail() {
     err.value = '✅ ' + (data.msg || '已发送，请查收邮件')
   } catch (e) {
     err.value = e.message || '发送失败'
+  } finally {
+    busy.value = false
+  }
+}
+
+// 忘记密码: 输入用户名/手机号查询是否绑定邮箱(未绑定提示联系管理员)
+async function checkForgot() {
+  err.value = ''
+  const login = window.prompt('请输入你的用户名或手机号(用于查询绑定邮箱)')
+  if (!login || !login.trim()) return
+  busy.value = true
+  try {
+    const data = await apiForgotCheck(login.trim())
+    if (data.ok) {
+      err.value = '✅ ' + (data.msg || '已绑定邮箱，请在输入框填该邮箱')
+    } else {
+      err.value = (data.msg || '未绑定邮箱，请联系管理员') 
+    }
+  } catch (e) {
+    err.value = e.message || '查询失败'
   } finally {
     busy.value = false
   }

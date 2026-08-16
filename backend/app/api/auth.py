@@ -189,3 +189,27 @@ def api_reset(request: Request, body: dict = Body(...)):
     security.revoke_user_tokens(user_id)
     log.info("密码重置成功 user_id=%s", user_id)
     return jr({"ok": True, "msg": "密码已重置，请用新密码登录"})
+
+
+@router.post("/api/forgot/check")
+def api_forgot_check(request: Request, body: dict = Body(...)):
+    """忘记密码辅助: 输入用户名/手机号, 返回是否绑定了邮箱
+    若未绑定邮箱 → 提示联系管理员(微信号 poet-1986)人工处理"""
+    login = str(body.get("login") or "").strip()
+    if not login:
+        return jr({"ok": False, "msg": "请输入用户名或手机号"}, 400)
+    user = users.find_user_by_login(login)
+    if user is None:
+        # 未找到账号: 也提示联系管理员(避免枚举账号存在性)
+        return jr({"ok": False, "has_email": False,
+                   "msg": "未找到该账号或未绑定邮箱，请联系管理员人工处理（管理员微信号：poet-1986）"}, 404)
+    has_email = bool((user.get("email") or "").strip())
+    if not has_email:
+        return jr({"ok": False, "has_email": False,
+                   "msg": "该账号未绑定邮箱，无法自助找回密码，请联系管理员人工处理（管理员微信号：poet-1986）"}, 400)
+    # 已绑定邮箱: 返回脱敏邮箱提示用户确认
+    email = user["email"]
+    local, dom = email.split("@", 1) if "@" in email else (email, "")
+    masked = (local[:2] + "***@" + dom) if len(local) > 2 else ("**@" + dom)
+    return jr({"ok": True, "has_email": True, "email": masked,
+               "msg": "该账号已绑定邮箱 %s，请在忘记密码页输入该邮箱" % masked})

@@ -421,3 +421,51 @@ def send_reset_email(to_email, reset_url, username):
         server.sendmail(config.SMTP_FROM or config.SMTP_USER, [to_email], msg.as_string())
     finally:
         server.quit()
+
+
+def update_profile(uid, phone=None, email=None, wx_name=None, remark=None):
+    """用户修改个人资料(手机号/邮箱/微信名/备注), 返回 (ok, msg)
+    手机号/邮箱改动时校验唯一性; 返回码: ok=True 或 (False, 错误信息)"""
+    if phone is not None:
+        phone = phone.strip() or None
+        if phone and not _is_phone(phone):
+            return False, "手机号格式不正确"
+    if email is not None:
+        email = email.strip() or None
+        if email and not _is_email(email):
+            return False, "邮箱格式不正确"
+    if wx_name is not None:
+        wx_name = wx_name.strip() or None
+        if wx_name and len(wx_name) > 40:
+            return False, "微信名过长(限40字)"
+    if remark is not None:
+        remark = remark.strip() or None
+        if remark and len(remark) > 200:
+            return False, "备注过长(限200字)"
+    # 唯一性: 手机号/邮箱已被其他用户占用则拒绝
+    if phone:
+        other = find_user_by_phone(phone)
+        if other and other["id"] != uid:
+            return False, "该手机号已绑定其他账号"
+    if email:
+        other = find_user_by_email(email)
+        if other and other["id"] != uid:
+            return False, "该邮箱已绑定其他账号"
+    sets, vals = [], []
+    for col, v in (("phone", phone), ("email", email), ("wx_name", wx_name), ("remark", remark)):
+        if v is None:
+            continue
+        sets.append("%s=?" % col)
+        vals.append(v)
+    if not sets:
+        return True, "无改动"
+    vals.append(uid)
+    try:
+        conn = _conn()
+        conn.execute("UPDATE users SET %s WHERE id=?" % ",".join(sets), vals)
+        conn.commit()
+        conn.close()
+        return True, "已保存"
+    except Exception as e:
+        log.warning("更新个人资料失败 uid=%s err=%s", uid, e)
+        return False, "保存失败: %s" % e
