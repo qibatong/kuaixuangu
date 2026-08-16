@@ -324,7 +324,7 @@ padding: 28px 24px; text-align: center;
 }
 .login-title { font-size: 18px; font-weight: 800; color: var(--accent-deep); letter-spacing: 2px; margin-bottom: 6px; }
 .login-logo { width: 64px; height: 64px; border-radius: 6px; margin: 0 auto 10px; display: block; box-shadow: 0 4px 14px rgba(0,0,0,0.5); }
-.login-sub { font-size: 12px; color: #ffa2a2; margin-bottom: 18px; }
+.login-sub { font-size: 12px; color: #ffa2a2; margin-bottom: 22px; line-height: 1.6; }
 .login-box input[type="password"], .login-box input[type="text"] {
 width: 100%; background: var(--bg-input); border: 1px solid var(--accent); color: #fff;
 padding: 10px 12px; border-radius: 6px; font-size: 14px; outline: none; text-align: center;
@@ -336,10 +336,15 @@ width: 100%; background: var(--accent-deep); border: none; color: white; font-we
 padding: 10px 0; border-radius: 6px; font-size: 14px; cursor: pointer;
 }
 .login-btn:hover { background: #cc0000; }
-.login-err { color: #ffcc88; font-size: 12px; min-height: 18px; margin-top: 8px; }
-.login-switch { font-size: 12px; color: var(--text-muted); margin-top: 10px; }
-.login-switch a { color: #ffb347; text-decoration: none; cursor: pointer; }
+/* 错误提示: 多行文案展开 + 与下方切换链接留出间隔 (2026-08-16 用户反馈"太密集了") */
+.login-err { color: #ffcc88; font-size: 12px; line-height: 1.7; padding: 8px 6px;
+  margin: 12px 0 16px; min-height: 24px; border-radius: 6px;
+  background: rgba(255,204,136,0.08); border: 1px solid rgba(255,204,136,0.18); }
+.login-switch { font-size: 12px; color: var(--text-muted); margin-top: 14px; line-height: 1.7; }
+.login-switch a { color: #ffb347; text-decoration: none; cursor: pointer; margin: 0 2px; }
 .login-switch a:hover { color: #ffd700; text-decoration: underline; }
+/* 错误状态: 让 err 更显眼 */
+.login-err.error { color: #ff8888; background: rgba(255,80,80,0.10); border-color: rgba(255,80,80,0.25); }
 
 /* 顶部用户栏 */
 .user-box {
