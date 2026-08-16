@@ -734,3 +734,38 @@ def test_admin_users_member_tab(client, first_user):
     total_a = r_a.json()["total"]
     assert total_m + total_n + total_a == total_all, \
         f"tab 总数不一致: all={total_all} m={total_m} n={total_n} a={total_a}"
+
+
+# ---------- 管理端搜索扩展: 微信名/备注/付款备注 ----------
+def test_admin_search_wx_name_remark(client, first_user):
+    """按微信名/备注/付款备注搜索用户"""
+    import uuid
+    token, _, invite = first_user
+    # 创建带微信名+备注的用户
+    uname = "search_" + uuid.uuid4().hex[:6]
+    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
+    email = uuid.uuid4().hex[:6] + "@test.local"
+    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
+                                           "invite_code": invite, "phone": phone, "email": email})
+    assert r.status_code == 200
+    rows = client.get("/api/admin/users?keyword=" + uname, headers=hdrs(token)).json()["rows"]
+    uid = next(x["id"] for x in rows if x["username"] == uname)
+    # 设置微信名/备注/付款备注
+    r = client.post("/api/admin/users/profile",
+                    json={"uid": uid, "wx_name": "寻宝探险家", "remark": "微信群老用户",
+                          "pay_remark": "月付300元"},
+                    headers=hdrs(token))
+    assert r.status_code == 200
+    # 按微信名搜索
+    r = client.get("/api/admin/users?keyword=" + "寻宝", headers=hdrs(token))
+    assert r.status_code == 200
+    assert any(x["id"] == uid for x in r.json()["rows"]), "按微信名应搜到该用户"
+    # 按备注搜索
+    r = client.get("/api/admin/users?keyword=" + "老用户", headers=hdrs(token))
+    assert any(x["id"] == uid for x in r.json()["rows"]), "按备注应搜到该用户"
+    # 按付款备注搜索
+    r = client.get("/api/admin/users?keyword=" + "300元", headers=hdrs(token))
+    assert any(x["id"] == uid for x in r.json()["rows"]), "按付款备注应搜到该用户"
+    # 无关关键词不应命中
+    r = client.get("/api/admin/users?keyword=" + "绝不存在xyz", headers=hdrs(token))
+    assert not any(x["id"] == uid for x in r.json()["rows"]), "无关关键词不应命中"

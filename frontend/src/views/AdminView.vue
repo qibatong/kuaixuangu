@@ -27,7 +27,7 @@
               <button v-for="t in memberTabs" :key="t.key" class="member-tab"
                       :class="{ active: memberTab === t.key }" @click="setMemberTab(t.key)">{{ t.label }}</button>
             </div>
-            <input v-model="keyword" class="admin-input" placeholder="搜索用户名/手机/邮箱" @keyup.enter="loadUsers(1)" />
+            <input v-model="keyword" class="admin-input" placeholder="搜用户名/手机/邮箱/微信名/备注" @keyup.enter="loadUsers(1)" />
             <button class="admin-search-btn" @click="loadUsers(1)"><i class="fa fa-search"></i> 搜索</button>
             <button class="admin-search-btn" style="background:rgba(0,200,120,0.15);border-color:#00c878;color:#80ffaa;" @click="openCreate()"><i class="fa fa-plus"></i> 新建会员</button>
           </div>
@@ -38,75 +38,79 @@
               <tr>
                 <th class="sortable" :class="{ active: userSort.keyOf('id') }" @click="userSort.onSort('id')">ID<span class="sort-ind">{{ userSort.ind('id') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('username') }" @click="userSort.onSort('username', 'string')">用户名<span class="sort-ind">{{ userSort.ind('username') }}</span></th>
+                <th class="sortable" :class="{ active: userSort.keyOf('wx_name') }" @click="userSort.onSort('wx_name', 'string')">微信名<span class="sort-ind">{{ userSort.ind('wx_name') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('phone') }" @click="userSort.onSort('phone', 'string')">手机/邮箱<span class="sort-ind">{{ userSort.ind('phone') }}</span></th>
+                <th class="sortable" :class="{ active: userSort.keyOf('remark') }" @click="userSort.onSort('remark', 'string')">备注<span class="sort-ind">{{ userSort.ind('remark') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('created_at') }" @click="userSort.onSort('created_at')">注册时间<span class="sort-ind">{{ userSort.ind('created_at') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('expire_at') }" @click="userSort.onSort('expire_at')">到期时间<span class="sort-ind">{{ userSort.ind('expire_at') }}</span></th>
-                <th class="sortable" :class="{ active: userSort.keyOf('invited_count') }" @click="userSort.onSort('invited_count')">邀请人数<span class="sort-ind">{{ userSort.ind('invited_count') }}</span></th>
-                <th class="sortable" :class="{ active: userSort.keyOf('batch_count') }" @click="userSort.onSort('batch_count')">选股次数<span class="sort-ind">{{ userSort.ind('batch_count') }}</span></th>
+                <th class="sortable" :class="{ active: userSort.keyOf('invited_count') }" @click="userSort.onSort('invited_count')">邀请<span class="sort-ind">{{ userSort.ind('invited_count') }}</span></th>
+                <th class="sortable" :class="{ active: userSort.keyOf('batch_count') }" @click="userSort.onSort('batch_count')">选股<span class="sort-ind">{{ userSort.ind('batch_count') }}</span></th>
                 <th>会员等级</th>
-                <th style="min-width:150px;">设置使用期限</th>
+                <th style="min-width:70px;">操作</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="u in userSort.sorted(rows, userVal)" :key="u.id">
                 <td>{{ u.id }}</td>
-                <td>
-                  <span class="user-name-row">
-                    {{ u.username }}
-                    <!-- 角色徽标: 紧贴用户名后, 一眼看清身份 (不再单设列) -->
-                    <span v-if="u.is_admin" class="role-badge role-admin">管理员</span>
-                    <span v-else-if="u.member_level === 2" class="role-badge role-vip">VIP 老师</span>
-                    <span v-else-if="u.member_level === 1" class="role-badge role-paid">付费会员</span>
-                    <span v-else class="role-badge role-trial">普通用户</span>
-                  </span>
-                  <div v-if="u.wx_name" class="user-sub">微信: {{ u.wx_name }}</div>
-                  <div v-if="u.remark" class="user-sub user-remark" :title="u.remark">备注: {{ u.remark }}</div>
-                  <div v-if="u.pay_remark" class="user-sub user-pay" :title="u.pay_remark">[付款] {{ u.pay_remark }}</div>
-                </td>
+                <td>{{ u.username }}</td>
+                <td>{{ u.wx_name || '-' }}</td>
                 <td>{{ u.phone || u.email || '-' }}</td>
+                <td>
+                  <span v-if="u.remark" class="cell-note" :title="u.remark">{{ u.remark }}</span>
+                  <span v-else>-</span>
+                  <span v-if="u.pay_remark" class="cell-pay" :title="u.pay_remark">💰 {{ u.pay_remark }}</span>
+                </td>
                 <td>{{ fmtTsTime(u.created_at) }}</td>
                 <td>
-                  <span v-if="expireState(u) === 'forever'" class="user-tag">永久</span>
+                  <span v-if="u.is_admin || u.member_level === 2" class="user-tag">永久</span>
                   <span v-else-if="expireState(u) === 'expired'" class="expired-tag">已过期 {{ fmtBjDay(u.expire_at) }}</span>
                   <span v-else class="ok-tag">{{ fmtBjDay(u.expire_at) }}</span>
                 </td>
                 <td>{{ u.invited_count }}</td>
                 <td>{{ u.batch_count }}</td>
                 <td>
-                  <select v-model.number="u._level" class="level-select" @change="setLevel(u)" title="修改会员等级">
+                  <!-- 管理员固定, 普通用户/付费/VIP 可下拉修改 -->
+                  <span v-if="u.is_admin" class="role-badge role-admin">管理员</span>
+                  <select v-else v-model.number="u._level" class="level-select" @change="setLevel(u)" title="修改会员等级">
                     <option :value="0">免费试用</option>
                     <option :value="1">付费会员</option>
-                    <option :value="2">VIP老师</option>
+                    <option :value="2">VIP</option>
                   </select>
                 </td>
                 <td>
-                  <div v-if="u.is_admin" style="color:#888;font-size:12px;">管理员永久有效</div>
-                  <div v-else class="expire-cell">
-                    <button class="mini-btn" @click.stop="openProfile(u)">📝 资料</button>
-                    <button class="mini-btn" style="margin-left:6px;" @click.stop="togglePanel(u)">⚙️ 设置期限</button>
-                    <button class="mini-btn pwd-btn" style="margin-left:6px;" @click.stop="openPwdReset(u)">🔑 重置密码</button>
-                    <button class="mini-btn danger" style="margin-left:6px;" @click.stop="deleteUser(u)">🗑️ 删除</button>
-                    <div v-if="openUid === u.id" class="expire-popover" @click.stop>
-                      <div class="pop-label">延长时长</div>
-                      <div class="pop-row">
-                        <button class="mini-btn" @click="extendUser(u, 'week')">+1周</button>
-                        <button class="mini-btn" @click="extendUser(u, 'month')">+1月</button>
-                        <button class="mini-btn" @click="extendUser(u, 'quarter')">+1季</button>
-                        <button class="mini-btn" @click="extendUser(u, 'year')">+1年</button>
-                      </div>
-                      <div class="pop-label">自定义到期日</div>
-                      <div class="pop-row">
-                        <input v-model="u._expireDate" type="date" class="mini-date" :max="'2099-12-31'" />
-                        <button class="mini-btn" @click="extendUser(u, 'date')">设为该日</button>
-                      </div>
-                      <div class="pop-row">
-                        <button class="mini-btn danger" title="永久有效" @click="extendUser(u, 'forever')">设为永久</button>
+                  <div class="row-actions">
+                    <!-- ⋮ 操作下拉 -->
+                    <button class="mini-btn" @click.stop="toggleMenu(u)">⋮</button>
+                    <div v-if="menuUid === u.id" class="row-menu" @click.stop>
+                      <button class="row-menu-item" @click="menuAction(u, 'profile')">📝 编辑资料</button>
+                      <template v-if="!u.is_admin">
+                        <button class="row-menu-item" @click="menuAction(u, 'expire')">⚙️ 设置期限</button>
+                        <button class="row-menu-item" @click="menuAction(u, 'pwd')">🔑 重置密码</button>
+                        <button class="row-menu-item row-menu-danger" @click="menuAction(u, 'delete')">🗑️ 删除</button>
+                      </template>
+                      <!-- 期限面板(设置期限子菜单) -->
+                      <div v-if="menuSection === 'expire'" class="row-menu-expire" @click.stop>
+                        <div class="pop-label">延长时长</div>
+                        <div class="pop-row">
+                          <button class="mini-btn" @click="extendUser(u, 'week')">+1周</button>
+                          <button class="mini-btn" @click="extendUser(u, 'month')">+1月</button>
+                          <button class="mini-btn" @click="extendUser(u, 'quarter')">+1季</button>
+                          <button class="mini-btn" @click="extendUser(u, 'year')">+1年</button>
+                        </div>
+                        <div class="pop-label">自定义到期日</div>
+                        <div class="pop-row">
+                          <input v-model="u._expireDate" type="date" class="mini-date" :max="'2099-12-31'" />
+                          <button class="mini-btn" @click="extendUser(u, 'date')">设为该日</button>
+                        </div>
+                        <div class="pop-row">
+                          <button class="mini-btn danger" title="永久有效" @click="extendUser(u, 'forever')">设为永久</button>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </td>
               </tr>
-              <tr v-if="!rows.length"><td colspan="9" style="text-align:center;color:#888;padding:20px;">暂无用户</td></tr>
+              <tr v-if="!rows.length"><td colspan="11" style="text-align:center;color:#888;padding:20px;">暂无用户</td></tr>
             </tbody>
           </table>
         </div>
@@ -158,7 +162,7 @@
               <select v-model.number="createForm.member_level" class="admin-input">
                 <option :value="0">免费试用</option>
                 <option :value="1">付费会员</option>
-                <option :value="2">VIP 老师</option>
+                <option :value="2">VIP</option>
               </select></label>
             <label class="profile-label">到期日
               <input v-model="createForm.expire_at" type="date" class="admin-input" :min="todayStr" /></label>
@@ -383,10 +387,31 @@ async function saveDefaults(force = false) {
   }
 }
 
-const openUid = ref(null)
-function togglePanel(u) { openUid.value = openUid.value === u.id ? null : u.id }
-function closePanel() { openUid.value = null }
-function onDocClick(e) { if (!e.target.closest('.expire-cell')) openUid.value = null }
+const menuUid = ref(null)        // ⋮ 下拉菜单当前打开的用户 id
+const menuSection = ref('')      // 下拉内当前面板: '' 主菜单 | 'expire' 期限面板
+function closeMenu() {
+  menuUid.value = null
+  menuSection.value = ''
+}
+function toggleMenu(u) {
+  menuUid.value = menuUid.value === u.id ? null : u.id
+  menuSection.value = ''
+}
+function menuAction(u, act) {
+  if (act === 'expire') {
+    menuSection.value = 'expire'   // 下拉内切换到期限面板
+  } else {
+    closeMenu()
+    if (act === 'profile') openProfile(u)
+    else if (act === 'pwd') openPwdReset(u)
+    else if (act === 'delete') deleteUser(u)
+  }
+}
+function onDocClick(e) {
+  if (!e.target.closest('.expire-cell') && !e.target.closest('.row-actions')) {
+    closeMenu()
+  }
+}
 onMounted(() => document.addEventListener('click', onDocClick))
 onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
@@ -397,7 +422,7 @@ const pwdSaving = ref(false)
 function openPwdReset(u) {
   pwdTarget.value = u
   pwdNew.value = ''
-  closePanel()
+  closeMenu()
 }
 function closePwdReset() {
   pwdTarget.value = null
@@ -430,7 +455,7 @@ function openProfile(u) {
   profileForm.wx_name = u.wx_name || ''
   profileForm.remark = u.remark || ''
   profileForm.pay_remark = u.pay_remark || ''
-  closePanel()
+  closeMenu()
 }
 function closeProfile() {
   profileTarget.value = null
@@ -598,7 +623,7 @@ async function extendUser(u, action) {
     const d = await setUserExpire(u.id, payload)
     toast(`${u.username} ${label}设置成功，到期 ${fmtBjDay(d.expire_at)}`, 'success')
     u._expireDate = ''
-    closePanel()
+    closeMenu()
     loadUsers(page.value)
   } catch (e) {
     toast(e.message || '设置失败', 'error')
@@ -610,9 +635,9 @@ function changePageSize() {
   loadUsers(1)
 }
 
-// 会员等级: 0=免费试用 1=付费会员 2=VIP老师
+// 会员等级: 0=免费试用 1=付费会员 2=VIP (永久)
 function levelLabel(lv) {
-  return lv === 2 ? 'VIP老师' : lv === 1 ? '付费会员' : '免费试用'
+  return lv === 2 ? 'VIP' : lv === 1 ? '付费会员' : '免费试用'
 }
 async function setLevel(u) {
   try {
@@ -762,6 +787,20 @@ onMounted(() => {
 .role-vip   { color: #ffb347; border: 1px solid #ffb347; background: rgba(255,179,71,0.15); }
 .role-paid  { color: #ff6a6a; border: 1px solid #ff6a6a; background: rgba(255,106,106,0.12); }
 .role-trial { color: var(--text-muted); border: 1px solid #666; }
+/* 备注/付款备注单元格 */
+.cell-note { display: block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 12px; }
+.cell-pay { display: block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6ab0ff; font-size: 11px; margin-top: 2px; }
+/* ⋮ 操作下拉 */
+.row-actions { position: relative; display: inline-block; }
+.row-menu { position: absolute; right: 0; top: 100%; z-index: 50; min-width: 140px;
+  background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.4); padding: 6px; margin-top: 4px; }
+.row-menu-item { display: block; width: 100%; text-align: left; padding: 8px 10px; font-size: 13px;
+  background: transparent; border: 0; color: var(--text-main); cursor: pointer; border-radius: 6px; }
+.row-menu-item:hover { background: rgba(0,180,255,0.12); }
+.row-menu-danger { color: #ff6a6a; }
+.row-menu-danger:hover { background: rgba(255,80,80,0.12); }
+.row-menu-expire { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-soft); }
 .expired-tag { color: #ff6a6a; border: 1px solid #ff5050; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
 .ok-tag { color: #7ce8a0; border: 1px solid #4caf70; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
 .expire-cell { position: relative; display: inline-block; }

@@ -43,7 +43,7 @@ export const useUserStore = defineStore('user', {
     // 会员判断: 管理员永远有权限; VIP老师 永久权限; 其余要求未过期(expire_at=0 永久 或 未到到期时间)
     isMember: (s) => s.isAdmin || s.memberLevel === 2 || !s.expired,
     // 会员等级标签
-    memberLabel: (s) => s.memberLevel === 2 ? 'VIP老师' : s.memberLevel === 1 ? '付费会员' : (s.isAdmin ? '管理员' : '免费试用'),
+    memberLabel: (s) => s.memberLevel === 2 ? 'VIP' : s.memberLevel === 1 ? '付费会员' : (s.isAdmin ? '管理员' : '免费试用'),
     // 剩余试用天数(-1 表示永久, 仅提示用)
     memberDaysLeft: (s) => {
       if (s.isAdmin || s.memberLevel === 2 || !s.expireAt) return -1

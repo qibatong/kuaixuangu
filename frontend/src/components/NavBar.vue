@@ -51,7 +51,7 @@ A
       <!-- 账户工具: 已登录显示用户名/会员标识/改密/退出 -->
       <div v-if="user.isLoggedIn" class="user-tools">
         <span class="user-name" :title="user.username"><i class="fa fa-user-circle"></i> {{ user.username }}</span>
-        <span v-if="user.memberLevel === 2" class="member-badge vip-badge" title="VIP老师 · 永久权限">VIP老师</span>
+        <span v-if="user.memberLevel === 2" class="member-badge vip-badge" title="VIP · 永久权限">VIP</span>
         <span v-else-if="user.memberLevel === 1" class="member-badge paid-badge" title="付费会员">付费会员</span>
         <span v-else-if="user.isAdmin" class="member-badge admin-badge" title="管理员">管理员</span>
         <span v-else-if="user.memberDaysLeft >= 0" class="member-badge trial-badge" :title="'免费试用剩余 ' + user.memberDaysLeft + ' 天'">试用{{ user.memberDaysLeft }}天</span>

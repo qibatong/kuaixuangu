@@ -86,8 +86,8 @@ def set_password(uid, new_password):
 
 
 # ---------- 会员等级 ----------
-# member_level: 0=免费试用 1=付费会员 2=VIP老师(管理后台指定, 永久权限)
-MEMBER_LEVEL_LABEL = {0: "免费试用", 1: "付费会员", 2: "VIP老师"}
+# member_level: 0=免费试用 1=付费会员 2=VIP(永久权限, 管理后台指定)
+MEMBER_LEVEL_LABEL = {0: "免费试用", 1: "付费会员", 2: "VIP"}
 
 
 def get_member_level(uid):
@@ -205,9 +205,11 @@ def list_users_page(page=1, page_size=20, keyword="", member_tab="all"):
     cond = ""
     params = []
     if keyword:
-        cond += " AND (u.username LIKE ? OR COALESCE(u.phone,'') LIKE ? OR COALESCE(u.email,'') LIKE ?)"
+        cond += (" AND (u.username LIKE ? OR COALESCE(u.phone,'') LIKE ? OR COALESCE(u.email,'') LIKE ?"
+                 " OR COALESCE(u.wx_name,'') LIKE ? OR COALESCE(u.remark,'') LIKE ?"
+                 " OR COALESCE(u.pay_remark,'') LIKE ?)")
         kw = "%" + keyword + "%"
-        params += [kw, kw, kw]
+        params += [kw, kw, kw, kw, kw, kw]
     if member_tab == "member":
         cond += " AND COALESCE(u.member_level,0) > 0 AND COALESCE(u.is_admin,0) = 0"
     elif member_tab == "normal":
