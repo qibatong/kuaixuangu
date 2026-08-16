@@ -34,7 +34,8 @@ def init_db():
             action TEXT NOT NULL,
             markets TEXT NOT NULL,
             filters TEXT NOT NULL,
-            stock_count INTEGER NOT NULL
+            stock_count INTEGER NOT NULL,
+            auto_applied INTEGER NOT NULL DEFAULT 0
         )
     """)
     cur.execute("""
@@ -299,7 +300,11 @@ def init_db():
     cols = [r[1] for r in cur.execute("PRAGMA table_info(batches)").fetchall()]
     if "user_id" not in cols:
         cur.execute("ALTER TABLE batches ADD COLUMN user_id INTEGER")
+    # 老库迁移: batches 增加 auto_applied 列(2026-08-16: 9:26 自动应用标记, 区别用户主动 lock/filter)
+    if "auto_applied" not in cols:
+        cur.execute("ALTER TABLE batches ADD COLUMN auto_applied INTEGER NOT NULL DEFAULT 0")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_batches_user ON batches(user_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_batches_auto ON batches(auto_applied)")
     # 异步任务队列(Phase1 建立, worker 进程消费; save_batch 默认仍同步, 切异步后启用)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS task_queue (

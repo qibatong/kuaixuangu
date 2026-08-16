@@ -487,6 +487,15 @@ def _scheduler_loop():
                     # 15:30 收盘后返回空 → 必须此时落库, 否则竞价委买/爆量/净额 tab 无历史
                     # 注意: qiangcang 上面已拉, 这里只补 seal/boom(qiangcang 由 save 内部重拉, 幂等)
                     kpl.save_auction_history(date, phase="bid")
+                    # 9:26 自动应用(2026-08-16 用户反馈): 用户打开应用但没点"应用"按钮,
+                    # 当天历史为空; 抢筹落库后给所有活跃用户跑一次自动应用(标记 auto_applied=True).
+                    # 串行避免 KPL 配额压垮, 单用户失败不影响其他人.
+                    try:
+                        from . import auto_apply
+                        r = auto_apply.auto_apply_all_users()
+                        log.info("9:26 自动应用 摘要: %s", r)
+                    except Exception as e:
+                        log.warning("9:26 自动应用 调度失败(不影响抢筹落库) err=%s", e)
                 except Exception as e:
                     # 失败回滚: 窗口 9:26-9:30 内下一轮轮询重试(避免 KPL 瞬时故障导致抢筹 tab 当日无数据)
                     store.delete("sched:qc:" + date)

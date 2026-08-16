@@ -20,8 +20,9 @@ def _conn():
     return conn
 
 
-def save_batch(user_id, action, result, f):
-    """把一次选股结果存为一个历史批次(归属指定用户), 返回批次 id; 失败返回 None"""
+def save_batch(user_id, action, result, f, auto_applied=False):
+    """把一次选股结果存为一个历史批次(归属指定用户), 返回批次 id; 失败返回 None
+    auto_applied=True 用于 9:26 系统自动应用 (区别用户主动 lock/filter)"""
     t = time.time()
     g = time.gmtime(t + 8 * 3600)   # 北京时间
     bdate = "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
@@ -32,8 +33,9 @@ def save_batch(user_id, action, result, f):
         conn = database.get_conn()
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO batches (batch_date, batch_time, ts, action, markets, filters, stock_count, user_id) VALUES (?,?,?,?,?,?,?,?)",
-            (bdate, btime, int(t), action, markets, filters_json, len(result), user_id))
+            "INSERT INTO batches (batch_date, batch_time, ts, action, markets, filters, stock_count, user_id, auto_applied) VALUES (?,?,?,?,?,?,?,?,?)",
+            (bdate, btime, int(t), action, markets, filters_json, len(result), user_id,
+             1 if auto_applied else 0))
         batch_id = cur.lastrowid
         cur.executemany(
             "INSERT INTO batch_stocks (batch_id, rank, code, name, probability, confidence, bid_change, real_change, entity_change, bid_turnover, warn_type, circulation_mv, industry, concept, bid_amt, bid_ratio) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",

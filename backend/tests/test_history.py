@@ -78,3 +78,41 @@ def test_stats_performance(client, first_user):
     assert d["overview"]["total"] >= 4
     assert 0 <= d["overview"]["win_rate"] <= 1
     assert "top3" in d and "by_score" in d and "daily" in d
+
+
+# ---------- 9:26 自动应用 (2026-08-16) ----------
+def test_save_batch_auto_applied_default_false():
+    """save_batch 默认 auto_applied=False (向后兼容, 主动 lock/filter 不变)"""
+    import time
+    from app.services import history
+    from app.db import database
+    conn = database.get_conn()
+    # 用一个临时 uid 不会真注册, 直接插行测试回读
+    # 这里仅测 save_batch 函数签名/默认参数
+    import inspect
+    sig = inspect.signature(history.save_batch)
+    assert "auto_applied" in sig.parameters
+    assert sig.parameters["auto_applied"].default is False
+    conn.close()
+
+
+def test_auto_apply_skip_admin_and_expired(client, first_user):
+    """auto_apply 跳过管理员/过期账号/不存在"""
+    from app.services import auto_apply
+    # 不存在 uid → 返回 (False, "用户不存在")
+    ok, reason = auto_apply._is_user_active(99999999)
+    assert ok is False and "不存在" in reason
+    # 过期账号: 直接 UPDATE 设 expire_at 为 0 (永久 = 不过期); 然后设到 1 (已过期)
+    import sqlite3, os, time
+    conn = sqlite3.connect(os.environ["BID_DB_PATH"])
+    # 找一个非管理员用户 (second_user 是普通用户)
+    target = conn.execute("SELECT id FROM users WHERE is_admin=0 LIMIT 1").fetchone()
+    if target:
+        conn.execute("UPDATE users SET expire_at=? WHERE id=?", (int(time.time()) - 10, target[0]))
+        conn.commit()
+        ok2, reason2 = auto_apply._is_user_active(target[0])
+        assert ok2 is False and "过期" in reason2
+        # 还原
+        conn.execute("UPDATE users SET expire_at=0 WHERE id=?", (target[0],))
+        conn.commit()
+    conn.close()

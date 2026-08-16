@@ -29,7 +29,10 @@
               <span class="batch-time">
                 <i class="fa fa-clock-o"></i> {{ b.batch_date }} {{ b.batch_time }}
               </span>
-              <span class="batch-type" :class="b.action === 'lock' ? 'type-lock' : 'type-filter'">{{ b.action === 'lock' ? '锁定选股' : '筛选重算' }}</span>
+              <span class="batch-type" :class="b.action === 'lock' ? 'type-lock' : 'type-filter'">
+                {{ b.action === 'lock' ? '锁定选股' : '筛选重算' }}
+              </span>
+              <span v-if="b.auto_applied" class="batch-auto-tag" title="9:26 系统自动应用: 用户当天未主动点应用, 系统按用户偏好自动保存批次">⚙️ 自动</span>
               <span class="batch-meta">
                 <span class="batch-market">{{ b.markets }}</span>
                 <span class="batch-count">{{ b.stock_count }}只</span>
@@ -402,6 +405,7 @@ onMounted(() => {
 }
 .type-lock { color: var(--accent); border: 1px solid var(--accent-deep); background: rgba(var(--accent-rgb), 0.1); }
 .type-filter { color: #a0e0ff; border: 1px solid #00b4ff; background: rgba(0,180,255,0.1); }
+.batch-auto-tag { font-size: 11px; color: #aaa; border: 1px dashed #888; border-radius: 4px; padding: 1px 6px; margin-left: 6px; }
 .batch-meta { display: flex; gap: 10px; margin-left: auto; align-items: center; }
 .batch-market { color: var(--text-muted); font-size: 12px; }
 .batch-count { color: #7ce8a0; font-size: 12px; }
