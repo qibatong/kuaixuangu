@@ -190,6 +190,52 @@ def fetch_market_brief(max_age=300):
     return d
 
 
+def record_intraday_snapshot(date=None):
+    """记录当日分时快照到 settings(2026-08-16): worker 每 5 分钟调用,
+    供次日做"两市成交额较昨日同一时点"对比; value 是 [{ts, amount, stockCount}] 列表
+    返回本次快照 (单条)"""
+    from . import settings as settings_svc
+    if date is None:
+        g = time.gmtime(now + 8 * 3600) if False else time.gmtime((time.time() + 8 * 3600))
+        date = "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
+    brief = fetch_market_brief(max_age=0)   # 强制刷新拉取(用于实时累计)
+    if not brief:
+        return None
+    key = "market_brief_intraday_" + date
+    arr = settings_svc.get(key) or []
+    snap = {"ts": int(time.time()),
+            "amount": brief["amount"],
+            "stockCount": brief["stockCount"]}
+    arr.append(snap)
+    settings_svc.set(key, arr)
+    return snap
+
+
+def get_same_time_yesterday(date=None):
+    """取昨日同一时点的成交额(用于'两市较昨日同一时点'对比);
+    今日 10:30 → 查昨日 intraday list, 找 ts <= 当前 ts 的最新点
+    返回 {amount, stockCount, ts} 或 None (无昨日数据)"""
+    from . import settings as settings_svc
+    from datetime import datetime, timedelta
+    now = int(time.time())
+    ydate = (datetime.fromtimestamp(now + 8 * 3600) - timedelta(days=1)).strftime("%Y-%m-%d")
+    # 处理非交易日: 昨日=周六 → 周五数据(但周五数据可能也没有, 取更早)
+    for offset in range(0, 5):    # 最多回溯 5 天
+        cur = (datetime.fromtimestamp(now + 8 * 3600) - timedelta(days=1 + offset)).strftime("%Y-%m-%d")
+        arr = settings_svc.get("market_brief_intraday_" + cur)
+        if not arr:
+            continue
+        # 找 ts <= now 的最新点
+        cand = [s for s in arr if s.get("ts", 0) <= now]
+        if cand:
+            return {"amount": cand[-1]["amount"], "stockCount": cand[-1]["stockCount"],
+                    "ts": cand[-1]["ts"], "date": cur}
+        # 全部都比当前 ts 新(跨日?) → 取最后一条
+        return {"amount": arr[-1]["amount"], "stockCount": arr[-1]["stockCount"],
+                "ts": arr[-1]["ts"], "date": cur}
+    return None
+
+
 def ensure_cache(action, fs, before930):
     """在锁内保证缓存可用且新鲜, 返回 (raw, 错误信息)。
     - lock:    9:30 前强制重新拉取(锁定期权)

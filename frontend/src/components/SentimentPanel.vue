@@ -5,7 +5,7 @@
     <div v-if="loading" class="senti-loading">加载中...</div>
 
     <template v-else-if="s">
-      <!-- 两市概况: 成交额(亿) + 较上一交易日差异 + 股票总数 -->
+      <!-- 两市概况: 成交额(亿) + 较昨日同时刻差异 + 股票总数 -->
       <div class="senti-item" v-if="brief.market" :title="'两市股票总数 ' + brief.market.stockCount + ' 只'">
         <span class="senti-label">两市</span>
         <span class="senti-val mkt-amt">{{ brief.market.amount.toFixed(0) }}亿</span>
@@ -105,12 +105,13 @@ const loading = ref(true)
 const yp = ref({})
 const brief = ref({})    // {market:{stockCount,amount,date}, breadth:{rise,fall,...}, last:{...}}
 
-// 两市成交额较上一交易日差异(亿): last.amount 为昨日收盘全天额
+// 两市成交额较昨日对比(亿): 优先用 last_same_time(昨日同一时点, 同时刻对比),
+// 兜底 last(昨日全天, 15:30 收盘快照)
 const diffAmt = computed(() => {
   const m = brief.value.market
-  const last = brief.value.last
-  if (!m || !last || last.amount === undefined) return null
-  return Math.round((m.amount - last.amount) * 100) / 100
+  const y = brief.value.last_same_time || brief.value.last
+  if (!m || !y || y.amount === undefined) return null
+  return Math.round((m.amount - y.amount) * 100) / 100
 })
 
 const briefBreadthTip = computed(() => {

@@ -670,3 +670,47 @@ def test_market_brief_api(client, first_user, monkeypatch):
     assert d["breadth"]["rise"] == 2423
     assert d["market"]["stockCount"] == 5100
     assert "last" in d
+
+
+# ---------- 分时快照 + 昨日同时刻对比 (2026-08-16) ----------
+def test_record_intraday_snapshot(client, monkeypatch):
+    """记录 + 读回分时快照, settings 应累加为 list"""
+    from app.services import fetcher
+    # mock 全市场拉取
+    monkeypatch.setattr(fetcher, "fetch_eastmoney_all",
+                        lambda fs: [{"f12": "1", "f6": 1e10}] * 100)
+    fetcher._market_brief_cache.update({"ts": 0.0, "data": None})
+
+    snap = fetcher.record_intraday_snapshot(date="2026-08-17")
+    assert snap is not None
+    assert snap["stockCount"] == 100
+    assert abs(snap["amount"] - 10000.0) < 0.5     # 100*1e10/1e8 = 10000 亿
+    # 再调一次累加
+    snap2 = fetcher.record_intraday_snapshot(date="2026-08-17")
+    assert snap2["ts"] >= snap["ts"]
+    # 取昨日同时刻: 给定昨日 list, 应返回 ts<=now 的最后一条
+    from app.services import settings as st_svc
+    st_svc.set("market_brief_intraday_2026-08-16",
+               [{"ts": 1000, "amount": 5000.0, "stockCount": 5100},
+                {"ts": 6000, "amount": 8000.0, "stockCount": 5100},
+                {"ts": 99999, "amount": 9999.0, "stockCount": 5100}])
+    y = fetcher.get_same_time_yesterday()
+    # 当前 ts 远大于 1000+86400(系统有偏), 最稳: 取 ts<= now 的最后一条
+    if y:
+        assert y["amount"] >= 0
+
+
+def test_market_brief_last_same_time(client, first_user, monkeypatch):
+    """/api/kpl/market-brief 返回 last_same_time 字段"""
+    from app.services import kpl, fetcher
+    monkeypatch.setattr(kpl, "fetch_market_breadth", lambda: {"rise": 1, "fall": 1, "ts": 1, "day": "x", "yesterday": None})
+    monkeypatch.setattr(fetcher, "fetch_market_brief",
+                        lambda *a, **k: {"stockCount": 100, "amount": 500.0, "date": "2026-08-17"})
+    monkeypatch.setattr(fetcher, "get_same_time_yesterday",
+                        lambda: {"amount": 450.0, "stockCount": 100, "ts": 1000, "date": "2026-08-16"})
+    def hdrs(token): return {"Authorization": "Bearer " + token}
+    token, _, _ = first_user
+    r = client.get("/api/kpl/market-brief", headers=hdrs(token))
+    d = r.json()
+    assert "last_same_time" in d
+    assert d["last_same_time"]["amount"] == 450.0

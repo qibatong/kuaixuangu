@@ -586,9 +586,26 @@ def _scheduler_loop():
                                 ",".join(missing), date)
                 else:
                     log.info("今日快照采集完整: %s (date=%s)", ",".join(TIME_POINTS), date)
+            # 两市分时快照滚动存(2026-08-16): 交易时段每 5 分钟调用一次 fetch_market_brief,
+            # 写入 settings market_brief_intraday_{date}, 供次日做"两市较昨日同时刻"对比
+            # 累计成交额全天单调递增, 5min 粒度足够"同时刻对比"精度
+            if g.tm_wday < 5 and 9 * 60 + 30 <= hm <= 15 * 60:
+                if time.time() - _last_intraday_ts >= 300:
+                    try:
+                        from . import fetcher
+                        snap = fetcher.record_intraday_snapshot(date=date)
+                        _last_intraday_ts = time.time()
+                        if snap:
+                            log.info("分时快照已存 date=%s amount=%.0f亿 stockCount=%d",
+                                     date, snap["amount"], snap["stockCount"])
+                    except Exception as e:
+                        log.warning("分时快照失败(下一轮重试) err=%s", e)
         except Exception as e:
             log.error("快照调度异常 err=%s", e)
         time.sleep(10)
+
+
+_last_intraday_ts = 0.0   # 上次分时快照时间戳(模块级, worker 启动时为 0 立即跑一次)
 
 
 def start_scheduler():
