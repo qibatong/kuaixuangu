@@ -360,9 +360,9 @@ def _scheduler_loop():
                             log.info("[快照采集] 时点完成并入完成集 tp=%s date=%s", tp, date)
                         else:
                             log.warning("[快照采集] 时点失败(返回0) tp=%s date=%s 窗口已过无法重试", tp, date)
-            # 9:29-9:30 抢筹结果快照: 触发 fetch_bid_qiangcang 落库(竞价结束前最后一份,
-            # 非竞价时段页面读库展示不丢失)
-            if (g.tm_wday < 5 and 9 * 60 + 29 <= hm <= 9 * 60 + 30
+            # 9:26-9:30 抢筹结果快照: 触发 fetch_bid_qiangcang 落库(竞价完到开盘真空期, 越早看到抢筹越能提前布局,
+            # 9:25 撮合完成后 1 分钟即可落库, 非竞价时段页面读库展示不丢失)
+            if (g.tm_wday < 5 and 9 * 60 + 26 <= hm <= 9 * 60 + 30
                     and store.setnx("sched:qc:" + date, 1, ttl=86400)):
                 try:
                     from . import kpl
@@ -439,4 +439,4 @@ def start_scheduler():
     t.start()
     t2 = threading.Thread(target=_lastsec_loop, daemon=True)
     t2.start()
-    log.info("竞价多时点快照调度已启动(9:15/9:20/9:24/9:25/9:29抢筹结果快照/9:24:55-9:25:03最后一秒高频采样)")
+    log.info("竞价多时点快照调度已启动(9:15/9:20/9:24/9:25/9:26抢筹结果快照/9:24:55-9:25:03最后一秒高频采样)")
