@@ -128,6 +128,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <th>#</th>
             <th>代码</th>
             <th>名称</th>
+            <th class="board-col">概念</th>
             <th class="tp-th tp-th-25">9:25 封单</th>
             <th class="tp-th tp-th-20">9:20 封单</th>
             <th class="tp-th tp-th-15">9:15 封单</th>
@@ -144,6 +145,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td class="rank-col">{{ idx + 1 }}</td>
             <td class="code-click" @click="linkToSoftware(it.code)">{{ it.code }}</td>
             <td class="name-col"><div class="name-main">{{ it.name || it.code }}</div></td>
+            <td class="board-col" :title="it.board"><span class="board-text">{{ shortConcept(it.board) }}</span></td>
             <td class="seal-col seal-col-25">{{ tpSeal(it, '9_25') }}</td>
             <td class="seal-col seal-col-20">{{ tpSeal(it, '9_20') }}</td>
             <td class="seal-col seal-col-15">{{ tpSeal(it, '9_15') }}</td>
@@ -157,7 +159,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td class="dim">{{ mvText(it) }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已加自选' : '＋自选' }}</button></td>
           </tr>
-          <tr v-if="!s3List.length"><td colspan="12" class="snap-empty">暂无竞价封单数据（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
+          <tr v-if="!s3List.length"><td colspan="13" class="snap-empty">暂无竞价封单数据（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
         </tbody>
       </table>
       </template>
@@ -605,6 +607,12 @@ function sealMode(it) {
 function mvText(it) {
   const p = it.points && (it.points['9_25'] || it.points['9_20'] || it.points['9_15'])
   return p && p.float_mv ? (p.float_mv / 1e8).toFixed(1) : '-'
+}
+// 概念只显示前 2 个(开盘啦板块可能 10+ 个, 与首页选股列表一致; 完整放 title hover)
+function shortConcept(b) {
+  if (!b) return '-'
+  const parts = String(b).split(/[、,，]/).map(s => s.trim()).filter(Boolean)
+  return parts.length <= 2 ? parts.join('、') : parts.slice(0, 2).join('、')
 }
 
 // 切 Tab 时清掉排序(避免跨表残留的 key 干扰)
