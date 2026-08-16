@@ -2272,21 +2272,28 @@ def fetch_kpl_doc115(**extra):
 # 共生成 87 个 fetch_kpl_doc{N} 函数
 
 # ==================== 竞价异动日终快照(历史回看) ====================
-def save_auction_history(date):
-    """抓当日竞价异动各 tab 落库 auction_daily_history(15:30 调度调用)
-    tab: seal(竞价委买)/boom(竞价爆量)/qiangcang(抢筹list20)/
-         yest_zt(昨日涨停)/yest_broken(昨断板)/broken_yest(昨炸板)/broken_today(今炸板)
+def save_auction_history(date, phase="bid"):
+    """抓当日竞价异动各 tab 落库 auction_daily_history
+    phase='bid'  (9:26-9:30 竞价窗口调用, 竞价类数据必须此时落库!):
+        seal(竞价委买)/boom(竞价爆量)/qiangcang(抢筹list20)
+        ⚠️ 这些是竞价实时接口, 15:30 收盘后返回空 → 必须在 9:30 前落库
+    phase='close' (15:30 日终调用, 非竞价类):
+        yest_zt(昨日涨停)/yest_broken(昨断板)/broken_yest(昨炸板)/broken_today(今炸板)
     返回落库 tab 数; 某 tab 抓取失败不影响其他"""
     import sqlite3 as _sql
-    items = [
-        ("seal", fetch_bid_seal()),
-        ("boom", fetch_bid_boom()),
-        ("qiangcang", (fetch_bid_qiangcang() or {}).get("list20", [])),
-        ("yest_zt", fetch_yest_zt()),
-        ("yest_broken", fetch_yest_broken()),
-        ("broken_yest", fetch_broken_zt("yesterday")),
-        ("broken_today", fetch_broken_zt()),
-    ]
+    if phase == "bid":
+        items = [
+            ("seal", fetch_bid_seal()),
+            ("boom", fetch_bid_boom()),
+            ("qiangcang", (fetch_bid_qiangcang() or {}).get("list20", [])),
+        ]
+    else:
+        items = [
+            ("yest_zt", fetch_yest_zt()),
+            ("yest_broken", fetch_yest_broken()),
+            ("broken_yest", fetch_broken_zt("yesterday")),
+            ("broken_today", fetch_broken_zt()),
+        ]
     n = 0
     for tab, lst in items:
         if not lst:
@@ -2302,7 +2309,7 @@ def save_auction_history(date):
             n += 1
         except Exception as e:
             log.warning("竞价异动快照落库失败 date=%s tab=%s err=%s", date, tab, e)
-    log.info("竞价异动日终快照 date=%s 落库 %d 个 tab", date, n)
+    log.info("竞价异动快照[%s] date=%s 落库 %d 个 tab", phase, date, n)
     return n
 
 

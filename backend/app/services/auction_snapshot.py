@@ -483,6 +483,10 @@ def _scheduler_loop():
                     d = kpl.fetch_bid_qiangcang()
                     n = len((d or {}).get("list20", []))
                     log.info("竞价抢筹结果快照已存 date=%s list20=%d只", date, n)
+                    # 竞价类 tab 落库(2026-08-16 修复): seal/boom 是竞价实时接口,
+                    # 15:30 收盘后返回空 → 必须此时落库, 否则竞价委买/爆量/净额 tab 无历史
+                    # 注意: qiangcang 上面已拉, 这里只补 seal/boom(qiangcang 由 save 内部重拉, 幂等)
+                    kpl.save_auction_history(date, phase="bid")
                 except Exception as e:
                     # 失败回滚: 窗口 9:26-9:30 内下一轮轮询重试(避免 KPL 瞬时故障导致抢筹 tab 当日无数据)
                     store.delete("sched:qc:" + date)
@@ -519,11 +523,12 @@ def _scheduler_loop():
                             log.info("连板梯队快照已存 date=%s 共%d只", date, n)
                         else:
                             store.delete("sched:done:ladder_" + date)   # 失败回滚, 15:30-15:35 窗口内重试
-                    # 竞价异动日终快照(全部 tab): 供竞价异动页按日期回看历史
-                    # (竞价委买/爆量/昨日涨停/昨断板/炸板 接口不支持历史日期, 必须落库)
+                    # 竞价异动日终快照(非竞价 tab): 供竞价异动页按日期回看历史
+                    # (昨日涨停/昨断板/炸板 接口支持历史日期, 15:30 后抓取仍有效)
+                    # 竞价类 tab(seal/boom/qiangcang)已在 9:26 窗口落库, 不在此重复
                     if store.setnx("sched:done:auction_" + date, 1, ttl=86400):
                         from . import kpl as _kpl2
-                        n2 = _kpl2.save_auction_history(date)
+                        n2 = _kpl2.save_auction_history(date, phase="close")
                         if n2:
                             log.info("竞价异动日终快照已存 date=%s 共%d个tab", date, n2)
                         else:

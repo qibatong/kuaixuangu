@@ -22,8 +22,10 @@ def test_save_and_query_auction_history(client, monkeypatch):
     monkeypatch.setattr(kpl, "fetch_yest_broken", lambda: fake)
     monkeypatch.setattr(kpl, "fetch_broken_zt", lambda *a, **k: fake)
 
-    n = save_auction_history("2026-08-12")
-    assert n >= 5   # seal/boom/qiangcang/yest_zt/yest_broken/broken_* 至少 5 个
+    nb = save_auction_history("2026-08-12", phase="bid")
+    nc = save_auction_history("2026-08-12", phase="close")
+    assert nb >= 3   # seal/boom/qiangcang
+    assert nc >= 3   # yest_zt/yest_broken/broken_*
     # 回看各 tab
     assert query_auction_history("2026-08-12", "seal")[0]["code"] == "600487"
     assert query_auction_history("2026-08-12", "boom")[0]["name"] == "亨通光电"
@@ -38,7 +40,9 @@ def test_api_bid_seal_date(client, first_user, monkeypatch):
     token, _, _ = first_user
     fake = [{"code": "600487", "name": "亨通光电", "change": 10.01}]
     monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: fake)
-    save_auction_history("2026-08-12")
+    monkeypatch.setattr(kpl, "fetch_bid_boom", lambda: fake)
+    monkeypatch.setattr(kpl, "fetch_bid_qiangcang", lambda *a, **k: {"list20": []})
+    save_auction_history("2026-08-12", phase="bid")
     r = client.get("/api/kpl/bid-seal?date=2026-08-12", headers=_hdrs(token))
     d = r.json()
     assert d.get("ok") and d["list"][0]["code"] == "600487"
@@ -53,7 +57,9 @@ def test_api_yest_zt_date(client, first_user, monkeypatch):
     token, _, _ = first_user
     fake = [{"code": "600519", "name": "贵州茅台", "change": 5.0}]
     monkeypatch.setattr(kpl, "fetch_yest_zt", lambda: fake)
-    save_auction_history("2026-08-13")
+    monkeypatch.setattr(kpl, "fetch_yest_broken", lambda: fake)
+    monkeypatch.setattr(kpl, "fetch_broken_zt", lambda *a, **k: [])
+    save_auction_history("2026-08-13", phase="close")
     r = client.get("/api/kpl/yest-zt?date=2026-08-13", headers=_hdrs(token))
     d = r.json()
     assert d.get("ok") and d["list"][0]["code"] == "600519"
