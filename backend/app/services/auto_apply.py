@@ -3,17 +3,20 @@
 9:26 自动应用服务 (2026-08-16)
 ============================
 背景: 诗人反馈用户"打开着应用但没点应用按钮", 当天历史为空。
-方案: 9:26 抢筹快照落库后, 自动给所有非管理员用户跑一次选股
-      并以 auto_applied=True 标记写入 batches 表。
-      用户主动 lock/filter 触发的批次 auto_applied=False, 优先展示。
+方案: 9:26 抢筹快照落库后, 系统用统一标准(全局默认筛选参数)筛选一次,
+      把同一份结果推给所有非管理员用户, 以 auto_applied=True 标记写入各自批次。
+      用户当天手动筛选(lock/filter)则跳过自动应用, 手动优先。
+
+产品决策 (2026-08-16 北棠确认):
+- 自动应用 = 系统统一筛选 → 所有用户历史一致(同一份"系统当日推荐")
+- 用户手动筛选时才按个人偏好单独进行
+- 不做"每用户按 filter_prefs 个性化", 保证复盘/对比/推送统一
 
 设计要点:
-- 全市场评分只跑一次, 按用户偏好各自过滤 (score_all_stocks 拆分, 性能 150 倍差距)
-- 后台守护线程执行, 不阻塞 auction_snapshot 调度循环 (9:26-9:30 抢筹重试/9:31 盘点)
-- 单用户失败不影响其他人
-- 跳过当天已应用的用户(避免覆盖主动选择)
-- 管理员/过期账号跳过; VIP(member_level=2) 也自动应用(VIP 有权限, 同样需要历史)
-- 用户偏好 filter_prefs 解析失败时回退全局默认
+- 全市场评分只跑一次 + 系统标准过滤一次 (score_all_stocks 拆分)
+- 后台守护线程执行, 不阻塞 auction_snapshot 调度循环
+- 单用户落库失败不影响其他人
+- 跳过当天已应用的用户(手动优先); 管理员/过期账号跳过
 """
 import threading
 import time
@@ -43,19 +46,13 @@ def _user_already_applied_today(uid, bdate):
         conn.close()
 
 
-def _get_user_filter(uid):
-    """解析用户偏好; 失败/为空回退全局默认"""
-    prefs = users.get_prefs(uid) or {}
-    defaults = admin_api.get_default_filters()
-    # 只取筛选字段(避免 markets 等被 prefs 错误覆盖)
-    for k in defaults:
-        if k == "markets":
-            continue
-        if k in prefs and prefs[k] is not None:
-            defaults[k] = prefs[k]
-    # markets 不在 prefs 里, 用默认 ["SH", "SZ", "BJ"]
-    defaults.setdefault("markets", ["SH", "SZ", "BJ"])
-    return defaults
+def _get_system_filter():
+    """系统统一筛选标准: 全局默认参数(管理后台可调), 不读用户偏好
+    (2026-08-16 产品决策: 自动应用 = 系统筛选一次推给所有用户,
+    用户手动筛选时才按个人偏好单独进行)"""
+    f = admin_api.get_default_filters()
+    f.setdefault("markets", ["SH", "SZ", "BJ"])
+    return f
 
 
 def _is_user_active(uid):
@@ -86,7 +83,8 @@ def _run_in_background(func, *args, **kwargs):
 
 def auto_apply_all_users(max_users=None):
     """给所有活跃用户自动应用一次 (应在后台线程调用)
-    全市场评分一次 -> 按用户偏好过滤 -> 各自落库
+    系统统一标准(全局默认筛选)过滤一次 -> 同一份结果推给所有用户 -> 各自落库
+    用户当天已手动筛选(lock/filter)则跳过, 手动优先
     max_users: 限制本次处理用户数 (调试用, 默认 None=不限)
     返回 {applied, skipped, failed, total, cost_ms}"""
     t0 = time.time()
@@ -100,13 +98,20 @@ def auto_apply_all_users(max_users=None):
                 "cost_ms": 0, "error": str(err)}
     snapshot_map = auction_snapshot.load_snapshot() or {}
     yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw]) or {}
-    # 全市场评分只跑一次 (核心优化: 150+ 用户不再各算一次)
+    # 全市场评分一次
     try:
         scored = scorer.score_all_stocks(raw, yesterday_map, snapshot_map)
     except Exception as e:
         log.error("auto_apply 全市场评分失败 err=%s", e, exc_info=True)
         return {"applied": 0, "skipped": 0, "failed": 0, "total": 0,
                 "cost_ms": 0, "error": str(e)}
+    # 系统统一标准过滤一次(所有用户共享同一份结果, 2026-08-16 产品决策)
+    f = _get_system_filter()
+    result = scorer.apply_filters(scored, f)
+    for it in result:
+        it.pop("_raw", None)
+    log.info("auto_apply 系统统一筛选完成 评分池=%d只 筛选后=%d只",
+             len(scored), len(result))
     # 候选用户: 非管理员 + 未过期
     from ..db import database
     conn = database.get_conn()
@@ -120,24 +125,19 @@ def auto_apply_all_users(max_users=None):
     if max_users is not None:
         user_ids = user_ids[:max_users]
     applied = skipped = failed = 0
-    log.info("auto_apply 开始 候选=%d 当日=%s 评分池=%d只",
-             len(user_ids), bdate, len(scored))
+    log.info("auto_apply 开始 候选=%d 当日=%s", len(user_ids), bdate)
     for uid in user_ids:
         try:
-            # 每个用户: 存在性/过期/当天已应用 三重跳过
+            # 每个用户: 存在性/过期/当天已应用 三重跳过 (手动筛选优先)
             ok, reason = _is_user_active(uid)
             if not ok:
                 log.info("auto_apply 跳过 uid=%s 原因=%s", uid, reason)
                 skipped += 1
                 continue
             if _user_already_applied_today(uid, bdate):
-                log.info("auto_apply 跳过 uid=%s 原因=今天已有批次", uid)
+                log.info("auto_apply 跳过 uid=%s 原因=今天已有批次(手动筛选优先)", uid)
                 skipped += 1
                 continue
-            f = _get_user_filter(uid)
-            result = scorer.apply_filters(scored, f)
-            for it in result:
-                it.pop("_raw", None)
             bid = history.save_batch(uid, "lock", result, f, auto_applied=True)
             if bid:
                 applied += 1
