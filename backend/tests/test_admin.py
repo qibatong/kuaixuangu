@@ -664,3 +664,73 @@ def test_admin_delete_admin_forbidden(client, first_user):
     r = client.post("/api/admin/users/delete", json={"username": uname}, headers=hdrs(token))
     # 既触发"删除自己"也触发"管理员", 任何一个 400 都行
     assert r.status_code == 400
+
+
+# ---------- 会员筛选 tab (服务端过滤) ----------
+def test_admin_users_member_tab(client, first_user):
+    """管理端列表按 member_tab 服务端过滤: all/member/normal/admin"""
+    import uuid
+    token, _, invite = first_user
+    # 注册 3 个不同等级的用户
+    for i, lvl in enumerate([0, 1, 2]):
+        u = "tab_" + uuid.uuid4().hex[:6]
+        ph = "13" + str(i) + str(uuid.uuid4().int % 10000000).zfill(8)
+        em = uuid.uuid4().hex[:6] + "@test.local"
+        r = client.post("/api/register", json={"username": u, "password": "Test123456",
+                                               "invite_code": invite, "phone": ph, "email": em})
+        assert r.status_code == 200
+    # 找 admin user id 用于设置 member_level
+    rows_all = client.get("/api/admin/users?keyword=tab_&pageSize=20",
+                          headers=hdrs(token)).json()["rows"]
+    # 按创建顺序(后注册的在前): tab_...3 = lvl=2, 2 = lvl=1, 1 = lvl=0
+    # 倒序遍历, 找到 lvl=0/1/2 各一个
+    lvls = {}
+    for row in rows_all:
+        if not row["username"].startswith("tab_"):
+            continue
+        if row["member_level"] not in lvls:
+            lvls[row["member_level"]] = row["id"]
+        if len(lvls) == 3:
+            break
+    # 给 lvl=0/1 用户加等级
+    if 0 in lvls:
+        r = client.post("/api/admin/users/member-level",
+                        json={"uid": lvls[0], "level": 1}, headers=hdrs(token))
+        assert r.status_code == 200
+    if 2 in lvls:
+        r = client.post("/api/admin/users/member-level",
+                        json={"uid": lvls[2], "level": 2}, headers=hdrs(token))
+        assert r.status_code == 200
+    # member tab: 只返回 lvl>0 且非管理员
+    r = client.get("/api/admin/users?memberTab=member&pageSize=100",
+                   headers=hdrs(token))
+    assert r.status_code == 200
+    d = r.json()
+    member_rows = [x for x in d["rows"] if x["username"].startswith("tab_")]
+    for m in member_rows:
+        assert (m["member_level"] or 0) > 0
+        assert not m["is_admin"]
+    # admin tab: 仅管理员
+    r = client.get("/api/admin/users?memberTab=admin&pageSize=100",
+                   headers=hdrs(token))
+    assert r.status_code == 200
+    for row in r.json()["rows"]:
+        assert row["is_admin"]
+    # normal tab: lvl=0 且非管理员
+    r = client.get("/api/admin/users?memberTab=normal&pageSize=100",
+                   headers=hdrs(token))
+    assert r.status_code == 200
+    for row in r.json()["rows"]:
+        assert (row["member_level"] or 0) == 0 and not row["is_admin"]
+    # total 在不同 tab 应不同 (member + normal + admin 至少 3 个用户; 但 total=member+normal+admin 不一定 = all,
+    # 因为 lvl=2/1 也算"member", 且 admin=1 不算 member/normal)
+    r_all = client.get("/api/admin/users?memberTab=all&pageSize=1", headers=hdrs(token))
+    total_all = r_all.json()["total"]
+    r_m = client.get("/api/admin/users?memberTab=member&pageSize=1", headers=hdrs(token))
+    total_m = r_m.json()["total"]
+    r_n = client.get("/api/admin/users?memberTab=normal&pageSize=1", headers=hdrs(token))
+    total_n = r_n.json()["total"]
+    r_a = client.get("/api/admin/users?memberTab=admin&pageSize=1", headers=hdrs(token))
+    total_a = r_a.json()["total"]
+    assert total_m + total_n + total_a == total_all, \
+        f"tab 总数不一致: all={total_all} m={total_m} n={total_n} a={total_a}"

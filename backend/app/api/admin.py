@@ -75,9 +75,13 @@ def api_admin_users(request: Request, uid: int = Depends(get_admin)):
     except (TypeError, ValueError):
         page_size = 20
     keyword = (q.get("keyword") or [""])[0].strip()
-    page_data = users.list_users_page(page, page_size, keyword)
+    member_tab = (q.get("memberTab") or ["all"])[0].strip()
+    if member_tab not in ("all", "member", "normal", "admin"):
+        member_tab = "all"
+    page_data = users.list_users_page(page, page_size, keyword, member_tab=member_tab)
     stats = users.user_stats()
-    log.info("管理端用户列表 uid=%s page=%s total=%s", uid, page, page_data["total"])
+    log.info("管理端用户列表 uid=%s page=%s member_tab=%s total=%s",
+             uid, page, member_tab, page_data["total"])
     return jr({"ok": True, "stats": stats, **page_data})
 
 

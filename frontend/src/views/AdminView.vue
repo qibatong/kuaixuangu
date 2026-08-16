@@ -66,7 +66,12 @@
                 </td>
                 <td>{{ u.invited_count }}</td>
                 <td>{{ u.batch_count }}</td>
-                <td><span v-if="u.is_admin" class="admin-tag">管理员</span><span v-else class="user-tag">普通用户</span></td>
+                <td>
+                  <span v-if="u.is_admin" class="role-badge role-admin">管理员</span>
+                  <span v-else-if="u.member_level === 2" class="role-badge role-vip">VIP 老师</span>
+                  <span v-else-if="u.member_level === 1" class="role-badge role-paid">付费会员</span>
+                  <span v-else class="role-badge role-trial">普通用户</span>
+                </td>
                 <td>
                   <div class="level-cell">
                     <span :class="'level-tag level-' + (u.member_level || 0)">{{ levelLabel(u.member_level || 0) }}</span>
@@ -538,17 +543,13 @@ function setMemberTab(k) {
   page.value = 1
   loadUsers(1)
 }
-// 后端按 keyword 搜索; 会员/普通/管理员 tab 在前端对当页结果过滤
+// 后端按 member_tab 参数过滤; 分页 total 由服务端给出, 直接展示
 async function loadUsers(p) {
   try {
-    const kw = keyword.value || ''
-    const d = await adminUsers({ page: p, pageSize: pageSize.value, keyword: kw })
-    const all = (d.rows || []).map(r => ({ ...r, _level: r.member_level || 0 }))
-    rowsAll.value = all
-    if (memberTab.value === 'member') rows.value = all.filter(r => (r.member_level || 0) > 0 && !r.is_admin)
-    else if (memberTab.value === 'normal') rows.value = all.filter(r => !r.is_admin && (r.member_level || 0) === 0)
-    else if (memberTab.value === 'admin') rows.value = all.filter(r => r.is_admin)
-    else rows.value = all
+    const d = await adminUsers({ page: p, pageSize: pageSize.value,
+                                 keyword: keyword.value,
+                                 memberTab: memberTab.value })
+    rows.value = (d.rows || []).map(r => ({ ...r, _level: r.member_level || 0 }))
     total.value = d.total || 0
     page.value = d.page || 1
     stats.value = d.stats || {}
@@ -559,7 +560,6 @@ async function loadUsers(p) {
 }
 
 const stats = ref({})
-const rowsAll = ref([])       // 服务端返回的全量(分页内), 用于 tab 切换时客户端过滤
 const rows = ref([])
 const page = ref(1)
 const total = ref(0)
@@ -758,6 +758,12 @@ onMounted(() => {
 .admin-table th { color: var(--text-muted); font-weight: 500; }
 .admin-tag { color: #ffd700; border: 1px solid #ffd700; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
 .user-tag { color: var(--text-muted); border: 1px solid #666; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
+/* 角色徽标 (合并 is_admin + member_level 显示, 不再两列重复) */
+.role-badge { display: inline-block; border-radius: 4px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
+.role-admin { color: #4a9eff; border: 1px solid #4a9eff; background: rgba(74,158,255,0.12); }
+.role-vip   { color: #ffb347; border: 1px solid #ffb347; background: rgba(255,179,71,0.15); }
+.role-paid  { color: #ff6a6a; border: 1px solid #ff6a6a; background: rgba(255,106,106,0.12); }
+.role-trial { color: var(--text-muted); border: 1px solid #666; }
 .expired-tag { color: #ff6a6a; border: 1px solid #ff5050; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
 .ok-tag { color: #7ce8a0; border: 1px solid #4caf70; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
 .expire-cell { position: relative; display: inline-block; }
