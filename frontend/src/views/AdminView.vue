@@ -554,10 +554,10 @@ async function deleteUser(u) {
 }
 
 // ---------- 会员筛选 tab ----------
+// 注: 不设"会员"总览 tab, 避免与 VIP/付费 歧义 (会员 = 付费 + VIP 的包含关系)
 const memberTabs = [
   { key: 'all', label: '全部' },
-  { key: 'member', label: '会员' },
-  { key: 'paid', label: '付费' },
+  { key: 'paid', label: '付费会员' },
   { key: 'vip', label: 'VIP' },
   { key: 'normal', label: '普通用户' },
   { key: 'admin', label: '管理员' },
