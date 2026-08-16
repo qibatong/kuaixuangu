@@ -42,8 +42,12 @@ def test_register_with_valid_invite(client, first_user):
     # 重新获取当前有效邀请码(可能被 test_invite_refresh 刷新过)
     inv = client.get("/api/invite", headers=hdrs(token)).json()["invite_code"]
     uname = "invitee_" + uuid.uuid4().hex[:8]
+    # 防滥用(2026-08-16): 注册需 phone+email, 这里补上避免 400
+    phone = "139" + str(uuid.uuid4().int % 100000000).zfill(8)
+    email = uuid.uuid4().hex[:8] + "i@test.local"
     r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                           "invite_code": inv})
+                                           "invite_code": inv,
+                                           "phone": phone, "email": email})
     assert r.status_code == 200
     d = r.json()
     assert d.get("ok") and d.get("token")

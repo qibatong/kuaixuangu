@@ -94,10 +94,12 @@ def rate_allow(ip):
     return n <= config.RATE_LIMIT_PER_MIN
 
 
-# ---------- 注册防刷: 同 IP 10 分钟最多 5 次 ----------
+# ---------- 注册防刷: 同 IP 1 小时最多 10 次 ----------
+# (2026-08-16 放宽: 10 分钟 5 次 → 1 小时 10 次; 格式错请求已前置校验不计次,
+#  避免用户改正几次格式就被锁. 安全兜底仍依赖手机号+邮箱唯一性)
 def register_allowed(ip):
-    n = store.incr("reg:%s" % ip, ttl=600)
-    return n <= 5
+    n = store.incr("reg:%s" % ip, ttl=3600)
+    return n <= 10
 
 
 # ---------- 重置邮件防刷: 每邮箱每小时 N 次 ----------

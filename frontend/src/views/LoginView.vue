@@ -8,7 +8,7 @@
       <!-- 登录/注册 -->
       <template v-if="mode === 'login' || mode === 'register'">
         <form class="login-form" @submit.prevent="submit">
-          <input v-model="username" type="text" :placeholder="mode === 'login' ? '用户名 / 手机号 / 邮箱' : '用户名(必填)'" :autocomplete="mode === 'login' ? 'username' : 'off'" maxlength="40">
+          <input v-model="username" type="text" :placeholder="mode === 'login' ? '用户名 / 手机号 / 邮箱' : '用户名(2-20位, 支持中英文)'" :autocomplete="mode === 'login' ? 'username' : 'off'" maxlength="20">
           <input v-model="password" type="password" placeholder="密码" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'">
           <template v-if="mode === 'register'">
             <input v-model="invite" type="text" placeholder="邀请码(选填, 填了邀请人+5天使用时间)" autocomplete="off" maxlength="12">
@@ -93,8 +93,15 @@ async function submit() {
   if (!username.value.trim()) { err.value = '请输入用户名/手机号/邮箱'; return }
   if (!password.value) { err.value = '请输入密码'; return }
   if (mode.value === 'register') {
+    // 前端预校验: 避免无效格式打到后端触发限流计数(后端是兜底校验)
+    if (!/^[\u4e00-\u9fa5a-zA-Z0-9_]{2,20}$/.test(username.value.trim())) {
+      err.value = '用户名需 2-20 位，支持中英文/数字/下划线'; return
+    }
+    if (password.value.length < 6) { err.value = '密码至少 6 位'; return }
     if (!phone.value.trim()) { err.value = '请填写手机号(必填, 用于账号追溯+找回)'; return }
     if (!email.value.trim()) { err.value = '请填写邮箱(必填, 用于账号追溯+找回)'; return }
+    if (!/^1[3-9]\d{9}$/.test(phone.value.trim())) { err.value = '手机号格式不正确'; return }
+    if (!/^[\w.+-]+@[\w-]+(\.[\w-]+)+$/.test(email.value.trim())) { err.value = '邮箱格式不正确'; return }
   }
   busy.value = true
   err.value = mode.value === 'login' ? '登录中...' : '注册中...'

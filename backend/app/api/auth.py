@@ -46,20 +46,18 @@ def api_login(request: Request, body: dict = Body(...)):
 @router.post("/api/register")
 def api_register(request: Request, body: dict = Body(...)):
     ip = client_ip(request)
-    if not security.register_allowed(ip):
-        return jr({"ok": False, "msg": "注册过于频繁，请稍后再试"}, 429)
-
     username = str(body.get("username") or "").strip()
     password = str(body.get("password") or "")
     invite_code = str(body.get("invite_code") or "").strip().upper()
     phone = str(body.get("phone") or "").strip()
     email = str(body.get("email") or "").strip()
-    if not re.match(r"^[a-zA-Z0-9_]{3,20}$", username):
-        return jr({"ok": False, "msg": "用户名需 3-20 位字母/数字/下划线"}, 400)
+    # 基础格式校验前置: 无效请求(用户名/密码/手机/邮箱格式错)
+    # 不计入防刷计数, 避免用户改几次格式就被误锁(2026-08-16 用户反馈)
+    if not re.match(r"^[\u4e00-\u9fa5a-zA-Z0-9_]{2,20}$", username):
+        return jr({"ok": False, "msg": "用户名需 2-20 位，支持中英文/数字/下划线"}, 400)
     if len(password) < 6:
         return jr({"ok": False, "msg": "密码至少 6 位"}, 400)
     # 防滥用(2026-08-16): 手机号+邮箱都必填, 堵"反复纯用户名注册绕过付费"漏洞
-    # (邀请码仍非强制, 防薅羊毛靠手机号+邮箱唯一性)
     if not phone:
         return jr({"ok": False, "msg": "请填写手机号"}, 400)
     if not email:
@@ -68,6 +66,9 @@ def api_register(request: Request, body: dict = Body(...)):
         return jr({"ok": False, "msg": "手机号格式不正确"}, 400)
     if not users._is_email(email):
         return jr({"ok": False, "msg": "邮箱格式不正确"}, 400)
+    # 基础格式校验通过后再限流 — 错误格式不计次防误锁
+    if not security.register_allowed(ip):
+        return jr({"ok": False, "msg": "注册过于频繁，请稍后再试"}, 429)
     inviter = None
     if invite_code:
         inviter = users.find_user_by_invite_code(invite_code)
