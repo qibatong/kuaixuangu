@@ -118,7 +118,16 @@ def snapshot_at(time_point):
             s = kpl_map.get(code)
             if s:
                 seal = s.get("bidSealAmt") or 0
-                if seal:
+                # 防御(2026-08-16): 封单只写给该时点涨停的股票, 防 KPL 缓存/边界差异导致
+                # 非涨停股挂封单(用户反馈"封单额和标的不对应"的同类问题)
+                bc = v.get("bid_change") or 0
+                if code[:2] in ("30", "68"):
+                    is_zt = bc >= 19.9
+                elif code[:1] in ("8", "4"):
+                    is_zt = bc >= 29.9
+                else:
+                    is_zt = bc >= 9.9
+                if seal and is_zt:
                     v["bid_buy_amt"] = seal
                     n_seal += 1
                 b = s.get("board") or ""

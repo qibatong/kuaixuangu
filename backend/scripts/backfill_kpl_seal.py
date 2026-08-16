@@ -78,8 +78,17 @@ def backfill_one(date):
                     (date, tp, r["code"])).fetchone()
                 if not cur:
                     continue
+                # 关键修复(2026-08-16): 封单额必须只写给"该时点涨停"的股票!
+                # 之前不检查时点涨幅, 把 doc30 当日唯一一份封单额写给了所有时点,
+                # 导致: ①三时点封单完全相同 ②已开板/大跌的股票仍挂着封单(用户反馈"封单额和标的不对应")
+                bid_change = cur[0]
+                is_zt = (
+                    bid_change >= 19.9 if r["code"][:2] in ("30", "68")
+                    else bid_change >= 29.9 if r["code"][:1] in ("8", "4")
+                    else bid_change >= 9.9
+                )
                 sets, vals = [], []
-                if seal > 0:
+                if seal > 0 and is_zt:
                     sets.append("bid_buy_amt=?")
                     vals.append(seal)
                 if r.get("board"):
