@@ -348,10 +348,12 @@ def _scheduler_loop():
                 if not (start <= hm <= end):
                     continue
                 if tp == "9_24":
-                    # 最后一秒专用时点: 9:24:00-9:25:00 窗口内每轮询重采覆盖,
-                    # 最后一份快照 ≈ 9:24:5x(真正"最后一秒", 而非整分钟差)
-                    # 注意: 此处判断必须 < 9*60+25(窗口内), 写 9*60+30(9:30) 会导致永不采集!
-                    if hm < 9 * 60 + 25:
+                    # 最后一秒专用时点: 9:24:00-9:24:50 窗口内每轮询重采覆盖,
+                    # 最后一份快照 ≈ 9:24:4x~5x(真正"最后一秒", 而非整分钟差)
+                    # 9:24:50 后停止重采: 把 _fetch_lock 让给 lastsec(9:24:55-9:25:03 每秒采样),
+                    # 避免全市场分页(4-6s)阻塞秒级采样导致抢筹右表缺失
+                    # 注意: 判断必须 < 9*60+25(窗口内), 写 9*60+30(9:30) 会导致永不采集!
+                    if hm < 9 * 60 + 24 or (hm == 9 * 60 + 24 and g.tm_sec < 50):
                         snapshot_at(tp)
                 else:
                     if store.setnx(key, 1, ttl=86400):
@@ -359,7 +361,10 @@ def _scheduler_loop():
                         if snapshot_at(tp):
                             log.info("[快照采集] 时点完成并入完成集 tp=%s date=%s", tp, date)
                         else:
-                            log.warning("[快照采集] 时点失败(返回0) tp=%s date=%s 窗口已过无法重试", tp, date)
+                            # 失败回滚 setnx 标记: 窗口内下一轮轮询(10s)重试, 东财/KPL 瞬时故障自愈
+                            # 窗口结束后(hm>end)不再触发, 9:31 盘点告警兜底
+                            store.delete(key)
+                            log.warning("[快照采集] 时点失败(返回0) tp=%s date=%s 窗口内将重试", tp, date)
             # 9:26-9:30 抢筹结果快照: 触发 fetch_bid_qiangcang 落库(竞价完到开盘真空期, 越早看到抢筹越能提前布局,
             # 9:25 撮合完成后 1 分钟即可落库, 非竞价时段页面读库展示不丢失)
             if (g.tm_wday < 5 and 9 * 60 + 26 <= hm <= 9 * 60 + 30
@@ -371,7 +376,9 @@ def _scheduler_loop():
                     n = len((d or {}).get("list20", []))
                     log.info("竞价抢筹结果快照已存 date=%s list20=%d只", date, n)
                 except Exception as e:
-                    log.warning("竞价抢筹结果快照失败 err=%s", e, exc_info=True)
+                    # 失败回滚: 窗口 9:26-9:30 内下一轮轮询重试(避免 KPL 瞬时故障导致抢筹 tab 当日无数据)
+                    store.delete("sched:qc:" + date)
+                    log.warning("竞价抢筹结果快照失败(窗口内将重试) err=%s", e)
             # 15:30-15:35 板块轮动日终快照: 抓当日板块强度 Top10 落库(多数据源), 形成轮动数据基础
             if g.tm_wday < 5 and 15 * 60 + 30 <= hm <= 15 * 60 + 35:
                 try:
@@ -402,6 +409,8 @@ def _scheduler_loop():
                         n = _kpl.save_ladder_history(date)
                         if n:
                             log.info("连板梯队快照已存 date=%s 共%d只", date, n)
+                        else:
+                            store.delete("sched:done:ladder_" + date)   # 失败回滚, 15:30-15:35 窗口内重试
                     # 竞价异动日终快照(全部 tab): 供竞价异动页按日期回看历史
                     # (竞价委买/爆量/昨日涨停/昨断板/炸板 接口不支持历史日期, 必须落库)
                     if store.setnx("sched:done:auction_" + date, 1, ttl=86400):
@@ -409,6 +418,8 @@ def _scheduler_loop():
                         n2 = _kpl2.save_auction_history(date)
                         if n2:
                             log.info("竞价异动日终快照已存 date=%s 共%d个tab", date, n2)
+                        else:
+                            store.delete("sched:done:auction_" + date)   # 失败回滚, 15:30-15:35 窗口内重试
                 except Exception as e:
                     log.warning("板块轮动日终快照失败 err=%s", e, exc_info=True)
             # 9:31-9:35 盘点当日采集: 缺失时点告警(排查关键, 数据过了点无法补)
