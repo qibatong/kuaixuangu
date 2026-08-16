@@ -202,7 +202,7 @@ kuaixuan/                        # 仓库根（GitHub: felix-rich/kuaixuan）
 │   │       ├── kpl.py            # 开盘啦全部路由 + /api/kpl/interfaces 接口索引
 │   │       ├── stats.py          # 统计路由(auction-overview/auction-snapshot 等)
 │   │       └── health.py         # 健康检查
-│   └── tests/                    # pytest (239 用例 + 4 跳过)
+│   └── tests/                    # pytest (245 用例 + 4 跳过)
 │       ├── conftest.py           # 临时库 + 数据源 Mock + TestClient
 │       ├── test_cache_store.py   # CacheStore 双实现(临时 DB)
 │       ├── test_kpl.py           # 抢筹双表/差值回退/持久化/昨涨停/断板/炸板
@@ -355,7 +355,7 @@ systemd 用 `Environment=` 注入；未配置的渠道自动跳过。
 
 ```bash
 cd backend
-python -m pytest tests/ -q     # 239 用例全绿 + 4 跳过(Redis 未装)
+python -m pytest tests/ -q     # 245 用例全绿 + 4 跳过(Redis 未装)
 ```
 
 覆盖：选股接口、评分筛选算法、抢筹双表（差值回退/持久化/兜底）、快照存取与多时点、昨涨停/断板/炸板、开盘啦接口、权限、**会员三层（默认5天/续费叠加/过期拦截/管理员豁免/邀请奖励）**、邀请裂变、管理后台（**会员 tab 服务端过滤/付费-VIP 拆分/搜索 6 字段**）、**9:26 自动应用（统一标准/手动优先/评分复用）**、**市场概览（涨跌家数/两市概况/同时刻对比）**、**CacheStore 跨进程状态**等。
@@ -408,4 +408,4 @@ python -m pytest tests/ -q     # 239 用例全绿 + 4 跳过(Redis 未装)
   - **会员文案**：VIP 老师 → **VIP**（全站统一）；新用户/到期用户拦截页明确"请联系管理员开通权限"
   - **注册防滥用**：手机号+邮箱必填；错误格式不计限流防误锁
   - **UI 修复**：排序箭头默认态 0.25 透明度 → 0.6（黑/白背景均可见）
-  - **测试基建修复**：conftest 双载导致 BID_DB_PATH 错位（全量 43 errors 根因），幂等守卫修复（pytest **239**）
+  - **测试基建修复**：conftest 双载导致 BID_DB_PATH 错位（全量 43 errors 根因），幂等守卫修复（pytest **245**）
