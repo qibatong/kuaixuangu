@@ -54,7 +54,7 @@ A
         <span v-if="user.memberLevel === 2" class="member-badge vip-badge" title="VIP · 永久权限">VIP</span>
         <span v-else-if="user.memberLevel === 1" class="member-badge paid-badge" title="付费会员">付费会员</span>
         <span v-else-if="user.isAdmin" class="member-badge admin-badge" title="管理员">管理员</span>
-        <span v-else-if="user.memberDaysLeft >= 0" class="member-badge trial-badge" :title="'免费试用剩余 ' + user.memberDaysLeft + ' 天'">试用{{ user.memberDaysLeft }}天</span>
+        <span v-else-if="user.memberDaysLeft >= 0" class="member-badge trial-badge" :title="'免费试用剩余 ' + user.memberDaysLeft + ' 天, 到期请联系管理员开通'">试用{{ user.memberDaysLeft }}天</span>
         <!-- 到期前 2 天续费提醒(付费会员+试用都提示, 联系管理员续费) -->
         <span v-if="!user.isAdmin && user.memberLevel !== 2 && user.memberDaysLeft >= 0 && user.memberDaysLeft <= 2"
               class="member-badge renew-badge" title="请尽快续费, 联系管理员(微信号 poet-1986)">

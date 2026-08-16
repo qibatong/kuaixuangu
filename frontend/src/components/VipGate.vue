@@ -5,16 +5,18 @@
       <div class="vip-title">{{ title || '该功能' }}需要会员权限</div>
       <div class="vip-desc">
         <template v-if="user.expired">
-          您的会员已<span class="warn">过期</span>，暂时无法使用{{ title || '该功能' }}。
+          您的会员已<span class="warn">过期</span>，暂时无法使用{{ title || '该功能' }}，
+          请<span class="warn">联系管理员开通权限</span>。
         </template>
         <template v-else-if="user.expireAt > 0">
-          您的新用户试用期还剩 <b class="highlight">{{ days }} 天</b>，到期后需开通会员。
+          您的新用户试用期还剩 <b class="highlight">{{ days }} 天</b>，
+          到期后请联系管理员开通权限。
         </template>
         <template v-else-if="user.memberLevel === 2">
           VIP 权限：{{ title || '该功能' }}永久可用。
         </template>
         <template v-else>
-          此功能仅限会员使用，请联系管理员开通。
+          此功能仅限会员使用，请联系管理员开通权限。
         </template>
       </div>
       <div class="vip-tip">
