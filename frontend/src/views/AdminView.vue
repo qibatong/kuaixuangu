@@ -538,20 +538,17 @@ function setMemberTab(k) {
   page.value = 1
   loadUsers(1)
 }
-// 后端按 keyword 搜索, 这里前端按 memberTab 在 keyword 上附加过滤(简化: 直接 keyword 走原路径, 切 tab 仅影响客户端展示)
+// 后端按 keyword 搜索; 会员/普通/管理员 tab 在前端对当页结果过滤
 async function loadUsers(p) {
   try {
-    let kw = keyword.value || ''
-    if (memberTab.value === 'member') kw = kw ? `${kw}` : '__member__'   // 占位, 服务端不识别, 前端过滤
+    const kw = keyword.value || ''
     const d = await adminUsers({ page: p, pageSize: pageSize.value, keyword: kw })
-    let rows = d.rows || []
-    if (memberTab.value === 'member') rows = rows.filter(r => (r.member_level || 0) > 0 && !r.is_admin)
-    else if (memberTab.value === 'normal') rows = rows.filter(r => !r.is_admin && (r.member_level || 0) === 0)
-    else if (memberTab.value === 'admin') rows = rows.filter(r => r.is_admin)
-    rows = rows.map(r => ({ ...r, _level: r.member_level || 0 }))
-    // 替换原 rows (保持 total/page 不变, 仅前端过滤)
-    rowsAll.value = (d.rows || []).map(r => ({ ...r, _level: r.member_level || 0 }))
-    rows.value = rows
+    const all = (d.rows || []).map(r => ({ ...r, _level: r.member_level || 0 }))
+    rowsAll.value = all
+    if (memberTab.value === 'member') rows.value = all.filter(r => (r.member_level || 0) > 0 && !r.is_admin)
+    else if (memberTab.value === 'normal') rows.value = all.filter(r => !r.is_admin && (r.member_level || 0) === 0)
+    else if (memberTab.value === 'admin') rows.value = all.filter(r => r.is_admin)
+    else rows.value = all
     total.value = d.total || 0
     page.value = d.page || 1
     stats.value = d.stats || {}
