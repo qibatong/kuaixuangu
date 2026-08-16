@@ -409,7 +409,8 @@ def send_reset_email(to_email, reset_url, username):
     ) % (username, reset_url)
     msg = MIMEText(body, "plain", "utf-8")
     msg["Subject"] = Header("快选 - 重置密码", "utf-8")
-    msg["From"] = formataddr((str(Header("快选", "utf-8")), config.SMTP_FROM or config.SMTP_USER))
+    # 发件显示名: 品牌「快选股」(2026-08-16 用户指定); SMTP_FROM 是发件地址
+    msg["From"] = formataddr((str(Header("快选股", "utf-8")), config.SMTP_FROM or config.SMTP_USER))
     msg["To"] = to_email
     if config.SMTP_PORT == 465:
         server = smtplib.SMTP_SSL(config.SMTP_HOST, config.SMTP_PORT, timeout=15)
