@@ -21,6 +21,7 @@
       </div>
       <div class="vip-tip">
         <i class="fa fa-phone"></i> 如需开通/续费会员，请联系管理员
+        <div class="vip-wechat">微信: <b>poet-1986</b></div>
       </div>
       <button class="vip-back" @click="goBack"><i class="fa fa-arrow-left"></i> 返回可用功能</button>
     </div>
@@ -90,6 +91,12 @@ function goBack() {
   border-radius: 8px;
   padding: 8px 12px;
 }
+.vip-wechat {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--accent-deep);
+}
+.vip-wechat b { font-weight: 700; letter-spacing: 0.5px; }
 .vip-back {
   margin-top: 18px;
   background: var(--accent-deep);

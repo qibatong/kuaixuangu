@@ -122,7 +122,7 @@ async function submit() {
     // 注册自动登录的 token 为 12h 会话, 存 sessionStorage; 登录按「记住我」选择
     user.setSession(data.username, data.token, data.is_admin, data.expire_at, data.expired, mode.value === 'login' && remember.value, data.member_level)
     if (data.expired) {
-      showToast('⚠️ 账号已过期，请联系管理员续费', 'error')
+      showToast('⚠️ 账号已过期，请联系管理员续费(微信 poet-1986)', 'error')
     }
     const redirect = route.query.redirect || '/'
     router.replace(redirect)
