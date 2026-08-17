@@ -52,7 +52,7 @@ function fmtPct(v) {
 }
 /* 实时涨幅大字(顶替原评分位置, 2026-08-18 主人反馈) */
 .medal-real-big {
-  font-size: 30px;
+  font-size: 38px;
   font-weight: 900;
   color: #ff5252;
   line-height: 1.1;
@@ -65,7 +65,7 @@ body[data-bg="light"] .medal-real-big { color: #c62828; }
 body[data-bg="light"] .medal-real-big.green-real { color: #1a7a2a !important; }
 /* 竞涨幅: 缩字号, 实时涨幅下面 */
 .medal-bid-sm {
-  font-size: 11px;
+  font-size: 14px;
   color: #ff8a6f;
   font-weight: 600;
   font-family: monospace;
@@ -77,7 +77,7 @@ body[data-bg="light"] .medal-bid-sm { color: #c0562f; }
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-size: 12px;
+  font-size: 15px;
   white-space: nowrap;
 }
 .medal-prob-sm { color: #e0a800; font-weight: 700; }
