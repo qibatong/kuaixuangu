@@ -37,3 +37,12 @@ export function updateProfile(body) {
 export function forgotCheck(login) {
   return request('/api/forgot/check', { method: 'POST', auth: false, body: { login } })
 }
+
+// 邮箱认证(2026-08-17): 新注册强制验证
+export function verifyEmail(uid, code) {
+  return request('/api/verify-email', { method: 'POST', auth: false, body: { uid, code } })
+}
+
+export function resendVerify(uid) {
+  return request('/api/resend-verify', { method: 'POST', auth: false, body: { uid } })
+}

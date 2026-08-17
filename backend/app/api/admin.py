@@ -137,6 +137,38 @@ def api_admin_user_expire(request: Request, body: dict = Body(...), uid: int = D
                "username": u["username"], "expire_at": row.get("expire_at")})
 
 
+@router.get("/api/admin/user-invites")
+def api_admin_user_invites(request: Request, uid: int = Depends(get_admin),
+                           target_uid: int = 0):
+    """邀请关系链: 指定用户被谁邀请 + 邀请了谁(含注册 IP, 便于管理员识别同 IP 刷号)"""
+    if not target_uid:
+        return jr({"ok": False, "msg": "缺少 target_uid"}, 400)
+    u = users.find_user_by_id(target_uid)
+    if not u:
+        return jr({"ok": False, "msg": "用户不存在"}, 404)
+    inviter = users.find_user_by_id(u.get("invited_by") or 0) if u.get("invited_by") else None
+    # 被邀请人列表(管理端视角: 含注册 IP/UA)
+    import sqlite3 as _sq
+    conn = None
+    invitees = []
+    try:
+        from ..db import database as _db
+        conn = _db.get_conn()
+        invitees = [dict(r) for r in conn.execute(
+            "SELECT username, created_at, COALESCE(register_ip,'') AS register_ip "
+            "FROM users WHERE invited_by=? ORDER BY created_at DESC", (target_uid,)).fetchall()]
+    finally:
+        if conn is not None:
+            conn.close()
+    log.info("管理端查看邀请链 uid=%s target=%s(%s) 被邀%d人",
+             uid, target_uid, u["username"], len(invitees))
+    return jr({"ok": True, "username": u["username"],
+               "invited_by_username": (inviter["username"] if inviter else ""),
+               "invite_code": u.get("invite_code") or "",
+               "invited_count": len(invitees),
+               "invitees": invitees})
+
+
 @router.post("/api/admin/users/expire-batch")
 def api_admin_user_expire_batch(request: Request, body: dict = Body(...),
                                 uid: int = Depends(get_admin)):

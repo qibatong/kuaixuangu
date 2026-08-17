@@ -114,7 +114,30 @@ def register_allowed(ip):
     return n <= 10
 
 
+# ---------- 同 IP 24h 注册数上限(2026-08-17, 防批量刷号) ----------
+def register_ip_day_allowed(ip):
+    """同 IP 24h 内最多注册 config.REG_IP_DAY_LIMIT 个新账号(默认 5)"""
+    if not ip:
+        return True
+    n = store.incr("regip:%s" % ip, ttl=86400)
+    limit = int(getattr(config, "REG_IP_DAY_LIMIT", 5))
+    return n <= limit
+
+
 # ---------- 重置邮件防刷: 每邮箱每小时 N 次 ----------
 def reset_mail_allowed(email):
     n = store.incr("reset:%s" % email, ttl=3600)
     return n <= config.RESET_RATE_LIMIT
+
+
+# ---------- 邮箱验证码防刷: 每邮箱 5 分钟 1 次, 每小时 3 次 ----------
+def verify_mail_allowed(email):
+    """返回 (ok, msg); 5 分钟冷却 + 每小时最多 3 次"""
+    cool = store.get("vmail:%s" % email)
+    if cool:
+        return False, "验证邮件发送过于频繁，请 5 分钟后再试"
+    hour = store.incr("vmailh:%s" % email, ttl=3600)
+    if hour > 3:
+        return False, "今日验证邮件发送次数过多，请稍后再试"
+    store.set("vmail:%s" % email, 1, ttl=300)
+    return True, ""

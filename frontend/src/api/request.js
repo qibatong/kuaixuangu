@@ -40,7 +40,11 @@ export async function request(path, { method = 'GET', body, auth = true, query }
   }
   if (!resp.ok || !data.ok) {
     logFront('warn', `API 失败: ${method} ${url} -> ${resp.status} ${data.msg || errBody.msg || ''}`)
-    throw new Error(data.msg || errBody.msg || '请求失败(' + resp.status + ')')
+    const e = new Error(data.msg || errBody.msg || '请求失败(' + resp.status + ')')
+    // 透传后端附加字段(如邮箱验证 need_verify_email/uid/email), 供前端分支处理
+    if (data && typeof data === 'object') Object.assign(e, data)
+    else if (errBody && typeof errBody === 'object') Object.assign(e, errBody)
+    throw e
   }
   return data
 }

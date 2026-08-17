@@ -7,6 +7,11 @@ export function adminUsers(params = {}) {
   return request('/api/admin/users?' + q.toString())
 }
 
+// 邀请关系链: 被谁邀请 + 邀请了谁(含注册 IP)
+export function adminUserInvites(targetUid) {
+  return request(`/api/admin/user-invites?target_uid=${targetUid}`)
+}
+
 export function adminScoring() {
   return request('/api/admin/scoring')
 }

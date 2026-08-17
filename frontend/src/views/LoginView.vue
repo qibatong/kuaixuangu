@@ -12,8 +12,8 @@
           <input v-model="password" type="password" placeholder="密码" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'">
           <template v-if="mode === 'register'">
             <input v-model="phone" type="text" placeholder="手机号(必填, 用于账号追溯+找回)" autocomplete="off" maxlength="11">
-            <input v-model="email" type="text" placeholder="邮箱(必填, 用于账号追溯+找回)" autocomplete="off" maxlength="60">
-            <input v-model="invite" type="text" placeholder="邀请码(选填, 填了邀请人+5天使用时间)" autocomplete="off" maxlength="12">
+            <input v-model="email" type="text" placeholder="邮箱(必填, 注册后需验证)" autocomplete="off" maxlength="60">
+            <input v-model="invite" type="text" placeholder="邀请码(选填, 双方各得7天)" autocomplete="off" maxlength="12">
           </template>
           <label v-if="mode === 'login'" class="remember-row">
             <input v-model="remember" type="checkbox" class="remember-check" />
@@ -26,6 +26,20 @@
           还没有账号？<a href="javascript:void(0)" @click="toggleMode">{{ mode === 'login' ? '注册一个' : '返回登录' }}</a>
           <span style="margin:0 6px;color:#334;">|</span>
           <a href="javascript:void(0)" @click="mode = 'forgot'">忘记密码？</a>
+        </div>
+      </template>
+
+      <!-- 邮箱验证(新注册强制, 2026-08-17) -->
+      <template v-else-if="mode === 'verify'">
+        <div class="login-sub">📧 验证邮件已发送至 <b>{{ verifyEmailAddr || '你的邮箱' }}</b></div>
+        <div class="login-sub" style="font-size:12px;color:#889;">请查收并输入 6 位验证码完成验证，之后才能登录</div>
+        <input v-model="verifyCode" type="text" placeholder="6 位邮箱验证码" autocomplete="off" maxlength="6" inputmode="numeric" @keydown.enter="doVerify">
+        <button class="login-btn" :disabled="busy" @click="doVerify">{{ busy ? '验证中...' : '完成验证' }}</button>
+        <div class="login-err" :class="{error: errIsError}">{{ err }}</div>
+        <div class="login-switch">
+          <a href="javascript:void(0)" :disabled="busy" @click="doResend">没收到？重新发送</a>
+          <span style="margin:0 6px;color:#334;">|</span>
+          <a href="javascript:void(0)" @click="mode = 'login'">返回登录</a>
         </div>
       </template>
 
@@ -56,7 +70,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { login as apiLogin, register as apiRegister, forgot as apiForgot, reset as apiReset, forgotCheck as apiForgotCheck } from '../api/auth'
+import { login as apiLogin, register as apiRegister, forgot as apiForgot, reset as apiReset, forgotCheck as apiForgotCheck, verifyEmail as apiVerifyEmail, resendVerify as apiResendVerify } from '../api/auth'
 import { useUserStore } from '../stores/user'
 import { showToast } from '../utils/toast'
 
@@ -64,7 +78,7 @@ const route = useRoute()
 const router = useRouter()
 const user = useUserStore()
 
-const mode = ref('login')          // login | register | forgot | reset
+const mode = ref('login')          // login | register | forgot | reset | verify
 const busy = ref(false)
 const err = ref('')
 // 错误提示是否显示红色背景块: 仅"真正的错误"才上色 (loading/✅成功 不算)
@@ -78,10 +92,15 @@ const email = ref('')
 const resetPwd = ref('')
 const resetPwd2 = ref('')
 const resetToken = ref(null)
+// 邮箱验证(2026-08-17)
+const verifyUid = ref(0)
+const verifyEmailAddr = ref('')
+const verifyCode = ref('')
 
 const subText = computed(() =>
   mode.value === 'login' ? '登录' :
   mode.value === 'register' ? '注册新账号' :
+  mode.value === 'verify' ? '邮箱验证' :
   mode.value === 'forgot' ? '重置密码' : '设置新密码')
 
 function toggleMode() {
@@ -119,6 +138,15 @@ async function submit() {
       ? { username: username.value.trim(), password: password.value, invite_code: invite.value.trim(), phone: phone.value.trim(), email: email.value.trim() }
       : { login: username.value.trim(), password: password.value, remember: remember.value }
     const data = mode.value === 'register' ? await apiRegister(body) : await apiLogin(body)
+    // 注册后强制邮箱验证: 未验证不发 token 跳转, 先进入验证模式
+    if (mode.value === 'register' && data.email_verified === 0) {
+      verifyUid.value = data.uid
+      verifyEmailAddr.value = email.value.trim()
+      verifyCode.value = ''
+      setErr('✅ ' + (data.msg || '注册成功，请查收邮箱验证'), false)
+      mode.value = 'verify'
+      return
+    }
     // 注册自动登录的 token 为 12h 会话, 存 sessionStorage; 登录按「记住我」选择
     user.setSession(data.username, data.token, data.is_admin, data.expire_at, data.expired, mode.value === 'login' && remember.value, data.member_level)
     if (data.expired) {
@@ -127,7 +155,53 @@ async function submit() {
     const redirect = route.query.redirect || '/'
     router.replace(redirect)
   } catch (e) {
-    setErr(e.message || '操作失败')
+    // 未验证邮箱登录被拦截 → 切到验证模式
+    if (e && e.need_verify_email) {
+      verifyUid.value = e.uid
+      verifyEmailAddr.value = e.email || email.value.trim()
+      verifyCode.value = ''
+      setErr('', false)
+      mode.value = 'verify'
+    } else {
+      setErr(e.message || '操作失败')
+    }
+  } finally {
+    busy.value = false
+  }
+}
+
+// ---------- 邮箱验证(2026-08-17) ----------
+async function doVerify() {
+  if (busy.value) return
+  setErr('', false)
+  if (!verifyUid.value) { setErr('缺少验证信息，请返回登录重试'); return }
+  if (!/^\d{6}$/.test(verifyCode.value.trim())) { setErr('请输入 6 位数字验证码'); return }
+  busy.value = true
+  err.value = '验证中...'
+  errIsError.value = false
+  try {
+    const data = await apiVerifyEmail(verifyUid.value, verifyCode.value.trim())
+    user.setSession(data.username, data.token, data.is_admin, data.expire_at, data.expired, false, data.member_level)
+    showToast('✅ 邮箱验证成功', 'success')
+    const redirect = route.query.redirect || '/'
+    router.replace(redirect)
+  } catch (e) {
+    setErr(e.message || '验证失败')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function doResend() {
+  if (busy.value) return
+  setErr('', false)
+  if (!verifyUid.value) { setErr('缺少验证信息，请返回登录重试'); return }
+  busy.value = true
+  try {
+    const data = await apiResendVerify(verifyUid.value)
+    setErr('✅ ' + (data.msg || '已重新发送，请查收'), false)
+  } catch (e) {
+    setErr(e.message || '发送失败')
   } finally {
     busy.value = false
   }

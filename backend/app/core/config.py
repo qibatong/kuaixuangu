@@ -91,7 +91,10 @@ NOTIFY_TIMEOUT = float(os.environ.get("NOTIFY_TIMEOUT", "5"))                # �
 NOTIFY_DEDUP_SECONDS = int(os.environ.get("NOTIFY_DEDUP_SECONDS", "120"))    # 相同内容去重窗口(秒)
 
 # ---------- 会员/邀请 ----------
-INVITE_REWARD_DAYS = int(os.environ.get("INVITE_REWARD_DAYS", "5"))          # 每成功邀请一个新用户, 邀请人 +N 天使用时间
+INVITE_REWARD_DAYS = int(os.environ.get("INVITE_REWARD_DAYS", "7"))          # 每成功邀请一个新用户, 邀请人 +N 天使用时间
+NEW_USER_DAYS = int(os.environ.get("NEW_USER_DAYS", "7"))                    # 新用户注册即送 N 天试用(被邀请人同样得 N 天)
+INVITE_SAME_IP_LIMIT = int(os.environ.get("INVITE_SAME_IP_LIMIT", "3"))       # 邀请人同 IP 被邀超过 N 人后不再发奖励(防同 IP 小号刷)
+REG_IP_DAY_LIMIT = int(os.environ.get("REG_IP_DAY_LIMIT", "5"))               # 同 IP 24h 最多注册 N 个新账号(防批量刷号)
 
 # ---------- 跨进程状态存储(CacheStore) ----------
 # redis=Redis(生产多 worker 共享) / sqlite=SQLite 表 kv_cache(测试/兜底, 零依赖)

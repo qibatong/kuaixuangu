@@ -30,6 +30,13 @@ def api_login(request: Request, body: dict = Body(...)):
     if not ok:
         log.warning("登录失败 login=%s ip=%s", login, client_ip(request))
         return jr({"ok": False, "msg": "用户名或密码错误"}, 401)
+    # 邮箱认证拦截(2026-08-17): 新注册未验证邮箱的账号禁止登录
+    if user is not None and not int(user.get("email_verified") or 1):
+        log.warning("登录拦截-未验证邮箱 uid=%s login=%s", user["id"], login)
+        return jr({"ok": False, "msg": "请先完成邮箱验证再登录",
+                   "need_verify_email": True,
+                   "uid": user["id"],
+                   "email": user.get("email") or ""}, 401)
     # 单点登录: 密码校验通过后, 作废该用户所有旧 token, 强制只保留当前会话(防账号共享)
     revoked = security.revoke_user_tokens(user["id"])
     log.info("登录成功 uid=%s user=%s ip=%s remember=%s 已踢旧会话%d个",
@@ -69,6 +76,9 @@ def api_register(request: Request, body: dict = Body(...)):
     # 基础格式校验通过后再限流 — 错误格式不计次防误锁
     if not security.register_allowed(ip):
         return jr({"ok": False, "msg": "注册过于频繁，请稍后再试"}, 429)
+    # 同 IP 24h 注册数上限(防同 IP 批量刷号, 2026-08-17)
+    if not security.register_ip_day_allowed(ip):
+        return jr({"ok": False, "msg": "同一网络今日注册账号过多，请明天再试"}, 429)
     inviter = None
     if invite_code:
         inviter = users.find_user_by_invite_code(invite_code)
@@ -83,26 +93,93 @@ def api_register(request: Request, body: dict = Body(...)):
     if email and users.find_user_by_email(email):
         return jr({"ok": False, "msg": "该邮箱已绑定其他账号"}, 409)
     my_code = users.gen_unique_invite_code()
+    # 注册环境: IP + UA(截断存储, 供同 IP 自邀识别/管理端追溯)
+    ua = str(request.headers.get("user-agent") or "")[:200]
     try:
         uid = users.create_user(username, password, invited_by=invited_by,
                                 invite_code=my_code, phone=phone or None,
-                                email=email or None)
+                                email=email or None, register_ip=ip, register_ua=ua)
     except sqlite3.IntegrityError:
         log.warning("注册冲突 username=%s ip=%s", username, client_ip(request))
         return jr({"ok": False, "msg": "用户名或手机号/邮箱已被占用"}, 409)
     log.info("注册成功 uid=%s user=%s invited_by=%s ip=%s", uid, username, invited_by or "-", client_ip(request))
-    # 邀请奖励: 每成功邀请一个新用户, 邀请人 +5 天使用时间(永久/VIP 老师跳过)
+    # 邀请奖励: 每成功邀请一个新用户, 邀请人 +7 天使用时间(永久/VIP 老师跳过)
+    # 防同 IP 小号刷: 被邀人与邀请人同 IP / 同 IP 已邀超限 → 不发奖励
     if invited_by:
-        new_et = users.grant_invite_reward(invited_by, days=config.INVITE_REWARD_DAYS)
-        log.info("邀请奖励 uid=%s inviter=%s +%d天 新到期=%s", uid, invited_by,
-                 config.INVITE_REWARD_DAYS, new_et or "-")
-    # 新用户默认 5 天会员试用
+        blocked, why = users.invite_reward_blocked(invited_by, ip)
+        if blocked:
+            log.warning("邀请奖励拦截 uid=%s inviter=%s ip=%s reason=%s", uid, invited_by, ip, why)
+        else:
+            new_et = users.grant_invite_reward(invited_by, days=config.INVITE_REWARD_DAYS)
+            log.info("邀请奖励 uid=%s inviter=%s +%d天 新到期=%s", uid, invited_by,
+                     config.INVITE_REWARD_DAYS, new_et or "-")
+    # 邮箱认证(2026-08-17): 新注册强制验证, 验证通过后才能登录
+    # SMTP 未配置时降级跳过(避免测试/未配邮件环境新用户卡死); 配置后自动强制
+    email_verified = 1
+    if users.smtp_configured():
+        vcode = users.gen_verify_code()
+        users.set_email_verify_code(uid, vcode)
+        mail_ok = users.send_verify_email(email, username, vcode)
+        log.info("邮箱验证邮件 uid=%s sent=%s to=%s", uid, mail_ok, email)
+        email_verified = 0
+    else:
+        log.warning("SMTP 未配置, 跳过邮箱验证 uid=%s", uid)
+    # 新用户默认 7 天会员试用
     u = users.find_user_by_id(uid)
     et = int(u.get("expire_at") or 0) if u else 0
     return jr({"ok": True, "token": security.issue_token(uid), "username": username,
+               "uid": uid,
+               "email_verified": email_verified,
+               "expire_at": et,
+               "member_level": users.get_member_level(uid),
+               "expired": 1 if (et and time.time() > et) else 0,
+               "msg": "注册成功，请查收邮箱完成验证后再登录"})
+
+
+@router.post("/api/verify-email")
+def api_verify_email(request: Request, body: dict = Body(...)):
+    """邮箱验证: 输入注册邮箱收到的 6 位验证码; 验证成功后直接返回 token(自动登录)"""
+    uid = int(body.get("uid") or 0)
+    code = str(body.get("code") or "").strip()
+    if not uid or not code:
+        return jr({"ok": False, "msg": "参数不完整"}, 400)
+    ok, msg = users.verify_email_code(uid, code)
+    if not ok:
+        return jr({"ok": False, "msg": msg}, 400)
+    u = users.find_user_by_id(uid)
+    username = u["username"] if u else ""
+    et = int(u.get("expire_at") or 0) if u else 0
+    log.info("邮箱验证成功 uid=%s user=%s", uid, username)
+    return jr({"ok": True, "msg": msg, "token": security.issue_token(uid),
+               "username": username, "uid": uid,
+               "email_verified": 1,
                "expire_at": et,
                "member_level": users.get_member_level(uid),
                "expired": 1 if (et and time.time() > et) else 0})
+
+
+@router.post("/api/resend-verify")
+def api_resend_verify(request: Request, body: dict = Body(...)):
+    """重发邮箱验证码(5 分钟冷却, 每小时最多 3 次)"""
+    uid = int(body.get("uid") or 0)
+    user = users.find_user_by_id(uid) if uid else None
+    if not user:
+        return jr({"ok": False, "msg": "用户不存在"}, 400)
+    if int(user.get("email_verified") or 0):
+        return jr({"ok": True, "msg": "邮箱已验证，无需重复验证"})
+    email = str(user.get("email") or "")
+    if not email:
+        return jr({"ok": False, "msg": "账号未绑定邮箱，请联系管理员"}, 400)
+    ok, msg = security.verify_mail_allowed(email)
+    if not ok:
+        return jr({"ok": False, "msg": msg}, 429)
+    vcode = users.gen_verify_code()
+    users.set_email_verify_code(uid, vcode)
+    mail_ok = users.send_verify_email(email, user["username"], vcode)
+    if not mail_ok:
+        return jr({"ok": False, "msg": "邮件发送失败，请联系管理员"}, 500)
+    log.info("重发邮箱验证码 uid=%s to=%s", uid, email)
+    return jr({"ok": True, "msg": "验证邮件已发送，请查收"})
 
 
 @router.post("/api/change-password")

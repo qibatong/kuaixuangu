@@ -47,6 +47,7 @@
                 <th class="sortable" :class="{ active: userSort.keyOf('remark') }" @click="userSort.onSort('remark', 'string')">备注<span class="sort-ind">{{ userSort.ind('remark') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('created_at') }" @click="userSort.onSort('created_at')">注册时间<span class="sort-ind">{{ userSort.ind('created_at') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('expire_at') }" @click="userSort.onSort('expire_at')">到期时间<span class="sort-ind">{{ userSort.ind('expire_at') }}</span></th>
+                <th class="sortable" :class="{ active: userSort.keyOf('invited_by_username') }" @click="userSort.onSort('invited_by_username', 'string')">邀请人<span class="sort-ind">{{ userSort.ind('invited_by_username') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('invited_count') }" @click="userSort.onSort('invited_count')">邀请<span class="sort-ind">{{ userSort.ind('invited_count') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('batch_count') }" @click="userSort.onSort('batch_count')">选股<span class="sort-ind">{{ userSort.ind('batch_count') }}</span></th>
                 <th>会员等级</th>
@@ -71,6 +72,10 @@
                   <span v-if="u.is_admin || expireState(u) === 'forever'" class="user-tag">永久</span>
                   <span v-else-if="expireState(u) === 'expired'" class="expired-tag">已过期 {{ fmtBjDay(u.expire_at) }}</span>
                   <span v-else class="ok-tag">{{ fmtBjDay(u.expire_at) }}</span>
+                </td>
+                <td>
+                  <span v-if="u.invited_by_username" class="inviter-tag" :title="'被 ' + u.invited_by_username + ' 邀请'">{{ u.invited_by_username }}</span>
+                  <span v-else class="dim">-</span>
                 </td>
                 <td>{{ u.invited_count }}</td>
                 <td>{{ u.batch_count }}</td>
@@ -169,6 +174,46 @@
               初始密码: <b style="user-select:all;font-family:monospace;">{{ createResult.password }}</b>
               <button class="mini-btn" style="margin-left:8px;" @click="copyText(createResult.password)">复制</button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 邀请关系弹层(被谁邀请 + 邀请了谁, 含注册 IP 便于识别同 IP 刷号) -->
+      <div v-if="invitesTarget" class="pwd-mask" @click.self="closeInvites">
+        <div class="pwd-pop" style="width:520px;">
+          <div class="pwd-title">👥 邀请关系：{{ invitesTarget.username }}
+            <span style="color:#999;font-size:12px;margin-left:8px;">(ID {{ invitesTarget.id }})</span></div>
+          <div class="invite-chain">
+            <div class="chain-row">
+              <span class="chain-label">被谁邀请</span>
+              <span v-if="invitesData.invited_by_username" class="chain-val">{{ invitesData.invited_by_username }}</span>
+              <span v-else class="dim">无(自主注册)</span>
+            </div>
+            <div class="chain-row">
+              <span class="chain-label">我的邀请码</span>
+              <span class="chain-val mono">{{ invitesData.invite_code || '-' }}</span>
+            </div>
+            <div class="chain-row">
+              <span class="chain-label">已邀请</span>
+              <span class="chain-val">{{ invitesData.invited_count }} 人</span>
+            </div>
+          </div>
+          <div v-if="invitesLoading" class="dim" style="text-align:center;padding:12px;">加载中...</div>
+          <div v-else-if="!invitesData.invitees || !invitesData.invitees.length" class="dim" style="text-align:center;padding:12px;">该用户还没有邀请任何人</div>
+          <div v-else class="invite-list-scroll">
+            <table class="invite-table">
+              <thead><tr><th>用户名</th><th>注册时间</th><th>注册 IP</th></tr></thead>
+              <tbody>
+                <tr v-for="iv in invitesData.invitees" :key="iv.username">
+                  <td>{{ iv.username }}</td>
+                  <td>{{ fmtTsTime(iv.created_at) }}</td>
+                  <td class="mono">{{ iv.register_ip || '-' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
+            <button class="mini-btn" @click="closeInvites">关闭</button>
           </div>
         </div>
       </div>
@@ -343,6 +388,7 @@
              :style="{ position:'fixed', top: menuRect.top+'px', left: menuRect.left+'px' }"
              @click.stop>
           <button class="row-menu-item" @click="menuAction(currentMenuUser, 'profile')">📝 编辑资料</button>
+          <button class="row-menu-item" @click="menuAction(currentMenuUser, 'invites')">👥 邀请关系</button>
           <template v-if="currentMenuUser && !currentMenuUser.is_admin">
             <button class="row-menu-item" @click="menuAction(currentMenuUser, 'expire')">⚙️ 设置期限</button>
             <button class="row-menu-item" @click="menuAction(currentMenuUser, 'pwd')">🔑 重置密码</button>
@@ -373,7 +419,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { adminCreateUser, adminDeleteUser, adminScoring, adminSetMemberLevel, adminSetUserProfile, adminUsers, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire, setUsersExpire } from '../api/admin'
+import { adminCreateUser, adminDeleteUser, adminScoring, adminSetMemberLevel, adminSetUserProfile, adminUserInvites, adminUsers, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire, setUsersExpire } from '../api/admin'
 import { showToast as toast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
 import { expireState } from '../utils/admin'
@@ -498,6 +544,7 @@ function menuAction(u, act) {
     if (act === 'profile') openProfile(u)
     else if (act === 'pwd') openPwdReset(u)
     else if (act === 'delete') deleteUser(u)
+    else if (act === 'invites') openInvites(u)
   }
 }
 function onDocClick(e) {
@@ -595,6 +642,24 @@ function openCreate() {
     member_level: 1, wx_name: '', remark: '', pay_remark: '' })
 }
 function closeCreate() { createOpen.value = false; createResult.value = null }
+// ---------- 邀请关系链(2026-08-17) ----------
+const invitesTarget = ref(null)
+const invitesLoading = ref(false)
+const invitesData = ref({})
+async function openInvites(u) {
+  invitesTarget.value = u
+  invitesData.value = {}
+  invitesLoading.value = true
+  try {
+    const d = await adminUserInvites(u.id)
+    invitesData.value = d
+  } catch (e) {
+    toast(e.message || '加载邀请关系失败', 'error')
+  } finally {
+    invitesLoading.value = false
+  }
+}
+function closeInvites() { invitesTarget.value = null }
 async function doCreate() {
   if (!createForm.username.trim() || createForm.username.trim().length < 2) { toast('用户名 2-20 位', 'error'); return }
   if (createForm.password.length < 6) { toast('密码至少 6 位', 'error'); return }
@@ -857,6 +922,22 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.inviter-tag {
+  display: inline-block; padding: 2px 8px; border-radius: 10px;
+  background: rgba(120, 160, 255, 0.15); color: #7fb2ff;
+  border: 1px solid rgba(120, 160, 255, 0.35); font-size: 12px; white-space: nowrap;
+}
+body[data-bg="light"] .inviter-tag { color: #3a5bb8; background: rgba(90, 130, 255, 0.1); border-color: rgba(90, 130, 255, 0.4); }
+.mono { font-family: monospace; }
+.invite-chain { display: flex; flex-direction: column; gap: 8px; padding: 8px 4px; }
+.chain-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.chain-label { width: 72px; color: #999; flex-shrink: 0; }
+.chain-val { color: var(--text-main); }
+.invite-list-scroll { max-height: 300px; overflow-y: auto; margin-top: 6px; border: 1px solid var(--border-soft); border-radius: 8px; }
+.invite-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.invite-table th { text-align: left; padding: 6px 10px; color: #999; border-bottom: 1px solid var(--border-soft); background: var(--bg-hover); position: sticky; top: 0; }
+.invite-table td { padding: 6px 10px; border-bottom: 1px solid var(--border-soft); }
+.invite-table tr:last-child td { border-bottom: none; }
 .admin-wrap { max-width: 1500px; margin: 0 auto; padding: 14px 16px; }
 .admin-head { display: flex; align-items: center; margin-bottom: 14px; }
 .admin-card { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 16px; margin-bottom: 14px; }

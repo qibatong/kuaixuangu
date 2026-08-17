@@ -175,6 +175,31 @@ def grant_invite_reward(inviter_id, days=5):
         return 0
 
 
+def invite_reward_blocked(inviter_id, invitee_ip=""):
+    """防同 IP 小号刷奖励: 返回 (blocked, reason)
+    - 被邀请人与邀请人注册 IP 相同(自邀特征) → 拦截
+    - 邀请人同 IP 已成功邀请 ≥ config.INVITE_SAME_IP_LIMIT 人 → 拦截(同 IP 批量小号)
+    只做拦截判断, 不发奖励(被邀请人注册仍成功, 试用期照常)"""
+    if not inviter_id or not invitee_ip:
+        return False, ""
+    try:
+        inviter = find_user_by_id(inviter_id)
+        if inviter and inviter.get("register_ip") and \
+                str(inviter.get("register_ip")) == str(invitee_ip):
+            return True, "被邀请人与邀请人注册 IP 相同(疑似自邀), 不发奖励"
+        conn = _conn()
+        n = conn.execute(
+            "SELECT COUNT(*) FROM users WHERE invited_by=? AND register_ip=?",
+            (inviter_id, str(invitee_ip))).fetchone()[0]
+        conn.close()
+        if n >= int(getattr(config, "INVITE_SAME_IP_LIMIT", 3)):
+            return True, "邀请人同 IP 已邀 %d 人, 超出限制(%d), 不发奖励" % (
+                n, int(getattr(config, "INVITE_SAME_IP_LIMIT", 3)))
+    except Exception as e:
+        log.warning("邀请奖励防刷判断失败 inviter=%s ip=%s err=%s", inviter_id, invitee_ip, e)
+    return False, ""
+
+
 def extend_expire(uid, days):
     """从 max(现在, 当前到期) 累加 days 天(续费可叠加), 返回新到期时间戳"""
     row = find_user_by_id(uid)
@@ -227,6 +252,7 @@ def list_users_page(page=1, page_size=20, keyword="", member_tab="all"):
     rows = conn.execute(
         "SELECT u.id, u.username, u.created_at, u.is_admin, u.invite_code, u.invited_by, "
         "u.phone, u.email, u.wx_name, u.remark, u.pay_remark, u.expire_at, u.member_level, "
+        "(SELECT username FROM users WHERE id = u.invited_by) AS invited_by_username, "
         "(SELECT COUNT(*) FROM users x WHERE x.invited_by=u.id) AS invited_count, "
         "(SELECT COUNT(*) FROM batches b WHERE b.user_id=u.id) AS batch_count "
         "FROM users u WHERE 1=1" + cond + " ORDER BY u.id DESC LIMIT ? OFFSET ?",
@@ -334,15 +360,20 @@ def gen_unique_invite_code():
 
 
 def create_user(username, password, invited_by=None, invite_code=None, phone=None, email=None,
-                expire_days=5):
-    """创建用户. expire_days>0 注册即送 N 天会员(默认 5 天试用); 0 表示永久"""
+                expire_days=None, register_ip=None, register_ua=None):
+    """创建用户. expire_days>0 注册即送 N 天会员(默认 config.NEW_USER_DAYS 天试用); 0 表示永久
+    register_ip/register_ua: 注册时的 IP 与 UA(用于同 IP 防刷/自邀识别)"""
+    if expire_days is None:
+        expire_days = config.NEW_USER_DAYS
     now = int(__import__("time").time())
     expire_at = now + int(expire_days) * 86400 if (expire_days or 0) > 0 else 0
     conn = database.get_conn()
     cur = conn.cursor()
-    cur.execute("INSERT INTO users (username, password_hash, created_at, expire_at, invited_by, invite_code, phone, email) VALUES (?,?,?,?,?,?,?,?)",
-                (username, security.hash_password(password), now, expire_at,
-                 invited_by, invite_code, phone, email))
+    cur.execute(
+        "INSERT INTO users (username, password_hash, created_at, expire_at, invited_by, invite_code, "
+        "phone, email, register_ip, register_ua) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (username, security.hash_password(password), now, expire_at,
+         invited_by, invite_code, phone, email, register_ip, register_ua))
     uid = cur.lastrowid
     conn.commit()
     conn.close()
@@ -476,6 +507,81 @@ def send_reset_email(to_email, reset_url, username):
         server.sendmail(config.SMTP_FROM or config.SMTP_USER, [to_email], msg.as_string())
     finally:
         server.quit()
+
+
+# ---------- 邮箱认证(2026-08-17, 新注册强制) ----------
+def gen_verify_code():
+    """6 位数字验证码"""
+    return "%06d" % secrets.randbelow(1000000)
+
+
+def set_email_verify_code(uid, code, ttl=1800):
+    try:
+        conn = database.get_conn()
+        conn.execute("UPDATE users SET email_verify_code=?, email_verify_expire=? WHERE id=?",
+                     (code, int(time.time()) + ttl, uid))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.warning("设置邮箱验证码失败 uid=%s err=%s", uid, e)
+
+
+def send_verify_email(to_email, username, code):
+    """发送邮箱验证邮件(纯标准库 smtplib), 返回是否发送成功"""
+    if not smtp_configured():
+        log.warning("SMTP 未配置, 无法发送邮箱验证邮件 to=%s", to_email)
+        return False
+    body = (
+        "你好 %s：\n\n"
+        "欢迎注册快选！你的邮箱验证码是：\n\n"
+        "    %s\n\n"
+        "请在 30 分钟内输入该验证码完成验证（仅可使用一次）。\n"
+        "验证通过后才能正常登录使用。\n\n"
+        "如果这不是你本人的操作，请忽略本邮件。\n\n"
+        "—— 快选系统"
+    ) % (username, code)
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = Header("快选 - 邮箱验证", "utf-8")
+    msg["From"] = formataddr((str(Header("快选股", "utf-8")), config.SMTP_FROM or config.SMTP_USER))
+    msg["To"] = to_email
+    try:
+        if config.SMTP_PORT == 465:
+            server = smtplib.SMTP_SSL(config.SMTP_HOST, config.SMTP_PORT, timeout=15)
+        else:
+            server = smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=15)
+            server.starttls()
+        server.login(config.SMTP_USER, config.SMTP_PASS)
+        server.sendmail(config.SMTP_FROM or config.SMTP_USER, [to_email], msg.as_string())
+        server.quit()
+        return True
+    except Exception as e:
+        log.warning("邮箱验证邮件发送失败 to=%s err=%s", to_email, e)
+        return False
+
+
+def verify_email_code(uid, code):
+    """校验验证码: 成功置 email_verified=1 并清码; 返回 (ok, msg)"""
+    user = find_user_by_id(uid)
+    if not user:
+        return False, "用户不存在"
+    if int(user.get("email_verified") or 0):
+        return True, "邮箱已验证"
+    saved = str(user.get("email_verify_code") or "")
+    exp = int(user.get("email_verify_expire") or 0)
+    if not saved or time.time() > exp:
+        return False, "验证码已过期，请重新发送"
+    if saved != str(code).strip():
+        return False, "验证码错误"
+    try:
+        conn = database.get_conn()
+        conn.execute("UPDATE users SET email_verified=1, email_verify_code=NULL, email_verify_expire=0 WHERE id=?",
+                     (uid,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.warning("邮箱验证落库失败 uid=%s err=%s", uid, e)
+        return False, "验证失败，请重试"
+    return True, "邮箱验证成功"
 
 
 def update_profile(uid, phone=None, email=None, wx_name=None, remark=None):

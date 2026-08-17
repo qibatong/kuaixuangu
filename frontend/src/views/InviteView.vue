@@ -8,6 +8,11 @@
         <span class="invite-title"><i class="fa fa-share-alt"></i> 邀请推广</span>
       </div>
       <div class="invite-body">
+        <div class="invite-rule">
+          <div class="invite-rule-item"><i class="fa fa-gift"></i> 新用户注册填写邀请码，<b>双方各得 7 天会员</b></div>
+          <div class="invite-rule-item"><i class="fa fa-refresh"></i> 多邀多得，使用时间<b>自动向后顺延</b></div>
+          <div class="invite-rule-item"><i class="fa fa-shield"></i> 同手机号/邮箱/网络重复注册的小号<b>不计入奖励</b></div>
+        </div>
         <div class="invite-code-box">
           <div class="invite-code-label">我的专属邀请码（新用户注册时填写）</div>
           <div class="invite-code-text">{{ inviteCode || '----' }}</div>

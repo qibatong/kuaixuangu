@@ -100,6 +100,18 @@ def init_db():
     # 区别于通用 remark (内部备注), 仅管理员可改
     if "pay_remark" not in ucols:
         cur.execute("ALTER TABLE users ADD COLUMN pay_remark TEXT")
+    # 注册防刷/自邀识别(2026-08-17): 注册 IP + UA hash
+    if "register_ip" not in ucols:
+        cur.execute("ALTER TABLE users ADD COLUMN register_ip TEXT")
+    if "register_ua" not in ucols:
+        cur.execute("ALTER TABLE users ADD COLUMN register_ua TEXT")
+    # 邮箱认证(2026-08-17): 老用户默认已认证(1), 新注册置 0 强制验证后才可登录
+    if "email_verified" not in ucols:
+        cur.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1")
+    if "email_verify_code" not in ucols:
+        cur.execute("ALTER TABLE users ADD COLUMN email_verify_code TEXT")
+    if "email_verify_expire" not in ucols:
+        cur.execute("ALTER TABLE users ADD COLUMN email_verify_expire INTEGER NOT NULL DEFAULT 0")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_users_invited_by ON users(invited_by)")
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone)")
     # 登录 Token 持久化表(进程重启不失效, 支持「记住我」30 天)

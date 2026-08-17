@@ -395,6 +395,15 @@ border-radius: 6px; padding: 6px 16px; font-size: 12px; cursor: pointer;
 .invite-btn.danger { background: rgba(255,140,40,0.15); border-color: #ff8c28; color: #ffd0a0; }
 .invite-btn.danger:hover { background: #ff7b1a; color: white; }
 .invite-tip { font-size: 12px; color: var(--text-muted); line-height: 1.6; }
+.invite-rule {
+  display: flex; flex-direction: column; gap: 8px;
+  background: rgba(0,180,255,0.07); border: 1px solid rgba(0,180,255,0.25);
+  border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;
+}
+.invite-rule-item { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+.invite-rule-item i { width: 18px; color: #00b4ff; }
+.invite-rule-item b { color: #ffd700; font-weight: 600; }
+body[data-bg="light"] .invite-rule-item b { color: #b8860b; }
 .invite-stats { font-size: 13px; color: #ffd0a0; }
 .invite-stats strong { color: #ffd700; font-size: 18px; }
 .invite-list { display: flex; flex-direction: column; gap: 4px; }
