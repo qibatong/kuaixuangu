@@ -685,15 +685,25 @@ async function showSnapshot(date, tp) {
   } catch (e) { /* 静默 */ }
 }
 
+// 单个接口最多等 12s, 超时返回空对象(不让某个慢接口拖垮整页加载)
+function withTimeout(p, ms = 12000) {
+  return Promise.race([
+    p,
+    new Promise(res => setTimeout(() => res({ list: [], list20: [], list20Chg: [], listLast: [], days: [] }), ms))
+  ])
+}
+
 async function loadAll(fromUser = false) {
   const dt = datePicker.value
   loading.value = true
   try {
     // 历史回看: 所有接口带 date; 实时: 不带
     const [ov, seal, boom, qc, yestZt, yestBroken, lhb, brokenYest, brokenToday, s3] = await Promise.all([
-      auctionOverview(dt), kplBidSeal(dt), kplBidBoom(dt), kplBidQiangcang(dt), kplYestZt(dt),
-      kplYestBroken(dt), kplLhb(dt), kplBroken(dt ? '' : 'yesterday', dt), kplBroken('', dt),
-      bidSnapshot3points(dt || todayBj())
+      withTimeout(auctionOverview(dt)), withTimeout(kplBidSeal(dt)), withTimeout(kplBidBoom(dt)),
+      withTimeout(kplBidQiangcang(dt)), withTimeout(kplYestZt(dt)),
+      withTimeout(kplYestBroken(dt)), withTimeout(kplLhb(dt)),
+      withTimeout(kplBroken(dt ? '' : 'yesterday', dt)), withTimeout(kplBroken('', dt)),
+      withTimeout(bidSnapshot3points(dt || todayBj()))
     ])
     // 非交易时段(周末/节假日/盘前盘后)自动回退: 实时模式且各 tab 全空时,
     // 自动切到最近交易日(overview.days[0].date = 最近有 snapshot_bid 数据的日期)

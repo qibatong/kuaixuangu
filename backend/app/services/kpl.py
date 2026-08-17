@@ -1407,10 +1407,11 @@ def fetch_bid_qiangcang(date=None):
             log.warning("抢筹 listLast 快照读取失败 err=%s", e)
 
         # 竞额/昨比: 今日竞价额(元) / 昨日全天成交额(万元) → 百分比。昨日额按 code 并发拉取(当日缓存)
+        # ⚠️ 只对展示上限内(各表前100)拉昨比: listLast 全量可达5000+只, 全拉会被东财限流拖到60s+
         try:
             from . import fetcher as _fetcher
             codes = []
-            for it in list20 + list20Chg + listLast:
+            for it in list20[:100] + list20Chg[:100] + listLast[:100]:
                 c = str(it.get("code", ""))
                 if c and c not in codes:
                     codes.append(c)
