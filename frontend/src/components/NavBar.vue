@@ -138,11 +138,11 @@ function logout() {
 }
 .nav-brand-name {
   font-size: 18px; font-weight: 800;
-  color: var(--accent); letter-spacing: 6px;
+  color: var(--accent); letter-spacing: 10px;
   line-height: 1.1;
-  padding-right: 2px; /* 抵消 letter-spacing 右侧留白, 让整体居中更紧 */
+  padding-right: 4px; /* 抵消 letter-spacing 右侧留白, 让整体居中更准 */
 }
-.nav-brand-text { display: flex; flex-direction: column; gap: 1px; line-height: 1.1; }
+.nav-brand-text { display: flex; flex-direction: column; align-items: center; gap: 3px; line-height: 1.1; }
 .nav-brand-slogan {
   font-size: 11px;
   color: var(--text-muted);
