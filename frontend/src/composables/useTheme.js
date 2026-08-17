@@ -18,7 +18,7 @@ export const FONTS = [
 const STORE_KEY = 'kuaixuan_bg'   // 本地兜底 { bg, font }, 登录后以 prefs 为准
 
 // 模块级单例 state: 避免多次 useTheme() 各持独立 ref, 导致跨组件(如 Watermark)读不到最新主题
-const bg = ref('dark')
+const bg = ref('light')   // 默认白色(浅色)主题, 2026-08-17 主人确认
 const font = ref('md')
 
 function applyBg(key) {
@@ -46,7 +46,7 @@ export function useTheme() {
         if (data.settings.font) ft = data.settings.font
       }
     } catch (e) { /* 未登录/失败用本地 */ }
-    if (!BGS.some(x => x.key === b)) b = 'dark'
+    if (!BGS.some(x => x.key === b)) b = 'light'   // 无偏好默认白色
     if (!FONTS.some(x => x.key === ft)) ft = 'md'
     bg.value = b
     font.value = ft
