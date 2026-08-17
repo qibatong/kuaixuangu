@@ -51,15 +51,7 @@
       </div>
 
       <!-- 奖牌导出 -->
-      <div style="display:flex;justify-content:flex-end;margin:6px 0;">
-        <div class="export-medal-group">
-          <span style="color:var(--accent-text);font-size:12px;">导出前</span>
-          <select v-model="medalExportCount" class="export-select">
-            <option :value="3">3只</option><option :value="5">5只</option><option :value="8">8只</option><option :value="10">10只</option>
-          </select>
-          <button class="tdx-export-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="downloadMedal"><i class="fa fa-download"></i> 下载自选股</button>
-        </div>
-      </div>
+      <!-- 奖牌区下方不展示导出按钮(主流程已有下载自选股, 此处避免重复) -->
     </template>
     <!-- 盘中模式无奖牌: 自选池放主流程 -->
     <template v-else>
@@ -111,7 +103,6 @@ import { bjDateTimeStr, isBefore930, isMemberOnlyTime } from '../utils/time'
 const stocks = useStocksStore()
 const pool = usePoolStore()
 const user = useUserStore()
-const medalExportCount = ref(3)
 const bjTime = ref('--:--:--')
 const yiziToday = ref(null)       // {yizi_count, bid_amt} 今日一字涨停
 const yiziTrend = ref([])         // 近 5 日趋势
@@ -193,7 +184,6 @@ async function switchMode(m) {
     showToast('❌ ' + e.message, 'error')
   }
 }
-function downloadMedal() { downloadBlkFile(stocks.cachedStocks, medalExportCount.value) }
 function downloadAll() { downloadBlkFile(stocks.cachedStocks, 0) }
 function copyCodes() {
   if (!stocks.cachedStocks.length) { showToast('无数据', 'error'); return }
