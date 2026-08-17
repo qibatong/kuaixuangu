@@ -164,7 +164,8 @@ function logout() {
   font-size: 18px; font-weight: 800;
   color: var(--accent); letter-spacing: 10px;
   line-height: 1.1;
-  padding-left: 5px; /* 2026-08-17: 补偿 letter-spacing 末尾 10px 空白, 让"快选"视觉中点 = 几何中点(与下方 slogan 对齐) */
+  padding-left: 5px; /* 补偿 letter-spacing 末尾 10px 空白, 让"快选"视觉中点 = 几何中点 */
+  margin-left: 4px; /* 2026-08-17 主人反馈"往右边移一点点": 整体右移 4px */
 }
 .nav-brand-text { display: flex; flex-direction: column; align-items: center; gap: 3px; line-height: 1.1; }
 .nav-brand-slogan {
