@@ -193,9 +193,46 @@ function logout() {
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .nav-item:hover { background: var(--bg-hover); color: var(--text-main); }
-/* 浅色主题: 背景更明显些(白底要看得见) */
-body[data-bg="light"] .nav-item { background: rgba(0, 0, 0, 0.04); }
-body[data-bg="light"] .nav-item:hover { background: rgba(0, 0, 0, 0.09); }
+/* 白色主题: 红色导航栏(A股红, 2026-08-17 主人: 股民都喜欢红), 内容白色系 */
+body[data-bg="light"] .nav-bar {
+  background: linear-gradient(135deg, #e03a2f, #c62828);
+  border-color: rgba(190, 40, 30, 0.55);
+}
+body[data-bg="light"] .nav-brand-name { color: #fff; }
+body[data-bg="light"] .nav-brand-slogan { color: rgba(255, 255, 255, 0.78); }
+body[data-bg="light"] .nav-brand { border-right-color: rgba(255, 255, 255, 0.28); }
+body[data-bg="light"] .nav-item {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+body[data-bg="light"] .nav-item:hover { background: rgba(255, 255, 255, 0.28); color: #fff; }
+body[data-bg="light"] .nav-item.router-link-active {
+  background: #fff;
+  color: #c62828;
+  border-color: rgba(255, 255, 255, 0.6);
+  font-weight: 700;
+}
+body[data-bg="light"] .theme-picker,
+body[data-bg="light"] .font-picker {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+body[data-bg="light"] .theme-label { color: rgba(255, 255, 255, 0.8); }
+body[data-bg="light"] .theme-dot { border-color: rgba(255, 255, 255, 0.7); }
+body[data-bg="light"] .theme-dot.active { border-color: #fff; box-shadow: 0 0 6px rgba(255, 255, 255, 0.8); }
+body[data-bg="light"] .user-name-btn {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+body[data-bg="light"] .user-name-btn:hover { background: rgba(255, 255, 255, 0.28); color: #fff; }
+body[data-bg="light"] .mini-btn {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+body[data-bg="light"] .mini-btn:hover { background: rgba(255, 255, 255, 0.28); color: #fff; }
 .nav-item.router-link-active {
   background: rgba(255, 180, 0, 0.15);
   border-color: var(--accent);
@@ -312,10 +349,7 @@ body[data-bg="black"] .user-menu {
 @keyframes renew-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 body[data-bg="light"] .renew-badge { color: #b05e00; border-color: #c07a10; }
 
-/* 浅色主题高亮 */
-body[data-bg="light"] .nav-item.router-link-active {
-  background: rgba(255, 180, 0, 0.2); border-color: #c79100; color: #8a5500;
-}
+/* 浅色主题高亮(红色导航栏已在上方统一处理 router-link-active 白底红字) */
 
 /* ===================== 移动端适配 (<=768px) ===================== */
 @media (max-width: 768px) {
