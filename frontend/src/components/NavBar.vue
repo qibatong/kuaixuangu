@@ -35,37 +35,38 @@
     </div>
 
     <div class="nav-tools">
-      <!-- 背景明暗切换器 -->
-      <div class="theme-picker" title="切换背景(登录后自动保存)">
-        <span class="theme-label"><i class="fa fa-adjust"></i></span>
-        <button
-v-for="b in BGS" :key="b.key"
-                class="theme-dot bg-dot" :class="{ active: bg === b.key }"
-                :style="{ background: b.color }" :title="b.label"
-                @click="setBg(b.key)"
-></button>
-      </div>
-      <!-- 字号切换器 -->
-      <div class="font-picker" title="字体大小(登录后自动保存)">
-        <span class="theme-label"><i class="fa fa-font"></i></span>
-        <button
-v-for="f in FONTS" :key="f.key"
-                class="font-btn" :class="{ active: font === f.key }"
-                :style="{ fontSize: f.key === 'sm' ? '11px' : f.key === 'lg' ? '16px' : '13px' }"
-                :title="f.label" @click="setFont(f.key)"
->
-A
-</button>
-      </div>
-      <!-- 账户工具: 已登录显示用户名(点击弹下拉: 资料/改密/退出)/会员标识 -->
+      <!-- 账户工具: 已登录显示用户名(点击弹下拉: 主题/字号/资料/改密/退出)/会员标识 -->
       <div v-if="user.isLoggedIn" class="user-tools">
         <div class="user-dropdown" ref="userDropdown">
           <button class="user-name-btn" title="账户操作" @click="toggleMenu">
             <i class="fa fa-user-circle"></i> {{ user.username }}
             <i class="fa fa-caret-down" :class="{ 'caret-up': menuOpen }"></i>
           </button>
-          <!-- 下拉菜单: 资料/改密/退出 -->
+          <!-- 下拉菜单: 设置(主题/字号) + 资料/改密/退出 -->
           <div v-show="menuOpen" class="user-menu">
+            <div class="menu-settings">
+              <div class="menu-setting-row">
+                <span class="menu-setting-label"><i class="fa fa-adjust"></i> 主题</span>
+                <button
+v-for="b in BGS" :key="b.key"
+                  class="menu-dot" :class="{ active: bg === b.key }"
+                  :style="{ background: b.color }" :title="b.label"
+                  @click="setBg(b.key)"
+></button>
+              </div>
+              <div class="menu-setting-row">
+                <span class="menu-setting-label"><i class="fa fa-font"></i> 字号</span>
+                <button
+v-for="f in FONTS" :key="f.key"
+                  class="menu-font" :class="{ active: font === f.key }"
+                  :style="{ fontSize: f.key === 'sm' ? '11px' : f.key === 'lg' ? '16px' : '13px' }"
+                  :title="f.label" @click="setFont(f.key)"
+>
+A
+</button>
+              </div>
+            </div>
+            <div class="menu-sep"></div>
             <button class="menu-item" @click="menuOpen = false; profileModal.open()"><i class="fa fa-id-card"></i> 个人信息</button>
             <button class="menu-item" @click="menuOpen = false; changePwdModal.open()"><i class="fa fa-key"></i> 修改密码</button>
             <button class="menu-item menu-logout" @click="menuOpen = false; logout()"><i class="fa fa-sign-out"></i> 退出登录</button>
@@ -214,14 +215,6 @@ body[data-bg="light"] .nav-item.router-link-active {
   border-color: rgba(255, 255, 255, 0.6);
   font-weight: 700;
 }
-body[data-bg="light"] .theme-picker,
-body[data-bg="light"] .font-picker {
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.25);
-}
-body[data-bg="light"] .theme-label { color: rgba(255, 255, 255, 0.8); }
-body[data-bg="light"] .theme-dot { border-color: rgba(255, 255, 255, 0.7); }
-body[data-bg="light"] .theme-dot.active { border-color: #fff; box-shadow: 0 0 6px rgba(255, 255, 255, 0.8); }
 body[data-bg="light"] .user-name-btn {
   background: rgba(255, 255, 255, 0.14);
   border-color: rgba(255, 255, 255, 0.25);
@@ -241,34 +234,7 @@ body[data-bg="light"] .mini-btn:hover { background: rgba(255, 255, 255, 0.28); c
   font-weight: 600;
 }
 
-/* 主题/字号 picker(从 hero 迁来) */
-.theme-picker {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: var(--bg-input); border: 1px solid var(--border-soft);
-  border-radius: 20px; padding: 4px 10px;
-}
-.font-picker {
-  display: inline-flex; align-items: center; gap: 4px;
-  background: var(--bg-input); border: 1px solid var(--border-soft);
-  border-radius: 20px; padding: 4px 10px;
-}
-.theme-label { color: var(--text-muted); font-size: 12px; }
-.theme-dot {
-  width: 16px; height: 16px; border-radius: 50%;
-  border: 2px solid var(--border-soft); cursor: pointer; padding: 0;
-  transition: transform 0.15s, border-color 0.15s;
-}
-.theme-dot:hover { transform: scale(1.2); }
-.theme-dot.active { border-color: var(--text-main); box-shadow: 0 0 6px var(--border-soft); }
-.font-btn {
-  min-width: 22px; height: 22px; line-height: 1;
-  border: 1px solid var(--border-soft); border-radius: 12px;
-  background: var(--bg-input); color: var(--text-secondary);
-  font-size: 13px; font-weight: 600; cursor: pointer; padding: 0 5px;
-  transition: transform 0.15s, border-color 0.15s, background 0.15s, color 0.15s;
-}
-.font-btn:hover { transform: scale(1.1); border-color: var(--accent); }
-.font-btn.active { border-color: var(--accent); background: var(--accent); color: #fff; }
+/* 主题/字号 picker 已迁入账号下拉菜单(2026-08-18 主人反馈: 少用, 收进右上角账号下拉框) */
 
 /* 账户工具 */
 .user-tools { display: flex; align-items: center; gap: 6px; }
@@ -286,7 +252,7 @@ body[data-bg="light"] .mini-btn:hover { background: rgba(255, 255, 255, 0.28); c
 /* 下拉菜单: 不透明背景(按主题覆盖, 避免与 --bg-card 半透明融背景) */
 .user-menu {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 1000;
-  min-width: 150px;
+  min-width: 170px;
   background-color: #1f2230;          /* 默认深色主题: 深灰实色 */
   color: #eef2ff;
   border: 1.5px solid #3a3e50;
@@ -295,6 +261,34 @@ body[data-bg="light"] .mini-btn:hover { background: rgba(255, 255, 255, 0.28); c
   padding: 5px;
   display: flex; flex-direction: column; gap: 2px;
 }
+/* 菜单顶部设置区: 主题/字号 (2026-08-18 主人反馈迁入) */
+.menu-settings {
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 6px 10px 9px;
+}
+.menu-setting-row { display: flex; align-items: center; gap: 8px; }
+.menu-setting-label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: #b0b6c8; min-width: 56px; white-space: nowrap;
+}
+.menu-setting-label i { width: 14px; text-align: center; }
+.menu-dot {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid #3a3e50; cursor: pointer; padding: 0;
+  transition: transform 0.15s, border-color 0.15s;
+}
+.menu-dot:hover { transform: scale(1.2); }
+.menu-dot.active { border-color: #ffffff; box-shadow: 0 0 6px rgba(255, 255, 255, 0.8); }
+.menu-font {
+  min-width: 22px; height: 22px; line-height: 1;
+  border: 1px solid #3a3e50; border-radius: 12px;
+  background: transparent; color: #eef2ff;
+  font-weight: 600; cursor: pointer; padding: 0 5px;
+  transition: transform 0.15s, border-color 0.15s, background 0.15s, color 0.15s;
+}
+.menu-font:hover { transform: scale(1.1); border-color: var(--accent); }
+.menu-font.active { border-color: var(--accent); background: var(--accent); color: #fff; }
+.menu-sep { height: 1px; background: rgba(255, 255, 255, 0.1); margin: 4px 6px; }
 .user-menu .menu-item {
   display: flex; align-items: center; gap: 8px;
   width: 100%; text-align: left;
@@ -319,11 +313,19 @@ body[data-bg="light"] .user-menu {
 body[data-bg="light"] .user-menu .menu-item { color: #1a1d26; }
 body[data-bg="light"] .user-menu .menu-item:hover { background: rgba(0, 0, 0, 0.06); color: #000000; }
 body[data-bg="light"] .user-menu .menu-item i { color: #555; }
+body[data-bg="light"] .menu-setting-label { color: #555; }
+body[data-bg="light"] .menu-dot { border-color: #c8ccd6; }
+body[data-bg="light"] .menu-dot.active { border-color: #1a1d26; box-shadow: 0 0 6px rgba(0, 0, 0, 0.25); }
+body[data-bg="light"] .menu-font { border-color: #c8ccd6; color: #1a1d26; }
+body[data-bg="light"] .menu-font.active { border-color: var(--accent); background: var(--accent); color: #fff; }
+body[data-bg="light"] .menu-sep { background: rgba(0, 0, 0, 0.08); }
 /* 纯黑主题: 更深 */
 body[data-bg="black"] .user-menu {
   background-color: #0a0a0e;
   border-color: #2a2a30;
 }
+body[data-bg="black"] .menu-dot { border-color: #2a2a30; }
+body[data-bg="black"] .menu-font { border-color: #2a2a30; }
 .mini-btn {
   background: var(--bg-input); border: 1px solid var(--border-soft);
   color: var(--text-secondary); border-radius: 6px;
@@ -367,13 +369,9 @@ body[data-bg="light"] .renew-badge { color: #b05e00; border-color: #c07a10; }
   /* 工具区紧凑 */
   .nav-tools { gap: 6px; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; max-width: 100%; }
   .nav-tools::-webkit-scrollbar { display: none; }
-  .theme-picker, .font-picker { padding: 3px 8px; gap: 4px; }
-  .theme-label { display: none; }
-  .theme-dot { width: 14px; height: 14px; }
-  .font-btn { min-width: 20px; height: 20px; }
   /* 手机上用户名按钮紧凑保留(点击弹下拉), 会员徽标省略文本 */
   .user-name-btn { padding: 3px 8px; font-size: 12px; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
-  .user-menu { min-width: 140px; top: calc(100% + 4px); }
+  .user-menu { min-width: 150px; top: calc(100% + 4px); }
   .user-menu .menu-item { padding: 9px 12px; font-size: 13px; }
   .mini-btn { padding: 4px 8px; font-size: 11px; white-space: nowrap; }
   .member-badge { font-size: 10px; padding: 1px 6px; }
