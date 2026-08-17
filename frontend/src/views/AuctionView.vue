@@ -126,15 +126,15 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
         <thead>
           <tr>
             <th>#</th>
-            <th>代码</th>
-            <th>名称</th>
-            <th class="board-col">概念</th>
+            <th class="sortable" :class="{ active: s3Sort.keyOf('code') }" @click="s3Sort.onSort('code', 'string')">代码<span class="sort-ind">{{ s3Sort.ind('code') }}</span></th>
+            <th class="sortable" :class="{ active: s3Sort.keyOf('name') }" @click="s3Sort.onSort('name', 'string')">名称<span class="sort-ind">{{ s3Sort.ind('name') }}</span></th>
+            <th class="board-col sortable" :class="{ active: s3Sort.keyOf('board') }" @click="s3Sort.onSort('board', 'string')">概念<span class="sort-ind">{{ s3Sort.ind('board') }}</span></th>
             <th class="tp-th tp-th-25 sortable" :class="{ active: s3Sort.keyOf('seal25') }" @click="s3Sort.onSort('seal25')">9:25 封单<span class="sort-ind">{{ s3Sort.ind('seal25') }}</span></th>
             <th class="tp-th tp-th-20 sortable" :class="{ active: s3Sort.keyOf('seal20') }" @click="s3Sort.onSort('seal20')">9:20 封单<span class="sort-ind">{{ s3Sort.ind('seal20') }}</span></th>
             <th class="tp-th tp-th-15 sortable" :class="{ active: s3Sort.keyOf('seal15') }" @click="s3Sort.onSort('seal15')">9:15 封单<span class="sort-ind">{{ s3Sort.ind('seal15') }}</span></th>
             <th class="tp-th tp-th-25 sortable" :class="{ active: s3Sort.keyOf('bidChg25') }" @click="s3Sort.onSort('bidChg25')">竞价涨幅<span class="sort-ind">{{ s3Sort.ind('bidChg25') }}</span></th>
-            <th>状态</th>
-            <th>加单趋势</th>
+            <th class="sortable" :class="{ active: s3Sort.keyOf('layer') }" @click="s3Sort.onSort('layer')">状态<span class="sort-ind">{{ s3Sort.ind('layer') }}</span></th>
+            <th class="sortable" :class="{ active: s3Sort.keyOf('trend') }" @click="s3Sort.onSort('trend')">加单趋势<span class="sort-ind">{{ s3Sort.ind('trend') }}</span></th>
             <th class="sortable" :class="{ active: s3Sort.keyOf('real_change') }" @click="s3Sort.onSort('real_change')">实时涨幅<span class="sort-ind">{{ s3Sort.ind('real_change') }}</span></th>
             <th class="sortable" :class="{ active: s3Sort.keyOf('float_mv') }" @click="s3Sort.onSort('float_mv')">流通市值(亿)<span class="sort-ind">{{ s3Sort.ind('float_mv') }}</span></th>
             <th>操作</th>
@@ -602,6 +602,12 @@ function s3Val(it, key) {
   if (key === 'float_mv') {
     const p = it.points && (it.points['9_25'] || it.points['9_20'] || it.points['9_15'])
     return p && p.float_mv ? p.float_mv : null
+  }
+  if (key === 'trend') {
+    const m = sealMode(it)
+    if (!m) return null
+    const order = { '持续加单': 9, '尾盘回补': 8, '尾盘加单': 7, '加单后走平': 6, '封单走平': 5, '撤单后走平': 4, '尾盘撤单': 3, '冲高回落': 2, '持续撤单': 1 }
+    return order[m.label] ?? 0
   }
   return it[key]
 }
