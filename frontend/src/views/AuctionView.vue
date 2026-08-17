@@ -129,19 +129,19 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <th>代码</th>
             <th>名称</th>
             <th class="board-col">概念</th>
-            <th class="tp-th tp-th-25">9:25 封单</th>
-            <th class="tp-th tp-th-20">9:20 封单</th>
-            <th class="tp-th tp-th-15">9:15 封单</th>
-            <th class="tp-th tp-th-25">竞价涨幅</th>
+            <th class="tp-th tp-th-25 sortable" :class="{ active: s3Sort.keyOf('seal25') }" @click="s3Sort.onSort('seal25')">9:25 封单<span class="sort-ind">{{ s3Sort.ind('seal25') }}</span></th>
+            <th class="tp-th tp-th-20 sortable" :class="{ active: s3Sort.keyOf('seal20') }" @click="s3Sort.onSort('seal20')">9:20 封单<span class="sort-ind">{{ s3Sort.ind('seal20') }}</span></th>
+            <th class="tp-th tp-th-15 sortable" :class="{ active: s3Sort.keyOf('seal15') }" @click="s3Sort.onSort('seal15')">9:15 封单<span class="sort-ind">{{ s3Sort.ind('seal15') }}</span></th>
+            <th class="tp-th tp-th-25 sortable" :class="{ active: s3Sort.keyOf('bidChg25') }" @click="s3Sort.onSort('bidChg25')">竞价涨幅<span class="sort-ind">{{ s3Sort.ind('bidChg25') }}</span></th>
             <th>状态</th>
             <th>加单趋势</th>
-            <th>实时涨幅</th>
-            <th>流通市值(亿)</th>
+            <th class="sortable" :class="{ active: s3Sort.keyOf('real_change') }" @click="s3Sort.onSort('real_change')">实时涨幅<span class="sort-ind">{{ s3Sort.ind('real_change') }}</span></th>
+            <th class="sortable" :class="{ active: s3Sort.keyOf('float_mv') }" @click="s3Sort.onSort('float_mv')">流通市值(亿)<span class="sort-ind">{{ s3Sort.ind('float_mv') }}</span></th>
             <th>操作</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(it, idx) in s3List" :key="it.code">
+          <tr v-for="(it, idx) in s3Sort.sorted(s3List, s3Val)" :key="it.code">
             <td class="rank-col">{{ idx + 1 }}</td>
             <td class="code-click" @click="linkToSoftware(it.code)">{{ it.code }}</td>
             <td class="name-col"><div class="name-main">{{ it.name || it.code }}</div></td>
@@ -536,6 +536,7 @@ async function loadStock3() {
 
 // 各表独立排序实例
 const sealSort = useSortable()
+const s3Sort = useSortable()
 const qcSort = useSortable()
 const qcLastSort = useSortable()
 const yestZtSort = useSortable()
@@ -587,6 +588,24 @@ function tpSeal(it, tp) {
   return s.isBidAmt ? '竞 ' + txt : txt
 }
 
+// 竞价封单表排序取值: 按列 key 返回原始数值(null/undefined 自动排末尾)
+function s3Val(it, key) {
+  if (key === 'seal25' || key === 'seal20' || key === 'seal15') {
+    const s = sealVal(it, '9_' + key.slice(4))
+    return s ? s.v : null
+  }
+  if (key === 'bidChg25') {
+    const p = it.points && it.points['9_25']
+    return p && p.bid_change !== undefined && p.bid_change !== null ? p.bid_change : null
+  }
+  if (key === 'real_change') return it.real_change
+  if (key === 'float_mv') {
+    const p = it.points && (it.points['9_25'] || it.points['9_20'] || it.points['9_15'])
+    return p && p.float_mv ? p.float_mv : null
+  }
+  return it[key]
+}
+
 // 加单趋势(整行): 9:15→9:20→9:25 强度额走势, 判断加单/撤单模式
 function sealMode(it) {
   const s15 = sealVal(it, '9_15')
@@ -622,7 +641,7 @@ function shortConcept(b) {
 // 切 Tab 时清掉排序(避免跨表残留的 key 干扰)
 function switchTab(t) {
   tab.value = t
-  sealSort.clear(); qcSort.clear(); qcLastSort.clear(); yestZtSort.clear()
+  sealSort.clear(); s3Sort.clear(); qcSort.clear(); qcLastSort.clear(); yestZtSort.clear()
   yestBrokenSort.clear(); lhbSort.clear(); brokenSort.clear()
 }
 

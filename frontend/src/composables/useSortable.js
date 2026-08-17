@@ -7,7 +7,7 @@ import { ref, computed } from 'vue'
  *   const sort = useSortable()
  *   // 表头: <th class="sortable" :class="{ active: sort.keyOf('code') }" @click="sort.onSort('code', 'string')">代码<span class="sort-ind">{{ sort.ind('code') }}</span></th>
  *   // 数据: v-for="it in sort.sorted(list)"
- *   // 列值函数可选: sort.sorted(list, it => it.bid_amt ?? 0)
+ *   // 列值函数可选: sort.sorted(list, it => it.bid_amt ?? 0)  或  sort.sorted(list, (it, key) => 自定义(it, key))
  *
  * 规则：
  *   - 点击切换: 无 → 降序(数值列) / 升序(字符串列) → 反向 → 无
@@ -45,14 +45,15 @@ export function useSortable() {
   const dir = computed(() => (sortState.value ? sortState.value.dir : null))
 
   // 排序后的列表（不修改原数组）
+  // getVal 支持两种签名: (it) => value 或 (it, key) => value(自定义多列取值, 如封单表按时点取数)
   function sorted(list, getVal) {
     if (!sortState.value) return list
     const { key, dir, type } = sortState.value
     const mult = dir === 'asc' ? 1 : -1
     const valOf = getVal || ((it) => it[key])
     return [...list].sort((a, b) => {
-      const av = valOf(a)
-      const bv = valOf(b)
+      const av = valOf(a, key)
+      const bv = valOf(b, key)
       const aNull = av === null || av === undefined || av === '' || (typeof av === 'number' && isNaN(av))
       const bNull = bv === null || bv === undefined || bv === '' || (typeof bv === 'number' && isNaN(bv))
       if (aNull && bNull) return 0
