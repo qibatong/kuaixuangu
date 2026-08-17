@@ -1122,14 +1122,21 @@ body[data-bg="light"] .member-tabs { background: rgba(0,0,0,0.04); }
 body[data-bg="light"] .member-tab { color: #6b7280; }
 body[data-bg="light"] .member-tab:hover { color: #1a1d26; }
 body[data-bg="light"] .member-tab.active { background: rgba(11,134,200,0.18); color: #0b4d80; font-weight: 600; }
-/* 手机端用户列表工具区适配(2026-08-18 主人反馈: 5tab+搜索+3按钮挤一起): 工具区换 3 行布局 */
+/* 用户列表工具区: desktop 横排右对齐(标题左边, tab+搜索+按钮挤右) */
+.user-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  align-items: center;
+  flex-wrap: wrap;
+}
+/* 手机端(2026-08-18 主人反馈 5tab+搜索+3按钮挤一起): 工具区换 3 行布局 */
 @media (max-width: 768px) {
   .admin-card .card-title { flex-direction: column; align-items: stretch; }
   .user-toolbar {
-    margin-left: 0 !important;
-    flex-wrap: wrap !important;
-    width: 100% !important;
-    gap: 6px !important;
+    margin-left: 0;
+    width: 100%;
+    gap: 6px;
   }
   .user-toolbar > .member-tabs { flex: 1 1 100%; }
   .user-toolbar > .member-tabs .member-tab { flex: 1 0 auto; text-align: center; padding: 5px 6px; }
