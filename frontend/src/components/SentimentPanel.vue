@@ -230,9 +230,10 @@ onMounted(async () => {
   padding: 1px 6px;
   border-radius: 4px;
 }
-.senti-tag.hot { color: #ff8a8a; border: 1px solid rgba(255, 80, 40, 0.5); }
-.senti-tag.cold { color: #8ae08a; border: 1px solid rgba(106, 214, 106, 0.5); }
-.senti-tag.normal { color: #ccc; border: 1px solid rgba(255, 255, 255, 0.2); }
+/* 2026-08-17 主人反馈: 情绪标签(如"偏克?风限")有边框像按钮, 改为纯文字标签 */
+.senti-tag.hot { color: #ff8a8a; }
+.senti-tag.cold { color: #8ae08a; }
+.senti-tag.normal { color: #ccc; }
 .senti-day { color: #666; font-size: 11px; margin-left: auto; }
 .senti-loading { color: var(--text-muted); font-size: 13px; }
 .yp-sep { width: 1px; height: 26px; background: var(--border-soft); }
