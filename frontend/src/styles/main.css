@@ -218,18 +218,22 @@ z-index: 9999;
 .live-time { background: transparent; border: 0; border-radius: 0; padding: 6px 0; text-align: center; font-family: monospace; white-space: nowrap; }
 .live-time .time-digital { font-size: 16px; font-weight: 700; color: #ffbb99; letter-spacing: 1px; }
 
-.medal-section { background: var(--bg-panel); backdrop-filter: blur(8px); border-radius: 10px; padding: 16px; border: 1px solid rgba(255,215,0,0.4); margin: 12px 0; display: flex; flex-wrap: wrap; gap: 15px; justify-content: space-around; }
-.medal-card { flex: 1 1 180px; min-width: 180px; text-align: center; padding: 12px 8px; border-radius: 12px; background: var(--bg-card); border: 1px solid rgba(255,215,0,0.3); display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.medal-rank { font-size: 18px; font-weight: 700; color: #ffd700; display: flex; align-items: center; gap: 6px; }
-.medal-rank-icon { font-size: 28px; }
-.medal-name-big { font-size: 22px; font-weight: 800; color: var(--text-main); letter-spacing: 1px; margin: 2px 0; }
-.medal-code { font-size: 18px; font-weight: 600; color: #ffd700; cursor: pointer; font-family: 'Consolas', monospace; letter-spacing: 1px; margin: 2px 0; transition: color 0.2s; }
-.medal-code:hover { color: #fff; text-shadow: 0 0 8px rgba(255,215,0,0.6); }
-.medal-prob-big { font-size: 48px; font-weight: 900; color: #e0a800; line-height: 1; margin: 4px 0; }
-.medal-detail { font-size: 13px; color: var(--text-secondary); display: flex; gap: 12px; align-items: center; }
-.medal-detail .bid-chg { color: #ff8a6f; font-weight: 600; }
-.medal-detail .conf-val { color: var(--accent-text); font-weight: 600; }
-.medal-real-chg { font-size: 14px; font-weight: 700; color: #ff5252; margin-top: 2px; }
+.medal-section { background: var(--bg-panel); backdrop-filter: blur(8px); border-radius: 10px; padding: 16px; border: 1px solid rgba(255,215,0,0.4); margin: 12px 0; display: flex; flex-wrap: wrap; gap: 14px; justify-content: space-around; align-items: stretch; }
+.medal-card { flex: 1 1 200px; min-width: 200px; text-align: center; padding: 18px 12px 14px; border-radius: 14px; background: var(--bg-card); border: 1.5px solid; display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 240px; justify-content: flex-start; transition: transform 0.2s, box-shadow 0.2s; }
+.medal-card:hover { transform: translateY(-3px); }
+.medal-card.gold { border-color: rgba(255,215,0,0.6); background: linear-gradient(180deg, rgba(255,215,0,0.10), rgba(255,215,0,0.02)); box-shadow: 0 4px 16px rgba(255,215,0,0.18); }
+.medal-card.silver { border-color: rgba(200,200,210,0.55); background: linear-gradient(180deg, rgba(200,200,210,0.08), rgba(200,200,210,0.02)); box-shadow: 0 4px 14px rgba(200,200,210,0.14); }
+.medal-card.bronze { border-color: rgba(205,127,50,0.55); background: linear-gradient(180deg, rgba(205,127,50,0.08), rgba(205,127,50,0.02)); box-shadow: 0 4px 14px rgba(205,127,50,0.14); }
+/* 奖牌 emoji 圆形徽章 — 替代文字"金牌/银牌/铜牌" */
+.medal-icon { font-size: 56px; line-height: 1; margin: 2px 0 6px; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.35)); }
+.medal-name-big { font-size: 18px; font-weight: 700; color: var(--text-main); letter-spacing: 0.5px; line-height: 1.2; }
+.medal-code { font-size: 16px; font-weight: 600; color: var(--text-secondary); cursor: pointer; font-family: 'Consolas', monospace; letter-spacing: 0.5px; transition: color 0.2s; }
+.medal-code:hover { color: var(--accent); }
+.medal-prob-big { font-size: 52px; font-weight: 900; line-height: 1; letter-spacing: 2px; margin: 4px 0; }
+.medal-card.gold .medal-prob-big { color: #e8b800; }
+.medal-card.silver .medal-prob-big { color: #c0c0c8; }
+.medal-card.bronze .medal-prob-big { color: #cd7f32; }
+.medal-real-chg { font-size: 13px; font-weight: 700; color: #ff5252; margin-top: auto; padding-top: 8px; }
 .medal-real-chg.green-real { color: #00c864 !important; }
 
 .export-medal-group { display: flex; align-items: center; gap: 8px; background: var(--bg-card); padding: 8px 14px; border-radius: 8px; }
@@ -588,15 +592,17 @@ body[data-bg="light"] .rule-text { color: var(--text-secondary); }
 body[data-bg="light"] .reset-lock-btn { color: #3a6eff; background: rgba(100,130,255,0.15); border-color: #5a7aff; }
 body[data-bg="light"] .real-time-btn { color: #00c864; background: rgba(0,200,100,0.15); border-color: #00c864; }
 body[data-bg="light"] .reset-filter-btn { color: #3a6eff; background: rgba(80,140,255,0.15); border-color: #5a8aff; }
-/* 奖牌区(金色文字浅色变深金) */
+/* 奖牌区: 金/银/铜配色, light 下背景更白 */
 body[data-bg="light"] .medal-section { border-color: rgba(199,145,0,0.4); }
-body[data-bg="light"] .medal-rank { color: #c79100; }
-body[data-bg="light"] .medal-code { color: #c79100; }
-body[data-bg="light"] .medal-code:hover { color: #1a1d26; text-shadow: none; }
-body[data-bg="light"] .medal-prob-big { color: #a06a00; }
-body[data-bg="light"] .medal-detail .bid-chg { color: #b83010; }
+body[data-bg="light"] .medal-card.gold { background: linear-gradient(180deg, #fff5dc, #ffffff); border-color: rgba(199,145,0,0.55); box-shadow: 0 4px 16px rgba(199,145,0,0.18); }
+body[data-bg="light"] .medal-card.silver { background: linear-gradient(180deg, #f0f1f4, #ffffff); border-color: rgba(160,160,170,0.5); box-shadow: 0 4px 14px rgba(160,160,170,0.15); }
+body[data-bg="light"] .medal-card.bronze { background: linear-gradient(180deg, #fbeedc, #ffffff); border-color: rgba(180,100,40,0.5); box-shadow: 0 4px 14px rgba(180,100,40,0.15); }
+body[data-bg="light"] .medal-code { color: #5a4a3a; }
+body[data-bg="light"] .medal-code:hover { color: #c79100; text-shadow: none; }
+body[data-bg="light"] .medal-card.gold .medal-prob-big { color: #a06a00; }
+body[data-bg="light"] .medal-card.silver .medal-prob-big { color: #6a6a78; }
+body[data-bg="light"] .medal-card.bronze .medal-prob-big { color: #8b4513; }
 body[data-bg="light"] .medal-real-chg { color: #b83010; }
-body[data-bg="light"] .medal-card { background: rgba(0,0,0,0.04); border-color: rgba(199,145,0,0.35); }
 body[data-bg="light"] .medal-name-big { color: #1a1d26; }
 body[data-bg="light"] .export-medal-group { background: rgba(0,0,0,0.04); }
 /* 选股池(浅橙浅绿文字) */
