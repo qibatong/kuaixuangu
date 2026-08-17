@@ -714,3 +714,30 @@ def test_market_brief_last_same_time(client, first_user, monkeypatch):
     d = r.json()
     assert "last_same_time" in d
     assert d["last_same_time"]["amount"] == 450.0
+
+
+def test_merge_broken_bid_snap(monkeypatch):
+    """炸板补竞价涨幅/换手: 按 day 查 9_25 快照补 bidChange/bidTurnover
+    A: day=今天 快照 bid_change=8.64, bid_amt=991.5万, float_mv=6.4e9 → 换手=0.15
+    B: day=2026-08-13 有快照 → 用该日数据
+    C: 快照无此股 → 不加字段(前端显示-)"""
+    fake_snap = {
+        "2026-08-14": {"A": {"bid_change": 8.64, "bid_amt": 991.5, "float_mv": 6.4e9, "name": "甲", "board": "AI"}},
+        "2026-08-13": {"B": {"bid_change": 5.2, "bid_amt": 300.0, "float_mv": 8e9, "name": "乙", "board": "医药"}},
+    }
+    monkeypatch.setattr(kpl, "_snap25_map", lambda date: fake_snap.get(date, {}))
+    lst = [
+        {"code": "A", "name": "甲", "day": "2026-08-14"},
+        {"code": "B", "name": "乙", "day": "2026-08-13"},
+        {"code": "C", "name": "丙", "day": "2026-08-14"},   # 无快照
+    ]
+    kpl._merge_broken_bid_snap(lst)
+    a = lst[0]
+    assert a["bidChange"] == 8.64
+    # 991.5万 * 10000 / 6.4e9 * 100 = 0.15%
+    assert abs(a["bidTurnover"] - 0.15) < 0.01, a
+    b = lst[1]
+    assert b["bidChange"] == 5.2
+    assert abs(b["bidTurnover"] - 0.04) < 0.01, b   # 300万/80亿*100=0.0375→0.04
+    c = lst[2]
+    assert "bidChange" not in c and "bidTurnover" not in c

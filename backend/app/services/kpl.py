@@ -849,8 +849,10 @@ def fetch_broken_zt(day=None):
 
     def loader():
         lst = _flash_pool("limit_up_broken", day)
-        if not lst or day:      # 历史日不做连板补全(无昨日池语义)
+        if not lst:
             return lst
+        if day:      # 历史日不做连板补全(无昨日池语义), 但补竞价涨幅/换手
+            return _merge_broken_bid_snap(lst)
         # 今日炸板: 接口 limit_up_days 常为0, 用昨日涨停池补连板数(昨日N板 → 今日炸板显示N板)
         yest_day = _prev_trade_day()
         yest_map = {}
@@ -860,7 +862,7 @@ def fetch_broken_zt(day=None):
         for it in lst:
             if not it.get("limitUpDays") and it["code"] in yest_map:
                 it["limitUpDays"] = yest_map[it["code"]]
-        return lst
+        return _merge_broken_bid_snap(lst)
     return _cached(cache_key, (30 * 60) if is_hist else 30, loader)
 
 
@@ -873,21 +875,48 @@ def _seal_map():
         return {}
 
 
-def _snap25_map():
-    """今日 9_25 全市场快照 code → {bid_change, bid_amt, name, float_mv, board}
-    (全市场5549只, 字段补全兜底)"""
+def _snap25_map(date=None):
+    """指定日 9_25 全市场快照 code → {bid_change, bid_amt, name, float_mv, board}
+    (全市场5549只, 字段补全兜底); date 空=今天"""
     import sqlite3
+    if not date:
+        date = time.strftime("%Y-%m-%d")
     out = {}
     try:
         conn = sqlite3.connect(config.DB_FILE)
         for r in conn.execute(
                 "SELECT code, bid_change, bid_amt, name, float_mv, board FROM snapshot_bid "
-                "WHERE date=? AND time_point='9_25'", (time.strftime("%Y-%m-%d"),)):
-            out[r[0]] = {"bid_change": r[1], "bid_amt": r[2], "name": r[3] or "",                         "float_mv": r[4] or 0, "board": r[5] or ""}
+                "WHERE date=? AND time_point='9_25'", (date,)):
+            out[r[0]] = {"bid_change": r[1], "bid_amt": r[2], "name": r[3] or "",
+                         "float_mv": r[4] or 0, "board": r[5] or ""}
         conn.close()
     except Exception as e:
-        log.warning("9_25快照查询失败(降级) err=%s", e)
+        log.warning("9_25快照查询失败 date=%s(降级) err=%s", date, e)
     return out
+
+
+def _merge_broken_bid_snap(lst):
+    """炸板列表补竞价涨幅/竞价换手: 按每条 day 查该日 9_25 快照
+    bidTurnover = 竞价额(元)/流通市值(元)×100(短线侠同口径近似)
+    返回补全后的列表(原地修改+返回)"""
+    if not lst:
+        return lst
+    # 按 day 分组查快照(避免重复查库)
+    by_day = {}
+    for it in lst:
+        d = it.get("day") or time.strftime("%Y-%m-%d")
+        by_day.setdefault(d, [])
+    snap_cache = {d: _snap25_map(d) for d in by_day}
+    for it in lst:
+        s = snap_cache.get(it.get("day") or time.strftime("%Y-%m-%d"), {}).get(it["code"], {})
+        if not s:
+            continue
+        it["bidChange"] = s.get("bid_change")
+        amt = s.get("bid_amt") or 0      # 万元
+        fmv = s.get("float_mv") or 0     # 元
+        if amt > 0 and fmv > 0:
+            it["bidTurnover"] = round(amt * 10000 / fmv * 100, 2)   # 万元→元 口径统一
+    return lst
 
 
 def _snap25_kpl_map():

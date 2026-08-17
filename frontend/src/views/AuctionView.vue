@@ -350,6 +350,8 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <th class="sortable" :class="{ active: brokenSort.keyOf('code') }" @click="brokenSort.onSort('code', 'string')">代码<span class="sort-ind">{{ brokenSort.ind('code') }}</span></th>
             <th class="sortable" :class="{ active: brokenSort.keyOf('name') }" @click="brokenSort.onSort('name', 'string')">名称<span class="sort-ind">{{ brokenSort.ind('name') }}</span></th>
             <th class="sortable" :class="{ active: brokenSort.keyOf('change') }" @click="brokenSort.onSort('change')">涨幅%<span class="sort-ind">{{ brokenSort.ind('change') }}</span></th>
+            <th class="sortable" :class="{ active: brokenSort.keyOf('bidChange') }" @click="brokenSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ brokenSort.ind('bidChange') }}</span></th>
+            <th class="sortable" :class="{ active: brokenSort.keyOf('bidTurnover') }" @click="brokenSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ brokenSort.ind('bidTurnover') }}</span></th>
             <th class="sortable" :class="{ active: brokenSort.keyOf('limitUpDays') }" @click="brokenSort.onSort('limitUpDays')">连板<span class="sort-ind">{{ brokenSort.ind('limitUpDays') }}</span></th>
             <th class="sortable" :class="{ active: brokenSort.keyOf('breakTimes') }" @click="brokenSort.onSort('breakTimes')">炸板次数<span class="sort-ind">{{ brokenSort.ind('breakTimes') }}</span></th>
             <th class="sortable" :class="{ active: brokenSort.keyOf('firstLimitUp') }" @click="brokenSort.onSort('firstLimitUp')">涨停时间<span class="sort-ind">{{ brokenSort.ind('firstLimitUp') }}</span></th>
@@ -363,6 +365,8 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td class="code-click" @click="linkToSoftware(b.code)">{{ b.code }}</td>
             <td class="name-col"><div class="name-main">{{ b.name }}</div></td>
             <td :class="b.change > 0 ? 'up' : 'down'">{{ signed(b.change) }}%</td>
+            <td :class="b.bidChange > 0 ? 'up' : b.bidChange < 0 ? 'down' : 'dim'">{{ b.bidChange !== null && b.bidChange !== undefined ? signed(b.bidChange) + '%' : '-' }}</td>
+            <td>{{ b.bidTurnover ? b.bidTurnover.toFixed(2) : '-' }}</td>
             <td><span v-if="b.limitUpDays > 0" class="lb-badge">{{ b.limitUpDays }}板</span><span v-else class="dim">-</span></td>
             <td><span v-if="b.breakTimes > 1" class="bk-hot">{{ b.breakTimes }}次</span><span v-else>{{ b.breakTimes }}</span></td>
             <td class="dim">{{ fmtT(b.firstLimitUp) }}</td>
@@ -669,7 +673,7 @@ async function loadAll(fromUser = false) {
     // 历史回看: 所有接口带 date; 实时: 不带
     const [ov, seal, boom, qc, yestZt, yestBroken, lhb, brokenYest, brokenToday, s3] = await Promise.all([
       auctionOverview(dt), kplBidSeal(dt), kplBidBoom(dt), kplBidQiangcang(dt), kplYestZt(dt),
-      kplYestBroken(dt), kplLhb(dt), kplBroken('', dt), kplBroken(dt ? '' : 'yesterday', dt),
+      kplYestBroken(dt), kplLhb(dt), kplBroken(dt ? '' : 'yesterday', dt), kplBroken('', dt),
       bidSnapshot3points(dt || todayBj())
     ])
     // 非交易时段(周末/节假日/盘前盘后)自动回退: 实时模式且各 tab 全空时,

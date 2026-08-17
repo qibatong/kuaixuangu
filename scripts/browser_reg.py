@@ -237,20 +237,20 @@ def run(shot_dir, user, pwd):
             failed.append("昨断板异常: %s" % d)
         shot("06_yest_broken.png")
 
-        # Tab7 昨炸板 (8列: [0]代码 [1]名称 [2]涨幅 [3]炸板次数 [4]涨停时间 [5]炸板时间)
+        # Tab7 昨炸板 (11列: [0]代码 [1]名称 [2]涨幅 [3]竞价涨幅 [4]竞价换手 [5]连板 [6]炸板次数)
         log("Tab=昨炸板")
         click_tab("昨炸板")
         time.sleep(2)
         d = json.loads(ev(rows_js))
         rows = d.get("rows") or []
         log("  行数(前3): %d 首行: %s" % (len(rows), rows[0] if rows else d))
-        if rows and len(rows[0]) >= 6 and rows[0][2] not in ("", "-"):
-            log("✅ 昨炸板 首行涨幅=%s 炸板次数=%s" % (rows[0][2], rows[0][3]))
+        if rows and len(rows[0]) >= 7 and rows[0][2] not in ("", "-"):
+            log("✅ 昨炸板 首行涨幅=%s 竞价涨幅=%s 换手=%s 炸板次数=%s" % (rows[0][2], rows[0][3], rows[0][4], rows[0][6]))
         else:
             failed.append("昨炸板异常: %s" % d)
         shot("04_broken_yest.png")
 
-        # Tab5 今炸板 (9列: [0]代码 [1]名称 [2]涨幅 [3]连板 [4]炸板次数 [5]涨停时间 [6]炸板时间)
+        # Tab5 今炸板 (11列: [0]代码 [1]名称 [2]涨幅 [3]竞价涨幅 [4]竞价换手 [5]连板 [6]炸板次数)
         log("Tab=今炸板")
         click_tab("今炸板")
         time.sleep(2)
@@ -258,7 +258,7 @@ def run(shot_dir, user, pwd):
         rows = d.get("rows") or []
         log("  行数(前3): %d 首行: %s" % (len(rows), rows[0] if rows else d))
         if rows and len(rows[0]) >= 7 and rows[0][2] not in ("", "-"):
-            log("✅ 今炸板 首行涨幅=%s 连板=%s 炸板次数=%s" % (rows[0][2], rows[0][3], rows[0][4]))
+            log("✅ 今炸板 首行涨幅=%s 竞价涨幅=%s 换手=%s 连板=%s 炸板次数=%s" % (rows[0][2], rows[0][3], rows[0][4], rows[0][5], rows[0][6]))
         else:
             failed.append("今炸板异常: %s" % d)
         shot("05_broken_today.png")

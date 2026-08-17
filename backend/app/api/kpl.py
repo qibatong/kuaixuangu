@@ -109,6 +109,7 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
     if date:
         resolved = _resolve_date(date)
         lst = kpl.query_auction_history(resolved, "broken_today")
+        kpl._merge_broken_bid_snap(lst)   # 老快照无竞价字段 → 按 day 补全
         return jr({"ok": True, "list": lst or [], "count": len(lst),
                    "date": resolved, "requestedDate": date,
                    "day": (lst[0].get("day") if lst else "")})
@@ -118,6 +119,7 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
         if prev:
             lst = kpl.query_auction_history(prev, "broken_yest")
             if lst:
+                kpl._merge_broken_bid_snap(lst)   # 老快照无竞价字段 → 按 day 补全
                 return jr({"ok": True, "list": lst, "count": len(lst), "day": prev})
     d = kpl.fetch_broken_zt(day or None)
     lst = d or []
