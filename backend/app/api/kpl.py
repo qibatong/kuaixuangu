@@ -275,7 +275,7 @@ def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(require_vip_or_pa
         log.warning("竞价异动概念开盘啦覆盖失败 bid-qiangcang err=%s", e)
     return jr({"ok": True, "list20": l20, "list20Chg": l20Chg, "listLast": lLast,
                "count20": len(l20), "count20Chg": len(l20Chg), "countLast": len(lLast),
-               "date": date or ""})
+               "date": d.get("date") or date or ""})
 
 
 @router.get("/api/kpl/yest-zt")

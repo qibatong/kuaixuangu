@@ -1381,6 +1381,24 @@ def fetch_bid_qiangcang(date=None):
         # 竞价时段 9:15-9:30 (工作日); 注意: 非竞价时段开盘啦接口也可能返回
         # 200只"僵尸数据"(bidNetAmt=0), 必须按时间窗强制走读库, 否则 9:30 后今天结果会丢
         in_bid = (not date) and g.tm_wday < 5 and (9 * 60 + 15) <= hm <= (9 * 60 + 30)
+        # 实时模式且非竞价时段: 若今天还没有竞价快照(盘前/周末/节假日), 自动回退到最近
+        # 有数据的交易日, 与 bid-seal/bid-boom 等 tab 盘后仍显示最近交易日保持一致
+        if not date and not in_bid:
+            try:
+                import sqlite3
+                conn = sqlite3.connect(config.DB_FILE)
+                has_today = conn.execute(
+                    "SELECT COUNT(*) FROM snapshot_bid WHERE date=?", (today,)).fetchone()[0]
+                if not has_today:
+                    row = conn.execute(
+                        "SELECT MAX(date) FROM snapshot_bid WHERE date <= ?", (today,)).fetchone()
+                    if row and row[0]:
+                        log.info("抢筹[回退] date=%s %s 今日无快照, 自动回退最近交易日 %s",
+                                 today, hhmm, row[0])
+                        today = str(row[0])
+                conn.close()
+            except Exception as e:
+                log.warning("抢筹 交易日回退判断失败(按今天处理) err=%s", e)
         list20 = []
         if in_bid:
             # ===== 竞价时段: 实时拉取 + 落库 =====
@@ -1595,7 +1613,8 @@ def fetch_bid_qiangcang(date=None):
         log.info("抢筹[result] date=%s %s list20=%d只 list20Chg=%d只 listLast=%d只 昨比命中=%d/%d 耗时%dms",
                  today, hhmm, len(list20[:100]), len(list20Chg[:100]), len(listLast[:100]),
                  len(yest_map), len(codes), int((time.time() - t0) * 1000))
-        return {"list20": list20[:100], "list20Chg": list20Chg[:100], "listLast": listLast[:100]}
+        return {"list20": list20[:100], "list20Chg": list20Chg[:100], "listLast": listLast[:100],
+                "date": today}
     return _cached("bid_qiangcang" + (("_" + date.replace("-", "")) if date else ""), 30, loader)
 
 
