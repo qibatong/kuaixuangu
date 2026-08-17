@@ -217,7 +217,12 @@ onBeforeUnmount(() => {
 /* 左栏: medal-section 撑满整栏高度, 奖牌卡垂直居中(不再漂顶部留大片空白) */
 .medal-pool-left { min-width: 0; display: flex; flex-direction: column; }
 .medal-pool-left .medal-section { flex: 1; }
-.medal-pool-right { min-width: 0; }
+/* 右栏固定高度(约 3 个自选股+表头), 自选股超出时 pool-list 内部滚动, 避免拉升左右栏整体高度 */
+.medal-pool-right { min-width: 0; height: 300px; }
+@media (max-width: 899px) {
+  /* 移动端单列堆叠, 恢复自然高度 */
+  .medal-pool-right { height: auto; }
+}
 .yizi-card {
   display: inline-flex;
   align-items: center;
