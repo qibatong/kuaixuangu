@@ -4,8 +4,10 @@
     <div class="nav-left">
       <router-link to="/" class="nav-brand" title="快选 · AI选股">
         <img src="/logo.jpg" class="nav-logo" alt="快选">
-        <span class="nav-brand-name">快选</span>
-        <span class="nav-brand-slogan">一键筛选 · 高效复盘 · 客观输出标的</span>
+        <div class="nav-brand-text">
+          <span class="nav-brand-name">快选</span>
+          <span class="nav-brand-slogan">一键筛选 · 高效复盘 · 客观输出标的</span>
+        </div>
       </router-link>
       <div class="nav-tabs">
       <router-link to="/" exact-active-class="router-link-active" class="nav-item">
@@ -137,16 +139,16 @@ function logout() {
 .nav-brand-name {
   font-size: 17px; font-weight: 800;
   color: var(--accent); letter-spacing: 1px;
-  white-space: nowrap;
+  line-height: 1.1;
 }
+.nav-brand-text { display: flex; flex-direction: column; gap: 1px; line-height: 1.1; }
 .nav-brand-slogan {
   font-size: 11px;
   color: var(--text-muted);
   opacity: 0.85;
   white-space: nowrap;
   letter-spacing: 0.5px;
-  padding-left: 10px;
-  border-left: 1px solid var(--border-soft);
+  line-height: 1.1;
 }
 .nav-tabs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .nav-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
