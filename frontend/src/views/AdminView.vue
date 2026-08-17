@@ -433,28 +433,52 @@ const menuRect = ref(null)       // 菜单 fixed 定位 {top, left}; null=不显
 const currentMenuUser = computed(() => rows.value.find(x => x.id === menuUid.value) || null)
 
 function closeMenu() {
+  watchMenuPos(false)
   menuUid.value = null
   menuSection.value = ''
   menuRect.value = null
+  menuBtnEl.value = null
+}
+
+const menuBtnEl = ref(null)      // 触发 ⋮ 的按钮元素(滚动跟随定位用)
+const MENU_W = 200
+const MENU_H = 56
+const MENU_MARGIN = 6
+
+function setMenuRect() {
+  const btn = menuBtnEl.value
+  if (!btn || !btn.isConnected) { closeMenu(); return }
+  const r = btn.getBoundingClientRect()
+  const menu = document.querySelector('.row-menu')
+  const h = (menu && menu.offsetHeight) || MENU_H   // expire 面板更高, 用真实高度
+  const up = (window.innerHeight - r.bottom) < (h + MENU_MARGIN + 12)
+  menuRect.value = {
+    top: up ? Math.max(8, r.top - h - MENU_MARGIN) : (r.bottom + MENU_MARGIN),
+    left: Math.max(8, Math.min(window.innerWidth - MENU_W - 8, r.right - MENU_W))
+  }
+}
+
+// 滚动/窗口缩放时跟随 ⋮ 按钮(捕获阶段能听到表格内层滚动), 避免菜单停在原地点不到
+function onMenuScroll() {
+  if (menuUid.value !== null) setMenuRect()
+}
+function watchMenuPos(on) {
+  if (on) {
+    window.addEventListener('scroll', onMenuScroll, true)
+    window.addEventListener('resize', onMenuScroll)
+  } else {
+    window.removeEventListener('scroll', onMenuScroll, true)
+    window.removeEventListener('resize', onMenuScroll)
+  }
 }
 
 function toggleMenu(u, ev) {
   if (menuUid.value === u.id) { closeMenu(); return }
   menuUid.value = u.id
   menuSection.value = ''
-  // 计算定位: 固定到 ⋮ 按钮右下角; 下方空间不足则向上展开; 避免覆盖搜索栏
-  const btn = ev && ev.currentTarget
-  if (btn) {
-    const r = btn.getBoundingClientRect()
-    const MENU_W = 220
-    const MENU_H = 56        // 主菜单 4 项 ≈ 56px; 进入 expire 后容器高度会扩展, fixed 容器位置不变
-    const MARGIN = 6
-    const up = (window.innerHeight - r.bottom) < (MENU_H + MARGIN + 80)   // 下方不足则向上
-    menuRect.value = {
-      top: up ? Math.max(8, r.top - MENU_H - MARGIN) : (r.bottom + MARGIN),
-      left: Math.max(8, Math.min(window.innerWidth - MENU_W - 8, r.right - MENU_W))
-    }
-  }
+  menuBtnEl.value = ev && ev.currentTarget
+  setMenuRect()
+  watchMenuPos(true)
 }
 
 // 点空白处关闭菜单(⋮ 按钮和菜单本身已 .stop, 不会被误关闭)
@@ -468,6 +492,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onMenuOutsideClick))
 function menuAction(u, act) {
   if (act === 'expire') {
     menuSection.value = 'expire'   // 下拉内切换到期限面板
+    setTimeout(setMenuRect, 0)     // 面板渲染后高度变化, 重算定位(可能改向上展开)
   } else {
     closeMenu()
     if (act === 'profile') openProfile(u)
@@ -916,15 +941,15 @@ onMounted(() => {
 .cell-pay { display: block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6ab0ff; font-size: 11px; margin-top: 2px; }
 /* ⋮ 操作下拉 (Teleport 到 body, 定位由内联 style position:fixed 控制) */
 .row-actions { display: inline-block; }
-.row-menu { z-index: 9999; min-width: 200px; max-width: 240px;
-  background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.55); padding: 6px; }
-.row-menu-item { display: block; width: 100%; text-align: left; padding: 8px 10px; font-size: 13px;
-  background: transparent; border: 0; color: var(--text-main); cursor: pointer; border-radius: 6px; }
+.row-menu { z-index: 100000; min-width: 168px; max-width: 220px;
+  background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35); padding: 4px; }
+.row-menu-item { display: block; width: 100%; text-align: left; padding: 6px 8px; font-size: 13px;
+  background: transparent; border: 0; color: var(--text-main); cursor: pointer; border-radius: 4px; }
 .row-menu-item:hover { background: rgba(0,180,255,0.12); }
 .row-menu-danger { color: #ff6a6a; }
 .row-menu-danger:hover { background: rgba(255,80,80,0.12); }
-.row-menu-expire { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-soft); }
+.row-menu-expire { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-soft); }
 .expired-tag { color: #ff6a6a; border: 1px solid #ff5050; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
 .ok-tag { color: #7ce8a0; border: 1px solid #4caf70; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
 .expire-cell { position: relative; display: inline-block; }
