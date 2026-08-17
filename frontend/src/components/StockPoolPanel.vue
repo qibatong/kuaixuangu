@@ -10,7 +10,6 @@
         <button class="pool-btn" @click="manualAdd"><i class="fa fa-plus-circle"></i> 加入当前前五</button>
         <button class="pool-btn" @click="manualAddAll"><i class="fa fa-plus"></i> 加入全部</button>
         <button class="pool-btn" @click="clearPool"><i class="fa fa-trash-o"></i> 清空股票池</button>
-        <button class="pool-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="exportPool"><i class="fa fa-share-square-o"></i> 下载股票池</button>
       </div>
     </div>
     <div class="pool-list">
@@ -43,7 +42,7 @@ import { computed } from 'vue'
 import { usePoolStore } from '../stores/pool'
 import { useStocksStore } from '../stores/stocks'
 import { showToast } from '../utils/toast'
-import { downloadBlkFile, linkToSoftware } from '../utils/tdx'
+import { linkToSoftware } from '../utils/tdx'
 import { bjNow, pad2 } from '../utils/time'
 
 const pool = usePoolStore()
@@ -97,10 +96,5 @@ function manualAddAll() {
 function clearPool() {
   pool.clearAll()
   showToast('已清空股票池', 'info')
-}
-
-function exportPool() {
-  if (!pool.stockPool.length) { showToast('池空', 'error'); return }
-  downloadBlkFile(pool.stockPool, 0, '_股票池')
 }
 </script>

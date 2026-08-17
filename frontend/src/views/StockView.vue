@@ -219,13 +219,16 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
-  align-items: start;
+  align-items: stretch;          /* 左右两栏高度对齐(默认就是 stretch, 写明) */
   margin: 10px 0 4px;
 }
 @media (min-width: 900px) {
-  .medal-pool-layout { grid-template-columns: minmax(0, 1fr) 360px; }
+  /* 平分两栏: 奖牌区与自选股票池各占 50%, 不再左宽右窄 */
+  .medal-pool-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
-.medal-pool-left { min-width: 0; }
+/* 左栏: medal-section 撑满整栏高度, 奖牌卡垂直居中(不再漂顶部留大片空白) */
+.medal-pool-left { min-width: 0; display: flex; flex-direction: column; }
+.medal-pool-left .medal-section { flex: 1; }
 .medal-pool-right { min-width: 0; }
 .yizi-card {
   display: inline-flex;
