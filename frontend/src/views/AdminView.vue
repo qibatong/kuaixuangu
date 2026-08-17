@@ -20,7 +20,7 @@
       <div class="admin-card">
         <div class="card-title">
 <i class="fa fa-users"></i> 用户列表
-          <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
+          <div class="user-toolbar">
             <!-- 会员筛选 tab -->
             <div class="member-tabs">
               <button v-for="t in memberTabs" :key="t.key" class="member-tab"
@@ -1122,6 +1122,22 @@ body[data-bg="light"] .member-tabs { background: rgba(0,0,0,0.04); }
 body[data-bg="light"] .member-tab { color: #6b7280; }
 body[data-bg="light"] .member-tab:hover { color: #1a1d26; }
 body[data-bg="light"] .member-tab.active { background: rgba(11,134,200,0.18); color: #0b4d80; font-weight: 600; }
+/* 手机端用户列表工具区适配(2026-08-18 主人反馈: 5tab+搜索+3按钮挤一起): 工具区换 3 行布局 */
+@media (max-width: 768px) {
+  .admin-card .card-title { flex-direction: column; align-items: stretch; }
+  .user-toolbar {
+    margin-left: 0 !important;
+    flex-wrap: wrap !important;
+    width: 100% !important;
+    gap: 6px !important;
+  }
+  .user-toolbar > .member-tabs { flex: 1 1 100%; }
+  .user-toolbar > .member-tabs .member-tab { flex: 1 0 auto; text-align: center; padding: 5px 6px; }
+  .user-toolbar > input.admin-input { flex: 1 1 auto; min-width: 120px; box-sizing: border-box; }
+  .user-toolbar > .admin-search-btn { padding: 6px 10px; font-size: 12px; }
+  .user-toolbar > .btn-warn,
+  .user-toolbar > .btn-create { flex: 1 1 45%; }
+}
 /* 创建结果展示 */
 .create-result { margin-top: 14px; padding: 12px; background: rgba(0,200,120,0.10); border: 1px solid rgba(0,200,120,0.35); border-radius: 6px; font-size: 13px; }
 .mini-date { background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 4px; color: var(--text-main); padding: 3px 6px; font-size: 12px; color-scheme: light; }
