@@ -85,34 +85,8 @@
                 </td>
                 <td>
                   <div class="row-actions">
-                    <!-- ⋮ 操作下拉 -->
-                    <button class="mini-btn" @click.stop="toggleMenu(u)">⋮</button>
-                    <div v-if="menuUid === u.id" class="row-menu" @click.stop>
-                      <button class="row-menu-item" @click="menuAction(u, 'profile')">📝 编辑资料</button>
-                      <template v-if="!u.is_admin">
-                        <button class="row-menu-item" @click="menuAction(u, 'expire')">⚙️ 设置期限</button>
-                        <button class="row-menu-item" @click="menuAction(u, 'pwd')">🔑 重置密码</button>
-                        <button class="row-menu-item row-menu-danger" @click="menuAction(u, 'delete')">🗑️ 删除</button>
-                      </template>
-                      <!-- 期限面板(设置期限子菜单) -->
-                      <div v-if="menuSection === 'expire'" class="row-menu-expire" @click.stop>
-                        <div class="pop-label">延长时长</div>
-                        <div class="pop-row">
-                          <button class="mini-btn" @click="extendUser(u, 'week')">+1周</button>
-                          <button class="mini-btn" @click="extendUser(u, 'month')">+1月</button>
-                          <button class="mini-btn" @click="extendUser(u, 'quarter')">+1季</button>
-                          <button class="mini-btn" @click="extendUser(u, 'year')">+1年</button>
-                        </div>
-                        <div class="pop-label">自定义到期日</div>
-                        <div class="pop-row">
-                          <input v-model="u._expireDate" type="date" class="mini-date" :max="'2099-12-31'" />
-                          <button class="mini-btn" @click="extendUser(u, 'date')">设为该日</button>
-                        </div>
-                        <div class="pop-row">
-                          <button class="mini-btn danger" title="永久有效" @click="extendUser(u, 'forever')">设为永久</button>
-                        </div>
-                      </div>
-                    </div>
+                    <!-- ⋮ 操作下拉(teleport 到 body 避免短表格时溢出覆盖搜索栏) -->
+                    <button class="mini-btn" @click.stop="toggleMenu(u, $event)">⋮</button>
                   </div>
                 </td>
               </tr>
@@ -362,6 +336,37 @@
 
       <!-- 历史竞价回放 -->
       <PlaybackCard />
+
+      <!-- ⋮ 操作下拉/期限面板 (teleport 到 body, fixed 定位跟随触发按钮; 短表格不溢出覆盖搜索栏) -->
+      <Teleport to="body">
+        <div v-if="menuUid !== null && menuRect" class="row-menu"
+             :style="{ position:'fixed', top: menuRect.top+'px', left: menuRect.left+'px' }"
+             @click.stop>
+          <button class="row-menu-item" @click="menuAction(currentMenuUser, 'profile')">📝 编辑资料</button>
+          <template v-if="currentMenuUser && !currentMenuUser.is_admin">
+            <button class="row-menu-item" @click="menuAction(currentMenuUser, 'expire')">⚙️ 设置期限</button>
+            <button class="row-menu-item" @click="menuAction(currentMenuUser, 'pwd')">🔑 重置密码</button>
+            <button class="row-menu-item row-menu-danger" @click="menuAction(currentMenuUser, 'delete')">🗑️ 删除</button>
+          </template>
+          <div v-if="menuSection === 'expire'" class="row-menu-expire" @click.stop>
+            <div class="pop-label">延长时长</div>
+            <div class="pop-row">
+              <button class="mini-btn" @click="extendUser(currentMenuUser, 'week')">+1周</button>
+              <button class="mini-btn" @click="extendUser(currentMenuUser, 'month')">+1月</button>
+              <button class="mini-btn" @click="extendUser(currentMenuUser, 'quarter')">+1季</button>
+              <button class="mini-btn" @click="extendUser(currentMenuUser, 'year')">+1年</button>
+            </div>
+            <div class="pop-label">自定义到期日</div>
+            <div class="pop-row">
+              <input v-model="currentMenuUser._expireDate" type="date" class="mini-date" :max="'2099-12-31'" />
+              <button class="mini-btn" @click="extendUser(currentMenuUser, 'date')">设为该日</button>
+            </div>
+            <div class="pop-row">
+              <button class="mini-btn danger" title="永久有效" @click="extendUser(currentMenuUser, 'forever')">设为永久</button>
+            </div>
+          </div>
+        </div>
+      </Teleport>
     </template>
   </div>
 </template>
@@ -424,14 +429,42 @@ async function saveDefaults(force = false) {
 
 const menuUid = ref(null)        // ⋮ 下拉菜单当前打开的用户 id
 const menuSection = ref('')      // 下拉内当前面板: '' 主菜单 | 'expire' 期限面板
+const menuRect = ref(null)       // 菜单 fixed 定位 {top, left}; null=不显示
+const currentMenuUser = computed(() => rows.value.find(x => x.id === menuUid.value) || null)
+
 function closeMenu() {
   menuUid.value = null
   menuSection.value = ''
+  menuRect.value = null
 }
-function toggleMenu(u) {
-  menuUid.value = menuUid.value === u.id ? null : u.id
+
+function toggleMenu(u, ev) {
+  if (menuUid.value === u.id) { closeMenu(); return }
+  menuUid.value = u.id
   menuSection.value = ''
+  // 计算定位: 固定到 ⋮ 按钮右下角; 下方空间不足则向上展开; 避免覆盖搜索栏
+  const btn = ev && ev.currentTarget
+  if (btn) {
+    const r = btn.getBoundingClientRect()
+    const MENU_W = 220
+    const MENU_H = 56        // 主菜单 4 项 ≈ 56px; 进入 expire 后容器高度会扩展, fixed 容器位置不变
+    const MARGIN = 6
+    const up = (window.innerHeight - r.bottom) < (MENU_H + MARGIN + 80)   // 下方不足则向上
+    menuRect.value = {
+      top: up ? Math.max(8, r.top - MENU_H - MARGIN) : (r.bottom + MARGIN),
+      left: Math.max(8, Math.min(window.innerWidth - MENU_W - 8, r.right - MENU_W))
+    }
+  }
 }
+
+// 点空白处关闭菜单(⋮ 按钮和菜单本身已 .stop, 不会被误关闭)
+function onMenuOutsideClick(ev) {
+  if (menuUid.value === null) return
+  const el = document.querySelector('.row-menu')
+  if (el && !el.contains(ev.target)) closeMenu()
+}
+onMounted(() => document.addEventListener('click', onMenuOutsideClick))
+onBeforeUnmount(() => document.removeEventListener('click', onMenuOutsideClick))
 function menuAction(u, act) {
   if (act === 'expire') {
     menuSection.value = 'expire'   // 下拉内切换到期限面板
@@ -881,11 +914,11 @@ onMounted(() => {
 /* 备注/付款备注单元格 */
 .cell-note { display: block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 12px; }
 .cell-pay { display: block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6ab0ff; font-size: 11px; margin-top: 2px; }
-/* ⋮ 操作下拉 */
-.row-actions { position: relative; display: inline-block; }
-.row-menu { position: absolute; right: 0; top: 100%; z-index: 50; min-width: 140px;
+/* ⋮ 操作下拉 (Teleport 到 body, 定位由内联 style position:fixed 控制) */
+.row-actions { display: inline-block; }
+.row-menu { z-index: 9999; min-width: 200px; max-width: 240px;
   background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 8px;
-  box-shadow: 0 6px 24px rgba(0,0,0,0.4); padding: 6px; margin-top: 4px; }
+  box-shadow: 0 8px 32px rgba(0,0,0,0.55); padding: 6px; }
 .row-menu-item { display: block; width: 100%; text-align: left; padding: 8px 10px; font-size: 13px;
   background: transparent; border: 0; color: var(--text-main); cursor: pointer; border-radius: 6px; }
 .row-menu-item:hover { background: rgba(0,180,255,0.12); }
