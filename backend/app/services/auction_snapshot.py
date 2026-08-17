@@ -374,7 +374,13 @@ def _is_zt(code, bid_change):
 
 
 # 榜单分层: 1=9:25 涨停(封死) / 2=9:20 涨停(9:25 回落) / 3=仅 9:15 涨停(9:20/9:25 回落)
-LAYER_TAGS = {1: "9:25封死", 2: "9:20封板回落", 3: "9:15封板回落"}
+LAYER_TAGS = {
+    1: "9:25封死",
+    2: "9:20封板回落",
+    3: "9:15封板回落",
+    4: "9:25强势异动(≥5%)",   # 弱市降级: 三层涨停榜为空时显示 9_25 涨幅≥5% 的票
+    5: "9:25异动(≥3%)",        # 极弱市降级: 涨幅≥3% 的票
+}
 
 
 def query_3points_board(date, limit=100):
@@ -382,7 +388,10 @@ def query_3points_board(date, limit=100):
     1. 9:25 涨停 → 按 9:25 封单额排序(无封单降级竞价额)
     2. 9:25 未涨停但 9:20 涨停 → 按 9:20 封单额排序
     3. 9:25/9:20 均未涨停但 9:15 涨停 → 按 9:15 封单额排序
-    返回 [{code, name, layer, tag, sort_amt, points:{9_15..}}]"""
+    弱市降级(2026-08-17 主人反馈):
+    4. 三层涨停榜为空时, 降级展示 9:25 涨幅≥5% 的强势异动票(用竞价额bid_amt近似)
+    5. 若仍为空, 降级展示 9:25 涨幅≥3% 的异动票
+    返回 [{code, name, layer, tag, sort_amt, points:{9_15..}, degraded:bool}]"""
     try:
         conn = database.get_conn()
         rows = conn.execute(
@@ -404,6 +413,7 @@ def query_3points_board(date, limit=100):
         p15, p20, p25 = d["points"].get("9_15"), d["points"].get("9_20"), d["points"].get("9_25")
         layer = None
         sort_amt = 0.0
+        degraded = False
         if p25 and _is_zt(code, p25["bid_change"]):
             layer = 1
             sort_amt = (p25["bid_buy_amt"] or 0) or (p25["bid_amt"] or 0)
@@ -413,11 +423,28 @@ def query_3points_board(date, limit=100):
         elif p15 and _is_zt(code, p15["bid_change"]):
             layer = 3
             sort_amt = (p15["bid_buy_amt"] or 0) or (p15["bid_amt"] or 0)
+        elif p25 and p25["bid_change"] is not None and p25["bid_change"] >= 5:
+            # 弱市降级: 三层涨停榜为空时, 展示 9:25 涨幅≥5% 的强势异动(用竞价额)
+            layer = 4
+            sort_amt = p25["bid_amt"] or 0
+            degraded = True
         if layer is None:
             continue
         out.append({"code": code, "name": d["name"], "layer": layer,
                     "tag": LAYER_TAGS[layer], "sort_amt": round(sort_amt, 2),
+                    "degraded": degraded,
                     "board": d["board"], "points": d["points"]})
+    # 二次降级: 若仍为空(layer 仅 4 都找不到 → 行情极弱), 放宽到 9:25 涨幅≥3%
+    if not out:
+        for code, d in agg.items():
+            p15, p20, p25 = d["points"].get("9_15"), d["points"].get("9_20"), d["points"].get("9_25")
+            if p25 and p25["bid_change"] is not None and p25["bid_change"] >= 3:
+                out.append({
+                    "code": code, "name": d["name"], "layer": 5,
+                    "tag": LAYER_TAGS[5], "sort_amt": round(p25["bid_amt"] or 0, 2),
+                    "degraded": True,
+                    "board": d["board"], "points": d["points"]
+                })
     # 分层优先(小→大), 层内按封单额降序
     out.sort(key=lambda x: (x["layer"], -x["sort_amt"]))
     return out[: min(limit, 300)]

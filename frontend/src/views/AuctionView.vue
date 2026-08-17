@@ -119,6 +119,10 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
         <i class="fa fa-info-circle"></i> 该日期<b>封单额与竞价额均未采集</b>（历史委托数据不提供，无法回填），
         下个交易日 9:15 / 9:20 / 9:25 自动采集后生效。涨幅/概念/流通市值不受影响。
       </div>
+      <div v-else-if="s3Degraded" class="s3-hint s3-hint-soft">
+        <i class="fa fa-info-circle"></i> 今日<b>弱市（涨停少或无）</b>，自动降级展示 <b>9:25 涨幅≥{{ s3DegradedThreshold }}% 的异动票</b>（数据基于竞价额，前缀「竞」）；
+        状态列显示「9:25强势异动」即来源此层。
+      </div>
       <div v-else-if="sealDegraded" class="s3-hint s3-hint-soft">
         <i class="fa fa-info-circle"></i> 历史日期无封单采集，当前显示<b>竞价额</b>（前缀「竞」）作为强弱参考；<b>下个交易日 9:15/9:20/9:25 采集后显示真实封单额</b>。
       </div>
@@ -159,7 +163,9 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td class="dim">{{ mvText(it) }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已加自选' : '＋自选' }}</button></td>
           </tr>
-          <tr v-if="!s3List.length"><td colspan="13" class="snap-empty">暂无竞价封单数据（需交易日 9:15/9:20/9:25 自动采集后才有）</td></tr>
+          <tr v-if="!s3List.length">
+            <td colspan="13" class="snap-empty">该日期暂无封单榜单（可能：今日无涨停/数据采集中/非交易日）；下个交易日 9:15/9:20/9:25 采集后生效</td>
+          </tr>
         </tbody>
       </table>
       </template>
@@ -495,6 +501,15 @@ const sealDegraded = computed(() => {
     return ['9_15', '9_20', '9_25'].some(tp => pts[tp] && pts[tp].bid_buy_amt)
   })
   return !anySeal
+})
+// 弱市降级提示: 三层涨停榜为空, 自动降级到 layer=4(≥5%) 或 layer=5(≥3%) 的异动票
+const s3Degraded = computed(() => {
+  if (!s3List.value.length) return false
+  return s3List.value.every(it => it.degraded)
+})
+const s3DegradedThreshold = computed(() => {
+  if (!s3Degraded.value) return 0
+  return s3List.value.some(it => it.layer === 5) ? 3 : 5
 })
 const qcList = ref([])
 const qcChgList = ref([])     // 涨幅抢筹(9:25涨幅−9:20涨幅, 全市场快照)
