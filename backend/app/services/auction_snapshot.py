@@ -560,7 +560,11 @@ def _scheduler_loop():
                     from . import sector_rotation
                     for src in ("kpl", "em", "ths"):
                         if store.setnx("sched:done:sector_%s_%s" % (src, date), 1, ttl=86400):
-                            sector_rotation.record_today_top(source=src)
+                            n = sector_rotation.record_today_top(source=src)
+                            if not n:
+                                # 2026-08-17 修复: 抓取失败删 key 让收盘窗口内重试
+                                # (此前失败不删 key -> 当日永久缺失, 如 kpl doc42 当天数据 15:30 未就绪返回 1020)
+                                store.delete("sched:done:sector_%s_%s" % (src, date))
                     # 人气热榜历史快照(三源): 供人气榜回看历史
                     from . import hot_rank
                     for src in ("kpl", "em", "ths"):
