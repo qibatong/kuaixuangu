@@ -25,13 +25,12 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(item, idx) in sortedStocks" :key="item.code" :class="{ 'row-offline': item._offline }">
+        <tr v-for="(item, idx) in sortedStocks" :key="item.code">
           <td class="rank-col">{{ idx + 1 }}</td>
           <td class="code-click" @click="linkToSoftware(item.code)">{{ item.code }}</td>
           <td class="name-col">
             <div class="name-main">{{ item.name }}</div>
-            <div v-if="item._offline" class="offline-tag" title="9:30 竞价锁定名单中的股票，当前实时榜已无此票（竞价结论恒定保留）">已跌出实时榜</div>
-            <div v-else-if="ladderLabel(item.code)" class="ladder-tag" :title="sealTitle(item.code)">{{ ladderLabel(item.code) }}</div>
+            <div v-if="ladderLabel(item.code)" class="ladder-tag" :title="sealTitle(item.code)">{{ ladderLabel(item.code) }}</div>
           </td>
           <td :class="item.realChange === null || item.realChange === undefined ? 'dim' : realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + fmtPct(item._staleReal) + '）') : ''">{{ item.realChange === null || item.realChange === undefined ? '-' : signed(item.realChange) + '%' }}</td>
           <td>

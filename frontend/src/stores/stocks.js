@@ -159,7 +159,6 @@ export const useStocksStore = defineStore('stocks', {
         // 1) 当前筛选条件不允许 → 直接移除(哈药场景: 剔除昨日涨停)
         if (!passLockedFilter(it, (spotMap || {})[it.code], fs)) return
         const lt = listMap[it.code]              // 在过滤名单里 → 有完整实时评分
-        const rt = (spotMap || {})[it.code]      // 全市场实时行情
         if (lt) {
           // 2) 在榜: 更新实时字段 + 实时评分
           out.push({
@@ -168,25 +167,8 @@ export const useStocksStore = defineStore('stocks', {
             probability: lt.probability, confidence: lt.confidence,
             price: lt.price, _snapshot: true, _offline: false
           })
-          return
         }
-        if (rt) {
-          // 3) 条件放行但行情不在榜(真跌出) → 保留 + 标记
-          out.push({
-            ...it,
-            realChange: rt.realChange, entityChange: rt.entityChange,
-            volRatio: rt.volRatio, turnover: rt.turnover,
-            price: rt.price, _snapshot: true, _offline: true
-          })
-          return
-        }
-        // 4) 全市场都没有(极端) → 保留, 无实时值
-        out.push({
-          ...it,
-          realChange: null, entityChange: null,
-          _staleReal: it.realChange, _staleEntity: it.entityChange,
-          _snapshot: true, _offline: true
-        })
+        // 3) 行情不在榜(真跌出实时榜) → 2026-08-18 主人反馈去掉: 直接移除不再保留
       })
       return out
     },
@@ -253,19 +235,10 @@ export const useStocksStore = defineStore('stocks', {
       // (改过筛选条件后点刷新, 应在当前新名单上更新, 而不是跳回早上 lock 的名单)
       const listMap = {}
       ;(data.list || []).forEach((s) => { listMap[s.code] = s })
-      const sm = data.spotMap || {}
-      this.cachedStocks = (this.cachedStocks || []).map((it) => {
+      this.cachedStocks = (this.cachedStocks || []).filter((it) => listMap[it.code]).map((it) => {
         const lt = listMap[it.code]
-        const rt = sm[it.code]
-        if (lt) {
-          return { ...it, realChange: lt.realChange, entityChange: lt.entityChange,
-                   probability: lt.probability, confidence: lt.confidence, price: lt.price, _offline: false }
-        }
-        if (rt) {
-          return { ...it, realChange: rt.realChange, entityChange: rt.entityChange,
-                   volRatio: rt.volRatio, turnover: rt.turnover, price: rt.price, _offline: true }
-        }
-        return { ...it, _offline: true }
+        return { ...it, realChange: lt.realChange, entityChange: lt.entityChange,
+                 probability: lt.probability, confidence: lt.confidence, price: lt.price, _offline: false }
       })
       this.before930 = data.before930
       this.realTimeRefreshUsed = true
