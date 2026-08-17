@@ -84,4 +84,13 @@ body[data-bg="light"] .medal-bid-sm { color: #c0562f; }
 .medal-conf { color: var(--text-muted); }
 body[data-bg="light"] .medal-prob-sm { color: #a06a00; }
 body[data-bg="light"] .medal-conf { color: #5a6b85; }
+/* 手机端覆盖(2026-08-18 补: desktop 放大字号后, 这3个 scoped 类在 mobile 也要缩小, 否则手机端挤压) */
+@media (max-width: 899px) {
+  .medal-rank { font-size: 13px; }
+  .medal-name-big { font-size: 14px; }
+  .medal-code { font-size: 12px; }
+  .medal-real-big { font-size: 26px; }
+  .medal-bid-sm { font-size: 11px; }
+  .medal-score-row { font-size: 12px; gap: 5px; }
+}
 </style>
