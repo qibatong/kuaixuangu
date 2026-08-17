@@ -1,7 +1,12 @@
 <template>
-  <!-- 全站顶部导航栏: 左页面入口 tabs, 右主题/字号/账户工具 -->
+  <!-- 全站顶部导航栏: 左品牌 logo+导航入口, 右主题/字号/账户工具 -->
   <nav class="nav-bar">
-    <div class="nav-tabs">
+    <div class="nav-left">
+      <router-link to="/" class="nav-brand" title="快选 · AI选股">
+        <img src="/logo.jpg" class="nav-logo" alt="快选">
+        <span class="nav-brand-name">快选</span>
+      </router-link>
+      <div class="nav-tabs">
       <router-link to="/" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-home"></i> 选股
       </router-link>
@@ -23,6 +28,7 @@
       <router-link v-if="user.isAdmin" to="/admin" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-shield"></i> 管理
       </router-link>
+      </div>
     </div>
 
     <div class="nav-tools">
@@ -112,8 +118,25 @@ function logout() {
   border: 1px solid var(--border-soft);
   border-radius: 10px;
   /* 与 .page-shell 内容对齐: container 4 + 自有 4 = 8px 缩进 */
-  padding: 8px 4px;
+  padding: 10px 8px;
   margin: 0 0 18px;
+}
+/* 左侧: 品牌 logo + 导航入口 */
+.nav-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.nav-brand {
+  display: inline-flex; align-items: center; gap: 8px;
+  text-decoration: none; padding: 2px 8px 2px 4px;
+  border-right: 1px solid var(--border-soft);
+}
+.nav-logo {
+  width: 34px; height: 34px;
+  border-radius: 8px; object-fit: cover;
+  display: block;
+}
+.nav-brand-name {
+  font-size: 17px; font-weight: 800;
+  color: var(--accent); letter-spacing: 1px;
+  white-space: nowrap;
 }
 .nav-tabs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .nav-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -121,7 +144,7 @@ function logout() {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 14px;
+  padding: 7px 14px;
   border-radius: 8px;
   font-size: 13px;
   color: var(--text-secondary);
@@ -206,6 +229,10 @@ body[data-bg="light"] .nav-item.router-link-active {
 /* ===================== 移动端适配 (<=768px) ===================== */
 @media (max-width: 768px) {
   .nav-bar { padding: 6px 4px; gap: 6px; margin-bottom: 10px; }
+  .nav-left { gap: 6px; width: 100%; }
+  .nav-brand { gap: 5px; padding: 0 6px 0 2px; }
+  .nav-logo { width: 26px; height: 26px; border-radius: 6px; }
+  .nav-brand-name { font-size: 14px; }
   /* 导航项横向滑动(7 个入口一排滑, 不换行占纵向空间) */
   .nav-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px; width: 100%; }
   .nav-tabs::-webkit-scrollbar { display: none; }

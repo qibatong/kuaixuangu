@@ -1,12 +1,7 @@
 <template>
   <div class="container">
     <div class="hero-section">
-      <!-- 第一行: logo + 品牌名(横排, 视觉中心) -->
-      <div class="hero-brand">
-        <img src="/logo.jpg" class="hero-logo" alt="快选 Kuaixuan">
-        <span class="dominant-title">快选</span>
-      </div>
-      <!-- 第二行: slogan(独立居中, 在 logo+快选 下方) -->
+      <!-- slogan 独立居中(logo+品牌名已并入导航栏左侧) -->
       <div class="hero-slogan">一键筛选 · 高效复盘 · 客观输出标的</div>
     </div>
     <NavBar />
