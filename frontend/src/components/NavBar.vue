@@ -187,9 +187,15 @@ function logout() {
   color: var(--text-secondary);
   text-decoration: none;
   border: 1px solid transparent;
+  /* 2026-08-17 主人反馈: 非选中态完全透明像普通文字, 看上去不可点击.
+     加淡背景让所有 tab 看上去都是「按钮胶囊」, active 态用橙高亮区分 */
+  background: rgba(255, 255, 255, 0.04);
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .nav-item:hover { background: var(--bg-hover); color: var(--text-main); }
+/* 浅色主题: 背景更明显些(白底要看得见) */
+body[data-bg="light"] .nav-item { background: rgba(0, 0, 0, 0.04); }
+body[data-bg="light"] .nav-item:hover { background: rgba(0, 0, 0, 0.09); }
 .nav-item.router-link-active {
   background: rgba(255, 180, 0, 0.15);
   border-color: var(--accent);
