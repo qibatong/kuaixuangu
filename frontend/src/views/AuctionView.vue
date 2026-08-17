@@ -21,37 +21,44 @@
       </span>
     </div>
 
-    <!-- 顶部多时点对比(最近4个交易日 / 指定日期) -->
-    <div class="ov-panel">
-      <table class="ov-table">
-        <thead>
-          <tr>
-            <th class="ov-dim">时点</th>
-            <th v-for="d in days" :key="d.date" class="ov-day">
-              <div class="ov-date">{{ d.date.slice(5) }}</div>
-              <div v-if="d.yizi_count !== null" class="ov-yizi">一字 <b>{{ d.yizi_count }}</b> 个 · 封单 <b>{{ yi(d.yizi_amt) }}亿</b></div>
-              <div v-else class="ov-yizi dim">无数据</div>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="tp in timePoints" :key="tp.key">
-            <td class="ov-dim">{{ tp.label }}</td>
-            <td
-v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击查看该时点个股"
-                @click="showSnapshot(d.date, tp.key)"
->
-              <template v-if="d.points[tp.key]">
-                <div :class="d.points[tp.key].avg_change !== null && d.points[tp.key].avg_change >= 0 ? 'up' : 'down'">
-                  {{ fmtAvg(d.points[tp.key].avg_change) }}
-                </div>
-                <div class="ov-amt dim">{{ yi(d.points[tp.key].total_amt) }}亿</div>
-              </template>
-              <span v-else class="dim">-</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <!-- 顶部多时点对比(最近4个交易日 / 指定日期): 默认折叠(2026-08-18 主人反馈), 点击标题展开 -->
+    <div class="ov-wrap">
+      <div class="ov-toggle" title="展开/折叠 多时点对比" @click="ovOpen = !ovOpen">
+        <span class="ov-toggle-icon" :class="{ open: ovOpen }"><i class="fa fa-caret-right"></i></span>
+        <span>多时点对比</span>
+        <span class="ov-toggle-sub">9:15 / 9:20 / 9:25 竞价均值 · 一字封单 · 点击时点看个股</span>
+      </div>
+      <div v-show="ovOpen" class="ov-panel">
+        <table class="ov-table">
+          <thead>
+            <tr>
+              <th class="ov-dim">时点</th>
+              <th v-for="d in days" :key="d.date" class="ov-day">
+                <div class="ov-date">{{ d.date.slice(5) }}</div>
+                <div v-if="d.yizi_count !== null" class="ov-yizi">一字 <b>{{ d.yizi_count }}</b> 个 · 封单 <b>{{ yi(d.yizi_amt) }}亿</b></div>
+                <div v-else class="ov-yizi dim">无数据</div>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="tp in timePoints" :key="tp.key">
+              <td class="ov-dim">{{ tp.label }}</td>
+              <td
+  v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击查看该时点个股"
+                  @click="showSnapshot(d.date, tp.key)"
+  >
+                <template v-if="d.points[tp.key]">
+                  <div :class="d.points[tp.key].avg_change !== null && d.points[tp.key].avg_change >= 0 ? 'up' : 'down'">
+                    {{ fmtAvg(d.points[tp.key].avg_change) }}
+                  </div>
+                  <div class="ov-amt dim">{{ yi(d.points[tp.key].total_amt) }}亿</div>
+                </template>
+                <span v-else class="dim">-</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- 个股三时点封单: 一个视图看 9:15/9:20/9:25 三个时刻封单变化 -->
@@ -546,6 +553,7 @@ const qc20Mode = ref('chg')   // 左表口径: amt=竞额抢筹(开盘啦净额)
 const datePicker = ref('')    // 用户选的日期(空=实时)
 const dataDate = ref('')      // 后端实际返回的数据日期(可能被对齐)
 let autoFallback = false      // 已自动回退(避免清空后无限循环)
+const ovOpen = ref(false)     // 顶部多时点对比默认折叠(2026-08-18 主人反馈)
 
 // ---- 个股三时点封单(9:15/9:20/9:25 一视图对比) ----
 const stock3 = ref({ show: false, code: '', data: { date: '', name: '', points: {} }, loaded: false })
@@ -826,6 +834,26 @@ onMounted(() => {
 .auc-title .fa { color: #ffb400; }
 .auc-sub { color: var(--text-muted); font-size: 13px; }
 .auc-time { margin-left: auto; color: #aaa; font-size: 14px; font-family: monospace; }
+/* 顶部多时点对比: 折叠标题栏(2026-08-18 主人反馈默认折叠) */
+.ov-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: border-color 0.15s, color 0.15s;
+}
+.ov-toggle:hover { border-color: var(--accent); color: var(--text-main); }
+.ov-toggle-icon { color: var(--accent); font-size: 12px; transition: transform 0.2s; }
+.ov-toggle-icon.open { transform: rotate(90deg); }
+.ov-toggle-sub { font-size: 11px; color: var(--text-muted); }
 .ov-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
 .ov-table { width: 100%; border-collapse: collapse; }
 .ov-table th, .ov-table td { padding: 8px 10px; text-align: center; border-bottom: 1px solid var(--border-soft); }
