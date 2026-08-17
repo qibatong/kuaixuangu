@@ -59,9 +59,8 @@
     </template>
 
     <!-- 全部结果导出(上下) -->
-    <div style="display:flex;justify-content:flex-end;margin:6px 0;">
-      <button class="tdx-export-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="downloadAll"><i class="fa fa-download"></i> 下载全部筛选结果</button>
-    </div>
+    <!-- 主表上下不再放下载按钮(顶部「下载自选股(自动导入)」已覆盖, 此处避免重复) -->
+
 
     <!-- 主表: 按模式显示 -->
     <template v-if="stocks.mode === 'spot'">
@@ -77,9 +76,8 @@
       <StockTable v-else :stocks="stocks.cachedStocks" mode="auction" :bid-seal-map="bidSealMap" />
     </template>
 
-    <div style="display:flex;justify-content:flex-end;margin:6px 0;">
-      <button class="tdx-export-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="downloadAll"><i class="fa fa-download"></i> 下载全部筛选结果</button>
-    </div>
+    <!-- 主表上下不再放下载按钮(顶部「下载自选股(自动导入)」已覆盖, 此处避免重复) -->
+
     </template>
   </div>
 </template>
