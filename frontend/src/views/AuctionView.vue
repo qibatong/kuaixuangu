@@ -331,6 +331,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <th class="sortable" :class="{ active: lhbSort.keyOf('amount') }" @click="lhbSort.onSort('amount')">成交额(亿)<span class="sort-ind">{{ lhbSort.ind('amount') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('turnover') }" @click="lhbSort.onSort('turnover')">换手%<span class="sort-ind">{{ lhbSort.ind('turnover') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('amplitude') }" @click="lhbSort.onSort('amplitude')">振幅%<span class="sort-ind">{{ lhbSort.ind('amplitude') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('board') }" @click="lhbSort.onSort('board', 'string')">概念<span class="sort-ind">{{ lhbSort.ind('board') }}</span></th>
             <th>操作</th>
           </tr>
         </thead>
@@ -344,6 +345,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td>{{ yi(l.amount) }}</td>
             <td>{{ l.turnover.toFixed(2) }}</td>
             <td>{{ l.amplitude.toFixed(2) }}</td>
+            <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ shortConcept(l.board) }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(l.code) }" @click.stop="addToPool(l)">{{ inPool(l.code) ? '已加自选' : '＋自选' }}</button></td>
           </tr>
         </tbody>
@@ -363,6 +365,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <th class="sortable" :class="{ active: brokenSort.keyOf('firstLimitUp') }" @click="brokenSort.onSort('firstLimitUp')">涨停时间<span class="sort-ind">{{ brokenSort.ind('firstLimitUp') }}</span></th>
             <th class="sortable" :class="{ active: brokenSort.keyOf('firstBreak') }" @click="brokenSort.onSort('firstBreak')">炸板时间<span class="sort-ind">{{ brokenSort.ind('firstBreak') }}</span></th>
             <th class="sortable" :class="{ active: brokenSort.keyOf('reason') }" @click="brokenSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ brokenSort.ind('reason') }}</span></th>
+            <th class="sortable" :class="{ active: brokenSort.keyOf('board') }" @click="brokenSort.onSort('board', 'string')">概念<span class="sort-ind">{{ brokenSort.ind('board') }}</span></th>
             <th>操作</th>
           </tr>
         </thead>
@@ -378,6 +381,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td class="dim">{{ fmtT(b.firstLimitUp) }}</td>
             <td class="dim">{{ fmtT(b.firstBreak) }}</td>
             <td class="dim" style="max-width:220px;white-space:pre-wrap;font-size:12px;">{{ b.reason || '-' }}</td>
+            <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ shortConcept(b.board) }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(b.code) }" @click.stop="addToPool(b)">{{ inPool(b.code) ? '已加自选' : '＋自选' }}</button></td>
           </tr>
         </tbody>
