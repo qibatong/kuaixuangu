@@ -29,10 +29,10 @@
             </div>
             <input v-model="keyword" class="admin-input" placeholder="搜用户名/手机/邮箱/微信名/备注" @keyup.enter="loadUsers(1)" />
             <button class="admin-search-btn" @click="loadUsers(1)"><i class="fa fa-search"></i> 搜索</button>
-            <button class="admin-search-btn" style="background:rgba(255,160,40,0.15);border-color:#ffa028;color:#ffa028;" :disabled="!selectedIds.size" @click="openBatchExpire">
+            <button class="admin-search-btn btn-warn" :disabled="!selectedIds.size" @click="openBatchExpire">
               <i class="fa fa-clock-o"></i> 批量设到期{{ selectedIds.size ? ' (' + selectedIds.size + ')' : '' }}
             </button>
-            <button class="admin-search-btn" style="background:rgba(0,200,120,0.15);border-color:#00c878;color:#80ffaa;" @click="openCreate()"><i class="fa fa-plus"></i> 新建会员</button>
+            <button class="admin-search-btn btn-create" @click="openCreate()"><i class="fa fa-plus"></i> 新建会员</button>
           </div>
         </div>
         <div class="table-scroll">
@@ -981,6 +981,28 @@ body[data-bg="light"] .inviter-tag { color: #3a5bb8; background: rgba(90, 130, 2
   padding: 6px 14px;
   font-size: 13px;
   cursor: pointer;
+}
+/* 工具栏彩色按钮: 用 class 而非内联 style(内联会盖住 light 主题覆盖), 按主题加深 */
+.btn-warn {
+  background: rgba(255,160,40,0.15);
+  border-color: #ffa028;
+  color: #ffa028;
+}
+body[data-bg="light"] .btn-warn {
+  background: rgba(224,138,0,0.15);
+  border-color: #b5740e;
+  color: #965a00;
+}
+.btn-warn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-create {
+  background: rgba(0,200,120,0.15);
+  border-color: #00c878;
+  color: #80ffaa;
+}
+body[data-bg="light"] .btn-create {
+  background: rgba(0,168,100,0.15);
+  border-color: #00a864;
+  color: #007a48;
 }
 .factor-tabs {
   display: flex;
