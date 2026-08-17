@@ -50,7 +50,7 @@ def issue_token(user_id, remember=False):
     ttl = config.TOKEN_TTL_REMEMBER if remember else config.TOKEN_TTL
     conn = get_conn()
     try:
-        conn.execute("INSERT INTO tokens (token, user_id, expire_ts, created_at) VALUES (?,?,?,?)",
+        conn.execute("INSERT INTO tokens (token, user_id, expire_ts, created_at, revoked) VALUES (?,?,?,?,0)",
                      (t, user_id, int(time.time()) + ttl, int(time.time())))
         conn.commit()
     finally:
@@ -58,30 +58,42 @@ def issue_token(user_id, remember=False):
     return t
 
 
-def valid_token(t):
-    """校验 token 是否有效, 返回 user_id; 过期/不存在返回 None。"""
+def _token_status(t):
+    """查询 token 状态: 返回 (status, user_id)
+    status: ok / expired / revoked(被新登录顶出) / missing(不存在或伪造)"""
     if not t:
-        return None
+        return "missing", None
     conn = get_conn()
     try:
-        row = conn.execute("SELECT user_id, expire_ts FROM tokens WHERE token=?", (t,)).fetchone()
+        row = conn.execute("SELECT user_id, expire_ts, revoked FROM tokens WHERE token=?", (t,)).fetchone()
         if not row:
-            return None
-        uid, exp = row
+            return "missing", None
+        uid, exp, revoked = row
+        if revoked:
+            return "revoked", uid
         if time.time() > exp:
             conn.execute("DELETE FROM tokens WHERE token=?", (t,))
             conn.commit()
-            return None
-        return uid
+            return "expired", uid
+        return "ok", uid
     finally:
         conn.close()
 
 
+def valid_token(t):
+    """校验 token 是否有效, 返回 user_id; 过期/不存在/被踢返回 None(保持原签名兼容)"""
+    status, uid = _token_status(t)
+    return uid if status == "ok" else None
+
+
 def revoke_user_tokens(user_id):
-    """使某用户所有已签发 token 失效(改密/重置/新登录踢旧会话)。返回被踢掉的 token 数。"""
+    """使某用户所有已签发 token 失效(改密/重置/新登录踢旧会话), 返回被踢掉的 token 数。
+    (2026-08-17: 不再 DELETE, 改为标记 revoked=1 — 旧 token 再次访问可识别为
+     「被另一设备顶出」, 前端据此弹"账号已在另一设备登录"通知)"""
     conn = get_conn()
     try:
-        cur = conn.execute("DELETE FROM tokens WHERE user_id=?", (user_id,))
+        cur = conn.execute("UPDATE tokens SET revoked=1, expire_ts=0 WHERE user_id=? AND revoked=0",
+                           (user_id,))
         conn.commit()
         return cur.rowcount or 0
     finally:

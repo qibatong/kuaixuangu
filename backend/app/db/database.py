@@ -113,6 +113,11 @@ def init_db():
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_tokens_user ON tokens(user_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_tokens_expire ON tokens(expire_ts)")
+    # 2026-08-17: tokens 加 revoked 列(新登录踢旧会话不再 DELETE, 保留行以便前端区分
+    # 「被另一设备顶出」vs「自然过期」→ 弹出"账号已在另一设备登录"通知)
+    tcols = [r[1] for r in cur.execute("PRAGMA table_info(tokens)").fetchall()]
+    if "revoked" not in tcols:
+        cur.execute("ALTER TABLE tokens ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0")
     # 启动顺手清一次过期 token
     cur.execute("DELETE FROM tokens WHERE expire_ts < ?", (int(time.time()),))
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)")

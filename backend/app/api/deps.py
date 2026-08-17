@@ -43,10 +43,16 @@ def get_uid(request: Request) -> int:
     auth = request.headers.get("Authorization") or ""
     if auth.startswith("Bearer "):
         token = auth[7:].strip()
-    uid = security.valid_token(token)
-    if uid is None:
+    status, uid = security._token_status(token)
+    if status == "revoked":
+        # 被另一设备登录顶出: 明确告知(前端弹"账号已在另一设备登录")
+        log.warning("账号被顶出访问 %s uid=%s ip=%s", request.url.path, uid, client_ip(request))
+        raise HTTPException(status_code=401, detail={"ok": False, "code": "kicked",
+                                                     "msg": "账号已在另一设备登录，本设备已退出"})
+    if status != "ok":
         log.warning("未登录访问 %s ip=%s", request.url.path, client_ip(request))
-        raise HTTPException(status_code=401, detail={"ok": False, "msg": "未登录或登录已过期"})
+        raise HTTPException(status_code=401, detail={"ok": False, "code": "expired",
+                                                     "msg": "未登录或登录已过期"})
     # 到期拦截: 普通用户过期即禁入; 管理员豁免(保证管理续费入口可用)
     u = users.find_user_by_id(uid)
     if u and not u.get("is_admin") and users.is_expired(uid):

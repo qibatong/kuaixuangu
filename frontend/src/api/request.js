@@ -1,6 +1,7 @@
 // 统一请求封装: 自动注入 token, 统一错误处理(401 清会话跳登录)
 import { useUserStore } from '../stores/user'
 import { logFront } from '../utils/logger'
+import { showToast } from '../utils/toast'
 
 async function parseResp(resp) {
   try { return await resp.json() } catch (e) { return { ok: false, msg: '响应解析失败' } }
@@ -23,18 +24,23 @@ export async function request(path, { method = 'GET', body, auth = true, query }
     body: body !== undefined ? JSON.stringify(body) : undefined
   })
   const data = await parseResp(resp)
+  const errBody = data.detail || data   // FastAPI HTTPException 的 detail 嵌套兼容
   if (resp.status === 401 && auth) {
-    logFront('warn', `API 401 登录失效: ${method} ${url}`)
+    logFront('warn', `API 401 登录失效: ${method} ${url} -> ${errBody.code || ''}`)
+    if (errBody.code === 'kicked') {
+      // 被另一设备登录顶出: 明确提示(2026-08-17 主人需求)
+      showToast('⚠️ 账号已在另一设备登录，本设备已退出', 'error')
+    }
     // 登录态失效: 清会话并跳登录
     user.clearSession()
     if (window.location.pathname !== '/login') {
       window.location.href = '/login'
     }
-    throw new Error(data.msg || '登录已过期，请重新登录')
+    throw new Error(errBody.msg || '登录已过期，请重新登录')
   }
   if (!resp.ok || !data.ok) {
-    logFront('warn', `API 失败: ${method} ${url} -> ${resp.status} ${data.msg || ''}`)
-    throw new Error(data.msg || '请求失败(' + resp.status + ')')
+    logFront('warn', `API 失败: ${method} ${url} -> ${resp.status} ${data.msg || errBody.msg || ''}`)
+    throw new Error(data.msg || errBody.msg || '请求失败(' + resp.status + ')')
   }
   return data
 }
