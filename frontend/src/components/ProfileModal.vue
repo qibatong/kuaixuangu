@@ -1,10 +1,10 @@
 <template>
   <div v-if="visible" class="auth-overlay">
     <div class="login-box">
-      <div class="login-title">个人资料</div>
+      <div class="login-title">个人信息</div>
       <input v-model="phone" type="text" placeholder="手机号(用于账号追溯+找回)" autocomplete="off" maxlength="11">
       <input v-model="email" type="text" placeholder="邮箱(用于找回密码)" autocomplete="off" maxlength="60">
-      <input v-model="wxName" type="text" placeholder="微信名(选填, 方便管理员识别你)" autocomplete="off" maxlength="40">
+      <input v-model="wxName" type="text" placeholder="微信名(用于找回密码)" autocomplete="off" maxlength="40">
       <button class="login-btn" :disabled="busy" @click="submit">保存</button>
       <div class="login-err">{{ err }}</div>
       <div class="login-switch"><a href="javascript:void(0)" @click="close">取消</a></div>

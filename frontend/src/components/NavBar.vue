@@ -66,7 +66,7 @@ A
           </button>
           <!-- 下拉菜单: 资料/改密/退出 -->
           <div v-show="menuOpen" class="user-menu">
-            <button class="menu-item" @click="menuOpen = false; profileModal.open()"><i class="fa fa-id-card"></i> 个人资料</button>
+            <button class="menu-item" @click="menuOpen = false; profileModal.open()"><i class="fa fa-id-card"></i> 个人信息</button>
             <button class="menu-item" @click="menuOpen = false; changePwdModal.open()"><i class="fa fa-key"></i> 修改密码</button>
             <button class="menu-item menu-logout" @click="menuOpen = false; logout()"><i class="fa fa-sign-out"></i> 退出登录</button>
           </div>
@@ -88,7 +88,7 @@ A
 
     <!-- 改密弹层(全站唯一, 改密按钮来自 NavBar) -->
     <ChangePwdModal ref="changePwdModal" />
-    <!-- 个人资料弹层(手机号/邮箱/微信名) -->
+    <!-- 个人信息弹层(手机号/邮箱/微信名) -->
     <ProfileModal ref="profileModal" />
   </nav>
 </template>
