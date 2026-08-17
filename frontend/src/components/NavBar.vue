@@ -57,9 +57,20 @@ v-for="f in FONTS" :key="f.key"
 A
 </button>
       </div>
-      <!-- 账户工具: 已登录显示用户名/会员标识/改密/退出 -->
+      <!-- 账户工具: 已登录显示用户名(点击弹下拉: 资料/改密/退出)/会员标识 -->
       <div v-if="user.isLoggedIn" class="user-tools">
-        <span class="user-name" :title="user.username"><i class="fa fa-user-circle"></i> {{ user.username }}</span>
+        <div class="user-dropdown" ref="userDropdown">
+          <button class="user-name-btn" title="账户操作" @click="toggleMenu">
+            <i class="fa fa-user-circle"></i> {{ user.username }}
+            <i class="fa fa-caret-down" :class="{ 'caret-up': menuOpen }"></i>
+          </button>
+          <!-- 下拉菜单: 资料/改密/退出 -->
+          <div v-show="menuOpen" class="user-menu">
+            <button class="menu-item" @click="menuOpen = false; profileModal.open()"><i class="fa fa-id-card"></i> 个人资料</button>
+            <button class="menu-item" @click="menuOpen = false; changePwdModal.open()"><i class="fa fa-key"></i> 修改密码</button>
+            <button class="menu-item menu-logout" @click="menuOpen = false; logout()"><i class="fa fa-sign-out"></i> 退出登录</button>
+          </div>
+        </div>
         <span v-if="user.memberLevel === 2" class="member-badge vip-badge" title="VIP · 永久权限">VIP</span>
         <span v-else-if="user.memberLevel === 1" class="member-badge paid-badge" title="付费会员">付费会员</span>
         <span v-else-if="user.isAdmin" class="member-badge admin-badge" title="管理员">管理员</span>
@@ -69,9 +80,6 @@ A
               class="member-badge renew-badge" title="请尽快续费, 联系管理员(微信号 poet-1986)">
           <i class="fa fa-exclamation-circle"></i> 还剩{{ user.memberDaysLeft }}天续费
         </span>
-        <button class="mini-btn" title="修改个人资料(手机号/邮箱/微信名)" @click="profileModal.open()">资料</button>
-        <button class="mini-btn" title="修改密码" @click="changePwdModal.open()">改密</button>
-        <button class="mini-btn logout-btn" title="退出当前账号" @click="logout">退出</button>
       </div>
       <div v-else class="user-tools">
         <router-link to="/login" class="mini-btn login-btn">登录</router-link>
@@ -87,7 +95,7 @@ A
 
 <script setup>
 // 全站导航栏: 左页面入口 tabs, 右主题/字号/账户工具(主题+字号从 hero 迁来)
-import { ref } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTheme, BGS, FONTS } from '../composables/useTheme'
 import { useUserStore } from '../stores/user'
@@ -101,6 +109,22 @@ const { bg, font, setBg, setFont } = useTheme()
 
 const changePwdModal = ref(null)
 const profileModal = ref(null)
+// 用户名下拉菜单
+const menuOpen = ref(false)
+const userDropdown = ref(null)
+
+function toggleMenu() {
+  menuOpen.value = !menuOpen.value
+}
+
+function onDocClick(e) {
+  if (menuOpen.value && userDropdown.value && !userDropdown.value.contains(e.target)) {
+    menuOpen.value = false
+  }
+}
+
+onMounted(() => document.addEventListener('click', onDocClick))
+onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
 function logout() {
   if (!confirm('确定退出当前账号？')) return
@@ -204,10 +228,44 @@ function logout() {
 
 /* 账户工具 */
 .user-tools { display: flex; align-items: center; gap: 6px; }
-.user-name {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 13px; color: var(--text-secondary); padding: 0 6px;
+.user-dropdown { position: relative; }
+.user-name-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 13px; color: var(--text-secondary);
+  background: var(--bg-input); border: 1px solid var(--border-soft);
+  border-radius: 6px; padding: 4px 10px; cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
+.user-name-btn:hover { background: var(--bg-hover); color: var(--text-main); border-color: var(--accent); }
+.caret-up { transform: rotate(180deg); }
+/* 下拉菜单 */
+.user-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 1000;
+  min-width: 150px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  padding: 5px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.user-menu .menu-item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; text-align: left;
+  background: transparent; border: none;
+  color: var(--text-secondary);
+  font-size: 13px; padding: 8px 12px;
+  border-radius: 6px; cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.user-menu .menu-item:hover { background: var(--bg-hover); color: var(--text-main); }
+.user-menu .menu-item i { width: 15px; text-align: center; color: var(--text-muted); }
+.user-menu .menu-logout { color: #ff6a6a; }
+.user-menu .menu-logout:hover { background: rgba(255, 106, 106, 0.1); color: #ff6a6a; }
+.user-menu .menu-logout i { color: #ff6a6a; }
+/* 浅色主题下菜单阴影更柔和 */
+body[data-bg="light"] .user-menu { box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12); }
 .mini-btn {
   background: var(--bg-input); border: 1px solid var(--border-soft);
   color: var(--text-secondary); border-radius: 6px;
@@ -258,8 +316,10 @@ body[data-bg="light"] .nav-item.router-link-active {
   .theme-label { display: none; }
   .theme-dot { width: 14px; height: 14px; }
   .font-btn { min-width: 20px; height: 20px; }
-  /* 手机上隐藏用户名文本(保留会员徽标), 节省空间 */
-  .user-name { display: none; }
+  /* 手机上用户名按钮紧凑保留(点击弹下拉), 会员徽标省略文本 */
+  .user-name-btn { padding: 3px 8px; font-size: 12px; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+  .user-menu { min-width: 140px; top: calc(100% + 4px); }
+  .user-menu .menu-item { padding: 9px 12px; font-size: 13px; }
   .mini-btn { padding: 4px 8px; font-size: 11px; white-space: nowrap; }
   .member-badge { font-size: 10px; padding: 1px 6px; }
 }
