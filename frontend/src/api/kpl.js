@@ -30,6 +30,10 @@ export function kplBoardRank(date = '') {
   return request(`/api/kpl/board-rank${date ? `?date=${date}` : ''}`)
 }
 
+export function kplBoardStocks(code, date = '') {
+  return request(`/api/kpl/board-stocks?code=${code}${date ? `&date=${date}` : ''}`)
+}
+
 export function kplHotRank(source = 'kpl', date = '') {
   return request(`/api/kpl/hot-rank?source=${source}${date ? `&date=${date}` : ''}`)
 }

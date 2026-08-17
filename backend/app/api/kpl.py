@@ -167,6 +167,22 @@ def api_kpl_board_rank(request: Request, uid: int = Depends(get_uid), date: str 
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0, "date": ""})
 
 
+@router.get("/api/kpl/board-stocks")
+def api_kpl_board_stocks(request: Request, uid: int = Depends(get_uid), code: str = "",
+                         date: str = ""):
+    """板块成分股(2026-08-17 主人需求): 板块强度点开看成分股
+    code=板块代码(board-rank 的 boardCode, 如 801001); date 空=实时, 指定回看历史"""
+    if not code:
+        return jr({"ok": False, "msg": "缺少板块代码 code"}, 400)
+    if date:
+        resolved = _resolve_date(date)
+        d = kpl.fetch_board_stocks(code, resolved)
+        return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
+                   "date": resolved, "requestedDate": date})
+    d = kpl.fetch_board_stocks(code)
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0, "date": ""})
+
+
 @router.get("/api/kpl/hot-rank")
 def api_kpl_hot_rank(request: Request, uid: int = Depends(get_uid), source: str = "kpl", date: str = ""):
     """人气热榜; source: kpl/em/ths; date 空=实时, 指定日期回看历史(hot_rank_history)

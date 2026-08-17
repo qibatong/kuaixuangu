@@ -442,6 +442,49 @@ def fetch_board_rank_by_date(date):
     return _parse_board_rank(d) if d else []
 
 
+def fetch_board_stocks(plate_id, date=None):
+    """板块成分股(开盘啦 ZhiShuStockList_W8, apphwshhq host, 2026-08-17 主人需求):
+    板块强度点开看成分股.
+    PlateID: 板块代码(如 801001 芯片); date: 'YYYY-MM-DD' 历史(非交易时间必传, 否则返空)
+    实测 30 条(按强度/涨幅排序); 返回 [{code, name, concept, change, turnover, amount,
+    floatMv, mainNet, limitTag, ladder, totalMv}, ...]"""
+    params = {
+        "Order": "1", "a": "ZhiShuStockList_W8", "st": "30",
+        "c": "ZhiShuRanking", "PhoneOSNew": "1", "old": "1",
+        "IsZZ": "0", "Index": "0", "RStart": "0925", "REnd": "1500",
+        "apiv": "w44", "Type": "5", "IsKZZType": "0",
+        "PlateID": str(plate_id), "TSZB": "0", "TSZB_Type": "0",
+        "filterType": "0",
+    }
+    if date:
+        params["Date"] = date
+    d = _call("after", params)
+    lst = d.get("list") if isinstance(d, dict) else None
+    if not isinstance(lst, list):
+        return []
+    out = []
+    for row in lst:
+        if not isinstance(row, list) or len(row) < 12:
+            continue
+        try:
+            out.append({
+                "code": str(row[0]),
+                "name": str(row[1]),
+                "concept": str(row[4] or ""),
+                "change": _f(row[5]),          # 涨幅(%)
+                "turnover": _f(row[6]),        # 换手(%)
+                "amount": _f(row[7]),          # 成交额(元)
+                "floatMv": _f(row[10]),        # 流通市值(元)
+                "mainNet": _f(row[11]),        # 主力净额(元)
+                "limitTag": str(row[23] or "") if len(row) > 23 else "",   # 首板/连板标识
+                "ladder": str(row[24] or "") if len(row) > 24 else "",     # 龙一/龙二等梯队
+                "totalMv": _f(row[38]) if len(row) > 38 else 0,            # 总市值(元)
+            })
+        except (IndexError, ValueError, TypeError):
+            continue
+    return out
+
+
 # ==================== 尾盘竞价抢筹 ====================
 def fetch_wpqc():
     """尾盘竞价抢筹(14:57 后): List [[code,name,资金标签,类型,概念,涨跌幅,抢筹委托,收盘金额,

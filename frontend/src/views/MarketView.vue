@@ -47,9 +47,9 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(b, idx) in boardSort.sorted(boardList)" :key="b.boardCode">
+          <tr v-for="(b, idx) in boardSort.sorted(boardList)" :key="b.boardCode" class="board-row" @click="openBoardStocks(b)">
             <td class="rank-col">{{ idx + 1 }}</td>
-            <td class="name-col"><div class="name-main">{{ b.name }}</div><div class="board-code">{{ b.boardCode }}</div></td>
+            <td class="name-col"><div class="name-main">{{ b.name }}</div><div class="board-code">{{ b.boardCode }}</div><span class="board-detail-hint"><i class="fa fa-chevron-circle-right"></i> 成分股</span></td>
             <td class="strength">{{ Math.round(b.strength) }}</td>
             <td :class="b.change > 0 ? 'up' : 'down'">{{ signed(b.change) }}%</td>
             <td :class="b.speed > 0 ? 'up' : 'down'">{{ signed(b.speed) }}%</td>
@@ -61,6 +61,46 @@
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- 板块成分股弹层(2026-08-17 主人需求: 板块强度点开看成分股) -->
+    <div v-if="stocksOpen" class="mrk-modal-mask" @click.self="closeBoardStocks">
+      <div class="mrk-modal">
+        <div class="mrk-modal-head">
+          <div class="mrk-modal-title"><i class="fa fa-th-large"></i> {{ currentBoard?.name }} <span class="mrk-modal-code">{{ currentBoard?.boardCode }}</span><span class="mrk-modal-sub">成分股 Top{{ boardStocks.length }}</span></div>
+          <button class="mrk-modal-close" @click="closeBoardStocks"><i class="fa fa-times"></i></button>
+        </div>
+        <div v-if="stocksLoading" class="loading-placeholder"><div class="spinner"></div><div>加载成分股...</div></div>
+        <div v-else-if="!boardStocks.length" class="empty-state">暂无成分股数据</div>
+        <div v-else class="mrk-modal-body">
+          <table class="stock-table mrk-modal-table">
+            <thead>
+              <tr>
+                <th>代码</th>
+                <th>名称</th>
+                <th class="sortable" :class="{ active: stockSort.keyOf('change') }" @click="stockSort.onSort('change')">涨幅%<span class="sort-ind">{{ stockSort.ind('change') }}</span></th>
+                <th class="sortable" :class="{ active: stockSort.keyOf('turnover') }" @click="stockSort.onSort('turnover')">换手%<span class="sort-ind">{{ stockSort.ind('turnover') }}</span></th>
+                <th class="sortable" :class="{ active: stockSort.keyOf('amount') }" @click="stockSort.onSort('amount')">成交额(亿)<span class="sort-ind">{{ stockSort.ind('amount') }}</span></th>
+                <th class="sortable" :class="{ active: stockSort.keyOf('mainNet') }" @click="stockSort.onSort('mainNet')">主力净额(亿)<span class="sort-ind">{{ stockSort.ind('mainNet') }}</span></th>
+                <th class="sortable" :class="{ active: stockSort.keyOf('floatMv') }" @click="stockSort.onSort('floatMv')">流通(亿)<span class="sort-ind">{{ stockSort.ind('floatMv') }}</span></th>
+                <th>涨停标识</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="s in stockSort.sorted(boardStocks)" :key="s.code">
+                <td class="code-click" @click="linkToSoftware(s.code)">{{ s.code }}</td>
+                <td class="name-col"><div class="name-main">{{ s.name }}</div></td>
+                <td :class="s.change > 0 ? 'up' : s.change < 0 ? 'down' : 'dim'">{{ s.change ? signed(s.change) + '%' : '-' }}</td>
+                <td>{{ s.turnover ? s.turnover.toFixed(2) : '-' }}</td>
+                <td>{{ s.amount ? yi(s.amount) : '-' }}</td>
+                <td :class="s.mainNet > 0 ? 'up' : s.mainNet < 0 ? 'down' : 'dim'">{{ s.mainNet ? yi(s.mainNet) : '-' }}</td>
+                <td>{{ s.floatMv ? yi(s.floatMv) : '-' }}</td>
+                <td><span v-if="s.limitTag || s.ladder" class="lb-badge">{{ s.limitTag || s.ladder }}</span><span v-else class="dim">-</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- 板块轮动历史 -->
@@ -248,7 +288,7 @@ v-for="s in sourceOptions" :key="s.key"
 <script setup>
 import { computed, onMounted, ref, reactive } from 'vue'
 import { usePolling } from '../composables/usePolling'
-import { kplBoardRank, kplHotRank, kplLhb, kplLhbDetail, sectorRotation } from '../api/kpl'
+import { kplBoardRank, kplBoardStocks, kplHotRank, kplLhb, kplLhbDetail, sectorRotation } from '../api/kpl'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
 import { usePoolStore } from '../stores/pool'
@@ -276,6 +316,12 @@ const lhbModal = reactive({ show: false, code: '', detail: { name: '', buyList: 
 
 // 各表独立排序实例
 const boardSort = useSortable()
+// 板块成分股弹层(2026-08-17 主人需求)
+const stocksOpen = ref(false)
+const stocksLoading = ref(false)
+const currentBoard = ref(null)
+const boardStocks = ref([])
+const stockSort = useSortable()
 const hotSort = useSortable()
 const lhbSort = useSortable()
 
@@ -316,6 +362,26 @@ async function loadBoard() {
   } catch (e) { /* 静默 */ } finally {
     boardLoading.value = false
   }
+}
+
+// 板块成分股弹层: 点击板块行打开
+async function openBoardStocks(b) {
+  currentBoard.value = b
+  stocksOpen.value = true
+  stocksLoading.value = true
+  stockSort.clear()
+  try {
+    const d = await kplBoardStocks(b.boardCode, datePicker.value)
+    boardStocks.value = d.list || []
+  } catch (e) { boardStocks.value = [] } finally {
+    stocksLoading.value = false
+  }
+}
+
+function closeBoardStocks() {
+  stocksOpen.value = false
+  boardStocks.value = []
+  currentBoard.value = null
 }
 
 function clearDate(which) {
@@ -426,6 +492,49 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 板块行点击态(2026-08-17 主人需求: 点板块看成分股) */
+.board-row { cursor: pointer; }
+.board-row:hover td { background: rgba(255, 180, 0, 0.06); }
+.board-click { cursor: pointer; }
+.board-click .name-main:hover { color: #ffb400; }
+.board-detail-hint {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; color: var(--accent); opacity: 0.85; margin-left: 6px;
+  border: 1px solid rgba(var(--accent-rgb), 0.4); border-radius: 10px; padding: 0 6px;
+}
+/* 成分股弹层 */
+.mrk-modal-mask {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.mrk-modal {
+  background: var(--bg-panel);
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
+  border-radius: 12px;
+  max-width: 980px; width: 100%;
+  max-height: 80vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+.mrk-modal-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; border-bottom: 1px solid var(--border-soft);
+}
+.mrk-modal-title { font-size: 17px; font-weight: 700; color: var(--text-main); }
+.mrk-modal-title .fa { color: var(--accent); }
+.mrk-modal-code { font-size: 13px; color: var(--text-muted); font-family: monospace; margin-left: 6px; }
+.mrk-modal-sub { font-size: 12px; color: var(--text-muted); margin-left: 8px; }
+.mrk-modal-close {
+  margin-left: auto; background: transparent; border: none;
+  color: var(--text-muted); font-size: 18px; cursor: pointer; padding: 4px 8px;
+}
+.mrk-modal-close:hover { color: var(--text-main); }
+.mrk-modal-body { overflow-y: auto; padding: 10px 14px 14px; }
+.mrk-modal-table { min-width: 640px; }
+body[data-bg="light"] .mrk-modal-title { color: #1a1d26; }
+body[data-bg="light"] .board-detail-hint { color: #a06a00; border-color: rgba(160, 106, 0, 0.4); }
+body[data-bg="light"] .board-row:hover td { background: rgba(199, 145, 0, 0.08); }
 .page-back { color: var(--text-muted); cursor: pointer; font-size: 13px; margin-bottom: 12px; display: inline-block; }
 .page-back:hover { color: #ffb400; }
 .mrk-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
