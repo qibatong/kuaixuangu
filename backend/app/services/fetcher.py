@@ -10,7 +10,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..core import config, logger
 from . import scorer   # 仅复用 parse_float / market_fs (无循环: scorer 不依赖 fetcher)
@@ -453,7 +453,9 @@ def _kline_amount_pair(klines):
 
 
 def fetch_yesterday_amounts(codes):
-    """并发获取一批股票的昨日成交额(万元), 带当日缓存; 返回 {code: 金额万元}"""
+    """并发获取一批股票的昨日成交额(万元), 带当日缓存; 返回 {code: 金额万元}
+    (2026-08-17 修复: ex.map 会等所有并发完成, 东财限流时单个 code 遍历多域名+同花顺兜底
+     可拖 30-60s → 抢筹 listLast 阻塞 62s; 改 as_completed + 整体超时, 超时未完成跳过(昨比置空)"""
     if not codes:
         return {}
     today = _bj_date_str()
@@ -464,16 +466,30 @@ def fetch_yesterday_amounts(codes):
             if ent is None or ent[0] != today:
                 need.append(c)
     if need:
+        ok_cnt = 0
+        fail_cnt = len(need)
         with ThreadPoolExecutor(max_workers=config.YESTERDAY_FETCH_WORKERS) as ex:
-            results = list(ex.map(_fetch_yesterday_amount_one, need))
-        ok_cnt = sum(1 for v in results if v is not None)
-        fail_cnt = len(need) - ok_cnt
+            futs = {ex.submit(_fetch_yesterday_amount_one, c): c for c in need}
+            try:
+                for f in as_completed(futs, timeout=config.YESTERDAY_FETCH_TIMEOUT):
+                    c = futs[f]
+                    try:
+                        v = f.result()
+                        if v is not None:
+                            ok_cnt += 1
+                            with _yesterday_lock:
+                                _yesterday_cache[c] = [today, v]
+                    except Exception:
+                        pass
+                    fail_cnt -= 1
+            except concurrent.futures.TimeoutError:
+                # 超时未完成: 跳过(不等待慢 code), 昨比对该 code 置空
+                done = len(need) - fail_cnt
+                log.warning("昨日成交额拉取超时(%ds) 已完成%d/%d, 超时跳过",
+                            config.YESTERDAY_FETCH_TIMEOUT, done, len(need))
+                fail_cnt = len(need) - ok_cnt
         if fail_cnt:
             log.warning("昨日成交额拉取: 需%d 成功%d 失败%d", len(need), ok_cnt, fail_cnt)
-        with _yesterday_lock:
-            for c, v in zip(need, results):
-                if v is not None:
-                    _yesterday_cache[c] = [today, v]
     out = {}
     with _yesterday_lock:
         for c in codes:

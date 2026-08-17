@@ -50,6 +50,7 @@ SPOT_MAX_PAGES = int(os.environ.get("SPOT_MAX_PAGES", "30"))   # 盘中全市场
 
 # 昨日成交额(日K)抓取: 低并发 + 多域名轮询 + 熔断, 避免触发东财限流
 YESTERDAY_FETCH_WORKERS = 8
+YESTERDAY_FETCH_TIMEOUT = 20   # 批量并发整体超时上限(秒), 超时未完成跳过(昨比置空), 防阻塞
 KLINE_TIMEOUT = 5
 KLINE_HOSTS = [
     "https://push2his.eastmoney.com",

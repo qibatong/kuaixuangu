@@ -473,33 +473,35 @@ def _scheduler_loop():
                             # 窗口结束后(hm>end)不再触发, 9:31 盘点告警兜底
                             store.delete(key)
                             log.warning("[快照采集] 时点失败(返回0) tp=%s date=%s 窗口内将重试", tp, date)
-            # 9:26-9:30 抢筹结果快照: 触发 fetch_bid_qiangcang 落库(竞价完到开盘真空期, 越早看到抢筹越能提前布局,
-            # 9:25 撮合完成后 1 分钟即可落库, 非竞价时段页面读库展示不丢失)
-            if (g.tm_wday < 5 and 9 * 60 + 26 <= hm <= 9 * 60 + 30
+            # 9:24:30-9:25:00 抢筹结果快照: 触发 fetch_bid_qiangcang 落库
+            # (2026-08-17 修复: 9:26 触发太晚, 开盘啦 Type4 竞价净额 9:25 撮合后清零 → list20=0 落库失败,
+            #  提前到最后一秒重采窗口, Type4 数据最接近定格且 bidNetAmt 有效)
+            if (g.tm_wday < 5 and 9 * 60 + 24 <= hm <= 9 * 60 + 30
                     and store.setnx("sched:qc:" + date, 1, ttl=86400)):
                 try:
                     from . import kpl
                     kpl.clear_cache()
                     d = kpl.fetch_bid_qiangcang()
                     n = len((d or {}).get("list20", []))
-                    log.info("竞价抢筹结果快照已存 date=%s list20=%d只", date, n)
+                    log.info("竞价抢筹结果快照已存 date=%s list20=%d只(9:24-9:25窗口, Type4有效)",
+                             date, n)
                     # 竞价类 tab 落库(2026-08-16 修复): seal/boom 是竞价实时接口,
                     # 15:30 收盘后返回空 → 必须此时落库, 否则竞价委买/爆量/净额 tab 无历史
-                    # 注意: qiangcang 上面已拉, 这里只补 seal/boom(qiangcang 由 save 内部重拉, 幂等)
                     kpl.save_auction_history(date, phase="bid")
-                    # 9:26 自动应用(2026-08-16 用户反馈): 用户打开应用但没点"应用"按钮,
-                    # 当天历史为空; 抢筹落库后给所有活跃用户跑一次自动应用(标记 auto_applied=True).
-                    # 后台守护线程执行(全市场评分一次+按用户过滤), 不阻塞本调度循环.
-                    # 单用户失败不影响其他人; 失败也不影响抢筹落库.
-                    try:
-                        from . import auto_apply
-                        auto_apply.trigger_auto_apply()
-                    except Exception as e:
-                        log.warning("9:26 自动应用 调度失败(不影响抢筹落库) err=%s", e)
                 except Exception as e:
-                    # 失败回滚: 窗口 9:26-9:30 内下一轮轮询重试(避免 KPL 瞬时故障导致抢筹 tab 当日无数据)
+                    # 失败回滚: 窗口 9:24-9:30 内下一轮轮询重试(避免 KPL 瞬时故障导致抢筹 tab 当日无数据)
                     store.delete("sched:qc:" + date)
                     log.warning("竞价抢筹结果快照失败(窗口内将重试) err=%s", e)
+            # 9:26-9:30 自动应用选股(2026-08-16 用户反馈): 用户打开应用但没点"应用"按钮,
+            # 当天历史为空; 9:25 快照齐后给所有活跃用户跑一次自动应用(标记 auto_applied=True).
+            # 后台守护线程执行(全市场评分一次+按用户过滤), 不阻塞本调度循环.
+            if (g.tm_wday < 5 and 9 * 60 + 26 <= hm <= 9 * 60 + 30
+                    and store.setnx("sched:auto_apply:" + date, 1, ttl=86400)):
+                try:
+                    from . import auto_apply
+                    auto_apply.trigger_auto_apply()
+                except Exception as e:
+                    log.warning("9:26 自动应用 调度失败(不影响抢筹落库) err=%s", e)
             # 15:30-15:35 板块轮动日终快照: 抓当日板块强度 Top10 落库(多数据源), 形成轮动数据基础
             if g.tm_wday < 5 and 15 * 60 + 30 <= hm <= 15 * 60 + 35:
                 try:
