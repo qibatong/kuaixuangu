@@ -1116,6 +1116,7 @@ def fetch_yest_zt():
                 "yestChange": it["change"],              # 昨日涨停涨幅
                 "limitUpDays": it["limitUpDays"],        # 昨日连板数
                 "stillLimit": code in today_codes,       # 今日是否仍涨停(连板)
+                "reason": it.get("reason", ""),          # 昨日涨停原因
                 # 今日实时涨幅: Type4 实时涨幅优先, 无则 9_25 竞价涨幅
                 "change": s.get("realChange") if s.get("realChange") is not None
                           else (sn.get("bid_change") if sn else None),
@@ -1162,6 +1163,7 @@ def fetch_yest_broken():
                 "name": t4.get("name") or s.get("name") or it["name"],
                 "yestChange": it["change"],              # 昨日涨停涨幅
                 "limitUpDays": it["limitUpDays"],        # 昨日连板数
+                "reason": it.get("reason", ""),          # 昨日涨停原因
                 "change": t4.get("realChange") if t4.get("realChange") is not None
                           else (s.get("bid_change") if s else None),   # 今日实时涨幅(9_25竞价涨幅兜底)
                 "bidChange": (s.get("bid_change") if s else None),     # 今日竞价涨幅
@@ -1173,6 +1175,25 @@ def fetch_yest_broken():
             })
         return out
     return _cached("yest_broken", 60 * 5, loader)
+
+
+def fill_reason_from_pool(lst, date=None):
+    """按 date(空=今日) 的东财涨停池给列表补涨停原因(reason); 已带 reason 的不覆盖
+    用于历史回看快照/龙虎榜等无 reason 字段的数据源"""
+    if not lst:
+        return lst
+    try:
+        pool = _flash_pool("limit_up_pool", date)
+        if not pool:
+            return lst
+        m = {x["code"]: (x.get("reason") or "") for x in pool}
+        for it in lst:
+            code = str(it.get("code") or "")
+            if code and not it.get("reason") and code in m:
+                it["reason"] = m[code]
+    except Exception as e:
+        log.warning("涨停原因补齐失败 date=%s err=%s", date or "-", e)
+    return lst
 
 
 def _save_qc_snapshot(date, items):

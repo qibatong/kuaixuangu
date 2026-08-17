@@ -70,7 +70,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
       <button class="auc-tab" :class="{ active: tab === 'qc' }" title="9:15-9:30 竞价抢筹(异动板块大单)" @click="switchTab('qc')"><i class="fa fa-fire"></i> 竞价抢筹</button>
       <button class="auc-tab" :class="{ active: tab === 'seal' }" @click="switchTab('seal')"><i class="fa fa-gavel"></i> 竞价委买</button>
       <button class="auc-tab" :class="{ active: tab === 'net' }" @click="switchTab('net')"><i class="fa fa-exchange"></i> 竞价净额</button>
-      <button class="auc-tab" :class="{ active: tab === 'yestZt' }" @click="switchTab('yestZt')"><i class="fa fa-sun-o"></i> 昨日涨停</button>
+      <button class="auc-tab" :class="{ active: tab === 'yestZt' }" @click="switchTab('yestZt')"><i class="fa fa-sun-o"></i> 昨涨停</button>
       <button class="auc-tab" :class="{ active: tab === 'yestBroken' }" @click="switchTab('yestBroken')"><i class="fa fa-bell-slash"></i> 昨断板</button>
       <button class="auc-tab" :class="{ active: tab === 'brokenYest' }" @click="switchTab('brokenYest')"><i class="fa fa-history"></i> 昨炸板</button>
       <button class="auc-tab" :class="{ active: tab === 'lhb' }" @click="switchTab('lhb')"><i class="fa fa-list-alt"></i> 昨上榜</button>
@@ -268,6 +268,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <th class="sortable" :class="{ active: yestZtSort.keyOf('bidTurnover') }" @click="yestZtSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ yestZtSort.ind('bidTurnover') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('bidAmt') }" @click="yestZtSort.onSort('bidAmt')">竞额(亿)<span class="sort-ind">{{ yestZtSort.ind('bidAmt') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('board') }" @click="yestZtSort.onSort('board', 'string')">概念<span class="sort-ind">{{ yestZtSort.ind('board') }}</span></th>
+            <th class="sortable" :class="{ active: yestZtSort.keyOf('reason') }" @click="yestZtSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ yestZtSort.ind('reason') }}</span></th>
             <th>操作</th>
           </tr>
         </thead>
@@ -284,6 +285,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td>{{ z.bidTurnover ? z.bidTurnover.toFixed(2) : '-' }}</td>
             <td>{{ z.bidAmt ? amtText(z.bidAmt) : '-' }}</td>
             <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ shortConcept(z.board) }}</td>
+            <td class="dim" style="max-width:220px;white-space:pre-wrap;font-size:12px;">{{ z.reason || '-' }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(z.code) }" @click.stop="addToPool(z)">{{ inPool(z.code) ? '已加自选' : '＋自选' }}</button></td>
           </tr>
         </tbody>
@@ -301,6 +303,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('bidAmt') }" @click="yestBrokenSort.onSort('bidAmt')">竞额(亿)<span class="sort-ind">{{ yestBrokenSort.ind('bidAmt') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('bidTurnover') }" @click="yestBrokenSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ yestBrokenSort.ind('bidTurnover') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('board') }" @click="yestBrokenSort.onSort('board', 'string')">概念<span class="sort-ind">{{ yestBrokenSort.ind('board') }}</span></th>
+            <th class="sortable" :class="{ active: yestBrokenSort.keyOf('reason') }" @click="yestBrokenSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ yestBrokenSort.ind('reason') }}</span></th>
             <th>操作</th>
           </tr>
         </thead>
@@ -314,6 +317,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td>{{ b2.bidAmt ? amtText(b2.bidAmt) : '-' }}</td>
             <td>{{ b2.bidTurnover ? b2.bidTurnover.toFixed(2) : '-' }}</td>
             <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ shortConcept(b2.board) }}</td>
+            <td class="dim" style="max-width:220px;white-space:pre-wrap;font-size:12px;">{{ b2.reason || '-' }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(b2.code) }" @click.stop="addToPool(b2)">{{ inPool(b2.code) ? '已加自选' : '＋自选' }}</button></td>
           </tr>
         </tbody>
@@ -332,6 +336,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <th class="sortable" :class="{ active: lhbSort.keyOf('turnover') }" @click="lhbSort.onSort('turnover')">换手%<span class="sort-ind">{{ lhbSort.ind('turnover') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('amplitude') }" @click="lhbSort.onSort('amplitude')">振幅%<span class="sort-ind">{{ lhbSort.ind('amplitude') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('board') }" @click="lhbSort.onSort('board', 'string')">概念<span class="sort-ind">{{ lhbSort.ind('board') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('reason') }" @click="lhbSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ lhbSort.ind('reason') }}</span></th>
             <th>操作</th>
           </tr>
         </thead>
@@ -346,6 +351,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td>{{ l.turnover.toFixed(2) }}</td>
             <td>{{ l.amplitude.toFixed(2) }}</td>
             <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ shortConcept(l.board) }}</td>
+            <td class="dim" style="max-width:220px;white-space:pre-wrap;font-size:12px;">{{ l.reason || '-' }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(l.code) }" @click.stop="addToPool(l)">{{ inPool(l.code) ? '已加自选' : '＋自选' }}</button></td>
           </tr>
         </tbody>

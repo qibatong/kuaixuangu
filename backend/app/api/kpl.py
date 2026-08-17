@@ -199,10 +199,12 @@ def api_kpl_lhb(request: Request, uid: int = Depends(get_uid), date: str = ""):
                 lst = _json.loads(row[0])
             except (ValueError, TypeError):
                 lst = []
+        kpl.fill_reason_from_pool(lst, resolved)
         kpl.apply_board_concept(lst, log_tag="auc:lhb[hist]", deep=True, field="board", truncate=2, blank_if_missing=True)
         return jr({"ok": True, "list": lst, "count": len(lst), "date": resolved, "requestedDate": date})
     d = kpl.fetch_lhb()
     lst = d or []
+    kpl.fill_reason_from_pool(lst, None)   # 今日涨停池补涨停原因
     kpl.apply_board_concept(lst, log_tag="auc:lhb[now]", deep=True, field="board", truncate=2, blank_if_missing=True)
     return jr({"ok": True, "list": lst, "count": len(lst), "date": ""})
 
@@ -259,6 +261,7 @@ def api_kpl_yest_zt(request: Request, uid: int = Depends(get_uid), date: str = "
     if date:
         resolved = _resolve_date(date)
         d = kpl.query_auction_history(resolved, "yest_zt")
+        kpl.fill_reason_from_pool(d, resolved)
         kpl.apply_board_concept(d, log_tag="auc:yest-zt[hist]", deep=True, field="board", truncate=2, blank_if_missing=True)
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "date": resolved, "requestedDate": date})
@@ -276,6 +279,7 @@ def api_kpl_yest_broken(request: Request, uid: int = Depends(get_uid), date: str
     if date:
         resolved = _resolve_date(date)
         d = kpl.query_auction_history(resolved, "yest_broken")
+        kpl.fill_reason_from_pool(d, resolved)
         kpl.apply_board_concept(d, log_tag="auc:yest-broken[hist]", deep=True, field="board", truncate=2, blank_if_missing=True)
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "date": resolved, "requestedDate": date})
