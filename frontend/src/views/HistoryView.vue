@@ -1,8 +1,5 @@
 <template>
   <div class="page-shell">
-    <div class="page-back">
-      <router-link to="/" class="tdx-export-btn nav-btn nav-history"><i class="fa fa-arrow-left"></i> 返回选股</router-link>
-    </div>
     <div class="history-panel">
       <div class="history-head">
         <span class="history-title"><i class="fa fa-history"></i> 历史选股记录</span>
@@ -73,7 +70,7 @@
                       <td :class="ratioCls(s.bid_ratio)">{{ ratioText(s.bid_ratio) }}</td>
                       <td>{{ s.circulation_mv.toFixed(1) }}</td>
                       <td>{{ s.industry }}</td>
-                      <td class="up">{{ s.probability }}分</td>
+                      <td class="score-cell">{{ s.probability }}分</td>
                       <td>{{ s.confidence }}%</td>
                     </tr>
                   </tbody>
@@ -175,7 +172,7 @@
                     <td>{{ bidAmtText(s.bid_amt) }}</td>
                     <td :class="ratioCls(s.bid_ratio)">{{ ratioText(s.bid_ratio) }}</td>
                     <td>{{ s.circulation_mv.toFixed(1) }}</td><td>{{ s.industry }}</td>
-                    <td class="up">{{ s.probability }}分</td><td>{{ s.confidence }}%</td>
+                    <td class="score-cell">{{ s.probability }}分</td><td>{{ s.confidence }}%</td>
                   </tr>
                 </tbody>
               </table>

@@ -1,7 +1,5 @@
 <template>
   <div class="page-shell">
-    <div class="page-back" @click="$router.push('/')"><i class="fa fa-arrow-left"></i> 返回选股</div>
-
     <!-- 会员门禁: 竞价异动仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
     <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价异动" />
 
@@ -489,7 +487,7 @@ import { usePolling } from '../composables/usePolling'
 import { kplBidSeal, kplBidBoom, kplBidQiangcang, kplBroken, kplLhb, kplYestBroken, kplYestZt } from '../api/kpl'
 import { auctionOverview, auctionSnapshot, bidSnapshotStock, bidSnapshot3points } from '../api/stats'
 import { linkToSoftware } from '../utils/tdx'
-import { bjTimeStr, isMemberOnlyTime, todayBj } from '../utils/time'
+import { bjDateTimeStr, isMemberOnlyTime, todayBj } from '../utils/time'
 import { usePoolStore } from '../stores/pool'
 import { showToast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
@@ -811,8 +809,8 @@ function clearDate() {
 }
 
 onMounted(() => {
-  bjTime.value = bjTimeStr()
-  usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
+  bjTime.value = bjDateTimeStr()
+  usePolling(() => { bjTime.value = bjDateTimeStr() }, 1000, { immediate: false })
   loadAll()
   // 历史回看模式暂停实时刷新(每分钟拉历史无意义)
   usePolling(() => { if (!datePicker.value) loadAll() }, 60000)
@@ -899,7 +897,7 @@ onMounted(() => {
 }
 .stock3-input {
   background: var(--bg-input);
-  border: 1px solid var(--border-soft);
+  border: 1.5px solid rgba(255, 92, 92, 0.5);
   border-radius: 6px;
   color: var(--text-main);
   padding: 6px 10px;
@@ -907,7 +905,7 @@ onMounted(() => {
   width: 200px;
   box-sizing: border-box;
 }
-.stock3-input:focus { outline: none; border-color: var(--accent-warm, #ffb400); }
+.stock3-input:focus { outline: none; border-color: var(--accent-warm, #ffb400); box-shadow: 0 0 0 2px rgba(255, 92, 92, 0.3); }
 .stock3-btn {
   background: rgba(0, 180, 255, 0.15);
   border: 1px solid #00b4ff;

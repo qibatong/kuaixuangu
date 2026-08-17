@@ -359,11 +359,24 @@ def compute_score(s):
         conf += cfg["conf_bid"]
     conf = min(90.0, max(55.0, conf))
 
+    # 评分构成(2026-08-17): 五因子分项明细, 前端展示"评分原因"增强可信度
+    def _r2(v):
+        return None if v is None else round(v, 2)
+
+    factors = {
+        "bid": {"label": "竞价涨幅", "value": _r2(bid_change), "score": round(bid_score * 100), "weight": cfg["w_bid"]},
+        "activity": {"label": "竞价换手", "value": _r2(bid_turnover), "score": round(activity_score * 100), "weight": cfg["w_activity"]},
+        "warn": {"label": "异动等级", "value": _r2(warn_type), "score": round(warn_score * 100), "weight": cfg["w_warn"]},
+        "market": {"label": "流通市值", "value": _r2(circ_mv), "score": round(market_score * 100), "weight": cfg["w_market"]},
+        "yesterday": {"label": "昨日涨幅", "value": _r2(yesterday_approx), "score": round(yesterday_score * 100), "weight": cfg["w_yesterday"]},
+    }
+
     return {
         "probability": js_round(prob),
         "confidence": js_round(conf),
         "bidTurnover": bid_turnover,
         "bidVolRatio": bid_vol_ratio,
+        "factors": factors,
     }
 
 
@@ -403,6 +416,19 @@ def compute_score_spot(s, zt_info=None):
         conf += cfg["conf_chg"]
     conf = min(90.0, max(55.0, conf))
 
+    # 评分构成(2026-08-17): 盘中六因子分项明细, 与竞价 factors 同结构
+    def _r2(v):
+        return None if v is None else round(v, 2)
+
+    factors = {
+        "chg": {"label": "实时涨幅", "value": _r2(real_chg), "score": round(chg_score * 100), "weight": cfg["w_chg"]},
+        "vol_ratio": {"label": "量比", "value": _r2(vol_ratio), "score": round(vol_score * 100), "weight": cfg["w_vol_ratio"]},
+        "turnover": {"label": "换手率", "value": _r2(turnover), "score": round(turn_score * 100), "weight": cfg["w_turnover"]},
+        "seal": {"label": "封单强度", "value": _r2(seal_ratio), "score": round(seal_score * 100), "weight": cfg["w_seal"]},
+        "market": {"label": "流通市值", "value": _r2(circ_mv), "score": round(market_score * 100), "weight": cfg["w_market"]},
+        "yesterday": {"label": "昨日涨幅", "value": _r2(yesterday_approx), "score": round(yesterday_score * 100), "weight": cfg["w_yesterday"]},
+    }
+
     return {
         "probability": js_round(prob),
         "confidence": js_round(conf),
@@ -410,6 +436,7 @@ def compute_score_spot(s, zt_info=None):
         "sealFund": fund,
         "limitBoards": int((zt_info or {}).get("lb") or 0),
         "breakCount": int((zt_info or {}).get("zbc") or 0),
+        "factors": factors,
     }
 
 
@@ -433,6 +460,7 @@ def process_spot_stocks(raw, f, zt_map=None):
             "sealFund": sc["sealFund"],
             "limitBoards": sc["limitBoards"],
             "breakCount": sc["breakCount"],
+            "factors": sc["factors"],
             "speed": parse_float(s.get("f8")),
             "circulationMV": parse_float(s.get("f21")) / 1e8,
             "price": parse_float(s.get("f2")),
@@ -570,6 +598,7 @@ def score_all_stocks(raw, yesterday_map=None, snapshot_map=None):
             "entityChange": get_entity_change(s),
             "bidTurnover": sc["bidTurnover"],
             "bidVolRatio": sc["bidVolRatio"],
+            "factors": sc["factors"],
             "speed": parse_float(s.get("f8")),
             "warnType": get_warn_type(s),
             "circulationMV": parse_float(s.get("f21")) / 1e8,

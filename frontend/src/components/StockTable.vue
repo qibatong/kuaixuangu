@@ -47,7 +47,7 @@
           <td>{{ item.circulationMV.toFixed(1) }}</td>
           <td>{{ item.industry }}</td>
           <td style="max-width:180px;white-space:pre-wrap" :title="'概念: ' + (item.concept || '')">{{ shortConcept(item.concept) }}</td>
-          <td class="up">{{ item.probability }}分</td>
+          <td class="score-cell" :title="factorTitle(item)">{{ item.probability }}分</td>
           <td>{{ item.confidence }}%</td>
           <td><button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click.stop="addToPool(item)">{{ inPool(item.code) ? '已加自选' : '＋自选' }}</button></td>
         </tr>
@@ -140,6 +140,21 @@ function fmtPct(v) {
 function addToPool(item) {
   const n = pool.addStocks([item])
   showToast(n ? `✅ ${item.code} ${item.name} 已加入股票池` : `${item.code} 已在池中`, n ? 'success' : 'info')
+}
+
+// 评分构成 tooltip(五因子分项): "竞价涨幅 +3.20% → 88分 (权重34%)" 每行一个
+function factorTitle(item) {
+  const f = item.factors || {}
+  const rows = Object.values(f).map(x => {
+    let v = '-'
+    if (x.value !== null && x.value !== undefined && !isNaN(x.value)) {
+      v = x.label.includes('市值') ? x.value.toFixed(1) + '亿'
+        : x.label.includes('等级') ? x.value + '级'
+        : (x.value > 0 ? '+' : '') + x.value.toFixed(2) + '%'
+    }
+    return `${x.label} ${v} → ${x.score}分 (权重${Math.round(x.weight * 100)}%)`
+  })
+  return '评分构成：\n' + rows.join('\n')
 }
 // 是否已在池中
 function inPool(code) {

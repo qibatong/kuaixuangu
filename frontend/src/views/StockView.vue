@@ -22,6 +22,9 @@
     <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价选股" />
 
     <template v-else>
+    <div class="stock-layout">
+      <!-- 左: 主内容(情绪/模式/筛选/奖牌/主表) -->
+      <div class="stock-main">
     <!-- 市场情绪面板: 涨停家数/情绪值/连板高度(置于模式切换上方, 整体大盘氛围先行) -->
     <SentimentPanel :yizi-today="yiziToday" :yizi-trend="yiziTrend" />
 
@@ -54,9 +57,6 @@
       </div>
     </template>
 
-    <!-- 自选股票池 -->
-    <StockPoolPanel />
-
     <!-- 全部结果导出(上下) -->
     <div style="display:flex;justify-content:flex-end;margin:6px 0;">
       <button class="tdx-export-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="downloadAll"><i class="fa fa-download"></i> 下载全部筛选结果</button>
@@ -79,6 +79,13 @@
     <div style="display:flex;justify-content:flex-end;margin:6px 0;">
       <button class="tdx-export-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="downloadAll"><i class="fa fa-download"></i> 下载全部筛选结果</button>
     </div>
+      </div>
+
+      <!-- 右: 自选股票池(桌面端固定右侧栏, 移动端回到下方) -->
+      <aside class="stock-side">
+        <StockPoolPanel />
+      </aside>
+    </div>
     </template>
   </div>
 </template>
@@ -97,7 +104,7 @@ import { useUserStore } from '../stores/user'
 import { kplBidSeal } from '../api/kpl'
 import { showToast } from '../utils/toast'
 import { copyText, downloadBlkFile } from '../utils/tdx'
-import { bjTimeStr, isBefore930, isMemberOnlyTime } from '../utils/time'
+import { bjDateTimeStr, isBefore930, isMemberOnlyTime } from '../utils/time'
 
 const stocks = useStocksStore()
 const pool = usePoolStore()
@@ -149,7 +156,7 @@ async function init() {
     showToast('❌ ' + e.message, 'error')
   }
   // 启动定时器: 时钟 / 自动收录 / 过期检查
-  clockTimer = setInterval(() => { bjTime.value = bjTimeStr() }, 1000)
+  clockTimer = setInterval(() => { bjTime.value = bjDateTimeStr() }, 1000)
   autoAddTimer = setInterval(() => pool.autoAdd(currentList(), stocks.isDataCached || stocks.isSpotCached), 20000)
   expiryTimer = setInterval(() => pool.checkExpiry(), 30000)
   pool.autoAdd(currentList(), stocks.isDataCached || stocks.isSpotCached)
@@ -192,7 +199,7 @@ function copyCodes() {
 }
 
 onMounted(() => {
-  bjTime.value = bjTimeStr()
+  bjTime.value = bjDateTimeStr()
   init()
   loadYizi()
   loadBidSeal()
@@ -205,6 +212,23 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* 左右分栏: 桌面端主内容左 + 自选池右(固定右侧栏), 移动端单列堆叠 */
+.stock-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.stock-main { min-width: 0; }
+@media (min-width: 1100px) {
+  .stock-layout { grid-template-columns: minmax(0, 1fr) 350px; }
+  .stock-side {
+    position: sticky;
+    top: 10px;
+    max-height: calc(100vh - 20px);
+    overflow-y: auto;
+  }
+}
 .yizi-card {
   display: inline-flex;
   align-items: center;

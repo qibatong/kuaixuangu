@@ -1,8 +1,5 @@
 <template>
   <div class="page-shell">
-    <div class="page-back">
-      <router-link to="/" class="tdx-export-btn nav-btn nav-invite"><i class="fa fa-arrow-left"></i> 返回选股</router-link>
-    </div>
     <div class="invite-panel" style="width:min(480px, 94vw); margin:0 auto;">
       <div class="invite-head">
         <span class="invite-title"><i class="fa fa-share-alt"></i> 邀请推广</span>

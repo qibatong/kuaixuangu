@@ -22,8 +22,8 @@
   --bg-hover: rgba(255, 255, 255, 0.06);
   --text-main: #eef2ff;
   --text-secondary: #ddd;
-  --text-muted: #88aacc;
-  --text-dim: #667;
+  --text-muted: #9db8d8;
+  --text-dim: #7a8a9a;
   --border-soft: rgba(255, 255, 255, 0.1);
 }
 body[data-bg="light"] {
@@ -35,9 +35,9 @@ body[data-bg="light"] {
   --bg-input: rgba(255, 255, 255, 0.95);
   --bg-hover: rgba(0, 0, 0, 0.05);
   --text-main: #1a1d26;
-  --text-secondary: #444;
-  --text-muted: #5a6b85;
-  --text-dim: #888;
+  --text-secondary: #3a3f4d;
+  --text-muted: #3f4d63;
+  --text-dim: #5a6b85;
   --border-soft: rgba(0, 0, 0, 0.12);
   --accent-text: #b91c1c;  /* 深红, 白底可读 */
   --accent-border: rgba(var(--accent-rgb), 0.5);
@@ -225,7 +225,7 @@ z-index: 9999;
 .medal-name-big { font-size: 22px; font-weight: 800; color: var(--text-main); letter-spacing: 1px; margin: 2px 0; }
 .medal-code { font-size: 18px; font-weight: 600; color: #ffd700; cursor: pointer; font-family: 'Consolas', monospace; letter-spacing: 1px; margin: 2px 0; transition: color 0.2s; }
 .medal-code:hover { color: #fff; text-shadow: 0 0 8px rgba(255,215,0,0.6); }
-.medal-prob-big { font-size: 48px; font-weight: 900; color: #ff7b4a; line-height: 1; margin: 4px 0; }
+.medal-prob-big { font-size: 48px; font-weight: 900; color: #e0a800; line-height: 1; margin: 4px 0; }
 .medal-detail { font-size: 13px; color: var(--text-secondary); display: flex; gap: 12px; align-items: center; }
 .medal-detail .bid-chg { color: #ff8a6f; font-weight: 600; }
 .medal-detail .conf-val { color: var(--accent-text); font-weight: 600; }
@@ -472,10 +472,10 @@ border-bottom: 1px dashed rgba(255,160,120,0.25); row-gap: 8px;
 .query-submit-btn { flex-shrink: 0; }
 .query-form label { font-size: 12px; color: var(--accent-text); display: flex; align-items: center; gap: 4px; white-space: nowrap; flex: 0 0 auto; }
 .query-form input, .query-form select {
-background: var(--bg-input); border: 1px solid var(--accent); color: #fff; padding: 4px 6px;
-border-radius: 4px; font-size: 12px; outline: none; flex-shrink: 0;
+background: var(--bg-input); border: 1.5px solid rgba(255, 92, 92, 0.55); color: #fff; padding: 5px 8px;
+border-radius: 5px; font-size: 12px; outline: none; flex-shrink: 0;
 }
-.query-form input:focus { box-shadow: 0 0 0 2px var(--accent); }
+.query-form input:focus { box-shadow: 0 0 0 2px rgba(255, 92, 92, 0.35); border-color: var(--accent); }
 .query-form input::placeholder { color: var(--text-dim); }
 .query-form input[type="number"] { width: 56px; font-family: monospace; }
 .query-form input[type="date"] { width: auto; min-width: 118px; color-scheme: light; }
@@ -593,7 +593,7 @@ body[data-bg="light"] .medal-section { border-color: rgba(199,145,0,0.4); }
 body[data-bg="light"] .medal-rank { color: #c79100; }
 body[data-bg="light"] .medal-code { color: #c79100; }
 body[data-bg="light"] .medal-code:hover { color: #1a1d26; text-shadow: none; }
-body[data-bg="light"] .medal-prob-big { color: #b83010; }
+body[data-bg="light"] .medal-prob-big { color: #a06a00; }
 body[data-bg="light"] .medal-detail .bid-chg { color: #b83010; }
 body[data-bg="light"] .medal-real-chg { color: #b83010; }
 body[data-bg="light"] .medal-card { background: rgba(0,0,0,0.04); border-color: rgba(199,145,0,0.35); }
@@ -686,7 +686,10 @@ body[data-bg="light"] .ratio-hot { color: #b83010 !important; }
 body[data-bg="light"] .ratio-warm { color: #8a5500 !important; }
 body[data-bg="light"] .rank-col { color: #b83010; }
 body[data-bg="light"] .code-click { color: #8a5500 !important; }
-body[data-bg="light"] .dim { color: #888; }
+body[data-bg="light"] .dim { color: #5a6b85; }
+/* 综合评分金色(非涨跌语义色, 收敛页面红色滥用); hover 显示评分构成 */
+.score-cell { color: #e0a800; font-weight: 700; cursor: help; }
+body[data-bg="light"] .score-cell { color: #a06a00; }
 body[data-bg="light"] .empty-pool { color: #5a6b85; }
 body[data-bg="light"] .empty-state { background: rgba(255,255,255,0.95); color: #5a6b85; }
 body[data-bg="light"] .spinner { border-color: rgba(184,48,16,0.2); border-top-color: #b83010; }

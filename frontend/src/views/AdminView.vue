@@ -1,7 +1,6 @@
 <template>
   <div class="admin-wrap">
     <div class="admin-head">
-      <router-link to="/" class="tdx-export-btn nav-btn nav-pool-import"><i class="fa fa-arrow-left"></i> 返回选股</router-link>
       <h2 style="margin:0 auto;color:var(--accent-text);"><i class="fa fa-shield"></i> 管理后台</h2>
       <span style="width:120px;"></span>
     </div>

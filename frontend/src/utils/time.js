@@ -16,6 +16,12 @@ export function bjTimeStr() {
   return `${pad2(bj.getHours())}:${pad2(bj.getMinutes())}:${pad2(bj.getSeconds())}`
 }
 
+// 日期+时间一体显示(体验优化: 日期和时间分开显示没意义, 合并一行)
+export function bjDateTimeStr() {
+  const bj = bjNow()
+  return `${pad2(bj.getMonth() + 1)}-${pad2(bj.getDate())} ${pad2(bj.getHours())}:${pad2(bj.getMinutes())}:${pad2(bj.getSeconds())}`
+}
+
 export function fmtDate(d) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
 }

@@ -1,7 +1,5 @@
 <template>
   <div class="page-shell">
-    <div class="page-back" @click="$router.push('/')"><i class="fa fa-arrow-left"></i> 返回选股</div>
-
     <div class="ladder-head">
       <span class="ladder-title"><i class="fa fa-sitemap"></i> 连板天梯</span>
       <span class="ladder-sub">实时连板梯队（盘中持续刷新）</span>
@@ -94,7 +92,7 @@ import { onMounted, ref, reactive } from 'vue'
 import { usePolling } from '../composables/usePolling'
 import { kplLadder, kplZtReason } from '../api/kpl'
 import { linkToSoftware } from '../utils/tdx'
-import { bjTimeStr } from '../utils/time'
+import { bjDateTimeStr } from '../utils/time'
 import { useSortable } from '../composables/useSortable'
 
 const ladder = ref({})
@@ -155,8 +153,8 @@ function clearDate() {
 }
 
 onMounted(() => {
-  bjTime.value = bjTimeStr()
-  usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
+  bjTime.value = bjDateTimeStr()
+  usePolling(() => { bjTime.value = bjDateTimeStr() }, 1000, { immediate: false })
   load()
   usePolling(load, 60000)  // 每分钟刷新
 })
