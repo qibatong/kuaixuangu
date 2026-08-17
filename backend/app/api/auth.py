@@ -31,7 +31,8 @@ def api_login(request: Request, body: dict = Body(...)):
         log.warning("登录失败 login=%s ip=%s", login, client_ip(request))
         return jr({"ok": False, "msg": "用户名或密码错误"}, 401)
     # 邮箱认证拦截(2026-08-17): 新注册未验证邮箱的账号禁止登录
-    if user is not None and not int(user.get("email_verified") or 1):
+    # 注意 email_verified=0 时不能用 `or 1` 兜底(0 是 falsy 会被当成 1)
+    if user is not None and int(user.get("email_verified") or 0) != 1:
         log.warning("登录拦截-未验证邮箱 uid=%s login=%s", user["id"], login)
         return jr({"ok": False, "msg": "请先完成邮箱验证再登录",
                    "need_verify_email": True,
@@ -95,10 +96,13 @@ def api_register(request: Request, body: dict = Body(...)):
     my_code = users.gen_unique_invite_code()
     # 注册环境: IP + UA(截断存储, 供同 IP 自邀识别/管理端追溯)
     ua = str(request.headers.get("user-agent") or "")[:200]
+    # SMTP 已配置 → 新注册强制邮箱验证(email_verified=0); 未配置 → 降级为已验证
+    smtp_ready = users.smtp_configured()
     try:
         uid = users.create_user(username, password, invited_by=invited_by,
                                 invite_code=my_code, phone=phone or None,
-                                email=email or None, register_ip=ip, register_ua=ua)
+                                email=email or None, register_ip=ip, register_ua=ua,
+                                email_verified=0 if smtp_ready else 1)
     except sqlite3.IntegrityError:
         log.warning("注册冲突 username=%s ip=%s", username, client_ip(request))
         return jr({"ok": False, "msg": "用户名或手机号/邮箱已被占用"}, 409)
@@ -114,9 +118,8 @@ def api_register(request: Request, body: dict = Body(...)):
             log.info("邀请奖励 uid=%s inviter=%s +%d天 新到期=%s", uid, invited_by,
                      config.INVITE_REWARD_DAYS, new_et or "-")
     # 邮箱认证(2026-08-17): 新注册强制验证, 验证通过后才能登录
-    # SMTP 未配置时降级跳过(避免测试/未配邮件环境新用户卡死); 配置后自动强制
     email_verified = 1
-    if users.smtp_configured():
+    if smtp_ready:
         vcode = users.gen_verify_code()
         users.set_email_verify_code(uid, vcode)
         mail_ok = users.send_verify_email(email, username, vcode)

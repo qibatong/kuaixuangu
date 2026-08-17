@@ -360,9 +360,10 @@ def gen_unique_invite_code():
 
 
 def create_user(username, password, invited_by=None, invite_code=None, phone=None, email=None,
-                expire_days=None, register_ip=None, register_ua=None):
+                expire_days=None, register_ip=None, register_ua=None, email_verified=0):
     """创建用户. expire_days>0 注册即送 N 天会员(默认 config.NEW_USER_DAYS 天试用); 0 表示永久
-    register_ip/register_ua: 注册时的 IP 与 UA(用于同 IP 防刷/自邀识别)"""
+    register_ip/register_ua: 注册时的 IP 与 UA(用于同 IP 防刷/自邀识别)
+    email_verified: 默认 0=新注册未验证(强制邮箱认证); 管理员代建传 1"""
     if expire_days is None:
         expire_days = config.NEW_USER_DAYS
     now = int(__import__("time").time())
@@ -371,9 +372,10 @@ def create_user(username, password, invited_by=None, invite_code=None, phone=Non
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO users (username, password_hash, created_at, expire_at, invited_by, invite_code, "
-        "phone, email, register_ip, register_ua) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        "phone, email, register_ip, register_ua, email_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         (username, security.hash_password(password), now, expire_at,
-         invited_by, invite_code, phone, email, register_ip, register_ua))
+         invited_by, invite_code, phone, email, register_ip, register_ua,
+         1 if email_verified else 0))
     uid = cur.lastrowid
     conn.commit()
     conn.close()

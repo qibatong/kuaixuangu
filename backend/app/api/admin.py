@@ -298,7 +298,7 @@ def api_admin_user_create(request: Request, body: dict = Body(...),
     try:
         new_uid = users.create_user(username, password, invited_by=invited_by,
                                     invite_code=my_code, phone=phone or None,
-                                    email=email or None)
+                                    email=email or None, email_verified=1)
     except sqlite3.IntegrityError as e:
         log.warning("管理员创建账号冲突 username=%s err=%s", username, e)
         return jr({"ok": False, "msg": "用户名或手机号/邮箱已被占用"}, 409)
