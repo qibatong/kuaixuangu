@@ -23,7 +23,7 @@
 
     <template v-else>
     <!-- 市场情绪面板: 涨停家数/情绪值/连板高度(置于模式切换上方, 整体大盘氛围先行) -->
-    <SentimentPanel :yizi-today="yiziToday" :yizi-trend="yiziTrend" />
+    <SentimentPanel />
 
     <!-- 模式切换 Tab: 竞价选股 / 盘中实时选股 -->
     <div class="mode-tabs">
@@ -102,9 +102,6 @@ const stocks = useStocksStore()
 const pool = usePoolStore()
 const user = useUserStore()
 const bjTime = ref('--:--:--')
-const yiziToday = ref(null)       // {yizi_count, bid_amt} 今日一字涨停
-const yiziTrend = ref([])         // 近 5 日趋势
-const yiziLoaded = ref(false)     // 接口已返回(区分 加载中/暂无)
 const bidSealMap = ref({})        // 竞价涨停委买额 map: code -> {limitBoards, bidSealAmt, bidNetAmt}
 
 async function loadBidSeal() {
@@ -114,19 +111,6 @@ async function loadBidSeal() {
     ;(d.list || []).forEach((it) => { map[it.code] = it })
     bidSealMap.value = map
   } catch (e) { /* 竞价委买额可选, 失败静默 */ }
-}
-
-async function loadYizi() {
-  try {
-    const resp = await fetch('/api/stats/daily-yizi?days=5', { headers: { 'Authorization': 'Bearer ' + user.apiToken } })
-    const data = await resp.json()
-    if (data.ok && data.list && data.list.length) {
-      yiziTrend.value = data.list
-      yiziToday.value = data.list[0]
-    }
-  } catch (e) { /* 静默 */ } finally {
-    yiziLoaded.value = true
-  }
 }
 
 let clockTimer = null
@@ -191,7 +175,6 @@ function copyCodes() {
 onMounted(() => {
   bjTime.value = bjDateTimeStr()
   init()
-  loadYizi()
   loadBidSeal()
 })
 onBeforeUnmount(() => {

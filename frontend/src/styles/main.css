@@ -48,7 +48,7 @@ body[data-bg="light"] .title-sub { color: var(--text-muted); }
 body[data-bg="light"] .rule-text { color: var(--text-secondary); }
 body[data-bg="light"] .rule-text strong { color: var(--accent-deep); }
 body[data-bg="light"] .live-time { background: rgba(0,0,0,0.04); border-color: var(--border-soft); }
-body[data-bg="light"] .live-time .time-digital { color: var(--accent-deep); }
+body[data-bg="light"] .live-time .time-digital { color: var(--text-muted); }
 body[data-bg="light"] #mobileTdxHint { color: #8a5500; background: rgba(255,150,50,0.08); border-color: rgba(255,150,50,0.5); }
 body[data-bg="light"] .tdx-export-btn { color: var(--text-main); }
 body[data-bg="light"] .pool-btn { color: var(--text-main); background: rgba(50,65,100,0.12); border-color: var(--border-soft); }
@@ -215,8 +215,8 @@ z-index: 9999;
 @keyframes lockPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,140,40,0.5); } 50% { box-shadow: 0 0 0 8px rgba(255,140,40,0); } }
 .count-select, .export-select { background: var(--bg-input); border: 1px solid var(--accent); color: #fff; padding: 6px 10px; border-radius: 4px; font-size: 12px; outline: none; cursor: pointer; }
 /* 2026-08-17 主人反馈: 时间显示框容易被误点, 改为纯文字不带框(本身是状态, 不是操作) */
-.live-time { background: transparent; border: 0; border-radius: 0; padding: 6px 0; text-align: center; font-family: monospace; white-space: nowrap; }
-.live-time .time-digital { font-size: 16px; font-weight: 700; color: #ffbb99; letter-spacing: 1px; }
+.live-time { background: transparent; border: 0; border-radius: 0; padding: 2px 6px; text-align: center; font-family: monospace; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+.live-time .time-digital { font-size: 11px; font-weight: 500; color: var(--text-muted); letter-spacing: 0; opacity: 0.7; }
 
 .medal-section { background: var(--bg-panel); backdrop-filter: blur(8px); border-radius: 10px; padding: 0; border: 1px solid rgba(255,215,0,0.4); margin: 0; display: flex; flex-wrap: nowrap; gap: 8px; justify-content: center; align-items: stretch; }
 .medal-card { flex: 1 1 0; min-width: 0; text-align: center; margin: 8px 0; padding: 12px 6px; border-radius: 12px; background: var(--bg-card); border: 1px solid rgba(255,215,0,0.3); display: flex; flex-direction: column; align-items: center; gap: 5px; }
@@ -593,7 +593,7 @@ body[data-bg="light"] .health-none { color: #44607a; background: rgba(120,160,20
 body[data-bg="light"] .title-sub { color: #6a5a5a; }
 body[data-bg="light"] #mobileTdxHint { color: #8a5500; background: rgba(255,150,50,0.08); border-color: rgba(255,150,50,0.5); }
 body[data-bg="light"] .tdx-export-btn { color: #333; }
-body[data-bg="light"] .live-time .time-digital { color: var(--accent-deep); }
+body[data-bg="light"] .live-time .time-digital { color: var(--text-muted); }
 body[data-bg="light"] .live-time { background: rgba(0,0,0,0.04); border-color: var(--border-soft); color: var(--text-secondary); }
 body[data-bg="light"] .health-ok { color: #2d7020; background: rgba(80,200,120,0.15); border-color: rgba(80,200,120,0.4); }
 body[data-bg="light"] .health-degraded { color: #8a5500; background: rgba(255,180,0,0.12); border-color: rgba(255,150,30,0.5); }

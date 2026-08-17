@@ -5,53 +5,7 @@
     <div v-if="loading" class="senti-loading">加载中...</div>
 
     <template v-else-if="s">
-      <!-- 两市概况: 成交额(亿) + 较昨日同时刻差异 + 股票总数 -->
-      <div class="senti-item" v-if="brief.market" :title="'两市股票总数 ' + brief.market.stockCount + ' 只'">
-        <span class="senti-label">两市</span>
-        <span class="senti-val mkt-amt">{{ brief.market.amount.toFixed(0) }}亿</span>
-        <template v-if="diffAmt !== null">
-          <span class="senti-label" style="margin-left:4px;">较昨</span>
-          <span class="senti-val" :class="diffAmt < 0 ? 'mkt-shrink' : 'mkt-grow'">
-            {{ diffAmt < 0 ? '缩量' : '放量' }} {{ Math.abs(diffAmt).toFixed(0) }}亿
-          </span>
-        </template>
-      </div>
-      <!-- 涨跌家数分布(今日 + 昨日同时刻对比) -->
-      <div class="senti-item" v-if="brief.breadth" :title="briefBreadthTip">
-        <span class="senti-label">涨跌</span>
-        <span class="senti-val mkt-rise">{{ brief.breadth.rise }}</span>
-        <span class="senti-label">/</span>
-        <span class="senti-val mkt-fall">{{ brief.breadth.fall }}</span>
-        <template v-if="brief.breadth.yesterday">
-          <span class="senti-label" style="margin-left:4px;">昨同时</span>
-          <span class="senti-val dim" style="font-size:12px;">
-            {{ brief.breadth.yesterday.rise }}/{{ brief.breadth.yesterday.fall }}
-          </span>
-        </template>
-      </div>
-      <div class="senti-item">
-        <span class="senti-label">涨停家数</span>
-        <span class="senti-val zt">{{ s.ztCount }}</span>
-        <span class="senti-label" style="margin-left:10px;">跌停家数</span>
-        <span class="senti-val dt">{{ s.dtCount ?? '-' }}</span>
-      </div>
-      <div class="senti-item">
-        <span class="senti-label">连板高度</span>
-        <span class="senti-val lbg">{{ s.lbgd }}板</span>
-      </div>
-      <!-- 一字涨停: 与连板高度同维度(强势涨停), 放中间位置视觉连贯 -->
-      <div class="senti-item yizi" :title="yiziTrend && yiziTrend.length ? ('近5日一字涨停趋势: ' + yiziTrend.map(d => d.date.slice(5) + ':' + d.yizi_count + '个').join('  ')) : ''">
-        <span class="senti-label">一字涨停</span>
-        <template v-if="yiziToday">
-          <span class="senti-val yz">{{ yiziToday.yizi_count }}</span>
-          <span class="senti-label">个</span>
-          <span class="senti-label" style="margin-left:4px;">竞价</span>
-          <span class="senti-val yz-amt">{{ yiziAmtText(yiziToday.bid_amt) }}</span>
-        </template>
-        <template v-else>
-          <span class="senti-val dim">0</span>
-        </template>
-      </div>
+      <!-- 情绪值: 排序第一位(整体盘面冷热, 最关键) + 进度条 -->
       <div class="senti-item senti-strong">
         <span class="senti-label">情绪值</span>
         <div class="senti-bar">
@@ -60,11 +14,44 @@
         <span class="senti-val" :class="strongCls">{{ s.strong }}</span>
         <span class="senti-tag" :class="strongCls">{{ strongText }}</span>
       </div>
+      <!-- 两市资金: 成交额(亿) + 较昨日同时刻缩量/放量 -->
+      <div class="senti-item" v-if="brief.market" :title="'两市股票总数 ' + brief.market.stockCount + ' 只'">
+        <span class="senti-label">两市资金</span>
+        <span class="senti-val mkt-amt">{{ brief.market.amount.toFixed(0) }}亿</span>
+        <template v-if="diffAmt !== null">
+          <span class="senti-tag-aux" :class="diffAmt < 0 ? 'mkt-shrink' : 'mkt-grow'">
+            {{ diffAmt < 0 ? '缩量' : '放量' }} {{ Math.abs(diffAmt).toFixed(0) }}亿
+          </span>
+        </template>
+      </div>
+      <!-- 涨跌家数分布(今日 + 昨日同时刻对比) -->
+      <div class="senti-item" v-if="brief.breadth" :title="briefBreadthTip">
+        <span class="senti-label">涨跌家数</span>
+        <span class="senti-val mkt-rise">{{ brief.breadth.rise }}</span>
+        <span class="senti-label">/</span>
+        <span class="senti-val mkt-fall">{{ brief.breadth.fall }}</span>
+        <template v-if="brief.breadth.yesterday">
+          <span class="senti-label aux">昨同时</span>
+          <span class="senti-val dim aux-val">{{ brief.breadth.yesterday.rise }}/{{ brief.breadth.yesterday.fall }}</span>
+        </template>
+      </div>
+      <!-- 涨停板 / 跌停板 -->
+      <div class="senti-item">
+        <span class="senti-label">涨停板</span>
+        <span class="senti-val zt">{{ s.ztCount }}</span>
+        <span class="senti-label tab">跌停板</span>
+        <span class="senti-val dt">{{ s.dtCount ?? '-' }}</span>
+      </div>
+      <!-- 高度板(连板高度) -->
+      <div class="senti-item">
+        <span class="senti-label">高度板</span>
+        <span class="senti-val lbg">{{ s.lbgd }}板</span>
+      </div>
+      <!-- 大幅回撤 -->
       <div class="senti-item">
         <span class="senti-label">大幅回撤</span>
         <span class="senti-val dim">{{ s.dfNum }}</span>
       </div>
-      <div class="senti-item senti-day">{{ s.day }}</div>
     </template>
 
     <div v-else class="senti-loading dim">情绪数据暂不可用</div>
@@ -74,17 +61,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { kplSentiment, kplMarketBrief } from '../api/kpl'
-
-// 一字涨停统计(由父组件 StockView 传入; 解耦后 SentimentPanel 不再自取)
-const { yiziToday, yiziTrend } = defineProps({
-  yiziToday: { type: Object, default: null },  // {yizi_count, bid_amt}
-  yiziTrend: { type: Array, default: () => [] } // 近 5 日趋势
-})
-
-function yiziAmtText(amt) {
-  if (amt === null || amt === undefined) return '-'
-  return (amt / 10000).toFixed(1) + '亿'
-}
 
 const s = ref(null)
 const loading = ref(true)
@@ -140,33 +116,37 @@ onMounted(async () => {
 .sentiment-panel {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 14px;
   flex-wrap: wrap;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
-  padding: 10px 16px;
+  padding: 8px 12px;
   margin: 10px 0;
 }
 .senti-title {
   color: #ffe0a0;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
+  white-space: nowrap;
 }
 .senti-title .fa { color: #ffb400; margin-right: 4px; }
 .senti-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  white-space: nowrap;
 }
 .senti-label {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
 }
+.senti-label.aux { font-size: 10px; opacity: 0.7; }
 .senti-val {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
 }
+.senti-val.aux-val { font-size: 11px; font-weight: 500; }
 .senti-val.zt { color: #ff6a6a; }
 .senti-val.lbg { color: #ffb400; }
 .mkt-amt { color: #ffd76a; }      /* 两市成交额: 金色 */
@@ -174,22 +154,28 @@ onMounted(async () => {
 .mkt-grow { color: #ff8a5a; }     /* 放量: 橙红 */
 .mkt-rise { color: #ff6a6a; }     /* 涨家数: 红 */
 .mkt-fall { color: #6ad66a; }     /* 跌家数: 绿 */
-.senti-val.yz { color: #ff5028; }   /* 一字涨停数: 火焰红 */
-.senti-val.yz-amt { color: #ffb400; } /* 一字竞价额: 橙金 */
+.senti-tag-aux {
+  font-size: 11px;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+.mkt-shrink { background: rgba(106, 214, 106, 0.12); }
+.mkt-grow { background: rgba(255, 138, 90, 0.12); }
 .senti-val.dim { color: var(--text-secondary); }
 .senti-val.hot { color: #ff6a6a; }
 .senti-val.cold { color: #6ad66a; }
 .senti-val.normal { color: #ffe0a0; }
 .senti-bar {
-  width: 90px;
-  height: 8px;
+  width: 60px;
+  height: 6px;
   background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
+  border-radius: 3px;
   overflow: hidden;
 }
 .senti-bar-fill {
   height: 100%;
-  border-radius: 4px;
+  border-radius: 3px;
   transition: width 0.3s;
 }
 .senti-bar-fill.hot { background: linear-gradient(90deg, #ffb400, #ff5028); }
@@ -197,17 +183,31 @@ onMounted(async () => {
 .senti-bar-fill.normal { background: linear-gradient(90deg, #ffb400, #ffe0a0); }
 .senti-tag {
   font-size: 11px;
-  padding: 1px 6px;
+  padding: 0 6px;
   border-radius: 4px;
+  font-weight: 500;
 }
 /* 2026-08-17 主人反馈: 情绪标签(如"偏克?风限")有边框像按钮, 改为纯文字标签 */
 .senti-tag.hot { color: #ff8a8a; }
 .senti-tag.cold { color: #8ae08a; }
 .senti-tag.normal { color: #ccc; }
-.senti-day { color: #666; font-size: 11px; margin-left: auto; }
 .senti-loading { color: var(--text-muted); font-size: 13px; }
 /* 跌停家数: 蓝色(主人约定避免绿色), 与涨跌家数行的 mkt-fall 区分 */
 .senti-val.dt { color: #5aa0ff; font-weight: 700; }
+
+.senti-label.tab { margin-left: 8px; }
+
+/* 手机端紧凑(2026-08-18 主人反馈"空间比较大"): 缩 padding/字号/间距, 2行布局 */
+@media (max-width: 600px) {
+  .sentiment-panel { padding: 6px 8px; gap: 6px 10px; }
+  .senti-title { font-size: 12px; }
+  .senti-label { font-size: 10px; }
+  .senti-val { font-size: 12px; }
+  .senti-bar { width: 36px; }
+  .senti-tag { font-size: 10px; padding: 0 4px; }
+  .senti-tag-aux { font-size: 10px; padding: 0 4px; }
+  .senti-label.tab { margin-left: 4px; }
+}
 
 /* 浅色主题覆盖 */
 body[data-bg="light"] .senti-title {  color: #5a4a3a;  }
@@ -219,16 +219,11 @@ body[data-bg="light"] .mkt-shrink {  color: #2a7a2a;  }
 body[data-bg="light"] .mkt-grow {  color: #b83010;  }
 body[data-bg="light"] .mkt-rise {  color: #b83010;  }
 body[data-bg="light"] .mkt-fall {  color: #2a7a2a;  }
-body[data-bg="light"] .senti-val.yz {  color: #b83010;  }
-body[data-bg="light"] .senti-val.yz-amt {  color: #8a5500;  }
 body[data-bg="light"] .senti-val.hot {  color: #b83010;  }
 body[data-bg="light"] .senti-val.normal {  color: #5a4a3a;  }
-body[data-bg="light"] .senti-block-label {  color: #5a6b85;  }
-body[data-bg="light"] .senti-block-title {  color: #5a4a3a;  }
 body[data-bg="light"] .senti-bar-track {  background: rgba(0,0,0,0.06);  }
 body[data-bg="light"] .senti-bar-fill.hot {  background: linear-gradient(90deg, #c79100, #b83010);  }
 body[data-bg="light"] .senti-bar-fill.normal {  background: linear-gradient(90deg, #c79100, #8a5500);  }
-body[data-bg="light"] .yp-block {  color: #5a4a3a;  }
-body[data-bg="light"] .yp-date {  color: #5a6b85;  }
-body[data-bg="light"] .yp-item b {  color: #1a1d26;  }
+body[data-bg="light"] .mkt-shrink { background: rgba(42, 122, 42, 0.1); }
+body[data-bg="light"] .mkt-grow { background: rgba(184, 48, 16, 0.1); }
 </style>
