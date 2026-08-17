@@ -61,13 +61,6 @@
       </div>
     </div>
 
-    <!-- 个股三时点封单: 一个视图看 9:15/9:20/9:25 三个时刻封单变化 -->
-    <div class="stock3-toolbar">
-      <span class="rot-tip"><i class="fa fa-eye"></i> 个股竞价封单（9:15 / 9:20 / 9:25）</span>
-      <input v-model="stock3.code" class="stock3-input" placeholder="输入6位代码，如 300410" maxlength="6" @keydown.enter="loadStock3" />
-      <button class="stock3-btn" @click="loadStock3"><i class="fa fa-search"></i> 查询</button>
-    </div>
-
     <!-- Tab 切换 -->
     <div class="auc-tabs">
       <button class="auc-tab" :class="{ active: tab === 's3' }" title="全市场竞价封单榜: 9:25涨停→9:20涨停回落→9:15涨停回落 三层排序" @click="switchTab('s3')"><i class="fa fa-th-list"></i> 竞价封单</button>
@@ -448,42 +441,6 @@
       </div>
     </div>
 
-    <!-- 个股三时点封单弹窗: 同一视图对比 9:15/9:20/9:25 -->
-    <div v-if="stock3.show" class="modal-mask" @click.self="stock3.show = false">
-      <div class="snap-modal">
-        <div class="snap-head">
-          <span class="snap-title">{{ stock3.data.name || stock3.code }}（{{ stock3.code }}）· {{ stock3.data.date }} 竞价封单</span>
-          <span class="snap-close" @click="stock3.show = false">✕</span>
-        </div>
-        <table class="stock-table">
-          <thead>
-            <tr>
-              <th>时点</th>
-              <th>竞价涨幅</th>
-              <th>封单额(万)</th>
-              <th>流通市值(亿)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="tp in stock3Points" :key="tp">
-              <td class="stock3-tp">{{ tpLabel(tp) }}</td>
-              <td
-v-if="stock3.data.points && stock3.data.points[tp]"
-                  :class="stock3.data.points[tp].bid_change > 0 ? 'up' : stock3.data.points[tp].bid_change < 0 ? 'down' : 'dim'"
->
-                {{ signed(stock3.data.points[tp].bid_change) }}%
-              </td>
-              <td v-else class="dim">-</td>
-              <td v-if="stock3.data.points && stock3.data.points[tp] && stock3.data.points[tp].bid_buy_amt">{{ (stock3.data.points[tp].bid_buy_amt / 1e4).toFixed(0) }}</td>
-              <td v-else class="dim">-</td>
-              <td v-if="stock3.data.points && stock3.data.points[tp]">{{ (stock3.data.points[tp].float_mv / 1e8).toFixed(1) }}</td>
-              <td v-else class="dim">-</td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-if="!hasStock3Points" class="snap-empty">该日该股暂无竞价封单快照（需交易日 9:15/9:20/9:25 自动采集后才有）</div>
-      </div>
-    </div>
     </template>
   </div>
 </template>
@@ -492,7 +449,7 @@ v-if="stock3.data.points && stock3.data.points[tp]"
 import { computed, onMounted, ref } from 'vue'
 import { usePolling } from '../composables/usePolling'
 import { kplBidSeal, kplBidBoom, kplBidQiangcang, kplBroken, kplLhb, kplYestBroken, kplYestZt } from '../api/kpl'
-import { auctionOverview, auctionSnapshot, bidSnapshotStock, bidSnapshot3points } from '../api/stats'
+import { auctionOverview, auctionSnapshot, bidSnapshot3points } from '../api/stats'
 import { linkToSoftware } from '../utils/tdx'
 import { bjDateTimeStr, isMemberOnlyTime, todayBj } from '../utils/time'
 import { usePoolStore } from '../stores/pool'
@@ -554,32 +511,6 @@ const datePicker = ref('')    // 用户选的日期(空=实时)
 const dataDate = ref('')      // 后端实际返回的数据日期(可能被对齐)
 let autoFallback = false      // 已自动回退(避免清空后无限循环)
 const ovOpen = ref(false)     // 顶部多时点对比默认折叠(2026-08-18 主人反馈)
-
-// ---- 个股三时点封单(9:15/9:20/9:25 一视图对比) ----
-const stock3 = ref({ show: false, code: '', data: { date: '', name: '', points: {} }, loaded: false })
-const stock3Points = ['9_15', '9_20', '9_25']
-const TP_LABEL = { '9_15': '9:15', '9_20': '9:20', '9_25': '9:25' }
-function tpLabel(tp) { return TP_LABEL[tp] || tp }
-
-const hasStock3Points = computed(() => {
-  const pts = stock3.value && stock3.value.data && stock3.value.data.points
-  if (!pts) return false
-  return Object.values(pts).some((v) => v)
-})
-
-async function loadStock3() {
-  const code = (stock3.value.code || '').trim()
-  if (!/^\d{6}$/.test(code)) { showToast('请输入 6 位股票代码', 'error'); return }
-  stock3.value.loaded = false
-  try {
-    const d = await bidSnapshotStock(datePicker.value || todayBj(), code)
-    stock3.value.data = d
-    stock3.value.loaded = true
-    stock3.value.show = true
-  } catch (e) {
-    showToast(e.message || '查询失败', 'error')
-  }
-}
 
 // 各表独立排序实例
 const sealSort = useSortable()
@@ -918,38 +849,6 @@ onMounted(() => {
 /* 时点个股弹窗(脱离 flex, 固定定位自居中, 不受 flex item 收缩影响) */
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; }
 
-/* 个股三时点封单工具条 */
-.stock3-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 12px;
-  flex-wrap: wrap;
-}
-.stock3-input {
-  background: var(--bg-input);
-  border: 1.5px solid rgba(255, 92, 92, 0.5);
-  border-radius: 6px;
-  color: var(--text-main);
-  padding: 6px 10px;
-  font-size: 13px;
-  width: 200px;
-  box-sizing: border-box;
-}
-.stock3-input:focus { outline: none; border-color: var(--accent-warm, #ffb400); box-shadow: 0 0 0 2px rgba(255, 92, 92, 0.3); }
-.stock3-btn {
-  background: rgba(0, 180, 255, 0.15);
-  border: 1px solid #00b4ff;
-  color: #a0e0ff;
-  border-radius: 6px;
-  padding: 6px 16px;
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.stock3-btn:hover { background: rgba(0, 180, 255, 0.28); }
-.stock3-tp { color: var(--accent-warm, #ffb400); font-weight: 600; }
-
 /* 三时点封单榜状态标签: 层1(9:25封死)=红金 / 层2(9:20回落)=橙 / 层3(9:15回落)=黄 */
 .s3-tag { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
 .s3-tag-1 { color: #ffd700; border: 1px solid #ffd700; background: rgba(255, 215, 0, 0.1); }
@@ -1104,9 +1003,6 @@ body[data-bg="light"] .modal-mask { background: rgba(0,0,0,0.45); }
   .pool-add-btn { padding: 5px 10px; font-size: 12px; }
   /* 三时点提示条 */
   .s3-hint { font-size: 11.5px; padding: 7px 10px; }
-  /* 个股查询工具条 */
-  .stock3-input { width: 130px; font-size: 12px; }
-  .stock3-btn { padding: 6px 12px; font-size: 12px; }
   /* 页面留白压缩 */
   .page-back { font-size: 12px; margin-bottom: 8px; }
 }
