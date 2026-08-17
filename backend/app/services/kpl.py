@@ -471,14 +471,19 @@ def fetch_board_stocks(plate_id, date=None):
                 "code": str(row[0]),
                 "name": str(row[1]),
                 "concept": str(row[4] or ""),
-                "change": _f(row[5]),          # 涨幅(%)
-                "turnover": _f(row[6]),        # 换手(%)
-                "amount": _f(row[7]),          # 成交额(元)
-                "floatMv": _f(row[10]),        # 流通市值(元)
-                "mainNet": _f(row[11]),        # 主力净额(元)
+                # 字段对照(2026-08-17 东财交叉验证):
+                # [5]=最新价(元), [6]=涨跌幅%(20% 涨停板验证: 华民19.95/奥来德19.99/聚和20.01)
+                # [21]=量比(2.31=东财f10), [25]=换手率%(26.91=东财f8)
+                "price": _f(row[5]),          # 最新价(元)
+                "change": _f(row[6]),         # 涨跌幅(%)
+                "amount": _f(row[7]),         # 成交额(元)
+                "floatMv": _f(row[10]),       # 流通市值(元)
+                "mainNet": _f(row[11]),       # 主力净额(元)
+                "volRatio": _f(row[21]) if len(row) > 21 else 0,   # 量比
                 "limitTag": str(row[23] or "") if len(row) > 23 else "",   # 首板/连板标识
                 "ladder": str(row[24] or "") if len(row) > 24 else "",     # 龙一/龙二等梯队
-                "totalMv": _f(row[38]) if len(row) > 38 else 0,            # 总市值(元)
+                "turnover": _f(row[25]) if len(row) > 25 else 0,          # 换手率(%)
+                "totalMv": _f(row[38]) if len(row) > 38 else 0,           # 总市值(元)
             })
         except (IndexError, ValueError, TypeError):
             continue

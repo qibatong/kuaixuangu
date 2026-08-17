@@ -78,6 +78,7 @@
               <tr>
                 <th>代码</th>
                 <th>名称</th>
+                <th>最新价</th>
                 <th class="sortable" :class="{ active: stockSort.keyOf('change') }" @click="stockSort.onSort('change')">涨幅%<span class="sort-ind">{{ stockSort.ind('change') }}</span></th>
                 <th class="sortable" :class="{ active: stockSort.keyOf('turnover') }" @click="stockSort.onSort('turnover')">换手%<span class="sort-ind">{{ stockSort.ind('turnover') }}</span></th>
                 <th class="sortable" :class="{ active: stockSort.keyOf('amount') }" @click="stockSort.onSort('amount')">成交额(亿)<span class="sort-ind">{{ stockSort.ind('amount') }}</span></th>
@@ -90,6 +91,7 @@
               <tr v-for="s in stockSort.sorted(boardStocks)" :key="s.code">
                 <td class="code-click" @click="linkToSoftware(s.code)">{{ s.code }}</td>
                 <td class="name-col"><div class="name-main">{{ s.name }}</div></td>
+                <td>{{ s.price ? s.price.toFixed(2) : '-' }}</td>
                 <td :class="s.change > 0 ? 'up' : s.change < 0 ? 'down' : 'dim'">{{ s.change ? signed(s.change) + '%' : '-' }}</td>
                 <td>{{ s.turnover ? s.turnover.toFixed(2) : '-' }}</td>
                 <td>{{ s.amount ? yi(s.amount) : '-' }}</td>
