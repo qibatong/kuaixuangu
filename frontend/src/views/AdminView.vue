@@ -29,8 +29,8 @@
             </div>
             <input v-model="keyword" class="admin-input" placeholder="搜用户名/手机/邮箱/微信名/备注" @keyup.enter="loadUsers(1)" />
             <button class="admin-search-btn" @click="loadUsers(1)"><i class="fa fa-search"></i> 搜索</button>
-            <button class="admin-search-btn btn-warn" :disabled="!selectedIds.size" @click="openBatchExpire">
-              <i class="fa fa-clock-o"></i> 批量设到期{{ selectedIds.size ? ' (' + selectedIds.size + ')' : '' }}
+            <button class="admin-search-btn btn-warn" :disabled="!selectedIds.length" @click="openBatchExpire">
+              <i class="fa fa-clock-o"></i> 批量设到期{{ selectedIds.length ? ' (' + selectedIds.length + ')' : '' }}
             </button>
             <button class="admin-search-btn btn-create" @click="openCreate()"><i class="fa fa-plus"></i> 新建会员</button>
           </div>
@@ -56,7 +56,7 @@
             </thead>
             <tbody>
               <tr v-for="u in userSort.sorted(rows, userVal)" :key="u.id">
-                <td><input type="checkbox" v-model="selectedIds" :value="u.id" :disabled="u.is_admin" :title="u.is_admin ? '管理员不可批量操作' : ''" /></td>
+                <td><input type="checkbox" :checked="selectedIds.includes(u.id)" :disabled="u.is_admin" :title="u.is_admin ? '管理员不可批量操作' : ''" @change="e => toggleSelect(u.id, e.target.checked)" /></td>
                 <td>{{ u.id }}</td>
                 <td>{{ u.username }}</td>
                 <td>{{ u.wx_name || '-' }}</td>
@@ -247,7 +247,7 @@
       <!-- 批量设置到期弹层(2026-08-17 主人需求: 多选用户统一设置会员时间) -->
       <div v-if="batchExpireOpen" class="pwd-mask" @click.self="closeBatchExpire">
         <div class="pwd-pop" style="width:480px;">
-          <div class="pwd-title">⏰ 批量设置到期：已选 {{ selectedIds.size }} 人</div>
+          <div class="pwd-title">⏰ 批量设置到期：已选 {{ selectedIds.length }} 人</div>
           <div class="batch-expire-box">
             <div class="pop-label">延长时长(在现有到期上累加)</div>
             <div class="pop-row" style="flex-wrap:wrap;">
@@ -757,6 +757,16 @@ const pageAllChecked = computed(() => {
   const list = userSort.sorted(rows.value, userVal).filter(u => !u.is_admin)
   return list.length > 0 && list.every(u => selectedIds.value.includes(u.id))
 })
+// 行 checkbox 显式 :checked + @change(2026-08-17): 之前 v-model + :value="u.id" 在 Vue3 展开后
+// :value 会覆盖 v-model 的 modelValue prop, 导致 DOM checked 变了但 selectedIds 数组不更新,
+// 批量按钮始终 disabled. 改用显式切换避免 prop 冲突
+function toggleSelect(uid, checked) {
+  if (checked) {
+    if (!selectedIds.value.includes(uid)) selectedIds.value.push(uid)
+  } else {
+    selectedIds.value = selectedIds.value.filter(x => x !== uid)
+  }
+}
 function togglePageAll(e) {
   const list = userSort.sorted(rows.value, userVal).filter(u => !u.is_admin)
   if (e.target.checked) {
@@ -1108,6 +1118,11 @@ body[data-bg="light"] .btn-create {
 .member-tab { background: transparent; border: 0; color: var(--text-muted); padding: 4px 10px; font-size: 12px; cursor: pointer; border-radius: 4px; white-space: nowrap; }
 .member-tab:hover { color: var(--text-main); }
 .member-tab.active { background: rgba(0,180,255,0.18); color: #a0e0ff; }
+/* 浅色主题: 会员 tab 选中态用深色(白底浅蓝字看不清) */
+body[data-bg="light"] .member-tabs { background: rgba(0,0,0,0.04); }
+body[data-bg="light"] .member-tab { color: #6b7280; }
+body[data-bg="light"] .member-tab:hover { color: #1a1d26; }
+body[data-bg="light"] .member-tab.active { background: rgba(11,134,200,0.18); color: #0b4d80; font-weight: 600; }
 /* 创建结果展示 */
 .create-result { margin-top: 14px; padding: 12px; background: rgba(0,200,120,0.10); border: 1px solid rgba(0,200,120,0.35); border-radius: 6px; font-size: 13px; }
 .mini-date { background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 4px; color: var(--text-main); padding: 3px 6px; font-size: 12px; color-scheme: light; }
