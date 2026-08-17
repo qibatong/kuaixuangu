@@ -29,7 +29,7 @@
             <span v-else class="pool-snap dim">-</span>
             <span v-if="hasSnapshot(item.probability)" class="pool-score">{{ item.probability }}分</span>
           </div>
-          <div class="pool-add-time">{{ item.addTime }}</div>
+          <div class="pool-add-time">{{ formatAddTime(item.addTime) }}</div>
           <button class="del-single" @click="pool.removeStock(item.code)">移除</button>
         </div>
       </div>
@@ -52,6 +52,12 @@ const LOCK_DURATION_MS = 10 * 60 * 60 * 1000
 
 function hasSnapshot(v) { return v !== undefined && v !== null && !isNaN(v) }
 function medalCls(idx) { return idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : '' }
+// 兼容旧记录(HH:MM:SS)与新记录(HH:MM): 只保留 HH:MM, 给手机端紧凑
+function formatAddTime(t) {
+  if (!t) return ''
+  const parts = String(t).split(':')
+  return parts.length >= 2 ? parts[0] + ':' + parts[1] : t
+}
 
 const statusTag = computed(() => {
   if (pool.autoPoolLockTime && pool.stockPool.length) {

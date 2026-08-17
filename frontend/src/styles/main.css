@@ -309,6 +309,21 @@ text-align: center; outline: none; font-family: monospace; transition: border-co
 .del-single:hover { background: #ff4a4a; color: #fff; opacity: 1; transform: translateY(-1px); }
 .empty-pool { text-align: center; padding: 20px; color: #ccaacc; font-size: 13px; }
 
+/* 手机端池子行紧凑(2026-08-18 主人反馈挤压): 改两行布局 — 上行主要信息, 下行时间+移除 */
+@media (max-width: 600px) {
+  .pool-item { flex-direction: column; align-items: stretch; padding: 8px 12px; gap: 4px; }
+  .pool-item-main { gap: 6px; min-width: 0; flex-shrink: 1; }
+  .pool-item-info { gap: 6px; min-width: 0; flex: 1; }
+  .pool-stock-code { font-size: 14px; }
+  .pool-stock-name { font-size: 11px; min-width: 0; max-width: 110px; }
+  .pool-item-right { gap: 6px; justify-content: space-between; }
+  .pool-snaps { gap: 5px; }
+  .pool-snap { font-size: 11px; padding: 1px 6px; }
+  .pool-score { font-size: 10px; padding: 1px 6px; }
+  .pool-add-time { font-size: 9px; }
+  .del-single { padding: 2px 8px; font-size: 10px; }
+}
+
 .stock-table-container { background: var(--bg-panel); backdrop-filter: blur(4px); border-radius: 8px; padding: 10px; border: 1px solid rgba(var(--accent-rgb), 0.35); margin: 8px 0; overflow-x: auto; }
 .stock-table { width: 100%; border-collapse: collapse; text-align: center; min-width: 1100px; }
 .stock-table thead { background: rgba(var(--accent-rgb), 0.15); border-bottom: 2px solid var(--accent-deep); }

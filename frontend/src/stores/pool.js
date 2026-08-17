@@ -41,7 +41,7 @@ export const usePoolStore = defineStore('pool', {
           this.stockPool.push({
             code: s.code, name: s.name,
             bidChange: s.bidChange, probability: s.probability, confidence: s.confidence,
-            addTime: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+            addTime: new Date().toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' }),
             addTimestamp: Date.now()
           })
           added++
