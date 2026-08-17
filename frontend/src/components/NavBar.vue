@@ -239,14 +239,15 @@ function logout() {
 }
 .user-name-btn:hover { background: var(--bg-hover); color: var(--text-main); border-color: var(--accent); }
 .caret-up { transform: rotate(180deg); }
-/* 下拉菜单 */
+/* 下拉菜单: 不透明背景(按主题覆盖, 避免与 --bg-card 半透明融背景) */
 .user-menu {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 1000;
   min-width: 150px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-soft);
+  background-color: #1f2230;          /* 默认深色主题: 深灰实色 */
+  color: #eef2ff;
+  border: 1.5px solid #3a3e50;
   border-radius: 8px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
   padding: 5px;
   display: flex; flex-direction: column; gap: 2px;
 }
@@ -254,18 +255,31 @@ function logout() {
   display: flex; align-items: center; gap: 8px;
   width: 100%; text-align: left;
   background: transparent; border: none;
-  color: var(--text-secondary);
+  color: #eef2ff;
   font-size: 13px; padding: 8px 12px;
   border-radius: 6px; cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
-.user-menu .menu-item:hover { background: var(--bg-hover); color: var(--text-main); }
-.user-menu .menu-item i { width: 15px; text-align: center; color: var(--text-muted); }
+.user-menu .menu-item:hover { background: rgba(255, 255, 255, 0.08); color: #ffffff; }
+.user-menu .menu-item i { width: 15px; text-align: center; color: #b0b6c8; }
 .user-menu .menu-logout { color: #ff6a6a; }
-.user-menu .menu-logout:hover { background: rgba(255, 106, 106, 0.1); color: #ff6a6a; }
+.user-menu .menu-logout:hover { background: rgba(255, 106, 106, 0.15); color: #ff8585; }
 .user-menu .menu-logout i { color: #ff6a6a; }
-/* 浅色主题下菜单阴影更柔和 */
-body[data-bg="light"] .user-menu { box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12); }
+/* 浅色主题: 纯白菜单 + 深灰文字 */
+body[data-bg="light"] .user-menu {
+  background-color: #ffffff;
+  color: #1a1d26;
+  border-color: #c8ccd6;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+}
+body[data-bg="light"] .user-menu .menu-item { color: #1a1d26; }
+body[data-bg="light"] .user-menu .menu-item:hover { background: rgba(0, 0, 0, 0.06); color: #000000; }
+body[data-bg="light"] .user-menu .menu-item i { color: #555; }
+/* 纯黑主题: 更深 */
+body[data-bg="black"] .user-menu {
+  background-color: #0a0a0e;
+  border-color: #2a2a30;
+}
 .mini-btn {
   background: var(--bg-input); border: 1px solid var(--border-soft);
   color: var(--text-secondary); border-radius: 6px;
