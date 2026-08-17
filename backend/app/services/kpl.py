@@ -255,8 +255,17 @@ def fetch_sentiment():
         info = d.get("info")
         if isinstance(info, list) and info and isinstance(info[0], dict):
             r = info[0]
+            # 跌停家数: doc35 zt_dt_line 涨跌停数曲线最后一条(2026-08-18 主人需求)
+            dt_count = 0
+            try:
+                line = fetch_zt_dt_line()
+                if line and isinstance(line[-1], dict):
+                    dt_count = int(_num(line[-1].get("limit_down_count")) or 0)
+            except Exception:
+                pass
             return {
                 "ztCount": int(_num(r.get("ztjs"))),      # 涨停家数
+                "dtCount": dt_count,                       # 跌停家数(doc35 曲线最新值)
                 "strong": int(_num(r.get("strong"))),     # 情绪指标(0-100)
                 "lbgd": int(_num(r.get("lbgd"))),         # 连板高度
                 "dfNum": int(_num(r.get("df_num"))),      # 大幅回撤
