@@ -59,3 +59,18 @@ def get_uid(request: Request) -> int:
         log.warning("过期账号访问 %s uid=%s ip=%s", request.url.path, uid, client_ip(request))
         raise HTTPException(status_code=403, detail={"ok": False, "msg": "账号已过期，请联系管理员续费"})
     return uid
+
+
+def require_vip_or_paid(request: Request) -> int:
+    """鉴权依赖 + 竞价异动 VIP/付费门禁(2026-08-17 主人需求):
+    管理员 + VIP(member_level=2) + 付费会员(member_level=1) 可用;
+    免费试用(member_level=0) 返 403。
+    路由示例: def api_xxx(uid: int = Depends(require_vip_or_paid))"""
+    uid = get_uid(request)
+    u = users.find_user_by_id(uid)
+    if u and (u.get("is_admin") or int(u.get("member_level") or 0) >= 1):
+        return uid
+    log.warning("竞价异动门禁拦截 uid=%s ip=%s member_level=%s",
+                uid, client_ip(request), (u or {}).get("member_level"))
+    raise HTTPException(status_code=403, detail={"ok": False, "code": "vip_required",
+                                                 "msg": "竞价异动仅限 VIP/付费会员，请升级后使用"})

@@ -42,6 +42,8 @@ export const useUserStore = defineStore('user', {
     isLoggedIn: (s) => !!s.apiToken,
     // 会员判断: 管理员永远有权限; VIP老师 永久权限; 其余要求未过期(expire_at=0 永久 或 未到到期时间)
     isMember: (s) => s.isAdmin || s.memberLevel === 2 || !s.expired,
+    // 严格 VIP/付费 门禁(2026-08-17 主人需求): 仅管理员 + VIP(memberLevel=2) + 付费(memberLevel=1) 通过; 免费试用(0) 不可
+    isVipOrPaid: (s) => s.isAdmin || s.memberLevel >= 1,
     // 会员等级标签
     memberLabel: (s) => s.memberLevel === 2 ? 'VIP' : s.memberLevel === 1 ? '付费会员' : (s.isAdmin ? '管理员' : '免费试用'),
     // 剩余试用天数(-1 表示永久, 仅提示用)

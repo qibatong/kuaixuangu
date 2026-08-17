@@ -4,19 +4,27 @@
       <div class="vip-icon"><i class="fa fa-crown"></i></div>
       <div class="vip-title">{{ title || '该功能' }}需要会员权限</div>
       <div class="vip-desc">
-        <template v-if="user.expired">
-          您的会员已<span class="warn">过期</span>，暂时无法使用{{ title || '该功能' }}，
-          请<span class="warn">联系管理员开通权限</span>。
+        <!-- requiredLevel=1: 严格模式(2026-08-17 竞价异动), 仅 VIP/付费/管理员可入, 走通用提示 -->
+        <template v-if="requiredLevel === 1">
+          此功能<span class="warn">仅限 VIP/付费会员</span>使用，免费用户不可用，
+          请<span class="warn">联系管理员升级</span>后访问。
         </template>
-        <template v-else-if="user.expireAt > 0">
-          您的新用户试用期还剩 <b class="highlight">{{ days }} 天</b>，
-          到期后请联系管理员开通权限。
-        </template>
-        <template v-else-if="user.memberLevel === 2">
-          VIP 权限：{{ title || '该功能' }}永久可用。
-        </template>
+        <!-- requiredLevel=0(默认): 兼容旧逻辑, 任何会员都开放, 显示详细状态 -->
         <template v-else>
-          此功能仅限会员使用，请联系管理员开通权限。
+          <template v-if="user.expired">
+            您的会员已<span class="warn">过期</span>，暂时无法使用{{ title || '该功能' }}，
+            请<span class="warn">联系管理员开通权限</span>。
+          </template>
+          <template v-else-if="user.expireAt > 0">
+            您的新用户试用期还剩 <b class="highlight">{{ days }} 天</b>，
+            到期后请联系管理员开通权限。
+          </template>
+          <template v-else-if="user.memberLevel === 2">
+            VIP 权限：{{ title || '该功能' }}永久可用。
+          </template>
+          <template v-else>
+            此功能仅限会员使用，请联系管理员开通权限。
+          </template>
         </template>
       </div>
       <div class="vip-tip">
@@ -33,7 +41,11 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 
-defineProps({ title: { type: String, default: '' } })
+// requiredLevel: 0=任何会员(默认, 兼容旧调用) / 1=严格 VIP/付费门禁
+const props = defineProps({
+  title: { type: String, default: '' },
+  requiredLevel: { type: Number, default: 0 }
+})
 
 const user = useUserStore()
 const router = useRouter()

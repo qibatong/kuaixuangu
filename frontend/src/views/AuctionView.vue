@@ -1,7 +1,7 @@
 <template>
   <div class="page-shell">
-    <!-- 会员门禁: 竞价异动仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
-    <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价异动" />
+    <!-- 会员门禁(2026-08-17): 竞价异动仅 VIP/付费会员可用, 任何时段都生效(非 9:15-15:00 也门禁) -->
+    <VipGate v-if="!user.isVipOrPaid" title="竞价异动" :required-level="1" />
 
     <template v-else>
     <div class="auc-head">

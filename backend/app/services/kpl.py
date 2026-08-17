@@ -1350,7 +1350,7 @@ def fetch_bid_qiangcang(date=None):
                         list20.append({
                             "code": code,
                             "name": str(s.get("name", "")),
-                            "realChange": float(s.get("realChange") or 0),
+                            "realChange": float(s.get("realChange") or 0) if s.get("realChange") is not None else None,
                             "bidAmt": bidAmt,
                             "qcDelta": qcDelta,
                             "bidTurnover": float(s.get("bidTurnover") or 0),
@@ -1412,10 +1412,11 @@ def fetch_bid_qiangcang(date=None):
                 bid_turnover = t4.get("bidTurnover")
                 if not bid_turnover and fmv:
                     bid_turnover = round(bid_amt / fmv * 100, 2)
+                # realChange: 只取开盘啦盘中实时(9:30后才持续更新), 无值不退回 9_25 竞价涨幅, 前端显示 "-"
                 list20Chg.append({
                     "code": code,
                     "name": name or t4.get("name", ""),
-                    "realChange": t4.get("realChange") if t4.get("realChange") is not None else chg25,
+                    "realChange": t4.get("realChange"),
                     "bidAmt": bid_amt,
                     "qcDeltaChg": qcChg,
                     "bidChange20": chg20,
@@ -1470,7 +1471,8 @@ def fetch_bid_qiangcang(date=None):
                     base = {
                         "code": code,
                         "name": name or t4.get("name", ""),
-                        "realChange": t4.get("realChange") or chg,
+                        # realChange: 只取开盘啦盘中实时, 无值不退回 9_25 竞价涨幅, 前端显示 "-"
+                        "realChange": t4.get("realChange"),
                         "bidAmt": amt25 * 10000,
                         "bidChange": chg,
                         "bidTurnover": t4.get("bidTurnover"),
