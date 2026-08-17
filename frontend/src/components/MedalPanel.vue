@@ -7,13 +7,17 @@
       <div class="medal-rank"><span class="medal-rank-icon"></span> {{ ['金牌', '银牌', '铜牌'][i] }}</div>
       <div class="medal-name-big">{{ item.name }}<span v-if="item.qiangchou" class="qc-badge" title="竞价涨幅≥2% 且 竞价/昨比≥20%">🔥抢筹</span></div>
       <div class="medal-code" @click="linkToSoftware(item.code)">{{ item.code }}</div>
-      <div class="medal-prob-big">{{ item.probability }}分</div>
-      <!-- 竞涨幅 + 可信度(2026-08-18 主人反馈恢复: 上次去五因子时把可信也删了, 竞涨幅本来就没有) -->
-      <div class="medal-sub">
-        <span class="medal-bid">竞涨幅{{ fmtPct(item.bidChange) }}</span>
+      <!-- 实时涨幅顶替原"95分大字"位置(2026-08-18 主人反馈: 盘中关注点, 应是最显眼数字) -->
+      <div class="medal-real-big" :class="{ 'green-real': item.realChange < item.bidChange }">
+        {{ item.realChange > 0 ? '+' : '' }}{{ item.realChange.toFixed(2) }}%
+      </div>
+      <!-- 竞涨幅: 缩字号, 实时涨幅下面 -->
+      <div class="medal-bid-sm">竞涨幅{{ fmtPct(item.bidChange) }}</div>
+      <!-- 评分 + 可信度 合并到最下面一行 -->
+      <div class="medal-score-row">
+        <span class="medal-prob-sm">{{ item.probability }}分</span>
         <span class="medal-conf">可信{{ item.confidence }}%</span>
       </div>
-      <div class="medal-real-chg" :class="{ 'green-real': item.realChange < item.bidChange }">实时涨幅{{ item.realChange > 0 ? '+' : '' }}{{ item.realChange.toFixed(2) }}%</div>
     </div>
   </div>
 </template>
@@ -46,17 +50,38 @@ function fmtPct(v) {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
 }
-/* 竞涨幅 + 可信度 一行(恢复于 2026-08-18 主人反馈) */
-.medal-sub {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 1px;
+/* 实时涨幅大字(顶替原评分位置, 2026-08-18 主人反馈) */
+.medal-real-big {
+  font-size: 30px;
+  font-weight: 900;
+  color: #ff5252;
+  line-height: 1.1;
+  margin: 2px 0 0;
+  font-family: 'Consolas', monospace;
+  letter-spacing: -0.5px;
+}
+.medal-real-big.green-real { color: #00c864 !important; }
+body[data-bg="light"] .medal-real-big { color: #c62828; }
+body[data-bg="light"] .medal-real-big.green-real { color: #1a7a2a !important; }
+/* 竞涨幅: 缩字号, 实时涨幅下面 */
+.medal-bid-sm {
   font-size: 11px;
+  color: #ff8a6f;
+  font-weight: 600;
+  font-family: monospace;
+  margin-top: 1px;
+}
+body[data-bg="light"] .medal-bid-sm { color: #c0562f; }
+/* 评分 + 可信度 一行, 放在最下面 */
+.medal-score-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
   white-space: nowrap;
 }
-.medal-bid { color: #ff8a6f; font-weight: 600; font-family: monospace; }
+.medal-prob-sm { color: #e0a800; font-weight: 700; }
 .medal-conf { color: var(--text-muted); }
-body[data-bg="light"] .medal-bid { color: #c0562f; }
+body[data-bg="light"] .medal-prob-sm { color: #a06a00; }
 body[data-bg="light"] .medal-conf { color: #5a6b85; }
 </style>
