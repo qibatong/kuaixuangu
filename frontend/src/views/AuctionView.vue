@@ -265,6 +265,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <th class="sortable" :class="{ active: yestZtSort.keyOf('name') }" @click="yestZtSort.onSort('name', 'string')">名称<span class="sort-ind">{{ yestZtSort.ind('name') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('limitUpDays') }" @click="yestZtSort.onSort('limitUpDays')">连板<span class="sort-ind">{{ yestZtSort.ind('limitUpDays') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('change') }" @click="yestZtSort.onSort('change')">实时涨幅<span class="sort-ind">{{ yestZtSort.ind('change') }}</span></th>
+            <th class="sortable" :class="{ active: yestZtSort.keyOf('bidChange') }" @click="yestZtSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ yestZtSort.ind('bidChange') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('bidTurnover') }" @click="yestZtSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ yestZtSort.ind('bidTurnover') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('bidAmt') }" @click="yestZtSort.onSort('bidAmt')">竞额(亿)<span class="sort-ind">{{ yestZtSort.ind('bidAmt') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('board') }" @click="yestZtSort.onSort('board', 'string')">概念<span class="sort-ind">{{ yestZtSort.ind('board') }}</span></th>
@@ -282,6 +283,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
 </td>
             <td><span v-if="z.limitUpDays > 0" class="lb-badge">{{ z.limitUpDays }}板</span><span v-else class="dim">-</span></td>
             <td :class="z.change > 0 ? 'up' : z.change < 0 ? 'down' : 'dim'">{{ z.change !== null && z.change !== undefined ? signed(z.change) + '%' : '-' }}</td>
+            <td :class="z.bidChange > 0 ? 'up' : z.bidChange < 0 ? 'down' : 'dim'">{{ z.bidChange !== null && z.bidChange !== undefined ? signed(z.bidChange) + '%' : '-' }}</td>
             <td>{{ z.bidTurnover ? z.bidTurnover.toFixed(2) : '-' }}</td>
             <td>{{ z.bidAmt ? amtText(z.bidAmt) : '-' }}</td>
             <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ shortConcept(z.board) }}</td>
@@ -299,7 +301,8 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('code') }" @click="yestBrokenSort.onSort('code', 'string')">代码<span class="sort-ind">{{ yestBrokenSort.ind('code') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('name') }" @click="yestBrokenSort.onSort('name', 'string')">名称<span class="sort-ind">{{ yestBrokenSort.ind('name') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('yestChange') }" @click="yestBrokenSort.onSort('yestChange')">昨涨幅<span class="sort-ind">{{ yestBrokenSort.ind('yestChange') }}</span></th>
-            <th class="sortable" :class="{ active: yestBrokenSort.keyOf('bidChange') }" @click="yestBrokenSort.onSort('bidChange')">今日竞价涨幅<span class="sort-ind">{{ yestBrokenSort.ind('bidChange') }}</span></th>
+            <th class="sortable" :class="{ active: yestBrokenSort.keyOf('change') }" @click="yestBrokenSort.onSort('change')">实时涨幅<span class="sort-ind">{{ yestBrokenSort.ind('change') }}</span></th>
+            <th class="sortable" :class="{ active: yestBrokenSort.keyOf('bidChange') }" @click="yestBrokenSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ yestBrokenSort.ind('bidChange') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('bidAmt') }" @click="yestBrokenSort.onSort('bidAmt')">竞额(亿)<span class="sort-ind">{{ yestBrokenSort.ind('bidAmt') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('bidTurnover') }" @click="yestBrokenSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ yestBrokenSort.ind('bidTurnover') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('board') }" @click="yestBrokenSort.onSort('board', 'string')">概念<span class="sort-ind">{{ yestBrokenSort.ind('board') }}</span></th>
@@ -313,6 +316,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td class="code-click" @click="linkToSoftware(b2.code)">{{ b2.code }}</td>
             <td class="name-col"><div class="name-main">{{ b2.name }}</div></td>
             <td :class="b2.yestChange > 0 ? 'up' : 'down'">{{ signed(b2.yestChange) }}%</td>
+            <td :class="b2.change > 0 ? 'up' : b2.change < 0 ? 'down' : 'dim'">{{ b2.change !== null && b2.change !== undefined ? signed(b2.change) + '%' : '-' }}</td>
             <td :class="b2.bidChange > 0 ? 'up' : b2.bidChange < 0 ? 'down' : 'dim'">{{ b2.bidChange !== null && b2.bidChange !== undefined ? signed(b2.bidChange) + '%' : '-' }}</td>
             <td>{{ b2.bidAmt ? amtText(b2.bidAmt) : '-' }}</td>
             <td>{{ b2.bidTurnover ? b2.bidTurnover.toFixed(2) : '-' }}</td>
@@ -329,7 +333,8 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
           <tr>
             <th class="sortable" :class="{ active: lhbSort.keyOf('code') }" @click="lhbSort.onSort('code', 'string')">代码<span class="sort-ind">{{ lhbSort.ind('code') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('name') }" @click="lhbSort.onSort('name', 'string')">名称<span class="sort-ind">{{ lhbSort.ind('name') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('change') }" @click="lhbSort.onSort('change')">涨幅%<span class="sort-ind">{{ lhbSort.ind('change') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('change') }" @click="lhbSort.onSort('change')">实时涨幅<span class="sort-ind">{{ lhbSort.ind('change') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('bidChange') }" @click="lhbSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ lhbSort.ind('bidChange') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('limitBoards') }" @click="lhbSort.onSort('limitBoards')">连板<span class="sort-ind">{{ lhbSort.ind('limitBoards') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('buyIn') }" @click="lhbSort.onSort('buyIn')">买入(亿)<span class="sort-ind">{{ lhbSort.ind('buyIn') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('amount') }" @click="lhbSort.onSort('amount')">成交额(亿)<span class="sort-ind">{{ lhbSort.ind('amount') }}</span></th>
@@ -345,6 +350,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td class="code-click" @click="linkToSoftware(l.code)">{{ l.code }}</td>
             <td class="name-col"><div class="name-main">{{ l.name }}</div></td>
             <td :class="l.change > 0 ? 'up' : 'down'">{{ signed(l.change) }}%</td>
+            <td :class="l.bidChange > 0 ? 'up' : l.bidChange < 0 ? 'down' : 'dim'">{{ l.bidChange !== null && l.bidChange !== undefined ? signed(l.bidChange) + '%' : '-' }}</td>
             <td><span v-if="l.limitBoards > 0" class="lb-badge">{{ l.limitBoards }}板</span><span v-else class="dim">-</span></td>
             <td :class="l.buyIn > 0 ? 'up' : 'dim'">{{ yi(l.buyIn) }}</td>
             <td>{{ yi(l.amount) }}</td>
@@ -363,7 +369,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
           <tr>
             <th class="sortable" :class="{ active: brokenSort.keyOf('code') }" @click="brokenSort.onSort('code', 'string')">代码<span class="sort-ind">{{ brokenSort.ind('code') }}</span></th>
             <th class="sortable" :class="{ active: brokenSort.keyOf('name') }" @click="brokenSort.onSort('name', 'string')">名称<span class="sort-ind">{{ brokenSort.ind('name') }}</span></th>
-            <th class="sortable" :class="{ active: brokenSort.keyOf('change') }" @click="brokenSort.onSort('change')">涨幅%<span class="sort-ind">{{ brokenSort.ind('change') }}</span></th>
+            <th class="sortable" :class="{ active: brokenSort.keyOf('change') }" @click="brokenSort.onSort('change')">实时涨幅<span class="sort-ind">{{ brokenSort.ind('change') }}</span></th>
             <th class="sortable" :class="{ active: brokenSort.keyOf('bidChange') }" @click="brokenSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ brokenSort.ind('bidChange') }}</span></th>
             <th class="sortable" :class="{ active: brokenSort.keyOf('bidTurnover') }" @click="brokenSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ brokenSort.ind('bidTurnover') }}</span></th>
             <th class="sortable" :class="{ active: brokenSort.keyOf('limitUpDays') }" @click="brokenSort.onSort('limitUpDays')">连板<span class="sort-ind">{{ brokenSort.ind('limitUpDays') }}</span></th>

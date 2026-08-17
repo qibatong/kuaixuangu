@@ -200,11 +200,13 @@ def api_kpl_lhb(request: Request, uid: int = Depends(get_uid), date: str = ""):
             except (ValueError, TypeError):
                 lst = []
         kpl.fill_reason_from_pool(lst, resolved)
+        kpl.fill_bid_change_from_snap(lst, resolved)
         kpl.apply_board_concept(lst, log_tag="auc:lhb[hist]", deep=True, field="board", truncate=2, blank_if_missing=True)
         return jr({"ok": True, "list": lst, "count": len(lst), "date": resolved, "requestedDate": date})
     d = kpl.fetch_lhb()
     lst = d or []
     kpl.fill_reason_from_pool(lst, None)   # 今日涨停池补涨停原因
+    kpl.fill_bid_change_from_snap(lst, None)   # 今日 9_25 快照补竞价涨幅
     kpl.apply_board_concept(lst, log_tag="auc:lhb[now]", deep=True, field="board", truncate=2, blank_if_missing=True)
     return jr({"ok": True, "list": lst, "count": len(lst), "date": ""})
 

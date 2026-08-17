@@ -1196,6 +1196,26 @@ def fill_reason_from_pool(lst, date=None):
     return lst
 
 
+def fill_bid_change_from_snap(lst, date=None):
+    """用 date(空=今日) 的 9_25 全市场快照(snapshot_bid)给列表补竞价涨幅(bidChange); 已带的不覆盖
+    用于龙虎榜等无竞价字段的数据源"""
+    if not lst:
+        return lst
+    try:
+        snap = _snap25_map(date)
+        if not snap:
+            return lst
+        for it in lst:
+            code = str(it.get("code") or "")
+            if code and it.get("bidChange") is None and code in snap:
+                bc = snap[code].get("bid_change")
+                if bc is not None:
+                    it["bidChange"] = bc
+    except Exception as e:
+        log.warning("竞价涨幅补齐失败 date=%s err=%s", date or "-", e)
+    return lst
+
+
 def _save_qc_snapshot(date, items):
     """竞价时段抢筹结果持久化(qc_snapshot 表), 非竞价时段读库展示"""
     try:
