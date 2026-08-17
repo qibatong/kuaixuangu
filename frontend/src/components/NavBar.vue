@@ -5,6 +5,7 @@
       <router-link to="/" class="nav-brand" title="快选 · AI选股">
         <img src="/logo.jpg" class="nav-logo" alt="快选">
         <span class="nav-brand-name">快选</span>
+        <span class="nav-brand-slogan">一键筛选 · 高效复盘 · 客观输出标的</span>
       </router-link>
       <div class="nav-tabs">
       <router-link to="/" exact-active-class="router-link-active" class="nav-item">
@@ -138,6 +139,15 @@ function logout() {
   color: var(--accent); letter-spacing: 1px;
   white-space: nowrap;
 }
+.nav-brand-slogan {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.85;
+  white-space: nowrap;
+  letter-spacing: 0.5px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-soft);
+}
 .nav-tabs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .nav-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .nav-item {
@@ -233,6 +243,7 @@ body[data-bg="light"] .nav-item.router-link-active {
   .nav-brand { gap: 5px; padding: 0 6px 0 2px; }
   .nav-logo { width: 26px; height: 26px; border-radius: 6px; }
   .nav-brand-name { font-size: 14px; }
+  .nav-brand-slogan { display: none; }
   /* 导航项横向滑动(7 个入口一排滑, 不换行占纵向空间) */
   .nav-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px; width: 100%; }
   .nav-tabs::-webkit-scrollbar { display: none; }
