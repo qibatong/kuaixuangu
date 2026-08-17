@@ -756,13 +756,14 @@ async function loadAll(fromUser = false) {
       withTimeout(kplBroken(dt ? '' : 'yesterday', dt)), withTimeout(kplBroken('', dt)),
       withTimeout(bidSnapshot3points(dt || todayBj()))
     ])
-    // 非交易时段(周末/节假日/盘前盘后)自动回退: 实时模式且各 tab 全空时,
-    // 自动切到最近交易日(overview.days[0].date = 最近有 snapshot_bid 数据的日期)
+    // 非交易时段(周末/节假日/盘前盘后)自动回退: 实时模式时, 若最近有 snapshot_bid 数据的
+    // 交易日不是今天 → 说明现在是非交易时段, 自动切到最近交易日回看(所有 tab 带 date 读历史快照)
+    // 2026-08-18 修复: 原判断"各 tab 全空"太苛刻(seal/boom 实时接口盘后残留昨数据导致不触发,
+    // 而 yest-broken/qc 等凌晨实时接口返回空) → 改为"最近交易日≠今天"直接回退
     if (!dt && !autoFallback && ov.days && ov.days.length) {
       const lastTrading = ov.days[0].date
-      const allEmpty = !(seal.list && seal.list.length) && !(boom.list && boom.list.length) &&
-                       !(qc.list20 && qc.list20.length) && !(qc.list20Chg && qc.list20Chg.length)
-      if (allEmpty && lastTrading) {
+      const isToday = lastTrading === todayBj()
+      if (lastTrading && !isToday) {
         autoFallback = true
         datePicker.value = lastTrading
         showToast(`当前非交易时段，自动显示最近交易日 ${lastTrading} 的数据`, 'info')
