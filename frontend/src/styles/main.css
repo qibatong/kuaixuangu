@@ -218,12 +218,12 @@ z-index: 9999;
 .live-time { background: transparent; border: 0; border-radius: 0; padding: 6px 0; text-align: center; font-family: monospace; white-space: nowrap; }
 .live-time .time-digital { font-size: 16px; font-weight: 700; color: #ffbb99; letter-spacing: 1px; }
 
-.medal-section { background: var(--bg-panel); backdrop-filter: blur(8px); border-radius: 10px; padding: 16px; border: 1px solid rgba(255,215,0,0.4); margin: 0; display: flex; flex-wrap: nowrap; gap: 15px; justify-content: center; align-items: center; }
-.medal-card { flex: 1 1 0; min-width: 0; text-align: center; padding: 12px 8px; border-radius: 12px; background: var(--bg-card); border: 1px solid rgba(255,215,0,0.3); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.medal-section { background: var(--bg-panel); backdrop-filter: blur(8px); border-radius: 10px; padding: 0; border: 1px solid rgba(255,215,0,0.4); margin: 0; display: flex; flex-wrap: nowrap; gap: 8px; justify-content: center; align-items: stretch; }
+.medal-card { flex: 1 1 0; min-width: 0; text-align: center; margin: 8px 0; padding: 12px 6px; border-radius: 12px; background: var(--bg-card); border: 1px solid rgba(255,215,0,0.3); display: flex; flex-direction: column; align-items: center; gap: 5px; }
 /* 移动端(手机浏览器): 三卡横排缩小, 避免 390px 视口挤压溢出; 自选池已纵向堆叠到下方 */
 @media (max-width: 899px) {
-  .medal-section { padding: 10px 8px; gap: 8px; max-width: 100%; box-sizing: border-box; }
-  .medal-card { padding: 8px 4px; gap: 3px; overflow: hidden; }
+  .medal-section { padding: 4px; gap: 4px; max-width: 100%; box-sizing: border-box; width: 100%; }
+  .medal-card { margin: 0; padding: 8px 3px; gap: 3px; overflow: hidden; border-radius: 8px; }
   .medal-rank { font-size: 13px; gap: 3px; }
   .medal-rank-icon { font-size: 20px; }
   .medal-name-big { font-size: 14px; letter-spacing: 0.5px; margin: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
@@ -329,7 +329,7 @@ text-align: center; outline: none; font-family: monospace; transition: border-co
 .footnote { text-align: center; font-size: 12px; color: var(--text-muted); margin-top: 20px; padding-bottom: 20px; border-top: 1px solid var(--border-soft); padding-top: 20px; }
 .toast-msg { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: var(--accent-deep); color: white; padding: 8px 22px; border-radius: 40px; font-size: 13px; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.3); animation: fadeInOut 2.2s forwards; }
 @keyframes fadeInOut { 0%{opacity:0;transform:translateX(-50%) translateY(10px);} 15%{opacity:1;transform:translateX(-50%) translateY(0);} 85%{opacity:1;transform:translateX(-50%) translateY(0);} 100%{opacity:0;transform:translateX(-50%) translateY(-10px);visibility:hidden;} }
-@media (max-width:780px) { .dominant-title{font-size:32px;} .stock-table{min-width:900px;} .medal-card{min-width:140px;} .medal-name-big{font-size:18px;} .medal-prob-big{font-size:36px;} }
+@media (max-width:780px) { .dominant-title{font-size:32px;} .stock-table{min-width:900px;} .medal-card{min-width:0;} .medal-name-big{font-size:18px;} .medal-prob-big{font-size:36px;} }
 
 /* 登录/认证卡片 */
 .auth-overlay {
