@@ -112,24 +112,29 @@ def run(shot_dir, user, pwd):
           const setVal = (el, v) => {
             const s = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
             s.call(el, v); el.dispatchEvent(new Event('input', {bubbles: true}));
+            el.dispatchEvent(new Event('change', {bubbles: true}));
           };
           const u = document.querySelector('input[placeholder*="用户名"]');
           const p = document.querySelector('input[placeholder*="密码"]');
           if (!u || !p) return 'NOFORM';
           setVal(u, '%s'); setVal(p, '%s');
+          // 直接 dispatch submit 事件触发 Vue @submit.prevent 处理器(button.click 在新版不保证触发)
+          const f = document.querySelector('form.login-form') || u.closest('form');
+          if (f) { f.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true})); return 'SUBMIT'; }
           const b = [...document.querySelectorAll('button')].find(x => x.innerText.includes('登录'));
           if (b) { b.click(); return 'CLICKED'; }
           return 'NOBTN';
         })()
         """ % (user, pwd))
         log("  登录动作: %s" % r)
-        time.sleep(3)
-        url = ev("location.href")
-        if "login" in (url or ""):
-            log("❌ 登录失败 url=%s" % url)
+        time.sleep(2)
+        # SPA 路由跳转后 location.href 可能仍显示 /login, 用 token 存在性判断更可靠
+        has_token = ev("!!(localStorage.getItem('kuaixuan_session_v1') || sessionStorage.getItem('kuaixuan_session_v1'))")
+        if not has_token:
+            log("❌ 登录失败(无会话token) url=%s" % ev("location.href"))
             shot("00_login_fail.png")
             sys.exit(1)
-        log("✅ 登录成功 -> %s" % url)
+        log("✅ 登录成功(会话token已写入)")
 
         # ---- /auction ----
         log("打开 /auction")
