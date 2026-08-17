@@ -1,7 +1,5 @@
 <template>
   <div class="page-shell">
-    <div class="page-back" @click="$router.push('/')"><i class="fa fa-arrow-left"></i> 返回选股</div>
-
     <div class="mrk-head">
       <span class="mrk-title"><i class="fa fa-radar"></i> 市场雷达</span>
       <span class="mrk-sub">板块强度排行 · 盘中人气热榜 · 龙虎榜</span>
