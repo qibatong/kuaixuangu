@@ -1,9 +1,5 @@
 <template>
   <div class="container">
-    <div class="hero-section">
-      <!-- slogan 独立居中(logo+品牌名已并入导航栏左侧) -->
-      <div class="hero-slogan">一键筛选 · 高效复盘 · 客观输出标的</div>
-    </div>
     <NavBar />
     <router-view />
     <Watermark />
@@ -27,19 +23,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* hero 改纵向布局: 第一行 logo+品牌名 横排居中, 第二行 slogan 独立居中 */
-.hero-section { flex-direction: column; gap: 6px; align-items: center; }
-.hero-brand { display: flex; align-items: center; gap: 12px; }
-
-/* 品牌 slogan: 紧邻品牌名下方, 体现产品定位 */
-.hero-slogan {
-  margin-top: 2px;
-  font-size: 13px;
-  color: var(--accent);
-  letter-spacing: 1px;
-  font-weight: 500;
-  opacity: 0.92;
-}
 /* 网页底部免责声明 */
 .disclaimer {
   text-align: center;
