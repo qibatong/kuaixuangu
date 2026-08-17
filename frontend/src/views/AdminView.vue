@@ -29,6 +29,9 @@
             </div>
             <input v-model="keyword" class="admin-input" placeholder="搜用户名/手机/邮箱/微信名/备注" @keyup.enter="loadUsers(1)" />
             <button class="admin-search-btn" @click="loadUsers(1)"><i class="fa fa-search"></i> 搜索</button>
+            <button class="admin-search-btn" style="background:rgba(255,160,40,0.15);border-color:#ffa028;color:#ffa028;" :disabled="!selectedIds.size" @click="openBatchExpire">
+              <i class="fa fa-clock-o"></i> 批量设到期{{ selectedIds.size ? ' (' + selectedIds.size + ')' : '' }}
+            </button>
             <button class="admin-search-btn" style="background:rgba(0,200,120,0.15);border-color:#00c878;color:#80ffaa;" @click="openCreate()"><i class="fa fa-plus"></i> 新建会员</button>
           </div>
         </div>
@@ -36,6 +39,7 @@
           <table class="admin-table">
             <thead>
               <tr>
+                <th style="width:30px;"><input type="checkbox" :checked="pageAllChecked" @change="togglePageAll" title="全选本页" /></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('id') }" @click="userSort.onSort('id')">ID<span class="sort-ind">{{ userSort.ind('id') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('username') }" @click="userSort.onSort('username', 'string')">用户名<span class="sort-ind">{{ userSort.ind('username') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('wx_name') }" @click="userSort.onSort('wx_name', 'string')">微信名<span class="sort-ind">{{ userSort.ind('wx_name') }}</span></th>
@@ -51,6 +55,7 @@
             </thead>
             <tbody>
               <tr v-for="u in userSort.sorted(rows, userVal)" :key="u.id">
+                <td><input type="checkbox" v-model="selectedIds" :value="u.id" :disabled="u.is_admin" :title="u.is_admin ? '管理员不可批量操作' : ''" /></td>
                 <td>{{ u.id }}</td>
                 <td>{{ u.username }}</td>
                 <td>{{ u.wx_name || '-' }}</td>
@@ -111,7 +116,7 @@
                   </div>
                 </td>
               </tr>
-              <tr v-if="!rows.length"><td colspan="11" style="text-align:center;color:#888;padding:20px;">暂无用户</td></tr>
+              <tr v-if="!rows.length"><td colspan="12" style="text-align:center;color:#888;padding:20px;">暂无用户</td></tr>
             </tbody>
           </table>
         </div>
@@ -196,26 +201,55 @@
 
       <!-- 编辑资料弹层(管理员代设置手机/邮箱/微信名/备注/付款备注) -->
       <div v-if="profileTarget" class="pwd-mask" @click.self="closeProfile">
-        <div class="pwd-pop" style="width:460px;">
+        <div class="pwd-pop" style="width:560px;">
           <div class="pwd-title">📝 编辑资料：{{ profileTarget.username }}
             <span style="color:#999;font-size:12px;margin-left:8px;">(ID {{ profileTarget.id }})</span></div>
           <div class="profile-grid">
             <label class="profile-label">手机号
-              <input v-model="profileForm.phone" type="text" maxlength="11" class="admin-input" placeholder="11 位手机号" /></label>
+              <input v-model="profileForm.phone" type="text" maxlength="11" class="admin-input admin-input-lg" placeholder="11 位手机号" /></label>
             <label class="profile-label">邮箱
-              <input v-model="profileForm.email" type="text" maxlength="60" class="admin-input" placeholder="用于找回密码" /></label>
+              <input v-model="profileForm.email" type="text" maxlength="60" class="admin-input admin-input-lg" placeholder="用于找回密码" /></label>
             <label class="profile-label">微信名
-              <input v-model="profileForm.wx_name" type="text" maxlength="40" class="admin-input" placeholder="联系用微信昵称" /></label>
+              <input v-model="profileForm.wx_name" type="text" maxlength="40" class="admin-input admin-input-lg" placeholder="联系用微信昵称" /></label>
             <label class="profile-label">管理员备注
-              <input v-model="profileForm.remark" type="text" maxlength="200" class="admin-input" placeholder="仅管理端可见" /></label>
+              <input v-model="profileForm.remark" type="text" maxlength="200" class="admin-input admin-input-lg" placeholder="仅管理端可见" /></label>
             <label class="profile-label profile-pay" style="grid-column:1 / -1;">付款备注 (会员专属, 仅管理员可改)
-              <textarea v-model="profileForm.pay_remark" maxlength="500" rows="2" class="admin-input"
+              <textarea v-model="profileForm.pay_remark" maxlength="500" rows="3" class="admin-input admin-input-lg"
                         placeholder="例: 8-16微信月付300元; 到期 9-16 自动提醒续费"></textarea></label>
           </div>
           <div class="profile-tip">留空表示不修改该字段；手机号/邮箱有格式+唯一性校验</div>
           <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
             <button class="mini-btn" @click="closeProfile">取消</button>
             <button class="mini-btn danger" :disabled="profileSaving" @click="saveProfile">{{ profileSaving ? '保存中...' : '保存资料' }}</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 批量设置到期弹层(2026-08-17 主人需求: 多选用户统一设置会员时间) -->
+      <div v-if="batchExpireOpen" class="pwd-mask" @click.self="closeBatchExpire">
+        <div class="pwd-pop" style="width:480px;">
+          <div class="pwd-title">⏰ 批量设置到期：已选 {{ selectedIds.size }} 人</div>
+          <div class="batch-expire-box">
+            <div class="pop-label">延长时长(在现有到期上累加)</div>
+            <div class="pop-row" style="flex-wrap:wrap;">
+              <button class="mini-btn batch-exp-btn" @click="batchExtend('week')">+1周</button>
+              <button class="mini-btn batch-exp-btn" @click="batchExtend('month')">+1月</button>
+              <button class="mini-btn batch-exp-btn" @click="batchExtend('quarter')">+1季</button>
+              <button class="mini-btn batch-exp-btn" @click="batchExtend('year')">+1年</button>
+            </div>
+            <div class="pop-label" style="margin-top:12px;">自定义到期日(统一设为该日)</div>
+            <div class="pop-row">
+              <input v-model="batchExpireDate" type="date" class="mini-date" style="flex:1;padding:8px 12px;font-size:14px;" :max="'2099-12-31'" />
+              <button class="mini-btn batch-exp-btn" @click="batchSetDate">设为该日</button>
+            </div>
+            <div class="pop-row" style="margin-top:12px;">
+              <button class="mini-btn batch-exp-btn batch-forever" @click="batchForever">设为永久</button>
+            </div>
+            <div class="profile-tip">被选中的管理员账号已自动排除</div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
+            <button class="mini-btn" @click="closeBatchExpire">取消</button>
+            <button class="mini-btn danger" :disabled="batchSaving" @click="batchExpire">{{ batchSaving ? '设置中...' : '确认批量设置' }}</button>
           </div>
         </div>
       </div>
@@ -334,7 +368,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { adminCreateUser, adminDeleteUser, adminScoring, adminSetMemberLevel, adminSetUserProfile, adminUsers, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire } from '../api/admin'
+import { adminCreateUser, adminDeleteUser, adminScoring, adminSetMemberLevel, adminSetUserProfile, adminUsers, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire, setUsersExpire } from '../api/admin'
 import { showToast as toast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
 import { expireState } from '../utils/admin'
@@ -591,6 +625,55 @@ const total = ref(0)
 const pageSize = ref(10)
 const keyword = ref('')
 const denied = ref(false)
+// 批量设置到期(2026-08-17): 多选 checkbox
+const selectedIds = ref([])
+const batchExpireOpen = ref(false)
+const batchExpireDate = ref('')
+const batchSaving = ref(false)
+const pageAllChecked = computed(() => {
+  const list = userSort.sorted(rows.value, userVal).filter(u => !u.is_admin)
+  return list.length > 0 && list.every(u => selectedIds.value.includes(u.id))
+})
+function togglePageAll(e) {
+  const list = userSort.sorted(rows.value, userVal).filter(u => !u.is_admin)
+  if (e.target.checked) {
+    list.forEach(u => { if (!selectedIds.value.includes(u.id)) selectedIds.value.push(u.id) })
+  } else {
+    const ids = list.map(u => u.id)
+    selectedIds.value = selectedIds.value.filter(id => !ids.includes(id))
+  }
+}
+function openBatchExpire() {
+  if (!selectedIds.value.length) { toast('请先勾选用户', 'error'); return }
+  batchExpireDate.value = ''
+  batchExpireOpen.value = true
+}
+function closeBatchExpire() { batchExpireOpen.value = false }
+async function batchExtend(duration) {
+  const label = { week: '+1周', month: '+1月', quarter: '+1季', year: '+1年' }[duration]
+  await doBatchExpire({ duration }, label)
+}
+async function batchSetDate() {
+  if (!batchExpireDate.value) { toast('请先选择日期', 'error'); return }
+  await doBatchExpire({ expire_at: batchExpireDate.value }, '设日期')
+}
+async function batchForever() { await doBatchExpire({ days: 0 }, '永久') }
+async function doBatchExpire(payload, label) {
+  const uids = selectedIds.value
+  if (!uids.length) { toast('未勾选用户', 'error'); return }
+  batchSaving.value = true
+  try {
+    const d = await setUsersExpire(uids, payload)
+    toast(`${label}批量设置完成: 成功 ${d.success}/${d.total}`, d.failed && d.failed.length ? 'warning' : 'success')
+    batchExpireOpen.value = false
+    selectedIds.value = []
+    loadUsers(page.value)
+  } catch (e) {
+    toast(e.message || '批量设置失败', 'error')
+  } finally {
+    batchSaving.value = false
+  }
+}
 
 const scoring = reactive({})        // 竞价评分配置(盘中已合并为同一套)
 const wKeys = ref([])
@@ -746,6 +829,11 @@ onMounted(() => {
 .card-title { display: flex; align-items: center; font-size: 15px; color: #ffe0a0; margin-bottom: 12px; }
 .admin-input { background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: 6px; color: var(--text-main); padding: 6px 10px; font-size: 13px; }
 .admin-input:focus { outline: none; border-color: #ffb400; }
+/* 2026-08-17: 弹窗内输入框放大(主人反馈: 设置资料/时间的框太小) */
+.admin-input-lg { padding: 9px 12px; font-size: 14px; border-radius: 7px; }
+.batch-expire-box { margin-top: 4px; }
+.batch-exp-btn { padding: 8px 16px; font-size: 13px; border-radius: 6px; }
+.batch-forever { background: rgba(255,90,90,0.15); color: #ff6a6a; border-color: rgba(255,90,90,0.5); }
 .admin-search-btn {
   background: rgba(0,180,255,0.15);
   border: 1px solid #00b4ff;
@@ -862,6 +950,10 @@ onMounted(() => {
 /* 创建结果展示 */
 .create-result { margin-top: 14px; padding: 12px; background: rgba(0,200,120,0.10); border: 1px solid rgba(0,200,120,0.35); border-radius: 6px; font-size: 13px; }
 .mini-date { background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 4px; color: var(--text-main); padding: 3px 6px; font-size: 12px; color-scheme: light; }
+/* 2026-08-17: 设置期限面板日期框放大(主人反馈) */
+.row-menu-expire .mini-date { padding: 7px 10px; font-size: 14px; border-radius: 6px; width: 100%; box-sizing: border-box; }
+.row-menu-expire .pop-row { gap: 6px; }
+.row-menu-expire .mini-btn { padding: 7px 12px; font-size: 13px; }
 .pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
 .pager-left { display: flex; align-items: center; gap: 6px; }
 .pager-right { display: flex; align-items: center; gap: 12px; }

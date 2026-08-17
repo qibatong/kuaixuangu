@@ -137,6 +137,55 @@ def api_admin_user_expire(request: Request, body: dict = Body(...), uid: int = D
                "username": u["username"], "expire_at": row.get("expire_at")})
 
 
+@router.post("/api/admin/users/expire-batch")
+def api_admin_user_expire_batch(request: Request, body: dict = Body(...),
+                                uid: int = Depends(get_admin)):
+    """批量设置到期(与单个 /expire 同语义): {uids: [..], duration|days|expire_at}
+    2026-08-17 主人需求: 批量给用户设置会员时间
+    返回 {ok, success, total, failed: [{uid, msg}...]}"""
+    uids = [int(x) for x in (body.get("uids") or []) if str(x).isdigit()]
+    if not uids:
+        return jr({"ok": False, "msg": "缺少 uids"}, 400)
+    expire_at = body.get("expire_at")
+    duration = body.get("duration")
+    days = body.get("days")
+    ok_n = 0
+    failed = []
+    for target in uids:
+        try:
+            u = users.find_user_by_id(target)
+            if not u:
+                failed.append({"uid": target, "msg": "用户不存在"})
+                continue
+            if expire_at:
+                try:
+                    dt = datetime.strptime(str(expire_at), "%Y-%m-%d")
+                except ValueError:
+                    failed.append({"uid": target, "msg": "日期格式错"})
+                    continue
+                bj = timezone(timedelta(hours=8))
+                ts = int(dt.replace(tzinfo=bj).timestamp()) + 86399   # 北京当日 23:59:59
+                users.set_expire(target, ts)
+            elif duration in EXPIRE_DURATIONS:
+                users.extend_expire(target, EXPIRE_DURATIONS[duration])
+            elif days is not None:
+                d = int(days)
+                if d <= 0:
+                    users.set_expire(target, 0)    # 0/负 = 永久
+                else:
+                    users.extend_expire(target, d)
+            else:
+                failed.append({"uid": target, "msg": "缺少时长参数"})
+                continue
+            ok_n += 1
+        except Exception as e:
+            failed.append({"uid": target, "msg": str(e)[:60]})
+    log.info("管理端批量设置到期 admin_uid=%s 成功%d/%d 失败%d",
+             uid, ok_n, len(uids), len(failed))
+    return jr({"ok": True, "msg": "批量设置完成: 成功 %d/%d" % (ok_n, len(uids)),
+               "success": ok_n, "total": len(uids), "failed": failed})
+
+
 @router.post("/api/admin/users/profile")
 def api_admin_user_profile(request: Request, body: dict = Body(...),
                            uid: int = Depends(get_admin)):

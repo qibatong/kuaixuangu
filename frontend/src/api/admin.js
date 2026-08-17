@@ -29,6 +29,11 @@ export function setUserExpire(uid, payload) {
   return request('/api/admin/users/expire', { method: 'POST', body: { uid, ...payload } })
 }
 
+export function setUsersExpire(uids, payload) {
+  // 批量设置到期(2026-08-17): {uids:[...]} + 同上 payload
+  return request('/api/admin/users/expire-batch', { method: 'POST', body: { uids, ...payload } })
+}
+
 export function resetUserPassword(uid, password) {
   // 管理员重置用户密码: uid + 新密码
   return request('/api/admin/users/reset-password', { method: 'POST', body: { uid, password } })
