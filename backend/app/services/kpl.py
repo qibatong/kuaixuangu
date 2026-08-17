@@ -914,8 +914,29 @@ def _merge_broken_bid_snap(lst):
         it["bidChange"] = s.get("bid_change")
         amt = s.get("bid_amt") or 0      # 万元
         fmv = s.get("float_mv") or 0     # 元
+        it["floatMv"] = fmv or it.get("floatMv") or 0   # 流通市值(元), 2026-08-17 竞价异动统一补流通列
         if amt > 0 and fmv > 0:
             it["bidTurnover"] = round(amt * 10000 / fmv * 100, 2)   # 万元→元 口径统一
+    return lst
+
+
+def fill_float_mv_from_snap(lst, date=None):
+    """用 date(空=今日) 的 9_25 全市场快照给列表补流通市值(floatMv, 元); 已带的不覆盖
+    用于历史回看快照/炸板等数据源补流通市值列(2026-08-17)"""
+    if not lst:
+        return lst
+    try:
+        snap = _snap25_map(date)
+        if not snap:
+            return lst
+        for it in lst:
+            code = str(it.get("code") or "")
+            if code and not it.get("floatMv") and code in snap:
+                fmv = snap[code].get("float_mv") or 0
+                if fmv:
+                    it["floatMv"] = fmv
+    except Exception as e:
+        log.warning("流通市值补齐失败 date=%s err=%s", date or "-", e)
     return lst
 
 
