@@ -183,6 +183,8 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
                 rc = kpl_real.get(it.get("code"))
                 if rc is not None:
                     it["real_change"] = rc
+        # 概念列统一用开盘啦接口覆盖(快照 board 可能含东财兜底, 强制开盘啦概念)
+        kpl.apply_board_concept(rows, log_tag="auc:s3", deep=False, field="board", truncate=2, blank_if_missing=True)
     except Exception:
         pass
     log.info("三时点榜 date=%s 返回 %d 条 (实时涨幅叠加 %d 只)", resolved, len(rows), len(kpl_real))

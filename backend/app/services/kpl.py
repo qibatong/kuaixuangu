@@ -994,37 +994,70 @@ def fetch_board_map():
     return _cached("board_map", 30, loader)
 
 
-def apply_board_concept(result, log_tag="", deep=True):
-    """用开盘啦概念覆盖选股/历史回看结果 concept(2 层覆盖)
+def apply_board_concept(result, log_tag="", deep=True, field="concept",
+                        truncate=None, blank_if_missing=False):
+    """用开盘啦概念覆盖选股/历史回看结果指定字段(2 层覆盖)
     1) 榜单合并(ladder+bid_seal+bid_boom+hot_stocks+snap25) - 快速覆盖热点/板块
     2) 按股查询(doc94 fetch_stock_plate) - 百分百覆盖, 1 天缓存限制频次
-    result: [{code, concept, ...}, ...], 原地修改 concept 字段; 返回覆盖数
-    deep=False: 只做榜单合并层(历史回看/大列表用, 避免海量按股查询拖慢接口)"""
+    field: 写入的目标字段, 默认 "concept"(选股/历史回看使用);
+           竞价异动各 tab 传 "board", 把概念统一覆盖到 board 字段, 保证概念均来自开盘啦
+    result: [{code, ...}, ...], 原地修改 field 字段; 返回覆盖数
+    deep=False: 只做榜单合并层(历史回看/大列表用, 避免海量按股查询拖慢接口)
+    truncate: 概念最多保留前 N 个(按 '、' 分档); None/0=不截断
+    blank_if_missing: True 时, 开盘啦完全未覆盖到的股票, 把原 field(东财)清空,
+                     保证概念只看开盘啦; False 则保留原值兜底"""
     if not result:
         return 0
+
+    def _trunc(s):
+        if not s:
+            return s
+        if truncate and truncate > 0:
+            parts = [p for p in str(s).split("、") if p]
+            return "、".join(parts[:truncate])
+        return s
+
+    # code -> [item,...] 索引(便于第二层精确覆盖, 避免二次遍历 result)
+    by_code = {}
+    for it in result:
+        c = str(it.get("code"))
+        by_code.setdefault(c, []).append(it)
+    covered = set()  # 已被开盘啦覆盖的 code
+
     # 第一层: 榜单合并（全市场一次接口）
     board_map = {}
     n = 0
     try:
         board_map = fetch_board_map() or {}
         for it in result:
-            b = board_map.get(str(it.get("code")))
+            code = str(it.get("code"))
+            b = board_map.get(code)
             if b:
-                it["concept"] = b
+                it[field] = _trunc(b)
+                covered.add(code)
                 n += 1
         if n:
             log.info("选股概念开盘啦覆盖[榜单] %s 覆盖%d只/共%d只", log_tag, n, len(result))
     except Exception as e:
         log.warning("选股概念开盘啦覆盖[榜单]失败 %s err=%s", log_tag, e)
+
     # 第二层: 按股查询 GetStockIDPlate (仅针对榜单未覆盖到的股票, 避免 KPL 资源浪费)
     if not deep:
+        if blank_if_missing:
+            for it in result:
+                if str(it.get("code")) not in covered:
+                    it[field] = ""
         return n
-    miss_codes = [str(it.get("code")) for it in result if it.get("code") and not board_map.get(str(it.get("code")))]
+    miss_codes = [str(it.get("code")) for it in result
+                  if it.get("code") and str(it.get("code")) not in covered]
     if not miss_codes:
+        if blank_if_missing:
+            for it in result:
+                if str(it.get("code")) not in covered:
+                    it[field] = ""
         return n
     # 第二层按股查询: 并发拉取(历史聚合上百只也能秒回), 每只 1 天缓存限频
     n2 = 0
-    hit = set()
     try:
         import concurrent.futures
         # 并发受限流信号量(_SEM=3)保护, 分批执行避免一次开太多线程
@@ -1035,16 +1068,19 @@ def apply_board_concept(result, log_tag="", deep=True):
                 plates = list(ex.map(fetch_stock_plate, chunk))
             for code, plate in zip(chunk, plates):
                 if plate:
-                    hit.add(code)
-        # 已命中的赋值
-        for it in result:
-            if str(it.get("code")) in hit:
-                it["concept"] = fetch_stock_plate(str(it.get("code"))) or it.get("concept", "")
-                n2 += 1
+                    for it in by_code.get(code, []):
+                        it[field] = _trunc(plate)
+                        n2 += 1
+                    covered.add(code)
         if n2:
             log.info("选股概念开盘啦覆盖[按股] %s 补%d只/共%d只", log_tag, n2, len(result))
     except Exception as e:
         log.warning("选股概念开盘啦覆盖[按股]失败 %s err=%s", log_tag, e)
+    # 未覆盖到的(开盘啦无概念): 按 blank_if_missing 决定是否清空原东财值
+    if blank_if_missing:
+        for it in result:
+            if str(it.get("code")) not in covered:
+                it[field] = ""
     return n + n2
 
 

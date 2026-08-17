@@ -92,7 +92,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <th class="sortable" :class="{ active: sealSort.keyOf(tab === 'boom' ? 'bidAmt' : 'bidSealAmt') }" @click="sealSort.onSort(tab === 'boom' ? 'bidAmt' : 'bidSealAmt')">{{ tab === 'boom' ? '竞价成交额(亿)' : '涨停委买额(亿)' }}<span class="sort-ind">{{ sealSort.ind(tab === 'boom' ? 'bidAmt' : 'bidSealAmt') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('bidNetAmt') }" @click="sealSort.onSort('bidNetAmt')">竞价净额(亿)<span class="sort-ind">{{ sealSort.ind('bidNetAmt') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('limitBoards') }" @click="sealSort.onSort('limitBoards')">连板<span class="sort-ind">{{ sealSort.ind('limitBoards') }}</span></th>
-            <th class="sortable" :class="{ active: sealSort.keyOf('board') }" @click="sealSort.onSort('board', 'string')">板块<span class="sort-ind">{{ sealSort.ind('board') }}</span></th>
+            <th class="sortable" :class="{ active: sealSort.keyOf('board') }" @click="sealSort.onSort('board', 'string')">概念<span class="sort-ind">{{ sealSort.ind('board') }}</span></th>
             <th>操作</th>
           </tr>
         </thead>
@@ -107,7 +107,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td v-else :class="it.bidSealAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidSealAmt) }}</td>
             <td :class="it.bidNetAmt > 0 ? 'up' : it.bidNetAmt < 0 ? 'down' : 'dim'">{{ yi(it.bidNetAmt) }}</td>
             <td><span v-if="it.limitBoards > 0" class="lb-badge">{{ it.limitBoards }}板</span><span v-else class="dim">-</span></td>
-            <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ it.board }}</td>
+            <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ shortConcept(it.board) }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已加自选' : '＋自选' }}</button></td>
           </tr>
         </tbody>
@@ -207,7 +207,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
                 <td :class="q.bidRatio !== null && q.bidRatio !== undefined ? (q.bidRatio >= 20 ? 'ratio-hot' : q.bidRatio >= 10 ? 'ratio-warm' : '') : 'dim'" :title="q.bidRatio !== null && q.bidRatio !== undefined ? ('今日竞价额 ÷ 昨日全天成交额 = ' + q.bidRatio.toFixed(2) + '%') : ''">{{ q.bidRatio !== null && q.bidRatio !== undefined ? q.bidRatio.toFixed(2) + '%' : '-' }}</td>
                 <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
-                <td class="dim qc-board" :title="q.board">{{ q.board ? q.board.split('、').join(' ') : '-' }}</td>
+                <td class="dim qc-board" :title="q.board">{{ shortConcept(q.board) }}</td>
                 <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已加自选' : '＋自选' }}</button></td>
               </tr>
               <tr v-if="(qc20Mode === 'amt' ? qcList : qcChgList).length === 0">
@@ -245,7 +245,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
                 <td :class="q.bidRatio !== null && q.bidRatio !== undefined ? (q.bidRatio >= 20 ? 'ratio-hot' : q.bidRatio >= 10 ? 'ratio-warm' : '') : 'dim'" :title="q.bidRatio !== null && q.bidRatio !== undefined ? ('今日竞价额 ÷ 昨日全天成交额 = ' + q.bidRatio.toFixed(2) + '%') : ''">{{ q.bidRatio !== null && q.bidRatio !== undefined ? q.bidRatio.toFixed(2) + '%' : '-' }}</td>
                 <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
-                <td class="dim qc-board" :title="q.board">{{ q.board ? q.board.split('、').join(' ') : '-' }}</td>
+                <td class="dim qc-board" :title="q.board">{{ shortConcept(q.board) }}</td>
                 <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已加自选' : '＋自选' }}</button></td>
               </tr>
               <tr v-if="!qcLastList.length">
@@ -283,7 +283,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td :class="z.change > 0 ? 'up' : z.change < 0 ? 'down' : 'dim'">{{ z.change !== null && z.change !== undefined ? signed(z.change) + '%' : '-' }}</td>
             <td>{{ z.bidTurnover ? z.bidTurnover.toFixed(2) : '-' }}</td>
             <td>{{ z.bidAmt ? amtText(z.bidAmt) : '-' }}</td>
-            <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ z.board || '-' }}</td>
+            <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ shortConcept(z.board) }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(z.code) }" @click.stop="addToPool(z)">{{ inPool(z.code) ? '已加自选' : '＋自选' }}</button></td>
           </tr>
         </tbody>
@@ -313,7 +313,7 @@ v-for="d in days" :key="d.date + tp.key" class="ov-cell ov-click" title="点击�
             <td :class="b2.bidChange > 0 ? 'up' : b2.bidChange < 0 ? 'down' : 'dim'">{{ b2.bidChange !== null && b2.bidChange !== undefined ? signed(b2.bidChange) + '%' : '-' }}</td>
             <td>{{ b2.bidAmt ? amtText(b2.bidAmt) : '-' }}</td>
             <td>{{ b2.bidTurnover ? b2.bidTurnover.toFixed(2) : '-' }}</td>
-            <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ b2.board || '-' }}</td>
+            <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ shortConcept(b2.board) }}</td>
             <td><button class="pool-add-btn" :class="{ added: inPool(b2.code) }" @click.stop="addToPool(b2)">{{ inPool(b2.code) ? '已加自选' : '＋自选' }}</button></td>
           </tr>
         </tbody>

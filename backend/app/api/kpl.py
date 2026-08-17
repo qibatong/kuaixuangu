@@ -85,8 +85,13 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(get_uid), date: str = 
         d = kpl.query_auction_history(resolved, "seal")
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "date": resolved, "requestedDate": date})
-    d = kpl.fetch_bid_seal()
-    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+    d = kpl.fetch_bid_seal() or []
+    # 概念列统一用开盘啦接口覆盖(只取开盘啦概念, 避免东财长串多概念混入)
+    try:
+        kpl.apply_board_concept(d, log_tag="auc:bid-seal", deep=False, field="board", truncate=2, blank_if_missing=True)
+    except Exception as e:
+        log.warning("竞价异动概念开盘啦覆盖失败 bid-seal err=%s", e)
+    return jr({"ok": True, "list": d, "count": len(d)})
 
 
 @router.get("/api/kpl/bid-boom")
@@ -97,8 +102,12 @@ def api_kpl_bid_boom(request: Request, uid: int = Depends(get_uid), date: str = 
         d = kpl.query_auction_history(resolved, "boom")
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "date": resolved, "requestedDate": date})
-    d = kpl.fetch_bid_boom()
-    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+    d = kpl.fetch_bid_boom() or []
+    try:
+        kpl.apply_board_concept(d, log_tag="auc:bid-boom", deep=False, field="board", truncate=2, blank_if_missing=True)
+    except Exception as e:
+        log.warning("竞价异动概念开盘啦覆盖失败 bid-boom err=%s", e)
+    return jr({"ok": True, "list": d, "count": len(d)})
 
 
 @router.get("/api/kpl/broken")
@@ -226,6 +235,13 @@ def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(get_uid), date: s
     l20 = d.get("list20") or []
     l20Chg = d.get("list20Chg") or []
     lLast = d.get("listLast") or []
+    # 概念列统一用开盘啦接口覆盖(涨幅抢筹 list20Chg 可能回退东财快照, 强制开盘啦)
+    try:
+        kpl.apply_board_concept(l20, log_tag="auc:qc20", deep=False, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept(l20Chg, log_tag="auc:qc20Chg", deep=True, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept(lLast, log_tag="auc:qcLast", deep=False, field="board", truncate=2, blank_if_missing=True)
+    except Exception as e:
+        log.warning("竞价异动概念开盘啦覆盖失败 bid-qiangcang err=%s", e)
     return jr({"ok": True, "list20": l20, "list20Chg": l20Chg, "listLast": lLast,
                "count20": len(l20), "count20Chg": len(l20Chg), "countLast": len(lLast),
                "date": date or ""})
@@ -239,8 +255,12 @@ def api_kpl_yest_zt(request: Request, uid: int = Depends(get_uid), date: str = "
         d = kpl.query_auction_history(resolved, "yest_zt")
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "date": resolved, "requestedDate": date})
-    d = kpl.fetch_yest_zt()
-    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+    d = kpl.fetch_yest_zt() or []
+    try:
+        kpl.apply_board_concept(d, log_tag="auc:yest-zt", deep=True, field="board", truncate=2, blank_if_missing=True)
+    except Exception as e:
+        log.warning("竞价异动概念开盘啦覆盖失败 yest-zt err=%s", e)
+    return jr({"ok": True, "list": d, "count": len(d)})
 
 
 @router.get("/api/kpl/yest-broken")
@@ -251,8 +271,12 @@ def api_kpl_yest_broken(request: Request, uid: int = Depends(get_uid), date: str
         d = kpl.query_auction_history(resolved, "yest_broken")
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "date": resolved, "requestedDate": date})
-    d = kpl.fetch_yest_broken()
-    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
+    d = kpl.fetch_yest_broken() or []
+    try:
+        kpl.apply_board_concept(d, log_tag="auc:yest-broken", deep=True, field="board", truncate=2, blank_if_missing=True)
+    except Exception as e:
+        log.warning("竞价异动概念开盘啦覆盖失败 yest-broken err=%s", e)
+    return jr({"ok": True, "list": d, "count": len(d)})
 
 
 @router.get("/api/kpl/yesterday-perf")
