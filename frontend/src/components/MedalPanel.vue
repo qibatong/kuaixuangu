@@ -3,8 +3,8 @@
     <template v-if="!stocks.length">
       <div class="empty-state" style="width:100%">暂无数据，请先执行选股</div>
     </template>
-    <div v-for="(item, i) in top3" :key="item.code" class="medal-card" :class="['medal-' + ['gold','silver','bronze'][i]]">
-      <div class="medal-icon">{{ ['🥇','🥈','🥉'][i] }}</div>
+    <div v-for="(item, i) in top3" :key="item.code" class="medal-card">
+      <div class="medal-rank"><span class="medal-rank-icon"></span> {{ ['金牌', '银牌', '铜牌'][i] }}</div>
       <div class="medal-name-big">{{ item.name }}<span v-if="item.qiangchou" class="qc-badge" title="竞价涨幅≥2% 且 竞价/昨比≥20%">🔥抢筹</span></div>
       <div class="medal-code" @click="linkToSoftware(item.code)">{{ item.code }}</div>
       <div class="medal-prob-big">{{ item.probability }}分</div>
