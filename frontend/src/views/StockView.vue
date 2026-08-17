@@ -22,9 +22,6 @@
     <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价选股" />
 
     <template v-else>
-    <div class="stock-layout">
-      <!-- 左: 主内容(情绪/模式/筛选/奖牌/主表) -->
-      <div class="stock-main">
     <!-- 市场情绪面板: 涨停家数/情绪值/连板高度(置于模式切换上方, 整体大盘氛围先行) -->
     <SentimentPanel :yizi-today="yiziToday" :yizi-trend="yiziTrend" />
 
@@ -43,7 +40,15 @@
 
     <!-- 奖牌区(仅竞价模式) -->
     <template v-if="stocks.mode === 'auction'">
-      <MedalPanel :stocks="stocks.cachedStocks" />
+      <!-- 左右分栏: 左=金银铜奖牌 + 右=自选股票池(主人要求, 仅这两块并排) -->
+      <div class="medal-pool-layout">
+        <div class="medal-pool-left">
+          <MedalPanel :stocks="stocks.cachedStocks" />
+        </div>
+        <div class="medal-pool-right">
+          <StockPoolPanel />
+        </div>
+      </div>
 
       <!-- 奖牌导出 -->
       <div style="display:flex;justify-content:flex-end;margin:6px 0;">
@@ -55,6 +60,10 @@
           <button class="tdx-export-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="downloadMedal"><i class="fa fa-download"></i> 下载自选股</button>
         </div>
       </div>
+    </template>
+    <!-- 盘中模式无奖牌: 自选池放主流程 -->
+    <template v-else>
+      <StockPoolPanel />
     </template>
 
     <!-- 全部结果导出(上下) -->
@@ -78,13 +87,6 @@
 
     <div style="display:flex;justify-content:flex-end;margin:6px 0;">
       <button class="tdx-export-btn tdx-only" data-tip="💡 首次用：先下载并运行「通达信工具」，再在通达信『选项/工具』勾选『监控剪贴板』" @click="downloadAll"><i class="fa fa-download"></i> 下载全部筛选结果</button>
-    </div>
-      </div>
-
-      <!-- 右: 自选股票池(桌面端固定右侧栏, 移动端回到下方) -->
-      <aside class="stock-side">
-        <StockPoolPanel />
-      </aside>
     </div>
     </template>
   </div>
@@ -212,23 +214,19 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* 左右分栏: 桌面端主内容左 + 自选池右(固定右侧栏), 移动端单列堆叠 */
-.stock-layout {
+/* 奖牌(金银铜) + 自选股票池 左右分栏(仅这两块并排; 桌面端两栏, 移动端堆叠) */
+.medal-pool-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 14px;
+  gap: 12px;
   align-items: start;
+  margin: 10px 0 4px;
 }
-.stock-main { min-width: 0; }
-@media (min-width: 1100px) {
-  .stock-layout { grid-template-columns: minmax(0, 1fr) 350px; }
-  .stock-side {
-    position: sticky;
-    top: 10px;
-    max-height: calc(100vh - 20px);
-    overflow-y: auto;
-  }
+@media (min-width: 900px) {
+  .medal-pool-layout { grid-template-columns: minmax(0, 1fr) 360px; }
 }
+.medal-pool-left { min-width: 0; }
+.medal-pool-right { min-width: 0; }
 .yizi-card {
   display: inline-flex;
   align-items: center;
