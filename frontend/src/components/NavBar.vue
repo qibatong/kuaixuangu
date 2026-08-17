@@ -6,7 +6,7 @@
         <img src="/logo.jpg" class="nav-logo" alt="快选">
         <div class="nav-brand-text">
           <span class="nav-brand-name">快选</span>
-          <span class="nav-brand-slogan">一键筛选 · 高效复盘 · 客观输出标的</span>
+          <span class="nav-brand-slogan">一键筛选 · 高效复盘</span>
         </div>
       </router-link>
       <div class="nav-tabs">
@@ -137,9 +137,10 @@ function logout() {
   display: block;
 }
 .nav-brand-name {
-  font-size: 17px; font-weight: 800;
-  color: var(--accent); letter-spacing: 1px;
+  font-size: 18px; font-weight: 800;
+  color: var(--accent); letter-spacing: 6px;
   line-height: 1.1;
+  padding-right: 2px; /* 抵消 letter-spacing 右侧留白, 让整体居中更紧 */
 }
 .nav-brand-text { display: flex; flex-direction: column; gap: 1px; line-height: 1.1; }
 .nav-brand-slogan {
