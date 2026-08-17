@@ -220,6 +220,23 @@ z-index: 9999;
 
 .medal-section { background: var(--bg-panel); backdrop-filter: blur(8px); border-radius: 10px; padding: 16px; border: 1px solid rgba(255,215,0,0.4); margin: 0; display: flex; flex-wrap: nowrap; gap: 15px; justify-content: center; align-items: center; }
 .medal-card { flex: 1 1 0; min-width: 0; text-align: center; padding: 12px 8px; border-radius: 12px; background: var(--bg-card); border: 1px solid rgba(255,215,0,0.3); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+/* 移动端(手机浏览器): 三卡横排缩小, 避免 390px 视口挤压溢出; 自选池已纵向堆叠到下方 */
+@media (max-width: 899px) {
+  .medal-section { padding: 10px 8px; gap: 8px; max-width: 100%; box-sizing: border-box; }
+  .medal-card { padding: 8px 4px; gap: 3px; overflow: hidden; }
+  .medal-rank { font-size: 13px; gap: 3px; }
+  .medal-rank-icon { font-size: 20px; }
+  .medal-name-big { font-size: 14px; letter-spacing: 0.5px; margin: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .medal-code { font-size: 12px; letter-spacing: 0.5px; margin: 1px 0; }
+  .medal-prob-big { font-size: 30px; margin: 2px 0; }
+  .medal-real-chg { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  /* 防御: 防止任何元素意外溢出造成横向滚动(主要兜底 StockTable 等大表) */
+  html, body { overflow-x: hidden; max-width: 100vw; }
+  .medal-section { max-width: 100%; }
+  .medal-pool-layout, .medal-pool-left, .medal-pool-right { max-width: 100%; min-width: 0; }
+  .nav-bar { max-width: 100vw; overflow: hidden; }
+  .nav-tabs { flex: 1 1 0; min-width: 0; }
+}
 .medal-rank { font-size: 18px; font-weight: 700; color: #ffd700; display: flex; align-items: center; gap: 6px; }
 .medal-rank-icon { font-size: 28px; }
 .medal-name-big { font-size: 22px; font-weight: 800; color: var(--text-main); letter-spacing: 1px; margin: 2px 0; }
