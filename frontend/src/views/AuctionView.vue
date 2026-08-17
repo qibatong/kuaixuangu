@@ -757,8 +757,10 @@ async function loadAll(fromUser = false) {
   loading.value = true
   try {
     // 历史回看: 所有接口带 date; 实时: 不带
+    // 多时点对比面板始终用实时模式(最近4交易日), 不随 datePicker 变化:
+    // 2026-08-18 修复 - 自动回退时 datePicker=8/17 导致 ov 只返回 1 列(与生产环境 4 天视图不一致)
     const [ov, seal, boom, qc, yestZt, yestBroken, lhb, brokenYest, brokenToday, s3] = await Promise.all([
-      withTimeout(auctionOverview(dt)), withTimeout(kplBidSeal(dt)), withTimeout(kplBidBoom(dt)),
+      withTimeout(auctionOverview('')), withTimeout(kplBidSeal(dt)), withTimeout(kplBidBoom(dt)),
       withTimeout(kplBidQiangcang(dt)), withTimeout(kplYestZt(dt)),
       withTimeout(kplYestBroken(dt)), withTimeout(kplLhb(dt)),
       withTimeout(kplBroken(dt ? '' : 'yesterday', dt)), withTimeout(kplBroken('', dt)),
