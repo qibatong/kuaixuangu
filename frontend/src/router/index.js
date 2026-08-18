@@ -20,7 +20,9 @@ const router = createRouter({
 router.beforeEach((to) => {
   const user = useUserStore()
   if (to.name !== 'login' && !user.isLoggedIn) {
-    return { name: 'login', query: { redirect: to.fullPath } }
+    // 2026-08-18 修复: 跳 /login 时保留原始 query(如 ?reset=TOKEN),
+    // 否则忘记密码邮件链接点击后 reset 参数丢失 → 只显示登录框而不是设置新密码
+    return { name: 'login', query: { redirect: to.fullPath, ...to.query } }
   }
   if (to.name === 'login' && user.isLoggedIn) {
     return { name: 'stock' }
