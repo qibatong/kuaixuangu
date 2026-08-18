@@ -115,10 +115,14 @@ def api_kpl_bid_net(request: Request, uid: int = Depends(require_vip_or_paid)):
     """竞价净额榜(2026-08-18 主人要求): 开盘啦 MorningBiddingList Type=2(全市场竞价金额>1000万)
     替代仅从涨停封单列表按净额排序; 非竞价时段返回空 → 前端回退封单列表"""
     d = kpl.fetch_bid_net() or []
+    # 2026-08-18 主人要求: doc112(Type=2)字段结构与Type4不同, 换手/成交额解析为0
+    # → 用 9_25 快照补竞价换手 + 竞价成交额(可靠同源)
     try:
+        kpl.fill_bid_turnover_from_snap(d, None)
+        kpl.fill_bid_amt_from_snap(d, None)
         kpl.apply_board_concept(d, log_tag="auc:bid-net", deep=False, field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
-        log.warning("竞价净额概念覆盖失败 err=%s", e)
+        log.warning("竞价净额换手/成交额/概念补齐失败 err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
 
 

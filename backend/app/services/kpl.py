@@ -1340,7 +1340,8 @@ def fill_bid_turnover_from_snap(lst, date=None):
         n = 0
         for it in lst:
             code = str(it.get("code") or "")
-            if not code or it.get("bidTurnover") not in (None, ""):
+            # 2026-08-18: 接口解析可能给 0.0(字段错位), 0 也视为缺 → 快照补
+            if not code or it.get("bidTurnover"):
                 continue
             s = snap.get(code)
             if s and s.get("float_mv"):
@@ -1353,6 +1354,31 @@ def fill_bid_turnover_from_snap(lst, date=None):
             log.info("竞价换手补齐 %d 只 date=%s", n, date or "-")
     except Exception as e:
         log.warning("竞价换手补齐失败 date=%s err=%s", date or "-", e)
+    return lst
+
+
+def fill_bid_amt_from_snap(lst, date=None):
+    """2026-08-18 主人要求: doc112(竞价>1000万)等接口无竞价成交额字段 →
+    用 9_25 快照补竞价成交额(bidAmt 元; 快照 bid_amt 万元×10000); 已带的不覆盖"""
+    if not lst:
+        return lst
+    try:
+        snap = _snap25_map(date)
+        if not snap:
+            return lst
+        n = 0
+        for it in lst:
+            code = str(it.get("code") or "")
+            if not code or it.get("bidAmt") not in (None, "", 0):
+                continue
+            s = snap.get(code)
+            if s and s.get("bid_amt"):
+                it["bidAmt"] = (s.get("bid_amt") or 0) * 10000   # 万元 → 元
+                n += 1
+        if n:
+            log.info("竞价成交额补齐 %d 只 date=%s", n, date or "-")
+    except Exception as e:
+        log.warning("竞价成交额补齐失败 date=%s err=%s", date or "-", e)
     return lst
 
 
