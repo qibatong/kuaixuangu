@@ -7,7 +7,6 @@
 返回字段均为 App 数组格式(无字段名, 靠位置解析), 统一在此转换为 dict。
 """
 import json
-import re
 import ssl
 import threading
 import time
@@ -1197,80 +1196,18 @@ def apply_board_concept(result, log_tag="", deep=True, field="concept",
     return n + n2
 
 
-def _parse_lb_tag(tag):
-    """解析开盘啦 limitTag 连板标识 → 连板数: '首板'→1, '2连板'→2, '4天3板'→3, '7天5板'→5, ''→0"""
-    if not tag:
-        return 0
-    t = str(tag).strip()
-    m = re.search(r"(\d+)\s*连板", t)
-    if m:
-        return int(m.group(1))
-    m = re.search(r"(\d+)天(\d+)板", t)
-    if m:
-        return int(m.group(2))
-    if "首板" in t or "板" in t:
-        return 1
-    return 0
-
-
-def _kpl_yest_list(pid, day):
-    """开盘啦"昨日涨停/断板今表现"成分股(doc19=801900 昨涨停, doc21=801902 昨破板/断板):
-    fetch_board_stocks 全量(st=500) + 快照补竞价字段 + limitTag 解析连板
-    返回 [{code,name,limitUpDays,change,bidChange,bidAmt,bidTurnover,floatMv,board,reason}, ...]
-    失败/空返回 []"""
-    try:
-        rows = fetch_board_stocks(str(pid), day, st=500) or []
-    except Exception as e:
-        log.warning("开盘啦 %s 成分股获取失败 err=%s", pid, e)
-        return []
-    if not rows:
-        return []
-    snap = _snap25_map()
-    seal_map = _seal_map()
-    out = []
-    for it in rows:
-        code = str(it.get("code") or "")
-        if not code:
-            continue
-        sn = snap.get(code, {})
-        t4 = seal_map.get(code, {})
-        bid_amt = (sn["bid_amt"] * 10000) if sn and sn.get("bid_amt") else None
-        float_mv = it.get("floatMv") or t4.get("floatMv") or (sn.get("float_mv") if sn else None)
-        bid_turnover = t4.get("bidTurnover")
-        if not bid_turnover and bid_amt and float_mv:
-            bid_turnover = round(bid_amt / float_mv * 100, 2)
-        out.append({
-            "code": code,
-            "name": it.get("name") or sn.get("name") or "",
-            "limitUpDays": _parse_lb_tag(it.get("limitTag")),   # 连板数(开盘啦 limitTag)
-            "change": it.get("change"),                          # 今日实时涨幅(开盘啦, 已验证)
-            "bidChange": t4.get("bidChange") if t4.get("bidChange") is not None
-                         else (sn.get("bid_change") if sn else None),
-            "bidAmt": bid_amt,
-            "bidNetAmt": t4.get("bidNetAmt"),
-            "bidTurnover": bid_turnover,
-            "floatMv": float_mv,
-            "board": it.get("concept") or t4.get("board") or sn.get("board") or "",
-            "reason": it.get("ladder") or "",    # 龙一/龙二/破板标识兜底当原因
-        })
-    return out
-
-
 def fetch_yest_zt():
-    """昨日涨停股今日竞价表现 — **开盘啦 doc19(801900 昨涨停今表现)优先**, flash 兜底
-    开盘啦成分股 change=今日实时表现(已验证: 坤泰-5.32/华西-4.88 等), limitTag=连板, concept=概念
+    """昨日涨停股今日竞价表现: **flash limit_up_pool&date=昨日** (2026-08-18 主人确认:
+    开盘啦 doc19/801900 的 Date 是"指数交易日"语义 — 传 8/17 返回的是 8/17 的"昨日"(8/14)涨停股,
+    而当日(8/18)数据未冻结返回空 → 盘后拿不到正确的"昨日涨停"; flash 法日期直接对)
+    字段补全: Type4(今日竞价涨停榜)优先 → snapshot_bid 9_25(全市场)兜底
     返回 [{code,name,yestChange,limitUpDays,stillLimit,change,bidChange,bidNetAmt,bidAmt,
            bidTurnover,floatMv,board}, ...]"""
     def loader():
         day = _prev_trade_day()
         if not day:
             return []
-        # 主路: 开盘啦 doc19 (2026-08-18 主人指定)
-        out = _kpl_yest_list("801900", day)
-        if out:
-            log.info("昨涨停(开盘啦doc19) 返回%d只 date=%s", len(out), day)
-            return out
-        # 兜底: flash 涨停池
+        # 主路: flash 昨日涨停池(日期语义直接正确: date=8/17 = 昨日涨停110只)
         lst = _flash_pool("limit_up_pool", day)
         if not lst:
             return []
