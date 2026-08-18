@@ -35,7 +35,16 @@
     </div>
 
     <div class="nav-tools">
-      <!-- 账户工具: 已登录显示用户名(点击弹下拉: 主题/字号/资料/改密/退出)/会员标识 -->
+      <!-- 主题快捷切换(2026-08-18 主人要求: 主题设置移出下拉菜单, 导航栏直接可见) -->
+      <div class="theme-quick" title="切换主题">
+        <button
+  v-for="b in BGS" :key="b.key"
+          class="nav-theme-dot" :class="{ active: bg === b.key }"
+          :style="{ background: b.color }" :title="b.label"
+          @click="setBg(b.key)"
+></button>
+      </div>
+      <!-- 账户工具: 已登录显示用户名(点击弹下拉: 字号/资料/改密/退出)/会员标识 -->
       <div v-if="user.isLoggedIn" class="user-tools">
         <div class="user-dropdown" ref="userDropdown">
           <button class="user-name-btn" title="账户操作" @click="toggleMenu">
@@ -62,16 +71,8 @@
            Teleport 到 body 后脱离所有容器/滚动上下文, 必然在视图顶层 -->
       <Teleport to="body">
         <div v-show="menuOpen" ref="menuRef" class="user-menu" :style="menuPos">
+          <!-- 主题已移到导航栏快捷切换(2026-08-18 主人要求), 下拉只留字号 -->
           <div class="menu-settings">
-            <div class="menu-setting-row">
-              <span class="menu-setting-label"><i class="fa fa-adjust"></i> 主题</span>
-              <button
-  v-for="b in BGS" :key="b.key"
-                class="menu-dot" :class="{ active: bg === b.key }"
-                :style="{ background: b.color }" :title="b.label"
-                @click="setBg(b.key)"
-></button>
-            </div>
             <div class="menu-setting-row">
               <span class="menu-setting-label"><i class="fa fa-font"></i> 字号</span>
               <button
@@ -290,7 +291,7 @@ body[data-bg="light"] .mini-btn:hover { background: rgba(255, 255, 255, 0.28); c
   padding: 5px;
   display: flex; flex-direction: column; gap: 2px;
 }
-/* 菜单顶部设置区: 主题/字号 (2026-08-18 主人反馈迁入) */
+/* 菜单顶部设置区: 字号 (主题已移到导航栏快捷切换, 2026-08-18 主人要求) */
 .menu-settings {
   display: flex; flex-direction: column; gap: 7px;
   padding: 6px 10px 9px;
@@ -301,6 +302,23 @@ body[data-bg="light"] .mini-btn:hover { background: rgba(255, 255, 255, 0.28); c
   font-size: 12px; color: #b0b6c8; min-width: 56px; white-space: nowrap;
 }
 .menu-setting-label i { width: 14px; text-align: center; }
+/* 导航栏主题快捷圆点(2026-08-18 主人要求移出下拉) */
+.theme-quick {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 4px; border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+body[data-bg="light"] .theme-quick { border-color: rgba(255, 255, 255, 0.28); background: rgba(255, 255, 255, 0.14); }
+.nav-theme-dot {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35); cursor: pointer; padding: 0;
+  transition: transform 0.15s, border-color 0.15s;
+}
+.nav-theme-dot:hover { transform: scale(1.18); }
+.nav-theme-dot.active { border-color: #fff; box-shadow: 0 0 6px rgba(255, 255, 255, 0.85); }
+body[data-bg="light"] .nav-theme-dot { border-color: rgba(0, 0, 0, 0.3); }
+body[data-bg="light"] .nav-theme-dot.active { border-color: #c62828; box-shadow: 0 0 6px rgba(198, 40, 40, 0.4); }
 .menu-dot {
   width: 16px; height: 16px; border-radius: 50%;
   border: 2px solid #3a3e50; cursor: pointer; padding: 0;
@@ -391,12 +409,11 @@ body[data-bg="light"] .renew-badge { color: #b05e00; border-color: #c07a10; }
   .nav-logo { width: 26px; height: 26px; border-radius: 6px; }
   .nav-brand-name { font-size: 14px; }
   .nav-brand-slogan { display: none; }
-  /* 导航项横向滑动(7 个入口一排滑, 不换行占纵向空间) */
-  .nav-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px; width: 100%; }
-  .nav-tabs::-webkit-scrollbar { display: none; }
-  .nav-item { flex-shrink: 0; padding: 5px 10px; font-size: 12px; gap: 4px; }
-  /* 工具区紧凑 */
-  .nav-tools { gap: 6px; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; max-width: 100%; }
+  /* 导航项自动换行(2026-08-18 主人要求: 不用向右滑动, 换行展示) */
+  .nav-tabs { flex-wrap: wrap; overflow: visible; padding-bottom: 2px; width: 100%; }
+  .nav-item { padding: 5px 10px; font-size: 12px; gap: 4px; }
+  /* 工具区自动换行(2026-08-18 主人要求: 不横滑, 放不下自动换行) */
+  .nav-tools { gap: 6px; flex-wrap: wrap; overflow: visible; max-width: 100%; }
   .nav-tools::-webkit-scrollbar { display: none; }
   /* 手机上用户名按钮紧凑保留(点击弹下拉), 会员徽标省略文本 */
   .user-name-btn { padding: 3px 8px; font-size: 12px; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
