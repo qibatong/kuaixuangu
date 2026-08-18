@@ -1244,35 +1244,48 @@ def fetch_yest_zt():
 
 
 def fetch_yest_broken():
-    """昨断板: 昨日涨停池中今日未涨停的股票(今日竞价表现从 snapshot_bid 9:25 全市场补)
+    """昨断板(2026-08-18 主人定义修正): **前一日连板(涨停≥2板)且昨日未涨停 = 昨日连板中断**
+    (原实现误为"昨日涨停今日未涨停" → 显示的全是昨涨停股)
+    返回断板股票的今日竞价表现(从 snapshot_bid 9:25 全市场补)
     返回 [{code,name,yestChange,limitUpDays,change,bidChange,bidAmt,bidNetAmt,bidTurnover,floatMv,board}, ...]"""
     def loader():
-        day = _prev_trade_day()
+        day = _prev_trade_day()              # 昨日(断板发生的日子)
         if not day:
             return []
-        yest = _flash_pool("limit_up_pool", day)
-        if not yest:
+        # 昨日的前一交易日
+        prev2 = None
+        try:
+            import sqlite3
+            conn = sqlite3.connect(config.DB_FILE)
+            row = conn.execute(
+                "SELECT DISTINCT date FROM snapshot_bid WHERE date < ? ORDER BY date DESC LIMIT 1",
+                (day,)).fetchone()
+            conn.close()
+            if row:
+                prev2 = str(row[0])
+        except Exception:
+            pass
+        if not prev2:
+            log.warning("昨断板 无法定位前一日(day=%s), 返回空", day)
             return []
-        today_codes = {x["code"] for x in _flash_pool("limit_up_pool")}
-        if not today_codes:
-            # 2026-08-18 修复: 盘后/晚间"今日涨停池"接口返回空 → 过滤失效显示全部昨日涨停
-            # 兜底: 用今日 9_25 快照涨停判定(按板块阈值)作为今日涨停集合
-            snap_now = _snap25_map()
-            today_codes = {code for code, s in snap_now.items()
-                           if s.get("bid_change") is not None and _is_zt(code, s.get("bid_change"))}
-            log.info("昨断板 今日涨停池接口空, 快照兜底今日涨停=%d只", len(today_codes))
-        broken = [x for x in yest if x["code"] not in today_codes]
-        # 2026-08-18 主人要求: 排除首板后的断板, 只保留至少 2 板后的断板
-        broken = [x for x in broken if (x.get("limitUpDays") or 0) >= 2]
-        log.info("昨断板 昨日涨停=%d 今日未涨停=%d 排除首板后=%d只",
-                 len(yest), len([x for x in yest if x["code"] not in today_codes]), len(broken))
+        prev2_pool = _flash_pool("limit_up_pool", prev2)   # 前一日涨停池
+        if not prev2_pool:
+            return []
+        yest_codes = {x["code"] for x in _flash_pool("limit_up_pool", day)}
+        # 前一日连板≥2 + 昨日未涨停 = 昨日断板(连板中断)
+        broken = [x for x in prev2_pool
+                  if x["code"] not in yest_codes and (x.get("limitUpDays") or 0) >= 2]
+        log.info("昨断板 前一日(%s)涨停=%d 昨日(%s)未涨停且≥2板=%d只",
+                 prev2, len(prev2_pool), day, len(broken))
         # 今日竞价快照(9_25 全市场)补: 涨幅/竞额/概念
         snap = _snap25_map()
+        yest_snap = _snap25_map(day)   # 昨日(断板日)快照 → 断板日竞价涨幅
         seal_map = _seal_map()
         out = []
         for it in broken:
             code = it["code"]
             s = snap.get(code, {})
+            ys = yest_snap.get(code, {})
             t4 = seal_map.get(code, {})
             bid_amt = (s["bid_amt"] * 10000) if s and s.get("bid_amt") else None
             float_mv = t4.get("floatMv") or (s.get("float_mv") if s else None)
@@ -1283,9 +1296,9 @@ def fetch_yest_broken():
             out.append({
                 "code": code,
                 "name": t4.get("name") or s.get("name") or it["name"],
-                "yestChange": it["change"],              # 昨日涨停涨幅
-                "limitUpDays": it["limitUpDays"],        # 昨日连板数
-                "reason": it.get("reason", ""),          # 昨日涨停原因
+                "yestChange": ys.get("bid_change") if ys else None,  # 昨日(断板日)竞价涨幅 — 2026-08-18 语义修正
+                "limitUpDays": it["limitUpDays"],        # 断板前连板数
+                "reason": it.get("reason", ""),          # 前一日涨停原因
                 "change": t4.get("realChange") if t4.get("realChange") is not None
                           else (s.get("bid_change") if s else None),   # 今日实时涨幅(9_25竞价涨幅兜底)
                 "bidChange": (s.get("bid_change") if s else None),     # 今日竞价涨幅
