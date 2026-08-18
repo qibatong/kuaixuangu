@@ -71,7 +71,7 @@
           <button class="mrk-modal-close" @click="closeBoardStocks"><i class="fa fa-times"></i></button>
         </div>
         <div v-if="stocksLoading" class="loading-placeholder"><div class="spinner"></div><div>加载成分股...</div></div>
-        <div v-else-if="!boardStocks.length" class="empty-state">暂无成分股数据</div>
+        <div v-else-if="!boardStocks.length" class="empty-state">该板块暂无成分股数据（午休时段/接口暂不可用，交易时段或收盘后重试）</div>
         <div v-else class="mrk-modal-body">
           <table class="stock-table mrk-modal-table">
             <thead>

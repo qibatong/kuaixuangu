@@ -468,6 +468,14 @@ def fetch_board_stocks(plate_id, date=None):
     if date:
         params["Date"] = date
     d = _call("after", params)
+    # 2026-08-18 修复: 非交易时段(午休/部分晚间)开盘啦对"无 Date 实时请求"返回 1020 风控,
+    # 此时自动带 Date=上一交易日 重试(晚间可拿到上一交易日完整成分股, 消除空白)
+    if (not date) and not (isinstance(d, dict) and isinstance(d.get("list"), list) and d.get("list")):
+        prev = _prev_trade_day()
+        if prev:
+            p2 = dict(params)
+            p2["Date"] = prev
+            d = _call("after", p2)
     lst = d.get("list") if isinstance(d, dict) else None
     if not isinstance(lst, list):
         return []
