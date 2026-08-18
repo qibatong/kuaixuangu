@@ -1424,7 +1424,9 @@ def fetch_bid_qiangcang(date=None):
                         if floatMv < 2e8 or bidNetAmt <= 0:             # 放宽阈值 5亿→2亿, 纳入中盘股
                             continue
                         qcDelta = round(bidNetAmt / floatMv * 100, 2)   # 抢筹强度%(开盘啦自家口径)
-                        if qcDelta <= 5:
+                        # 2026-08-18 修复: 阈值 5% 过高 — 实测强抢筹票 qcDelta 仅 0.4~3%
+                        # (盈新发展0.77/日丰0.45), 5% 导致从上线起全部过滤, qc_snapshot 整表为空
+                        if qcDelta <= 0.5:
                             continue
                         list20.append({
                             "code": code,
