@@ -16,7 +16,8 @@
 - 全市场评分只跑一次 + 系统标准过滤一次 (score_all_stocks 拆分)
 - 后台守护线程执行, 不阻塞 auction_snapshot 调度循环
 - 单用户落库失败不影响其他人
-- 跳过当天已应用的用户(手动优先); 管理员/过期账号跳过
+- 管理员/过期账号跳过; 当天已有统一批次的用户跳过(防重复)
+- 2026-08-18 主人需求变更: 手动 lock 不再跳过 — 统一批次对所有人生效(数据一致)
 """
 import threading
 import time
@@ -33,13 +34,16 @@ def _today_bj():
     return "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
 
 
-def _user_already_applied_today(uid, bdate):
-    """用户当天是否已有批次记录(无论主动/自动); 用于跳过避免重复"""
+def _user_auto_applied_today(uid, bdate):
+    """用户当天是否已有系统统一批次(auto_applied=1) — 仅防重复执行
+    2026-08-18 主人需求变更: 不再"手动优先"跳过(原 _user_already_applied_today) —
+    9:26 统一批次对**所有**活跃用户生效, 即使当天手动 lock 过也要统一,
+    保证所有用户在竞价选股页看到同一份结果"""
     from ..db import database
     conn = database.get_conn()
     try:
         row = conn.execute(
-            "SELECT COUNT(*) FROM batches WHERE user_id=? AND batch_date=?",
+            "SELECT COUNT(*) FROM batches WHERE user_id=? AND batch_date=? AND auto_applied=1",
             (uid, bdate)).fetchone()
         return (row[0] or 0) > 0
     finally:
@@ -134,8 +138,8 @@ def auto_apply_all_users(max_users=None):
                 log.info("auto_apply 跳过 uid=%s 原因=%s", uid, reason)
                 skipped += 1
                 continue
-            if _user_already_applied_today(uid, bdate):
-                log.info("auto_apply 跳过 uid=%s 原因=今天已有批次(手动筛选优先)", uid)
+            if _user_auto_applied_today(uid, bdate):
+                log.info("auto_apply 跳过 uid=%s 原因=今天已有系统统一批次", uid)
                 skipped += 1
                 continue
             bid = history.save_batch(uid, "lock", result, f, auto_applied=True)

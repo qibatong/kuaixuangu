@@ -157,7 +157,8 @@ export const useStocksStore = defineStore('stocks', {
       const out = []
       locked.forEach((it) => {
         // 1) 当前筛选条件不允许 → 直接移除(哈药场景: 剔除昨日涨停)
-        if (!passLockedFilter(it, (spotMap || {})[it.code], fs)) return
+        //    2026-08-18: 系统统一批次(autoApplied)不过滤 — 9:26 统一标准结果对全用户一致
+        if (!locked.autoApplied && !passLockedFilter(it, (spotMap || {})[it.code], fs)) return
         const lt = listMap[it.code]              // 在过滤名单里 → 有完整实时评分
         if (lt) {
           // 2) 在榜: 更新实时字段 + 实时评分
@@ -177,11 +178,14 @@ export const useStocksStore = defineStore('stocks', {
       const d = await listBatches()
       const batches = d.batches || []
       const today = bjDateStr()
-      // 找当天最新一条 action=lock 的批次(后端按 ts 倒序, 第一条最新)
-      const b = batches.find((x) => x.action === 'lock' && x.batch_date === today)
+      // 2026-08-18 主人需求: 9:26 自动应用后所有用户看到同一份结果 —
+      // 优先取今天 auto_applied=1 的系统统一批次(9:26 统一标准筛选, 全用户一致),
+      // 无则回退用户当天自己 action=lock 的批次(9:26 前或自动应用未执行)
+      const autoB = batches.find((x) => x.auto_applied && x.batch_date === today)
+      const b = autoB || batches.find((x) => x.action === 'lock' && x.batch_date === today)
       if (!b) return []
       const detail = await listBatches(b.id)
-      return (detail.stocks || []).map((s) => ({
+      const stocks = (detail.stocks || []).map((s) => ({
         code: s.code, name: s.name,
         probability: s.probability, confidence: s.confidence,
         bidChange: s.bid_change, realChange: s.real_change,
@@ -190,6 +194,9 @@ export const useStocksStore = defineStore('stocks', {
         circulationMV: s.circulation_mv, industry: s.industry,
         concept: s.concept, rank: s.rank
       }))
+      // 标记是否系统统一批次(9:26 自动应用): 统一批次不随用户筛选条件过滤, 保证全用户一致
+      stocks.autoApplied = !!autoB
+      return stocks
     },
     applyBidSnapshot(list) {
       const snap = this.loadBidSnapshot()
