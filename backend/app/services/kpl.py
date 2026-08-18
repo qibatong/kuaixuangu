@@ -1254,6 +1254,13 @@ def fetch_yest_broken():
         if not yest:
             return []
         today_codes = {x["code"] for x in _flash_pool("limit_up_pool")}
+        if not today_codes:
+            # 2026-08-18 修复: 盘后/晚间"今日涨停池"接口返回空 → 过滤失效显示全部昨日涨停
+            # 兜底: 用今日 9_25 快照涨停判定(按板块阈值)作为今日涨停集合
+            snap_now = _snap25_map()
+            today_codes = {code for code, s in snap_now.items()
+                           if s.get("bid_change") is not None and _is_zt(code, s.get("bid_change"))}
+            log.info("昨断板 今日涨停池接口空, 快照兜底今日涨停=%d只", len(today_codes))
         broken = [x for x in yest if x["code"] not in today_codes]
         # 今日竞价快照(9_25 全市场)补: 涨幅/竞额/概念
         snap = _snap25_map()

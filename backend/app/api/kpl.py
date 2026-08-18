@@ -144,9 +144,11 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
                    "day": (lst[0].get("day") if lst else "")})
     if day == "yesterday":
         # 昨炸板: 读历史快照(优先), 无则实时接口
+        # 2026-08-18 修复: 应读 prev 的 broken_today(当日炸板=昨日炸板);
+        # 原读 broken_yest 是"当天存的昨日炸板" → 显示上上个交易日(8/17存8/14)
         prev = kpl._prev_trade_day()
         if prev:
-            lst = kpl.query_auction_history(prev, "broken_yest")
+            lst = kpl.query_auction_history(prev, "broken_today")
             if lst:
                 kpl._merge_broken_bid_snap(lst)   # 老快照无竞价字段 → 按 day 补全
                 kpl.fill_float_mv_from_snap(lst, prev)
