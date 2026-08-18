@@ -42,8 +42,11 @@
             <i class="fa fa-user-circle"></i> {{ user.username }}
             <i class="fa fa-caret-down" :class="{ 'caret-up': menuOpen }"></i>
           </button>
-          <!-- 下拉菜单: 设置(主题/字号) + 资料/改密/退出 -->
-          <div v-show="menuOpen" class="user-menu">
+          <!-- 下拉菜单: 设置(主题/字号) + 资料/改密/退出
+               2026-08-18: fixed 定位(JS 算位置) — 移动端 .nav-tools 是 overflow-x:auto 滚动容器,
+               iOS Safari 会把 overflow-y 强制为 auto, absolute 菜单被裁剪 → 真机点不开.
+               fixed 脱离容器, 全平台可弹 -->
+          <div v-show="menuOpen" class="user-menu" :style="menuPos">
             <div class="menu-settings">
               <div class="menu-setting-row">
                 <span class="menu-setting-label"><i class="fa fa-adjust"></i> 主题</span>
@@ -113,9 +116,26 @@ const profileModal = ref(null)
 // 用户名下拉菜单
 const menuOpen = ref(false)
 const userDropdown = ref(null)
+// fixed 定位菜单坐标(2026-08-18 iOS Safari 修复: absolute 菜单被 nav-tools 滚动容器裁剪)
+const menuPos = ref({})
 
 function toggleMenu() {
+  if (!menuOpen.value && userDropdown.value) {
+    // 以用户名按钮右下角为锚点, fixed 定位菜单(viewport 坐标系, 不受父级 overflow 影响)
+    const r = userDropdown.value.querySelector('.user-name-btn').getBoundingClientRect()
+    const mw = Math.max(190, r.width)   // 菜单最小宽
+    menuPos.value = {
+      top: Math.min(r.bottom + 6, window.innerHeight - 260) + 'px',
+      left: Math.max(8, r.right - mw) + 'px',
+      minWidth: mw + 'px'
+    }
+  }
   menuOpen.value = !menuOpen.value
+}
+
+// fixed 菜单打开后, 页面滚动时自动关闭(避免位置错位)
+function onScrollClose() {
+  if (menuOpen.value) menuOpen.value = false
 }
 
 function onDocClick(e) {
@@ -124,8 +144,14 @@ function onDocClick(e) {
   }
 }
 
-onMounted(() => document.addEventListener('click', onDocClick))
-onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
+onMounted(() => {
+  document.addEventListener('click', onDocClick)
+  window.addEventListener('scroll', onScrollClose, true)   // 捕获阶段: 任何滚动容器滚动都关闭
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocClick)
+  window.removeEventListener('scroll', onScrollClose, true)
+})
 
 function logout() {
   if (!confirm('确定退出当前账号？')) return
@@ -251,8 +277,7 @@ body[data-bg="light"] .mini-btn:hover { background: rgba(255, 255, 255, 0.28); c
 .caret-up { transform: rotate(180deg); }
 /* 下拉菜单: 不透明背景(按主题覆盖, 避免与 --bg-card 半透明融背景) */
 .user-menu {
-  position: absolute; top: calc(100% + 6px); right: 0; z-index: 1000;
-  min-width: 170px;
+  position: fixed; z-index: 2000;   /* 2026-08-18: fixed+JS坐标(原 absolute 被移动端 nav-tools 滚动容器裁剪) */
   background-color: #1f2230;          /* 默认深色主题: 深灰实色 */
   color: #eef2ff;
   border: 1.5px solid #3a3e50;
