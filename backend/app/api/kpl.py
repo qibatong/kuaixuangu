@@ -376,6 +376,23 @@ def api_kpl_yest_zt(request: Request, uid: int = Depends(require_vip_or_paid), d
         kpl.apply_board_concept(d, log_tag="auc:yest-zt", deep=True, field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("竞价异动概念开盘啦覆盖失败 yest-zt err=%s", e)
+    # 2026-08-18 主人反馈: 晚间 Type4(开盘啦竞价榜)为空 → change/bidChange 都回退 9_25 竞价涨幅, 两列一样
+    # merge 东财全市场实时行情覆盖 change(仅当 change 缺失或等于竞价涨幅时), 保证实时涨幅≠竞价涨幅
+    try:
+        from ..services import fetcher
+        spot = fetcher.fetch_spot_quote_map("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23")
+        n = 0
+        for it in d:
+            q = spot.get(str(it.get("code")))
+            if q and q.get("realChange") is not None:
+                rc = q.get("realChange")
+                if it.get("change") is None or it.get("change") == it.get("bidChange"):
+                    it["change"] = rc
+                    n += 1
+        if n:
+            log.info("昨涨停实时涨幅 merge 东财 覆盖%d只", n)
+    except Exception as e:
+        log.warning("昨涨停实时涨幅 merge 失败 err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
 
 
