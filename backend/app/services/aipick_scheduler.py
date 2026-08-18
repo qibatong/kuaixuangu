@@ -96,6 +96,19 @@ def _scheduler_loop():
         time.sleep(20)
 
 
+def trigger_after_bid_snapshot():
+    """9:25 竞价快照落库后由 auction_snapshot 立即触发(2026-08-18 主人要求:
+    拿到竞价数据后立刻采集+预测, 不等 9:27 轮询窗口) — 后台线程执行, 不阻塞采集主循环"""
+    def _wrapped():
+        try:
+            _run_task("aipick_collect", [os.path.join(AIPICK_DIR, "scripts", "collector.py")])
+            _run_task("aipick_predict", [os.path.join(AIPICK_DIR, "scripts", "predict_daily.py")])
+        except Exception as e:
+            log.error("aipick 立即采集/预测异常 err=%s", e)
+    threading.Thread(target=_wrapped, daemon=True, name="aipick_snapshot_now").start()
+    log.info("aipick 立即采集+预测已触发(9:25 快照落库后)")
+
+
 def start_scheduler():
     """kx-worker 启动时调用: 启动 AI 竞价采集/打标签/训练预测调度线程"""
     # 进程内标记跨天重置: 每天 00:00 清一次
@@ -110,4 +123,4 @@ def start_scheduler():
     threading.Thread(target=_daily_reset, daemon=True).start()
     t = threading.Thread(target=_scheduler_loop, daemon=True)
     t.start()
-    log.info("AI 竞价选股调度已启动(9:27采集 / 15:05打标签 / 19:00训练预测)")
+    log.info("AI 竞价选股调度已启动(9:25触发预测 / 9:27采集 / 15:05打标签 / 19:00训练)")

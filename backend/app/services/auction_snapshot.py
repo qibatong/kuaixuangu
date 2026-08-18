@@ -496,6 +496,14 @@ def _scheduler_loop():
                         log.info("[快照采集] 触发时点窗口 tp=%s hm=%d:%02d date=%s", tp, hm // 60, hm % 60, date)
                         if snapshot_at(tp):
                             log.info("[快照采集] 时点完成并入完成集 tp=%s date=%s", tp, date)
+                            # 2026-08-18 主人要求: 9_25 竞价快照落库后立即触发 AI 采集+预测
+                            # (不等 9:27 轮询窗口, 数据到手就预测, 9:30 前出结果)
+                            if tp == "9_25":
+                                try:
+                                    from . import aipick_scheduler
+                                    aipick_scheduler.trigger_after_bid_snapshot()
+                                except Exception as e:
+                                    log.error("aipick 采集/预测触发失败 err=%s", e)
                         else:
                             # 失败回滚 setnx 标记: 窗口内下一轮轮询(10s)重试, 东财/KPL 瞬时故障自愈
                             # 窗口结束后(hm>end)不再触发, 9:31 盘点告警兜底
