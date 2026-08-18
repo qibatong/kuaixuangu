@@ -452,30 +452,26 @@ def fetch_board_rank_by_date(date):
 
 
 def fetch_board_stocks(plate_id, date=None):
-    """板块成分股(开盘啦 ZhiShuStockList_W8, apphwshhq host, 2026-08-17 主人需求):
+    """板块成分股(开盘啦 doc46 ZhiShuStockList_W8, **apphis host + apiv=w41**):
     板块强度点开看成分股.
-    PlateID: 板块代码(如 801001 芯片); date: 'YYYY-MM-DD' 历史(非交易时间必传, 否则返空)
-    实测 30 条(按强度/涨幅排序); 返回 [{code, name, concept, change, turnover, amount,
-    floatMv, mainNet, limitTag, ladder, totalMv}, ...]"""
+    PlateID: 板块代码(如 801001 芯片); date: 'YYYY-MM-DD' 历史.
+    2026-08-18 修复: 原实现用 apphwshhq+w44 实时模式(无 Date) — 当日数据冻结前开盘啦一律返回
+    errcode=1020(实时模式被拒), 历史模式(带 Date)正常. 改走 apphis+w41 且**始终带 Date**:
+    实时模式自动带上一交易日(当天未冻结前取最近交易日成分股, 消除空白).
+    实测 30 条(按强度/涨幅排序); 返回 [{code, name, concept, price, change, turnover, amount,
+    floatMv, mainNet, volRatio, limitTag, ladder, totalMv}, ...]"""
     params = {
         "Order": "1", "a": "ZhiShuStockList_W8", "st": "30",
-        "c": "ZhiShuRanking", "PhoneOSNew": "1", "old": "1",
+        "c": "ZhiShuRanking", "PhoneOSNew": "1",
         "IsZZ": "0", "Index": "0", "RStart": "0925", "REnd": "1500",
-        "apiv": "w44", "Type": "5", "IsKZZType": "0",
+        "apiv": "w41", "Type": "5", "IsKZZType": "0",
         "PlateID": str(plate_id), "TSZB": "0", "TSZB_Type": "0",
-        "filterType": "0",
     }
+    if not date:
+        date = _prev_trade_day()   # 实时模式兜底: 取上一交易日(当天数据冻结前 apphis 不提供)
     if date:
         params["Date"] = date
-    d = _call("after", params)
-    # 2026-08-18 修复: 非交易时段(午休/部分晚间)开盘啦对"无 Date 实时请求"返回 1020 风控,
-    # 此时自动带 Date=上一交易日 重试(晚间可拿到上一交易日完整成分股, 消除空白)
-    if (not date) and not (isinstance(d, dict) and isinstance(d.get("list"), list) and d.get("list")):
-        prev = _prev_trade_day()
-        if prev:
-            p2 = dict(params)
-            p2["Date"] = prev
-            d = _call("after", p2)
+    d = _call("his", params)
     lst = d.get("list") if isinstance(d, dict) else None
     if not isinstance(lst, list):
         return []
