@@ -16,6 +16,14 @@
 import { ref } from 'vue'
 import { getProfile, updateProfile } from '../api/auth'
 
+// Promise 超时包装: 超过 ms 毫秒 reject, 防接口挂起
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('timeout')), ms)
+    promise.then(v => { clearTimeout(t); resolve(v) }, e => { clearTimeout(t); reject(e) })
+  })
+}
+
 const visible = ref(false)
 const busy = ref(false)
 const err = ref('')
@@ -25,10 +33,14 @@ const wxName = ref('')
 
 async function open() {
   err.value = ''
+  // 2026-08-18 修复: 先显示弹窗再异步加载(原逻辑先 await getProfile 后 visible=true,
+  // 弱网/接口挂起时弹窗永不显示 → 手机上点击"个人信息"无反应)
+  visible.value = true
   busy.value = true
   try {
-    const d = await getProfile()
-    if (d.ok) {
+    // 8s 超时保护, 防止 getProfile 挂起导致 busy 无限转圈
+    const d = await withTimeout(getProfile(), 8000)
+    if (d && d.ok) {
       phone.value = d.profile.phone || ''
       // 接口返回脱敏邮箱, 不回填完整邮箱避免覆盖: 只展示, 用户自行修改
       email.value = d.profile.email || ''
@@ -36,7 +48,6 @@ async function open() {
     }
   } catch (e) { /* 静默 */ }
   finally { busy.value = false }
-  visible.value = true
 }
 function close() { visible.value = false }
 
