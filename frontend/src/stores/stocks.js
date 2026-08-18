@@ -163,21 +163,35 @@ export const useStocksStore = defineStore('stocks', {
         //    2026-08-18: 系统统一批次(autoApplied)不过滤 — 9:26 统一标准结果对全用户一致
         if (!locked.autoApplied && !passLockedFilter(it, (spotMap || {})[it.code], fs)) return
         const lt = listMap[it.code]              // 在过滤名单里 → 有完整实时评分
+        const rt = (spotMap || {})[it.code]      // 全市场实时行情
         if (lt) {
           // 2) 在榜: 更新实时字段 + 实时评分
           out.push({
             ...it,
             realChange: lt.realChange, entityChange: lt.entityChange,
             probability: lt.probability, confidence: lt.confidence,
-            price: lt.price, _snapshot: true, _offline: false
+            price: lt.price, _snapshot: true
           })
-        } else if (locked.autoApplied) {
-          // 2b) 统一批次(9:26 系统结果): 不在实时榜也**完整保留** —
-          //     2026-08-18 主人需求: 所有用户看到同一份完整名单, 不因实时榜缺股而减少
-          //     (实时涨幅留空用竞价锁定值, 名单恒定)
-          out.push({ ...it, _snapshot: true, _offline: false, _offBoard: true })
+          return
         }
-        // 3) 行情不在榜(真跌出实时榜) → 2026-08-18 主人反馈去掉: 直接移除不再保留
+        if (rt) {
+          // 3) 条件放行但行情不在榜(真跌出) → 保留(2026-08-18 主人澄清:
+          //    只去掉"已跌出实时榜"标签, 股票要保留显示)
+          out.push({
+            ...it,
+            realChange: rt.realChange, entityChange: rt.entityChange,
+            volRatio: rt.volRatio, turnover: rt.turnover,
+            price: rt.price, _snapshot: true
+          })
+          return
+        }
+        // 4) 全市场都没有(极端) → 保留, 无实时值
+        out.push({
+          ...it,
+          realChange: null, entityChange: null,
+          _staleReal: it.realChange, _staleEntity: it.entityChange,
+          _snapshot: true
+        })
       })
       this.isAutoAppliedList = !!locked.autoApplied
       return out
@@ -251,23 +265,21 @@ export const useStocksStore = defineStore('stocks', {
       // (改过筛选条件后点刷新, 应在当前新名单上更新, 而不是跳回早上 lock 的名单)
       const listMap = {}
       ;(data.list || []).forEach((s) => { listMap[s.code] = s })
-      // 2026-08-18: 统一批次(autoApplied)名单**完整保留**(不在实时榜的保留竞价值);
-      // 用户自己 lock 的名单才移除跌出的
-      if (this.isAutoAppliedList) {
-        this.cachedStocks = (this.cachedStocks || []).map((it) => {
-          const lt = listMap[it.code]
-          if (!lt) return { ...it, _offBoard: true }    // 不在实时榜: 保留竞价锁定值
+      const sm = data.spotMap || {}
+      // 2026-08-18 主人澄清: 跌出实时榜的**保留显示**(只去标签), 名单不减少
+      this.cachedStocks = (this.cachedStocks || []).map((it) => {
+        const lt = listMap[it.code]
+        const rt = sm[it.code]
+        if (lt) {
           return { ...it, realChange: lt.realChange, entityChange: lt.entityChange,
-                   probability: lt.probability, confidence: lt.confidence, price: lt.price,
-                   _offline: false, _offBoard: false }
-        })
-      } else {
-        this.cachedStocks = (this.cachedStocks || []).filter((it) => listMap[it.code]).map((it) => {
-          const lt = listMap[it.code]
-          return { ...it, realChange: lt.realChange, entityChange: lt.entityChange,
-                   probability: lt.probability, confidence: lt.confidence, price: lt.price, _offline: false }
-        })
-      }
+                   probability: lt.probability, confidence: lt.confidence, price: lt.price }
+        }
+        if (rt) {
+          return { ...it, realChange: rt.realChange, entityChange: rt.entityChange,
+                   volRatio: rt.volRatio, turnover: rt.turnover, price: rt.price }
+        }
+        return it    // 全市场都没有: 保留原值
+      })
       this.before930 = data.before930
       this.realTimeRefreshUsed = true
       showToast('✅ 实时涨幅更新完成', 'success')
