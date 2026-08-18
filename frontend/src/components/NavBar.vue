@@ -42,38 +42,6 @@
             <i class="fa fa-user-circle"></i> {{ user.username }}
             <i class="fa fa-caret-down" :class="{ 'caret-up': menuOpen }"></i>
           </button>
-          <!-- 下拉菜单: 设置(主题/字号) + 资料/改密/退出
-               2026-08-18: fixed 定位(JS 算位置) — 移动端 .nav-tools 是 overflow-x:auto 滚动容器,
-               iOS Safari 会把 overflow-y 强制为 auto, absolute 菜单被裁剪 → 真机点不开.
-               fixed 脱离容器, 全平台可弹 -->
-          <div v-show="menuOpen" class="user-menu" :style="menuPos">
-            <div class="menu-settings">
-              <div class="menu-setting-row">
-                <span class="menu-setting-label"><i class="fa fa-adjust"></i> 主题</span>
-                <button
-v-for="b in BGS" :key="b.key"
-                  class="menu-dot" :class="{ active: bg === b.key }"
-                  :style="{ background: b.color }" :title="b.label"
-                  @click="setBg(b.key)"
-></button>
-              </div>
-              <div class="menu-setting-row">
-                <span class="menu-setting-label"><i class="fa fa-font"></i> 字号</span>
-                <button
-v-for="f in FONTS" :key="f.key"
-                  class="menu-font" :class="{ active: font === f.key }"
-                  :style="{ fontSize: f.key === 'sm' ? '11px' : f.key === 'lg' ? '16px' : '13px' }"
-                  :title="f.label" @click="setFont(f.key)"
->
-A
-</button>
-              </div>
-            </div>
-            <div class="menu-sep"></div>
-            <button class="menu-item" @click="menuOpen = false; profileModal.open()"><i class="fa fa-id-card"></i> 个人信息</button>
-            <button class="menu-item" @click="menuOpen = false; changePwdModal.open()"><i class="fa fa-key"></i> 修改密码</button>
-            <button class="menu-item menu-logout" @click="menuOpen = false; logout()"><i class="fa fa-sign-out"></i> 退出登录</button>
-          </div>
         </div>
         <span v-if="user.memberLevel === 2" class="member-badge vip-badge" title="VIP · 永久权限">VIP</span>
         <span v-else-if="user.memberLevel === 1" class="member-badge paid-badge" title="付费会员">付费会员</span>
@@ -85,12 +53,44 @@ A
           <i class="fa fa-exclamation-circle"></i> 还剩{{ user.memberDaysLeft }}天续费
         </span>
       </div>
+
       <div v-else class="user-tools">
         <router-link to="/login" class="mini-btn login-btn">登录</router-link>
       </div>
-    </div>
-
-    <!-- 改密弹层(全站唯一, 改密按钮来自 NavBar) -->
+      <!-- 下拉菜单: Teleport 到 body — 2026-08-18 iOS Safari 修复:
+           fixed 元素在 .nav-tools(overflow滚动容器)内会被 Safari 当容器内容处理 → 被视图遮挡;
+           Teleport 到 body 后脱离所有容器/滚动上下文, 必然在视图顶层 -->
+      <Teleport to="body">
+        <div v-show="menuOpen" ref="menuRef" class="user-menu" :style="menuPos">
+          <div class="menu-settings">
+            <div class="menu-setting-row">
+              <span class="menu-setting-label"><i class="fa fa-adjust"></i> 主题</span>
+              <button
+  v-for="b in BGS" :key="b.key"
+                class="menu-dot" :class="{ active: bg === b.key }"
+                :style="{ background: b.color }" :title="b.label"
+                @click="setBg(b.key)"
+></button>
+            </div>
+            <div class="menu-setting-row">
+              <span class="menu-setting-label"><i class="fa fa-font"></i> 字号</span>
+              <button
+  v-for="f in FONTS" :key="f.key"
+                class="menu-font" :class="{ active: font === f.key }"
+                :style="{ fontSize: f.key === 'sm' ? '11px' : f.key === 'lg' ? '16px' : '13px' }"
+                :title="f.label" @click="setFont(f.key)"
+>
+A
+</button>
+            </div>
+          </div>
+          <div class="menu-sep"></div>
+          <button class="menu-item" @click="menuOpen = false; profileModal.open()"><i class="fa fa-id-card"></i> 个人信息</button>
+          <button class="menu-item" @click="menuOpen = false; changePwdModal.open()"><i class="fa fa-key"></i> 修改密码</button>
+          <button class="menu-item menu-logout" @click="menuOpen = false; logout()"><i class="fa fa-sign-out"></i> 退出登录</button>
+        </div>
+      </Teleport>
+    </div>    <!-- 改密弹层(全站唯一, 改密按钮来自 NavBar) -->
     <ChangePwdModal ref="changePwdModal" />
     <!-- 个人信息弹层(手机号/邮箱/微信名) -->
     <ProfileModal ref="profileModal" />
@@ -116,6 +116,7 @@ const profileModal = ref(null)
 // 用户名下拉菜单
 const menuOpen = ref(false)
 const userDropdown = ref(null)
+const menuRef = ref(null)      // Teleport 到 body 后的菜单引用(用于点击外部关闭判断)
 // fixed 定位菜单坐标(2026-08-18 iOS Safari 修复: absolute 菜单被 nav-tools 滚动容器裁剪)
 const menuPos = ref({})
 
@@ -139,7 +140,10 @@ function onScrollClose() {
 }
 
 function onDocClick(e) {
-  if (menuOpen.value && userDropdown.value && !userDropdown.value.contains(e.target)) {
+  // 菜单已 Teleport 到 body, 需同时判断按钮容器和菜单自身
+  const inBtn = userDropdown.value && userDropdown.value.contains(e.target)
+  const inMenu = menuRef.value && menuRef.value.contains(e.target)
+  if (menuOpen.value && !inBtn && !inMenu) {
     menuOpen.value = false
   }
 }
@@ -277,7 +281,7 @@ body[data-bg="light"] .mini-btn:hover { background: rgba(255, 255, 255, 0.28); c
 .caret-up { transform: rotate(180deg); }
 /* 下拉菜单: 不透明背景(按主题覆盖, 避免与 --bg-card 半透明融背景) */
 .user-menu {
-  position: fixed; z-index: 2000;   /* 2026-08-18: fixed+JS坐标(原 absolute 被移动端 nav-tools 滚动容器裁剪) */
+  position: fixed; z-index: 99999;   /* 2026-08-18: Teleport 到 body + fixed, 视图顶层(原被 nav-tools 滚动容器裁剪/遮挡) */
   background-color: #1f2230;          /* 默认深色主题: 深灰实色 */
   color: #eef2ff;
   border: 1.5px solid #3a3e50;
