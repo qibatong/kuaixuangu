@@ -1311,19 +1311,14 @@ def fetch_yest_zt():
 
 
 def fetch_yest_broken():
-    """昨断板(2026-08-18 主人定义修正): **开盘啦 doc21(801902 昨日断板/破板今表现)优先**, flash 兜底
-    开盘啦 801902 成分股 = 昨日断板(涨停后连板中断/破板)股票, change=今日实时表现
+    """昨断板(2026-08-18 主人定义): **前一日连板(涨停≥2板)且昨日未涨停 = 昨日连板中断**
+    (doc21/801902 是"破板"语义≠断板, 主人反馈作废; 恢复 flash 计算法)
+    返回断板股票的今日竞价表现(从 snapshot_bid 9:25 全市场补)
     返回 [{code,name,yestChange,limitUpDays,change,bidChange,bidAmt,bidNetAmt,bidTurnover,floatMv,board}, ...]"""
     def loader():
         day = _prev_trade_day()              # 昨日(断板发生的日子)
         if not day:
             return []
-        # 主路: 开盘啦 doc21 (2026-08-18 主人指定)
-        out = _kpl_yest_list("801902", day)
-        if out:
-            log.info("昨断板(开盘啦doc21) 返回%d只 date=%s", len(out), day)
-            return out
-        # ===== 兜底: flash 计算法(前一日连板≥2 + 昨日未涨停 = 昨日断板) =====
         # 昨日的前一交易日
         prev2 = None
         try:
@@ -1347,7 +1342,7 @@ def fetch_yest_broken():
         # 前一日连板≥2 + 昨日未涨停 = 昨日断板(连板中断)
         broken = [x for x in prev2_pool
                   if x["code"] not in yest_codes and (x.get("limitUpDays") or 0) >= 2]
-        log.info("昨断板(兜底) 前一日(%s)涨停=%d 昨日(%s)未涨停且≥2板=%d只",
+        log.info("昨断板 前一日(%s)涨停=%d 昨日(%s)未涨停且≥2板=%d只",
                  prev2, len(prev2_pool), day, len(broken))
         # 今日竞价快照(9_25 全市场)补: 涨幅/竞额/概念
         snap = _snap25_map()
