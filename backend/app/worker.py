@@ -19,7 +19,7 @@ import time
 
 from .core import logger
 from .db import database
-from .services import auction_snapshot, wpqc_push
+from .services import auction_snapshot, wpqc_push, aipick_scheduler
 
 log = logger.get_logger(__name__)
 
@@ -67,7 +67,8 @@ def main():
     # 调度线程(原 web startup 逻辑整体搬移, 与 web 解耦)
     auction_snapshot.start_scheduler()
     wpqc_push.start_scheduler()
-    log.info("快照采集 + 尾盘推送调度已启动")
+    aipick_scheduler.start_scheduler()
+    log.info("快照采集 + 尾盘推送 + AI竞价选股调度已启动")
     # 主线程阻塞消费队列
     consume_loop()
 
