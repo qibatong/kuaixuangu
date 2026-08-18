@@ -65,13 +65,13 @@
     <!-- 主表: 按模式显示 -->
     <template v-if="stocks.mode === 'spot'">
       <div v-if="!stocks.isSpotCached" class="stock-table-container">
-        <div class="loading-placeholder"><div class="spinner"></div><div>正在初始化盘中数据...</div></div>
+        <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
       </div>
       <StockTable v-else :stocks="stocks.spotStocks" mode="spot" :bid-seal-map="bidSealMap" />
     </template>
     <template v-else>
       <div v-if="!stocks.isDataCached" class="stock-table-container">
-        <div class="loading-placeholder"><div class="spinner"></div><div>正在初始化选股数据...</div></div>
+        <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
       </div>
       <StockTable v-else :stocks="stocks.cachedStocks" mode="auction" :bid-seal-map="bidSealMap" />
     </template>
