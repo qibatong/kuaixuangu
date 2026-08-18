@@ -25,6 +25,9 @@ export const useStocksStore = defineStore('stocks', {
     isDataCached: false,
     realTimeRefreshUsed: false,
     before930: true,
+    // 2026-08-18: 当前名单是否来自 9:26 系统统一批次(auto_applied)
+    // 统一批次: 不过滤/不剔除, 所有用户看到同一份完整名单
+    isAutoAppliedList: false,
     // 当前模式: auction(竞价) / spot(盘中实时)
     mode: 'auction',
     // 盘中实时结果(独立缓存, 避免切换模式互相覆盖)
@@ -168,9 +171,15 @@ export const useStocksStore = defineStore('stocks', {
             probability: lt.probability, confidence: lt.confidence,
             price: lt.price, _snapshot: true, _offline: false
           })
+        } else if (locked.autoApplied) {
+          // 2b) 统一批次(9:26 系统结果): 不在实时榜也**完整保留** —
+          //     2026-08-18 主人需求: 所有用户看到同一份完整名单, 不因实时榜缺股而减少
+          //     (实时涨幅留空用竞价锁定值, 名单恒定)
+          out.push({ ...it, _snapshot: true, _offline: false, _offBoard: true })
         }
         // 3) 行情不在榜(真跌出实时榜) → 2026-08-18 主人反馈去掉: 直接移除不再保留
       })
+      this.isAutoAppliedList = !!locked.autoApplied
       return out
     },
     // 从后端读当天 lock 批次(权威锁定名单): 返回完整名单数组, 无则 []
@@ -242,11 +251,23 @@ export const useStocksStore = defineStore('stocks', {
       // (改过筛选条件后点刷新, 应在当前新名单上更新, 而不是跳回早上 lock 的名单)
       const listMap = {}
       ;(data.list || []).forEach((s) => { listMap[s.code] = s })
-      this.cachedStocks = (this.cachedStocks || []).filter((it) => listMap[it.code]).map((it) => {
-        const lt = listMap[it.code]
-        return { ...it, realChange: lt.realChange, entityChange: lt.entityChange,
-                 probability: lt.probability, confidence: lt.confidence, price: lt.price, _offline: false }
-      })
+      // 2026-08-18: 统一批次(autoApplied)名单**完整保留**(不在实时榜的保留竞价值);
+      // 用户自己 lock 的名单才移除跌出的
+      if (this.isAutoAppliedList) {
+        this.cachedStocks = (this.cachedStocks || []).map((it) => {
+          const lt = listMap[it.code]
+          if (!lt) return { ...it, _offBoard: true }    // 不在实时榜: 保留竞价锁定值
+          return { ...it, realChange: lt.realChange, entityChange: lt.entityChange,
+                   probability: lt.probability, confidence: lt.confidence, price: lt.price,
+                   _offline: false, _offBoard: false }
+        })
+      } else {
+        this.cachedStocks = (this.cachedStocks || []).filter((it) => listMap[it.code]).map((it) => {
+          const lt = listMap[it.code]
+          return { ...it, realChange: lt.realChange, entityChange: lt.entityChange,
+                   probability: lt.probability, confidence: lt.confidence, price: lt.price, _offline: false }
+        })
+      }
       this.before930 = data.before930
       this.realTimeRefreshUsed = true
       showToast('✅ 实时涨幅更新完成', 'success')
