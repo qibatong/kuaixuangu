@@ -312,7 +312,7 @@
             <th>排名</th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('code') }" @click="yestBrokenSort.onSort('code', 'string')">代码<span class="sort-ind">{{ yestBrokenSort.ind('code') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('name') }" @click="yestBrokenSort.onSort('name', 'string')">名称<span class="sort-ind">{{ yestBrokenSort.ind('name') }}</span></th>
-            <th class="sortable" :class="{ active: yestBrokenSort.keyOf('yestChange') }" @click="yestBrokenSort.onSort('yestChange')">昨竞价<span class="sort-ind">{{ yestBrokenSort.ind('yestChange') }}</span></th>
+            <th class="sortable" :class="{ active: yestBrokenSort.keyOf('limitUpDays') }" @click="yestBrokenSort.onSort('limitUpDays')">断板前<span class="sort-ind">{{ yestBrokenSort.ind('limitUpDays') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('change') }" @click="yestBrokenSort.onSort('change')">实时涨幅<span class="sort-ind">{{ yestBrokenSort.ind('change') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('bidChange') }" @click="yestBrokenSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ yestBrokenSort.ind('bidChange') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('bidAmt') }" @click="yestBrokenSort.onSort('bidAmt')">竞额(亿)<span class="sort-ind">{{ yestBrokenSort.ind('bidAmt') }}</span></th>
@@ -328,7 +328,7 @@
             <td class="rank-col">{{ idx + 1 }}</td>
             <td class="code-click" @click="linkToSoftware(b2.code)">{{ b2.code }}</td>
             <td class="name-col"><div class="name-main">{{ b2.name }}</div></td>
-            <td :class="b2.yestChange > 0 ? 'up' : 'down'">{{ signed(b2.yestChange) }}%</td>
+            <td><span v-if="b2.limitUpDays > 0" class="lb-badge">{{ b2.limitUpDays }}板</span><span v-else class="dim">-</span></td>
             <td :class="b2.change > 0 ? 'up' : b2.change < 0 ? 'down' : 'dim'">{{ b2.change !== null && b2.change !== undefined ? signed(b2.change) + '%' : '-' }}</td>
             <td :class="b2.bidChange > 0 ? 'up' : b2.bidChange < 0 ? 'down' : 'dim'">{{ b2.bidChange !== null && b2.bidChange !== undefined ? signed(b2.bidChange) + '%' : '-' }}</td>
             <td>{{ b2.bidAmt ? amtText(b2.bidAmt) : '-' }}</td>
