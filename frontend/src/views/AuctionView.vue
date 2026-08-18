@@ -88,6 +88,7 @@
             <th class="sortable" :class="{ active: sealSort.keyOf('realChange') }" @click="sealSort.onSort('realChange')">实时涨幅<span class="sort-ind">{{ sealSort.ind('realChange') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('bidChange') }" @click="sealSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ sealSort.ind('bidChange') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt') }" @click="sealSort.onSort(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt')">{{ tab === 'boom' || tab === 'net' ? '竞价成交额(亿)' : '涨停委买额(亿)' }}<span class="sort-ind">{{ sealSort.ind(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt') }}</span></th>
+            <th v-if="tab === 'boom'" class="sortable" :class="{ active: sealSort.keyOf('bidRatioYest') }" @click="sealSort.onSort('bidRatioYest')">竞价量比<span class="sort-ind">{{ sealSort.ind('bidRatioYest') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('bidTurnover') }" @click="sealSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ sealSort.ind('bidTurnover') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('bidNetAmt') }" @click="sealSort.onSort('bidNetAmt')">竞价净额(亿)<span class="sort-ind">{{ sealSort.ind('bidNetAmt') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('limitBoards') }" @click="sealSort.onSort('limitBoards')">连板<span class="sort-ind">{{ sealSort.ind('limitBoards') }}</span></th>
@@ -103,8 +104,9 @@
             <td class="name-col"><div class="name-main">{{ it.name }}</div></td>
             <td :class="it.realChange > 0 ? 'up' : 'down'">{{ signed(it.realChange) }}%</td>
             <td :class="it.bidChange > 0 ? 'up' : 'down'">{{ signed(it.bidChange) }}%</td>
-            <td v-if="tab === 'boom' || tab === 'net'" :class="it.bidAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidAmt) }}</td>
+            <td v-if="tab === 'boom' || tab === 'net'" :class="it.bidAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidAmt) }}<span v-if="tab === 'boom' && it.yestBidAmt" class="yest-bid-amt" :title="'昨日竞价额 ' + yi(it.yestBidAmt)">昨{{ yi(it.yestBidAmt) }}</span></td>
             <td v-else :class="it.bidSealAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidSealAmt) }}</td>
+            <td v-if="tab === 'boom'" :class="it.bidRatioYest ? (it.bidRatioYest >= 2 ? 'ratio-hot' : it.bidRatioYest >= 1.5 ? 'ratio-warm' : '') : 'dim'">{{ it.bidRatioYest ? it.bidRatioYest.toFixed(2) + 'x' : '-' }}</td>
             <td class="dim">{{ it.bidTurnover ? it.bidTurnover + '%' : '-' }}</td>
             <td :class="it.bidNetAmt > 0 ? 'up' : it.bidNetAmt < 0 ? 'down' : 'dim'">{{ yi(it.bidNetAmt) }}</td>
             <td><span v-if="it.limitBoards > 0" class="lb-badge">{{ it.limitBoards }}板</span><span v-else class="dim">-</span></td>
@@ -778,6 +780,11 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 2026-08-18: 竞价成交额列内嵌"昨日竞价额"小字 */
+.yest-bid-amt {
+  display: block; font-size: 10px; color: var(--text-muted, #889);
+  font-weight: 400; line-height: 1.2;
+}
 .page-back { color: var(--text-muted); cursor: pointer; font-size: 13px; margin-bottom: 12px; display: inline-block; }
 .page-back:hover { color: #ffb400; }
 .auc-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }

@@ -1382,6 +1382,46 @@ def fill_bid_amt_from_snap(lst, date=None):
     return lst
 
 
+def fill_bid_ratio_yest(lst, date=None):
+    """2026-08-18 主人要求(竞价爆量): 补昨日竞价成交额(yestBidAmt 元) + 竞价量比
+    (bidRatioYest = 今日竞价成交额/昨日竞价成交额); 昨日 = 最近(严格小于今日)交易日 9_25 快照"""
+    if not lst:
+        return lst
+    try:
+        import sqlite3
+        conn = sqlite3.connect(config.DB_FILE)
+        today = date or time.strftime("%Y-%m-%d")
+        row = conn.execute("SELECT MAX(date) FROM snapshot_bid WHERE date <= ?", (today,)).fetchone()
+        cur = str(row[0]) if row and row[0] else today
+        row2 = conn.execute("SELECT MAX(date) FROM snapshot_bid WHERE date < ?", (cur,)).fetchone()
+        yest = str(row2[0]) if row2 and row2[0] else None
+        if not yest:
+            conn.close()
+            return lst
+        ymap = {}
+        for code, amt in conn.execute(
+                "SELECT code, bid_amt FROM snapshot_bid WHERE date=? AND time_point='9_25'", (yest,)):
+            ymap[code] = amt
+        conn.close()
+        n = 0
+        for it in lst:
+            code = str(it.get("code") or "")
+            ya = ymap.get(code)
+            if ya is None:
+                continue
+            ya_yuan = ya * 10000                       # 万元 → 元
+            it["yestBidAmt"] = ya_yuan
+            ta = it.get("bidAmt") or 0
+            if ta > 0 and ya_yuan > 0:
+                it["bidRatioYest"] = round(ta / ya_yuan, 2)
+                n += 1
+        if n:
+            log.info("竞价量比补齐 %d 只 (昨日=%s)", n, yest)
+    except Exception as e:
+        log.warning("竞价量比补齐失败 date=%s err=%s", date or "-", e)
+    return lst
+
+
 def _save_qc_snapshot(date, items):
     """竞价时段抢筹结果持久化(qc_snapshot 表), 非竞价时段读库展示"""
     try:

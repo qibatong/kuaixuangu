@@ -105,8 +105,10 @@ def api_kpl_bid_boom(request: Request, uid: int = Depends(require_vip_or_paid), 
     d = kpl.fetch_bid_boom() or []
     try:
         kpl.apply_board_concept(d, log_tag="auc:bid-boom", deep=False, field="board", truncate=2, blank_if_missing=True)
+        # 2026-08-18 主人要求: 竞价爆量补 竞价量比(今/昨竞价额) + 昨日竞价额
+        kpl.fill_bid_ratio_yest(d, None)
     except Exception as e:
-        log.warning("竞价异动概念开盘啦覆盖失败 bid-boom err=%s", e)
+        log.warning("竞价异动概念/量比补齐失败 bid-boom err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
 
 
