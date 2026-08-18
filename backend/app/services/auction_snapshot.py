@@ -466,6 +466,7 @@ def _has_snapshot(date, time_point):
 def _scheduler_loop():
     """后台调度: 工作日按时点窗口抓取一次, 每 10 秒轮询; 9:31 后盘点当日采集情况"""
     # 去重标记走 CacheStore: qc/weekend 各自 setnx 1 天
+    global _last_intraday_ts   # 分时快照时间戳(模块级), 否则函数内赋值会被视为局部变量 → UnboundLocalError
     while True:
         try:
             g = time.gmtime(time.time() + 8 * 3600)
