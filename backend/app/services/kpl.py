@@ -1479,8 +1479,9 @@ def fetch_bid_qiangcang(date=None):
             m20c = {r[0]: r[1] for r in rows20c}
             seal_map = {} if date else _seal_map()   # 历史日期不拉今天 Type4(字段用快照自身)
             for code, chg25, amt25, fmv, name, board in rows25c:
-                # 过滤: 流通市值≥2亿, 竞价额>0, 竞价成交额≥500万, 竞价涨幅>2%(9_25涨幅)
-                if fmv < 2e8 or amt25 <= 0 or amt25 < 500 or chg25 <= 2:
+                # 过滤: 流通市值≥2亿, 竞价额>0, 竞价成交额≥500万, 竞价涨幅≥5%(9_25涨幅)
+                # 2026-08-18 主人要求: 竞价涨幅低于5%的去掉(原门槛 2% 提至 5%)
+                if fmv < 2e8 or amt25 <= 0 or amt25 < 500 or chg25 < 5:
                     continue
                 chg20 = m20c.get(code)
                 if chg20 is None:
