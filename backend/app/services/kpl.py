@@ -207,6 +207,9 @@ def _parse_bid_boom(data):
                 "mainSell": _f(row[14]),
                 "mainNet": _f(row[15]),
                 "limitBoards": _lb(str(row[16])) if len(row) > 16 else 0,
+                # 2026-08-18: Type=10 无换手列 → 竞价换手 = 竞价成交额/流通市值×100
+                # (与开盘啦 Type4 bidTurnover 口径一致, 中石科技验算 2.96 vs 2.97)
+                "bidTurnover": round(_f(row[10]) / _f(row[12]) * 100, 2) if _f(row[12]) else 0.0,
             })
         except (IndexError, ValueError, TypeError):
             continue
@@ -1295,6 +1298,35 @@ def fill_bid_change_from_snap(lst, date=None):
                     it["bidChange"] = bc
     except Exception as e:
         log.warning("竞价涨幅补齐失败 date=%s err=%s", date or "-", e)
+    return lst
+
+
+def fill_bid_turnover_from_snap(lst, date=None):
+    """2026-08-18 主人要求: 竞价异动全部 tab 加竞价换手。
+    用 date(空=今日) 9_25 快照给列表补竞价换手(bidTurnover = 竞价成交额/流通市值×100,
+    与开盘啦 bidTurnover 口径一致); 已带的不覆盖"""
+    if not lst:
+        return lst
+    try:
+        snap = _snap25_map(date)
+        if not snap:
+            return lst
+        n = 0
+        for it in lst:
+            code = str(it.get("code") or "")
+            if not code or it.get("bidTurnover") not in (None, ""):
+                continue
+            s = snap.get(code)
+            if s and s.get("float_mv"):
+                # 注意单位: snapshot_bid.bid_amt 万元, float_mv 元 → bid_amt×10000 转元
+                bt = round((s.get("bid_amt") or 0) * 10000 / s["float_mv"] * 100, 2)
+                if bt > 0:
+                    it["bidTurnover"] = bt
+                    n += 1
+        if n:
+            log.info("竞价换手补齐 %d 只 date=%s", n, date or "-")
+    except Exception as e:
+        log.warning("竞价换手补齐失败 date=%s err=%s", date or "-", e)
     return lst
 
 

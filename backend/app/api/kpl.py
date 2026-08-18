@@ -242,6 +242,7 @@ def api_kpl_lhb(request: Request, uid: int = Depends(require_vip_or_paid), date:
         kpl.fill_reason_from_pool(lst, resolved)
         kpl.fill_bid_change_from_snap(lst, resolved)
         kpl.fill_float_mv_from_snap(lst, resolved)
+        kpl.fill_bid_turnover_from_snap(lst, resolved)
         kpl.apply_board_concept(lst, log_tag="auc:lhb[hist]", deep=True, field="board", truncate=2, blank_if_missing=True)
         return jr({"ok": True, "list": lst, "count": len(lst), "date": resolved, "requestedDate": date})
     d = kpl.fetch_lhb()
@@ -249,6 +250,7 @@ def api_kpl_lhb(request: Request, uid: int = Depends(require_vip_or_paid), date:
     kpl.fill_reason_from_pool(lst, None)   # 今日涨停池补涨停原因
     kpl.fill_bid_change_from_snap(lst, None)   # 今日 9_25 快照补竞价涨幅
     kpl.fill_float_mv_from_snap(lst, None)
+    kpl.fill_bid_turnover_from_snap(lst, None)   # 2026-08-18: 补竞价换手
     kpl.apply_board_concept(lst, log_tag="auc:lhb[now]", deep=True, field="board", truncate=2, blank_if_missing=True)
     return jr({"ok": True, "list": lst, "count": len(lst), "date": ""})
 
@@ -312,6 +314,12 @@ def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(require_vip_or_pa
             log.info("抢筹实时涨幅 merge 完成 覆盖%d只", n)
     except Exception as e:
         log.warning("抢筹实时涨幅 merge 失败 err=%s", e)
+    # 2026-08-18 主人要求: 抢筹右表/涨幅抢筹补竞价换手(快照 bid_amt/float_mv 计算)
+    try:
+        kpl.fill_bid_turnover_from_snap(l20Chg, None)
+        kpl.fill_bid_turnover_from_snap(lLast, None)
+    except Exception as e:
+        log.warning("抢筹竞价换手补齐失败 err=%s", e)
     return jr({"ok": True, "list20": l20, "list20Chg": l20Chg, "listLast": lLast,
                "count20": len(l20), "count20Chg": len(l20Chg), "countLast": len(lLast),
                "date": d.get("date") or date or ""})

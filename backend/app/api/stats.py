@@ -173,6 +173,17 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
     else:
         log.info("三时点榜 date=%s 命中当日数据", date)
     rows = auction_snapshot.query_3points_board(resolved, limit)
+    # 2026-08-18 主人要求: 三时点榜加竞价换手 = 9_25竞价成交额/流通市值×100(与开盘啦口径一致)
+    for it in rows:
+        try:
+            p25 = (it.get("points") or {}).get("9_25") or {}
+            amt = p25.get("bid_amt") or 0
+            fmv = p25.get("float_mv") or 0
+            if amt > 0 and fmv > 0:
+                # 注意单位: points 的 bid_amt 万元, float_mv 元 → amt×10000 转元
+                it["bidTurnover"] = round(amt * 10000 / fmv * 100, 2)
+        except Exception:
+            pass
     # 叠加实时涨幅: 2026-08-18 修复 - 原只从封单接口(182只)取, 圣达生物等不在封单榜的
     # 股票实时涨幅为空 → 改用东财全市场行情(带缓存), 全覆盖
     try:

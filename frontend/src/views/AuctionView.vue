@@ -88,6 +88,7 @@
             <th class="sortable" :class="{ active: sealSort.keyOf('realChange') }" @click="sealSort.onSort('realChange')">实时涨幅<span class="sort-ind">{{ sealSort.ind('realChange') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('bidChange') }" @click="sealSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ sealSort.ind('bidChange') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf(tab === 'boom' ? 'bidAmt' : 'bidSealAmt') }" @click="sealSort.onSort(tab === 'boom' ? 'bidAmt' : 'bidSealAmt')">{{ tab === 'boom' ? '竞价成交额(亿)' : '涨停委买额(亿)' }}<span class="sort-ind">{{ sealSort.ind(tab === 'boom' ? 'bidAmt' : 'bidSealAmt') }}</span></th>
+            <th class="sortable" :class="{ active: sealSort.keyOf('bidTurnover') }" @click="sealSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ sealSort.ind('bidTurnover') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('bidNetAmt') }" @click="sealSort.onSort('bidNetAmt')">竞价净额(亿)<span class="sort-ind">{{ sealSort.ind('bidNetAmt') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('limitBoards') }" @click="sealSort.onSort('limitBoards')">连板<span class="sort-ind">{{ sealSort.ind('limitBoards') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('floatMv') }" @click="sealSort.onSort('floatMv')">流通<span class="sort-ind">{{ sealSort.ind('floatMv') }}</span></th>
@@ -104,6 +105,7 @@
             <td :class="it.bidChange > 0 ? 'up' : 'down'">{{ signed(it.bidChange) }}%</td>
             <td v-if="tab === 'boom'" :class="it.bidAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidAmt) }}</td>
             <td v-else :class="it.bidSealAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidSealAmt) }}</td>
+            <td class="dim">{{ it.bidTurnover ? it.bidTurnover + '%' : '-' }}</td>
             <td :class="it.bidNetAmt > 0 ? 'up' : it.bidNetAmt < 0 ? 'down' : 'dim'">{{ yi(it.bidNetAmt) }}</td>
             <td><span v-if="it.limitBoards > 0" class="lb-badge">{{ it.limitBoards }}板</span><span v-else class="dim">-</span></td>
             <td class="dim">{{ fmtMv(it.floatMv) }}</td>
@@ -137,6 +139,7 @@
             <th class="tp-th tp-th-20 sortable" :class="{ active: s3Sort.keyOf('seal20') }" @click="s3Sort.onSort('seal20')">9:20 封单<span class="sort-ind">{{ s3Sort.ind('seal20') }}</span></th>
             <th class="tp-th tp-th-15 sortable" :class="{ active: s3Sort.keyOf('seal15') }" @click="s3Sort.onSort('seal15')">9:15 封单<span class="sort-ind">{{ s3Sort.ind('seal15') }}</span></th>
             <th class="tp-th tp-th-25 sortable" :class="{ active: s3Sort.keyOf('bidChg25') }" @click="s3Sort.onSort('bidChg25')">竞价涨幅<span class="sort-ind">{{ s3Sort.ind('bidChg25') }}</span></th>
+            <th class="sortable" :class="{ active: s3Sort.keyOf('bidTurnover') }" @click="s3Sort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ s3Sort.ind('bidTurnover') }}</span></th>
             <th class="sortable" :class="{ active: s3Sort.keyOf('layer') }" @click="s3Sort.onSort('layer')">状态<span class="sort-ind">{{ s3Sort.ind('layer') }}</span></th>
             <th class="sortable" :class="{ active: s3Sort.keyOf('trend') }" @click="s3Sort.onSort('trend')">加单趋势<span class="sort-ind">{{ s3Sort.ind('trend') }}</span></th>
             <th class="sortable" :class="{ active: s3Sort.keyOf('real_change') }" @click="s3Sort.onSort('real_change')">实时涨幅<span class="sort-ind">{{ s3Sort.ind('real_change') }}</span></th>
@@ -154,6 +157,7 @@
             <td class="seal-col seal-col-20">{{ tpSeal(it, '9_20') }}</td>
             <td class="seal-col seal-col-15">{{ tpSeal(it, '9_15') }}</td>
             <td class="tp-th-25 chg-col" :class="tpChgCls(it, '9_25')">{{ tpChg(it, '9_25') }}</td>
+            <td class="dim">{{ it.bidTurnover ? it.bidTurnover + '%' : '-' }}</td>
             <td><span class="s3-tag" :class="'s3-tag-' + it.layer">{{ it.tag }}</span></td>
             <td>
               <span v-if="sealMode(it)" class="seal-mode" :class="'seal-mode-' + sealMode(it).cls" :title="sealMode(it).tip">{{ sealMode(it).label }}</span>
@@ -164,7 +168,7 @@
             <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已加自选' : '＋自选' }}</button></td>
           </tr>
           <tr v-if="!s3List.length">
-            <td colspan="13" class="snap-empty">该日期暂无封单榜单（可能：今日无涨停/数据采集中/非交易日）；下个交易日 9:15/9:20/9:25 采集后生效</td>
+            <td colspan="14" class="snap-empty">该日期暂无封单榜单（可能：今日无涨停/数据采集中/非交易日）；下个交易日 9:15/9:20/9:25 采集后生效</td>
           </tr>
         </tbody>
       </table>
@@ -191,6 +195,7 @@
                 <th class="sortable" :class="{ active: qcSort.keyOf(qc20Mode === 'amt' ? 'qcDelta' : 'qcDeltaChg') }" @click="qcSort.onSort(qc20Mode === 'amt' ? 'qcDelta' : 'qcDeltaChg')">抢筹幅度<span class="sort-ind">{{ qcSort.ind(qc20Mode === 'amt' ? 'qcDelta' : 'qcDeltaChg') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('bidRatio') }" @click="qcSort.onSort('bidRatio')">竞额/昨比<span class="sort-ind">{{ qcSort.ind('bidRatio') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('bidChange') }" @click="qcSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ qcSort.ind('bidChange') }}</span></th>
+                <th class="sortable" :class="{ active: qcSort.keyOf('bidTurnover') }" @click="qcSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ qcSort.ind('bidTurnover') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('floatMv') }" @click="qcSort.onSort('floatMv')">流通<span class="sort-ind">{{ qcSort.ind('floatMv') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('board') }" @click="qcSort.onSort('board', 'string')">概念<span class="sort-ind">{{ qcSort.ind('board') }}</span></th>
                 <th>操作</th>
@@ -206,12 +211,13 @@
                 <td :class="(qc20Mode === 'amt' ? q.qcDelta : q.qcDeltaChg) > 0 ? 'up' : (qc20Mode === 'amt' ? q.qcDelta : q.qcDeltaChg) < 0 ? 'down' : 'dim'"><b>{{ signed(qc20Mode === 'amt' ? q.qcDelta : q.qcDeltaChg) }}%</b></td>
                 <td :class="q.bidRatio !== null && q.bidRatio !== undefined ? (q.bidRatio >= 20 ? 'ratio-hot' : q.bidRatio >= 10 ? 'ratio-warm' : '') : 'dim'" :title="q.bidRatio !== null && q.bidRatio !== undefined ? ('今日竞价额 ÷ 昨日全天成交额 = ' + q.bidRatio.toFixed(2) + '%') : ''">{{ q.bidRatio !== null && q.bidRatio !== undefined ? q.bidRatio.toFixed(2) + '%' : '-' }}</td>
                 <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
+                <td class="dim">{{ q.bidTurnover ? q.bidTurnover + '%' : '-' }}</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
                 <td class="dim qc-board" :title="q.board">{{ shortConcept(q.board) }}</td>
                 <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已加自选' : '＋自选' }}</button></td>
               </tr>
               <tr v-if="(qc20Mode === 'amt' ? qcList : qcChgList).length === 0">
-                <td colspan="11" class="snap-empty">{{ qc20Mode === 'amt' ? '9:20-9:25 竞额抢筹数据 9:15-9:30 竞价时段可用' : '9:20-9:25 涨幅抢筹数据 9:20/9:25 快照采集后可用' }}</td>
+                <td colspan="12" class="snap-empty">{{ qc20Mode === 'amt' ? '9:20-9:25 竞额抢筹数据 9:15-9:30 竞价时段可用' : '9:20-9:25 涨幅抢筹数据 9:20/9:25 快照采集后可用' }}</td>
               </tr>
             </tbody>
           </table>
@@ -229,6 +235,7 @@
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('qcDeltaLast') }" @click="qcLastSort.onSort('qcDeltaLast')">抢筹幅度<span class="sort-ind">{{ qcLastSort.ind('qcDeltaLast') }}</span></th>
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('bidRatio') }" @click="qcLastSort.onSort('bidRatio')">竞额/昨比<span class="sort-ind">{{ qcLastSort.ind('bidRatio') }}</span></th>
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('bidChange') }" @click="qcLastSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ qcLastSort.ind('bidChange') }}</span></th>
+                <th class="sortable" :class="{ active: qcLastSort.keyOf('bidTurnover') }" @click="qcLastSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ qcLastSort.ind('bidTurnover') }}</span></th>
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('floatMv') }" @click="qcLastSort.onSort('floatMv')">流通<span class="sort-ind">{{ qcLastSort.ind('floatMv') }}</span></th>
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('board') }" @click="qcLastSort.onSort('board', 'string')">概念<span class="sort-ind">{{ qcLastSort.ind('board') }}</span></th>
                 <th>操作</th>
@@ -244,12 +251,13 @@
                 <td :class="q.qcDeltaLast > 0 ? 'up' : q.qcDeltaLast < 0 ? 'down' : 'dim'"><b>{{ signed(q.qcDeltaLast) }}%</b></td>
                 <td :class="q.bidRatio !== null && q.bidRatio !== undefined ? (q.bidRatio >= 20 ? 'ratio-hot' : q.bidRatio >= 10 ? 'ratio-warm' : '') : 'dim'" :title="q.bidRatio !== null && q.bidRatio !== undefined ? ('今日竞价额 ÷ 昨日全天成交额 = ' + q.bidRatio.toFixed(2) + '%') : ''">{{ q.bidRatio !== null && q.bidRatio !== undefined ? q.bidRatio.toFixed(2) + '%' : '-' }}</td>
                 <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
+                <td class="dim">{{ q.bidTurnover ? q.bidTurnover + '%' : '-' }}</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
                 <td class="dim qc-board" :title="q.board">{{ shortConcept(q.board) }}</td>
                 <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已加自选' : '＋自选' }}</button></td>
               </tr>
               <tr v-if="!qcLastList.length">
-                <td colspan="11" class="snap-empty">最后一秒数据 9:25 后可用（9:24 时点采集后）</td>
+                <td colspan="12" class="snap-empty">最后一秒数据 9:25 后可用（9:24 时点采集后）</td>
               </tr>
             </tbody>
           </table>
@@ -339,6 +347,7 @@
             <th class="sortable" :class="{ active: lhbSort.keyOf('name') }" @click="lhbSort.onSort('name', 'string')">名称<span class="sort-ind">{{ lhbSort.ind('name') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('change') }" @click="lhbSort.onSort('change')">实时涨幅<span class="sort-ind">{{ lhbSort.ind('change') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('bidChange') }" @click="lhbSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ lhbSort.ind('bidChange') }}</span></th>
+            <th class="sortable" :class="{ active: lhbSort.keyOf('bidTurnover') }" @click="lhbSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ lhbSort.ind('bidTurnover') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('limitBoards') }" @click="lhbSort.onSort('limitBoards')">连板<span class="sort-ind">{{ lhbSort.ind('limitBoards') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('buyIn') }" @click="lhbSort.onSort('buyIn')">买入(亿)<span class="sort-ind">{{ lhbSort.ind('buyIn') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('amount') }" @click="lhbSort.onSort('amount')">成交额(亿)<span class="sort-ind">{{ lhbSort.ind('amount') }}</span></th>
@@ -356,6 +365,7 @@
             <td class="name-col"><div class="name-main">{{ l.name }}</div></td>
             <td :class="l.change > 0 ? 'up' : 'down'">{{ signed(l.change) }}%</td>
             <td :class="l.bidChange > 0 ? 'up' : l.bidChange < 0 ? 'down' : 'dim'">{{ l.bidChange !== null && l.bidChange !== undefined ? signed(l.bidChange) + '%' : '-' }}</td>
+            <td class="dim">{{ l.bidTurnover ? l.bidTurnover.toFixed(2) + '%' : '-' }}</td>
             <td><span v-if="l.limitBoards > 0" class="lb-badge">{{ l.limitBoards }}板</span><span v-else class="dim">-</span></td>
             <td :class="l.buyIn > 0 ? 'up' : 'dim'">{{ yi(l.buyIn) }}</td>
             <td>{{ yi(l.amount) }}</td>
