@@ -291,9 +291,27 @@ def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(require_vip_or_pa
     try:
         kpl.apply_board_concept(l20, log_tag="auc:qc20", deep=False, field="board", truncate=2, blank_if_missing=True)
         kpl.apply_board_concept(l20Chg, log_tag="auc:qc20Chg", deep=True, field="board", truncate=2, blank_if_missing=True)
-        kpl.apply_board_concept(lLast, log_tag="auc:qcLast", deep=False, field="board", truncate=2, blank_if_missing=True)
+        # 2026-08-18: 右表改 deep=True — 主人反馈 listLast 60/100 无概念(原 deep=False 只榜单合并)
+        # 按股查询仅针对榜单未覆盖股票(带1天缓存, 首次多几秒)
+        kpl.apply_board_concept(lLast, log_tag="auc:qcLast", deep=True, field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("竞价异动概念开盘啦覆盖失败 bid-qiangcang err=%s", e)
+    # 2026-08-18 修复: 抢筹三表统一 merge 东财实时涨幅(realChange) —
+    # 主人反馈灿勤科技等涨幅抢筹/右表股票实时涨幅为空(开盘啦数据源无该字段)
+    try:
+        from ..services import fetcher
+        spot = fetcher.fetch_spot_quote_map("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23")
+        n = 0
+        for key in ("list20", "list20Chg", "listLast"):
+            for it in (d.get(key) or []):
+                q = spot.get(str(it.get("code")))
+                if q and q.get("realChange") is not None:
+                    it["realChange"] = q.get("realChange")
+                    n += 1
+        if n:
+            log.info("抢筹实时涨幅 merge 完成 覆盖%d只", n)
+    except Exception as e:
+        log.warning("抢筹实时涨幅 merge 失败 err=%s", e)
     return jr({"ok": True, "list20": l20, "list20Chg": l20Chg, "listLast": lLast,
                "count20": len(l20), "count20Chg": len(l20Chg), "countLast": len(lLast),
                "date": d.get("date") or date or ""})

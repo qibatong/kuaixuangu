@@ -173,21 +173,23 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
     else:
         log.info("三时点榜 date=%s 命中当日数据", date)
     rows = auction_snapshot.query_3points_board(resolved, limit)
-    # 叠加开盘啦实时涨幅(realChange): 历史榜单看的是已归档快照, 实时涨幅补充当前盘口状态
+    # 叠加实时涨幅: 2026-08-18 修复 - 原只从封单接口(182只)取, 圣达生物等不在封单榜的
+    # 股票实时涨幅为空 → 改用东财全市场行情(带缓存), 全覆盖
     try:
-        from app.services import kpl
-        kpl_seal = kpl.fetch_bid_seal() or []
-        kpl_real = {s["code"]: s.get("realChange") for s in kpl_seal if s.get("realChange") is not None}
-        if kpl_real:
-            for it in rows:
-                rc = kpl_real.get(it.get("code"))
-                if rc is not None:
-                    it["real_change"] = rc
+        from app.services import fetcher
+        spot = fetcher.fetch_spot_quote_map("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23")
+        n = 0
+        for it in rows:
+            q = spot.get(str(it.get("code")))
+            if q and q.get("realChange") is not None:
+                it["real_change"] = q.get("realChange")
+                n += 1
         # 概念列统一用开盘啦接口覆盖(快照 board 可能含东财兜底, 强制开盘啦概念)
-        kpl.apply_board_concept(rows, log_tag="auc:s3", deep=False, field="board", truncate=2, blank_if_missing=True)
-    except Exception:
-        pass
-    log.info("三时点榜 date=%s 返回 %d 条 (实时涨幅叠加 %d 只)", resolved, len(rows), len(kpl_real))
+        # 2026-08-18: deep=False → True(榜单未覆盖的按股查询, 圣达生物概念补齐; 带1天缓存)
+        kpl.apply_board_concept(rows, log_tag="auc:s3", deep=True, field="board", truncate=2, blank_if_missing=True)
+        log.info("三时点榜 date=%s 返回 %d 条 (东财实时涨幅覆盖 %d 只)", resolved, len(rows), n)
+    except Exception as e:
+        log.warning("三时点榜实时涨幅/概念叠加失败 err=%s", e)
     return jr({"ok": True, "date": resolved, "count": len(rows), "list": rows})
 
 
