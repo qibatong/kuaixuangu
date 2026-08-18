@@ -1103,7 +1103,8 @@ def fetch_board_map():
         except Exception:
             pass
         return out
-    return _cached("board_map", 30, loader)
+    # 2026-08-18 性能优化: 30s → 300s — 概念归属日内稳定, 避免竞价异动页 10+ tab 每 tab 重建(冷 778ms)
+    return _cached("board_map", 300, loader)
 
 
 def apply_board_concept(result, log_tag="", deep=True, field="concept",
@@ -1168,24 +1169,44 @@ def apply_board_concept(result, log_tag="", deep=True, field="concept",
                 if str(it.get("code")) not in covered:
                     it[field] = ""
         return n
-    # 第二层按股查询: 并发拉取(历史聚合上百只也能秒回), 每只 1 天缓存限频
+    # 2026-08-18 性能优化: 概念 deep 结果跨 tab 共享 —
+    # 竞价异动页 10+ tab 首次加载都走 deep 按股查询(冷缓存 26只=1.6s), 叠加后接口 2-3s
+    # 共享池 kpl:concept_deep (TTL 1h): 任一 tab 查过的股票, 后续 tab 直接命中, 秒回
     n2 = 0
     try:
-        import concurrent.futures
-        # 并发受限流信号量(_SEM=3)保护, 分批执行避免一次开太多线程
-        BATCH = 20
-        for i in range(0, len(miss_codes), BATCH):
-            chunk = miss_codes[i:i + BATCH]
-            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
-                plates = list(ex.map(fetch_stock_plate, chunk))
-            for code, plate in zip(chunk, plates):
-                if plate:
-                    for it in by_code.get(code, []):
-                        it[field] = _trunc(plate)
+        pool = store.get("kpl:concept_deep") or {}
+        # 1) 池内命中(其他 tab 已查过)
+        pool_hit = [c for c in miss_codes if c in pool]
+        for code in pool_hit:
+            p = pool.get(code)
+            if p:
+                for it in by_code.get(code, []):
+                    it[field] = _trunc(p)
+                n2 += 1
+                covered.add(code)
+        miss_codes = [c for c in miss_codes if c not in pool]
+        # 2) 未命中 → 按股查询, 结果写回共享池
+        if miss_codes:
+            import concurrent.futures
+            # 并发受限流信号量(_SEM=3)保护, 分批执行避免一次开太多线程
+            BATCH = 20
+            new_pool = {}
+            for i in range(0, len(miss_codes), BATCH):
+                chunk = miss_codes[i:i + BATCH]
+                with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+                    plates = list(ex.map(fetch_stock_plate, chunk))
+                for code, plate in zip(chunk, plates):
+                    if plate:
+                        for it in by_code.get(code, []):
+                            it[field] = _trunc(plate)
                         n2 += 1
-                    covered.add(code)
+                        covered.add(code)
+                        new_pool[code] = plate
+            if new_pool:
+                pool.update(new_pool)
+                store.set("kpl:concept_deep", pool, 3600)   # 1h 共享, 概念归属日内稳定
         if n2:
-            log.info("选股概念开盘啦覆盖[按股] %s 补%d只/共%d只", log_tag, n2, len(result))
+            log.info("选股概念开盘啦覆盖[按股] %s 补%d只/共%d只(池命中%d)", log_tag, n2, len(result), len(pool_hit))
     except Exception as e:
         log.warning("选股概念开盘啦覆盖[按股]失败 %s err=%s", log_tag, e)
     # 未覆盖到的(开盘啦无概念): 按 blank_if_missing 决定是否清空原东财值

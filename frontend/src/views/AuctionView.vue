@@ -13,7 +13,7 @@
     <!-- 日期回看: 选历史交易日查看当天竞价异动(周末/节假日自动对齐最近交易日) -->
     <div class="rot-toolbar">
       <span class="rot-tip"><i class="fa fa-info-circle"></i> 选日期回看</span>
-      <input v-model="datePicker" type="date" class="rot-date" title="选择历史交易日" @change="loadAll(true)">
+      <input v-model="datePicker" type="date" class="rot-date" title="选择历史交易日" @change="onDateChange">
       <button class="rot-reset-btn" title="回到实时" @click="clearDate"><i class="fa fa-bolt"></i></button>
       <span v-if="dataDate && datePicker" class="rot-data-date">
         <i class="fa fa-calendar"></i> 数据日期 {{ dataDate }}
@@ -646,6 +646,8 @@ function switchTab(t) {
   tab.value = t
   sealSort.clear(); s3Sort.clear(); qcSort.clear(); qcLastSort.clear(); yestZtSort.clear()
   yestBrokenSort.clear(); lhbSort.clear(); brokenSort.clear()
+  // 2026-08-18 性能优化: 切 tab 按需加载该 tab 数据(首次进入才拉)
+  ensureTabData(t)
 }
 
 const timePoints = [
@@ -706,15 +708,11 @@ async function loadAll(fromUser = false) {
   const dt = datePicker.value
   loading.value = true
   try {
-    // 历史回看: 所有接口带 date; 实时: 不带
-    // 多时点对比面板始终用实时模式(最近4交易日), 不随 datePicker 变化:
-    // 2026-08-18 修复 - 自动回退时 datePicker=8/17 导致 ov 只返回 1 列(与生产环境 4 天视图不一致)
-    const [ov, seal, boom, net, qc, yestZt, yestBroken, lhb, brokenYest, brokenToday, s3] = await Promise.all([
-      withTimeout(auctionOverview('')), withTimeout(kplBidSeal(dt)), withTimeout(kplBidBoom(dt)),
-      withTimeout(kplBidNet()), withTimeout(kplBidQiangcang(dt)), withTimeout(kplYestZt(dt)),
-      withTimeout(kplYestBroken(dt)), withTimeout(kplLhb(dt)),
-      withTimeout(kplBroken(dt ? '' : 'yesterday', dt)), withTimeout(kplBroken('', dt)),
-      withTimeout(bidSnapshot3points(dt || todayBj()))
+    // 2026-08-18 性能优化: 不再 10 接口全量并行(KPL 信号量3限流+东财全市场拉取 → 冷缓存首屏 20s+)
+    // 首屏只加载 overview(非交易日检测/多时点面板) + 三时点榜(默认tab); 其余 tab 切到才按需加载(ensureTabData)
+    // 历史回看: 各 tab 带 date 读历史快照, 同样懒加载
+    const [ov, s3] = await Promise.all([
+      withTimeout(auctionOverview('')), withTimeout(bidSnapshot3points(dt || todayBj()))
     ])
     // 非交易时段(周末/节假日/盘前盘后)自动回退: 实时模式时, 若最近有 snapshot_bid 数据的
     // 交易日不是今天 → 说明现在是非交易时段, 自动切到最近交易日回看(所有 tab 带 date 读历史快照)
@@ -733,20 +731,9 @@ async function loadAll(fromUser = false) {
     }
     autoFallback = false
     days.value = ov.days || []
-    sealRaw.value = seal.list || []
-    bidNetList.value = net.list || []
-    boomList.value = boom.list || []
-    qcList.value = qc.list20 || []
-    qcChgList.value = qc.list20Chg || []
-    qcLastList.value = qc.listLast || []
-    yestZtList.value = yestZt.list || []
-    yestBrokenList.value = yestBroken.list || []
-    lhbList.value = lhb.list || []
-    brokenYestList.value = brokenYest.list || []
-    brokenTodayList.value = brokenToday.list || []
     s3List.value = s3.list || []
     // 记录实际数据日期(后端可能对齐到最近交易日)
-    const d = seal.date || (ov.days && ov.days.length ? ov.days[0].date : '')
+    const d = (ov.days && ov.days.length ? ov.days[0].date : '') || dt || ''
     dataDate.value = d || dt || ''
     if (dt && fromUser) {
       if (!dataDate.value || dataDate.value !== dt) {
@@ -758,8 +745,54 @@ async function loadAll(fromUser = false) {
         }
       }
     }
+    // 默认 tab 数据也按需加载(三时点已加载; 其余首次进入页面切到才拉)
+    await ensureTabData(tab.value, { silent: true })
   } catch (e) { /* 静默 */ } finally {
     loading.value = false
+  }
+}
+
+// ===== 2026-08-18 按需加载: 切 tab 才拉该 tab 接口(避免 10 接口全量并行, 冷缓存首屏 20s+) =====
+const loadedTabs = new Set()   // 已加载数据的 tab(跨日期失效: datePicker 变化时清)
+const tabLoading = new Set()
+
+async function ensureTabData(t, { silent = false } = {}) {
+  const dt = datePicker.value
+  if (t === 's3') {
+    // 三时点榜随 loadAll 加载; 轮询时若已清标记则重新拉(实时刷新)
+    if (!loadedTabs.has('s3')) {
+      tabLoading.add('s3')
+      try {
+        const r = await withTimeout(bidSnapshot3points(dt || todayBj()))
+        s3List.value = (r && r.list) || []
+        loadedTabs.add('s3')
+      } catch (e) { /* 静默 */ } finally {
+        tabLoading.delete('s3')
+      }
+    }
+    return
+  }
+  if (loadedTabs.has(t)) return
+  if (tabLoading.has(t)) return
+  tabLoading.add(t)
+  try {
+    let r = {}
+    switch (t) {
+      case 'seal': r = await withTimeout(kplBidSeal(dt)); sealRaw.value = (r && r.list) || []; break
+      case 'boom': r = await withTimeout(kplBidBoom(dt)); boomList.value = (r && r.list) || []; break
+      case 'net': r = await withTimeout(kplBidNet()); bidNetList.value = (r && r.list) || []; break
+      case 'qc': r = await withTimeout(kplBidQiangcang(dt));
+        qcList.value = (r && r.list20) || []; qcChgList.value = (r && r.list20Chg) || []; qcLastList.value = (r && r.listLast) || []; break
+      case 'yestZt': r = await withTimeout(kplYestZt(dt)); yestZtList.value = (r && r.list) || []; break
+      case 'yestBroken': r = await withTimeout(kplYestBroken(dt)); yestBrokenList.value = (r && r.list) || []; break
+      case 'lhb': r = await withTimeout(kplLhb(dt)); lhbList.value = (r && r.list) || []; break
+      case 'brokenYest': r = await withTimeout(kplBroken(dt ? '' : 'yesterday', dt)); brokenYestList.value = (r && r.list) || []; break
+      case 'brokenToday': r = await withTimeout(kplBroken('', dt)); brokenTodayList.value = (r && r.list) || []; break
+      default: return
+    }
+    loadedTabs.add(t)
+  } catch (e) { /* 单 tab 失败不影响其他 */ } finally {
+    tabLoading.delete(t)
   }
 }
 
@@ -767,6 +800,13 @@ function clearDate() {
   datePicker.value = ''
   dataDate.value = ''
   autoFallback = false
+  loadedTabs.clear()   // 2026-08-18: 日期变化需重新加载各 tab
+  loadAll(true)
+}
+
+// 2026-08-18 性能优化: 日期选择变化 → 清已加载标记, 重新按需加载
+function onDateChange() {
+  loadedTabs.clear()
   loadAll(true)
 }
 
@@ -775,7 +815,13 @@ onMounted(() => {
   usePolling(() => { bjTime.value = bjDateTimeStr() }, 1000, { immediate: false })
   loadAll()
   // 历史回看模式暂停实时刷新(每分钟拉历史无意义)
-  usePolling(() => { if (!datePicker.value) loadAll() }, 60000)
+  // 2026-08-18 性能优化: 轮询只刷新当前 tab(清标记重拉), 不再 10 接口全量
+  usePolling(() => {
+    if (!datePicker.value) {
+      loadedTabs.clear()
+      ensureTabData(tab.value, { silent: true })
+    }
+  }, 60000)
 })
 </script>
 
