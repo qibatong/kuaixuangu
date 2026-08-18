@@ -162,6 +162,25 @@ def fetch_bid_seal():
     return _cached("bid_seal", config.KPL_BID_TTL, loader)
 
 
+def fetch_bid_net():
+    """竞价净额榜(实时): MorningBiddingList Type=2 = 全市场竞价金额>1000万列表
+    (2026-08-18 主人要求: 竞价净额 tab 用开盘啦'竞价大于1000万'接口, 替代仅封单列表排序)
+    结构同 Type=4: [code,name,现价,实时涨幅,?,竞价涨幅,竞价净额,竞价换手,竞价成交额,...]"""
+    def loader():
+        t0 = time.time()
+        d = _call("default", {"Order": "1", "a": "MorningBiddingList", "st": "300",
+                              "c": "HomeDingPan", "Index": "0", "PidType": "0",
+                              "apiv": "w41", "Type": "2"})
+        lst = _parse_bid_seal(d) if d else None   # 字段结构与 Type=4 一致(缺的列兼容为 0)
+        ms = int((time.time() - t0) * 1000)
+        if lst is None:
+            log.warning("竞价净额(Type2)返回空/解析失败 耗时%dms", ms)
+        else:
+            log.info("竞价净额(Type2>1000万)返回%d只 耗时%dms", len(lst), ms)
+        return lst
+    return _cached("bid_net", config.KPL_BID_TTL, loader)
+
+
 def fetch_bid_boom():
     """竞价爆量/竞价成交额榜(实时): Type=10; 涨停委买额从 Type=4 榜单按代码合并补充"""
     def loader():

@@ -13,6 +13,10 @@ export function kplBidSeal(date = '') {
   return request('/api/kpl/bid-seal', { query: date ? { date } : {} })
 }
 
+export function kplBidNet() {
+  return request('/api/kpl/bid-net')
+}
+
 export function kplBidBoom(date = '') {
   return request('/api/kpl/bid-boom', { query: date ? { date } : {} })
 }

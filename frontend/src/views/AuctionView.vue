@@ -87,7 +87,7 @@
             <th class="sortable" :class="{ active: sealSort.keyOf('name') }" @click="sealSort.onSort('name', 'string')">名称<span class="sort-ind">{{ sealSort.ind('name') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('realChange') }" @click="sealSort.onSort('realChange')">实时涨幅<span class="sort-ind">{{ sealSort.ind('realChange') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('bidChange') }" @click="sealSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ sealSort.ind('bidChange') }}</span></th>
-            <th class="sortable" :class="{ active: sealSort.keyOf(tab === 'boom' ? 'bidAmt' : 'bidSealAmt') }" @click="sealSort.onSort(tab === 'boom' ? 'bidAmt' : 'bidSealAmt')">{{ tab === 'boom' ? '竞价成交额(亿)' : '涨停委买额(亿)' }}<span class="sort-ind">{{ sealSort.ind(tab === 'boom' ? 'bidAmt' : 'bidSealAmt') }}</span></th>
+            <th class="sortable" :class="{ active: sealSort.keyOf(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt') }" @click="sealSort.onSort(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt')">{{ tab === 'boom' || tab === 'net' ? '竞价成交额(亿)' : '涨停委买额(亿)' }}<span class="sort-ind">{{ sealSort.ind(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('bidTurnover') }" @click="sealSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ sealSort.ind('bidTurnover') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('bidNetAmt') }" @click="sealSort.onSort('bidNetAmt')">竞价净额(亿)<span class="sort-ind">{{ sealSort.ind('bidNetAmt') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('limitBoards') }" @click="sealSort.onSort('limitBoards')">连板<span class="sort-ind">{{ sealSort.ind('limitBoards') }}</span></th>
@@ -103,7 +103,7 @@
             <td class="name-col"><div class="name-main">{{ it.name }}</div></td>
             <td :class="it.realChange > 0 ? 'up' : 'down'">{{ signed(it.realChange) }}%</td>
             <td :class="it.bidChange > 0 ? 'up' : 'down'">{{ signed(it.bidChange) }}%</td>
-            <td v-if="tab === 'boom'" :class="it.bidAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidAmt) }}</td>
+            <td v-if="tab === 'boom' || tab === 'net'" :class="it.bidAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidAmt) }}</td>
             <td v-else :class="it.bidSealAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidSealAmt) }}</td>
             <td class="dim">{{ it.bidTurnover ? it.bidTurnover + '%' : '-' }}</td>
             <td :class="it.bidNetAmt > 0 ? 'up' : it.bidNetAmt < 0 ? 'down' : 'dim'">{{ yi(it.bidNetAmt) }}</td>
@@ -458,7 +458,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { usePolling } from '../composables/usePolling'
-import { kplBidSeal, kplBidBoom, kplBidQiangcang, kplBroken, kplLhb, kplYestBroken, kplYestZt } from '../api/kpl'
+import { kplBidSeal, kplBidNet, kplBidBoom, kplBidQiangcang, kplBroken, kplLhb, kplYestBroken, kplYestZt } from '../api/kpl'
 import { auctionOverview, auctionSnapshot, bidSnapshot3points } from '../api/stats'
 import { linkToSoftware } from '../utils/tdx'
 import { bjDateTimeStr, isMemberOnlyTime, todayBj } from '../utils/time'
@@ -474,6 +474,7 @@ const pool = usePoolStore()
 const tab = ref('s3')   // 默认选中三时点封单
 const days = ref([])
 const sealRaw = ref([])
+const bidNetList = ref([])   // 2026-08-18: 竞价净额专用(开盘啦 Type2 竞价>1000万), 空时回退封单列表
 const boomList = ref([])
 const lhbList = ref([])
 const brokenYestList = ref([])
@@ -654,7 +655,13 @@ const timePoints = [
 // 竞价委买/爆量/净额共用表格: 数据源按 Tab 切换
 const sealList = computed(() => {
   if (tab.value === 'boom') return boomList.value
-  if (tab.value === 'net') return [...sealRaw.value].sort((a, b) => (b.bidNetAmt || 0) - (a.bidNetAmt || 0))
+  if (tab.value === 'net') {
+    // 2026-08-18 主人要求: 竞价净额用开盘啦"竞价>1000万"接口(全市场), 空时回退封单列表
+    if (bidNetList.value && bidNetList.value.length) {
+      return [...bidNetList.value].sort((a, b) => (b.bidNetAmt || 0) - (a.bidNetAmt || 0))
+    }
+    return [...sealRaw.value].sort((a, b) => (b.bidNetAmt || 0) - (a.bidNetAmt || 0))
+  }
   return sealRaw.value
 })
 
@@ -700,9 +707,9 @@ async function loadAll(fromUser = false) {
     // 历史回看: 所有接口带 date; 实时: 不带
     // 多时点对比面板始终用实时模式(最近4交易日), 不随 datePicker 变化:
     // 2026-08-18 修复 - 自动回退时 datePicker=8/17 导致 ov 只返回 1 列(与生产环境 4 天视图不一致)
-    const [ov, seal, boom, qc, yestZt, yestBroken, lhb, brokenYest, brokenToday, s3] = await Promise.all([
+    const [ov, seal, boom, net, qc, yestZt, yestBroken, lhb, brokenYest, brokenToday, s3] = await Promise.all([
       withTimeout(auctionOverview('')), withTimeout(kplBidSeal(dt)), withTimeout(kplBidBoom(dt)),
-      withTimeout(kplBidQiangcang(dt)), withTimeout(kplYestZt(dt)),
+      withTimeout(kplBidNet()), withTimeout(kplBidQiangcang(dt)), withTimeout(kplYestZt(dt)),
       withTimeout(kplYestBroken(dt)), withTimeout(kplLhb(dt)),
       withTimeout(kplBroken(dt ? '' : 'yesterday', dt)), withTimeout(kplBroken('', dt)),
       withTimeout(bidSnapshot3points(dt || todayBj()))
@@ -725,6 +732,7 @@ async function loadAll(fromUser = false) {
     autoFallback = false
     days.value = ov.days || []
     sealRaw.value = seal.list || []
+    bidNetList.value = net.list || []
     boomList.value = boom.list || []
     qcList.value = qc.list20 || []
     qcChgList.value = qc.list20Chg || []
