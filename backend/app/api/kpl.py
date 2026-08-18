@@ -151,6 +151,22 @@ def api_kpl_ladder(request: Request, uid: int = Depends(get_uid), date: str = ""
         d = kpl.query_ladder_history(resolved)
         return jr({"ok": True, "ladder": d, "date": resolved, "requestedDate": date})
     d = kpl.fetch_ladder_all()
+    # 2026-08-18 修复: 开盘啦 DailyLimitPerformance 无涨幅字段 → 东财全市场实时行情 merge
+    # (前端"实时涨幅"列读 change/realChange, 之前梯队页涨幅全空)
+    try:
+        from ..services import fetcher
+        spot = fetcher.fetch_spot_quote_map("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23")
+        n = 0
+        for pid in d:
+            for it in (d[pid] or []):
+                q = spot.get(str(it.get("code")))
+                if q and q.get("realChange") is not None:
+                    it["change"] = q.get("realChange")
+                    it["realChange"] = q.get("realChange")
+                    n += 1
+        log.info("ladder 实时涨幅 merge 完成 覆盖%d只", n)
+    except Exception as e:
+        log.warning("ladder 实时涨幅 merge 失败 err=%s", e)
     return jr({"ok": True, "ladder": d, "date": ""})
 
 
@@ -197,6 +213,11 @@ def api_kpl_hot_rank(request: Request, uid: int = Depends(get_uid), source: str 
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "source": source, "date": resolved, "requestedDate": date})
     d = hot_rank.fetch_hot_rank(source)
+    # 2026-08-18 修复: 热点榜补开盘啦概念(此前 board/concept 全空)
+    try:
+        kpl.apply_board_concept(d, log_tag="auc:hot-rank", deep=False, field="board", truncate=2, blank_if_missing=True)
+    except Exception as e:
+        log.warning("hot-rank 概念覆盖失败 err=%s", e)
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                "source": source, "date": ""})
 
