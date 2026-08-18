@@ -23,6 +23,9 @@ log = logger.get_logger(__name__)
 
 AIPICK_DIR = "/opt/kuaixuan/aipick"
 VENV_PY = "/opt/kuaixuan-venv/bin/python"
+# 测试机 venv 路径不同(2026-08-18): 生产 /opt/kuaixuan-venv, 测试机 /opt/bid-venv
+if not os.path.exists(VENV_PY):
+    VENV_PY = "/opt/bid-venv/bin/python3"
 
 # 任务窗口(分钟): (名称, 开始mm, 结束mm, [命令参数...])
 _TASKS = [
