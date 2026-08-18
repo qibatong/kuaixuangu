@@ -153,6 +153,21 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
                 kpl._merge_broken_bid_snap(lst)   # 老快照无竞价字段 → 按 day 补全
                 kpl.fill_float_mv_from_snap(lst, prev)
                 kpl.apply_board_concept(lst, log_tag="auc:broken[yest]", deep=True, field="board", truncate=2, blank_if_missing=True)
+                # 2026-08-18 主人反馈: 实时涨幅显示的是存库时刻(8/17收盘)值 →
+                # merge 东财今日实时行情覆盖 change(实时涨幅列看的是"现在")
+                try:
+                    from ..services import fetcher
+                    spot = fetcher.fetch_spot_quote_map("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23")
+                    n = 0
+                    for it in lst:
+                        q = spot.get(str(it.get("code")))
+                        if q and q.get("realChange") is not None:
+                            it["change"] = q.get("realChange")
+                            n += 1
+                    if n:
+                        log.info("昨炸板今日实时涨幅覆盖 %d 只", n)
+                except Exception as e:
+                    log.warning("昨炸板实时涨幅 merge 失败 err=%s", e)
                 return jr({"ok": True, "list": lst, "count": len(lst), "day": prev})
     d = kpl.fetch_broken_zt(day or None)
     lst = d or []

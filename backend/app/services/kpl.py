@@ -1262,6 +1262,10 @@ def fetch_yest_broken():
                            if s.get("bid_change") is not None and _is_zt(code, s.get("bid_change"))}
             log.info("昨断板 今日涨停池接口空, 快照兜底今日涨停=%d只", len(today_codes))
         broken = [x for x in yest if x["code"] not in today_codes]
+        # 2026-08-18 主人要求: 排除首板后的断板, 只保留至少 2 板后的断板
+        broken = [x for x in broken if (x.get("limitUpDays") or 0) >= 2]
+        log.info("昨断板 昨日涨停=%d 今日未涨停=%d 排除首板后=%d只",
+                 len(yest), len([x for x in yest if x["code"] not in today_codes]), len(broken))
         # 今日竞价快照(9_25 全市场)补: 涨幅/竞额/概念
         snap = _snap25_map()
         seal_map = _seal_map()
