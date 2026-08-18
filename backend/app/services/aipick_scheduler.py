@@ -26,13 +26,14 @@ VENV_PY = "/opt/kuaixuan-venv/bin/python"
 
 # 任务窗口(分钟): (名称, 开始mm, 结束mm, [命令参数...])
 _TASKS = [
-    # 9:26:30-9:28:30 采集
-    ("aipick_collect", 9 * 60 + 26, 9 * 60 + 29, [os.path.join(AIPICK_DIR, "scripts", "collector.py")]),
+    # 9:26:30-9:29:30 采集 + 预测(2026-08-18 主人要求: 9:25 竞价结束后 2-3 分钟内出预测;
+    # 预测约 10-20 秒, 9:27 采完立即用昨日模型预测当日涨停概率, 9:30 前可看)
+    ("aipick_collect", 9 * 60 + 26, 9 * 60 + 30, [os.path.join(AIPICK_DIR, "scripts", "collector.py")]),
+    ("aipick_predict", 9 * 60 + 27, 9 * 60 + 31, [os.path.join(AIPICK_DIR, "scripts", "predict_daily.py")]),
     # 15:04:30-15:06:30 打标签
     ("aipick_label", 15 * 60 + 4, 15 * 60 + 7, [os.path.join(AIPICK_DIR, "scripts", "collector.py"), "--label"]),
-    # 18:59:30-19:01:30 训练+预测
-    ("aipick_train", 18 * 60 + 59, 19 * 60 + 2, [os.path.join(AIPICK_DIR, "scripts", "train_model.py"),
-                                                 os.path.join(AIPICK_DIR, "scripts", "predict_daily.py")]),
+    # 18:59:30-19:01:30 只训练(预测已挪到 9:27 竞价后; 模型次日生效)
+    ("aipick_train", 18 * 60 + 59, 19 * 60 + 2, [os.path.join(AIPICK_DIR, "scripts", "train_model.py")]),
 ]
 
 # 已执行标记(进程内), 防同一窗口重复
