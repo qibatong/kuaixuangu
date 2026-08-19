@@ -196,47 +196,50 @@ def test_fetch_yesterday_perf(monkeypatch):
 
 # ---------- 竞价爆量(Type=10, 同源解析) ----------
 def test_fetch_bid_boom(monkeypatch):
-    """竞价爆量: 2026-08-19 双重过滤(竞价金额≥1000万 + 竞价量比>2)"""
+    """竞价爆量(2026-08-19 改版): 全市场按竞价量比(今日/昨日竞价额)排序取前 60"""
     import sqlite3
     class FakeCursor:
         def __init__(self, rows): self.rows = rows
         def fetchall(self): return self.rows
         def fetchone(self): return self.rows[0] if self.rows else None
-        def __iter__(self): return iter(self.rows)   # fill_bid_ratio_yest 直接迭代 cursor
+        def __iter__(self): return iter(self.rows)
     class FakeConn:
         def execute(self, sql, params=()):
-            if sql.strip().startswith("SELECT MAX(date) FROM snapshot_bid WHERE date <"):
-                return FakeCursor([("2026-08-12",)])   # 昨日
-            if sql.strip().startswith("SELECT MAX(date)"):
-                return FakeCursor([("2026-08-13",)])   # 今日
-            if "time_point='9_25'" in sql:
-                return FakeCursor([("688825", 10000.0)])  # 昨日竞价额1亿 → 量比 579284936/1e8=5.79>2
+            q = sql.strip()
+            if q.startswith("SELECT MAX(time_point) FROM snapshot_bid"):
+                return FakeCursor([("9_25",)])              # 今日最新时点
+            if q.startswith("SELECT MAX(date) FROM snapshot_bid WHERE date <"):
+                return FakeCursor([("2026-08-12",)])        # 昨日
+            if "time_point=?" in q or "time_point='" in q:
+                # 今日 9_25 全市场行: (code, bid_amt万元, name, bid_change, float_mv, board)
+                if params and len(params) > 1 and params[1] == "9_25" and "date=?" in q:
+                    return FakeCursor([
+                        ("600001", 3000.0, "甲", 5.0, 4e9, "板块A"),   # 量比 3000/1000=3.0
+                        ("600002", 2000.0, "乙", 4.0, 5e9, "板块B"),   # 量比 2000/2000=1.0
+                        ("600003", 15000.0, "丙", 6.0, 6e9, "板块C"),  # 量比 15000/3000=5.0
+                        ("600004", 500.0, "丁", 3.0, 3e9, "板块D"),    # 竞价额<1000万 过滤
+                    ])
+                if params and len(params) == 1 and params[0] == "2026-08-12":  # SQL 内写死 9_25
+                    return FakeCursor([
+                        ("600001", 1000.0), ("600002", 2000.0), ("600003", 3000.0),
+                    ])
+                return FakeCursor([])
             return FakeCursor([])
         def close(self): pass
     monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
-    monkeypatch.setattr(kpl, "_call", lambda *a, **k: {
-        "info": [["688825", "长鑫科技", 54.39, 1.63, 0, 2.39, 56546659, 0, 0, 0,
-                  579284936, "储存、芯片", 244920289633, 199735586, 11806006154,
-                  -11606270568, "首板"]],
-    })
-    monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: [])
     kpl.clear_cache()
     rows = kpl.fetch_bid_boom()
-    assert len(rows) == 1
-    r = rows[0]
-    assert r["code"] == "688825"
-    # 实测字段语义(2026-08-13): row6=竞价净额, row10=竞价成交额(爆量主指标)
-    assert r["bidAmt"] == 579284936
-    assert r["bidNetAmt"] == 56546659
-    # Type=10 无委买额(row4 恒0), 从 Type=4 按代码合并补充
-    assert r["bidSealAmt"] == 0
-    assert r["limitBoards"] == 1
-    assert r["board"] == "储存、芯片"
-    # 双重过滤通过: 竞价额 5.79亿≥1000万 + 量比 5.79>2
-    assert r["bidRatioYest"] == 5.79
+    # 量比排序: 600003(5.0) > 600001(3.0) > 600002(1.0); 600004 过滤
+    assert len(rows) == 3
+    assert [r["code"] for r in rows] == ["600003", "600001", "600002"]
+    assert rows[0]["bidRatioYest"] == 5.0
+    assert rows[1]["bidRatioYest"] == 3.0
+    assert rows[2]["bidRatioYest"] == 1.0
+    # bidAmt 万元→元: 600003 15000万 = 1.5亿
+    assert rows[0]["bidAmt"] == 15000 * 10000
+    # 字段补全
+    assert rows[0]["name"] == "丙" and rows[0]["board"] == "板块C"
 
-
-# ---------- 炸板(东财 flash) ----------
 def test_fetch_broken_zt(monkeypatch):
     import urllib.request
     class FakeResp:

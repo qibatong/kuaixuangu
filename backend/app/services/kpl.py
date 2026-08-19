@@ -189,29 +189,61 @@ def fetch_bid_net():
 
 
 def fetch_bid_boom():
-    """竞价爆量/竞价成交额榜(实时): Type=10; 涨停委买额从 Type=4 榜单按代码合并补充"""
+    """竞价爆量榜(2026-08-19 主人要求改版):
+    **按竞价量比排序取前 60** — 竞价量比 = 今日竞价额 / 昨日竞价额。
+    全市场计算(不再只取 Type10 竞价额前 60): snapshot_bid 表
+      - 今日竞价额: 今日最新时点(9_25 > 9_24 > 9_20 > 9_15, 竞价时段自动用最近快照)
+      - 昨日竞价额: 最近(严格小于今日)交易日的 9_25 快照
+    过滤: 今日竞价额 ≥ 1000 万(万元=1000) 且 昨日竞价额>0
+    返回 [{code,name,bidAmt(元),bidChange,bidRatioYest,floatMv,board}, ...] 按量比降序"""
     def loader():
-        d = _call("after", {"Order": "1", "a": "MorningBiddingList", "st": "60",
-                            "c": "HomeDingPan", "Index": "0", "PidType": "1",
-                            "apiv": "w44", "Type": "10"})
-        lst = _parse_bid_boom(d) if d else None
-        if lst is None:
-            return None
-        # Type=10 无委买额(恒0), 用 Type=4(涨停委买额榜, st=200) 按代码补齐
+        import sqlite3
+        conn = sqlite3.connect(config.DB_FILE)
         try:
-            seal_map = {s["code"]: s.get("bidSealAmt") or 0 for s in (fetch_bid_seal() or [])}
-        except Exception:
-            seal_map = {}
-        for it in lst:
-            it["bidSealAmt"] = seal_map.get(it["code"], 0)
-        # 2026-08-19 主人要求: 竞价爆量双重过滤
-        # ① 竞价金额 ≥ 1000万
-        lst = [it for it in lst if (it.get("bidAmt") or 0) >= 1e7]
-        # ② 竞价量比 > 2（需先计算量比，再过滤）
-        fill_bid_ratio_yest(lst, None)
-        lst = [it for it in lst if (it.get("bidRatioYest") or 0) > 2]
-        return lst
-    return _cached("bid_boom", config.KPL_BID_TTL, loader)
+            today = time.strftime("%Y-%m-%d")
+            # 今日最新时点: 字典序 9_15 < 9_20 < 9_24 < 9_25, MAX 即最新
+            row = conn.execute(
+                "SELECT MAX(time_point) FROM snapshot_bid WHERE date=? "
+                "AND time_point IN ('9_15','9_20','9_24','9_25')", (today,)).fetchone()
+            cur_tp = str(row[0]) if row and row[0] else None
+            if not cur_tp:
+                return []          # 今日暂无快照(盘前/采集异常)
+            # 昨日(最近小于今日的交易日) 9_25 竞价额
+            row2 = conn.execute(
+                "SELECT MAX(date) FROM snapshot_bid WHERE date < ? AND time_point='9_25'",
+                (today,)).fetchone()
+            yest = str(row2[0]) if row2 and row2[0] else None
+            if not yest:
+                return []          # 无昨日数据(首日)
+            # 今日全市场: code -> (bid_amt万元, name, bid_change, float_mv, board)
+            today_map = {}
+            for code, amt, name, chg, fmv, board in conn.execute(
+                    "SELECT code, bid_amt, name, bid_change, float_mv, board FROM snapshot_bid "
+                    "WHERE date=? AND time_point=?", (today, cur_tp)):
+                today_map[code] = (amt or 0, name or "", chg or 0, fmv or 0, board or "")
+            # 昨日 9_25 竞价额(万元)
+            ymap = {}
+            for code, amt in conn.execute(
+                    "SELECT code, bid_amt FROM snapshot_bid WHERE date=? AND time_point='9_25'",
+                    (yest,)):
+                ymap[code] = amt or 0
+        finally:
+            conn.close()
+        out = []
+        for code, (amt, name, chg, fmv, board) in today_map.items():
+            ya = ymap.get(code)
+            if not ya or amt < 1000:      # 今日竞价额 < 1000万 或 昨日无竞价 → 跳过
+                continue
+            out.append({"code": code, "name": name,
+                        "bidAmt": amt * 10000,            # 万元 → 元(前端口径)
+                        "bidChange": chg,
+                        "bidRatioYest": round(amt / ya, 2),   # 竞价量比(同单位万元)
+                        "floatMv": fmv, "board": board})
+        out.sort(key=lambda x: x["bidRatioYest"], reverse=True)
+        log.info("竞价爆量(量比榜) date=%s 时点=%s 昨日=%s 全市场候选=%d 取前%d",
+                 today, cur_tp, yest, len(out), min(60, len(out)))
+        return out[:60]
+    return _cached("bid_boom_ratio", config.KPL_BID_TTL, loader)
 
 
 def _parse_bid_boom(data):
