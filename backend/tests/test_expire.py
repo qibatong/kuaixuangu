@@ -28,24 +28,27 @@ def hdrs(token):
     return {"Authorization": "Bearer " + token}
 
 
-def _new_user(client, inv):
+def _new_user(client, inv=None):
+    """注册测试用户. 邀请码 v4.0 起非必填且 first_user 码可能被 test_invite_refresh 刷新,
+    注册不带邀请码(2026-08-19 修复测试顺序依赖), 防滥用需 phone+email"""
     uname = "exp_" + uuid.uuid4().hex[:8]
     phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
     email = uuid.uuid4().hex[:8] + "@test.local"
     r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                           "invite_code": inv,
                                            "phone": phone, "email": email})
     assert r.status_code == 200, r.text
     return r.json()["token"], uname
 
 
 # ---------- 服务层 ----------
-def test_create_user_default_5days():
-    """新注册用户默认 5 天会员试用期"""
+def test_create_user_default_days():
+    """新注册用户默认试用期 = config.NEW_USER_DAYS 天(2026-08-16 改配置化, 默认 7)"""
+    from app.core import config
+    days = config.NEW_USER_DAYS
     u = users.create_user("exp_d_" + uuid.uuid4().hex[:6], "Test123456")
     row = users.find_user_by_id(u)
     et = int(row["expire_at"] or 0)
-    assert abs(et - (int(time.time()) + 5 * 86400)) < 5
+    assert abs(et - (int(time.time()) + int(days) * 86400)) < 5
 
 
 def test_create_user_permanent_when_zero():
@@ -144,7 +147,8 @@ def test_login_returns_expire(client, first_user):
 
 # ---------- 管理端接口 ----------
 def test_admin_expire_duration(client, first_user):
-    """管理端: duration=week → 续费叠加(新用户默认5天 + 7天 = 12天后)"""
+    """管理端: duration=week → 续费叠加(新用户默认 NEW_USER_DAYS + 7 天后)"""
+    from app.core import config
     token, _, inv = first_user
     _, uname = _new_user(client, inv)
     u = users.find_user(uname)["id"]
@@ -152,8 +156,8 @@ def test_admin_expire_duration(client, first_user):
                     headers=hdrs(token))
     assert r.status_code == 200
     et = r.json().get("expire_at")
-    # 注册默认 5 天 + 续费 7 天
-    assert abs(et - (int(time.time()) + 12 * 86400)) < 60
+    # 注册默认 NEW_USER_DAYS 天 + 续费 7 天
+    assert abs(et - (int(time.time()) + (int(config.NEW_USER_DAYS) + 7) * 86400)) < 60
 
 
 def test_admin_expire_days_zero_permanent(client, first_user):

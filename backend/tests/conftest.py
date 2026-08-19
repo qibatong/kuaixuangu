@@ -93,9 +93,10 @@ def client():
 
 @pytest.fixture(scope="session", autouse=True)
 def mock_rate_limits(monkeypatch_session):
-    """测试环境放开限流(注册防刷 + 每IP每分钟), 避免多文件用例互相干扰"""
+    """测试环境放开限流(注册防刷 + 每IP每分钟 + 同IP每日注册数), 避免多文件用例互相干扰"""
     from app.services import security
     monkeypatch_session.setattr(security, "register_allowed", lambda ip: True)
+    monkeypatch_session.setattr(security, "register_ip_day_allowed", lambda ip: True)
     monkeypatch_session.setattr(security, "rate_allow", lambda ip: True)
 
 
@@ -120,14 +121,13 @@ def first_user(client):
 
 @pytest.fixture(scope="session")
 def second_user(client, first_user):
-    """第二个普通用户(非管理员, 用 first_user 的邀请码注册), 用于权限类测试"""
+    """第二个普通用户(非管理员), 用于权限类测试.
+    注册不带邀请码(v4.0 起非必填; first_user 码可能被 test_invite_refresh 刷新 → 顺序依赖)"""
     import uuid
-    _, _, invite = first_user
     uname = "tester2_" + uuid.uuid4().hex[:8]
     phone = "139" + str(uuid.uuid4().int % 100000000).zfill(8)
     email = uuid.uuid4().hex[:8] + "2@test.local"
     r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                            "invite_code": invite,
                                             "phone": phone, "email": email})
     assert r.status_code == 200, r.text
     d = r.json()
