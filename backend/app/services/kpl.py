@@ -231,16 +231,14 @@ def fetch_bid_boom():
                 ymap[code] = amt or 0
         finally:
             conn.close()
-        # 实时涨幅: 用东财全市场实时行情合并(收盘后=收盘涨幅, 竞价时段=实时涨幅, 全天有值)
-        # 复用 ensure_cache("filter") 缓存(5min), 不强制拉取; 失败降级 0
+        # 实时涨幅: 东财全市场行情 map 合并(独立缓存 SPOT_CACHE_TTL, 覆盖全部 6000 只)
+        # 注意: 不能用 ensure_cache("filter") — 那只有涨幅前 200 只, 量比榜多数票不在其中 → 0
         spot_map = {}
         try:
             from . import fetcher as _fetcher
             from . import scorer as _scorer
             _fs = _scorer.market_fs(["hs", "cyb", "kcb"])
-            _raw, _err = _fetcher.ensure_cache("filter", _fs, before930=True)
-            if _raw:
-                spot_map = {s.get("f12"): _scorer.parse_float(s.get("f3")) for s in _raw}
+            spot_map = _fetcher.fetch_spot_quote_map(_fs)
         except Exception as e:
             log.warning("竞价爆量 实时涨幅合并失败(降级0) err=%s", e)
             spot_map = {}
@@ -251,7 +249,7 @@ def fetch_bid_boom():
                 continue
             bid_turnover = round(amt * 10000 / fmv * 100, 2) if fmv else 0.0   # 竞价换手 = 竞价额/流通市值×100
             out.append({"code": code, "name": name,
-                        "realChange": spot_map.get(code, 0.0),   # 实时涨幅(东财, 全天有值)
+                        "realChange": (spot_map.get(code) or {}).get("realChange", 0.0),   # 实时涨幅(东财全市场map, 全天有值)
                         "bidChange": chg,
                         "bidAmt": amt * 10000,            # 万元 → 元(前端口径)
                         "bidRatioYest": round(amt / ya, 2),   # 竞价量比(同单位万元)
@@ -262,7 +260,7 @@ def fetch_bid_boom():
         log.info("竞价爆量(量比榜) date=%s 时点=%s 昨日=%s 全市场候选=%d 取前%d",
                  today, cur_tp, yest, len(out), min(60, len(out)))
         return out[:60]
-    return _cached("bid_boom_ratio_v2", config.KPL_BID_TTL, loader)   # v2: 补全展示字段(2026-08-19)
+    return _cached("bid_boom_ratio_v3", config.KPL_BID_TTL, loader)   # v3: 实时涨幅全市场map(2026-08-19)
 
 
 def _parse_bid_boom(data):
