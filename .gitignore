@@ -60,3 +60,6 @@ __pycache__/
 Thumbs.db
 .idea/
 .vscode/
+
+# ========== WorkBuddy 项目数据(不入库) ==========
+.workbuddy/
