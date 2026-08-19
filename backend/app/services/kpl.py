@@ -190,12 +190,12 @@ def fetch_bid_net():
 
 def fetch_bid_boom():
     """竞价爆量榜(2026-08-19 主人要求改版):
-    **按竞价量比排序取前 60** — 竞价量比 = 今日竞价额 / 昨日竞价额。
+    **按竞价量比排序(不限条数)** — 竞价量比 = 今日竞价额 / 昨日竞价额。
     全市场计算(不再只取 Type10 竞价额前 60): snapshot_bid 表
       - 今日竞价额: 今日最新时点(9_25 > 9_24 > 9_20 > 9_15, 竞价时段自动用最近快照)
       - 昨日竞价额: 最近(严格小于今日)交易日的 9_25 快照
     过滤(2026-08-19 23:10 主人要求): 竞价量比 > 2 且 竞价成交额 > 100万(万元=100)
-    返回 [{code,name,bidAmt(元),bidChange,bidRatioYest,floatMv,board}, ...] 按量比降序"""
+    返回 [{code,name,bidAmt(元),bidChange,bidRatioYest,floatMv,board}, ...] 按量比降序(全部)"""
     def loader():
         import sqlite3
         g2 = time.gmtime(time.time() + 8 * 3600)
@@ -260,9 +260,9 @@ def fetch_bid_boom():
                         "floatMv": fmv, "board": board,
                         "yestBidAmt": ya * 10000})        # 昨日竞价额(元)
         out.sort(key=lambda x: x["bidRatioYest"], reverse=True)
-        log.info("竞价爆量(量比榜) date=%s 时点=%s 昨日=%s 全市场候选=%d 取前%d",
-                 today, cur_tp, yest, len(out), min(200, len(out)))
-        return out[:200]
+        log.info("竞价爆量(量比榜) date=%s 时点=%s 昨日=%s 全市场候选=%d (不限条数)",
+                 today, cur_tp, yest, len(out))
+        return out
     return _cached("bid_boom_ratio_v3", config.KPL_BID_TTL, loader)   # v3: 实时涨幅全市场map(2026-08-19)
 
 
