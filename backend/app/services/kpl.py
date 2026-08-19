@@ -1720,7 +1720,8 @@ def fetch_bid_qiangcang(date=None):
                 m24 = {r[0]: (r[1], r[2]) for r in rows24}
                 used_lastsec = 0
                 for code, chg, amt25, fmv, name in rows25:
-                    if fmv <= 0 or amt25 <= 0 or fmv < 5e8:
+                    # 最后一秒抢筹过滤链: 流通市值≥5亿 + 竞价金额>1000万 (2026-08-19 主人要求)
+                    if fmv <= 0 or amt25 <= 0 or amt25 < 1000 or fmv < 5e8:
                         continue
                     t4 = seal_map.get(code, {})
                     base = {
