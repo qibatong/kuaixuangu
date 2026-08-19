@@ -909,31 +909,31 @@ onMounted(() => {
 .qc-panel .name-main { font-size: 13px; line-height: 1.3; }
 /* 窄屏(<1280px) 纵向堆叠; <1100 已原有 fallback */
 @media (max-width: 1280px) { .qc-dual { gap: 8px; } }
-/* 2026-08-18 手机端修复(qc 双表列挤压):
-   - 表格最小宽度 620px + 横向滑动(滚动条常显, 主人知道能拖)
-   - 列宽整体缩小, 概念列自动换行(不再死 240px 占满)
+/* 2026-08-18 手机端修复(qc 双表列挤压) — 12 列在 400px 视口必然拥挤:
+   - 隐藏次要列(竞价金额/竞额昨比/竞价换手/流通), 保留 8 核心列全部塞进视口
+   - 概念列固定窄宽 + 省略号(不再占满剩余空间)
    - 模式切换按钮加大点击区 */
 @media (max-width: 700px) {
   .qc-panel { padding: 8px; }
   .qc-panel-title { font-size: 13px; flex-wrap: wrap; }
   .qc-mode-switch button { padding: 4px 12px; font-size: 12px; }
-  .qc-panel .stock-table { min-width: 620px; }
-  .qc-panel .stock-table th, .qc-panel .stock-table td { padding: 3px 2px; font-size: 11px; }
-  .qc-panel .stock-table th:nth-child(1), .qc-panel .stock-table td:nth-child(1) { width: 22px; }
-  .qc-panel .stock-table th:nth-child(2), .qc-panel .stock-table td:nth-child(2) { width: 48px; }
-  .qc-panel .stock-table th:nth-child(3), .qc-panel .stock-table td:nth-child(3) { width: 56px; }
-  .qc-panel .stock-table th:nth-child(4), .qc-panel .stock-table td:nth-child(4) { width: 50px; }
-  .qc-panel .stock-table th:nth-child(5), .qc-panel .stock-table td:nth-child(5) { width: 56px; }
-  .qc-panel .stock-table th:nth-child(6), .qc-panel .stock-table td:nth-child(6) { width: 58px; }
-  .qc-panel .stock-table th:nth-child(7), .qc-panel .stock-table td:nth-child(7) { width: 38px; }
+  .qc-panel .stock-table { min-width: 0; }
+  .qc-panel .stock-table th, .qc-panel .stock-table td { padding: 3px 1px; font-size: 11px; }
+  /* 隐藏次要列: 5竞价金额 7竞额/昨比 9竞价换手 10流通 */
+  .qc-panel .stock-table th:nth-child(5), .qc-panel .stock-table td:nth-child(5),
+  .qc-panel .stock-table th:nth-child(7), .qc-panel .stock-table td:nth-child(7),
+  .qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9),
+  .qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) { display: none; }
+  /* 剩余 8 列: 排名/代码/名称/实时涨幅/抢筹幅度/竞价涨幅/概念/操作 → 适配 400px */
+  .qc-panel .stock-table th:nth-child(1), .qc-panel .stock-table td:nth-child(1) { width: 20px; text-align: center; }
+  .qc-panel .stock-table th:nth-child(2), .qc-panel .stock-table td:nth-child(2) { width: 44px; }
+  .qc-panel .stock-table th:nth-child(3), .qc-panel .stock-table td:nth-child(3) { width: 52px; }
+  .qc-panel .stock-table th:nth-child(4), .qc-panel .stock-table td:nth-child(4) { width: 48px; }
+  .qc-panel .stock-table th:nth-child(6), .qc-panel .stock-table td:nth-child(6) { width: 52px; }
   .qc-panel .stock-table th:nth-child(8), .qc-panel .stock-table td:nth-child(8) { width: 46px; }
-  .qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { width: 46px; }
-  .qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) { width: 50px; padding: 3px 2px; }
-  .qc-panel .stock-table th:nth-child(11), .qc-panel .stock-table td:nth-child(11) { width: auto; min-width: 80px; max-width: 160px; white-space: normal; word-break: break-all; overflow: hidden; text-overflow: ellipsis; }
-  .qc-panel .stock-table th:nth-child(12), .qc-panel .stock-table td:nth-child(12) { width: 48px; }
-  .qc-panel { padding-bottom: 12px; }   /* 给滚动条留点视觉空间 */
-  /* 横向滚动条在 iOS/Android 上不明显: 用渐变阴影提示右侧可滑 */
-  .qc-panel { background-image: linear-gradient(to right, var(--bg-hover) 30%, rgba(0,0,0,0)), linear-gradient(to right, rgba(0,0,0,0), var(--bg-hover) 70%); -webkit-overflow-scrolling: touch; }
+  .qc-panel .stock-table th:nth-child(11), .qc-panel .stock-table td:nth-child(11) { width: 84px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .qc-panel .stock-table th:nth-child(12), .qc-panel .stock-table td:nth-child(12) { width: 42px; }
+  .qc-panel { padding-bottom: 10px; }
 }
 .loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
 .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
