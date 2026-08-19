@@ -265,7 +265,7 @@ def fetch_bid_boom():
         log.info("竞价爆量(量比榜) date=%s 时点=%s 昨日=%s 全市场候选=%d 取前%d",
                  today, cur_tp, yest, len(out), min(60, len(out)))
         return out[:60]
-    return _cached("bid_boom_ratio", config.KPL_BID_TTL, loader)
+    return _cached("bid_boom_ratio_v2", config.KPL_BID_TTL, loader)   # v2: 补全展示字段(2026-08-19)
 
 
 def _parse_bid_boom(data):
