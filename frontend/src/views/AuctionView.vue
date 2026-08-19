@@ -888,24 +888,18 @@ onMounted(() => {
 }
 .qc-mode-switch button.active { background: rgba(255,180,0,0.18); border-color: #ffb400; color: #ffd700; font-weight: 600; }
 .qc-mode-switch button:hover { border-color: #ffb400; color: #ffe0a0; }
-.qc-panel .stock-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
-/* 所有列间距紧凑: padding 一律 4px 2px(列间 4px, 数值紧凑) */
-.qc-panel .stock-table th, .qc-panel .stock-table td { padding: 4px 2px; font-size: 12px; white-space: nowrap; }
-.qc-panel .stock-table th { color: #ffe0a0; font-weight: 600; border-bottom: 1px solid rgba(255,180,0,0.3); }
+.qc-panel .stock-table { width: 100%; border-collapse: collapse; }
+/* 2026-08-19 回归通用 stock-table 样式(跟其他 tab 一致):
+   之前 table-layout:fixed + nth-child 固定 26-240px 死列宽 → 桌面端列挤(12列 × 56-72px 都很窄)
+   现让列宽自适应(名称/概念可换行), 仅概念列加 max-width 防止特长撑破布局 */
+.qc-panel .stock-table th, .qc-panel .stock-table td { padding: 6px 8px; font-size: 13px; }
+.qc-panel .stock-table th { color: var(--text-muted); font-weight: 600; background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border-soft); }
 .qc-panel .stock-table td { border-bottom: 1px solid rgba(255,255,255,0.04); }
-/* 缩列宽到适应窄屏(>=600px panel): 11 列总宽 ≈ 582px(概念列随内容, 不换行) */
-.qc-panel .stock-table th:nth-child(1), .qc-panel .stock-table td:nth-child(1) { width: 26px; text-align: center; }
-.qc-panel .stock-table th:nth-child(2), .qc-panel .stock-table td:nth-child(2) { width: 56px; }
-.qc-panel .stock-table th:nth-child(3), .qc-panel .stock-table td:nth-child(3) { width: 72px; }
-.qc-panel .stock-table th:nth-child(4), .qc-panel .stock-table td:nth-child(4) { width: 56px; }
-.qc-panel .stock-table th:nth-child(5), .qc-panel .stock-table td:nth-child(5) { width: 62px; }
-.qc-panel .stock-table th:nth-child(6), .qc-panel .stock-table td:nth-child(6) { width: 64px; }
-.qc-panel .stock-table th:nth-child(7), .qc-panel .stock-table td:nth-child(7) { width: 42px; }
-.qc-panel .stock-table th:nth-child(8), .qc-panel .stock-table td:nth-child(8) { width: 50px; }
-.qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { width: 50px; }
-.qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) { width: 240px; overflow: hidden; text-overflow: ellipsis; }
-/* 操作列(普通列, 不 sticky, 避免 flex 失衡; 通过 overflow-x: auto 横向滚动可见) */
-.qc-panel .stock-table th:nth-child(11), .qc-panel .stock-table td:nth-child(11) { width: 52px; text-align: center; padding: 4px 2px; }
+.qc-panel .stock-table th:nth-child(1), .qc-panel .stock-table td:nth-child(1) { width: 40px; text-align: center; }   /* 排名 */
+.qc-panel .stock-table th:nth-child(12), .qc-panel .stock-table td:nth-child(12) { text-align: center; white-space: nowrap; }  /* 操作 */
+.qc-panel .stock-table th:nth-child(11), .qc-panel .stock-table td:nth-child(11) {
+  max-width: 240px; white-space: normal; word-break: break-all;  /* 概念: 可换行, 最长 240 */
+}
 .qc-panel .name-main { font-size: 13px; line-height: 1.3; }
 /* 窄屏(<1280px) 纵向堆叠; <1100 已原有 fallback */
 @media (max-width: 1280px) { .qc-dual { gap: 8px; } }
