@@ -258,8 +258,8 @@ def fetch_bid_boom():
                         "yestBidAmt": ya * 10000})        # 昨日竞价额(元)
         out.sort(key=lambda x: x["bidRatioYest"], reverse=True)
         log.info("竞价爆量(量比榜) date=%s 时点=%s 昨日=%s 全市场候选=%d 取前%d",
-                 today, cur_tp, yest, len(out), min(60, len(out)))
-        return out[:60]
+                 today, cur_tp, yest, len(out), min(200, len(out)))
+        return out[:200]
     return _cached("bid_boom_ratio_v3", config.KPL_BID_TTL, loader)   # v3: 实时涨幅全市场map(2026-08-19)
 
 
