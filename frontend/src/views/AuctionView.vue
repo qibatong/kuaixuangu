@@ -90,7 +90,7 @@
             <th class="sortable" :class="{ active: sealSort.keyOf(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt') }" @click="sealSort.onSort(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt')">{{ tab === 'boom' || tab === 'net' ? '竞价成交额(亿)' : '涨停委买额(亿)' }}<span class="sort-ind">{{ sealSort.ind(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt') }}</span></th>
             <th v-if="tab === 'boom'" class="sortable" :class="{ active: sealSort.keyOf('bidRatioYest') }" @click="sealSort.onSort('bidRatioYest')">竞价量比<span class="sort-ind">{{ sealSort.ind('bidRatioYest') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('bidTurnover') }" @click="sealSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ sealSort.ind('bidTurnover') }}</span></th>
-            <th class="sortable" :class="{ active: sealSort.keyOf('bidNetAmt') }" @click="sealSort.onSort('bidNetAmt')">竞价净额(亿)<span class="sort-ind">{{ sealSort.ind('bidNetAmt') }}</span></th>
+            <th v-if="tab === 'net'" class="sortable" :class="{ active: sealSort.keyOf('bidNetAmt') }" @click="sealSort.onSort('bidNetAmt')">竞价净额(亿)<span class="sort-ind">{{ sealSort.ind('bidNetAmt') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('limitBoards') }" @click="sealSort.onSort('limitBoards')">连板<span class="sort-ind">{{ sealSort.ind('limitBoards') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('floatMv') }" @click="sealSort.onSort('floatMv')">流通Z<span class="sort-ind">{{ sealSort.ind('floatMv') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('board') }" @click="sealSort.onSort('board', 'string')">概念<span class="sort-ind">{{ sealSort.ind('board') }}</span></th>
@@ -108,7 +108,7 @@
             <td v-else :class="it.bidSealAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidSealAmt) }}</td>
             <td v-if="tab === 'boom'" :class="it.bidRatioYest ? (it.bidRatioYest >= 2 ? 'ratio-hot' : it.bidRatioYest >= 1.5 ? 'ratio-warm' : '') : 'dim'">{{ it.bidRatioYest ? it.bidRatioYest.toFixed(2) + 'x' : '-' }}</td>
             <td class="dim">{{ it.bidTurnover ? it.bidTurnover + '%' : '-' }}</td>
-            <td :class="it.bidNetAmt > 0 ? 'up' : it.bidNetAmt < 0 ? 'down' : 'dim'">{{ yi(it.bidNetAmt) }}</td>
+            <td v-if="tab === 'net'" :class="it.bidNetAmt > 0 ? 'up' : it.bidNetAmt < 0 ? 'down' : 'dim'">{{ yi(it.bidNetAmt) }}</td>
             <td><span v-if="it.limitBoards > 0" class="lb-badge">{{ it.limitBoards }}板</span><span v-else class="dim">-</span></td>
             <td class="dim">{{ fmtMv(it.floatMv) }}</td>
             <td class="dim" style="max-width:150px;white-space:pre-wrap;">{{ shortConcept(it.board) }}</td>

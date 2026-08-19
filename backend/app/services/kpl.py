@@ -231,34 +231,31 @@ def fetch_bid_boom():
                 ymap[code] = amt or 0
         finally:
             conn.close()
-        # 竞价时段合并实时涨幅(Type4 涨停委买额榜) + 竞价净额(doc112), 供前端展示
-        # (快照库无实时涨幅/净额字段; 非竞价时段接口可能为空 → 默认 0)
-        seal_map = {}
-        net_map = {}
-        if hm_in_bid:   # 9:15-9:30 竞价时段才合并实时字段
-            try:
-                seal_map = {s["code"]: s for s in (fetch_bid_seal() or [])}
-            except Exception:
-                seal_map = {}
-            try:
-                net_map = {s["code"]: s.get("bidNetAmt") or 0 for s in (fetch_bid_net() or [])}
-            except Exception:
-                net_map = {}
+        # 实时涨幅: 用东财全市场实时行情合并(收盘后=收盘涨幅, 竞价时段=实时涨幅, 全天有值)
+        # 复用 ensure_cache("filter") 缓存(5min), 不强制拉取; 失败降级 0
+        spot_map = {}
+        try:
+            from . import fetcher as _fetcher
+            from . import scorer as _scorer
+            _fs = _scorer.market_fs(["hs", "cyb", "kcb"])
+            _raw, _err = _fetcher.ensure_cache("filter", _fs, before930=True)
+            if _raw:
+                spot_map = {s.get("f12"): _scorer.parse_float(s.get("f3")) for s in _raw}
+        except Exception as e:
+            log.warning("竞价爆量 实时涨幅合并失败(降级0) err=%s", e)
+            spot_map = {}
         out = []
         for code, (amt, name, chg, fmv, board) in today_map.items():
             ya = ymap.get(code)
             if not ya or amt < 1000:      # 今日竞价额 < 1000万 或 昨日无竞价 → 跳过
                 continue
-            _seal = seal_map.get(code) or {}
             bid_turnover = round(amt * 10000 / fmv * 100, 2) if fmv else 0.0   # 竞价换手 = 竞价额/流通市值×100
             out.append({"code": code, "name": name,
-                        "realChange": _seal.get("realChange") or 0,   # 实时涨幅(Type4, 竞价时段)
+                        "realChange": spot_map.get(code, 0.0),   # 实时涨幅(东财, 全天有值)
                         "bidChange": chg,
                         "bidAmt": amt * 10000,            # 万元 → 元(前端口径)
                         "bidRatioYest": round(amt / ya, 2),   # 竞价量比(同单位万元)
                         "bidTurnover": bid_turnover,      # 竞价换手(%)
-                        "bidNetAmt": net_map.get(code, 0),    # 竞价净额(元, doc112)
-                        "limitBoards": 0,                 # 快照无连板字段, 前端显示 '-'
                         "floatMv": fmv, "board": board,
                         "yestBidAmt": ya * 10000})        # 昨日竞价额(元)
         out.sort(key=lambda x: x["bidRatioYest"], reverse=True)
