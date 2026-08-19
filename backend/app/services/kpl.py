@@ -136,7 +136,7 @@ def _parse_bid_seal(data):
                 "bidTurnover": _f(row[7]),       # 竞价换手(%)
                 "bidAmt": _f(row[8]),            # 竞价成交额(元)
                 "board": str(row[11]) if len(row) > 11 else "",
-                "floatMv": _f(row[12]),          # 实际流通(元)
+                "floatMv": _f(row[12]),          # 自由流通市值(元) — 开盘啦"实际流通"字段≈自由流通
                 "mainNet": _f(row[15]),          # 主力净额(元)
                 "limitBoards": _lb(str(row[16])) if len(row) > 16 else 0,  # 连板数
             })
@@ -204,6 +204,12 @@ def fetch_bid_boom():
             seal_map = {}
         for it in lst:
             it["bidSealAmt"] = seal_map.get(it["code"], 0)
+        # 2026-08-19 主人要求: 竞价爆量双重过滤
+        # ① 竞价金额 ≥ 1000万
+        lst = [it for it in lst if (it.get("bidAmt") or 0) >= 1e7]
+        # ② 竞价量比 > 2（需先计算量比，再过滤）
+        fill_bid_ratio_yest(lst, None)
+        lst = [it for it in lst if (it.get("bidRatioYest") or 0) > 2]
         return lst
     return _cached("bid_boom", config.KPL_BID_TTL, loader)
 
@@ -228,12 +234,12 @@ def _parse_bid_boom(data):
                 "bidNetAmt": _f(row[6]),         # 竞价净额(元)
                 "bidAmt": _f(row[10]),           # 竞价成交额(元) - 爆量主指标
                 "board": str(row[11]) if len(row) > 11 else "",
-                "floatMv": _f(row[12]),
+                "floatMv": _f(row[12]),          # 自由流通市值(元) — 开盘啦"实际流通"字段≈自由流通
                 "mainBuy": _f(row[13]),
                 "mainSell": _f(row[14]),
                 "mainNet": _f(row[15]),
                 "limitBoards": _lb(str(row[16])) if len(row) > 16 else 0,
-                # 2026-08-18: Type=10 无换手列 → 竞价换手 = 竞价成交额/流通市值×100
+                # 2026-08-18: Type=10 无换手列 → 竞价换手 = 竞价成交额/自由流通市值×100
                 # (与开盘啦 Type4 bidTurnover 口径一致, 中石科技验算 2.96 vs 2.97)
                 "bidTurnover": round(_f(row[10]) / _f(row[12]) * 100, 2) if _f(row[12]) else 0.0,
             })
@@ -335,7 +341,7 @@ def _parse_ladder(data, pid_type):
                 "mainSell": _f(row[10]),
                 "amount": _f(row[11]),                     # 成交额(元)
                 "concept": str(row[12]) if row[12] else "",
-                "floatMv": _f(row[13]),                    # 实际流通(元)
+                "floatMv": _f(row[13]),                    # 自由流通市值(元) — 开盘啦"实际流通"字段≈自由流通
                 "turnover": _f(row[14]),                   # 实际换手(%)
                 "boardCode": str(row[19]) if len(row) > 19 else "",
                 "ztCount": int(_num(row[20])) if len(row) > 20 else 0,
@@ -988,7 +994,7 @@ def _snap25_map(date=None):
 
 def _merge_broken_bid_snap(lst):
     """炸板列表补竞价涨幅/竞价换手: 按每条 day 查该日 9_25 快照
-    bidTurnover = 竞价额(元)/流通市值(元)×100(短线侠同口径近似)
+    bidTurnover = 竞价额(元)/自由流通市值(元)×100(短线侠同口径近似)
     返回补全后的列表(原地修改+返回)"""
     if not lst:
         return lst
@@ -1005,15 +1011,15 @@ def _merge_broken_bid_snap(lst):
         it["bidChange"] = s.get("bid_change")
         amt = s.get("bid_amt") or 0      # 万元
         fmv = s.get("float_mv") or 0     # 元
-        it["floatMv"] = fmv or it.get("floatMv") or 0   # 流通市值(元), 2026-08-17 竞价异动统一补流通列
+        it["floatMv"] = fmv or it.get("floatMv") or 0   # 自由流通市值(元), 2026-08-17 竞价异动统一补流通列
         if amt > 0 and fmv > 0:
             it["bidTurnover"] = round(amt * 10000 / fmv * 100, 2)   # 万元→元 口径统一
     return lst
 
 
 def fill_float_mv_from_snap(lst, date=None):
-    """用 date(空=今日) 的 9_25 全市场快照给列表补流通市值(floatMv, 元); 已带的不覆盖
-    用于历史回看快照/炸板等数据源补流通市值列(2026-08-17)"""
+    """用 date(空=今日) 的 9_25 全市场快照给列表补自由流通市值(floatMv, 元); 已带的不覆盖
+    用于历史回看快照/炸板等数据源补自由流通市值列(2026-08-17)"""
     if not lst:
         return lst
     try:
@@ -1027,7 +1033,7 @@ def fill_float_mv_from_snap(lst, date=None):
                 if fmv:
                     it["floatMv"] = fmv
     except Exception as e:
-        log.warning("流通市值补齐失败 date=%s err=%s", date or "-", e)
+        log.warning("自由流通市值补齐失败 date=%s err=%s", date or "-", e)
     return lst
 
 
@@ -1242,7 +1248,7 @@ def fetch_yest_zt():
             sn = snap25.get(code, {})
             bid_amt = s.get("bidAmt") or (sn["bid_amt"] * 10000 if sn and sn.get("bid_amt") else None)
             float_mv = s.get("floatMv") or (sn.get("float_mv") if sn else None)
-            # 竞价换手: Type4 真值优先, 无则 竞价额/流通市值 近似(与短线侠 0.1-0.4% 量级一致)
+            # 竞价换手: Type4 真值优先, 无则 竞价额/自由流通市值 近似(与短线侠 0.1-0.4% 量级一致)
             bid_turnover = s.get("bidTurnover")
             if not bid_turnover and bid_amt and float_mv:
                 bid_turnover = round(bid_amt / float_mv * 100, 2)
@@ -1314,7 +1320,7 @@ def fetch_yest_broken():
             t4 = seal_map.get(code, {})
             bid_amt = (s["bid_amt"] * 10000) if s and s.get("bid_amt") else None
             float_mv = t4.get("floatMv") or (s.get("float_mv") if s else None)
-            # 竞价换手: Type4 真值优先, 无则 竞价额/流通市值 近似
+            # 竞价换手: Type4 真值优先, 无则 竞价额/自由流通市值 近似
             bid_turnover = t4.get("bidTurnover")
             if not bid_turnover and bid_amt and float_mv:
                 bid_turnover = round(bid_amt / float_mv * 100, 2)
@@ -1378,7 +1384,7 @@ def fill_bid_change_from_snap(lst, date=None):
 
 def fill_bid_turnover_from_snap(lst, date=None):
     """2026-08-18 主人要求: 竞价异动全部 tab 加竞价换手。
-    用 date(空=今日) 9_25 快照给列表补竞价换手(bidTurnover = 竞价成交额/流通市值×100,
+    用 date(空=今日) 9_25 快照给列表补竞价换手(bidTurnover = 竞价成交额/自由流通市值×100,
     与开盘啦 bidTurnover 口径一致); 已带的不覆盖"""
     if not lst:
         return lst
@@ -1512,7 +1518,7 @@ LASTSEC_DIFF_THRESHOLD = 0.5   # 最后一秒"明显抢筹"差值阈值(%), 可�
 
 def _calc_lastsec_qc(chg25, seq):
     """最后一秒抢筹(差值回退, 对抗接口延迟):
-    seq = [(ts, bid_change, bid_amt), ...] 按 ts 升序(9:24:55-9:25:03 每秒采样)
+    seq = [(ts, bid_change, bid_amt), ...] 按 ts 升序(9:24:45-9:25:03 每秒采样)
     规则:
       ① 优先 9_25涨幅 − 最新一秒涨幅: |差|≥阈值 → 视为最后一秒抢筹
       ② 差太小(接口延迟导致最新秒已含变化, 或该秒无变化) → 向前回退:
@@ -1542,11 +1548,11 @@ def _calc_lastsec_qc(chg25, seq):
 def fetch_bid_qiangcang(date=None):
     """竞价抢筹(左右双表, 对标短线侠):
     左表 list20  = 开盘啦 MorningBiddingList Type=4 全市场竞价异动(200只)
-                   抢筹强度 qcDelta = 竞价净额 / 流通市值 * 100 (开盘啦自带"抢筹资金"指标)
-                   过滤: 流通市值≥2亿, 抢筹强度>5%
+                   抢筹强度 qcDelta = 竞价净额 / 自由流通市值 * 100 (开盘啦自带"抢筹资金"指标)
+                   过滤: 自由流通市值≥2亿, 抢筹强度>5%
                    竞价时段(9:15-9:30)实时拉取并持久化 qc_snapshot 表;
                    非竞价时段接口为空 → 读库展示今天已选出的结果(不丢失)
-    右表 listLast= snapshot_bid 9_24(最后一秒≈9:24:5x) → 9_25 段: 抢筹幅度 = 9:25涨幅 − 9:24涨幅
+    右表 listLast= snapshot_bid 9_24(最后一秒≈9:24:4x) → 9_25 段: 抢筹幅度 = 9:25涨幅 − 9:24涨幅
     date: 空=今天; 指定 'YYYY-MM-DD' 回看历史(qc_snapshot + snapshot_bid 历史数据)
     返回 {"list20": [...], "listLast": [...]}"""
     def loader():
@@ -1592,7 +1598,7 @@ def fetch_bid_qiangcang(date=None):
                         if not code:
                             continue
                         bidNetAmt = float(s.get("bidNetAmt") or 0)      # 竞价净额(元) - 开盘啦 row[6]
-                        floatMv = float(s.get("floatMv") or 0)          # 流通市值(元) - 开盘啦 row[12]
+                        floatMv = float(s.get("floatMv") or 0)          # 自由流通市值(元) — 开盘啦"实际流通"字段≈自由流通
                         bidAmt = float(s.get("bidAmt") or 0)            # 竞价成交额(元) - 开盘啦 row[8]
                         if floatMv < 2e8 or bidNetAmt <= 0:             # 放宽阈值 5亿→2亿, 纳入中盘股
                             continue
@@ -1621,7 +1627,7 @@ def fetch_bid_qiangcang(date=None):
                              today, hhmm, len(list20))
                 else:
                     log.warning("抢筹[live] date=%s %s Type4返回%d只但过滤后0只"
-                                "(可能: 全部 qcDelta<=5 或 流通市值<2亿 或 bidNetAmt=0, 需检查阈值口径)",
+                                "(可能: 全部 qcDelta<=5 或 自由流通市值<2亿 或 bidNetAmt=0, 需检查阈值口径)",
                                 today, hhmm, len(seal_list))
             else:
                 log.warning("抢筹[live→空] date=%s %s 竞价时段内Type4返回空!"
@@ -1652,7 +1658,7 @@ def fetch_bid_qiangcang(date=None):
             m20c = {r[0]: r[1] for r in rows20c}
             seal_map = {} if date else _seal_map()   # 历史日期不拉今天 Type4(字段用快照自身)
             for code, chg25, amt25, fmv, name, board in rows25c:
-                # 过滤: 流通市值≥2亿, 竞价额>0, 竞价成交额≥500万, 竞价涨幅≥5%(9_25涨幅)
+                # 过滤: 自由流通市值≥2亿, 竞价额>0, 竞价成交额≥500万, 竞价涨幅≥5%(9_25涨幅)
                 # 2026-08-18 主人要求: 竞价涨幅低于5%的去掉(原门槛 2% 提至 5%)
                 if fmv < 2e8 or amt25 <= 0 or amt25 < 500 or chg25 < 5:
                     continue
@@ -1688,7 +1694,7 @@ def fetch_bid_qiangcang(date=None):
             list20Chg = []
 
         # 右表"最后一秒": 优先 snapshot_lastsec 秒级序列(差值回退对抗接口延迟),
-        # 无秒级数据时回退 9_24 时点(9:24:5x 重采型)
+        # 无秒级数据时回退 9_24 时点(9:24:3x~4x 重采型)
         listLast = []
         try:
             import sqlite3
@@ -1708,7 +1714,7 @@ def fetch_bid_qiangcang(date=None):
             for code, chg, amt, ts in rows_ls:
                 seq.setdefault(code, []).append((ts, chg, amt))
             if not rows_ls:
-                log.warning("抢筹[listLast] date=%s %s snapshot_lastsec=0条(9:24:55-9:25:03高频采样缺失!), "
+                log.warning("抢筹[listLast] date=%s %s snapshot_lastsec=0条(9:24:45-9:25:03高频采样缺失!), "
                             "右表将回退 9_24 时点", today, hhmm)
             if not rows24:
                 log.warning("抢筹[listLast] date=%s %s 9_24时点快照=0条(snapshot_bid采集缺失!), "
@@ -1720,7 +1726,7 @@ def fetch_bid_qiangcang(date=None):
                 m24 = {r[0]: (r[1], r[2]) for r in rows24}
                 used_lastsec = 0
                 for code, chg, amt25, fmv, name in rows25:
-                    # 最后一秒抢筹过滤链: 流通市值≥5亿 + 竞价金额>1000万 (2026-08-19 主人要求)
+                    # 最后一秒抢筹过滤链: 自由流通市值≥5亿 + 竞价金额>1000万 (2026-08-19 主人要求)
                     if fmv <= 0 or amt25 <= 0 or amt25 < 1000 or fmv < 5e8:
                         continue
                     t4 = seal_map.get(code, {})
@@ -1746,7 +1752,7 @@ def fetch_bid_qiangcang(date=None):
                             listLast.append(base)
                             used_lastsec += 1
                             continue
-                    # ② 兜底: 9_24 时点(9:24:5x 重采型)
+                    # ② 兜底: 9_24 时点(9:24:3x~4x 重采型)
                     v24 = m24.get(code)
                     if v24:
                         chg24, amt24 = v24
