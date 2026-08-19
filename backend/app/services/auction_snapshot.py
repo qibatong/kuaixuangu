@@ -82,7 +82,8 @@ def _fetch_market_map(full=False):
                         # 竞价封单额(元) = f10 买一量(手) × f5 买一价 × 100(股/手)
                         # 涨停时买一委托即封单; 非涨停时=买一委托金额(竞价强弱参考)
                         "bid_buy_amt": scorer.parse_float(s.get("f10")) * scorer.parse_float(s.get("f5")) * 100,
-                        "float_mv": scorer.parse_float(s.get("f21")),             # 自由流通市值(元) - f21 流通市值在短线语境≈自由流通
+                        "float_mv": scorer.parse_float(s.get("f21")),             # 流通市值(元, 东财 f21)
+                        "free_mv": scorer.parse_float(s.get("f117")) or scorer.parse_float(s.get("f21")),  # 实际流通市值(元): 东财 f117 自由流通≈开盘啦"实际流通", f21 兜底
                         "board": str(s.get("f103") or s.get("f100") or ""),       # 概念(f103优先, 行业f100兜底)
                     }
         return raw_all
@@ -158,10 +159,10 @@ def snapshot_at(time_point, force=False):
     try:
         conn = database.get_conn()
         conn.executemany(
-            "INSERT OR REPLACE INTO snapshot_bid (date, time_point, code, bid_change, bid_amt, name, bid_buy_amt, float_mv, board, ts) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO snapshot_bid (date, time_point, code, bid_change, bid_amt, name, bid_buy_amt, float_mv, free_mv, board, ts) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             [(date, time_point, code, v["bid_change"], v["bid_amt"], v.get("name", ""),
-              v.get("bid_buy_amt", 0), v.get("float_mv", 0), v.get("board", ""), int(time.time()))
+              v.get("bid_buy_amt", 0), v.get("float_mv", 0), v.get("free_mv", 0), v.get("board", ""), int(time.time()))
              for code, v in raw_all.items()])
         conn.commit()
         conn.close()
@@ -340,7 +341,7 @@ def query_stock_snapshot(date, code):
     try:
         conn = database.get_conn()
         rows = conn.execute(
-            "SELECT time_point, code, bid_change, bid_amt, bid_buy_amt, float_mv, name FROM snapshot_bid "
+            "SELECT time_point, code, bid_change, bid_amt, bid_buy_amt, COALESCE(NULLIF(free_mv,0), float_mv), name FROM snapshot_bid "
             "WHERE date=? AND code=?", (date, code)).fetchall()
         conn.close()
     except Exception:
@@ -395,7 +396,7 @@ def query_3points_board(date, limit=100):
     try:
         conn = database.get_conn()
         rows = conn.execute(
-            "SELECT time_point, code, bid_change, bid_amt, name, bid_buy_amt, float_mv, board FROM snapshot_bid "
+            "SELECT time_point, code, bid_change, bid_amt, name, bid_buy_amt, COALESCE(NULLIF(free_mv,0), float_mv), board FROM snapshot_bid "
             "WHERE date=? AND time_point IN ('9_15','9_20','9_25')", (date,)).fetchall()
         conn.close()
     except Exception:

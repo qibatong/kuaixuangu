@@ -217,10 +217,10 @@ def fetch_bid_boom():
             yest = str(row2[0]) if row2 and row2[0] else None
             if not yest:
                 return []          # 无昨日数据(首日)
-            # 今日全市场: code -> (bid_amt万元, name, bid_change, float_mv, board)
+            # 今日全市场: code -> (bid_amt万元, name, bid_change, 实际流通市值free_mv, board)
             today_map = {}
             for code, amt, name, chg, fmv, board in conn.execute(
-                    "SELECT code, bid_amt, name, bid_change, float_mv, board FROM snapshot_bid "
+                    "SELECT code, bid_amt, name, bid_change, COALESCE(NULLIF(free_mv,0), float_mv), board FROM snapshot_bid "
                     "WHERE date=? AND time_point=?", (today, cur_tp)):
                 today_map[code] = (amt or 0, name or "", chg or 0, fmv or 0, board or "")
             # 昨日 9_25 竞价额(万元)
@@ -250,7 +250,7 @@ def fetch_bid_boom():
             ratio = round(amt / ya, 2)
             if ratio <= 2:                # 竞价量比 ≤ 2 → 跳过
                 continue
-            bid_turnover = round(amt * 10000 / fmv * 100, 2) if fmv else 0.0   # 竞价换手 = 竞价额/流通市值×100
+            bid_turnover = round(amt * 10000 / fmv * 100, 2) if fmv else 0.0   # 竞价换手 = 竞价额/实际流通市值×100
             out.append({"code": code, "name": name,
                         "realChange": (spot_map.get(code) or {}).get("realChange", 0.0),   # 实时涨幅(东财全市场map, 全天有值)
                         "bidChange": chg,
@@ -1025,7 +1025,7 @@ def _seal_map():
 
 
 def _snap25_map(date=None):
-    """指定日 9_25 全市场快照 code → {bid_change, bid_amt, name, float_mv, board}
+    """指定日 9_25 全市场快照 code → {bid_change, bid_amt, name, float_mv, free_mv, board}
     (全市场5549只, 字段补全兜底); date 空=今天"""
     import sqlite3
     if not date:
@@ -1034,10 +1034,10 @@ def _snap25_map(date=None):
     try:
         conn = sqlite3.connect(config.DB_FILE)
         for r in conn.execute(
-                "SELECT code, bid_change, bid_amt, name, float_mv, board FROM snapshot_bid "
+                "SELECT code, bid_change, bid_amt, name, float_mv, free_mv, board FROM snapshot_bid "
                 "WHERE date=? AND time_point='9_25'", (date,)):
             out[r[0]] = {"bid_change": r[1], "bid_amt": r[2], "name": r[3] or "",
-                         "float_mv": r[4] or 0, "board": r[5] or ""}
+                         "float_mv": r[4] or 0, "free_mv": r[5] or 0, "board": r[6] or ""}
         conn.close()
     except Exception as e:
         log.warning("9_25快照查询失败 date=%s(降级) err=%s", date, e)
@@ -1046,7 +1046,7 @@ def _snap25_map(date=None):
 
 def _merge_broken_bid_snap(lst):
     """炸板列表补竞价涨幅/竞价换手: 按每条 day 查该日 9_25 快照
-    bidTurnover = 竞价额(元)/自由流通市值(元)×100(短线侠同口径近似)
+    bidTurnover = 竞价额(元)/实际流通市值(元)×100(短线侠同口径近似)
     返回补全后的列表(原地修改+返回)"""
     if not lst:
         return lst
@@ -1062,16 +1062,16 @@ def _merge_broken_bid_snap(lst):
             continue
         it["bidChange"] = s.get("bid_change")
         amt = s.get("bid_amt") or 0      # 万元
-        fmv = s.get("float_mv") or 0     # 元
-        it["floatMv"] = fmv or it.get("floatMv") or 0   # 自由流通市值(元), 2026-08-17 竞价异动统一补流通列
+        fmv = s.get("free_mv") or s.get("float_mv") or 0     # 实际流通市值(元), 快照 free_mv 优先(f117), f21 兜底
+        it["floatMv"] = fmv or it.get("floatMv") or 0   # 实际流通市值(元), 2026-08-19 竞价异动统一流通列改实际流通
         if amt > 0 and fmv > 0:
             it["bidTurnover"] = round(amt * 10000 / fmv * 100, 2)   # 万元→元 口径统一
     return lst
 
 
 def fill_float_mv_from_snap(lst, date=None):
-    """用 date(空=今日) 的 9_25 全市场快照给列表补自由流通市值(floatMv, 元); 已带的不覆盖
-    用于历史回看快照/炸板等数据源补自由流通市值列(2026-08-17)"""
+    """用 date(空=今日) 的 9_25 全市场快照给列表补实际流通市值(floatMv, 元); 已带的不覆盖
+    用于历史回看快照/炸板等数据源补流通列(2026-08-17; 2026-08-19 改实际流通 free_mv 优先)"""
     if not lst:
         return lst
     try:
@@ -1081,11 +1081,11 @@ def fill_float_mv_from_snap(lst, date=None):
         for it in lst:
             code = str(it.get("code") or "")
             if code and not it.get("floatMv") and code in snap:
-                fmv = snap[code].get("float_mv") or 0
+                fmv = snap[code].get("free_mv") or snap[code].get("float_mv") or 0
                 if fmv:
                     it["floatMv"] = fmv
     except Exception as e:
-        log.warning("自由流通市值补齐失败 date=%s err=%s", date or "-", e)
+        log.warning("实际流通市值补齐失败 date=%s err=%s", date or "-", e)
     return lst
 
 
@@ -1299,7 +1299,7 @@ def fetch_yest_zt():
             s = seal_map.get(code, {})
             sn = snap25.get(code, {})
             bid_amt = s.get("bidAmt") or (sn["bid_amt"] * 10000 if sn and sn.get("bid_amt") else None)
-            float_mv = s.get("floatMv") or (sn.get("float_mv") if sn else None)
+            float_mv = s.get("floatMv") or (sn.get("free_mv") or sn.get("float_mv") if sn else None)
             # 竞价换手: Type4 真值优先, 无则 竞价额/自由流通市值 近似(与短线侠 0.1-0.4% 量级一致)
             bid_turnover = s.get("bidTurnover")
             if not bid_turnover and bid_amt and float_mv:
@@ -1371,7 +1371,7 @@ def fetch_yest_broken():
             ys = yest_snap.get(code, {})
             t4 = seal_map.get(code, {})
             bid_amt = (s["bid_amt"] * 10000) if s and s.get("bid_amt") else None
-            float_mv = t4.get("floatMv") or (s.get("float_mv") if s else None)
+            float_mv = t4.get("floatMv") or (s.get("free_mv") or s.get("float_mv") if s else None)
             # 竞价换手: Type4 真值优先, 无则 竞价额/自由流通市值 近似
             bid_turnover = t4.get("bidTurnover")
             if not bid_turnover and bid_amt and float_mv:
@@ -1451,9 +1451,10 @@ def fill_bid_turnover_from_snap(lst, date=None):
             if not code or it.get("bidTurnover"):
                 continue
             s = snap.get(code)
-            if s and s.get("float_mv"):
-                # 注意单位: snapshot_bid.bid_amt 万元, float_mv 元 → bid_amt×10000 转元
-                bt = round((s.get("bid_amt") or 0) * 10000 / s["float_mv"] * 100, 2)
+            if s and (s.get("free_mv") or s.get("float_mv")):
+                # 注意单位: snapshot_bid.bid_amt 万元, free_mv/float_mv 元 → bid_amt×10000 转元
+                fmv = s.get("free_mv") or s.get("float_mv") or 0
+                bt = round((s.get("bid_amt") or 0) * 10000 / fmv * 100, 2)
                 if bt > 0:
                     it["bidTurnover"] = bt
                     n += 1
@@ -1704,7 +1705,7 @@ def fetch_bid_qiangcang(date=None):
                 "SELECT code, bid_change FROM snapshot_bid WHERE date=? AND time_point='9_20'",
                 (today,)).fetchall()
             rows25c = conn.execute(
-                "SELECT code, bid_change, bid_amt, float_mv, name, board FROM snapshot_bid "
+                "SELECT code, bid_change, bid_amt, COALESCE(NULLIF(free_mv,0), float_mv), name, board FROM snapshot_bid "
                 "WHERE date=? AND time_point='9_25'", (today,)).fetchall()
             conn.close()
             m20c = {r[0]: r[1] for r in rows20c}
@@ -1759,7 +1760,7 @@ def fetch_bid_qiangcang(date=None):
                 "SELECT code, bid_change, bid_amt FROM snapshot_bid WHERE date=? AND time_point='9_24'",
                 (today,)).fetchall()
             rows25 = conn.execute(
-                "SELECT code, bid_change, bid_amt, float_mv, name FROM snapshot_bid "
+                "SELECT code, bid_change, bid_amt, COALESCE(NULLIF(free_mv,0), float_mv), name FROM snapshot_bid "
                 "WHERE date=? AND time_point='9_25'", (today,)).fetchall()
             conn.close()
             seq = {}

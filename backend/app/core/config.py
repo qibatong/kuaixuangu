@@ -39,7 +39,7 @@ RESET_RATE_LIMIT = int(os.environ.get("RESET_RATE_LIMIT", "3"))
 # ---------- 数据源(东方财富公开行情接口) ----------
 EASTMONEY_URL = "https://push2dycalc.eastmoney.com/api/qt/clist/get"
 EASTMONEY_UT = "c92c50e6b0fab2c17cd5e276e9a79c42"
-FIELDS = "f2,f3,f4,f5,f6,f8,f10,f12,f14,f17,f18,f20,f21,f615,f616,f617,f618,f630,f100,f102,f103"
+FIELDS = "f2,f3,f4,f5,f6,f8,f10,f12,f14,f17,f18,f20,f21,f117,f615,f616,f617,f618,f630,f100,f102,f103"
 
 # 盘中实时选股: 东财涨停池(封单/连板/炸板) + 涨停池缓存 TTL
 EASTMONEY_ZT_URL = "https://push2ex.eastmoney.com/getTopicZTPool"

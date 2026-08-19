@@ -253,6 +253,7 @@ def init_db():
             name TEXT,
             bid_buy_amt REAL NOT NULL DEFAULT 0,
             float_mv REAL NOT NULL DEFAULT 0,
+            free_mv REAL NOT NULL DEFAULT 0,
             PRIMARY KEY (date, time_point, code)
         )
     """)
@@ -264,6 +265,9 @@ def init_db():
         cur.execute("ALTER TABLE snapshot_bid ADD COLUMN bid_buy_amt REAL NOT NULL DEFAULT 0")
     if "float_mv" not in bcols2:
         cur.execute("ALTER TABLE snapshot_bid ADD COLUMN float_mv REAL NOT NULL DEFAULT 0")
+    # 2026-08-19: 实际流通市值(东财 f117 自由流通, 开盘啦"实际流通"同口径) — 竞价异动流通列改造
+    if "free_mv" not in bcols2:
+        cur.execute("ALTER TABLE snapshot_bid ADD COLUMN free_mv REAL NOT NULL DEFAULT 0")
     if "board" not in bcols2:
         # 概念/行业标签(f103概念优先, f100行业兜底), 供 昨日涨停/昨断板 等概念列补全
         cur.execute("ALTER TABLE snapshot_bid ADD COLUMN board TEXT")
