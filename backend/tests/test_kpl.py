@@ -384,13 +384,13 @@ def test_fetch_bid_qiangcang(monkeypatch):
             if "snapshot_lastsec" in sql:
                 return FakeCursor([])   # 秒级序列空 → 走 9_24 兜底
             if "9_24" in sql:
-                return FakeCursor([(1, 5.0, 500.0), (2, 5.5, 800.0)])
+                return FakeCursor([(1, 5.0, 500.0), (2, 5.5, 800.0), (3, 5.8, 700.0)])
             # 9_25: code, bid_change, bid_amt(万元), float_mv, name
-            # 新过滤(2026-08-19): 最后一秒抢筹要求竞价金额>1000万
+            # 新过滤(2026-08-19 22:33): 竞价金额阈值 1000万 → 500万
             return FakeCursor([
                 (1, 6.0, 1000.0, 5e9, "A"),     # 1000万 达标
                 (2, 6.0, 1500.0, 8e9, "B"),     # 1500万 达标
-                (3, 6.0, 500.0, 9e9, "C"),      # 500万 < 1000万 → 被过滤
+                (3, 6.0, 400.0, 9e9, "C"),      # 400万 < 500万 → 被金额过滤
             ])
         def close(self): pass
     real = sqlite3.connect
@@ -421,7 +421,7 @@ def test_fetch_bid_qiangcang(monkeypatch):
     assert len(l20) == 3
     assert l20[0]["code"] == "1" and l20[0]["qcDelta"] == 10.0
     assert l20[1]["code"] == "2" and l20[1]["qcDelta"] == 6.0
-    # 右表 9:24→9:25 段; code3 竞价金额500万<1000万被过滤(2026-08-19 新过滤)
+    # 右表 9:24→9:25 段; code3 竞价金额400万<500万被过滤(2026-08-19 阈值1000万→500万)
     assert len(lLast) == 2
     mLast = {r["code"]: r for r in lLast}
     # code1: qcDeltaLast = 6.0 - 5.0 = 1.0%
