@@ -87,7 +87,7 @@
             <th class="sortable" :class="{ active: sealSort.keyOf('name') }" @click="sealSort.onSort('name', 'string')">名称<span class="sort-ind">{{ sealSort.ind('name') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('realChange') }" @click="sealSort.onSort('realChange')">实时涨幅<span class="sort-ind">{{ sealSort.ind('realChange') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('bidChange') }" @click="sealSort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ sealSort.ind('bidChange') }}</span></th>
-            <th class="sortable" :class="{ active: sealSort.keyOf(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt') }" @click="sealSort.onSort(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt')">{{ tab === 'boom' || tab === 'net' ? '竞价成交额(亿)' : '涨停委买额(亿)' }}<span class="sort-ind">{{ sealSort.ind(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt') }}</span></th>
+            <th class="sortable" :class="{ active: sealSort.keyOf(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt') }" @click="sealSort.onSort(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt')">{{ tab === 'boom' || tab === 'net' ? '竞价成交额' : '涨停委买额(亿)' }}<span class="sort-ind">{{ sealSort.ind(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt') }}</span></th>
             <th v-if="tab === 'boom'" class="sortable" :class="{ active: sealSort.keyOf('bidRatioYest') }" @click="sealSort.onSort('bidRatioYest')">竞价量比<span class="sort-ind">{{ sealSort.ind('bidRatioYest') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('bidTurnover') }" @click="sealSort.onSort('bidTurnover')">竞价换手<span class="sort-ind">{{ sealSort.ind('bidTurnover') }}</span></th>
             <th v-if="tab === 'net'" class="sortable" :class="{ active: sealSort.keyOf('bidNetAmt') }" @click="sealSort.onSort('bidNetAmt')">竞价净额(亿)<span class="sort-ind">{{ sealSort.ind('bidNetAmt') }}</span></th>
@@ -104,7 +104,7 @@
             <td class="name-col"><div class="name-main">{{ it.name }}</div></td>
             <td :class="it.realChange > 0 ? 'up' : 'down'">{{ signed(it.realChange) }}%</td>
             <td :class="it.bidChange > 0 ? 'up' : 'down'">{{ signed(it.bidChange) }}%</td>
-            <td v-if="tab === 'boom' || tab === 'net'" :class="it.bidAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidAmt) }}<span v-if="tab === 'boom' && it.yestBidAmt" class="yest-bid-amt" :title="'昨日竞价额 ' + yi(it.yestBidAmt)">昨{{ yi(it.yestBidAmt) }}</span></td>
+            <td v-if="tab === 'boom' || tab === 'net'" :class="it.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(it.bidAmt) }}<span v-if="tab === 'boom' && it.yestBidAmt" class="yest-bid-amt" :title="'昨日竞价额 ' + amtText(it.yestBidAmt)">昨{{ amtText(it.yestBidAmt) }}</span></td>
             <td v-else :class="it.bidSealAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidSealAmt) }}</td>
             <td v-if="tab === 'boom'" :class="it.bidRatioYest ? (it.bidRatioYest >= 2 ? 'ratio-hot' : it.bidRatioYest >= 1.5 ? 'ratio-warm' : '') : 'dim'">{{ it.bidRatioYest ? it.bidRatioYest.toFixed(2) + 'x' : '-' }}</td>
             <td class="dim">{{ it.bidTurnover ? it.bidTurnover + '%' : '-' }}</td>
