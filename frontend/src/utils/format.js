@@ -1,11 +1,13 @@
 // 金额/数值格式化工具(纯函数, 供各视图复用 + 单测)
 // yi: 元 → 亿(2位)
 export function yi(v) {
+  if (v === null || v === undefined || isNaN(v)) return '-'
   return (v / 1e8).toFixed(2)
 }
 
-// signed: 带符号数值(2位小数), 正数加 +
+// signed: 带符号数值(2位小数), 正数加 +; 缺失/非法返回 '-' (防 NaN%)
 export function signed(v) {
+  if (v === null || v === undefined || isNaN(v)) return '-'
   return (v > 0 ? '+' : '') + Number(v).toFixed(2)
 }
 

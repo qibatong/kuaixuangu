@@ -198,6 +198,8 @@ def fetch_bid_boom():
     返回 [{code,name,bidAmt(元),bidChange,bidRatioYest,floatMv,board}, ...] 按量比降序"""
     def loader():
         import sqlite3
+        g2 = time.gmtime(time.time() + 8 * 3600)
+        hm_in_bid = g2.tm_wday < 5 and (9 * 60 + 15) <= (g2.tm_hour * 60 + g2.tm_min) <= (9 * 60 + 30)
         conn = sqlite3.connect(config.DB_FILE)
         try:
             today = time.strftime("%Y-%m-%d")
@@ -229,16 +231,36 @@ def fetch_bid_boom():
                 ymap[code] = amt or 0
         finally:
             conn.close()
+        # 竞价时段合并实时涨幅(Type4 涨停委买额榜) + 竞价净额(doc112), 供前端展示
+        # (快照库无实时涨幅/净额字段; 非竞价时段接口可能为空 → 默认 0)
+        seal_map = {}
+        net_map = {}
+        if hm_in_bid:   # 9:15-9:30 竞价时段才合并实时字段
+            try:
+                seal_map = {s["code"]: s for s in (fetch_bid_seal() or [])}
+            except Exception:
+                seal_map = {}
+            try:
+                net_map = {s["code"]: s.get("bidNetAmt") or 0 for s in (fetch_bid_net() or [])}
+            except Exception:
+                net_map = {}
         out = []
         for code, (amt, name, chg, fmv, board) in today_map.items():
             ya = ymap.get(code)
             if not ya or amt < 1000:      # 今日竞价额 < 1000万 或 昨日无竞价 → 跳过
                 continue
+            _seal = seal_map.get(code) or {}
+            bid_turnover = round(amt * 10000 / fmv * 100, 2) if fmv else 0.0   # 竞价换手 = 竞价额/流通市值×100
             out.append({"code": code, "name": name,
-                        "bidAmt": amt * 10000,            # 万元 → 元(前端口径)
+                        "realChange": _seal.get("realChange") or 0,   # 实时涨幅(Type4, 竞价时段)
                         "bidChange": chg,
+                        "bidAmt": amt * 10000,            # 万元 → 元(前端口径)
                         "bidRatioYest": round(amt / ya, 2),   # 竞价量比(同单位万元)
-                        "floatMv": fmv, "board": board})
+                        "bidTurnover": bid_turnover,      # 竞价换手(%)
+                        "bidNetAmt": net_map.get(code, 0),    # 竞价净额(元, doc112)
+                        "limitBoards": 0,                 # 快照无连板字段, 前端显示 '-'
+                        "floatMv": fmv, "board": board,
+                        "yestBidAmt": ya * 10000})        # 昨日竞价额(元)
         out.sort(key=lambda x: x["bidRatioYest"], reverse=True)
         log.info("竞价爆量(量比榜) date=%s 时点=%s 昨日=%s 全市场候选=%d 取前%d",
                  today, cur_tp, yest, len(out), min(60, len(out)))
