@@ -196,11 +196,30 @@ def test_fetch_yesterday_perf(monkeypatch):
 
 # ---------- 竞价爆量(Type=10, 同源解析) ----------
 def test_fetch_bid_boom(monkeypatch):
+    """竞价爆量: 2026-08-19 双重过滤(竞价金额≥1000万 + 竞价量比>2)"""
+    import sqlite3
+    class FakeCursor:
+        def __init__(self, rows): self.rows = rows
+        def fetchall(self): return self.rows
+        def fetchone(self): return self.rows[0] if self.rows else None
+        def __iter__(self): return iter(self.rows)   # fill_bid_ratio_yest 直接迭代 cursor
+    class FakeConn:
+        def execute(self, sql, params=()):
+            if sql.strip().startswith("SELECT MAX(date) FROM snapshot_bid WHERE date <"):
+                return FakeCursor([("2026-08-12",)])   # 昨日
+            if sql.strip().startswith("SELECT MAX(date)"):
+                return FakeCursor([("2026-08-13",)])   # 今日
+            if "time_point='9_25'" in sql:
+                return FakeCursor([("688825", 10000.0)])  # 昨日竞价额1亿 → 量比 579284936/1e8=5.79>2
+            return FakeCursor([])
+        def close(self): pass
+    monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
     monkeypatch.setattr(kpl, "_call", lambda *a, **k: {
         "info": [["688825", "长鑫科技", 54.39, 1.63, 0, 2.39, 56546659, 0, 0, 0,
                   579284936, "储存、芯片", 244920289633, 199735586, 11806006154,
                   -11606270568, "首板"]],
     })
+    monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: [])
     kpl.clear_cache()
     rows = kpl.fetch_bid_boom()
     assert len(rows) == 1
@@ -213,6 +232,8 @@ def test_fetch_bid_boom(monkeypatch):
     assert r["bidSealAmt"] == 0
     assert r["limitBoards"] == 1
     assert r["board"] == "储存、芯片"
+    # 双重过滤通过: 竞价额 5.79亿≥1000万 + 量比 5.79>2
+    assert r["bidRatioYest"] == 5.79
 
 
 # ---------- 炸板(东财 flash) ----------
