@@ -196,7 +196,8 @@ def test_fetch_yesterday_perf(monkeypatch):
 
 # ---------- 竞价爆量(Type=10, 同源解析) ----------
 def test_fetch_bid_boom(monkeypatch):
-    """竞价爆量(2026-08-19 改版): 全市场按竞价量比(今日/昨日竞价额)排序取前 60"""
+    """竞价爆量(2026-08-19 改版): 全市场按竞价量比排序取前200
+    过滤(23:10 主人要求): 竞价量比>2 且 竞价成交额>100万"""
     import sqlite3
     class FakeCursor:
         def __init__(self, rows): self.rows = rows
@@ -229,12 +230,11 @@ def test_fetch_bid_boom(monkeypatch):
     monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
     kpl.clear_cache()
     rows = kpl.fetch_bid_boom()
-    # 量比排序: 600003(5.0) > 600001(3.0) > 600002(1.0); 600004 过滤
-    assert len(rows) == 3
-    assert [r["code"] for r in rows] == ["600003", "600001", "600002"]
+    # 量比>2 + 成交额>100万: 600003(5.0) > 600001(3.0); 600002(量比1.0≤2) 600004(无昨日) 过滤
+    assert len(rows) == 2
+    assert [r["code"] for r in rows] == ["600003", "600001"]
     assert rows[0]["bidRatioYest"] == 5.0
     assert rows[1]["bidRatioYest"] == 3.0
-    assert rows[2]["bidRatioYest"] == 1.0
     # bidAmt 万元→元: 600003 15000万 = 1.5亿
     assert rows[0]["bidAmt"] == 15000 * 10000
     # 字段补全

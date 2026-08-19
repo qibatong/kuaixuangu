@@ -194,7 +194,7 @@ def fetch_bid_boom():
     全市场计算(不再只取 Type10 竞价额前 60): snapshot_bid 表
       - 今日竞价额: 今日最新时点(9_25 > 9_24 > 9_20 > 9_15, 竞价时段自动用最近快照)
       - 昨日竞价额: 最近(严格小于今日)交易日的 9_25 快照
-    过滤: 今日竞价额 ≥ 1000 万(万元=1000) 且 昨日竞价额>0
+    过滤(2026-08-19 23:10 主人要求): 竞价量比 > 2 且 竞价成交额 > 100万(万元=100)
     返回 [{code,name,bidAmt(元),bidChange,bidRatioYest,floatMv,board}, ...] 按量比降序"""
     def loader():
         import sqlite3
@@ -245,14 +245,17 @@ def fetch_bid_boom():
         out = []
         for code, (amt, name, chg, fmv, board) in today_map.items():
             ya = ymap.get(code)
-            if not ya or amt < 1000:      # 今日竞价额 < 1000万 或 昨日无竞价 → 跳过
+            if not ya or amt <= 100:      # 竞价成交额 ≤ 100万(万元=100) 或 昨日无竞价 → 跳过
+                continue
+            ratio = round(amt / ya, 2)
+            if ratio <= 2:                # 竞价量比 ≤ 2 → 跳过
                 continue
             bid_turnover = round(amt * 10000 / fmv * 100, 2) if fmv else 0.0   # 竞价换手 = 竞价额/流通市值×100
             out.append({"code": code, "name": name,
                         "realChange": (spot_map.get(code) or {}).get("realChange", 0.0),   # 实时涨幅(东财全市场map, 全天有值)
                         "bidChange": chg,
                         "bidAmt": amt * 10000,            # 万元 → 元(前端口径)
-                        "bidRatioYest": round(amt / ya, 2),   # 竞价量比(同单位万元)
+                        "bidRatioYest": ratio,            # 竞价量比(同单位万元)
                         "bidTurnover": bid_turnover,      # 竞价换手(%)
                         "floatMv": fmv, "board": board,
                         "yestBidAmt": ya * 10000})        # 昨日竞价额(元)
