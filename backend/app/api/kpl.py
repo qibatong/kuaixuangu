@@ -88,7 +88,7 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(require_vip_or_paid), 
     d = kpl.fetch_bid_seal() or []
     # 概念列统一用开盘啦接口覆盖(只取开盘啦概念, 避免东财长串多概念混入)
     try:
-        kpl.apply_board_concept(d, log_tag="auc:bid-seal", deep=False, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept(d, log_tag="auc:bid-seal", deep=True, field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("竞价异动概念开盘啦覆盖失败 bid-seal err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
@@ -104,7 +104,7 @@ def api_kpl_bid_boom(request: Request, uid: int = Depends(require_vip_or_paid), 
                    "date": resolved, "requestedDate": date})
     d = kpl.fetch_bid_boom() or []
     try:
-        kpl.apply_board_concept(d, log_tag="auc:bid-boom", deep=False, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept(d, log_tag="auc:bid-boom", deep=True, field="board", truncate=2, blank_if_missing=True)
         # 2026-08-18 主人要求: 竞价爆量补 竞价量比(今/昨竞价额) + 昨日竞价额
         kpl.fill_bid_ratio_yest(d, None)
     except Exception as e:
@@ -122,7 +122,7 @@ def api_kpl_bid_net(request: Request, uid: int = Depends(require_vip_or_paid)):
     try:
         kpl.fill_bid_turnover_from_snap(d, None)
         kpl.fill_bid_amt_from_snap(d, None)
-        kpl.apply_board_concept(d, log_tag="auc:bid-net", deep=False, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept(d, log_tag="auc:bid-net", deep=True, field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("竞价净额换手/成交额/概念补齐失败 err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
@@ -250,7 +250,7 @@ def api_kpl_hot_rank(request: Request, uid: int = Depends(get_uid), source: str 
     d = hot_rank.fetch_hot_rank(source)
     # 2026-08-18 修复: 热点榜补开盘啦概念(此前 board/concept 全空)
     try:
-        kpl.apply_board_concept(d, log_tag="auc:hot-rank", deep=False, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept(d, log_tag="auc:hot-rank", deep=True, field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("hot-rank 概念覆盖失败 err=%s", e)
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
@@ -326,7 +326,7 @@ def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(require_vip_or_pa
     lLast = d.get("listLast") or []
     # 概念列统一用开盘啦接口覆盖(涨幅抢筹 list20Chg 可能回退东财快照, 强制开盘啦)
     try:
-        kpl.apply_board_concept(l20, log_tag="auc:qc20", deep=False, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept(l20, log_tag="auc:qc20", deep=True, field="board", truncate=2, blank_if_missing=True)
         kpl.apply_board_concept(l20Chg, log_tag="auc:qc20Chg", deep=True, field="board", truncate=2, blank_if_missing=True)
         # 2026-08-18: 右表改 deep=True — 主人反馈 listLast 60/100 无概念(原 deep=False 只榜单合并)
         # 按股查询仅针对榜单未覆盖股票(带1天缓存, 首次多几秒)
