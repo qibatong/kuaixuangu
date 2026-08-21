@@ -2,35 +2,48 @@
   <div class="stock-table-container">
     <div v-if="!stocks.length" class="empty-state">暂无符合条件股票</div>
 
-    <!-- 选股表(竞价/盘中共用同一套列; 盘中=不锁定的竞价, 逻辑一致) -->
-    <table v-else class="stock-table">
+    <!-- 选股表(竞价/盘中共用同一套列; 对齐生产机紧凑布局: 固定列宽, 代码+名称合并) -->
+    <table v-else class="stock-table stock-table-compact">
+      <colgroup>
+        <col style="width:88px" />
+        <col style="width:46px" />
+        <col style="width:54px" />
+        <col style="width:46px" />
+        <col style="width:50px" />
+        <col style="width:40px" />
+        <col style="width:64px" />
+        <col style="width:58px" />
+        <col style="width:52px" />
+        <col style="width:42px" />
+        <col style="width:46px" />
+        <col style="width:72px" />
+        <col style="width:50px" />
+      </colgroup>
       <thead>
         <tr>
-          <th>排名</th>
-          <th class="sortable" :class="{ active: sortKey === 'code' }" @click="onSort('code', 'string')">股票代码<span class="sort-ind">{{ sortInd('code') }}</span></th>
-          <th class="sortable" :class="{ active: sortKey === 'name' }" @click="onSort('name', 'string')">股票名称<span class="sort-ind">{{ sortInd('name') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'realChange' }" title="实时涨幅：当前价相对昨收的涨幅" @click="onSort('realChange', 'number')">实时涨幅<span class="sort-ind">{{ sortInd('realChange') }}</span></th>
-          <th class="sortable" :class="{ active: sortKey === 'qiangchou' }" title="竞价涨幅≥2% 且 竞价/昨比≥20% 时标记 🔥抢筹：代表资金在集合竞价阶段大幅抢筹，是当日强势启动的先行信号" @click="onSort('qiangchou', 'number')">抢筹<span class="sort-ind">{{ sortInd('qiangchou') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'bidChange' }" title="竞价涨幅" @click="onSort('bidChange', 'number')">竞价涨幅<span class="sort-ind">{{ sortInd('bidChange') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'entityChange' }" @click="onSort('entityChange', 'number')">实体涨幅<span class="sort-ind">{{ sortInd('entityChange') }}</span></th>
-          <th class="sortable" :class="{ active: sortKey === 'warnType' }" @click="onSort('warnType', 'number')">异动<span class="sort-ind">{{ sortInd('warnType') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'bidAmt' }" @click="onSort('bidAmt', 'number')">竞价金额(万)<span class="sort-ind">{{ sortInd('bidAmt') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'bidRatio' }" title="竞价成交额 ÷ 前一交易日全天成交额(%)。衡量竞价资金强度：值越高说明竞价阶段成交越活跃；≥20% 视为强抢筹（配合抢筹列使用）。非竞价时段/无数据时显示 -" @click="onSort('bidRatio', 'number')">竞价/昨比<span class="sort-ind">{{ sortInd('bidRatio') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'circulationMV' }" @click="onSort('circulationMV', 'number')">流通市值(亿)<span class="sort-ind">{{ sortInd('circulationMV') }}</span></th>
-          <th class="sortable" :class="{ active: sortKey === 'industry' }" @click="onSort('industry', 'string')">行业<span class="sort-ind">{{ sortInd('industry') }}</span></th>
-          <th class="sortable" :class="{ active: sortKey === 'concept' }" @click="onSort('concept', 'string')">概念<span class="sort-ind">{{ sortInd('concept') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'probability' }" @click="onSort('probability', 'number')">综合评分<span class="sort-ind">{{ sortInd('probability') }}</span></th>
-          <th class="sortable num" :class="{ active: sortKey === 'confidence' }" @click="onSort('confidence', 'number')">可信度<span class="sort-ind">{{ sortInd('confidence') }}</span></th>
-          <th class="op-col">操作</th>
+          <th class="sortable merged-col col-name" :class="{ active: sortKey === 'code' || sortKey === 'name' }" @click="onSort('code', 'string')">名称<span class="sort-ind">{{ sortInd('code') }}</span></th>
+          <th class="sortable num col-realchg" :class="{ active: sortKey === 'realChange' }" title="实时涨幅：当前价相对昨收的涨幅" @click="onSort('realChange', 'number')">现涨<span class="sort-ind">{{ sortInd('realChange') }}</span></th>
+          <th class="sortable col-qc" :class="{ active: sortKey === 'qiangchou' }" title="竞价涨幅≥2% 且 竞价/昨比≥20% 时标记 🔥抢筹：代表资金在集合竞价阶段大幅抢筹，是当日强势启动的先行信号" @click="onSort('qiangchou', 'number')">抢筹<span class="sort-ind">{{ sortInd('qiangchou') }}</span></th>
+          <th class="sortable num col-bidchg" :class="{ active: sortKey === 'bidChange' }" title="竞价涨幅" @click="onSort('bidChange', 'number')">竞涨<span class="sort-ind">{{ sortInd('bidChange') }}</span></th>
+          <th class="sortable num col-entchg" :class="{ active: sortKey === 'entityChange' }" @click="onSort('entityChange', 'number')">实体<span class="sort-ind">{{ sortInd('entityChange') }}</span></th>
+          <th class="sortable col-warn" :class="{ active: sortKey === 'warnType' }" @click="onSort('warnType', 'number')">异动<span class="sort-ind">{{ sortInd('warnType') }}</span></th>
+          <th class="sortable num col-bidamt" :class="{ active: sortKey === 'bidAmt' }" @click="onSort('bidAmt', 'number')" :title="'集合竞价阶段撮合成交金额(万元)'">竞额<span class="sort-ind">{{ sortInd('bidAmt') }}</span></th>
+          <th class="sortable num col-bidratio" :class="{ active: sortKey === 'bidRatio' }" title="竞价成交额 ÷ 前一交易日全天成交额(%)。衡量竞价资金强度：值越高说明竞价阶段成交越活跃；≥20% 视为强抢筹（配合抢筹列使用）。非竞价时段/无数据时显示 -" @click="onSort('bidRatio', 'number')">竞/昨<span class="sort-ind">{{ sortInd('bidRatio') }}</span></th>
+          <th class="sortable num col-mv" :class="{ active: sortKey === 'circulationMV' }" @click="onSort('circulationMV', 'number')">流通<span class="sort-ind">{{ sortInd('circulationMV') }}</span></th>
+          <th class="sortable num col-score" :class="{ active: sortKey === 'probability' }" @click="onSort('probability', 'number')">评分<span class="sort-ind">{{ sortInd('probability') }}</span></th>
+          <th class="sortable num col-conf" :class="{ active: sortKey === 'confidence' }" @click="onSort('confidence', 'number')">可信<span class="sort-ind">{{ sortInd('confidence') }}</span></th>
+          <th class="sortable col-concept" :class="{ active: sortKey === 'concept' }" @click="onSort('concept', 'string')">概念<span class="sort-ind">{{ sortInd('concept') }}</span></th>
+          <th class="op-col col-op">操作</th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="(item, idx) in sortedStocks" :key="item.code">
-          <td class="rank-col">{{ idx + 1 }}</td>
-          <td class="code-click" :data-stock-code="item.code" :data-stock-name="item.name" @click="emit('open-chart', item.code, item.name)">{{ item.code }}</td>
-          <td class="name-col stock-info-cell" :data-stock-code="item.code" :data-stock-name="item.name" @click="emit('open-chart', item.code, item.name)">
-            <div class="name-main stock-name">{{ item.name }}</div>
-            <div v-if="ladderLabel(item.code)" class="ladder-tag" :title="sealTitle(item.code)">{{ ladderLabel(item.code) }}</div>
+          <td class="stock-info-cell" :data-stock-code="item.code" :data-stock-name="item.name" @click="emit('open-chart', item.code, item.name)">
+            <div class="stock-name-row">
+              <span class="stock-name">{{ item.name }}</span>
+              <span v-if="ladderLabel(item.code)" class="ladder-tag" :title="sealTitle(item.code)">{{ ladderLabel(item.code) }}</span>
+            </div>
+            <div class="stock-code-row"><span class="stock-code">{{ item.code }}</span></div>
           </td>
           <td :class="item.realChange === null || item.realChange === undefined ? 'dim' : realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + fmtPct(item._staleReal) + '）') : ''">{{ item.realChange === null || item.realChange === undefined ? '-' : signed(item.realChange) + '%' }}</td>
           <td>
@@ -43,11 +56,10 @@
           <td>{{ warnLabel(item.warnType) }}</td>
           <td :title="'集合竞价阶段撮合成交金额(万元)'">{{ bidAmtText(item.bidAmt) }}</td>
           <td :class="ratioCls(item.bidRatio)" :title="ratioTitle(item.bidRatio)">{{ ratioText(item.bidRatio) }}</td>
-          <td>{{ item.circulationMV.toFixed(1) }}</td>
-          <td>{{ item.industry }}</td>
-          <td style="max-width:180px;white-space:pre-wrap" :title="'概念: ' + (item.concept || '')">{{ shortConcept(item.concept) }}</td>
+          <td>{{ item.circulationMV ? item.circulationMV.toFixed(1) : '-' }}</td>
           <td class="score-cell" :title="factorTitle(item)">{{ item.probability }}分</td>
           <td>{{ item.confidence }}%</td>
+          <td class="concept-cell" :title="'概念: ' + (item.concept || '')">{{ shortConcept(item.concept) }}</td>
           <td><button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click.stop="addToPool(item)">{{ inPool(item.code) ? '已加自选' : '＋自选' }}</button></td>
         </tr>
       </tbody>
@@ -200,6 +212,86 @@ function ratioText(br) {
 </script>
 
 <style scoped>
+/* 紧凑表(对齐生产机): 固定列宽 + 紧凑字号 */
+.stock-table-compact {
+  table-layout: fixed;
+  min-width: 0;
+  width: 100%;
+}
+.stock-table-compact th,
+.stock-table-compact td {
+  text-align: center;
+  vertical-align: middle;
+  padding: 5px 2px !important;
+  font-size: 11.5px !important;
+}
+.stock-table-compact th {
+  padding: 7px 2px !important;
+  font-size: 11.5px !important;
+}
+.stock-table-compact th.sortable {
+  white-space: nowrap;
+}
+.concept-cell {
+  width: 72px;
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.3;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  padding: 4px 2px !important;
+}
+.stock-table-compact .qc-badge,
+.stock-table-compact .qc-pending {
+  padding: 1px 4px;
+  font-size: 11px;
+  border-radius: 3px;
+}
+.stock-table-compact .pool-add-btn {
+  padding: 1px 5px;
+  font-size: 11px;
+  border-radius: 3px;
+}
+/* 首列"名称": 代码+名称 上下排布, 可点击打开图表 */
+.stock-info-cell {
+  cursor: pointer;
+  min-width: 0;
+  text-align: center;
+  padding: 4px 2px !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.stock-info-cell .stock-name-row {
+  order: 1;
+  display: block;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  line-height: 1.3;
+}
+.stock-info-cell .stock-name {
+  font-weight: 600;
+  color: var(--text-main);
+  font-size: 12.5px;
+}
+.stock-info-cell .stock-code-row {
+  order: 2;
+  line-height: 1.2;
+  text-align: center;
+  margin-top: 2px;
+}
+.stock-info-cell .stock-code {
+  font-family: monospace;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+.stock-info-cell:hover .stock-name,
+.stock-info-cell:hover .stock-code {
+  color: var(--accent);
+}
 th.sortable {
   cursor: pointer;
   user-select: none;

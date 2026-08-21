@@ -231,6 +231,14 @@ html, body, #app {
     max-height: calc(100vh - 90px);
     overflow-y: auto;
     scrollbar-gutter: stable;
+    scrollbar-width: none;   /* 隐藏左右视图滚动条(对齐生产机) */
+    -ms-overflow-style: none;
+  }
+  .home-col-left::-webkit-scrollbar,
+  .home-col-right::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
   }
   .home-col-hidden { display: block; }
   .home-mob-toggle { display: none; }
