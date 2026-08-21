@@ -1,84 +1,93 @@
 <template>
   <div>
-    <!-- 规则条 + 顶栏按钮组 -->
-    <div class="alert-rule">
-      <div class="rule-text"><i class="fa fa-clock-o"></i> <strong>9:30前可重新选股 · 9:30后仅更新实时涨幅</strong></div>
-      <div class="right-group">
-        <div class="btn-group">
-          <button class="tdx-export-btn reset-lock-btn" :disabled="!isBefore930()" @click="reLock"><i class="fa fa-refresh"></i> 重新锁定(9:30前可用)</button>
-          <button class="tdx-export-btn real-time-btn" @click="refreshRealTime"><i class="fa fa-refresh"></i> 刷新实时涨幅</button>
-          <a href="/download/tdx_import.exe" class="tdx-export-btn tdx-only nav-btn nav-tdx"><i class="fa fa-windows"></i> 下载通达信工具</a>
-          <button class="tdx-export-btn tdx-only nav-btn nav-pool-import" data-tip="💡 首次用：先点「下载通达信工具」并运行，再在通达信『选项/工具』勾选『监控剪贴板』，之后点下载即可自动导入" @click="downloadAll"><i class="fa fa-download"></i> 下载自选股(自动导入)</button>
-        </div>
-        <div id="mobileTdxHint">
-          📱 通达信导入需在<b>电脑端</b>操作（电脑上点「下载自选股」即可自动导入）。手机上可点此
-          <button class="pool-btn" @click="copyCodes"><i class="fa fa-copy"></i> 复制代码列表</button>
-        </div>
-        <div class="live-time"><div class="time-digital">{{ bjTime }}</div></div>
-      </div>
-    </div>
-
-    <!-- 会员门禁: 竞价选股 / 盘中实时选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
-    <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价选股" />
-
-    <template v-else>
-    <!-- 市场情绪面板: 涨停家数/情绪值/连板高度(置于模式切换上方, 整体大盘氛围先行) -->
-    <SentimentPanel />
-
-    <!-- 模式切换 Tab: 竞价选股 / 盘中实时选股 -->
-    <div class="mode-tabs">
-      <button class="mode-tab" :class="{ active: stocks.mode === 'auction' }" @click="switchMode('auction')">
-        <i class="fa fa-sun-o"></i> 竞价选股 <span class="mode-desc">9:15-9:31 · 竞价锁定</span>
+    <!-- 窄屏(<1100px) 切换栏: 选股 / 竞价异动 (宽屏 50/50 并排, 本栏隐藏) -->
+    <div class="home-mob-toggle">
+      <button class="home-mob-tab" :class="{ active: mobilePane === 'stock' }" @click="mobilePane = 'stock'">
+        <i class="fa fa-sun-o"></i> 选股
       </button>
-      <button class="mode-tab" :class="{ active: stocks.mode === 'spot' }" @click="switchMode('spot')">
-        <i class="fa fa-bolt"></i> 盘中实时选股 <span class="mode-desc">9:30-15:00 · 实时刷新</span>
+      <button class="home-mob-tab" :class="{ active: mobilePane === 'auction' }" @click="mobilePane = 'auction'">
+        <i class="fa fa-bullhorn"></i> 竞价异动
       </button>
     </div>
 
-    <!-- 筛选面板 -->
-    <FilterPanel />
+    <!-- 首页两块布局: 左=选股主流程, 右=竞价异动; 宽屏 50/50 并排, 窄屏按 mobilePane 切一块 -->
+    <div class="home-grid">
+      <!-- 市场情绪面板: 横跨左右视图置于最顶部 -->
+      <div class="home-sentiment"><SentimentPanel /></div>
 
-    <!-- 奖牌区(仅竞价模式) -->
-    <template v-if="stocks.mode === 'auction'">
-      <!-- 左右分栏: 左=金银铜奖牌 + 右=自选股票池(主人要求, 仅这两块并排) -->
-      <div class="medal-pool-layout">
-        <div class="medal-pool-left">
-          <MedalPanel :stocks="stocks.cachedStocks" />
+      <!-- 左栏: 选股主流程 -->
+      <div class="home-col home-col-left" :class="{ 'home-col-hidden': mobilePane !== 'stock' }">
+        <!-- 规则条 + 顶栏按钮组 -->
+        <div class="alert-rule">
+          <div class="rule-text"><i class="fa fa-clock-o"></i> <strong>9:30前可重新选股 · 9:30后仅更新实时涨幅</strong></div>
+          <div class="right-group">
+            <div class="btn-group">
+              <button class="tdx-export-btn reset-lock-btn" :disabled="!isBefore930()" @click="reLock"><i class="fa fa-refresh"></i> 重新锁定(9:30前可用)</button>
+              <button class="tdx-export-btn real-time-btn" @click="refreshRealTime"><i class="fa fa-refresh"></i> 刷新实时涨幅</button>
+              <a href="/download/tdx_import.exe" class="tdx-export-btn tdx-only nav-btn nav-tdx"><i class="fa fa-windows"></i> 下载通达信工具</a>
+              <button class="tdx-export-btn tdx-only nav-btn nav-pool-import" data-tip="💡 首次用：先点「下载通达信工具」并运行，再在通达信『选项/工具』勾选『监控剪贴板』，之后点下载即可自动导入" @click="downloadAll"><i class="fa fa-download"></i> 下载自选股(自动导入)</button>
+            </div>
+            <div id="mobileTdxHint">
+              📱 通达信导入需在<b>电脑端</b>操作（电脑上点「下载自选股」即可自动导入）。手机上可点此
+              <button class="pool-btn" @click="copyCodes"><i class="fa fa-copy"></i> 复制代码列表</button>
+            </div>
+            <div class="live-time"><div class="time-digital">{{ bjTime }}</div></div>
+          </div>
         </div>
-        <div class="medal-pool-right">
-          <StockPoolPanel />
+
+        <!-- 会员门禁: 竞价选股 / 盘中实时选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
+        <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价选股" />
+
+        <template v-if="user.isMember || !isMemberOnlyTime()">
+        <!-- 模式切换 Tab: 竞价选股 / 盘中实时选股 -->
+        <div class="mode-tabs">
+          <button class="mode-tab" :class="{ active: stocks.mode === 'auction' }" @click="switchMode('auction')">
+            <i class="fa fa-sun-o"></i> 竞价选股 <span class="mode-desc">9:15-9:31 · 竞价锁定</span>
+          </button>
+          <button class="mode-tab" :class="{ active: stocks.mode === 'spot' }" @click="switchMode('spot')">
+            <i class="fa fa-bolt"></i> 盘中实时选股 <span class="mode-desc">9:30-15:00 · 实时刷新</span>
+          </button>
         </div>
+
+        <!-- 筛选面板 -->
+        <FilterPanel />
+
+        <!-- 奖牌区(仅竞价模式) -->
+        <template v-if="stocks.mode === 'auction'">
+          <div class="medal-pool-layout">
+            <div class="medal-pool-left">
+              <MedalPanel :stocks="stocks.cachedStocks" />
+            </div>
+            <div class="medal-pool-right">
+              <StockPoolPanel @open-chart="showChart" />
+            </div>
+          </div>
+        </template>
+        <template v-else>
+          <StockPoolPanel @open-chart="showChart" />
+        </template>
+
+        <!-- 主表: 按模式显示 -->
+        <template v-if="stocks.mode === 'spot'">
+          <div v-if="!stocks.isSpotCached" class="stock-table-container">
+            <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
+          </div>
+          <StockTable v-else :stocks="stocks.spotStocks" mode="spot" :bid-seal-map="bidSealMap" @open-chart="showChart" />
+        </template>
+        <template v-else>
+          <div v-if="!stocks.isDataCached" class="stock-table-container">
+            <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
+          </div>
+          <StockTable v-else :stocks="stocks.cachedStocks" mode="auction" :bid-seal-map="bidSealMap" @open-chart="showChart" />
+        </template>
+        </template>
+      </div><!-- /.home-col-left -->
+
+      <!-- 右栏: 竞价异动 -->
+      <div class="home-col home-col-right" :class="{ 'home-col-hidden': mobilePane !== 'auction' }">
+        <AuctionView/>
       </div>
-
-      <!-- 奖牌导出 -->
-      <!-- 奖牌区下方不展示导出按钮(主流程已有下载自选股, 此处避免重复) -->
-    </template>
-    <!-- 盘中模式无奖牌: 自选池放主流程 -->
-    <template v-else>
-      <StockPoolPanel />
-    </template>
-
-    <!-- 全部结果导出(上下) -->
-    <!-- 主表上下不再放下载按钮(顶部「下载自选股(自动导入)」已覆盖, 此处避免重复) -->
-
-
-    <!-- 主表: 按模式显示 -->
-    <template v-if="stocks.mode === 'spot'">
-      <div v-if="!stocks.isSpotCached" class="stock-table-container">
-        <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
-      </div>
-      <StockTable v-else :stocks="stocks.spotStocks" mode="spot" :bid-seal-map="bidSealMap" @open-chart="showChart" />
-    </template>
-    <template v-else>
-      <div v-if="!stocks.isDataCached" class="stock-table-container">
-        <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
-      </div>
-      <StockTable v-else :stocks="stocks.cachedStocks" mode="auction" :bid-seal-map="bidSealMap" @open-chart="showChart" />
-    </template>
-
-    <!-- 主表上下不再放下载按钮(顶部「下载自选股(自动导入)」已覆盖, 此处避免重复) -->
-
-    </template>
+    </div><!-- /.home-grid -->
 
     <!-- 股票图表弹窗(分时/日K/周K/月K) -->
     <StockChartModal
@@ -98,6 +107,7 @@ import MedalPanel from '../components/MedalPanel.vue'
 import StockPoolPanel from '../components/StockPoolPanel.vue'
 import StockTable from '../components/StockTable.vue'
 import StockChartModal from '../components/StockChartModal.vue'
+import AuctionView from './AuctionView.vue'
 import VipGate from '../components/VipGate.vue'
 import { useStocksStore } from '../stores/stocks'
 import { usePoolStore } from '../stores/pool'
@@ -112,6 +122,9 @@ const pool = usePoolStore()
 const user = useUserStore()
 const bjTime = ref('--:--:--')
 const bidSealMap = ref({})        // 竞价涨停委买额 map: code -> {limitBoards, bidSealAmt, bidNetAmt}
+
+// 窄屏切换: 选股 / 竞价异动
+const mobilePane = ref('stock')
 
 // 图表弹窗控制
 const chartVisible = ref(false)

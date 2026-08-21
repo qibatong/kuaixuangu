@@ -172,6 +172,69 @@ html, body, #app {
   overflow-x: hidden !important;
   min-width: 0 !important;
 }
+.home-grid {
+  display: grid;
+  grid-template-columns: 1fr;          /* 默认单列(窄屏) */
+  gap: 14px;
+  align-items: start;
+}
+.home-col {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow-x: hidden !important;
+  min-width: 0 !important;
+}
+/* 顶部市场情绪: 横跨左右两栏 */
+.home-sentiment {
+  grid-column: 1 / -1;
+}
+/* 默认(窄屏): 隐藏未激活的一块, 由切换栏控制 */
+.home-col-hidden { display: none; }
+/* 右栏竞价异动: 允许内部表格横向滚动 */
+.home-col-right { overflow-x: auto !important; }
+/* 窄屏切换栏 */
+.home-mob-toggle {
+  display: inline-flex;
+  gap: 8px;
+  padding: 6px 4px 2px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.home-mob-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-soft);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.home-mob-tab.active {
+  background: rgba(255,180,0,0.12);
+  border-color: #ffb400;
+  color: #ffd700;
+}
+/* 宽屏(>=1280px): 两列并排, 隐藏切换栏 */
+@media (min-width: 1280px) {
+  .home-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .home-col-left,
+  .home-col-right {
+    position: sticky;
+    top: 60px;
+    max-height: calc(100vh - 90px);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+  .home-col-hidden { display: block; }
+  .home-mob-toggle { display: none; }
+}
 /* 特殊: 表格 / 竞价异动 10 个 Tab 自己保留横滚条(不受 global overflow 禁影响,
    因为它们是独立 overflow-x:auto 容器) —— 这里明确不覆盖它们的 overflow-x.
    需要横滚的容器如果宽度被上面的 max-width:100% 限死了会正常显示横滚条. */
