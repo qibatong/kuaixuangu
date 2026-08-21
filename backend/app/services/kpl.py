@@ -1212,15 +1212,18 @@ def apply_board_concept(result, log_tag="", deep=True, field="concept",
     except Exception as e:
         log.warning("选股概念开盘啦覆盖[榜单]失败 %s err=%s", log_tag, e)
 
-    # 第二层: 按股查询 GetStockIDPlate (仅针对榜单未覆盖到的股票, 避免 KPL 资源浪费)
+    # 第二层: 按股查询 GetStockIDPlate (开盘啦真实概念, 用户要求所有表格概念以开盘啦为准)
+    # 2026-08-21 修复: 此前只对"第一层未覆盖"的股票查开盘啦, 但第一层 board_map 混合了
+    # 东财板块/上榜标签(如竞价爆量表的 "昨日炸板、昨日触板" 状态词, 见 001225),
+    # 导致这些污染值被当成"已覆盖"跳过开盘啦查询 → 概念来源错误。
+    # 现在 deep=True 时对全部股票都走开盘啦 doc94 按股查询, 保证概念统一来自开盘啦前 N 个。
     if not deep:
         if blank_if_missing:
             for it in result:
                 if str(it.get("code")) not in covered:
                     it[field] = ""
         return n
-    miss_codes = [str(it.get("code")) for it in result
-                  if it.get("code") and str(it.get("code")) not in covered]
+    miss_codes = [str(it.get("code")) for it in result if it.get("code")]
     if not miss_codes:
         if blank_if_missing:
             for it in result:
