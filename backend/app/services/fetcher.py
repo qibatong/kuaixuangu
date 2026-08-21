@@ -1026,86 +1026,10 @@ def _fetch_chart_from_tushare(code, period="day"):
         return {}
 
 
-def _remove_incomplete_period(data, period):
-    """过滤未完成的周K/月K周期数据
-    
-    周K: 移除当前正在进行的周(该周还没结束)
-    月K: 移除当前正在进行的月(该月还没结束)
-    
-    Returns: 过滤后的data dict (如果数据不足则返回空dict)
-    """
-    if not data or period not in ("week", "month"):
-        return data
-    
-    times = data.get("time") or []
-    if not times:
-        return data
-    
-    from datetime import datetime, timedelta, date
-    
-    today = date.today()
-    # 如果今天是周末，使用最近的周五
-    if today.weekday() >= 5:  # 周六=5, 周日=6
-        days_to_friday = today.weekday() - 4
-        today = today - timedelta(days=days_to_friday)
-    
-    filtered_indices = []
-    removed_count = 0
-    
-    for i, time_str in enumerate(times):
-        try:
-            dt = datetime.strptime(time_str, "%Y-%m-%d").date()  # 转为date对象
-            
-            if period == "week":
-                # 周K: 检查是否是当前正在进行的周
-                # 计算该日期所在周的周一
-                week_start = dt - timedelta(days=dt.weekday())
-                # 计算当前周的周一
-                current_week_start = today - timedelta(days=today.weekday())
-                if week_start == current_week_start:
-                    removed_count += 1
-                    continue
-            
-            elif period == "month":
-                # 月K: 检查是否是当前正在进行的月
-                if dt.year == today.year and dt.month == today.month:
-                    removed_count += 1
-                    continue
-            
-            filtered_indices.append(i)
-        except (ValueError, TypeError):
-            filtered_indices.append(i)
-    
-    if removed_count > 0:
-        log.info("过滤未完成周期: period=%s removed=%d条 保留=%d条",
-                 period, removed_count, len(filtered_indices))
-        
-        if not filtered_indices:
-            return {}
-        
-        # 根据过滤后的索引重建数据
-        for key in data:
-            if key in ("period", "code", "preClose", "name"):
-                continue
-            if isinstance(data[key], list):
-                data[key] = [data[key][i] for i in filtered_indices]
-    
-    return data
-
-
 def _validate_chart_data(data, period, source=None):
-    """验证图表数据合理性, 过滤异常数据(如同花顺累积前复权价)
-    
-    对于周K/月K，会先调用 _remove_incomplete_period 过滤未完成的周期
-    """
+    """验证图表数据合理性, 过滤异常数据(如同花顺累积前复权价)"""
     if not data:
         return False
-    
-    # 对于周K/月K，先过滤未完成的周期
-    if period in ("week", "month"):
-        data = _remove_incomplete_period(data, period)
-        if not data or not data.get("time"):
-            return False
     
     if period == "minute":
         prices = data.get("price") or []
@@ -1139,6 +1063,125 @@ def _validate_chart_data(data, period, source=None):
     if not valid_vols and period != "minute":
         return False
     return True
+
+
+def _fetch_quote_tencent(code):
+    """腾讯实时行情(最新交易日 OHLCV/A)
+    返回 {code, date:'YYYY-MM-DD', open,high,low,close,volume(手),amount(元),preclose} 失败返回 None
+    """
+    try:
+        prefix = "sh" if code.startswith(("6", "9")) else "sz"
+        url = "http://qt.gtimg.cn/q=%s%s" % (prefix, code)
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        })
+        with urllib.request.urlopen(req, timeout=config.KLINE_TIMEOUT) as resp:
+            body = resp.read().decode("gbk", "ignore")
+        m = re.search(r'="(.*)"', body)
+        if not m:
+            return None
+        f = m.group(1).split("~")
+        if len(f) < 38 or not (f[30] or "").strip():
+            return None
+        ts = f[30].strip()  # YYYYMMDDHHMMSS
+        if len(ts) < 8:
+            return None
+        date_str = ts[:4] + "-" + ts[4:6] + "-" + ts[6:8]
+        close = float(f[3])
+        preclose = float(f[4])
+        open_ = float(f[5])
+        high = float(f[33])
+        low = float(f[34])
+        volume = float(f[6])  # 手
+        amount = 0.0
+        try:
+            amount = float(str(f[35]).split("/")[2])
+        except (IndexError, ValueError, AttributeError):
+            amount = float(f[37]) * 10000.0
+        return {"code": code, "date": date_str, "open": open_, "high": high,
+                "low": low, "close": close, "volume": volume, "amount": amount,
+                "preclose": preclose}
+    except Exception as e:
+        log.debug("腾讯行情拉取失败 code=%s err=%s", code, e)
+        return None
+
+
+def _norm_kline_date(s):
+    """把 YYYYMMDD 归一化成 YYYY-MM-DD"""
+    s = str(s).strip()
+    if len(s) == 8 and s.isdigit():
+        return s[:4] + "-" + s[4:6] + "-" + s[6:8]
+    return s
+
+
+def _refresh_last_kline(data, q):
+    """用当日实时行情刷新最后一根K线(high取较大, low取较小)"""
+    for key, val in (("close", q["close"]), ("volume", q["volume"]), ("amount", q["amount"])):
+        lst = data.get(key)
+        if isinstance(lst, list) and lst:
+            lst[-1] = val
+    highs = data.get("high")
+    if isinstance(highs, list) and highs:
+        highs[-1] = max(float(highs[-1]), float(q["high"]))
+    lows = data.get("low")
+    if isinstance(lows, list) and lows:
+        lows[-1] = min(float(lows[-1]), float(q["low"]))
+
+
+def _ensure_latest_period(data, code):
+    """确保周K/月K/日K包含最新交易日(今天), 用腾讯实时行情刷新/追加最后一根
+    - day: 最后一根缺当天→追加; ==当天→刷新
+    - week/month: 最后一根属于当前周期→刷新; 缺当前周期→追加一根(用当日数据近似, 保证最新周期可见)
+    失败或分时数据原样返回
+    """
+    if not data:
+        return data
+    period = data.get("period")
+    if period not in ("day", "week", "month"):
+        return data
+    times = data.get("time") or []
+    if not times:
+        return data
+    q = _fetch_quote_tencent(code)
+    if not q:
+        return data
+    qdate = q["date"]
+    last_norm = _norm_kline_date(times[-1])
+
+    def same_bar(a, b):
+        if period == "month":
+            return a[:7] == b[:7]
+        if period == "week":
+            from datetime import datetime
+            try:
+                return datetime.strptime(a, "%Y-%m-%d").isocalendar()[:2] == \
+                       datetime.strptime(b, "%Y-%m-%d").isocalendar()[:2]
+            except ValueError:
+                return a[:10] == b[:10]
+        return a == b
+
+    append_bar = (q["date"], q["open"], q["close"], q["high"], q["low"],
+                  q["volume"], q["amount"])
+    keys = ("time", "open", "close", "high", "low", "volume", "amount")
+
+    if period == "day":
+        if last_norm < qdate:
+            for k, v in zip(keys, append_bar):
+                lst = data.get(k)
+                if isinstance(lst, list):
+                    lst.append(v)
+        elif last_norm == qdate:
+            _refresh_last_kline(data, q)
+    else:
+        if same_bar(last_norm, qdate):
+            _refresh_last_kline(data, q)
+        else:
+            # 缺当前周期: 追加一根(用当日数据近似, 至少让最新周期可见)
+            for k, v in zip(keys, append_bar):
+                lst = data.get(k)
+                if isinstance(lst, list):
+                    lst.append(v)
+    return data
 
 
 def _aggregate_kpl_daily_to_period(code, target_period):
@@ -1175,6 +1218,14 @@ def _aggregate_kpl_daily_to_period(code, target_period):
             continue
     if not daily_data:
         return {}
+    # 用腾讯实时行情补最新交易日, 保证周K/月K包含当天
+    _q = _fetch_quote_tencent(code)
+    if _q:
+        _qd8 = _q["date"].replace("-", "")
+        if daily_data[-1]["date"] < _qd8:
+            daily_data.append({"date": _qd8, "open": _q["open"], "close": _q["close"],
+                               "high": _q["high"], "low": _q["low"],
+                               "volume": _q["volume"], "amount": _q["amount"]})
     if target_period == "week":
         groups = {}
         for item in daily_data:
@@ -1274,7 +1325,7 @@ def fetch_stock_chart_robust(code, period="day"):
                         _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
                     log.info("chart[robust]源=eastmoney code=%s period=%s 耗时%.0fms",
                              code, period, (time.time() - t0) * 1000)
-                    return d
+                    return _ensure_latest_period(d, code)
             elif src == "ths":
                 d = _fetch_kline_from_ths(code, period)
                 if d and _validate_chart_data(d, period, source="ths"):
@@ -1282,7 +1333,7 @@ def fetch_stock_chart_robust(code, period="day"):
                         _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
                     log.info("chart[robust]源=ths code=%s period=%s 耗时%.0fms",
                              code, period, (time.time() - t0) * 1000)
-                    return d
+                    return _ensure_latest_period(d, code)
             elif src == "kpl":
                 d = _fetch_chart_from_kpl(code, period)
                 if d and _validate_chart_data(d, period, source="kpl"):
@@ -1290,7 +1341,7 @@ def fetch_stock_chart_robust(code, period="day"):
                         _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
                     log.info("chart[robust]源=kpl code=%s period=%s 耗时%.0fms",
                              code, period, (time.time() - t0) * 1000)
-                    return d
+                    return _ensure_latest_period(d, code)
             elif src == "tushare":
                 d = _fetch_chart_from_tushare(code, period)
                 if d and _validate_chart_data(d, period, source="tushare"):
@@ -1298,7 +1349,7 @@ def fetch_stock_chart_robust(code, period="day"):
                         _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
                     log.info("chart[robust]源=tushare code=%s period=%s 耗时%.0fms",
                              code, period, (time.time() - t0) * 1000)
-                    return d
+                    return _ensure_latest_period(d, code)
         except Exception as e:
             log.warning("chart[robust]源=%s 异常 code=%s err=%s", src, code, e)
             continue
@@ -1307,15 +1358,11 @@ def fetch_stock_chart_robust(code, period="day"):
             log.info("chart[robust]主源失败, 尝试日线聚合 code=%s period=%s", code, period)
             d = _aggregate_kpl_daily_to_period(code, period)
             if d:
-                # 验证并过滤未完成的周期
-                if _validate_chart_data(d, period, source="aggregate"):
-                    with _CHART_LOCK:
-                        _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
-                    log.info("chart[robust]源=aggregate code=%s period=%s 耗时%.0fms",
-                             code, period, (time.time() - t0) * 1000)
-                    return d
-                else:
-                    log.warning("chart[robust]聚合数据验证失败 code=%s period=%s", code, period)
+                with _CHART_LOCK:
+                    _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
+                log.info("chart[robust]源=aggregate code=%s period=%s 耗时%.0fms",
+                         code, period, (time.time() - t0) * 1000)
+                return _ensure_latest_period(d, code)
         except Exception as e:
             log.warning("chart[robust]聚合失败 code=%s err=%s", code, e)
     log.error("chart[robust]全部数据源失败 code=%s period=%s", code, period)
