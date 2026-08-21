@@ -2548,7 +2548,7 @@ def fetch_kpl_doc94(**extra):
     return _call("default", base)
 
 
-def fetch_stock_plate(code):
+def fetch_stock_plate(code, use_cache=True):
     """\u4e2a\u80a1\u5168\u90e8\u76f8\u5173\u6982\u5ff5\u677f\u5757(\u5f00\u76d8\u5566 doc94 GetStockIDPlate):
     \u8fd4\u56de\u62fc\u63a5\u7684\u677f\u5757\u5b57\u7b26\u4e32(\u5982 "\u673a\u5668\u4eba\u6982\u5ff5\u3001\u80a1\u6743\u8f6c\u8ba9\u3001\u6c7d\u8f66\u96f6\u90e8\u4ef6"), \u5931\u8d25\u8fd4\u56de ""
     \u6309\u80a1\u7f13\u5b58 1 \u5929(\u677f\u5757\u5f52\u5c5e\u53d8\u52a8\u4f4e), \u5927\u5e45\u51cf\u5c11 KPL \u8c03\u7528\u6b21\u6570
@@ -2571,7 +2571,7 @@ def fetch_stock_plate(code):
                 if nm:
                     names.append(nm)
         return "\u3001".join(names) if names else None
-    return _cached(key, 86400, loader)  # 1 \u5929\u7f13\u5b58(仅成功结果), \u677f\u5757\u5f52\u5c5e\u7a33\u5b9a
+    return _cached(key, 86400, loader) if use_cache else loader()  # 1 \u5929\u7f13\u5b58(仅成功结果), \u677f\u5757\u5f52\u5c5e\u7a33\u5b9a
 
 
 def fetch_kpl_doc95(**extra):

@@ -179,7 +179,8 @@ def _refresh_batch(date, codes):
 
     def _one(c):
         try:
-            b = kpl.fetch_stock_plate(c) or ""
+            # use_cache=False: 跳过 1 天缓存, 确保盘中每30分钟真正拿到开盘啦最新概念
+            b = kpl.fetch_stock_plate(c, use_cache=False) or ""
             # 取前 TRUNCATE_N 个
             if b:
                 parts = [p.strip() for p in b.split("\u3001") if p.strip()]
