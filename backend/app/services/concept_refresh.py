@@ -53,12 +53,30 @@ def _bj_date():
 
 
 def _collect_codes(date):
-    """收集当日所有竞价异动 tab + 龙虎榜中的股票代码集合
+    """收集当日所有竞价/上榜实时接口的股票代码集合
+    =================================================================
+    之前只看落库 auction_daily_history(=9:26 竞价时点那批, 竞价爆量仅97只),
+    但盘中实时接口(如 fetch_bid_boom)返回更多(407只), 新出现的股票概念读不到。
+    改为: 同时采集**所有实时接口**(竞价异动各 tab 实时版 + 抢筹三表 + 龙虎榜 +
+    炸板/昨涨停/昨断板)返回的股票, 保证覆盖前端展示的全部股票。
     返回 set[str(code)]"""
     codes = set()
+
+    def _add(lst):
+        """从股票列表提取 code"""
+        if not lst:
+            return
+        for it in lst:
+            raw = it.get("code", "")
+            if raw is None:
+                continue
+            c = str(raw).strip()
+            if c and c.lower() != "none":
+                codes.add(c)
+
+    # 1) 落库快照(9:26/15:30 已落库的, 兜底)
     try:
         conn = sqlite3.connect(config.DB_FILE)
-        # 1. 竞价异动各 tab
         for tab in ("seal", "boom", "bid_net", "qiangcang", "yest_zt", "yest_broken",
                     "broken_yest", "broken_today"):
             row = conn.execute(
@@ -66,39 +84,41 @@ def _collect_codes(date):
                 (date, tab)).fetchone()
             if row and row[0]:
                 try:
-                    lst = json.loads(row[0])
-                    for it in lst:
-                        raw = it.get("code", "")
-                        if raw is None:
-                            continue
-                        c = str(raw).strip()
-                        if c and c.lower() != "none":
-                            codes.add(c)
+                    _add(json.loads(row[0]))
                 except Exception:
                     continue
-        # 2. 竞价抢筹独立快照
-        rows = conn.execute(
-            "SELECT DISTINCT code FROM qc_snapshot WHERE date=?", (date,)).fetchall()
-        for r in rows:
+        # qc_snapshot
+        for r in conn.execute(
+                "SELECT DISTINCT code FROM qc_snapshot WHERE date=?", (date,)).fetchall():
             codes.add(str(r[0]))
-        # 3. 龙虎榜
+        # lhb_history
         row = conn.execute(
             "SELECT list FROM lhb_history WHERE date=?", (date,)).fetchone()
         if row and row[0]:
             try:
-                lst = json.loads(row[0])
-                for it in lst:
-                    raw = it.get("code", "")
-                    if raw is None:
-                        continue
-                    c = str(raw).strip()
-                    if c and c.lower() != "none":
-                        codes.add(c)
+                _add(json.loads(row[0]))
             except Exception:
                 pass
         conn.close()
     except Exception as e:
-        log.warning("概念刷新[采集股票]失败 date=%s err=%s", date, e)
+        log.warning("概念刷新[采集落库股票]失败 date=%s err=%s", date, e)
+
+    # 2) 实时接口(覆盖盘中新增股票; 失败不影响主流程)
+    try:
+        _add(kpl.fetch_bid_boom() or [])
+        _add(kpl.fetch_bid_net() or [])
+        qc = kpl.fetch_bid_qiangcang() or {}
+        _add(qc.get("list20") or [])
+        _add(qc.get("list20Chg") or [])
+        _add(qc.get("listLast") or [])
+        _add(kpl.fetch_yest_zt() or [])
+        _add(kpl.fetch_yest_broken() or [])
+        _add(kpl.fetch_broken_zt() or [])
+        _add(kpl.fetch_lhb() or [])
+        _add(kpl.fetch_wpqc() or [])
+    except Exception as e:
+        log.warning("概念刷新[采集实时股票]失败 date=%s err=%s", date, e)
+    log.info("概念刷新 date=%s 采集到 %d 只(实时+落库)", date, len(codes))
     return codes
 
 
@@ -224,19 +244,39 @@ def run_refresh_round(force=False):
         # 逐股查概念
         code_to_board = _refresh_batch(date, codes)
         t1 = time.time()
-        # 回写 DB
+        # 回写 DB(各 tab 列表 JSON + 独立概念映射表 stock_concept)
         n_written = _update_lists_with_board(date, code_to_board)
+        n_concept = _write_stock_concept(date, code_to_board)
         t2 = time.time()
         log.info(
             "========== 概念刷新 完成 date=%s 总耗时=%.1fs 查询=%.1fs 写库=%.1fs "
-            "查询股票=%d 获得概念=%d 写库更新=%d ==========",
+            "查询股票=%d 获得概念=%d 列表更新=%d 概念表=%d ==========",
             date, t2 - t0, t1 - t0, t2 - t1,
-            len(codes), len(code_to_board), n_written)
+            len(codes), len(code_to_board), n_written, n_concept)
         return "ok", (f"{date} 完成, 查询{len(codes)}/{len(code_to_board)}只, "
-                      f"写库{n_written}条, 耗时{t2-t0:.1f}s")
+                      f"写库{n_written}条, 概念表{n_concept}条, 耗时{t2-t0:.1f}s")
     except Exception as e:
         log.error("概念刷新 异常 date=%s err=%s", date, e, exc_info=True)
         return "err", str(e)
+
+
+def _write_stock_concept(date, code_to_board):
+    """把当日采集到的 {code: board} 全量 upsert 到 stock_concept(date, code, board, ts)
+    前端竞价各接口统一从本表读概念(见 kpl._load_board_map_db), 覆盖任何实时/落库股票"""
+    if not code_to_board:
+        return 0
+    try:
+        conn = sqlite3.connect(config.DB_FILE)
+        now = int(time.time())
+        conn.executemany(
+            "INSERT OR REPLACE INTO stock_concept (date, code, board, ts) VALUES (?,?,?,?)",
+            [(date, code, board, now) for code, board in code_to_board.items()])
+        conn.commit()
+        conn.close()
+        return len(code_to_board)
+    except Exception as e:
+        log.warning("概念刷新[写 stock_concept]失败 date=%s err=%s", date, e)
+        return 0
 
 
 # ---------- 调度(后台线程, 由 worker.py 启动) ----------

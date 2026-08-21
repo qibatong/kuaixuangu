@@ -313,6 +313,20 @@ def init_db():
             PRIMARY KEY (date, code, ts)
         )
     """)
+    # 概念映射表(2026-08-21): code -> 开盘啦概念(前N个拼接)
+    # concept_refresh 每30分钟从开盘啦采集**当日所有竞价/上榜实时股票**的概念,
+    # 全量写本表; 前端竞价各接口直接读本表即可, 不再每次请求实时打开盘啦。
+    # 对比"写到各 tab 列表 JSON": 本表能覆盖实时表格(如竞价爆量盘中有407只,
+    # 而 9:26 落库仅97只)新增的股票, 避免新出现股票概念读不到。<...>
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS stock_concept (
+            date TEXT NOT NULL,
+            code TEXT NOT NULL,
+            board TEXT,
+            ts INTEGER NOT NULL,
+            PRIMARY KEY (date, code)
+        )
+    """)
     # 老库迁移: batches 增加 user_id 列(用户隔离)
     cols = [r[1] for r in cur.execute("PRAGMA table_info(batches)").fetchall()]
     if "user_id" not in cols:

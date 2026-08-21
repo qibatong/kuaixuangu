@@ -1329,6 +1329,20 @@ def _load_board_map_db(codes, date=None):
     board_map = {}
     try:
         conn = sqlite3.connect(_cfg.DB_FILE)
+        # 0) 优先独立概念映射表 stock_concept:
+        # concept_refresh 每30分钟从**所有实时接口**采集概念全量写本表,
+        # 能覆盖盘中新增股票(如竞价爆量实时407只, 而落库9:26仅97只)。
+        try:
+            ph = ",".join("?" * len(code_set))
+            rows = conn.execute(
+                f"SELECT code, board FROM stock_concept WHERE date=? AND code IN ({ph})",
+                (date, *code_set)).fetchall()
+            for c, b in rows:
+                c = str(c).strip()
+                if b:
+                    board_map[c] = b
+        except Exception as e:
+            log.warning("读库概念[stock_concept]失败 date=%s err=%s", date, e)
         # 1) 竞价异动各 tab
         tabs = ("seal", "boom", "bid_net", "qiangcang", "yest_zt", "yest_broken",
                 "broken_yest", "broken_today")
@@ -1350,18 +1364,15 @@ def _load_board_map_db(codes, date=None):
             except Exception:
                 pass
         # 2) 竞价抢筹快照
-        if code_set:
-            try:
-                ph = ",".join("?" * len(code_set))
-                rows = conn.execute(
-                    f"SELECT code, board FROM qc_snapshot WHERE date=? AND code IN ({ph})",
-                    (date, *code_set)).fetchall()
-                for c, b in rows:
-                    c = str(c).strip()
-                    if b and c not in board_map:
-                        board_map[c] = b
-            except Exception:
-                pass
+        try:
+            rows = conn.execute(
+                "SELECT code, board FROM qc_snapshot WHERE date=?", (date,)).fetchall()
+            for c, b in rows:
+                c = str(c).strip()
+                if b and c not in board_map:
+                    board_map[c] = b
+        except Exception:
+            pass
         # 3) 龙虎榜
         try:
             row = conn.execute("SELECT list FROM lhb_history WHERE date=?",
