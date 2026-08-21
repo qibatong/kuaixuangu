@@ -64,7 +64,7 @@
             </template>
             <span v-else>-</span>
           </td>
-          <td><button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click.stop="addToPool(item)">{{ inPool(item.code) ? '已加自选' : '＋自选' }}</button></td>
+          <td><button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click.stop="addToPool(item)">{{ inPool(item.code) ? '已+' : '＋自选' }}</button></td>
         </tr>
       </tbody>
     </table>
