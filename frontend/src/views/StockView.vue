@@ -280,10 +280,20 @@ onBeforeUnmount(() => {
   padding: 3px 10px;
   font-size: 12px;
   font-weight: 700;
-  box-shadow: 0 2px 6px rgba(255,160,0,0.3);
+  /* 选中态明显高亮: 实色填充 + 白底/文字对比, 深色默认主题 */
+  color: #fff;
+  background: linear-gradient(180deg, #ffb400, #f08c00);
+  border-color: #ffb400;
+  box-shadow: 0 2px 6px rgba(255,160,0,0.45);
   transform: none;
 }
 .mode-tab.mode-tab-compact.active:after { display: none; }
+/* 浅色主题: 选中改用深色文字 + 浅橙底, 保持高对比这两态也能区分 */
+body[data-bg="light"] .mode-tab.mode-tab-compact.active {
+  color: #7a3d00;
+  background: linear-gradient(180deg, #ffd571, #ffb84d);
+  border-color: #f08c00;
+}
 .alert-rule.alert-rule-compact .tdx-export-btn { padding: 3px 8px; font-size: 11.5px; gap: 3px; border-radius: 4px; font-weight: 500; }
 .alert-rule.alert-rule-compact .tdx-export-btn:hover { transform: none; box-shadow: 0 2px 6px rgba(var(--accent-rgb),0.25); }
 /* 左栏筛选面板紧凑 */
