@@ -255,6 +255,13 @@ html, body, #app {
     top: 0;
     z-index: 9;
   }
+  /* 关键: .page-shell 全局被强制 overflow-x:hidden → 按规范会自动变成滚动容器(overflow-y 变 auto),
+     从而使内部的 .auc-tabs sticky 相对 .page-shell 而非 .home-col-right 失效。
+     右视图应整体滚动, 需让 page-shell 不成为滚动容器. */
+  .home-col-right .page-shell {
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+  }
 }
 /* 特殊: 表格 / 竞价异动 10 个 Tab 自己保留横滚条(不受 global overflow 禁影响,
    因为它们是独立 overflow-x:auto 容器) —— 这里明确不覆盖它们的 overflow-x.
