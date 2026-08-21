@@ -41,7 +41,6 @@
           <td class="stock-info-cell" :data-stock-code="item.code" :data-stock-name="item.name" @click="emit('open-chart', item.code, item.name)">
             <div class="stock-name-row">
               <span class="stock-name">{{ item.name }}</span>
-              <span v-if="ladderLabel(item.code)" class="ladder-tag" :title="sealTitle(item.code)">{{ ladderLabel(item.code) }}</span>
             </div>
             <div class="stock-code-row"><span class="stock-code">{{ item.code }}</span></div>
           </td>
@@ -172,20 +171,6 @@ function factorTitle(item) {
 // 是否已在池中
 function inPool(code) {
   return pool.stockPool.some(x => x.code === code)
-}
-// 连板标签(来自开盘啦竞价委买额榜): 首板/2连板/3连板...
-function ladderLabel(code) {
-  const s = props.bidSealMap[code]
-  if (!s || !s.limitBoards) return ''
-  return s.limitBoards <= 1 ? '首板' : s.limitBoards + '连板'
-}
-// 涨停委买额 tooltip
-function sealTitle(code) {
-  const s = props.bidSealMap[code]
-  if (!s) return ''
-  const seal = s.bidSealAmt || 0
-  const net = s.bidNetAmt || 0
-  return `涨停委买额 ${(seal / 1e8).toFixed(2)}亿 · 竞价净额 ${(net / 1e8).toFixed(2)}亿`
 }
 function ratioTitle(br) {
   if (br === null || br === undefined || isNaN(br)) return '竞价成交额 ÷ 前一交易日全天成交额(%)，非竞价时段/无数据时显示 -'
@@ -376,17 +361,6 @@ body[data-bg="light"] th.sortable.active { color: #c00; }
   border: 1px dashed #777;
   border-radius: 4px;
   padding: 1px 5px;
-}
-.ladder-tag {
-  display: inline-block;
-  margin-top: 3px;
-  font-size: 10px;
-  line-height: 1.3;
-  color: var(--accent);
-  border: 1px solid rgba(255, 80, 40, 0.5);
-  border-radius: 4px;
-  padding: 1px 5px;
-  background: rgba(255, 80, 40, 0.12);
 }
 @keyframes qc-pulse {
   0%, 100% { opacity: 1; }
