@@ -60,7 +60,7 @@
             <td v-if="tab === 'net'" :class="it.bidNetAmt > 0 ? 'up' : it.bidNetAmt < 0 ? 'down' : 'dim'">{{ yi(it.bidNetAmt) }}</td>
             <td v-if="tab !== 'boom'"><span v-if="it.limitBoards > 0" class="lb-badge">{{ it.limitBoards }}板</span><span v-else class="dim">-</span></td>
             <td class="dim">{{ fmtMv(it.floatMv) }}</td>
-            <td class="concept-cell dim" :title="it.board"><span v-if="it.board" style="white-space:pre-line;">{{ conceptText(it.board) }}</span><span v-else class="dim">-</span></td>
+            <td class="concept-cell dim" :title="it.board"><span v-if="it.board" class="concept-clamp">{{ conceptText(it.board) }}</span><span v-else class="dim">-</span></td>
             <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已＋' : '＋自选' }}</button></td>
           </tr>
         </tbody>
@@ -107,7 +107,7 @@
             <td class="dim">{{ it.bidTurnover ? it.bidTurnover + '%' : '-' }}</td>
             <td class="real-chg-col" :class="realChgCls(it)">{{ realChg(it) }}</td>
             <td class="dim">{{ mvText(it) }}</td>
-            <td class="concept-cell" :title="it.board"><span v-if="it.board" style="white-space:pre-line;">{{ conceptText(it.board) }}</span><span v-else class="dim">-</span></td>
+            <td class="concept-cell" :title="it.board"><span v-if="it.board" class="concept-clamp">{{ conceptText(it.board) }}</span><span v-else class="dim">-</span></td>
             <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已＋' : '＋自选' }}</button></td>
           </tr>
           <tr v-if="!s3List.length">
@@ -154,7 +154,7 @@
                 <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
                 <td class="dim">{{ q.bidTurnover ? q.bidTurnover + '%' : '-' }}</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
-                <td class="concept-cell dim qc-board" :title="q.board"><span v-if="q.board" style="white-space:pre-line;">{{ conceptText(q.board) }}</span><span v-else class="dim">-</span></td>
+                <td class="concept-cell dim qc-board" :title="q.board"><span v-if="q.board" class="concept-clamp">{{ conceptText(q.board) }}</span><span v-else class="dim">-</span></td>
                 <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已＋' : '＋自选' }}</button></td>
               </tr>
               <tr v-if="(qc20Mode === 'amt' ? qcList : qcChgList).length === 0">
@@ -192,7 +192,7 @@
                 <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
                 <td class="dim">{{ q.bidTurnover ? q.bidTurnover + '%' : '-' }}</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
-                <td class="concept-cell dim qc-board" :title="q.board"><span v-if="q.board" style="white-space:pre-line;">{{ conceptText(q.board) }}</span><span v-else class="dim">-</span></td>
+                <td class="concept-cell dim qc-board" :title="q.board"><span v-if="q.board" class="concept-clamp">{{ conceptText(q.board) }}</span><span v-else class="dim">-</span></td>
                 <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已＋' : '＋自选' }}</button></td>
               </tr>
               <tr v-if="!qcLastList.length">
@@ -232,7 +232,7 @@
             <td>{{ z.bidTurnover ? z.bidTurnover.toFixed(2) : '-' }}</td>
             <td>{{ z.bidAmt ? amtText(z.bidAmt) : '-' }}</td>
             <td class="reason-cell" @click="showReason(z)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
-            <td class="concept-cell dim" :title="z.board"><span v-if="z.board" style="white-space:pre-line;">{{ conceptText(z.board) }}</span><span v-else class="dim">-</span></td>
+            <td class="concept-cell dim" :title="z.board"><span v-if="z.board" class="concept-clamp">{{ conceptText(z.board) }}</span><span v-else class="dim">-</span></td>
             <td><button class="pool-add-btn" :class="{ added: inPool(z.code) }" @click.stop="addToPool(z)">{{ inPool(z.code) ? '已＋' : '＋自选' }}</button></td>
           </tr>
         </tbody>
@@ -266,7 +266,7 @@
             <td>{{ b2.bidTurnover ? b2.bidTurnover.toFixed(2) : '-' }}</td>
             <td class="dim">{{ fmtMv(b2.floatMv) }}</td>
             <td class="reason-cell" @click="showReason(b2)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
-            <td class="concept-cell dim" :title="b2.board"><span v-if="b2.board" style="white-space:pre-line;">{{ conceptText(b2.board) }}</span><span v-else class="dim">-</span></td>
+            <td class="concept-cell dim" :title="b2.board"><span v-if="b2.board" class="concept-clamp">{{ conceptText(b2.board) }}</span><span v-else class="dim">-</span></td>
             <td><button class="pool-add-btn" :class="{ added: inPool(b2.code) }" @click.stop="addToPool(b2)">{{ inPool(b2.code) ? '已＋' : '＋自选' }}</button></td>
           </tr>
         </tbody>
@@ -301,7 +301,7 @@
             <td class="dim">{{ fmtMv(l.floatMv) }}</td>
             <td>{{ l.turnover.toFixed(2) }}</td>
             <td class="reason-cell" @click="showReason(l)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
-            <td class="concept-cell dim" :title="l.board"><span v-if="l.board" style="white-space:pre-line;">{{ conceptText(l.board) }}</span><span v-else class="dim">-</span></td>
+            <td class="concept-cell dim" :title="l.board"><span v-if="l.board" class="concept-clamp">{{ conceptText(l.board) }}</span><span v-else class="dim">-</span></td>
             <td><button class="pool-add-btn" :class="{ added: inPool(l.code) }" @click.stop="addToPool(l)">{{ inPool(l.code) ? '已＋' : '＋自选' }}</button></td>
           </tr>
         </tbody>
@@ -338,7 +338,7 @@
             <td v-else-if="tab === 'brokenToday'" class="dim">{{ fmtT(b.firstBreak) }}</td>
             <td v-if="tab === 'brokenToday'" class="dim">{{ fmtT(b.firstLimitUp) }}</td>
             <td class="reason-cell" @click="showReason(b)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
-            <td class="concept-cell dim" :title="b.board"><span v-if="b.board" style="white-space:pre-line;">{{ conceptText(b.board) }}</span><span v-else class="dim">-</span></td>
+            <td class="concept-cell dim" :title="b.board"><span v-if="b.board" class="concept-clamp">{{ conceptText(b.board) }}</span><span v-else class="dim">-</span></td>
             <td><button class="pool-add-btn" :class="{ added: inPool(b.code) }" @click.stop="addToPool(b)">{{ inPool(b.code) ? '已＋' : '＋自选' }}</button></td>
           </tr>
         </tbody>
@@ -821,6 +821,7 @@ onMounted(() => {
 .qc-panel .stock-table th, .qc-panel .stock-table td {
   padding: 5px 2px !important;
   font-size: 11.5px !important;
+  vertical-align: middle;
 }
 .auc-panel .stock-table th,
 .qc-panel .stock-table th {
@@ -975,6 +976,9 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 /* 2026-08-20 概念列: 纯文本无任何样式, 列宽极小
    2026-08-21: 改为 pre-line 按概念换行, 不限制最大宽度让概念正常显示 */
 .concept-cell { width: 90px; min-width: 90px; white-space: pre-line; line-height: 1.3; font-size: 12px; color: var(--text-secondary); padding: 4px 2px; }
+/* 2026-08-21 概念列限高2行: 过长概念不再把整行撑高(如"新华百货"多行导致与相邻行不上下对齐),
+   超出部分省略(完整概念仍在 td 的 title 悬浮中可看) */
+.concept-clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; line-height: 1.3; word-break: break-word; }
 .s3-table th.tp-th { text-align: center; font-weight: 600; }
 .s3-table th.tp-th-15 { color: #5fb4ff; border-bottom: 2px solid rgba(95, 180, 255, 0.35); }
 .s3-table th.tp-th-20 { color: #ffb400; border-bottom: 2px solid rgba(255, 180, 0, 0.35); }
