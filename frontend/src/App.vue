@@ -19,10 +19,103 @@ onMounted(() => {
   if (/Android|iPhone|iPad|iPod|Mobile|MicroMessenger/i.test(navigator.userAgent)) {
     document.body.classList.add('is-mobile')
   }
+
+  /* ============================================================================
+     2026-08-20  iPhone 14 Pro Max / iOS WKWebView / 微信 WebView 980 虚拟视口修复
+     —— 用户反馈"还是完全没变化"的终极原因:
+        viewport meta 写了 width=device-width, 但一部分老 iOS WebView / 壳 WebView
+        仍然忽略它, 退回默认 980px 虚拟视口:
+          window.innerWidth = 980  (虚拟视口宽, 页面"以为"自己是 980px 宽)
+          screen.width      = 430  (iPhone 14 Pro Max 真实物理 CSS 像素宽)
+          devicePixelRatio  = 3
+        结果: 100vw = 980, filter row2 被 space-between 撑开 6 格全横排, 祖先被撑到 980,
+        最后物理屏幕右边把 980-430=550px 内容直接切掉, 用户截图看就是"完全没变、右边还是没了".
+
+     修复: 页面一加载立刻检测, 若发现【移动端 UA + (innerWidth > 700 或 innerWidth > 1.4*screen.width)】
+     则认定为 980 虚拟视口, 立即:
+       1) 覆盖 viewport meta 为 width=<物理屏宽>, initial-scale=1.0
+       2) 注入 <style id=__vpfix__> 把 html/body/#app 硬锁到 screen.width, 优先级最高
+       3) 把 padding-left 硬塞回 body 避免贴边太丑
+       4) orientationchange 再触发一次, 横竖屏切换时重新计算
+     ============================================================================ */
+  const fixViewportIfNeeded = () => {
+    const ua = navigator.userAgent || ''
+    const isMobileUA = /Android|iPhone|iPad|iPod|Mobile|MicroMessenger|HarmonyOS|XiaoMi|MIUI|Oppo|Vivo/i.test(ua)
+    const dpr = Math.max(1, Math.round(window.devicePixelRatio || 1))
+    const iw = Math.round(window.innerWidth)
+    const sw = Math.round(window.screen?.width || iw)
+    // 2026-08-20 横屏修复: 旧判定 `iw > 700` 会把 iPhone 横屏 (iw=932) 错判为 980 虚拟视口,
+    // 导致 logicalW 被硬锁到 430 (屏宽短边), 横屏视觉上 = "竖屏那团挤在中间".
+    //
+    // 真正的 980 虚拟视口 (iOS 13 及以下 WKWebView 的 bug) 有个决定性特征:
+    //   devicePixelRatio ≈ 1 (它连 Retina 都识别不了, 所有设备都当 1x 屏)
+    // 正常 iPhone (iOS 14+) 不论是竖屏 430 还是横屏 932, dpr 都是 2 或 3.
+    // 所以只有 "移动端 UA + innerWidth 远大于物理屏 + DPR ≈ 1" 才是真 980 虚拟视口.
+    const suspect980 = isMobileUA && iw > 800 && dpr < 1.5
+
+    let logicalW
+    if (suspect980) {
+      // 真 980 虚拟视口 → 锁到物理屏短边 (用 screen.width 作为基准)
+      logicalW = Math.max(320, Math.min(540, sw || 390))
+    } else if (isMobileUA) {
+      // 正常手机 (iOS 14+/Android Chrome):
+      //   竖屏 iw=430 → logicalW=430
+      //   横屏 iw=932 → logicalW=932, 用满横屏宽度 (这是用户要的"横屏适配")
+      logicalW = Math.max(320, Math.min(900, iw))
+    } else {
+      // 桌面端, 不走这套
+      return
+    }
+
+    // 1) 覆盖/插入 viewport meta
+    let vp = document.querySelector('meta[name="viewport"]')
+    if (!vp) {
+      vp = document.createElement('meta')
+      vp.setAttribute('name', 'viewport')
+      document.head.appendChild(vp)
+    }
+    vp.setAttribute(
+      'content',
+      `width=${logicalW}, initial-scale=1.0, maximum-scale=2.0, user-scalable=yes, viewport-fit=cover`
+    )
+
+    // 2) 注入 !important 样式把 html/body/#app 锁死到 logicalW, 最高优先级 (比 main.css 顶部还高)
+    let s = document.getElementById('__vpfix__')
+    if (!s) {
+      s = document.createElement('style')
+      s.id = '__vpfix__'
+      document.head.appendChild(s)
+    }
+    s.textContent =
+      `html, body, #app { width: ${logicalW}px !important; max-width: ${logicalW}px !important; overflow-x: hidden !important; min-width: 0 !important; } ` +
+      `body { padding: 2px 4px !important; padding-top: env(safe-area-inset-top, 0px) !important; padding-left: max(4px, env(safe-area-inset-left)) !important; padding-right: max(4px, env(safe-area-inset-right)) !important; padding-bottom: env(safe-area-inset-bottom, 0px) !important; } `
+  }
+
+  try {
+    fixViewportIfNeeded()
+    window.addEventListener('resize', fixViewportIfNeeded, { passive: true })
+    window.addEventListener('orientationchange', fixViewportIfNeeded, { passive: true })
+    // WKWebView 首帧 layout 可能在 viewport meta 生效之前, 延迟 150ms 再跑一次确保覆盖
+    setTimeout(fixViewportIfNeeded, 150)
+    setTimeout(fixViewportIfNeeded, 600)
+  } catch (_) { /* ignore */ }
 })
 </script>
 
 <style scoped>
+/* 2026-08-20 手机端终极宽度锁定: App 根容器 .container 必须被 #app (物理屏宽度)硬约束,
+   否则老 CSS chunk max-width:1500px 缓存未清时, 会在 375 物理屏撑到 980/1500,
+   直接被屏幕右边切 → 用户反馈"筛选输入框右边被遮住看不到了".
+   scoped 比 main.css 全局特异性更高, 不会被缓存覆盖. */
+.container {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow-x: hidden !important;
+  min-width: 0 !important;
+  margin: 0 auto;
+  padding: 0 4px;
+}
 /* 网页底部免责声明 */
 .disclaimer {
   text-align: center;

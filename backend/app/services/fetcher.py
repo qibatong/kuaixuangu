@@ -137,25 +137,43 @@ def fetch_eastmoney(fs):
 
 
 def fetch_eastmoney_all(fs):
-    """盘中实时模式: 分页拉取全市场股票快照(默认每页 200, 共 ~20 页), 
-    让过滤参数(涨幅/量比/换手)真正作用于全市场, 而不是只取涨幅前200。
+    """盘中实时模式: 分页拉取全市场股票快照(默认每页 200, 共 ~20 页),
+    让过滤参数(涨幅/量比/换手)真正作用于全市场, 而不是只取涨幅前 200。
     按代码(f12)排序分页: 位置稳定, 任一分页失败只跳过该页, 不漏已跌出榜单的票。
-    任一分页失败则跳过该页(返回已成功页), 全部失败抛异常。"""
+    并发拉取(2026-08-19 性能优化): 30 页 ThreadPoolExecutor 并发, 冷缓存 3s→0.5s;
+    空页=到底(提前结束), 任一页失败跳过该页, 全部失败抛异常。"""
+    t_all = time.time()
+    # 先并发拉前 N 页, 根据空页/短页判定真实页数
+    pages_data = {}   # page -> diff list(失败/空为 None)
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futs = {ex.submit(_fetch_clist_page, fs, p, "f12"): p
+                for p in range(1, config.SPOT_MAX_PAGES + 1)}
+        for fut in as_completed(futs):
+            p = futs[fut]
+            t0 = time.time()
+            try:
+                diff = fut.result()
+                _record("eastmoney_clist", True, int((time.time() - t0) * 1000))
+                pages_data[p] = diff
+            except Exception as e:
+                _record("eastmoney_clist", False, int((time.time() - t0) * 1000))
+                log.warning("全市场拉取分页失败 fs=%s page=%d err=%s", fs, p, e)
+                pages_data[p] = None
+    # 按 page 顺序合并, 遇到空页/短页即终止(后续页不会有效数据)
     out = []
-    for page in range(1, config.SPOT_MAX_PAGES + 1):
-        t0 = time.time()
-        try:
-            diff = _fetch_clist_page(fs, page, fid="f12")
-            _record("eastmoney_clist", True, int((time.time() - t0) * 1000))
-        except Exception as e:
-            log.warning("全市场拉取分页失败 fs=%s page=%d err=%s", fs, page, e)
-            continue
+    last_page = 0
+    for p in range(1, config.SPOT_MAX_PAGES + 1):
+        diff = pages_data.get(p)
         if not diff:
-            break   # 空页 = 到底
+            if diff is None:
+                continue   # 该页失败, 跳过(不终止, 后续页可能成功)
+            break          # 空页 = 到底
         out.extend(diff)
+        last_page = p
         if len(diff) < 200:
-            break   # 最后一页
-    log.info("全市场行情拉取成功 fs=%s 共%d只(%d页)", fs, len(out), min(page, config.SPOT_MAX_PAGES))
+            break          # 最后一页
+    log.info("全市场行情拉取成功 fs=%s 共%d只(%d页) 并发耗时%.0fms",
+             fs, len(out), last_page, (time.time() - t_all) * 1000)
     if not out:
         raise RuntimeError("东方财富接口返回异常")
     return out
@@ -549,3 +567,672 @@ def fetch_zt_pool(date=None):
         _record("eastmoney_zt_pool", False)
         log.warning("涨停池拉取失败 date=%s err=%s", date, e)
         return {}
+
+
+# ==================== 个股图表数据(分时/K线) ====================
+# 东财标准 kline 接口: klt=101日K / 102周K / 103月K
+# 分时 trends2 接口: 当日分时轨迹(价格+均价+成交量)
+_CHART_CACHE = {}
+_CHART_LOCK = threading.Lock()
+_CHART_CACHE_TTL = 60     # 分时 60s 缓存, K线 1800s 缓存
+
+
+def fetch_stock_chart(code, period="day"):
+    """获取个股图表数据
+    period: minute(当日分时) / day(日K, 默认120根) / week(周K, 120根) / month(月K, 60根)
+    返回 {
+      period, code,
+      minute 情况: {time: [...], price: [...], avg: [...], volume: [...], preClose: float}
+      K线 情况:   {time: [...], open: [...], close: [...], high: [...], low: [...],
+                   volume: [...], amount: [...], preClose: float}
+    }  失败返回 {}
+    """
+    if not code:
+        return {}
+    period = (period or "day").lower()
+    if period == "minute":
+        return _fetch_minute_trend(code)
+    klt = {"day": 101, "week": 102, "month": 103}.get(period)
+    if not klt:
+        log.warning("stock_chart 未知 period=%s code=%s", period, code)
+        return {}
+    lmt = 60 if period == "month" else 120
+    cache_key = f"kline:{code}:{period}"
+    with _CHART_LOCK:
+        ent = _CHART_CACHE.get(cache_key)
+        ttl = 1800 if period == "month" else 1800 if period == "week" else 300  # 月/周K 30min, 日K 5min
+        if ent and time.time() - ent["ts"] < ttl:
+            return ent["data"]
+    secid = _secid(code)
+    qs = urllib.parse.urlencode({
+        "secid": secid,
+        "fields1": "f1,f2,f3,f4,f5,f6",
+        "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",  # date,open,close,high,low,volume,amount,amplitude
+        "klt": klt, "fqt": 1,           # 前复权
+        "end": "20500101", "lmt": lmt,
+        "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+    })
+    for host in config.KLINE_HOSTS:
+        if _host_blocked(host):
+            continue
+        t0 = time.time()
+        try:
+            url = host + "/api/qt/stock/kline/get?" + qs
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                "Referer": "https://quote.eastmoney.com/",
+            })
+            with urllib.request.urlopen(req, timeout=config.KLINE_TIMEOUT) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            klines = data.get("data", {}).get("klines") or []
+            meta = data.get("data", {}) or {}
+            preClose = float(meta.get("preKPrice") or meta.get("f60") or 0)
+            times, opens, closes, highs, lows, volumes, amounts = [], [], [], [], [], [], []
+            for row in klines:
+                parts = row.split(",")
+                if len(parts) < 7:
+                    continue
+                times.append(parts[0])
+                try:
+                    opens.append(float(parts[1]))
+                    closes.append(float(parts[2]))
+                    highs.append(float(parts[3]))
+                    lows.append(float(parts[4]))
+                    volumes.append(float(parts[5]))
+                    amounts.append(float(parts[6]))
+                except (TypeError, ValueError):
+                    # 尾行丢弃
+                    times.pop()
+                    continue
+            result = {
+                "period": period, "code": code,
+                "time": times, "open": opens, "close": closes, "high": highs, "low": lows,
+                "volume": volumes, "amount": amounts, "preClose": preClose,
+                "name": meta.get("name", ""),
+            }
+            _record("eastmoney_kline", True, int((time.time() - t0) * 1000))
+            with _CHART_LOCK:
+                _CHART_CACHE[cache_key] = {"data": result, "ts": time.time()}
+            return result
+        except Exception:
+            _mark_host_broken(host)
+            continue
+    _record("eastmoney_kline", False)
+    log.warning("K线拉取失败 code=%s period=%s (东财全HOST熔断)", code, period)
+    return {}
+
+
+def _fetch_minute_trend(code):
+    """当日分时轨迹(价格+均价+成交量) via 东财 trends2
+    返回 {period:'minute', code, time:[], price:[], avg:[], volume:[], preClose, name}
+    非交易时段接口仍会返回上一个交易日的分时 → 前端提示'非交易时段'即可"""
+    cache_key = f"trend:{code}"
+    with _CHART_LOCK:
+        ent = _CHART_CACHE.get(cache_key)
+        if ent and time.time() - ent["ts"] < _CHART_CACHE_TTL:
+            return ent["data"]
+    secid = _secid(code)
+    qs = urllib.parse.urlencode({
+        "secid": secid,
+        "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
+        "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
+        "ndays": 1, "iscr": 0, "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+    })
+    for host in config.KLINE_HOSTS:
+        if _host_blocked(host):
+            continue
+        t0 = time.time()
+        try:
+            url = host + "/api/qt/stock/trends2/get?" + qs
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                "Referer": "https://quote.eastmoney.com/",
+            })
+            with urllib.request.urlopen(req, timeout=config.KLINE_TIMEOUT) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            tr = data.get("data", {}).get("trends") or []
+            meta = data.get("data", {}) or {}
+            preClose = float(meta.get("preClose") or 0)
+            name = meta.get("name", "")
+            times, prices, avgs, volumes = [], [], [], []
+            for row in tr:
+                parts = row.split(",")
+                if len(parts) < 5:
+                    continue
+                # parts[0]=HHMM 或 YYYY-MM-DD HH:MM, parts[1]=价格, parts[2]=成交量(手),
+                # parts[3]=均价(成交额/成交量), parts[4]=成交额(元)
+                try:
+                    ts = parts[0]
+                    # 截断日期前缀, 只保留 HH:MM
+                    if " " in ts:
+                        ts = ts.split(" ", 1)[1]
+                    times.append(ts)
+                    prices.append(float(parts[2]))
+                    avgs.append(float(parts[3]) if parts[3] else None)
+                    volumes.append(float(parts[1]))
+                except (TypeError, ValueError):
+                    continue
+            result = {
+                "period": "minute", "code": code, "name": name,
+                "time": times, "price": prices, "avg": avgs, "volume": volumes,
+                "preClose": preClose,
+            }
+            _record("eastmoney_kline", True, int((time.time() - t0) * 1000))
+            with _CHART_LOCK:
+                _CHART_CACHE[cache_key] = {"data": result, "ts": time.time()}
+            return result
+        except Exception:
+            _mark_host_broken(host)
+            continue
+    _record("eastmoney_kline", False)
+    log.warning("分时拉取失败 code=%s", code)
+    return {}
+
+
+# ==================== 多数据源 fallback (2026-08-20) ====================
+# 当东财接口熔断时, 按顺序 fallback: 同花顺 → 开盘啦(kpl) → Tushare → 日线聚合
+# 覆盖所有周期: 分时/日K/周K/月K
+
+
+def _fetch_kline_from_ths(code, period="day"):
+    """同花顺 K-line 兜底源: day/week/month
+    URL 格式: https://d.10jqka.com.cn/v6/line/hs_{code}/{type}/last.js
+    type: 01=日K, 02=周K, 03=月K
+    返回标准格式 dict, 失败返回 {}"""
+    type_map = {"day": "01", "week": "02", "month": "03"}
+    tp = type_map.get(period, "01")
+    for proto in ("https", "http"):
+        url = "%s://d.10jqka.com.cn/v6/line/hs_%s/%s/last.js" % (proto, code, tp)
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                "Referer": "http://stockpage.10jqka.com.cn/",
+            })
+            with urllib.request.urlopen(req, timeout=config.KLINE_TIMEOUT) as resp:
+                body = resp.read().decode("utf-8", "ignore")
+            m = re.search(r"\{.*\}", body, re.S)
+            if not m:
+                continue
+            data = json.loads(m.group(0)).get("data") or ""
+            if not data:
+                continue
+            segs = [s for s in str(data).split(";") if s]
+            if not segs:
+                continue
+            times, opens, closes, highs, lows, volumes, amounts = [], [], [], [], [], [], []
+            for seg in segs:
+                parts = seg.split(",")
+                if len(parts) < 7:
+                    continue
+                try:
+                    d = parts[0].replace("-", "")
+                    if len(d) == 8:
+                        d = d[:4] + "-" + d[4:6] + "-" + d[6:8]
+                    times.append(d)
+                    opens.append(float(parts[1]))
+                    highs.append(float(parts[2]))
+                    lows.append(float(parts[3]))
+                    closes.append(float(parts[4]))
+                    vol = float(parts[5])
+                    volumes.append(vol if vol < 10000000 else vol / 100.0)
+                    amounts.append(float(parts[6]))
+                except (TypeError, ValueError, IndexError):
+                    continue
+            if not times:
+                continue
+            preClose = 0
+            if len(closes) >= 2:
+                preClose = closes[-2]
+            elif closes:
+                preClose = closes[0]
+            result = {
+                "period": period, "code": code,
+                "time": times, "open": opens, "close": closes,
+                "high": highs, "low": lows,
+                "volume": volumes, "amount": amounts,
+                "preClose": preClose, "name": "",
+            }
+            log.info("同花顺K-line拉取成功 code=%s period=%s 条数=%d", code, period, len(times))
+            return result
+        except Exception as e:
+            log.debug("同花顺K-line拉取失败 code=%s err=%s", code, e)
+            continue
+    log.warning("同花顺K-line拉取失败 code=%s period=%s", code, period)
+    return {}
+
+
+def _fetch_chart_from_kpl(code, period="day"):
+    """开盘啦(kpl) chart 兜底源: 分时/日K (周K/月K 不支持)"""
+    try:
+        from . import kpl
+    except ImportError:
+        return {}
+    if period == "minute":
+        d = kpl.fetch_kpl_doc8(StockID=code)
+        if not d:
+            log.warning("kpl分时拉取失败 code=%s", code)
+            return {}
+        preClose = float(d.get("preclose_px") or d.get("preClose") or d.get("pre_close") or 0)
+        name = d.get("name") or ""
+        trend = d.get("trend") or []
+        if not trend:
+            log.warning("kpl分时无数据 code=%s", code)
+            if preClose > 0:
+                return {"period": "minute", "code": code, "name": name,
+                        "time": [], "price": [], "avg": [], "volume": [], "preClose": preClose}
+            return {}
+        times, prices, avgs, volumes = [], [], [], []
+        for row in trend:
+            if not isinstance(row, list) or len(row) < 4:
+                continue
+            try:
+                ts = str(row[0])
+                if " " in ts:
+                    ts = ts.split(" ", 1)[1]
+                times.append(ts)
+                prices.append(float(row[1]))
+                avgs.append(float(row[2]) if row[2] else None)
+                volumes.append(float(row[3]))
+            except (TypeError, ValueError, IndexError):
+                continue
+        if not times:
+            return {}
+        result = {"period": "minute", "code": code, "name": name,
+                  "time": times, "price": prices, "avg": avgs, "volume": volumes,
+                  "preClose": preClose}
+        log.info("kpl分时拉取成功 code=%s 条数=%d preClose=%.2f", code, len(times), preClose)
+        return result
+    if period == "day":
+        d = kpl.fetch_kpl_doc7(StockID=code, T="W8", RStart="0925", old="1")
+        if not d or d.get("errcode") not in (None, "0"):
+            log.warning("kpl日K拉取失败 code=%s errcode=%s", code, d.get("errcode") if d else "None")
+            return {}
+        x = d.get("x") or []
+        y = d.get("y") or []
+        if not x or not y:
+            log.warning("kpl日K无数据 code=%s x=%d y=%d", code, len(x), len(y))
+            return {}
+        vol_arr = d.get("vol") or []
+        bal_arr = d.get("bal") or []
+        times, opens, closes, highs, lows, volumes, amounts = [], [], [], [], [], [], []
+        n = min(len(x), len(y))
+        for i in range(n):
+            yi = y[i]
+            if not isinstance(yi, list) or len(yi) < 4:
+                continue
+            try:
+                times.append(str(x[i]))
+                opens.append(float(yi[0]))
+                closes.append(float(yi[1]))
+                highs.append(float(yi[2]))
+                lows.append(float(yi[3]))
+                volumes.append(float(vol_arr[i]) if i < len(vol_arr) else 0)
+                amounts.append(float(bal_arr[i]) if i < len(bal_arr) else 0)
+            except (TypeError, ValueError, IndexError):
+                times.pop()
+                continue
+        if not times:
+            return {}
+        if len(closes) >= 2:
+            preClose = closes[-2]
+        elif closes:
+            preClose = closes[0]
+        else:
+            preClose = 0
+        result = {"period": "day", "code": code,
+                  "time": times, "open": opens, "close": closes,
+                  "high": highs, "low": lows,
+                  "volume": volumes, "amount": amounts,
+                  "preClose": preClose, "name": d.get("name", "")}
+        log.info("kpl日K拉取成功 code=%s 条数=%d preClose=%.2f", code, len(times), preClose)
+        return result
+    log.info("kpl不支持周期 period=%s, code=%s", period, code)
+    return {}
+
+
+def _fetch_chart_from_tushare(code, period="day"):
+    """Tushare 代理网关 chart 兜底源 (K-line only, 分时不支持)
+
+    网关返回两种兼容格式:
+    A) 行格式(主流): { code:0, msg:'ok', data:{fields:[...], items:[[...],[...]]}, count, api_name }
+    B) 宽格式(文档):   { api_name, count, trade_date:[...], close:[...], ... }
+    两种格式同时兼容解析, 任一格式命中即返回.
+    """
+    if not config.TUSHARE_API_KEY:
+        return {}
+    if period not in ("day", "week", "month"):
+        return {}
+    if code.startswith(("6", "9", "5")):
+        ts_code = code + ".SH"
+    elif code.startswith(("0", "3", "2", "1")):
+        ts_code = code + ".SZ"
+    elif code.startswith(("8", "4")):
+        ts_code = code + ".BJ"
+    else:
+        ts_code = code + ".SZ"
+    api_map = {"day": "daily", "week": "weekly", "month": "monthly"}
+    api = api_map.get(period)
+    if not api:
+        return {}
+    path = "/tushare/pro/" + api
+    params = {"ts_code": ts_code}
+    try:
+        qs = urllib.parse.urlencode(params)
+        url = config.TUSHARE_BASE_URL + path + "?" + qs
+        req = urllib.request.Request(url, headers={
+            "X-API-Key": config.TUSHARE_API_KEY, "User-Agent": "Mozilla/5.0",
+        })
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))
+        # 先检查网关层错误
+        if raw.get("ok") is False and raw.get("error"):
+            log.warning("tushare 网关拒绝 code=%s period=%s err=%s msg=%s",
+                        code, period, raw.get("error"), raw.get("message"))
+            return {}
+        if raw.get("code") and raw.get("code") != 0:
+            log.warning("tushare 返回错误 code=%s period=%s code_val=%s msg=%s",
+                        code, period, raw.get("code"), raw.get("msg"))
+            return {}
+        count = raw.get("count", 0)
+        rows = []  # 统一转成 rows: list of dicts
+        # ===== 格式 A: data.fields + data.items (行格式) =====
+        ddata = raw.get("data")
+        if isinstance(ddata, dict) and isinstance(ddata.get("fields"), list) and isinstance(ddata.get("items"), list):
+            fields = ddata["fields"]
+            items = ddata["items"]
+            idx = {}
+            for i, fn in enumerate(fields):
+                idx[fn] = i
+            count = len(items) if not count else count
+            for it in items:
+                if not isinstance(it, list):
+                    continue
+                row = {}
+                for fn, i in idx.items():
+                    if i < len(it):
+                        row[fn] = it[i]
+                rows.append(row)
+        # ===== 格式 B: 宽格式 (key -> 平行数组) =====
+        if not rows and count:
+            array_fields = {}
+            for key, val in raw.items():
+                if key in ("api_name", "count", "code", "msg", "ts_code", "request_id", "data"):
+                    continue
+                if isinstance(val, list) and len(val) == count:
+                    array_fields[key] = val
+            if array_fields:
+                keys = list(array_fields.keys())
+                for i in range(count):
+                    row = {k: array_fields[k][i] for k in keys}
+                    rows.append(row)
+        if not rows:
+            return {}
+        times, opens, closes, highs, lows, volumes, amounts = [], [], [], [], [], [], []
+        preClose = 0
+        first_close = None
+        for row in rows:
+            try:
+                td = str(row.get("trade_date") or row.get("ann_date") or "")
+                if not td:
+                    continue
+                if len(td) == 8:
+                    td = td[:4] + "-" + td[4:6] + "-" + td[6:8]
+                c = float(row.get("close") or 0)
+                if not c:
+                    continue
+                times.append(td)
+                opens.append(float(row.get("open") or 0))
+                closes.append(c)
+                highs.append(float(row.get("high") or 0))
+                lows.append(float(row.get("low") or 0))
+                v = row.get("vol") or row.get("volume") or 0
+                volumes.append(float(v))
+                amounts.append(float(row.get("amount") or 0))
+                if first_close is None:
+                    first_close = c
+                pc = row.get("pre_close")
+                if not preClose and pc:
+                    preClose = float(pc)
+            except (TypeError, ValueError):
+                if times: times.pop()
+                continue
+        if not times:
+            return {}
+        # 按时间升序 (Tushare 默认可能倒序)
+        if len(times) >= 2 and times[0] > times[-1]:
+            times  = list(reversed(times))
+            opens  = list(reversed(opens))
+            closes = list(reversed(closes))
+            highs  = list(reversed(highs))
+            lows   = list(reversed(lows))
+            volumes= list(reversed(volumes))
+            amounts= list(reversed(amounts))
+        if not preClose and len(closes) >= 2:
+            preClose = closes[-2]
+        elif not preClose and closes:
+            preClose = closes[0]
+        result = {"period": period, "code": code,
+                  "time": times, "open": opens, "close": closes,
+                  "high": highs, "low": lows,
+                  "volume": volumes, "amount": amounts,
+                  "preClose": preClose, "name": ""}
+        log.info("tushare K-line拉取成功 code=%s period=%s 条数=%d", code, period, len(times))
+        return result
+    except Exception as e:
+        log.warning("tushare K-line拉取失败 code=%s period=%s err=%s", code, period, e)
+        return {}
+
+
+def _validate_chart_data(data, period, source=None):
+    """验证图表数据合理性, 过滤异常数据(如同花顺累积前复权价)"""
+    if not data:
+        return False
+    if period == "minute":
+        prices = data.get("price") or []
+        if not prices:
+            return False
+        valid_prices = [p for p in prices if p and p > 0]
+        if not valid_prices:
+            return False
+        max_p = max(valid_prices)
+        min_p = min(valid_prices)
+        if max_p > 100000 or min_p < 0.01:
+            return False
+        return True
+    closes = data.get("close") or []
+    if not closes:
+        return False
+    valid_closes = [c for c in closes if c and c > 0]
+    if not valid_closes:
+        return False
+    max_c = max(valid_closes)
+    min_c = min(valid_closes)
+    if max_c > 100000 or min_c < 0.01:
+        return False
+    if source == "ths" and period in ("week", "month"):
+        if min_c > 500:
+            return False
+    if max_c > min_c * 100:
+        return False
+    volumes = data.get("volume") or []
+    valid_vols = [v for v in volumes if v and v > 0]
+    if not valid_vols and period != "minute":
+        return False
+    return True
+
+
+def _aggregate_kpl_daily_to_period(code, target_period):
+    """用 kpl 日线数据聚合成周K/月K (所有主源失败时最终兜底)"""
+    try:
+        from . import kpl
+    except ImportError:
+        return {}
+    d = kpl.fetch_kpl_doc7(StockID=code, T="W8", RStart="0925", old="1")
+    if not d or d.get("errcode") not in (None, "0"):
+        return {}
+    x = d.get("x") or []
+    y = d.get("y") or []
+    if not x or not y:
+        return {}
+    vol_arr = d.get("vol") or []
+    bal_arr = d.get("bal") or []
+    MAX_DAILY = 300
+    daily_data = []
+    total = min(len(x), len(y))
+    start = max(0, total - MAX_DAILY)
+    from datetime import datetime
+    for i in range(start, total):
+        yi = y[i]
+        if not isinstance(yi, list) or len(yi) < 4:
+            continue
+        try:
+            date_str = str(x[i])
+            daily_data.append({"date": date_str, "open": float(yi[0]), "close": float(yi[1]),
+                "high": float(yi[2]), "low": float(yi[3]),
+                "volume": float(vol_arr[i]) if i < len(vol_arr) else 0,
+                "amount": float(bal_arr[i]) if i < len(bal_arr) else 0})
+        except (TypeError, ValueError, IndexError):
+            continue
+    if not daily_data:
+        return {}
+    if target_period == "week":
+        groups = {}
+        for item in daily_data:
+            try:
+                dt = datetime.strptime(item["date"], "%Y%m%d")
+                year, week, _ = dt.isocalendar()
+                key = "%d-%02d" % (year, week)
+                if key not in groups:
+                    groups[key] = []
+                groups[key].append(item)
+            except:
+                continue
+        agg_times, agg_opens, agg_closes, agg_highs, agg_lows = [], [], [], [], []
+        agg_volumes, agg_amounts = [], []
+        for key in sorted(groups.keys()):
+            items = groups[key]
+            if not items:
+                continue
+            last_date = max(it["date"] for it in items)
+            formatted = last_date[:4] + "-" + last_date[4:6] + "-" + last_date[6:8]
+            agg_times.append(formatted)
+            agg_opens.append(items[0]["open"])
+            agg_closes.append(items[-1]["close"])
+            agg_highs.append(max(it["high"] for it in items))
+            agg_lows.append(min(it["low"] for it in items))
+            agg_volumes.append(sum(it["volume"] for it in items))
+            agg_amounts.append(sum(it["amount"] for it in items))
+        if not agg_times:
+            return {}
+        preClose = daily_data[-2]["close"] if len(daily_data) >= 2 else daily_data[0]["close"]
+        return {"period": target_period, "code": code,
+                "time": agg_times, "open": agg_opens, "close": agg_closes,
+                "high": agg_highs, "low": agg_lows,
+                "volume": agg_volumes, "amount": agg_amounts,
+                "preClose": preClose, "name": ""}
+    elif target_period == "month":
+        groups = {}
+        for item in daily_data:
+            key = item["date"][:6]
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(item)
+        agg_times, agg_opens, agg_closes, agg_highs, agg_lows = [], [], [], [], []
+        agg_volumes, agg_amounts = [], []
+        for key in sorted(groups.keys()):
+            items = groups[key]
+            if not items:
+                continue
+            last_date = max(it["date"] for it in items)
+            formatted = last_date[:4] + "-" + last_date[4:6] + "-" + last_date[6:8]
+            agg_times.append(formatted)
+            agg_opens.append(items[0]["open"])
+            agg_closes.append(items[-1]["close"])
+            agg_highs.append(max(it["high"] for it in items))
+            agg_lows.append(min(it["low"] for it in items))
+            agg_volumes.append(sum(it["volume"] for it in items))
+            agg_amounts.append(sum(it["amount"] for it in items))
+        if not agg_times:
+            return {}
+        preClose = daily_data[-2]["close"] if len(daily_data) >= 2 else daily_data[0]["close"]
+        return {"period": target_period, "code": code,
+                "time": agg_times, "open": agg_opens, "close": agg_closes,
+                "high": agg_highs, "low": agg_lows,
+                "volume": agg_volumes, "amount": agg_amounts,
+                "preClose": preClose, "name": ""}
+    return {}
+
+
+def fetch_stock_chart_robust(code, period="day"):
+    """多数据源 chart 拉取 (替代原 fetch_stock_chart):
+    顺序: 东财 → 同花顺 → kpl → tushare → 自聚合
+    任一数据源成功即返回, 全部失败返回 {}"""
+    if not code:
+        return {}
+    period = (period or "day").lower()
+    if period not in ("minute", "day", "week", "month"):
+        return {}
+    cache_key = "chart_robust:%s:%s" % (code, period)
+    with _CHART_LOCK:
+        ent = _CHART_CACHE.get(cache_key)
+        ttl = 60 if period == "minute" else 1800
+        if ent and time.time() - ent["ts"] < ttl:
+            return ent["data"]
+    t0 = time.time()
+    sources = ["eastmoney"]
+    if period != "minute":
+        sources.append("ths")
+    sources.append("kpl")
+    if period != "minute" and config.TUSHARE_API_KEY:
+        sources.append("tushare")
+    for src in sources:
+        try:
+            if src == "eastmoney":
+                d = fetch_stock_chart(code, period)
+                if d and _validate_chart_data(d, period, source="eastmoney"):
+                    with _CHART_LOCK:
+                        _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
+                    log.info("chart[robust]源=eastmoney code=%s period=%s 耗时%.0fms",
+                             code, period, (time.time() - t0) * 1000)
+                    return d
+            elif src == "ths":
+                d = _fetch_kline_from_ths(code, period)
+                if d and _validate_chart_data(d, period, source="ths"):
+                    with _CHART_LOCK:
+                        _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
+                    log.info("chart[robust]源=ths code=%s period=%s 耗时%.0fms",
+                             code, period, (time.time() - t0) * 1000)
+                    return d
+            elif src == "kpl":
+                d = _fetch_chart_from_kpl(code, period)
+                if d and _validate_chart_data(d, period, source="kpl"):
+                    with _CHART_LOCK:
+                        _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
+                    log.info("chart[robust]源=kpl code=%s period=%s 耗时%.0fms",
+                             code, period, (time.time() - t0) * 1000)
+                    return d
+            elif src == "tushare":
+                d = _fetch_chart_from_tushare(code, period)
+                if d and _validate_chart_data(d, period, source="tushare"):
+                    with _CHART_LOCK:
+                        _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
+                    log.info("chart[robust]源=tushare code=%s period=%s 耗时%.0fms",
+                             code, period, (time.time() - t0) * 1000)
+                    return d
+        except Exception as e:
+            log.warning("chart[robust]源=%s 异常 code=%s err=%s", src, code, e)
+            continue
+    if period in ("week", "month"):
+        try:
+            log.info("chart[robust]主源失败, 尝试日线聚合 code=%s period=%s", code, period)
+            d = _aggregate_kpl_daily_to_period(code, period)
+            if d:
+                with _CHART_LOCK:
+                    _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
+                log.info("chart[robust]源=aggregate code=%s period=%s 耗时%.0fms",
+                         code, period, (time.time() - t0) * 1000)
+                return d
+        except Exception as e:
+            log.warning("chart[robust]聚合失败 code=%s err=%s", code, e)
+    log.error("chart[robust]全部数据源失败 code=%s period=%s", code, period)
+    return {}

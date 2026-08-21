@@ -55,8 +55,10 @@ body[data-bg="light"] .pool-btn { color: var(--text-main); background: rgba(50,6
 body[data-bg="light"] .user-box { color: var(--text-secondary); background: var(--bg-card); border-color: var(--border-soft); }
 body[data-bg="light"] .logout-btn { color: var(--text-secondary); background: rgba(255,80,80,0.1); border-color: var(--accent); }
 body[data-bg="light"] .filter-custom label { color: var(--text-secondary); }
-body[data-bg="light"] .filter-custom input[type="number"] { color: var(--text-main); background: var(--bg-input); border-color: var(--border-soft); }
+body[data-bg="light"] .filter-custom input[type="number"] { color: var(--text-main); background: #fff; border-color: var(--border-soft); }
 body[data-bg="light"] .filter-custom input[type="number"]:focus { box-shadow: 0 0 0 2px var(--accent); border-color: var(--accent); }
+body[data-bg="light"] .filter-custom.filter-locked input[type="number"] { border-color: var(--border-soft) !important; background: #f3f4f8 !important; color: var(--text-dim) !important; }
+body[data-bg="light"] .filter-custom .filter-group-label { color: var(--text-main); }
 body[data-bg="light"] .count-select,
 body[data-bg="light"] .export-select { color: var(--text-main); background: var(--bg-input); border-color: var(--accent); }
 body[data-bg="light"] .lock-filter-btn { background: rgba(160,160,160,0.15); border-color: #999; color: var(--text-secondary); }
@@ -113,6 +115,67 @@ body[data-bg="light"] .card-title { color: #7a5200; }
 body[data-bg="light"] .stat-label,
 body[data-bg="light"] .field-label,
 body[data-bg="light"] .weight-desc { color: var(--text-secondary); }
+/* ======================================================================
+   2026-08-20 手机端终极 width/溢出锁定 —— 解决"筛选输入框右边被遮住看不到了"
+   —— 用户反馈 4 次依旧看不到, 最终根因不是 filter-row-2 的 space-between,
+   而是 viewport meta width=device-width 在一部分老的 iOS WKWebView / 微信
+   WebView / 原生容器里不严格生效: webview 实际按 980px 虚拟视口渲染完页面,
+   再 scale 缩小到物理屏幕 —— 但我们的 html/body/#app/container/page-shell
+   都没有显式声明 width/max-width/overflow, 导致 page-shell 会被 .container
+   的 max-width:1500px 或子孙元素(奖牌区/表格/横幅/规则条)撑到 960+ px,
+   接着物理屏幕右边把 960-375=585px 直接切掉, 用户肉眼看到的正是"筛选面板
+   右边三格(流通≤/股价≤/竞额≥)整块被屏幕右侧黑屏/白边截断"的症状.
+
+   FIX: 不依赖任何 @media 阈值(因为 980 虚拟视口永远不命中 <=768),
+   在文件最顶端、所有模块样式之前, 把祖先链从 html 一直到页面两列 home-col,
+   全部声明死 width:100% + max-width:100vw + overflow-x:hidden + min-width:0.
+
+   这样无论 viewport 是 320/375/414/768/980/1024/1280/1920:
+     - 所有祖先宽度都 = 视口宽度
+     - 子内容再宽也不会横向把祖先撑宽 → 不会被物理屏幕右边切掉
+     - 表格/tab 的横滚条由自己的 overflow-x:auto 负责, 不会被全局 overflow-x:hidden 干
+       扰(因为 overflow-x:auto 容器在 overflow-x:hidden 父亲内部会独立出横滚条).
+====================================================================== */
+html, body, #app {
+  width: 100% !important;
+  max-width: 100% !important;          /* 2026-08-20 关键: 别用 100vw.
+                                               980 虚拟视口下 100vw = 980px,
+                                               会把根元素锁到 980, 然后物理屏右边直接
+                                               切掉! 100% = 父级宽 = 上一层视口宽,
+                                               再由 JS 在 onMounted 把 html.style.width
+                                               硬锁到真实物理屏宽(screen.width), 双保险. */
+  box-sizing: border-box !important;
+  overflow-x: hidden !important;
+  min-width: 0 !important;
+}
+/* 页面主壳 + 容器: 所有路由视图共享, 绝不能被子孙撑宽出屏幕 */
+.page-shell,
+.container,
+#app > div,
+#app > main,
+#app > section {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow-x: hidden !important;
+  min-width: 0 !important;
+}
+/* 首页(StockView)的左右两列 grid + 每一列: 同样锁死宽到父 */
+.home-grid,
+.home-col,
+.home-col-left,
+.home-col-right,
+.home-sentiment {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow-x: hidden !important;
+  min-width: 0 !important;
+}
+/* 特殊: 表格 / 竞价异动 10 个 Tab 自己保留横滚条(不受 global overflow 禁影响,
+   因为它们是独立 overflow-x:auto 容器) —— 这里明确不覆盖它们的 overflow-x.
+   需要横滚的容器如果宽度被上面的 max-width:100% 限死了会正常显示横滚条. */
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
@@ -122,7 +185,11 @@ color: var(--text-main); padding: 2px; line-height: 1.5; min-height: 100vh;
 transition: background 0.3s, color 0.3s;
 }
 a { color: inherit; }
-.container { max-width: 1500px; margin: 0 auto; padding: 0 4px; }
+/* .container / .page-shell: 保留原来的 max-width:1500px 居中效果(大屏桌面限制内文宽),
+   但用 min() 叠加保证窄屏不会被 1500px 撑宽 —— 因为上一段 global 已经写了
+   max-width:100%!important, 这里 max-width 不会冲突, 只会在 width=1500 超过
+   视口时继续受 max-width:100% 的上界约束, 保持居中. */
+.container { width: min(1500px, 100%) !important; margin: 0 auto; padding: 0 4px; max-width: 100% !important; }
 .hero-section { text-align: center; margin: 14px 0 8px; display: flex; align-items: center; justify-content: center; gap: 18px; padding: 4px 0; }
 .hero-logo { height: 60px; width: 60px; border-radius: 6px; box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.25), 0 6px 18px rgba(var(--accent-rgb), 0.3); flex-shrink: 0; }
 .hero-text { text-align: left; line-height: 1.1; }
@@ -218,18 +285,18 @@ z-index: 9999;
 .live-time { background: transparent; border: 0; border-radius: 0; padding: 2px 6px; text-align: center; font-family: monospace; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
 .live-time .time-digital { font-size: 11px; font-weight: 500; color: var(--text-muted); letter-spacing: 0; opacity: 0.7; }
 
-.medal-section { background: var(--bg-panel); backdrop-filter: blur(8px); border-radius: 10px; padding: 8px; border: 1px solid rgba(255,215,0,0.4); margin: 0; display: flex; flex-wrap: nowrap; gap: 12px; justify-content: center; align-items: stretch; }
-.medal-card { flex: 1 1 0; min-width: 0; text-align: center; margin: 0; padding: 12px 6px; border-radius: 12px; background: var(--bg-card); border: 1px solid rgba(255,215,0,0.3); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+.medal-section { background: var(--bg-panel); backdrop-filter: blur(8px); border-radius: 10px; padding: 6px; border: 1px solid rgba(255,215,0,0.4); margin: 0; display: flex; flex-wrap: nowrap; gap: 6px; justify-content: center; align-items: stretch; }
+.medal-card { flex: 1 1 0; min-width: 0; text-align: center; margin: 0; padding: 10px 4px; border-radius: 12px; background: var(--bg-card); border: 1px solid rgba(255,215,0,0.3); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
 /* 移动端(手机浏览器): 三卡横排缩小, 避免 390px 视口挤压溢出; 自选池已纵向堆叠到下方 */
 @media (max-width: 899px) {
   .medal-section { padding: 4px; gap: 4px; max-width: 100%; box-sizing: border-box; width: 100%; }
   .medal-card { margin: 0; padding: 8px 3px; gap: 3px; overflow: hidden; border-radius: 8px; }
-  .medal-rank { font-size: 13px; gap: 3px; }
-  .medal-rank-icon { font-size: 20px; }
-  .medal-name-big { font-size: 14px; letter-spacing: 0.5px; margin: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-  .medal-code { font-size: 12px; letter-spacing: 0.5px; margin: 1px 0; }
-  .medal-prob-big { font-size: 30px; margin: 2px 0; }
-  .medal-real-chg { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .medal-rank { font-size: 16px; gap: 3px; }
+  .medal-rank-icon { font-size: 24px; }
+  .medal-name-big { font-size: 17px; letter-spacing: 0.5px; margin: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .medal-code { font-size: 15px; letter-spacing: 0.5px; margin: 1px 0; }
+  .medal-prob-big { font-size: 36px; margin: 2px 0; }
+  .medal-real-chg { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
   /* 防御: 防止任何元素意外溢出造成横向滚动(主要兜底 StockTable 等大表) */
   html, body { overflow-x: hidden; max-width: 100vw; }
   .medal-section { max-width: 100%; }
@@ -237,25 +304,119 @@ z-index: 9999;
   .nav-bar { max-width: 100vw; overflow: hidden; }
   .nav-tabs { flex: 1 1 0; min-width: 0; }
 }
-.medal-rank { font-size: 22px; font-weight: 700; color: #ffd700; display: flex; align-items: center; gap: 6px; }
-.medal-rank-icon { font-size: 34px; }
-.medal-name-big { font-size: 27px; font-weight: 800; color: var(--text-main); letter-spacing: 1px; margin: 2px 0; }
-.medal-code { font-size: 22px; font-weight: 600; color: #ffd700; cursor: pointer; font-family: 'Consolas', monospace; letter-spacing: 1px; margin: 2px 0; transition: color 0.2s; }
+.medal-rank { font-size: 32px; font-weight: 700; color: #ffd700; display: flex; align-items: center; gap: 6px; }
+.medal-rank-icon { font-size: 48px; }
+.medal-name-big { font-size: 38px; font-weight: 800; color: var(--text-main); letter-spacing: 1px; margin: 2px 0; }
+.medal-code { font-size: 32px; font-weight: 600; color: #ffd700; cursor: pointer; font-family: 'Consolas', monospace; letter-spacing: 1px; margin: 2px 0; transition: color 0.2s; }
 .medal-code:hover { color: #fff; text-shadow: 0 0 8px rgba(255,215,0,0.6); }
-.medal-prob-big { font-size: 48px; font-weight: 900; color: #e0a800; line-height: 1; margin: 4px 0; }
-.medal-detail { font-size: 13px; color: var(--text-secondary); display: flex; gap: 12px; align-items: center; }
+.medal-prob-big { font-size: 66px; font-weight: 900; color: #e0a800; line-height: 1; margin: 4px 0; }
+.medal-detail { font-size: 18px; color: var(--text-secondary); display: flex; gap: 12px; align-items: center; }
 .medal-detail .bid-chg { color: #ff8a6f; font-weight: 600; }
 .medal-detail .conf-val { color: var(--accent-text); font-weight: 600; }
-.medal-real-chg { font-size: 14px; font-weight: 700; color: #ff5252; margin-top: 2px; }
+.medal-real-chg { font-size: 20px; font-weight: 700; color: #ff5252; margin-top: 2px; }
 .medal-real-chg.green-real { color: #00c864 !important; }
 
 .export-medal-group { display: flex; align-items: center; gap: 8px; background: var(--bg-card); padding: 8px 14px; border-radius: 8px; }
 
+/* ======================================================================
+   筛选面板(选股/竞价/盘中共用 FilterPanel.vue 组件):
+   2026-08-20 用户连续两次反馈"输入框右边被遮住看不到了".
+   根因不是"窄屏断点没命中", 而是:
+   - 所有容器(父/home-grid/home-col/filter-custom/filter-row-*)
+     没有明确禁止横向溢出 + 有 max-width 限制的层级不足,
+     导致内部某个 cell 或整条 row 超出容器后, 外层不截断
+     而是把整个 filter-custom 横向撑宽 -> 被屏幕右物理边截断.
+   - 且不同层级同时写着 nowrap / space-between / min-width:0
+     flex-shrink:0 等规则, 叠在一起时会相互抵消.
+
+   FIX 新策略: 直接在全局 main.css 用 高 specificity (路径组合 + !important)
+   把 "filter-custom 必不横向溢出 + filter-row-2 必 2 列换行" 锁死,
+   不依赖媒体查询阈值 / scoped / :deep;  只有 >=1400px 才放开一行.
+   这样 iOS Safari / 微信 WebView / 任何 DPR 缩放 所有宽度 直接生效.
+====================================================================== */
+/* ===== 筛选面板 (filter-custom) —— 布局样式全部在 FilterPanel.vue scoped CSS 中,
+   main.css 只负责背景/边框/间距等纯视觉属性, 绝不写 row2/cell 的 flex-wrap/justify-content/flex !important */
 .filter-custom {
-background: var(--bg-card); border: 1px solid rgba(var(--accent-rgb), 0.4); border-radius: 8px;
-padding: 10px 14px; margin: 8px 0; display: flex; flex-wrap: wrap; align-items: center;
-gap: 10px; backdrop-filter: blur(4px); row-gap: 8px; transition: border-color 0.3s, box-shadow 0.3s;
+  background: var(--bg-panel-solid);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 6px 10px !important;
+  margin: 6px 0 !important;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  backdrop-filter: blur(4px);
+  transition: border-color 0.3s, box-shadow 0.3s;
+  /* 关键: 根容器宽度必严格等于父级, 不能被内容撑宽, 否则溢出屏幕 */
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow-x: hidden !important;
+  min-width: 0 !important;
 }
+
+/* 所有子行通用结构: 横向 flex 容器, 具体 flex-wrap/justify-content 由 scoped CSS 控制 */
+.filter-custom .filter-row {
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+  row-gap: 4px;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+}
+
+/* 第一行: 基础对齐 (具体 flex-wrap 由 scoped CSS 控制) */
+.filter-custom .filter-row-1 {
+  justify-content: flex-start !important;
+}
+
+/* 右上角按钮组 */
+.filter-custom .filter-actions-top,
+.filter-custom .filter-actions-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 1 !important;
+  white-space: normal !important;
+}
+
+/* 分隔符 */
+.filter-custom .filter-divider {
+  color: var(--text-muted, #888);
+  margin: 0 4px;
+  opacity: 0.5;
+}
+.filter-custom .filter-row-2 .filter-divider { display: none; }
+
+/* 数值输入框: 视觉属性, 不含布局 !important (布局由 scoped CSS 控制) */
+.filter-custom .filter-row-2 input[type="number"],
+.filter-custom .filter-cell input[type="number"] {
+  /* width/max-width/flex/padding/font-size 等全由 scoped CSS 控制,
+     这里只保留主题相关的视觉属性 */
+  text-align: center !important;
+  box-sizing: border-box !important;
+}
+
+/* 手机端按钮紧凑 (scoped CSS 已设 padding, 这里只设最小高度) */
+@media (max-width: 768px) {
+  .filter-custom .filter-actions-top .filter-apply,
+  .filter-custom .filter-actions-top .filter-reset,
+  .filter-custom .filter-actions-top .filter-lock {
+    min-height: 24px;
+  }
+}
+
+/* ===== 以下为非布局属性 (安全, 不影响 scoped CSS) ===== */
+.filter-group-label { color: var(--accent-text); font-size: 12px; font-weight: 600; }
+.filter-apply { padding: 5px 10px; font-size: 12px; }
+.filter-reset { padding: 4px 9px; font-size: 12px; }
+.filter-lock { padding: 4px 9px; font-size: 12px; }
+.lock-indicator { display: none; font-size: 10px; background: rgba(255,140,30,0.3); color: #ffcc88; padding: 2px 8px; border-radius: 12px; font-weight: 600; letter-spacing: 1px; animation: lockPulseText 2s ease-in-out infinite; white-space: nowrap; }
 .filter-custom.filter-locked {
 border-color: rgba(255,140,40,0.7) !important;
 box-shadow: 0 0 16px rgba(255,120,30,0.2) !important;
@@ -267,7 +428,8 @@ background: rgba(15,10,5,0.4) !important;
 .filter-custom.filter-locked input[type="checkbox"] { cursor: not-allowed; opacity: 0.6; accent-color: var(--text-muted); }
 .filter-custom input[type="number"] {
 background: var(--bg-input); border: 1px solid var(--accent); color: #fff;
-padding: 4px 6px; border-radius: 4px; font-size: 11px; width: 62px;
+/* 2026-08-21: 宽度由组件内联 :style 控制 (ch 单位自适应), 此处仅保留基础样式 */
+padding: 3px 5px; border-radius: 4px; font-size: 11px; min-width: 0;
 text-align: center; outline: none; font-family: monospace; transition: border-color 0.3s, background 0.3s;
 }
 .filter-custom input[type="number"]:focus { box-shadow: 0 0 0 2px var(--accent); }
@@ -324,11 +486,11 @@ text-align: center; outline: none; font-family: monospace; transition: border-co
   .del-single { padding: 2px 8px; font-size: 10px; }
 }
 
-.stock-table-container { background: var(--bg-panel); backdrop-filter: blur(4px); border-radius: 8px; padding: 10px; border: 1px solid rgba(var(--accent-rgb), 0.35); margin: 8px 0; overflow-x: auto; }
-.stock-table { width: 100%; border-collapse: collapse; text-align: center; min-width: 1100px; }
+.stock-table-container { background: var(--bg-panel); backdrop-filter: blur(4px); border-radius: 8px; padding: 6px; border: 1px solid rgba(var(--accent-rgb), 0.35); margin: 6px 0; overflow-x: auto; }
+.stock-table { width: 100%; border-collapse: collapse; text-align: center; min-width: 0; }
 .stock-table thead { background: rgba(var(--accent-rgb), 0.15); border-bottom: 2px solid var(--accent-deep); }
-.stock-table th { padding: 10px 4px; font-weight: 600; color: var(--accent-text); font-size: 12px; white-space: nowrap; }
-.stock-table td { padding: 8px 4px; border-bottom: 1px solid rgba(var(--accent-rgb), 0.1); font-size: 12px; }
+.stock-table th { padding: 7px 2px; font-weight: 600; color: var(--accent-text); font-size: 11.5px; white-space: nowrap; }
+.stock-table td { padding: 5px 2px; border-bottom: 1px solid rgba(var(--accent-rgb), 0.1); font-size: 11.5px; }
 .stock-table tbody tr:hover { background: rgba(var(--accent-rgb), 0.05); }
 .rank-col { font-weight: bold; color: var(--accent-deep); }
 .up { color: #ff8a6f; } .down { color: #00c864; } .real-green { color: #00c864 !important; }
@@ -344,7 +506,7 @@ text-align: center; outline: none; font-family: monospace; transition: border-co
 .footnote { text-align: center; font-size: 12px; color: var(--text-muted); margin-top: 20px; padding-bottom: 20px; border-top: 1px solid var(--border-soft); padding-top: 20px; }
 .toast-msg { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: var(--accent-deep); color: white; padding: 8px 22px; border-radius: 40px; font-size: 13px; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.3); animation: fadeInOut 2.2s forwards; }
 @keyframes fadeInOut { 0%{opacity:0;transform:translateX(-50%) translateY(10px);} 15%{opacity:1;transform:translateX(-50%) translateY(0);} 85%{opacity:1;transform:translateX(-50%) translateY(0);} 100%{opacity:0;transform:translateX(-50%) translateY(-10px);visibility:hidden;} }
-@media (max-width:780px) { .dominant-title{font-size:32px;} .stock-table{min-width:900px;} .medal-card{min-width:0;} .medal-name-big{font-size:18px;} .medal-prob-big{font-size:36px;} }
+@media (max-width:780px) { .dominant-title{font-size:32px;} .stock-table{min-width:900px;} .medal-card{min-width:0;} .medal-name-big{font-size:22px;} .medal-prob-big{font-size:44px;} }
 
 /* 登录/认证卡片 */
 .auth-overlay {
@@ -515,8 +677,10 @@ border-radius: 5px; font-size: 12px; outline: none; flex-shrink: 0;
 .query-result { margin-top: 8px; border-radius: 8px; }
 .query-summary { font-size: 12px; color: var(--text-muted); padding: 4px 6px 8px; }
 
-/* 独立页面容器(历史/邀请从弹窗升级为页面) */
-.page-shell { max-width: 1500px; margin: 0 auto; padding: 10px 4px; }
+/* 独立页面容器(历史/邀请从弹窗升级为页面)
+   —— max-width:1500px 保留桌面居中效果, 但 width=min(1500px,100%) 保证窄屏不会被 1500px 撑宽;
+   max-width:100%!important 与上面的全局锁宽度保持一致, 不会被子孙溢出撑破. */
+.page-shell { width: min(1500px, 100%) !important; max-width: 100% !important; margin: 0 auto; padding: 10px 4px; }
 .page-back { margin-bottom: 10px; }
 
 /* ==================== 股票池收录按钮(全局统一, 与主页面 StockTable 一致) ==================== */
@@ -850,22 +1014,172 @@ body[data-bg="light"] select.rot-select option { background: #fff; color: #333; 
 /* ===================== 移动端基础适配 (<=768px) ===================== */
 @media (max-width: 768px) {
   /* 页面留白压缩: 手机屏窄, 左右留 2px 即可 */
-  .page-shell { padding: 6px 2px; }
+  .page-shell { padding: 4px 2px; }
   .container { padding: 0 2px; }
-  body { padding: 1px; }
-  /* 全站表格容器: 紧凑内边距 */
-  .stock-table-container { padding: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  body { padding: 0; }
+  /* ====================================================================
+     全局横向溢出保护:
+     2026-08-20 用户反馈"筛选输入框右边被遮住看不到了"——
+     FilterPanel 已被全局规则严格限制 width/max-width=100% + overflow-x:hidden,
+     这里加上 html/body/page-shell/container/所有路由组件父级的禁止横向撑宽,
+     确保任何孙子级横向溢出自家容器时, 都不会撑破页面导致物理屏幕右边缘截断.
+     注意: 允许表格/tab 横滚由它们自己的 .stock-table-container / .auc-tabs
+     的 overflow-x:auto 提供, 不会被此处 overflow-x:hidden 干扰(溢出的是
+     内部独立容器, 已在祖先链上不允许撑破大的页面宽度).
+  ==================================================================== */
+  html, body, #app, .page-shell, .container {
+    overflow-x: hidden !important;
+    max-width: 100vw !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+  /* 全站表格容器: 紧凑内边距 + 横向滚动(-webkit- 惯性滑动) */
+  .stock-table-container { padding: 4px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .stock-table { min-width: 880px; table-layout: auto !important; }
   /* 日期回看工具条: 紧凑 */
   .rot-toolbar { gap: 6px; }
   .rot-tip { font-size: 11px; }
   /* 日期输入框手机可点击(触控目标) */
   input[type="date"].rot-date { min-height: 30px; }
-  /* 加单趋势/状态标签字号 */
   .seal-mode { font-size: 11px; padding: 1px 5px; }
   .s3-tag { font-size: 11px; }
-  /* 轻量滚动条提示: 表格容器右侧渐变遮罩由 overflow 本身提供, 无需额外 */
+
+  /* ========== 首页(StockView) 手机端 ========== */
+  .home-mob-toggle { margin: 4px 0 2px; }
+  .home-mob-tab { min-height: 40px; font-size: 14px; padding: 8px; }
+  .home-grid { gap: 6px; }
+  .alert-rule.alert-rule-compact {
+    flex-wrap: wrap !important;
+    gap: 4px;
+    padding: 4px 6px;
+    margin: 2px 0 4px;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+    min-width: 0 !important;
+  }
+  .alert-rule.alert-rule-compact .rule-text,
+  .alert-rule.alert-rule-compact .rule-text strong { font-size: 11px !important; }
+  .alert-rule.alert-rule-compact .tdx-export-btn {
+    padding: 4px 6px !important;
+    font-size: 11px !important;
+    min-height: 28px;
+  }
+  .mode-tab.mode-tab-compact {
+    font-size: 11.5px !important;
+    padding: 4px 9px !important;
+    min-height: 26px;
+  }
+
+  /* ========== 市场情绪面板: 手机压缩字号, 支持换行 ========== */
+  .sentiment-panel { padding: 6px 6px !important; gap: 6px !important; flex-wrap: wrap !important; }
+  .senti-title { font-size: 11px !important; }
+  .senti-item { gap: 2px !important; }
+  .senti-label { font-size: 10px !important; }
+  .senti-val { font-size: 11.5px !important; }
+  .senti-bar { width: 40px !important; height: 4px !important; }
+  .senti-tag, .senti-tag-aux { font-size: 10px !important; padding: 0 4px !important; }
+  .senti-time { font-size: 10.5px !important; padding: 2px 6px !important; }
+
+  /* ========== 奖牌区 手机端: 三卡横排进一步缩小 ========== */
+  .medal-section {
+    padding: 4px !important;
+    gap: 4px !important;
+    margin: 4px 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+    min-width: 0 !important;
+  }
+  .medal-card {
+    padding: 6px 2px !important;
+    gap: 2px !important;
+    border-radius: 8px !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+  .medal-rank { font-size: 15px !important; }
+  .medal-rank-icon { font-size: 22px !important; }
+  .medal-name-big { font-size: 16px !important; letter-spacing: 0 !important; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .medal-code { font-size: 13px !important; letter-spacing: 0 !important; }
+  .medal-real-big { font-size: 28px !important; }
+  .medal-bid-sm { font-size: 13px !important; }
+  .medal-score-row { font-size: 13px !important; gap: 4px !important; white-space: nowrap; overflow: hidden; }
+  .qc-badge { font-size: 11px !important; padding: 1px 4px !important; margin-left: 2px !important; }
+
+  /* ========== 股票表格(左选股 + 右竞价所有tab) 手机端 ========== */
+  .stock-table th, .stock-table td {
+    padding: 5px 3px !important;
+    font-size: 11px !important;
+    line-height: 1.25 !important;
+  }
+  .stock-table th {
+    font-size: 10.5px !important;
+    padding: 6px 3px !important;
+    white-space: nowrap;
+  }
+  .stock-table .sort-ind { font-size: 9px !important; margin-left: 1px; }
+  .pool-add-btn {
+    min-height: 26px !important;
+    padding: 3px 8px !important;
+    font-size: 11px !important;
+  }
+  .stock-info-cell { min-width: 62px !important; }
+  .stock-info-cell .stock-name { font-size: 11.5px !important; line-height: 1.2; }
+  .stock-info-cell .stock-code { font-size: 9.5px !important; line-height: 1.1; }
+  .board-col, .concept-cell,
+  .stock-table th:last-of-type.board-col,
+  .stock-table td.board-col {
+    max-width: 56px !important;
+    width: 56px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+  .st-row-cell-code, .st-cell-code { max-width: 64px; min-width: 0; }
 }
-/* 超窄屏(<=480px 小手机): 表格最小宽进一步收紧, 减少滑动距离 */
+
+/* 超窄屏(<=480px, iPhone SE 等 320~375px 机型): 再压一级 */
 @media (max-width: 480px) {
-  .stock-table { min-width: 860px; }
+  .home-mob-tab { font-size: 13px; min-height: 38px; }
+  .alert-rule.alert-rule-compact .rule-text strong { font-size: 10.5px !important; }
+  .sentiment-panel { padding: 5px 4px !important; gap: 4px !important; }
+  .senti-time { font-size: 10px !important; }
+  .senti-val { font-size: 11px !important; }
+  .medal-name-big { font-size: 15px !important; }
+  .medal-code { font-size: 13px !important; }
+  .medal-real-big { font-size: 26px !important; }
+  .stock-table { min-width: 820px; }
+  .stock-table th, .stock-table td {
+    padding: 4px 2px !important;
+    font-size: 10.5px !important;
+  }
+  .stock-table th { font-size: 10px !important; padding: 5px 2px !important; }
+  .stock-info-cell { min-width: 58px !important; }
+  .stock-info-cell .stock-name { font-size: 11px !important; }
+  .stock-info-cell .stock-code { font-size: 9px !important; }
+  .board-col, .concept-cell { max-width: 48px !important; width: 48px !important; font-size: 10px !important; }
+}
+
+/* ========== 股票代码/名称单元格: 点击弹图(全局) ========== */
+.stock-info-cell, .st-row-cell-code, .st-cell-code, [data-stock-code] {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, outline-color 0.15s;
+}
+.stock-info-cell:hover {
+  background: var(--accent-bg);
+  outline: 1px solid var(--accent-border);
+  outline-offset: -1px;
+}
+.stock-info-cell:hover .stock-name {
+  color: var(--accent) !important;
+}
+.stock-info-cell:hover .stock-code {
+  color: var(--accent-text) !important;
 }
