@@ -6,6 +6,7 @@
 import json
 import math
 import re
+import ssl
 import threading
 import time
 import urllib.parse
@@ -14,6 +15,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..core import config, logger
 from . import scorer   # 仅复用 parse_float / market_fs (无循环: scorer 不依赖 fetcher)
+
+# 部分行情网关(走代理/自签名)证书校验失败, 仅关校验不关加密
+_NO_VERIFY_CTX = ssl.create_default_context()
+_NO_VERIFY_CTX.check_hostname = False
+_NO_VERIFY_CTX.verify_mode = ssl.CERT_NONE
 
 log = logger.get_logger(__name__)
 
@@ -918,14 +924,16 @@ def _fetch_chart_from_tushare(code, period="day"):
     if not api:
         return {}
     path = "/tushare/pro/" + api
-    params = {"ts_code": ts_code}
+    from datetime import date
+    # 传 end_date=今天: 让 weekly/monthly 返回最近一周/本月(含至今), 而非止于上一完整周期
+    params = {"ts_code": ts_code, "end_date": date.today().strftime("%Y%m%d")}
     try:
         qs = urllib.parse.urlencode(params)
         url = config.TUSHARE_BASE_URL + path + "?" + qs
         req = urllib.request.Request(url, headers={
             "X-API-Key": config.TUSHARE_API_KEY, "User-Agent": "Mozilla/5.0",
         })
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=15, context=_NO_VERIFY_CTX) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
         # 先检查网关层错误
         if raw.get("ok") is False and raw.get("error"):
@@ -1053,11 +1061,18 @@ def _validate_chart_data(data, period, source=None):
     min_c = min(valid_closes)
     if max_c > 100000 or min_c < 0.01:
         return False
-    if source == "ths" and period in ("week", "month"):
-        if min_c > 500:
-            return False
-    if max_c > min_c * 100:
-        return False
+    # 复权错乱检测: 替代 max>min*100 / ths 高价特判(二者会误伤长期高价股的完整K线,
+    # 如茅台周K从 ~21 到 ~2600 跨多个除息周期)。仅当某根相对前一根出现数量级突变才判异常
+    prev = None
+    for c in valid_closes:
+        if prev is not None and c > 0:
+            if c > prev:
+                if c / prev > 1000:
+                    return False
+            else:
+                if prev / c > 1000:
+                    return False
+        prev = c
     volumes = data.get("volume") or []
     valid_vols = [v for v in volumes if v and v > 0]
     if not valid_vols and period != "minute":
@@ -1312,9 +1327,14 @@ def fetch_stock_chart_robust(code, period="day"):
     t0 = time.time()
     sources = ["eastmoney"]
     if period != "minute":
-        sources.append("ths")
+        if config.TUSHARE_API_KEY and period in ("week", "month"):
+            # 周K/月K优先用现成权威接口(tushare weekly/monthly), 避免聚合/补出有偏差的数据
+            sources.append("tushare")
+            sources.append("ths")
+        else:
+            sources.append("ths")
     sources.append("kpl")
-    if period != "minute" and config.TUSHARE_API_KEY:
+    if "tushare" not in sources and config.TUSHARE_API_KEY:
         sources.append("tushare")
     for src in sources:
         try:
