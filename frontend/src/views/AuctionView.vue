@@ -912,7 +912,7 @@ onMounted(() => {
 .qc-panel .stock-table th { color: var(--text-muted); font-weight: 600; background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border-soft); }
 .qc-panel .stock-table td { border-bottom: 1px solid rgba(255,255,255,0.04); }
 .qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) { text-align: center; white-space: nowrap; }  /* 操作 */
-.qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { max-width: 240px; white-space: normal; word-break: break-all; }  /* 概念 */
+.qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { max-width: 240px; white-space: pre-line; }  /* 概念: 按概念分隔换行, 不拆字 */
 .qc-panel .name-main { font-size: 13px; line-height: 1.3; }
 /* 窄屏(<1280px) 纵向堆叠; <1100 已原有 fallback */
 @media (max-width: 1280px) { .qc-dual { gap: 8px; } }
@@ -923,11 +923,11 @@ onMounted(() => {
   .qc-panel { padding: 8px; }
   .qc-panel-title { font-size: 13px; flex-wrap: wrap; }
   .qc-mode-switch button { padding: 4px 12px; font-size: 12px; }
-  .qc-panel .stock-table { min-width: 760px; white-space: nowrap; }
+  .qc-panel .stock-table { min-width: 860px; white-space: nowrap; }
   .qc-panel .stock-table th, .qc-panel .stock-table td { padding: 3px 3px; font-size: 11px; }
-  /* 概念列: 多个概念换行显示(参考其它 tab 的 pre-line), 不做一字一行拆字 */
+  /* 概念列: 加宽到 150px, 每概念独占一行(pre-line)且不拆字 */
   .qc-panel .stock-table th:nth-child(9),
-  .qc-panel .stock-table td:nth-child(9) { white-space: normal; overflow: hidden; text-overflow: ellipsis; }
+  .qc-panel .stock-table td:nth-child(9) { min-width: 150px; max-width: 150px; white-space: pre-line; }
 }
 .loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
 .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
