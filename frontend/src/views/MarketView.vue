@@ -195,7 +195,7 @@ v-for="s in sourceOptions" :key="s.key"
             <td class="code-click" @click="linkToSoftware(h.code)">{{ h.code }}</td>
             <td>{{ h.name }}</td>
             <td :class="h.change > 0 ? 'up' : h.change < 0 ? 'down' : 'dim'">{{ signed(h.change) }}%</td>
-            <td><button class="pool-add-btn" :class="{ added: inPool(h.code) }" @click.stop="addToPool(h)">{{ inPool(h.code) ? '已+' : '＋自选' }}</button></td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(h.code) }" @click.stop="addToPool(h)">{{ inPool(h.code) ? '已＋' : '＋自选' }}</button></td>
           </tr>
         </tbody>
       </table>
@@ -239,7 +239,7 @@ v-for="s in sourceOptions" :key="s.key"
             <td>{{ yi(l.floatMv) }}</td>
             <td>
               <button class="pool-add-btn" style="margin-right:4px;" @click="viewLhbDetail(l)">明细</button>
-              <button class="pool-add-btn" :class="{ added: inPool(l.code) }" @click.stop="addToPool(l)">{{ inPool(l.code) ? '已+' : '＋自选' }}</button>
+              <button class="pool-add-btn" :class="{ added: inPool(l.code) }" @click.stop="addToPool(l)">{{ inPool(l.code) ? '已＋' : '＋自选' }}</button>
             </td>
           </tr>
         </tbody>

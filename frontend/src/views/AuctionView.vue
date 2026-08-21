@@ -61,7 +61,7 @@
             <td v-if="tab !== 'boom'"><span v-if="it.limitBoards > 0" class="lb-badge">{{ it.limitBoards }}板</span><span v-else class="dim">-</span></td>
             <td class="dim">{{ fmtMv(it.floatMv) }}</td>
             <td class="concept-cell dim" :title="it.board"><span v-if="it.board" style="white-space:pre-line;">{{ conceptText(it.board) }}</span><span v-else class="dim">-</span></td>
-            <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已+' : '＋自选' }}</button></td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已＋' : '＋自选' }}</button></td>
           </tr>
         </tbody>
       </table>
@@ -108,7 +108,7 @@
             <td class="real-chg-col" :class="realChgCls(it)">{{ realChg(it) }}</td>
             <td class="dim">{{ mvText(it) }}</td>
             <td class="concept-cell" :title="it.board"><span v-if="it.board" style="white-space:pre-line;">{{ conceptText(it.board) }}</span><span v-else class="dim">-</span></td>
-            <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已+' : '＋自选' }}</button></td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已＋' : '＋自选' }}</button></td>
           </tr>
           <tr v-if="!s3List.length">
             <td colspan="10" class="snap-empty">该日期暂无封单榜单（可能：今日无涨停/数据采集中/非交易日）；下个交易日 9:15/9:20/9:25 采集后生效</td>
@@ -155,7 +155,7 @@
                 <td class="dim">{{ q.bidTurnover ? q.bidTurnover + '%' : '-' }}</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
                 <td class="concept-cell dim qc-board" :title="q.board"><span v-if="q.board" style="white-space:pre-line;">{{ conceptText(q.board) }}</span><span v-else class="dim">-</span></td>
-                <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已+' : '＋自选' }}</button></td>
+                <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已＋' : '＋自选' }}</button></td>
               </tr>
               <tr v-if="(qc20Mode === 'amt' ? qcList : qcChgList).length === 0">
                 <td colspan="10" class="snap-empty">{{ qc20Mode === 'amt' ? '9:20-9:25 竞额抢筹数据 9:15-9:30 竞价时段可用' : '9:20-9:25 涨幅抢筹数据 9:20/9:25 快照采集后可用' }}</td>
@@ -193,7 +193,7 @@
                 <td class="dim">{{ q.bidTurnover ? q.bidTurnover + '%' : '-' }}</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
                 <td class="concept-cell dim qc-board" :title="q.board"><span v-if="q.board" style="white-space:pre-line;">{{ conceptText(q.board) }}</span><span v-else class="dim">-</span></td>
-                <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已+' : '＋自选' }}</button></td>
+                <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已＋' : '＋自选' }}</button></td>
               </tr>
               <tr v-if="!qcLastList.length">
                 <td colspan="10" class="snap-empty">最后一秒数据 9:25 后可用（9:24 时点采集后）</td>
@@ -233,7 +233,7 @@
             <td>{{ z.bidAmt ? amtText(z.bidAmt) : '-' }}</td>
             <td class="reason-cell" @click="showReason(z)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
             <td class="concept-cell dim" :title="z.board"><span v-if="z.board" style="white-space:pre-line;">{{ conceptText(z.board) }}</span><span v-else class="dim">-</span></td>
-            <td><button class="pool-add-btn" :class="{ added: inPool(z.code) }" @click.stop="addToPool(z)">{{ inPool(z.code) ? '已+' : '＋自选' }}</button></td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(z.code) }" @click.stop="addToPool(z)">{{ inPool(z.code) ? '已＋' : '＋自选' }}</button></td>
           </tr>
         </tbody>
       </table>
@@ -267,7 +267,7 @@
             <td class="dim">{{ fmtMv(b2.floatMv) }}</td>
             <td class="reason-cell" @click="showReason(b2)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
             <td class="concept-cell dim" :title="b2.board"><span v-if="b2.board" style="white-space:pre-line;">{{ conceptText(b2.board) }}</span><span v-else class="dim">-</span></td>
-            <td><button class="pool-add-btn" :class="{ added: inPool(b2.code) }" @click.stop="addToPool(b2)">{{ inPool(b2.code) ? '已+' : '＋自选' }}</button></td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(b2.code) }" @click.stop="addToPool(b2)">{{ inPool(b2.code) ? '已＋' : '＋自选' }}</button></td>
           </tr>
         </tbody>
       </table>
@@ -302,7 +302,7 @@
             <td>{{ l.turnover.toFixed(2) }}</td>
             <td class="reason-cell" @click="showReason(l)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
             <td class="concept-cell dim" :title="l.board"><span v-if="l.board" style="white-space:pre-line;">{{ conceptText(l.board) }}</span><span v-else class="dim">-</span></td>
-            <td><button class="pool-add-btn" :class="{ added: inPool(l.code) }" @click.stop="addToPool(l)">{{ inPool(l.code) ? '已+' : '＋自选' }}</button></td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(l.code) }" @click.stop="addToPool(l)">{{ inPool(l.code) ? '已＋' : '＋自选' }}</button></td>
           </tr>
         </tbody>
       </table>
@@ -339,7 +339,7 @@
             <td v-if="tab === 'brokenToday'" class="dim">{{ fmtT(b.firstLimitUp) }}</td>
             <td class="reason-cell" @click="showReason(b)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
             <td class="concept-cell dim" :title="b.board"><span v-if="b.board" style="white-space:pre-line;">{{ conceptText(b.board) }}</span><span v-else class="dim">-</span></td>
-            <td><button class="pool-add-btn" :class="{ added: inPool(b.code) }" @click.stop="addToPool(b)">{{ inPool(b.code) ? '已+' : '＋自选' }}</button></td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(b.code) }" @click.stop="addToPool(b)">{{ inPool(b.code) ? '已＋' : '＋自选' }}</button></td>
           </tr>
         </tbody>
       </table>
