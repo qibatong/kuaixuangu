@@ -1026,10 +1026,87 @@ def _fetch_chart_from_tushare(code, period="day"):
         return {}
 
 
+def _remove_incomplete_period(data, period):
+    """过滤未完成的周K/月K周期数据
+    
+    周K: 移除当前正在进行的周(该周还没结束)
+    月K: 移除当前正在进行的月(该月还没结束)
+    
+    Returns: 过滤后的data dict (如果数据不足则返回空dict)
+    """
+    if not data or period not in ("week", "month"):
+        return data
+    
+    times = data.get("time") or []
+    if not times:
+        return data
+    
+    from datetime import datetime, timedelta, date
+    
+    today = date.today()
+    # 如果今天是周末，使用最近的周五
+    if today.weekday() >= 5:  # 周六=5, 周日=6
+        days_to_friday = today.weekday() - 4
+        today = today - timedelta(days=days_to_friday)
+    
+    filtered_indices = []
+    removed_count = 0
+    
+    for i, time_str in enumerate(times):
+        try:
+            dt = datetime.strptime(time_str, "%Y-%m-%d").date()  # 转为date对象
+            
+            if period == "week":
+                # 周K: 检查是否是当前正在进行的周
+                # 计算该日期所在周的周一
+                week_start = dt - timedelta(days=dt.weekday())
+                # 计算当前周的周一
+                current_week_start = today - timedelta(days=today.weekday())
+                if week_start == current_week_start:
+                    removed_count += 1
+                    continue
+            
+            elif period == "month":
+                # 月K: 检查是否是当前正在进行的月
+                if dt.year == today.year and dt.month == today.month:
+                    removed_count += 1
+                    continue
+            
+            filtered_indices.append(i)
+        except (ValueError, TypeError):
+            filtered_indices.append(i)
+    
+    if removed_count > 0:
+        log.info("过滤未完成周期: period=%s removed=%d条 保留=%d条",
+                 period, removed_count, len(filtered_indices))
+        
+        if not filtered_indices:
+            return {}
+        
+        # 根据过滤后的索引重建数据
+        for key in data:
+            if key in ("period", "code", "preClose", "name"):
+                continue
+            if isinstance(data[key], list):
+                data[key] = [data[key][i] for i in filtered_indices]
+    
+    return data
+
+
 def _validate_chart_data(data, period, source=None):
-    """验证图表数据合理性, 过滤异常数据(如同花顺累积前复权价)"""
+    """验证图表数据合理性, 过滤异常数据(如同花顺累积前复权价)
+    
+    对于周K/月K，会先调用 _remove_incomplete_period 过滤未完成的周期
+    """
     if not data:
         return False
+    
+    # 对于周K/月K，先过滤未完成的周期
+    if period in ("week", "month"):
+        data = _remove_incomplete_period(data, period)
+        if not data or not data.get("time"):
+            return False
+    
     if period == "minute":
         prices = data.get("price") or []
         if not prices:
@@ -1230,11 +1307,15 @@ def fetch_stock_chart_robust(code, period="day"):
             log.info("chart[robust]主源失败, 尝试日线聚合 code=%s period=%s", code, period)
             d = _aggregate_kpl_daily_to_period(code, period)
             if d:
-                with _CHART_LOCK:
-                    _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
-                log.info("chart[robust]源=aggregate code=%s period=%s 耗时%.0fms",
-                         code, period, (time.time() - t0) * 1000)
-                return d
+                # 验证并过滤未完成的周期
+                if _validate_chart_data(d, period, source="aggregate"):
+                    with _CHART_LOCK:
+                        _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
+                    log.info("chart[robust]源=aggregate code=%s period=%s 耗时%.0fms",
+                             code, period, (time.time() - t0) * 1000)
+                    return d
+                else:
+                    log.warning("chart[robust]聚合数据验证失败 code=%s period=%s", code, period)
         except Exception as e:
             log.warning("chart[robust]聚合失败 code=%s err=%s", code, e)
     log.error("chart[robust]全部数据源失败 code=%s period=%s", code, period)
