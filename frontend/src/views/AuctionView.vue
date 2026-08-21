@@ -1119,7 +1119,8 @@ body[data-bg="light"] .reason-board-txt { background: rgba(184,48,16,0.04); }
   /* S3 封单榜超窄屏: 名字列更窄, 三时点列压到 44px */
   .s3-table th:nth-of-type(1) { width: 72px !important; }
   .s3-table th.tp-th, .s3-table td.tp-th-15, .s3-table td.tp-th-20, .s3-table td.tp-th-25 { width: 48px !important; font-size: 11px; }
-  .s3-table th.board-col { width: 58px !important; }
+  .s3-table th.board-col { width: 90px !important; white-space: pre-line; }
+  .s3-table td.concept-cell { width: 90px; max-width: 90px; white-space: pre-line; }
   /* 操作按钮触控加大(可点区域 ≥40px) */
   .pool-add-btn { padding: 5px 10px; font-size: 12px; min-height: 28px; }
   /* 三时点提示条 */
@@ -1138,17 +1139,21 @@ body[data-bg="light"] .reason-board-txt { background: rgba(184,48,16,0.04); }
   .stock-info-cell { min-width: 68px; }
   .stock-info-cell .stock-name { font-size: 12px !important; }
   .stock-info-cell .stock-code { font-size: 10px !important; letter-spacing: 0; }
-  /* 竞价封单/爆量/净额表格: 概念列缩小到 56px, 允许截断省略号 */
+  /* 竞价封单/爆量/净额等其它 tab 表格: 概念列按概念换行显示, 不拆字, 宽度 90px 与 qc 表一致
+     各概念用 \n 分隔, 配合 white-space:pre-line 每概念独占一行, 单个概念内不拆字 */
   .auc-panel .stock-table th:nth-of-type(8),
+  .auc-panel .stock-table td:nth-of-type(8),
   .auc-panel .lhb-table th:nth-of-type(8),
-  .auc-panel .broken-table th:nth-of-type(7),
-  .auc-panel .broken-table th:nth-of-type(8),
-  .auc-panel .broken-table th:nth-of-type(9) {
-    width: 56px !important;
-    max-width: 56px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .auc-panel .lhb-table td:nth-of-type(8),
+  .auc-panel .broken-yest th:nth-of-type(7),
+  .auc-panel .broken-yest td:nth-of-type(7),
+  .auc-panel .broken-today th:nth-of-type(8),
+  .auc-panel .broken-today td:nth-of-type(8),
+  .auc-panel .broken-today th:nth-of-type(9),
+  .auc-panel .broken-today td:nth-of-type(9) {
+    width: 90px !important;
+    max-width: 90px;
+    white-space: pre-line;
   }
 }
 /* 超小屏(< 480px, 如 iPhone SE 1/2/3 375px): 再压一级字号/留白 */
