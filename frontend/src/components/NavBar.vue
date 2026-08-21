@@ -13,9 +13,6 @@
       <router-link to="/" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-home"></i> 选股
       </router-link>
-      <router-link to="/auction" exact-active-class="router-link-active" class="nav-item">
-        <i class="fa fa-bullhorn"></i> 竞价异动
-      </router-link>
       <router-link to="/market" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-radar"></i> 市场雷达
       </router-link>
