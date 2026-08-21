@@ -19,7 +19,7 @@
           <span v-if="idx < 3" class="pool-medal">{{ ['🥇', '🥈', '🥉'][idx] }}</span>
           <span v-else class="pool-rank">{{ idx + 1 }}</span>
           <div class="pool-item-info">
-            <div class="pool-stock-code code-click" @click="emit('open-chart', item.code, item.name)">{{ item.code }}</div>
+            <div class="pool-stock-code code-click" :data-stock-code="item.code" :data-stock-name="item.name" @click="emit('open-chart', item.code, item.name)">{{ item.code }}</div>
             <div class="pool-stock-name">{{ item.name }}</div>
           </div>
         </div>

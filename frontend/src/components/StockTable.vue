@@ -27,9 +27,9 @@
       <tbody>
         <tr v-for="(item, idx) in sortedStocks" :key="item.code">
           <td class="rank-col">{{ idx + 1 }}</td>
-          <td class="code-click" @click="emit('open-chart', item.code, item.name)">{{ item.code }}</td>
-          <td class="name-col" @click="emit('open-chart', item.code, item.name)">
-            <div class="name-main">{{ item.name }}</div>
+          <td class="code-click" :data-stock-code="item.code" :data-stock-name="item.name" @click="emit('open-chart', item.code, item.name)">{{ item.code }}</td>
+          <td class="name-col stock-info-cell" :data-stock-code="item.code" :data-stock-name="item.name" @click="emit('open-chart', item.code, item.name)">
+            <div class="name-main stock-name">{{ item.name }}</div>
             <div v-if="ladderLabel(item.code)" class="ladder-tag" :title="sealTitle(item.code)">{{ ladderLabel(item.code) }}</div>
           </td>
           <td :class="item.realChange === null || item.realChange === undefined ? 'dim' : realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + fmtPct(item._staleReal) + '）') : ''">{{ item.realChange === null || item.realChange === undefined ? '-' : signed(item.realChange) + '%' }}</td>

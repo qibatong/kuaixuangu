@@ -43,7 +43,7 @@
         <MedalPanel v-if="stocks.mode === 'auction'" :stocks="stocks.cachedStocks" />
 
         <!-- 自选股票池 -->
-        <StockPoolPanel v-if="stocks.mode === 'spot'" />
+        <StockPoolPanel v-if="stocks.mode === 'spot'" @open-chart="showChart" />
 
         <!-- 主表: 按模式显示 -->
         <template v-if="stocks.mode === 'spot'">
