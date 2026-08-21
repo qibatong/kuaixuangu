@@ -13,17 +13,17 @@
       <router-link to="/" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-home"></i> 选股
       </router-link>
-      <router-link to="/market" exact-active-class="router-link-active" class="nav-item">
-        <i class="fa fa-radar"></i> 市场雷达
-      </router-link>
       <router-link to="/pool" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-database"></i> 自选
       </router-link>
-      <router-link to="/ladder" exact-active-class="router-link-active" class="nav-item">
-        <i class="fa fa-sitemap"></i> 连板天梯
-      </router-link>
       <router-link to="/history" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-history"></i> 历史回看
+      </router-link>
+      <router-link to="/market" exact-active-class="router-link-active" class="nav-item">
+        <i class="fa fa-radar"></i> 市场雷达
+      </router-link>
+      <router-link to="/ladder" exact-active-class="router-link-active" class="nav-item">
+        <i class="fa fa-sitemap"></i> 连板天梯
       </router-link>
       <router-link to="/invite" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-share-alt"></i> 邀请
