@@ -972,8 +972,9 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 /* 2026-08-20 所有表格单元格居中对齐 */
 .s3-table th, .s3-table td,
 .auction-table th, .auction-table td { text-align: center; vertical-align: middle; }
-/* 2026-08-20 概念列: 纯文本无任何样式, 列宽极小 */
-.concept-cell { width: 64px; max-width: 80px; white-space: normal; line-height: 1.3; font-size: 12px; color: var(--text-secondary); padding: 4px 2px; }
+/* 2026-08-20 概念列: 纯文本无任何样式, 列宽极小
+   2026-08-21: 改为 pre-line 按概念换行, 不限制最大宽度让概念正常显示 */
+.concept-cell { width: 90px; min-width: 90px; white-space: pre-line; line-height: 1.3; font-size: 12px; color: var(--text-secondary); padding: 4px 2px; }
 .s3-table th.tp-th { text-align: center; font-weight: 600; }
 .s3-table th.tp-th-15 { color: #5fb4ff; border-bottom: 2px solid rgba(95, 180, 255, 0.35); }
 .s3-table th.tp-th-20 { color: #ffb400; border-bottom: 2px solid rgba(255, 180, 0, 0.35); }
