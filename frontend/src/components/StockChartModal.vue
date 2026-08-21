@@ -487,7 +487,7 @@ onUnmounted(() => {
   background: var(--bg-panel-solid, #111827);
 }
 .chart-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.stock-name { font-size: 17px; font-weight: 700; color: var(--text-primary, #f3f4f6); }
+.stock-name { font-size: 17px; font-weight: 700; color: var(--text-main, #f3f4f6); }
 .stock-code { font-size: 13px; color: var(--text-secondary, #9ca3af); font-family: Menlo, monospace; }
 .stock-pre-close { font-size: 12px; color: var(--text-muted, #6b7280); }
 .chart-actions { display: flex; gap: 6px; }
