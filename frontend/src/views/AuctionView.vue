@@ -927,7 +927,7 @@ onMounted(() => {
   .qc-panel .stock-table th, .qc-panel .stock-table td { padding: 3px 3px; font-size: 11px; }
   /* 概念列: 加宽到 150px, 每概念独占一行(pre-line)且不拆字 */
   .qc-panel .stock-table th:nth-child(9),
-  .qc-panel .stock-table td:nth-child(9) { min-width: 150px; max-width: 150px; white-space: pre-line; }
+  .qc-panel .stock-table td:nth-child(9) { min-width: 110px; max-width: 110px; white-space: pre-line; }
 }
 .loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
 .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
