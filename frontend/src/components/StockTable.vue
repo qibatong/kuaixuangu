@@ -59,7 +59,9 @@
           <td class="score-cell" :title="factorTitle(item)">{{ item.probability }}分</td>
           <td>{{ item.confidence }}%</td>
           <td class="concept-cell" :title="'概念: ' + (item.concept || '')">
-            <span v-if="item.concept">{{ shortConcept(item.concept) }}</span>
+            <template v-if="item.concept">
+              <span v-for="(c, i) in conceptList(item.concept)" :key="i" class="concept-item">{{ c }}</span>
+            </template>
             <span v-else>-</span>
           </td>
           <td><button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click.stop="addToPool(item)">{{ inPool(item.code) ? '已加自选' : '＋自选' }}</button></td>
@@ -138,12 +140,10 @@ function columnType(key) {
 
 function signed(v) { return (v > 0 ? '+' : '') + v.toFixed(2) }
 
-// 概念只显示前 2 个, 用空格连接(生产机对齐: 配合 concept-cell 的 white-space:normal,
-// 概念较长时自然换行, 而非顿号拼接; 完整概念放 title hover)
-function shortConcept(c) {
-  if (!c) return '-'
-  const parts = String(c).split(/[、,，]/).map(s => s.trim()).filter(Boolean)
-  return parts.slice(0, 2).join(' ')
+// 概念最多显示前 2 个, 每个概念独立一行(换行显示, 而非顿号/空格拼接; 完整概念放 title hover)
+function conceptList(c) {
+  if (!c) return []
+  return String(c).split(/[、,，]/).map(s => s.trim()).filter(Boolean).slice(0, 2)
 }
 
 // 涨跌百分比显示(兼容 null/undefined, 用于 tooltip 的锁定时刻值)
@@ -229,6 +229,10 @@ function ratioText(br) {
   font-size: 11.5px;
   color: var(--text-secondary);
   padding: 4px 2px !important;
+}
+.concept-cell .concept-item {
+  display: block;
+  line-height: 1.4;
 }
 .stock-table-compact .qc-badge,
 .stock-table-compact .qc-pending {
