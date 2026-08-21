@@ -178,6 +178,18 @@ function pctArr(arr, base) {
   return arr.map(v => (v == null || v === '' ? null : +((v - base) / base * 100).toFixed(2)))
 }
 
+// 简单移动平均线: 返回与原序列等长数组, 不足 n 的前 n-1 个位置置 null(不连线)
+function ma(arr, n) {
+  const out = []
+  for (let i = 0; i < arr.length; i++) {
+    if (i < n - 1) { out.push(null); continue }
+    let s = 0
+    for (let j = i - n + 1; j <= i; j++) s += arr[j] || 0
+    out.push(+(s / n).toFixed(2))
+  }
+  return out
+}
+
 function renderChart() {
   if (!chartData.value) return
   ensureChart()
@@ -322,11 +334,15 @@ function optionCandle(d) {
         const v = vols[idx], am = amounts[idx]
         const chg = base && o ? +((c - base) / base * 100).toFixed(2) : null
         const color = chg >= 0 ? '#ef4444' : '#22c55e'
+        // 追加均线值(MA5/10/20/30/60, 同为 line 系列)
+        const maLine = (params || []).filter(p => p.seriesType === 'line' && /^MA\d+$/.test(p.seriesName))
+          .map(p => `${p.seriesName}: <span style="color:${p.color || '#ccc'}">${p.value == null ? '-' : +Number(p.value).toFixed(2)}</span>`)
+          .join('&nbsp;&nbsp;')
         return `
           <b>${tm}</b><br/>
           开: <b>${fmtNum(o)}</b> 收: <b style="color:${color}">${fmtNum(c)}</b> ${chg != null ? `<span style="color:${color}">${chg >= 0 ? '+' : ''}${chg}%</span>` : ''}<br/>
           高: ${fmtNum(h)} 低: ${fmtNum(l)}<br/>
-          量: ${fmtVol(v)}${am != null ? `<br/>额: ${fmtVol(am)}` : ''}
+          量: ${fmtVol(v)}${am != null ? `<br/>额: ${fmtVol(am)}` : ''}${maLine ? `<br/>${maLine}` : ''}
         `
       }
     },
@@ -386,6 +402,22 @@ function optionCandle(d) {
           borderColor: '#ef4444', borderColor0: '#22c55e',
         }
       },
+      // 均线 MA5/10/20/30/60 (基于收盘价)
+      { name: 'MA5', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: ma(closes, 5),
+        showSymbol: false, symbol: 'none', smooth: true, z: 5,
+        lineStyle: { width: 1.2, color: '#f6c85f' } },
+      { name: 'MA10', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: ma(closes, 10),
+        showSymbol: false, symbol: 'none', smooth: true, z: 5,
+        lineStyle: { width: 1.2, color: '#3ba0ff' } },
+      { name: 'MA20', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: ma(closes, 20),
+        showSymbol: false, symbol: 'none', smooth: true, z: 5,
+        lineStyle: { width: 1.2, color: '#d974ff' } },
+      { name: 'MA30', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: ma(closes, 30),
+        showSymbol: false, symbol: 'none', smooth: true, z: 5,
+        lineStyle: { width: 1.2, color: '#4de07d' } },
+      { name: 'MA60', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: ma(closes, 60),
+        showSymbol: false, symbol: 'none', smooth: true, z: 5,
+        lineStyle: { width: 1.2, color: '#ff8d5a' } },
       { name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: volData,
         barWidth: '60%' },
     ]
