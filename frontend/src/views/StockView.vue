@@ -295,16 +295,16 @@ onBeforeUnmount(() => {
 .home-col-left .filter-apply { padding: 3px 8px; font-size: 11px; }
 .home-col-left .filter-reset,
 .home-col-left .filter-lock { padding: 3px 7px; font-size: 11px; }
-/* 左栏奖牌区紧凑 */
+/* 左栏奖牌区紧凑 (奖牌内容在子组件 MedalPanel 内, 需 :deep 才能命中) */
 .home-col-left .medal-section { padding: 5px; margin: 4px 0; gap: 8px; border-radius: 8px; }
-.home-col-left .medal-card { padding: 8px 4px; gap: 4px; border-radius: 10px; }
-.home-col-left .medal-rank { font-size: 12px; }
-.home-col-left .medal-name-big { font-size: 13px; }
-.home-col-left .medal-code { font-size: 11px; }
-.home-col-left .medal-real-big { font-size: 30px; margin: 0; }
-.home-col-left .medal-bid-sm { font-size: 12px; }
-.home-col-left .medal-score-row { font-size: 12px; gap: 5px; }
-.home-col-left .qc-badge { font-size: 11px; margin-left: 4px; }
+.home-col-left :deep(.medal-card) { padding: 6px 4px; gap: 3px; border-radius: 8px; }
+.home-col-left :deep(.medal-rank) { font-size: 11px; }
+.home-col-left :deep(.medal-name-big) { font-size: 12px; }
+.home-col-left :deep(.medal-code) { font-size: 10px; }
+.home-col-left :deep(.medal-real-big) { font-size: 26px; margin: 0; }
+.home-col-left :deep(.medal-bid-sm) { font-size: 11px; }
+.home-col-left :deep(.medal-score-row) { font-size: 11px; gap: 4px; }
+.home-col-left :deep(.qc-badge) { font-size: 10px; top: 2px; right: 2px; }
 @media (max-width: 1099px) {
   .alert-rule.alert-rule-compact { flex-wrap: wrap; gap: 6px; }
 }
