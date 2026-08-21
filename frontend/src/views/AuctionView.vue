@@ -925,9 +925,9 @@ onMounted(() => {
   .qc-mode-switch button { padding: 4px 12px; font-size: 12px; }
   .qc-panel .stock-table { min-width: 760px; white-space: nowrap; }
   .qc-panel .stock-table th, .qc-panel .stock-table td { padding: 3px 3px; font-size: 11px; }
-  /* 概念列单行省略, 避免霸退/一字一行 */
+  /* 概念列: 多个概念换行显示(参考其它 tab 的 pre-line), 不做一字一行拆字 */
   .qc-panel .stock-table th:nth-child(9),
-  .qc-panel .stock-table td:nth-child(9) { max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .qc-panel .stock-table td:nth-child(9) { white-space: normal; overflow: hidden; text-overflow: ellipsis; }
 }
 .loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
 .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
