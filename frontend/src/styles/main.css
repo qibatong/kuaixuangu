@@ -242,6 +242,19 @@ html, body, #app {
   }
   .home-col-hidden { display: block; }
   .home-mob-toggle { display: none; }
+  /* 左视图滚动时筛选框固定在列顶部 */
+  .home-col-left .home-filter {
+    position: sticky;
+    top: 0;
+    z-index: 9;
+    background: var(--bg-panel-solid);
+  }
+  /* 右视图滚动时 Tab 列表固定在列顶部 (整列 sticky 保持 top, 内部相对列滚动视口固定) */
+  .home-col-right .auc-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 9;
+  }
 }
 /* 特殊: 表格 / 竞价异动 10 个 Tab 自己保留横滚条(不受 global overflow 禁影响,
    因为它们是独立 overflow-x:auto 容器) —— 这里明确不覆盖它们的 overflow-x.
