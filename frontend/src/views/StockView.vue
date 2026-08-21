@@ -67,18 +67,26 @@
       <div v-if="!stocks.isSpotCached" class="stock-table-container">
         <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
       </div>
-      <StockTable v-else :stocks="stocks.spotStocks" mode="spot" :bid-seal-map="bidSealMap" />
+      <StockTable v-else :stocks="stocks.spotStocks" mode="spot" :bid-seal-map="bidSealMap" @open-chart="showChart" />
     </template>
     <template v-else>
       <div v-if="!stocks.isDataCached" class="stock-table-container">
         <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
       </div>
-      <StockTable v-else :stocks="stocks.cachedStocks" mode="auction" :bid-seal-map="bidSealMap" />
+      <StockTable v-else :stocks="stocks.cachedStocks" mode="auction" :bid-seal-map="bidSealMap" @open-chart="showChart" />
     </template>
 
     <!-- 主表上下不再放下载按钮(顶部「下载自选股(自动导入)」已覆盖, 此处避免重复) -->
 
     </template>
+
+    <!-- 股票图表弹窗(分时/日K/周K/月K) -->
+    <StockChartModal
+      v-if="chartCode"
+      v-model:visible="chartVisible"
+      :code="chartCode"
+      :name="chartName"
+    />
   </div>
 </template>
 
@@ -89,6 +97,7 @@ import SentimentPanel from '../components/SentimentPanel.vue'
 import MedalPanel from '../components/MedalPanel.vue'
 import StockPoolPanel from '../components/StockPoolPanel.vue'
 import StockTable from '../components/StockTable.vue'
+import StockChartModal from '../components/StockChartModal.vue'
 import VipGate from '../components/VipGate.vue'
 import { useStocksStore } from '../stores/stocks'
 import { usePoolStore } from '../stores/pool'
@@ -103,6 +112,21 @@ const pool = usePoolStore()
 const user = useUserStore()
 const bjTime = ref('--:--:--')
 const bidSealMap = ref({})        // 竞价涨停委买额 map: code -> {limitBoards, bidSealAmt, bidNetAmt}
+
+// 图表弹窗控制
+const chartVisible = ref(false)
+const chartCode = ref('')
+const chartName = ref('')
+
+function showChart(code, name) {
+  chartCode.value = code
+  chartName.value = name
+  chartVisible.value = true
+}
+
+function closeChart() {
+  chartVisible.value = false
+}
 
 async function loadBidSeal() {
   try {

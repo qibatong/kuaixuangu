@@ -27,8 +27,8 @@
       <tbody>
         <tr v-for="(item, idx) in sortedStocks" :key="item.code">
           <td class="rank-col">{{ idx + 1 }}</td>
-          <td class="code-click" @click="linkToSoftware(item.code)">{{ item.code }}</td>
-          <td class="name-col">
+          <td class="code-click" @click="emit('open-chart', item.code, item.name)">{{ item.code }}</td>
+          <td class="name-col" @click="emit('open-chart', item.code, item.name)">
             <div class="name-main">{{ item.name }}</div>
             <div v-if="ladderLabel(item.code)" class="ladder-tag" :title="sealTitle(item.code)">{{ ladderLabel(item.code) }}</div>
           </td>
@@ -69,6 +69,8 @@ const props = defineProps({
   mode: { type: String, default: 'auction' },
   bidSealMap: { type: Object, default: () => ({}) }  // code -> {limitBoards, bidSealAmt, bidNetAmt}
 })
+
+const emit = defineEmits(['open-chart'])
 
 // 是否处于竞价时段(9:30 前): 非竞价时段不判定抢筹, 显示"竞价时"
 const isAuction = isBefore930()
