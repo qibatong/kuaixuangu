@@ -122,7 +122,8 @@ def _fetch_clist_page(fs, page, fid="f3"):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "Referer": "https://quote.eastmoney.com/",
     })
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    # 服务器缺 CA 证书 → clash 校验失败; 用 unverified context(保留TLS加密), 否则竞价全市场快照全挂
+    with urllib.request.urlopen(req, timeout=10, context=_NO_VERIFY_CTX) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     if data.get("rc") != 0 or not data.get("data", {}).get("diff"):
         raise RuntimeError("东方财富接口返回异常")
@@ -549,7 +550,7 @@ def fetch_zt_pool(date=None):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
             "Referer": "https://quote.eastmoney.com/",
         })
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10, context=_NO_VERIFY_CTX) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         pool = (data.get("data") or {}).get("pool") or []
         out = {}
