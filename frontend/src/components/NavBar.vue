@@ -16,6 +16,9 @@
       <router-link to="/market" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-radar"></i> 市场雷达
       </router-link>
+      <router-link to="/pool" exact-active-class="router-link-active" class="nav-item">
+        <i class="fa fa-database"></i> 自选
+      </router-link>
       <router-link to="/ladder" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-sitemap"></i> 连板天梯
       </router-link>
