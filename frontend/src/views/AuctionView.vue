@@ -1141,6 +1141,12 @@ body[data-bg="light"] .reason-board-txt { background: rgba(184,48,16,0.04); }
   .stock-info-cell .stock-code { font-size: 10px !important; letter-spacing: 0; }
   /* 竞价封单/爆量/净额等其它 tab 表格: 概念列按概念换行显示, 不拆字, 宽度 90px 与 qc 表一致
      各概念用 \n 分隔, 配合 white-space:pre-line 每概念独占一行, 单个概念内不拆字 */
+  .auc-panel .concept-cell,
+  .qc-panel .concept-cell {
+    width: 90px !important;
+    max-width: 90px !important;
+    white-space: pre-line;
+  }
   .auc-panel .stock-table th:nth-of-type(8),
   .auc-panel .stock-table td:nth-of-type(8),
   .auc-panel .lhb-table th:nth-of-type(8),
