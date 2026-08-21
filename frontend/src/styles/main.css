@@ -581,7 +581,7 @@ text-align: center; outline: none; font-family: monospace; transition: border-co
 .stock-table { width: 100%; border-collapse: collapse; text-align: center; min-width: 0; }
 .stock-table thead { background: rgba(var(--accent-rgb), 0.15); border-bottom: 2px solid var(--accent-deep); }
 .stock-table th { padding: 7px 2px; font-weight: 600; color: var(--accent-text); font-size: 11.5px; white-space: nowrap; }
-.stock-table td { padding: 5px 2px; border-bottom: 1px solid rgba(var(--accent-rgb), 0.1); font-size: 11.5px; }
+.stock-table td { padding: 5px 2px; border-bottom: 1px solid rgba(var(--accent-rgb), 0.1); font-size: 11.5px; vertical-align: middle; }
 .stock-table tbody tr:hover { background: rgba(var(--accent-rgb), 0.05); }
 .rank-col { font-weight: bold; color: var(--accent-deep); }
 .up { color: #ff8a6f; } .down { color: #00c864; } .real-green { color: #00c864 !important; }

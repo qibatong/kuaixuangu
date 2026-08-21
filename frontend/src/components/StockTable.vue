@@ -233,6 +233,10 @@ function ratioText(br) {
 .concept-cell .concept-item {
   display: block;
   line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 .stock-table-compact .qc-badge,
 .stock-table-compact .qc-pending {
