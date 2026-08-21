@@ -707,9 +707,12 @@ def _fetch_minute_trend(code):
                     if " " in ts:
                         ts = ts.split(" ", 1)[1]
                     times.append(ts)
-                    prices.append(float(parts[2]))
+                    # 东财 trends2 行格式: time, 价格, 成交量(手), 均价(成交额/量), 成交额(元)
+                    # 之前 price/volume 数组索引写反导致: 价格序列塞的是成交量, 成交量塞的是价格
+                    # → 高成交量票价格序列>10万手 触发校验拒绝("无分时图"), 且低量票图也画错
+                    prices.append(float(parts[1]))
                     avgs.append(float(parts[3]) if parts[3] else None)
-                    volumes.append(float(parts[1]))
+                    volumes.append(float(parts[2]))
                 except (TypeError, ValueError):
                     continue
             result = {

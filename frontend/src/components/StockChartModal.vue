@@ -27,11 +27,14 @@
         </div>
 
         <div class="chart-body">
+          <!-- 画布容器必须常驻, 不能随 loading 被 v-if 卸载:
+               否则切 分时/日K/周K/月K 时容器摘掉再重建, 而 ECharts 实例仍绑在旧(已脱离)节点上,
+               导致各周期切出来都是空白(无 canvas 子节点)。loading/empty 改为绝对定位浮在画布上。 -->
+          <div ref="chartRef" class="chart-canvas"></div>
           <div v-if="loading" class="chart-loading"><i class="fa fa-spinner fa-spin"></i> 加载中…</div>
           <div v-else-if="!hasData" class="chart-empty">
             <i class="fa fa-bar-chart"></i> {{ errorMsg || '暂无数据' }}
           </div>
-          <div v-else ref="chartRef" class="chart-canvas"></div>
         </div>
       </div>
     </div>
@@ -137,13 +140,16 @@ async function fetchData() {
     chartData.value = r
     if (r.preClose) preClose.value = Number(r.preClose) || 0
     if (r.name) stockName.value = r.name
-    await nextTick()
-    renderChart()
   } catch (e) {
     errorMsg.value = (e && e.message) || '请求异常'
     chartData.value = null
   } finally {
+    // 先把 loading 置 false → 模板切回 canvas(v-else ref=chartRef) → 再渲染
+    // (不能在上面的 try 里、loading 仍为 true 时调 renderChart: 那时 chartRef 为 null,
+    //  ensureChart 直接 return, 导致 分时/日K/周K/月K 全都画不出来)
     loading.value = false
+    await nextTick()
+    if (chartData.value && !errorMsg.value) renderChart()
   }
 }
 
