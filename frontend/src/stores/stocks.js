@@ -151,8 +151,12 @@ export const useStocksStore = defineStore('stocks', {
         if (Array.isArray(snap) && snap.length) locked = snap   // 新格式完整名单
       }
       if (!Array.isArray(locked) || !locked.length) {
-        // 无锁定名单(9:30 后首次打开且当天未 lock) → 实时名单(标 snapshot)
-        return this.applyBidSnapshot(spotList || [])
+        // 无任何锁定名单(自动应用失败 / 新号 / 过期等)且已过 9:30:
+        // 首次结果冻结为当日快照, 之后刷新页面只更新实时行情、不再换名单,
+        // 避免每次打开列表都随实时名单漂移(满足"9:30 后名单固定, 重选需等次日")。
+        const first = spotList || []
+        this.saveBidSnapshot(first)
+        return first
       }
       const listMap = {}
       ;(spotList || []).forEach((s) => { listMap[s.code] = s })
@@ -201,11 +205,15 @@ export const useStocksStore = defineStore('stocks', {
       const d = await listBatches()
       const batches = d.batches || []
       const today = bjDateStr()
-      // 2026-08-18 主人需求: 9:26 自动应用后所有用户看到同一份结果 —
-      // 优先取今天 auto_applied=1 的系统统一批次(9:26 统一标准筛选, 全用户一致),
-      // 无则回退用户当天自己 action=lock 的批次(9:26 前或自动应用未执行)
+      // 优先级: 用户当天手动锁定批次 > 9:26 系统统一批次
+      // 2026-08-18: 9:26 自动应用后所有人看到同一份统一结果(auto_applied 兜底)
+      // 2026-08-22 主人需求: 9:30 后刷新页面必须保留用户当天**手动锁定**名单,
+      // 不被统一批次覆盖(名单固定, 符合"9:30 后仅更新实时行情、不重选")。
+      // 故手动 lock 批次优先; 仅当日未手动锁定时才用统一批次保证一致性。
+      const userLock = batches.find((x) => x.action === 'lock' && x.batch_date === today && !x.auto_applied)
       const autoB = batches.find((x) => x.auto_applied && x.batch_date === today)
-      const b = autoB || batches.find((x) => x.action === 'lock' && x.batch_date === today)
+      const isAuto = !userLock && !!autoB
+      const b = userLock || autoB
       if (!b) return []
       const detail = await listBatches(b.id)
       const stocks = (detail.stocks || []).map((s) => ({
@@ -217,29 +225,11 @@ export const useStocksStore = defineStore('stocks', {
         circulationMV: s.circulation_mv, industry: s.industry,
         concept: s.concept, rank: s.rank
       }))
-      // 标记是否系统统一批次(9:26 自动应用): 统一批次不随用户筛选条件过滤, 保证全用户一致
-      stocks.autoApplied = !!autoB
+      // 标记是否系统统一批次(9:26 自动应用): 统一批次不随用户筛选条件过滤, 保证全用户一致。
+      // 仅当实际命中 auto_applied 批次(isAuto)时才为 true; 命中手动锁定批次则为 false(需按条件过滤)
+      stocks.autoApplied = isAuto
       return stocks
     },
-    applyBidSnapshot(list) {
-      const snap = this.loadBidSnapshot()
-      if (!snap) return list
-      // 兼容旧格式(dict: code -> {qiangchou,bidRatio,accel}) 与 新格式(完整名单数组)
-      if (Array.isArray(snap)) {
-        // 新格式: 名单本身即锁定名单, 直接用(9:30 后无锁定名单时退化用实时名单)
-        return (list || []).map((it) => {
-          const s = snap.find((x) => x.code === it.code)
-          if (s) return { ...it, qiangchou: s.qiangchou, bidRatio: s.bidRatio, accel: s.accel, _snapshot: true }
-          return it
-        })
-      }
-      return (list || []).map((it) => {
-        const s = snap[it.code]
-        if (s) return { ...it, qiangchou: s.qiangchou, bidRatio: s.bidRatio, accel: s.accel, _snapshot: true }
-        return it
-      })
-    },
-
     // ---- 数据操作 ----
     async fetchAndCache() {
       if (this.isDataCached) return
