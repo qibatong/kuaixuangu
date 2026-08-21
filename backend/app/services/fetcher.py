@@ -1080,17 +1080,67 @@ def _validate_chart_data(data, period, source=None):
     return True
 
 
-def _fetch_chart_from_tencent(code, period="day"):
-    """腾讯K线接口(web.ifzq.gtimg.cn): day/week/month, 实时含当前周期
-    param: {secid},{period},,{count}
-    返回行: [日期, 开盘, 收盘, 最高, 最低, 成交量]  (注意 O/C/H/L 顺序)
-    失败返回 {}
+def _fetch_minute_from_tencent(secid, code):
+    """腾讯当日分时(web.ifzq.gtimg.cn/appstock/app/minute/query)
+    每项 "HHMM 价格 累计成交量(手) 累计成交额(元)"; 均价=累计额/累计量(股)
+    返回 {period:'minute', code, time:[HH:MM], price[], avg[], volume[], preClose, name}
     """
+    try:
+        url = "https://web.ifzq.gtimg.cn/appstock/app/minute/query?code=" + secid
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+        })
+        with urllib.request.urlopen(req, timeout=config.KLINE_TIMEOUT, context=_NO_VERIFY_CTX) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))
+        d = raw.get("data", {}).get(secid, {}).get("data", {})
+        rows = d.get("data") if isinstance(d, dict) else None
+        if not isinstance(rows, list):
+            return {}
+        times, prices, avgs, volumes = [], [], [], []
+        for r in rows:
+            try:
+                p = str(r).split()
+                if len(p) < 4:
+                    continue
+                hm = p[0]
+                if len(hm) == 4 and hm.isdigit():
+                    hm = hm[:2] + ":" + hm[2:]
+                price = float(p[1])
+                cumvol = float(p[2])       # 手
+                cumamt = float(p[3])       # 元
+                times.append(hm)
+                prices.append(price)
+                volumes.append(cumvol)
+                shares = cumvol * 100.0
+                avgs.append(round(cumamt / shares, 3) if shares > 0 else price)
+            except (TypeError, ValueError, IndexError):
+                continue
+        if not times:
+            return {}
+        # preClose/name 用腾讯实时行情补充(失败则为0)
+        preClose = 0
+        q = _fetch_quote_tencent(code)
+        if q:
+            preClose = q["preclose"]
+        return {"period": "minute", "code": code,
+                "time": times, "price": prices, "avg": avgs, "volume": volumes,
+                "preClose": preClose, "name": ""}
+    except Exception as e:
+        log.warning("腾讯分时拉取失败 code=%s err=%s", code, e)
+        return {}
+
+
+def _fetch_chart_from_tencent(code, period="day"):
+    """腾讯K线接口(web.ifzq.gtimg.cn): day/week/month + 分时 minute
+    实时含当前周期; minute 走 _fetch_minute_from_tencent
+    """
+    prefix = "sh" if code.startswith(("6", "9")) else "sz"
+    secid = prefix + code
+    if period == "minute":
+        return _fetch_minute_from_tencent(secid, code)
     kp = {"day": "day", "week": "week", "month": "month"}.get(period)
     if not kp:
         return {}
-    prefix = "sh" if code.startswith(("6", "9")) else "sz"
-    secid = prefix + code
     count = {"day": 200, "week": 700, "month": 300}.get(period, 200)
     try:
         url = ("https://web.ifzq.gtimg.cn/appstock/app/kline/kline?param="
