@@ -41,7 +41,9 @@ function fmtPct(v) {
 
 <style scoped>
 .qc-badge {
-  margin-left: 6px;
+  position: absolute;
+  top: 8px;
+  right: 8px;
   font-size: 14px;
   color: #ffa07a;
   animation: qc-pulse 1.6s ease-in-out infinite;
