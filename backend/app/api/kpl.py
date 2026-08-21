@@ -88,7 +88,7 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(require_vip_or_paid), 
     d = kpl.fetch_bid_seal() or []
     # 概念列统一用开盘啦接口覆盖(只取开盘啦概念, 避免东财长串多概念混入)
     try:
-        kpl.apply_board_concept(d, log_tag="auc:bid-seal", deep=True, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept_db(d, log_tag="auc:bid-seal", field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("竞价异动概念开盘啦覆盖失败 bid-seal err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
@@ -104,7 +104,7 @@ def api_kpl_bid_boom(request: Request, uid: int = Depends(require_vip_or_paid), 
                    "date": resolved, "requestedDate": date})
     d = kpl.fetch_bid_boom() or []
     try:
-        kpl.apply_board_concept(d, log_tag="auc:bid-boom", deep=True, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept_db(d, log_tag="auc:bid-boom", field="board", truncate=2, blank_if_missing=True)
         # 2026-08-18 主人要求: 竞价爆量补 竞价量比(今/昨竞价额) + 昨日竞价额
         kpl.fill_bid_ratio_yest(d, None)
     except Exception as e:
@@ -122,7 +122,7 @@ def api_kpl_bid_net(request: Request, uid: int = Depends(require_vip_or_paid)):
     try:
         kpl.fill_bid_turnover_from_snap(d, None)
         kpl.fill_bid_amt_from_snap(d, None)
-        kpl.apply_board_concept(d, log_tag="auc:bid-net", deep=True, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept_db(d, log_tag="auc:bid-net", field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("竞价净额换手/成交额/概念补齐失败 err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
@@ -138,7 +138,7 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
         lst = kpl.query_auction_history(resolved, "broken_today")
         kpl._merge_broken_bid_snap(lst)   # 老快照无竞价字段 → 按 day 补全
         kpl.fill_float_mv_from_snap(lst, resolved)
-        kpl.apply_board_concept(lst, log_tag="auc:broken[hist]", deep=True, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept_db(lst, log_tag="auc:broken[hist]", field="board", truncate=2, blank_if_missing=True, date=resolved)
         return jr({"ok": True, "list": lst or [], "count": len(lst),
                    "date": resolved, "requestedDate": date,
                    "day": (lst[0].get("day") if lst else "")})
@@ -152,7 +152,7 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
             if lst:
                 kpl._merge_broken_bid_snap(lst)   # 老快照无竞价字段 → 按 day 补全
                 kpl.fill_float_mv_from_snap(lst, prev)
-                kpl.apply_board_concept(lst, log_tag="auc:broken[yest]", deep=True, field="board", truncate=2, blank_if_missing=True)
+                kpl.apply_board_concept_db(lst, log_tag="auc:broken[yest]", field="board", truncate=2, blank_if_missing=True, date=prev)
                 # 2026-08-18 主人反馈: 实时涨幅显示的是存库时刻(8/17收盘)值 →
                 # merge 东财今日实时行情覆盖 change(实时涨幅列看的是"现在")
                 try:
@@ -172,7 +172,7 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
     d = kpl.fetch_broken_zt(day or None)
     lst = d or []
     kpl.fill_float_mv_from_snap(lst, None)
-    kpl.apply_board_concept(lst, log_tag="auc:broken[now]", deep=True, field="board", truncate=2, blank_if_missing=True)
+    kpl.apply_board_concept_db(lst, log_tag="auc:broken[now]", field="board", truncate=2, blank_if_missing=True)
     return jr({"ok": True, "list": lst, "count": len(lst),
                "day": (lst[0].get("day") if lst else "")})
 
@@ -250,7 +250,7 @@ def api_kpl_hot_rank(request: Request, uid: int = Depends(get_uid), source: str 
     d = hot_rank.fetch_hot_rank(source)
     # 2026-08-18 修复: 热点榜补开盘啦概念(此前 board/concept 全空)
     try:
-        kpl.apply_board_concept(d, log_tag="auc:hot-rank", deep=True, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept_db(d, log_tag="auc:hot-rank", field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("hot-rank 概念覆盖失败 err=%s", e)
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
@@ -278,7 +278,7 @@ def api_kpl_lhb(request: Request, uid: int = Depends(require_vip_or_paid), date:
         kpl.fill_bid_change_from_snap(lst, resolved)
         kpl.fill_float_mv_from_snap(lst, resolved)
         kpl.fill_bid_turnover_from_snap(lst, resolved)
-        kpl.apply_board_concept(lst, log_tag="auc:lhb[hist]", deep=True, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept_db(lst, log_tag="auc:lhb[hist]", field="board", truncate=2, blank_if_missing=True, date=resolved)
         return jr({"ok": True, "list": lst, "count": len(lst), "date": resolved, "requestedDate": date})
     d = kpl.fetch_lhb()
     lst = d or []
@@ -286,7 +286,7 @@ def api_kpl_lhb(request: Request, uid: int = Depends(require_vip_or_paid), date:
     kpl.fill_bid_change_from_snap(lst, None)   # 今日 9_25 快照补竞价涨幅
     kpl.fill_float_mv_from_snap(lst, None)
     kpl.fill_bid_turnover_from_snap(lst, None)   # 2026-08-18: 补竞价换手
-    kpl.apply_board_concept(lst, log_tag="auc:lhb[now]", deep=True, field="board", truncate=2, blank_if_missing=True)
+    kpl.apply_board_concept_db(lst, log_tag="auc:lhb[now]", field="board", truncate=2, blank_if_missing=True)
     return jr({"ok": True, "list": lst, "count": len(lst), "date": ""})
 
 
@@ -326,11 +326,11 @@ def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(require_vip_or_pa
     lLast = d.get("listLast") or []
     # 概念列统一用开盘啦接口覆盖(涨幅抢筹 list20Chg 可能回退东财快照, 强制开盘啦)
     try:
-        kpl.apply_board_concept(l20, log_tag="auc:qc20", deep=True, field="board", truncate=2, blank_if_missing=True)
-        kpl.apply_board_concept(l20Chg, log_tag="auc:qc20Chg", deep=True, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept_db(l20, log_tag="auc:qc20", field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept_db(l20Chg, log_tag="auc:qc20Chg", field="board", truncate=2, blank_if_missing=True)
         # 2026-08-18: 右表改 deep=True — 主人反馈 listLast 60/100 无概念(原 deep=False 只榜单合并)
         # 按股查询仅针对榜单未覆盖股票(带1天缓存, 首次多几秒)
-        kpl.apply_board_concept(lLast, log_tag="auc:qcLast", deep=True, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept_db(lLast, log_tag="auc:qcLast", field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("竞价异动概念开盘啦覆盖失败 bid-qiangcang err=%s", e)
     # 2026-08-18 修复: 抢筹三表统一 merge 东财实时涨幅(realChange) —
@@ -368,12 +368,12 @@ def api_kpl_yest_zt(request: Request, uid: int = Depends(require_vip_or_paid), d
         d = kpl.query_auction_history(resolved, "yest_zt")
         kpl.fill_reason_from_pool(d, resolved)
         kpl.fill_float_mv_from_snap(d, resolved)
-        kpl.apply_board_concept(d, log_tag="auc:yest-zt[hist]", deep=True, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept_db(d, log_tag="auc:yest-zt[hist]", field="board", truncate=2, blank_if_missing=True, date=resolved)
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "date": resolved, "requestedDate": date})
     d = kpl.fetch_yest_zt() or []
     try:
-        kpl.apply_board_concept(d, log_tag="auc:yest-zt", deep=True, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept_db(d, log_tag="auc:yest-zt", field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("竞价异动概念开盘啦覆盖失败 yest-zt err=%s", e)
     # 2026-08-18 主人反馈: 晚间 Type4(开盘啦竞价榜)为空 → change/bidChange 都回退 9_25 竞价涨幅, 两列一样
@@ -404,12 +404,12 @@ def api_kpl_yest_broken(request: Request, uid: int = Depends(require_vip_or_paid
         d = kpl.query_auction_history(resolved, "yest_broken")
         kpl.fill_reason_from_pool(d, resolved)
         kpl.fill_float_mv_from_snap(d, resolved)
-        kpl.apply_board_concept(d, log_tag="auc:yest-broken[hist]", deep=True, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept_db(d, log_tag="auc:yest-broken[hist]", field="board", truncate=2, blank_if_missing=True, date=resolved)
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "date": resolved, "requestedDate": date})
     d = kpl.fetch_yest_broken() or []
     try:
-        kpl.apply_board_concept(d, log_tag="auc:yest-broken", deep=True, field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept_db(d, log_tag="auc:yest-broken", field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("竞价异动概念开盘啦覆盖失败 yest-broken err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})

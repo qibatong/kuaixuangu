@@ -1278,6 +1278,108 @@ def apply_board_concept(result, log_tag="", deep=True, field="concept",
     return n + n2
 
 
+def apply_board_concept_db(result, log_tag="", field="board", truncate=2,
+                           blank_if_missing=True, date=None):
+    """2026-08-21 : 从库内当日已落库的概念覆盖 result 的 field 列, 不再实时逐股查开盘啦
+    =====================================================================
+    背景: 概念由 concept_refresh 每半小时从开盘啦 doc94 定时回写库
+    (auction_daily_history 各 tab / qc_snapshot / lhb_history 的 board 字段),
+    前端竞价接口直接读库即可, 避免每次请求实时打开盘啦。
+    result: [{code, ...}, ...], 原地修改 field 字段; 返回覆盖数
+    field:  目标字段(竞价各 tab 用 "board")
+    truncate: 概念最多保留前 N 个(按 '、' 分档); None/0=不截断
+    blank_if_missing: True 时, 库内无该股概念 → 清空原值(概念只看落库的开盘啦);
+                       False 则保留原值兜底
+    未命中库(如早盘竞价还没落库)时: 有原值则 truncate 后保留, 避免把已有概念清空"""
+    if not result:
+        return 0
+    codes = [str(it.get("code")) for it in result if it.get("code")]
+    if not codes:
+        return 0
+    board_map = _load_board_map_db(codes, date)
+    n = 0
+    for it in result:
+        c = str(it.get("code"))
+        b = board_map.get(c)
+        if b:
+            it[field] = b
+            n += 1
+        elif blank_if_missing:
+            # 库内确实无该股概念: 若字段带东财污染, 清空保证只看开盘啦;
+            # 若无概念原本就是空则不动
+            it[field] = ""
+    if n:
+        log.info("竞价概念读库覆盖 %s 覆盖%d只/共%d只", log_tag, n, len(result))
+    return n
+
+
+def _load_board_map_db(codes, date=None):
+    """从当日竞价落库表读取 code -> board 映射(概念均来自开盘啦, concept_refresh 定时回写)
+    读取顺序(命中即用): auction_daily_history 各 tab → qc_snapshot → lhb_history
+    date: None=今日; 指定 'YYYY-MM-DD' 读历史(供回看接口)
+    返回 {code: board}"""
+    import sqlite3
+    from ..core import config as _cfg
+    if date is None:
+        g = time.gmtime(time.time() + 8 * 3600)
+        date = "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
+    code_set = {str(c) for c in codes}
+    if not code_set:
+        return {}
+    board_map = {}
+    try:
+        conn = sqlite3.connect(_cfg.DB_FILE)
+        # 1) 竞价异动各 tab
+        tabs = ("seal", "boom", "bid_net", "qiangcang", "yest_zt", "yest_broken",
+                "broken_yest", "broken_today")
+        for tab in tabs:
+            try:
+                row = conn.execute(
+                    "SELECT list FROM auction_daily_history WHERE date=? AND tab=?",
+                    (date, tab)).fetchone()
+            except Exception:
+                continue
+            if not row or not row[0]:
+                continue
+            try:
+                for it in json.loads(row[0]):
+                    c = str(it.get("code", "")).strip()
+                    b = it.get("board")
+                    if c in code_set and b and c not in board_map:
+                        board_map[c] = b
+            except Exception:
+                pass
+        # 2) 竞价抢筹快照
+        if code_set:
+            try:
+                ph = ",".join("?" * len(code_set))
+                rows = conn.execute(
+                    f"SELECT code, board FROM qc_snapshot WHERE date=? AND code IN ({ph})",
+                    (date, *code_set)).fetchall()
+                for c, b in rows:
+                    c = str(c).strip()
+                    if b and c not in board_map:
+                        board_map[c] = b
+            except Exception:
+                pass
+        # 3) 龙虎榜
+        try:
+            row = conn.execute("SELECT list FROM lhb_history WHERE date=?",
+                               (date,)).fetchone()
+            if row and row[0]:
+                for it in json.loads(row[0]):
+                    c = str(it.get("code", "")).strip()
+                    b = it.get("board")
+                    if c in code_set and b and c not in board_map:
+                        board_map[c] = b
+        except Exception:
+            pass
+        conn.close()
+    except Exception as e:
+        log.warning("读库概念映射失败 date=%s err=%s", date, e)
+    return board_map
+
+
 def fetch_yest_zt():
     """昨日涨停股今日竞价表现: **flash limit_up_pool&date=昨日** (2026-08-18 主人确认:
     开盘啦 doc19/801900 的 Date 是"指数交易日"语义 — 传 8/17 返回的是 8/17 的"昨日"(8/14)涨停股,

@@ -195,9 +195,13 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
             if q and q.get("realChange") is not None:
                 it["real_change"] = q.get("realChange")
                 n += 1
-        # 概念列统一用开盘啦接口覆盖(快照 board 可能含东财兜底, 强制开盘啦概念)
-        # 2026-08-18: deep=False → True(榜单未覆盖的按股查询, 圣达生物概念补齐; 带1天缓存)
-        kpl.apply_board_concept(rows, log_tag="auc:s3", deep=True, field="board", truncate=2, blank_if_missing=True)
+        # 概念列: snapshot_bid.board 已是采集时开盘啦 overlay(无实时查询);
+        # 只做"取前 2 个"归一, 不再逐股实时打开盘啦(概念由 concept_refresh 定时落库)
+        for it in rows:
+            b = it.get("board") or ""
+            if b:
+                parts = [p for p in str(b).split("、") if p]
+                it["board"] = "、".join(parts[:2])
         log.info("三时点榜 date=%s 返回 %d 条 (东财实时涨幅覆盖 %d 只)", resolved, len(rows), n)
     except Exception as e:
         log.warning("三时点榜实时涨幅/概念叠加失败 err=%s", e)
