@@ -58,7 +58,10 @@
           <td>{{ item.circulationMV ? item.circulationMV.toFixed(1) : '-' }}</td>
           <td class="score-cell" :title="factorTitle(item)">{{ item.probability }}分</td>
           <td>{{ item.confidence }}%</td>
-          <td class="concept-cell" :title="'概念: ' + (item.concept || '')">{{ shortConcept(item.concept) }}</td>
+          <td class="concept-cell" :title="'概念: ' + (item.concept || '')">
+            <span v-if="item.concept">{{ shortConcept(item.concept) }}</span>
+            <span v-else>-</span>
+          </td>
           <td><button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click.stop="addToPool(item)">{{ inPool(item.code) ? '已加自选' : '＋自选' }}</button></td>
         </tr>
       </tbody>
@@ -135,11 +138,12 @@ function columnType(key) {
 
 function signed(v) { return (v > 0 ? '+' : '') + v.toFixed(2) }
 
-// 概念只显示前 2 个(开盘啦概念可能 10+ 个板块, 全显太长; 完整放 title hover)
+// 概念只显示前 2 个, 用空格连接(生产机对齐: 配合 concept-cell 的 white-space:normal,
+// 概念较长时自然换行, 而非顿号拼接; 完整概念放 title hover)
 function shortConcept(c) {
   if (!c) return '-'
   const parts = String(c).split(/[、,，]/).map(s => s.trim()).filter(Boolean)
-  return parts.slice(0, 2).join('、')
+  return parts.slice(0, 2).join(' ')
 }
 
 // 涨跌百分比显示(兼容 null/undefined, 用于 tooltip 的锁定时刻值)
