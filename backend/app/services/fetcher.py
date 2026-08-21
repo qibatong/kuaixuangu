@@ -1080,6 +1080,68 @@ def _validate_chart_data(data, period, source=None):
     return True
 
 
+def _fetch_chart_from_tencent(code, period="day"):
+    """腾讯K线接口(web.ifzq.gtimg.cn): day/week/month, 实时含当前周期
+    param: {secid},{period},,{count}
+    返回行: [日期, 开盘, 收盘, 最高, 最低, 成交量]  (注意 O/C/H/L 顺序)
+    失败返回 {}
+    """
+    kp = {"day": "day", "week": "week", "month": "month"}.get(period)
+    if not kp:
+        return {}
+    prefix = "sh" if code.startswith(("6", "9")) else "sz"
+    secid = prefix + code
+    count = {"day": 200, "week": 700, "month": 300}.get(period, 200)
+    try:
+        url = ("https://web.ifzq.gtimg.cn/appstock/app/kline/kline?param="
+               + urllib.parse.quote(secid) + "," + kp + ",,," + str(count))
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+        })
+        with urllib.request.urlopen(req, timeout=config.KLINE_TIMEOUT, context=_NO_VERIFY_CTX) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))
+        data = raw.get("data", {}).get(secid, {})
+        if not data:
+            return {}
+        rows = data.get(kp)
+        if not rows:
+            return {}
+        # 兼容 data = {"qfq": {"week": [...]}} 的嵌套结构
+        if not isinstance(rows, list):
+            for rk in ("qfq", kp):
+                rr = data.get(rk)
+                if isinstance(rr, dict):
+                    rows = rr.get("day") or rr.get(kp)
+                    if rows:
+                        break
+        if not isinstance(rows, list) or not rows:
+            return {}
+        times, opens, closes, highs, lows, volumes = [], [], [], [], [], []
+        for row in rows:
+            if not isinstance(row, list) or len(row) < 6:
+                continue
+            try:
+                times.append(str(row[0]))
+                opens.append(float(row[1]))
+                closes.append(float(row[2]))
+                highs.append(float(row[3]))
+                lows.append(float(row[4]))
+                volumes.append(float(row[5]))
+            except (TypeError, ValueError):
+                continue
+        if not times:
+            return {}
+        preClose = closes[-2] if len(closes) >= 2 else (closes[0] if closes else 0)
+        return {"period": period, "code": code,
+                "time": times, "open": opens, "close": closes,
+                "high": highs, "low": lows,
+                "volume": volumes, "amount": [],
+                "preClose": preClose, "name": ""}
+    except Exception as e:
+        log.warning("腾讯K线拉取失败 code=%s period=%s err=%s", code, period, e)
+        return {}
+
+
 def _fetch_quote_tencent(code):
     """腾讯实时行情(最新交易日 OHLCV/A)
     返回 {code, date:'YYYY-MM-DD', open,high,low,close,volume(手),amount(元),preclose} 失败返回 None
@@ -1325,17 +1387,11 @@ def fetch_stock_chart_robust(code, period="day"):
         if ent and time.time() - ent["ts"] < ttl:
             return ent["data"]
     t0 = time.time()
-    sources = ["eastmoney"]
+    sources = ["eastmoney", "tencent"]
     if period != "minute":
-        if config.TUSHARE_API_KEY and period in ("week", "month"):
-            # 周K/月K优先用现成权威接口(tushare weekly/monthly), 避免聚合/补出有偏差的数据
-            sources.append("tushare")
-            sources.append("ths")
-        else:
-            sources.append("ths")
-    sources.append("kpl")
-    if "tushare" not in sources and config.TUSHARE_API_KEY:
         sources.append("tushare")
+        sources.append("ths")
+    sources.append("kpl")
     for src in sources:
         try:
             if src == "eastmoney":
@@ -1344,6 +1400,14 @@ def fetch_stock_chart_robust(code, period="day"):
                     with _CHART_LOCK:
                         _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
                     log.info("chart[robust]源=eastmoney code=%s period=%s 耗时%.0fms",
+                             code, period, (time.time() - t0) * 1000)
+                    return _ensure_latest_period(d, code)
+            elif src == "tencent":
+                d = _fetch_chart_from_tencent(code, period)
+                if d and _validate_chart_data(d, period, source="tencent"):
+                    with _CHART_LOCK:
+                        _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
+                    log.info("chart[robust]源=tencent code=%s period=%s 耗时%.0fms",
                              code, period, (time.time() - t0) * 1000)
                     return _ensure_latest_period(d, code)
             elif src == "ths":
