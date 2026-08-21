@@ -899,6 +899,8 @@ onMounted(() => {
 /* 操作列按钮缩小 */
 .auc-panel .pool-add-btn, .qc-panel .pool-add-btn { padding: 1px 5px; font-size: 11px; }
 .qc-panel .stock-table { width: 100%; border-collapse: collapse; }
+/* 手机端: qc 表整表横向滚动容灾(配合 <700px 的 min-width 使表格可横滑) */
+.qc-panel { overflow-x: auto; }
 /* 2026-08-19 回归通用 stock-table 样式(跟其他 tab 一致):
    之前 table-layout:fixed + nth-child 固定 26-240px 死列宽 → 桌面端列挤(12列 × 56-72px 都很窄)
    现让列宽自适应(名称/概念可换行), 仅概念列加 max-width 防止特长撑破布局 */
@@ -914,28 +916,17 @@ onMounted(() => {
 .qc-panel .name-main { font-size: 13px; line-height: 1.3; }
 /* 窄屏(<1280px) 纵向堆叠; <1100 已原有 fallback */
 @media (max-width: 1280px) { .qc-dual { gap: 8px; } }
-/* 2026-08-20 手机端修复(qc 双表列挤压) — 10 列在 400px 视口必然拥挤:
-   - 隐藏次要列(竞额/抢筹幅度/竞额昨比/竞换/流通), 保留 5 核心列全部塞进视口
+/* 2026-08-20 手机端修复(qc 双表列挤压): 改为整表横向滚动, 保留全部10列
+   - 不再隐藏次要列, 手机端横向滑动查看完整数据(与竞价委买等其它 tab 一致)
    - 模式切换按钮加大点击区 */
 @media (max-width: 700px) {
   .qc-panel { padding: 8px; }
   .qc-panel-title { font-size: 13px; flex-wrap: wrap; }
   .qc-mode-switch button { padding: 4px 12px; font-size: 12px; }
-  .qc-panel .stock-table { min-width: 0; }
-  .qc-panel .stock-table th, .qc-panel .stock-table td { padding: 3px 1px; font-size: 11px; }
-  /* 隐藏次要列: 3竞额 4抢筹幅度 5竞额/昨比 7竞换 8流通 */
-  .qc-panel .stock-table th:nth-child(3), .qc-panel .stock-table td:nth-child(3),
-  .qc-panel .stock-table th:nth-child(4), .qc-panel .stock-table td:nth-child(4),
-  .qc-panel .stock-table th:nth-child(5), .qc-panel .stock-table td:nth-child(5),
-  .qc-panel .stock-table th:nth-child(7), .qc-panel .stock-table td:nth-child(7),
-  .qc-panel .stock-table th:nth-child(8), .qc-panel .stock-table td:nth-child(8) { display: none; }
-  /* 剩余 5 列: 名称/现涨/竞涨/概念/操作 → 适配 400px */
-  .qc-panel .stock-table th:nth-child(1), .qc-panel .stock-table td:nth-child(1) { width: 68px; }
-  .qc-panel .stock-table th:nth-child(2), .qc-panel .stock-table td:nth-child(2) { width: 46px; }
-  .qc-panel .stock-table th:nth-child(6), .qc-panel .stock-table td:nth-child(6) { width: 52px; }
-  .qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) { width: 42px; }
-  .qc-panel { padding-bottom: 10px; }
+  .qc-panel .stock-table { min-width: 760px; white-space: nowrap; }
+  .qc-panel .stock-table th, .qc-panel .stock-table td { padding: 3px 3px; font-size: 11px; }
+  /* 概念列限宽避免撑破布局 */
+  .qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { max-width: 140px; white-space: normal; word-break: break-all; }
 }
 .loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
 .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
