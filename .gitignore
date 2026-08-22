@@ -48,8 +48,10 @@ frontend/vite.config.js.timestamp-*
 scripts/deploy_frontend.py
 scripts/run_qc_layout_reg.py
 scripts/sync_test_server.py
-scripts/deploy_*.py
+scripts/deploy_test.py
 scripts/run_*reg.py
+
+# deploy_prod.py 已去密码化, 生产密码改由环境变量 KX_PROD_PASS 注入, 可入库
 
 # ========== Python 缓存 ==========
 __pycache__/
