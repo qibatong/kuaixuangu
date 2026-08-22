@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-生产机部署: 上传后端 kpl.py + 前端 dist 到 /opt/kuaixuan, 重启 web 服务
+生产机部署: 上传后端 kpl(services+api) + 前端 dist 到 /opt/kuaixuan, 重启 web 服务
 通过本机 127.0.0.1:18080 HTTP CONNECT 代理转发 SSH(SFTP) 到生产机
 """
 import os, socket, sys
@@ -16,6 +16,8 @@ if not PASS:
 # 部署目录(与测试机一致)
 DEPLOY = "/opt/kuaixuan"
 
+LOCAL_BACKEND_SVC = "/workspace/backend/app/services/kpl.py"
+REMOTE_BACKEND_SVC = f"{DEPLOY}/backend/app/services/kpl.py"
 LOCAL_BACKEND_KPL = "/workspace/backend/app/api/kpl.py"
 REMOTE_BACKEND_KPL = f"{DEPLOY}/backend/app/api/kpl.py"
 LOCAL_DIST = "/workspace/frontend/dist"
@@ -85,8 +87,11 @@ def main():
         f"rm -rf {DEPLOY}/dist_bak && cp -a {DEPLOY}/dist {DEPLOY}/dist_bak 2>/dev/null; mkdir -p {DEPLOY}/dist"
     )[-1]
 
-    # 2. 上传后端 kpl.py
-    print("[2/4] 上传后端 kpl.py ...")
+    # 2. 上传后端 kpl 服务层 + API
+    print("[2/4] 上传后端 kpl(services+api) ...")
+    sftp_mkdirs(sftp, os.path.dirname(REMOTE_BACKEND_SVC))
+    sftp.put(LOCAL_BACKEND_SVC, REMOTE_BACKEND_SVC)
+    sftp_mkdirs(sftp, os.path.dirname(REMOTE_BACKEND_KPL))
     sftp.put(LOCAL_BACKEND_KPL, REMOTE_BACKEND_KPL)
 
     # 3. 上传前端 dist
