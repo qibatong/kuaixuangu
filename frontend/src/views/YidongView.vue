@@ -283,7 +283,8 @@ async function loadHot() {
   hotLoading.value = true
   try {
     const d = await kplYidongHot()
-    hotList.value = d.list || []
+    // 默认按偏离值从大到小排列
+    hotList.value = (d.list || []).sort((a, b) => (Number(b.deviation) || 0) - (Number(a.deviation) || 0))
   } catch (e) { hotList.value = [] }
   finally { hotLoading.value = false }
 }
