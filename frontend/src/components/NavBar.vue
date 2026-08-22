@@ -74,18 +74,31 @@
            Teleport 到 body 后脱离所有容器/滚动上下文, 必然在视图顶层 -->
       <Teleport to="body">
         <div v-show="menuOpen" ref="menuRef" class="user-menu" :style="menuPos">
-          <!-- 主题已移到导航栏快捷切换(2026-08-18 主人要求), 下拉只留字号 -->
+          <!-- 2026-08-22 主题设置区块: 背景色 + 字号 + 字体族, 三档独立 -->
           <div class="menu-settings">
+            <!-- 字号 -->
             <div class="menu-setting-row">
               <span class="menu-setting-label"><i class="fa fa-font"></i> 字号</span>
               <button
-  v-for="f in FONTS" :key="f.key"
+                v-for="f in FONTS" :key="f.key"
                 class="menu-font" :class="{ active: font === f.key }"
                 :style="{ fontSize: f.key === 'sm' ? '11px' : f.key === 'lg' ? '16px' : '13px' }"
                 :title="f.label" @click="setFont(f.key)"
->
-A
-</button>
+              >A</button>
+            </div>
+            <!-- 字体族: 霞鹜等宽 / 思源黑体 / 思源宋体 — 全部 SIL OFL 1.1 免费商用 -->
+            <div class="menu-setting-row" style="margin-top:8px;">
+              <span class="menu-setting-label"><i class="fa fa-text-height"></i> 字体</span>
+            </div>
+            <div class="menu-fontfam-list">
+              <button
+                v-for="ff in FONT_FAMILIES" :key="ff.key"
+                class="menu-fontfam" :class="{ active: fontFam === ff.key }"
+                :title="ff.desc" @click="setFontFam(ff.key)"
+              >
+                <span class="ff-label" :style="{ fontFamily: ff.family }">{{ ff.label }}</span>
+                <span class="ff-desc">{{ ff.desc }}</span>
+              </button>
             </div>
           </div>
           <div class="menu-sep"></div>
@@ -105,7 +118,7 @@ A
 // 全站导航栏: 左页面入口 tabs, 右主题/字号/账户工具(主题+字号从 hero 迁来)
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
-import { useTheme, BGS, FONTS } from '../composables/useTheme'
+import { useTheme, BGS, FONTS, FONT_FAMILIES } from '../composables/useTheme'
 import { useUserStore } from '../stores/user'
 import { showToast } from '../utils/toast'
 import ChangePwdModal from './ChangePwdModal.vue'
@@ -113,7 +126,7 @@ import ProfileModal from './ProfileModal.vue'
 
 const router = useRouter()
 const user = useUserStore()
-const { bg, font, setBg, setFont } = useTheme()
+const { bg, font, fontFam, setBg, setFont, setFontFam } = useTheme()
 
 const changePwdModal = ref(null)
 const profileModal = ref(null)
@@ -338,6 +351,31 @@ body[data-bg="light"] .nav-theme-dot.active { border-color: #c62828; box-shadow:
 }
 .menu-font:hover { transform: scale(1.1); border-color: var(--accent); }
 .menu-font.active { border-color: var(--accent); background: var(--accent); color: #fff; }
+/* 字体族切换按钮组: 三个竖排选项, 选中高亮, 文字用对应字体渲染便于对比 */
+.menu-fontfam-list {
+  display: flex; flex-direction: column; gap: 6px; margin-top: 6px;
+}
+.menu-fontfam {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; padding: 7px 10px;
+  border: 1px solid #3a3e50; border-radius: 8px;
+  background: transparent; color: #eef2ff;
+  cursor: pointer; text-align: left;
+  transition: transform 0.12s, border-color 0.12s, background 0.12s;
+}
+.menu-fontfam:hover { transform: translateY(-1px); border-color: var(--accent); }
+.menu-fontfam.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.menu-fontfam .ff-label {
+  font-size: 15px; font-weight: 600; line-height: 1.1;
+}
+.menu-fontfam .ff-desc {
+  font-size: 11px; color: #8f96a8; opacity: 0.92;
+  margin-left: auto;
+}
 .menu-sep { height: 1px; background: rgba(255, 255, 255, 0.1); margin: 4px 6px; }
 .user-menu .menu-item {
   display: flex; align-items: center; gap: 8px;
@@ -368,6 +406,13 @@ body[data-bg="light"] .menu-dot { border-color: #c8ccd6; }
 body[data-bg="light"] .menu-dot.active { border-color: #1a1d26; box-shadow: 0 0 6px rgba(0, 0, 0, 0.25); }
 body[data-bg="light"] .menu-font { border-color: #c8ccd6; color: #1a1d26; }
 body[data-bg="light"] .menu-font.active { border-color: var(--accent); background: var(--accent); color: #fff; }
+/* 浅色主题: 字体族按钮适配 */
+body[data-bg="light"] .menu-fontfam { border-color: #c8ccd6; color: #1a1d26; background: #f7f8fb; }
+body[data-bg="light"] .menu-fontfam.active {
+  background: color-mix(in srgb, var(--accent) 14%, #fff);
+  border-color: var(--accent);
+}
+body[data-bg="light"] .menu-fontfam .ff-desc { color: #666; }
 body[data-bg="light"] .menu-sep { background: rgba(0, 0, 0, 0.08); }
 /* 纯黑主题: 更深 */
 body[data-bg="black"] .user-menu {
@@ -376,6 +421,7 @@ body[data-bg="black"] .user-menu {
 }
 body[data-bg="black"] .menu-dot { border-color: #2a2a30; }
 body[data-bg="black"] .menu-font { border-color: #2a2a30; }
+body[data-bg="black"] .menu-fontfam { border-color: #2a2a30; }
 .mini-btn {
   background: var(--bg-input); border: 1px solid var(--border-soft);
   color: var(--text-secondary); border-radius: 6px;

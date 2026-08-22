@@ -270,16 +270,41 @@ html, body, #app {
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
-/* 2026-08-22 主人要求: 全局换成等宽开源字体.
-   首选用 LXGW WenKai Mono(霞鹜文楷等宽, SIL OFL 1.1 免费商用, 已在 main.js import 加载),
-   然后 fallback 到用户本地的思源等宽/鸿蒙等宽/微软雅黑等宽, 最后兜底 monospace/sans-serif. */
-font-family: "LXGW WenKai Mono", "Noto Sans Mono CJK SC", "HarmonyOS Sans Mono",
-             "MiSans Mono", "Microsoft YaHei", -apple-system, BlinkMacSystemFont,
-             "Segoe UI", Arial, monospace, sans-serif;
+/* 2026-08-23 主人 A/B 对比后确认: 默认字体改为思源黑体 Noto Sans SC (OFL 1.1).
+   全局 body 默认没有 data-font 属性(加载瞬间)时走这条默认链,
+   之后 useTheme.load() 会把 body[data-font=sans] 加上, 进入 body[data-font=sans] 分支.
+   (数字列/股票代码/金额涨幅 19 处硬编码组件仍固定霞鹜等宽, 保证表格对齐不歪) */
+font-family: "Noto Sans SC", "LXGW WenKai Mono", "HarmonyOS Sans SC", "MiSans",
+             "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI",
+             Arial, sans-serif;
 font-feature-settings: "tnum" 1, "lnum" 1; /* 表格数字 + 阿拉伯数字, 增强数字等宽对齐 */
 background: var(--bg-body);
 color: var(--text-main); padding: 2px; line-height: 1.5; min-height: 100vh;
 transition: background 0.3s, color 0.3s;
+}
+/* === 字体族切换: body[data-font] 控制 ===
+   字体族第一位 = 当前选中的"主角字体", 让你在对比时看到真实的字形风格;
+   但数字列 (.mono / code / .stock-code / .amount 等写死 "LXGW WenKai Mono"
+   的 19 处组件) 永远走 LXGW 保证等宽对齐, 不会受这里的切换影响.
+   所以: 正文(中文标题、段落、菜单文字)看到的是当前选的字体,
+        数字列(金额/涨幅/股票代码) 固定等宽 = 切换时仍保持表格整齐 */
+/* data-font="lxgw" (默认) = 霞鹜文楷等宽 全局 */
+body[data-font="lxgw"] {
+  font-family: "LXGW WenKai Mono", "Noto Sans Mono CJK SC", "HarmonyOS Sans Mono",
+               "MiSans Mono", "Microsoft YaHei", -apple-system, BlinkMacSystemFont,
+               "Segoe UI", Arial, monospace, sans-serif;
+}
+/* data-font="sans" = 思源黑体 (现代无衬线, 中文正文主角, 数字 fallback 霞鹜) */
+body[data-font="sans"] {
+  font-family: "Noto Sans SC", "LXGW WenKai Mono", "HarmonyOS Sans SC", "MiSans",
+               "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI",
+               Arial, sans-serif;
+}
+/* data-font="serif" = 思源宋体 (传统有衬线, 中文正文主角, 数字 fallback 霞鹜) */
+body[data-font="serif"] {
+  font-family: "Noto Serif SC", "LXGW WenKai Mono", "Source Han Serif SC",
+               "SimSun", "Songti SC", "Microsoft YaHei", -apple-system,
+               BlinkMacSystemFont, "Segoe UI", Arial, serif;
 }
 a { color: inherit; }
 /* .container / .page-shell: 保留原来的 max-width:1500px 居中效果(大屏桌面限制内文宽),
