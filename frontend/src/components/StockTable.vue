@@ -43,7 +43,7 @@
               <span class="stock-name">{{ item.name }}</span>
             </div>
             <div class="stock-code-row"><span class="stock-code">{{ item.code }}</span></div>
-            <div v-if="isYidong(item.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
+            <div v-if="yidongTag(item.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(item.code) }}</span></div>
           </td>
           <td :class="item.realChange === null || item.realChange === undefined ? 'dim' : realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + fmtPct(item._staleReal) + '）') : ''">{{ item.realChange === null || item.realChange === undefined ? '-' : signed(item.realChange) + '%' }}</td>
           <td>
@@ -81,7 +81,7 @@ import { showToast } from '../utils/toast'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
 
 const pool = usePoolStore()
-const { isYidong } = useYidongMonitor()
+const { yidongTag } = useYidongMonitor()
 
 const props = defineProps({
   stocks: { type: Array, default: () => [] },

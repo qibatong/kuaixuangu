@@ -1,41 +1,59 @@
-// 异动监管代码集合: 首页选股 / 竞价异动 中标记"属于异动监管"的股票。
-// 数据来自异动监管三个 tab 接口(异动实时 / 重点监控 / 多次异动)。
+// 异动监管标签集合: 首页选股 / 竞价异动 中标记股票所属的异动监管类型。
+// 数据来自异动监管接口:
+//   - 严重异动(GetPianLiZhi_Index)      -> 标签 "严重异动"
+//   - 热门股偏离值(GetPianLiZhi_Hot)    -> 标签 "偏离较大"
+//   - 重点监控(GetYDTP_ZDJK_Today)      -> 标签 "重点监控"
+// 优先级: 若一只股票既属于重点监控又属于其他类型, 显示 "重点监控"。
 // 模块级单例: 任一页面刷新后全应用共享, 避免各组件重复请求。
 import { ref } from 'vue'
-import { kplYidongRealtime, kplYidongMonitor, kplYidongMulti } from '../api/kpl'
+import { kplYidongRealtime, kplYidongHot, kplYidongMonitor } from '../api/kpl'
 
-const ydCodes = ref(new Set())   // code -> true
+const Label = {
+  REALTIME: '严重异动',
+  HOT: '偏离较大',
+  MONITOR: '重点监控',
+}
+
+// code -> 标签; 按优先级覆盖: monitor 优先生效, 其次 hot, 再次 realtime
+const ydTagMap = ref(new Map())
 const loading = ref(false)
 
-// 抓取异动监管三个接口, 汇总所有 code; 接口可能要求会员(403), 静默容错
+// 抓取异动监管接口, 汇总 code 到标签的映射(带优先级)
 async function refreshYidongCodes() {
   if (loading.value) return
   loading.value = true
   try {
     const results = await Promise.all([
       kplYidongRealtime().catch(() => null),
-      kplYidongMonitor().catch(() => null),
-      kplYidongMulti().catch(() => null)
+      kplYidongHot().catch(() => null),
+      kplYidongMonitor().catch(() => null)
     ])
-    const set = new Set()
-    results.forEach(d => {
-      const list = (d && d.list) || []
-      list.forEach(it => {
-        if (it && it.code) set.add(String(it.code))
-      })
-    })
-    ydCodes.value = set
+
+    // monitor 优先级最高: 先填入, 后续低优先级不覆盖
+    const map = new Map()
+    for (const it of (results[2] && results[2].list) || []) {
+      if (it && it.code) map.set(String(it.code), Label.MONITOR)
+    }
+    for (const it of (results[1] && results[1].list) || []) {
+      const c = String(it.code)
+      if (c && !map.has(c)) map.set(c, Label.HOT)
+    }
+    for (const it of (results[0] && results[0].list) || []) {
+      const c = String(it.code)
+      if (c && !map.has(c)) map.set(c, Label.REALTIME)
+    }
+    ydTagMap.value = map
   } finally {
     loading.value = false
   }
 }
 
-// 是否属于异动监管
-function isYidong(code) {
-  if (code === null || code === undefined) return false
-  return ydCodes.value.has(String(code))
+// 返回股票所属异动监管标签; 不属于任何监管返回 ''
+function yidongTag(code) {
+  if (code === null || code === undefined) return ''
+  return ydTagMap.value.get(String(code)) || ''
 }
 
 export function useYidongMonitor() {
-  return { ydCodes, loading, refreshYidongCodes, isYidong }
+  return { ydTagMap, loading, refreshYidongCodes, yidongTag }
 }

@@ -50,7 +50,7 @@
             <td class="stock-info-cell" @click="linkToSoftware(it.code)">
             <div class="stock-code-row"><span class="stock-code">{{ it.code }}</span></div>
             <div class="stock-name-row"><span class="stock-name">{{ it.name }}</span></div>
-            <div v-if="isYidong(it.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
+            <div v-if="yidongTag(it.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(it.code) }}</span></div>
           </td>
             <td :class="it.realChange > 0 ? 'up' : 'down'">{{ signed(it.realChange) }}%</td>
             <td :class="it.bidChange > 0 ? 'up' : 'down'">{{ signed(it.bidChange) }}%</td>
@@ -100,7 +100,7 @@
             <td class="stock-info-cell" @click="linkToSoftware(it.code)">
             <div class="stock-code-row"><span class="stock-code">{{ it.code }}</span></div>
             <div class="stock-name-row"><span class="stock-name">{{ it.name || it.code }}</span></div>
-            <div v-if="isYidong(it.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
+            <div v-if="yidongTag(it.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(it.code) }}</span></div>
           </td>
             <td class="seal-col seal-col-25">{{ tpSeal(it, '9_25') }}</td>
             <td class="seal-col seal-col-20">{{ tpSeal(it, '9_20') }}</td>
@@ -148,7 +148,7 @@
                 <td class="stock-info-cell" @click="linkToSoftware(q.code)">
             <div class="stock-code-row"><span class="stock-code">{{ q.code }}</span></div>
             <div class="stock-name-row"><span class="stock-name">{{ q.name }}</span></div>
-            <div v-if="isYidong(q.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
+            <div v-if="yidongTag(q.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(q.code) }}</span></div>
           </td>
                 <td :class="q.realChange > 0 ? 'up' : q.realChange < 0 ? 'down' : 'dim'">{{ q.realChange !== null && q.realChange !== undefined ? signed(q.realChange) + '%' : '-' }}</td>
                 <td :class="q.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(q.bidAmt) }}</td>
@@ -187,7 +187,7 @@
                 <td class="stock-info-cell" @click="linkToSoftware(q.code)">
             <div class="stock-code-row"><span class="stock-code">{{ q.code }}</span></div>
             <div class="stock-name-row"><span class="stock-name">{{ q.name }}</span></div>
-            <div v-if="isYidong(q.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
+            <div v-if="yidongTag(q.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(q.code) }}</span></div>
           </td>
                 <td :class="q.realChange > 0 ? 'up' : q.realChange < 0 ? 'down' : 'dim'">{{ q.realChange !== null && q.realChange !== undefined ? signed(q.realChange) + '%' : '-' }}</td>
                 <td :class="q.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(q.bidAmt) }}</td>
@@ -228,7 +228,7 @@
             <div class="stock-code-row"><span class="stock-code">{{ z.code }}</span></div>
             <div class="stock-name-row"><span class="stock-name">{{ z.name }}</span>
             <span v-if="z.stillLimit" class="lb-badge">连板</span></div>
-            <div v-if="isYidong(z.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
+            <div v-if="yidongTag(z.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(z.code) }}</span></div>
           </td>
             <td><span v-if="z.limitUpDays > 0" class="lb-badge">{{ z.limitUpDays }}板</span><span v-else class="dim">-</span></td>
             <td class="dim">{{ fmtMv(z.floatMv) }}</td>
@@ -263,7 +263,7 @@
             <td class="stock-info-cell" @click="linkToSoftware(b2.code)">
             <div class="stock-code-row"><span class="stock-code">{{ b2.code }}</span></div>
             <div class="stock-name-row"><span class="stock-name">{{ b2.name }}</span></div>
-            <div v-if="isYidong(b2.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
+            <div v-if="yidongTag(b2.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(b2.code) }}</span></div>
           </td>
             <td :class="b2.yestChange > 0 ? 'up' : b2.yestChange < 0 ? 'down' : 'dim'">{{ b2.yestChange !== null && b2.yestChange !== undefined ? signed(b2.yestChange) + '%' : '-' }}</td>
             <td :class="b2.change > 0 ? 'up' : b2.change < 0 ? 'down' : 'dim'">{{ b2.change !== null && b2.change !== undefined ? signed(b2.change) + '%' : '-' }}</td>
@@ -299,7 +299,7 @@
             <td class="stock-info-cell" @click="linkToSoftware(l.code)">
             <div class="stock-code-row"><span class="stock-code">{{ l.code }}</span></div>
             <div class="stock-name-row"><span class="stock-name">{{ l.name }}</span></div>
-            <div v-if="isYidong(l.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
+            <div v-if="yidongTag(l.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(l.code) }}</span></div>
           </td>
             <td :class="l.change > 0 ? 'up' : 'down'">{{ signed(l.change) }}%</td>
             <td :class="l.bidChange > 0 ? 'up' : l.bidChange < 0 ? 'down' : 'dim'">{{ l.bidChange !== null && l.bidChange !== undefined ? signed(l.bidChange) + '%' : '-' }}</td>
@@ -336,7 +336,7 @@
             <td class="stock-info-cell" @click="linkToSoftware(b.code)">
             <div class="stock-code-row"><span class="stock-code">{{ b.code }}</span></div>
             <div class="stock-name-row"><span class="stock-name">{{ b.name }}</span></div>
-            <div v-if="isYidong(b.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
+            <div v-if="yidongTag(b.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(b.code) }}</span></div>
           </td>
             <td :class="b.change > 0 ? 'up' : 'down'">{{ signed(b.change) }}%</td>
             <td :class="b.bidChange > 0 ? 'up' : b.bidChange < 0 ? 'down' : 'dim'">{{ b.bidChange !== null && b.bidChange !== undefined ? signed(b.bidChange) + '%' : '-' }}</td>
@@ -398,7 +398,7 @@ import VipGate from '../components/VipGate.vue'
 
 const user = useUserStore()
 const pool = usePoolStore()
-const { isYidong, refreshYidongCodes } = useYidongMonitor()
+const { yidongTag, refreshYidongCodes } = useYidongMonitor()
 const tab = ref('s3')   // 默认选中三时点封单
 const sealRaw = ref([])
 const bidNetList = ref([])   // 2026-08-18: 竞价净额专用(开盘啦 Type2 竞价>1000万), 空时回退封单列表
