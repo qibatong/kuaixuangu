@@ -50,6 +50,7 @@
             <td class="stock-info-cell" @click="linkToSoftware(it.code)">
             <div class="stock-code-row"><span class="stock-code">{{ it.code }}</span></div>
             <div class="stock-name-row"><span class="stock-name">{{ it.name }}</span></div>
+            <div v-if="isYidong(it.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
           </td>
             <td :class="it.realChange > 0 ? 'up' : 'down'">{{ signed(it.realChange) }}%</td>
             <td :class="it.bidChange > 0 ? 'up' : 'down'">{{ signed(it.bidChange) }}%</td>
@@ -99,6 +100,7 @@
             <td class="stock-info-cell" @click="linkToSoftware(it.code)">
             <div class="stock-code-row"><span class="stock-code">{{ it.code }}</span></div>
             <div class="stock-name-row"><span class="stock-name">{{ it.name || it.code }}</span></div>
+            <div v-if="isYidong(it.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
           </td>
             <td class="seal-col seal-col-25">{{ tpSeal(it, '9_25') }}</td>
             <td class="seal-col seal-col-20">{{ tpSeal(it, '9_20') }}</td>
@@ -146,6 +148,7 @@
                 <td class="stock-info-cell" @click="linkToSoftware(q.code)">
             <div class="stock-code-row"><span class="stock-code">{{ q.code }}</span></div>
             <div class="stock-name-row"><span class="stock-name">{{ q.name }}</span></div>
+            <div v-if="isYidong(q.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
           </td>
                 <td :class="q.realChange > 0 ? 'up' : q.realChange < 0 ? 'down' : 'dim'">{{ q.realChange !== null && q.realChange !== undefined ? signed(q.realChange) + '%' : '-' }}</td>
                 <td :class="q.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(q.bidAmt) }}</td>
@@ -184,6 +187,7 @@
                 <td class="stock-info-cell" @click="linkToSoftware(q.code)">
             <div class="stock-code-row"><span class="stock-code">{{ q.code }}</span></div>
             <div class="stock-name-row"><span class="stock-name">{{ q.name }}</span></div>
+            <div v-if="isYidong(q.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
           </td>
                 <td :class="q.realChange > 0 ? 'up' : q.realChange < 0 ? 'down' : 'dim'">{{ q.realChange !== null && q.realChange !== undefined ? signed(q.realChange) + '%' : '-' }}</td>
                 <td :class="q.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(q.bidAmt) }}</td>
@@ -224,6 +228,7 @@
             <div class="stock-code-row"><span class="stock-code">{{ z.code }}</span></div>
             <div class="stock-name-row"><span class="stock-name">{{ z.name }}</span>
             <span v-if="z.stillLimit" class="lb-badge">连板</span></div>
+            <div v-if="isYidong(z.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
           </td>
             <td><span v-if="z.limitUpDays > 0" class="lb-badge">{{ z.limitUpDays }}板</span><span v-else class="dim">-</span></td>
             <td class="dim">{{ fmtMv(z.floatMv) }}</td>
@@ -258,6 +263,7 @@
             <td class="stock-info-cell" @click="linkToSoftware(b2.code)">
             <div class="stock-code-row"><span class="stock-code">{{ b2.code }}</span></div>
             <div class="stock-name-row"><span class="stock-name">{{ b2.name }}</span></div>
+            <div v-if="isYidong(b2.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
           </td>
             <td :class="b2.yestChange > 0 ? 'up' : b2.yestChange < 0 ? 'down' : 'dim'">{{ b2.yestChange !== null && b2.yestChange !== undefined ? signed(b2.yestChange) + '%' : '-' }}</td>
             <td :class="b2.change > 0 ? 'up' : b2.change < 0 ? 'down' : 'dim'">{{ b2.change !== null && b2.change !== undefined ? signed(b2.change) + '%' : '-' }}</td>
@@ -293,6 +299,7 @@
             <td class="stock-info-cell" @click="linkToSoftware(l.code)">
             <div class="stock-code-row"><span class="stock-code">{{ l.code }}</span></div>
             <div class="stock-name-row"><span class="stock-name">{{ l.name }}</span></div>
+            <div v-if="isYidong(l.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
           </td>
             <td :class="l.change > 0 ? 'up' : 'down'">{{ signed(l.change) }}%</td>
             <td :class="l.bidChange > 0 ? 'up' : l.bidChange < 0 ? 'down' : 'dim'">{{ l.bidChange !== null && l.bidChange !== undefined ? signed(l.bidChange) + '%' : '-' }}</td>
@@ -329,6 +336,7 @@
             <td class="stock-info-cell" @click="linkToSoftware(b.code)">
             <div class="stock-code-row"><span class="stock-code">{{ b.code }}</span></div>
             <div class="stock-name-row"><span class="stock-name">{{ b.name }}</span></div>
+            <div v-if="isYidong(b.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
           </td>
             <td :class="b.change > 0 ? 'up' : 'down'">{{ signed(b.change) }}%</td>
             <td :class="b.bidChange > 0 ? 'up' : b.bidChange < 0 ? 'down' : 'dim'">{{ b.bidChange !== null && b.bidChange !== undefined ? signed(b.bidChange) + '%' : '-' }}</td>
@@ -384,11 +392,13 @@ import { usePoolStore } from '../stores/pool'
 import { showToast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
 import { useUserStore } from '../stores/user'
+import { useYidongMonitor } from '../composables/useYidongMonitor'
 import { yi, signed, amtText, fmtAvg, fmtT, wan } from '../utils/format'
 import VipGate from '../components/VipGate.vue'
 
 const user = useUserStore()
 const pool = usePoolStore()
+const { isYidong, refreshYidongCodes } = useYidongMonitor()
 const tab = ref('s3')   // 默认选中三时点封单
 const sealRaw = ref([])
 const bidNetList = ref([])   // 2026-08-18: 竞价净额专用(开盘啦 Type2 竞价>1000万), 空时回退封单列表
@@ -724,6 +734,7 @@ function onDateChange(e) {
 
 onMounted(() => {
   loadAll()
+  refreshYidongCodes()
   // 历史回看模式暂停实时刷新(每分钟拉历史无意义)
   // 2026-08-18 性能优化: 轮询只刷新当前 tab(清标记重拉), 不再 10 接口全量
   usePolling(() => {
@@ -960,9 +971,11 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 .s3-table { table-layout: auto; }
 .board-text { color: var(--text-secondary); font-size: 12px; line-height: 1.3; }
 /* 2026-08-20 合并代码+名称列: 上方名称, 下方代码, 代码字体更小 */
-.stock-info-cell { cursor: pointer; min-width: 120px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.stock-info-cell { cursor: pointer; min-width: 120px; min-height: 0; height: 52px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .stock-info-cell .stock-name-row { order: 1; display: flex; align-items: center; justify-content: center; gap: 4px; line-height: 1.3; }
 .stock-info-cell .stock-name { font-weight: 600; color: var(--text-main); font-size: 12.5px; }
+.yd-badge-row { order: 3; height: 13px; display: flex; align-items: center; justify-content: center; margin-top: 2px; }
+.yd-badge { display: inline-block; font-size: 10px; line-height: 1; padding: 1px 5px; border-radius: 3px; border: 1px solid #ffd700; color: #ffd700; white-space: nowrap; }
 .stock-info-cell .stock-code-row { order: 2; line-height: 1.2; text-align: center; margin-top: 2px; }
 .stock-info-cell .stock-code {
   font-family: monospace; font-size: 11px; color: var(--text-muted);

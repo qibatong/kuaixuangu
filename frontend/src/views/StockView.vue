@@ -92,6 +92,7 @@ import { usePoolStore } from '../stores/pool'
 import { useUserStore } from '../stores/user'
 import { kplBidSeal } from '../api/kpl'
 import { showToast } from '../utils/toast'
+import { useYidongMonitor } from '../composables/useYidongMonitor'
 import { copyText, downloadBlkFile } from '../utils/tdx'
 import { bjDateTimeStr, isBefore930, isMemberOnlyTime } from '../utils/time'
 
@@ -100,6 +101,7 @@ const pool = usePoolStore()
 const user = useUserStore()
 const bjTime = ref('--:--:--')
 const bidSealMap = ref({})        // 竞价涨停委买额 map: code -> {limitBoards, bidSealAmt, bidNetAmt}
+const { refreshYidongCodes } = useYidongMonitor()
 
 // 窄屏切换: 选股 / 竞价异动
 const mobilePane = ref('stock')
@@ -205,6 +207,7 @@ onMounted(() => {
   bjTime.value = bjDateTimeStr()
   init()
   loadBidSeal()
+  refreshYidongCodes()   // 首页选股/竞价异动 标记异动监管股票
   document.addEventListener('click', onDocClick, true)
 })
 onBeforeUnmount(() => {

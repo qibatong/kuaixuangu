@@ -43,6 +43,7 @@
               <span class="stock-name">{{ item.name }}</span>
             </div>
             <div class="stock-code-row"><span class="stock-code">{{ item.code }}</span></div>
+            <div v-if="isYidong(item.code)" class="yd-badge-row"><span class="yd-badge">异动监管</span></div>
           </td>
           <td :class="item.realChange === null || item.realChange === undefined ? 'dim' : realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + fmtPct(item._staleReal) + '）') : ''">{{ item.realChange === null || item.realChange === undefined ? '-' : signed(item.realChange) + '%' }}</td>
           <td>
@@ -77,8 +78,10 @@ import { linkToSoftware } from '../utils/tdx'
 import { isBefore930 } from '../utils/time'
 import { usePoolStore } from '../stores/pool'
 import { showToast } from '../utils/toast'
+import { useYidongMonitor } from '../composables/useYidongMonitor'
 
 const pool = usePoolStore()
+const { isYidong } = useYidongMonitor()
 
 const props = defineProps({
   stocks: { type: Array, default: () => [] },
@@ -253,6 +256,8 @@ function ratioText(br) {
 .stock-info-cell {
   cursor: pointer;
   min-width: 0;
+  min-height: 0;
+  height: 52px;
   text-align: center;
   padding: 4px 2px !important;
   display: flex;
@@ -272,6 +277,25 @@ function ratioText(br) {
   font-weight: 600;
   color: var(--text-main);
   font-size: 12.5px;
+}
+/* 异动监管标签行: 始终占用固定高度(无标签也占位), 保证各列网格线对齐 */
+.yd-badge-row {
+  order: 3;
+  height: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+.yd-badge {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid #ffd700;
+  color: #ffd700;
+  white-space: nowrap;
 }
 .stock-info-cell .stock-code-row {
   order: 2;
