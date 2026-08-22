@@ -2,13 +2,16 @@
   <div class="page-shell">
     <div class="yd-head">
       <span class="yd-title"><i class="fa fa-bullhorn"></i> 异动监管</span>
-      <span class="yd-sub">异动实时 · 重点监控 · 多次异动</span>
+      <span class="yd-sub">异动实时 · 热门股偏离值 · 重点监控 · 多次异动</span>
       <span class="yd-time">{{ bjTime }}</span>
     </div>
 
     <div class="yd-tabs">
       <button class="yd-tab" :class="{ active: tab === 'realtime' }" @click="switchTab('realtime')">
         <i class="fa fa-bolt"></i> 异动实时
+      </button>
+      <button class="yd-tab" :class="{ active: tab === 'hot' }" @click="switchTab('hot')">
+        <i class="fa fa-flame"></i> 热门股偏离值
       </button>
       <button class="yd-tab" :class="{ active: tab === 'monitor' }" @click="switchTab('monitor')">
         <i class="fa fa-eye"></i> 重点监控
@@ -56,6 +59,53 @@
             <td>
               <span class="trigger-status" :class="{ triggered: isTriggered(item.triggered) }">{{ item.triggered }}</span>
             </td>
+            <td>
+              <button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click="addToPool(item)">
+                {{ inPool(item.code) ? '已＋' : '＋自选' }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 热门股偏离值 -->
+    <div v-else-if="tab === 'hot'" class="yd-panel">
+      <div class="yd-toolbar">
+        <span class="yd-tip"><i class="fa fa-info-circle"></i> 热门股偏离值（热度严重异常，近10日/30日累计偏离超阈值）</span>
+        <button class="rot-reset-btn" title="刷新" @click="loadHot"><i class="fa fa-refresh"></i></button>
+      </div>
+      <div v-if="hotLoading" class="loading-placeholder"><div class="spinner"></div><div>加载热门股偏离值...</div></div>
+      <div v-else-if="!hotList.length" class="empty-state">暂无热门股偏离值数据</div>
+      <table v-else class="stock-table">
+        <thead>
+          <tr>
+            <th>排名</th>
+            <th class="sortable merged-col" :class="{ active: hotSort.keyOf('code') || hotSort.keyOf('name') }" @click="hotSort.onSort('code', 'string')">名称<span class="sort-ind">{{ hotSort.ind('code') }}</span></th>
+            <th class="sortable" :class="{ active: hotSort.keyOf('type') }" @click="hotSort.onSort('type', 'string')">偏离类型<span class="sort-ind">{{ hotSort.ind('type') }}</span></th>
+            <th class="sortable" :class="{ active: hotSort.keyOf('deviation') }" @click="hotSort.onSort('deviation', 'number')">偏离值<span class="sort-ind">{{ hotSort.ind('deviation') }}</span></th>
+            <th class="sortable" :class="{ active: hotSort.keyOf('change') }" @click="hotSort.onSort('change', 'number')">今日涨跌<span class="sort-ind">{{ hotSort.ind('change') }}</span></th>
+            <th>连板/标签</th>
+            <th class="sortable" :class="{ active: hotSort.keyOf('days') }" @click="hotSort.onSort('days', 'string')">偏离天数<span class="sort-ind">{{ hotSort.ind('days') }}</span></th>
+            <th>概念</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(item, idx) in hotSort.sorted(hotList)" :key="item.code">
+            <td class="rank-col">{{ idx + 1 }}</td>
+            <td class="stock-info-cell" @click="linkToSoftware(item.code)">
+              <div class="stock-name-row"><span class="stock-name">{{ item.name }}</span></div>
+              <div class="stock-code-row"><span class="stock-code">{{ item.code }}</span></div>
+            </td>
+            <td class="type-col">{{ item.type }}</td>
+            <td class="dev-col"><span class="dev-num">{{ fmtNum(item.deviation) }}%</span></td>
+            <td>
+              <span class="chg" :class="chgCls(item.change)">{{ fmtSign(item.change) }}</span>
+            </td>
+            <td><span v-if="item.flag" class="lb-badge">{{ item.flag }}</span></td>
+            <td>{{ item.days }}</td>
+            <td class="concept-col">{{ item.concept }}</td>
             <td>
               <button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click="addToPool(item)">
                 {{ inPool(item.code) ? '已＋' : '＋自选' }}
@@ -148,7 +198,7 @@
 import { onMounted, ref } from 'vue'
 import { usePolling } from '../composables/usePolling'
 import { useSortable } from '../composables/useSortable'
-import { kplYidongRealtime, kplYidongMonitor, kplYidongMulti } from '../api/kpl'
+import { kplYidongRealtime, kplYidongHot, kplYidongMonitor, kplYidongMulti } from '../api/kpl'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
 import { usePoolStore } from '../stores/pool'
@@ -157,6 +207,11 @@ import { showToast } from '../utils/toast'
 const pool = usePoolStore()
 const tab = ref('realtime')
 const bjTime = ref('--:--:--')
+
+// 热门股偏离值
+const hotList = ref([])
+const hotLoading = ref(true)
+const hotSort = useSortable()
 
 // 异动实时
 const rtList = ref([])
@@ -176,7 +231,7 @@ const mulSort = useSortable()
 
 function switchTab(t) {
   tab.value = t
-  rtSort.clear(); monSort.clear(); mulSort.clear()
+  rtSort.clear(); hotSort.clear(); monSort.clear(); mulSort.clear()
 }
 
 function isTriggered(status) {
@@ -200,6 +255,19 @@ function fmtNum(v) {
   return Math.round(n * 100) / 100
 }
 
+function fmtSign(v) {
+  if (v == null || v === '') return '-'
+  const n = Number(v)
+  if (Number.isNaN(n)) return '-'
+  return (n > 0 ? '+' : '') + (Math.round(n * 100) / 100) + '%'
+}
+
+function chgCls(v) {
+  const n = Number(v)
+  if (Number.isNaN(n)) return ''
+  return n > 0 ? 'chg-up' : (n < 0 ? 'chg-down' : '')
+}
+
 async function loadRealtime() {
   rtLoading.value = true
   try {
@@ -209,6 +277,15 @@ async function loadRealtime() {
     rtManyNum.value = (rtList.value.length) || 0
   } catch (e) { rtList.value = [] }
   finally { rtLoading.value = false }
+}
+
+async function loadHot() {
+  hotLoading.value = true
+  try {
+    const d = await kplYidongHot()
+    hotList.value = d.list || []
+  } catch (e) { hotList.value = [] }
+  finally { hotLoading.value = false }
 }
 
 async function loadMonitor() {
@@ -233,10 +310,11 @@ onMounted(() => {
   bjTime.value = bjTimeStr()
   usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
   loadRealtime()
+  loadHot()
   loadMonitor()
   loadMulti()
   // 每30秒轮询刷新
-  usePolling(() => { loadRealtime(); loadMonitor(); loadMulti() }, 30000)
+  usePolling(() => { loadRealtime(); loadHot(); loadMonitor(); loadMulti() }, 30000)
 })
 </script>
 
@@ -275,6 +353,11 @@ onMounted(() => {
 }
 
 .desc-col { max-width: 300px; }
+.concept-col { max-width: 240px; color: #9cf; }
+
+.chg { font-weight: 600; font-size: 13px; }
+.chg.chg-up { color: #ff4d4f; }
+.chg.chg-down { color: #33cc77; }
 
 .type-col { max-width: 200px; color: #ffd700; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
 .trigger-col { max-width: 180px; color: #aaa; font-size: 12px; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }

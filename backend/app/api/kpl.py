@@ -685,6 +685,30 @@ def api_kpl_yidong_multi(request: Request, uid: int = Depends(require_vip_or_pai
     return jr({"ok": True, "list": lst, "count": len(lst), "day": d.get("Day", "")})
 
 
+@router.get("/api/kpl/yidong-hot")
+def api_kpl_yidong_hot(request: Request, uid: int = Depends(require_vip_or_paid)):
+    """热门股偏离值 (开盘啦 GetPianLiZhi_Hot): 热门度严重异常个股列表
+    返回: {ok, list, count, day, time}
+    list 每项: code, name, type(偏离类型), change(今日涨跌%), deviation(偏离值),
+              flag(连板/标签), before(异动前涨幅), base(偏离基准), concept(概念), days(偏离天数), rule(偏离规则)
+    原始字段结构: [0]code [1]name [2]type [3]change [4]deviation [5]flag\n                [6]before [7]base [8]concept [9]0 [10]days [11]rule"""
+    d = kpl.fetch_kpl_pianli_hot() or {}
+    raw_list = d.get("List") or []
+    lst = []
+    for item in raw_list:
+        if not item:
+            continue
+        def g(i): return item[i] if len(item) > i else ""
+        lst.append({
+            "code": str(g(0)), "name": str(g(1)), "type": str(g(2)),
+            "change": g(3), "deviation": g(4), "flag": str(g(5)),
+            "before": g(6), "base": g(7), "concept": str(g(8)),
+            "days": str(g(10)), "rule": str(g(11)),
+        })
+    return jr({"ok": True, "list": lst, "count": len(lst),
+               "day": d.get("Day", ""), "time": d.get("Time", 0)})
+
+
 @router.get("/api/kpl/interfaces")
 def api_kpl_interfaces(request: Request, uid: int = Depends(get_uid)):
     """已封装开盘啦接口索引(开发调试用):

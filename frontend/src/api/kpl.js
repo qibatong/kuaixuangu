@@ -79,9 +79,13 @@ export function sectorRotation(days = 10, source = 'kpl') {
   return request(`/api/kpl/sector-rotation?days=${days}&source=${source}`)
 }
 
-// 异动监管(开盘啦 doc90/doc108/doc109)
+// 异动监管(开盘啦 doc90/doc108/doc109 + 热门股偏离值 GetPianLiZhi_Hot)
 export function kplYidongRealtime() {
   return request('/api/kpl/yidong-realtime')
+}
+
+export function kplYidongHot() {
+  return request('/api/kpl/yidong-hot')
 }
 
 export function kplYidongMonitor() {

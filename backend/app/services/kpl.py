@@ -2816,6 +2816,16 @@ def fetch_kpl_doc109(**extra):
     base.update(extra)
     return _call("default", base)
 
+def fetch_kpl_pianli_hot(**extra):
+    r"""热门股偏离值(热门度严重异常) (apphwshhq.longhuvip.com) -> dict
+    a=GetPianLiZhi_Hot, c=StockBidYiDong, apiv=w44 + extra
+    resp 示例: {\"Day\":\"2026-08-21\",\"Time\":1787404488,\"List\":[[\"300570\",\"\\u592a\\u8fb0\\u5149\",\"10\\u65e5100%\",0.5,53.11,\"\",30.86,30.71,\"CPO/MPO\\u3001\\u5149\\u6a21\\u5757\",0,\"8\\u65e5\",\"10\\u65e5100%\"], [\"002412\",\"\\u6c49\\u68ee\\u5236\\u836f\",\"10\\u65e5100%\",10.04,42.18,\"3\\u8fde\\u677f\",45.58,42.26,\"\\u4e2d\\u836f\\u3001\\u4e2d\\u62a5\\u589e\\u957f\",0,\"7\\u65e5\",\"10\\u65e5100%\"]], ...}
+    字段([0]代码 [1]名称 [2]偏离类型 [3]今日涨跌% [4]偏离值 [5]连板/标签 [6]异动前涨幅 [7]偏离基准 [8]概念 [9]0 [10]偏离天数 [11]偏离规则)
+    """
+    base = {"a": "GetPianLiZhi_Hot", "c": "StockBidYiDong", "apiv": "w44"}
+    base.update(extra)
+    return _call("default", base)
+
 def fetch_kpl_doc110(**extra):
     r"""实时接口 (apphis.longhuvip.com) -> dict
     a=MarketSCLNKLine, c=HisHomeDingPan, apiv=w44 + extra
