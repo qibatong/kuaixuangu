@@ -188,6 +188,45 @@ def fetch_bid_net():
     return _cached("bid_net", config.KPL_BID_TTL, loader)
 
 
+def bid_net_from_snap(date=None):
+    """2026-08-22 非竞价/非交易日回退: 用 9_25 快照重建竞价净额榜(全市场竞价金额>1000万),
+    与 doc112(MorningBiddingList Type=2 全额>1000万)口径一致, 按竞价额降序。
+    返回 [{code,name,bidAmt(元),bidChange,bidTurnover,bidNetAmt,floatMv,board}, ...]"""
+    import sqlite3
+    if date is None:
+        date = time.strftime("%Y-%m-%d")
+    conn = sqlite3.connect(config.DB_FILE)
+    try:
+        row = conn.execute(
+            "SELECT MAX(time_point) FROM snapshot_bid WHERE date=? "
+            "AND time_point IN ('9_15','9_20','9_24','9_25')", (date,)).fetchone()
+        tp = str(row[0]) if row and row[0] else None
+        if not tp:
+            return []
+        rows = conn.execute(
+            "SELECT code, name, bid_amt, bid_change, float_mv, board FROM snapshot_bid "
+            "WHERE date=? AND time_point=? AND bid_amt >= 1000 ORDER BY bid_amt DESC",
+            (date, tp)).fetchall()
+    finally:
+        conn.close()
+    out = []
+    for _code, _name, _amt, _chg, _fmv, _board in rows:
+        amt = _amt or 0
+        fmv = _fmv or 0
+        out.append({
+            "code": str(_code),
+            "name": _name or "",
+            "bidAmt": amt * 10000,          # 万元 → 元
+            "bidNetAmt": amt * 10000,
+            "bidChange": _chg or 0,
+            "bidTurnover": round(amt * 10000 / fmv * 100, 2) if fmv else 0.0,
+            "floatMv": fmv,
+            "board": _board or "",
+        })
+    log.info("竞价净额快照重建 %d 只 date=%s (9_%s)", len(out), date, tp)
+    return out
+
+
 def fetch_bid_boom():
     """竞价爆量榜(2026-08-19 主人要求改版):
     **按竞价量比排序(不限条数)** — 竞价量比 = 今日竞价额 / 昨日竞价额。
@@ -2891,6 +2930,7 @@ def save_auction_history(date, phase="bid"):
             ("seal", fetch_bid_seal()),
             ("boom", fetch_bid_boom()),
             ("qiangcang", (fetch_bid_qiangcang() or {}).get("list20", [])),
+            ("bid_net", fetch_bid_net()),   # 2026-08-22: 竞价净额榜加入落库, 支持历史回看
         ]
     else:
         items = [
@@ -2905,6 +2945,11 @@ def save_auction_history(date, phase="bid"):
             log.warning("竞价异动快照[%s] date=%s 抓取为空, 跳过", tab, date)
             continue
         try:
+            # 2026-08-22: 落库前补竞换/竞额, 否则历史回看/非交易日回退这两列空
+            if phase == "bid" and tab in ("seal", "bid_net"):
+                fill_bid_turnover_from_snap(lst, date)
+                if tab == "bid_net":
+                    fill_bid_amt_from_snap(lst, date)
             conn = _sql.connect(config.DB_FILE)
             conn.execute(
                 "INSERT OR REPLACE INTO auction_daily_history (date, tab, list, ts) VALUES (?,?,?,?)",

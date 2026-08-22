@@ -177,11 +177,13 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(require_vip_or_paid), 
     if date:
         resolved = _resolve_date(date)
         d = kpl.query_auction_history(resolved, "seal")
+        kpl.fill_bid_turnover_from_snap(d, resolved)   # 2026-08-22: 历史快照竞换可能缺, 用当日快照补
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "date": resolved, "requestedDate": date})
     if not _is_auction_hours():
         # 非竞价时段 → 从库快速读取 (当天优先, 历史回退)
         d, d_str = _read_auction_fast("seal")
+        kpl.fill_bid_turnover_from_snap(d, d_str)   # 2026-08-22: 非交易日/历史回退补竞换
         _ensure_concepts(d, tag="auc:bid-seal[fast]")
         return jr({"ok": True, "list": d, "count": len(d), "date": d_str})
     d = kpl.fetch_bid_seal() or []
@@ -234,9 +236,31 @@ def api_kpl_bid_boom(request: Request, uid: int = Depends(require_vip_or_paid), 
 
 
 @router.get("/api/kpl/bid-net")
-def api_kpl_bid_net(request: Request, uid: int = Depends(require_vip_or_paid)):
+def api_kpl_bid_net(request: Request, uid: int = Depends(require_vip_or_paid), date: str = ""):
     """竞价净额榜(2026-08-18 主人要求): 开盘啦 MorningBiddingList Type=2(全市场竞价金额>1000万)
-    替代仅从涨停封单列表按净额排序; 非竞价时段返回空 → 前端回退封单列表"""
+    替代仅从涨停封单列表按净额排序; 非竞价时段返回空 → 前端回退封单列表
+    2026-08-22: 增加历史回看(date) + 非交易/非竞价时段回退上一交易日(历史快照 → 快照重建)"""
+    if date:
+        resolved = _resolve_date(date)
+        d = kpl.query_auction_history(resolved, "bid_net") or []
+        # 老快照未存竞换/竞额 → 用当日 9_25 快照补
+        kpl.fill_bid_turnover_from_snap(d, resolved)
+        kpl.fill_bid_amt_from_snap(d, resolved)
+        kpl.apply_board_concept_db(d, log_tag="auc:bid-net[hist]", field="board", truncate=2, blank_if_missing=True, date=resolved)
+        return jr({"ok": True, "list": d, "count": len(d), "date": resolved, "requestedDate": date})
+    if not _is_auction_hours():
+        # 非竞价时段(含非交易日): 优先读库, 无则用 9_25 快照重建上一交易日竞价额>1000万
+        d, d_str = _read_auction_fast("bid_net")
+        if not d:
+            _prev = kpl._prev_trade_day()
+            if _prev:
+                d = kpl.bid_net_from_snap(_prev)
+                d_str = _prev
+        kpl.fill_bid_turnover_from_snap(d, d_str)
+        kpl.fill_bid_amt_from_snap(d, d_str)
+        _update_spot_change(d)   # 现涨: 非交易日=当日收盘/最新实时
+        kpl.apply_board_concept_db(d, log_tag="auc:bid-net[fast]", field="board", truncate=2, blank_if_missing=True, date=d_str)
+        return jr({"ok": True, "list": d, "count": len(d), "date": d_str})
     d = kpl.fetch_bid_net() or []
     # 2026-08-18 主人要求: doc112(Type=2)字段结构与Type4不同, 换手/成交额解析为0
     # → 用 9_25 快照补竞价换手 + 竞价成交额(可靠同源)
@@ -405,6 +429,14 @@ def api_kpl_lhb(request: Request, uid: int = Depends(require_vip_or_paid), date:
                 lst = _json.loads(row[0])
             except (ValueError, TypeError):
                 lst = []
+        if not lst:
+            # 2026-08-22: lhb_history 可能未落库(调度中断/新增日期) → 用盘啦历史接口兜底
+            try:
+                hist = kpl.fetch_lhb(resolved) or []
+                if hist:
+                    lst = hist
+            except Exception as e:
+                log.warning("龙虎榜历史兜底失败 date=%s err=%s", resolved, e)
         kpl.fill_reason_from_pool(lst, resolved)
         kpl.fill_bid_change_from_snap(lst, resolved)
         kpl.fill_float_mv_from_snap(lst, resolved)
@@ -413,6 +445,40 @@ def api_kpl_lhb(request: Request, uid: int = Depends(require_vip_or_paid), date:
         return jr({"ok": True, "list": lst, "count": len(lst), "date": resolved, "requestedDate": date})
     d = kpl.fetch_lhb()
     lst = d or []
+    if not lst:
+        # 2026-08-22 非交易日/当日无数据 → 回退上一交易日: 优先实时查盘点啦历史, 再读 lhb_history 快照
+        d_str = ""
+        _prev = kpl._prev_trade_day()
+        if _prev:
+            hist = kpl.fetch_lhb(_prev) or []
+            if hist:
+                lst = hist
+                d_str = _prev
+        if not lst:
+            import json as _json
+            from ..db import database
+            conn = database.get_conn()
+            row = conn.execute(
+                "SELECT MAX(date) FROM lhb_history WHERE date < ?",
+                (_time.strftime("%Y-%m-%d", _time.gmtime()),)).fetchone()
+            conn.close()
+            if row and row[0]:
+                conn = database.get_conn()
+                r2 = conn.execute("SELECT list FROM lhb_history WHERE date=?", (str(row[0]),)).fetchone()
+                conn.close()
+                if r2 and r2[0]:
+                    try:
+                        lst = _json.loads(r2[0])
+                    except (ValueError, TypeError):
+                        lst = []
+                if lst:
+                    d_str = str(row[0])
+        kpl.fill_reason_from_pool(lst, d_str or None)
+        kpl.fill_bid_change_from_snap(lst, d_str)
+        kpl.fill_float_mv_from_snap(lst, d_str)
+        kpl.fill_bid_turnover_from_snap(lst, d_str)   # 2026-08-18: 补竞价换手
+        kpl.apply_board_concept_db(lst, log_tag="auc:lhb[fallback]", field="board", truncate=2, blank_if_missing=True, date=d_str)
+        return jr({"ok": True, "list": lst, "count": len(lst), "date": d_str})
     kpl.fill_reason_from_pool(lst, None)   # 今日涨停池补涨停原因
     kpl.fill_bid_change_from_snap(lst, None)   # 今日 9_25 快照补竞价涨幅
     kpl.fill_float_mv_from_snap(lst, None)
