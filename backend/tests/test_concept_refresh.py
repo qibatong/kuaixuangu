@@ -11,19 +11,13 @@ import pytest
 
 def _safe_unlink(path):
     """删除临时文件(Windows 兼容, 处理可能的 WAL/journal 伴随文件)"""
-    if not os.path.exists(path):
-        return
     for suffix in ("", "-wal", "-shm", "-journal", "-sqlite-journal"):
         p = path + suffix
         try:
             if os.path.exists(p):
                 os.remove(p)
-        except PermissionError:
+        except (FileNotFoundError, PermissionError):
             pass
-    try:
-        os.remove(path)
-    except PermissionError:
-        pass
 
 
 def _tmp_db():
