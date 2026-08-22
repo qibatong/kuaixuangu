@@ -501,6 +501,71 @@ def api_kpl_sector_rotation(request: Request, uid: int = Depends(get_uid), days:
                "dates": rot.get("dates") or [], "source": source})
 
 
+# ==================== 异动监管(doc90/doc108/doc109) ====================
+@router.get("/api/kpl/yidong-realtime")
+def api_kpl_yidong_realtime(request: Request, uid: int = Depends(require_vip_or_paid)):
+    """异动实时接口 (开盘啦 doc90 GetPianLiZhi_Index): 返回全市场实时异动个股列表
+    返回: {ok, list, manyNum, day, time}
+    list 每项: code, name, type(第4字段index3), trigger(第8字段index7), triggered(末字段index12)
+    原始字段结构: [0]code [1]name [2]typeCode [3]typeDesc [4]... [7]triggerDesc [8]triggerPct ... [12]triggered"""
+    d = kpl.fetch_kpl_doc90() or {}
+    raw_list = d.get("List") or []
+    lst = []
+    for item in raw_list:
+        if not item:
+            continue
+        code = str(item[0]) if len(item) > 0 else ""
+        name = str(item[1]) if len(item) > 1 else ""
+        # 异动类型: 第4个字段(index 3)
+        yd_type = str(item[3]) if len(item) > 3 else ""
+        # 涨幅触发异动: 第8个字段(index 7)
+        trigger = str(item[7]) if len(item) > 7 else ""
+        # 是否触发异动: 最后一个字段(index 12)
+        triggered = str(item[12]) if len(item) > 12 else ""
+        lst.append({"code": code, "name": name, "type": yd_type,
+                     "trigger": trigger, "triggered": triggered})
+    return jr({"ok": True, "list": lst, "count": len(lst),
+               "manyNum": d.get("Many_Num", 0), "day": d.get("Day", ""),
+               "time": d.get("Time", 0)})
+
+
+@router.get("/api/kpl/yidong-monitor")
+def api_kpl_yidong_monitor(request: Request, uid: int = Depends(require_vip_or_paid)):
+    """重点监控股票 (开盘啦 doc108 GetYDTP_ZDJK_Today): 当日重点监控个股
+    返回: {ok, list, count}  list 每项格式: [code, name, startDate, endDate, times]"""
+    d = kpl.fetch_kpl_doc108() or {}
+    raw_list = d.get("List") or []
+    lst = []
+    for item in raw_list:
+        if not item:
+            continue
+        code = str(item[0]) if len(item) > 0 else ""
+        name = str(item[1]) if len(item) > 1 else ""
+        start = str(item[2]) if len(item) > 2 else ""
+        end = str(item[3]) if len(item) > 3 else ""
+        times = item[4] if len(item) > 4 else 0
+        lst.append({"code": code, "name": name, "startDate": start, "endDate": end, "times": times})
+    return jr({"ok": True, "list": lst, "count": len(lst)})
+
+
+@router.get("/api/kpl/yidong-multi")
+def api_kpl_yidong_multi(request: Request, uid: int = Depends(require_vip_or_paid)):
+    """多次异动个股 (开盘啦 doc109 GetPianLiZhi_Many): 近10日内多次异动个股
+    返回: {ok, list, count, day}  list 每项格式: [code, name, times, desc]"""
+    d = kpl.fetch_kpl_doc109() or {}
+    raw_list = d.get("List") or []
+    lst = []
+    for item in raw_list:
+        if not item:
+            continue
+        code = str(item[0]) if len(item) > 0 else ""
+        name = str(item[1]) if len(item) > 1 else ""
+        times = item[2] if len(item) > 2 else 0
+        desc = str(item[3]) if len(item) > 3 else ""
+        lst.append({"code": code, "name": name, "times": times, "desc": desc})
+    return jr({"ok": True, "list": lst, "count": len(lst), "day": d.get("Day", "")})
+
+
 @router.get("/api/kpl/interfaces")
 def api_kpl_interfaces(request: Request, uid: int = Depends(get_uid)):
     """已封装开盘啦接口索引(开发调试用):

@@ -78,3 +78,16 @@ export function kplYesterdayPerf() {
 export function sectorRotation(days = 10, source = 'kpl') {
   return request(`/api/kpl/sector-rotation?days=${days}&source=${source}`)
 }
+
+// 异动监管(开盘啦 doc90/doc108/doc109)
+export function kplYidongRealtime() {
+  return request('/api/kpl/yidong-realtime')
+}
+
+export function kplYidongMonitor() {
+  return request('/api/kpl/yidong-monitor')
+}
+
+export function kplYidongMulti() {
+  return request('/api/kpl/yidong-multi')
+}

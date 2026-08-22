@@ -25,6 +25,9 @@
       <router-link to="/ladder" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-sitemap"></i> 连板天梯
       </router-link>
+      <router-link to="/yidong" exact-active-class="router-link-active" class="nav-item">
+        <i class="fa fa-bullhorn"></i> 异动监管
+      </router-link>
       <router-link to="/invite" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-share-alt"></i> 邀请
       </router-link>
