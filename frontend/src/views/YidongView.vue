@@ -2,13 +2,13 @@
   <div class="page-shell">
     <div class="yd-head">
       <span class="yd-title"><i class="fa fa-bullhorn"></i> 异动监管</span>
-      <span class="yd-sub">异动实时 · 热门股偏离值 · 重点监控 · 多次异动</span>
+      <span class="yd-sub">严重异动 · 热门股偏离值 · 重点监控 · 多次异动</span>
       <span class="yd-time">{{ bjTime }}</span>
     </div>
 
     <div class="yd-tabs">
       <button class="yd-tab" :class="{ active: tab === 'realtime' }" @click="switchTab('realtime')">
-        <i class="fa fa-bolt"></i> 异动实时
+        <i class="fa fa-bolt"></i> 严重异动
       </button>
       <button class="yd-tab" :class="{ active: tab === 'hot' }" @click="switchTab('hot')">
         <i class="fa fa-flame"></i> 热门股偏离值
@@ -24,12 +24,12 @@
     <!-- 异动实时 -->
     <div v-if="tab === 'realtime'" class="yd-panel">
       <div class="yd-toolbar">
-        <span class="yd-tip"><i class="fa fa-info-circle"></i> 全市场实时异动个股（盘中持续刷新）</span>
+        <span class="yd-tip"><i class="fa fa-info-circle"></i> 全市场严重异动个股（盘中持续刷新）</span>
         <span v-if="rtManyNum" class="yd-badge">异动家数: {{ rtManyNum }}</span>
         <button class="rot-reset-btn" title="刷新" @click="loadRealtime"><i class="fa fa-refresh"></i></button>
       </div>
-      <div v-if="rtLoading" class="loading-placeholder"><div class="spinner"></div><div>加载异动实时...</div></div>
-      <div v-else-if="!rtList.length" class="empty-state">暂无异动数据</div>
+      <div v-if="rtLoading" class="loading-placeholder"><div class="spinner"></div><div>加载严重异动...</div></div>
+      <div v-else-if="!rtList.length" class="empty-state">暂无严重异动数据</div>
       <table v-else class="stock-table">
         <thead>
           <tr>
