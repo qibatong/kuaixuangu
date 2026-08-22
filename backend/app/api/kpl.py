@@ -4,6 +4,8 @@
 ==========================================================
 所有接口均走 kpl 服务(缓存 + 降级), 失败返回空列表/None, 不影响主流程。
 """
+import time as _time
+
 from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
@@ -13,6 +15,97 @@ from .deps import get_uid, jr, require_vip_or_paid
 log = logger.get_logger(__name__)
 
 router = APIRouter()
+
+
+# ====================================================================
+# Fast-path 辅助函数 (竞价时段/非竞价时段分流)
+# ====================================================================
+
+def _is_auction_hours():
+    """当前北京时间是否在竞价时段 (9:15 ~ 9:30), 仅工作日"""
+    t = _time.gmtime()
+    if t.tm_wday >= 5:   # 周六=5, 周日=6
+        return False
+    h, m = t.tm_hour, t.tm_min
+    if h == 9 and 15 <= m <= 30:
+        return True
+    return False
+
+
+def _update_spot_change(lst):
+    """用东方财富实时行情覆盖列表中股票的 change / realChange 字段。
+    只改 change / realChange 两个字段, 其他字段(name/board/...)绝不变动。
+    返回被更新的股票数量; 任何异常都返回 0, 不崩。"""
+    if not lst:
+        return 0
+    try:
+        from ..services import fetcher
+        codes = [it["code"] for it in lst if it.get("code")]
+        if not codes:
+            return 0
+        spot_map = fetcher.fetch_spot_quote_map(",".join(codes))
+        if not spot_map:
+            return 0
+        n = 0
+        for it in lst:
+            code = it.get("code", "")
+            if code and code in spot_map:
+                spot = spot_map[code]
+                rc = spot.get("realChange", spot.get("change"))
+                if rc is not None:
+                    it["change"] = float(rc) if rc else 0
+                    it["realChange"] = it["change"]
+                    n += 1
+        return n
+    except Exception:
+        return 0
+
+
+def _ensure_concepts(lst, tag=""):
+    """保证列表中至少有 ~30% 股票带概念/板块。
+    若已有概念比例 ≥30%, 直接跳过(保护深查开销);
+    否则用 apply_board_concept(deep=False) 轻量模式补齐。"""
+    if not lst:
+        return
+    total = len(lst)
+    filled = sum(1 for it in lst if (it.get("board") or "").strip())
+    if total > 0 and filled / total >= 0.30:
+        return  # 已足够, 跳过
+    try:
+        kpl.apply_board_concept(lst, log_tag=tag or "auc", deep=False,
+                                field="board", truncate=2, blank_if_missing=False)
+    except Exception as e:
+        log.warning("竞价异动概念补齐失败 tag=%s err=%s", tag, e)
+
+
+def _read_auction_fast(tab):
+    """非竞价时段快速读取: 优先今日落库数据; 若无则回退最近交易日; 再无返回空。
+    返回 (list, date_str) — 用于竞价异动类接口 (bid-seal/bid-boom/broken)。"""
+    today = _time.strftime("%Y-%m-%d", _time.gmtime())
+    try:
+        lst = kpl.query_auction_history(today, tab)
+        if lst:
+            n = _update_spot_change(lst)
+            return lst, today
+    except Exception:
+        pass
+    # 今日无数据 → 找最近交易日
+    try:
+        from ..db import database
+        conn = database.get_conn()
+        row = conn.execute(
+            "SELECT MAX(date) FROM auction_daily_history WHERE date < ?",
+            (today,)).fetchone()
+        conn.close()
+        if row and row[0]:
+            d = str(row[0])
+            lst = kpl.query_auction_history(d, tab)
+            if lst:
+                n = _update_spot_change(lst)
+                return lst, d
+    except Exception:
+        pass
+    return [], today
 
 
 def _resolve_date(date):
@@ -79,16 +172,23 @@ def api_kpl_market_brief(request: Request, uid: int = Depends(get_uid)):
 
 @router.get("/api/kpl/bid-seal")
 def api_kpl_bid_seal(request: Request, uid: int = Depends(require_vip_or_paid), date: str = ""):
-    """竞价涨停委买额: date 空=实时, 指定 'YYYY-MM-DD' 回看历史(auction_daily_history)"""
+    """竞价涨停委买额: date 空=实时, 指定 'YYYY-MM-DD' 回看历史(auction_daily_history)
+    2026-08-22: 竞价时段走实时 fetch_bid_seal + deep=True; 非竞价时段走 fast-path 读库"""
     if date:
         resolved = _resolve_date(date)
         d = kpl.query_auction_history(resolved, "seal")
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "date": resolved, "requestedDate": date})
+    if not _is_auction_hours():
+        # 非竞价时段 → 从库快速读取 (当天优先, 历史回退)
+        d, d_str = _read_auction_fast("seal")
+        _ensure_concepts(d, tag="auc:bid-seal[fast]")
+        return jr({"ok": True, "list": d, "count": len(d), "date": d_str})
     d = kpl.fetch_bid_seal() or []
     # 概念列统一用开盘啦接口覆盖(只取开盘啦概念, 避免东财长串多概念混入)
     try:
-        kpl.apply_board_concept_db(d, log_tag="auc:bid-seal", field="board", truncate=2, blank_if_missing=True)
+        kpl.apply_board_concept(d, log_tag="auc:bid-seal", deep=True,
+                                field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("竞价异动概念开盘啦覆盖失败 bid-seal err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
@@ -169,6 +269,16 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
                 except Exception as e:
                     log.warning("昨炸板实时涨幅 merge 失败 err=%s", e)
                 return jr({"ok": True, "list": lst, "count": len(lst), "day": prev})
+    # 非竞价时段且无 day 参数: 先尝试读库 broken_today (fast-path)
+    if not _is_auction_hours() and not day:
+        lst_fast, d_str = _read_auction_fast("broken_today")
+        if lst_fast:
+            kpl._merge_broken_bid_snap(lst_fast)
+            kpl.fill_float_mv_from_snap(lst_fast, d_str)
+            _ensure_concepts(lst_fast, tag="auc:broken[fast]")
+            return jr({"ok": True, "list": lst_fast, "count": len(lst_fast),
+                       "date": d_str,
+                       "day": (lst_fast[0].get("day") if lst_fast else "")})
     d = kpl.fetch_broken_zt(day or None)
     lst = d or []
     kpl.fill_float_mv_from_snap(lst, None)
@@ -319,20 +429,29 @@ def api_kpl_wpqc(request: Request, uid: int = Depends(require_vip_or_paid)):
 def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(require_vip_or_paid), date: str = ""):
     """竞价抢筹(左右双表): list20=9:20→9:25 竞额抢筹(开盘啦净额强度),
     list20Chg=9:20→9:25 涨幅抢筹(全市场快照涨幅差), listLast=9:24→9:25 最后1秒段
-    date 空=实时; 指定 'YYYY-MM-DD' 回看历史(qc_snapshot + snapshot_bid)"""
+    date 空=实时; 指定 'YYYY-MM-DD' 回看历史(qc_snapshot + snapshot_bid)
+    2026-08-22: 非竞价时段用 _ensure_concepts 轻量补概念; 指定 date 用 deep=True"""
     d = kpl.fetch_bid_qiangcang(date or None) or {}
     l20 = d.get("list20") or []
     l20Chg = d.get("list20Chg") or []
     lLast = d.get("listLast") or []
-    # 概念列统一用开盘啦接口覆盖(涨幅抢筹 list20Chg 可能回退东财快照, 强制开盘啦)
-    try:
-        kpl.apply_board_concept_db(l20, log_tag="auc:qc20", field="board", truncate=2, blank_if_missing=True)
-        kpl.apply_board_concept_db(l20Chg, log_tag="auc:qc20Chg", field="board", truncate=2, blank_if_missing=True)
-        # 2026-08-18: 右表改 deep=True — 主人反馈 listLast 60/100 无概念(原 deep=False 只榜单合并)
-        # 按股查询仅针对榜单未覆盖股票(带1天缓存, 首次多几秒)
-        kpl.apply_board_concept_db(lLast, log_tag="auc:qcLast", field="board", truncate=2, blank_if_missing=True)
-    except Exception as e:
-        log.warning("竞价异动概念开盘啦覆盖失败 bid-qiangcang err=%s", e)
+    lists_to_concept = [l20, l20Chg, lLast]
+    # 指定 date → 走 deep=True 深查; 非竞价时段 → _ensure_concepts 轻量补
+    if date or _is_auction_hours():
+        try:
+            for lst, tag in zip(lists_to_concept, ["auc:qc20", "auc:qc20Chg", "auc:qcLast"]):
+                kpl.apply_board_concept(lst, log_tag=tag, deep=True,
+                                        field="board", truncate=2, blank_if_missing=True)
+        except Exception as e:
+            log.warning("竞价异动概念开盘啦覆盖失败 bid-qiangcang err=%s", e)
+    else:
+        # 非竞价时段: 先 db 快速合并 + _ensure_concepts 轻量补
+        try:
+            for lst, tag in zip(lists_to_concept, ["auc:qc20", "auc:qc20Chg", "auc:qcLast"]):
+                kpl.apply_board_concept_db(lst, log_tag=tag, field="board", truncate=2, blank_if_missing=True)
+                _ensure_concepts(lst, tag=tag)
+        except Exception as e:
+            log.warning("竞价异动概念补失败 bid-qiangcang[fast] err=%s", e)
     # 2026-08-18 修复: 抢筹三表统一 merge 东财实时涨幅(realChange) —
     # 主人反馈灿勤科技等涨幅抢筹/右表股票实时涨幅为空(开盘啦数据源无该字段)
     try:

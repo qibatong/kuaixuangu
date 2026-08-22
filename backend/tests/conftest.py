@@ -133,3 +133,18 @@ def second_user(client, first_user):
     d = r.json()
     assert d.get("ok")
     return d["token"], d["username"]
+
+
+@pytest.fixture(scope="session")
+def vip_user(client, first_user):
+    """VIP 用户 (member_level=2), 用于需要 VIP 权限的接口测试"""
+    from app.services import users as users_svc
+    from app.db import database
+    username = first_user[1]
+    conn = database.get_conn()
+    row = conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+    conn.close()
+    uid = row[0] if row else None
+    if uid:
+        users_svc.set_member_level(uid, 2)
+    return first_user

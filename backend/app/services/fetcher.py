@@ -1155,9 +1155,7 @@ def _fetch_chart_from_tencent(code, period="day"):
         if not data:
             return {}
         rows = data.get(kp)
-        if not rows:
-            return {}
-        # 兼容 data = {"qfq": {"week": [...]}} 的嵌套结构
+        # 兼容 data = {"qfq": {"week": [...]}} 的嵌套结构(直接结构取不到时尝试 qfq 嵌套)
         if not isinstance(rows, list):
             for rk in ("qfq", kp):
                 rr = data.get(rk)

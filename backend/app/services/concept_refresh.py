@@ -76,30 +76,29 @@ def _collect_codes(date):
 
     # 1) 落库快照(9:26/15:30 已落库的, 兜底)
     try:
-        conn = sqlite3.connect(config.DB_FILE)
-        for tab in ("seal", "boom", "bid_net", "qiangcang", "yest_zt", "yest_broken",
-                    "broken_yest", "broken_today"):
+        with sqlite3.connect(config.DB_FILE) as conn:
+            for tab in ("seal", "boom", "bid_net", "qiangcang", "yest_zt", "yest_broken",
+                        "broken_yest", "broken_today"):
+                row = conn.execute(
+                    "SELECT list FROM auction_daily_history WHERE date=? AND tab=?",
+                    (date, tab)).fetchone()
+                if row and row[0]:
+                    try:
+                        _add(json.loads(row[0]))
+                    except Exception:
+                        continue
+            # qc_snapshot
+            for r in conn.execute(
+                    "SELECT DISTINCT code FROM qc_snapshot WHERE date=?", (date,)).fetchall():
+                codes.add(str(r[0]))
+            # lhb_history
             row = conn.execute(
-                "SELECT list FROM auction_daily_history WHERE date=? AND tab=?",
-                (date, tab)).fetchone()
+                "SELECT list FROM lhb_history WHERE date=?", (date,)).fetchone()
             if row and row[0]:
                 try:
                     _add(json.loads(row[0]))
                 except Exception:
-                    continue
-        # qc_snapshot
-        for r in conn.execute(
-                "SELECT DISTINCT code FROM qc_snapshot WHERE date=?", (date,)).fetchall():
-            codes.add(str(r[0]))
-        # lhb_history
-        row = conn.execute(
-            "SELECT list FROM lhb_history WHERE date=?", (date,)).fetchone()
-        if row and row[0]:
-            try:
-                _add(json.loads(row[0]))
-            except Exception:
-                pass
-        conn.close()
+                    pass
     except Exception as e:
         log.warning("概念刷新[采集落库股票]失败 date=%s err=%s", date, e)
 
@@ -129,59 +128,58 @@ def _update_lists_with_board(date, code_to_board):
         return 0
     n_updated = 0
     try:
-        conn = sqlite3.connect(config.DB_FILE)
-        # 1. 竞价异动各 tab
-        for tab in ("seal", "boom", "bid_net", "qiangcang", "yest_zt", "yest_broken",
-                    "broken_yest", "broken_today"):
+        with sqlite3.connect(config.DB_FILE) as conn:
+            # 1. 竞价异动各 tab
+            for tab in ("seal", "boom", "bid_net", "qiangcang", "yest_zt", "yest_broken",
+                        "broken_yest", "broken_today"):
+                row = conn.execute(
+                    "SELECT list FROM auction_daily_history WHERE date=? AND tab=?",
+                    (date, tab)).fetchone()
+                if not row or not row[0]:
+                    continue
+                try:
+                    lst = json.loads(row[0])
+                    changed = 0
+                    for it in lst:
+                        c = str(it.get("code", "")).strip()
+                        nb = code_to_board.get(c)
+                        if nb and it.get("board") != nb:
+                            it["board"] = nb
+                            changed += 1
+                    if changed:
+                        conn.execute(
+                            "UPDATE auction_daily_history SET list=?, ts=? WHERE date=? AND tab=?",
+                            (json.dumps(lst, ensure_ascii=False), int(time.time()), date, tab))
+                        n_updated += changed
+                except Exception:
+                    continue
+            # 2. qc_snapshot
+            for code, board in code_to_board.items():
+                conn.execute(
+                    "UPDATE qc_snapshot SET board=? WHERE date=? AND code=? AND (board IS NULL OR board='' OR board!=?)",
+                    (board, date, code, board))
+                n_updated += conn.total_changes
+            # 3. 龙虎榜
             row = conn.execute(
-                "SELECT list FROM auction_daily_history WHERE date=? AND tab=?",
-                (date, tab)).fetchone()
-            if not row or not row[0]:
-                continue
-            try:
-                lst = json.loads(row[0])
-                changed = 0
-                for it in lst:
-                    c = str(it.get("code", "")).strip()
-                    nb = code_to_board.get(c)
-                    if nb and it.get("board") != nb:
-                        it["board"] = nb
-                        changed += 1
-                if changed:
-                    conn.execute(
-                        "UPDATE auction_daily_history SET list=?, ts=? WHERE date=? AND tab=?",
-                        (json.dumps(lst, ensure_ascii=False), int(time.time()), date, tab))
-                    n_updated += changed
-            except Exception:
-                continue
-        # 2. qc_snapshot
-        for code, board in code_to_board.items():
-            conn.execute(
-                "UPDATE qc_snapshot SET board=? WHERE date=? AND code=? AND (board IS NULL OR board='' OR board!=?)",
-                (board, date, code, board))
-            n_updated += conn.total_changes
-        # 3. 龙虎榜
-        row = conn.execute(
-            "SELECT list FROM lhb_history WHERE date=?", (date,)).fetchone()
-        if row and row[0]:
-            try:
-                lst = json.loads(row[0])
-                changed = 0
-                for it in lst:
-                    c = str(it.get("code", "")).strip()
-                    nb = code_to_board.get(c)
-                    if nb and it.get("board") != nb:
-                        it["board"] = nb
-                        changed += 1
-                if changed:
-                    conn.execute(
-                        "UPDATE lhb_history SET list=?, ts=? WHERE date=?",
-                        (json.dumps(lst, ensure_ascii=False), int(time.time()), date))
-                    n_updated += changed
-            except Exception:
-                pass
-        conn.commit()
-        conn.close()
+                "SELECT list FROM lhb_history WHERE date=?", (date,)).fetchone()
+            if row and row[0]:
+                try:
+                    lst = json.loads(row[0])
+                    changed = 0
+                    for it in lst:
+                        c = str(it.get("code", "")).strip()
+                        nb = code_to_board.get(c)
+                        if nb and it.get("board") != nb:
+                            it["board"] = nb
+                            changed += 1
+                    if changed:
+                        conn.execute(
+                            "UPDATE lhb_history SET list=?, ts=? WHERE date=?",
+                            (json.dumps(lst, ensure_ascii=False), int(time.time()), date))
+                        n_updated += changed
+                except Exception:
+                    pass
+            conn.commit()
     except Exception as e:
         log.warning("概念刷新[回写DB]失败 date=%s err=%s", date, e)
     return n_updated
@@ -266,13 +264,12 @@ def _write_stock_concept(date, code_to_board):
     if not code_to_board:
         return 0
     try:
-        conn = sqlite3.connect(config.DB_FILE)
-        now = int(time.time())
-        conn.executemany(
-            "INSERT OR REPLACE INTO stock_concept (date, code, board, ts) VALUES (?,?,?,?)",
-            [(date, code, board, now) for code, board in code_to_board.items()])
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(config.DB_FILE) as conn:
+            now = int(time.time())
+            conn.executemany(
+                "INSERT OR REPLACE INTO stock_concept (date, code, board, ts) VALUES (?,?,?,?)",
+                [(date, code, board, now) for code, board in code_to_board.items()])
+            conn.commit()
         return len(code_to_board)
     except Exception as e:
         log.warning("概念刷新[写 stock_concept]失败 date=%s err=%s", date, e)
