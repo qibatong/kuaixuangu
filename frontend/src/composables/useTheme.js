@@ -18,7 +18,7 @@ export const FONTS = [
 const STORE_KEY = 'kuaixuan_bg'   // 本地兜底 { bg, font }, 登录后以 prefs 为准
 
 // 模块级单例 state: 避免多次 useTheme() 各持独立 ref, 导致跨组件(如 Watermark)读不到最新主题
-const bg = ref('light')   // 默认白色(浅色)主题, 2026-08-17 主人确认
+const bg = ref('dark')   // 默认黑色(深色)主题, 2026-08-22 主人确认
 const font = ref('md')
 
 function applyBg(key) {
@@ -41,12 +41,19 @@ export function useTheme() {
     } catch (e) { /* ignore */ }
     try {
       const data = await getPrefs()
-      if (data.settings) {
-        if (data.settings.bg) b = data.settings.bg
-        if (data.settings.font) ft = data.settings.font
+      const settings = data && data.settings
+      if (settings && typeof settings === 'object') {
+        // 已登录且拿到偏好: 有 bg 用之; 无 bg 说明账号从未设过主题 ->
+        // 忽略 localStorage 残留, 强制默认黑色
+        b = BGS.some(x => x.key === settings.bg) ? settings.bg : 'dark'
+        ft = FONTS.some(x => x.key === settings.font) ? settings.font : 'md'
+      } else {
+        // 服务器返回空偏好(新账号, settings 为 null/[]) -> 强制默认黑色
+        b = 'dark'
+        ft = 'md'
       }
-    } catch (e) { /* 未登录/失败用本地 */ }
-    if (!BGS.some(x => x.key === b)) b = 'light'   // 无偏好默认白色
+    } catch (e) { /* 未登录/请求失败: 保留本地兜底值 */ }
+    if (!BGS.some(x => x.key === b)) b = 'dark'   // 最终兜底: 默认黑色
     if (!FONTS.some(x => x.key === ft)) ft = 'md'
     bg.value = b
     font.value = ft

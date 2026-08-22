@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""部署热门股偏离值改动到测试机: 上传后端 kpl.py + api/kpl.py + 前端 dist, 重启 kuaixuan"""
+"""部署改动到测试机: 清空远端 dist/assets 旧资源 -> 上传前端 dist + 后端文件 -> 重启 kuaixuan"""
 import os, socket, sys
 import paramiko
 
@@ -48,7 +48,11 @@ def up(local, remote):
     sftp.put(local, remote)
     print(f"  up {remote}")
 
-# 1. 后端两个文件
+# 0. 清空远端 dist 内旧 index.html + assets, 避免旧碎片资源堆积/*
+i, o, e = ssh.exec_command(f"rm -rf {DEPLOY}/dist_bak && cp -a {DEPLOY}/dist {DEPLOY}/dist_bak 2>/dev/null; rm -rf {DEPLOY}/dist/assets && mkdir -p {DEPLOY}/dist/assets")
+o.read(); e.read()
+
+# 1. 后端文件
 up("/workspace/backend/app/services/kpl.py", f"{DEPLOY}/backend/app/services/kpl.py")
 up("/workspace/backend/app/api/kpl.py", f"{DEPLOY}/backend/app/api/kpl.py")
 
@@ -60,8 +64,12 @@ for root, dirs, files in os.walk("/workspace/frontend/dist"):
     for f in files:
         up(os.path.join(root, f), f"{remote_dir}/{f}")
 
-# 3. 备份旧 dist + 删除残留(旧 assets), 重启
-ssh.exec_command(f"rm -rf {DEPLOY}/dist_bak && cp -a {DEPLOY}/dist {DEPLOY}/dist_bak 2>/dev/null; chmod -R a+rX {DEPLOY}/dist; systemctl restart kuaixuan; sleep 2; systemctl is-active kuaixuan")[-1]
+# 3. 重启服务
+i, o, e = ssh.exec_command(f"chmod -R a+rX {DEPLOY}/dist; systemctl restart kuaixuan; sleep 2; systemctl is-active kuaixuan")
+print("  后处理输出:", o.read().decode())
+err = e.read().decode()
+if err:
+    print("  后处理ERR:", err)
 
 sftp.close()
 ssh.close()

@@ -11,11 +11,21 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import Watermark from './components/Watermark.vue'
 import NavBar from './components/NavBar.vue'
+import { useTheme } from './composables/useTheme'
+import { useUserStore } from './stores/user'
+
+const { load: loadTheme } = useTheme()
+const userStore = useUserStore()
+
+// 登录/登出(用户名变化)后重新拉取账号主题偏好
+watch(() => userStore.username, () => loadTheme())
 
 onMounted(() => {
+  // 应用主题: index.html 初始为黑色, 挂载后读取账号 preference 覆盖
+  loadTheme()
   if (/Android|iPhone|iPad|iPod|Mobile|MicroMessenger/i.test(navigator.userAgent)) {
     document.body.classList.add('is-mobile')
   }
