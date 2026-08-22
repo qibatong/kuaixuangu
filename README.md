@@ -210,12 +210,15 @@ kuaixuan/                        # 仓库根（GitHub: felix-rich/kuaixuan）
 │   │       ├── kpl.py            # 开盘啦全部路由 + /api/kpl/interfaces 接口索引
 │   │       ├── stats.py          # 统计路由(auction-overview/auction-snapshot 等)
 │   │       └── health.py         # 健康检查
-│   └── tests/                    # pytest (246 用例 + 4 跳过)
+│   └── tests/                    # pytest (347 用例 + 4 跳过)
 │       ├── conftest.py           # 临时库 + 数据源 Mock + TestClient
 │       ├── test_cache_store.py   # CacheStore 双实现(临时 DB)
 │       ├── test_kpl.py           # 抢筹双表/差值回退/持久化/昨涨停/断板/炸板
+│       ├── test_kpl_fetch.py     # kpl 具名接口解析/降级(mock _call, 2026-08-22)
 │       ├── test_expire.py        # 会员到期/邀请奖励/等级
-│       ├── test_snapshot.py      # 快照存取/多时点/回放
+│       ├── test_snapshot.py      # 快照存取/多时点/回放/最后一秒采样/seal质量/三时点榜
+│       ├── test_stats_api.py     # stats 全路由(多时点/回放/战绩/一字/三时点/数据质量, 2026-08-22)
+│       ├── test_auto_apply.py    # 9:26 自动应用全流程(2026-08-22)
 │       └── ...                   # auth/admin/history/invite/notify/phase1 等
 ├── frontend/                     # 前端 (Vue 3 + Vite)
 │   └── src/
@@ -370,10 +373,10 @@ systemd 用 `Environment=` 注入；未配置的渠道自动跳过。
 
 ```bash
 cd backend
-python -m pytest tests/ -q     # 246 用例全绿 + 4 跳过(Redis 未装)
+python -m pytest tests/ -q     # 347 用例全绿 + 4 跳过(Redis 未装)
 ```
 
-覆盖：选股接口、评分筛选算法、抢筹双表（差值回退/持久化/兜底）、快照存取与多时点、昨涨停/断板/炸板、开盘啦接口、权限、**会员三层（默认7天/续费叠加/过期拦截/管理员豁免/邀请奖励/防自邀/邮箱认证）**、邀请裂变、管理后台（**会员 tab 服务端过滤/付费-VIP 拆分/搜索 6 字段/批量设到期**）、**9:26 自动应用（统一标准/手动优先/评分复用）**、**市场概览（涨跌家数/两市概况/同时刻对比）**、**CacheStore 跨进程状态**等。
+覆盖：选股接口、评分筛选算法、抢筹双表（差值回退/持久化/兜底）、快照存取与多时点、**最后一秒采样/封单质量自检/三时点榜分层（含弱市降级）**、昨涨停/断板/炸板、开盘啦接口（**具名接口解析/降级 mock `_call`**）、权限、**会员三层（默认7天/续费叠加/过期拦截/管理员豁免/邀请奖励/防自邀/邮箱认证）**、邀请裂变、管理后台（**会员 tab 服务端过滤/付费-VIP 拆分/搜索 6 字段/批量设到期**）、**9:26 自动应用（统一标准/手动优先/评分复用/单用户隔离）**、**stats 全路由（多时点对比/时点回放/战绩/一字/三时点/数据质量）**、**市场概览（涨跌家数/两市概况/同时刻对比）**、**CacheStore 跨进程状态**等。
 
 **真实浏览器回归**（测试机 chromium CDP，`scripts/browser_reg.py`）：登录 → /auction 八 Tab 数据断言 + 时点弹窗 + 抢筹双表布局 + 排序交互，全过才算部署成功；systemd `ExecStartPost` 自动触发，失败推飞书。
 

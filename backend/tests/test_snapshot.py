@@ -212,3 +212,166 @@ def test_snapshot_non_zt_seal_zero(client, monkeypatch):
     conn.close()
     assert zt and zt[0] == 1.2e8, "涨停股应有 KPL 封单"
     assert nonzt and nonzt[0] == 0, "非涨停股封单必须为 0(否则前端显示假封单)"
+
+
+# ---------- 最后一秒高频采样 (2026-08-21 补充) ----------
+def test_snapshot_lastsec_at_ok(client, monkeypatch):
+    """最后一秒采样: 单页模式抓取并落库, 返回数量"""
+    import time as _time
+    # patch gmtime 为工作日(周一), 绕过周末防御
+    def fake_gmtime(sec=None):
+        return _time.struct_time((2026, 8, 17, 9, 30, 0, 0, 0, -1))
+    monkeypatch.setattr(_time, "gmtime", fake_gmtime)
+
+    def fake_fetch(fs):
+        a = dict(RAW); a["f12"] = "600001"; a["f615"] = 4.0
+        b = dict(RAW); b.update({"f12": "000002", "f615": 6.0})
+        return [a, b]
+    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney", fake_fetch)
+    monkeypatch.setattr(auction_snapshot, "_bj_date", lambda: "2026-08-20")
+    n = auction_snapshot.snapshot_lastsec_at(34200)   # ts 9:30:00
+    assert n == 2
+    from app.db import database
+    conn = database.get_conn()
+    rows = conn.execute("SELECT code, bid_change FROM snapshot_lastsec "
+                        "WHERE date='2026-08-20' AND ts=34200").fetchall()
+    conn.close()
+    assert len(rows) == 2
+
+
+def test_snapshot_lastsec_at_empty(client, monkeypatch):
+    """拉取为空 → 返回 0"""
+    import time as _time
+
+    def fake_gmtime(sec=None):
+        return _time.struct_time((2026, 8, 17, 9, 30, 0, 0, 0, -1))
+    monkeypatch.setattr(_time, "gmtime", fake_gmtime)
+    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney", lambda fs: None)
+    monkeypatch.setattr(auction_snapshot, "_bj_date", lambda: "2026-08-20")
+    assert auction_snapshot.snapshot_lastsec_at(34200) == 0
+
+
+def test_query_stock_snapshot_missing(client):
+    """无数据 → 空 points, 名称为空"""
+    d = auction_snapshot.query_stock_snapshot("2000-01-01", "600001")
+    assert d["name"] == "" and d["points"] == {}
+
+
+def test_check_seal_quality_nonzt_seal(client, monkeypatch):
+    """非涨停股挂封单 → 告警且 ok=False"""
+    from app.services import notify
+    sent = []
+    monkeypatch.setattr(notify, "send_text", lambda msg, **k: sent.append(msg))
+    monkeypatch.setattr(auction_snapshot, "_bj_date", lambda: "2026-08-20")
+    # 直接构造 DB 数据: 600001 涨停有封单, 000002 非涨停但封单>0
+    from app.db import database
+    conn = database.get_conn()
+    conn.execute("DELETE FROM snapshot_bid")
+    conn.executemany(
+        "INSERT INTO snapshot_bid(date,time_point,code,bid_change,bid_amt,ts,name,bid_buy_amt,float_mv) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        [("2026-08-20", "9_25", "600001", 10.0, 5e7, 1, "测A", 5e8, 4e9),   # 涨停+正常封单
+         ("2026-08-20", "9_25", "000002", 5.0, 3e7, 1, "测B", 1e7, 5e9)])   # 非涨停+挂封单
+    conn.commit()
+    conn.close()
+    r = auction_snapshot.check_seal_quality("2026-08-20", "9_25", force=True)
+    assert r is not None and r["ok"] is False
+    assert r["n_nonzt_seal"] == 1
+    assert sent, "应推送告警"
+
+
+def test_check_seal_quality_ok(client, monkeypatch):
+    """数据健康 → ok=True, 不推送"""
+    from app.services import notify
+    sent = []
+    monkeypatch.setattr(notify, "send_text", lambda msg, **k: sent.append(msg))
+    from app.db import database
+    conn = database.get_conn()
+    conn.execute("DELETE FROM snapshot_bid")
+    conn.executemany(
+        "INSERT INTO snapshot_bid(date,time_point,code,bid_change,bid_amt,ts,name,bid_buy_amt,float_mv) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        [("2026-08-20", "9_25", "600001", 10.0, 5e7, 1, "测A", 5e8, 4e9),
+         ("2026-08-20", "9_25", "000002", 6.0, 3e7, 1, "测B", 0, 5e9)])   # 非涨停无封单
+    conn.commit()
+    conn.close()
+    r = auction_snapshot.check_seal_quality("2026-08-20", "9_25", force=True)
+    assert r is not None and r["ok"] is True
+    assert r["n_zt"] == 1 and r["n_nonzt_seal"] == 0
+    assert not sent
+
+
+def test_check_seal_quality_abnormal_ratio(client, monkeypatch):
+    """封单/流通比异常 → 进入 abnormal_ratio 告警"""
+    from app.db import database
+    conn = database.get_conn()
+    conn.execute("DELETE FROM snapshot_bid")
+    # 涨停股封单 3e9 / 流通 1e9 = 3 > 0.5 → 异常
+    conn.execute(
+        "INSERT INTO snapshot_bid(date,time_point,code,bid_change,bid_amt,ts,name,bid_buy_amt,float_mv) "
+        "VALUES ('2026-08-20','9_25','600001',10.0,5e7,1,'测A',3e9,1e9)")
+    conn.commit()
+    conn.close()
+    r = auction_snapshot.check_seal_quality("2026-08-20", "9_25", force=True)
+    assert r is not None and r["ok"] is False
+    assert any("封单/流通比异常" in p for p in r["problems"])
+
+
+# ---------- 三时点榜分层 (2026-08-21 补充) ----------
+def _seed_3points(conn, code, chgs):
+    """为一只股票写入三时点数据; chgs: {tp: (bid_change, bid_buy_amt)}"""
+    conn.execute("PRAGMA busy_timeout=5000")
+    import time as _t
+    for tp, (bc, buy) in chgs.items():
+        conn.execute(
+            "INSERT INTO snapshot_bid(date,time_point,code,bid_change,bid_amt,ts,name,bid_buy_amt,float_mv) "
+            "VALUES ('2026-08-20',?,?,?,?,?,?,?,?)",
+            (tp, code, bc, 0, int(_t.time()), "股" + code[-3:], buy, 4e9))
+    conn.commit()
+
+
+def test_3points_layer1_925zt(client, monkeypatch):
+    """9:25 涨停 → layer 1 (封死)"""
+    from app.db import database
+    conn = database.get_conn()
+    conn.execute("DELETE FROM snapshot_bid")
+    _seed_3points(conn, "600001", {"9_15": (9.0, 1e8), "9_20": (9.5, 2e8), "9_25": (10.0, 3e8)})
+    _seed_3points(conn, "000002", {"9_15": (5.0, 0), "9_20": (5.0, 0), "9_25": (5.5, 0)})
+    conn.close()
+    rows = auction_snapshot.query_3points_board("2026-08-20", 100)
+    first = rows[0]
+    assert first["code"] == "600001" and first["layer"] == 1
+    assert first["tag"] == "9:25封死"
+
+
+def test_3points_layer3_915only(client, monkeypatch):
+    """仅 9:15 涨停 → layer 3"""
+    from app.db import database
+    conn = database.get_conn()
+    conn.execute("DELETE FROM snapshot_bid")
+    _seed_3points(conn, "600001", {"9_15": (10.0, 1e8), "9_20": (5.0, 0), "9_25": (5.5, 0)})
+    conn.close()
+    rows = auction_snapshot.query_3points_board("2026-08-20", 100)
+    assert rows and rows[0]["layer"] == 3
+
+
+def test_3points_degraded_ge5(client, monkeypatch):
+    """无涨停 → 降级展示 9:25 涨幅≥5%"""
+    from app.db import database
+    conn = database.get_conn()
+    conn.execute("DELETE FROM snapshot_bid")
+    _seed_3points(conn, "600001", {"9_15": (5.0, 0), "9_20": (5.0, 0), "9_25": (6.0, 0)})
+    conn.close()
+    rows = auction_snapshot.query_3points_board("2026-08-20", 100)
+    assert rows and rows[0]["layer"] == 4 and rows[0]["degraded"] is True
+
+
+def test_3points_second_degrade_ge3(client, monkeypatch):
+    """连 ≥5% 都没有 → 二次降级到 9:25 涨幅≥3%"""
+    from app.db import database
+    conn = database.get_conn()
+    conn.execute("DELETE FROM snapshot_bid")
+    _seed_3points(conn, "600001", {"9_15": (3.0, 0), "9_20": (3.0, 0), "9_25": (3.5, 0)})
+    conn.close()
+    rows = auction_snapshot.query_3points_board("2026-08-20", 100)
+    assert rows and rows[0]["layer"] == 5 and rows[0]["degraded"] is True
