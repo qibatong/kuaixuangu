@@ -200,15 +200,36 @@ def api_kpl_bid_boom(request: Request, uid: int = Depends(require_vip_or_paid), 
     if date:
         resolved = _resolve_date(date)
         d = kpl.query_auction_history(resolved, "boom")
-        return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
-                   "date": resolved, "requestedDate": date})
-    d = kpl.fetch_bid_boom() or []
+    else:
+        d = kpl.fetch_bid_boom() or []
+        try:
+            kpl.apply_board_concept_db(d, log_tag="auc:bid-boom", field="board", truncate=2, blank_if_missing=True)
+            # 2026-08-18 主人要求: 竞价爆量补 竞价量比(今/昨竞价额) + 昨日竞价额
+            kpl.fill_bid_ratio_yest(d, None)
+        except Exception as e:
+            log.warning("竞价异动概念/量比补齐失败 bid-boom err=%s", e)
+    # 统一过滤: 竞价涨幅 < 0.01%(含零/负涨幅) 不展示 — 同时覆盖实时与历史回看
+    # (落库历史快照可能由旧版逻辑生成, 含零/负涨幅; 接口层兜底保证展示口径一致)
+    if d:
+        d = [it for it in d if (it.get("bidChange") if it.get("bidChange") is not None else 0) >= 0.01]
+    # 现涨(realChange)口径: 盘中=实时涨幅, 盘后/收盘=当日收盘涨幅, 历史回看同理取当日实时/收盘涨幅
+    # (竞涨 bidChange 保持 9:25 竞价涨幅不变; 竞价时刻两者恰好相同属正常)
+    # 参照连板梯队(ladder)做法, 用东财全市场实时行情覆盖 realChange
     try:
-        kpl.apply_board_concept_db(d, log_tag="auc:bid-boom", field="board", truncate=2, blank_if_missing=True)
-        # 2026-08-18 主人要求: 竞价爆量补 竞价量比(今/昨竞价额) + 昨日竞价额
-        kpl.fill_bid_ratio_yest(d, None)
+        from ..services import fetcher as _fetcher
+        from ..services import scorer as _scorer
+        _fs = _scorer.market_fs(["hs", "cyb", "kcb"])
+        spot = _fetcher.fetch_spot_quote_map(_fs)
+        n = 0
+        for it in d:
+            q = spot.get(str(it.get("code")))
+            if q and q.get("realChange") is not None:
+                it["realChange"] = q.get("realChange")
+                n += 1
+        if n:
+            log.info("bid-boom 现涨(实时/收盘)覆盖 %d 只", n)
     except Exception as e:
-        log.warning("竞价异动概念/量比补齐失败 bid-boom err=%s", e)
+        log.warning("bid-boom 现涨覆盖失败 err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
 
 

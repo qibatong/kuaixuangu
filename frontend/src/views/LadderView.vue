@@ -169,7 +169,7 @@ onMounted(() => {
 .ladder-title { font-size: 20px; font-weight: 700; color: #ffe0a0; }
 .ladder-title .fa { color: #ffb400; }
 .ladder-sub { color: var(--text-muted); font-size: 13px; }
-.ladder-time { margin-left: auto; color: #aaa; font-size: 14px; font-family: monospace; }
+.ladder-time { margin-left: auto; color: #aaa; font-size: 14px; font-family: "LXGW WenKai Mono", monospace; }
 .ladder-tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .ladder-tab {
   padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border-soft);

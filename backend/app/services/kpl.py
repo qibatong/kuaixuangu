@@ -247,6 +247,8 @@ def fetch_bid_boom():
             ya = ymap.get(code)
             if not ya or amt <= 100:      # 竞价成交额 ≤ 100万(万元=100) 或 昨日无竞价 → 跳过
                 continue
+            if chg < 0.01:                # 竞价涨幅 < 0.01%(基本零涨幅/未上涨) → 跳过
+                continue
             ratio = round(amt / ya, 2)
             if ratio <= 2:                # 竞价量比 ≤ 2 → 跳过
                 continue

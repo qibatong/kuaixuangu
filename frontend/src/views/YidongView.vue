@@ -326,7 +326,7 @@ onMounted(() => {
 .yd-title { font-size: 20px; font-weight: 700; color: #ffe0a0; }
 .yd-title .fa { color: #ffb400; }
 .yd-sub { color: var(--text-muted); font-size: 13px; }
-.yd-time { margin-left: auto; color: #aaa; font-size: 14px; font-family: monospace; }
+.yd-time { margin-left: auto; color: #aaa; font-size: 14px; font-family: "LXGW WenKai Mono", monospace; }
 
 .yd-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
 .yd-tab {
@@ -413,7 +413,7 @@ onMounted(() => {
   margin-top: 2px !important;
 }
 .stock-info-cell .stock-code {
-  font-family: monospace;
+  font-family: "LXGW WenKai Mono", monospace;
   font-size: 11px !important;
   color: var(--text-muted);
   letter-spacing: 0.5px !important;

@@ -304,7 +304,7 @@ function ratioText(br) {
   margin-top: 2px;
 }
 .stock-info-cell .stock-code {
-  font-family: monospace;
+  font-family: "LXGW WenKai Mono", monospace;
   font-size: 10.5px;
   color: var(--text-muted);
   letter-spacing: 0.5px;

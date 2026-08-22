@@ -978,7 +978,7 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 .yd-badge { display: inline-block; font-size: 10px; line-height: 1; padding: 1px 5px; border-radius: 3px; border: 1px solid #ffd700; color: #ffd700; white-space: nowrap; }
 .stock-info-cell .stock-code-row { order: 2; line-height: 1.2; text-align: center; margin-top: 2px; }
 .stock-info-cell .stock-code {
-  font-family: monospace; font-size: 11px; color: var(--text-muted);
+  font-family: "LXGW WenKai Mono", monospace; font-size: 11px; color: var(--text-muted);
   letter-spacing: 0.5px;
 }
 .stock-info-cell:hover .stock-name { color: var(--accent); }

@@ -270,7 +270,13 @@ html, body, #app {
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+/* 2026-08-22 主人要求: 全局换成等宽开源字体.
+   首选用 LXGW WenKai Mono(霞鹜文楷等宽, SIL OFL 1.1 免费商用, 已在 main.js import 加载),
+   然后 fallback 到用户本地的思源等宽/鸿蒙等宽/微软雅黑等宽, 最后兜底 monospace/sans-serif. */
+font-family: "LXGW WenKai Mono", "Noto Sans Mono CJK SC", "HarmonyOS Sans Mono",
+             "MiSans Mono", "Microsoft YaHei", -apple-system, BlinkMacSystemFont,
+             "Segoe UI", Arial, monospace, sans-serif;
+font-feature-settings: "tnum" 1, "lnum" 1; /* 表格数字 + 阿拉伯数字, 增强数字等宽对齐 */
 background: var(--bg-body);
 color: var(--text-main); padding: 2px; line-height: 1.5; min-height: 100vh;
 transition: background 0.3s, color 0.3s;
@@ -373,7 +379,7 @@ z-index: 9999;
 @keyframes lockPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,140,40,0.5); } 50% { box-shadow: 0 0 0 8px rgba(255,140,40,0); } }
 .count-select, .export-select { background: var(--bg-input); border: 1px solid var(--accent); color: #fff; padding: 6px 10px; border-radius: 4px; font-size: 12px; outline: none; cursor: pointer; }
 /* 2026-08-17 主人反馈: 时间显示框容易被误点, 改为纯文字不带框(本身是状态, 不是操作) */
-.live-time { background: transparent; border: 0; border-radius: 0; padding: 2px 6px; text-align: center; font-family: monospace; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+.live-time { background: transparent; border: 0; border-radius: 0; padding: 2px 6px; text-align: center; font-family: "LXGW WenKai Mono", monospace; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
 .live-time .time-digital { font-size: 11px; font-weight: 500; color: var(--text-muted); letter-spacing: 0; opacity: 0.7; }
 
 .medal-section { background: var(--bg-panel); backdrop-filter: blur(8px); border-radius: 10px; padding: 6px; border: 1px solid rgba(255,215,0,0.4); margin: 0; display: flex; flex-wrap: nowrap; gap: 6px; justify-content: center; align-items: stretch; }
@@ -398,7 +404,7 @@ z-index: 9999;
 .medal-rank { font-size: 32px; font-weight: 700; color: #ffd700; display: flex; align-items: center; gap: 6px; }
 .medal-rank-icon { font-size: 48px; }
 .medal-name-big { font-size: 38px; font-weight: 800; color: var(--text-main); letter-spacing: 1px; margin: 2px 0; }
-.medal-code { font-size: 32px; font-weight: 600; color: #ffd700; cursor: pointer; font-family: 'Consolas', monospace; letter-spacing: 1px; margin: 2px 0; transition: color 0.2s; }
+.medal-code { font-size: 32px; font-weight: 600; color: #ffd700; cursor: pointer; font-family: "LXGW WenKai Mono", monospace; letter-spacing: 1px; margin: 2px 0; transition: color 0.2s; }
 .medal-code:hover { color: #fff; text-shadow: 0 0 8px rgba(255,215,0,0.6); }
 .medal-prob-big { font-size: 66px; font-weight: 900; color: #e0a800; line-height: 1; margin: 4px 0; }
 .medal-detail { font-size: 18px; color: var(--text-secondary); display: flex; gap: 12px; align-items: center; }
@@ -521,7 +527,7 @@ background: rgba(15,10,5,0.4) !important;
 background: var(--bg-input); border: 1px solid var(--accent); color: #fff;
 /* 2026-08-21: 宽度由组件内联 :style 控制 (ch 单位自适应), 此处仅保留基础样式 */
 padding: 3px 5px; border-radius: 4px; font-size: 11px; min-width: 0;
-text-align: center; outline: none; font-family: monospace; transition: border-color 0.3s, background 0.3s;
+text-align: center; outline: none; font-family: "LXGW WenKai Mono", monospace; transition: border-color 0.3s, background 0.3s;
 }
 .filter-custom input[type="number"]:focus { box-shadow: 0 0 0 2px var(--accent); }
 .filter-custom.filter-locked input[type="number"] { border-color: #666 !important; background: rgba(30,30,30,0.6) !important; color: #999 !important; cursor: not-allowed; }
@@ -550,7 +556,7 @@ text-align: center; outline: none; font-family: monospace; transition: border-co
 .pool-medal { font-size: 20px; line-height: 1; }
 .pool-rank { width: 18px; text-align: center; font-size: 12px; color: var(--text-muted); font-weight: 700; }
 .pool-item-info { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.pool-stock-code { font-size: 15px; font-weight: 700; color: #ffcc88; font-family: monospace; cursor: pointer; }
+.pool-stock-code { font-size: 15px; font-weight: 700; color: #ffcc88; font-family: "LXGW WenKai Mono", monospace; cursor: pointer; }
 .pool-stock-code:hover { color: #fff; text-decoration: underline; }
 .pool-stock-name { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pool-item-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
@@ -670,7 +676,7 @@ padding: 16px; text-align: center;
 .invite-code-label { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
 .invite-code-text {
 font-size: 30px; font-weight: 800; color: #4dc3ff; letter-spacing: 6px;
-font-family: 'Consolas', monospace; user-select: all;
+font-family: "LXGW WenKai Mono", monospace; user-select: all;
 }
 .invite-code-actions { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
 .invite-btn {
@@ -762,7 +768,7 @@ border-radius: 5px; font-size: 12px; outline: none; flex-shrink: 0;
 }
 .query-form input:focus { box-shadow: 0 0 0 2px rgba(255, 92, 92, 0.35); border-color: var(--accent); }
 .query-form input::placeholder { color: var(--text-dim); }
-.query-form input[type="number"] { width: 56px; font-family: monospace; }
+.query-form input[type="number"] { width: 56px; font-family: "LXGW WenKai Mono", monospace; }
 .query-form input[type="date"] { width: auto; min-width: 118px; color-scheme: light; }
 .query-tip { font-size: 11px; color: var(--text-muted); padding: 6px 2px 0; }
 .query-result { margin-top: 8px; border-radius: 8px; }

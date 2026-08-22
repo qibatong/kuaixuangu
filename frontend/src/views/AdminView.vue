@@ -170,7 +170,7 @@
               ID {{ createResult.uid }} · 到期 {{ fmtBjDay(createResult.expire_at) }} · 等级 {{ levelLabel(createResult.member_level) }}
             </div>
             <div style="margin-top:8px;padding:8px;background:rgba(255,200,80,0.15);border:1px solid #ffc850;border-radius:6px;color:#ffe0a0;">
-              初始密码: <b style="user-select:all;font-family:monospace;">{{ createResult.password }}</b>
+              初始密码: <b style="user-select:all;font-family: 'LXGW WenKai Mono', monospace;">{{ createResult.password }}</b>
               <button class="mini-btn" style="margin-left:8px;" @click="copyText(createResult.password)">复制</button>
             </div>
           </div>
@@ -937,7 +937,7 @@ onMounted(() => {
   border: 1px solid rgba(120, 160, 255, 0.35); font-size: 12px; white-space: nowrap;
 }
 body[data-bg="light"] .inviter-tag { color: #3a5bb8; background: rgba(90, 130, 255, 0.1); border-color: rgba(90, 130, 255, 0.4); }
-.mono { font-family: monospace; }
+.mono { font-family: "LXGW WenKai Mono", monospace; }
 .invite-chain { display: flex; flex-direction: column; gap: 8px; padding: 8px 4px; }
 .chain-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .chain-label { width: 72px; color: #999; flex-shrink: 0; }

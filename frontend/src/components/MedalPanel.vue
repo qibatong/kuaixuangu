@@ -59,7 +59,7 @@ function fmtPct(v) {
   color: #ff5252;
   line-height: 1.1;
   margin: 2px 0 0;
-  font-family: 'Consolas', monospace;
+  font-family: "LXGW WenKai Mono", monospace;
   letter-spacing: -0.5px;
 }
 .medal-real-big.green-real { color: #00c864 !important; }
@@ -70,7 +70,7 @@ body[data-bg="light"] .medal-real-big.green-real { color: #1a7a2a !important; }
   font-size: 20px;
   color: #ff8a6f;
   font-weight: 600;
-  font-family: monospace;
+  font-family: "LXGW WenKai Mono", monospace;
   margin-top: 1px;
 }
 body[data-bg="light"] .medal-bid-sm { color: #c0562f; }
