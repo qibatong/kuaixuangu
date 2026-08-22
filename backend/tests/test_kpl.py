@@ -818,10 +818,10 @@ def test_yidong_realtime_normal(client, first_user, monkeypatch):
 
     fake_resp = {
         "List": [
-            ["600001", "测试甲", 1, "涨幅异动", "", "", "",
-             "涨停触发", 9.98, "", "", "", "已触发"],
+            ["600001", "测试甲", 1, "涨幅异动", "-1.18", "30", "151.26",
+             "涨停触发", "9.98", "", "", "", "已触发"],
             ["000002", "测试乙", 1, "封板异动", "", "", "",
-             "翻红触发", 5.01, "", "", "", "未触发"],
+             "翻红触发", "5.01", "", "", "", "未触发"],
         ],
         "Many_Num": 156,
         "Day": "2026-08-22",
@@ -840,6 +840,11 @@ def test_yidong_realtime_normal(client, first_user, monkeypatch):
     assert d["list"][0]["code"] == "600001"
     assert d["list"][0]["type"] == "涨幅异动"
     assert d["list"][0]["triggered"] == "已触发"
+    # 新增偏离值字段: 当日涨幅(4) / 统计天数(5) / 累计涨幅偏离值(6) / 触发阈值(8)
+    assert d["list"][0]["change"] == -1.18
+    assert d["list"][0]["days"] == 30
+    assert d["list"][0]["deviation"] == 151.26
+    assert d["list"][0]["target"] == 9.98
 
 
 def test_yidong_realtime_empty_and_source_fail(client, first_user, monkeypatch):

@@ -625,8 +625,11 @@ def api_kpl_sector_rotation(request: Request, uid: int = Depends(get_uid), days:
 def api_kpl_yidong_realtime(request: Request, uid: int = Depends(require_vip_or_paid)):
     """异动实时接口 (开盘啦 doc90 GetPianLiZhi_Index): 返回全市场实时异动个股列表
     返回: {ok, list, manyNum, day, time}
-    list 每项: code, name, type(第4字段index3), trigger(第8字段index7), triggered(末字段index12)
-    原始字段结构: [0]code [1]name [2]typeCode [3]typeDesc [4]... [7]triggerDesc [8]triggerPct ... [12]triggered"""
+    list 每项: code, name, type(第4字段index3), change(当日涨幅index4), days(统计天数index5),
+              deviation(累计涨幅偏离值% index6), trigger(第8字段index7), target(偏离阈值index8),
+              triggered(末字段index12)
+    原始字段结构: [0]code [1]name [2]typeCode [3]typeDesc [4]change [5]days [6]deviation
+                  [7]triggerDesc [8]target [9]... [12]triggered"""
     d = kpl.fetch_kpl_doc90() or {}
     raw_list = d.get("List") or []
     lst = []
@@ -637,12 +640,21 @@ def api_kpl_yidong_realtime(request: Request, uid: int = Depends(require_vip_or_
         name = str(item[1]) if len(item) > 1 else ""
         # 异动类型: 第4个字段(index 3)
         yd_type = str(item[3]) if len(item) > 3 else ""
+        # 当日涨跌幅(%): 第5个字段(index 4)
+        change = kpl._f(item[4]) if len(item) > 4 else None
+        # 统计天数: 第6个字段(index 5)
+        days = kpl._num(item[5]) if len(item) > 5 else None
+        # 累计涨幅偏离值(%): 第7个字段(index 6)
+        deviation = kpl._f(item[6]) if len(item) > 6 else None
         # 涨幅触发异动: 第8个字段(index 7)
         trigger = str(item[7]) if len(item) > 7 else ""
+        # 触发偏离阈值(%): 第9个字段(index 8)
+        target = kpl._f(item[8]) if len(item) > 8 else None
         # 是否触发异动: 最后一个字段(index 12)
         triggered = str(item[12]) if len(item) > 12 else ""
         lst.append({"code": code, "name": name, "type": yd_type,
-                     "trigger": trigger, "triggered": triggered})
+                     "change": change, "days": days, "deviation": deviation,
+                     "trigger": trigger, "target": target, "triggered": triggered})
     return jr({"ok": True, "list": lst, "count": len(lst),
                "manyNum": d.get("Many_Num", 0), "day": d.get("Day", ""),
                "time": d.get("Time", 0)})

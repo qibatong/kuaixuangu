@@ -33,6 +33,7 @@
             <th>排名</th>
             <th class="sortable merged-col" :class="{ active: rtSort.keyOf('code') || rtSort.keyOf('name') }" @click="rtSort.onSort('code', 'string')">名称<span class="sort-ind">{{ rtSort.ind('code') }}</span></th>
             <th class="sortable" :class="{ active: rtSort.keyOf('type') }" @click="rtSort.onSort('type', 'string')">异动类型<span class="sort-ind">{{ rtSort.ind('type') }}</span></th>
+            <th class="sortable" :class="{ active: rtSort.keyOf('deviation') }" @click="rtSort.onSort('deviation', 'number')">偏离值<span class="sort-ind">{{ rtSort.ind('deviation') }}</span></th>
             <th>触发条件</th>
             <th>是否触发</th>
             <th>操作</th>
@@ -46,6 +47,11 @@
               <div class="stock-code-row"><span class="stock-code">{{ item.code }}</span></div>
             </td>
             <td class="type-col">{{ item.type }}</td>
+            <td class="dev-col">
+              <span v-if="item.deviation != null" class="dev-num">{{ fmtNum(item.deviation) }}%</span>
+              <span v-if="item.days" class="dev-days">{{ item.days }}日</span>
+              <span v-else-if="item.deviation == null">-</span>
+            </td>
             <td class="trigger-col">{{ item.trigger }}</td>
             <td>
               <span class="trigger-status" :class="{ triggered: isTriggered(item.triggered) }">{{ item.triggered }}</span>
@@ -187,6 +193,13 @@ function inPool(code) {
   return pool.stockPool.some(x => x.code === code)
 }
 
+function fmtNum(v) {
+  if (v == null) return ''
+  const n = Number(v)
+  if (Number.isNaN(n)) return ''
+  return Math.round(n * 100) / 100
+}
+
 async function loadRealtime() {
   rtLoading.value = true
   try {
@@ -265,6 +278,10 @@ onMounted(() => {
 
 .type-col { max-width: 200px; color: #ffd700; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
 .trigger-col { max-width: 180px; color: #aaa; font-size: 12px; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+
+.dev-col { text-align: right; white-space: nowrap; }
+.dev-col .dev-num { color: #ff4d4f; font-weight: 600; font-size: 13px; }
+.dev-col .dev-days { color: #999; font-size: 11px; margin-left: 4px; }
 
 .trigger-status {
   display: inline-block; padding: 2px 8px; border-radius: 4px;
