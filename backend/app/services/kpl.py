@@ -1594,7 +1594,14 @@ def fill_bid_change_from_snap(lst, date=None):
 def fill_bid_turnover_from_snap(lst, date=None):
     """2026-08-18 主人要求: 竞价异动全部 tab 加竞价换手。
     用 date(空=今日) 9_25 快照给列表补竞价换手(bidTurnover = 竞价成交额/自由流通市值×100,
-    与开盘啦 bidTurnover 口径一致); 已带的不覆盖"""
+    与开盘啦 bidTurnover 口径一致); 已带的不覆盖。
+
+    2026-08-23 修复: 老版 fetch_bid_boom(开盘啦 Type10 解析)落库时把华泰等大盘股 floatMv
+    错位为极小值(如华泰=27元), 导致 bidTurnover 算出千万级荒谬百分比。此处对已带值也做
+    校验: 若 float_mv 异常过小(<1e7 元, 即<1000万, A股最小流通市值也不至于此) → 视为损坏,
+    用当日快照的 float_mv 覆盖并重算 bidTurnover。"""
+    import math as _math
+    MIN_FMV = 1e7   # 元; float_mv 低于该值(不足1000万流通市值)判定为字段错位损坏
     if not lst:
         return lst
     try:
@@ -1602,18 +1609,36 @@ def fill_bid_turnover_from_snap(lst, date=None):
         if not snap:
             return lst
         n = 0
+        n_repair = 0
         for it in lst:
             code = str(it.get("code") or "")
-            # 2026-08-18: 接口解析可能给 0.0(字段错位), 0 也视为缺 → 快照补
-            if not code or it.get("bidTurnover"):
+            if not code:
                 continue
             s = snap.get(code)
-            if s and s.get("float_mv"):
-                # 注意单位: snapshot_bid.bid_amt 万元, float_mv 元 → bid_amt×10000 转元
-                bt = round((s.get("bid_amt") or 0) * 10000 / s["float_mv"] * 100, 2)
-                if bt > 0:
-                    it["bidTurnover"] = bt
-                    n += 1
+            if not s or not s.get("float_mv"):
+                continue
+            # 单位: snapshot_bid.bid_amt 万元, float_mv 元 → bid_amt×10000 转元
+            bt = round((s.get("bid_amt") or 0) * 10000 / s["float_mv"] * 100, 2)
+            if bt <= 0:
+                continue
+            cur_fmv = it.get("floatMv") or 0
+            # 已带 float_mv 正常 → 保留(不覆盖); 仅为空/0 → 补; 异常过小 → 修复
+            if cur_fmv and cur_fmv >= MIN_FMV:
+                continue
+            if cur_fmv and cur_fmv < MIN_FMV:
+                it["floatMv"] = s["float_mv"]
+                it["bidTurnover"] = bt
+                n_repair += 1
+            elif not it.get("bidTurnover"):
+                it["floatMv"] = s["float_mv"]
+                it["bidTurnover"] = bt
+                n += 1
+            elif (_math.isfinite(it["bidTurnover"]) and it["bidTurnover"] > 100):
+                it["floatMv"] = s["float_mv"]
+                it["bidTurnover"] = bt
+                n_repair += 1
+        if n_repair:
+            log.warning("竞价换手/流通市值修复异常 %d 只 date=%s(字段错位大盘股)", n_repair, date or "-")
         if n:
             log.info("竞价换手补齐 %d 只 date=%s", n, date or "-")
     except Exception as e:

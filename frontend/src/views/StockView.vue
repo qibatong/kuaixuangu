@@ -66,14 +66,6 @@
         <AuctionView/>
       </div>
     </div><!-- /.home-grid -->
-
-    <!-- 股票图表弹窗(分时/日K/周K/月K) -->
-    <StockChartModal
-      v-if="chartCode"
-      v-model:visible="chartVisible"
-      :code="chartCode"
-      :name="chartName"
-    />
   </div>
 </template>
 
@@ -84,13 +76,13 @@ import SentimentPanel from '../components/SentimentPanel.vue'
 import MedalPanel from '../components/MedalPanel.vue'
 import StockPoolPanel from '../components/StockPoolPanel.vue'
 import StockTable from '../components/StockTable.vue'
-import StockChartModal from '../components/StockChartModal.vue'
 import AuctionView from './AuctionView.vue'
 import VipGate from '../components/VipGate.vue'
 import { useStocksStore } from '../stores/stocks'
 import { usePoolStore } from '../stores/pool'
 import { useUserStore } from '../stores/user'
 import { kplBidSeal } from '../api/kpl'
+import { openStockChart } from '../composables/uiBus'
 import { showToast } from '../utils/toast'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
 import { copyText, downloadBlkFile } from '../utils/tdx'
@@ -106,34 +98,8 @@ const { refreshYidongCodes } = useYidongMonitor()
 // 窄屏切换: 选股 / 竞价异动
 const mobilePane = ref('stock')
 
-// 图表弹窗控制
-const chartVisible = ref(false)
-const chartCode = ref('')
-const chartName = ref('')
-
-// 全局点击事件委托: 点击股票代码/名称单元格打开图(生产机还原版)
-function onDocClick(ev) {
-  // 点击在按钮/链接/设置了 data-no-chart 交互区内不触发
-  if (ev.target.closest('button, a, [data-no-chart], [role="button"]')) return
-  const cell = ev.target.closest('.stock-info-cell, .st-row-cell-code, .st-cell-code, [data-stock-code]')
-  if (!cell) return
-  let code = cell.getAttribute('data-stock-code') || ''
-  let name = cell.getAttribute('data-stock-name') || ''
-  if (!code) {
-    const c = cell.querySelector('.stock-code'); c && (code = c.textContent.trim())
-    const nm = cell.querySelector('.stock-name'); nm && (name = nm.textContent.trim())
-  }
-  if (code) {
-    chartCode.value = code
-    chartName.value = name
-    chartVisible.value = true
-    ev.stopPropagation()
-  }
-}
-
-function closeChart() {
-  chartVisible.value = false
-}
+// 图表弹窗: 现在由 App.vue 全局托管(uiBus.chartModal 驱动), 这里仅转发
+function showChart(code, name) { openStockChart(code, name) }
 
 async function loadBidSeal() {
   try {
@@ -208,13 +174,11 @@ onMounted(() => {
   init()
   loadBidSeal()
   refreshYidongCodes()   // 首页选股/竞价异动 标记异动监管股票
-  document.addEventListener('click', onDocClick, true)
 })
 onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
   if (autoAddTimer) clearInterval(autoAddTimer)
   if (expiryTimer) clearInterval(expiryTimer)
-  document.removeEventListener('click', onDocClick, true)
 })
 </script>
 

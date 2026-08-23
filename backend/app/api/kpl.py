@@ -247,6 +247,8 @@ def api_kpl_bid_boom(request: Request, uid: int = Depends(require_vip_or_paid), 
     if date:
         resolved = _resolve_date(date)
         d = kpl.query_auction_history(resolved, "boom")
+        # 2026-08-23: 老版落库把大盘股 floatMv 错位为极小值 → 竞换荒谬; 用当日快照修复
+        kpl.fill_bid_turnover_from_snap(d, resolved)
     else:
         d = kpl.fetch_bid_boom() or []
         try:

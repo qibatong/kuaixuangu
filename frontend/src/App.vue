@@ -3,6 +3,13 @@
     <NavBar />
     <router-view />
     <Watermark />
+    <!-- 全局股票图表弹窗(分时/日K/周K/月K): 全站任意表格点击股票单元格弹出(data 委托在 App) -->
+    <StockChartModal
+      v-if="chartVisible"
+      v-model:visible="chartVisible"
+      :code="chartCode"
+      :name="chartName"
+    />
     <div class="footnote">
       <i class="fa fa-bullhorn"></i> 9:30前可唯一选股并缓存 | 9:30后仅更新实时涨幅 | 实时涨幅＜竞价涨幅自动标绿 | 通达信导入：首次需下载工具并勾选通达信「监控剪贴板」一次 | 股票池10小时防刷新锁定
     </div>
@@ -11,19 +18,56 @@
 </template>
 
 <script setup>
-import { onMounted, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import Watermark from './components/Watermark.vue'
 import NavBar from './components/NavBar.vue'
+import StockChartModal from './components/StockChartModal.vue'
+import { uiBus, openStockChart, closeStockChart } from './composables/uiBus'
 import { useTheme } from './composables/useTheme'
 import { useUserStore } from './stores/user'
 
 const { load: loadTheme } = useTheme()
 const userStore = useUserStore()
 
+// ============================================================
+// 全局股票图表弹窗: 由 uiBus.chartModal 驱动(全站任意表格点击股票单元格打开)
+// ============================================================
+const chartVisible = computed({
+  get: () => uiBus.chartModal.visible,
+  set: (v) => { if (!v) closeStockChart() },
+})
+const chartCode = computed(() => uiBus.chartModal.code)
+const chartName = computed(() => uiBus.chartModal.name)
+
+// 全局点击事件委托: 点击股票代码/名称单元格 → 弹 分时/K线 图(生产机还原版)
+// 覆盖: 首页选股/自选/竞价异动(.stock-info-cell)、连板天梯/市场雷达(td.code-click)、
+// 异动监管/市场雷达成分股等(.name-col / [data-stock-code])。
+function onDocClick(ev) {
+  // 不拦截 按钮/链接/输入/表头/自定义 no-chart 交互区
+  if (ev.target.closest('button, a, input, select, textarea, th, [data-no-chart], [role="button"]')) return
+  const cell = ev.target.closest('.stock-info-cell, .st-row-cell-code, .st-cell-code, td.code-click, .name-col, [data-stock-code]')
+  if (!cell) return
+  let code = cell.getAttribute('data-stock-code') || ''
+  let name = cell.getAttribute('data-stock-name') || ''
+  const row = cell.closest('tr')
+  // 单元格内提取(stock-info-cell 风格: 内含 .stock-code/.stock-name)
+  if (!code) { const c = cell.querySelector('.stock-code'); if (c) code = c.textContent.trim() }
+  if (!name) { const n = cell.querySelector('.stock-name'); if (n) name = n.textContent.trim() }
+  // 点名称列(.name-col)或代码列(td.code-click)时, 从同一行补另一字段
+  if (!code && row) { const cc = row.querySelector('td.code-click'); if (cc) code = cc.textContent.trim() }
+  if (!name && row) { const nm = row.querySelector('.name-col .name-main') || row.querySelector('.stock-name'); if (nm) name = nm.textContent.trim() }
+  // 只有合法股票代码(6位数字)才弹图: 避免把板块行(boardCode 等)误当股票
+  if (!/^\d{6}$/.test(code)) return
+  openStockChart(code, name)
+  ev.stopPropagation()
+}
+
 // 登录/登出(用户名变化)后重新拉取账号主题偏好
 watch(() => userStore.username, () => loadTheme())
 
 onMounted(() => {
+  // 全局股票单元格点击 → 弹分时/K线(捕获阶段, 抢在单元格自己的 linkToSoftware 之前)
+  document.addEventListener('click', onDocClick, true)
   // 应用主题: index.html 初始为黑色, 挂载后读取账号 preference 覆盖
   loadTheme()
   if (/Android|iPhone|iPad|iPod|Mobile|MicroMessenger/i.test(navigator.userAgent)) {
@@ -109,6 +153,10 @@ onMounted(() => {
     setTimeout(fixViewportIfNeeded, 150)
     setTimeout(fixViewportIfNeeded, 600)
   } catch (_) { /* ignore */ }
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocClick, true)
 })
 </script>
 
