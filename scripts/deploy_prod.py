@@ -87,12 +87,20 @@ def main():
         f"rm -rf {DEPLOY}/dist_bak && cp -a {DEPLOY}/dist {DEPLOY}/dist_bak 2>/dev/null; mkdir -p {DEPLOY}/dist"
     )[-1]
 
-    # 2. 上传后端 kpl 服务层 + API
-    print("[2/4] 上传后端 kpl(services+api) ...")
+    # 2. 上传后端 kpl(services+api) + database + 回填脚本
+    print("[2/4] 上传后端 kpl(services+api + db + backfill) ...")
     sftp_mkdirs(sftp, os.path.dirname(REMOTE_BACKEND_SVC))
     sftp.put(LOCAL_BACKEND_SVC, REMOTE_BACKEND_SVC)
     sftp_mkdirs(sftp, os.path.dirname(REMOTE_BACKEND_KPL))
     sftp.put(LOCAL_BACKEND_KPL, REMOTE_BACKEND_KPL)
+    LOC_DB = "/workspace/backend/app/db/database.py"
+    REM_DB = f"{DEPLOY}/backend/app/db/database.py"
+    sftp_mkdirs(sftp, os.path.dirname(REM_DB))
+    sftp.put(LOC_DB, REM_DB)
+    LOC_BF = "/workspace/scripts/backfill_close_change.py"
+    REM_BF = f"{DEPLOY}/scripts/backfill_close_change.py"
+    sftp_mkdirs(sftp, os.path.dirname(REM_BF))
+    sftp.put(LOC_BF, REM_BF)
 
     # 3. 上传前端 dist
     print("[3/4] 上传前端 dist (递归) ...")

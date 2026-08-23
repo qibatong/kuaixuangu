@@ -55,6 +55,8 @@ o.read(); e.read()
 # 1. 后端文件
 up("/workspace/backend/app/services/kpl.py", f"{DEPLOY}/backend/app/services/kpl.py")
 up("/workspace/backend/app/api/kpl.py", f"{DEPLOY}/backend/app/api/kpl.py")
+up("/workspace/backend/app/db/database.py", f"{DEPLOY}/backend/app/db/database.py")
+up("/workspace/scripts/backfill_close_change.py", f"{DEPLOY}/scripts/backfill_close_change.py")
 
 # 2. 前端 dist 递归
 base = f"{DEPLOY}/dist"

@@ -2977,3 +2977,233 @@ def query_auction_history(date, tab):
     except Exception as e:
         log.warning("竞价异动历史查询失败 date=%s tab=%s err=%s", date, tab, e)
     return []
+
+
+_CLOSE_CHG_CACHE = {}       # date -> (ts, {code: pct}) 内存热缓存
+_CLOSE_CHG_TTL = 6 * 3600
+
+try:
+    import re as _re_cls_chg
+    _CLOSE_CHG_JSON_RE = _re_cls_chg.compile(r"=\s*(\{[\s\S]*\})\s*;?\s*$")
+except Exception:
+    _CLOSE_CHG_JSON_RE = None
+
+
+def _close_chg_db_get(date, codes):
+    """从 close_change_history 批量读 pct 命中; 返回 {code: pct}"""
+    out = {}
+    if not codes or not date:
+        return out
+    try:
+        from ..db import database
+        conn = database.get_conn()
+        for code in codes:
+            row = conn.execute(
+                "SELECT pct FROM close_change_history WHERE date=? AND code=?",
+                (date, code)).fetchone()
+            if row:
+                out[code] = row[0]
+        conn.close()
+    except Exception:
+        pass
+    return out
+
+
+def _close_chg_db_put(date, pairs):
+    """把 {code: pct} 持久化到 close_change_history, 后续历史回看免请求东财"""
+    if not pairs or not date:
+        return
+    try:
+        from ..db import database
+        conn = database.get_conn()
+        conn.executemany(
+            "INSERT OR REPLACE INTO close_change_history(date,code,pct) VALUES(?,?,?)",
+            [(date, c, v) for c, v in pairs.items()])
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _close_chg_pct_sina(date, code):
+    """新浪日K取某股某日收盘涨跌幅(%)兜底; 失败返回 None"""
+    try:
+        import urllib.request, ssl, json as _json
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        sym = "sh" + code if code[0] == "6" else ("bj" + code if code[0] in "48" else "sz" + code)
+        url = ("https://quotes.sina.cn/cn/api/json_v2.php/CN_MarketData.getKLineData"
+               f"?symbol={sym}&scale=240&ma=no&datalen=160")
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0", "Referer": "https://finance.sina.com.cn/"})
+        with urllib.request.urlopen(req, timeout=12, context=ctx) as r:
+            arr = _json.loads(r.read().decode("utf-8", "ignore"))
+        prev = None
+        for row in arr:
+            d = str(row.get("day", ""))[:10]
+            c = float(row.get("close") or 0)
+            if d == date and prev:
+                return round((c - prev) / prev * 100, 2)
+            if c:
+                prev = c
+    except Exception:
+        pass
+    return None
+
+
+def _close_chg_pct_tencent(date, code):
+    """腾讯日K(qq-web行情)取某股某日收盘涨跌幅(%)兜底; 失败返回 None"""
+    try:
+        import urllib.request, ssl, json as _json
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        sym = "sh" + code if code[0] == "6" else ("bj" + code if code[0] in "48" else "sz" + code)
+        # 腾讯 qq 日K: 最近 160 根日线足够回溯 ~8 月
+        url = (f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={sym},day,,,160,qfq")
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"})
+        with urllib.request.urlopen(req, timeout=12, context=ctx) as r:
+            txt = r.read().decode("utf-8", "ignore")
+        obj = _json.loads(txt)
+        # data.{sym}.qfqday / data.{sym}.day
+        dat = (obj.get("data") or {}).get(sym) or {}
+        arr = dat.get("qfqday") or dat.get("day") or []
+        prev = None
+        for row in arr:
+            if not isinstance(row, (list, tuple)) or len(row) < 3:
+                continue
+            d = str(row[0])[:10]
+            c = float(row[2] or 0)
+            if d == date and prev:
+                return round((c - prev) / prev * 100, 2)
+            if c:
+                prev = c
+    except Exception:
+        pass
+    return None
+
+
+def _close_chg_pct_ths(date, code):
+    """同花顺(10jqka)日线接口取某股某日收盘涨跌幅(%)兜底; 失败返回 None"""
+    try:
+        import urllib.request, ssl, json as _json
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        # 同花顺 10jqka 代码: 沪=1_xxxxxx 深=0_xxxxxx 北=1_xxxxxx(保守)
+        if code[0] == "6":
+            secid = f"1_{code}"
+        elif code[0] in "48":
+            secid = f"1_{code}"
+        else:
+            secid = f"0_{code}"
+        url = (f"https://d.10jqka.com.cn/v6/line/hs_{secid}/01/last.js")
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": f"https://stockpage.10jqka.com.cn/{code}/"})
+        with urllib.request.urlopen(req, timeout=12, context=ctx) as r:
+            js = r.read().decode("gbk", "ignore")
+        # last.js 返回 json_hex = {...}
+        m = _CLOSE_CHG_JSON_RE.search(js) if _CLOSE_CHG_JSON_RE else None
+        if not m:
+            return None
+        obj = _json.loads(m.group(1))
+        # klines: "date,open,high,low,close,vol,amount"
+        rows = obj.get("data") or obj.get("klines") or []
+        prev = None
+        for row in rows:
+            parts = row.split(",") if isinstance(row, str) else row
+            if not parts or len(parts) < 5:
+                continue
+            d = str(parts[0])[:10]
+            c = float(parts[4] or 0)
+            if d == date and prev:
+                return round((c - prev) / prev * 100, 2)
+            if c:
+                prev = c
+    except Exception:
+        pass
+    return None
+
+
+def fill_close_change_from_kline(lst, date):
+    """历史回看: 把列表中股票 change/realChange 覆盖为所选交易日 date 的**当日收盘涨跌幅(%)
+    数据来源优先级: 进程内存 → close_change_history 库表(持久化) → 多源日K(缺失才拉, 并写库)。
+    多源顺序: fetch_stock_chart_robust(东财→腾讯→同花顺→开盘啦) → 新浪 → 腾讯 → 同花顺。
+    因此历史日首次补齐后, 后续回看不再请求外部接口。返回被覆盖的股票数。"""
+    if not lst or not date:
+        return 0
+    from ..services import fetcher
+    now = time.time()
+    for k, (ts, _) in list(_CLOSE_CHG_CACHE.items()):
+        if now - ts > _CLOSE_CHG_TTL:
+            _CLOSE_CHG_CACHE.pop(k, None)
+    ent = _CLOSE_CHG_CACHE.get(date)
+    if ent is None or now - ent[0] > _CLOSE_CHG_TTL:
+        ent = (now, {})
+        _CLOSE_CHG_CACHE[date] = ent
+    table = ent[1]
+    # 1) 缺的 code 先查库命中
+    todo = [it for it in lst if it.get("code") and it.get("code") not in table]
+    if todo:
+        dbhit = _close_chg_db_get(date, [it["code"] for it in todo])
+        for it in todo:
+            v = dbhit.get(it["code"])
+            if v is not None:
+                table[it["code"]] = v
+        todo = [it for it in todo if it["code"] not in table]
+    # 2) 仍缺的才拉多源日K, 并写库持久化(任一源命中即写入)
+    fetched = {}
+
+    def _one(it):
+        code = it.get("code") or ""
+        try:
+            # 2a) robust chart (东财→腾讯→tushare→同花顺→开盘啦)
+            k = fetcher.fetch_stock_chart_robust(code, "day")
+            if k and k.get("time"):
+                times, closes = k["time"], k["close"]
+                for i, t in enumerate(times):
+                    if str(t)[:10] == date:
+                        if i > 0 and closes[i - 1]:
+                            v = round((closes[i] - closes[i - 1]) / closes[i - 1] * 100, 2)
+                            table[code] = v
+                            fetched[code] = v
+                            return
+            # 2b) 新浪日K兜底
+            v = _close_chg_pct_sina(date, code)
+            if v is not None:
+                table[code] = v
+                fetched[code] = v
+                return
+            # 2c) 腾讯日K兜底
+            v = _close_chg_pct_tencent(date, code)
+            if v is not None:
+                table[code] = v
+                fetched[code] = v
+                return
+            # 2d) 同花顺日K兜底
+            v = _close_chg_pct_ths(date, code)
+            if v is not None:
+                table[code] = v
+                fetched[code] = v
+                return
+        except Exception:
+            pass
+
+    if todo:
+        import concurrent.futures as cf
+        with cf.ThreadPoolExecutor(max_workers=6) as ex:
+            list(ex.map(_one, todo))
+        if fetched:
+            _close_chg_db_put(date, fetched)
+    n = 0
+    for it in lst:
+        v = table.get(it.get("code"))
+        if v is None:
+            continue
+        it["change"] = v
+        it["realChange"] = v
+        n += 1
+    return n

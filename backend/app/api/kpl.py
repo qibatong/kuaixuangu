@@ -32,6 +32,40 @@ def _is_auction_hours():
     return False
 
 
+def _is_intraday():
+    """当前北京时间是否盘中 (9:30 ~ 15:00), 仅工作日。
+    只有盘中现涨(change/realChange)才用实时接口刷新; 盘后/非交易一律用当日收盘固定值。"""
+    t = _time.gmtime()
+    if t.tm_wday >= 5:
+        return False
+    h, m = t.tm_hour, t.tm_min
+    if h < 9 or h > 15:
+        return False
+    if h == 9 and m < 30:
+        return False
+    if h == 15 and m > 0:
+        return False
+    return True
+
+
+def _apply_change_for(lst, serve_date):
+    """统一设置列表现涨(change/realChange)口径:
+       - 盘中 且 展示的就是"今天" → 东财实时(单次批量, _update_spot_change)
+       - 其余全部(历史回看/回退的上交易日/盘后今日/非交易日) → 该交易日收盘涨幅(固定, 不调实时)
+    注: 盘中查看历史日期时, 现涨也应是历史那天收盘涨幅, 只有"盘中看今日"才用实时。
+    serve_date: 当前展示的交易日 'YYYY-MM-DD'(历史/回退=对应日, 今日=今日)。"""
+    if not lst:
+        return
+    today = _time.strftime("%Y-%m-%d", _time.gmtime())
+    if _is_intraday() and serve_date == today:
+        _update_spot_change(lst)
+        return
+    try:
+        kpl.fill_close_change_from_kline(lst, serve_date)
+    except Exception as e:
+        log.warning("当日收盘涨幅覆盖失败 date=%s err=%s", serve_date, e)
+
+
 def _update_spot_change(lst):
     """用东方财富实时行情覆盖列表中股票的 change / realChange 字段。
     只改 change / realChange 两个字段, 其他字段(name/board/...)绝不变动。
@@ -85,7 +119,7 @@ def _read_auction_fast(tab):
     try:
         lst = kpl.query_auction_history(today, tab)
         if lst:
-            n = _update_spot_change(lst)
+            _apply_change_for(lst, today)
             return lst, today
     except Exception:
         pass
@@ -101,7 +135,7 @@ def _read_auction_fast(tab):
             d = str(row[0])
             lst = kpl.query_auction_history(d, tab)
             if lst:
-                n = _update_spot_change(lst)
+                _apply_change_for(lst, d)
                 return lst, d
     except Exception:
         pass
@@ -178,6 +212,7 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(require_vip_or_paid), 
         resolved = _resolve_date(date)
         d = kpl.query_auction_history(resolved, "seal")
         kpl.fill_bid_turnover_from_snap(d, resolved)   # 2026-08-22: 历史快照竞换可能缺, 用当日快照补
+        kpl.fill_close_change_from_kline(d, resolved)  # 2026-08-22: 历史回看现涨=当日收盘涨跌幅
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "date": resolved, "requestedDate": date})
     if not _is_auction_hours():
@@ -185,6 +220,11 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(require_vip_or_paid), 
         d, d_str = _read_auction_fast("seal")
         kpl.fill_bid_turnover_from_snap(d, d_str)   # 2026-08-22: 非交易日/历史回退补竞换
         _ensure_concepts(d, tag="auc:bid-seal[fast]")
+        # 2026-08-23 口径统一: fast-path 也按 serve_date 覆盖现涨(避免回退到历史日时仍是"最新今天涨幅")
+        try:
+            _apply_change_for(d, d_str)
+        except Exception as e:
+            log.warning("bid-seal fast-path 现涨覆盖失败 err=%s", e)
         return jr({"ok": True, "list": d, "count": len(d), "date": d_str})
     d = kpl.fetch_bid_seal() or []
     # 概念列统一用开盘啦接口覆盖(只取开盘啦概念, 避免东财长串多概念混入)
@@ -193,6 +233,11 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(require_vip_or_paid), 
                                 field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("竞价异动概念开盘啦覆盖失败 bid-seal err=%s", e)
+    # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
+    try:
+        _apply_change_for(d, _time.strftime("%Y-%m-%d", _time.gmtime()))
+    except Exception as e:
+        log.warning("bid-seal 现涨覆盖失败 err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
 
 
@@ -214,22 +259,16 @@ def api_kpl_bid_boom(request: Request, uid: int = Depends(require_vip_or_paid), 
     # (落库历史快照可能由旧版逻辑生成, 含零/负涨幅; 接口层兜底保证展示口径一致)
     if d:
         d = [it for it in d if (it.get("bidChange") if it.get("bidChange") is not None else 0) >= 0.01]
-    # 现涨(realChange)口径: 盘中=实时涨幅, 盘后/收盘=当日收盘涨幅, 历史回看同理取当日实时/收盘涨幅
-    # (竞涨 bidChange 保持 9:25 竞价涨幅不变; 竞价时刻两者恰好相同属正常)
-    # 参照连板梯队(ladder)做法, 用东财全市场实时行情覆盖 realChange
+    if date:
+        # 2026-08-22 历史回看: 现涨(realChange/change)=当日收盘涨跌幅, 而非最新今天实时
+        try:
+            kpl.fill_close_change_from_kline(d, resolved)
+        except Exception as e:
+            log.warning("bid-boom 历史现涨(当日收盘)覆盖失败 err=%s", e)
+        return jr({"ok": True, "list": d, "count": len(d), "date": resolved, "requestedDate": date})
+    # 现涨(realChange/change)口径: 盘中=实时涨幅; 盘后/非交易日=当日收盘涨幅固定值(不调实时接口)
     try:
-        from ..services import fetcher as _fetcher
-        from ..services import scorer as _scorer
-        _fs = _scorer.market_fs(["hs", "cyb", "kcb"])
-        spot = _fetcher.fetch_spot_quote_map(_fs)
-        n = 0
-        for it in d:
-            q = spot.get(str(it.get("code")))
-            if q and q.get("realChange") is not None:
-                it["realChange"] = q.get("realChange")
-                n += 1
-        if n:
-            log.info("bid-boom 现涨(实时/收盘)覆盖 %d 只", n)
+        _apply_change_for(d, _time.strftime("%Y-%m-%d", _time.gmtime()))
     except Exception as e:
         log.warning("bid-boom 现涨覆盖失败 err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
@@ -246,6 +285,7 @@ def api_kpl_bid_net(request: Request, uid: int = Depends(require_vip_or_paid), d
         # 老快照未存竞换/竞额 → 用当日 9_25 快照补
         kpl.fill_bid_turnover_from_snap(d, resolved)
         kpl.fill_bid_amt_from_snap(d, resolved)
+        kpl.fill_close_change_from_kline(d, resolved)  # 2026-08-22: 历史回看现涨=当日收盘涨跌幅
         kpl.apply_board_concept_db(d, log_tag="auc:bid-net[hist]", field="board", truncate=2, blank_if_missing=True, date=resolved)
         return jr({"ok": True, "list": d, "count": len(d), "date": resolved, "requestedDate": date})
     if not _is_auction_hours():
@@ -258,7 +298,7 @@ def api_kpl_bid_net(request: Request, uid: int = Depends(require_vip_or_paid), d
                 d_str = _prev
         kpl.fill_bid_turnover_from_snap(d, d_str)
         kpl.fill_bid_amt_from_snap(d, d_str)
-        _update_spot_change(d)   # 现涨: 非交易日=当日收盘/最新实时
+        _apply_change_for(d, d_str)   # 现涨: 盘中=实时; 盘后/非交易=当日收盘固定值(不调实时)
         kpl.apply_board_concept_db(d, log_tag="auc:bid-net[fast]", field="board", truncate=2, blank_if_missing=True, date=d_str)
         return jr({"ok": True, "list": d, "count": len(d), "date": d_str})
     d = kpl.fetch_bid_net() or []
@@ -270,6 +310,11 @@ def api_kpl_bid_net(request: Request, uid: int = Depends(require_vip_or_paid), d
         kpl.apply_board_concept_db(d, log_tag="auc:bid-net", field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("竞价净额换手/成交额/概念补齐失败 err=%s", e)
+    # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
+    try:
+        _apply_change_for(d, _time.strftime("%Y-%m-%d", _time.gmtime()))
+    except Exception as e:
+        log.warning("bid-net 现涨覆盖失败 err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
 
 
@@ -283,6 +328,11 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
         lst = kpl.query_auction_history(resolved, "broken_today")
         kpl._merge_broken_bid_snap(lst)   # 老快照无竞价字段 → 按 day 补全
         kpl.fill_float_mv_from_snap(lst, resolved)
+        # 2026-08-22 历史回看: 现涨(change)=当日收盘涨跌幅, 而非最新今天实时
+        try:
+            kpl.fill_close_change_from_kline(lst, resolved)
+        except Exception as e:
+            log.warning("broken 历史现涨(当日收盘)覆盖失败 err=%s", e)
         kpl.apply_board_concept_db(lst, log_tag="auc:broken[hist]", field="board", truncate=2, blank_if_missing=True, date=resolved)
         return jr({"ok": True, "list": lst or [], "count": len(lst),
                    "date": resolved, "requestedDate": date,
@@ -298,21 +348,11 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
                 kpl._merge_broken_bid_snap(lst)   # 老快照无竞价字段 → 按 day 补全
                 kpl.fill_float_mv_from_snap(lst, prev)
                 kpl.apply_board_concept_db(lst, log_tag="auc:broken[yest]", field="board", truncate=2, blank_if_missing=True, date=prev)
-                # 2026-08-18 主人反馈: 实时涨幅显示的是存库时刻(8/17收盘)值 →
-                # merge 东财今日实时行情覆盖 change(实时涨幅列看的是"现在")
+                # 2026-08-22 口径统一: 历史数据现涨=当日收盘涨幅(不调实时接口)
                 try:
-                    from ..services import fetcher
-                    spot = fetcher.fetch_spot_quote_map("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23")
-                    n = 0
-                    for it in lst:
-                        q = spot.get(str(it.get("code")))
-                        if q and q.get("realChange") is not None:
-                            it["change"] = q.get("realChange")
-                            n += 1
-                    if n:
-                        log.info("昨炸板今日实时涨幅覆盖 %d 只", n)
+                    kpl.fill_close_change_from_kline(lst, prev)
                 except Exception as e:
-                    log.warning("昨炸板实时涨幅 merge 失败 err=%s", e)
+                    log.warning("昨炸板当日收盘涨幅覆盖失败 err=%s", e)
                 return jr({"ok": True, "list": lst, "count": len(lst), "day": prev})
     # 非竞价时段且无 day 参数: 先尝试读库 broken_today (fast-path)
     if not _is_auction_hours() and not day:
@@ -321,6 +361,11 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
             kpl._merge_broken_bid_snap(lst_fast)
             kpl.fill_float_mv_from_snap(lst_fast, d_str)
             _ensure_concepts(lst_fast, tag="auc:broken[fast]")
+            # 2026-08-23: broken fast-path 也按 serve_date 覆盖现涨(避免回退历史日时显示最新今天涨幅)
+            try:
+                _apply_change_for(lst_fast, d_str)
+            except Exception as e:
+                log.warning("broken fast-path 现涨覆盖失败 err=%s", e)
             return jr({"ok": True, "list": lst_fast, "count": len(lst_fast),
                        "date": d_str,
                        "day": (lst_fast[0].get("day") if lst_fast else "")})
@@ -328,6 +373,11 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
     lst = d or []
     kpl.fill_float_mv_from_snap(lst, None)
     kpl.apply_board_concept_db(lst, log_tag="auc:broken[now]", field="board", truncate=2, blank_if_missing=True)
+    # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
+    try:
+        _apply_change_for(lst, _time.strftime("%Y-%m-%d", _time.gmtime()))
+    except Exception as e:
+        log.warning("broken 现涨覆盖失败 err=%s", e)
     return jr({"ok": True, "list": lst, "count": len(lst),
                "day": (lst[0].get("day") if lst else "")})
 
@@ -441,6 +491,11 @@ def api_kpl_lhb(request: Request, uid: int = Depends(require_vip_or_paid), date:
         kpl.fill_bid_change_from_snap(lst, resolved)
         kpl.fill_float_mv_from_snap(lst, resolved)
         kpl.fill_bid_turnover_from_snap(lst, resolved)
+        # 2026-08-23: 历史回看现涨(change/realChange)=当日收盘涨跌幅, 而非最新今天实时
+        try:
+            kpl.fill_close_change_from_kline(lst, resolved)
+        except Exception as e:
+            log.warning("lhb 历史现涨(当日收盘)覆盖失败 err=%s", e)
         kpl.apply_board_concept_db(lst, log_tag="auc:lhb[hist]", field="board", truncate=2, blank_if_missing=True, date=resolved)
         return jr({"ok": True, "list": lst, "count": len(lst), "date": resolved, "requestedDate": date})
     d = kpl.fetch_lhb()
@@ -477,6 +532,11 @@ def api_kpl_lhb(request: Request, uid: int = Depends(require_vip_or_paid), date:
         kpl.fill_bid_change_from_snap(lst, d_str)
         kpl.fill_float_mv_from_snap(lst, d_str)
         kpl.fill_bid_turnover_from_snap(lst, d_str)   # 2026-08-18: 补竞价换手
+        # 2026-08-23: 回退到历史日时 现涨=当日收盘涨幅(禁止显示今日最新)
+        try:
+            _apply_change_for(lst, d_str)
+        except Exception as e:
+            log.warning("lhb fallback 现涨覆盖失败 err=%s", e)
         kpl.apply_board_concept_db(lst, log_tag="auc:lhb[fallback]", field="board", truncate=2, blank_if_missing=True, date=d_str)
         return jr({"ok": True, "list": lst, "count": len(lst), "date": d_str})
     kpl.fill_reason_from_pool(lst, None)   # 今日涨停池补涨停原因
@@ -484,6 +544,11 @@ def api_kpl_lhb(request: Request, uid: int = Depends(require_vip_or_paid), date:
     kpl.fill_float_mv_from_snap(lst, None)
     kpl.fill_bid_turnover_from_snap(lst, None)   # 2026-08-18: 补竞价换手
     kpl.apply_board_concept_db(lst, log_tag="auc:lhb[now]", field="board", truncate=2, blank_if_missing=True)
+    # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
+    try:
+        _apply_change_for(lst, _time.strftime("%Y-%m-%d", _time.gmtime()))
+    except Exception as e:
+        log.warning("lhb 现涨覆盖失败 err=%s", e)
     return jr({"ok": True, "list": lst, "count": len(lst), "date": ""})
 
 
@@ -541,29 +606,28 @@ def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(require_vip_or_pa
             log.warning("竞价异动概念补失败 bid-qiangcang[fast] err=%s", e)
     # 2026-08-18 修复: 抢筹三表统一 merge 东财实时涨幅(realChange) —
     # 主人反馈灿勤科技等涨幅抢筹/右表股票实时涨幅为空(开盘啦数据源无该字段)
-    try:
-        from ..services import fetcher
-        spot = fetcher.fetch_spot_quote_map("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23")
-        n = 0
-        for key in ("list20", "list20Chg", "listLast"):
-            for it in (d.get(key) or []):
-                q = spot.get(str(it.get("code")))
-                if q and q.get("realChange") is not None:
-                    it["realChange"] = q.get("realChange")
-                    n += 1
-        if n:
-            log.info("抢筹实时涨幅 merge 完成 覆盖%d只", n)
-    except Exception as e:
-        log.warning("抢筹实时涨幅 merge 失败 err=%s", e)
+    # 2026-08-23: 历史回看时**禁止** merge 实时涨幅(否则历史日显示最新涨幅), 改为覆盖当日收盘涨跌幅
+    # 统一现涨(realChange/change)口径:
+    # - 盘中且展示"今天" → 东财实时(单次批量, _apply_change_for / _update_spot_change)
+    # - 其余全部(历史回看 / 回退到上交易日 / 盘后今日 / 非交易日) → 该交易日收盘涨幅(固定, 不调实时)
+    # serve_date 推导: 指定 date → date(可能是快照内部 date 或 resolved); 否则今天
+    today_str = _time.strftime("%Y-%m-%d", _time.gmtime())
+    serve_date = date or (d.get("date") if isinstance(d, dict) else "") or today_str
+    # 三表各自独立填充现涨
+    for ql, tag in ((l20, "qc20"), (l20Chg, "qc20Chg"), (lLast, "qcLast")):
+        try:
+            _apply_change_for(ql, serve_date)
+        except Exception as e:
+            log.warning("抢筹现涨覆盖失败 tag=%s date=%s err=%s", tag, serve_date, e)
     # 2026-08-18 主人要求: 抢筹右表/涨幅抢筹补竞价换手(快照 bid_amt/float_mv 计算)
     try:
-        kpl.fill_bid_turnover_from_snap(l20Chg, None)
-        kpl.fill_bid_turnover_from_snap(lLast, None)
+        kpl.fill_bid_turnover_from_snap(l20Chg, serve_date if serve_date != today_str or not _is_auction_hours() else None)
+        kpl.fill_bid_turnover_from_snap(lLast, serve_date if serve_date != today_str or not _is_auction_hours() else None)
     except Exception as e:
         log.warning("抢筹竞价换手补齐失败 err=%s", e)
     return jr({"ok": True, "list20": l20, "list20Chg": l20Chg, "listLast": lLast,
                "count20": len(l20), "count20Chg": len(l20Chg), "countLast": len(lLast),
-               "date": d.get("date") or date or ""})
+               "date": d.get("date") or serve_date or ""})
 
 
 @router.get("/api/kpl/yest-zt")
@@ -574,6 +638,11 @@ def api_kpl_yest_zt(request: Request, uid: int = Depends(require_vip_or_paid), d
         d = kpl.query_auction_history(resolved, "yest_zt")
         kpl.fill_reason_from_pool(d, resolved)
         kpl.fill_float_mv_from_snap(d, resolved)
+        # 2026-08-23: 历史回看现涨(change)=当日收盘涨跌幅, 而非最新今天实时
+        try:
+            _apply_change_for(d, resolved)
+        except Exception as e:
+            log.warning("yest-zt 历史现涨(当日收盘)覆盖失败 err=%s", e)
         kpl.apply_board_concept_db(d, log_tag="auc:yest-zt[hist]", field="board", truncate=2, blank_if_missing=True, date=resolved)
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "date": resolved, "requestedDate": date})
@@ -582,23 +651,11 @@ def api_kpl_yest_zt(request: Request, uid: int = Depends(require_vip_or_paid), d
         kpl.apply_board_concept_db(d, log_tag="auc:yest-zt", field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("竞价异动概念开盘啦覆盖失败 yest-zt err=%s", e)
-    # 2026-08-18 主人反馈: 晚间 Type4(开盘啦竞价榜)为空 → change/bidChange 都回退 9_25 竞价涨幅, 两列一样
-    # merge 东财全市场实时行情覆盖 change(仅当 change 缺失或等于竞价涨幅时), 保证实时涨幅≠竞价涨幅
+    # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
     try:
-        from ..services import fetcher
-        spot = fetcher.fetch_spot_quote_map("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23")
-        n = 0
-        for it in d:
-            q = spot.get(str(it.get("code")))
-            if q and q.get("realChange") is not None:
-                rc = q.get("realChange")
-                if it.get("change") is None or it.get("change") == it.get("bidChange"):
-                    it["change"] = rc
-                    n += 1
-        if n:
-            log.info("昨涨停实时涨幅 merge 东财 覆盖%d只", n)
+        _apply_change_for(d, _time.strftime("%Y-%m-%d", _time.gmtime()))
     except Exception as e:
-        log.warning("昨涨停实时涨幅 merge 失败 err=%s", e)
+        log.warning("yest-zt 现涨覆盖失败 err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
 
 
@@ -610,6 +667,11 @@ def api_kpl_yest_broken(request: Request, uid: int = Depends(require_vip_or_paid
         d = kpl.query_auction_history(resolved, "yest_broken")
         kpl.fill_reason_from_pool(d, resolved)
         kpl.fill_float_mv_from_snap(d, resolved)
+        # 2026-08-23: 历史回看现涨(change)=当日收盘涨跌幅, 而非最新今天实时
+        try:
+            _apply_change_for(d, resolved)
+        except Exception as e:
+            log.warning("yest-broken 历史现涨(当日收盘)覆盖失败 err=%s", e)
         kpl.apply_board_concept_db(d, log_tag="auc:yest-broken[hist]", field="board", truncate=2, blank_if_missing=True, date=resolved)
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "date": resolved, "requestedDate": date})
@@ -618,6 +680,11 @@ def api_kpl_yest_broken(request: Request, uid: int = Depends(require_vip_or_paid
         kpl.apply_board_concept_db(d, log_tag="auc:yest-broken", field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("竞价异动概念开盘啦覆盖失败 yest-broken err=%s", e)
+    # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
+    try:
+        _apply_change_for(d, _time.strftime("%Y-%m-%d", _time.gmtime()))
+    except Exception as e:
+        log.warning("yest-broken 现涨覆盖失败 err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
 
 

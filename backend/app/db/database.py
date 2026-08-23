@@ -201,6 +201,16 @@ def init_db():
             PRIMARY KEY (date, tab)
         )
     """)
+    # 历史日现涨(当日收盘涨跌幅)持久化(2026-08-22): 一库存所有历史交易各股收盘涨幅,
+    # 历史回看直接读本表, 无需再请求东财日K接口
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS close_change_history (
+            date TEXT NOT NULL,
+            code TEXT NOT NULL,
+            pct REAL NOT NULL DEFAULT 0,
+            PRIMARY KEY (date, code)
+        )
+    """)
     # 旧库升级: 已存在且无 source 列时补上(单字段主键), 历史数据默认 kpl
     try:
         cur.execute("ALTER TABLE daily_sector_top ADD COLUMN source TEXT NOT NULL DEFAULT 'kpl'")
