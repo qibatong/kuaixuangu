@@ -266,19 +266,52 @@ html, body, #app {
   /* 2026-08-24: 首页表格固定表头 — 滚动时 thead 粘在 sticky 元素(filter/tabs)下方。
      1) 解除 .stock-table-container / .qc-panel 的 overflow-x:auto → 否则它们成为滚动容器,
         sticky thead 相对它们(无纵向滚动)而非列容器, 不生效。
-     2) thead th sticky top = --sticky-thead-top(由 JS 动态测量 filter/tabs 高度写入) */
+     2) thead th sticky top = --sticky-thead-top(由 JS 动态测量 filter/tabs 高度写入)
+     3) 例外: 竞价抢筹(.qc-dual)是上下两个独立 panel, 每个 panel 应该自己滚 + 自己的 thead 粘在 panel 顶部,
+        不受首页全局 sticky 影响, 因此把 .qc-dual > .qc-panel 排除在外(否则两个表头会抢
+        同一个 --sticky-thead-top, 定位叠在错误位置)。 */
   .home-col-left .stock-table-container,
-  .home-col-right .qc-panel {
+  .home-col-right .qc-panel:not(.qc-dual *) {
     overflow: visible;
   }
   .home-col-left .stock-table thead th,
-  .home-col-right .stock-table thead th,
+  .home-col-right .stock-table:not(.qc-dual .stock-table) thead th,
   .home-col-right .lhb-table thead th,
   .home-col-right .broken-table thead th {
     position: sticky;
     top: var(--sticky-thead-top, 0px);
     z-index: 8;
     background: var(--bg-panel-solid);
+    border-bottom: 2px solid var(--accent-deep);
+  }
+
+  /* 竞价抢筹双表: 每个 panel 内独立滚动 + panel 内 thead sticky(top:0).
+     这样上/下两表的表头互不冲突, 也不跟右栏 auc-tabs 的全局 sticky 混在一起。 */
+  .home-col-right .qc-dual {
+    overflow: visible;
+  }
+  .home-col-right .qc-dual > .qc-panel {
+    overflow-x: auto;
+    overflow-y: auto;
+    /* 每个 panel 固定高度, 超过时 panel 内部滚动, sticky thead 相对 panel 生效 */
+    max-height: 520px;
+    position: relative; /* 明确滚动锚点 */
+  }
+  .home-col-right .qc-dual > .qc-panel .qc-panel-title {
+    position: sticky;
+    top: 0;
+    z-index: 9;
+    background: var(--bg-panel-solid, rgba(245,238,230,0.96));
+    padding-bottom: 6px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .home-col-right .qc-dual > .qc-panel .stock-table thead th {
+    position: sticky;
+    /* 要避开其上方的 .qc-panel-title, 因为 title 也 sticky 在 panel 的 top:0 */
+    top: 36px;
+    z-index: 8;
+    background: var(--bg-panel-solid, rgba(245,238,230,0.96));
     border-bottom: 2px solid var(--accent-deep);
   }
 }
