@@ -440,8 +440,8 @@ const rotMap = computed(() => {
   }
   return m
 })
-// 出现 >= 3 次的板块按频次降序分配 8 色(红/橙/黄/靛蓝/天蓝/深蓝/紫/粉, 无绿系),
-// 同板块多日同色; 出现 < 3 次不配色(rot-c-0), 避免整板花花绿绿
+// 出现 >= 2 次的板块按频次降序分配 8 色(红/橙/黄/靛蓝/天蓝/深蓝/紫/粉, 无绿系),
+// 同板块多日同色; 出现 < 2 次不配色(rot-c-0)
 const colorMap = computed(() => {
   const cnt = {}
   for (const day of rot.days) {
@@ -450,7 +450,7 @@ const colorMap = computed(() => {
     }
   }
   const ranks = Object.entries(cnt)
-    .filter(([_, c]) => c >= 3)
+    .filter(([_, c]) => c >= 2)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
   const m = {}
   ranks.forEach(([name], i) => { m[name] = (i % 8) + 1 })
