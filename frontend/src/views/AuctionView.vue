@@ -815,8 +815,11 @@ onMounted(() => {
 .auc-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 14px; }
 /* 竞价抢筹左右双表 */
 .qc-dual { display: flex; flex-direction: column; gap: 10px; }
-.qc-panel { width: 100%; background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px; overflow-x: auto; }
-.qc-panel-title { font-size: 14px; font-weight: 700; color: #ffe0a0; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+.qc-panel { width: 100%; background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px; overflow: visible; display: flex; flex-direction: column; gap: 8px; }
+.qc-table-scroll { overflow-x: auto; overflow-y: auto; max-height: 480px; scrollbar-width: none; -ms-overflow-style: none; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--bg-hover); }
+.qc-table-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.qc-table-scroll .stock-table thead th { position: sticky; top: 0; z-index: 8; background: var(--bg-hover); border-bottom: 2px solid var(--accent-deep); }
+.qc-panel-title { font-size: 14px; font-weight: 700; color: #ffe0a0; display: flex; align-items: center; gap: 10px; }
 .qc-mode-switch { display: inline-flex; gap: 4px; margin-left: auto; }
 .qc-mode-switch button {
   font-size: 11px; padding: 2px 10px; border-radius: 4px; cursor: pointer;
@@ -916,8 +919,7 @@ onMounted(() => {
 /* 操作列按钮缩小 */
 .auc-panel .pool-add-btn, .qc-panel .pool-add-btn { padding: 1px 5px; font-size: 11px; }
 .qc-panel .stock-table { width: 100%; border-collapse: collapse; }
-/* 手机端: qc 表整表横向滚动容灾(配合 <700px 的 min-width 使表格可横滑) */
-.qc-panel { overflow-x: auto; }
+/* 手机端 / 窄屏: qc-table-scroll 内仍保留横滚 (scrollbar 隐藏) */
 /* 2026-08-19 回归通用 stock-table 样式(跟其他 tab 一致):
    之前 table-layout:fixed + nth-child 固定 26-240px 死列宽 → 桌面端列挤(12列 × 56-72px 都很窄)
    现让列宽自适应(名称/概念可换行), 仅概念列加 max-width 防止特长撑破布局 */
@@ -940,7 +942,8 @@ onMounted(() => {
   .qc-panel { padding: 8px; }
   .qc-panel-title { font-size: 13px; flex-wrap: wrap; }
   .qc-mode-switch button { padding: 4px 12px; font-size: 12px; }
-  .qc-panel .stock-table { min-width: 860px; white-space: nowrap; }
+  .qc-table-scroll .stock-table { min-width: 860px; white-space: nowrap; }
+  .qc-table-scroll { max-height: 420px; }
   .qc-panel .stock-table th, .qc-panel .stock-table td { padding: 3px 3px; font-size: 11px; }
   /* 概念列: 加宽到 150px, 每概念独占一行(pre-line)且不拆字 */
   .qc-panel .stock-table th:nth-child(9),

@@ -324,6 +324,14 @@ html, body, #app {
     background: var(--bg-panel-solid, rgba(245,238,230,0.96));
     border: 1px solid var(--border-soft);
     border-radius: 8px;
+    /* 隐藏可见滚动条, 与左右主列同款. 鼠标滚轮 / 触摸板 / 拖拽 仍可滚动. */
+    scrollbar-width: none;         /* Firefox */
+    -ms-overflow-style: none;      /* IE / 旧 Edge */
+  }
+  .home-col-right .qc-dual > .qc-panel .qc-table-scroll::-webkit-scrollbar {
+    display: none;                 /* Chrome / Safari / 新 Edge */
+    width: 0;
+    height: 0;
   }
   .home-col-right .qc-dual > .qc-panel .qc-table-scroll .stock-table thead th {
     /* 仅相对 .qc-table-scroll 这一个滚动容器 sticky(top=0), 不再需要对齐 title 高度.
