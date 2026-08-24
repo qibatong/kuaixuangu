@@ -1085,20 +1085,44 @@ def _snap25_map(date=None):
     return out
 
 
-def _merge_broken_bid_snap(lst):
-    """炸板列表补竞价涨幅/竞价换手: 按每条 day 查该日 9_25 快照
+def _merge_broken_bid_snap(lst, bid_date=None):
+    """炸板列表补竞价涨幅/竞价换手: 按每条 day 查该日 9_25 快照;
+    若传入 bid_date(形如 "2026-08-24"), 则强制用 bid_date 的快照统一补竞价字段
+    (用于"昨炸板看今日竞价"场景: 股票池=昨日炸板, 但bidChange/bidTurnover/floatMv/bidAmt 用今日9_25)。
     bidTurnover = 竞价额(元)/自由流通市值(元)×100(短线侠同口径近似)
     返回补全后的列表(原地修改+返回)"""
     if not lst:
         return lst
-    # 按 day 分组查快照(避免重复查库)
+    import time as _t
+    today_default = _t.strftime("%Y-%m-%d")
+    if bid_date:
+        # 强制统一日期: 单次查 bid_date 快照即可, 覆盖 bidChange/bidTurnover/floatMv/bidAmt
+        snap = _snap25_map(bid_date) or {}
+        for it in lst:
+            code = str(it.get("code") or "")
+            s = snap.get(code)
+            if not s:
+                continue
+            if s.get("bid_change") is not None:
+                it["bidChange"] = s["bid_change"]
+            amt = s.get("bid_amt") or 0       # 万元
+            fmv = s.get("float_mv") or 0      # 元
+            if fmv:
+                it["floatMv"] = fmv
+            if amt:
+                it["bidAmt"] = amt * 10000    # 万元→元(与其他表口径一致, 前端再fmt)
+            if amt > 0 and fmv > 0:
+                # 精度4位: 大盘小额股不再被round到0
+                it["bidTurnover"] = round(amt * 10000 / fmv * 100, 4)
+        return lst
+    # 按 day 分组查快照(避免重复查库) — 默认兼容行为: 按每条记录自己的 day
     by_day = {}
     for it in lst:
-        d = it.get("day") or time.strftime("%Y-%m-%d")
+        d = it.get("day") or today_default
         by_day.setdefault(d, [])
     snap_cache = {d: _snap25_map(d) for d in by_day}
     for it in lst:
-        s = snap_cache.get(it.get("day") or time.strftime("%Y-%m-%d"), {}).get(it["code"], {})
+        s = snap_cache.get(it.get("day") or today_default, {}).get(it["code"], {})
         if not s:
             continue
         it["bidChange"] = s.get("bid_change")
@@ -1458,9 +1482,10 @@ def fetch_yest_zt():
             bid_amt = s.get("bidAmt") or (sn["bid_amt"] * 10000 if sn and sn.get("bid_amt") else None)
             float_mv = s.get("floatMv") or (sn.get("float_mv") if sn else None)
             # 竞价换手: Type4 真值优先, 无则 竞价额/自由流通市值 近似(与短线侠 0.1-0.4% 量级一致)
+            # 精度4位: 大盘小额股(如58万/344亿≈0.0017%)不再被round到0
             bid_turnover = s.get("bidTurnover")
             if not bid_turnover and bid_amt and float_mv:
-                bid_turnover = round(bid_amt / float_mv * 100, 2)
+                bid_turnover = round(bid_amt / float_mv * 100, 4)
             out.append({
                 "code": code,
                 "name": it["name"],
@@ -1530,9 +1555,10 @@ def fetch_yest_broken():
             bid_amt = (s["bid_amt"] * 10000) if s and s.get("bid_amt") else None
             float_mv = t4.get("floatMv") or (s.get("float_mv") if s else None)
             # 竞价换手: Type4 真值优先, 无则 竞价额/自由流通市值 近似
+            # 精度4位: 大盘小额股不再被round到0
             bid_turnover = t4.get("bidTurnover")
             if not bid_turnover and bid_amt and float_mv:
-                bid_turnover = round(bid_amt / float_mv * 100, 2)
+                bid_turnover = round(bid_amt / float_mv * 100, 4)
             out.append({
                 "code": code,
                 "name": t4.get("name") or s.get("name") or it["name"],
