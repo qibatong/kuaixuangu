@@ -97,14 +97,24 @@ def main():
     sftp.put(LOC_BACKEND_FETCHER, REMOTE_BACKEND_FETCHER)
     sftp_mkdirs(sftp, os.path.dirname(REMOTE_BACKEND_KPL))
     sftp.put(LOCAL_BACKEND_KPL, REMOTE_BACKEND_KPL)
+    # 2026-08-24: 现涨降级兜底(stats.py) + 快照TTL 60s(config.py) 也随生产更新
+    LOC_STATS = "/workspace/backend/app/api/stats.py"
+    REM_STATS = f"{DEPLOY}/backend/app/api/stats.py"
+    sftp_mkdirs(sftp, os.path.dirname(REM_STATS))
+    sftp.put(LOC_STATS, REM_STATS)
+    LOC_CONFIG = "/workspace/backend/app/core/config.py"
+    REM_CONFIG = f"{DEPLOY}/backend/app/core/config.py"
+    sftp_mkdirs(sftp, os.path.dirname(REM_CONFIG))
+    sftp.put(LOC_CONFIG, REM_CONFIG)
     LOC_DB = "/workspace/backend/app/db/database.py"
     REM_DB = f"{DEPLOY}/backend/app/db/database.py"
     sftp_mkdirs(sftp, os.path.dirname(REM_DB))
     sftp.put(LOC_DB, REM_DB)
     LOC_BF = "/workspace/scripts/backfill_close_change.py"
     REM_BF = f"{DEPLOY}/scripts/backfill_close_change.py"
-    sftp_mkdirs(sftp, os.path.dirname(REM_BF))
-    sftp.put(LOC_BF, REM_BF)
+    if os.path.exists(LOC_BF):   # 回填脚本非部署必需, 缺失时跳过
+        sftp_mkdirs(sftp, os.path.dirname(REM_BF))
+        sftp.put(LOC_BF, REM_BF)
 
     # 3. 上传前端 dist
     print("[3/4] 上传前端 dist (递归) ...")

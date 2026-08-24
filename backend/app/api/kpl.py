@@ -361,17 +361,21 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
         # 2026-08-18 修复: 应读 prev 的 broken_today(当日炸板=昨日炸板);
         # 原读 broken_yest 是"当天存的昨日炸板" → 显示上上个交易日(8/17存8/14)
         prev = kpl._prev_trade_day()
+        today = _time.strftime("%Y-%m-%d", _time.gmtime())
         if prev:
             lst = kpl.query_auction_history(prev, "broken_today")
             if lst:
-                kpl._merge_broken_bid_snap(lst)   # 老快照无竞价字段 → 按 day 补全
-                kpl.fill_float_mv_from_snap(lst, prev)
+                # 2026-08-24 口径修复: 股票池=prev日炸板(昨日炸板)没错, 但竞价字段(bidChange/bidTurnover/bidAmt/floatMv)、
+                # 现涨(change) 都应该是 **今天** 的, 而不是prev日的(用户要看到这些票今天的承接表现)。
+                # bid_date=today 强制用今日 9_25 快照覆盖 bid* 字段
+                kpl._merge_broken_bid_snap(lst, bid_date=today)
+                kpl.fill_float_mv_from_snap(lst, today)
                 kpl.apply_board_concept_db(lst, log_tag="auc:broken[yest]", field="board", truncate=2, blank_if_missing=True, date=prev)
-                # 2026-08-22 口径统一: 历史数据现涨=当日收盘涨幅(不调实时接口)
+                # 现涨: 盘中=今日实时涨幅; 盘后/非交易日=今日收盘涨幅(固定)
                 try:
-                    kpl.fill_close_change_from_kline(lst, prev)
+                    _apply_change_for(lst, today)
                 except Exception as e:
-                    log.warning("昨炸板当日收盘涨幅覆盖失败 err=%s", e)
+                    log.warning("昨炸板 今日现涨覆盖失败 err=%s", e)
                 return jr({"ok": True, "list": lst, "count": len(lst), "day": prev})
     # 非竞价时段且无 day 参数: 先尝试读库 broken_today (fast-path)
     if not _is_auction_hours() and not day:
