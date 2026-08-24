@@ -72,3 +72,13 @@ Thumbs.db
 
 # ========== Trae IDE 分享缓存(不入库) ==========
 .trae-html-share-packages/
+
+# ========== 探测/调试与一次性补数修复脚本(不入库) ==========
+scripts/diag*.py
+scripts/diag_*.py
+scripts/probe_*.py
+scripts/backfill_*.py
+scripts/fix_boom_turnover.py
+backend/scripts/backfill_*.py
+backend/scripts/recalc_boom_history.py
+frontend/echarts_diag.html
