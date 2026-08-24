@@ -1432,7 +1432,8 @@ def fetch_stock_chart_robust(code, period="day"):
     cache_key = "chart_robust:%s:%s" % (code, period)
     with _CHART_LOCK:
         ent = _CHART_CACHE.get(cache_key)
-        ttl = 60 if period == "minute" else 1800
+        # 盘中日K最后一根是"今日实时", 需高频刷新: minute 60s / day 120s; 周K/月K变化慢仍 30min
+        ttl = 60 if period == "minute" else 120 if period == "day" else 1800
         if ent and time.time() - ent["ts"] < ttl:
             return ent["data"]
     t0 = time.time()
