@@ -589,27 +589,26 @@ def fetch_board_stocks(plate_id, date=None, st=30):
     实测 30 条(按强度/涨幅排序); 返回 [{code, name, concept, price, change, turnover, amount,
     floatMv, mainNet, volRatio, limitTag, ladder, totalMv}, ...].
     st: 返回条数上限(默认 30; 2026-08-18 加: 昨涨停/昨断板成分需全量, 传 500)"""
-    params = {
+    base = {
         "Order": "1", "a": "ZhiShuStockList_W8", "st": str(st),
         "c": "ZhiShuRanking", "PhoneOSNew": "1",
         "IsZZ": "0", "Index": "0", "RStart": "0925", "REnd": "1500",
-        "apiv": "w41", "Type": "5", "IsKZZType": "0",
+        "Type": "5", "IsKZZType": "0",
         "PlateID": str(plate_id), "TSZB": "0", "TSZB_Type": "0",
     }
     if not date:
-        # 盘中优先尝试今日(开盘啦 apphis 当日数据可能已可查);
-        # 查不到再回退上一交易日
-        today = time.strftime("%Y-%m-%d")
-        params["Date"] = today
-        d = _call("his", params)
+        # 盘中优先用实时接口(apphwshhq + w44, 不带Date)取当日数据;
+        # 实时接口被拒或空时回退历史接口(apphis + w41 + 上一交易日Date)
+        params = dict(base, apiv="w44")
+        d = _call("app", params)
         lst = d.get("list") if isinstance(d, dict) else None
         if not isinstance(lst, list) or not lst:
             date = _prev_trade_day()
-            params["Date"] = date
+            params = dict(base, apiv="w41", Date=date)
             d = _call("his", params)
             lst = d.get("list") if isinstance(d, dict) else None
     else:
-        params["Date"] = date
+        params = dict(base, apiv="w41", Date=date)
         d = _call("his", params)
         lst = d.get("list") if isinstance(d, dict) else None
     if not isinstance(lst, list):
