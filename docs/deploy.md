@@ -1,0 +1,65 @@
+# 构建与部署手册
+
+## 环境
+
+服务器目录: `/opt/kuaixuan` · systemd 服务: **`kuaixuan.service`（web）+ `kx-worker.service`（调度/推送）** · 数据库: `kuaixuan.db`
+
+| 环境 | 地址 | 说明 |
+|---|---|---|
+| 测试机 | 47.99.153.123 | 默认部署目标（验证通过自动部署） |
+| 生产机 | 121.196.230.80 | **必须主人明确指令才更新** |
+
+> 测试机 venv `/opt/bid-venv`，生产机 venv **`/opt/kuaixuan-venv`**（部署脚本注意区分）。
+
+## 构建与部署
+
+```bash
+# 前端构建 -> dist/
+cd frontend && npm run build
+
+# 部署 (Nginx + systemd, 双服务)
+# - dist/      → /opt/kuaixuan/dist   (Nginx 静态托管, SPA try_files; 部署后需 chmod -R a+rX)
+# - backend/   → /opt/kuaixuan/backend
+#   ① kuaixuan.service  (web):   ExecStart=/opt/bid-venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8010 --workers 1
+#   ② kx-worker.service (调度):  ExecStart=/opt/bid-venv/bin/python -m app.worker
+#      (快照采集 9:15/9:20/9:25 + 尾盘推送 14:57 + 任务队列; web 重启不影响采集)
+#   Environment=SSL_CERT_FILE=/etc/pki/tls/certs/ca-bundle.crt  (自编译 OpenSSL 需指 CA)
+# - systemd drop-in: /etc/systemd/system/kuaixuan.service.d/
+#   kpl.conf (开盘啦 Token/UserID/DeviceID) / notify.conf (推送 webhook) — 不进 git
+#   kx-worker 共享环境: /etc/kuaixuan/env.conf (与 drop-in 同源)
+# - 数据库: /opt/kuaixuan/kuaixuan.db
+# - 日志: /opt/kuaixuan/logs/app.log (web 与 worker 共用)
+```
+
+**跨进程状态存储（CacheStore）**：缓存/限流/调度去重默认存 SQLite `kv_cache` 表（零依赖）；生产多 worker 时可切 Redis：`CACHE_BACKEND=redis` + `REDIS_URL`（环境变量）。
+
+**同步远程代码**（测试机无 git）：`python scripts/sync_test_server.py`（md5 对比差异上传）
+注意：后端 sftp 同步后，**前端必须本地 `npm run build` 再上传 dist**（测试机无 node/npm 无法远端构建）。
+
+Nginx 关键配置（/etc/nginx/conf.d/kuaixuan.conf）：
+- `/` → 静态托管 dist + `try_files $uri /index.html`（SPA）
+- `/assets/` → **no-store**（Vue 构建产物禁止长缓存，避免用户看到旧版）
+- `/api/` → 反代 127.0.0.1:8010（传 X-Real-IP / X-Forwarded-For）
+- `/download/` → 通达信工具静态下载
+
+## 推送提醒（微信 / 飞书）
+
+竞价锁定选股（action=lock）成功后自动推送当日 Top N（后台线程，渠道失败不影响主流程，120 秒去重）。
+尾盘竞价抢筹：工作日 14:57 自动拉取抢筹榜推送。
+
+| 环境变量 | 说明 |
+|---|---|
+| NOTIFY_FEISHU_WEBHOOK | 飞书群机器人 webhook（可选，支持签名校验） |
+| NOTIFY_SERVERCHAN_KEY | Server酱 SendKey → 个人微信（可选） |
+| NOTIFY_WECHAT_WEBHOOK | 企业微信群机器人 webhook（可选） |
+| NOTIFY_TOP_N / NOTIFY_TIMEOUT / NOTIFY_DEDUP_SECONDS | Top N（默认8）/ 超时（5s）/ 去重窗口（120s） |
+
+systemd 用 `Environment=` 注入；未配置的渠道自动跳过。
+
+## 日志与排查
+
+- **后端日志**：`/opt/kuaixuan/logs/app.log`（10MB 轮转保留 5 份）
+  - 抢筹链路关键词：`抢筹[live]`（Type4 返回/过滤后落库）、`抢筹[saved]`（非竞价读库）、`抢筹[listLast]`（9_24/9_25 条数+秒级序列）、`抢筹[result]`（每次汇总）
+  - 快照采集：`快照已存`、`最后一秒采样已存`、`今日快照采集缺失时点`（告警）
+  - 排查示例：`grep 抢筹 /opt/kuaixuan/logs/app.log`、`grep ERROR`、`grep 限流`
+- **前端日志**：JS 错误与 API 失败写入 localStorage（key `kuaixuan_front_log`，环形 50 条）
