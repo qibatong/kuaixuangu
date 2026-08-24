@@ -1964,6 +1964,11 @@ def fetch_bid_qiangcang(date=None):
                     if fmv <= 0 or amt25 <= 0 or amt25 < 500 or fmv < 5e8:
                         continue
                     t4 = seal_map.get(code, {})
+                    # 竞换兜底: 开盘啦实时未覆盖(历史回看/非涨停)时, 用 9_25 快照计算
+                    # bidTurnover = 竞价成交额(元)/自由流通市值(元)×100 (与 list20Chg 口径一致)
+                    bid_turnover = t4.get("bidTurnover")
+                    if not bid_turnover and fmv:
+                        bid_turnover = round(amt25 * 10000 / fmv * 100, 2)
                     base = {
                         "code": code,
                         "name": name or t4.get("name", ""),
@@ -1971,7 +1976,7 @@ def fetch_bid_qiangcang(date=None):
                         "realChange": t4.get("realChange"),
                         "bidAmt": amt25 * 10000,
                         "bidChange": chg,
-                        "bidTurnover": t4.get("bidTurnover"),
+                        "bidTurnover": bid_turnover,
                         "floatMv": fmv,
                         "board": t4.get("board", ""),
                     }

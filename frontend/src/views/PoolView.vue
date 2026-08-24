@@ -42,10 +42,10 @@ function canAutoAdd() {
   return stocks.isDataCached || stocks.isSpotCached
 }
 
-function downloadAll() { downloadBlkFile(stocks.cachedStocks, 0) }
+function downloadAll() { downloadBlkFile(pool.stockPool, 0) }
 function copyCodes() {
-  if (!stocks.cachedStocks.length) { showToast('无数据', 'error'); return }
-  copyText(stocks.cachedStocks.map(s => s.code).join('\n'), `✅ 已复制 ${stocks.cachedStocks.length} 个代码，可粘贴到电脑端导入`)
+  if (!pool.stockPool.length) { showToast('无数据', 'error'); return }
+  copyText(pool.stockPool.map(s => s.code).join('\n'), `✅ 已复制 ${pool.stockPool.length} 个自选代码，可粘贴到电脑端导入`)
 }
 
 onMounted(async () => {
