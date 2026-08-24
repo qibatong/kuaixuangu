@@ -597,11 +597,21 @@ def fetch_board_stocks(plate_id, date=None, st=30):
         "PlateID": str(plate_id), "TSZB": "0", "TSZB_Type": "0",
     }
     if not date:
-        date = _prev_trade_day()   # 实时模式兜底: 取上一交易日(当天数据冻结前 apphis 不提供)
-    if date:
+        # 盘中优先尝试今日(开盘啦 apphis 当日数据可能已可查);
+        # 查不到再回退上一交易日
+        today = time.strftime("%Y-%m-%d")
+        params["Date"] = today
+        d = _call("his", params)
+        lst = d.get("list") if isinstance(d, dict) else None
+        if not isinstance(lst, list) or not lst:
+            date = _prev_trade_day()
+            params["Date"] = date
+            d = _call("his", params)
+            lst = d.get("list") if isinstance(d, dict) else None
+    else:
         params["Date"] = date
-    d = _call("his", params)
-    lst = d.get("list") if isinstance(d, dict) else None
+        d = _call("his", params)
+        lst = d.get("list") if isinstance(d, dict) else None
     if not isinstance(lst, list):
         return []
     out = []
