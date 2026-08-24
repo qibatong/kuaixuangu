@@ -153,6 +153,19 @@ def test_bid_snapshot_3points_ok(client, first_user, monkeypatch):
     from app.services import fetcher
     monkeypatch.setattr(fetcher, "fetch_spot_quote_map",
                         lambda *a, **k: {"600001": {"realChange": 10.5}})
+    # 2026-08-24: 现涨实时 merge 要求"盘中且 serve_date==今天" —
+    # 测试在盘后/历史日期跑会走收盘涨幅兜底 → mock 窗口+时间让实时分支生效
+    from app.api import stats as stats_api
+    import time as _real_time
+    class FakeTime:
+        @staticmethod
+        def gmtime(t=None):
+            return _real_time.gmtime(t)
+        @staticmethod
+        def strftime(fmt, t=None):
+            return "2026-08-20"   # == _seed_snapshot 写入日, 命中实时 merge 条件
+    monkeypatch.setattr(stats_api, "_time", FakeTime)
+    monkeypatch.setattr(stats_api, "_is_intraday_stats", lambda: True)
     r = client.get("/api/stats/bid-snapshot-3points?date=2026-08-20&limit=20",
                    headers=hdrs(token))
     assert r.status_code == 200

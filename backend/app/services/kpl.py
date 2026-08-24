@@ -3328,5 +3328,6 @@ def fill_close_change_from_kline(lst, date):
             continue
         it["change"] = v
         it["realChange"] = v
+        it["real_change"] = v   # 2026-08-24: 统一回填 real_change(三时点表展示 key)
         n += 1
     return n

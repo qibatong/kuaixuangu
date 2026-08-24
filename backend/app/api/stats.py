@@ -47,11 +47,11 @@ def _apply_change_stats(lst, serve_date):
                 q = spot.get(str(it.get("code")))
                 if q and q.get("realChange") is not None:
                     rc = q.get("realChange")
-                    if it.get("real_change") is not None or "real_change" in (it.keys() if hasattr(it, "keys") else {}):
-                        it["real_change"] = rc
-                    if it.get("realChange") is not None or "realChange" in (it.keys() if hasattr(it, "keys") else {}):
-                        it["realChange"] = rc
-                    if it.get("change") is not None or "change" in (it.keys() if hasattr(it, "keys") else {}):
+                    # 2026-08-24: 无条件回填(rows 来自 query_3points_board 无 real_change key,
+                    # 原判断"仅覆盖已有 key"导致实时 merge 永不生效)
+                    it["real_change"] = rc
+                    it["realChange"] = rc
+                    if "change" in it or it.get("change") is not None:
                         it["change"] = rc
                     n += 1
             log.info("三时点/快照 现涨(实时)覆盖 %d 只 date=%s", n, serve_date)

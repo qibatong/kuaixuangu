@@ -35,8 +35,15 @@ def test_save_and_query_auction_history(client, monkeypatch):
 
 
 # ---------- API date 参数 ----------
+def _mock_vip(client):
+    """竞价异动接口 v4.1 起要求 VIP/付费会员, 测试 mock 权限"""
+    from app.api import deps
+    client.app.dependency_overrides[deps.require_vip_or_paid] = lambda: 1
+
+
 def test_api_bid_seal_date(client, first_user, monkeypatch):
     """bid-seal?date= 读历史表"""
+    _mock_vip(client)
     token, _, _ = first_user
     fake = [{"code": "600487", "name": "亨通光电", "change": 10.01}]
     monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: fake)
@@ -54,6 +61,7 @@ def test_api_bid_seal_date(client, first_user, monkeypatch):
 
 def test_api_yest_zt_date(client, first_user, monkeypatch):
     """yest-zt?date= 读历史表"""
+    _mock_vip(client)
     token, _, _ = first_user
     fake = [{"code": "600519", "name": "贵州茅台", "change": 5.0}]
     monkeypatch.setattr(kpl, "fetch_yest_zt", lambda: fake)
