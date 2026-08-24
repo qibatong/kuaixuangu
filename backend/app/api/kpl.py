@@ -219,6 +219,8 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(require_vip_or_paid), 
         resolved = _resolve_date(date)
         d = kpl.query_auction_history(resolved, "seal")
         kpl.fill_bid_turnover_from_snap(d, resolved)   # 2026-08-22: 历史快照竞换可能缺, 用当日快照补
+        # 2026-08-24: 开盘啦 Type4 bidChange 与自采竞价涨幅不一致 → 历史竞涨以自采快照为准强制覆盖
+        kpl.fill_bid_change_from_snap(d, resolved, override=True)
         kpl.fill_close_change_from_kline(d, resolved)  # 2026-08-22: 历史回看现涨=当日收盘涨跌幅
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "date": resolved, "requestedDate": date})
@@ -226,6 +228,8 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(require_vip_or_paid), 
         # 非竞价时段 → 从库快速读取 (当天优先, 历史回退)
         d, d_str = _read_auction_fast("seal")
         kpl.fill_bid_turnover_from_snap(d, d_str)   # 2026-08-22: 非交易日/历史回退补竞换
+        # 2026-08-24: 竞涨以自采快照为准强制覆盖(开盘啦 bidChange 不可靠)
+        kpl.fill_bid_change_from_snap(d, d_str, override=True)
         _ensure_concepts(d, tag="auc:bid-seal[fast]")
         # 2026-08-23 口径统一: fast-path 也按 serve_date 覆盖现涨(避免回退到历史日时仍是"最新今天涨幅")
         try:

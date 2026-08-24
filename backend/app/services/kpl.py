@@ -1571,9 +1571,12 @@ def fill_reason_from_pool(lst, date=None):
     return lst
 
 
-def fill_bid_change_from_snap(lst, date=None):
-    """用 date(空=今日) 的 9_25 全市场快照(snapshot_bid)给列表补竞价涨幅(bidChange); 已带的不覆盖
-    用于龙虎榜等无竞价字段的数据源"""
+def fill_bid_change_from_snap(lst, date=None, override=False):
+    """用 date(空=今日) 的 9_25 全市场快照(snapshot_bid)给列表补竞价涨幅(bidChange);
+    override=False(默认) 仅补 None; override=True 强制用自采快照覆盖。
+    (2026-08-24) 开盘啦 Type4 接口 bidChange(row[5]) 经核对 146 只中 124 只与
+    snapshot_bid 9_25 竞价涨幅不一致(养元 list=9.99 快照=3.71 等), 竞价委买等表
+    以自采快照为准, 开盘啦值仅作无快照时的兜底。"""
     if not lst:
         return lst
     try:
@@ -1582,10 +1585,13 @@ def fill_bid_change_from_snap(lst, date=None):
             return lst
         for it in lst:
             code = str(it.get("code") or "")
-            if code and it.get("bidChange") is None and code in snap:
-                bc = snap[code].get("bid_change")
-                if bc is not None:
-                    it["bidChange"] = bc
+            if not code or code not in snap:
+                continue
+            if not override and it.get("bidChange") is not None:
+                continue
+            bc = snap[code].get("bid_change")
+            if bc is not None:
+                it["bidChange"] = bc
     except Exception as e:
         log.warning("竞价涨幅补齐失败 date=%s err=%s", date or "-", e)
     return lst
