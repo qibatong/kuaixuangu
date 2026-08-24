@@ -91,6 +91,10 @@ def main():
     print("[2/4] 上传后端 kpl(services+api + db + backfill) ...")
     sftp_mkdirs(sftp, os.path.dirname(REMOTE_BACKEND_SVC))
     sftp.put(LOCAL_BACKEND_SVC, REMOTE_BACKEND_SVC)
+    LOC_BACKEND_FETCHER = "/workspace/backend/app/services/fetcher.py"
+    REMOTE_BACKEND_FETCHER = f"{DEPLOY}/backend/app/services/fetcher.py"
+    sftp_mkdirs(sftp, os.path.dirname(REMOTE_BACKEND_FETCHER))
+    sftp.put(LOC_BACKEND_FETCHER, REMOTE_BACKEND_FETCHER)
     sftp_mkdirs(sftp, os.path.dirname(REMOTE_BACKEND_KPL))
     sftp.put(LOCAL_BACKEND_KPL, REMOTE_BACKEND_KPL)
     LOC_DB = "/workspace/backend/app/db/database.py"
