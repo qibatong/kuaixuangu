@@ -129,6 +129,7 @@
               <button :class="{ active: qc20Mode === 'amt' }" @click="qc20Mode = 'amt'">竞额抢筹</button>
             </span>
           </div>
+          <div class="qc-table-scroll" ref="qcScroll1">
           <table class="stock-table">
             <thead>
               <tr><th class="sortable" :class="{ active: qcSort.keyOf('code') }" @click="qcSort.onSort('code', 'string')">名称<span class="sort-ind">{{ qcSort.ind('name') }}</span></th>
@@ -165,9 +166,11 @@
               </tr>
             </tbody>
           </table>
+          </div><!-- /.qc-table-scroll -->
         </div>
         <div class="qc-panel">
           <div class="qc-panel-title"><i class="fa fa-bolt"></i> 最后一秒竞价涨幅</div>
+          <div class="qc-table-scroll" ref="qcScroll2">
           <table class="stock-table">
             <thead>
               <tr><th class="sortable" :class="{ active: qcLastSort.keyOf('code') }" @click="qcLastSort.onSort('code', 'string')">名称<span class="sort-ind">{{ qcLastSort.ind('name') }}</span></th>
@@ -204,6 +207,7 @@
               </tr>
             </tbody>
           </table>
+          </div><!-- /.qc-table-scroll -->
         </div>
       </div>
 

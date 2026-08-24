@@ -285,33 +285,53 @@ html, body, #app {
     border-bottom: 2px solid var(--accent-deep);
   }
 
-  /* 竞价抢筹双表: 每个 panel 内独立滚动 + panel 内 thead sticky(top:0).
-     这样上/下两表的表头互不冲突, 也不跟右栏 auc-tabs 的全局 sticky 混在一起。 */
+  /* 竞价抢筹双表: 仅 .qc-table-scroll 内部滚动, thead sticky top:0 只相对该容器.
+     .qc-panel-title 放在滚动容器外静态显示, 彻底避免双 sticky + 标题/表头间隙漏数据。
+     (上/下两表标题高度不同, 若把二者都做 sticky 会因 top 硬编码不准漏缝) */
   .home-col-right .qc-dual {
     overflow: visible;
   }
   .home-col-right .qc-dual > .qc-panel {
-    overflow-x: auto;
-    overflow-y: auto;
-    /* 每个 panel 固定高度, 超过时 panel 内部滚动, sticky thead 相对 panel 生效 */
-    max-height: 520px;
-    position: relative; /* 明确滚动锚点 */
+    /* panel 本体不再滚, 只作为布局容器(padding+border) */
+    overflow: visible;
+    max-height: none;
+    position: relative;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
   .home-col-right .qc-dual > .qc-panel .qc-panel-title {
+    /* 标题在滚动容器外, 静态显示即可, 不再需要 sticky */
+    position: static;
+    top: auto;
+    z-index: auto;
+    background: transparent;
+    padding-bottom: 0;
+    margin-bottom: 0;
+    border-bottom: none;
+    flex: 0 0 auto;
+  }
+  .home-col-right .qc-dual > .qc-panel .qc-table-scroll {
+    /* 真正的滚动容器: 接管 overflow + 固定高度.
+       max-height 控制每张表在页面里显示的最大高度, 剩余在容器内滚动. */
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: 480px;
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    background: var(--bg-panel-solid, rgba(245,238,230,0.96));
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+  }
+  .home-col-right .qc-dual > .qc-panel .qc-table-scroll .stock-table thead th {
+    /* 仅相对 .qc-table-scroll 这一个滚动容器 sticky(top=0), 不再需要对齐 title 高度.
+       背景必须完全不透明, 否则滚动时行数据会从表头下漏上来. */
     position: sticky;
     top: 0;
-    z-index: 9;
-    background: var(--bg-panel-solid, rgba(245,238,230,0.96));
-    padding-bottom: 6px;
-    margin-bottom: 4px;
-    border-bottom: 1px solid var(--border-soft);
-  }
-  .home-col-right .qc-dual > .qc-panel .stock-table thead th {
-    position: sticky;
-    /* 要避开其上方的 .qc-panel-title, 因为 title 也 sticky 在 panel 的 top:0 */
-    top: 36px;
     z-index: 8;
-    background: var(--bg-panel-solid, rgba(245,238,230,0.96));
+    background: var(--bg-panel-solid, rgba(245,238,230,1));
     border-bottom: 2px solid var(--accent-deep);
   }
 }
