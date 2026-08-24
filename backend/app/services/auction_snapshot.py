@@ -580,6 +580,49 @@ def _scheduler_loop():
                                 # 2026-08-17 修复: 抓取失败删 key 让收盘窗口内重试
                                 # (此前失败不删 key -> 当日永久缺失, 如 kpl doc42 当天数据 15:30 未就绪返回 1020)
                                 store.delete("sched:done:sector_%s_%s" % (src, date))
+                except Exception as e:
+                    log.warning("板块轮动/两市概况 日终快照失败 err=%s", e, exc_info=True)
+            # 15:50-15:55 板块轮动+人气热榜兜底补跑:
+            # 查 DB 当日各源是否已入库, 缺则尝试补抓(避开开盘啦15:30瞬时未冻结/接口抖动)
+            if g.tm_wday < 5 and 15 * 60 + 50 <= hm <= 15 * 60 + 55:
+                try:
+                    from . import sector_rotation, hot_rank
+                    from ..db import database
+                    conn = database.get_conn()
+                    existing = {r[0] for r in conn.execute(
+                        "SELECT source FROM daily_sector_top WHERE date=?", (date,))}
+                    conn.close()
+                    for src in ("kpl", "em", "ths"):
+                        if src in existing:
+                            continue
+                        key = "sched:done:sector_%s_%s" % (src, date)
+                        store.delete(key)   # 清锁(可能是15:30那次窗口内重试耗尽后留的)
+                        if store.setnx(key, 1, ttl=86400):
+                            n = sector_rotation.record_today_top(source=src)
+                            if n:
+                                log.info("板块轮动兜底补跑成功 src=%s date=%s n=%d", src, date, n)
+                            else:
+                                store.delete(key)
+                    # 人气热榜兜底: 同理查 history 表缺失补跑
+                    try:
+                        hot_conn = database.get_conn()
+                        hot_exist = {r[0] for r in hot_conn.execute(
+                            "SELECT source FROM hot_rank_history WHERE date=?", (date,))}
+                        hot_conn.close()
+                        for src in ("kpl", "em", "ths"):
+                            if src in hot_exist:
+                                continue
+                            hkey = "sched:done:hot_%s_%s" % (src, date)
+                            store.delete(hkey)
+                            if store.setnx(hkey, 1, ttl=86400):
+                                hot_rank.save_hot_rank_history(date, source=src)
+                    except Exception as he:
+                        log.warning("人气热榜兜底补跑异常 err=%s", he)
+                except Exception as e:
+                    log.warning("板块轮动兜底补跑异常 err=%s", e)
+            # 人气热榜/龙虎榜/连板梯队/竞价异动 15:30-15:35 日终快照(与板块轮动同一窗口并行)
+            if g.tm_wday < 5 and 15 * 60 + 30 <= hm <= 15 * 60 + 35:
+                try:
                     # 人气热榜历史快照(三源): 供人气榜回看历史
                     from . import hot_rank
                     for src in ("kpl", "em", "ths"):
@@ -616,7 +659,7 @@ def _scheduler_loop():
                         else:
                             store.delete("sched:done:auction_" + date)   # 失败回滚, 15:30-15:35 窗口内重试
                 except Exception as e:
-                    log.warning("板块轮动日终快照失败 err=%s", e, exc_info=True)
+                    log.warning("日终快照(热榜/龙虎/连板/竞价异动)失败 err=%s", e, exc_info=True)
             # 9:31-9:35 盘点当日采集: 缺失时点告警(排查关键, 数据过了点无法补)
             if g.tm_wday < 5 and 9 * 60 + 31 <= hm <= 9 * 60 + 35 and store.setnx("sched:checked:" + date, 1, ttl=86400):
                 missing = []
