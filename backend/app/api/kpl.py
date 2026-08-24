@@ -77,15 +77,14 @@ def _apply_change_for(lst, serve_date):
 def _update_spot_change(lst):
     """用东方财富实时行情覆盖列表中股票的 change / realChange 字段。
     只改 change / realChange 两个字段, 其他字段(name/board/...)绝不变动。
-    返回被更新的股票数量; 任何异常都返回 0, 不崩。"""
+    返回被更新的股票数量; 任何异常都返回 0, 不崩。
+    (2026-08-24 修复: 此前传 ",".join(codes) 给 fetch_spot_quote_map, 但该函数
+     fs 参数需市场过滤串(如 m:0+t:6,...), 传代码串致东财返回空 → 现涨永远不更新)"""
     if not lst:
         return 0
     try:
-        from ..services import fetcher
-        codes = [it["code"] for it in lst if it.get("code")]
-        if not codes:
-            return 0
-        spot_map = fetcher.fetch_spot_quote_map(",".join(codes))
+        from ..services import fetcher, scorer
+        spot_map = fetcher.fetch_spot_quote_map(scorer.market_fs(["hs", "cyb", "kcb"]))
         if not spot_map:
             return 0
         n = 0
