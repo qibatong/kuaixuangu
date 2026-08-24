@@ -3011,6 +3011,8 @@ def query_auction_history(date, tab):
 
 _CLOSE_CHG_CACHE = {}       # date -> (ts, {code: pct}) 内存热缓存
 _CLOSE_CHG_TTL = 6 * 3600
+# 交易日盘中被旧代码误写的脏"收盘涨幅"(实为竞价涨幅)自愈: 记录已强制重拉纠正过的日期
+_CLOSE_CHG_RESYNCED = set()
 
 try:
     import re as _re_cls_chg
@@ -3037,6 +3039,27 @@ def _close_chg_db_get(date, codes):
     except Exception:
         pass
     return out
+
+
+def _close_chg_persist_allowed(date):
+    """是否允许把 date 的收盘涨幅持久化到 close_change_history。
+
+    根因修复(2026-08-24): 盘中(未收盘)当日 K 线的 last close 是实时价,
+    此时把"当日涨幅"当"当日收盘涨幅"写入会永久污染该日数据 —— 盘后/历史
+    回看 fill_close_change_from_kline 先命中库表读到脏值, 导致现涨=竞涨/
+    现涨错误(用户反馈)。规则: date<今天 → 早已收盘, 允许; date==今天 →
+    仅北京时间已过 15:00(收盘)才允许; 其它 → 禁止。
+    """
+    import time as _t
+    if not date:
+        return False
+    today_bj = _t.strftime("%Y-%m-%d", _t.gmtime(_t.time() + 8 * 3600))
+    if date < today_bj:
+        return True
+    if date > today_bj:
+        return False
+    bj = _t.gmtime(_t.time() + 8 * 3600)
+    return (bj.tm_hour, bj.tm_min) >= (15, 0)
 
 
 def _close_chg_db_put(date, pairs):
@@ -3175,6 +3198,11 @@ def fill_close_change_from_kline(lst, date):
         ent = (now, {})
         _CLOSE_CHG_CACHE[date] = ent
     table = ent[1]
+    today_bj = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600))
+    # 收盘自愈(2026-08-24): 盘中旧代码把"竞价涨幅"误当"当日收盘涨幅"写入 close_change_history,
+    # 导致收盘/历史回看时现涨=竞涨。针对"今天且已收盘"一次性强制重拉纠正脏值(去重, 之后走库/缓存)。
+    force_resync = (date == today_bj and _close_chg_persist_allowed(date)
+                    and date not in _CLOSE_CHG_RESYNCED)
     # 1) 缺的 code 先查库命中
     todo = [it for it in lst if it.get("code") and it.get("code") not in table]
     if todo:
@@ -3184,6 +3212,10 @@ def fill_close_change_from_kline(lst, date):
             if v is not None:
                 table[it["code"]] = v
         todo = [it for it in todo if it["code"] not in table]
+    # 收盘自愈: 不信任库表内今天的旧数据, 全部强制重拉(成功写库纠正, 失败保留原值退化为现状)
+    if force_resync:
+        todo = [it for it in lst if it.get("code")]
+        _CLOSE_CHG_RESYNCED.add(date)
     # 2) 仍缺的才拉多源日K, 并写库持久化(任一源命中即写入)
     fetched = {}
 
@@ -3226,7 +3258,7 @@ def fill_close_change_from_kline(lst, date):
         import concurrent.futures as cf
         with cf.ThreadPoolExecutor(max_workers=6) as ex:
             list(ex.map(_one, todo))
-        if fetched:
+        if fetched and _close_chg_persist_allowed(date):
             _close_chg_db_put(date, fetched)
     n = 0
     for it in lst:
