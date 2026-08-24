@@ -669,6 +669,35 @@ def fetch_stock_chart(code, period="day"):
     return {}
 
 
+def _trim_minute_to_now(res):
+    """分时图裁剪: 盘中(工作日 9:30-15:00)只保留到"当前北京交易时刻"的点,
+    把尚未交易(如午休后的下午场/当日下午)的时间位置置空, 避免分时图画满整天。
+    盘前 / 收盘后 / 周末 不裁剪 → 展示最近一个交易日全天。"""
+    try:
+        now = time.gmtime(time.time() + 8 * 3600)          # 当前北京时间
+        if now.tm_wday >= 5:
+            return res                                      # 周末: 全天
+        mins = now.tm_hour * 60 + now.tm_min
+        if not (9 * 60 + 30 <= mins <= 15 * 60 + 1):        # 非 9:30-15:00: 全天
+            return res
+        if not isinstance(res, dict):
+            return res
+        times = res.get("time") or []
+        if not times:
+            return res
+        now_hm = "%02d:%02d" % (now.tm_hour, now.tm_min)  # "HH:MM" 字典序即时间序(零填充)
+        keep = [i for i, t in enumerate(times) if str(t)[:5] <= now_hm]
+        if len(keep) == len(times):
+            return res
+        for k in ("time", "price", "avg", "volume"):
+            arr = res.get(k)
+            if isinstance(arr, list):
+                res[k] = [arr[i] for i in keep if i < len(arr)]
+        return res
+    except Exception:
+        return res
+
+
 def _fetch_minute_trend(code):
     """当日分时轨迹(价格+均价+成交量) via 东财 trends2
     返回 {period:'minute', code, time:[], price:[], avg:[], volume:[], preClose, name}
@@ -727,6 +756,7 @@ def _fetch_minute_trend(code):
                 "time": times, "price": prices, "avg": avgs, "volume": volumes,
                 "preClose": preClose,
             }
+            result = _trim_minute_to_now(result)
             _record("eastmoney_kline", True, int((time.time() - t0) * 1000))
             with _CHART_LOCK:
                 _CHART_CACHE[cache_key] = {"data": result, "ts": time.time()}
@@ -1263,6 +1293,9 @@ def _ensure_latest_period(data, code):
     if not data:
         return data
     period = data.get("period")
+    # 分时: 不做 K 线补期, 只做"未交易时段置空"(盘中只显示到当前时刻, 避免画满整天)
+    if period == "minute":
+        return _trim_minute_to_now(data)
     if period not in ("day", "week", "month"):
         return data
     times = data.get("time") or []
