@@ -171,10 +171,9 @@ def fetch_ths_board_rank():
 
 def _fetch(source, top_n, date=None):
     """按数据源抓取当日 TopN 列表
-    date: kpl 源支持按日期抓取(开盘啦 doc42 历史, 保留期最近 3 个交易日)"""
+    date: 仅用于日志, kpl 源始终走实时接口(15:30后实时=收盘数据)
+    历史接口 apphis 对当日返回 errcode=1020(数据未冻结)"""
     if source == "kpl":
-        if date:
-            return (kpl.fetch_board_rank_by_date(date) or [])[:top_n]
         return (kpl.fetch_board_rank() or [])[:top_n]
     if source == "em":
         return fetch_em_board_rank()[:top_n]
