@@ -45,7 +45,7 @@ FIELDS = "f2,f3,f4,f5,f6,f8,f10,f12,f14,f17,f18,f20,f21,f117,f615,f616,f617,f618
 EASTMONEY_ZT_URL = "https://push2ex.eastmoney.com/getTopicZTPool"
 EASTMONEY_ZT_UT = "7eea3edcaed734bea9cbfc24409ed989"
 ZT_CACHE_TTL = int(os.environ.get("ZT_CACHE_TTL", "15"))       # 涨停池缓存新鲜度(秒)
-SPOT_CACHE_TTL = int(os.environ.get("SPOT_CACHE_TTL", "300"))  # 盘中实时行情缓存新鲜度(秒); 2026-08-18: 30→120; 2026-08-19: 120→300(分页并发后冷启动0.5s, 延长TTL减少冷启动频率, 与market-brief 5min一致)
+SPOT_CACHE_TTL = int(os.environ.get("SPOT_CACHE_TTL", "60"))  # 盘中实时行情缓存新鲜度(秒); 2026-08-18: 30→120; 2026-08-19: 120→300(分页并发后冷启动0.5s, 延长TTL减少冷启动频率, 与market-brief 5min一致); 2026-08-24: 300→60(主人要求盘中现涨刷新更快, 前端轮询同步 60s→30s)
 SPOT_MAX_PAGES = int(os.environ.get("SPOT_MAX_PAGES", "30"))   # 盘中全市场分页拉取上限(每页200只; 30页=6000只覆盖全A+北交所)
 
 # 昨日成交额(日K)抓取: 低并发 + 多域名轮询 + 熔断, 避免触发东财限流
