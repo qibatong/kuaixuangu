@@ -3212,12 +3212,35 @@ def fill_close_change_from_kline(lst, date):
             if v is not None:
                 table[it["code"]] = v
         todo = [it for it in todo if it["code"] not in table]
-    # 收盘自愈: 不信任库表内今天的旧数据, 全部强制重拉(成功写库纠正, 失败保留原值退化为现状)
+    # 收盘自愈(2026-08-24): 今日盘中旧代码误写的脏"收盘涨幅"=竞价涨幅, 收盘后强制纠正。
+    # 优先用批量实时行情(单次分页拉全市场, 收盘后其"实时涨幅"即当日收盘涨幅, 避免逐只日K→限流熔断);
+    # 未命中批量行情的才落到逐只多源日K兜底。
+    fetched = {}
     if force_resync:
         todo = [it for it in lst if it.get("code")]
+        if todo:
+            try:
+                from ..services import fetcher as _fet, scorer as _sco
+                spot = _fet.fetch_spot_quote_map(_sco.market_fs(["hs", "cyb", "kcb"]))
+                got = 0
+                for it in todo:
+                    q = spot.get(str(it["code"])) if spot else None
+                    if not q:
+                        continue
+                    rc = q.get("realChange")
+                    if rc is None:
+                        rc = q.get("change")
+                    if rc is not None:
+                        val = float(rc) if rc else 0.0
+                        table[it["code"]] = val
+                        fetched[it["code"]] = val
+                        got += 1
+                log.info("收盘自愈: 批量实时行情纠正今日收盘涨幅 %d 只 date=%s", got, date)
+            except Exception as e:
+                log.warning("收盘自愈 批量行情失败(转逐只日K兜底) date=%s err=%s", date, e)
+        todo = [it for it in todo if it["code"] not in table]
         _CLOSE_CHG_RESYNCED.add(date)
-    # 2) 仍缺的才拉多源日K, 并写库持久化(任一源命中即写入)
-    fetched = {}
+    # 2) 仍缺的才拉多源日K, 并写库持久化(任一源命中即写入；收盘自愈命中批量行情的也已写库)
 
     def _one(it):
         code = it.get("code") or ""
@@ -3258,8 +3281,10 @@ def fill_close_change_from_kline(lst, date):
         import concurrent.futures as cf
         with cf.ThreadPoolExecutor(max_workers=6) as ex:
             list(ex.map(_one, todo))
-        if fetched and _close_chg_persist_allowed(date):
-            _close_chg_db_put(date, fetched)
+    # 收盘自愈修复(2026-08-24): 批量实时行情已把纠正值写入 fetched 并把 todo 清空,
+    # 持久化必须放在 if todo 之外, 保证批量命中的纠正值也能写回库表。
+    if fetched and _close_chg_persist_allowed(date):
+        _close_chg_db_put(date, fetched)
     n = 0
     for it in lst:
         v = table.get(it.get("code"))
