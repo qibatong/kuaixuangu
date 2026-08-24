@@ -178,17 +178,39 @@ function copyCodes() {
   copyText(stocks.cachedStocks.map(s => s.code).join('\n'), `✅ 已复制 ${stocks.cachedStocks.length} 个代码，可粘贴到电脑端导入`)
 }
 
+// 2026-08-24: 首页表格固定表头 — 测量 sticky 元素(filter/tabs)高度写入 CSS 变量
+let _stickyResizeFn = null
+function setupStickyOffsets() {
+  const update = () => {
+    const leftCol = document.querySelector('.home-col-left')
+    const rightCol = document.querySelector('.home-col-right')
+    if (leftCol) {
+      const f = leftCol.querySelector('.home-filter')
+      if (f) leftCol.style.setProperty('--sticky-thead-top', f.offsetHeight + 'px')
+    }
+    if (rightCol) {
+      const t = rightCol.querySelector('.auc-tabs')
+      if (t) rightCol.style.setProperty('--sticky-thead-top', t.offsetHeight + 'px')
+    }
+  }
+  setTimeout(update, 200)
+  _stickyResizeFn = update
+  window.addEventListener('resize', _stickyResizeFn)
+}
+
 onMounted(() => {
   bjTime.value = bjDateTimeStr()
   init()
   loadBidSeal()
   refreshYidongCodes()   // 首页选股/竞价异动 标记异动监管股票
+  setupStickyOffsets()
 })
 onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
   if (autoAddTimer) clearInterval(autoAddTimer)
   if (expiryTimer) clearInterval(expiryTimer)
   if (realTimeTimer) clearInterval(realTimeTimer)
+  if (_stickyResizeFn) window.removeEventListener('resize', _stickyResizeFn)
 })
 </script>
 

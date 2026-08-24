@@ -262,6 +262,25 @@ html, body, #app {
     overflow-x: visible !important;
     overflow-y: visible !important;
   }
+
+  /* 2026-08-24: 首页表格固定表头 — 滚动时 thead 粘在 sticky 元素(filter/tabs)下方。
+     1) 解除 .stock-table-container / .qc-panel 的 overflow-x:auto → 否则它们成为滚动容器,
+        sticky thead 相对它们(无纵向滚动)而非列容器, 不生效。
+     2) thead th sticky top = --sticky-thead-top(由 JS 动态测量 filter/tabs 高度写入) */
+  .home-col-left .stock-table-container,
+  .home-col-right .qc-panel {
+    overflow: visible;
+  }
+  .home-col-left .stock-table thead th,
+  .home-col-right .stock-table thead th,
+  .home-col-right .lhb-table thead th,
+  .home-col-right .broken-table thead th {
+    position: sticky;
+    top: var(--sticky-thead-top, 0px);
+    z-index: 8;
+    background: var(--bg-panel-solid);
+    border-bottom: 2px solid var(--accent-deep);
+  }
 }
 /* 特殊: 表格 / 竞价异动 10 个 Tab 自己保留横滚条(不受 global overflow 禁影响,
    因为它们是独立 overflow-x:auto 容器) —— 这里明确不覆盖它们的 overflow-x.
