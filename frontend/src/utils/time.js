@@ -53,6 +53,15 @@ export function fmtBjDay(ts) {
   return d.toISOString().slice(0, 10)
 }
 
+// 盘中时段: 工作日 9:30-15:00 (现涨/实时涨幅自动刷新窗口)
+export function isIntradayNow() {
+  const bj = bjNow()
+  const day = bj.getDay()
+  if (day === 0 || day === 6) return false   // 周末
+  const mins = bj.getHours() * 60 + bj.getMinutes()
+  return mins >= 9 * 60 + 30 && mins < 15 * 60   // 9:30-15:00
+}
+
 // 会员专属时段: 工作日 9:15-15:00 (竞价 9:15-9:30 + 盘中 9:30-15:00)
 // 其他时段 (盘前 / 收盘后 / 周末) 允许所有人查看(读历史快照)
 export function isMemberOnlyTime() {

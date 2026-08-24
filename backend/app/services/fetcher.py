@@ -669,6 +669,55 @@ def fetch_stock_chart(code, period="day"):
     return {}
 
 
+def _trim_minute_to_now(res):
+    """分时图规范化: 盘中(工作日9:30-15:00)用全天交易时间网格(09:30-11:30 / 13:00-15:00)对齐,
+    把"尚未交易到"的时段(当日下午、午休之后的未来分钟)数值置空(None), 使分时线只画到当前时刻、
+    未交易位置留白(不再因类目轴把已有点拉满整宽)。
+    盘前 / 收盘后 / 周末: 不改动(来源已给全天)。"""
+    try:
+        now = time.gmtime(time.time() + 8 * 3600)        # 当前北京时间
+        if now.tm_wday >= 5:
+            return res
+        mins = now.tm_hour * 60 + now.tm_min
+        if not (9 * 60 + 30 <= mins <= 15 * 60 + 1):     # 非 9:30-15:00: 全天原样
+            return res
+        if not isinstance(res, dict):
+            return res
+        src_times = res.get("time") or []
+        src_price = res.get("price") or []
+        src_avg = res.get("avg") or []
+        src_vol = res.get("volume") or []
+        if not src_times:
+            return res
+        # 全天交易时间网格 (类目轴固定长度, 未交易段置空 → 右侧留白)
+        grid = []
+        for hm in range(0, 121):                          # 09:30..11:30
+            tt = 9 * 60 + 30 + hm
+            grid.append("%02d:%02d" % (tt // 60, tt % 60))
+        for hm in range(0, 121):                          # 13:00..15:00
+            tt = 13 * 60 + hm
+            grid.append("%02d:%02d" % (tt // 60, tt % 60))
+        idx = {str(t)[:5]: i for i, t in enumerate(src_times)}
+        now_hm = "%02d:%02d" % (now.tm_hour, now.tm_min)
+        times, prices, avgs, vols = [], [], [], []
+        for g in grid:
+            times.append(g)
+            if g <= now_hm and g in idx:
+                i = idx[g]
+                prices.append(src_price[i] if i < len(src_price) else None)
+                avgs.append(src_avg[i] if i < len(src_avg) else None)
+                vols.append(src_vol[i] if i < len(src_vol) else None)
+            else:
+                prices.append(None); avgs.append(None); vols.append(None)
+        res["time"] = times
+        res["price"] = prices
+        res["avg"] = avgs
+        res["volume"] = vols
+        return res
+    except Exception:
+        return res
+
+
 def _fetch_minute_trend(code):
     """当日分时轨迹(价格+均价+成交量) via 东财 trends2
     返回 {period:'minute', code, time:[], price:[], avg:[], volume:[], preClose, name}
@@ -727,6 +776,7 @@ def _fetch_minute_trend(code):
                 "time": times, "price": prices, "avg": avgs, "volume": volumes,
                 "preClose": preClose,
             }
+            result = _trim_minute_to_now(result)
             _record("eastmoney_kline", True, int((time.time() - t0) * 1000))
             with _CHART_LOCK:
                 _CHART_CACHE[cache_key] = {"data": result, "ts": time.time()}
@@ -1263,6 +1313,9 @@ def _ensure_latest_period(data, code):
     if not data:
         return data
     period = data.get("period")
+    # 分时: 不做 K 线补期, 只做"未交易时段置空"(盘中只显示到当前时刻, 避免画满整天)
+    if period == "minute":
+        return _trim_minute_to_now(data)
     if period not in ("day", "week", "month"):
         return data
     times = data.get("time") or []
@@ -1432,7 +1485,8 @@ def fetch_stock_chart_robust(code, period="day"):
     cache_key = "chart_robust:%s:%s" % (code, period)
     with _CHART_LOCK:
         ent = _CHART_CACHE.get(cache_key)
-        ttl = 60 if period == "minute" else 1800
+        # 盘中日K最后一根是"今日实时", 需高频刷新: minute 60s / day 120s; 周K/月K变化慢仍 30min
+        ttl = 60 if period == "minute" else 120 if period == "day" else 1800
         if ent and time.time() - ent["ts"] < ttl:
             return ent["data"]
     t0 = time.time()

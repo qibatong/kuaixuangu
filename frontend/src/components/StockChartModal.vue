@@ -52,6 +52,7 @@ import {
 } from 'echarts/components'
 import { stockChart } from '../api/stocks'
 import { fmtNum, fmtVol, fmtVolShort } from '../utils/chart'
+import { isIntradayNow } from '../utils/time'
 
 echarts.use([
   CanvasRenderer, LineChart, BarChart, CandlestickChart,
@@ -126,9 +127,9 @@ function close() {
   emit('close')
 }
 
-async function fetchData() {
+async function fetchData({ silent = false } = {}) {
   if (!stockCode.value) return
-  loading.value = true
+  if (!silent) loading.value = true
   errorMsg.value = ''
   try {
     const r = await stockChart(stockCode.value, activeTab.value)
@@ -146,7 +147,7 @@ async function fetchData() {
   } finally {
     // 先把 loading 置 false → 模板切回 canvas(v-else ref=chartRef) → 再渲染
     // (不能在上面的 try 里、loading 仍为 true 时调 renderChart: 那时 chartRef 为 null,
-    //  ensureChart 直接 return, 导致 分时/日K/周K/月K 全都画不出来)
+    //   ensureChart 直接 return, 导致 分时/日K/周K/月K 全都画不出来)
     loading.value = false
     await nextTick()
     if (chartData.value && !errorMsg.value) renderChart()
@@ -161,6 +162,20 @@ function switchTab(k) {
 
 function refresh() {
   fetchData()
+}
+
+// ---------- 盘中自动刷新 ----------
+// 弹窗打开期间, 工作日盘中(9:30-15:00)每 60s 静默刷新一次当前周期:
+// 分时对齐后端 60s 缓存; 日K后端 120s / 周K月K 1800s 缓存, 轮询多为缓存命中, 开销小。
+let pollTimer = null
+function startPoll() {
+  stopPoll()
+  pollTimer = setInterval(() => {
+    if (isIntradayNow()) fetchData({ silent: true })
+  }, 60000)
+}
+function stopPoll() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
 }
 
 // ---------- ECharts ----------
@@ -432,9 +447,11 @@ watch(() => props.visible, (v) => {
     stockName.value = props.name || ''
     activeTab.value = 'minute'
     fetchData()
+    startPoll()
     document.addEventListener('keydown', onKey)
   } else {
     document.removeEventListener('keydown', onKey)
+    stopPoll()
     if (chartInst.value) { chartInst.value.dispose(); chartInst.value = null }
     if (resizeObs.value) { resizeObs.value.disconnect(); resizeObs.value = null }
     chartData.value = null
@@ -462,6 +479,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   document.removeEventListener('keydown', onKey)
+  stopPoll()
   if (chartInst.value) { try { chartInst.value.dispose() } catch {} chartInst.value = null }
   if (resizeObs.value) { resizeObs.value.disconnect(); resizeObs.value = null }
 })

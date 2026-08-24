@@ -21,9 +21,16 @@ router = APIRouter()
 # Fast-path 辅助函数 (竞价时段/非竞价时段分流)
 # ====================================================================
 
+def _bj_now():
+    """当前北京时间 struct_time (服务器走 UTC, 需 +8h 才是北京时间)。
+    项目惯例: 北京时间 = time.gmtime(time.time() + 8*3600)"""
+    import time as _t
+    return _t.gmtime(_t.time() + 8 * 3600)
+
+
 def _is_auction_hours():
-    """当前北京时间是否在竞价时段 (9:15 ~ 9:30), 仅工作日"""
-    t = _time.gmtime()
+    """当前北京时间是否在竞价时段 (9:15 ~ 9:30), 仅工作日(2026-08-24 修复: 此前用 UTC 判断致竞价时段误判)"""
+    t = _bj_now()
     if t.tm_wday >= 5:   # 周六=5, 周日=6
         return False
     h, m = t.tm_hour, t.tm_min
@@ -34,8 +41,9 @@ def _is_auction_hours():
 
 def _is_intraday():
     """当前北京时间是否盘中 (9:30 ~ 15:00), 仅工作日。
-    只有盘中现涨(change/realChange)才用实时接口刷新; 盘后/非交易一律用当日收盘固定值。"""
-    t = _time.gmtime()
+    只有盘中现涨(change/realChange)才用实时接口刷新; 盘后/非交易一律用当日收盘固定值。
+    (2026-08-24 修复: 此前用 UTC 判断, 盘中/竞价时段全被误判为非盘中)"""
+    t = _bj_now()
     if t.tm_wday >= 5:
         return False
     h, m = t.tm_hour, t.tm_min
@@ -227,6 +235,12 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(require_vip_or_paid), 
             log.warning("bid-seal fast-path 现涨覆盖失败 err=%s", e)
         return jr({"ok": True, "list": d, "count": len(d), "date": d_str})
     d = kpl.fetch_bid_seal() or []
+    # 2026-08-24 实时接口空时兜底: 竞价时段实时返空(开盘啦 Type4 偶发/未就绪) → 回退今天已落库
+    if not d:
+        _today = _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 8 * 3600))
+        d = kpl.query_auction_history(_today, "seal") or []
+        if d:
+            log.info("bid-seal 实时为空 → 回退今日落库 %d 只", len(d))
     # 概念列统一用开盘啦接口覆盖(只取开盘啦概念, 避免东财长串多概念混入)
     try:
         kpl.apply_board_concept(d, log_tag="auc:bid-seal", deep=True,
