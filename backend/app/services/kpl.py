@@ -219,7 +219,7 @@ def bid_net_from_snap(date=None):
             "bidAmt": amt * 10000,          # 万元 → 元
             "bidNetAmt": amt * 10000,
             "bidChange": _chg or 0,
-            "bidTurnover": round(amt * 10000 / fmv * 100, 2) if fmv else 0.0,
+            "bidTurnover": round(amt * 10000 / fmv * 100, 4) if fmv else 0.0,
             "floatMv": fmv,
             "board": _board or "",
         })
@@ -291,7 +291,7 @@ def fetch_bid_boom():
             ratio = round(amt / ya, 2)
             if ratio <= 2:                # 竞价量比 ≤ 2 → 跳过
                 continue
-            bid_turnover = round(amt * 10000 / fmv * 100, 2) if fmv else 0.0   # 竞价换手 = 竞价额/流通市值×100
+            bid_turnover = round(amt * 10000 / fmv * 100, 4) if fmv else 0.0   # 竞价换手 = 竞价额/流通市值×100
             out.append({"code": code, "name": name,
                         "realChange": (spot_map.get(code) or {}).get("realChange", 0.0),   # 实时涨幅(东财全市场map, 全天有值)
                         "bidChange": chg,
@@ -334,7 +334,7 @@ def _parse_bid_boom(data):
                 "limitBoards": _lb(str(row[16])) if len(row) > 16 else 0,
                 # 2026-08-18: Type=10 无换手列 → 竞价换手 = 竞价成交额/自由流通市值×100
                 # (与开盘啦 Type4 bidTurnover 口径一致, 中石科技验算 2.96 vs 2.97)
-                "bidTurnover": round(_f(row[10]) / _f(row[12]) * 100, 2) if _f(row[12]) else 0.0,
+                "bidTurnover": round(_f(row[10]) / _f(row[12]) * 100, 4) if _f(row[12]) else 0.0,
             })
         except (IndexError, ValueError, TypeError):
             continue
@@ -1106,7 +1106,7 @@ def _merge_broken_bid_snap(lst):
         fmv = s.get("float_mv") or 0     # 元
         it["floatMv"] = fmv or it.get("floatMv") or 0   # 自由流通市值(元), 2026-08-17 竞价异动统一补流通列
         if amt > 0 and fmv > 0:
-            it["bidTurnover"] = round(amt * 10000 / fmv * 100, 2)   # 万元→元 口径统一
+            it["bidTurnover"] = round(amt * 10000 / fmv * 100, 4)   # 万元→元 口径统一(精度4位, 避免大盘小额股如0.0017%显示为0)
     return lst
 
 
@@ -1624,9 +1624,11 @@ def fill_bid_turnover_from_snap(lst, date=None):
             if not s or not s.get("float_mv"):
                 continue
             # 单位: snapshot_bid.bid_amt 万元, float_mv 元 → bid_amt×10000 转元
-            bt = round((s.get("bid_amt") or 0) * 10000 / s["float_mv"] * 100, 2)
-            if bt <= 0:
+            # 精度4位: 大盘小额股(如58万/344亿≈0.0017%)不再被round到0
+            _bt_raw = (s.get("bid_amt") or 0) * 10000 / s["float_mv"] * 100
+            if _bt_raw <= 0:
                 continue
+            bt = round(_bt_raw, 4)
             cur_fmv = it.get("floatMv") or 0
             # 竞换缺失(空/0) → 必须用快照补(不因 float_mv 正常而跳过)
             # (2026-08-24 修复: 此前 float_mv 正常(>=MIN_FMV)时直接 continue,
