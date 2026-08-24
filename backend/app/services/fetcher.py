@@ -670,29 +670,49 @@ def fetch_stock_chart(code, period="day"):
 
 
 def _trim_minute_to_now(res):
-    """分时图裁剪: 盘中(工作日 9:30-15:00)只保留到"当前北京交易时刻"的点,
-    把尚未交易(如午休后的下午场/当日下午)的时间位置置空, 避免分时图画满整天。
-    盘前 / 收盘后 / 周末 不裁剪 → 展示最近一个交易日全天。"""
+    """分时图规范化: 盘中(工作日9:30-15:00)用全天交易时间网格(09:30-11:30 / 13:00-15:00)对齐,
+    把"尚未交易到"的时段(当日下午、午休之后的未来分钟)数值置空(None), 使分时线只画到当前时刻、
+    未交易位置留白(不再因类目轴把已有点拉满整宽)。
+    盘前 / 收盘后 / 周末: 不改动(来源已给全天)。"""
     try:
-        now = time.gmtime(time.time() + 8 * 3600)          # 当前北京时间
+        now = time.gmtime(time.time() + 8 * 3600)        # 当前北京时间
         if now.tm_wday >= 5:
-            return res                                      # 周末: 全天
+            return res
         mins = now.tm_hour * 60 + now.tm_min
-        if not (9 * 60 + 30 <= mins <= 15 * 60 + 1):        # 非 9:30-15:00: 全天
+        if not (9 * 60 + 30 <= mins <= 15 * 60 + 1):     # 非 9:30-15:00: 全天原样
             return res
         if not isinstance(res, dict):
             return res
-        times = res.get("time") or []
-        if not times:
+        src_times = res.get("time") or []
+        src_price = res.get("price") or []
+        src_avg = res.get("avg") or []
+        src_vol = res.get("volume") or []
+        if not src_times:
             return res
-        now_hm = "%02d:%02d" % (now.tm_hour, now.tm_min)  # "HH:MM" 字典序即时间序(零填充)
-        keep = [i for i, t in enumerate(times) if str(t)[:5] <= now_hm]
-        if len(keep) == len(times):
-            return res
-        for k in ("time", "price", "avg", "volume"):
-            arr = res.get(k)
-            if isinstance(arr, list):
-                res[k] = [arr[i] for i in keep if i < len(arr)]
+        # 全天交易时间网格 (类目轴固定长度, 未交易段置空 → 右侧留白)
+        grid = []
+        for hm in range(0, 121):                          # 09:30..11:30
+            tt = 9 * 60 + 30 + hm
+            grid.append("%02d:%02d" % (tt // 60, tt % 60))
+        for hm in range(0, 121):                          # 13:00..15:00
+            tt = 13 * 60 + hm
+            grid.append("%02d:%02d" % (tt // 60, tt % 60))
+        idx = {str(t)[:5]: i for i, t in enumerate(src_times)}
+        now_hm = "%02d:%02d" % (now.tm_hour, now.tm_min)
+        times, prices, avgs, vols = [], [], [], []
+        for g in grid:
+            times.append(g)
+            if g <= now_hm and g in idx:
+                i = idx[g]
+                prices.append(src_price[i] if i < len(src_price) else None)
+                avgs.append(src_avg[i] if i < len(src_avg) else None)
+                vols.append(src_vol[i] if i < len(src_vol) else None)
+            else:
+                prices.append(None); avgs.append(None); vols.append(None)
+        res["time"] = times
+        res["price"] = prices
+        res["avg"] = avgs
+        res["volume"] = vols
         return res
     except Exception:
         return res
