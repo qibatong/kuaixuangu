@@ -86,7 +86,7 @@ import { openStockChart } from '../composables/uiBus'
 import { showToast } from '../utils/toast'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
 import { copyText, downloadBlkFile } from '../utils/tdx'
-import { bjDateTimeStr, isBefore930, isMemberOnlyTime } from '../utils/time'
+import { bjDateTimeStr, isBefore930, isIntradayNow, isMemberOnlyTime } from '../utils/time'
 
 const stocks = useStocksStore()
 const pool = usePoolStore()
@@ -113,6 +113,7 @@ async function loadBidSeal() {
 let clockTimer = null
 let autoAddTimer = null
 let expiryTimer = null
+let realTimeTimer = null
 
 async function init() {
   user.migrateLegacyKeys()
@@ -132,6 +133,14 @@ async function init() {
   autoAddTimer = setInterval(() => pool.autoAdd(currentList(), stocks.isDataCached || stocks.isSpotCached), 20000)
   expiryTimer = setInterval(() => pool.checkExpiry(), 30000)
   pool.autoAdd(currentList(), stocks.isDataCached || stocks.isSpotCached)
+  // 盘中 9:30-15:00: 每 30s 自动刷新一次现涨/实时涨幅(静默, 不弹 toast)。
+  // 后端行情缓存 TTL: 竞价30s / 盘中300s, 30s 轮询既能跟上涨幅变化又不超压。
+  realTimeTimer = setInterval(() => {
+    if (!isIntradayNow()) return            // 盘前/收盘/周末: 不轮询, 现涨固定为当日收盘
+    const safe = (p) => p.catch(() => {})  // 轮询失败静默, 不打断
+    if (stocks.mode === 'spot') safe(stocks.updateSpotRealTime({ silent: true }))
+    else safe(stocks.updateRealTimeOnly({ silent: true }))
+  }, 30000)
 }
 
 // 当前模式的选股结果(竞价 cachedStocks / 盘中 spotStocks)
@@ -179,6 +188,7 @@ onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
   if (autoAddTimer) clearInterval(autoAddTimer)
   if (expiryTimer) clearInterval(expiryTimer)
+  if (realTimeTimer) clearInterval(realTimeTimer)
 })
 </script>
 

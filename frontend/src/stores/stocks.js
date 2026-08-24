@@ -248,7 +248,8 @@ export const useStocksStore = defineStore('stocks', {
       this.realTimeRefreshUsed = false
       showToast('✅ 选股完成', 'success')
     },
-    async updateRealTimeOnly() {
+    async updateRealTimeOnly({ silent = false } = {}) {
+      this.realTimeRefreshUsed = true
       if (!this.isDataCached) { await this.fetchAndCache(); return }
       const data = await fetchStocks('refresh', this.buildFilterParams())
       // 刷新实时涨幅: 基于当前列表更新实时字段, 不回到锁定名单
@@ -272,7 +273,7 @@ export const useStocksStore = defineStore('stocks', {
       })
       this.before930 = data.before930
       this.realTimeRefreshUsed = true
-      showToast('✅ 实时涨幅更新完成', 'success')
+      if (!silent) showToast('✅ 实时涨幅更新完成', 'success')
     },
     async reLockData() {
       if (!isBefore930()) { showToast('❌ 9:30后禁止重新选股', 'error'); return }
@@ -306,13 +307,13 @@ export const useStocksStore = defineStore('stocks', {
       this.before930 = data.before930
       showToast('✅ 盘中选股完成', 'success')
     },
-    async updateSpotRealTime() {
+    async updateSpotRealTime({ silent = false } = {}) {
       const data = await fetchStocks('refresh', this.buildFilterParams(), 'spot')
       this.spotStocks = data.list || []
       this.isSpotCached = true
       this.before930 = data.before930
       this.realTimeRefreshUsed = true
-      showToast('✅ 实时刷新完成', 'success')
+      if (!silent) showToast('✅ 实时刷新完成', 'success')
     },
     async applySpotFilter() {
       const data = await fetchStocks('refresh', this.buildFilterParams(), 'spot')
