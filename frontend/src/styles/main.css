@@ -266,19 +266,80 @@ html, body, #app {
   /* 2026-08-24: 首页表格固定表头 — 滚动时 thead 粘在 sticky 元素(filter/tabs)下方。
      1) 解除 .stock-table-container / .qc-panel 的 overflow-x:auto → 否则它们成为滚动容器,
         sticky thead 相对它们(无纵向滚动)而非列容器, 不生效。
-     2) thead th sticky top = --sticky-thead-top(由 JS 动态测量 filter/tabs 高度写入) */
+     2) thead th sticky top = --sticky-thead-top(由 JS 动态测量 filter/tabs 高度写入)
+     3) 例外: 竞价抢筹(.qc-dual)是上下两个独立 panel, 每个 panel 应该自己滚 + 自己的 thead 粘在 panel 顶部,
+        不受首页全局 sticky 影响, 因此把 .qc-dual > .qc-panel 排除在外(否则两个表头会抢
+        同一个 --sticky-thead-top, 定位叠在错误位置)。 */
   .home-col-left .stock-table-container,
-  .home-col-right .qc-panel {
+  .home-col-right .qc-panel:not(.qc-dual *) {
     overflow: visible;
   }
   .home-col-left .stock-table thead th,
-  .home-col-right .stock-table thead th,
+  .home-col-right .stock-table:not(.qc-dual .stock-table) thead th,
   .home-col-right .lhb-table thead th,
   .home-col-right .broken-table thead th {
     position: sticky;
     top: var(--sticky-thead-top, 0px);
     z-index: 8;
     background: var(--bg-panel-solid);
+    border-bottom: 2px solid var(--accent-deep);
+  }
+
+  /* 竞价抢筹双表: 仅 .qc-table-scroll 内部滚动, thead sticky top:0 只相对该容器.
+     .qc-panel-title 放在滚动容器外静态显示, 彻底避免双 sticky + 标题/表头间隙漏数据。
+     (上/下两表标题高度不同, 若把二者都做 sticky 会因 top 硬编码不准漏缝) */
+  .home-col-right .qc-dual {
+    overflow: visible;
+  }
+  .home-col-right .qc-dual > .qc-panel {
+    /* panel 本体不再滚, 只作为布局容器(padding+border) */
+    overflow: visible;
+    max-height: none;
+    position: relative;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .home-col-right .qc-dual > .qc-panel .qc-panel-title {
+    /* 标题在滚动容器外, 静态显示即可, 不再需要 sticky */
+    position: static;
+    top: auto;
+    z-index: auto;
+    background: transparent;
+    padding-bottom: 0;
+    margin-bottom: 0;
+    border-bottom: none;
+    flex: 0 0 auto;
+  }
+  .home-col-right .qc-dual > .qc-panel .qc-table-scroll {
+    /* 真正的滚动容器: 接管 overflow + 固定高度.
+       max-height 控制每张表在页面里显示的最大高度, 剩余在容器内滚动. */
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: 480px;
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    background: var(--bg-panel-solid, rgba(245,238,230,0.96));
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    /* 隐藏可见滚动条, 与左右主列同款. 鼠标滚轮 / 触摸板 / 拖拽 仍可滚动. */
+    scrollbar-width: none;         /* Firefox */
+    -ms-overflow-style: none;      /* IE / 旧 Edge */
+  }
+  .home-col-right .qc-dual > .qc-panel .qc-table-scroll::-webkit-scrollbar {
+    display: none;                 /* Chrome / Safari / 新 Edge */
+    width: 0;
+    height: 0;
+  }
+  .home-col-right .qc-dual > .qc-panel .qc-table-scroll .stock-table thead th {
+    /* 仅相对 .qc-table-scroll 这一个滚动容器 sticky(top=0), 不再需要对齐 title 高度.
+       背景必须完全不透明, 否则滚动时行数据会从表头下漏上来. */
+    position: sticky;
+    top: 0;
+    z-index: 8;
+    background: var(--bg-panel-solid, rgba(245,238,230,1));
     border-bottom: 2px solid var(--accent-deep);
   }
 }
