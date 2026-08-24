@@ -1628,18 +1628,20 @@ def fill_bid_turnover_from_snap(lst, date=None):
             if bt <= 0:
                 continue
             cur_fmv = it.get("floatMv") or 0
-            # 已带 float_mv 正常 → 保留(不覆盖); 仅为空/0 → 补; 异常过小 → 修复
-            if cur_fmv and cur_fmv >= MIN_FMV:
+            # 竞换缺失(空/0) → 必须用快照补(不因 float_mv 正常而跳过)
+            # (2026-08-24 修复: 此前 float_mv 正常(>=MIN_FMV)时直接 continue,
+            #  导致 seal/boom 等开盘啦接口项 bidTurnover 恒为0 而无法补填)
+            if not it.get("bidTurnover"):
+                it["floatMv"] = s["float_mv"]
+                it["bidTurnover"] = bt
+                n += 1
                 continue
+            # float_mv 异常过小(<1000万) 字段错位 → 修复并重算
             if cur_fmv and cur_fmv < MIN_FMV:
                 it["floatMv"] = s["float_mv"]
                 it["bidTurnover"] = bt
                 n_repair += 1
-            elif not it.get("bidTurnover"):
-                it["floatMv"] = s["float_mv"]
-                it["bidTurnover"] = bt
-                n += 1
-            elif (_math.isfinite(it["bidTurnover"]) and it["bidTurnover"] > 100):
+            elif _math.isfinite(it["bidTurnover"]) and it["bidTurnover"] > 100:
                 it["floatMv"] = s["float_mv"]
                 it["bidTurnover"] = bt
                 n_repair += 1
