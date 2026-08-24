@@ -737,12 +737,13 @@ onMounted(() => {
   refreshYidongCodes()
   // 历史回看模式暂停实时刷新(每分钟拉历史无意义)
   // 2026-08-18 性能优化: 轮询只刷新当前 tab(清标记重拉), 不再 10 接口全量
+  // 2026-08-24 主人要求: 盘中实时刷新间隔 60s → 30s(配合后端快照 TTL 降到 60s)
   usePolling(() => {
     if (!datePicker.value) {
       loadedTabs.clear()
       ensureTabData(tab.value, { silent: true })
     }
-  }, 60000)
+  }, 30000)
 })
 </script>
 

@@ -1571,9 +1571,12 @@ def fill_reason_from_pool(lst, date=None):
     return lst
 
 
-def fill_bid_change_from_snap(lst, date=None):
-    """用 date(空=今日) 的 9_25 全市场快照(snapshot_bid)给列表补竞价涨幅(bidChange); 已带的不覆盖
-    用于龙虎榜等无竞价字段的数据源"""
+def fill_bid_change_from_snap(lst, date=None, override=False):
+    """用 date(空=今日) 的 9_25 全市场快照(snapshot_bid)给列表补竞价涨幅(bidChange);
+    override=False(默认) 仅补 None; override=True 强制用自采快照覆盖。
+    (2026-08-24) 开盘啦 Type4 接口 bidChange(row[5]) 经核对 146 只中 124 只与
+    snapshot_bid 9_25 竞价涨幅不一致(养元 list=9.99 快照=3.71 等), 竞价委买等表
+    以自采快照为准, 开盘啦值仅作无快照时的兜底。"""
     if not lst:
         return lst
     try:
@@ -1582,10 +1585,13 @@ def fill_bid_change_from_snap(lst, date=None):
             return lst
         for it in lst:
             code = str(it.get("code") or "")
-            if code and it.get("bidChange") is None and code in snap:
-                bc = snap[code].get("bid_change")
-                if bc is not None:
-                    it["bidChange"] = bc
+            if not code or code not in snap:
+                continue
+            if not override and it.get("bidChange") is not None:
+                continue
+            bc = snap[code].get("bid_change")
+            if bc is not None:
+                it["bidChange"] = bc
     except Exception as e:
         log.warning("竞价涨幅补齐失败 date=%s err=%s", date or "-", e)
     return lst
@@ -3011,6 +3017,8 @@ def query_auction_history(date, tab):
 
 _CLOSE_CHG_CACHE = {}       # date -> (ts, {code: pct}) 内存热缓存
 _CLOSE_CHG_TTL = 6 * 3600
+# 交易日盘中被旧代码误写的脏"收盘涨幅"(实为竞价涨幅)自愈: 记录已强制重拉纠正过的日期
+_CLOSE_CHG_RESYNCED = set()
 
 try:
     import re as _re_cls_chg
@@ -3037,6 +3045,27 @@ def _close_chg_db_get(date, codes):
     except Exception:
         pass
     return out
+
+
+def _close_chg_persist_allowed(date):
+    """是否允许把 date 的收盘涨幅持久化到 close_change_history。
+
+    根因修复(2026-08-24): 盘中(未收盘)当日 K 线的 last close 是实时价,
+    此时把"当日涨幅"当"当日收盘涨幅"写入会永久污染该日数据 —— 盘后/历史
+    回看 fill_close_change_from_kline 先命中库表读到脏值, 导致现涨=竞涨/
+    现涨错误(用户反馈)。规则: date<今天 → 早已收盘, 允许; date==今天 →
+    仅北京时间已过 15:00(收盘)才允许; 其它 → 禁止。
+    """
+    import time as _t
+    if not date:
+        return False
+    today_bj = _t.strftime("%Y-%m-%d", _t.gmtime(_t.time() + 8 * 3600))
+    if date < today_bj:
+        return True
+    if date > today_bj:
+        return False
+    bj = _t.gmtime(_t.time() + 8 * 3600)
+    return (bj.tm_hour, bj.tm_min) >= (15, 0)
 
 
 def _close_chg_db_put(date, pairs):
@@ -3175,6 +3204,11 @@ def fill_close_change_from_kline(lst, date):
         ent = (now, {})
         _CLOSE_CHG_CACHE[date] = ent
     table = ent[1]
+    today_bj = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600))
+    # 收盘自愈(2026-08-24): 盘中旧代码把"竞价涨幅"误当"当日收盘涨幅"写入 close_change_history,
+    # 导致收盘/历史回看时现涨=竞涨。针对"今天且已收盘"一次性强制重拉纠正脏值(去重, 之后走库/缓存)。
+    force_resync = (date == today_bj and _close_chg_persist_allowed(date)
+                    and date not in _CLOSE_CHG_RESYNCED)
     # 1) 缺的 code 先查库命中
     todo = [it for it in lst if it.get("code") and it.get("code") not in table]
     if todo:
@@ -3184,8 +3218,35 @@ def fill_close_change_from_kline(lst, date):
             if v is not None:
                 table[it["code"]] = v
         todo = [it for it in todo if it["code"] not in table]
-    # 2) 仍缺的才拉多源日K, 并写库持久化(任一源命中即写入)
+    # 收盘自愈(2026-08-24): 今日盘中旧代码误写的脏"收盘涨幅"=竞价涨幅, 收盘后强制纠正。
+    # 优先用批量实时行情(单次分页拉全市场, 收盘后其"实时涨幅"即当日收盘涨幅, 避免逐只日K→限流熔断);
+    # 未命中批量行情的才落到逐只多源日K兜底。
     fetched = {}
+    if force_resync:
+        todo = [it for it in lst if it.get("code")]
+        if todo:
+            try:
+                from ..services import fetcher as _fet, scorer as _sco
+                spot = _fet.fetch_spot_quote_map(_sco.market_fs(["hs", "cyb", "kcb"]))
+                got = 0
+                for it in todo:
+                    q = spot.get(str(it["code"])) if spot else None
+                    if not q:
+                        continue
+                    rc = q.get("realChange")
+                    if rc is None:
+                        rc = q.get("change")
+                    if rc is not None:
+                        val = float(rc) if rc else 0.0
+                        table[it["code"]] = val
+                        fetched[it["code"]] = val
+                        got += 1
+                log.info("收盘自愈: 批量实时行情纠正今日收盘涨幅 %d 只 date=%s", got, date)
+            except Exception as e:
+                log.warning("收盘自愈 批量行情失败(转逐只日K兜底) date=%s err=%s", date, e)
+        todo = [it for it in todo if it["code"] not in table]
+        _CLOSE_CHG_RESYNCED.add(date)
+    # 2) 仍缺的才拉多源日K, 并写库持久化(任一源命中即写入；收盘自愈命中批量行情的也已写库)
 
     def _one(it):
         code = it.get("code") or ""
@@ -3226,8 +3287,10 @@ def fill_close_change_from_kline(lst, date):
         import concurrent.futures as cf
         with cf.ThreadPoolExecutor(max_workers=6) as ex:
             list(ex.map(_one, todo))
-        if fetched:
-            _close_chg_db_put(date, fetched)
+    # 收盘自愈修复(2026-08-24): 批量实时行情已把纠正值写入 fetched 并把 todo 清空,
+    # 持久化必须放在 if todo 之外, 保证批量命中的纠正值也能写回库表。
+    if fetched and _close_chg_persist_allowed(date):
+        _close_chg_db_put(date, fetched)
     n = 0
     for it in lst:
         v = table.get(it.get("code"))

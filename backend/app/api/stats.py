@@ -33,7 +33,7 @@ def _is_intraday_stats():
 
 def _apply_change_stats(lst, serve_date):
     """三时点封单榜/快照 现涨(real_change/realChange/change)口径统一:
-    - 盘中 且 serve_date == 今天 → 东财实时 merge
+    - 盘中 且 serve_date == 今天 → 东财实时 merge; 实时缺失/异常时降级为当日收盘涨幅兜底, 不允许现涨为空
     - 其余 → 该交易日收盘涨跌幅(从 close_change_history + 多源K线兜底)"""
     if not lst:
         return
@@ -55,28 +55,50 @@ def _apply_change_stats(lst, serve_date):
                         it["change"] = rc
                     n += 1
             log.info("三时点/快照 现涨(实时)覆盖 %d 只 date=%s", n, serve_date)
+            # 实时缺失的股票降级: 用 close_change_history + 多源日K兜底, 避免现涨为空
+            # (2026-08-24: 东财全市场接口偶发失败 → spot 为空 → 此前直接 return 导致现涨全空)
+            missing = [it for it in lst if it.get("code") and it.get("real_change") is None
+                       and it.get("realChange") is None and it.get("change") is None]
+            if missing:
+                try:
+                    _fill_close_change_fallback(missing, serve_date)
+                    if missing:
+                        log.info("三时点/快照 现涨实时缺失降级补齐 %d 只 date=%s",
+                                 sum(1 for it in missing if it.get("real_change") is not None), serve_date)
+                except Exception as e2:
+                    log.warning("三时点/快照 实时缺失降级补齐失败 date=%s err=%s", serve_date, e2)
             return
         except Exception as e:
-            log.warning("三时点/快照 实时现涨覆盖失败 err=%s", e)
-            return
+            log.warning("三时点/快照 实时现涨覆盖失败, 转当日收盘涨幅兜底 err=%s", e)
+            # 实时接口异常 → 走当日收盘涨幅兜底(不允许现涨为空)
     # 历史回看/盘后今日/非交易日 → 当日收盘涨跌幅(字段可能是 real_change 或 realChange/change)
+    _fill_close_change_fallback(lst, serve_date)
+
+
+def _fill_close_change_fallback(lst, serve_date):
+    """把列表中股票的现涨用 serve_date 当日收盘涨跌幅兜底填充(close_change_history + 多源K线)。
+    兼容字段: real_change / realChange / change, 兜底后统一回填 real_change(三时点表展示 key)。
+    返回成功填充数; 失败返回 0 不抛异常。"""
+    if not lst or not serve_date:
+        return 0
+    # 先复制字段到 realChange/change 让 fill_close_change_from_kline 能按既定 key 覆盖
+    for it in lst:
+        if "realChange" not in it and "real_change" in it:
+            it["realChange"] = it["real_change"]
+        if "change" not in it and "real_change" in it:
+            it["change"] = it["real_change"]
     try:
-        # 先复制字段到 realChange/change 让 fill_close_change_from_kline 能按既定 key 覆盖
-        norm = []
-        for it in lst:
-            if "realChange" not in it and "real_change" in it:
-                it["realChange"] = it["real_change"]
-            if "change" not in it and "real_change" in it:
-                it["change"] = it["real_change"]
-            norm.append(it)
-        kpl.fill_close_change_from_kline(norm, serve_date)
-        # 把 realChange/change 同步回 real_change (三时点表展示 key)
-        for it in norm:
-            rc = it.get("realChange") if it.get("realChange") is not None else it.get("change")
-            if rc is not None:
-                it["real_change"] = rc
+        kpl.fill_close_change_from_kline(lst, serve_date)
     except Exception as e:
         log.warning("三时点/快照 现涨(当日收盘)覆盖失败 err=%s", e)
+    # 把 realChange/change 同步回 real_change (三时点表展示 key)
+    n = 0
+    for it in lst:
+        rc = it.get("realChange") if it.get("realChange") is not None else it.get("change")
+        if rc is not None:
+            it["real_change"] = rc
+            n += 1
+    return n
 
 
 @router.get("/api/stats/auction-overview")
