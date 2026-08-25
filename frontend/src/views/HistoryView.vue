@@ -49,7 +49,7 @@
                       <th class="sortable" :class="{ active: batchSort.keyOf('bid_change') }" @click="batchSort.onSort('bid_change')">竞价涨幅<span class="sort-ind">{{ batchSort.ind('bid_change') }}</span></th>
                       <th class="sortable" :class="{ active: batchSort.keyOf('real_change') }" @click="batchSort.onSort('real_change')">实时涨幅<span class="sort-ind">{{ batchSort.ind('real_change') }}</span></th>
                       <th class="sortable" :class="{ active: batchSort.keyOf('entity_change') }" @click="batchSort.onSort('entity_change')">实体涨幅<span class="sort-ind">{{ batchSort.ind('entity_change') }}</span></th>
-                      <th class="sortable" :class="{ active: batchSort.keyOf('warn_type') }" @click="batchSort.onSort('warn_type')">异动<span class="sort-ind">{{ batchSort.ind('warn_type') }}</span></th>
+                      <th class="sortable" :class="{ active: batchSort.keyOf('auction_signal') }" @click="batchSort.onSort('auction_signal')" title="竞价异动综合分(0-6): 封单强度 + 竞/昨比 + 加速度 三合一">异动<span class="sort-ind">{{ batchSort.ind('auction_signal') }}</span></th>
                       <th class="sortable" :class="{ active: batchSort.keyOf('bid_amt') }" @click="batchSort.onSort('bid_amt')">竞价金额(万)<span class="sort-ind">{{ batchSort.ind('bid_amt') }}</span></th>
                       <th class="sortable" :class="{ active: batchSort.keyOf('bid_ratio') }" @click="batchSort.onSort('bid_ratio')">竞价/昨比<span class="sort-ind">{{ batchSort.ind('bid_ratio') }}</span></th>
                       <th class="sortable" :class="{ active: batchSort.keyOf('circulation_mv') }" @click="batchSort.onSort('circulation_mv')">流通市值(亿)<span class="sort-ind">{{ batchSort.ind('circulation_mv') }}</span></th>
@@ -65,7 +65,7 @@
                       <td :class="s.bid_change > 0 ? 'up' : 'down'">{{ signed(s.bid_change) }}%</td>
                       <td :class="s.real_change > 0 ? 'up' : 'down'">{{ signed(s.real_change) }}%</td>
                       <td :class="s.entity_change > 0 ? 'up' : 'down'">{{ signed(s.entity_change) }}%</td>
-                      <td>{{ warnLabel(s.warn_type) }}</td>
+                      <td :class="warnCls(s.auction_signal)" :title="warnTitle(s)">{{ warnLabel(s.auction_signal) }}</td>
                       <td>{{ bidAmtText(s.bid_amt) }}</td>
                       <td :class="ratioCls(s.bid_ratio)">{{ ratioText(s.bid_ratio) }}</td>
                       <td>{{ s.circulation_mv.toFixed(1) }}</td>
@@ -151,7 +151,7 @@
                     <th class="sortable" :class="{ active: querySort.keyOf('bid_change') }" @click="querySort.onSort('bid_change')">竞价涨幅<span class="sort-ind">{{ querySort.ind('bid_change') }}</span></th>
                     <th class="sortable" :class="{ active: querySort.keyOf('real_change') }" @click="querySort.onSort('real_change')">实时涨幅<span class="sort-ind">{{ querySort.ind('real_change') }}</span></th>
                     <th class="sortable" :class="{ active: querySort.keyOf('entity_change') }" @click="querySort.onSort('entity_change')">实体涨幅<span class="sort-ind">{{ querySort.ind('entity_change') }}</span></th>
-                    <th class="sortable" :class="{ active: querySort.keyOf('warn_type') }" @click="querySort.onSort('warn_type')">异动<span class="sort-ind">{{ querySort.ind('warn_type') }}</span></th>
+                    <th class="sortable" :class="{ active: querySort.keyOf('auction_signal') }" @click="querySort.onSort('auction_signal')" title="竞价异动综合分(0-6): 封单强度 + 竞/昨比 + 加速度 三合一">异动<span class="sort-ind">{{ querySort.ind('auction_signal') }}</span></th>
                     <th class="sortable" :class="{ active: querySort.keyOf('bid_amt') }" @click="querySort.onSort('bid_amt')">竞价金额(万)<span class="sort-ind">{{ querySort.ind('bid_amt') }}</span></th>
                     <th class="sortable" :class="{ active: querySort.keyOf('bid_ratio') }" @click="querySort.onSort('bid_ratio')">竞价/昨比<span class="sort-ind">{{ querySort.ind('bid_ratio') }}</span></th>
                     <th class="sortable" :class="{ active: querySort.keyOf('circulation_mv') }" @click="querySort.onSort('circulation_mv')">流通市值(亿)<span class="sort-ind">{{ querySort.ind('circulation_mv') }}</span></th>
@@ -168,7 +168,7 @@
                     <td :class="s.bid_change > 0 ? 'up' : 'down'">{{ signed(s.bid_change) }}%</td>
                     <td :class="realCls(s)">{{ signed(s.real_change) }}%</td>
                     <td :class="s.entity_change > 0 ? 'up' : 'down'">{{ signed(s.entity_change) }}%</td>
-                    <td>{{ warnLabel(s.warn_type) }}</td>
+                    <td :class="warnCls(s.auction_signal)" :title="warnTitle(s)">{{ warnLabel(s.auction_signal) }}</td>
                     <td>{{ bidAmtText(s.bid_amt) }}</td>
                     <td :class="ratioCls(s.bid_ratio)">{{ ratioText(s.bid_ratio) }}</td>
                     <td>{{ s.circulation_mv.toFixed(1) }}</td><td>{{ s.industry }}</td>
@@ -320,7 +320,30 @@ function realCls(s) {
   if (s.real_change < s.bid_change) return 'real-green'
   return s.real_change > 0 ? 'up' : 'down'
 }
-function warnLabel(w) { return w === 5 ? '强' : w === 4 ? '⚡中' : w === 3 ? '↑弱' : '-' }
+// 竞价异动综合分(0-6): 5-6=⚡强, 3-4=⚡中, 1-2=弱, 0/无=-
+function warnLabel(sig) {
+  if (sig === null || sig === undefined) return '-'
+  if (sig >= 5) return '⚡强'
+  if (sig >= 3) return '⚡中'
+  if (sig >= 1) return '弱'
+  return '-'
+}
+function warnCls(sig) {
+  if (sig === null || sig === undefined) return 'dim'
+  if (sig >= 5) return 'accel-hot'
+  if (sig >= 3) return 'up'
+  if (sig >= 1) return ''
+  return 'dim'
+}
+function warnTitle(s) {
+  const sig = s.auction_signal
+  if (sig === null || sig === undefined) return '无竞价异动数据(老批次未存)'
+  const parts = [`综合分 ${sig}/6`]
+  parts.push(`封单: ${s.seal_ratio !== null && s.seal_ratio !== undefined ? s.seal_ratio.toFixed(2) + '%' : '-'}`)
+  parts.push(`竞/昨: ${s.bid_ratio !== null && s.bid_ratio !== undefined ? s.bid_ratio.toFixed(2) + '%' : '-'}`)
+  parts.push(`加速度: ${s.accel !== null && s.accel !== undefined ? (s.accel > 0 ? '+' : '') + s.accel.toFixed(2) + '%' : '-'}`)
+  return '竞价异动综合分(0-6)\n' + parts.join('\n')
+}
 function bidAmtText(amt) { return amt >= 10000 ? (amt / 10000).toFixed(2) + '亿' : amt.toFixed(0) }
 function ratioCls(br) {
   if (br === null || br === undefined || isNaN(br)) return 'dim'
