@@ -1,8 +1,10 @@
 // 筛选纯函数(与 store 解耦, 便于单测复用)
 // 锁定名单按"当前筛选条件"过滤: 条件不允许的票直接移除(不显示)
 // 盘中与竞价逻辑统一——同一套筛选条件(竞价涨幅/昨日涨停/市值/价格/竞价金额)
+// 2026-08-25 语义反转(正逻辑): limitUp/stSuspend = true → "只看这类票", false → "剔除这类票".
+//   因此此处判断改为 NOT: 未勾选"昨涨停"时, 把昨日涨停/连板票丢掉.
 export function passLockedFilter(it, rt, f) {
-  if (f.limitUp) {
+  if (!f.limitUp) {
     const concept = it.concept || ''
     if (concept.includes('昨日涨停') || concept.includes('昨日连板')) return false
   }
@@ -16,10 +18,12 @@ export function passLockedFilter(it, rt, f) {
 }
 
 // 默认筛选参数(竞价)
+// 2026-08-25: 语义反转后, stSuspend/limitUp 默认 true = 默认"只看这类票",
+//   等价于旧默认(剔除ST/剔除昨涨停) → 保持默认行为一致但 UI 直觉正确.
 export const defaultFilterSettings = {
-  stSuspend: true,
+  stSuspend: false,
   markets: ['hs', 'cyb', 'kcb'],
-  limitUp: true,
+  limitUp: false,
   bidGt: 7,
   probLt: 65,
   confLt: 65,

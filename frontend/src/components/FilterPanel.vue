@@ -16,17 +16,18 @@
             - 按钮吸右上角, 不单独换行
             - 每个 cell 恢复精确像素宽 (调用 inputW())
        内联 style 不依赖任何 CSS 文件缓存/specificity, 立刻生效. -->
-  <div class="filter-custom" :class="{ 'filter-locked': store.isFilterLocked }"
+  <div v-if="store.filterReady" class="filter-custom" :class="{ 'filter-locked': store.isFilterLocked }"
        :style="layoutStyle.root">
     <!-- 第一行: 筛选项 + 右侧按钮对齐 -->
     <div class="filter-row filter-row-1" :style="layoutStyle.row1">
-      <label style="white-space:nowrap;"><input v-model="store.filterSettings.stSuspend" type="checkbox" :disabled="store.isFilterLocked"> ST/停牌</label>
+      <!-- 2026-08-25 正逻辑(勾上=只看这类票), tooltip 保留帮助理解; 主人要求去掉"只看"二字 -->
+      <label style="white-space:nowrap;" title="勾选后只显示 ST / *ST / 停牌股; 不勾选则剔除"><input v-model="store.filterSettings.stSuspend" type="checkbox" :disabled="store.isFilterLocked"> ST/停牌</label>
       <span class="filter-divider" style="display:inline-block;">|</span>
       <label v-for="m in marketOptions" :key="m.value" style="white-space:nowrap;">
         <input v-model="store.filterSettings.markets" type="checkbox" :value="m.value" :disabled="store.isFilterLocked"> {{ m.label }}
       </label>
       <span class="filter-divider" style="display:inline-block;">|</span>
-      <label style="white-space:nowrap;"><input v-model="store.filterSettings.limitUp" type="checkbox" :disabled="store.isFilterLocked"> 昨涨停</label>
+      <label style="white-space:nowrap;" title="勾选后只显示昨日涨停/昨日连板股; 不勾选则剔除"><input v-model="store.filterSettings.limitUp" type="checkbox" :disabled="store.isFilterLocked"> 昨涨停</label>
 
       <!-- 按钮组: 桌面端吸右上角; 手机端紧凑靠右 -->
       <span class="filter-actions-top" :style="layoutStyle.actions">
@@ -59,6 +60,11 @@
         竞额 ≥<input v-model.number="store.filterSettings.bidAmtFloor" type="number" min="0" max="100000" step="500" :disabled="store.isFilterLocked" :style="inputStyle(42)">万
       </label>
     </div>
+  </div>
+  <!-- 2026-08-25: 偏好/全局默认异步加载完成前的占位, 避免先用内置默认(limitUp=false)
+       渲染，随后被用户偏好覆盖导致勾选状态闪烁 -->
+  <div v-else class="filter-custom filter-loading" :style="layoutStyle.root">
+    <span class="filter-loading-text">筛选加载中…</span>
   </div>
 </template>
 
@@ -191,6 +197,20 @@ function reset() { store.resetFilterToDefault() }
   width: 100%;
   box-sizing: border-box;
   overflow-x: hidden;
+}
+
+/* 2026-08-25: 偏好加载完成前的占位(保持两行筛选面板的高度, 避免布局塌陷) */
+.filter-loading {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 4px;
+}
+.filter-loading-text {
+  font-size: 12px;
+  color: var(--text-muted, #889);
+  opacity: 0.7;
 }
 
 /* 第一行 (checkbox/市场范围/分隔符 + 右上角3按钮) */

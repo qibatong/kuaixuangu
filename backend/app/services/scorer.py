@@ -492,12 +492,14 @@ def apply_spot_filters(items, f):
         vol_ratio = it["volRatio"]
         turnover = it["turnover"]
 
-        if f["stSuspend"]:
+        # 2026-08-25 语义反转(正逻辑): stSuspend/limitUp=true → "只看这类票", false → "剔除这类票"
+        # 旧逻辑是 true=剔除, 导致用户直觉与结果相反; 此处改为 NOT 判断实现反转.
+        if not f["stSuspend"]:
             if is_st(name):
                 continue
             if is_suspended(it["_raw"]):
                 continue
-        if f["limitUp"] and is_first_board(it["_raw"]):
+        if not f["limitUp"] and is_first_board(it["_raw"]):
             continue
         if f["spotExcludeZT"] and it["limitBoards"] > 0:   # 剔除已涨停封板(买不进)
             continue
@@ -532,12 +534,13 @@ def apply_filters(items, f):
         price = it["price"]
         bid_amt = it["bidAmt"]
 
-        if f["stSuspend"]:
+        # 2026-08-25 语义反转(正逻辑): 同 apply_spot_filters, 见注释
+        if not f["stSuspend"]:
             if is_st(name):
                 continue
             if is_suspended(it["_raw"]):
                 continue
-        if f["limitUp"] and is_first_board(it["_raw"]):
+        if not f["limitUp"] and is_first_board(it["_raw"]):
             continue
         if bid_chg > f["bidGt"]:
             continue
