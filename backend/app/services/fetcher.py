@@ -36,6 +36,10 @@ _yesterday_lock = threading.Lock()
 _broken_hosts = {}
 _HOST_COOLDOWN = 300   # 冷却 5 分钟
 
+# 数据源熔断器: 故障后 _CIRCUIT_OPEN_SECONDS 内直接快速失败, 不等超时(防单 worker 卡死)
+# 冷却期过后允许半开探测(一次请求), 成功则恢复, 失败继续熔断
+_CIRCUIT_OPEN_SECONDS = 60
+
 # ---------- 数据源健康监控 ----------
 # src -> {ok, fail, last_ok, last_fail, ms_sum, ms_cnt, down_since}
 # down_since>0 表示自该时刻起处于"故障中"(失败后尚未成功恢复)
@@ -46,6 +50,18 @@ _HEALTH = {
     "ths_kline":       {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
 }
 _health_lock = threading.Lock()
+
+
+def _check_circuit(src="eastmoney_clist"):
+    """检查数据源是否熔断中; 熔断时快速失败, 不等超时(防单 worker 卡死雪崩)
+    返回 True=熔断中(应快速失败), False=可请求(正常或半开探测)"""
+    with _health_lock:
+        h = _HEALTH.get(src)
+        if not h or not h["down_since"]:
+            return False
+        if time.time() - h["down_since"] < _CIRCUIT_OPEN_SECONDS:
+            return True
+    return False
 
 
 def _record(src, ok, ms=0):
@@ -68,6 +84,10 @@ def _record(src, ok, ms=0):
             if not h["down_since"]:
                 h["down_since"] = now
                 log.error("数据源故障: %s 调用失败, 进入异常状态", src)
+            elif now - h["down_since"] >= _CIRCUIT_OPEN_SECONDS:
+                # 半开探测失败: 冷却期过后重新熔断
+                h["down_since"] = now
+                log.error("数据源熔断器半开探测失败, 重新熔断: %s", src)
 
 
 def _src_status(h):
@@ -132,6 +152,8 @@ def _fetch_clist_page(fs, page, fid="f3"):
 
 def fetch_eastmoney(fs):
     """拉取一个市场分区的全部股票快照(至多 200 只, 按涨幅倒序)"""
+    if _check_circuit():
+        raise RuntimeError("东财数据源熔断中(故障冷却%d秒内), 快速失败" % _CIRCUIT_OPEN_SECONDS)
     t0 = time.time()
     try:
         diff = _fetch_clist_page(fs, 1)
@@ -149,6 +171,8 @@ def fetch_eastmoney_all(fs):
     按代码(f12)排序分页: 位置稳定, 任一分页失败只跳过该页, 不漏已跌出榜单的票。
     并发拉取(2026-08-19 性能优化): 30 页 ThreadPoolExecutor 并发, 冷缓存 3s→0.5s;
     空页=到底(提前结束), 任一页失败跳过该页, 全部失败抛异常。"""
+    if _check_circuit():
+        raise RuntimeError("东财数据源熔断中(故障冷却%d秒内), 快速失败" % _CIRCUIT_OPEN_SECONDS)
     t_all = time.time()
     # 先并发拉前 N 页, 根据空页/短页判定真实页数
     pages_data = {}   # page -> diff list(失败/空为 None)
