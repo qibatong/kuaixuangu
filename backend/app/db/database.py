@@ -63,6 +63,14 @@ def init_db():
     bcols = [r[1] for r in cur.execute("PRAGMA table_info(batch_stocks)").fetchall()]
     if "bid_ratio" not in bcols:
         cur.execute("ALTER TABLE batch_stocks ADD COLUMN bid_ratio REAL")
+    # 2026-08-25: 异动列改为竞价异动综合分(0-6), 落库 auction_signal/seal_ratio/accel 三字段
+    # 老批次无此数据, 默认 NULL, 前端显示 '-'
+    if "auction_signal" not in bcols:
+        cur.execute("ALTER TABLE batch_stocks ADD COLUMN auction_signal INTEGER")
+    if "seal_ratio" not in bcols:
+        cur.execute("ALTER TABLE batch_stocks ADD COLUMN seal_ratio REAL")
+    if "accel" not in bcols:
+        cur.execute("ALTER TABLE batch_stocks ADD COLUMN accel REAL")
     # 用户表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (

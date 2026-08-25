@@ -26,7 +26,7 @@
           <th class="sortable col-qc" :class="{ active: sortKey === 'qiangchou' }" title="竞价涨幅≥2% 且 竞价/昨比≥20% 时标记 🔥抢筹：代表资金在集合竞价阶段大幅抢筹，是当日强势启动的先行信号" @click="onSort('qiangchou', 'number')">抢筹<span class="sort-ind">{{ sortInd('qiangchou') }}</span></th>
           <th class="sortable num col-bidchg" :class="{ active: sortKey === 'bidChange' }" title="竞价涨幅" @click="onSort('bidChange', 'number')">竞涨<span class="sort-ind">{{ sortInd('bidChange') }}</span></th>
           <th class="sortable num col-entchg" :class="{ active: sortKey === 'entityChange' }" @click="onSort('entityChange', 'number')">实体<span class="sort-ind">{{ sortInd('entityChange') }}</span></th>
-          <th class="sortable col-warn" :class="{ active: sortKey === 'warnType' }" @click="onSort('warnType', 'number')">异动<span class="sort-ind">{{ sortInd('warnType') }}</span></th>
+          <th class="sortable col-warn" :class="{ active: sortKey === 'auctionSignal' }" title="竞价异动综合分(0-6): 封单强度 + 竞/昨比 + 加速度 三合一" @click="onSort('auctionSignal', 'number')">异动<span class="sort-ind">{{ sortInd('auctionSignal') }}</span></th>
           <th class="sortable num col-bidamt" :class="{ active: sortKey === 'bidAmt' }" @click="onSort('bidAmt', 'number')" :title="'集合竞价阶段撮合成交金额(万元)'">竞额<span class="sort-ind">{{ sortInd('bidAmt') }}</span></th>
           <th class="sortable num col-bidratio" :class="{ active: sortKey === 'bidRatio' }" title="竞价成交额 ÷ 前一交易日全天成交额(%)。衡量竞价资金强度：值越高说明竞价阶段成交越活跃；≥20% 视为强抢筹（配合抢筹列使用）。非竞价时段/无数据时显示 -" @click="onSort('bidRatio', 'number')">竞/昨<span class="sort-ind">{{ sortInd('bidRatio') }}</span></th>
           <th class="sortable num col-mv" :class="{ active: sortKey === 'circulationMV' }" @click="onSort('circulationMV', 'number')">流通<span class="sort-ind">{{ sortInd('circulationMV') }}</span></th>
@@ -53,7 +53,7 @@
           </td>
           <td :class="item.bidChange > 0 ? 'up' : 'down'" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'">{{ signed(item.bidChange) }}%</td>
           <td :class="item.entityChange === null || item.entityChange === undefined ? 'dim' : (item.entityChange > 0 ? 'up' : 'down')" :title="item.entityChange === null || item.entityChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + fmtPct(item._staleEntity) + '）') : ''">{{ item.entityChange === null || item.entityChange === undefined ? '-' : signed(item.entityChange) + '%' }}</td>
-          <td>{{ warnLabel(item.warnType) }}</td>
+          <td :class="warnCls(item.auctionSignal)" :title="warnTitle(item)">{{ warnLabel(item.auctionSignal) }}</td>
           <td :title="'集合竞价阶段撮合成交金额(万元)'">{{ bidAmtText(item.bidAmt) }}</td>
           <td :class="ratioCls(item.bidRatio)" :title="ratioTitle(item.bidRatio)">{{ ratioText(item.bidRatio) }}</td>
           <td>{{ item.circulationMV ? item.circulationMV.toFixed(1) : '-' }}</td>
@@ -187,8 +187,33 @@ function realCls(item) {
   if (item.realChange < item.bidChange) return 'real-green'
   return item.realChange > 0 ? 'up' : 'down'
 }
-function warnLabel(w) {
-  return w === 5 ? '强' : w === 4 ? '⚡中' : w === 3 ? '↑弱' : '-'
+// 竞价异动综合分(0-6): 5-6=⚡强, 3-4=⚡中, 1-2=弱, 0=无
+function warnLabel(sig) {
+  if (sig === null || sig === undefined) return '-'
+  if (sig >= 5) return '⚡强'
+  if (sig >= 3) return '⚡中'
+  if (sig >= 1) return '弱'
+  return '-'
+}
+function warnCls(sig) {
+  if (sig === null || sig === undefined) return 'dim'
+  if (sig >= 5) return 'accel-hot'
+  if (sig >= 3) return 'up'
+  if (sig >= 1) return ''
+  return 'dim'
+}
+// tooltip: 综合分 + 三项构成明细(封单/竞昨/加速度)
+function warnTitle(item) {
+  const sig = item.auctionSignal
+  if (sig === null || sig === undefined) return '无竞价异动数据'
+  const parts = [`综合分 ${sig}/6`]
+  const sr = item.sealRatio
+  parts.push(`封单: ${sr !== null && sr !== undefined ? sr.toFixed(2) + '%' : '-'}`)
+  const br = item.bidRatio
+  parts.push(`竞/昨: ${br !== null && br !== undefined ? br.toFixed(2) + '%' : '-'}`)
+  const ac = item.accel
+  parts.push(`加速度: ${ac !== null && ac !== undefined ? (ac > 0 ? '+' : '') + ac.toFixed(2) + '%' : '-'}`)
+  return '竞价异动综合分(0-6)\n' + parts.join('\n')
 }
 function bidAmtText(amt) {
   return amt >= 10000 ? (amt / 10000).toFixed(2) + '亿' : amt.toFixed(0)

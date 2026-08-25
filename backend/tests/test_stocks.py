@@ -98,8 +98,8 @@ def test_spot_mode_returns_stocks(client, first_user, monkeypatch):
         # 盘中=竞价逻辑: 字段同竞价模式(竞价涨幅/金额等) + 实时维度字段(用于展示,不是过滤)
         assert "realChange" in s and "bidChange" in s and "bidAmt" in s
         assert "volRatio" in s and "turnover" in s  # 实时展示字段
-        # 盘中原评分独有字段(封单/连板)已统一到竞价评分, 不再输出
-        assert "sealRatio" not in s and "limitBoards" not in s
+        # 盘中原评分独有字段(连板)已统一到竞价评分, 不再输出; sealRatio 现为竞价封成比(合法字段)
+        assert "limitBoards" not in s
 
 
 def test_spot_mode_uses_zt_pool(client, first_user, monkeypatch):
@@ -114,9 +114,9 @@ def test_spot_mode_uses_zt_pool(client, first_user, monkeypatch):
     assert d.get("ok")
     items = d.get("list", [])
     assert len(items) > 0
-    # 任何返回项都不应含 limitBoards/sealRatio(盘中不再用 zt)
+    # 任何返回项都不应含 limitBoards(盘中不再用 zt); sealRatio 现为竞价封成比(合法字段)
     for s in items:
-        assert "limitBoards" not in s and "sealRatio" not in s
+        assert "limitBoards" not in s
 
 
 def test_spot_mode_invalid_mode(client, first_user):

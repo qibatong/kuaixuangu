@@ -249,6 +249,7 @@ export const useStocksStore = defineStore('stocks', {
         probability: s.probability, confidence: s.confidence,
         bidChange: s.bid_change, realChange: s.real_change,
         entityChange: s.entity_change, warnType: s.warn_type,
+        auctionSignal: s.auction_signal, sealRatio: s.seal_ratio, accel: s.accel,
         bidAmt: s.bid_amt, bidRatio: s.bid_ratio,
         circulationMV: s.circulation_mv, industry: s.industry,
         concept: s.concept, rank: s.rank

@@ -15,7 +15,7 @@ from . import settings
 DEFAULT_SCORING = {
     "w_bid": 0.34,        # 竞价分权重
     "w_activity": 0.32,   # 活跃度(竞价换手/量比)权重
-    "w_warn": 0.17,       # 异动(封单/抢筹)权重
+    "w_warn": 0.17,       # 竞价异动(封单+爆量+加速度 三合一, 0-6级)权重
     "w_market": 0.11,     # 流通市值权重
     "w_yesterday": 0.06,  # 昨日涨幅权重
     "conf_warn_high": 10,  # 置信度: 强异动加成
@@ -36,9 +36,10 @@ DEFAULT_SCORING = {
             "default": 0.1,
         },
         "warn": {
-            "label": "异动等级", "unit": "级",
-            "buckets": [["5", "6", 1.0], ["4", "5", 0.85], ["3", "4", 0.6]],
-            "default": 0.18,
+            "label": "竞价异动", "unit": "级",
+            "buckets": [["5", "99", 1.0], ["4", "5", 0.85], ["3", "4", 0.6],
+                        ["2", "3", 0.4], ["1", "2", 0.25]],
+            "default": 0.1,
         },
         "market": {
             "label": "流通市值", "unit": "亿",
@@ -319,11 +320,44 @@ def is_suspended(s):
 
 
 # ---------- 评分 ----------
-def compute_score(s):
+def _compute_auction_signal(seal_ratio, bid_ratio, accel):
+    """竞价异动综合分(0-6): 封单强度(0-2) + 竞/昨比(0-2) + 加速度(0-2)
+    替代失效的 f630 异动等级(实测只返回 0/1/2, 从不得分)。
+    seal_ratio: 封成比%(封单额/流通市值×100)
+    bid_ratio: 竞价额/昨日全天额(%), None=无数据
+    accel: 9:25-9:20 涨幅差(%), None=非竞价时段/无快照"""
+    signal = 0
+    # 封单强度: 涨停封单资金占流通市值比
+    if seal_ratio >= 3:
+        signal += 2
+    elif seal_ratio >= 1:
+        signal += 1
+    # 竞/昨比: 竞价资金强度(竞价额占昨日全天成交额比例)
+    if bid_ratio is not None:
+        if bid_ratio >= 50:
+            signal += 2
+        elif bid_ratio >= 20:
+            signal += 1
+    # 加速度: 最后5分钟抢筹力度(9:25-9:20涨幅差)
+    if accel is not None:
+        if accel >= 2:
+            signal += 2
+        elif accel >= 1:
+            signal += 1
+    return signal
+
+
+def compute_score(s, auction_signal=None):
     bid_change = get_bid_change(s)
     bid_turnover = get_bid_turnover(s)
     bid_vol_ratio = 0.0
+    # 竞价异动综合分(0-6): 优先用外部传入的 auction_signal(封单+爆量+加速度),
+    # 无则退回 f630 异动等级(实测只返回 0/1/2, 几乎不得分, 仅保底)
     warn_type = get_warn_type(s)
+    if auction_signal is not None:
+        warn_value = auction_signal
+    else:
+        warn_value = warn_type
     circ_mv = parse_float(s.get("f21")) / 1e8          # 流通市值(亿)
     yesterday_approx = parse_float(s.get("f3"))        # 原策略的"昨日涨幅"口径: f3
 
@@ -336,8 +370,8 @@ def compute_score(s):
     if bid_vol_ratio >= 0.3:
         activity_score = min(1.0, activity_score + 0.1)
 
-    # 异动分
-    warn_score = get_factor_score(cfg, "warn", warn_type)
+    # 异动分(竞价异动综合分: 封单+爆量+加速度)
+    warn_score = get_factor_score(cfg, "warn", warn_value)
 
     # 市值分
     market_score = get_factor_score(cfg, "market", circ_mv)
@@ -351,7 +385,7 @@ def compute_score(s):
     prob = max(5.0, min(95.0, base * 100))
 
     conf = 65.0
-    if warn_type >= 4:
+    if warn_value >= 4:
         conf += cfg["conf_warn_high"]
     if bid_turnover >= 0.4:
         conf += cfg["conf_turnover"]
@@ -366,7 +400,7 @@ def compute_score(s):
     factors = {
         "bid": {"label": "竞价涨幅", "value": _r2(bid_change), "score": round(bid_score * 100), "weight": cfg["w_bid"]},
         "activity": {"label": "竞价换手", "value": _r2(bid_turnover), "score": round(activity_score * 100), "weight": cfg["w_activity"]},
-        "warn": {"label": "异动等级", "value": _r2(warn_type), "score": round(warn_score * 100), "weight": cfg["w_warn"]},
+        "warn": {"label": "竞价异动", "value": _r2(warn_value), "score": round(warn_score * 100), "weight": cfg["w_warn"]},
         "market": {"label": "流通市值", "value": _r2(circ_mv), "score": round(market_score * 100), "weight": cfg["w_market"]},
         "yesterday": {"label": "昨日涨幅", "value": _r2(yesterday_approx), "score": round(yesterday_score * 100), "weight": cfg["w_yesterday"]},
     }
@@ -569,16 +603,25 @@ def is_qiangchou(bid_change, bid_ratio):
 def score_all_stocks(raw, yesterday_map=None, snapshot_map=None):
     """全市场评分 + 排序(不按用户过滤); 返回 scored 列表(含 _raw)
     2026-08-16 拆分: 9:26 自动应用按用户复用同一份评分, 只各自过滤,
-    避免 150+ 用户各跑一次全市场评分(性能 150 倍差距)。"""
+    避免 150+ 用户各跑一次全市场评分(性能 150 倍差距)。
+    2026-08-25 方案B: warn 因子替换为竞价异动综合分(封单+爆量+加速度 0-6级),
+    替代失效的 f630 异动等级(实测只返回 0/1/2, 从不得分)。"""
     yesterday_map = yesterday_map or {}
     snapshot_map = snapshot_map or {}
     scored = []
-    # 竞价/昨比: 分子=今日竞价额(f616, 9:25定格), 分母=最近已收盘交易日(T)全天额。
-    # pair 由 _kline_amount_pair 保证 [最近已收盘T日, T-1日], 任何时间(窗口/盘中/收盘)都可算,
-    # 分母恒为最近已收盘交易日, 避免"今日累计额/地量日/前天"错位导致失真。
     auction_ok = in_auction_window()
+
+    # 竞价封单榜(涨停委买额): 9:15-9:30 有数据, 非竞价时段返回空
+    seal_map = {}
+    try:
+        from . import kpl
+        for item in (kpl.fetch_bid_seal() or []):
+            seal_map[item.get("code", "")] = item.get("bidSealAmt") or 0
+    except Exception:
+        pass
+
     for s in raw:
-        sc = compute_score(s)
+        # 先计算 bid_ratio / accel / seal_ratio, 供 auction_signal 使用(原在 compute_score 后)
         bid_amt = get_bid_amt(s, auction_ok)   # 万元
         pair = yesterday_map.get(s.get("f12"))   # [最近已收盘T日, T-1日] 万元
         bid_ratio = None
@@ -591,6 +634,13 @@ def score_all_stocks(raw, yesterday_map=None, snapshot_map=None):
             snap = snapshot_map.get(s.get("f12"))
             if snap and snap.get("bid_change") is not None:
                 accel = round(get_bid_change(s) - snap["bid_change"], 2)
+        # 封成比: 封单额 / 流通市值 × 100
+        circ_mv_raw = parse_float(s.get("f21"))
+        seal_amt = seal_map.get(s.get("f12"), 0)
+        seal_ratio = round(seal_amt / circ_mv_raw * 100, 2) if (seal_amt > 0 and circ_mv_raw > 0) else 0.0
+        # 竞价异动综合分(0-6)
+        auction_signal = _compute_auction_signal(seal_ratio, bid_ratio, accel)
+        sc = compute_score(s, auction_signal=auction_signal)
         scored.append({
             "code": s.get("f12", ""),
             "name": s.get("f14", ""),
@@ -604,6 +654,8 @@ def score_all_stocks(raw, yesterday_map=None, snapshot_map=None):
             "factors": sc["factors"],
             "speed": parse_float(s.get("f8")),
             "warnType": get_warn_type(s),
+            "auctionSignal": auction_signal,
+            "sealRatio": seal_ratio,
             "circulationMV": parse_float(s.get("f21")) / 1e8,
             "industry": s.get("f100") or "-",
             "concept": s.get("f103") or "-",

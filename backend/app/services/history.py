@@ -38,11 +38,11 @@ def save_batch(user_id, action, result, f, auto_applied=False):
              1 if auto_applied else 0))
         batch_id = cur.lastrowid
         cur.executemany(
-            "INSERT INTO batch_stocks (batch_id, rank, code, name, probability, confidence, bid_change, real_change, entity_change, bid_turnover, warn_type, circulation_mv, industry, concept, bid_amt, bid_ratio) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO batch_stocks (batch_id, rank, code, name, probability, confidence, bid_change, real_change, entity_change, bid_turnover, warn_type, circulation_mv, industry, concept, bid_amt, bid_ratio, auction_signal, seal_ratio, accel) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [(batch_id, i + 1, s["code"], s["name"], s["probability"], s["confidence"],
               s["bidChange"], s["realChange"], s["entityChange"], s["bidTurnover"],
               s["warnType"], s["circulationMV"], s["industry"], s["concept"], s["bidAmt"],
-              s.get("bidRatio"))
+              s.get("bidRatio"), s.get("auctionSignal"), s.get("sealRatio"), s.get("accel"))
              for i, s in enumerate(result)])
         conn.commit()
         conn.close()
@@ -133,7 +133,7 @@ def query_history(uid, q):
                s.code, s.name, s.probability, s.confidence,
                s.bid_change, s.real_change, s.entity_change,
                s.bid_amt, s.circulation_mv, s.industry, s.concept, s.warn_type,
-               s.bid_ratio
+               s.bid_ratio, s.auction_signal, s.seal_ratio, s.accel
         %s
         ORDER BY b.batch_date DESC, s.probability DESC, s.code
         LIMIT ? OFFSET ?
