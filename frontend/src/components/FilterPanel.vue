@@ -20,13 +20,15 @@
        :style="layoutStyle.root">
     <!-- 第一行: 筛选项 + 右侧按钮对齐 -->
     <div class="filter-row filter-row-1" :style="layoutStyle.row1">
-      <label style="white-space:nowrap;"><input v-model="store.filterSettings.stSuspend" type="checkbox" :disabled="store.isFilterLocked"> ST/停牌</label>
+      <!-- 2026-08-25 标签统一补齐"剔除"前缀(与 AdminView 一致, 避免用户误解为"勾上=只看这类票"):
+           实际语义是"勾上=剔除"，与管理员后台"剔除ST/停牌 / 剔除昨日涨停"完全对应 -->
+      <label style="white-space:nowrap;" title="勾选后不显示 ST / *ST / 停牌股"><input v-model="store.filterSettings.stSuspend" type="checkbox" :disabled="store.isFilterLocked"> 剔除ST/停牌</label>
       <span class="filter-divider" style="display:inline-block;">|</span>
       <label v-for="m in marketOptions" :key="m.value" style="white-space:nowrap;">
         <input v-model="store.filterSettings.markets" type="checkbox" :value="m.value" :disabled="store.isFilterLocked"> {{ m.label }}
       </label>
       <span class="filter-divider" style="display:inline-block;">|</span>
-      <label style="white-space:nowrap;"><input v-model="store.filterSettings.limitUp" type="checkbox" :disabled="store.isFilterLocked"> 昨涨停</label>
+      <label style="white-space:nowrap;" title="勾选后不显示昨日涨停/昨日连板股"><input v-model="store.filterSettings.limitUp" type="checkbox" :disabled="store.isFilterLocked"> 剔除昨涨停</label>
 
       <!-- 按钮组: 桌面端吸右上角; 手机端紧凑靠右 -->
       <span class="filter-actions-top" :style="layoutStyle.actions">
