@@ -172,11 +172,13 @@ def test_factor_buckets_default_consistency():
     assert scorer.get_factor_score(cfg, "activity", 0.3) == 0.72
     assert scorer.get_factor_score(cfg, "activity", 0.1) == 0.5
     assert scorer.get_factor_score(cfg, "activity", 0.05) == 0.3
-    # 异动: 5=1.0, 4=0.85, 3=0.6, 其余=0.18
+    # 竞价异动(0-6级): 5+=1.0, 4=0.85, 3=0.6, 2=0.4, 1=0.25, 0=0.1(default)
     assert scorer.get_factor_score(cfg, "warn", 5) == 1.0
     assert scorer.get_factor_score(cfg, "warn", 4) == 0.85
     assert scorer.get_factor_score(cfg, "warn", 3) == 0.6
-    assert scorer.get_factor_score(cfg, "warn", 2) == 0.18
+    assert scorer.get_factor_score(cfg, "warn", 2) == 0.4
+    assert scorer.get_factor_score(cfg, "warn", 1) == 0.25
+    assert scorer.get_factor_score(cfg, "warn", 0) == 0.1
     # 市值: <30=1.0, 30~60=0.88, 60~120=0.68, 120~250=0.45, >=250=0.22
     assert scorer.get_factor_score(cfg, "market", 29.9) == 1.0
     assert scorer.get_factor_score(cfg, "market", 30) == 0.88
