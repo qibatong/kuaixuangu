@@ -20,15 +20,14 @@
        :style="layoutStyle.root">
     <!-- 第一行: 筛选项 + 右侧按钮对齐 -->
     <div class="filter-row filter-row-1" :style="layoutStyle.row1">
-      <!-- 2026-08-25 语义改为正逻辑(勾上=保留/只看这类票), 与用户直觉一致.
-           旧版是反逻辑(勾上=剔除), 见后端 scorer.apply_filters 反转实现 + DB v2 迁移 -->
-      <label style="white-space:nowrap;" title="勾选后只显示 ST / *ST / 停牌股; 不勾选则剔除"><input v-model="store.filterSettings.stSuspend" type="checkbox" :disabled="store.isFilterLocked"> 只看ST/停牌</label>
+      <!-- 2026-08-25 正逻辑(勾上=只看这类票), tooltip 保留帮助理解; 主人要求去掉"只看"二字 -->
+      <label style="white-space:nowrap;" title="勾选后只显示 ST / *ST / 停牌股; 不勾选则剔除"><input v-model="store.filterSettings.stSuspend" type="checkbox" :disabled="store.isFilterLocked"> ST/停牌</label>
       <span class="filter-divider" style="display:inline-block;">|</span>
       <label v-for="m in marketOptions" :key="m.value" style="white-space:nowrap;">
         <input v-model="store.filterSettings.markets" type="checkbox" :value="m.value" :disabled="store.isFilterLocked"> {{ m.label }}
       </label>
       <span class="filter-divider" style="display:inline-block;">|</span>
-      <label style="white-space:nowrap;" title="勾选后只显示昨日涨停/昨日连板股; 不勾选则剔除"><input v-model="store.filterSettings.limitUp" type="checkbox" :disabled="store.isFilterLocked"> 只看昨涨停</label>
+      <label style="white-space:nowrap;" title="勾选后只显示昨日涨停/昨日连板股; 不勾选则剔除"><input v-model="store.filterSettings.limitUp" type="checkbox" :disabled="store.isFilterLocked"> 昨涨停</label>
 
       <!-- 按钮组: 桌面端吸右上角; 手机端紧凑靠右 -->
       <span class="filter-actions-top" :style="layoutStyle.actions">

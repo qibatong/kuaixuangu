@@ -362,12 +362,12 @@
           <label class="field-label" style="display:flex;flex-direction:column;gap:4px;">
             评分下限 <input v-model.number="adminDefaults.probLt" type="number" min="0" max="100" class="admin-input" style="width:110px;" />
           </label>
-          <!-- 2026-08-25 语义改为正逻辑: 勾上=只看这类票(不勾=剔除), 与用户直觉一致 -->
+          <!-- 2026-08-25 正逻辑: 勾上=只看这类票(不勾=剔除); tooltip 保留说明; 主人要求去掉"只看"二字 -->
           <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size:13px;" title="勾选后只显示昨日涨停/连板股; 不勾选则剔除">
-            <input v-model="adminDefaults.limitUp" type="checkbox" /> 只看昨日涨停
+            <input v-model="adminDefaults.limitUp" type="checkbox" /> 昨日涨停
           </label>
           <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size:13px;" title="勾选后只显示 ST/停牌股; 不勾选则剔除">
-            <input v-model="adminDefaults.stSuspend" type="checkbox" /> 只看ST/停牌
+            <input v-model="adminDefaults.stSuspend" type="checkbox" /> ST/停牌
           </label>
           <button class="tdx-export-btn admin-save-btn" :disabled="savingDefaults" @click="saveDefaults(false)">
             <i class="fa fa-save"></i> {{ savingDefaults ? '保存中...' : '保存默认值' }}
