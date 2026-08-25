@@ -358,6 +358,52 @@ def init_db():
         )
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_task_queue_status ON task_queue(status)")
+
+    # ---------- 2026-08-25: limitUp/stSuspend 语义反转(旧=true时剔除, 新=true时只看)
+    # 迁移幂等: 用 settings 表 mig_filter_sem_flip_v2 标记, 标记已存在则跳过.
+    # 迁移内容:
+    #   1) 所有用户 filter_prefs JSON 中的 limitUp / stSuspend 布尔值取反
+    #   2) settings.default_filters 中的 limitUp / stSuspend 布尔值取反
+    #   3) 同步: DEFAULT_FILTERS_DEFAULT 内置默认值已同步(见 api/admin.py)
+    #   4) 前端 localStorage 锁定筛选: 由前端运行时迁移(见 stores/stocks.js)
+    mig_key = "mig_filter_sem_flip_v2"
+    mig_done = cur.execute("SELECT 1 FROM settings WHERE key=?", (mig_key,)).fetchone()
+    if not mig_done:
+        _flip_count = 0
+        for (uid, raw) in cur.execute("SELECT id, filter_prefs FROM users WHERE filter_prefs IS NOT NULL AND filter_prefs != ''").fetchall():
+            try:
+                obj = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+            changed = False
+            for k in ("limitUp", "stSuspend"):
+                if isinstance(obj.get(k), bool):
+                    obj[k] = not obj[k]
+                    changed = True
+            if changed:
+                cur.execute("UPDATE users SET filter_prefs=? WHERE id=?",
+                            (json.dumps(obj, ensure_ascii=False), uid))
+                _flip_count += 1
+        # settings.default_filters 取反
+        df_row = cur.execute("SELECT value FROM settings WHERE key=?", ("default_filters",)).fetchone()
+        if df_row:
+            try:
+                df = json.loads(df_row[0])
+                changed = False
+                for k in ("limitUp", "stSuspend"):
+                    if isinstance(df.get(k), bool):
+                        df[k] = not df[k]
+                        changed = True
+                if changed:
+                    cur.execute("UPDATE settings SET value=?, updated_at=? WHERE key=?",
+                                (json.dumps(df, ensure_ascii=False), int(time.time()), "default_filters"))
+            except (TypeError, ValueError):
+                pass
+        cur.execute(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?,?,?)",
+            (mig_key, json.dumps({"t": int(time.time()), "users_flipped": _flip_count}, ensure_ascii=False), int(time.time())))
+        log.info("[mig_filter_sem_flip_v2] done, users_flipped=%d", _flip_count)
+
     conn.commit()
     conn.close()
 

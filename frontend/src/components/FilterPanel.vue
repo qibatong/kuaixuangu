@@ -20,15 +20,15 @@
        :style="layoutStyle.root">
     <!-- 第一行: 筛选项 + 右侧按钮对齐 -->
     <div class="filter-row filter-row-1" :style="layoutStyle.row1">
-      <!-- 2026-08-25 标签统一补齐"剔除"前缀(与 AdminView 一致, 避免用户误解为"勾上=只看这类票"):
-           实际语义是"勾上=剔除"，与管理员后台"剔除ST/停牌 / 剔除昨日涨停"完全对应 -->
-      <label style="white-space:nowrap;" title="勾选后不显示 ST / *ST / 停牌股"><input v-model="store.filterSettings.stSuspend" type="checkbox" :disabled="store.isFilterLocked"> 剔除ST/停牌</label>
+      <!-- 2026-08-25 语义改为正逻辑(勾上=保留/只看这类票), 与用户直觉一致.
+           旧版是反逻辑(勾上=剔除), 见后端 scorer.apply_filters 反转实现 + DB v2 迁移 -->
+      <label style="white-space:nowrap;" title="勾选后只显示 ST / *ST / 停牌股; 不勾选则剔除"><input v-model="store.filterSettings.stSuspend" type="checkbox" :disabled="store.isFilterLocked"> 只看ST/停牌</label>
       <span class="filter-divider" style="display:inline-block;">|</span>
       <label v-for="m in marketOptions" :key="m.value" style="white-space:nowrap;">
         <input v-model="store.filterSettings.markets" type="checkbox" :value="m.value" :disabled="store.isFilterLocked"> {{ m.label }}
       </label>
       <span class="filter-divider" style="display:inline-block;">|</span>
-      <label style="white-space:nowrap;" title="勾选后不显示昨日涨停/昨日连板股"><input v-model="store.filterSettings.limitUp" type="checkbox" :disabled="store.isFilterLocked"> 剔除昨涨停</label>
+      <label style="white-space:nowrap;" title="勾选后只显示昨日涨停/昨日连板股; 不勾选则剔除"><input v-model="store.filterSettings.limitUp" type="checkbox" :disabled="store.isFilterLocked"> 只看昨涨停</label>
 
       <!-- 按钮组: 桌面端吸右上角; 手机端紧凑靠右 -->
       <span class="filter-actions-top" :style="layoutStyle.actions">
@@ -62,8 +62,8 @@
       </label>
     </div>
   </div>
-  <!-- 2026-08-25: 偏好/全局默认异步加载完成前的占位, 避免先用内置默认(limitUp=true)渲染
-       勾选、随后被用户偏好覆盖导致"昨涨停"先勾选后取消闪烁 -->
+  <!-- 2026-08-25: 偏好/全局默认异步加载完成前的占位, 避免先用内置默认(limitUp=false)
+       渲染，随后被用户偏好覆盖导致勾选状态闪烁 -->
   <div v-else class="filter-custom filter-loading" :style="layoutStyle.root">
     <span class="filter-loading-text">筛选加载中…</span>
   </div>
