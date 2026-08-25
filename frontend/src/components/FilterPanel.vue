@@ -16,7 +16,7 @@
             - 按钮吸右上角, 不单独换行
             - 每个 cell 恢复精确像素宽 (调用 inputW())
        内联 style 不依赖任何 CSS 文件缓存/specificity, 立刻生效. -->
-  <div class="filter-custom" :class="{ 'filter-locked': store.isFilterLocked }"
+  <div v-if="store.filterReady" class="filter-custom" :class="{ 'filter-locked': store.isFilterLocked }"
        :style="layoutStyle.root">
     <!-- 第一行: 筛选项 + 右侧按钮对齐 -->
     <div class="filter-row filter-row-1" :style="layoutStyle.row1">
@@ -59,6 +59,11 @@
         竞额 ≥<input v-model.number="store.filterSettings.bidAmtFloor" type="number" min="0" max="100000" step="500" :disabled="store.isFilterLocked" :style="inputStyle(42)">万
       </label>
     </div>
+  </div>
+  <!-- 2026-08-25: 偏好/全局默认异步加载完成前的占位, 避免先用内置默认(limitUp=true)渲染
+       勾选、随后被用户偏好覆盖导致"昨涨停"先勾选后取消闪烁 -->
+  <div v-else class="filter-custom filter-loading" :style="layoutStyle.root">
+    <span class="filter-loading-text">筛选加载中…</span>
   </div>
 </template>
 
@@ -191,6 +196,20 @@ function reset() { store.resetFilterToDefault() }
   width: 100%;
   box-sizing: border-box;
   overflow-x: hidden;
+}
+
+/* 2026-08-25: 偏好加载完成前的占位(保持两行筛选面板的高度, 避免布局塌陷) */
+.filter-loading {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 4px;
+}
+.filter-loading-text {
+  font-size: 12px;
+  color: var(--text-muted, #889);
+  opacity: 0.7;
 }
 
 /* 第一行 (checkbox/市场范围/分隔符 + 右上角3按钮) */

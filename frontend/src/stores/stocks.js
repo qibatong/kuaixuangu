@@ -40,7 +40,10 @@ export const useStocksStore = defineStore('stocks', {
     // 盘中筛选条件
     // 账号级筛选偏好(后端 users 表, 跨设备一致)
     userFilterPrefs: null,
-    isFilterLocked: false
+    isFilterLocked: false,
+    // 2026-08-25: 偏好/全局默认异步加载完成前为 false, 防止 FilterPanel 先用内置默认(limitUp=true)
+    // 渲染勾选、随后被用户偏好(limitUp=false)覆盖导致"先勾选后取消"闪烁
+    filterReady: false
   }),
   actions: {
     // ---- 筛选参数(盘中/竞价共用 filterSettings) ----
@@ -111,6 +114,8 @@ export const useStocksStore = defineStore('stocks', {
       } else {
         this.filterSettings = { ...base }
       }
+      // 2026-08-25: 偏好/默认已就位, 允许 FilterPanel 渲染最终勾选状态(避免先勾选后取消闪烁)
+      this.filterReady = true
     },
 
     // ---- 竞价锁定名单快照(9:30 后保持名单不变, 只更新实时行情) ----
