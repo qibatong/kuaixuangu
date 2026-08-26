@@ -6,9 +6,7 @@ export function login(body) {
   return request('/api/login', { method: 'POST', auth: false, body })
 }
 
-export function register({ username, password, invite_code, phone, email }) {
-  return request('/api/register', { method: 'POST', auth: false, body: { username, password, invite_code, phone, email } })
-}
+
 
 export function changePassword(old_password, new_password) {
   return request('/api/change-password', { method: 'POST', body: { old_password, new_password } })

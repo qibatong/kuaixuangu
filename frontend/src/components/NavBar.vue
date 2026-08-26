@@ -28,9 +28,6 @@
       <router-link to="/yidong" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-bullhorn"></i> 异动监管
       </router-link>
-      <router-link to="/invite" exact-active-class="router-link-active" class="nav-item">
-        <i class="fa fa-share-alt"></i> 邀请
-      </router-link>
       <router-link v-if="user.isAdmin" to="/admin" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-shield"></i> 管理
       </router-link>

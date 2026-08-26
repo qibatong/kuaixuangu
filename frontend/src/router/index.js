@@ -12,7 +12,6 @@ const router = createRouter({
     { path: '/ladder', name: 'ladder', component: () => import('../views/LadderView.vue') },
     { path: '/yidong', name: 'yidong', component: () => import('../views/YidongView.vue') },
     { path: '/auction', name: 'auction', component: () => import('../views/AuctionView.vue') },
-    { path: '/invite', name: 'invite', component: () => import('../views/InviteView.vue') },
     { path: '/admin', name: 'admin', component: () => import('../views/AdminView.vue'), meta: { admin: true } },
     { path: '/:pathMatch(.*)*', redirect: '/' }
   ]

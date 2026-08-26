@@ -27,34 +27,30 @@ def test_invite_refresh(client, first_user):
     assert new_code and new_code != invite_code   # 刷新后应变化
 
 
-def test_register_with_invalid_invite(client, first_user):
-    """非首用户 + 无效邀请码 -> 注册失败"""
+def test_register_with_invalid_invite(client):
+    """注册已关闭(合规2026-08-25): 任何注册请求(含邀请码)一律 403"""
     r = client.post("/api/register", json={"username": "tester2", "password": "Test123456",
                                            "invite_code": "BADCODE1"})
-    assert r.status_code == 400
+    assert r.status_code == 403
     assert not r.json().get("ok")
 
 
 def test_register_with_valid_invite(client, first_user):
-    """用首用户的邀请码注册 -> 成功, 邀请数+1"""
+    """注册已关闭(合规2026-08-25): 即使带有效邀请码, 注册也仍被拒, 邀请数不增长"""
     import uuid
     token, _, _ = first_user
-    # 重新获取当前有效邀请码(可能被 test_invite_refresh 刷新过)
     inv = client.get("/api/invite", headers=hdrs(token)).json()["invite_code"]
     uname = "invitee_" + uuid.uuid4().hex[:8]
-    # 防滥用(2026-08-16): 注册需 phone+email, 这里补上避免 400
     phone = "139" + str(uuid.uuid4().int % 100000000).zfill(8)
     email = uuid.uuid4().hex[:8] + "i@test.local"
     r = client.post("/api/register", json={"username": uname, "password": "Test123456",
                                            "invite_code": inv,
                                            "phone": phone, "email": email})
-    assert r.status_code == 200
-    d = r.json()
-    assert d.get("ok") and d.get("token")
-    # 邀请关系
+    assert r.status_code == 403
+    assert not r.json().get("ok")
+    # 邀请关系不生增长(新用户未被创建)
     r2 = client.get("/api/invite", headers=hdrs(token))
-    assert r2.json()["invited_count"] >= 1
-    assert uname in [u["username"] for u in r2.json()["invitees"]]
+    assert all(u["username"] != uname for u in r2.json()["invitees"])
 
 
 def test_prefs_save_load(client, first_user):
