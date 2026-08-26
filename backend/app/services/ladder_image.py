@@ -3,13 +3,19 @@
 连板天梯 PNG 图片生成
 ====================
 把连板梯队数据 {1:[...],2:[...],...} 渲染成一张「连板天梯」竖版图片:
-  - 顶部: 标题 + 日期 + 市场汇总(总涨停/最高连板)
-  - 中部: 统计阶梯(首板~五板+ 横向条形, 宽度=该档次占比, 呈梯级)
-  - 下部: 逐股清单(按档次分组表格: 代码/名称/涨停原因/连板/首板时间/封单/换手/板块)
+  - 顶部: 标题 + 日期 + 市场汇总(涨停家数 / 最高连板 / 各档分布)
+  - 中部: 统计阶梯(按档位的阶梯条, 高板色更深)
+  - 下部: 连板池逐股清单(高板在上, 按档分组, 列: 代码/名称/连板/涨停概念/首板/封单/换手)
 
-用于每日盘后自动生成、App 内查看与导出图片。附开源中文字体
+数据口径(重要, 已修正 2026-08-26):
+  - 连板数: 用分组档位 pid(=ladder), 而非不可靠的 ztCount 字段
+  - 首板时间: limitTime 为完整 epoch 秒, 转北京时间 HH:MM
+  - 涨停概念: reason 常为空, 回落 concept(板块概念) 再 boardName
+
+用于每日盘后自动生成、App 内查看与导出图片。内置开源中文字体
 app/assets/fonts/wqy-microhei.ttc 保证中文渲染。
 """
+import datetime
 import os
 import threading
 
@@ -20,81 +26,106 @@ from ..core import config, logger
 log = logger.get_logger(__name__)
 
 # ---------- 外观常量 ----------
-WIDTH = 960
-MARGIN = 26
-BG = (255, 255, 255)            # 白底, 便于导出分享
-INK = (30, 32, 40)              # 主文字
-MUTED = (130, 136, 150)         # 次要文字
-UP = (224, 57, 51)              # 涨停红
-RED_BG = (252, 233, 231)        # 浅红背景
-LINE = (235, 237, 242)          # 分隔线
-BAND_BG = (248, 242, 240)       # 统计阶梯底色
+WIDTH = 900
+MARGIN = 24
+BG = (255, 255, 255)             # 白底, 便于导出分享
+NAVY = (22, 26, 36)              # 顶部深色
+GOLD = (255, 206, 94)            # 标题金色
+INK = (40, 42, 50)               # 主文字
+MUTED = (128, 134, 148)          # 次要文字
+FAINT = (176, 182, 194)          # 弱文字
+UP = (222, 54, 58)               # 涨停红
+LINE = (236, 238, 243)           # 分隔线
+ZEBRA = (250, 251, 253)          # 斑马行
+COLH_BG = (247, 247, 250)        # 列头底
+WHITE = (255, 255, 255)
+
+# 档位色阶(板数越高越深)
+TIER_COLOR = {
+    1: (228, 66, 70),
+    2: (212, 48, 62),
+    3: (196, 35, 62),
+    4: (180, 27, 62),
+    5: (163, 18, 62),
+}
 
 FONT_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "assets", "fonts", "wqy-microhei.ttc",
 )
 
-# 档次标签与标题色阶(由低到高, 板数越高颜色越深)
 TIERS = [1, 2, 3, 4, 5]
-TIER_LABEL = {1: "首 板", 2: "二 板", 3: "三 板", 4: "四 板", 5: "五板+"}
+TIER_LABEL = {1: "首板", 2: "二板", 3: "三板", 4: "四板", 5: "五板+"}
 
 _font_cache = {}
 
 
 def _font(size):
-    """获取指定字号的中文字体(带缓存)"""
     if size not in _font_cache:
         _font_cache[size] = ImageFont.truetype(FONT_PATH, size)
     return _font_cache[size]
 
 
+# 列布局: (列名, 左缘x, 宽度px, 对齐)  右侧时间/封单/换手右对齐更美观
+COLS = [
+    ("代码",   24,  96,  "l"),
+    ("名称",   120, 118, "l"),
+    ("连板",   238, 60,  "l"),
+    ("涨停概念", 298, 336, "l"),
+    ("首板",   634, 64,  "r"),
+    ("封单",   698, 96,  "r"),
+    ("换手",   794, 82,  "r"),
+]
+
+
 # ---------- 数据规整 ----------
 def _collect(data):
-    """把 {pid: [stocks]} 规整成按档次排序的阶梯数据 + 逐股清单。
-    返回 ({tier_label: count, ...} 有序, 总条数, rows)"""
     tiers, total, rows = [], 0, []
     for pid in TIERS:
         lst = data.get(pid) or []
-        count = len(lst)
-        total += count
+        total += len(lst)
         clean = []
         for it in lst:
             try:
+                concept = str(it.get("concept", "") or "").strip().replace("\n", " ")
+                reason = str(it.get("reason", "") or "").strip()
+                board = str(it.get("boardName", "") or it.get("board", "") or "").strip()
+                if not reason and concept:
+                    reason = concept
+                elif not reason:
+                    reason = board
                 clean.append({
                     "code": str(it.get("code", "")),
                     "name": str(it.get("name", "")),
-                    "reason": str(it.get("reason", "") or ""),
-                    "board": str(it.get("boardName", "") or it.get("board", "") or ""),
-                    "zt": int(it.get("ztCount", 0) or 0),
+                    "zt": pid,                       # 连板数=档位
+                    "reason": reason,
                     "limitTime": (it.get("limitTime") or 0),
                     "seal": float(it.get("seal", 0) or 0),
                     "turnover": float(it.get("turnover", 0) or 0),
-                    "pid": pid,
                 })
             except (TypeError, ValueError):
                 continue
-        tiers.append({"label": TIER_LABEL[pid], "count": count})
+        tiers.append({"label": TIER_LABEL[pid], "count": len(clean), "pid": pid})
         rows.append(clean)
     return tiers, total, rows
 
 
 def _truncate(text, width_px, size):
-    """按像素宽度截断文本(中文为双宽), 末尾加省略号"""
-    text = (text or "").strip().replace("\n", " ").replace("\r", " ")
+    text = (text or "").replace("\n", " ").replace("\r", " ").strip()
+    if not text:
+        return "—"
     font = _font(size)
     if font.getbbox(text)[2] <= width_px:
         return text
     res = ""
     for ch in text:
-        if font.getbbox(res + ch)[2] > width_px - 14:
+        if font.getbbox(res + ch)[2] > width_px - 13:
             break
         res += ch
     return res + "…"
 
 
 def _fmt_amount(seal):
-    """封单/成交额: 元 -> 亿/万"""
     if seal >= 1e8:
         return f"{seal / 1e8:.2f}亿"
     if seal >= 1e4:
@@ -102,156 +133,201 @@ def _fmt_amount(seal):
     return f"{seal:.0f}"
 
 
-def _max_connect(tiers, rows):
-    """最高连板数"""
-    mx = 0
-    for lst in rows:
-        for it in lst:
-            mx = max(mx, it["zt"])
-    if mx == 0:
-        mx = max((t["count"] for t in tiers), default=0) and len(tiers)
-    return mx
+def _fmt_limit(epoch):
+    """epoch 秒 -> 北京时间 HH:MM"""
+    if not epoch:
+        return "—"
+    try:
+        dt = datetime.datetime.fromtimestamp(
+            int(epoch), tz=datetime.timezone(datetime.timedelta(hours=8)))
+        return dt.strftime("%H:%M")
+    except (OverflowError, OSError, ValueError):
+        return "—"
+
+
+def _baseline(text, font):
+    """返回文本高度, 用于垂直居中"""
+    bbox = font.getbbox(text)
+    return bbox[1]
 
 
 # ---------- 渲染 ----------
 def build_png(data, date_str, out_path):
-    """
-    渲染连板天梯 PNG 并写出到 out_path。
-    data: {1:[...],2:[...],3:[...],4:[...],5:[...]} 连板梯队
-    date_str: 'YYYY-MM-DD'
-    """
     tiers, total, rows = _collect(data)
-    count_map = {t["label"]: t["count"] for t in tiers}
 
-    # ---------- 预计算高度 ----------
-    head_h = 118
-    summary_h = 78
-    band_h = 62                            # 每个档次的统计阶梯带
-    detail_head_h = 34                     # 逐股区"列头"
-    rows_start = head_h + summary_h + band_h * len(tiers)
+    # ---------- 预计算结构/高度 ----------
+    header_h = 118
+    summary_h = 100
+    stats_h = 172                      # 统计阶梯区
+    detail_pad = 14                    # 连板池内边距
+    tier_bar_h = 46
+    colh_h = 34
+    row_h = 44
 
-    # 明细区: 每个档次一 "组" = 组头(档名+数量) + 列头 + 每行
-    groups = []                            # (组头高, 列头行数, 数据行高)
-    group_heights = []
-    row_h = 30
+    sections_h = 0
     for lst in rows:
-        n = len(lst)
-        col_lines = 1                       # 列头单行(首板档说明可两行)
-        head_extra = 0
-        group_heights.append(34 + col_lines * 30 + n * row_h + 8)
-    list_total_h = sum(group_heights)
-    bottom_pad = 40
-    total_h = rows_start + list_total_h + bottom_pad
+        _t = tier_bar_h if len(lst) else tier_bar_h
+        sections_h += (tier_bar_h + colh_h + max(len(lst), 1) * row_h + detail_pad)
+
+    bottom_pad = 44
+    total_h = header_h + summary_h + stats_h + int(sections_h) + bottom_pad
 
     img = Image.new("RGB", (WIDTH, total_h), BG)
     draw = ImageDraw.Draw(img)
 
     y = 0
-    # ---------- 顶部标题 ----------
-    draw.rectangle([0, 0, WIDTH, head_h], fill=(26, 28, 36))
-    title_font = _font(34)
-    draw.text((MARGIN, 22), "连板天梯", font=title_font, fill=(255, 210, 90))
-    sub = _font(17)
-    src = _font(14)
-    draw.text((MARGIN + 205, 66), "快选 · 连板梯队统计", font=src, fill=(150, 158, 180))
-    date_font = _font(26)
-    d_text = date_str
-    d_w = date_font.getbbox(d_text)[2]
-    draw.text((WIDTH - MARGIN - d_w, 30), d_text, font=date_font, fill=(255, 255, 255))
-    wk = ["一", "二", "三", "四", "五", "六", "日"]
-    try:
-        import datetime as _dt
-        dt = _dt.datetime.strptime(date_str, "%Y-%m-%d")
-        wd = wk[dt.weekday()]
-        draw.text((WIDTH - MARGIN - d_w, 70), f"周{wd}", font=_font(15),
-                  fill=(190, 196, 210))
-    except Exception:
-        pass
 
-    # ---------- 汇总 ----------
-    y = head_h
-    draw.rectangle([0, y, WIDTH, y + summary_h], fill=(250, 250, 252))
-    draw.line([MARGIN, y + summary_h, WIDTH - MARGIN, y + summary_h], fill=LINE)
-    big = _font(34)
-    mid = _font(16)
-    # 总涨停
-    draw.text((MARGIN, y + 12), str(total), font=big, fill=UP)
-    draw.text((MARGIN, y + 52), "涨停总数(家)", font=mid, fill=MUTED)
-    # 最高连板
-    mx = _max_connect(tiers, rows)
-    c2 = MARGIN + 180
-    draw.text((c2, y + 12), str(mx), font=big, fill=UP)
-    draw.text((c2, y + 52), "最高连板(板)", font=mid, fill=MUTED)
-    # 各档家数
-    x = c2 + 180
-    for label, cnt in count_map.items():
-        draw.text((x, y + 16), f"{label}  {cnt}家", font=_font(17), fill=INK)
-        draw.text((x, y + 50), label.replace(" ", ""), font=_font(12), fill=MUTED)
-        x += 128
+    # ---------- 顶部标题 ----------
+    draw.rectangle([0, 0, WIDTH, header_h], fill=NAVY)
+    draw.text((MARGIN, 26), "连板天梯", font=_font(32), fill=GOLD)
+    draw.text((MARGIN, 79), "涨停梯队日报 · 快选Kuaixuan", font=_font(15), fill=(156, 164, 184))
+    # 右上: 日期 + 星期
+    date_font = _font(22)
+    dw = date_font.getbbox(date_str)[2]
+    dx = WIDTH - MARGIN - dw
+    draw.text((dx, 30), date_str, font=date_font, fill=WHITE)
+    try:
+        dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+        wk = ["一", "二", "三", "四", "五", "六", "日"][dt.weekday()]
+    except Exception:
+        wk = ""
+    if wk:
+        d2 = date_font.getbbox(f"周{wk}")[2]
+        draw.text((WIDTH - MARGIN - d2, 80), f"周{wk}", font=_font(15), fill=(190, 196, 210))
+    # 头部下缘金色装饰线
+    draw.line([MARGIN, header_h - 3, WIDTH - MARGIN, header_h - 3], fill=GOLD, width=2)
+    y = header_h
+
+    # ---------- 汇总指标 ----------
+    draw.rectangle([0, y, WIDTH, y + summary_h], fill=(249, 249, 252))
+    draw.line([0, y + summary_h, WIDTH, y + summary_h], fill=LINE)
+    big = _font(30)
+    lab_font = _font(14)
+    mx = max((t["count"] and ti for ti, t in enumerate(tiers, 1)), default=1)
+    cards = [
+        ("涨停家数", str(total), "家"),
+        ("最高连板", str(mx), "板"),
+    ]
+    cx = MARGIN
+    for cap, val, unit in cards:
+        draw.text((cx, y + 20), val, font=big, fill=UP)
+        vw = big.getbbox(val)[2]
+        draw.text((cx + vw + 6, y + 30), unit, font=_font(16), fill=MUTED)
+        draw.text((cx, y + 62), cap, font=lab_font, fill=MUTED)
+        cx += 150
+    # 档位分布 chips
+    xc = cx + 10
+    for t in tiers:
+        cw = lab_font.getbbox(f"{t['label']}")[2] + 30
+        ch = 26
+        # chip 浅底
+        draw.rounded_rectangle([xc, y + 34, xc + cw, y + 34 + ch], radius=ch // 2,
+                               fill=(255, 236, 236), outline=(255, 214, 214))
+        draw.text((xc + 14, y + 39), t["label"], font=_font(14), fill=UP)
+        n_txt = f"{t['count']}"
+        nw = _font(16).getbbox(n_txt)[2]
+        draw.text((xc + cw - 8 - nw, y + 39), n_txt, font=_font(16), fill=UP)
+        xc += cw + 12
     y += summary_h
 
-    # ---------- 统计阶梯 ----------
+    # ---------- 统计天梯(阶梯条) ----------
+    draw.rectangle([0, y, WIDTH, y + stats_h], fill=WHITE)
+    # 标题
+    draw.text((MARGIN, y + 16), "连板分布", font=_font(17), fill=INK)
+    # 阶梯条(五板+在上? 这里按低→高横向堆叠, 高板色更深)
     max_count = max([t["count"] for t in tiers] + [1])
-    bar_area_w = WIDTH - 2 * MARGIN - 150   # 留 150 给右侧计数
+    bar_area_w = WIDTH - 2 * MARGIN - 60
+    bx = MARGIN + 60
     for t in tiers:
-        draw.rectangle([0, y, WIDTH, y + band_h], fill=BAND_BG)
-        draw.line([MARGIN, y + band_h, WIDTH - MARGIN, y + band_h], fill=LINE)
-        # 档名
-        draw.text((MARGIN, y + 18), t["label"], font=_font(24), fill=INK)
-        # 阶梯条(宽度比例 = count/max), 由低到高递增呈现梯级
+        by0 = y + 46 + (TIERS.index(t["pid"])) * 24
         bw = int(bar_area_w * (t["count"] / max_count))
-        bw = max(bw, 8)
-        bx = MARGIN
-        by = y + 16
-        draw.rounded_rectangle([bx, by, bx + bw, by + 30], radius=6, fill=UP)
-        # 计数
-        m = _font(22)
-        cnt_text = f"{t['count']} 家"
-        draw.text((bx + bw + 14, y + 15), cnt_text, font=m, fill=UP)
-        y += band_h
+        bw = max(bw, 6)
+        color = TIER_COLOR[t["pid"]]
+        draw.rounded_rectangle([bx, by0, bx + bw, by0 + 18], radius=5, fill=color)
+        draw.text((MARGIN, by0 - 2), t["label"], font=_font(14), fill=INK)
+        c_t = f"{t['count']} 家"
+        c_font = _font(14)
+        draw.text((bx + bw + 8, by0 - 2), c_t, font=c_font, fill=MUTED)
+    y += stats_h
 
-    # ---------- 逐股清单 ----------
-    rows_start = y
-    for idx, (lst, gh) in enumerate(zip(rows, group_heights)):
-        g_h = gh
-        # 组头
-        draw.rectangle([0, y, WIDTH, y + 34], fill=(245, 214, 210))
-        draw.text((MARGIN, y + 6), f'{tiers[idx]["label"]}  {len(lst)} 家',
-                  font=_font(19), fill=UP)
-        y += 34
+    # ---------- 连板池逐股清单(高板在上) ----------
+    order = list(reversed(list(enumerate(rows))))      # 五板+ 在上
+    # 连板池标题
+    draw.text((MARGIN, y + 4), "连板池", font=_font(17), fill=INK)
+    y += 34
+
+    for idx, lst in order:
+        tier = tiers[idx]
+        color = TIER_COLOR[tier["pid"]]
+        # 档位头
+        draw.rounded_rectangle([MARGIN, y, WIDTH - MARGIN, y + tier_bar_h],
+                               radius=8, fill=color)
+        draw.text((MARGIN + 16, y + 8), tier["label"], font=_font(22), fill=WHITE)
+        n = len(lst)
+        n_t = f"{n} 只"
+        n_font = _font(17)
+        nw = n_font.getbbox(n_t)[2]
+        draw.text((WIDTH - MARGIN - 16 - nw, y + 12), n_t, font=n_font, fill=(255, 230, 230))
+        y += tier_bar_h
         # 列头
-        colh_font = _font(15)
-        draw.text((MARGIN, y + 7), "代码", font=colh_font, fill=MUTED)
-        draw.text((MARGIN + 110, y + 7), "名称", font=colh_font, fill=MUTED)
-        draw.text((MARGIN + 220, y + 7), "涨停原因 / 所属板块", font=colh_font, fill=MUTED)
-        draw.text((MARGIN + 600, y + 7), "连板", font=colh_font, fill=MUTED)
-        draw.text((MARGIN + 660, y + 7), "首板", font=colh_font, fill=MUTED)
-        draw.text((MARGIN + 740, y + 7), "封单", font=colh_font, fill=MUTED)
-        draw.text((MARGIN + 840, y + 7), "换手", font=colh_font, fill=MUTED)
-        y += 30
-        # 数据行
-        row_font = _font(16)
-        for it in lst:
-            draw.text((MARGIN, y + 5), it["code"], font=row_font, fill=INK)
-            draw.text((MARGIN + 110, y + 5), _truncate(it["name"], 96, 16),
-                      font=row_font, fill=INK)
-            reason = it["reason"] or it["board"]
-            reason_disp = _truncate(reason, 360, 16) if reason else "—"
-            draw.text((MARGIN + 220, y + 5), reason_disp, font=row_font, fill=MUTED)
-            draw.text((MARGIN + 600, y + 5), str(it["zt"]) + "板", font=row_font, fill=UP)
-            lt = it["limitTime"]
-            lts = ("%02d:%02d" % (lt // 3600 % 24, lt // 60 % 60)) if lt else "—"
-            draw.text((MARGIN + 660, y + 5), lts, font=row_font, fill=INK)
-            draw.text((MARGIN + 740, y + 5), _fmt_amount(it["seal"]), font=row_font, fill=INK)
-            draw.text((MARGIN + 840, y + 5), f"{it['turnover']:.1f}%", font=row_font, fill=INK)
-            y += row_h
-        # 组间分隔
-        draw.line([MARGIN, y, WIDTH - MARGIN, y], fill=LINE)
-        y += 8
+        draw.rectangle([MARGIN, y, WIDTH - MARGIN, y + colh_h], fill=COLH_BG)
+        colfh = _font(15)
+        draw.line([MARGIN, y + colh_h, WIDTH - MARGIN, y + colh_h], fill=LINE)
+        for cname, x0, cw, al in COLS:
+            if al == "r":
+                tx = x0 + cw - colfh.getbbox(cname)[2]
+            else:
+                tx = x0
+            draw.text((tx, y + 9), cname, font=colfh, fill=MUTED)
+        y += colh_h
 
-    # 底部水印
-    draw.text((MARGIN, total_h - 30), "快选 Kuaixuan · 连板天梯（每日盘后自动生成）",
-              font=_font(13), fill=MUTED)
+        if not lst:
+            # 空档占位一致
+            draw.rectangle([MARGIN, y, WIDTH - MARGIN, y + row_h], fill=ZEBRA)
+            draw.text((MARGIN + 10, y + 13), "— 该档今日暂无个股 —", font=_font(15), fill=FAINT)
+            y += row_h
+        else:
+            row_font = _font(16)
+            name_font = _font(16)
+            for r_i, it in enumerate(lst):
+                row_bg = WHITE if r_i % 2 == 0 else ZEBRA
+                draw.rectangle([MARGIN, y, WIDTH - MARGIN, y + row_h], fill=row_bg)
+                # 代码
+                draw.text((COLS[0][1], y + 13), it["code"], font=_font(18), fill=INK)
+                # 名称
+                draw.text((COLS[1][1], y + 13), _truncate(it["name"], COLS[1][2], 16),
+                          font=name_font, fill=INK)
+                # 连板
+                zt_t = f"{it['zt']}板"
+                zt_font = _font(15)
+                draw.rounded_rectangle([COLS[2][1], y + 12, COLS[2][1] + 44, y + 32],
+                                       radius=10, fill=(255, 236, 236), outline=(255, 210, 210))
+                draw.text((COLS[2][1] + 9, y + 13), zt_t, font=zt_font, fill=UP)
+                # 涨停概念
+                draw.text((COLS[3][1], y + 13), _truncate(it["reason"], COLS[3][2], 16),
+                          font=row_font, fill=MUTED)
+                # 首板/封单/换手 (右对齐)
+                cells = [
+                    (4, _fmt_limit(it["limitTime"]), INK),
+                    (5, _fmt_amount(it["seal"]), INK),
+                    (6, f"{it['turnover']:.1f}%", MUTED),
+                ]
+                f_d = row_font
+                for cidx, val, colo in cells:
+                    cname, x0, cw, al = COLS[cidx]
+                    vw = f_d.getbbox(val)[2]
+                    draw.text((x0 + cw - vw, y + 13), val, font=f_d, fill=colo)
+                y += row_h
+        # 组间分隔
+        y += 6
+
+    # ---------- 底部 ----------
+    y += 10
+    draw.line([MARGIN, total_h - 34, WIDTH - MARGIN, total_h - 34], fill=LINE)
+    draw.text((MARGIN, total_h - 30), "数据来源: 开盘啦 · 每日交易日 15:30 自动生成",
+              font=_font(13), fill=FAINT)
+    draw.text((WIDTH - MARGIN - 180, total_h - 30), "快选 Kuaixuan",
+              font=_font(13), fill=FAINT)
 
     # ---------- 写出 ----------
     _lock = threading.Lock()
@@ -262,10 +338,6 @@ def build_png(data, date_str, out_path):
 
 
 def generate_for_date(date_str):
-    """
-    生成指定日期的连板天梯 PNG(数据来自 ladder_history 落库)。
-    返回生成的图片绝对路径; 无数据返回 None。
-    """
     try:
         from . import kpl
         data = kpl.query_ladder_history(date_str)
