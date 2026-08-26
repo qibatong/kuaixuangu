@@ -270,18 +270,11 @@ def test_scoring_cfg_affects_compute(client, first_user):
 
 
 # ---------- 管理员重置用户密码 ----------
-def test_admin_reset_password_ok(client, first_user):
-    """管理员给普通用户重置密码后, 新密码可登录, 旧密码失效。
-    用临时用户(避免 SSO 登录踢 token 时污染 second_user session fixture)"""
-    import uuid
-    token, _, invite = first_user
-    target = "rst_" + uuid.uuid4().hex[:8]
-    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
-    email = uuid.uuid4().hex[:8] + "@test.local"
-    r = client.post("/api/register", json={"username": target, "password": "Test123456",
-                                           "invite_code": invite,
-                                           "phone": phone, "email": email})
-    assert r.status_code == 200
+def test_admin_reset_password_ok(client, first_user, create_user_token):
+    """管理员给普通用户重置密码后, 新密码可登录, 旧密码失效。"""
+    token, _, _ = first_user
+    u = create_user_token()
+    target = u["username"]
     r = client.post("/api/admin/users/reset-password",
                     json={"username": target, "password": "qwer1234"},
                     headers=hdrs(token))
@@ -292,7 +285,7 @@ def test_admin_reset_password_ok(client, first_user):
     r2 = client.post("/api/login", json={"username": target, "password": "qwer1234"})
     assert r2.status_code == 200 and r2.json().get("ok")
     # 旧密码登录失败
-    r3 = client.post("/api/login", json={"username": target, "password": "test123456"})
+    r3 = client.post("/api/login", json={"username": target, "password": u["password"]})
     assert r3.status_code == 401
 
 
@@ -469,17 +462,11 @@ def test_admin_defaults_no_force_keeps_user_filters(client, first_user, second_u
 
 
 # ---------- 管理员代编辑用户资料 ----------
-def test_admin_profile_edit_ok(client, first_user):
+def test_admin_profile_edit_ok(client, first_user, create_user_token):
     """管理员编辑用户资料(微信名/备注/手机号) -> 成功, 列表可见"""
-    import uuid
-    token, _, invite = first_user
-    uname = "pf_" + uuid.uuid4().hex[:8]
-    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
-    email = uuid.uuid4().hex[:8] + "@test.local"
-    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                           "invite_code": invite,
-                                           "phone": phone, "email": email})
-    assert r.status_code == 200
+    token, _, _ = first_user
+    u = create_user_token()
+    uname = u["username"]
     uid = None
     r2 = client.get("/api/admin/users", headers=hdrs(token))
     for row in r2.json().get("rows", []):
@@ -511,22 +498,15 @@ def test_admin_profile_invalid_phone(client, first_user, second_user):
     assert r.status_code == 400
 
 
-def test_admin_profile_duplicate_email(client, first_user, second_user):
+def test_admin_profile_duplicate_email(client, first_user, second_user, create_user_token):
     """资料邮箱与其他用户重复 -> 400"""
-    import uuid
-    token, _, invite = first_user
-    # 注册两个用户, 用第二个用户的邮箱去改第一个 -> 应拒绝
-    u1 = "pfdup1_" + uuid.uuid4().hex[:8]
-    u2 = "pfdup2_" + uuid.uuid4().hex[:8]
-    p1 = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
-    p2 = "139" + str(uuid.uuid4().int % 100000000).zfill(8)
-    e1 = uuid.uuid4().hex[:8] + "@test.local"
-    e2 = uuid.uuid4().hex[:8] + "@test.local"
-    r1 = client.post("/api/register", json={"username": u1, "password": "Test123456",
-                                            "invite_code": invite, "phone": p1, "email": e1})
-    r2 = client.post("/api/register", json={"username": u2, "password": "Test123456",
-                                            "invite_code": invite, "phone": p2, "email": e2})
-    assert r1.status_code == 200 and r2.status_code == 200
+    token, _, _ = first_user
+    # 建两个用户, 用第二个用户的邮箱去改第一个 -> 应拒绝
+    ua = create_user_token()
+    ub = create_user_token()
+    u1 = ua["username"]
+    u2 = ub["username"]
+    e2 = ub["email"]
     rows = client.get("/api/admin/users", headers=hdrs(token)).json()["rows"]
     id1 = next(x["id"] for x in rows if x["username"] == u1)
     # 把 u1 邮箱改成 u2 的邮箱 -> 唯一性冲突
@@ -595,17 +575,11 @@ def test_admin_create_invalid_phone(client, first_user):
     assert r.status_code == 400
 
 
-def test_admin_profile_pay_remark(client, first_user):
+def test_admin_profile_pay_remark(client, first_user, create_user_token):
     """资料接口支持 pay_remark 字段 (会员专属付款备注)"""
-    import uuid
-    token, _, invite = first_user
-    uname = "pay_" + uuid.uuid4().hex[:8]
-    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
-    email = uuid.uuid4().hex[:8] + "@test.local"
-    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                           "invite_code": invite,
-                                           "phone": phone, "email": email})
-    assert r.status_code == 200
+    token, _, _ = first_user
+    u = create_user_token()
+    uname = u["username"]
     # 取 uid
     rows = client.get("/api/admin/users", headers=hdrs(token)).json()["rows"]
     uid = next(x["id"] for x in rows if x["username"] == uname)
@@ -622,17 +596,11 @@ def test_admin_profile_pay_remark(client, first_user):
     assert row2.get("pay_remark") == "8-16微信月付300元"
 
 
-def test_admin_delete_user_ok(client, first_user):
+def test_admin_delete_user_ok(client, first_user, create_user_token):
     """删除普通用户 -> 成功, 后续登录失败"""
-    import uuid
-    token, _, invite = first_user
-    uname = "del_" + uuid.uuid4().hex[:8]
-    phone = "139" + str(uuid.uuid4().int % 100000000).zfill(8)
-    email = uuid.uuid4().hex[:8] + "@test.local"
-    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                           "invite_code": invite,
-                                           "phone": phone, "email": email})
-    assert r.status_code == 200
+    token, _, _ = first_user
+    u = create_user_token()
+    uname = u["username"]
     # 取 uid
     rows = client.get("/api/admin/users", headers=hdrs(token)).json()["rows"]
     uid = next(x["id"] for x in rows if x["username"] == uname)
@@ -667,40 +635,13 @@ def test_admin_delete_admin_forbidden(client, first_user):
 
 
 # ---------- 会员筛选 tab (服务端过滤) ----------
-def test_admin_users_member_tab(client, first_user):
+def test_admin_users_member_tab(client, first_user, create_user_token):
     """管理端列表按 member_tab 服务端过滤: all/member/normal/admin"""
     import uuid
-    token, _, invite = first_user
-    # 注册 3 个不同等级的用户
-    for i, lvl in enumerate([0, 1, 2]):
-        u = "tab_" + uuid.uuid4().hex[:6]
-        ph = "13" + str(i) + str(uuid.uuid4().int % 10000000).zfill(8)
-        em = uuid.uuid4().hex[:6] + "@test.local"
-        r = client.post("/api/register", json={"username": u, "password": "Test123456",
-                                               "invite_code": invite, "phone": ph, "email": em})
-        assert r.status_code == 200
-    # 找 admin user id 用于设置 member_level
-    rows_all = client.get("/api/admin/users?keyword=tab_&pageSize=20",
-                          headers=hdrs(token)).json()["rows"]
-    # 按创建顺序(后注册的在前): tab_...3 = lvl=2, 2 = lvl=1, 1 = lvl=0
-    # 倒序遍历, 找到 lvl=0/1/2 各一个
-    lvls = {}
-    for row in rows_all:
-        if not row["username"].startswith("tab_"):
-            continue
-        if row["member_level"] not in lvls:
-            lvls[row["member_level"]] = row["id"]
-        if len(lvls) == 3:
-            break
-    # 给 lvl=0/1 用户加等级
-    if 0 in lvls:
-        r = client.post("/api/admin/users/member-level",
-                        json={"uid": lvls[0], "level": 1}, headers=hdrs(token))
-        assert r.status_code == 200
-    if 2 in lvls:
-        r = client.post("/api/admin/users/member-level",
-                        json={"uid": lvls[2], "level": 2}, headers=hdrs(token))
-        assert r.status_code == 200
+    token, _, _ = first_user
+    # 建 3 个不同等级的用户 (member_level 0/1/2)
+    for lvl in [0, 1, 2]:
+        create_user_token(username="tab_" + uuid.uuid4().hex[:6], member_level=lvl)
     # member tab: 只返回 lvl>0 且非管理员
     r = client.get("/api/admin/users?memberTab=member&pageSize=100",
                    headers=hdrs(token))
@@ -737,17 +678,13 @@ def test_admin_users_member_tab(client, first_user):
 
 
 # ---------- 管理端搜索扩展: 微信名/备注/付款备注 ----------
-def test_admin_search_wx_name_remark(client, first_user):
+def test_admin_search_wx_name_remark(client, first_user, create_user_token):
     """按微信名/备注/付款备注搜索用户"""
     import uuid
-    token, _, invite = first_user
+    token, _, _ = first_user
     # 创建带微信名+备注的用户
-    uname = "search_" + uuid.uuid4().hex[:6]
-    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
-    email = uuid.uuid4().hex[:6] + "@test.local"
-    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                           "invite_code": invite, "phone": phone, "email": email})
-    assert r.status_code == 200
+    u = create_user_token(username="search_" + uuid.uuid4().hex[:6])
+    uname = u["username"]
     rows = client.get("/api/admin/users?keyword=" + uname, headers=hdrs(token)).json()["rows"]
     uid = next(x["id"] for x in rows if x["username"] == uname)
     # 设置微信名/备注/付款备注
@@ -772,19 +709,15 @@ def test_admin_search_wx_name_remark(client, first_user):
 
 
 # ---------- 付费 / VIP tab 分别过滤 ----------
-def test_admin_users_paid_vip_tab(client, first_user):
+def test_admin_users_paid_vip_tab(client, first_user, create_user_token):
     """付费 tab 只返回 member_level=1; VIP tab 只返回 member_level=2"""
     import uuid
-    token, _, invite = first_user
-    # 创建 2 个新用户
-    paid_uname = "paid_" + uuid.uuid4().hex[:6]
-    vip_uname = "vip_" + uuid.uuid4().hex[:6]
-    for u in (paid_uname, vip_uname):
-        r = client.post("/api/register", json={"username": u, "password": "Test123456",
-                                               "invite_code": invite,
-                                               "phone": "13" + str(uuid.uuid4().int % 100000000).zfill(9),
-                                               "email": uuid.uuid4().hex[:6] + "@test.local"})
-        assert r.status_code == 200
+    token, _, _ = first_user
+    # 创建 2 个新用户: paid=level1, vip=level2
+    paid_u = create_user_token(username="paid_" + uuid.uuid4().hex[:6], member_level=1)
+    vip_u = create_user_token(username="vip_" + uuid.uuid4().hex[:6], member_level=2)
+    paid_uname = paid_u["username"]
+    vip_uname = vip_u["username"]
     # 取新用户 uid
     rows_all = client.get("/api/admin/users?keyword=paid_&pageSize=20",
                            headers=hdrs(token)).json()["rows"]
@@ -792,13 +725,6 @@ def test_admin_users_paid_vip_tab(client, first_user):
     rows_all = client.get("/api/admin/users?keyword=vip_&pageSize=20",
                            headers=hdrs(token)).json()["rows"]
     vip_uid = next((r["id"] for r in rows_all if r["username"] == vip_uname), None)
-    # paid_uname -> level=1; vip_uname -> level=2
-    r = client.post("/api/admin/users/member-level",
-                    json={"uid": paid_uid, "level": 1}, headers=hdrs(token))
-    assert r.status_code == 200
-    r = client.post("/api/admin/users/member-level",
-                    json={"uid": vip_uid, "level": 2}, headers=hdrs(token))
-    assert r.status_code == 200
     # paid tab: 只返回付费用户
     r = client.get("/api/admin/users?memberTab=paid&pageSize=100",
                    headers=hdrs(token))
