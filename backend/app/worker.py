@@ -19,7 +19,7 @@ import time
 
 from .core import logger
 from .db import database
-from .services import auction_snapshot, wpqc_push, aipick_scheduler, concept_refresh
+from .services import auction_snapshot, wpqc_push, aipick_scheduler, concept_refresh, ladder_daily
 
 log = logger.get_logger(__name__)
 
@@ -69,7 +69,8 @@ def main():
     wpqc_push.start_scheduler()
     aipick_scheduler.start_scheduler()
     concept_refresh.start_scheduler()  # 盘中每30分钟从开盘啦刷新竞价异动股票概念并写库
-    log.info("快照采集 + 尾盘推送 + AI竞价选股调度 + 盘中概念刷新已启动")
+    ladder_daily.start_scheduler()     # 交易日 15:30 盘后生成连板天梯 PNG
+    log.info("快照采集 + 尾盘推送 + AI竞价选股调度 + 盘中概念刷新 + 连板天梯盘后生成已启动")
     # 主线程阻塞消费队列
     consume_loop()
 

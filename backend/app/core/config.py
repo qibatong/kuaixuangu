@@ -26,6 +26,8 @@ PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 DB_FILE = os.environ.get("BID_DB_PATH", os.path.join(PROJECT_ROOT, "kuaixuan.db"))
 # 日志目录(默认项目根下 logs/), 可用 BID_LOG_DIR 覆盖
 LOG_DIR = os.environ.get("BID_LOG_DIR", os.path.join(PROJECT_ROOT, "logs"))
+# 连板天梯图片输出目录(每日盘后生成 PNG, 供 App 内查看/下载)
+LADDER_IMG_DIR = os.environ.get("LADDER_IMG_DIR", os.path.join(PROJECT_ROOT, "ladder_images"))
 
 # ---------- 邮件重置密码 ----------
 SMTP_HOST = os.environ.get("SMTP_HOST", "")
