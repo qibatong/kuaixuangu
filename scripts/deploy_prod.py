@@ -103,6 +103,13 @@ def main():
     sftp_mkdirs(sftp, "/opt/kuaixuan/backend/app/services")
     sftp.put("/workspace/backend/app/services/ladder_image.py", f"{DEPLOY}/backend/app/services/ladder_image.py")
     sftp.put("/workspace/backend/app/services/ladder_daily.py", f"{DEPLOY}/backend/app/services/ladder_daily.py")
+    # 2026-08-27: 股性功能(涨停/炸板落库 limit_history + 画像/排行 + 盘后调度)随生产更新
+    sftp_mkdirs(sftp, "/opt/kuaixuan/backend/app/services")
+    sftp.put("/workspace/backend/app/services/stock_temper.py", f"{DEPLOY}/backend/app/services/stock_temper.py")
+    sftp_mkdirs(sftp, "/opt/kuaixuan/backend/app/api")
+    sftp.put("/workspace/backend/app/api/stock_temper.py", f"{DEPLOY}/backend/app/api/stock_temper.py")
+    sftp.put("/workspace/backend/app/main.py", f"{DEPLOY}/backend/app/main.py")
+    sftp.put("/workspace/backend/app/worker.py", f"{DEPLOY}/backend/app/worker.py")
     # 2026-08-24: 现涨降级兜底(stats.py) + 快照TTL 60s(config.py) 也随生产更新
     LOC_STATS = "/workspace/backend/app/api/stats.py"
     REM_STATS = f"{DEPLOY}/backend/app/api/stats.py"
