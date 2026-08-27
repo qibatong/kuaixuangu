@@ -359,6 +359,38 @@ def init_db():
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_task_queue_status ON task_queue(status)")
 
+    # ---------- 2026-08-27: 股性功能 ----------
+    # 每日涨停/炸板明细存档: 供「历史封板率 / 次日溢价 / 炸板反包 / 连板基因」统计。
+    # 来源: 东财 flash 历史池(limit_up_pool/limit_up_broken)每日盘后落库;
+    #       过去一年由回补脚本逐日(YYYY-MM-DD)回填。
+    # 口径: is_limit=1 之意最终封住(涨停池), is_limit=0 之意最终炸板(炸板池)。
+    #       历史接口只给「当日最终态」, 盘中首封时间/封单等细粒度仅从上线起累积。
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS limit_history (
+            date TEXT NOT NULL,
+            code TEXT NOT NULL,
+            name TEXT,
+            is_limit INTEGER NOT NULL DEFAULT 1,
+            zt INTEGER NOT NULL DEFAULT 1,
+            zbc INTEGER NOT NULL DEFAULT 0,
+            change REAL NOT NULL DEFAULT 0,
+            reason TEXT,
+            ts INTEGER NOT NULL,
+            PRIMARY KEY (date, code)
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_limit_history_code ON limit_history(code)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_limit_history_date ON limit_history(date)")
+    # 个股日K缓存: 回补/现算「次日溢价、大阴线、反包」时免重复拉东财。
+    # 一行一只股票一整段日K(JSON); ts 记录落库时间。字段: date(基准日,k线含T-119..T日)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS stock_kline (
+            code TEXT PRIMARY KEY,
+            day_data TEXT NOT NULL,
+            ts INTEGER NOT NULL
+        )
+    """)
+
     # ---------- 2026-08-25: limitUp/stSuspend 语义反转(旧=true时剔除, 新=true时只看)
     # 迁移幂等: 用 settings 表 mig_filter_sem_flip_v2 标记, 标记已存在则跳过.
     # 迁移内容:
