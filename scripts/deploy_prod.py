@@ -97,6 +97,12 @@ def main():
     sftp.put(LOC_BACKEND_FETCHER, REMOTE_BACKEND_FETCHER)
     sftp_mkdirs(sftp, os.path.dirname(REMOTE_BACKEND_KPL))
     sftp.put(LOCAL_BACKEND_KPL, REMOTE_BACKEND_KPL)
+    # 2026-08-26: 连板天梯 相关模块随之更新
+    sftp_mkdirs(sftp, os.path.dirname(REMOTE_BACKEND_KPL))
+    sftp.put("/workspace/backend/app/api/ladder.py", f"{DEPLOY}/backend/app/api/ladder.py")
+    sftp_mkdirs(sftp, "/opt/kuaixuan/backend/app/services")
+    sftp.put("/workspace/backend/app/services/ladder_image.py", f"{DEPLOY}/backend/app/services/ladder_image.py")
+    sftp.put("/workspace/backend/app/services/ladder_daily.py", f"{DEPLOY}/backend/app/services/ladder_daily.py")
     # 2026-08-24: 现涨降级兜底(stats.py) + 快照TTL 60s(config.py) 也随生产更新
     LOC_STATS = "/workspace/backend/app/api/stats.py"
     REM_STATS = f"{DEPLOY}/backend/app/api/stats.py"
@@ -124,7 +130,8 @@ def main():
     # 4. chmod + 重启 web
     print("[4/4] chmod + 重启 kuaixuan.service ...")
     stdin, stdout, stderr = ssh.exec_command(
-        f"chmod -R a+rX {DEPLOY}/dist && systemctl restart kuaixuan && echo RESTART_OK"
+        f"chmod -R a+rX {DEPLOY}/dist && systemctl restart kuaixuan && "
+        f"systemctl restart kx-worker 2>/dev/null; echo RESTART_OK"
     )
     out = stdout.read().decode()
     err = stderr.read().decode()
