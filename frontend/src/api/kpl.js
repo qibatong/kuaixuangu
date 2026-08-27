@@ -30,6 +30,11 @@ export function kplLadder(date = '') {
   return request(`/api/kpl/ladder${date ? `?date=${date}` : ''}`)
 }
 
+// 连板天梯盘后生成的日期列表(降序)
+export function kplLadderDates() {
+  return request('/api/ladder/dates')
+}
+
 export function kplBoardRank(date = '') {
   return request(`/api/kpl/board-rank${date ? `?date=${date}` : ''}`)
 }
