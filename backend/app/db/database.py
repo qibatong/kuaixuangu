@@ -390,6 +390,20 @@ def init_db():
             ts INTEGER NOT NULL
         )
     """)
+    # 股性画像落库(方案B): 每日盘后一次性算好全部画像, 排行直读此表避免实时逐股重算。
+    # profile 为 compute_profile 全量 JSON; score/zt_count/name 供排行排序与搜索筛选。
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS stock_temper_profile (
+            code TEXT PRIMARY KEY,
+            name TEXT,
+            score REAL NOT NULL DEFAULT 0,
+            zt_count INTEGER NOT NULL DEFAULT 0,
+            profile TEXT NOT NULL,
+            ts INTEGER NOT NULL
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_temper_score ON stock_temper_profile(score DESC)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_temper_name ON stock_temper_profile(name)")
 
     # ---------- 2026-08-25: limitUp/stSuspend 语义反转(旧=true时剔除, 新=true时只看)
     # 迁移幂等: 用 settings 表 mig_filter_sem_flip_v2 标记, 标记已存在则跳过.

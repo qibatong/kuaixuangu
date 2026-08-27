@@ -334,33 +334,89 @@ def _tags(score, seal_rate, avg_prem, zt_count, max_zt, rebuy_rate, rep_factor):
     return t
 
 
-# ==================== 排行 ====================
-def rank(page=1, size=50, min_zt=0, day_window=None):
-    """股性排行: 从 limit_history 聚合每只股票画像, 按 score 降序 + 分页。
-    含 refresh=1 的全量计算会逐股现拉日K(仅首次较慢, 之后走 stock_kline 缓存)。
-    """
+# ==================== 排行榜(方案B: 直读画像落库表) ====================
+def rank(page=1, size=50, min_zt=0, keyword="", day_window=None):
+    """股性排行: 从 stock_temper_profile 直读(len回来即时), 不再逐股实时计算。
+    支持 min_zt(最少涨停数) 与 keyword(代码/名称模糊搜索) 过滤; 按 score 降序分页。
+    scope = 画像表全量股票数(统计范围); total = 当前筛选后的结果数。"""
     conn = database.get_conn()
+    where, args = [], []
+    if min_zt:
+        where.append("zt_count >= ?")
+        args.append(int(min_zt))
+    kw = (keyword or "").strip()
+    if kw:
+        where.append("(code LIKE ? OR name LIKE ?)")
+        like = f"%{kw}%"
+        args.extend([like, like])
+    wsql = (" WHERE " + " AND ".join(where)) if where else ""
+    scope = conn.execute("SELECT COUNT(*) FROM stock_temper_profile").fetchone()[0]
+    total = conn.execute(f"SELECT COUNT(*) FROM stock_temper_profile{wsql}", args).fetchone()[0]
     rows = conn.execute(
-        "SELECT code, COUNT(*) c, SUM(is_limit) zt, MAX(name) name "
-        "FROM limit_history GROUP BY code").fetchall()
+        f"SELECT profile FROM stock_temper_profile{wsql} "
+        "ORDER BY score DESC, code LIMIT ? OFFSET ?",
+        args + [int(size), (int(page) - 1) * int(size)]).fetchall()
     conn.close()
-    out = []
-    for code, _c, zt, _n in rows:
-        if min_zt and int(zt or 0) < min_zt:
+    try:
+        out = [json.loads(r[0]) for r in rows]
+    except Exception:
+        out = []
+    return {"total": total, "scope": scope, "page": page, "size": size,
+            "list": out}
+
+
+# ==================== 画像落库 / 重算(方案B) ====================
+def _store_profile(p, ts=None):
+    """把单只股票画像写入 stock_temper_profile(INSERT OR REPLACE)。"""
+    ts = ts or int(time.time())
+    conn = database.get_conn()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO stock_temper_profile(code,name,score,zt_count,profile,ts) "
+            "VALUES(?,?,?,?,?,?)",
+            (p.get("code", ""), p.get("name") or p.get("code", ""),
+             float(p.get("score") or 0), int(p.get("zt_count") or 0),
+             json.dumps(p, ensure_ascii=False), ts))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def rebuild_profiles(day_window=None):
+    """全量重算并落库所有有涨停/炸板记录股票的画像(方案B: 每日盘后/回补后调用)。
+    逐股 compute_profile(日K走 stock_kline 缓存), 写入 stock_temper_profile。
+    day_window: 统计近 N 自然日(默认覆盖回补的一年+)。返回成功入库数。"""
+    conn = database.get_conn()
+    codes = [r[0] for r in conn.execute("SELECT DISTINCT code FROM limit_history").fetchall()]
+    conn.close()
+    ts = int(time.time())
+    done = 0
+    for code in codes:
+        try:
+            p = compute_profile(code, day_window=day_window)
+        except Exception as e:
+            log.warning("画像重建失败 code=%s err=%s", code, e)
             continue
-        p = compute_profile(code, day_window=day_window)
-        if p.get("ready"):
-            out.append(p)
-    out.sort(key=lambda x: (x.get("score") or 0), reverse=True)
-    total = len(out)
-    start = (page - 1) * size
-    # scope: 全量有涨停/炸板记录的股票数(统计范围, 不受 min_zt 筛选影响)
-    return {"total": total, "scope": len(rows), "page": page, "size": size,
-            "list": out[start:start + size]}
+        if not p.get("ready"):
+            continue
+        _store_profile(p, ts)
+        done += 1
+    log.info("股性画像全量重建完成 目标=%d 入库=%d", len(codes), done)
+    return done
 
 
 # ==================== 盘后调度 ====================
 _fired = None
+
+
+def _daily_task(date):
+    """每日盘后: 先落库当日涨停/炸板, 再全量重建画像(方案B), 保证排行表当日最新。"""
+    try:
+        n = save_day(date, force=True)
+        if n > 0:
+            rebuild_profiles()
+    except Exception as e:
+        log.warning("股性盘后任务异常 err=%s", e)
 
 
 def _scheduler_loop():
@@ -371,7 +427,7 @@ def _scheduler_loop():
             g, hm = _bj()
             date = _bj_date(g)
             if g.tm_wday < 5 and abs(hm - BACKFILL_AT) <= WINDOW and _fired != date:
-                threading.Thread(target=save_day, args=(date, True), daemon=True,
+                threading.Thread(target=_daily_task, args=(date,), daemon=True,
                                  name="stock-temper-daily").start()
                 _fired = date
             if _fired is not None and date != _fired and hm < BACKFILL_AT - WINDOW - 5:

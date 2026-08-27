@@ -18,6 +18,7 @@
           <option :value="30">≥30</option>
         </select>
       </label>
+      <input class="temper-search" v-model="keyword" placeholder="搜索代码/名称" @keyup.enter="reload()" />
       <div class="temper-page">
         <button class="pg-btn" :disabled="page <= 1" @click="page--; load(false)"><i class="fa fa-chevron-left"></i></button>
         <span class="pg-info">{{ list.length ? ((page - 1) * size + 1) + '-' + ((page - 1) * size + list.length) : 0 }} / {{ total }}</span>
@@ -127,6 +128,7 @@ const scope = ref(0)
 const page = ref(1)
 const size = ref(50)
 const minZt = ref(0)
+const keyword = ref('')
 const sortKey = ref('score')
 const sortDesc = ref(true)
 const bjTime = ref('--:--:--')
@@ -185,11 +187,11 @@ function barPct(v) { return Math.max(4, Math.min(100, (Number(v) + 5) * 6)) }
 async function load(resetPage = true) {
   if (resetPage) { page.value = 1; loading.value = true }
   try {
-    const d = await stockTemperRank(page.value, size.value, minZt.value)
+    const d = await stockTemperRank(page.value, size.value, minZt.value, keyword.value.trim())
     list.value = (d && d.list) || []
     total.value = (d && d.total) || 0
     scope.value = (d && d.scope) || 0
-    emptyText.value = '暂无样本（当前最少涨停数条件下无结果）'
+    emptyText.value = keyword.value.trim() ? '无匹配的股票（试试代码或名称）' : '暂无样本（当前最少涨停数条件下无结果）'
   } catch (e) { /* 静默 */ } finally { loading.value = false }
 }
 function reload() { load(true) }
@@ -222,6 +224,8 @@ onMounted(() => {
 .temper-tip { color: var(--text-muted); font-size: 12px; flex: 1; min-width: 0; }
 .temper-filter { color: var(--text-secondary); font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
 .temper-select { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-soft); background: var(--bg-main); color: var(--text-primary); font-size: 13px; }
+.temper-search { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-soft); background: var(--bg-main); color: var(--text-primary); font-size: 13px; width: 150px; outline: none; }
+.temper-search:focus { border-color: #ffb400; }
 .temper-page { display: inline-flex; align-items: center; gap: 6px; }
 .pg-btn { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-soft); background: var(--bg-hover); color: var(--text-secondary); cursor: pointer; }
 .pg-btn:disabled { opacity: 0.4; cursor: not-allowed; }
