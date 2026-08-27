@@ -279,11 +279,13 @@ def compute_profile(code, day_window=None, refresh_kline=False):
     red_total = len(red_dates)
     repair_rate = (red_repaired / red_total * 100) if red_total else 0.0
 
-    # ---- 综合股性分(0-100): 封板率40 + 次日溢价30 + 高开率20 + 稳健分10 ----
-    score = (min(seal_rate, 100) * 0.4
+    # ---- 综合股性分(0-100): 封板率30 + 次日溢价30 + 高开率15 + 稳健25 ----
+    # 稳健分 = 25 - 大阴线次数*2, 每1次冲高回落(≥8%)的大阴线扣2分, 0为下限。
+    # (此前大阴线仅10%权重且≥5次封顶, 对分数几乎无影响, 现已放大并线性生效)
+    score = (min(seal_rate, 100) * 0.3
              + min(max(avg_open_prem, 0) * 6, 30)
-             + min(gap_up_rate, 100) * 0.2
-             + max(0, 100 - min(big_red * 8, 40)) * 0.1)
+             + min(gap_up_rate, 100) * 0.15
+             + max(0.0, 25 - float(big_red) * 2.0))
     score = round(max(0.0, min(100.0, score)), 1)
 
     return {
