@@ -66,7 +66,7 @@
             <td :class="colCls(it.win_rate)">{{ it.win_rate }}</td>
             <td class="dim">{{ it.big_red_count }}</td>
             <td class="tag-cell">
-              <span v-for="t in (it.tags || [])" :key="t" class="tag-chip">{{ t }}</span>
+              <span v-for="t in (it.tags || [])" :key="t" class="tag-chip" :class="tagCls(t)">{{ t }}</span>
             </td>
           </tr>
         </tbody>
@@ -85,7 +85,7 @@
           <div class="score-line">
             <span class="big-score" :class="scoreCls(detail.score)">{{ detail.score }}</span>
             <span class="score-label">综合股性分</span>
-            <span v-for="t in (detail.tags || [])" :key="t" class="tag-chip">{{ t }}</span>
+            <span v-for="t in (detail.tags || [])" :key="t" class="tag-chip" :class="tagCls(t)">{{ t }}</span>
           </div>
 
           <div class="metric-grid">
@@ -142,6 +142,9 @@ function scoreCls(s) {
   if (s >= 40) return 'score-lo'
   return 'score-low'
 }
+// 负反馈标签: 警示样式
+const WARN_TAGS = ['冲高回落频繁', '波动偏大', '炸板率高', '隔日兑现']
+function tagCls(t) { return WARN_TAGS.includes(t) ? 'tag-chip-warn' : '' }
 function colCls(v) {
   if (v > 0) return 'up'
   if (v < 0) return 'down'
@@ -244,6 +247,8 @@ onMounted(() => {
 .name-col { max-width: 120px; } .name-main { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tag-cell { max-width: 200px; white-space: normal; }
 .tag-chip { display: inline-block; margin: 1px 3px 1px 0; padding: 1px 7px; border-radius: 8px; background: rgba(90, 160, 255, 0.15); color: #5aa0ff; border: 1px solid rgba(90, 160, 255, 0.4); font-size: 11px; white-space: nowrap; }
+.tag-chip-warn { background: rgba(255, 90, 90, 0.14); color: #ff6a6a; border-color: rgba(255, 90, 90, 0.45); }
+body[data-bg="light"] .tag-chip-warn { background: rgba(220, 60, 60, 0.12); color: #c62828; border-color: rgba(220, 60, 60, 0.5); }
 .code-click { color: #ffb400; cursor: pointer; }
 
 /* 详情弹窗 */

@@ -307,11 +307,11 @@ def compute_profile(code, day_window=None, refresh_kline=False):
         "pl_ratio": round(pl_ratio, 2),
         "score": score,
         "tags": _tags(score, seal_rate, avg_open_prem, zt_count, max_zt,
-                      rebuy_rate, rep_factor=repair_rate),
+                      rebuy_rate, rep_factor=repair_rate, big_red=big_red),
     }
 
 
-def _tags(score, seal_rate, avg_prem, zt_count, max_zt, rebuy_rate, rep_factor):
+def _tags(score, seal_rate, avg_prem, zt_count, max_zt, rebuy_rate, rep_factor, big_red=0):
     t = []
     if zt_count >= 20:
         t.append("涨停基因强")
@@ -333,6 +333,11 @@ def _tags(score, seal_rate, avg_prem, zt_count, max_zt, rebuy_rate, rep_factor):
         t.append("炸板反包强")
     if rep_factor >= 60:
         t.append("回调修复快")
+    # 负面标签: 大阴线(冲高回落≥8%)频繁, 负反馈
+    if big_red >= 10:
+        t.append("冲高回落频繁")
+    elif big_red >= 5:
+        t.append("波动偏大")
     if not t:
         t.append("样本积累中")
     return t
