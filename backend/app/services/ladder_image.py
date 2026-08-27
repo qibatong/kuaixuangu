@@ -97,7 +97,9 @@ def _collect(data):
                 clean.append({
                     "code": str(it.get("code", "")),
                     "name": str(it.get("name", "")),
-                    "zt": pid,                       # 连板数=档位
+                    # 连板数: 优先用当日涨停池注入的真实连板数(解决五板+里 6 板区分);
+                    # 否则回退档位 pid
+                    "zt": max(int(pid), int(it.get("limitUpDays") or pid or 0)),
                     "reason": reason,
                     "limitTime": (it.get("limitTime") or 0),
                     "seal": float(it.get("seal", 0) or 0),
@@ -203,7 +205,8 @@ def build_png(data, date_str, out_path):
     draw.line([0, y + summary_h, WIDTH, y + summary_h], fill=LINE)
     big = _font(30)
     lab_font = _font(14)
-    mx = max((t["count"] and ti for ti, t in enumerate(tiers, 1)), default=1)
+    # 最高连板 = 全部个股真实连板数最大值(支持五板+里的 6 板等真实高度)
+    mx = max((r["zt"] for lst in rows for r in lst), default=1)
     cards = [
         ("涨停家数", str(total), "家"),
         ("最高连板", str(mx), "板"),
@@ -324,8 +327,6 @@ def build_png(data, date_str, out_path):
     # ---------- 底部 ----------
     y += 10
     draw.line([MARGIN, total_h - 34, WIDTH - MARGIN, total_h - 34], fill=LINE)
-    draw.text((MARGIN, total_h - 30), "数据来源: 开盘啦 · 每日交易日 15:30 自动生成",
-              font=_font(13), fill=FAINT)
     draw.text((WIDTH - MARGIN - 180, total_h - 30), "快选 Kuaixuan",
               font=_font(13), fill=FAINT)
 
@@ -344,6 +345,14 @@ def generate_for_date(date_str):
         total = sum(len(v or []) for v in data.values())
         if total == 0:
             return None
+        # 注入当日涨停池的真实连板数, 修正五板+里 6 板以上显示与顶部最高连板
+        real_lb = kpl.real_limit_days(date_str)
+        if real_lb:
+            for pid, lst in data.items():
+                for it in lst:
+                    code = str(it.get("code", ""))
+                    if code in real_lb:
+                        it["limitUpDays"] = real_lb[code]
         os.makedirs(config.LADDER_IMG_DIR, exist_ok=True)
         out_path = os.path.join(config.LADDER_IMG_DIR, f"{date_str}.png")
         return build_png(data, date_str, out_path)

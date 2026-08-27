@@ -828,6 +828,19 @@ def _flash_pool(pool_name, date=None):
     return out
 
 
+def real_limit_days(date):
+    """当日涨停池(封住)每只股票的真实连板数 {code: limitUpDays}。
+    用于连板天梯图: 开盘啦连板梯队 pid 只分到'五板+'(≥5), 无法区分 6 板以上;
+    用东财 flash 涨停池的 limit_up_days 取真实连板数, 修正显示的连板与顶部最高连板。
+    失败/为空返回 {}(调用方回退到 pid 档位)。"""
+    m = {}
+    for it in _flash_pool("limit_up_pool", date):
+        lu = int(it.get("limitUpDays") or 0)
+        if lu >= 1:
+            m[it.get("code")] = lu
+    return m
+
+
 
 # ==================== xuangubao 免费接口封装(kaipanla 文档收录, 无需 Token) ====================
 # 16 个接口: 涨停/炸板/跌停(实时+历史) + 曲线(涨跌家数/涨停跌停/炸板率/昨涨停今表现/市场温度)
