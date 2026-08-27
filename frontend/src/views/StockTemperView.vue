@@ -173,7 +173,7 @@ const metrics = [
   { key: 'rebuy_rate', label: '炸板反包率', sub: '炸板后N日重新封住', cls: v => (v >= 50 ? 'up' : '') },
   { key: 'win_rate', label: '打板胜率', sub: '次日收盘卖出', cls: v => (v >= 50 ? 'up' : '') },
   { key: 'pl_ratio', label: '盈亏比', sub: '平均盈利/亏损', cls: v => (v >= 1 ? 'up' : '') },
-  { key: 'big_red_count', label: '实体大阴线', sub: '单日收跌≥5%次数' },
+  { key: 'big_red_count', label: '大阴线', sub: '冲高回落:盘中最高-收盘价差≥8%' },
   { key: 'deep_dip_count', label: '日内大回撤', sub: '高点回撤≥5%次数' },
   { key: 'repair_rate', label: '回调修复率', sub: '大阴线后N日后再次封住', cls: v => (v >= 60 ? 'up' : '') }
 ]

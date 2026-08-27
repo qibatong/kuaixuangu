@@ -255,11 +255,13 @@ def compute_profile(code, day_window=None, refresh_kline=False):
     kdates = []
     for (d, _o, _c, _h, _lo) in klines:
         if _c is not None and prev_close and prev_close > 0:
-            pct = (_c - prev_close) / prev_close * 100
-            if pct <= -5.0:            # 实体大阴线: 单日收跌 >=5%
+            # 大阴线/冲高回落 (long upper shadow): 盘中最高涨幅 - 收盘涨幅 差值 >8%
+            # 即 (high - close)/prev_close >= 8%, 盘中冲高后大幅回落(长上影大阴线)
+            if (_h - _c) / prev_close * 100 >= 8.0:
                 big_red += 1
                 red_dates.add(d)
-            if (_h - _c) / prev_close * 100 >= 5.0:    # 日内大回撤: 高点回撤到收盘 >=5%
+            # 日内大回撤(更敏感口径): 盘中高点到收盘回撤 >=5%
+            if (_h - _c) / prev_close * 100 >= 5.0:
                 deep_dip += 1
         if _c is not None:
             prev_close = _c
