@@ -7,7 +7,7 @@
     </div>
 
     <div class="temper-toolbar">
-      <span class="temper-tip"><i class="fa fa-info-circle"></i> 按综合股性分降序；点一行看完整画像</span>
+      <span class="temper-tip"><i class="fa fa-info-circle"></i> 按综合股性分降序；点一行看完整画像 · 统计范围：近一年有涨停/炸板记录的 {{ scope }} 只</span>
       <label class="temper-filter">
         最少涨停次数
         <select v-model.number="minZt" class="temper-select" @change="reload()">
@@ -123,6 +123,7 @@ import { bjDateTimeStr } from '../utils/time'
 const list = ref([])
 const loading = ref(true)
 const total = ref(0)
+const scope = ref(0)
 const page = ref(1)
 const size = ref(50)
 const minZt = ref(0)
@@ -187,6 +188,7 @@ async function load(resetPage = true) {
     const d = await stockTemperRank(page.value, size.value, minZt.value)
     list.value = (d && d.list) || []
     total.value = (d && d.total) || 0
+    scope.value = (d && d.scope) || 0
     emptyText.value = '暂无样本（当前最少涨停数条件下无结果）'
   } catch (e) { /* 静默 */ } finally { loading.value = false }
 }

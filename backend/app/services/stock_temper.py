@@ -354,7 +354,8 @@ def rank(page=1, size=50, min_zt=0, day_window=None):
     out.sort(key=lambda x: (x.get("score") or 0), reverse=True)
     total = len(out)
     start = (page - 1) * size
-    return {"total": total, "page": page, "size": size,
+    # scope: 全量有涨停/炸板记录的股票数(统计范围, 不受 min_zt 筛选影响)
+    return {"total": total, "scope": len(rows), "page": page, "size": size,
             "list": out[start:start + size]}
 
 
