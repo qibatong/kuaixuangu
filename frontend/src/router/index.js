@@ -13,6 +13,7 @@ const router = createRouter({
     { path: '/yidong', name: 'yidong', component: () => import('../views/YidongView.vue') },
     { path: '/auction', name: 'auction', component: () => import('../views/AuctionView.vue') },
     { path: '/temper', name: 'temper', component: () => import('../views/StockTemperView.vue') },
+    { path: '/aipick', name: 'aipick', component: () => import('../views/AipickView.vue') },
     { path: '/admin', name: 'admin', component: () => import('../views/AdminView.vue'), meta: { admin: true } },
     { path: '/:pathMatch(.*)*', redirect: '/' }
   ]

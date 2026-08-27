@@ -28,6 +28,9 @@ DB_FILE = os.environ.get("BID_DB_PATH", os.path.join(PROJECT_ROOT, "kuaixuan.db"
 LOG_DIR = os.environ.get("BID_LOG_DIR", os.path.join(PROJECT_ROOT, "logs"))
 # 连板天梯图片输出目录(每日盘后生成 PNG, 供 App 内查看/下载)
 LADDER_IMG_DIR = os.environ.get("LADDER_IMG_DIR", os.path.join(PROJECT_ROOT, "ladder_images"))
+# AI 竞价预测报告输出目录(独立项目 /opt/kuaixuan/aipick/output):
+# 含 latest.html / predictions_YYYY-MM-DD.html 等, 原 Nginx 静态暴露, 现改为后端鉴权后经 App 内查看
+AIPICK_OUTPUT_DIR = os.environ.get("AIPICK_OUTPUT_DIR", "/opt/kuaixuan/aipick/output")
 
 # ---------- 邮件重置密码 ----------
 SMTP_HOST = os.environ.get("SMTP_HOST", "")

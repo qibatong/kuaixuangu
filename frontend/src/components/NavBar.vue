@@ -28,6 +28,9 @@
       <router-link to="/temper" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-fire"></i> 股性
       </router-link>
+      <router-link to="/aipick" exact-active-class="router-link-active" class="nav-item" title="AI竞价预测(仅付费/VIP)">
+        <i class="fa fa-robot"></i> AI预测
+      </router-link>
       <router-link to="/yidong" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-bullhorn"></i> 异动监管
       </router-link>

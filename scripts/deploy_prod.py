@@ -110,6 +110,8 @@ def main():
     sftp.put("/workspace/backend/app/api/stock_temper.py", f"{DEPLOY}/backend/app/api/stock_temper.py")
     sftp.put("/workspace/backend/app/main.py", f"{DEPLOY}/backend/app/main.py")
     sftp.put("/workspace/backend/app/worker.py", f"{DEPLOY}/backend/app/worker.py")
+    # 2026-08-27: AI 竞价预测(aipick)付费门禁接口(原 Nginx 静态匿名, 改为后端鉴权)随生产更新
+    sftp.put("/workspace/backend/app/api/aipick.py", f"{DEPLOY}/backend/app/api/aipick.py")
     # 2026-08-24: 现涨降级兜底(stats.py) + 快照TTL 60s(config.py) 也随生产更新
     LOC_STATS = "/workspace/backend/app/api/stats.py"
     REM_STATS = f"{DEPLOY}/backend/app/api/stats.py"
