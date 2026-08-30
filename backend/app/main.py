@@ -15,7 +15,7 @@ import time
 
 from fastapi import FastAPI, Request
 
-from .api import admin, aipick, auth, health, history, invite, kpl, ladder, prefs, stats, stock_temper, stocks
+from .api import admin, aipick, auth, health, history, invite, kpl, ladder, prefs, sms, stats, stock_temper, stocks
 from .api.deps import client_ip, jr
 from .core import logger as app_logger
 from .db import database
@@ -67,6 +67,7 @@ app.include_router(admin.router)
 app.include_router(kpl.router)
 app.include_router(ladder.router)
 app.include_router(stock_temper.router)
+app.include_router(sms.router)
 app.include_router(aipick.router)
 
 

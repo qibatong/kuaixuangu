@@ -41,6 +41,13 @@ SMTP_FROM = os.environ.get("SMTP_FROM", "")
 RESET_TTL = int(os.environ.get("RESET_TTL", "1800"))
 RESET_RATE_LIMIT = int(os.environ.get("RESET_RATE_LIMIT", "3"))
 
+# ---------- 阿里云短信验证码(号码认证·短信认证, 2026-08-30) ----------
+# 个人开发者免资质; AccessKey 建议 RAM 子账号只授权 dypns; 走 systemd drop-in 注入
+SMS_SIGN_NAME = os.environ.get("SMS_SIGN_NAME", "")          # 控制台系统赠送签名名(不可自定义)
+SMS_TEMPLATE_CODE = os.environ.get("SMS_TEMPLATE_CODE", "")  # 控制台系统赠送验证码模板编号
+SMS_SEND_INTERVAL = int(os.environ.get("SMS_SEND_INTERVAL", "60"))   # 同号重发间隔(秒)
+SMS_VALID_MIN = int(os.environ.get("SMS_VALID_MIN", "5"))            # 验证码有效期(分钟)
+
 # ---------- 数据源(东方财富公开行情接口) ----------
 EASTMONEY_URL = "https://push2dycalc.eastmoney.com/api/qt/clist/get"
 EASTMONEY_UT = "c92c50e6b0fab2c17cd5e276e9a79c42"
