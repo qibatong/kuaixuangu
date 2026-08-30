@@ -43,12 +43,26 @@ def api_login(request: Request, body: dict = Body(...)):
     log.info("登录成功 uid=%s user=%s ip=%s remember=%s 已踢旧会话%d个",
              user["id"], user["username"], client_ip(request), remember, revoked)
     et = int(user.get("expire_at") or 0)
-    return jr({"ok": True, "token": security.issue_token(user["id"], remember),
+    token = security.issue_token(user["id"], remember)
+    resp = jr({"ok": True, "token": token,
                "username": user["username"],
                "is_admin": 1 if user.get("is_admin") else 0,
                "expire_at": et,
                "member_level": users.get_member_level(user["id"]),
                "expired": 1 if (et and time.time() > et) else 0})
+    # 同步写 cookie (2026-08-30 主人要求: 让浏览器直接地址栏访问 /aipick/* 也能鉴权, 不必依赖 ?token= URL)
+    # Path=/ 保证 /aipick/ 也能带; HttpOnly 防 XSS 偷; SameSite=Lax 允许同站顶级 GET 导航
+    # Max-Age 与 token 有效期一致: remember=30天, 否则 12小时
+    resp.set_cookie(
+        key="kx_token",
+        value=token,
+        max_age=(30 * 24 * 3600 if remember else 12 * 3600),
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=False,   # 兼容 HTTP 调试; 生产 HTTPS 浏览器也会发(同源时 Lax 放行 GET)
+    )
+    return resp
 
 
 @router.post("/api/register")

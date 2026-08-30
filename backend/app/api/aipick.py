@@ -225,6 +225,7 @@ def api_aipick_auth_check(request: Request):
       1. Nginx 透传头 X-Original-Authorization (Bearer xxx, auth_request 子请求场景)
       2. 原始请求 URI 的 query token (Nginx X-Original-URI 透传)
       3. 本请求自身的 query token 或 Authorization 头 (直连 /api 调试场景)
+      4. kx_token cookie (2026-08-30: 让浏览器直接地址栏访问 /aipick/* 也能鉴权)
     - 返回 200 = 放行(给 Nginx auth_request 用, 响应体忽略)
     - 返回 401/403 = Nginx 拒发静态文件(转 401/403 给客户端)
     """
@@ -246,6 +247,9 @@ def api_aipick_auth_check(request: Request):
         auth = request.headers.get("Authorization") or ""
         if auth.startswith("Bearer "):
             token = auth[7:].strip()
+    # 4) kx_token cookie (浏览器直接地址栏访问 /aipick/* 场景: 登录时 /api/login 已 set cookie)
+    if not token:
+        token = (request.cookies.get("kx_token") or "").strip()
     status, uid = security._token_status(token)
     if status != "ok":
         return JSONResponse({"ok": False, "code": "expired", "msg": "未登录或登录已过期"},
