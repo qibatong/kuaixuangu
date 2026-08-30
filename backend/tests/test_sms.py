@@ -2,7 +2,7 @@
 """短信验证码 (2026-08-30 阿里云号码认证·短信认证)"""
 import uuid
 
-from app.services import sms_verify
+from app.services import security, sms_verify, users
 
 
 def test_sms_verify_phone_regex():
@@ -97,3 +97,80 @@ def test_sms_send_code_custom(client, first_user, monkeypatch):
                     headers={"Authorization": "Bearer " + token})
     assert r.status_code == 200
     assert captured.get("phone") == "13800138002"
+
+
+# ---------- 找回密码-短信验证码 (2026-08-30) ----------
+# 注意: reset 用例会改密码/消费验证码标记, 必须用 create_user_token 独立用户
+# 避免污染 session 级 first_user(共享手机号)导致用例间相互影响
+
+def test_forgot_phone_send_unbound(client, first_user):
+    """未绑定手机号 → 404 不发送(省短信费)"""
+    r = client.post("/api/forgot-phone/send", json={"phone": "13800001111"})
+    assert r.status_code == 404
+    assert "未绑定" in r.json().get("msg", "")
+
+
+def test_forgot_phone_send_bad_phone(client, first_user):
+    """手机号格式错误 → 400"""
+    r = client.post("/api/forgot-phone/send", json={"phone": "12345"})
+    assert r.status_code == 400
+
+
+def test_forgot_phone_send_ok(client, create_user_token, monkeypatch):
+    """已绑定手机号 + mock send_code → 发送成功(scene=forgot)"""
+    captured = {}
+    def fake_send(phone, scene="", code=None, interval=60, valid_time=5, out_id=""):
+        captured["phone"] = phone
+        captured["scene"] = scene
+        return True, "OK"
+    monkeypatch.setattr(sms_verify, "send_code", fake_send)
+    u = create_user_token()   # 独立用户(随机手机号, 已绑定)
+    r = client.post("/api/forgot-phone/send", json={"phone": u["phone"]})
+    assert r.status_code == 200
+    assert r.json().get("ok")
+    assert captured.get("phone") == u["phone"]
+    assert captured.get("scene") == "forgot"
+
+
+def test_reset_by_phone_ok(client, create_user_token, monkeypatch):
+    """短信校验通过 → 密码重置成功 + 旧密码失效 + 会话踢下线"""
+    monkeypatch.setattr(sms_verify, "check_code", lambda *a, **k: (True, "OK"))
+    u = create_user_token()
+    r = client.post("/api/reset-by-phone",
+                    json={"phone": u["phone"], "code": "123456", "new_password": "NewPass123"})
+    assert r.status_code == 200
+    assert r.json().get("ok")
+    db_u = users.find_user_by_phone(u["phone"])
+    assert security.verify_password("NewPass123", db_u["password_hash"])
+    assert not security.verify_password("Test123456", db_u["password_hash"])
+
+
+def test_reset_by_phone_bad_code(client, create_user_token, monkeypatch):
+    """验证码错误 → 400 不改密"""
+    monkeypatch.setattr(sms_verify, "check_code", lambda *a, **k: (False, "验证码错误"))
+    u = create_user_token()
+    r = client.post("/api/reset-by-phone",
+                    json={"phone": u["phone"], "code": "000000", "new_password": "NewPass123"})
+    assert r.status_code == 400
+    db_u = users.find_user_by_phone(u["phone"])
+    assert security.verify_password("Test123456", db_u["password_hash"])
+
+
+def test_reset_by_phone_unbound(client, first_user):
+    """未绑定手机号 → 404"""
+    r = client.post("/api/reset-by-phone",
+                    json={"phone": "13800009999", "code": "123456", "new_password": "NewPass123"})
+    assert r.status_code == 404
+
+
+def test_reset_by_phone_replay(client, create_user_token, monkeypatch):
+    """防重放: 同一验证码消费标记后不可再次重置"""
+    monkeypatch.setattr(sms_verify, "check_code", lambda *a, **k: (True, "OK"))
+    u = create_user_token()
+    r1 = client.post("/api/reset-by-phone",
+                     json={"phone": u["phone"], "code": "123456", "new_password": "NewPass123"})
+    assert r1.status_code == 200
+    r2 = client.post("/api/reset-by-phone",
+                     json={"phone": u["phone"], "code": "123456", "new_password": "Another123"})
+    assert r2.status_code == 400
+    assert "已使用" in r2.json().get("msg", "")

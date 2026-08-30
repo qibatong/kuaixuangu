@@ -118,3 +118,16 @@ def can_send(phone, ip, interval=60):
     if ip_n > 10:
         return False, "当前网络发送次数过多, 请稍后再试"
     return True, ""
+
+
+# ---------- 防重放: 验证码消费标记(重置密码等敏感操作后禁止重复使用) ----------
+def is_consumed(phone, scene=""):
+    """该手机号在当前 scene 是否已消费过验证码(重置密码后 5 分钟内不可复用)"""
+    from .cache_store import store
+    return store.get("sms:used:%s:%s" % (scene, phone)) is not None
+
+
+def mark_consumed(phone, scene="", ttl=300):
+    """标记验证码已消费(防重放). ttl 秒内同 scene+phone 不能再次校验通过"""
+    from .cache_store import store
+    store.set("sms:used:%s:%s" % (scene, phone), 1, ttl=ttl)

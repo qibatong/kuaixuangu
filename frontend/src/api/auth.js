@@ -16,6 +16,15 @@ export function forgot(email) {
   return request('/api/forgot', { method: 'POST', auth: false, body: { email } })
 }
 
+// 找回密码-短信验证码(2026-08-30)
+export function sendForgotSms(phone) {
+  return request('/api/forgot-phone/send', { method: 'POST', auth: false, body: { phone } })
+}
+
+export function resetByPhone(phone, code, password) {
+  return request('/api/reset-by-phone', { method: 'POST', auth: false, body: { phone, code, new_password: password } })
+}
+
 export function reset(token, password) {
   return request('/api/reset', { method: 'POST', auth: false, body: { token, password } })
 }

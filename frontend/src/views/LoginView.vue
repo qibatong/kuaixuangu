@@ -36,14 +36,39 @@
         </div>
       </template>
 
-      <!-- 忘记密码 -->
+      <!-- 忘记密码: 手机验证码(主) / 邮箱重置(备) -->
       <template v-else-if="mode === 'forgot'">
-        <div class="login-sub">输入注册时绑定的邮箱，我们会发送重置链接</div>
-        <input v-model="email" type="text" placeholder="绑定邮箱" autocomplete="off" maxlength="60" @keydown.enter="sendMail">
-        <button class="login-btn" :disabled="busy" @click="sendMail">发送重置邮件</button>
-        <div class="login-err">{{ err }}</div>
+        <div class="forgot-tabs">
+          <button type="button" :class="['forgot-tab', { on: forgotTab === 'phone' }]" @click="forgotTab = 'phone'">手机验证码</button>
+          <button type="button" :class="['forgot-tab', { on: forgotTab === 'email' }]" @click="forgotTab = 'email'">邮箱重置</button>
+        </div>
+
+        <!-- 手机号+短信验证码方式 -->
+        <template v-if="forgotTab === 'phone'">
+          <div class="login-sub">输入已绑定的手机号，通过短信验证码重置密码</div>
+          <div class="phone-row">
+            <input v-model="phone" type="text" placeholder="绑定手机号" autocomplete="off" maxlength="11" @keydown.enter="sendForgotSms">
+            <button type="button" class="sms-btn" :disabled="smsBusy || countdown > 0" @click="sendForgotSms">
+              {{ countdown > 0 ? countdown + 's 后重发' : '获取验证码' }}
+            </button>
+          </div>
+          <input v-model="smsCode" type="text" placeholder="短信验证码" autocomplete="off" maxlength="6" inputmode="numeric" @keydown.enter="doResetByPhone">
+          <input v-model="resetPwd" type="password" placeholder="新密码（至少 6 位）" autocomplete="off" @keydown.enter="doResetByPhone">
+          <input v-model="resetPwd2" type="password" placeholder="确认新密码" autocomplete="off" @keydown.enter="doResetByPhone">
+          <button class="login-btn" :disabled="busy" @click="doResetByPhone">{{ busy ? '提交中...' : '重置密码' }}</button>
+        </template>
+
+        <!-- 邮箱方式(原逻辑保留) -->
+        <template v-else>
+          <div class="login-sub">输入注册时绑定的邮箱，我们会发送重置链接</div>
+          <input v-model="email" type="text" placeholder="绑定邮箱" autocomplete="off" maxlength="60" @keydown.enter="sendMail">
+          <button class="login-btn" :disabled="busy" @click="sendMail">发送重置邮件</button>
+          <div class="login-switch">
+            <a href="javascript:void(0)" @click="checkForgot">不记得绑定邮箱？输入用户名/手机号查询</a>
+          </div>
+        </template>
+        <div class="login-err" :class="{error: errIsError}">{{ err }}</div>
         <div class="login-switch">
-          <a href="javascript:void(0)" @click="checkForgot">不记得绑定邮箱？输入用户名/手机号查询</a>
           <a href="javascript:void(0)" @click="mode = 'login'">返回登录</a>
         </div>
       </template>
@@ -63,7 +88,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { login as apiLogin, forgot as apiForgot, reset as apiReset, forgotCheck as apiForgotCheck, verifyEmail as apiVerifyEmail, resendVerify as apiResendVerify } from '../api/auth'
+import { login as apiLogin, forgot as apiForgot, reset as apiReset, forgotCheck as apiForgotCheck, verifyEmail as apiVerifyEmail, resendVerify as apiResendVerify, sendForgotSms as apiSendForgotSms, resetByPhone as apiResetByPhone } from '../api/auth'
 import { useUserStore } from '../stores/user'
 import { showToast } from '../utils/toast'
 
@@ -82,6 +107,13 @@ const password = ref('')
 const resetPwd = ref('')
 const resetPwd2 = ref('')
 const resetToken = ref(null)
+// 找回密码-短信验证码(2026-08-30)
+const forgotTab = ref('phone')     // phone | email
+const phone = ref('')
+const smsCode = ref('')
+const smsBusy = ref(false)
+const countdown = ref(0)
+let countdownTimer = null
 // 邮箱验证(2026-08-17)
 const verifyUid = ref(0)
 const verifyEmailAddr = ref('')
@@ -186,6 +218,54 @@ async function sendMail() {
   }
 }
 
+// ---------- 找回密码-短信验证码(2026-08-30) ----------
+async function sendForgotSms() {
+  if (smsBusy.value || countdown.value > 0) return
+  setErr('', false)
+  if (!/^1[3-9]\d{9}$/.test(phone.value.trim())) { setErr('请输入正确的 11 位手机号'); return }
+  smsBusy.value = true
+  try {
+    const data = await apiSendForgotSms(phone.value.trim())
+    setErr('✅ ' + (data.msg || '验证码已发送，请查收'), false)
+    // 60s 倒计时防刷
+    countdown.value = 60
+    if (countdownTimer) clearInterval(countdownTimer)
+    countdownTimer = setInterval(() => {
+      countdown.value--
+      if (countdown.value <= 0) clearInterval(countdownTimer)
+    }, 1000)
+  } catch (e) {
+    setErr(e.message || '发送失败')
+  } finally {
+    smsBusy.value = false
+  }
+}
+
+async function doResetByPhone() {
+  if (busy.value) return
+  setErr('', false)
+  if (!/^1[3-9]\d{9}$/.test(phone.value.trim())) { setErr('请输入正确的 11 位手机号'); return }
+  if (!/^\d{4,6}$/.test(smsCode.value.trim())) { setErr('请输入短信验证码'); return }
+  if (!resetPwd.value || resetPwd.value.length < 6) { setErr('新密码至少 6 位'); return }
+  if (resetPwd.value !== resetPwd2.value) { setErr('两次输入的密码不一致'); return }
+  busy.value = true
+  err.value = '提交中...'
+  errIsError.value = false
+  try {
+    const data = await apiResetByPhone(phone.value.trim(), smsCode.value.trim(), resetPwd.value)
+    err.value = '✅ ' + (data.msg || '密码已重置')
+    errIsError.value = false
+    setTimeout(() => {
+      mode.value = 'login'
+      phone.value = smsCode.value = resetPwd.value = resetPwd2.value = ''
+    }, 1500)
+  } catch (e) {
+    setErr(e.message || '重置失败')
+  } finally {
+    busy.value = false
+  }
+}
+
 // 忘记密码: 输入用户名/手机号查询是否绑定邮箱(未绑定提示联系管理员)
 async function checkForgot() {
   setErr('', false)
@@ -259,4 +339,42 @@ onMounted(() => {
   margin-top: 2px;
 }
 .remember-check { width: 14px; height: 14px; accent-color: var(--accent); cursor: pointer; }
+.forgot-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.forgot-tab {
+  flex: 1;
+  padding: 7px 0;
+  font-size: 13px;
+  border: 1px solid var(--border, #3a3f4b);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all .15s;
+}
+.forgot-tab.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.phone-row {
+  display: flex;
+  gap: 8px;
+}
+.phone-row input { flex: 1; min-width: 0; }
+.sms-btn {
+  flex-shrink: 0;
+  padding: 0 12px;
+  font-size: 12px;
+  white-space: nowrap;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+.sms-btn:disabled { opacity: .45; cursor: not-allowed; }
 </style>

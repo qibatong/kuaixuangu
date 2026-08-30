@@ -12,7 +12,7 @@ from fastapi import APIRouter, Body, Depends, Request
 
 from ..core import config, logger
 from ..db import database
-from ..services import security, users
+from ..services import security, sms_verify, users
 from .deps import client_ip, get_uid, jr, qs
 
 log = logger.get_logger(__name__)
@@ -189,6 +189,77 @@ def api_reset(request: Request, body: dict = Body(...)):
     # 踢下线: 使该用户所有已签发 token 失效
     security.revoke_user_tokens(user_id)
     log.info("密码重置成功 user_id=%s", user_id)
+    return jr({"ok": True, "msg": "密码已重置，请用新密码登录"})
+
+
+@router.post("/api/forgot-phone/send")
+def api_forgot_phone_send(request: Request, body: dict = Body(...)):
+    """找回密码-短信验证码: 输入已绑定手机号 → 发送验证码(scene=forgot).
+    未绑定手机号的账号不发送(省短信费), 提示联系管理员人工处理"""
+    phone = str(body.get("phone") or "").strip()
+    if not re.match(r"^1[3-9]\d{9}$", phone):
+        return jr({"ok": False, "msg": "手机号格式不正确"}, 400)
+    user = users.find_user_by_phone(phone)
+    if user is None:
+        return jr({"ok": False, "msg": "该手机号未绑定账号，无法自助找回，请联系管理员（微信 poet-1986）"}, 404)
+    ip = client_ip(request)
+    allowed, reason = sms_verify.can_send(phone, ip, config.SMS_SEND_INTERVAL)
+    if not allowed:
+        return jr({"ok": False, "msg": reason}, 429)
+    try:
+        ok, msg = sms_verify.send_code(phone, scene="forgot",
+                                       interval=config.SMS_SEND_INTERVAL,
+                                       valid_time=config.SMS_VALID_MIN)
+    except sms_verify.SmsNotConfigured as e:
+        log.warning("短信发送未配置: %s", e)
+        return jr({"ok": False, "msg": "短信服务未配置, 请联系管理员"}, 503)
+    except Exception as e:
+        log.error("短信发送异常 phone=%s err=%s", phone, e)
+        return jr({"ok": False, "msg": "发送失败, 请稍后再试"}, 500)
+    if not ok:
+        return jr({"ok": False, "msg": "发送失败: %s" % msg}, 500)
+    log.info("找回密码短信已发送 phone=%s user=%s", phone, user["username"])
+    return jr({"ok": True, "msg": "验证码已发送，请查收"})
+
+
+@router.post("/api/reset-by-phone")
+def api_reset_by_phone(request: Request, body: dict = Body(...)):
+    """找回密码-短信验证码校验+重置(一体). body: {phone, code, new_password}
+    验证码由阿里云服务端闭环校验(scene=forgot, 5 分钟有效), 通过后直接改密 + 踢下线
+    防重放: 校验通过后本地标记消费, 同验证码 5 分钟内不可二次使用"""
+    phone = str(body.get("phone") or "").strip()
+    code = str(body.get("code") or "").strip()
+    new_pw = str(body.get("new_password") or "")
+    if not re.match(r"^1[3-9]\d{9}$", phone):
+        return jr({"ok": False, "msg": "手机号格式不正确"}, 400)
+    if not code or not code.isdigit():
+        return jr({"ok": False, "msg": "验证码格式不正确"}, 400)
+    if len(new_pw) < 6:
+        return jr({"ok": False, "msg": "新密码至少 6 位"}, 400)
+    user = users.find_user_by_phone(phone)
+    if user is None:
+        return jr({"ok": False, "msg": "该手机号未绑定账号"}, 404)
+    if sms_verify.is_consumed(phone, "forgot"):
+        return jr({"ok": False, "msg": "验证码已使用，请重新获取"}, 400)
+    try:
+        ok, msg = sms_verify.check_code(phone, code, scene="forgot")
+    except sms_verify.SmsNotConfigured as e:
+        log.warning("短信校验未配置: %s", e)
+        return jr({"ok": False, "msg": "短信服务未配置, 请联系管理员"}, 503)
+    except Exception as e:
+        log.error("短信校验异常 phone=%s err=%s", phone, e)
+        return jr({"ok": False, "msg": "校验失败, 请稍后再试"}, 500)
+    if not ok:
+        return jr({"ok": False, "msg": "验证码错误或已过期"}, 400)
+    # 校验通过 → 改密 + 踢下线 + 标记验证码已消费(防重放)
+    conn = database.get_conn()
+    conn.execute("UPDATE users SET password_hash=? WHERE id=?",
+                 (security.hash_password(new_pw), user["id"]))
+    conn.commit()
+    conn.close()
+    security.revoke_user_tokens(user["id"])
+    sms_verify.mark_consumed(phone, "forgot", ttl=config.SMS_VALID_MIN * 60)
+    log.info("手机短信找回密码成功 uid=%s user=%s", user["id"], user["username"])
     return jr({"ok": True, "msg": "密码已重置，请用新密码登录"})
 
 
