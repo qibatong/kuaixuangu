@@ -561,6 +561,13 @@ def _scheduler_loop():
                                     aipick_scheduler.trigger_after_bid_snapshot()
                                 except Exception as e:
                                     log.error("aipick 采集/预测触发失败 err=%s", e)
+                                # 2026-08-30 主人需求: 9_25 落库后自动跑 system batch 存历史回看
+                                # (即使当天没点选股, 也能看到系统当时推荐的 top 30)
+                                try:
+                                    from . import system_batch
+                                    system_batch.run_system_batch("9_25")
+                                except Exception as e:
+                                    log.error("system_batch 触发失败 err=%s", e)
                         else:
                             # 失败回滚 setnx 标记: 窗口内下一轮轮询(10s)重试, 东财/KPL 瞬时故障自愈
                             # 窗口结束后(hm>end)不再触发, 9:31 盘点告警兜底

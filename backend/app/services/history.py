@@ -54,16 +54,25 @@ def save_batch(user_id, action, result, f, auto_applied=False):
 
 
 def list_batches(user_id, limit=200):
+    """历史批次列表(2026-08-30 主人需求: 即使用户没点选股, 也要看 system 自动存的批次)
+    合并返回: 当前用户自己的批次 + system 公共批次(user_id=0, auto_applied=1)
+    """
     conn = _conn()
-    rows = conn.execute("SELECT * FROM batches WHERE user_id=? ORDER BY ts DESC LIMIT ?",
-                        (user_id, limit)).fetchall()
+    rows = conn.execute(
+        "SELECT * FROM batches WHERE user_id=? OR (user_id=0 AND auto_applied=1) "
+        "ORDER BY ts DESC LIMIT ?", (user_id, limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
 def get_batch(batch_id, user_id):
+    """获取批次明细: 允许查看自己的或 system 公共批次(user_id=0)
+    注: get_batch 旧实现只允许 user_id 匹配, 这里扩展支持 system 批次
+    """
     conn = _conn()
-    b = conn.execute("SELECT * FROM batches WHERE id=? AND user_id=?", (batch_id, user_id)).fetchone()
+    b = conn.execute(
+        "SELECT * FROM batches WHERE id=? AND (user_id=? OR (user_id=0 AND auto_applied=1))",
+        (batch_id, user_id)).fetchone()
     if not b:
         conn.close()
         return None, None
@@ -120,10 +129,12 @@ def query_history(uid, q):
         page_size = 100
 
     # 同一日期内, 同一股票 + 相同评分 视为"重复入选", 只保留一条(去重)
+    # 2026-08-30 主人需求: 查询条件页面也合并 system 公共批次(user_id=0, auto_applied=1)
     base_sql = """
         FROM batch_stocks s
         JOIN batches b ON b.id = s.batch_id
-        WHERE b.user_id = ? AND b.batch_date BETWEEN ? AND ? AND %s
+        WHERE (b.user_id = ? OR (b.user_id = 0 AND b.auto_applied = 1))
+              AND b.batch_date BETWEEN ? AND ? AND %s
         GROUP BY b.batch_date, s.code, s.probability
     """ % cond_sql
     base_params = [uid, date_from, date_to] + params
