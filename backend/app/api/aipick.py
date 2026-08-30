@@ -17,12 +17,12 @@ import os
 import re
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from ..core import config, logger
 from ..db import database
-from ..services import fetcher, hot_rank
-from .deps import jr, require_vip_or_paid
+from ..services import fetcher, hot_rank, security, users
+from .deps import jr, qs, require_vip_or_paid
 
 log = logger.get_logger(__name__)
 
@@ -212,3 +212,48 @@ def api_aipick_data_date(request: Request, p_date: str,
         return jr({"ok": False, "msg": f"{p_date} 暂无预测报告"}, 404)
     _attach_day_change(data, p_date)
     return jr({"ok": True, "data": data})
+
+
+@router.get("/api/aipick/auth-check")
+def api_aipick_auth_check(request: Request):
+    """Nginx auth_request 子请求校验: 静态 /aipick/* 放行但仅限 VIP/付费/管理员。
+
+    用途(2026-08-30 主人要求): 之前 /aipick/ 匿名静态完全关闭(404),
+    现放开 latest.html / predictions_*.html 静态访问, 但每个请求先经 Nginx
+    auth_request 转发到本接口校验 token(VIP/付费/管理员才放行, 免费试用 403)。
+    - 鉴权 token 来源(按优先级):
+      1. Nginx 透传头 X-Original-Authorization (Bearer xxx, auth_request 子请求场景)
+      2. 原始请求 URI 的 query token (Nginx X-Original-URI 透传)
+      3. 本请求自身的 query token 或 Authorization 头 (直连 /api 调试场景)
+    - 返回 200 = 放行(给 Nginx auth_request 用, 响应体忽略)
+    - 返回 401/403 = Nginx 拒发静态文件(转 401/403 给客户端)
+    """
+    # 1) Nginx 子请求透传的 Authorization 头
+    token = ""
+    xauth = request.headers.get("X-Original-Authorization") or ""
+    if xauth.startswith("Bearer "):
+        token = xauth[7:].strip()
+    # 2) Nginx 透传的原始 URI 里的 ?token=
+    if not token:
+        xuri = request.headers.get("X-Original-URI") or ""
+        m = re.search(r"[?&]token=([0-9a-fA-F]{20,64})", xuri)
+        if m:
+            token = m.group(1)
+    # 3) 直连场景: 本请求自身的 query token / Authorization
+    if not token:
+        token = (qs(request).get("token") or [""])[0]
+    if not token:
+        auth = request.headers.get("Authorization") or ""
+        if auth.startswith("Bearer "):
+            token = auth[7:].strip()
+    status, uid = security._token_status(token)
+    if status != "ok":
+        return JSONResponse({"ok": False, "code": "expired", "msg": "未登录或登录已过期"},
+                            status_code=401)
+    u = users.find_user_by_id(uid)
+    if not u:
+        return JSONResponse({"ok": False, "code": "no_user", "msg": "用户不存在"}, status_code=401)
+    if u.get("is_admin") or int(u.get("member_level") or 0) >= 1:
+        return JSONResponse({"ok": True, "uid": uid}, status_code=200)
+    return JSONResponse({"ok": False, "code": "vip_required",
+                         "msg": "AI 预测仅限 VIP/付费会员，请升级后使用"}, status_code=403)

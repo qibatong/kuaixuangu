@@ -108,3 +108,66 @@ def test_register_disabled_does_not_rate_limit(create_user_token):
 
 def hdrs(token):
     return {"Authorization": "Bearer " + token}
+
+
+# ---------- AI预测静态报告 Nginx auth_request 校验 (2026-08-30) ----------
+def test_aipick_auth_check_no_token(client):
+    """无 token → 401 (Nginx auth_request 拒发静态文件)"""
+    r = client.get("/api/aipick/auth-check")
+    assert r.status_code == 401
+
+
+def test_aipick_auth_check_free_user(client, second_user):
+    """免费试用用户(member_level=0) → 403 (仅限 VIP/付费)"""
+    token, _ = second_user
+    r = client.get("/api/aipick/auth-check", headers=hdrs(token))
+    assert r.status_code == 403
+    assert "仅限 VIP/付费" in r.json().get("msg", "")
+
+
+def test_aipick_auth_check_vip(client, vip_user):
+    """VIP 用户(member_level=2) → 200 放行"""
+    token, _, _ = vip_user
+    r = client.get("/api/aipick/auth-check", headers=hdrs(token))
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
+
+
+def test_aipick_auth_check_admin(client, create_user_token):
+    """管理员 → 200 放行 (管理员豁免)"""
+    u = create_user_token()
+    from app.db import database
+    conn = database.get_conn()
+    conn.execute("UPDATE users SET is_admin=1 WHERE id=?", (u["uid"],))
+    conn.commit()
+    conn.close()
+    r = client.get("/api/aipick/auth-check", headers=hdrs(u["token"]))
+    assert r.status_code == 200
+
+
+def test_aipick_auth_check_query_token(client, vip_user):
+    """query token 方式同样放行(分享链接 ?token=xxx 场景)"""
+    token, _, _ = vip_user
+    r = client.get("/api/aipick/auth-check?token=" + token)
+    assert r.status_code == 200
+
+
+def test_aipick_auth_check_xoriginal_headers(client, vip_user):
+    """Nginx auth_request 子请求透传头场景(X-Original-Authorization / X-Original-URI):
+    - Bearer token 经 X-Original-Authorization 透传 → 放行
+    - ?token= 经 X-Original-URI 透传 → 放行
+    - 两个头都无 token → 401
+    """
+    token, _, _ = vip_user
+    # Bearer 经透传头
+    r = client.get("/api/aipick/auth-check",
+                   headers={"X-Original-Authorization": "Bearer " + token})
+    assert r.status_code == 200
+    # query token 经透传头
+    r = client.get("/api/aipick/auth-check",
+                   headers={"X-Original-URI": "/aipick/latest.html?token=" + token})
+    assert r.status_code == 200
+    # 无 token → 401
+    r = client.get("/api/aipick/auth-check",
+                   headers={"X-Original-URI": "/aipick/latest.html"})
+    assert r.status_code == 401
