@@ -88,3 +88,26 @@ scripts/_aipick_deploy_backfill.py
 scripts/_aipick_report_probe.py
 scripts/_prod_deploy_forgot.py
 scripts/_deploy_forgot_both.py
+scripts/_sync_dist_fresh.py
+scripts/_verify_aipick_defaults.py
+
+# ========== 临时调试/修复脚本(不入库) ==========
+scripts/_verify_*.py
+scripts/_diag_*.py
+scripts/_trigger_*.py
+scripts/_sim_*.py
+scripts/_set_aipick_*.py
+scripts/_rerun_*.py
+scripts/_enhance_*.py
+scripts/_check_*.py
+scripts/_fix_*.py
+scripts/_verify_*.py
+scripts/_sync_aipick_*.py
+scripts/_nginx_*.conf
+scripts/_nginx_aipick_*.conf
+scripts/probe_*.py
+backend/scripts/*.bak
+backend/scripts/*.bak_*
+
+# ========== 项目报告(不入库, 单独维护) ==========
+frontend-architecture-report.md
