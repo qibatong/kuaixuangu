@@ -599,8 +599,10 @@ def fetch_board_stocks(plate_id, date=None, st=30):
     if not date:
         # 盘中优先用实时接口(apphwshhq + w44, 不带Date)取当日数据;
         # 实时接口被拒或空时回退历史接口(apphis + w41 + 上一交易日Date)
+        # 2026-08-30 修复: _call host_key "app" 不存在 → fallback default(apphwhq 竞价域名),
+        #   对板块成分股返回空导致盘中一直回退昨日; 实时 host 应为 "after"(apphwshhq)
         params = dict(base, apiv="w44")
-        d = _call("app", params)
+        d = _call("after", params)
         lst = d.get("list") if isinstance(d, dict) else None
         if not isinstance(lst, list) or not lst:
             date = _prev_trade_day()
