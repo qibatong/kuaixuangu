@@ -27,16 +27,19 @@ VENV_PY = "/opt/kuaixuan-venv/bin/python"
 if not os.path.exists(VENV_PY):
     VENV_PY = "/opt/bid-venv/bin/python3"
 
-# 任务窗口(分钟): (名称, 开始mm, 结束mm, [命令参数...])
+# 任务窗口(分钟): (名称, 开始mm, 结束mm, [(脚本, [参数...]), ...])
 _TASKS = [
     # 9:26:30-9:29:30 采集 + 预测(2026-08-18 主人要求: 9:25 竞价结束后 2-3 分钟内出预测;
     # 预测约 10-20 秒, 9:27 采完立即用昨日模型预测当日涨停概率, 9:30 前可看)
-    ("aipick_collect", 9 * 60 + 26, 9 * 60 + 30, [os.path.join(AIPICK_DIR, "scripts", "collector.py")]),
-    ("aipick_predict", 9 * 60 + 27, 9 * 60 + 31, [os.path.join(AIPICK_DIR, "scripts", "predict_daily.py")]),
-    # 15:04:30-15:06:30 打标签
-    ("aipick_label", 15 * 60 + 4, 15 * 60 + 7, [os.path.join(AIPICK_DIR, "scripts", "collector.py"), "--label"]),
+    ("aipick_collect", 9 * 60 + 26, 9 * 60 + 30, [(os.path.join(AIPICK_DIR, "scripts", "collector.py"), [])]),
+    ("aipick_predict", 9 * 60 + 27, 9 * 60 + 31, [(os.path.join(AIPICK_DIR, "scripts", "predict_daily.py"), [])]),
+    # 15:04:30-15:06:30 打标签(注意: 旧写法把 --label 当脚本路径, 参数从未生效, 2026-08-30 修复)
+    ("aipick_label", 15 * 60 + 4, 15 * 60 + 7, [(os.path.join(AIPICK_DIR, "scripts", "collector.py"), ["--label"])]),
+    # 15:07:30-15:13:30 补生成缺失报告(2026-08-30 主人反馈: 当天没跑 9:27 预测 → 历史回看缺失)
+    # backfill 从快照库取最近 30 个交易日, 缺 predictions_{d}.json 就用 9_25 快照补生成, 保证复盘完整
+    ("aipick_backfill", 15 * 60 + 7, 15 * 60 + 14, [(os.path.join(AIPICK_DIR, "scripts", "predict_daily.py"), ["backfill", "30"])]),
     # 18:59:30-19:01:30 只训练(预测已挪到 9:27 竞价后; 模型次日生效)
-    ("aipick_train", 18 * 60 + 59, 19 * 60 + 2, [os.path.join(AIPICK_DIR, "scripts", "train_model.py")]),
+    ("aipick_train", 18 * 60 + 59, 19 * 60 + 2, [(os.path.join(AIPICK_DIR, "scripts", "train_model.py"), [])]),
 ]
 
 # 已执行标记(进程内), 防同一窗口重复
@@ -48,21 +51,22 @@ def _is_trade_day(g):
     return g.tm_wday < 5
 
 
-def _run_script(script):
-    """subprocess 调用 aipick 脚本(超时 180s), 日志记录输出尾部"""
+def _run_script(script, args=None):
+    """subprocess 调用 aipick 脚本(超时 180s), 日志记录输出尾部
+    args: 附加命令行参数(2026-08-30 修复: 旧实现把参数误当脚本路径)"""
     if not os.path.exists(script):
         log.warning("aipick 脚本不存在: %s (请先部署 /opt/kuaixuan/aipick)", script)
         return False
-    cmd = [VENV_PY, script]
+    cmd = [VENV_PY, script] + list(args or [])
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         tail = (p.stdout or "").strip().splitlines()
         tail = " | ".join(tail[-3:]) if tail else ""
         if p.returncode == 0:
-            log.info("aipick 执行成功 %s -> %s", os.path.basename(script), tail)
+            log.info("aipick 执行成功 %s %s -> %s", os.path.basename(script), args or "", tail)
             return True
-        log.error("aipick 执行失败 %s rc=%s err=%s", os.path.basename(script), p.returncode,
-                  (p.stderr or "").strip()[-300:])
+        log.error("aipick 执行失败 %s %s rc=%s err=%s", os.path.basename(script), args or "",
+                  p.returncode, (p.stderr or "").strip()[-300:])
         return False
     except subprocess.TimeoutExpired:
         log.error("aipick 执行超时 %s", os.path.basename(script))
@@ -72,14 +76,15 @@ def _run_script(script):
         return False
 
 
-def _run_task(name, scripts):
-    """执行一个任务(可多脚本), 跨进程 setnx 去重防多 worker 重复"""
+def _run_task(name, specs):
+    """执行一个任务(可多脚本), 跨进程 setnx 去重防多 worker 重复
+    specs: [(脚本路径, [参数...]), ...]"""
     # 跨进程锁: 当日只执行一次(CacheStore setnx, 锁 12h)
     if not store.setnx("aipick:" + name + ":" + time.strftime("%Y-%m-%d"), "1", 12 * 3600):
         log.info("aipick %s 今日已执行过, 跳过", name)
         return
-    for script in scripts:
-        _run_script(script)
+    for script, args in specs:
+        _run_script(script, args)
 
 
 def _scheduler_loop():
@@ -104,8 +109,8 @@ def trigger_after_bid_snapshot():
     拿到竞价数据后立刻采集+预测, 不等 9:27 轮询窗口) — 后台线程执行, 不阻塞采集主循环"""
     def _wrapped():
         try:
-            _run_task("aipick_collect", [os.path.join(AIPICK_DIR, "scripts", "collector.py")])
-            _run_task("aipick_predict", [os.path.join(AIPICK_DIR, "scripts", "predict_daily.py")])
+            _run_task("aipick_collect", [(os.path.join(AIPICK_DIR, "scripts", "collector.py"), [])])
+            _run_task("aipick_predict", [(os.path.join(AIPICK_DIR, "scripts", "predict_daily.py"), [])])
         except Exception as e:
             log.error("aipick 立即采集/预测异常 err=%s", e)
     threading.Thread(target=_wrapped, daemon=True, name="aipick_snapshot_now").start()
