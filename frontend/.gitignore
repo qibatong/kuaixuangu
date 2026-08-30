@@ -4,3 +4,6 @@ dist_new
 dist_v*
 *.log
 .DS_Store
+__dist_bak
+__y
+__*
