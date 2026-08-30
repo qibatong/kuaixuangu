@@ -14,7 +14,7 @@ from fastapi.params import Body
 
 from ..core import config, logger
 from ..db import database
-from .deps import get_uid, jr
+from .deps import jr
 from ..services import sms_verify
 
 log = logger.get_logger(__name__)
@@ -24,8 +24,8 @@ _PHONE_RE = re.compile(r"^1[3-9]\d{9}$")
 
 
 @router.post("/api/sms/send")
-def api_sms_send(request: Request, body: dict = Body(...), uid: int = Depends(get_uid)):
-    """发送验证码. body: {phone, scene?('register'|'reset'|默认'')}
+def api_sms_send(request: Request, body: dict = Body(...)):
+    """发送验证码(注册/找回密码场景需未登录可用, 防刷靠同号60s+同IP限流). body: {phone, scene?}
     返回 {ok, msg}; 同手机号 SMS_SEND_INTERVAL 秒内仅 1 次"""
     phone = str(body.get("phone") or "").strip()
     if not _PHONE_RE.match(phone):
@@ -51,17 +51,19 @@ def api_sms_send(request: Request, body: dict = Body(...), uid: int = Depends(ge
 
 
 @router.post("/api/sms/verify")
-def api_sms_verify(request: Request, body: dict = Body(...), uid: int = Depends(get_uid)):
-    """校验验证码. body: {phone, code}
-    返回 {ok, msg}; 仅校验系统自动生成的验证码(服务端闭环, 不本地存码)"""
+def api_sms_verify(request: Request, body: dict = Body(...)):
+    """校验验证码(注册/找回密码场景未登录可用). body: {phone, code, scene?}
+    返回 {ok, msg}; 仅校验系统自动生成的验证码(服务端闭环, 不本地存码)
+    scene 必须与 send 时一致, 否则阿里云校验失败"""
     phone = str(body.get("phone") or "").strip()
     code = str(body.get("code") or "").strip()
+    scene = str(body.get("scene") or "")[:20]
     if not _PHONE_RE.match(phone):
         return jr({"ok": False, "msg": "手机号格式不正确"}, 400)
     if not code or not code.isdigit():
         return jr({"ok": False, "msg": "验证码格式不正确"}, 400)
     try:
-        ok, msg = sms_verify.check_code(phone, code)
+        ok, msg = sms_verify.check_code(phone, code, scene=scene)
     except sms_verify.SmsNotConfigured as e:
         log.warning("短信校验未配置: %s", e)
         return jr({"ok": False, "msg": "短信服务未配置, 请联系管理员"}, 503)

@@ -85,8 +85,9 @@ def send_code(phone, scene="", code=None, interval=60, valid_time=5, out_id=""):
     return ok, msg
 
 
-def check_code(phone, code):
-    """校验验证码(系统生成码, 服务端闭环). 返回 (ok, msg)"""
+def check_code(phone, code, scene=""):
+    """校验验证码(系统生成码, 服务端闭环). 返回 (ok, msg)
+    注意: scene 必须与 send 时一致, 否则阿里云返回 isv.ValidateFail"""
     client = _client()
     from alibabacloud_dypnsapi20170525 import models as m
     req = m.CheckSmsVerifyCodeRequest(
@@ -94,6 +95,7 @@ def check_code(phone, code):
         verify_code=str(code),
         country_code="86",
         case_auth_policy=1,               # 1=不区分大小写(数字码无影响)
+        scheme_name=scene or None,        # 必须与 send 一致(空则默认方案)
     )
     resp = client.check_sms_verify_code_with_options(req, _runtime())
     body = getattr(resp, "body", None)
