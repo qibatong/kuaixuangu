@@ -476,13 +476,20 @@ def api_kpl_hot_rank(request: Request, uid: int = Depends(get_uid), source: str 
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "source": source, "date": resolved, "requestedDate": date})
     d = hot_rank.fetch_hot_rank(source)
+    # 2026-08-30 可观测性(主人要求): 源失败时前端应提示"数据源故障, 请切换"而非"暂无数据"
+    # 实时抓取场景: 只要该源刚失败过(最近 60s 内)即标记 failed
+    source_failed = False
+    if not d:
+        err = hot_rank.last_source_error()
+        if err and err.get("source") == source and time.time() - (err.get("ts") or 0) < 60:
+            source_failed = True
     # 2026-08-18 修复: 热点榜补开盘啦概念(此前 board/concept 全空)
     try:
         kpl.apply_board_concept_db(d, log_tag="auc:hot-rank", field="board", truncate=2, blank_if_missing=True)
     except Exception as e:
         log.warning("hot-rank 概念覆盖失败 err=%s", e)
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
-               "source": source, "date": ""})
+               "source": source, "date": "", "source_failed": source_failed})
 
 
 @router.get("/api/kpl/lhb")
@@ -793,8 +800,16 @@ def api_kpl_sector_rotation(request: Request, uid: int = Depends(get_uid), days:
         source = "kpl"
     rot = sector_rotation.query_rotation(days, source)
     win = sector_rotation.query_window_ranking((10, 20, 30, 50), source=source)
+    # 2026-08-30 可观测性(主人要求): 源失败标记。板块轮动读库(历史), 若该源从未落库且
+    # 最近 12h 内该源抓取失败 → 提示"数据源故障"。kpl/ths 历史为空属正常(数据积累中), 不标记
+    source_failed = False
+    if not rot.get("dates") and source == "em":
+        err = sector_rotation.last_source_error()
+        if err and err.get("source") == "em" and time.time() - (err.get("ts") or 0) < 12 * 3600:
+            source_failed = True
     return jr({"ok": True, "rotation": rot, "windows": win,
-               "dates": rot.get("dates") or [], "source": source})
+               "dates": rot.get("dates") or [], "source": source,
+               "source_failed": source_failed})
 
 
 # ==================== 异动监管(doc90/doc108/doc109) ====================

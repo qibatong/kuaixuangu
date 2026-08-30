@@ -128,6 +128,9 @@ v-for="s in sourceOptions" :key="s.key"
         <button class="rot-reset-btn" title="刷新" @click="loadHistory"><i class="fa fa-refresh"></i></button>
       </div>
       <div v-if="rotLoading" class="loading-placeholder"><div class="spinner"></div></div>
+      <div v-else-if="rotSourceFailed" class="empty-state src-fail">
+        <i class="fa fa-exclamation-triangle"></i> 数据源故障（源{{ rotSource === 'kpl' ? 1 : rotSource === 'em' ? 2 : 3 }}暂不可用），请切换其他源查看
+      </div>
       <div v-else-if="!rot.dates.length" class="empty-state">
         暂无历史数据(每日 15:30 后调度器抓取积累)
       </div>
@@ -178,6 +181,9 @@ v-for="s in sourceOptions" :key="s.key"
         <span v-if="hotDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ hotDataDate }}<template v-if="hotDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
       </div>
       <div v-if="hotLoading" class="loading-placeholder"><div class="spinner"></div><div>加载人气热榜...</div></div>
+      <div v-else-if="hotSourceFailed" class="empty-state src-fail">
+        <i class="fa fa-exclamation-triangle"></i> 数据源故障（源{{ hotSource === 'kpl' ? 1 : hotSource === 'em' ? 2 : 3 }}暂不可用），请切换其他源查看
+      </div>
       <div v-else-if="!hotList.length" class="empty-state">暂无热榜数据</div>
       <table v-else class="stock-table">
         <thead>
@@ -303,6 +309,7 @@ const pool = usePoolStore()
 const tab = ref('board')
 const boardList = ref([])
 const hotList = ref([])
+const hotSourceFailed = ref(false)
 const lhbList = ref([])
 const boardLoading = ref(true)
 const hotLoading = ref(true)
@@ -394,11 +401,13 @@ function clearDate(which) {
 }
 
 async function loadHot() {
+  hotLoading.value = true
   try {
     const d = await kplHotRank(hotSource.value, datePicker.value)
     hotList.value = d.list || []
     hotDataDate.value = d.date || ''
-  } catch (e) { /* 静默 */ } finally {
+    hotSourceFailed.value = !!(d && d.source_failed)
+  } catch (e) { hotSourceFailed.value = false } finally {
     hotLoading.value = false
   }
 }
@@ -431,6 +440,7 @@ const sourceOptions = [
   { key: 'ths', label: '源3', icon: 'fa fa-line-chart' },
 ]
 const rotLoading = ref(false)
+const rotSourceFailed = ref(false)
 const rot = reactive({ dates: [], days: [], windows: [], common_names: [], source: 'kpl' })
 
 const rotMap = computed(() => {
@@ -471,7 +481,8 @@ async function loadHistory() {
     rot.days = (d && d.rotation && d.rotation.days) || []
     rot.windows = (d && d.windows && d.windows.windows) || []
     rot.common_names = (d && d.windows && d.windows.common_names) || []
-  } catch (e) { /* ignore */ }
+    rotSourceFailed.value = !!(d && d.source_failed)
+  } catch (e) { rotSourceFailed.value = false } /* 请求失败: 按无故障处理(旧值保留即可) */
   finally { rotLoading.value = false }
 }
 
@@ -556,6 +567,8 @@ body[data-bg="light"] .board-row:hover td { background: rgba(199, 145, 0, 0.08);
 .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
+.empty-state.src-fail { color: #ffb400; } /* 数据源故障警示(琥珀色, A股无绿) */
+.empty-state.src-fail i { margin-right: 6px; }
 .board-code { font-size: 11px; color: var(--text-muted); }
 .strength { color: #ffb400; font-weight: 700; }
 .lb-badge { display: inline-block; color: #ff8a5c; border: 1px solid rgba(255,80,40,0.5); border-radius: 4px; padding: 0 5px; font-size: 11px; background: rgba(255,80,40,0.12); }

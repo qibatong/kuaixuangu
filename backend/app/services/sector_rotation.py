@@ -19,6 +19,24 @@ log = logger.get_logger(__name__)
 
 VALID_SOURCES = ("kpl", "em", "ths")
 
+# 2026-08-30 可观测性(主人要求): 记录最近一次数据源失败, 供 API 透传 source_failed
+_SRC_ERR = {"source": None, "msg": "", "ts": 0}
+import threading
+_SRC_LOCK = threading.Lock()
+
+
+def last_source_error():
+    """返回最近一次源失败 {source, msg, ts}; 无失败返回 None"""
+    with _SRC_LOCK:
+        return dict(_SRC_ERR) if _SRC_ERR["ts"] else None
+
+
+def _mark_source_error(source, msg):
+    with _SRC_LOCK:
+        _SRC_ERR["source"] = source
+        _SRC_ERR["msg"] = str(msg)[:200]
+        _SRC_ERR["ts"] = time.time()
+
 
 def _bj_date():
     g = time.gmtime(time.time() + 8 * 3600)
@@ -71,6 +89,7 @@ def fetch_em_board_rank():
                 })
     except Exception as e:
         log.warning("东财板块榜抓取失败 err=%s", e)
+        _mark_source_error("em", e)
         return []
     # 概念+行业合并后去重(同名保留涨跌幅大者) + 按涨跌幅降序
     seen = {}

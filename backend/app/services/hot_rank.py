@@ -19,6 +19,27 @@ log = logger.get_logger(__name__)
 
 VALID_SOURCES = ("kpl", "em", "ths")
 
+# 2026-08-30 可观测性(主人要求): 记录最近一次数据源失败, 供 API 层透传 source_failed
+# 前端据此显示"数据源故障, 请切换源"而非误导性的"暂无数据"
+_SRC_ERR = {"source": None, "msg": "", "ts": 0}
+
+
+def last_source_error():
+    """返回最近一次源失败 {source, msg, ts}; 无失败返回 None"""
+    with _SRC_LOCK:
+        return dict(_SRC_ERR) if _SRC_ERR["ts"] else None
+
+
+def _mark_source_error(source, msg):
+    with _SRC_LOCK:
+        _SRC_ERR["source"] = source
+        _SRC_ERR["msg"] = str(msg)[:200]
+        _SRC_ERR["ts"] = time.time()
+
+
+import threading
+_SRC_LOCK = threading.Lock()
+
 
 def _ssl_ctx():
     import ssl
@@ -87,9 +108,12 @@ def fetch_em_hot_rank(top_n=50):
             timeout=10)
     except Exception as e:
         log.warning("东财人气榜抓取失败 err=%s", e)
+        _mark_source_error("em", e)
         return []
     rows = d.get("data") or []
     if not rows:
+        # 空 data 也是异常(正常情况 em 人气榜必有数据)
+        _mark_source_error("em", "emappdata 返回空 data")
         return []
     # 拼行情: secids = 1.600487,0.300017...
     secids = []
@@ -140,6 +164,7 @@ def _fetch_em_quotes(secids):
             } for x in diff}
         except Exception as e:
             log.warning("东财批量行情失败 host=%s err=%s", host, e)
+            _mark_source_error("em", f"行情拼装 {host}: {e}")
             continue
     return {}
 
