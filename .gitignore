@@ -82,3 +82,9 @@ scripts/fix_boom_turnover.py
 backend/scripts/backfill_*.py
 backend/scripts/recalc_boom_history.py
 frontend/echarts_diag.html
+
+# ========== 部署脚本(含服务器密码/密钥明文, 严禁入库) ==========
+scripts/_aipick_deploy_backfill.py
+scripts/_aipick_report_probe.py
+scripts/_prod_deploy_forgot.py
+scripts/_deploy_forgot_both.py
