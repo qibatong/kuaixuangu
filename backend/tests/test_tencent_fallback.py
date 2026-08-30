@@ -173,3 +173,55 @@ def test_fetch_spot_quote_map_uses_fallback(monkeypatch):
     raw = fetcher.fetch_spot_quote_map("m:1+t:2")
     assert raw  # 至少 1 只
     assert "300750" in raw
+
+
+# ---------- 2026-08-30 可观测性: 熔断短路日志 + 健康快照 ----------
+def test_yesterday_short_circuit_logs(caplog, monkeypatch):
+    """双源熔断短路必须留 warning 日志(否则运维无法区分"真熔断"和"逻辑 bug")"""
+    monkeypatch.setattr(fetcher, "_check_circuit", lambda src: True)
+    # 需要让 _fetch_yesterday_amount_one 走短路分支: 双源都熔断
+    import logging
+    with caplog.at_level(logging.WARNING):
+        r = fetcher._fetch_yesterday_amount_one("600519")
+    assert r is None
+    assert any("熔断短路" in rec.message for rec in caplog.records), "熔断短路未打日志"
+
+
+def test_health_serviceable_true_when_tencent_up(monkeypatch):
+    """东财 clist down 但腾讯可用 → serviceable=True(服务仍可响应)"""
+    fake_health = {
+        "eastmoney_clist": {"ok": 10, "fail": 5, "last_ok": 0, "last_fail": 9999999999,
+                            "ms_sum": 0, "ms_cnt": 0, "down_since": 9999999999},
+        "eastmoney_kline": {"ok": 10, "fail": 0, "last_ok": 9999999999, "last_fail": 0,
+                            "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
+        "eastmoney_zt_pool": {"ok": 10, "fail": 0, "last_ok": 9999999999, "last_fail": 0,
+                              "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
+        "ths_kline": {"ok": 10, "fail": 0, "last_ok": 9999999999, "last_fail": 0,
+                      "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
+        "tencent_market": {"ok": 10, "fail": 0, "last_ok": 9999999999, "last_fail": 0,
+                           "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
+    }
+    monkeypatch.setattr(fetcher, "_HEALTH", fake_health)
+    st = fetcher.get_health_status()
+    assert st["serviceable"] is True
+    assert st["overall"] == "degraded"
+
+
+def test_health_serviceable_false_when_all_down(monkeypatch):
+    """东财+腾讯都 down → serviceable=False(服务不可用, 必须告警)"""
+    fake_health = {
+        "eastmoney_clist": {"ok": 10, "fail": 5, "last_ok": 0, "last_fail": 9999999999,
+                            "ms_sum": 0, "ms_cnt": 0, "down_since": 9999999999},
+        "eastmoney_kline": {"ok": 10, "fail": 0, "last_ok": 0, "last_fail": 9999999999,
+                            "ms_sum": 0, "ms_cnt": 0, "down_since": 9999999999},
+        "eastmoney_zt_pool": {"ok": 10, "fail": 0, "last_ok": 0, "last_fail": 9999999999,
+                              "ms_sum": 0, "ms_cnt": 0, "down_since": 9999999999},
+        "ths_kline": {"ok": 10, "fail": 0, "last_ok": 0, "last_fail": 9999999999,
+                      "ms_sum": 0, "ms_cnt": 0, "down_since": 9999999999},
+        "tencent_market": {"ok": 10, "fail": 5, "last_ok": 0, "last_fail": 9999999999,
+                           "ms_sum": 0, "ms_cnt": 0, "down_since": 9999999999},
+    }
+    monkeypatch.setattr(fetcher, "_HEALTH", fake_health)
+    st = fetcher.get_health_status()
+    assert st["serviceable"] is False
+    assert st["overall"] == "down"

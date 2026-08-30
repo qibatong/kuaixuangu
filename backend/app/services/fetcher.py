@@ -103,7 +103,10 @@ def _src_status(h):
 
 
 def get_health_status():
-    """数据源健康快照: {overall, sources:{src:{status,ok,fail,last_ok,last_fail,avg_ms}}}"""
+    """数据源健康快照: {overall, serviceable, sources:{src:{status,ok,fail,last_ok,last_fail,avg_ms}}}
+    - overall:     ok(全部正常) / degraded(部分故障, 可能由兜底源覆盖) / down(全部故障)
+    - serviceable: True=任一全市场行情源(eastmoney_clist/tencent_market)可用, 服务可继续响应
+                   2026-08-30 可观测性补充: 东财故障腾讯顶班时, 运维一眼确认服务可用性"""
     with _health_lock:
         sources = {}
         for src, h in _HEALTH.items():
@@ -121,7 +124,10 @@ def get_health_status():
             overall = "degraded"      # 部分故障/降级(可能由兜底源覆盖)
         else:
             overall = "ok"
-    return {"overall": overall, "sources": sources}
+        # 全市场行情主链可用性: 东财 clist 或腾讯 tencent_market 任一能服务即算可服务
+        market_srcs = ["eastmoney_clist", "tencent_market"]
+        serviceable = any(sources.get(s, {}).get("status") != "down" for s in market_srcs)
+    return {"overall": overall, "serviceable": serviceable, "sources": sources}
 
 
 def _bj_date_str():
@@ -419,7 +425,10 @@ def _fetch_market_with_fallback(fs):
     except Exception as e:
         log.warning("东财拉取失败, 切换腾讯兜底 fs=%s err=%s", fs, str(e)[:120])
         try:
-            return fetch_tencent_market(fs)
+            rows = fetch_tencent_market(fs)
+            # 2026-08-30 可观测性: 兜底成功后留成功痕迹(否则只有 warning 无结果确认)
+            log.info("腾讯兜底成功 fs=%s 返回%d只 (东财故障时自动切换)", fs, len(rows))
+            return rows
         except Exception as e2:
             log.error("腾讯兜底也失败 fs=%s err=%s", fs, str(e2)[:120])
             raise RuntimeError("全市场行情数据源全部失败(东财+腾讯): %s" % str(e)[:80])
@@ -433,7 +442,10 @@ def _fetch_market_all_with_fallback(fs):
     except Exception as e:
         log.warning("东财全市场拉取失败, 切换腾讯兜底 fs=%s err=%s", fs, str(e)[:120])
         try:
-            return fetch_tencent_market(fs)
+            rows = fetch_tencent_market(fs)
+            # 2026-08-30 可观测性: 兜底成功后必须留成功痕迹, 否则日志只有 warning 没有结果
+            log.info("腾讯全市场兜底成功 fs=%s 返回%d只 (东财故障时自动切换)", fs, len(rows))
+            return rows
         except Exception as e2:
             log.error("腾讯全市场兜底也失败 fs=%s err=%s", fs, str(e2)[:120])
             raise RuntimeError("全市场分页数据源全部失败(东财+腾讯): %s" % str(e)[:80])
@@ -596,7 +608,9 @@ def _fetch_yesterday_amount_one(code):
     2026-08-30 容灾加固(主人反馈用户中午盘中截图): 当东财日 K 与 ths_kline
     全部处于熔断中, 立即 return None 不浪费 5s×多 host 超时(5554 只全量会卡到 nginx 504)"""
     # 快速短路: 两源都熔断中 → 立即跳过(昨比对该 code 置空, 评分时容忍缺失)
+    # 2026-08-30 可观测性: 熔断短路必须留痕, 否则运维无法确认是"真熔断"还是"逻辑 bug"
     if _check_circuit("eastmoney_kline") and _check_circuit("ths_kline"):
+        log.warning("昨日成交额双源熔断短路 code=%s (eastmoney_kline+ths_kline 均熔断, 昨比置空)", code)
         return None
     qs = urllib.parse.urlencode({
         "secid": _secid(code), "fields1": "f1,f2,f3,f4,f5,f6",
