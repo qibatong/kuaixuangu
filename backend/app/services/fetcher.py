@@ -6,6 +6,7 @@
 import json
 import math
 import re
+import sqlite3
 import ssl
 import threading
 import time
@@ -48,6 +49,7 @@ _HEALTH = {
     "eastmoney_kline": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
     "eastmoney_zt_pool": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
     "ths_kline":       {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
+    "tencent_market":  {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
 }
 _health_lock = threading.Lock()
 
@@ -163,6 +165,128 @@ def fetch_eastmoney(fs):
     _record("eastmoney_clist", True, int((time.time() - t0) * 1000))
     log.info("东财行情拉取成功 fs=%s 数量%d", fs, len(diff))
     return diff
+
+
+# ==================== 腾讯行情兜底源 (2026-08-30 主人要求: 东财被墙时用其他源采集) ====================
+# 东财在生产机被墙(Remote end closed), 腾讯 qt.gtimg.cn 畅通 → 作为全市场行情兜底。
+# 接口: https://qt.gtimg.cn/q=sh600519,sz000001,...  (GBK 编码, ~ 分隔 88 字段)
+# 字段(下标从1起): [1]名称 [2]代码 [3]现价 [4]昨收 [5]今开 [32]涨跌% [36]成交量(手)
+#   [37]成交额(万) [38]换手率 [44]流通市值(亿) [45]总市值(亿) [47]涨停价
+TENCENT_URL = "https://qt.gtimg.cn/q="
+_TENCENT_BATCH = 300       # 每批拉 300 只(实测 600 只 190ms, 300 稳妥防超长 URL)
+_TENCENT_CODES_CACHE = {"ts": 0, "codes": []}   # 全市场代码清单缓存(当日)
+_TENCENT_CODES_TTL = 12 * 3600
+
+
+def _tencent_symbol(code):
+    """股票代码 → 腾讯符号: 沪(6/9)sh / 深(0/3)sz / 北(4/8)bj"""
+    if code.startswith(("6", "9")):
+        return "sh" + code
+    if code.startswith(("4", "8")):
+        return "bj" + code
+    return "sz" + code
+
+
+def _all_market_codes():
+    """全市场股票代码清单(当日缓存): 优先读快选 snapshot_bid 最近一日全量代码;
+    无快照时用东财缓存 raw 的 f12。"""
+    now = time.time()
+    if _TENCENT_CODES_CACHE["codes"] and now - _TENCENT_CODES_CACHE["ts"] < _TENCENT_CODES_TTL:
+        return _TENCENT_CODES_CACHE["codes"]
+    codes = []
+    # 1) snapshot_bid 最近一日全市场(权威, 含北交所)
+    try:
+        conn = sqlite3.connect(config.DB_FILE)
+        row = conn.execute(
+            "SELECT MAX(date) FROM snapshot_bid WHERE time_point='9_25'").fetchone()
+        if row and row[0]:
+            rows = conn.execute(
+                "SELECT DISTINCT code FROM snapshot_bid WHERE date=? AND time_point='9_25'",
+                (row[0],)).fetchall()
+            codes = [r[0] for r in rows if r[0]]
+        conn.close()
+    except Exception:
+        pass
+    # 2) 兜底: 任何缓存 raw 的 f12
+    if not codes:
+        seen = set()
+        for entry in _cache.values():
+            for s in entry.get("raw") or []:
+                c = s.get("f12")
+                if c and c not in seen:
+                    seen.add(c)
+                    codes.append(c)
+    codes = sorted(set(codes))
+    if codes:
+        _TENCENT_CODES_CACHE["codes"] = codes
+        _TENCENT_CODES_CACHE["ts"] = now
+    return codes
+
+
+def _fetch_tencent_batch(symbols):
+    """腾讯单批拉取: symbols 形如 ['sh600519', ...]; 返回 {code: fields_list}; 失败抛异常"""
+    url = TENCENT_URL + ",".join(symbols)
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    })
+    with urllib.request.urlopen(req, timeout=15, context=_NO_VERIFY_CTX) as resp:
+        body = resp.read().decode("gbk", "ignore")
+    out = {}
+    for line in body.split("\n"):
+        m = re.search(r'v_([a-z]{2}\d{6})="(.*)"', line)
+        if not m:
+            continue
+        code = m.group(1)[2:]
+        fields = m.group(2).split("~")
+        if len(fields) > 47:
+            out[code] = fields
+    return out
+
+
+def fetch_tencent_market(fs):
+    """腾讯全市场行情兜底: 以全市场代码清单分批发拉 → 映射为东财 diff 格式
+    (f2现价/f3涨跌%/f8换手/f12代码/f14名称/f21流通市值/f615竞价涨幅≈f3/
+     f616竞价额≈成交额/f617量≈成交量/f630异动=0), 返回与 fetch_eastmoney 同构的列表。
+    竞价专属字段(f615/f616/f617)腾讯无精确值, 用现价涨幅/成交额近似(盘中口径一致)。"""
+    if _check_circuit("tencent_market"):
+        raise RuntimeError("腾讯数据源熔断中(故障冷却%d秒内), 快速失败" % _CIRCUIT_OPEN_SECONDS)
+    codes = _all_market_codes()
+    if not codes:
+        raise RuntimeError("无可用代码清单, 腾讯兜底无法执行")
+    t0 = time.time()
+    symbols = [_tencent_symbol(c) for c in codes]
+    result = []
+    try:
+        for i in range(0, len(symbols), _TENCENT_BATCH):
+            batch = symbols[i:i + _TENCENT_BATCH]
+            got = _fetch_tencent_batch(batch)
+            for code, f in got.items():
+                try:
+                    mv_yi = float(f[44])          # 流通市值(亿)
+                    price = float(f[3])
+                    chg = float(f[32])            # 涨跌%
+                    turnover = float(f[38])       # 换手率
+                    amt_wan = float(f[37])        # 成交额(万)
+                    vol_hand = float(f[36])        # 成交量(手)
+                except (ValueError, IndexError):
+                    continue
+                result.append({
+                    "f2": price, "f3": chg, "f8": turnover,
+                    "f12": code, "f14": f[1],
+                    "f21": mv_yi * 1e8,            # 元
+                    "f615": chg,                    # 竞价涨幅(近似)
+                    "f616": amt_wan * 1e4,          # 竞价金额(元, 近似成交额)
+                    "f617": vol_hand * 100,         # 竞价量(股, 近似成交量)
+                    "f630": 0,
+                })
+            time.sleep(0.1)   # 防腾讯限流
+    except Exception as e:
+        _record("tencent_market", False, int((time.time() - t0) * 1000))
+        raise
+    _record("tencent_market", True, int((time.time() - t0) * 1000))
+    log.info("腾讯兜底行情拉取成功 代码%d只 返回%d只 耗时%.0fms", len(codes), len(result),
+             (time.time() - t0) * 1000)
+    return result
 
 
 def fetch_eastmoney_all(fs):
@@ -285,29 +409,45 @@ def get_same_time_yesterday(date=None):
     return None
 
 
+def _fetch_market_with_fallback(fs):
+    """全市场行情容灾(2026-08-30 主人要求): 东财失败自动切腾讯兜底。
+    腾讯无 f615/f616/f617 竞价专属字段, 用现价涨幅/成交额/成交量近似(盘中口径一致)。
+    东财与腾讯都失败时抛异常。"""
+    try:
+        return fetch_eastmoney(fs)
+    except Exception as e:
+        log.warning("东财拉取失败, 切换腾讯兜底 fs=%s err=%s", fs, str(e)[:120])
+        try:
+            return fetch_tencent_market(fs)
+        except Exception as e2:
+            log.error("腾讯兜底也失败 fs=%s err=%s", fs, str(e2)[:120])
+            raise
+
+
 def ensure_cache(action, fs, before930):
     """在锁内保证缓存可用且新鲜, 返回 (raw, 错误信息)。
     - lock:    9:30 前强制重新拉取(锁定期权)
     - refresh: 缓存过期(超过 CACHE_TTL 秒)才重新拉取
     - filter:  无缓存时拉取一次
+    2026-08-30 容灾(主人要求): 东财失败自动切腾讯兜底(腾讯无 f615 竞价字段, 用近似)
     """
     with _fetch_lock:
         now = time.time()
         if action == "lock":
             if not before930:
                 return None, "9:30 后禁止重新选股"
-            _cache[fs] = {"raw": fetch_eastmoney(fs), "ts": now}
+            _cache[fs] = {"raw": _fetch_market_with_fallback(fs), "ts": now}
             log.info("缓存锁定 fs=%s", fs)
         elif action == "refresh":
             entry = _cache.get(fs)
             if entry is None or now - entry["ts"] > config.CACHE_TTL:
-                _cache[fs] = {"raw": fetch_eastmoney(fs), "ts": now}
+                _cache[fs] = {"raw": _fetch_market_with_fallback(fs), "ts": now}
                 log.info("缓存刷新 fs=%s", fs)
             else:
                 log.info("缓存命中 fs=%s 年龄%.0fs", fs, now - entry["ts"])
         else:  # filter
             if fs not in _cache:
-                _cache[fs] = {"raw": fetch_eastmoney(fs), "ts": now}
+                _cache[fs] = {"raw": _fetch_market_with_fallback(fs), "ts": now}
                 log.info("缓存初建 fs=%s", fs)
             else:
                 log.info("缓存命中 fs=%s", fs)
@@ -316,7 +456,8 @@ def ensure_cache(action, fs, before930):
 
 def ensure_spot_cache(action, fs, before930):
     """盘中实时模式缓存: 不受 9:30 限制, 缓存新鲜度用 SPOT_CACHE_TTL。
-    拉取全市场(分页), 返回 (raw, 错误信息); 拉取失败沿用旧缓存(降级不报错)。"""
+    拉取全市场(分页), 返回 (raw, 错误信息); 拉取失败沿用旧缓存(降级不报错)。
+    2026-08-30 容灾: 东财失败自动切腾讯兜底(fetch_tencent_market 已映射为东财 diff 结构)。"""
     with _fetch_lock:
         now = time.time()
         entry = _cache.get(fs)
@@ -325,10 +466,16 @@ def ensure_spot_cache(action, fs, before930):
                 _cache[fs] = {"raw": fetch_eastmoney_all(fs), "ts": now}
                 log.info("盘中全市场缓存刷新 fs=%s", fs)
             except Exception as e:
-                if entry is not None:
-                    log.warning("盘中拉取失败, 沿用旧缓存 fs=%s err=%s", fs, e)
-                    return entry["raw"], None
-                raise
+                log.warning("东财盘中拉取失败, 切换腾讯兜底 fs=%s err=%s", fs, str(e)[:120])
+                try:
+                    _cache[fs] = {"raw": fetch_tencent_market(fs), "ts": now}
+                    log.info("腾讯兜底盘中全市场刷新 fs=%s", fs)
+                except Exception as e2:
+                    log.error("腾讯盘中兜底也失败 fs=%s err=%s", fs, str(e2)[:120])
+                    if entry is not None:
+                        log.warning("盘中双源失败, 沿用旧缓存 fs=%s", fs)
+                        return entry["raw"], None
+                    raise
         else:
             log.info("盘中缓存命中 fs=%s 年龄%.0fs", fs, now - entry["ts"])
         return _cache[fs]["raw"], None
