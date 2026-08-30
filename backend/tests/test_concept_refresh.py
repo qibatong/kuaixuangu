@@ -217,15 +217,18 @@ def test_refresh_batch_truncate_and_threadpool(monkeypatch):
     monkeypatch.setattr(kpl, "fetch_stock_plate", fake_plate)
     try:
         codes = {"600001", "000002", "300003", "688111", "000004"}
-        res = concept_refresh._refresh_batch("2026-08-20", codes)
+        short_map, full_map = concept_refresh._refresh_batch("2026-08-20", codes)
         assert called_codes == codes
-        assert res.get("600001") == "AI、机器人"
-        assert res.get("000002") == "医药"
-        assert res.get("688111") == "科创、半导体"
-        assert "300003" not in res
-        assert "000004" not in res
-        assert len(res) == 3
-        assert concept_refresh._refresh_batch("2026-08-20", set()) == {}
+        # short_map: 前 TRUNCATE_N=2 个概念
+        assert short_map.get("600001") == "AI、机器人"
+        assert short_map.get("000002") == "医药"
+        assert short_map.get("688111") == "科创、半导体"
+        assert "300003" not in short_map
+        assert "000004" not in short_map
+        assert len(short_map) == 3
+        # full_map: 全量概念
+        assert full_map.get("600001") == "AI、机器人、算力、大模型"
+        assert concept_refresh._refresh_batch("2026-08-20", set()) == ({}, {})
     finally:
         concept_refresh.PER_STOCK_SLEEP_MS = orig_sleep
         concept_refresh.MAX_WORKERS = orig_workers

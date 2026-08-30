@@ -1,0 +1,1 @@
+import{G as a}from"./index-B3xeoVoI.js";function e(t={}){return a("/api/stats/performance",{query:t})}function o(t=""){return a("/api/stats/auction-overview",{query:t?{date:t}:{}})}function i(t,n){return a("/api/stats/auction-snapshot",{query:{date:t,time_point:n}})}export{o as a,i as b,e as f};

@@ -1669,15 +1669,6 @@ def fill_bid_turnover_from_snap(lst, date=None):
             if not code:
                 continue
             s = snap.get(code)
-<<<<<<< HEAD
-            if s and (s.get("free_mv") or s.get("float_mv")):
-                # 注意单位: snapshot_bid.bid_amt 万元, free_mv/float_mv 元 → bid_amt×10000 转元
-                fmv = s.get("free_mv") or s.get("float_mv") or 0
-                bt = round((s.get("bid_amt") or 0) * 10000 / fmv * 100, 2)
-                if bt > 0:
-                    it["bidTurnover"] = bt
-                    n += 1
-=======
             if not s or not s.get("float_mv"):
                 continue
             # 单位: snapshot_bid.bid_amt 万元, float_mv 元 → bid_amt×10000 转元
@@ -1706,7 +1697,6 @@ def fill_bid_turnover_from_snap(lst, date=None):
                 n_repair += 1
         if n_repair:
             log.warning("竞价换手/流通市值修复异常 %d 只 date=%s(字段错位大盘股)", n_repair, date or "-")
->>>>>>> 9949749ea7e75f9466e6e612ad7ecf7918ec8cbf
         if n:
             log.info("竞价换手补齐 %d 只 date=%s", n, date or "-")
     except Exception as e:

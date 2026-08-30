@@ -1,0 +1,1 @@
+import{G as e}from"./index-B3xeoVoI.js";function o(r,t=1,s=100){return e("/api/history/query",{query:{...r,page:t,pageSize:s}})}function u(r){return e("/api/history",{query:r?{batch:r}:{}})}export{u as l,o as q};
