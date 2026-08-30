@@ -99,9 +99,46 @@ def _scheduler_loop():
                         _done_flags[key] = True
                         log.info("aipick 任务触发: %s (%02d:%02d)", name, g.tm_hour, g.tm_min)
                         _run_task(name, scripts)
+                # 9:26:30-9:28 检查 system_batch 是否落库(2026-08-30 主人要求:
+                # 9_25 落库后 system_batch 应已自动存历史回看; 若缺失 → 补跑 + 飞书告警)
+                if 9 * 60 + 26 <= hm <= 9 * 60 + 28:
+                    _done_flags.setdefault("system_batch_check:" + str(g.tm_mday), False)
+                    if not _done_flags["system_batch_check:" + str(g.tm_mday)]:
+                        _done_flags["system_batch_check:" + str(g.tm_mday)] = True
+                        _check_system_batch()
         except Exception as e:
             log.error("aipick 调度异常 err=%s", e)
         time.sleep(20)
+
+
+def _check_system_batch():
+    """每日 9:26:30 后检查当日 system batch(历史回看自动批次)是否已落库。
+    缺失 → 尝试补跑 system_batch + 推送飞书告警(数据源故障时提示人工关注)。
+    跨进程 setnx 去重, 防多 worker 重复告警。"""
+    today_str = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600))
+    # 当日只检查+告警一次
+    if not store.setnx("aipick:system_batch_check:" + today_str, "1", 12 * 3600):
+        return
+    try:
+        from . import system_batch
+        if system_batch._has_today_system_batch(today_str, "9_25"):
+            log.info("system_batch 检查通过: 今日已落库 %s", today_str)
+            return
+        log.warning("system_batch 检查失败: 今日未落库 %s, 触发补跑+告警", today_str)
+        # 尝试补跑(东财正常时成功; 失败不阻塞告警)
+        system_batch.run_system_batch("9_25")
+        # 告警: 数据源可能故障或 9_25 快照未采集
+        try:
+            from . import notify
+            notify.send_text(
+                "⚠️ 今日 %s 系统自动选股批次未生成(9_25 快照可能未采集或数据源故障)。\n"
+                "已尝试后台补跑, 请稍后在「历史回看」确认; 若持续缺失请检查东财接口/快照调度。"
+                % today_str,
+                title="快选·历史回看批次缺失")
+        except Exception as e:
+            log.error("system_batch 缺失告警推送失败 err=%s", e)
+    except Exception as e:
+        log.error("system_batch 检查异常 err=%s", e, exc_info=True)
 
 
 def trigger_after_bid_snapshot():
