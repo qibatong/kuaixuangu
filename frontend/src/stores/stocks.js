@@ -40,7 +40,10 @@ export const useStocksStore = defineStore('stocks', {
     // 盘中筛选条件
     // 账号级筛选偏好(后端 users 表, 跨设备一致)
     userFilterPrefs: null,
-    isFilterLocked: false
+    isFilterLocked: false,
+    // 2026-08-25: 偏好/全局默认异步加载完成前为 false, 防止 FilterPanel 先用内置默认(limitUp=true)
+    // 渲染勾选、随后被用户偏好(limitUp=false)覆盖导致"先勾选后取消"闪烁
+    filterReady: false
   }),
   actions: {
     // ---- 筛选参数(盘中/竞价共用 filterSettings) ----
@@ -77,14 +80,37 @@ export const useStocksStore = defineStore('stocks', {
     },
 
     // ---- 锁定逻辑 (localStorage, key 与旧版一致) ----
+    // 2026-08-25: 运行时迁移(语义反转: limitUp/stSuspend 旧=剔除, 新=只看).
+    //   后端 DB 的迁移在 init_db 时完成; localStorage 值是按用户旧偏好保存的旧语义,
+    //   需做一次取反. 以 mig_filter_sem_flip_v2 标记(存 localStorage)为幂等守卫.
     loadLockedFilter() {
       const user = useUserStore()
       try {
         const raw = localStorage.getItem(user.filterKey)
         if (!raw) return null
         const data = JSON.parse(raw)
-        if (data && data.locked && data.settings) return data
-        return null
+        if (!(data && data.locked && data.settings)) return null
+        const migKey = 'mig_filter_sem_flip_v2'
+        // 标记与锁定数据绑定: 按 user 粒度, 避免多用户共享同一标记
+        const userMigKey = migKey + '_' + (user.username || 'guest')
+        if (!localStorage.getItem(userMigKey)) {
+          let changed = false
+          const s = data.settings
+          for (const k of ['limitUp', 'stSuspend']) {
+            if (typeof s[k] === 'boolean') {
+              s[k] = !s[k]
+              changed = true
+            }
+          }
+          if (changed) {
+            try {
+              localStorage.setItem(user.filterKey, JSON.stringify({ ...data, settings: s }))
+              data.settings = s
+            } catch (e) { /* 写入失败也继续用取反后的内存值 */ }
+          }
+          try { localStorage.setItem(userMigKey, '1') } catch (e) {}
+        }
+        return data
       } catch (e) { return null }
     },
     saveLockedFilter() {
@@ -111,6 +137,8 @@ export const useStocksStore = defineStore('stocks', {
       } else {
         this.filterSettings = { ...base }
       }
+      // 2026-08-25: 偏好/默认已就位, 允许 FilterPanel 渲染最终勾选状态(避免先勾选后取消闪烁)
+      this.filterReady = true
     },
 
     // ---- 竞价锁定名单快照(9:30 后保持名单不变, 只更新实时行情) ----
@@ -151,8 +179,12 @@ export const useStocksStore = defineStore('stocks', {
         if (Array.isArray(snap) && snap.length) locked = snap   // 新格式完整名单
       }
       if (!Array.isArray(locked) || !locked.length) {
-        // 无锁定名单(9:30 后首次打开且当天未 lock) → 实时名单(标 snapshot)
-        return this.applyBidSnapshot(spotList || [])
+        // 无任何锁定名单(自动应用失败 / 新号 / 过期等)且已过 9:30:
+        // 首次结果冻结为当日快照, 之后刷新页面只更新实时行情、不再换名单,
+        // 避免每次打开列表都随实时名单漂移(满足"9:30 后名单固定, 重选需等次日")。
+        const first = spotList || []
+        this.saveBidSnapshot(first)
+        return first
       }
       const listMap = {}
       ;(spotList || []).forEach((s) => { listMap[s.code] = s })
@@ -201,11 +233,15 @@ export const useStocksStore = defineStore('stocks', {
       const d = await listBatches()
       const batches = d.batches || []
       const today = bjDateStr()
-      // 2026-08-18 主人需求: 9:26 自动应用后所有用户看到同一份结果 —
-      // 优先取今天 auto_applied=1 的系统统一批次(9:26 统一标准筛选, 全用户一致),
-      // 无则回退用户当天自己 action=lock 的批次(9:26 前或自动应用未执行)
+      // 优先级: 用户当天手动锁定批次 > 9:26 系统统一批次
+      // 2026-08-18: 9:26 自动应用后所有人看到同一份统一结果(auto_applied 兜底)
+      // 2026-08-22 主人需求: 9:30 后刷新页面必须保留用户当天**手动锁定**名单,
+      // 不被统一批次覆盖(名单固定, 符合"9:30 后仅更新实时行情、不重选")。
+      // 故手动 lock 批次优先; 仅当日未手动锁定时才用统一批次保证一致性。
+      const userLock = batches.find((x) => x.action === 'lock' && x.batch_date === today && !x.auto_applied)
       const autoB = batches.find((x) => x.auto_applied && x.batch_date === today)
-      const b = autoB || batches.find((x) => x.action === 'lock' && x.batch_date === today)
+      const isAuto = !userLock && !!autoB
+      const b = userLock || autoB
       if (!b) return []
       const detail = await listBatches(b.id)
       const stocks = (detail.stocks || []).map((s) => ({
@@ -217,29 +253,11 @@ export const useStocksStore = defineStore('stocks', {
         circulationMV: s.circulation_mv, industry: s.industry,
         concept: s.concept, rank: s.rank
       }))
-      // 标记是否系统统一批次(9:26 自动应用): 统一批次不随用户筛选条件过滤, 保证全用户一致
-      stocks.autoApplied = !!autoB
+      // 标记是否系统统一批次(9:26 自动应用): 统一批次不随用户筛选条件过滤, 保证全用户一致。
+      // 仅当实际命中 auto_applied 批次(isAuto)时才为 true; 命中手动锁定批次则为 false(需按条件过滤)
+      stocks.autoApplied = isAuto
       return stocks
     },
-    applyBidSnapshot(list) {
-      const snap = this.loadBidSnapshot()
-      if (!snap) return list
-      // 兼容旧格式(dict: code -> {qiangchou,bidRatio,accel}) 与 新格式(完整名单数组)
-      if (Array.isArray(snap)) {
-        // 新格式: 名单本身即锁定名单, 直接用(9:30 后无锁定名单时退化用实时名单)
-        return (list || []).map((it) => {
-          const s = snap.find((x) => x.code === it.code)
-          if (s) return { ...it, qiangchou: s.qiangchou, bidRatio: s.bidRatio, accel: s.accel, _snapshot: true }
-          return it
-        })
-      }
-      return (list || []).map((it) => {
-        const s = snap[it.code]
-        if (s) return { ...it, qiangchou: s.qiangchou, bidRatio: s.bidRatio, accel: s.accel, _snapshot: true }
-        return it
-      })
-    },
-
     // ---- 数据操作 ----
     async fetchAndCache() {
       if (this.isDataCached) return
@@ -258,7 +276,8 @@ export const useStocksStore = defineStore('stocks', {
       this.realTimeRefreshUsed = false
       showToast('✅ 选股完成', 'success')
     },
-    async updateRealTimeOnly() {
+    async updateRealTimeOnly({ silent = false } = {}) {
+      this.realTimeRefreshUsed = true
       if (!this.isDataCached) { await this.fetchAndCache(); return }
       const data = await fetchStocks('refresh', this.buildFilterParams())
       // 刷新实时涨幅: 基于当前列表更新实时字段, 不回到锁定名单
@@ -282,7 +301,7 @@ export const useStocksStore = defineStore('stocks', {
       })
       this.before930 = data.before930
       this.realTimeRefreshUsed = true
-      showToast('✅ 实时涨幅更新完成', 'success')
+      if (!silent) showToast('✅ 实时涨幅更新完成', 'success')
     },
     async reLockData() {
       if (!isBefore930()) { showToast('❌ 9:30后禁止重新选股', 'error'); return }
@@ -316,13 +335,13 @@ export const useStocksStore = defineStore('stocks', {
       this.before930 = data.before930
       showToast('✅ 盘中选股完成', 'success')
     },
-    async updateSpotRealTime() {
+    async updateSpotRealTime({ silent = false } = {}) {
       const data = await fetchStocks('refresh', this.buildFilterParams(), 'spot')
       this.spotStocks = data.list || []
       this.isSpotCached = true
       this.before930 = data.before930
       this.realTimeRefreshUsed = true
-      showToast('✅ 实时刷新完成', 'success')
+      if (!silent) showToast('✅ 实时刷新完成', 'success')
     },
     async applySpotFilter() {
       const data = await fetchStocks('refresh', this.buildFilterParams(), 'spot')

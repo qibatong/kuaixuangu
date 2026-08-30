@@ -195,7 +195,7 @@ v-for="s in sourceOptions" :key="s.key"
             <td class="code-click" @click="linkToSoftware(h.code)">{{ h.code }}</td>
             <td>{{ h.name }}</td>
             <td :class="h.change > 0 ? 'up' : h.change < 0 ? 'down' : 'dim'">{{ signed(h.change) }}%</td>
-            <td><button class="pool-add-btn" :class="{ added: inPool(h.code) }" @click.stop="addToPool(h)">{{ inPool(h.code) ? '已加自选' : '＋自选' }}</button></td>
+            <td><button class="pool-add-btn" :class="{ added: inPool(h.code) }" @click.stop="addToPool(h)">{{ inPool(h.code) ? '已＋' : '＋自选' }}</button></td>
           </tr>
         </tbody>
       </table>
@@ -239,7 +239,7 @@ v-for="s in sourceOptions" :key="s.key"
             <td>{{ yi(l.floatMv) }}</td>
             <td>
               <button class="pool-add-btn" style="margin-right:4px;" @click="viewLhbDetail(l)">明细</button>
-              <button class="pool-add-btn" :class="{ added: inPool(l.code) }" @click.stop="addToPool(l)">{{ inPool(l.code) ? '已加自选' : '＋自选' }}</button>
+              <button class="pool-add-btn" :class="{ added: inPool(l.code) }" @click.stop="addToPool(l)">{{ inPool(l.code) ? '已＋' : '＋自选' }}</button>
             </td>
           </tr>
         </tbody>
@@ -440,8 +440,8 @@ const rotMap = computed(() => {
   }
   return m
 })
-// 出现 >= 3 次的板块按频次降序分配 8 色(红/橙/黄/靛蓝/天蓝/深蓝/紫/粉, 无绿系),
-// 同板块多日同色; 出现 < 3 次不配色(rot-c-0), 避免整板花花绿绿
+// 出现 >= 2 次的板块按频次降序分配 8 色(红/橙/黄/靛蓝/天蓝/深蓝/紫/粉, 无绿系),
+// 同板块多日同色; 出现 < 2 次不配色(rot-c-0)
 const colorMap = computed(() => {
   const cnt = {}
   for (const day of rot.days) {
@@ -450,7 +450,7 @@ const colorMap = computed(() => {
     }
   }
   const ranks = Object.entries(cnt)
-    .filter(([_, c]) => c >= 3)
+    .filter(([_, c]) => c >= 2)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
   const m = {}
   ranks.forEach(([name], i) => { m[name] = (i % 8) + 1 })
@@ -525,7 +525,7 @@ onMounted(() => {
 }
 .mrk-modal-title { font-size: 17px; font-weight: 700; color: var(--text-main); }
 .mrk-modal-title .fa { color: var(--accent); }
-.mrk-modal-code { font-size: 13px; color: var(--text-muted); font-family: monospace; margin-left: 6px; }
+.mrk-modal-code { font-size: 13px; color: var(--text-muted); font-family: "LXGW WenKai Mono", monospace; margin-left: 6px; }
 .mrk-modal-sub { font-size: 12px; color: var(--text-muted); margin-left: 8px; }
 .mrk-modal-close {
   margin-left: auto; background: transparent; border: none;
@@ -543,7 +543,7 @@ body[data-bg="light"] .board-row:hover td { background: rgba(199, 145, 0, 0.08);
 .mrk-title { font-size: 20px; font-weight: 700; color: #ffe0a0; }
 .mrk-title .fa { color: #ffb400; }
 .mrk-sub { color: var(--text-muted); font-size: 13px; }
-.mrk-time { margin-left: auto; color: #aaa; font-size: 14px; font-family: monospace; }
+.mrk-time { margin-left: auto; color: #aaa; font-size: 14px; font-family: "LXGW WenKai Mono", monospace; }
 .mrk-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
 .mrk-tab {
   padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border-soft);
@@ -575,7 +575,7 @@ body[data-bg="light"] .board-row:hover td { background: rgba(199, 145, 0, 0.08);
 .lhb-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
 .lhb-idx { width: 16px; color: var(--text-muted); }
 .lhb-name { flex: 1; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lhb-amt { font-family: monospace; }
+.lhb-amt { font-family: "LXGW WenKai Mono", monospace; }
 .lhb-empty { color: #666; font-size: 12px; padding: 8px 0; }
 
 /* 浅色主题覆盖 */

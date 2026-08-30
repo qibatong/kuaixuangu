@@ -101,35 +101,60 @@ def mock_rate_limits(monkeypatch_session):
 
 
 @pytest.fixture(scope="session")
-def first_user(client):
-    """注册一个唯一用户(避免与其他测试的用户名冲突), 返回 (token, username, invite_code)"""
+def create_user_token(client):
+    """注册关闭后(2026-08-25合规)测试建用户改用 service 层, 不经注册接口。
+    返回 callable(username, password, phone, email) -> (uid, token, invite_code)
+    默认邮箱已验证可直接登录。"""
     import uuid
-    uid_suffix = uuid.uuid4().hex[:8]
-    uname = "tester_" + uid_suffix
-    # 防滥用(2026-08-16): 注册需 phone+email
-    # phone 11 位纯数字(用 uuid int 取后 11 位, hex 含 a-f 不能直接用)
-    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
-    email = uid_suffix + "@test.local"
-    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                            "phone": phone, "email": email})
-    assert r.status_code == 200, r.text
-    d = r.json()
-    assert d.get("ok")
-    inv = client.get("/api/invite", headers={"Authorization": "Bearer " + d["token"]})
-    return d["token"], d["username"], inv.json().get("invite_code")
+    from app.db import database
+    from app.services import users, security
+
+    def _make(username=None, password="Test123456", phone=None, email=None,
+              member_level=1, email_verified=1, expire_at=None):
+        uname = username or ("t_" + uuid.uuid4().hex[:8])
+        if phone is None:
+            phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
+        if email is None:
+            email = uuid.uuid4().hex[:8] + "@test.local"
+        uid = users.create_user(uname, password, phone=phone, email=email,
+                                email_verified=email_verified)
+        users.set_member_level(uid, member_level)
+        if expire_at:
+            users.set_expire(uid, expire_at)
+        token = security.issue_token(uid)
+        # 取邀请码
+        inv = users.ensure_invite_code(uid)
+        return {"uid": uid, "token": token, "username": uname,
+                "password": password, "email": email, "phone": phone,
+                "invite_code": inv or None}
+    return _make
 
 
 @pytest.fixture(scope="session")
-def second_user(client, first_user):
-    """第二个普通用户(非管理员), 用于权限类测试.
-    注册不带邀请码(v4.0 起非必填; first_user 码可能被 test_invite_refresh 刷新 → 顺序依赖)"""
-    import uuid
-    uname = "tester2_" + uuid.uuid4().hex[:8]
-    phone = "139" + str(uuid.uuid4().int % 100000000).zfill(8)
-    email = uuid.uuid4().hex[:8] + "2@test.local"
-    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                            "phone": phone, "email": email})
-    assert r.status_code == 200, r.text
-    d = r.json()
-    assert d.get("ok")
-    return d["token"], d["username"]
+def first_user(create_user_token):
+    """注册一个唯一用户(避免与其他测试的用户名冲突), 返回 (token, username, invite_code)"""
+    u = create_user_token()
+    return u["token"], u["username"], u["invite_code"]
+
+
+@pytest.fixture(scope="session")
+def second_user(create_user_token):
+    """第二个普通用户(非管理员, 免费试用 member_level=0), 用于权限类测试.
+    注册已关闭, service 层创建不带邀请码。"""
+    u = create_user_token(member_level=0)
+    return u["token"], u["username"]
+
+
+@pytest.fixture(scope="session")
+def vip_user(client, first_user):
+    """VIP 用户 (member_level=2), 用于需要 VIP 权限的接口测试"""
+    from app.services import users as users_svc
+    from app.db import database
+    username = first_user[1]
+    conn = database.get_conn()
+    row = conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+    conn.close()
+    uid = row[0] if row else None
+    if uid:
+        users_svc.set_member_level(uid, 2)
+    return first_user

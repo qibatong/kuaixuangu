@@ -13,8 +13,8 @@ export function kplBidSeal(date = '') {
   return request('/api/kpl/bid-seal', { query: date ? { date } : {} })
 }
 
-export function kplBidNet() {
-  return request('/api/kpl/bid-net')
+export function kplBidNet(date = '') {
+  return request('/api/kpl/bid-net', { query: date ? { date } : {} })
 }
 
 export function kplBidBoom(date = '') {
@@ -28,6 +28,11 @@ export function kplBroken(day = '', date = '') {
 
 export function kplLadder(date = '') {
   return request(`/api/kpl/ladder${date ? `?date=${date}` : ''}`)
+}
+
+// 连板天梯盘后生成的日期列表(降序)
+export function kplLadderDates() {
+  return request('/api/ladder/dates')
 }
 
 export function kplBoardRank(date = '') {
@@ -77,4 +82,21 @@ export function kplYesterdayPerf() {
 // 板块轮动历史(多日 Top10 + 强度/量能/多窗口排名趋势, source: kpl/em/ths)
 export function sectorRotation(days = 10, source = 'kpl') {
   return request(`/api/kpl/sector-rotation?days=${days}&source=${source}`)
+}
+
+// 异动监管(开盘啦 doc90/doc108/doc109 + 热门股偏离值 GetPianLiZhi_Hot)
+export function kplYidongRealtime() {
+  return request('/api/kpl/yidong-realtime')
+}
+
+export function kplYidongHot() {
+  return request('/api/kpl/yidong-hot')
+}
+
+export function kplYidongMonitor() {
+  return request('/api/kpl/yidong-monitor')
+}
+
+export function kplYidongMulti() {
+  return request('/api/kpl/yidong-multi')
 }

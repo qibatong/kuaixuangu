@@ -188,6 +188,45 @@ def fetch_bid_net():
     return _cached("bid_net", config.KPL_BID_TTL, loader)
 
 
+def bid_net_from_snap(date=None):
+    """2026-08-22 非竞价/非交易日回退: 用 9_25 快照重建竞价净额榜(全市场竞价金额>1000万),
+    与 doc112(MorningBiddingList Type=2 全额>1000万)口径一致, 按竞价额降序。
+    返回 [{code,name,bidAmt(元),bidChange,bidTurnover,bidNetAmt,floatMv,board}, ...]"""
+    import sqlite3
+    if date is None:
+        date = time.strftime("%Y-%m-%d")
+    conn = sqlite3.connect(config.DB_FILE)
+    try:
+        row = conn.execute(
+            "SELECT MAX(time_point) FROM snapshot_bid WHERE date=? "
+            "AND time_point IN ('9_15','9_20','9_24','9_25')", (date,)).fetchone()
+        tp = str(row[0]) if row and row[0] else None
+        if not tp:
+            return []
+        rows = conn.execute(
+            "SELECT code, name, bid_amt, bid_change, float_mv, board FROM snapshot_bid "
+            "WHERE date=? AND time_point=? AND bid_amt >= 1000 ORDER BY bid_amt DESC",
+            (date, tp)).fetchall()
+    finally:
+        conn.close()
+    out = []
+    for _code, _name, _amt, _chg, _fmv, _board in rows:
+        amt = _amt or 0
+        fmv = _fmv or 0
+        out.append({
+            "code": str(_code),
+            "name": _name or "",
+            "bidAmt": amt * 10000,          # 万元 → 元
+            "bidNetAmt": amt * 10000,
+            "bidChange": _chg or 0,
+            "bidTurnover": round(amt * 10000 / fmv * 100, 4) if fmv else 0.0,
+            "floatMv": fmv,
+            "board": _board or "",
+        })
+    log.info("竞价净额快照重建 %d 只 date=%s (9_%s)", len(out), date, tp)
+    return out
+
+
 def fetch_bid_boom():
     """竞价爆量榜(2026-08-19 主人要求改版):
     **按竞价量比排序(不限条数)** — 竞价量比 = 今日竞价额 / 昨日竞价额。
@@ -247,10 +286,12 @@ def fetch_bid_boom():
             ya = ymap.get(code)
             if not ya or amt <= 100:      # 竞价成交额 ≤ 100万(万元=100) 或 昨日无竞价 → 跳过
                 continue
+            if chg < 0.01:                # 竞价涨幅 < 0.01%(基本零涨幅/未上涨) → 跳过
+                continue
             ratio = round(amt / ya, 2)
             if ratio <= 2:                # 竞价量比 ≤ 2 → 跳过
                 continue
-            bid_turnover = round(amt * 10000 / fmv * 100, 2) if fmv else 0.0   # 竞价换手 = 竞价额/实际流通市值×100
+            bid_turnover = round(amt * 10000 / fmv * 100, 4) if fmv else 0.0   # 竞价换手 = 竞价额/流通市值×100
             out.append({"code": code, "name": name,
                         "realChange": (spot_map.get(code) or {}).get("realChange", 0.0),   # 实时涨幅(东财全市场map, 全天有值)
                         "bidChange": chg,
@@ -293,7 +334,7 @@ def _parse_bid_boom(data):
                 "limitBoards": _lb(str(row[16])) if len(row) > 16 else 0,
                 # 2026-08-18: Type=10 无换手列 → 竞价换手 = 竞价成交额/自由流通市值×100
                 # (与开盘啦 Type4 bidTurnover 口径一致, 中石科技验算 2.96 vs 2.97)
-                "bidTurnover": round(_f(row[10]) / _f(row[12]) * 100, 2) if _f(row[12]) else 0.0,
+                "bidTurnover": round(_f(row[10]) / _f(row[12]) * 100, 4) if _f(row[12]) else 0.0,
             })
         except (IndexError, ValueError, TypeError):
             continue
@@ -548,19 +589,28 @@ def fetch_board_stocks(plate_id, date=None, st=30):
     实测 30 条(按强度/涨幅排序); 返回 [{code, name, concept, price, change, turnover, amount,
     floatMv, mainNet, volRatio, limitTag, ladder, totalMv}, ...].
     st: 返回条数上限(默认 30; 2026-08-18 加: 昨涨停/昨断板成分需全量, 传 500)"""
-    params = {
+    base = {
         "Order": "1", "a": "ZhiShuStockList_W8", "st": str(st),
         "c": "ZhiShuRanking", "PhoneOSNew": "1",
         "IsZZ": "0", "Index": "0", "RStart": "0925", "REnd": "1500",
-        "apiv": "w41", "Type": "5", "IsKZZType": "0",
+        "Type": "5", "IsKZZType": "0",
         "PlateID": str(plate_id), "TSZB": "0", "TSZB_Type": "0",
     }
     if not date:
-        date = _prev_trade_day()   # 实时模式兜底: 取上一交易日(当天数据冻结前 apphis 不提供)
-    if date:
-        params["Date"] = date
-    d = _call("his", params)
-    lst = d.get("list") if isinstance(d, dict) else None
+        # 盘中优先用实时接口(apphwshhq + w44, 不带Date)取当日数据;
+        # 实时接口被拒或空时回退历史接口(apphis + w41 + 上一交易日Date)
+        params = dict(base, apiv="w44")
+        d = _call("app", params)
+        lst = d.get("list") if isinstance(d, dict) else None
+        if not isinstance(lst, list) or not lst:
+            date = _prev_trade_day()
+            params = dict(base, apiv="w41", Date=date)
+            d = _call("his", params)
+            lst = d.get("list") if isinstance(d, dict) else None
+    else:
+        params = dict(base, apiv="w41", Date=date)
+        d = _call("his", params)
+        lst = d.get("list") if isinstance(d, dict) else None
     if not isinstance(lst, list):
         return []
     out = []
@@ -776,6 +826,19 @@ def _flash_pool(pool_name, date=None):
             "day": date or time.strftime("%Y-%m-%d"),
         })
     return out
+
+
+def real_limit_days(date):
+    """当日涨停池(封住)每只股票的真实连板数 {code: limitUpDays}。
+    用于连板天梯图: 开盘啦连板梯队 pid 只分到'五板+'(≥5), 无法区分 6 板以上;
+    用东财 flash 涨停池的 limit_up_days 取真实连板数, 修正显示的连板与顶部最高连板。
+    失败/为空返回 {}(调用方回退到 pid 档位)。"""
+    m = {}
+    for it in _flash_pool("limit_up_pool", date):
+        lu = int(it.get("limitUpDays") or 0)
+        if lu >= 1:
+            m[it.get("code")] = lu
+    return m
 
 
 
@@ -1044,20 +1107,44 @@ def _snap25_map(date=None):
     return out
 
 
-def _merge_broken_bid_snap(lst):
-    """炸板列表补竞价涨幅/竞价换手: 按每条 day 查该日 9_25 快照
-    bidTurnover = 竞价额(元)/实际流通市值(元)×100(短线侠同口径近似)
+def _merge_broken_bid_snap(lst, bid_date=None):
+    """炸板列表补竞价涨幅/竞价换手: 按每条 day 查该日 9_25 快照;
+    若传入 bid_date(形如 "2026-08-24"), 则强制用 bid_date 的快照统一补竞价字段
+    (用于"昨炸板看今日竞价"场景: 股票池=昨日炸板, 但bidChange/bidTurnover/floatMv/bidAmt 用今日9_25)。
+    bidTurnover = 竞价额(元)/自由流通市值(元)×100(短线侠同口径近似)
     返回补全后的列表(原地修改+返回)"""
     if not lst:
         return lst
-    # 按 day 分组查快照(避免重复查库)
+    import time as _t
+    today_default = _t.strftime("%Y-%m-%d")
+    if bid_date:
+        # 强制统一日期: 单次查 bid_date 快照即可, 覆盖 bidChange/bidTurnover/floatMv/bidAmt
+        snap = _snap25_map(bid_date) or {}
+        for it in lst:
+            code = str(it.get("code") or "")
+            s = snap.get(code)
+            if not s:
+                continue
+            if s.get("bid_change") is not None:
+                it["bidChange"] = s["bid_change"]
+            amt = s.get("bid_amt") or 0       # 万元
+            fmv = s.get("float_mv") or 0      # 元
+            if fmv:
+                it["floatMv"] = fmv
+            if amt:
+                it["bidAmt"] = amt * 10000    # 万元→元(与其他表口径一致, 前端再fmt)
+            if amt > 0 and fmv > 0:
+                # 精度4位: 大盘小额股不再被round到0
+                it["bidTurnover"] = round(amt * 10000 / fmv * 100, 4)
+        return lst
+    # 按 day 分组查快照(避免重复查库) — 默认兼容行为: 按每条记录自己的 day
     by_day = {}
     for it in lst:
-        d = it.get("day") or time.strftime("%Y-%m-%d")
+        d = it.get("day") or today_default
         by_day.setdefault(d, [])
     snap_cache = {d: _snap25_map(d) for d in by_day}
     for it in lst:
-        s = snap_cache.get(it.get("day") or time.strftime("%Y-%m-%d"), {}).get(it["code"], {})
+        s = snap_cache.get(it.get("day") or today_default, {}).get(it["code"], {})
         if not s:
             continue
         it["bidChange"] = s.get("bid_change")
@@ -1065,7 +1152,7 @@ def _merge_broken_bid_snap(lst):
         fmv = s.get("free_mv") or s.get("float_mv") or 0     # 实际流通市值(元), 快照 free_mv 优先(f117), f21 兜底
         it["floatMv"] = fmv or it.get("floatMv") or 0   # 实际流通市值(元), 2026-08-19 竞价异动统一流通列改实际流通
         if amt > 0 and fmv > 0:
-            it["bidTurnover"] = round(amt * 10000 / fmv * 100, 2)   # 万元→元 口径统一
+            it["bidTurnover"] = round(amt * 10000 / fmv * 100, 4)   # 万元→元 口径统一(精度4位, 避免大盘小额股如0.0017%显示为0)
     return lst
 
 
@@ -1212,15 +1299,18 @@ def apply_board_concept(result, log_tag="", deep=True, field="concept",
     except Exception as e:
         log.warning("选股概念开盘啦覆盖[榜单]失败 %s err=%s", log_tag, e)
 
-    # 第二层: 按股查询 GetStockIDPlate (仅针对榜单未覆盖到的股票, 避免 KPL 资源浪费)
+    # 第二层: 按股查询 GetStockIDPlate (开盘啦真实概念, 用户要求所有表格概念以开盘啦为准)
+    # 2026-08-21 修复: 此前只对"第一层未覆盖"的股票查开盘啦, 但第一层 board_map 混合了
+    # 东财板块/上榜标签(如竞价爆量表的 "昨日炸板、昨日触板" 状态词, 见 001225),
+    # 导致这些污染值被当成"已覆盖"跳过开盘啦查询 → 概念来源错误。
+    # 现在 deep=True 时对全部股票都走开盘啦 doc94 按股查询, 保证概念统一来自开盘啦前 N 个。
     if not deep:
         if blank_if_missing:
             for it in result:
                 if str(it.get("code")) not in covered:
                     it[field] = ""
         return n
-    miss_codes = [str(it.get("code")) for it in result
-                  if it.get("code") and str(it.get("code")) not in covered]
+    miss_codes = [str(it.get("code")) for it in result if it.get("code")]
     if not miss_codes:
         if blank_if_missing:
             for it in result:
@@ -1275,6 +1365,119 @@ def apply_board_concept(result, log_tag="", deep=True, field="concept",
     return n + n2
 
 
+def apply_board_concept_db(result, log_tag="", field="board", truncate=2,
+                           blank_if_missing=True, date=None):
+    """2026-08-21 : 从库内当日已落库的概念覆盖 result 的 field 列, 不再实时逐股查开盘啦
+    =====================================================================
+    背景: 概念由 concept_refresh 每半小时从开盘啦 doc94 定时回写库
+    (auction_daily_history 各 tab / qc_snapshot / lhb_history 的 board 字段),
+    前端竞价接口直接读库即可, 避免每次请求实时打开盘啦。
+    result: [{code, ...}, ...], 原地修改 field 字段; 返回覆盖数
+    field:  目标字段(竞价各 tab 用 "board")
+    truncate: 概念最多保留前 N 个(按 '、' 分档); None/0=不截断
+    blank_if_missing: True 时, 库内无该股概念 → 清空原值(概念只看落库的开盘啦);
+                       False 则保留原值兜底
+    未命中库(如早盘竞价还没落库)时: 有原值则 truncate 后保留, 避免把已有概念清空"""
+    if not result:
+        return 0
+    codes = [str(it.get("code")) for it in result if it.get("code")]
+    if not codes:
+        return 0
+    board_map = _load_board_map_db(codes, date)
+    n = 0
+    for it in result:
+        c = str(it.get("code"))
+        b = board_map.get(c)
+        if b:
+            it[field] = b
+            n += 1
+        elif blank_if_missing:
+            # 库内确实无该股概念: 若字段带东财污染, 清空保证只看开盘啦;
+            # 若无概念原本就是空则不动
+            it[field] = ""
+    if n:
+        log.info("竞价概念读库覆盖 %s 覆盖%d只/共%d只", log_tag, n, len(result))
+    return n
+
+
+def _load_board_map_db(codes, date=None):
+    """从当日竞价落库表读取 code -> board 映射(概念均来自开盘啦, concept_refresh 定时回写)
+    读取顺序(命中即用): auction_daily_history 各 tab → qc_snapshot → lhb_history
+    date: None=今日; 指定 'YYYY-MM-DD' 读历史(供回看接口)
+    返回 {code: board}"""
+    import sqlite3
+    from ..core import config as _cfg
+    if date is None:
+        g = time.gmtime(time.time() + 8 * 3600)
+        date = "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
+    code_set = {str(c) for c in codes}
+    if not code_set:
+        return {}
+    board_map = {}
+    try:
+        conn = sqlite3.connect(_cfg.DB_FILE)
+        # 0) 优先独立概念映射表 stock_concept:
+        # concept_refresh 每30分钟从**所有实时接口**采集概念全量写本表,
+        # 能覆盖盘中新增股票(如竞价爆量实时407只, 而落库9:26仅97只)。
+        try:
+            ph = ",".join("?" * len(code_set))
+            rows = conn.execute(
+                f"SELECT code, board FROM stock_concept WHERE date=? AND code IN ({ph})",
+                (date, *code_set)).fetchall()
+            for c, b in rows:
+                c = str(c).strip()
+                if b:
+                    board_map[c] = b
+        except Exception as e:
+            log.warning("读库概念[stock_concept]失败 date=%s err=%s", date, e)
+        # 1) 竞价异动各 tab
+        tabs = ("seal", "boom", "bid_net", "qiangcang", "yest_zt", "yest_broken",
+                "broken_yest", "broken_today")
+        for tab in tabs:
+            try:
+                row = conn.execute(
+                    "SELECT list FROM auction_daily_history WHERE date=? AND tab=?",
+                    (date, tab)).fetchone()
+            except Exception:
+                continue
+            if not row or not row[0]:
+                continue
+            try:
+                for it in json.loads(row[0]):
+                    c = str(it.get("code", "")).strip()
+                    b = it.get("board")
+                    if c in code_set and b and c not in board_map:
+                        board_map[c] = b
+            except Exception:
+                pass
+        # 2) 竞价抢筹快照
+        try:
+            rows = conn.execute(
+                "SELECT code, board FROM qc_snapshot WHERE date=?", (date,)).fetchall()
+            for c, b in rows:
+                c = str(c).strip()
+                if b and c not in board_map:
+                    board_map[c] = b
+        except Exception:
+            pass
+        # 3) 龙虎榜
+        try:
+            row = conn.execute("SELECT list FROM lhb_history WHERE date=?",
+                               (date,)).fetchone()
+            if row and row[0]:
+                for it in json.loads(row[0]):
+                    c = str(it.get("code", "")).strip()
+                    b = it.get("board")
+                    if c in code_set and b and c not in board_map:
+                        board_map[c] = b
+        except Exception:
+            pass
+        conn.close()
+    except Exception as e:
+        log.warning("读库概念映射失败 date=%s err=%s", date, e)
+    return board_map
+
+
 def fetch_yest_zt():
     """昨日涨停股今日竞价表现: **flash limit_up_pool&date=昨日** (2026-08-18 主人确认:
     开盘啦 doc19/801900 的 Date 是"指数交易日"语义 — 传 8/17 返回的是 8/17 的"昨日"(8/14)涨停股,
@@ -1301,9 +1504,10 @@ def fetch_yest_zt():
             bid_amt = s.get("bidAmt") or (sn["bid_amt"] * 10000 if sn and sn.get("bid_amt") else None)
             float_mv = s.get("floatMv") or (sn.get("free_mv") or sn.get("float_mv") if sn else None)
             # 竞价换手: Type4 真值优先, 无则 竞价额/自由流通市值 近似(与短线侠 0.1-0.4% 量级一致)
+            # 精度4位: 大盘小额股(如58万/344亿≈0.0017%)不再被round到0
             bid_turnover = s.get("bidTurnover")
             if not bid_turnover and bid_amt and float_mv:
-                bid_turnover = round(bid_amt / float_mv * 100, 2)
+                bid_turnover = round(bid_amt / float_mv * 100, 4)
             out.append({
                 "code": code,
                 "name": it["name"],
@@ -1373,9 +1577,10 @@ def fetch_yest_broken():
             bid_amt = (s["bid_amt"] * 10000) if s and s.get("bid_amt") else None
             float_mv = t4.get("floatMv") or (s.get("free_mv") or s.get("float_mv") if s else None)
             # 竞价换手: Type4 真值优先, 无则 竞价额/自由流通市值 近似
+            # 精度4位: 大盘小额股不再被round到0
             bid_turnover = t4.get("bidTurnover")
             if not bid_turnover and bid_amt and float_mv:
-                bid_turnover = round(bid_amt / float_mv * 100, 2)
+                bid_turnover = round(bid_amt / float_mv * 100, 4)
             out.append({
                 "code": code,
                 "name": t4.get("name") or s.get("name") or it["name"],
@@ -1414,9 +1619,12 @@ def fill_reason_from_pool(lst, date=None):
     return lst
 
 
-def fill_bid_change_from_snap(lst, date=None):
-    """用 date(空=今日) 的 9_25 全市场快照(snapshot_bid)给列表补竞价涨幅(bidChange); 已带的不覆盖
-    用于龙虎榜等无竞价字段的数据源"""
+def fill_bid_change_from_snap(lst, date=None, override=False):
+    """用 date(空=今日) 的 9_25 全市场快照(snapshot_bid)给列表补竞价涨幅(bidChange);
+    override=False(默认) 仅补 None; override=True 强制用自采快照覆盖。
+    (2026-08-24) 开盘啦 Type4 接口 bidChange(row[5]) 经核对 146 只中 124 只与
+    snapshot_bid 9_25 竞价涨幅不一致(养元 list=9.99 快照=3.71 等), 竞价委买等表
+    以自采快照为准, 开盘啦值仅作无快照时的兜底。"""
     if not lst:
         return lst
     try:
@@ -1425,10 +1633,13 @@ def fill_bid_change_from_snap(lst, date=None):
             return lst
         for it in lst:
             code = str(it.get("code") or "")
-            if code and it.get("bidChange") is None and code in snap:
-                bc = snap[code].get("bid_change")
-                if bc is not None:
-                    it["bidChange"] = bc
+            if not code or code not in snap:
+                continue
+            if not override and it.get("bidChange") is not None:
+                continue
+            bc = snap[code].get("bid_change")
+            if bc is not None:
+                it["bidChange"] = bc
     except Exception as e:
         log.warning("竞价涨幅补齐失败 date=%s err=%s", date or "-", e)
     return lst
@@ -1437,7 +1648,14 @@ def fill_bid_change_from_snap(lst, date=None):
 def fill_bid_turnover_from_snap(lst, date=None):
     """2026-08-18 主人要求: 竞价异动全部 tab 加竞价换手。
     用 date(空=今日) 9_25 快照给列表补竞价换手(bidTurnover = 竞价成交额/自由流通市值×100,
-    与开盘啦 bidTurnover 口径一致); 已带的不覆盖"""
+    与开盘啦 bidTurnover 口径一致); 已带的不覆盖。
+
+    2026-08-23 修复: 老版 fetch_bid_boom(开盘啦 Type10 解析)落库时把华泰等大盘股 floatMv
+    错位为极小值(如华泰=27元), 导致 bidTurnover 算出千万级荒谬百分比。此处对已带值也做
+    校验: 若 float_mv 异常过小(<1e7 元, 即<1000万, A股最小流通市值也不至于此) → 视为损坏,
+    用当日快照的 float_mv 覆盖并重算 bidTurnover。"""
+    import math as _math
+    MIN_FMV = 1e7   # 元; float_mv 低于该值(不足1000万流通市值)判定为字段错位损坏
     if not lst:
         return lst
     try:
@@ -1445,12 +1663,13 @@ def fill_bid_turnover_from_snap(lst, date=None):
         if not snap:
             return lst
         n = 0
+        n_repair = 0
         for it in lst:
             code = str(it.get("code") or "")
-            # 2026-08-18: 接口解析可能给 0.0(字段错位), 0 也视为缺 → 快照补
-            if not code or it.get("bidTurnover"):
+            if not code:
                 continue
             s = snap.get(code)
+<<<<<<< HEAD
             if s and (s.get("free_mv") or s.get("float_mv")):
                 # 注意单位: snapshot_bid.bid_amt 万元, free_mv/float_mv 元 → bid_amt×10000 转元
                 fmv = s.get("free_mv") or s.get("float_mv") or 0
@@ -1458,6 +1677,36 @@ def fill_bid_turnover_from_snap(lst, date=None):
                 if bt > 0:
                     it["bidTurnover"] = bt
                     n += 1
+=======
+            if not s or not s.get("float_mv"):
+                continue
+            # 单位: snapshot_bid.bid_amt 万元, float_mv 元 → bid_amt×10000 转元
+            # 精度4位: 大盘小额股(如58万/344亿≈0.0017%)不再被round到0
+            _bt_raw = (s.get("bid_amt") or 0) * 10000 / s["float_mv"] * 100
+            if _bt_raw <= 0:
+                continue
+            bt = round(_bt_raw, 4)
+            cur_fmv = it.get("floatMv") or 0
+            # 竞换缺失(空/0) → 必须用快照补(不因 float_mv 正常而跳过)
+            # (2026-08-24 修复: 此前 float_mv 正常(>=MIN_FMV)时直接 continue,
+            #  导致 seal/boom 等开盘啦接口项 bidTurnover 恒为0 而无法补填)
+            if not it.get("bidTurnover"):
+                it["floatMv"] = s["float_mv"]
+                it["bidTurnover"] = bt
+                n += 1
+                continue
+            # float_mv 异常过小(<1000万) 字段错位 → 修复并重算
+            if cur_fmv and cur_fmv < MIN_FMV:
+                it["floatMv"] = s["float_mv"]
+                it["bidTurnover"] = bt
+                n_repair += 1
+            elif _math.isfinite(it["bidTurnover"]) and it["bidTurnover"] > 100:
+                it["floatMv"] = s["float_mv"]
+                it["bidTurnover"] = bt
+                n_repair += 1
+        if n_repair:
+            log.warning("竞价换手/流通市值修复异常 %d 只 date=%s(字段错位大盘股)", n_repair, date or "-")
+>>>>>>> 9949749ea7e75f9466e6e612ad7ecf7918ec8cbf
         if n:
             log.info("竞价换手补齐 %d 只 date=%s", n, date or "-")
     except Exception as e:
@@ -1783,6 +2032,11 @@ def fetch_bid_qiangcang(date=None):
                     if fmv <= 0 or amt25 <= 0 or amt25 < 500 or fmv < 5e8:
                         continue
                     t4 = seal_map.get(code, {})
+                    # 竞换兜底: 开盘啦实时未覆盖(历史回看/非涨停)时, 用 9_25 快照计算
+                    # bidTurnover = 竞价成交额(元)/自由流通市值(元)×100 (与 list20Chg 口径一致)
+                    bid_turnover = t4.get("bidTurnover")
+                    if not bid_turnover and fmv:
+                        bid_turnover = round(amt25 * 10000 / fmv * 100, 2)
                     base = {
                         "code": code,
                         "name": name or t4.get("name", ""),
@@ -1790,7 +2044,7 @@ def fetch_bid_qiangcang(date=None):
                         "realChange": t4.get("realChange"),
                         "bidAmt": amt25 * 10000,
                         "bidChange": chg,
-                        "bidTurnover": t4.get("bidTurnover"),
+                        "bidTurnover": bid_turnover,
                         "floatMv": fmv,
                         "board": t4.get("board", ""),
                     }
@@ -2549,7 +2803,7 @@ def fetch_kpl_doc94(**extra):
     return _call("default", base)
 
 
-def fetch_stock_plate(code):
+def fetch_stock_plate(code, use_cache=True):
     """\u4e2a\u80a1\u5168\u90e8\u76f8\u5173\u6982\u5ff5\u677f\u5757(\u5f00\u76d8\u5566 doc94 GetStockIDPlate):
     \u8fd4\u56de\u62fc\u63a5\u7684\u677f\u5757\u5b57\u7b26\u4e32(\u5982 "\u673a\u5668\u4eba\u6982\u5ff5\u3001\u80a1\u6743\u8f6c\u8ba9\u3001\u6c7d\u8f66\u96f6\u90e8\u4ef6"), \u5931\u8d25\u8fd4\u56de ""
     \u6309\u80a1\u7f13\u5b58 1 \u5929(\u677f\u5757\u5f52\u5c5e\u53d8\u52a8\u4f4e), \u5927\u5e45\u51cf\u5c11 KPL \u8c03\u7528\u6b21\u6570
@@ -2572,7 +2826,7 @@ def fetch_stock_plate(code):
                 if nm:
                     names.append(nm)
         return "\u3001".join(names) if names else None
-    return _cached(key, 86400, loader)  # 1 \u5929\u7f13\u5b58(仅成功结果), \u677f\u5757\u5f52\u5c5e\u7a33\u5b9a
+    return _cached(key, 86400, loader) if use_cache else loader()  # 1 \u5929\u7f13\u5b58(仅成功结果), \u677f\u5757\u5f52\u5c5e\u7a33\u5b9a
 
 
 def fetch_kpl_doc95(**extra):
@@ -2701,6 +2955,16 @@ def fetch_kpl_doc109(**extra):
     base.update(extra)
     return _call("default", base)
 
+def fetch_kpl_pianli_hot(**extra):
+    r"""热门股偏离值(热门度严重异常) (apphwshhq.longhuvip.com) -> dict
+    a=GetPianLiZhi_Hot, c=StockBidYiDong, apiv=w44 + extra
+    resp 示例: {\"Day\":\"2026-08-21\",\"Time\":1787404488,\"List\":[[\"300570\",\"\\u592a\\u8fb0\\u5149\",\"10\\u65e5100%\",0.5,53.11,\"\",30.86,30.71,\"CPO/MPO\\u3001\\u5149\\u6a21\\u5757\",0,\"8\\u65e5\",\"10\\u65e5100%\"], [\"002412\",\"\\u6c49\\u68ee\\u5236\\u836f\",\"10\\u65e5100%\",10.04,42.18,\"3\\u8fde\\u677f\",45.58,42.26,\"\\u4e2d\\u836f\\u3001\\u4e2d\\u62a5\\u589e\\u957f\",0,\"7\\u65e5\",\"10\\u65e5100%\"]], ...}
+    字段([0]代码 [1]名称 [2]偏离类型 [3]今日涨跌% [4]偏离值 [5]连板/标签 [6]异动前涨幅 [7]偏离基准 [8]概念 [9]0 [10]偏离天数 [11]偏离规则)
+    """
+    base = {"a": "GetPianLiZhi_Hot", "c": "StockBidYiDong", "apiv": "w44"}
+    base.update(extra)
+    return _call("default", base)
+
 def fetch_kpl_doc110(**extra):
     r"""实时接口 (apphis.longhuvip.com) -> dict
     a=MarketSCLNKLine, c=HisHomeDingPan, apiv=w44 + extra
@@ -2764,6 +3028,7 @@ def save_auction_history(date, phase="bid"):
             ("seal", fetch_bid_seal()),
             ("boom", fetch_bid_boom()),
             ("qiangcang", (fetch_bid_qiangcang() or {}).get("list20", [])),
+            ("bid_net", fetch_bid_net()),   # 2026-08-22: 竞价净额榜加入落库, 支持历史回看
         ]
     else:
         items = [
@@ -2778,6 +3043,11 @@ def save_auction_history(date, phase="bid"):
             log.warning("竞价异动快照[%s] date=%s 抓取为空, 跳过", tab, date)
             continue
         try:
+            # 2026-08-22: 落库前补竞换/竞额, 否则历史回看/非交易日回退这两列空
+            if phase == "bid" and tab in ("seal", "bid_net"):
+                fill_bid_turnover_from_snap(lst, date)
+                if tab == "bid_net":
+                    fill_bid_amt_from_snap(lst, date)
             conn = _sql.connect(config.DB_FILE)
             conn.execute(
                 "INSERT OR REPLACE INTO auction_daily_history (date, tab, list, ts) VALUES (?,?,?,?)",
@@ -2805,3 +3075,291 @@ def query_auction_history(date, tab):
     except Exception as e:
         log.warning("竞价异动历史查询失败 date=%s tab=%s err=%s", date, tab, e)
     return []
+
+
+_CLOSE_CHG_CACHE = {}       # date -> (ts, {code: pct}) 内存热缓存
+_CLOSE_CHG_TTL = 6 * 3600
+# 交易日盘中被旧代码误写的脏"收盘涨幅"(实为竞价涨幅)自愈: 记录已强制重拉纠正过的日期
+_CLOSE_CHG_RESYNCED = set()
+
+try:
+    import re as _re_cls_chg
+    _CLOSE_CHG_JSON_RE = _re_cls_chg.compile(r"=\s*(\{[\s\S]*\})\s*;?\s*$")
+except Exception:
+    _CLOSE_CHG_JSON_RE = None
+
+
+def _close_chg_db_get(date, codes):
+    """从 close_change_history 批量读 pct 命中; 返回 {code: pct}"""
+    out = {}
+    if not codes or not date:
+        return out
+    try:
+        from ..db import database
+        conn = database.get_conn()
+        for code in codes:
+            row = conn.execute(
+                "SELECT pct FROM close_change_history WHERE date=? AND code=?",
+                (date, code)).fetchone()
+            if row:
+                out[code] = row[0]
+        conn.close()
+    except Exception:
+        pass
+    return out
+
+
+def _close_chg_persist_allowed(date):
+    """是否允许把 date 的收盘涨幅持久化到 close_change_history。
+
+    根因修复(2026-08-24): 盘中(未收盘)当日 K 线的 last close 是实时价,
+    此时把"当日涨幅"当"当日收盘涨幅"写入会永久污染该日数据 —— 盘后/历史
+    回看 fill_close_change_from_kline 先命中库表读到脏值, 导致现涨=竞涨/
+    现涨错误(用户反馈)。规则: date<今天 → 早已收盘, 允许; date==今天 →
+    仅北京时间已过 15:00(收盘)才允许; 其它 → 禁止。
+    """
+    import time as _t
+    if not date:
+        return False
+    today_bj = _t.strftime("%Y-%m-%d", _t.gmtime(_t.time() + 8 * 3600))
+    if date < today_bj:
+        return True
+    if date > today_bj:
+        return False
+    bj = _t.gmtime(_t.time() + 8 * 3600)
+    return (bj.tm_hour, bj.tm_min) >= (15, 0)
+
+
+def _close_chg_db_put(date, pairs):
+    """把 {code: pct} 持久化到 close_change_history, 后续历史回看免请求东财"""
+    if not pairs or not date:
+        return
+    try:
+        from ..db import database
+        conn = database.get_conn()
+        conn.executemany(
+            "INSERT OR REPLACE INTO close_change_history(date,code,pct) VALUES(?,?,?)",
+            [(date, c, v) for c, v in pairs.items()])
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _close_chg_pct_sina(date, code):
+    """新浪日K取某股某日收盘涨跌幅(%)兜底; 失败返回 None"""
+    try:
+        import urllib.request, ssl, json as _json
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        sym = "sh" + code if code[0] == "6" else ("bj" + code if code[0] in "48" else "sz" + code)
+        url = ("https://quotes.sina.cn/cn/api/json_v2.php/CN_MarketData.getKLineData"
+               f"?symbol={sym}&scale=240&ma=no&datalen=160")
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0", "Referer": "https://finance.sina.com.cn/"})
+        with urllib.request.urlopen(req, timeout=12, context=ctx) as r:
+            arr = _json.loads(r.read().decode("utf-8", "ignore"))
+        prev = None
+        for row in arr:
+            d = str(row.get("day", ""))[:10]
+            c = float(row.get("close") or 0)
+            if d == date and prev:
+                return round((c - prev) / prev * 100, 2)
+            if c:
+                prev = c
+    except Exception:
+        pass
+    return None
+
+
+def _close_chg_pct_tencent(date, code):
+    """腾讯日K(qq-web行情)取某股某日收盘涨跌幅(%)兜底; 失败返回 None"""
+    try:
+        import urllib.request, ssl, json as _json
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        sym = "sh" + code if code[0] == "6" else ("bj" + code if code[0] in "48" else "sz" + code)
+        # 腾讯 qq 日K: 最近 160 根日线足够回溯 ~8 月
+        url = (f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={sym},day,,,160,qfq")
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"})
+        with urllib.request.urlopen(req, timeout=12, context=ctx) as r:
+            txt = r.read().decode("utf-8", "ignore")
+        obj = _json.loads(txt)
+        # data.{sym}.qfqday / data.{sym}.day
+        dat = (obj.get("data") or {}).get(sym) or {}
+        arr = dat.get("qfqday") or dat.get("day") or []
+        prev = None
+        for row in arr:
+            if not isinstance(row, (list, tuple)) or len(row) < 3:
+                continue
+            d = str(row[0])[:10]
+            c = float(row[2] or 0)
+            if d == date and prev:
+                return round((c - prev) / prev * 100, 2)
+            if c:
+                prev = c
+    except Exception:
+        pass
+    return None
+
+
+def _close_chg_pct_ths(date, code):
+    """同花顺(10jqka)日线接口取某股某日收盘涨跌幅(%)兜底; 失败返回 None"""
+    try:
+        import urllib.request, ssl, json as _json
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        # 同花顺 10jqka 代码: 沪=1_xxxxxx 深=0_xxxxxx 北=1_xxxxxx(保守)
+        if code[0] == "6":
+            secid = f"1_{code}"
+        elif code[0] in "48":
+            secid = f"1_{code}"
+        else:
+            secid = f"0_{code}"
+        url = (f"https://d.10jqka.com.cn/v6/line/hs_{secid}/01/last.js")
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": f"https://stockpage.10jqka.com.cn/{code}/"})
+        with urllib.request.urlopen(req, timeout=12, context=ctx) as r:
+            js = r.read().decode("gbk", "ignore")
+        # last.js 返回 json_hex = {...}
+        m = _CLOSE_CHG_JSON_RE.search(js) if _CLOSE_CHG_JSON_RE else None
+        if not m:
+            return None
+        obj = _json.loads(m.group(1))
+        # klines: "date,open,high,low,close,vol,amount"
+        rows = obj.get("data") or obj.get("klines") or []
+        prev = None
+        for row in rows:
+            parts = row.split(",") if isinstance(row, str) else row
+            if not parts or len(parts) < 5:
+                continue
+            d = str(parts[0])[:10]
+            c = float(parts[4] or 0)
+            if d == date and prev:
+                return round((c - prev) / prev * 100, 2)
+            if c:
+                prev = c
+    except Exception:
+        pass
+    return None
+
+
+def fill_close_change_from_kline(lst, date):
+    """历史回看: 把列表中股票 change/realChange 覆盖为所选交易日 date 的**当日收盘涨跌幅(%)
+    数据来源优先级: 进程内存 → close_change_history 库表(持久化) → 多源日K(缺失才拉, 并写库)。
+    多源顺序: fetch_stock_chart_robust(东财→腾讯→同花顺→开盘啦) → 新浪 → 腾讯 → 同花顺。
+    因此历史日首次补齐后, 后续回看不再请求外部接口。返回被覆盖的股票数。"""
+    if not lst or not date:
+        return 0
+    from ..services import fetcher
+    now = time.time()
+    for k, (ts, _) in list(_CLOSE_CHG_CACHE.items()):
+        if now - ts > _CLOSE_CHG_TTL:
+            _CLOSE_CHG_CACHE.pop(k, None)
+    ent = _CLOSE_CHG_CACHE.get(date)
+    if ent is None or now - ent[0] > _CLOSE_CHG_TTL:
+        ent = (now, {})
+        _CLOSE_CHG_CACHE[date] = ent
+    table = ent[1]
+    today_bj = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600))
+    # 收盘自愈(2026-08-24): 盘中旧代码把"竞价涨幅"误当"当日收盘涨幅"写入 close_change_history,
+    # 导致收盘/历史回看时现涨=竞涨。针对"今天且已收盘"一次性强制重拉纠正脏值(去重, 之后走库/缓存)。
+    force_resync = (date == today_bj and _close_chg_persist_allowed(date)
+                    and date not in _CLOSE_CHG_RESYNCED)
+    # 1) 缺的 code 先查库命中
+    todo = [it for it in lst if it.get("code") and it.get("code") not in table]
+    if todo:
+        dbhit = _close_chg_db_get(date, [it["code"] for it in todo])
+        for it in todo:
+            v = dbhit.get(it["code"])
+            if v is not None:
+                table[it["code"]] = v
+        todo = [it for it in todo if it["code"] not in table]
+    # 收盘自愈(2026-08-24): 今日盘中旧代码误写的脏"收盘涨幅"=竞价涨幅, 收盘后强制纠正。
+    # 优先用批量实时行情(单次分页拉全市场, 收盘后其"实时涨幅"即当日收盘涨幅, 避免逐只日K→限流熔断);
+    # 未命中批量行情的才落到逐只多源日K兜底。
+    fetched = {}
+    if force_resync:
+        todo = [it for it in lst if it.get("code")]
+        if todo:
+            try:
+                from ..services import fetcher as _fet, scorer as _sco
+                spot = _fet.fetch_spot_quote_map(_sco.market_fs(["hs", "cyb", "kcb"]))
+                got = 0
+                for it in todo:
+                    q = spot.get(str(it["code"])) if spot else None
+                    if not q:
+                        continue
+                    rc = q.get("realChange")
+                    if rc is None:
+                        rc = q.get("change")
+                    if rc is not None:
+                        val = float(rc) if rc else 0.0
+                        table[it["code"]] = val
+                        fetched[it["code"]] = val
+                        got += 1
+                log.info("收盘自愈: 批量实时行情纠正今日收盘涨幅 %d 只 date=%s", got, date)
+            except Exception as e:
+                log.warning("收盘自愈 批量行情失败(转逐只日K兜底) date=%s err=%s", date, e)
+        todo = [it for it in todo if it["code"] not in table]
+        _CLOSE_CHG_RESYNCED.add(date)
+    # 2) 仍缺的才拉多源日K, 并写库持久化(任一源命中即写入；收盘自愈命中批量行情的也已写库)
+
+    def _one(it):
+        code = it.get("code") or ""
+        try:
+            # 2a) robust chart (东财→腾讯→tushare→同花顺→开盘啦)
+            k = fetcher.fetch_stock_chart_robust(code, "day")
+            if k and k.get("time"):
+                times, closes = k["time"], k["close"]
+                for i, t in enumerate(times):
+                    if str(t)[:10] == date:
+                        if i > 0 and closes[i - 1]:
+                            v = round((closes[i] - closes[i - 1]) / closes[i - 1] * 100, 2)
+                            table[code] = v
+                            fetched[code] = v
+                            return
+            # 2b) 新浪日K兜底
+            v = _close_chg_pct_sina(date, code)
+            if v is not None:
+                table[code] = v
+                fetched[code] = v
+                return
+            # 2c) 腾讯日K兜底
+            v = _close_chg_pct_tencent(date, code)
+            if v is not None:
+                table[code] = v
+                fetched[code] = v
+                return
+            # 2d) 同花顺日K兜底
+            v = _close_chg_pct_ths(date, code)
+            if v is not None:
+                table[code] = v
+                fetched[code] = v
+                return
+        except Exception:
+            pass
+
+    if todo:
+        import concurrent.futures as cf
+        with cf.ThreadPoolExecutor(max_workers=6) as ex:
+            list(ex.map(_one, todo))
+    # 收盘自愈修复(2026-08-24): 批量实时行情已把纠正值写入 fetched 并把 todo 清空,
+    # 持久化必须放在 if todo 之外, 保证批量命中的纠正值也能写回库表。
+    if fetched and _close_chg_persist_allowed(date):
+        _close_chg_db_put(date, fetched)
+    n = 0
+    for it in lst:
+        v = table.get(it.get("code"))
+        if v is None:
+            continue
+        it["change"] = v
+        it["realChange"] = v
+        it["real_change"] = v   # 2026-08-24: 统一回填 real_change(三时点表展示 key)
+        n += 1
+    return n

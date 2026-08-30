@@ -53,90 +53,10 @@ def api_login(request: Request, body: dict = Body(...)):
 
 @router.post("/api/register")
 def api_register(request: Request, body: dict = Body(...)):
-    ip = client_ip(request)
-    username = str(body.get("username") or "").strip()
-    password = str(body.get("password") or "")
-    invite_code = str(body.get("invite_code") or "").strip().upper()
-    phone = str(body.get("phone") or "").strip()
-    email = str(body.get("email") or "").strip()
-    # 基础格式校验前置: 无效请求(用户名/密码/手机/邮箱格式错)
-    # 不计入防刷计数, 避免用户改几次格式就被误锁(2026-08-16 用户反馈)
-    if not re.match(r"^[\u4e00-\u9fa5a-zA-Z0-9_]{2,20}$", username):
-        return jr({"ok": False, "msg": "用户名需 2-20 位，支持中英文/数字/下划线"}, 400)
-    if len(password) < 6:
-        return jr({"ok": False, "msg": "密码至少 6 位"}, 400)
-    # 防滥用(2026-08-16): 手机号+邮箱都必填, 堵"反复纯用户名注册绕过付费"漏洞
-    if not phone:
-        return jr({"ok": False, "msg": "请填写手机号"}, 400)
-    if not email:
-        return jr({"ok": False, "msg": "请填写邮箱"}, 400)
-    if not users._is_phone(phone):
-        return jr({"ok": False, "msg": "手机号格式不正确"}, 400)
-    if not users._is_email(email):
-        return jr({"ok": False, "msg": "邮箱格式不正确"}, 400)
-    # 基础格式校验通过后再限流 — 错误格式不计次防误锁
-    if not security.register_allowed(ip):
-        return jr({"ok": False, "msg": "注册过于频繁，请稍后再试"}, 429)
-    # 同 IP 24h 注册数上限(防同 IP 批量刷号, 2026-08-17)
-    if not security.register_ip_day_allowed(ip):
-        return jr({"ok": False, "msg": "同一网络今日注册账号过多，请明天再试"}, 429)
-    inviter = None
-    if invite_code:
-        inviter = users.find_user_by_invite_code(invite_code)
-        if inviter is None:
-            return jr({"ok": False, "msg": "邀请码无效，请找邀请你的人获取"}, 400)
-    # 邀请码非必填: 不填直接注册(无邀请关系); 填了才校验有效性
-    invited_by = inviter["id"] if inviter else None
-    if users.find_user(username):
-        return jr({"ok": False, "msg": "用户名已存在"}, 409)
-    if phone and users.find_user_by_phone(phone):
-        return jr({"ok": False, "msg": "该手机号已绑定其他账号"}, 409)
-    if email and users.find_user_by_email(email):
-        return jr({"ok": False, "msg": "该邮箱已绑定其他账号"}, 409)
-    my_code = users.gen_unique_invite_code()
-    # 注册环境: IP + UA(截断存储, 供同 IP 自邀识别/管理端追溯)
-    ua = str(request.headers.get("user-agent") or "")[:200]
-    # SMTP 已配置 → 新注册强制邮箱验证(email_verified=0); 未配置 → 降级为已验证
-    smtp_ready = users.smtp_configured()
-    try:
-        uid = users.create_user(username, password, invited_by=invited_by,
-                                invite_code=my_code, phone=phone or None,
-                                email=email or None, register_ip=ip, register_ua=ua,
-                                email_verified=0 if smtp_ready else 1)
-    except sqlite3.IntegrityError:
-        log.warning("注册冲突 username=%s ip=%s", username, client_ip(request))
-        return jr({"ok": False, "msg": "用户名或手机号/邮箱已被占用"}, 409)
-    log.info("注册成功 uid=%s user=%s invited_by=%s ip=%s", uid, username, invited_by or "-", client_ip(request))
-    # 邀请奖励: 每成功邀请一个新用户, 邀请人 +7 天使用时间(永久/VIP 老师跳过)
-    # 防同 IP 小号刷: 被邀人与邀请人同 IP / 同 IP 已邀超限 → 不发奖励
-    if invited_by:
-        blocked, why = users.invite_reward_blocked(invited_by, ip)
-        if blocked:
-            log.warning("邀请奖励拦截 uid=%s inviter=%s ip=%s reason=%s", uid, invited_by, ip, why)
-        else:
-            new_et = users.grant_invite_reward(invited_by, days=config.INVITE_REWARD_DAYS)
-            log.info("邀请奖励 uid=%s inviter=%s +%d天 新到期=%s", uid, invited_by,
-                     config.INVITE_REWARD_DAYS, new_et or "-")
-    # 邮箱认证(2026-08-17): 新注册强制验证, 验证通过后才能登录
-    email_verified = 1
-    if smtp_ready:
-        vcode = users.gen_verify_code()
-        users.set_email_verify_code(uid, vcode)
-        mail_ok = users.send_verify_email(email, username, vcode)
-        log.info("邮箱验证邮件 uid=%s sent=%s to=%s", uid, mail_ok, email)
-        email_verified = 0
-    else:
-        log.warning("SMTP 未配置, 跳过邮箱验证 uid=%s", uid)
-    # 新用户默认 7 天会员试用
-    u = users.find_user_by_id(uid)
-    et = int(u.get("expire_at") or 0) if u else 0
-    return jr({"ok": True, "token": security.issue_token(uid), "username": username,
-               "uid": uid,
-               "email_verified": email_verified,
-               "expire_at": et,
-               "member_level": users.get_member_level(uid),
-               "expired": 1 if (et and time.time() > et) else 0,
-               "msg": "注册成功，请查收邮箱完成验证后再登录"})
+    """注册已停止开放(合规要求 2026-08-25): 新用户仅能由管理员在后台开通。
+    保留端点返回统一提示, 不创建任何用户。"""
+    log.info("注册请求被拒绝(注册已停止) ip=%s", client_ip(request))
+    return jr({"ok": False, "msg": "系统已停止开放注册，如需开通账号请联系管理员（微信 poet-1986）"}, 403)
 
 
 @router.post("/api/verify-email")

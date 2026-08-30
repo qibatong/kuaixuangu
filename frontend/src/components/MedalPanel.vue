@@ -41,8 +41,10 @@ function fmtPct(v) {
 
 <style scoped>
 .qc-badge {
-  margin-left: 6px;
-  font-size: 12px;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 14px;
   color: #ffa07a;
   animation: qc-pulse 1.6s ease-in-out infinite;
 }
@@ -52,12 +54,12 @@ function fmtPct(v) {
 }
 /* 实时涨幅大字(顶替原评分位置, 2026-08-18 主人反馈) */
 .medal-real-big {
-  font-size: 38px;
+  font-size: 56px;
   font-weight: 900;
   color: #ff5252;
   line-height: 1.1;
   margin: 2px 0 0;
-  font-family: 'Consolas', monospace;
+  font-family: "LXGW WenKai Mono", monospace;
   letter-spacing: -0.5px;
 }
 .medal-real-big.green-real { color: #00c864 !important; }
@@ -65,10 +67,10 @@ body[data-bg="light"] .medal-real-big { color: #c62828; }
 body[data-bg="light"] .medal-real-big.green-real { color: #1a7a2a !important; }
 /* 竞涨幅: 缩字号, 实时涨幅下面 */
 .medal-bid-sm {
-  font-size: 14px;
+  font-size: 20px;
   color: #ff8a6f;
   font-weight: 600;
-  font-family: monospace;
+  font-family: "LXGW WenKai Mono", monospace;
   margin-top: 1px;
 }
 body[data-bg="light"] .medal-bid-sm { color: #c0562f; }
@@ -77,7 +79,7 @@ body[data-bg="light"] .medal-bid-sm { color: #c0562f; }
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-size: 15px;
+  font-size: 22px;
   white-space: nowrap;
 }
 .medal-prob-sm { color: #e0a800; font-weight: 700; }
@@ -86,11 +88,11 @@ body[data-bg="light"] .medal-prob-sm { color: #a06a00; }
 body[data-bg="light"] .medal-conf { color: #5a6b85; }
 /* 手机端覆盖(2026-08-18 补: desktop 放大字号后, 这3个 scoped 类在 mobile 也要缩小, 否则手机端挤压) */
 @media (max-width: 899px) {
-  .medal-rank { font-size: 13px; }
-  .medal-name-big { font-size: 14px; }
-  .medal-code { font-size: 12px; }
-  .medal-real-big { font-size: 26px; }
-  .medal-bid-sm { font-size: 11px; }
-  .medal-score-row { font-size: 12px; gap: 5px; }
+  .medal-rank { font-size: 16px; }
+  .medal-name-big { font-size: 17px; }
+  .medal-code { font-size: 15px; }
+  .medal-real-big { font-size: 32px; }
+  .medal-bid-sm { font-size: 14px; }
+  .medal-score-row { font-size: 14px; gap: 5px; }
 }
 </style>

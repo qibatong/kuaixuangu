@@ -15,6 +15,10 @@
     "format:check": "prettier --check \"src/**/*.{js,vue,css}\""
   },
   "dependencies": {
+    "@fontsource/noto-sans-sc": "^5.3.0",
+    "@fontsource/noto-serif-sc": "^5.3.0",
+    "echarts": "^6.1.0",
+    "lxgw-wenkai-webfont": "^1.7.0",
     "pinia": "^2.1.7",
     "vue": "^3.4.21",
     "vue-router": "^4.3.0"

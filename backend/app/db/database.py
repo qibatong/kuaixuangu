@@ -201,6 +201,16 @@ def init_db():
             PRIMARY KEY (date, tab)
         )
     """)
+    # 历史日现涨(当日收盘涨跌幅)持久化(2026-08-22): 一库存所有历史交易各股收盘涨幅,
+    # 历史回看直接读本表, 无需再请求东财日K接口
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS close_change_history (
+            date TEXT NOT NULL,
+            code TEXT NOT NULL,
+            pct REAL NOT NULL DEFAULT 0,
+            PRIMARY KEY (date, code)
+        )
+    """)
     # 旧库升级: 已存在且无 source 列时补上(单字段主键), 历史数据默认 kpl
     try:
         cur.execute("ALTER TABLE daily_sector_top ADD COLUMN source TEXT NOT NULL DEFAULT 'kpl'")
@@ -317,6 +327,25 @@ def init_db():
             PRIMARY KEY (date, code, ts)
         )
     """)
+    # 概念映射表(2026-08-21): code -> 开盘啦概念(前N个拼接)
+    # concept_refresh 每30分钟从开盘啦采集**当日所有竞价/上榜实时股票**的概念,
+    # 全量写本表; 前端竞价各接口直接读本表即可, 不再每次请求实时打开盘啦。
+    # 对比"写到各 tab 列表 JSON": 本表能覆盖实时表格(如竞价爆量盘中有407只,
+    # 而 9:26 落库仅97只)新增的股票, 避免新出现股票概念读不到。<...>
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS stock_concept (
+            date TEXT NOT NULL,
+            code TEXT NOT NULL,
+            board TEXT,
+            board_full TEXT,
+            ts INTEGER NOT NULL,
+            PRIMARY KEY (date, code)
+        )
+    """)
+    # 老库迁移: stock_concept 增加 board_full 列(2026-08-27: 存开盘啦全量概念, 供 AI 预测悬浮展示全部)
+    sc_cols = [r[1] for r in cur.execute("PRAGMA table_info(stock_concept)").fetchall()]
+    if "board_full" not in sc_cols:
+        cur.execute("ALTER TABLE stock_concept ADD COLUMN board_full TEXT")
     # 老库迁移: batches 增加 user_id 列(用户隔离)
     cols = [r[1] for r in cur.execute("PRAGMA table_info(batches)").fetchall()]
     if "user_id" not in cols:
@@ -338,6 +367,98 @@ def init_db():
         )
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_task_queue_status ON task_queue(status)")
+
+    # ---------- 2026-08-27: 股性功能 ----------
+    # 每日涨停/炸板明细存档: 供「历史封板率 / 次日溢价 / 炸板反包 / 连板基因」统计。
+    # 来源: 东财 flash 历史池(limit_up_pool/limit_up_broken)每日盘后落库;
+    #       过去一年由回补脚本逐日(YYYY-MM-DD)回填。
+    # 口径: is_limit=1 之意最终封住(涨停池), is_limit=0 之意最终炸板(炸板池)。
+    #       历史接口只给「当日最终态」, 盘中首封时间/封单等细粒度仅从上线起累积。
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS limit_history (
+            date TEXT NOT NULL,
+            code TEXT NOT NULL,
+            name TEXT,
+            is_limit INTEGER NOT NULL DEFAULT 1,
+            zt INTEGER NOT NULL DEFAULT 1,
+            zbc INTEGER NOT NULL DEFAULT 0,
+            change REAL NOT NULL DEFAULT 0,
+            reason TEXT,
+            ts INTEGER NOT NULL,
+            PRIMARY KEY (date, code)
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_limit_history_code ON limit_history(code)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_limit_history_date ON limit_history(date)")
+    # 个股日K缓存: 回补/现算「次日溢价、大阴线、反包」时免重复拉东财。
+    # 一行一只股票一整段日K(JSON); ts 记录落库时间。字段: date(基准日,k线含T-119..T日)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS stock_kline (
+            code TEXT PRIMARY KEY,
+            day_data TEXT NOT NULL,
+            ts INTEGER NOT NULL
+        )
+    """)
+    # 股性画像落库(方案B): 每日盘后一次性算好全部画像, 排行直读此表避免实时逐股重算。
+    # profile 为 compute_profile 全量 JSON; score/zt_count/name 供排行排序与搜索筛选。
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS stock_temper_profile (
+            code TEXT PRIMARY KEY,
+            name TEXT,
+            score REAL NOT NULL DEFAULT 0,
+            zt_count INTEGER NOT NULL DEFAULT 0,
+            profile TEXT NOT NULL,
+            ts INTEGER NOT NULL
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_temper_score ON stock_temper_profile(score DESC)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_temper_name ON stock_temper_profile(name)")
+
+    # ---------- 2026-08-25: limitUp/stSuspend 语义反转(旧=true时剔除, 新=true时只看)
+    # 迁移幂等: 用 settings 表 mig_filter_sem_flip_v2 标记, 标记已存在则跳过.
+    # 迁移内容:
+    #   1) 所有用户 filter_prefs JSON 中的 limitUp / stSuspend 布尔值取反
+    #   2) settings.default_filters 中的 limitUp / stSuspend 布尔值取反
+    #   3) 同步: DEFAULT_FILTERS_DEFAULT 内置默认值已同步(见 api/admin.py)
+    #   4) 前端 localStorage 锁定筛选: 由前端运行时迁移(见 stores/stocks.js)
+    mig_key = "mig_filter_sem_flip_v2"
+    mig_done = cur.execute("SELECT 1 FROM settings WHERE key=?", (mig_key,)).fetchone()
+    if not mig_done:
+        _flip_count = 0
+        for (uid, raw) in cur.execute("SELECT id, filter_prefs FROM users WHERE filter_prefs IS NOT NULL AND filter_prefs != ''").fetchall():
+            try:
+                obj = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+            changed = False
+            for k in ("limitUp", "stSuspend"):
+                if isinstance(obj.get(k), bool):
+                    obj[k] = not obj[k]
+                    changed = True
+            if changed:
+                cur.execute("UPDATE users SET filter_prefs=? WHERE id=?",
+                            (json.dumps(obj, ensure_ascii=False), uid))
+                _flip_count += 1
+        # settings.default_filters 取反
+        df_row = cur.execute("SELECT value FROM settings WHERE key=?", ("default_filters",)).fetchone()
+        if df_row:
+            try:
+                df = json.loads(df_row[0])
+                changed = False
+                for k in ("limitUp", "stSuspend"):
+                    if isinstance(df.get(k), bool):
+                        df[k] = not df[k]
+                        changed = True
+                if changed:
+                    cur.execute("UPDATE settings SET value=?, updated_at=? WHERE key=?",
+                                (json.dumps(df, ensure_ascii=False), int(time.time()), "default_filters"))
+            except (TypeError, ValueError):
+                pass
+        cur.execute(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?,?,?)",
+            (mig_key, json.dumps({"t": int(time.time()), "users_flipped": _flip_count}, ensure_ascii=False), int(time.time())))
+        log.info("[mig_filter_sem_flip_v2] done, users_flipped=%d", _flip_count)
+
     conn.commit()
     conn.close()
 

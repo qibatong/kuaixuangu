@@ -26,6 +26,11 @@ PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 DB_FILE = os.environ.get("BID_DB_PATH", os.path.join(PROJECT_ROOT, "kuaixuan.db"))
 # 日志目录(默认项目根下 logs/), 可用 BID_LOG_DIR 覆盖
 LOG_DIR = os.environ.get("BID_LOG_DIR", os.path.join(PROJECT_ROOT, "logs"))
+# 连板天梯图片输出目录(每日盘后生成 PNG, 供 App 内查看/下载)
+LADDER_IMG_DIR = os.environ.get("LADDER_IMG_DIR", os.path.join(PROJECT_ROOT, "ladder_images"))
+# AI 竞价预测报告输出目录(独立项目 /opt/kuaixuan/aipick/output):
+# 含 latest.html / predictions_YYYY-MM-DD.html 等, 原 Nginx 静态暴露, 现改为后端鉴权后经 App 内查看
+AIPICK_OUTPUT_DIR = os.environ.get("AIPICK_OUTPUT_DIR", "/opt/kuaixuan/aipick/output")
 
 # ---------- 邮件重置密码 ----------
 SMTP_HOST = os.environ.get("SMTP_HOST", "")
@@ -45,7 +50,7 @@ FIELDS = "f2,f3,f4,f5,f6,f8,f10,f12,f14,f17,f18,f20,f21,f117,f615,f616,f617,f618
 EASTMONEY_ZT_URL = "https://push2ex.eastmoney.com/getTopicZTPool"
 EASTMONEY_ZT_UT = "7eea3edcaed734bea9cbfc24409ed989"
 ZT_CACHE_TTL = int(os.environ.get("ZT_CACHE_TTL", "15"))       # 涨停池缓存新鲜度(秒)
-SPOT_CACHE_TTL = int(os.environ.get("SPOT_CACHE_TTL", "120"))  # 盘中实时行情缓存新鲜度(秒); 2026-08-18: 30→120 全市场20页太重, 竞价异动页多个tab共用一次拉取
+SPOT_CACHE_TTL = int(os.environ.get("SPOT_CACHE_TTL", "60"))  # 盘中实时行情缓存新鲜度(秒); 2026-08-18: 30→120; 2026-08-19: 120→300(分页并发后冷启动0.5s, 延长TTL减少冷启动频率, 与market-brief 5min一致); 2026-08-24: 300→60(主人要求盘中现涨刷新更快, 前端轮询同步 60s→30s)
 SPOT_MAX_PAGES = int(os.environ.get("SPOT_MAX_PAGES", "30"))   # 盘中全市场分页拉取上限(每页200只; 30页=6000只覆盖全A+北交所)
 
 # 昨日成交额(日K)抓取: 低并发 + 多域名轮询 + 熔断, 避免触发东财限流
@@ -100,3 +105,8 @@ REG_IP_DAY_LIMIT = int(os.environ.get("REG_IP_DAY_LIMIT", "5"))               # 
 # redis=Redis(生产多 worker 共享) / sqlite=SQLite 表 kv_cache(测试/兜底, 零依赖)
 CACHE_BACKEND = os.environ.get("CACHE_BACKEND", "sqlite")
 REDIS_URL = os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0")
+
+# ---------- Tushare 代理网关(备用数据源) ----------
+# 用于东财/同花顺/kpl 都不可用时的兜底, 主要覆盖日线行情等
+TUSHARE_BASE_URL = os.environ.get("TUSHARE_BASE_URL", "https://ai-tool.indevs.in")
+TUSHARE_API_KEY = os.environ.get("TUSHARE_API_KEY", "20ad79ad14e0c8db0b8f6a551768a004ba86953ea50b506e59d8ebf7")

@@ -5,26 +5,19 @@
       <div class="login-title">快选</div>
       <div class="login-sub">{{ subText }}</div>
 
-      <!-- 登录/注册 -->
-      <template v-if="mode === 'login' || mode === 'register'">
+      <!-- 登录 -->
+      <template v-if="mode === 'login'">
         <form class="login-form" @submit.prevent="submit">
-          <input v-model="username" type="text" :placeholder="mode === 'login' ? '用户名 / 手机号 / 邮箱' : '用户名(2-20位, 支持中英文)'" :autocomplete="mode === 'login' ? 'username' : 'off'" maxlength="20">
-          <input v-model="password" type="password" placeholder="密码" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'">
-          <template v-if="mode === 'register'">
-            <input v-model="phone" type="text" placeholder="手机号(必填, 用于账号追溯+找回)" autocomplete="off" maxlength="11">
-            <input v-model="email" type="text" placeholder="邮箱(必填, 注册后需验证)" autocomplete="off" maxlength="60">
-            <input v-model="invite" type="text" placeholder="邀请码(选填, 双方各得7天)" autocomplete="off" maxlength="12">
-          </template>
-          <label v-if="mode === 'login'" class="remember-row">
+          <input v-model="username" type="text" placeholder="用户名 / 手机号 / 邮箱" autocomplete="username" maxlength="20">
+          <input v-model="password" type="password" placeholder="密码" autocomplete="current-password">
+          <label class="remember-row">
             <input v-model="remember" type="checkbox" class="remember-check" />
             <span>记住我，30 天内免登录</span>
           </label>
-          <button class="login-btn" type="submit" :disabled="busy">{{ mode === 'login' ? '登录' : '注册' }}</button>
+          <button class="login-btn" type="submit" :disabled="busy">{{ busy ? '登录中...' : '登录' }}</button>
           <div class="login-err" :class="{error: errIsError}">{{ err }}</div>
         </form>
         <div class="login-switch">
-          还没有账号？<a href="javascript:void(0)" @click="toggleMode">{{ mode === 'login' ? '注册一个' : '返回登录' }}</a>
-          <span style="margin:0 6px;color:#334;">|</span>
           <a href="javascript:void(0)" @click="mode = 'forgot'">忘记密码？</a>
         </div>
       </template>
@@ -70,7 +63,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { login as apiLogin, register as apiRegister, forgot as apiForgot, reset as apiReset, forgotCheck as apiForgotCheck, verifyEmail as apiVerifyEmail, resendVerify as apiResendVerify } from '../api/auth'
+import { login as apiLogin, forgot as apiForgot, reset as apiReset, forgotCheck as apiForgotCheck, verifyEmail as apiVerifyEmail, resendVerify as apiResendVerify } from '../api/auth'
 import { useUserStore } from '../stores/user'
 import { showToast } from '../utils/toast'
 
@@ -78,7 +71,7 @@ const route = useRoute()
 const router = useRouter()
 const user = useUserStore()
 
-const mode = ref('login')          // login | register | forgot | reset | verify
+const mode = ref('login')          // login | forgot | reset | verify
 const busy = ref(false)
 const err = ref('')
 // 错误提示是否显示红色背景块: 仅"真正的错误"才上色 (loading/✅成功 不算)
@@ -86,9 +79,6 @@ const errIsError = ref(false)
 const remember = ref(true)         // 「记住我」默认勾选: 30 天免登录
 const username = ref('')
 const password = ref('')
-const invite = ref('')
-const phone = ref('')
-const email = ref('')
 const resetPwd = ref('')
 const resetPwd2 = ref('')
 const resetToken = ref(null)
@@ -99,15 +89,8 @@ const verifyCode = ref('')
 
 const subText = computed(() =>
   mode.value === 'login' ? '登录' :
-  mode.value === 'register' ? '注册新账号' :
   mode.value === 'verify' ? '邮箱验证' :
   mode.value === 'forgot' ? '重置密码' : '设置新密码')
-
-function toggleMode() {
-  mode.value = mode.value === 'login' ? 'register' : 'login'
-  err.value = ''
-  errIsError.value = false
-}
 
 function setErr(msg, isError = true) {
   err.value = msg
@@ -119,36 +102,14 @@ async function submit() {
   setErr('', false)
   if (!username.value.trim()) { setErr('请输入用户名/手机号/邮箱'); return }
   if (!password.value) { setErr('请输入密码'); return }
-  if (mode.value === 'register') {
-    // 前端预校验: 避免无效格式打到后端触发限流计数(后端是兜底校验)
-    if (!/^[\u4e00-\u9fa5a-zA-Z0-9_]{2,20}$/.test(username.value.trim())) {
-      setErr('用户名需 2-20 位，支持中英文/数字/下划线'); return
-    }
-    if (password.value.length < 6) { setErr('密码至少 6 位'); return }
-    if (!phone.value.trim()) { setErr('请填写手机号(必填, 用于账号追溯+找回)'); return }
-    if (!email.value.trim()) { setErr('请填写邮箱(必填, 用于账号追溯+找回)'); return }
-    if (!/^1[3-9]\d{9}$/.test(phone.value.trim())) { setErr('手机号格式不正确'); return }
-    if (!/^[\w.+-]+@[\w-]+(\.[\w-]+)+$/.test(email.value.trim())) { setErr('邮箱格式不正确'); return }
-  }
   busy.value = true
-  err.value = mode.value === 'login' ? '登录中...' : '注册中...'
+  err.value = '登录中...'
   errIsError.value = false
   try {
-    const body = mode.value === 'register'
-      ? { username: username.value.trim(), password: password.value, invite_code: invite.value.trim(), phone: phone.value.trim(), email: email.value.trim() }
-      : { login: username.value.trim(), password: password.value, remember: remember.value }
-    const data = mode.value === 'register' ? await apiRegister(body) : await apiLogin(body)
-    // 注册后强制邮箱验证: 未验证不发 token 跳转, 先进入验证模式
-    if (mode.value === 'register' && data.email_verified === 0) {
-      verifyUid.value = data.uid
-      verifyEmailAddr.value = email.value.trim()
-      verifyCode.value = ''
-      setErr('✅ ' + (data.msg || '注册成功，请查收邮箱验证'), false)
-      mode.value = 'verify'
-      return
-    }
-    // 注册自动登录的 token 为 12h 会话, 存 sessionStorage; 登录按「记住我」选择
-    user.setSession(data.username, data.token, data.is_admin, data.expire_at, data.expired, mode.value === 'login' && remember.value, data.member_level)
+    const body = { login: username.value.trim(), password: password.value, remember: remember.value }
+    const data = await apiLogin(body)
+    // 注册已停止; 此分支仅兼容历史: 登录自动登录
+    user.setSession(data.username, data.token, data.is_admin, data.expire_at, data.expired, remember.value, data.member_level)
     if (data.expired) {
       showToast('⚠️ 账号已过期，请联系管理员续费(微信 poet-1986)', 'error')
     }

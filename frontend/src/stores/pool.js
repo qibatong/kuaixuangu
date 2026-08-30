@@ -22,16 +22,22 @@ export const usePoolStore = defineStore('pool', {
         const r = localStorage.getItem(user.poolKey)
         if (!r) return
         const d = JSON.parse(r)
-        if (d.autoPoolLockTime && Date.now() - d.autoPoolLockTime > LOCK_DURATION_MS) {
+        const lockTime = d.autoPoolLockTime || null
+        const stocks = d.stocks || []
+        // 锁过期 (>10h): 无论池是否为空, 都清除存储项 (下一次 autoAdd 可正常自动收录)
+        if (lockTime && Date.now() - lockTime > LOCK_DURATION_MS) {
           localStorage.removeItem(user.poolKey)
+          this.stockPool = []
+          this.autoPoolLockTime = null
           return
         }
-        this.stockPool = d.stocks || []
-        this.autoPoolLockTime = d.autoPoolLockTime || null
+        // 正常加载 (含用户手动清空后的"空池+锁"状态)
+        this.stockPool = stocks
+        this.autoPoolLockTime = lockTime
       } catch (e) { /* ignore */ }
     },
     syncToStorage() {
-      if (!this.stockPool.length) this.autoPoolLockTime = null
+      // 注意: 不要在空池时清空 autoPoolLockTime, 因为 clearAll() 可能设了手动锁定
       this.saveToStorage()
     },
     addStocks(stks) {
@@ -47,7 +53,11 @@ export const usePoolStore = defineStore('pool', {
           added++
         }
       })
-      if (added) { this.syncToStorage() }
+      if (added) {
+        // 用户手动添加股票 → 解除"手动清空"锁定, 允许下次自动收录
+        this.autoPoolLockTime = null
+        this.syncToStorage()
+      }
       return added
     },
     removeStock(code) {
@@ -55,28 +65,51 @@ export const usePoolStore = defineStore('pool', {
       this.syncToStorage()
     },
     clearAll() {
-      if (!this.stockPool.length) return
+      if (!this.stockPool.length && !this.autoPoolLockTime) return
       this.stockPool = []
-      this.autoPoolLockTime = null
+      // 关键: 设置锁定时间, 阻止 autoAdd 在用户手动清空后 10 小时内自动恢复自选
+      this.autoPoolLockTime = Date.now()
       this.saveToStorage()
     },
     checkExpiry() {
+      // 池非空且锁过期 → 清空自动收录的池 (用户手动清空的情况: 池空+锁有效, 不触发)
       if (this.autoPoolLockTime && this.stockPool.length && Date.now() - this.autoPoolLockTime > LOCK_DURATION_MS) {
         this.stockPool = []
+        this.autoPoolLockTime = null
+        this.saveToStorage()
+      }
+      // 池空但锁过期 (用户手动清空已超10小时) → 解锁, 允许下次自动收录
+      if (this.autoPoolLockTime && !this.stockPool.length && Date.now() - this.autoPoolLockTime > LOCK_DURATION_MS) {
         this.autoPoolLockTime = null
         this.saveToStorage()
       }
     },
     // 9:30 前自动将选股前五名收录进池(诗人需求: 前3→前5)
     autoAdd(cachedStocks, isDataCached) {
-      const now = new Date()
-      const h = now.getHours(), m = now.getMinutes()
-      if (this.autoPoolLockTime && this.stockPool.length) {
-        if (Date.now() - this.autoPoolLockTime <= LOCK_DURATION_MS) return
-        this.stockPool = []
-        this.autoPoolLockTime = null
-        this.saveToStorage()
+      const now = Date.now()
+      const h = new Date().getHours(), m = new Date().getMinutes()
+
+      // 锁定检查: 若有锁定时间
+      if (this.autoPoolLockTime) {
+        if (this.stockPool.length) {
+          // 池非空: 锁仍有效 → 不自动改
+          if (now - this.autoPoolLockTime <= LOCK_DURATION_MS) return
+          // 锁过期: 清空并解锁, 准备下一轮自动收录
+          this.stockPool = []
+          this.autoPoolLockTime = null
+          this.saveToStorage()
+        } else {
+          // 池为空但有锁定时间 → 用户手动清空过
+          if (now - this.autoPoolLockTime <= LOCK_DURATION_MS) {
+            // 锁定仍有效 → 不自动恢复, 直接返回
+            return
+          }
+          // 锁过期 → 允许下次自动收录
+          this.autoPoolLockTime = null
+        }
       }
+
+      // 9:30 前自动收录
       if (h < 9 || (h === 9 && m < 30)) {
         if (isDataCached && cachedStocks.length) {
           const top = cachedStocks.slice(0, 5)

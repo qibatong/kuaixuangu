@@ -1,84 +1,71 @@
 <template>
   <div>
-    <!-- 规则条 + 顶栏按钮组 -->
-    <div class="alert-rule">
-      <div class="rule-text"><i class="fa fa-clock-o"></i> <strong>9:30前可重新选股 · 9:30后仅更新实时涨幅</strong></div>
-      <div class="right-group">
-        <div class="btn-group">
-          <button class="tdx-export-btn reset-lock-btn" :disabled="!isBefore930()" @click="reLock"><i class="fa fa-refresh"></i> 重新锁定(9:30前可用)</button>
-          <button class="tdx-export-btn real-time-btn" @click="refreshRealTime"><i class="fa fa-refresh"></i> 刷新实时涨幅</button>
-          <a href="/download/tdx_import.exe" class="tdx-export-btn tdx-only nav-btn nav-tdx"><i class="fa fa-windows"></i> 下载通达信工具</a>
-          <button class="tdx-export-btn tdx-only nav-btn nav-pool-import" data-tip="💡 首次用：先点「下载通达信工具」并运行，再在通达信『选项/工具』勾选『监控剪贴板』，之后点下载即可自动导入" @click="downloadAll"><i class="fa fa-download"></i> 下载自选股(自动导入)</button>
-        </div>
-        <div id="mobileTdxHint">
-          📱 通达信导入需在<b>电脑端</b>操作（电脑上点「下载自选股」即可自动导入）。手机上可点此
-          <button class="pool-btn" @click="copyCodes"><i class="fa fa-copy"></i> 复制代码列表</button>
-        </div>
-        <div class="live-time"><div class="time-digital">{{ bjTime }}</div></div>
-      </div>
-    </div>
-
-    <!-- 会员门禁: 竞价选股 / 盘中实时选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
-    <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价选股" />
-
-    <template v-else>
-    <!-- 市场情绪面板: 涨停家数/情绪值/连板高度(置于模式切换上方, 整体大盘氛围先行) -->
-    <SentimentPanel />
-
-    <!-- 模式切换 Tab: 竞价选股 / 盘中实时选股 -->
-    <div class="mode-tabs">
-      <button class="mode-tab" :class="{ active: stocks.mode === 'auction' }" @click="switchMode('auction')">
-        <i class="fa fa-sun-o"></i> 竞价选股 <span class="mode-desc">9:15-9:31 · 竞价锁定</span>
+    <!-- 窄屏(<1100px) 切换栏: 选股 / 竞价异动 (宽屏 50/50 并排, 本栏隐藏) -->
+    <div class="home-mob-toggle">
+      <button class="home-mob-tab" :class="{ active: mobilePane === 'stock' }" @click="mobilePane = 'stock'">
+        <i class="fa fa-sun-o"></i> 选股
       </button>
-      <button class="mode-tab" :class="{ active: stocks.mode === 'spot' }" @click="switchMode('spot')">
-        <i class="fa fa-bolt"></i> 盘中实时选股 <span class="mode-desc">9:30-15:00 · 实时刷新</span>
+      <button class="home-mob-tab" :class="{ active: mobilePane === 'auction' }" @click="mobilePane = 'auction'">
+        <i class="fa fa-bullhorn"></i> 竞价异动
       </button>
     </div>
 
-    <!-- 筛选面板 -->
-    <FilterPanel />
+    <!-- 首页两块布局: 左=选股主流程, 右=竞价异动; 宽屏 50/50 并排, 窄屏按 mobilePane 切一块 -->
+    <div class="home-grid">
+      <!-- 市场情绪面板: 横跨左右视图置于最顶部 -->
+      <div class="home-sentiment"><SentimentPanel /></div>
 
-    <!-- 奖牌区(仅竞价模式) -->
-    <template v-if="stocks.mode === 'auction'">
-      <!-- 左右分栏: 左=金银铜奖牌 + 右=自选股票池(主人要求, 仅这两块并排) -->
-      <div class="medal-pool-layout">
-        <div class="medal-pool-left">
-          <MedalPanel :stocks="stocks.cachedStocks" />
+      <!-- 左栏: 选股主流程 -->
+      <div class="home-col home-col-left" :class="{ 'home-col-hidden': mobilePane !== 'stock' }">
+        <!-- 紧凑规则条 + 内联模式切换 + 操作按钮 -->
+        <div class="alert-rule alert-rule-compact">
+          <span class="rule-text"><strong>9:30前可重新选股 · 9:30后仅更新</strong></span>
+          <!-- 模式切换(内联): 竞价 / 盘中 -->
+          <span class="mode-tabs mode-tabs-inline">
+            <button class="mode-tab mode-tab-compact" :class="{ active: stocks.mode === 'auction' }" @click="switchMode('auction')">竞价</button>
+            <button class="mode-tab mode-tab-compact" :class="{ active: stocks.mode === 'spot' }" @click="switchMode('spot')">盘中</button>
+          </span>
+          <!-- 操作按钮 -->
+          <span class="right-group">
+            <button class="tdx-export-btn reset-lock-btn" :disabled="!isBefore930()" @click="reLock"><i class="fa fa-lock"></i> 锁定</button>
+            <button class="tdx-export-btn real-time-btn" @click="refreshRealTime"><i class="fa fa-refresh"></i> 刷新</button>
+          </span>
         </div>
-        <div class="medal-pool-right">
-          <StockPoolPanel />
-        </div>
+
+        <!-- 筛选面板 -->
+        <div class="home-filter"><FilterPanel /></div>
+
+        <!-- 会员门禁: 竞价选股 / 盘中实时选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
+        <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价选股" />
+
+        <template v-if="user.isMember || !isMemberOnlyTime()">
+        <!-- 奖牌区(仅竞价模式) -->
+        <MedalPanel v-if="stocks.mode === 'auction'" :stocks="stocks.cachedStocks" />
+
+        <!-- 自选股票池 -->
+        <StockPoolPanel v-if="stocks.mode === 'spot'" @open-chart="showChart" />
+
+        <!-- 主表: 按模式显示 -->
+        <template v-if="stocks.mode === 'spot'">
+          <div v-if="!stocks.isSpotCached" class="stock-table-container">
+            <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
+          </div>
+          <StockTable v-else :stocks="stocks.spotStocks" mode="spot" :bid-seal-map="bidSealMap" />
+        </template>
+        <template v-else>
+          <div v-if="!stocks.isDataCached" class="stock-table-container">
+            <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
+          </div>
+          <StockTable v-else :stocks="stocks.cachedStocks" mode="auction" :bid-seal-map="bidSealMap" />
+        </template>
+        </template>
+      </div><!-- /.home-col-left -->
+
+      <!-- 右栏: 竞价异动 -->
+      <div class="home-col home-col-right" :class="{ 'home-col-hidden': mobilePane !== 'auction' }">
+        <AuctionView/>
       </div>
-
-      <!-- 奖牌导出 -->
-      <!-- 奖牌区下方不展示导出按钮(主流程已有下载自选股, 此处避免重复) -->
-    </template>
-    <!-- 盘中模式无奖牌: 自选池放主流程 -->
-    <template v-else>
-      <StockPoolPanel />
-    </template>
-
-    <!-- 全部结果导出(上下) -->
-    <!-- 主表上下不再放下载按钮(顶部「下载自选股(自动导入)」已覆盖, 此处避免重复) -->
-
-
-    <!-- 主表: 按模式显示 -->
-    <template v-if="stocks.mode === 'spot'">
-      <div v-if="!stocks.isSpotCached" class="stock-table-container">
-        <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
-      </div>
-      <StockTable v-else :stocks="stocks.spotStocks" mode="spot" :bid-seal-map="bidSealMap" />
-    </template>
-    <template v-else>
-      <div v-if="!stocks.isDataCached" class="stock-table-container">
-        <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
-      </div>
-      <StockTable v-else :stocks="stocks.cachedStocks" mode="auction" :bid-seal-map="bidSealMap" />
-    </template>
-
-    <!-- 主表上下不再放下载按钮(顶部「下载自选股(自动导入)」已覆盖, 此处避免重复) -->
-
-    </template>
+    </div><!-- /.home-grid -->
   </div>
 </template>
 
@@ -89,20 +76,30 @@ import SentimentPanel from '../components/SentimentPanel.vue'
 import MedalPanel from '../components/MedalPanel.vue'
 import StockPoolPanel from '../components/StockPoolPanel.vue'
 import StockTable from '../components/StockTable.vue'
+import AuctionView from './AuctionView.vue'
 import VipGate from '../components/VipGate.vue'
 import { useStocksStore } from '../stores/stocks'
 import { usePoolStore } from '../stores/pool'
 import { useUserStore } from '../stores/user'
 import { kplBidSeal } from '../api/kpl'
+import { openStockChart } from '../composables/uiBus'
 import { showToast } from '../utils/toast'
+import { useYidongMonitor } from '../composables/useYidongMonitor'
 import { copyText, downloadBlkFile } from '../utils/tdx'
-import { bjDateTimeStr, isBefore930, isMemberOnlyTime } from '../utils/time'
+import { bjDateTimeStr, isBefore930, isIntradayNow, isMemberOnlyTime } from '../utils/time'
 
 const stocks = useStocksStore()
 const pool = usePoolStore()
 const user = useUserStore()
 const bjTime = ref('--:--:--')
 const bidSealMap = ref({})        // 竞价涨停委买额 map: code -> {limitBoards, bidSealAmt, bidNetAmt}
+const { refreshYidongCodes } = useYidongMonitor()
+
+// 窄屏切换: 选股 / 竞价异动
+const mobilePane = ref('stock')
+
+// 图表弹窗: 现在由 App.vue 全局托管(uiBus.chartModal 驱动), 这里仅转发
+function showChart(code, name) { openStockChart(code, name) }
 
 async function loadBidSeal() {
   try {
@@ -116,6 +113,7 @@ async function loadBidSeal() {
 let clockTimer = null
 let autoAddTimer = null
 let expiryTimer = null
+let realTimeTimer = null
 
 async function init() {
   user.migrateLegacyKeys()
@@ -135,6 +133,14 @@ async function init() {
   autoAddTimer = setInterval(() => pool.autoAdd(currentList(), stocks.isDataCached || stocks.isSpotCached), 20000)
   expiryTimer = setInterval(() => pool.checkExpiry(), 30000)
   pool.autoAdd(currentList(), stocks.isDataCached || stocks.isSpotCached)
+  // 盘中 9:30-15:00: 每 30s 自动刷新一次现涨/实时涨幅(静默, 不弹 toast)。
+  // 后端行情缓存 TTL: 竞价30s / 盘中300s, 30s 轮询既能跟上涨幅变化又不超压。
+  realTimeTimer = setInterval(() => {
+    if (!isIntradayNow()) return            // 盘前/收盘/周末: 不轮询, 现涨固定为当日收盘
+    const safe = (p) => p.catch(() => {})  // 轮询失败静默, 不打断
+    if (stocks.mode === 'spot') safe(stocks.updateSpotRealTime({ silent: true }))
+    else safe(stocks.updateRealTimeOnly({ silent: true }))
+  }, 30000)
 }
 
 // 当前模式的选股结果(竞价 cachedStocks / 盘中 spotStocks)
@@ -172,39 +178,50 @@ function copyCodes() {
   copyText(stocks.cachedStocks.map(s => s.code).join('\n'), `✅ 已复制 ${stocks.cachedStocks.length} 个代码，可粘贴到电脑端导入`)
 }
 
+// 2026-08-24: 首页表格固定表头 — 测量 sticky 元素(filter/tabs)高度写入 CSS 变量
+let _stickyResizeFn = null
+function setupStickyOffsets() {
+  const update = () => {
+    const leftCol = document.querySelector('.home-col-left')
+    const rightCol = document.querySelector('.home-col-right')
+    if (leftCol) {
+      const f = leftCol.querySelector('.home-filter')
+      if (f) leftCol.style.setProperty('--sticky-thead-top', f.offsetHeight + 'px')
+    }
+    if (rightCol) {
+      const t = rightCol.querySelector('.auc-tabs')
+      if (t) rightCol.style.setProperty('--sticky-thead-top', t.offsetHeight + 'px')
+    }
+  }
+  setTimeout(update, 200)
+  _stickyResizeFn = update
+  window.addEventListener('resize', _stickyResizeFn)
+}
+
 onMounted(() => {
   bjTime.value = bjDateTimeStr()
   init()
   loadBidSeal()
+  refreshYidongCodes()   // 首页选股/竞价异动 标记异动监管股票
+  setupStickyOffsets()
 })
 onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
   if (autoAddTimer) clearInterval(autoAddTimer)
   if (expiryTimer) clearInterval(expiryTimer)
+  if (realTimeTimer) clearInterval(realTimeTimer)
+  if (_stickyResizeFn) window.removeEventListener('resize', _stickyResizeFn)
 })
 </script>
 
 <style scoped>
-/* 奖牌(金银铜) + 自选股票池 左右分栏(仅这两块并排; 桌面端两栏, 移动端堆叠) */
-.medal-pool-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
-  align-items: stretch;          /* 左右两栏高度对齐(默认就是 stretch, 写明) */
-  margin: 10px 0 4px;
-}
-@media (min-width: 900px) {
-  /* 平分两栏: 奖牌区与自选股票池各占 50%, 不再左宽右窄 */
-  .medal-pool-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-}
-/* 左栏: medal-section 撑满整栏高度, 奖牌卡垂直居中(不再漂顶部留大片空白) */
-.medal-pool-left { min-width: 0; display: flex; flex-direction: column; }
-.medal-pool-left .medal-section { flex: 1; }
-/* 右栏固定高度(约 3 个自选股+表头), 自选股超出时 pool-list 内部滚动, 避免拉升左右栏整体高度 */
-.medal-pool-right { min-width: 0; height: 300px; }
-@media (max-width: 899px) {
-  /* 移动端单列堆叠, 恢复自然高度 */
-  .medal-pool-right { height: auto; }
+/* 奖牌(金银铜) + 自选股票池 在左栏内: 保留原有紧凑处理 */
+.medal-section {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  justify-content: center;
+  align-items: stretch;
 }
 .yizi-card {
   display: inline-flex;
@@ -221,35 +238,93 @@ onBeforeUnmount(() => {
   cursor: default;
 }
 .yizi-card b { color: var(--accent-deep); }
-.mode-tabs {
-  display: flex;
-  gap: 10px;
-  margin: 10px 0 4px;
-}
-.mode-tab {
-  display: inline-flex;
-  align-items: baseline;
+
+/* 紧凑规则条: 规则文本 + 内联模式切换 + 操作按钮 一行排布 */
+.alert-rule.alert-rule-compact {
+  padding: 4px 10px;
+  margin: 4px 0 6px;
   gap: 8px;
-  background: var(--bg-hover);
-  border: 1px solid var(--border-soft);
-  color: var(--text-secondary);
-  border-radius: 8px;
-  padding: 8px 16px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s;
+  border-radius: 6px;
+  border-left-width: 3px;
+  flex-wrap: wrap;
 }
-.mode-tab:hover { border-color: #ffb400; color: #ffe0a0; }
-.mode-tab.active {
-  background: rgba(255,180,0,0.12);
+.alert-rule.alert-rule-compact .rule-text { font-size: 12px; gap: 4px; flex: 0 1 auto; min-width: 0; }
+.alert-rule.alert-rule-compact .rule-text strong { font-size: 12px; }
+.alert-rule.alert-rule-compact .right-group {
+  gap: 6px;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  display: inline-flex;
+  align-items: center;
+}
+.mode-tabs.mode-tabs-inline {
+  margin: 0;
+  gap: 4px;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  display: inline-flex;
+  align-items: center;
+}
+.mode-tab.mode-tab-compact {
+  padding: 3px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  gap: 4px;
+  line-height: 1.2;
+  font-weight: 500;
+  box-shadow: none;
+}
+.mode-tab.mode-tab-compact:hover { transform: none; box-shadow: none; border-color: #ffb400; }
+.mode-tab.mode-tab-compact.active {
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  /* 选中态明显高亮: 实色填充 + 白底/文字对比, 深色默认主题 */
+  color: #fff;
+  background: linear-gradient(180deg, #ffb400, #f08c00);
   border-color: #ffb400;
-  color: #ffd700;
+  box-shadow: 0 2px 6px rgba(255,160,0,0.45);
+  transform: none;
 }
-.mode-desc {
-  font-size: 11px;
-  color: var(--text-muted);
+.mode-tab.mode-tab-compact.active:after { display: none; }
+/* 浅色主题: 选中改用深色文字 + 浅橙底, 保持高对比这两态也能区分 */
+body[data-bg="light"] .mode-tab.mode-tab-compact.active {
+  color: #7a3d00;
+  background: linear-gradient(180deg, #ffd571, #ffb84d);
+  border-color: #f08c00;
 }
-.mode-tab.active .mode-desc { color: #c9a94a; }
+.alert-rule.alert-rule-compact .tdx-export-btn { padding: 3px 8px; font-size: 11.5px; gap: 3px; border-radius: 4px; font-weight: 500; }
+.alert-rule.alert-rule-compact .tdx-export-btn:hover { transform: none; box-shadow: 0 2px 6px rgba(var(--accent-rgb),0.25); }
+/* 左栏筛选面板紧凑 */
+.home-col-left .filter-custom { padding: 5px 9px; margin: 4px 0; gap: 3px; border-radius: 7px; }
+.home-col-left .filter-row-1 { gap: 5px; }
+.home-col-left .filter-custom label,
+.home-col-left .filter-row-2 .filter-cell { font-size: 11.5px; }
+.home-col-left .filter-row-2 input[type=number] { font-size: 11px; }
+.home-col-left .filter-apply { padding: 3px 8px; font-size: 11px; }
+.home-col-left .filter-reset,
+.home-col-left .filter-lock { padding: 3px 7px; font-size: 11px; }
+/* 左栏奖牌区紧凑 (奖牌内容在子组件 MedalPanel 内, 需 :deep 才能命中) */
+.home-col-left .medal-section { padding: 5px; margin: 4px 0; gap: 8px; border-radius: 8px; }
+.home-col-left :deep(.medal-card) { padding: 6px 4px; gap: 3px; border-radius: 8px; }
+.home-col-left :deep(.medal-rank) { font-size: 16px; }
+.home-col-left :deep(.medal-name-big) { font-size: 18px; }
+.home-col-left :deep(.medal-code) { font-size: 16px; }
+.home-col-left :deep(.medal-real-big) { font-size: 40px; margin: 0; }
+.home-col-left :deep(.medal-bid-sm) { font-size: 15px; }
+.home-col-left :deep(.medal-score-row) { font-size: 15px; gap: 5px; }
+.home-col-left :deep(.qc-badge) { font-size: 13px; top: 2px; right: 2px; }
+@media (max-width: 1099px) {
+  .alert-rule.alert-rule-compact { flex-wrap: wrap; gap: 6px; }
+}
+@media (max-width: 768px) {
+  .alert-rule.alert-rule-compact { padding: 4px 6px !important; margin: 2px 0 4px !important; gap: 4px !important; row-gap: 4px !important; flex-wrap: wrap !important; }
+  .alert-rule.alert-rule-compact .rule-text,
+  .alert-rule.alert-rule-compact .rule-text strong { font-size: 11px !important; }
+  .mode-tabs.mode-tabs-inline { gap: 3px !important; }
+  .mode-tab.mode-tab-compact { padding: 4px 9px !important; font-size: 11.5px !important; min-height: 26px; }
+  .alert-rule.alert-rule-compact .tdx-export-btn { padding: 4px 6px !important; font-size: 11px !important; min-height: 26px; }
+}
 
 /* 浅色主题覆盖 */
 body[data-bg="light"] .mode-tab:hover {  color: #5a4a3a;  }

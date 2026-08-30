@@ -170,7 +170,7 @@
               ID {{ createResult.uid }} · 到期 {{ fmtBjDay(createResult.expire_at) }} · 等级 {{ levelLabel(createResult.member_level) }}
             </div>
             <div style="margin-top:8px;padding:8px;background:rgba(255,200,80,0.15);border:1px solid #ffc850;border-radius:6px;color:#ffe0a0;">
-              初始密码: <b style="user-select:all;font-family:monospace;">{{ createResult.password }}</b>
+              初始密码: <b style="user-select:all;font-family: 'LXGW WenKai Mono', monospace;">{{ createResult.password }}</b>
               <button class="mini-btn" style="margin-left:8px;" @click="copyText(createResult.password)">复制</button>
             </div>
           </div>
@@ -362,11 +362,12 @@
           <label class="field-label" style="display:flex;flex-direction:column;gap:4px;">
             评分下限 <input v-model.number="adminDefaults.probLt" type="number" min="0" max="100" class="admin-input" style="width:110px;" />
           </label>
-          <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size:13px;">
-            <input v-model="adminDefaults.limitUp" type="checkbox" /> 剔除昨日涨停
+          <!-- 2026-08-25 正逻辑: 勾上=只看这类票(不勾=剔除); tooltip 保留说明; 主人要求去掉"只看"二字 -->
+          <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size:13px;" title="勾选后只显示昨日涨停/连板股; 不勾选则剔除">
+            <input v-model="adminDefaults.limitUp" type="checkbox" /> 昨日涨停
           </label>
-          <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size:13px;">
-            <input v-model="adminDefaults.stSuspend" type="checkbox" /> 剔除ST/停牌
+          <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size:13px;" title="勾选后只显示 ST/停牌股; 不勾选则剔除">
+            <input v-model="adminDefaults.stSuspend" type="checkbox" /> ST/停牌
           </label>
           <button class="tdx-export-btn admin-save-btn" :disabled="savingDefaults" @click="saveDefaults(false)">
             <i class="fa fa-save"></i> {{ savingDefaults ? '保存中...' : '保存默认值' }}
@@ -437,7 +438,9 @@ function userVal(u) {
 }
 
 // 全局默认筛选参数
-const adminDefaults = reactive({ bidAmtFloor: 1000, bidGt: 7, floatMvFloor: 30, floatMvGt: 1000, priceGt: 300, probLt: 65, limitUp: true, stSuspend: true })
+// 2026-08-25 语义改为正逻辑: limitUp/stSuspend 默认 false = 默认"剔除这类票",
+//   等价于旧默认(勾上剔除ST/剔除昨涨停) → 保持默认行为一致但 UI 直觉正确
+const adminDefaults = reactive({ bidAmtFloor: 1000, bidGt: 7, floatMvFloor: 30, floatMvGt: 1000, priceGt: 300, probLt: 65, limitUp: false, stSuspend: false })
 const savingDefaults = ref(false)
 const savingDefaultsForce = ref(false)
 const defaultsMsg = ref('')
@@ -937,7 +940,7 @@ onMounted(() => {
   border: 1px solid rgba(120, 160, 255, 0.35); font-size: 12px; white-space: nowrap;
 }
 body[data-bg="light"] .inviter-tag { color: #3a5bb8; background: rgba(90, 130, 255, 0.1); border-color: rgba(90, 130, 255, 0.4); }
-.mono { font-family: monospace; }
+.mono { font-family: "LXGW WenKai Mono", monospace; }
 .invite-chain { display: flex; flex-direction: column; gap: 8px; padding: 8px 4px; }
 .chain-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .chain-label { width: 72px; color: #999; flex-shrink: 0; }

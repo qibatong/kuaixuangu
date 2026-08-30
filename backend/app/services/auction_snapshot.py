@@ -18,7 +18,8 @@ from .cache_store import store
 
 log = logger.get_logger(__name__)
 
-# 时点 -> (开始分钟, 结束分钟) 北京时间(每 10 秒轮询, 窗口 1 分钟防漏)
+# 时点 -> (开始分钟, 结束分钟) 北京时间(每 10 秒轮询, 窗口 1.5 分钟防漏)
+# 2026-08-25: 窗口从 1 分钟扩展到 1.5 分钟, 数据源故障时多 3 次重试机会
 # 9_24 用于"最后一秒抢筹"兜底: 调度器在 9:24:30 后每轮询重采覆盖, 最后一份≈9:24:3x~4x
 # 真正秒级用 snapshot_lastsec(9:24:45-9:25:03 每秒高频采样 + 差值回退, 见 _lastsec_loop)
 TIME_POINTS = {
@@ -51,6 +52,8 @@ def _fetch_market_map(full=False):
                 9:24:45-9:25:03 共18秒窗口, 分页全市场需60s+, 无法每秒完成)
     并发: 沪深创科 3 分区 ThreadPoolExecutor 并发拉取(全市场分页内部仍串行防限流),
           单页模式耗时 3×~1.5s → ~1.5s, 秒级采样 8 秒窗口可采 5-8 个点
+    三源冗余(2026-08-25): 东财全部失败时用开盘啦竞价委买/爆量榜兜底,
+          至少保存竞价异动关键股票(非全市场, 好过完全缺失)
     """
     with _fetch_lock:
         raw_all = {}
@@ -86,7 +89,54 @@ def _fetch_market_map(full=False):
                         "free_mv": scorer.parse_float(s.get("f117")) or scorer.parse_float(s.get("f21")),  # 实际流通市值(元): 东财 f117 自由流通≈开盘啦"实际流通", f21 兜底
                         "board": str(s.get("f103") or s.get("f100") or ""),       # 概念(f103优先, 行业f100兜底)
                     }
+        # 三源冗余兜底: 东财全失败时用开盘啦竞价榜填充关键股票
+        if not raw_all:
+            log.warning("[快照采集] 东财全分区失败, 尝试开盘啦竞价榜兜底")
+            raw_all = _fetch_kpl_fallback()
         return raw_all
+
+
+def _fetch_kpl_fallback():
+    """开盘啦竞价榜兜底: 东财故障时用竞价委买/爆量榜构造部分快照
+    返回 {code: {bid_change, bid_amt, name, bid_buy_amt, float_mv, board}}
+    非全市场(仅竞价活跃股), 但保证竞价异动页有数据可显示"""
+    fallback = {}
+    try:
+        from . import kpl
+        kpl.clear_cache()
+        # 竞价委买榜: 涨停股封单额 + 概念
+        seal_list = kpl.fetch_bid_seal() or []
+        for s in seal_list:
+            code = s.get("code") or ""
+            if not code:
+                continue
+            fallback[code] = {
+                "bid_change": s.get("bidChange") or 0,
+                "bid_amt": s.get("bidAmt") or 0,
+                "name": s.get("name") or "",
+                "bid_buy_amt": s.get("bidSealAmt") or 0,
+                "float_mv": 0,
+                "board": s.get("board") or "",
+            }
+        # 竞价爆量榜: 高竞价量股票
+        boom_list = kpl.fetch_bid_boom() or []
+        for s in boom_list:
+            code = s.get("code") or ""
+            if not code or code in fallback:
+                continue
+            fallback[code] = {
+                "bid_change": s.get("bidChange") or 0,
+                "bid_amt": s.get("bidAmt") or 0,
+                "name": s.get("name") or "",
+                "bid_buy_amt": 0,
+                "float_mv": 0,
+                "board": s.get("board") or "",
+            }
+        log.info("[快照采集] 开盘啦兜底: 委买%d只 爆量%d只 合并去重%d只",
+                 len(seal_list), len(boom_list), len(fallback))
+    except Exception as e:
+        log.error("[快照采集] 开盘啦兜底失败 err=%s", e)
+    return fallback
 
 
 def snapshot_at(time_point, force=False):
@@ -581,6 +631,49 @@ def _scheduler_loop():
                                 # 2026-08-17 修复: 抓取失败删 key 让收盘窗口内重试
                                 # (此前失败不删 key -> 当日永久缺失, 如 kpl doc42 当天数据 15:30 未就绪返回 1020)
                                 store.delete("sched:done:sector_%s_%s" % (src, date))
+                except Exception as e:
+                    log.warning("板块轮动/两市概况 日终快照失败 err=%s", e, exc_info=True)
+            # 15:50-15:55 板块轮动+人气热榜兜底补跑:
+            # 查 DB 当日各源是否已入库, 缺则尝试补抓(避开开盘啦15:30瞬时未冻结/接口抖动)
+            if g.tm_wday < 5 and 15 * 60 + 50 <= hm <= 15 * 60 + 55:
+                try:
+                    from . import sector_rotation, hot_rank
+                    from ..db import database
+                    conn = database.get_conn()
+                    existing = {r[0] for r in conn.execute(
+                        "SELECT source FROM daily_sector_top WHERE date=?", (date,))}
+                    conn.close()
+                    for src in ("kpl", "em", "ths"):
+                        if src in existing:
+                            continue
+                        key = "sched:done:sector_%s_%s" % (src, date)
+                        store.delete(key)   # 清锁(可能是15:30那次窗口内重试耗尽后留的)
+                        if store.setnx(key, 1, ttl=86400):
+                            n = sector_rotation.record_today_top(source=src)
+                            if n:
+                                log.info("板块轮动兜底补跑成功 src=%s date=%s n=%d", src, date, n)
+                            else:
+                                store.delete(key)
+                    # 人气热榜兜底: 同理查 history 表缺失补跑
+                    try:
+                        hot_conn = database.get_conn()
+                        hot_exist = {r[0] for r in hot_conn.execute(
+                            "SELECT source FROM hot_rank_history WHERE date=?", (date,))}
+                        hot_conn.close()
+                        for src in ("kpl", "em", "ths"):
+                            if src in hot_exist:
+                                continue
+                            hkey = "sched:done:hot_%s_%s" % (src, date)
+                            store.delete(hkey)
+                            if store.setnx(hkey, 1, ttl=86400):
+                                hot_rank.save_hot_rank_history(date, source=src)
+                    except Exception as he:
+                        log.warning("人气热榜兜底补跑异常 err=%s", he)
+                except Exception as e:
+                    log.warning("板块轮动兜底补跑异常 err=%s", e)
+            # 人气热榜/龙虎榜/连板梯队/竞价异动 15:30-15:35 日终快照(与板块轮动同一窗口并行)
+            if g.tm_wday < 5 and 15 * 60 + 30 <= hm <= 15 * 60 + 35:
+                try:
                     # 人气热榜历史快照(三源): 供人气榜回看历史
                     from . import hot_rank
                     for src in ("kpl", "em", "ths"):
@@ -617,7 +710,7 @@ def _scheduler_loop():
                         else:
                             store.delete("sched:done:auction_" + date)   # 失败回滚, 15:30-15:35 窗口内重试
                 except Exception as e:
-                    log.warning("板块轮动日终快照失败 err=%s", e, exc_info=True)
+                    log.warning("日终快照(热榜/龙虎/连板/竞价异动)失败 err=%s", e, exc_info=True)
             # 9:31-9:35 盘点当日采集: 缺失时点告警(排查关键, 数据过了点无法补)
             if g.tm_wday < 5 and 9 * 60 + 31 <= hm <= 9 * 60 + 35 and store.setnx("sched:checked:" + date, 1, ttl=86400):
                 missing = []
@@ -631,8 +724,14 @@ def _scheduler_loop():
                     else:
                         missing.append(tp)
                 if missing:
-                    log.warning("今日快照采集缺失时点: %s (date=%s), 相关功能(加速度/回放)会缺数据",
-                                ",".join(missing), date)
+                    msg = "今日快照采集缺失时点: %s (date=%s), 相关功能(加速度/回放)会缺数据" % (",".join(missing), date)
+                    log.warning(msg)
+                    # 推送告警(2026-08-25): 不等用户发现, 主动通知管理员
+                    try:
+                        from . import notify
+                        notify.send_text("[快照告警] " + msg)
+                    except Exception:
+                        pass
                 else:
                     log.info("今日快照采集完整: %s (date=%s)", ",".join(TIME_POINTS), date)
             # 两市分时快照滚动存(2026-08-16): 交易时段每 5 分钟调用一次 fetch_market_brief,

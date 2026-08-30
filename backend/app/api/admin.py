@@ -520,8 +520,10 @@ def _validate_scoring(new, mode="auction"):
 # ---------- 全局默认筛选参数(管理员可调, 存 settings 表 key=default_filters) ----------
 # 所有用户首次进入/未自定义偏好时使用的默认值(如默认竞价金额下限 1000万)
 # 前端加载顺序: 后端默认值 > 用户偏好 > 前端内置默认
+# 2026-08-25 语义改为正逻辑: limitUp/stSuspend = True → "只看这类票", False → "剔除这类票".
+#   默认 False 等价于旧默认(勾上=剔除ST/剔除昨涨停), 实际过滤结果一致但 UI 直觉正确.
 DEFAULT_FILTERS_DEFAULT = {
-    "stSuspend": True, "limitUp": True, "bidGt": 7.0,
+    "stSuspend": False, "limitUp": False, "bidGt": 7.0,
     "probLt": 65.0, "confLt": 65.0,
     "floatMvFloor": 30.0, "floatMvGt": 1000.0, "priceGt": 300.0,
     "bidAmtFloor": 1000.0,   # 诗人需求: 默认竞价金额下限 1000万(原3000)

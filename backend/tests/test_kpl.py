@@ -789,3 +789,610 @@ def test_merge_broken_bid_snap(monkeypatch):
     assert abs(b["bidTurnover"] - 0.04) < 0.01, b   # 300万/80亿*100=0.0375→0.04
     c = lst[2]
     assert "bidChange" not in c and "bidTurnover" not in c
+
+
+# ====================================================================
+# 异动监管 3 接口 + boom 不限条数 (from test_new_features_20260822)
+# ====================================================================
+
+import os as _os
+import sys as _sys
+import time as _time
+
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+
+
+def _hdrs(token):
+    return {"Authorization": "Bearer " + token}
+
+
+# ---------- A. 异动监管 3 接口 ----------
+
+def test_yidong_realtime_normal(client, first_user, monkeypatch):
+    """yidong-realtime: 正常解析 List 字段, 返回结构正确"""
+    from app.services import kpl as kpl_svc
+    from app.api import deps
+
+    token, _, _ = first_user
+    client.app.dependency_overrides[deps.require_vip_or_paid] = lambda: 1
+
+    fake_resp = {
+        "List": [
+            ["600001", "测试甲", 1, "涨幅异动", "-1.18", "30", "151.26",
+             "涨停触发", "9.98", "", "", "", "已触发"],
+            ["000002", "测试乙", 1, "封板异动", "", "", "",
+             "翻红触发", "5.01", "", "", "", "未触发"],
+        ],
+        "Many_Num": 156,
+        "Day": "2026-08-22",
+        "Time": 930,
+    }
+    monkeypatch.setattr(kpl_svc, "fetch_kpl_doc90", lambda **kw: fake_resp)
+
+    r = client.get("/api/kpl/yidong-realtime", headers=_hdrs(token))
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["ok"] is True
+    assert d["count"] == 2
+    assert d["manyNum"] == 156
+    assert d["day"] == "2026-08-22"
+    assert d["time"] == 930
+    assert d["list"][0]["code"] == "600001"
+    assert d["list"][0]["type"] == "涨幅异动"
+    assert d["list"][0]["triggered"] == "已触发"
+    # 新增偏离值字段: 当日涨幅(4) / 统计天数(5) / 累计涨幅偏离值(6) / 触发阈值(8)
+    assert d["list"][0]["change"] == -1.18
+    assert d["list"][0]["days"] == 30
+    assert d["list"][0]["deviation"] == 151.26
+    assert d["list"][0]["target"] == 9.98
+
+
+def test_yidong_realtime_empty_and_source_fail(client, first_user, monkeypatch):
+    """yidong-realtime: 空 List / 源返回 None / List 中空元素 → 跳过, 不崩"""
+    from app.services import kpl as kpl_svc
+    from app.api import deps
+
+    token, _, _ = first_user
+    client.app.dependency_overrides[deps.require_vip_or_paid] = lambda: 1
+
+    # Case 1: 空 List
+    monkeypatch.setattr(kpl_svc, "fetch_kpl_doc90",
+                        lambda **kw: {"List": [], "Many_Num": 0, "Day": "", "Time": 0})
+    r = client.get("/api/kpl/yidong-realtime", headers=_hdrs(token))
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] is True and d["count"] == 0
+
+    # Case 2: 源返回 None
+    monkeypatch.setattr(kpl_svc, "fetch_kpl_doc90", lambda **kw: None)
+    r2 = client.get("/api/kpl/yidong-realtime", headers=_hdrs(token))
+    assert r2.status_code == 200
+    assert r2.json()["count"] == 0
+
+    # Case 3: List 中有空元素 → 跳过
+    monkeypatch.setattr(kpl_svc, "fetch_kpl_doc90",
+                        lambda **kw: {"List": [None, [], ["600001", "A", 1, "T"]]})
+    r3 = client.get("/api/kpl/yidong-realtime", headers=_hdrs(token))
+    assert r3.status_code == 200
+    assert r3.json()["count"] == 1
+
+
+def test_yidong_monitor_normal_and_empty(client, first_user, monkeypatch):
+    """yidong-monitor: 正常解析 + 空数据"""
+    from app.services import kpl as kpl_svc
+    from app.api import deps
+
+    token, _, _ = first_user
+    client.app.dependency_overrides[deps.require_vip_or_paid] = lambda: 1
+
+    fake_resp = {
+        "List": [
+            ["600001", "测试甲", "2026-08-20", "2026-08-22", 3],
+            ["000002", "测试乙", "2026-08-21", "2026-08-22", 1],
+        ],
+    }
+    monkeypatch.setattr(kpl_svc, "fetch_kpl_doc108", lambda **kw: fake_resp)
+    r = client.get("/api/kpl/yidong-monitor", headers=_hdrs(token))
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] and d["count"] == 2
+    assert d["list"][0]["code"] == "600001"
+    assert d["list"][0]["times"] == 3
+
+    # 空
+    monkeypatch.setattr(kpl_svc, "fetch_kpl_doc108", lambda **kw: {})
+    r2 = client.get("/api/kpl/yidong-monitor", headers=_hdrs(token))
+    assert r2.status_code == 200
+    assert r2.json()["count"] == 0
+
+
+def test_yidong_multi_normal(client, first_user, monkeypatch):
+    """yidong-multi: 正常解析 + 字段结构"""
+    from app.services import kpl as kpl_svc
+    from app.api import deps
+
+    token, _, _ = first_user
+    client.app.dependency_overrides[deps.require_vip_or_paid] = lambda: 1
+
+    fake_resp = {
+        "List": [
+            ["600001", "测试甲", 5, "近10日5次异动"],
+        ],
+        "Day": "2026-08-22",
+    }
+    monkeypatch.setattr(kpl_svc, "fetch_kpl_doc109", lambda **kw: fake_resp)
+    r = client.get("/api/kpl/yidong-multi", headers=_hdrs(token))
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] and d["count"] == 1
+    assert d["day"] == "2026-08-22"
+    assert d["list"][0]["times"] == 5
+    assert d["list"][0]["desc"] == "近10日5次异动"
+
+
+def test_yidong_vip_guard(client, second_user, monkeypatch):
+    """异动接口: 普通用户(未VIP)访问应 403"""
+    client.app.dependency_overrides.clear()
+    token, _ = second_user
+    r = client.get("/api/kpl/yidong-realtime", headers=_hdrs(token))
+    assert r.status_code == 403
+    err = r.json()
+    # 响应结构: {"detail": {"ok": False, "code": "vip_required", "msg": "..."}}
+    detail = err.get("detail", {})
+    if isinstance(detail, dict):
+        assert detail.get("ok") is False
+        assert "VIP" in detail.get("msg", "") or "付费" in detail.get("msg", "")
+    else:
+        assert "VIP" in str(detail) or "付费" in str(detail)
+
+
+# ---------- D. boom 不限条数 + free_mv 回退 ----------
+
+def _mock_boom_helpers(monkeypatch, todays, yests, today_date="2026-08-22"):
+    """helper: mock sqlite3.connect + fetch_spot_quote_map + time.strftime"""
+    import app.services.kpl as kpl
+    import app.services.fetcher as fetcher_mod
+
+    monkeypatch.setattr("time.strftime", lambda fmt: today_date)
+
+    class FakeCursor:
+        def __init__(self, rows): self.rows = list(rows)
+        def fetchall(self): return self.rows
+        def fetchone(self): return self.rows[0] if self.rows else None
+        def __iter__(self): return iter(self.rows)
+
+    class FakeConn:
+        def execute(self, sql, params=()):
+            q = sql.strip()
+            if "SELECT MAX(time_point)" in q:
+                return FakeCursor([("9_25",)])
+            if "SELECT MAX(date) FROM snapshot_bid WHERE date <" in q:
+                return FakeCursor([("2026-08-21",)])
+            if "WHERE date=? AND time_point=?" in q:
+                return FakeCursor(todays)
+            if "WHERE date=? AND time_point='9_25'" in q:
+                return FakeCursor(yests)
+            return FakeCursor([])
+        def close(self): pass
+
+    monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
+    monkeypatch.setattr(fetcher_mod, "fetch_spot_quote_map", lambda *a, **k: {})
+    kpl.clear_cache()
+
+
+def test_fetch_bid_boom_no_limit_count(monkeypatch):
+    """超过 200 条仍全返回 (不限条数) + 小市值也能计算 bidTurnover"""
+    import app.services.kpl as kpl
+
+    todays = []
+    for i in range(300):
+        amt = 3000.0 + i * 10
+        fmv = 1.0 if i == 10 else 4e9 + i * 100000
+        todays.append((f"60{i:04d}", amt, f"股票{i:04d}", 3.0 + i * 0.01, fmv, "测试板块"))
+    yests = [(f"60{i:04d}", 1000.0 + i * 3) for i in range(300)]
+
+    _mock_boom_helpers(monkeypatch, todays, yests)
+    rows = kpl.fetch_bid_boom()
+
+    assert len(rows) == 300, f"不限条数应返回 300, 实际 {len(rows)}"
+    ratios = [r["bidRatioYest"] for r in rows]
+    assert ratios == sorted(ratios, reverse=True)
+
+    stock_10 = next(r for r in rows if r["code"] == "600010")
+    assert stock_10["bidTurnover"] > 0
+    assert stock_10["floatMv"] > 0
+
+
+def test_fetch_bid_boom_filter_edge_cases(monkeypatch):
+    """边界过滤: 量比≤2 / 成交额≤100万 / 无昨日 均被过滤"""
+    import app.services.kpl as kpl
+
+    todays = [
+        ("600001", 3000.0, "甲", 5.0, 4e9, "板块A"),   # 量比3.0 ✓
+        ("600002", 2000.0, "乙", 4.0, 5e9, "板块B"),   # 量比1.0 ≤ 2 ✗
+        ("600003", 50.0,  "丙", 6.0, 6e9, "板块C"),   # 成交额50万 ≤ 100万 ✗
+        ("600004", 15000.0, "丁", 8.0, 7e9, "板块D"), # 无昨日 ✗
+    ]
+    yests = [("600001", 1000.0), ("600002", 2000.0)]
+
+    _mock_boom_helpers(monkeypatch, todays, yests)
+    rows = kpl.fetch_bid_boom()
+
+    assert len(rows) == 1
+    assert rows[0]["code"] == "600001"
+    assert rows[0]["bidRatioYest"] == 3.0
+
+
+def test_fetch_bid_boom_yest_no_data(monkeypatch):
+    """无昨日数据 → 返回空列表"""
+    import app.services.kpl as kpl
+    import app.services.fetcher as fetcher_mod
+
+    monkeypatch.setattr("time.strftime", lambda fmt: "2026-08-22")
+
+    class FakeCursor:
+        def __init__(self, rows): self.rows = list(rows)
+        def fetchone(self): return self.rows[0] if self.rows else None
+        def fetchall(self): return self.rows
+        def __iter__(self): return iter(self.rows)
+
+    class FakeConn:
+        def execute(self, sql, params=()):
+            q = sql.strip()
+            if "SELECT MAX(time_point)" in q:
+                return FakeCursor([("9_25",)])
+            if "SELECT MAX(date) FROM snapshot_bid WHERE date <" in q:
+                return FakeCursor([(None,)])
+            return FakeCursor([])
+        def close(self): pass
+
+    monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
+    monkeypatch.setattr(fetcher_mod, "fetch_spot_quote_map", lambda *a, **k: {})
+    kpl.clear_cache()
+    rows = kpl.fetch_bid_boom()
+    assert rows == []
+
+
+# ====================================================================
+# 竞价异动 API fast-path + endpoint 分支 (from test_new_features_20260820)
+# ====================================================================
+
+import json as _json
+import sqlite3 as _sqlite3
+import time as _time_mod
+
+
+def test_is_auction_hours_logic():
+    """纯逻辑: 竞价时段边界校验"""
+    from app.api import kpl as kpl_api
+
+    def _pin_bj(mp, bj_hour, bj_min, wday=3):
+        def fake_gmtime(secs=None):
+            return _time.struct_time(
+                (2026, 8, 20, bj_hour, bj_min, 0, wday, 232, 0))
+        mp.setattr(_time, "gmtime", fake_gmtime)
+
+    cases = [
+        (9, 14, 3, False),
+        (9, 15, 3, True),
+        (9, 25, 3, True),
+        (9, 30, 3, True),
+        (9, 31, 3, False),
+        (9, 25, 5, False),
+        (9, 25, 6, False),
+        (10, 0, 4, False),
+    ]
+    for h, m, w, expected in cases:
+        with pytest.MonkeyPatch.context() as mp:
+            _pin_bj(mp, h, m, w)
+            got = kpl_api._is_auction_hours()
+            assert got is expected, f"BJ {h:02d}:{m:02d} wday={w} 期望={expected} 实得={got}"
+
+
+def test_update_spot_change_empty_and_crash():
+    """空列表 / 内部抛异常 -> 返回 0, 不崩"""
+    from app.api import kpl as kpl_api
+
+    assert kpl_api._update_spot_change(None) == 0
+    assert kpl_api._update_spot_change([]) == 0
+    from app.services import fetcher
+    original = fetcher.fetch_spot_quote_map
+
+    def boom(*a, **k):
+        raise RuntimeError("模拟东财接口挂了")
+
+    try:
+        fetcher.fetch_spot_quote_map = boom
+        n = kpl_api._update_spot_change([{"code": "600001", "change": 0}])
+        assert n == 0
+    finally:
+        fetcher.fetch_spot_quote_map = original
+
+
+def test_update_spot_change_override_change_fields():
+    """_update_spot_change 只覆盖 change / realChange, 其他字段绝不改动"""
+    from app.api import kpl as kpl_api
+    from app.services import fetcher
+
+    original = fetcher.fetch_spot_quote_map
+
+    def fake_spot_map(fs):
+        return {
+            "600001": {"realChange": 5.55, "price": 18.0},
+            "000002": {"realChange": -2.30},
+        }
+
+    try:
+        fetcher.fetch_spot_quote_map = fake_spot_map
+        lst = [
+            {"code": "600001", "name": "测试甲", "change": 1.0, "realChange": 0,
+             "board": "AI概念、机器人"},
+            {"code": "000002", "name": "测试乙", "change": 4.0, "board": ""},
+            {"code": "300003", "name": "测试丙", "change": 0.5, "board": "芯片"},
+        ]
+        n = kpl_api._update_spot_change(lst)
+        assert n == 2
+        assert lst[0]["change"] == 5.55
+        assert lst[0]["realChange"] == 5.55
+        assert lst[0]["board"] == "AI概念、机器人"
+        assert lst[0]["name"] == "测试甲"
+        assert lst[1]["change"] == -2.30
+        assert lst[2]["change"] == 0.5
+    finally:
+        fetcher.fetch_spot_quote_map = original
+
+
+def test_ensure_concepts_new_data_skips():
+    """新数据(≥30% 已填概念) 不补 — 保护深查开销"""
+    from app.api import kpl as kpl_api
+    from app.services import kpl
+
+    original = kpl.apply_board_concept
+    called = [0]
+
+    def spy(*a, **kw):
+        called[0] += 1
+
+    try:
+        kpl.apply_board_concept = spy
+        lst = [
+            {"code": "1", "board": "AI、机器人"},
+            {"code": "2", "board": ""},
+            {"code": "3", "board": ""},
+        ]
+        kpl_api._ensure_concepts(lst, "test")
+        assert called[0] == 0, "≥30% 有概念应该跳过"
+    finally:
+        kpl.apply_board_concept = original
+
+
+def test_ensure_concepts_old_data_applies():
+    """旧数据(<30% 有概念) 走 apply_board_concept(deep=False) 轻量模式补"""
+    from app.api import kpl as kpl_api
+    from app.services import kpl
+
+    original = kpl.apply_board_concept
+    captured = {}
+
+    def spy(lst, **kw):
+        captured.update(kw)
+        for it in lst:
+            if not it.get("board"):
+                it["board"] = "补概念"
+
+    try:
+        kpl.apply_board_concept = spy
+        lst = [
+            {"code": "1", "board": "有"},
+            {"code": "2", "board": ""},
+            {"code": "3", "board": ""},
+            {"code": "4", "board": ""},
+        ]
+        kpl_api._ensure_concepts(lst, "test")
+        assert captured.get("deep") is False
+        assert captured.get("truncate") == 2
+        assert captured.get("blank_if_missing") is False
+        assert sum(1 for it in lst if it["board"]) == 4
+    finally:
+        kpl.apply_board_concept = original
+
+
+def test_read_auction_fast_today_then_nearest(monkeypatch):
+    """_read_auction_fast: 优先今日; 今日无则 MAX(date); 两者皆空返回 []/today"""
+    from app.services import kpl as kpl_svc
+    from app.api import kpl as kpl_api
+
+    called = {}
+
+    def fake_query(date, tab):
+        called[(date, tab)] = called.get((date, tab), 0) + 1
+        if date == "2026-08-20" and tab == "seal":
+            return [{"code": "600001"}]
+        return []
+
+    monkeypatch.setattr(kpl_svc, "query_auction_history", fake_query)
+    monkeypatch.setattr(kpl_api, "_update_spot_change", lambda lst: 0)
+    g = _time.struct_time((2026, 8, 20, 2, 0, 0, 3, 232, 0))
+    monkeypatch.setattr(_time, "gmtime", lambda *a, **k: g)
+    lst, d = kpl_api._read_auction_fast("seal")
+    assert d == "2026-08-20"
+    assert len(lst) == 1
+
+    # Case 2: 今日无数据, 最近交易日
+    from app.db import database
+
+    class FakeCursor:
+        def __init__(self, rows): self._r = rows
+        def fetchone(self): return self._r.pop(0) if self._r else None
+        def close(self): pass
+
+    class FakeConn:
+        def __init__(self, row): self._row = row
+        def execute(self, sql, args=()): return FakeCursor([self._row])
+        def close(self): pass
+
+    monkeypatch.setattr(database, "get_conn", lambda: FakeConn(("2026-08-19",)))
+    called.clear()
+
+    def fake_query2(date, tab):
+        if date == "2026-08-19" and tab == "boom":
+            return [{"code": "000002"}, {"code": "300003"}]
+        return []
+
+    monkeypatch.setattr(kpl_svc, "query_auction_history", fake_query2)
+    lst, d = kpl_api._read_auction_fast("boom")
+    assert d == "2026-08-19"
+    assert len(lst) == 2
+
+    # Case 3: DB 炸了也不崩
+    def bad_conn():
+        raise RuntimeError("DB 炸了")
+
+    monkeypatch.setattr(database, "get_conn", bad_conn)
+    monkeypatch.setattr(kpl_svc, "query_auction_history", lambda x, y: [])
+    lst, d = kpl_api._read_auction_fast("yest_zt")
+    assert lst == []
+    assert d == "2026-08-20"
+
+
+# ----- 竞价异动 endpoint fast-path 分支 -----
+
+def _make_bid_seal_fake():
+    return [{"code": "600001", "name": "测A", "change": 10.01},
+            {"code": "000002", "name": "测B", "change": 5.05}]
+
+
+def test_kpl_bid_seal_live_vs_fast_path(client, vip_user, monkeypatch):
+    """竞价时段 → fetch_bid_seal + deep=True; 非竞价 → _read_auction_fast"""
+    from app.services import kpl as kpl_svc
+    from app.api import kpl as kpl_api
+
+    token, _, _ = vip_user
+    g_auc = _time.struct_time((2026, 8, 17, 9, 25, 0, 0, 229, 0))
+    monkeypatch.setattr(_time, "gmtime", lambda *a, **k: g_auc)
+    calls = {"fetch_bid_seal": 0, "apply_deep": None}
+
+    def fetch():
+        calls["fetch_bid_seal"] += 1
+        return _make_bid_seal_fake()
+
+    def apply_concept(lst, **kw):
+        calls["apply_deep"] = kw
+        for it in lst:
+            it["board"] = "概念A、概念B"
+
+    monkeypatch.setattr(kpl_svc, "fetch_bid_seal", fetch)
+    monkeypatch.setattr(kpl_svc, "apply_board_concept", apply_concept)
+    monkeypatch.setattr(kpl_api, "_read_auction_fast", lambda tab: ([], "2026-08-17"))
+
+    r = client.get("/api/kpl/bid-seal", headers=_hdrs(token))
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["ok"] and d.get("count") == 2
+    assert calls["fetch_bid_seal"] == 1
+    assert calls["apply_deep"] and calls["apply_deep"].get("deep") is True
+    assert calls["apply_deep"].get("truncate") == 2
+
+    # --- Case 2: 非竞价时段 ---
+    calls.clear()
+    g_non = _time.struct_time((2026, 8, 17, 10, 0, 0, 0, 229, 0))
+    monkeypatch.setattr(_time, "gmtime", lambda *a, **k: g_non)
+    fake_fast = [{"code": "600001", "name": "测A", "change": 1.2, "board": "AI、机器人"}]
+    monkeypatch.setattr(kpl_api, "_read_auction_fast", lambda tab: (fake_fast, "2026-08-17"))
+    r2 = client.get("/api/kpl/bid-seal", headers=_hdrs(token))
+    d2 = r2.json()
+    assert d2["ok"] and d2["count"] == 1
+    assert d2["date"] == "2026-08-17"
+    assert calls.get("fetch_bid_seal", 0) == 0
+
+
+def test_kpl_bid_qiangcang_fastpath_skips_deep_concept(vip_user, client, monkeypatch):
+    """bid-qiangcang 非竞价: _ensure_concepts 被调用, deep=True 不被调用"""
+    from app.services import kpl as kpl_svc
+    from app.api import kpl as kpl_api
+
+    token, _, _ = vip_user
+    g_non = _time.struct_time((2026, 8, 17, 10, 0, 0, 0, 229, 0))
+    monkeypatch.setattr(_time, "gmtime", lambda *a, **k: g_non)
+
+    fake_data = {
+        "list20": [{"code": "600001", "change": 3.0, "board": ""},
+                   {"code": "000002", "change": 2.0, "board": "已填概念"}],
+        "list20Chg": [],
+        "listLast": [],
+        "date": "2026-08-17",
+    }
+    monkeypatch.setattr(kpl_svc, "fetch_bid_qiangcang", lambda *a, **k: fake_data)
+
+    spy = {"apply_deep_called": False, "ensure_called": False}
+
+    def deep_concept(lst, **kw):
+        if kw.get("deep") is True:
+            spy["apply_deep_called"] = True
+
+    def ensure(lst, tag):
+        spy["ensure_called"] = True
+        for it in lst:
+            if not (it.get("board") or "").strip():
+                it["board"] = "映射概念"
+
+    monkeypatch.setattr(kpl_svc, "apply_board_concept", deep_concept)
+    monkeypatch.setattr(kpl_api, "_ensure_concepts", ensure)
+    monkeypatch.setattr(kpl_api, "_update_spot_change", lambda lst: 0)
+
+    r = client.get("/api/kpl/bid-qiangcang", headers=_hdrs(token))
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["ok"] and d["count20"] == 2
+    assert spy["ensure_called"] is True
+    assert spy["apply_deep_called"] is False
+
+    # 指定 date 参数 → 切回 deep=True
+    spy["apply_deep_called"] = False
+    spy["ensure_called"] = False
+    r2 = client.get("/api/kpl/bid-qiangcang?date=2026-08-17", headers=_hdrs(token))
+    assert r2.status_code == 200
+    assert spy["apply_deep_called"] is True
+
+
+def test_kpl_broken_fastpath_reads_broken_today(vip_user, client, monkeypatch):
+    """非竞价 broken: 读 broken_today 表 + 补辅助字段"""
+    from app.api import kpl as kpl_api
+    from app.services import kpl as kpl_svc
+
+    token, _, _ = vip_user
+    g_non = _time.struct_time((2026, 8, 17, 10, 0, 0, 0, 229, 0))
+    monkeypatch.setattr(_time, "gmtime", lambda *a, **k: g_non)
+
+    calls = {"merge": 0, "fill_mv": 0}
+
+    def fake_fast(tab):
+        assert tab == "broken_today"
+        return ([
+            {"code": "000001", "name": "测炸板", "change": 1.0, "day": "2026-08-17"},
+        ], "2026-08-17")
+
+    def fake_merge(lst):
+        calls["merge"] += 1
+
+    def fake_fill_mv(lst, date):
+        calls["fill_mv"] += 1
+
+    monkeypatch.setattr(kpl_api, "_read_auction_fast", fake_fast)
+    monkeypatch.setattr(kpl_svc, "_merge_broken_bid_snap", fake_merge)
+    monkeypatch.setattr(kpl_svc, "fill_float_mv_from_snap", fake_fill_mv)
+    fetch_broken_called = [0]
+
+    def fake_fetch_broken(*a, **k):
+        fetch_broken_called[0] += 1
+        return []
+
+    monkeypatch.setattr(kpl_svc, "fetch_broken_zt", fake_fetch_broken)
+
+    r = client.get("/api/kpl/broken", headers=_hdrs(token))
+    d = r.json()
+    assert r.status_code == 200, r.text
+    assert d["ok"] and d["count"] == 1
+    assert d["day"] == "2026-08-17"
+    assert calls["merge"] == 1 and calls["fill_mv"] == 1
+    assert fetch_broken_called[0] == 0

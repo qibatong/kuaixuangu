@@ -141,3 +141,22 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         "spotMap": spot_map,   # 全市场实时行情(9:30 后锁定名单 merge 用)
         "dataTime": int(fetcher._cache[fs]["ts"]),
     })
+
+
+@router.get("/api/stock/chart")
+def api_stock_chart(request: Request, uid: int = Depends(get_uid),
+                    code: str = "", period: str = "day"):
+    """个股图表(分时/K线): 点击股票弹框用
+    code: 股票代码 6位数字
+    period: minute 当日分时(价格+均价+成交量) | day 日K(默认120根前复权)
+            | week 周K(120根) | month 月K(60根)
+    返回标准化 arrays 便于 ECharts 直接消费"""
+    if not code:
+        return jr({"ok": False, "msg": "缺少 code 参数"}, 400)
+    period = (period or "day").lower()
+    if period not in ("minute", "day", "week", "month"):
+        return jr({"ok": False, "msg": "period 非法: 仅 minute/day/week/month"}, 400)
+    data = fetcher.fetch_stock_chart_robust(code, period)
+    if not data:
+        return jr({"ok": False, "msg": "图表数据拉取失败(所有数据源均不可用)"}, 502)
+    return jr({"ok": True, **data})

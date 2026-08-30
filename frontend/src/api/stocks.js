@@ -5,6 +5,10 @@ export function fetchStocks(action, filterParams, mode = 'auction') {
   return request('/api/stocks', { query: { action, mode, ...filterParams } })
 }
 
+export function stockChart(code, period = 'day') {
+  return request('/api/stock/chart', { query: { code, period } })
+}
+
 export function getPrefs() {
   return request('/api/prefs')
 }

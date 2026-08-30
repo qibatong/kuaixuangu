@@ -66,6 +66,26 @@ v-for="pid in [1, 2, 3, 4, 5]" :key="pid" class="ladder-tab"
       </table>
     </div>
 
+    <!-- 盘后天梯图(每日盘后自动生成, 可下载 PNG) -->
+    <div class="img-panel">
+      <div class="img-head">
+        <span class="img-title"><i class="fa fa-picture-o"></i> 盘后天梯图</span>
+        <span class="img-sub">交易日 15:30 自动生成 · 仅限 App 内查看/下载</span>
+        <span class="img-date-pick">
+          <label>日期</label>
+          <select v-model="imgDate" @change="onImgDate" class="img-select" :disabled="!imgDates.length">
+            <option v-for="d in imgDates" :key="d" :value="d">{{ d }}</option>
+          </select>
+          <a v-if="imgUrl" :href="imgDownloadUrl" class="img-dl" download><i class="fa fa-download"></i> 下载图片</a>
+        </span>
+      </div>
+      <div v-if="imgLoading" class="loading-placeholder"><div class="spinner"></div><div>加载天梯图...</div></div>
+      <div v-else-if="imgUrl" class="img-body">
+        <img :src="imgUrl" class="ladder-img" :alt="'连板天梯 ' + imgDate" />
+      </div>
+      <div v-else class="empty-state">{{ imgEmpty }}</div>
+    </div>
+
     <!-- 涨停原因弹窗 -->
     <div v-if="reasonModal.show" class="modal-mask" @click.self="reasonModal.show = false">
       <div class="reason-modal">
@@ -88,12 +108,15 @@ v-for="pid in [1, 2, 3, 4, 5]" :key="pid" class="ladder-tab"
 </template>
 
 <script setup>
-import { onMounted, ref, reactive } from 'vue'
+import { onMounted, ref, reactive, computed } from 'vue'
 import { usePolling } from '../composables/usePolling'
-import { kplLadder, kplZtReason } from '../api/kpl'
+import { kplLadder, kplLadderDates, kplZtReason } from '../api/kpl'
+import { useUserStore } from '../stores/user'
 import { linkToSoftware } from '../utils/tdx'
 import { bjDateTimeStr } from '../utils/time'
 import { useSortable } from '../composables/useSortable'
+
+const user = useUserStore()
 
 const ladder = ref({})
 const active = ref(1)
@@ -102,10 +125,40 @@ const bjTime = ref('--:--:--')
 const datePicker = ref('')
 const dataDate = ref('')
 
+// 盘后天梯图
+const imgDates = ref([])
+const imgDate = ref('')
+const imgUrl = ref('')
+const imgLoading = ref(false)
+const imgEmpty = ref('暂无已生成的天梯图(交易日盘后自动生成)')
+
 const ladderSort = useSortable()
 
 const reasonModal = reactive({ show: false, code: '', name: '', list: [] })
 const reasonLoading = ref(false)
+
+function _imgToken() {
+  return user.apiToken ? `token=${encodeURIComponent(user.apiToken)}` : ''
+}
+const imgDownloadUrl = computed(() => (`/api/ladder/image/${imgDate.value}/download${imgDate.value && _imgToken() ? '?' + _imgToken() : ''}`))
+
+function onImgDate() {
+  imgUrl.value = `/api/ladder/image/${imgDate.value}${_imgToken() ? '?' + _imgToken() : ''}`
+}
+
+async function loadImgDates() {
+  try {
+    const d = await kplLadderDates()
+    imgDates.value = (d && d.dates) || []
+    if (imgDates.value.length) {
+      imgDate.value = imgDates.value[0]
+      imgLoading.value = true
+      onImgDate()
+    }
+  } catch (e) { /* 静默 */ } finally {
+    imgLoading.value = false
+  }
+}
 
 const LABELS = { 1: '首板', 2: '二板', 3: '三板', 4: '四板', 5: '五板+' }
 function labelOf(pid) { return LABELS[pid] || pid + '板' }
@@ -156,6 +209,7 @@ onMounted(() => {
   bjTime.value = bjDateTimeStr()
   usePolling(() => { bjTime.value = bjDateTimeStr() }, 1000, { immediate: false })
   load()
+  loadImgDates()
   usePolling(load, 60000)  // 每分钟刷新
 })
 </script>
@@ -169,7 +223,7 @@ onMounted(() => {
 .ladder-title { font-size: 20px; font-weight: 700; color: #ffe0a0; }
 .ladder-title .fa { color: #ffb400; }
 .ladder-sub { color: var(--text-muted); font-size: 13px; }
-.ladder-time { margin-left: auto; color: #aaa; font-size: 14px; font-family: monospace; }
+.ladder-time { margin-left: auto; color: #aaa; font-size: 14px; font-family: "LXGW WenKai Mono", monospace; }
 .ladder-tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .ladder-tab {
   padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border-soft);
@@ -180,6 +234,24 @@ onMounted(() => {
 .ladder-tab.active { background: rgba(var(--accent-rgb), 0.15); border-color: var(--accent-deep); color: var(--accent); font-weight: 600; }
 .tab-count { font-size: 12px; color: #ffb400; }
 .ladder-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 14px; }
+.img-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; margin-top: 16px; }
+.img-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; border-bottom: 1px solid var(--border-soft); }
+.img-title { font-size: 16px; font-weight: 700; color: #ffe0a0; }
+.img-title .fa { color: #ffb400; }
+.img-sub { color: var(--text-muted); font-size: 12px; }
+.img-date-pick { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 13px; }
+.img-select { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-soft); background: var(--bg-main); color: var(--text-primary); font-size: 13px; }
+.img-dl { display: inline-block; padding: 7px 14px; border-radius: 8px; background: var(--accent-deep); color: #fff; font-size: 13px; text-decoration: none; transition: opacity 0.2s; }
+.img-dl:hover { opacity: 0.85; }
+.img-body { padding: 14px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.ladder-img { display: block; max-width: 960px; width: 100%; height: auto; border-radius: 6px; box-shadow: 0 4px 18px rgba(0,0,0,0.18); }
+body[data-bg="light"] .img-title { color: #8a5500; }
+body[data-bg="light"] .img-title .fa { color: #c79100; }
+body[data-bg="light"] .img-dl { background: #c79100; }
+@media (max-width: 768px) {
+  .img-date-pick { margin-left: 0; width: 100%; }
+  .img-dl { flex: 1; text-align: center; }
+}
 .loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
 .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
 @keyframes spin { to { transform: rotate(360deg); } }

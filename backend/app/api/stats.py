@@ -2,6 +2,8 @@
 """
 战绩分析路由
 """
+import time as _time
+
 from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
@@ -12,6 +14,91 @@ from .deps import get_uid, jr, qs
 log = logger.get_logger(__name__)
 
 router = APIRouter()
+
+
+def _is_intraday_stats():
+    """当前北京时间是否盘中 (9:30 ~ 15:00), 仅工作日(三时点封单表现涨口径判断用)"""
+    t = _time.gmtime()
+    if t.tm_wday >= 5:
+        return False
+    h, m = t.tm_hour, t.tm_min
+    if h < 9 or h > 15:
+        return False
+    if h == 9 and m < 30:
+        return False
+    if h == 15 and m > 0:
+        return False
+    return True
+
+
+def _apply_change_stats(lst, serve_date):
+    """三时点封单榜/快照 现涨(real_change/realChange/change)口径统一:
+    - 盘中 且 serve_date == 今天 → 东财实时 merge; 实时缺失/异常时降级为当日收盘涨幅兜底, 不允许现涨为空
+    - 其余 → 该交易日收盘涨跌幅(从 close_change_history + 多源K线兜底)"""
+    if not lst:
+        return
+    today = _time.strftime("%Y-%m-%d", _time.gmtime())
+    if _is_intraday_stats() and serve_date == today:
+        try:
+            from app.services import fetcher
+            spot = fetcher.fetch_spot_quote_map("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23")
+            n = 0
+            for it in lst:
+                q = spot.get(str(it.get("code")))
+                if q and q.get("realChange") is not None:
+                    rc = q.get("realChange")
+                    # 2026-08-24: 无条件回填(rows 来自 query_3points_board 无 real_change key,
+                    # 原判断"仅覆盖已有 key"导致实时 merge 永不生效)
+                    it["real_change"] = rc
+                    it["realChange"] = rc
+                    if "change" in it or it.get("change") is not None:
+                        it["change"] = rc
+                    n += 1
+            log.info("三时点/快照 现涨(实时)覆盖 %d 只 date=%s", n, serve_date)
+            # 实时缺失的股票降级: 用 close_change_history + 多源日K兜底, 避免现涨为空
+            # (2026-08-24: 东财全市场接口偶发失败 → spot 为空 → 此前直接 return 导致现涨全空)
+            missing = [it for it in lst if it.get("code") and it.get("real_change") is None
+                       and it.get("realChange") is None and it.get("change") is None]
+            if missing:
+                try:
+                    _fill_close_change_fallback(missing, serve_date)
+                    if missing:
+                        log.info("三时点/快照 现涨实时缺失降级补齐 %d 只 date=%s",
+                                 sum(1 for it in missing if it.get("real_change") is not None), serve_date)
+                except Exception as e2:
+                    log.warning("三时点/快照 实时缺失降级补齐失败 date=%s err=%s", serve_date, e2)
+            return
+        except Exception as e:
+            log.warning("三时点/快照 实时现涨覆盖失败, 转当日收盘涨幅兜底 err=%s", e)
+            # 实时接口异常 → 走当日收盘涨幅兜底(不允许现涨为空)
+    # 历史回看/盘后今日/非交易日 → 当日收盘涨跌幅(字段可能是 real_change 或 realChange/change)
+    _fill_close_change_fallback(lst, serve_date)
+
+
+def _fill_close_change_fallback(lst, serve_date):
+    """把列表中股票的现涨用 serve_date 当日收盘涨跌幅兜底填充(close_change_history + 多源K线)。
+    兼容字段: real_change / realChange / change, 兜底后统一回填 real_change(三时点表展示 key)。
+    返回成功填充数; 失败返回 0 不抛异常。"""
+    if not lst or not serve_date:
+        return 0
+    # 先复制字段到 realChange/change 让 fill_close_change_from_kline 能按既定 key 覆盖
+    for it in lst:
+        if "realChange" not in it and "real_change" in it:
+            it["realChange"] = it["real_change"]
+        if "change" not in it and "real_change" in it:
+            it["change"] = it["real_change"]
+    try:
+        kpl.fill_close_change_from_kline(lst, serve_date)
+    except Exception as e:
+        log.warning("三时点/快照 现涨(当日收盘)覆盖失败 err=%s", e)
+    # 把 realChange/change 同步回 real_change (三时点表展示 key)
+    n = 0
+    for it in lst:
+        rc = it.get("realChange") if it.get("realChange") is not None else it.get("change")
+        if rc is not None:
+            it["real_change"] = rc
+            n += 1
+    return n
 
 
 @router.get("/api/stats/auction-overview")
@@ -184,23 +271,21 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
                 it["bidTurnover"] = round(amt * 10000 / fmv * 100, 2)
         except Exception:
             pass
-    # 叠加实时涨幅: 2026-08-18 修复 - 原只从封单接口(182只)取, 圣达生物等不在封单榜的
-    # 股票实时涨幅为空 → 改用东财全市场行情(带缓存), 全覆盖
+    # 2026-08-23 现涨(real_change)口径统一:
+    # - 盘中今日 → 东财实时 merge
+    # - 历史回看 / 回退 prev / 盘后今日 / 非交易日 → 该交易日收盘涨跌幅(close_change_history 优先, 再多源K线兜底)
+    #   (之前无条件 merge 今日实时, 导致历史日也显示最新今天涨幅 → 主人反馈 三时点封单表历史日期不正确)
+    _apply_change_stats(rows, resolved)
+    # 概念列: snapshot_bid.board 已是采集时开盘啦 overlay(无实时查询);
+    # 只做"取前 2 个"归一, 不再逐股实时打开盘啦(概念由 concept_refresh 定时落库)
     try:
-        from app.services import fetcher
-        spot = fetcher.fetch_spot_quote_map("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23")
-        n = 0
         for it in rows:
-            q = spot.get(str(it.get("code")))
-            if q and q.get("realChange") is not None:
-                it["real_change"] = q.get("realChange")
-                n += 1
-        # 概念列统一用开盘啦接口覆盖(快照 board 可能含东财兜底, 强制开盘啦概念)
-        # 2026-08-18: deep=False → True(榜单未覆盖的按股查询, 圣达生物概念补齐; 带1天缓存)
-        kpl.apply_board_concept(rows, log_tag="auc:s3", deep=True, field="board", truncate=2, blank_if_missing=True)
-        log.info("三时点榜 date=%s 返回 %d 条 (东财实时涨幅覆盖 %d 只)", resolved, len(rows), n)
+            b = it.get("board") or ""
+            if b:
+                parts = [p for p in str(b).split("、") if p]
+                it["board"] = "、".join(parts[:2])
     except Exception as e:
-        log.warning("三时点榜实时涨幅/概念叠加失败 err=%s", e)
+        log.warning("三时点榜概念归一失败 err=%s", e)
     return jr({"ok": True, "date": resolved, "count": len(rows), "list": rows})
 
 

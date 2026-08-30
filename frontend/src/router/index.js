@@ -7,10 +7,13 @@ const router = createRouter({
     { path: '/', name: 'stock', component: () => import('../views/StockView.vue') },
     { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },
     { path: '/history', name: 'history', component: () => import('../views/HistoryView.vue') },
-    { path: '/ladder', name: 'ladder', component: () => import('../views/LadderView.vue') },
     { path: '/market', name: 'market', component: () => import('../views/MarketView.vue') },
+    { path: '/pool', name: 'pool', component: () => import('../views/PoolView.vue') },
+    { path: '/ladder', name: 'ladder', component: () => import('../views/LadderView.vue') },
+    { path: '/yidong', name: 'yidong', component: () => import('../views/YidongView.vue') },
     { path: '/auction', name: 'auction', component: () => import('../views/AuctionView.vue') },
-    { path: '/invite', name: 'invite', component: () => import('../views/InviteView.vue') },
+    { path: '/temper', name: 'temper', component: () => import('../views/StockTemperView.vue') },
+    { path: '/aipick', name: 'aipick', component: () => import('../views/AipickView.vue') },
     { path: '/admin', name: 'admin', component: () => import('../views/AdminView.vue'), meta: { admin: true } },
     { path: '/:pathMatch(.*)*', redirect: '/' }
   ]

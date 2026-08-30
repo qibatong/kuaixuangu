@@ -170,12 +170,16 @@ def fetch_ths_board_rank():
 
 
 def _fetch(source, top_n, date=None):
-    """按数据源抓取当日 TopN 列表
-    date: kpl 源支持按日期抓取(开盘啦 doc42 历史, 保留期最近 3 个交易日)"""
+    """按数据源抓取 TopN 列表
+    date: 指定日期(历史回看/补跑用); None=今天
+    kpl 源: 今天/不传 → 实时接口(15:30后实时=收盘数据, 避开apphis当日1020)
+           历史日期 → 历史接口fetch_board_rank_by_date(保留期≈最近3个交易日)"""
+    import time as _t
     if source == "kpl":
-        if date:
-            return (kpl.fetch_board_rank_by_date(date) or [])[:top_n]
-        return (kpl.fetch_board_rank() or [])[:top_n]
+        today = _t.strftime("%Y-%m-%d")
+        if not date or date == today:
+            return (kpl.fetch_board_rank() or [])[:top_n]
+        return (kpl.fetch_board_rank_by_date(date) or [])[:top_n]
     if source == "em":
         return fetch_em_board_rank()[:top_n]
     if source == "ths":

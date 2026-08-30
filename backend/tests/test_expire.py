@@ -28,16 +28,10 @@ def hdrs(token):
     return {"Authorization": "Bearer " + token}
 
 
-def _new_user(client, inv=None):
-    """注册测试用户. 邀请码 v4.0 起非必填且 first_user 码可能被 test_invite_refresh 刷新,
-    注册不带邀请码(2026-08-19 修复测试顺序依赖), 防滥用需 phone+email"""
-    uname = "exp_" + uuid.uuid4().hex[:8]
-    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
-    email = uuid.uuid4().hex[:8] + "@test.local"
-    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                           "phone": phone, "email": email})
-    assert r.status_code == 200, r.text
-    return r.json()["token"], uname
+def _new_user(create_user_token):
+    """注册已关闭(合规2026-08-25): 测试建用户改用 service 层, 返回 (token, username)。"""
+    u = create_user_token()
+    return u["token"], u["username"]
 
 
 # ---------- 服务层 ----------
@@ -64,10 +58,9 @@ def test_extend_from_now():
     assert abs(new - (int(time.time()) + 7 * 86400)) < 5
 
 
-def test_extend_stacks(client, first_user):
+def test_extend_stacks(create_user_token):
     """续费叠加: 从当前到期时间累加, 而非从 now"""
-    _, _, inv = first_user
-    _, uname = _new_user(client, inv)
+    _, uname = _new_user(create_user_token)
     u = users.find_user(uname)["id"]
     base = int(time.time()) + 30 * 86400
     users.set_expire(u, base)
@@ -75,9 +68,8 @@ def test_extend_stacks(client, first_user):
     assert abs(new - (base + 30 * 86400)) < 5
 
 
-def test_set_expire_permanent(client, first_user):
-    _, _, inv = first_user
-    _, uname = _new_user(client, inv)
+def test_set_expire_permanent(create_user_token):
+    _, uname = _new_user(create_user_token)
     u = users.find_user(uname)["id"]
     users.set_expire(u, 0)
     assert users.is_expired(u) is False
@@ -97,21 +89,21 @@ def test_is_expired_boundary():
 
 
 # ---------- 接口拦截 ----------
-def test_expired_user_blocked(client, first_user):
+def test_expired_user_blocked(client, create_user_token):
     """普通用户过期后访问业务接口 → 403"""
-    _, _, inv = first_user
-    token, uname = _new_user(client, inv)
-    u = users.find_user(uname)["id"]
-    users.set_expire(u, int(time.time()) - 100)
+    u = create_user_token()
+    token, uname = u["token"], u["username"]
+    uid = users.find_user(uname)["id"]
+    users.set_expire(uid, int(time.time()) - 100)
     r = client.get("/api/stocks?action=ping", headers=hdrs(token))
     assert r.status_code == 403
     assert "过期" in r.json().get("detail", {}).get("msg", "")
 
 
-def test_unexpired_user_ok(client, first_user):
+def test_unexpired_user_ok(client, create_user_token):
     """未过期用户正常访问"""
-    _, _, inv = first_user
-    token, _ = _new_user(client, inv)
+    u = create_user_token()
+    token = u["token"]
     r = client.get("/api/stocks?action=ping", headers=hdrs(token))
     assert r.status_code == 200
 
@@ -134,9 +126,8 @@ def test_admin_not_blocked(client, first_user):
 
 
 # ---------- 登录响应 ----------
-def test_login_returns_expire(client, first_user):
-    _, _, inv = first_user
-    _, uname = _new_user(client, inv)
+def test_login_returns_expire(client, create_user_token):
+    _, uname = _new_user(create_user_token)
     u = users.find_user(uname)["id"]
     users.set_expire(u, int(time.time()) + 86400)
     r = client.post("/api/login", json={"login": uname, "password": "Test123456"})
@@ -146,11 +137,11 @@ def test_login_returns_expire(client, first_user):
 
 
 # ---------- 管理端接口 ----------
-def test_admin_expire_duration(client, first_user):
+def test_admin_expire_duration(client, first_user, create_user_token):
     """管理端: duration=week → 续费叠加(新用户默认 NEW_USER_DAYS + 7 天后)"""
     from app.core import config
-    token, _, inv = first_user
-    _, uname = _new_user(client, inv)
+    token, _, _ = first_user
+    _, uname = _new_user(create_user_token)
     u = users.find_user(uname)["id"]
     r = client.post("/api/admin/users/expire", json={"uid": u, "duration": "week"},
                     headers=hdrs(token))
@@ -160,18 +151,18 @@ def test_admin_expire_duration(client, first_user):
     assert abs(et - (int(time.time()) + (int(config.NEW_USER_DAYS) + 7) * 86400)) < 60
 
 
-def test_admin_expire_days_zero_permanent(client, first_user):
-    token, _, inv = first_user
-    _, uname = _new_user(client, inv)
+def test_admin_expire_days_zero_permanent(client, first_user, create_user_token):
+    token, _, _ = first_user
+    _, uname = _new_user(create_user_token)
     u = users.find_user(uname)["id"]
     r = client.post("/api/admin/users/expire", json={"uid": u, "days": 0},
                     headers=hdrs(token))
     assert r.status_code == 200 and r.json()["expire_at"] == 0
 
 
-def test_admin_expire_expire_at_date(client, first_user):
-    token, _, inv = first_user
-    _, uname = _new_user(client, inv)
+def test_admin_expire_expire_at_date(client, first_user, create_user_token):
+    token, _, _ = first_user
+    _, uname = _new_user(create_user_token)
     u = users.find_user(uname)["id"]
     r = client.post("/api/admin/users/expire", json={"uid": u, "expire_at": "2027-01-01"},
                     headers=hdrs(token))
@@ -183,9 +174,9 @@ def test_admin_expire_expire_at_date(client, first_user):
     assert abs(et - expect) < 60
 
 
-def test_admin_expire_bad_params(client, first_user):
-    token, _, inv = first_user
-    _, uname = _new_user(client, inv)
+def test_admin_expire_bad_params(client, first_user, create_user_token):
+    token, _, _ = first_user
+    _, uname = _new_user(create_user_token)
     u = users.find_user(uname)["id"]
     r = client.post("/api/admin/users/expire", json={"uid": u}, headers=hdrs(token))
     assert r.status_code == 400
