@@ -12,7 +12,8 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as _FutTimeout
+import concurrent.futures
 
 from ..core import config, logger
 from . import scorer   # 仅复用 parse_float / market_fs (无循环: scorer 不依赖 fetcher)
@@ -348,7 +349,7 @@ def fetch_market_brief(max_age=300):
     if _market_brief_cache["data"] and now - _market_brief_cache["ts"] < max_age:
         return _market_brief_cache["data"]
     try:
-        raw = fetch_eastmoney_all(scorer.market_fs(["hs", "cyb", "kcb", "bj"]))
+        raw = _fetch_market_all_with_fallback(scorer.market_fs(["hs", "cyb", "kcb", "bj"]))
     except Exception as e:
         log.warning("两市概况拉取失败 err=%s", e)
         return _market_brief_cache["data"] or None
@@ -421,7 +422,21 @@ def _fetch_market_with_fallback(fs):
             return fetch_tencent_market(fs)
         except Exception as e2:
             log.error("腾讯兜底也失败 fs=%s err=%s", fs, str(e2)[:120])
-            raise
+            raise RuntimeError("全市场行情数据源全部失败(东财+腾讯): %s" % str(e)[:80])
+
+
+def _fetch_market_all_with_fallback(fs):
+    """2026-08-30 容灾加固(主人反馈用户截图): fetch_eastmoney_all 的腾讯兜底版。
+    覆盖 ensure_spot_cache 外的路径(351/497/auction_snapshot), 防止熔断异常冒到前端。"""
+    try:
+        return fetch_eastmoney_all(fs)
+    except Exception as e:
+        log.warning("东财全市场拉取失败, 切换腾讯兜底 fs=%s err=%s", fs, str(e)[:120])
+        try:
+            return fetch_tencent_market(fs)
+        except Exception as e2:
+            log.error("腾讯全市场兜底也失败 fs=%s err=%s", fs, str(e2)[:120])
+            raise RuntimeError("全市场分页数据源全部失败(东财+腾讯): %s" % str(e)[:80])
 
 
 def ensure_cache(action, fs, before930):
@@ -494,7 +509,7 @@ def fetch_spot_quote_map(fs):
         ent = _quote_map_cache.get(fs)
         if ent is None or now - ent["ts"] > config.SPOT_CACHE_TTL:
             try:
-                raw = fetch_eastmoney_all(fs)
+                raw = _fetch_market_all_with_fallback(fs)
                 _quote_map_cache[fs] = {"raw": raw, "ts": now}
                 log.info("全市场行情map刷新 fs=%s 共%d只", fs, len(raw))
             except Exception as e:
@@ -576,7 +591,13 @@ def _fetch_yesterday_amount_ths(code):
 
 def _fetch_yesterday_amount_one(code):
     """拉单只股票最近两交易日成交额(万元): 返回 [T日, T-1日] (T=最近已收盘交易日);
-    东财日K(多域名轮询)失败后自动切同花顺兜底; 完全失败返回 None"""
+    东财日K(多域名轮询)失败后自动切同花顺兜底; 完全失败返回 None
+
+    2026-08-30 容灾加固(主人反馈用户中午盘中截图): 当东财日 K 与 ths_kline
+    全部处于熔断中, 立即 return None 不浪费 5s×多 host 超时(5554 只全量会卡到 nginx 504)"""
+    # 快速短路: 两源都熔断中 → 立即跳过(昨比对该 code 置空, 评分时容忍缺失)
+    if _check_circuit("eastmoney_kline") and _check_circuit("ths_kline"):
+        return None
     qs = urllib.parse.urlencode({
         "secid": _secid(code), "fields1": "f1,f2,f3,f4,f5,f6",
         "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
@@ -678,7 +699,7 @@ def fetch_yesterday_amounts(codes):
                     except Exception:
                         pass
                     fail_cnt -= 1
-            except concurrent.futures.TimeoutError:
+            except _FutTimeout:
                 # 超时未完成: 跳过(不等待慢 code), 昨比对该 code 置空
                 done = len(need) - fail_cnt
                 log.warning("昨日成交额拉取超时(%ds) 已完成%d/%d, 超时跳过",

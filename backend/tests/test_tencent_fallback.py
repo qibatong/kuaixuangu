@@ -119,3 +119,57 @@ def test_fallback_eastmoney_ok_no_tencent(monkeypatch):
     rows = fetcher._fetch_market_with_fallback("m:1+t:2")
     assert len(rows) == 1
     assert called == ["em"], "东财正常时不应调用腾讯"
+
+
+# ---------- 2026-08-30 主人反馈补丁: 兜底覆盖所有全市场路径 ----------
+def _to_diff(code, name, price, chg):
+    """精简版东财 diff 行(测试用), 关键字段填写满足 scorer 入参"""
+    mv_yi = 80.0
+    return {
+        "f2": str(price), "f3": str(chg), "f8": "1.0",
+        "f10": "1.5", "f12": code, "f14": name,
+        "f21": str(mv_yi * 1e8), "f20": str(mv_yi * 1.4 * 1e8),
+        "f5": "100", "f6": "1000", "f18": str(price * 1.05),
+        "f615": str(chg), "f616": "3000", "f617": "100000", "f630": "0",
+        "f100": "0", "f117": "0", "f128": "0",
+    }
+
+
+def test_fetch_market_all_with_fallback(monkeypatch):
+    """用户截图反馈(2026-08-30 中午盘中): 东财熔断异常会冒到前端。
+    _fetch_market_all_with_fallback 必须自动切腾讯兜底而不冒错(覆盖 line 351/497/auction_snapshot _grab)"""
+    fetcher._TENCENT_CODES_CACHE["codes"] = ["600519", "000001"]
+    fetcher._TENCENT_CODES_CACHE["ts"] = 0
+    monkeypatch.setattr(fetcher, "fetch_eastmoney_all",
+                        lambda fs: (_ for _ in ()).throw(RuntimeError("东财数据源熔断中(故障冷却60秒内), 快速失败")))
+    monkeypatch.setattr(fetcher, "fetch_tencent_market",
+                        lambda fs: [_to_diff("600519", "贵州茅台", 1297.40, 0.39),
+                                    _to_diff("000001", "平安银行", 11.65, 0.52)])
+    rows = fetcher._fetch_market_all_with_fallback("m:1+t:2")
+    assert len(rows) == 2
+    assert rows[0]["f12"] == "600519"
+
+
+def test_fetch_market_brief_uses_fallback(monkeypatch):
+    """fetch_market_brief(原 line 351) 必须走兜底, 否则东财熔断时『两市概况』接口冒错"""
+    monkeypatch.setattr(fetcher, "fetch_eastmoney_all",
+                        lambda fs: (_ for _ in ()).throw(RuntimeError("熔断中")))
+    monkeypatch.setattr(fetcher, "fetch_tencent_market",
+                        lambda fs: [_to_diff("600000", "浦发银行", 10.0, 0.5)])
+    fetcher._market_brief_cache["data"] = None
+    fetcher._market_brief_cache["ts"] = 0
+    data = fetcher.fetch_market_brief(max_age=0)
+    assert data is not None
+    assert data["stockCount"] >= 1
+
+
+def test_fetch_spot_quote_map_uses_fallback(monkeypatch):
+    """fetch_spot_quote_map(原 line 497) 必须走兜底, 否则盘中新版前端拿不到行情 map"""
+    monkeypatch.setattr(fetcher, "fetch_eastmoney_all",
+                        lambda fs: (_ for _ in ()).throw(RuntimeError("熔断中")))
+    monkeypatch.setattr(fetcher, "fetch_tencent_market",
+                        lambda fs: [_to_diff("300750", "宁德时代", 200.0, 1.2)])
+    fetcher._quote_map_cache.clear()
+    raw = fetcher.fetch_spot_quote_map("m:1+t:2")
+    assert raw  # 至少 1 只
+    assert "300750" in raw

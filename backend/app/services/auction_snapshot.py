@@ -61,8 +61,8 @@ def _fetch_market_map(full=False):
         def _grab(m):
             try:
                 if full:
-                    return m, fetcher.fetch_eastmoney_all(scorer.market_fs([m]))
-                return m, fetcher.fetch_eastmoney(scorer.market_fs([m]))
+                    return m, fetcher._fetch_market_all_with_fallback(scorer.market_fs([m]))
+                return m, fetcher._fetch_market_with_fallback(scorer.market_fs([m]))
             except Exception as e:
                 log.warning("快照拉取失败 market=%s full=%s err=%s", m, full, e)
                 return m, None
