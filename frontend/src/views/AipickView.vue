@@ -43,6 +43,12 @@
                   >
                 </button>
                 <button class="rot-reset-btn" title="回到最新" @click="resetLatest()"><i class="fa fa-bolt"></i></button>
+                <a
+                  class="rot-open-btn"
+                  :href="'/aipick/latest.html?token=' + encodeURIComponent(user.apiToken)"
+                  target="_blank"
+                  title="新窗口打开完整报告"
+                ><i class="fa fa-external-link"></i> 完整报告</a>
               </div>
             </div>
             <div class="ap-rulebar">
@@ -537,6 +543,18 @@ onUnmounted(stopRealtime)
   font-size: 13px;
 }
 .rot-reset-btn:hover { color: var(--accent); border-color: var(--accent); }
+.rot-open-btn {
+  padding: 6px 10px; border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  text-decoration: none;
+  display: inline-flex; align-items: center; gap: 4px;
+  white-space: nowrap;
+}
+.rot-open-btn:hover { color: var(--accent); border-color: var(--accent); }
 
 .ap-report-sub {
   color: var(--text-muted);
