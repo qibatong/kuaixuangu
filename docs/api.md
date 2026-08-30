@@ -4,7 +4,20 @@
 
 ## 选股 / 用户
 
-`/api/stocks`（lock/filter/refresh/ping + mode=auction/spot）、`/api/login`（返回 expire_at/expired/member_level，未验证邮箱 401 `need_verify_email`）、`/api/register`（**邀请码非必填**，新用户默认 7 天；带邀请码则被邀人 +7 天、邀请人 +7 天）、`/api/verify-email` / `/api/resend-verify`（邮箱认证）、`/api/change-password`、`/api/forgot`、`/api/reset`、`/api/history`、`/api/invite`、`/api/prefs`（合并保存，不覆盖其他字段）、`/api/admin/*`（含 `/api/admin/users/expire` 续费、`/api/admin/users/expire-batch` 批量设到期、`/api/admin/users/member-level` 会员等级、`/api/admin/user-invites` 邀请关系、`/api/admin/users?keyword=` 支持用户名/手机/邮箱/微信名/备注/付款备注、`memberTab=all|member|paid|vip|normal|admin`）
+`/api/stocks`（lock/filter/refresh/ping + mode=auction/spot）、`/api/login`（返回 expire_at/expired/member_level，未验证邮箱 401 `need_verify_email`；**成功 Set-Cookie `kx_token`**，地址栏直接访问 `/aipick/*` 自动鉴权）、`/api/register`（**邀请码非必填**，新用户默认 7 天；带邀请码则被邀人 +7 天、邀请人 +7 天）、`/api/verify-email` / `/api/resend-verify`（邮箱认证）、`/api/change-password`、`/api/forgot`（邮箱找回）、`/api/reset`、**`/api/sms/send` / `/api/sms/verify`**（阿里云短信验证码：无登录鉴权，防刷同号 60s + 同 IP 60s/10 次）、**`/api/forgot-phone/send`**（找回密码发码，仅已绑定手机号发送，未绑定 404 省短信费）、**`/api/reset-by-phone`**（短信找回：阿里云闭环校验 + 改密 + 踢下线 + 防重放 5min）、`/api/history`、`/api/invite`、`/api/prefs`（合并保存，不覆盖其他字段）、`/api/admin/*`（含 `/api/admin/users/expire` 续费、`/api/admin/users/expire-batch` 批量设到期、`/api/admin/users/member-level` 会员等级、`/api/admin/user-invites` 邀请关系、`/api/admin/users?keyword=` 支持用户名/手机/邮箱/微信名/备注/付款备注、`memberTab=all|member|paid|vip|normal|admin`）
+
+## AI 预测（/api/aipick/）
+
+| 接口 | 说明 |
+|---|---|
+| latest | 最新预测报告 HTML（**仅 VIP/付费/管理员**，Bearer token / cookie / `?token=` 鉴权） |
+| detail/{date} | 指定日期报告 HTML |
+| dates | 历史报告日期列表 |
+| data | 最新报告 JSON（`{date,count,top:[...]}`） |
+| data/{date} | 指定日期 JSON（历史自动补当日涨跌幅 day_change） |
+| **auth-check** | **Nginx auth_request 子请求校验**：静态 `/aipick/*.html` 放行仅 VIP/付费/管理员（匿名 401 / 免费 403），token 来源 X-Original-Authorization → X-Original-URI `?token=` → 自身 query/Authorization → `kx_token` cookie |
+
+> 静态报告访问：`https://www.kuaixuangu.cn/aipick/latest.html`（登录 cookie 或 `?token=` 分享链接）
 
 ## 开盘啦 / 选股宝（/api/kpl/）
 
@@ -36,7 +49,7 @@
 
 | 表 | 说明 |
 |---|---|
-| users / batches / batch_stocks | 用户（含 expire_at 到期时间戳、member_level 等级、**register_ip/register_ua 防刷、email_verified 邮箱认证**）/ 选股批次（含 **auto_applied** 自动应用标记）/ 批次明细 |
+| users / batches / batch_stocks | 用户（含 expire_at 到期时间戳、member_level 等级、**register_ip/register_ua 防刷、email_verified 邮箱认证、phone 手机号**）/ 选股批次（含 **auto_applied** 自动应用标记；**user_id=0 + auto_applied=1 = 系统自动批次**，9:25 后 worker 自动跑，历史回看对所有用户可见）/ 批次明细 |
 | snapshot_bid | 四时点全市场快照（date+time_point+code，含 float_mv/board） |
 | snapshot_lastsec | 最后一秒高频采样（date+code+ts，差值回退用） |
 | qc_snapshot | 竞价抢筹结果快照（date+code，含 bid_ratio 竞额昨比，非竞价时段读库展示） |
@@ -49,5 +62,8 @@
 | settings | 全局默认筛选参数 / 评分权重 / **两市分时快照（market_brief_intraday_{date}）** / 两市收盘快照（market_brief_last） |
 | reset_tokens | 密码重置令牌 |
 | tokens | 登录令牌（含 **revoked 踢出标记**，新登录踢旧会话） |
+| sms_verify_codes / sms_verify_consumed | 短信验证码（阿里云发送记录 / 防重放消费标记，scene=register|login|forgot） |
+| hot_rank_history | 人气热榜日终快照（date+source+list，3 源 kpl/em/ths 回看） |
+| daily_sector_top | 板块轮动日终 TopN（date+source+boards，15:30 调度落库） |
 | kv_cache | **跨进程状态存储**（CacheStore：缓存/限流/调度去重/分布式信号量，`CACHE_BACKEND=sqlite` 时使用） |
 | task_queue | 异步任务队列（worker 进程消费，Phase1 落库仍同步，框架就绪） |

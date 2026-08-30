@@ -25,7 +25,8 @@ cd frontend && npm run build
 #      (快照采集 9:15/9:20/9:25 + 尾盘推送 14:57 + 任务队列; web 重启不影响采集)
 #   Environment=SSL_CERT_FILE=/etc/pki/tls/certs/ca-bundle.crt  (自编译 OpenSSL 需指 CA)
 # - systemd drop-in: /etc/systemd/system/kuaixuan.service.d/
-#   kpl.conf (开盘啦 Token/UserID/DeviceID) / notify.conf (推送 webhook) — 不进 git
+#   kpl.conf (开盘啦 Token/UserID/DeviceID) / notify.conf (推送 webhook)
+#   / sms.conf (阿里云 AK: ALIYUN_AK_ID / ALIYUN_AK_SECRET, 短信验证码) — 均不进 git
 #   kx-worker 共享环境: /etc/kuaixuan/env.conf (与 drop-in 同源)
 # - 数据库: /opt/kuaixuan/kuaixuan.db
 # - 日志: /opt/kuaixuan/logs/app.log (web 与 worker 共用)
@@ -41,6 +42,28 @@ Nginx 关键配置（/etc/nginx/conf.d/kuaixuan.conf）：
 - `/assets/` → **no-store**（Vue 构建产物禁止长缓存，避免用户看到旧版）
 - `/api/` → 反代 127.0.0.1:8010（传 X-Real-IP / X-Forwarded-For）
 - `/download/` → 通达信工具静态下载
+- `/aipick/` → **AI 预测报告静态托管 + VIP 门禁**：`auth_request /__aipick_auth`（子请求 → 后端 `/api/aipick/auth-check`，透传 X-Original-Authorization / X-Original-URI / Cookie；200 放行静态，401 匿名拒 / 403 免费拒）。子请求 location 固定 URI（**不要用 `$is_args$args` 变量**，CentOS7 nginx 对 auth_request URI 变量支持有问题）
+
+## 前端 dist 同步（轻量差异，防踩坑）
+
+```bash
+python scripts/_sync_dist_fresh.py
+```
+- Vite chunk 文件名含内容 hash → **只对比文件名集合**差异上传，秒级完成
+- `index.html` 无 hash 永远同名 → 脚本强制覆盖
+- 远端"孤儿 chunk"（有 hash 但本地不存在）自动清理，防 dist 无限膨胀
+- ⚠️ 教训：**不要**下载远端内容算 MD5 对比（触发本环境 safe-delete 钩子卡死），也**不要**全量覆盖上传 1000+ 文件（sftp 极慢）
+- ⚠️ 含服务器密码的部署/同步脚本一律入 .gitignore（`scripts/_*.py`），提交前 `grep` 密码扫描
+
+## 数据源容灾（东财被墙时）
+
+- **全市场行情主链**：东财 clist 被墙/熔断 → 自动切**腾讯行情**（qt.gtimg.cn，快照库全市场代码清单分批发拉，字段映射 f2/f3/f8/f21 等；无竞价专属字段用现价涨幅/成交额近似）
+- 入口已全覆盖：`ensure_cache` / `ensure_spot_cache` / `fetch_market_brief` / `fetch_spot_quote_map` / `auction_snapshot._grab`（grep `fetch_eastmoney\(` 确认无漏网）
+- **昨日成交额**：东财日K → 同花顺兜底 → 双源熔断短路（`_check_circuit` 两源都开时立即跳过，防 5554 只并发卡 504）
+- **个股图表**：`fetch_stock_chart_robust` 5 源（东财→腾讯→tushare→同花顺→kpl）
+- **涨停池**：走选股宝 flash-api（非东财，天然免疫）
+- **健康监控**：`/api/health` 返回 `{overall, serviceable, sources}`；板块/热榜 em 源失败时前端显示「数据源故障，请切换源」警示
+- 熔断器：故障后 60s 冷却直接快速失败（`_CIRCUIT_OPEN_SECONDS`），防单 worker 卡死雪崩
 
 ## 推送提醒（微信 / 飞书）
 

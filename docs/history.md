@@ -89,3 +89,15 @@
   - **竞换精度4位 + 昨炸板口径修复**（`281936c`）：竞换 `round(...,2)` → `round(...,4)`（0.0017% 不再被四舍五入为 0.00%）；昨炸板 tab 的竞涨/竞换/竞额/流通市值/现涨全部改用**今日** 9:25 快照（股票池仍为 prev 日炸板）；前端竞换 0 值不再被三元判断显示为 `-`；轮询间隔 60s→30s
   - **首页表格固定表头**（`ed1d3a9`）：宽屏(≥1280px) `thead th` 用 `position: sticky` 固定在 filter/tabs 下方；JS 动态测量 sticky 元素高度写入 `--sticky-thead-top` CSS 变量
   - **三时点封单现涨回填**（`b38f610`）：`real_change` 口径回填 + 修复 3 个失败测试
+- **v4.3 (08-25~08-30)**：
+  - **短信验证码 + 找回密码双通道**（`9c7eddb`/`3646881`）：阿里云号码认证·短信（个人免资质）；注册保持关闭；找回密码双 tab（手机验证码主 / 邮箱重置备）；未绑定 404 省短信费；防重放 5min
+  - **登录写 cookie**（`c1bc0e8` 后）：`/api/login` Set-Cookie `kx_token`（HttpOnly/SameSite=Lax），地址栏直接访问 `/aipick/*` 自动鉴权
+  - **AI 预测 VIP 门禁**（`ffefcd9`）：`/aipick/*.html` 静态报告 Nginx auth_request → 后端 auth-check；匿名 401 / 免费 403 / VIP·管理员·分享 `?token=` 200；前端「完整报告」按钮
+  - **aipick 默认过滤 30-100亿/≥3000万/≤7%**：后端 predict_daily.py 常量 + 前端规则条默认 + `HIST_DEFAULTS` 自动迁移
+  - **aipick 历史兜底**（`345c092`）：backfill 按交易日历扫描缺失报告补生成 + 每日 15:07 自动补跑；修复调度器 `--label` 参数从未生效的隐藏 bug
+  - **系统自动选股批次**（`9cc0552`）：9:25 后 worker 自动跑 system_batch（`user_id=0+auto_applied=1`）→ 历史回看所有用户可见；9:26 检查缺失补跑 + 飞书告警（`17b589f`）
+  - **腾讯行情兜底源**（`2db0fea`）：东财被墙（生产机 IP 被封 `Remote end closed`）→ 自动切腾讯（5545 只全量，字段映射近似）；熔断器 60s 冷却 + `/api/health` serviceable
+  - **兜底路径全覆盖**（`cb53533`）：修复 4 条漏网路径（fetch_market_brief / fetch_spot_quote_map / auction_snapshot._grab / fetch_yesterday_amounts 并发卡 504）+ concurrent import 缺失
+  - **可观测性补全**（`5c4ccf4`）：熔断短路留日志 / 腾讯兜底成功留痕 / health serviceable 字段
+  - **板块/热榜源故障前端警示**（`519395c`）：em 源失败显示「数据源故障，请切换源」琥珀色提示（后端 `_SRC_ERR` 标记 + `source_failed` 字段）
+  - **登录页 UI 打磨**：忘记密码表单等高 43px/等距 gap:10px/防浏览器自动填充（`one-time-code`/`new-password`）

@@ -208,3 +208,35 @@ snapshot_scheduler_last_run{point}
 - [ ] systemd：`kx-worker.service` 单元（测试机）
 - [ ] 测试补充（CacheStore 双实现单测、队列消费幂等测试）
 - [ ] 测试机全量验证（pytest 191 + 9:25 观察 + 浏览器回归）
+
+---
+
+## 架构演进现状（2026-08-30 更新）
+
+> 本文档评估时的"目标架构"已大部分落地，以下为当前实际状态对照：
+
+### 已落地（相对 1.1 快照的变化）
+
+| 项 | 当时评估 | 当前实际 |
+|---|---|---|
+| Web 规模 | 7524 行 / 27 模块 | ~1.7 万行 / 40+ 模块（fetcher 单文件 1727 行） |
+| 数据源 | 东财 → 同花顺兜底 | **东财 → 腾讯兜底（全市场行情）** + 同花顺（昨日额/日K） + tushare + kpl + 选股宝（涨停池）；**熔断器 60s 冷却**（`_CIRCUIT_OPEN_SECONDS`）+ `/api/health` 健康快照 |
+| 进程内状态 | `_cache` 全进程内 | 已实现 **CacheStore**（SQLite `kv_cache` 表 / Redis 双实现）：限流/调度去重/setnx 跨进程锁 |
+| 调度耦合 | 内嵌 FastAPI startup | **已拆分 `kx-worker.service`**（快照调度/aipick/推送/队列独立进程） |
+| 多数据源 | 串行容灾无熔断 | 腾讯兜底 + 双源熔断短路 + 5 源图表兜底（fetch_stock_chart_robust） |
+| 测试 | 191 用例 | **391 用例**（+3 东财网络偶发单跑通过）+ 4 跳过 |
+
+### 新增能力（评估时未规划）
+
+- **短信验证码**：阿里云号码认证（个人免资质），找回密码双通道；AK 走 systemd drop-in `sms.conf`
+- **登录 cookie**：`kx_token`（HttpOnly/SameSite=Lax）→ 静态报告地址栏直接鉴权
+- **AI 预测 VIP 门禁**：Nginx auth_request → 后端 auth-check（`/aipick/*`）
+- **aipick 调度**：9:27 预测 + 15:07 backfill 补缺失 + 19:00 训练（`aipick_scheduler.py`）
+- **system_batch**：9:25 自动选股批次（`user_id=0+auto_applied=1`）→ 历史回看保障 + 9:26 监控告警
+- **板块/热榜 3 源并行**（kpl/em/ths）+ em 源故障前端警示（`source_failed`）
+
+### 待落地（附录清单剩余）
+
+- [ ] 主 web 进程 9:25 高峰水平扩展（当前仍 `--workers 1`，靠 worker 进程分担调度）
+- [ ] SQLite 写并发压测与落库异步化（task_queue 框架已就绪）
+- [ ] 监控指标接入（QPS/延迟/KPL 配额，当前靠日志 + `/api/health`）
