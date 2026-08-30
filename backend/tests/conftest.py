@@ -91,6 +91,19 @@ def client():
         yield c
 
 
+@pytest.fixture(autouse=True)
+def _clear_client_cookies(client):
+    """每个测试后清空 TestClient 的 cookie jar(2026-08-30 修复):
+    /api/login 已写 kx_token cookie, TestClient(httpx) 会自动保存并带到后续请求,
+    导致无 token 的 auth-check 用例在全量运行时误返回 200(被 cookie 鉴权放行)。
+    必须在每个测试后清空, 保证用例相互隔离。"""
+    yield
+    try:
+        client.cookies.clear()
+    except Exception:
+        pass
+
+
 @pytest.fixture(scope="session", autouse=True)
 def mock_rate_limits(monkeypatch_session):
     """测试环境放开限流(注册防刷 + 每IP每分钟 + 同IP每日注册数), 避免多文件用例互相干扰"""
