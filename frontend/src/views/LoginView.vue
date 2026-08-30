@@ -45,27 +45,32 @@
 
         <!-- 手机号+短信验证码方式 -->
         <template v-if="forgotTab === 'phone'">
-          <div class="login-sub">输入已绑定的手机号，通过短信验证码重置密码</div>
-          <div class="phone-row">
-            <input v-model="phone" type="text" placeholder="绑定手机号" autocomplete="off" maxlength="11" @keydown.enter="sendForgotSms">
-            <button type="button" class="sms-btn" :disabled="smsBusy || countdown > 0" @click="sendForgotSms">
-              {{ countdown > 0 ? countdown + 's 后重发' : '获取验证码' }}
-            </button>
-          </div>
-          <input v-model="smsCode" type="text" placeholder="短信验证码" autocomplete="off" maxlength="6" inputmode="numeric" @keydown.enter="doResetByPhone">
-          <input v-model="resetPwd" type="password" placeholder="新密码（至少 6 位）" autocomplete="off" @keydown.enter="doResetByPhone">
-          <input v-model="resetPwd2" type="password" placeholder="确认新密码" autocomplete="off" @keydown.enter="doResetByPhone">
-          <button class="login-btn" :disabled="busy" @click="doResetByPhone">{{ busy ? '提交中...' : '重置密码' }}</button>
+          <form class="forgot-form" @submit.prevent="doResetByPhone">
+            <div class="login-sub">输入已绑定的手机号，通过短信验证码重置密码</div>
+            <div class="phone-row">
+              <input v-model="phone" type="text" placeholder="绑定手机号" autocomplete="off" maxlength="11" @keydown.enter="sendForgotSms">
+              <button type="button" class="sms-btn" :disabled="smsBusy || countdown > 0" @click="sendForgotSms">
+                {{ countdown > 0 ? countdown + 's 后重发' : '获取验证码' }}
+              </button>
+            </div>
+            <!-- one-time-code: 短信验证码专用, 避免浏览器自动填账号; new-password: 让浏览器知道这是新密码, 不自动填旧密码 -->
+            <input v-model="smsCode" type="text" placeholder="短信验证码" autocomplete="one-time-code" maxlength="6" inputmode="numeric" @keydown.enter="doResetByPhone">
+            <input v-model="resetPwd" type="password" placeholder="新密码（至少 6 位）" autocomplete="new-password" @keydown.enter="doResetByPhone">
+            <input v-model="resetPwd2" type="password" placeholder="确认新密码" autocomplete="new-password" @keydown.enter="doResetByPhone">
+            <button class="login-btn" type="submit" :disabled="busy">{{ busy ? '提交中...' : '重置密码' }}</button>
+          </form>
         </template>
 
         <!-- 邮箱方式(原逻辑保留) -->
         <template v-else>
-          <div class="login-sub">输入注册时绑定的邮箱，我们会发送重置链接</div>
-          <input v-model="email" type="text" placeholder="绑定邮箱" autocomplete="off" maxlength="60" @keydown.enter="sendMail">
-          <button class="login-btn" :disabled="busy" @click="sendMail">发送重置邮件</button>
-          <div class="login-switch">
-            <a href="javascript:void(0)" @click="checkForgot">不记得绑定邮箱？输入用户名/手机号查询</a>
-          </div>
+          <form class="forgot-form" @submit.prevent="sendMail">
+            <div class="login-sub">输入注册时绑定的邮箱，我们会发送重置链接</div>
+            <input v-model="email" type="text" placeholder="绑定邮箱" autocomplete="off" maxlength="60" @keydown.enter="sendMail">
+            <button class="login-btn" type="submit" :disabled="busy">{{ busy ? '发送中...' : '发送重置邮件' }}</button>
+            <div class="login-switch">
+              <a href="javascript:void(0)" @click="checkForgot">不记得绑定邮箱？输入用户名/手机号查询</a>
+            </div>
+          </form>
         </template>
         <div class="login-err" :class="{error: errIsError}">{{ err }}</div>
         <div class="login-switch">
@@ -328,6 +333,46 @@ onMounted(() => {
 
 <style scoped>
 .login-form { display: flex; flex-direction: column; gap: 10px; }
+/* 忘记密码表单: 同 login-form 间距 + 强制所有 input 统一高度 43px, 避免单独 input 与 phone-row 内 input 高度差 */
+.forgot-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.forgot-form > input {
+  min-height: 43px;
+  margin: 0 !important;        /* 覆盖全局 input 的 margin-bottom:10px, 间距由 gap 统一控制 */
+  box-sizing: border-box;
+}
+.forgot-form .phone-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;        /* 子项自动等高 */
+}
+.forgot-form .phone-row input {
+  flex: 1;
+  min-width: 0;
+  min-height: 43px;            /* 显式高度, 与下方 input 一致 */
+  margin: 0 !important;
+  box-sizing: border-box;
+}
+.forgot-form .sms-btn {
+  flex-shrink: 0;
+  padding: 0 12px;
+  font-size: 12px;
+  white-space: nowrap;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 43px;            /* 与所有 input 同高 */
+}
 .remember-row {
   display: flex;
   align-items: center;
@@ -363,10 +408,17 @@ onMounted(() => {
 .phone-row {
   display: flex;
   gap: 8px;
+  align-items: stretch;         /* 子项自动等高 */
 }
-.phone-row input { flex: 1; min-width: 0; }
+.phone-row input {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0 !important;  /* 覆盖全局 input 的 margin-bottom:10px, 避免拉伸时多 10px */
+}
 .sms-btn {
   flex-shrink: 0;
+  /* 高度与 input 完全一致: 全局 input = padding 11px 上下 + font-size 14px 行高 + border */
+  /* 用 align-items:stretch + 自身不设 padding 上下, 由 flex 拉伸到 input 同高 */
   padding: 0 12px;
   font-size: 12px;
   white-space: nowrap;
@@ -375,6 +427,12 @@ onMounted(() => {
   background: transparent;
   color: var(--accent);
   cursor: pointer;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;          /* 文字垂直居中 */
+  justify-content: center;
+  box-sizing: border-box;       /* 与全局 input 一致, 高度含 border */
+  min-height: 43px;             /* 保险: 即使 stretch 失效也有最小高度 */
 }
 .sms-btn:disabled { opacity: .45; cursor: not-allowed; }
 </style>
