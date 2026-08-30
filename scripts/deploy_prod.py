@@ -112,6 +112,9 @@ def main():
     sftp.put("/workspace/backend/app/worker.py", f"{DEPLOY}/backend/app/worker.py")
     # 2026-08-27: AI 竞价预测(aipick)付费门禁接口(原 Nginx 静态匿名, 改为后端鉴权)随生产更新
     sftp.put("/workspace/backend/app/api/aipick.py", f"{DEPLOY}/backend/app/api/aipick.py")
+    # 2026-08-27: aipick 实时涨幅依赖 hot_rank._fetch_em_quotes, 同步上传 hot_rank.py
+    sftp_mkdirs(sftp, "/opt/kuaixuan/backend/app/services")
+    sftp.put("/workspace/backend/app/services/hot_rank.py", f"{DEPLOY}/backend/app/services/hot_rank.py")
     # 2026-08-24: 现涨降级兜底(stats.py) + 快照TTL 60s(config.py) 也随生产更新
     LOC_STATS = "/workspace/backend/app/api/stats.py"
     REM_STATS = f"{DEPLOY}/backend/app/api/stats.py"
