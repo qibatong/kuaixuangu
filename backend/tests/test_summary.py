@@ -86,6 +86,51 @@ def test_view_404(client, tmp_path, monkeypatch):
     monkeypatch.setattr(config, "SUMMARY_DIR", str(tmp_path))
     assert client.get("/s/not_exist_id").status_code == 404
     assert client.get("/s/not_exist_id/pdf").status_code == 404
+    assert client.get("/s/not_exist_id/p/1").status_code == 404
+
+
+def test_mobile_preview_shows_page_images(client, tmp_path, monkeypatch):
+    """手机端: 预览页展示逐页图片而非 iframe(PDF iframe 手机只能看第一页)"""
+    monkeypatch.setattr(config, "SUMMARY_UPLOAD_TOKEN", "secret123")
+    monkeypatch.setattr(config, "SUMMARY_DIR", str(tmp_path))
+    r = client.post("/api/summary/upload", content=PDF_MAGIC,
+                    headers=_hdrs(token="secret123"))
+    fid = r.json()["id"]
+    # 模拟转图产物: 2 页 PNG
+    pdir = os.path.join(str(tmp_path), fid + "_pages")
+    os.makedirs(pdir)
+    for i in (1, 2):
+        with open(os.path.join(pdir, "p%04d.png" % i), "wb") as f:
+            f.write(b"\x89PNG\r\n\x1a\nfake")
+    ua = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+          "AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0")
+    v = client.get("/s/" + fid, headers={"User-Agent": ua})
+    assert v.status_code == 200
+    assert "text/html" in v.headers.get("content-type", "")
+    assert "<img" in v.text
+    assert "iframe" not in v.text
+    assert "/s/%s/p/1" % fid in v.text
+    assert "/s/%s/p/2" % fid in v.text
+    # 分页图片接口
+    p = client.get("/s/" + fid + "/p/1")
+    assert p.status_code == 200
+    assert p.headers.get("content-type") == "image/png"
+    assert client.get("/s/" + fid + "/p/3").status_code == 404
+
+
+def test_desktop_preview_keeps_iframe(client, tmp_path, monkeypatch):
+    """桌面端: 仍走 iframe PDF 原生预览"""
+    monkeypatch.setattr(config, "SUMMARY_UPLOAD_TOKEN", "secret123")
+    monkeypatch.setattr(config, "SUMMARY_DIR", str(tmp_path))
+    r = client.post("/api/summary/upload", content=PDF_MAGIC,
+                    headers=_hdrs(token="secret123"))
+    fid = r.json()["id"]
+    ua = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+          "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+    v = client.get("/s/" + fid, headers={"User-Agent": ua})
+    assert v.status_code == 200
+    assert "iframe" in v.text
+    assert "/s/%s/pdf" % fid in v.text
 
 
 def test_list_requires_token(client, tmp_path, monkeypatch):

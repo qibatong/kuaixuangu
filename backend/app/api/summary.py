@@ -28,6 +28,36 @@ log = logger.get_logger(__name__)
 router = APIRouter()
 
 MAX_PDF_SIZE = 50 * 1024 * 1024  # 50MB 上限
+IMG_DPI = 90  # 转图分辨率: A4 -> ~750px 宽, 兼顾手机加载速度
+
+# 移动端图片版预览页(2026-08-31 用户反馈: 手机 iframe 只能看第一页, 改逐页图片滑动)
+PAGE_TPL_MOBILE = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<style>
+  body {{ margin:0; font-family:"Microsoft YaHei","PingFang SC",sans-serif; background:#eef0f3; }}
+  .hd {{ background:#0b3d91; color:#fff; padding:12px 16px; position:sticky; top:0; z-index:9; }}
+  .hd h1 {{ font-size:16px; margin:0 0 2px; }}
+  .hd .t {{ font-size:11px; opacity:.85; }}
+  .page {{ position:relative; margin:10px 0; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.08); }}
+  .page img {{ width:100%; display:block; }}
+  .pgno {{ position:absolute; right:8px; bottom:6px; background:rgba(0,0,0,.55); color:#fff;
+           font-size:11px; padding:2px 8px; border-radius:10px; }}
+  .tip {{ text-align:center; color:#999; font-size:12px; padding:10px 0 24px; }}
+</style>
+</head>
+<body>
+<div class="hd">
+  <h1>📄 {title}</h1>
+  <div class="t">共 {pages} 页 · 上传 {time} · 左右滑动查看</div>
+</div>
+{pages_html}
+<div class="tip">内容由飞书群消息自动汇总生成，仅供参考，不构成投资建议</div>
+</body>
+</html>"""
 
 PAGE_TPL = """<!DOCTYPE html>
 <html lang="zh-CN">
@@ -104,6 +134,59 @@ def _count_pages(pdf_path: str) -> int:
         return 0
 
 
+def _pages_dir(fid: str) -> str:
+    return os.path.join(config.SUMMARY_DIR, fid + "_pages")
+
+
+def _render_pages(fid: str, pdf_path: str) -> int:
+    """用 PyMuPDF 把 PDF 每页转成 PNG 存到 <fid>_pages/，返回页数；无依赖/失败返回 0
+    线程池并行转图; 已生成过则直接复用"""
+    try:
+        import fitz
+    except Exception:
+        return 0
+    pdir = _pages_dir(fid)
+    try:
+        doc = fitz.open(pdf_path)
+        n = doc.page_count
+        if n <= 0:
+            return 0
+        os.makedirs(pdir, exist_ok=True)
+        existing = [f for f in os.listdir(pdir) if f.endswith(".png")]
+        if len(existing) >= n:
+            doc.close()
+            return n
+        import threading
+        def render(i: int) -> None:
+            try:
+                pix = doc[i].get_pixmap(dpi=IMG_DPI)
+                pix.save(os.path.join(pdir, "p%04d.png" % (i + 1)))
+            except Exception:
+                pass
+        ths = [threading.Thread(target=render, args=(i,)) for i in range(n)]
+        for t in ths:
+            t.start()
+        for t in ths:
+            t.join()
+        doc.close()
+        return n
+    except Exception:
+        return 0
+
+
+def _is_mobile(request: Request) -> bool:
+    ua = (request.headers.get("user-agent") or "").lower()
+    return any(k in ua for k in ("mobile", "android", "iphone",
+                                 "ipad", "micromessenger", "windows phone"))
+
+
+def _list_pages(fid: str) -> list:
+    pdir = _pages_dir(fid)
+    if not os.path.isdir(pdir):
+        return []
+    return sorted(f for f in os.listdir(pdir) if f.endswith(".png"))
+
+
 @router.post("/api/summary/upload")
 async def upload_summary(request: Request,
                          x_api_token: str = Header("", alias="X-Api-Token"),
@@ -127,28 +210,43 @@ async def upload_summary(request: Request,
     _ensure_dir()
     fid = time.strftime("%Y%m%d") + "_" + uuid.uuid4().hex[:8]
     fn = fid + ".pdf"
-    with open(os.path.join(config.SUMMARY_DIR, fn), "wb") as f:
+    pdf_path = os.path.join(config.SUMMARY_DIR, fn)
+    with open(pdf_path, "wb") as f:
         f.write(data)
     title = unquote(x_title or "") or "飞书群消息总结"
+    pages = _render_pages(fid, pdf_path)  # 预转图供手机端预览, 失败不影响上传
     _save_meta({"id": fid, "file": fn, "title": title,
                 "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "size": "%.1f KB" % (length / 1024)})
-    log.info("summary uploaded id=%s title=%s size=%d", fid, title, length)
+                "size": "%.1f KB" % (length / 1024),
+                "pages": pages})
+    log.info("summary uploaded id=%s title=%s size=%d pages=%d", fid, title, length, pages)
     return {"ok": True, "id": fid, "title": title,
             "url": "/s/" + fid, "pdf_url": "/s/" + fid + "/pdf"}
 
 
 @router.get("/s/{fid}")
-def view_summary(fid: str):
-    """公开预览页: 外部群链接直达, 不要求登录"""
+def view_summary(fid: str, request: Request):
+    """公开预览页: 外部群链接直达, 不要求登录; 手机端展示逐页图片, 桌面端 iframe PDF"""
     meta = _load_meta(fid)
     if not meta:
         raise HTTPException(status_code=404, detail={"ok": False, "msg": "not found"})
     pdf_path = os.path.join(config.SUMMARY_DIR, meta["file"])
-    html = PAGE_TPL.format(title=meta["title"], time=meta["time"],
-                           size=meta["size"], file=meta["file"],
-                           pages=_count_pages(pdf_path),
-                           pdf_url="/s/" + fid + "/pdf")
+    pages = meta.get("pages") or _count_pages(pdf_path)
+    imgs = _list_pages(fid)
+    if _is_mobile(request) and imgs:
+        # 移动端: 逐页图片, 滑动查看(iframe 在手机上只能显示第一页)
+        pages_html = "\n".join(
+            '<div class="page"><img src="/s/{fid}/p/{i}" loading="lazy" '
+            'alt="第{i}页"><span class="pgno">{i}/{total}</span></div>'.format(
+                fid=fid, i=i, total=len(imgs))
+            for i in range(1, len(imgs) + 1))
+        html = PAGE_TPL_MOBILE.format(title=meta["title"], time=meta["time"],
+                                      pages=len(imgs), pages_html=pages_html)
+    else:
+        html = PAGE_TPL.format(title=meta["title"], time=meta["time"],
+                               size=meta["size"], file=meta["file"],
+                               pages=pages,
+                               pdf_url="/s/" + fid + "/pdf")
     return HTMLResponse(html)
 
 
@@ -159,6 +257,17 @@ def summary_pdf(fid: str):
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail={"ok": False, "msg": "not found"})
     return Response(content=open(path, "rb").read(), media_type="application/pdf")
+
+
+@router.get("/s/{fid}/p/{page_no}")
+def summary_page_image(fid: str, page_no: int):
+    """移动端分页图片(转图产物)"""
+    if page_no < 1:
+        raise HTTPException(status_code=404, detail={"ok": False, "msg": "not found"})
+    path = os.path.join(_pages_dir(fid), "p%04d.png" % page_no)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail={"ok": False, "msg": "not found"})
+    return Response(content=open(path, "rb").read(), media_type="image/png")
 
 
 @router.get("/api/summary/list")
