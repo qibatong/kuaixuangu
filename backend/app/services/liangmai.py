@@ -12,6 +12,7 @@
 配置: 环境变量 LIANGMAI_TOKEN (走 systemd drop-in, 不进 git)
 """
 import json
+import os
 import threading
 import time
 import urllib.parse
@@ -32,6 +33,10 @@ _CTX.verify_mode = ssl.CERT_NONE
 _CACHE = {}
 _CACHE_TTL = 60
 _LOCK = threading.Lock()
+
+# market_snapshot_all 官方限制: 每分钟 1 次 + 数据 1 分钟刷新
+# → 缓存/节流 TTL 用 65s(略大于 60s 防边界竞态), 跨进程文件锁节流
+_MARKET_ALL_TTL = 65
 
 # 全市场代码->名称 缓存(基础列表接口拉一次, 1 天 TTL)
 _NAME_MAP = {}
@@ -116,10 +121,26 @@ def fetch_market_all():
     映射: dm→f12, p→f2, zf→f3, ud→f4, hs→f8, lb→f10, cje→f616(近似),
           o→f17(今开), yc→f18(昨收), sz→f20(总市值), lt→f21(流通市值),
           f615=zf(竞价涨幅近似), f617=v(量近似), f14=名称(名称表补)
+    限流: 该接口官方限制**每分钟 1 次**, 用文件锁跨进程节流(uvicorn 2 worker 防并发超限)
     返回 [] 表示无数据(调用方兜底下一源)"""
-    cached = _cached("lm_market_all")
+    cached = _cached("lm_market_all", ttl=_MARKET_ALL_TTL)
     if cached is not None:
         return cached
+    # 跨进程节流: /tmp 锁文件记录上次真实调用时刻, TTL 内只放行 1 次
+    lock_path = os.path.join(os.environ.get("TMPDIR", "/tmp"), "lm_market_all.lock")
+    try:
+        with open(lock_path, "r") as f:
+            last_ts = float(f.read().strip() or 0)
+    except Exception:
+        last_ts = 0
+    if time.time() - last_ts < _MARKET_ALL_TTL:
+        log.info("量脉全市场节流: 距上次 %.0fs, 复用旧缓存", time.time() - last_ts)
+        return cached or []
+    try:
+        with open(lock_path, "w") as f:
+            f.write("%.3f" % time.time())
+    except Exception:
+        pass
     d = call("market_snapshot_all", timeout=40)
     rows = d.get("data") if isinstance(d, dict) else d
     if not isinstance(rows, list) or not rows:
@@ -201,12 +222,13 @@ def _fetch_yesterday_amount_one(code, today_yyyymmdd):
 
 
 def _full_code(code):
-    """6位代码 → 量脉 full_code 格式 (600519→600519.SH / 000001→000001.SZ / 8/4开头→BJ?)"""
+    """6位代码 → 量脉 full_code 格式 (600519→600519.SH / 000001→000001.SZ / 北交所→.BJ)
+    北交所: 43/83/87/88/920 开头(920 为新代码段)"""
     code = str(code)
+    if code.startswith(("4", "8", "920")):
+        return code + ".BJ"
     if code.startswith(("6", "9")):
         return code + ".SH"
-    if code.startswith(("4", "8")):
-        return code + ".BJ"
     return code + ".SZ"
 
 

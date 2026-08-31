@@ -71,6 +71,7 @@ def test_snapshot_fetch_fail_returns_0(client, monkeypatch):
     def boom(fs):
         raise RuntimeError("network down")
     monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", boom)
+    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_tencent_market", boom)
     assert auction_snapshot.snapshot_at("9_20", force=True) == 0
 
 

@@ -171,3 +171,13 @@ def vip_user(client, first_user):
     if uid:
         users_svc.set_member_level(uid, 2)
     return first_user
+
+
+@pytest.fixture(autouse=True)
+def _clear_liangmai_cache():
+    """每个测试后清空量脉模块级缓存, 防止跨测试污染
+    (2026-08-31: test_liangmai 的 fetch_market_all 缓存残留会导致后续
+    兜底链测试命中缓存"成功返回"而不抛异常)"""
+    from app.services import liangmai
+    yield
+    liangmai._CACHE.clear()

@@ -177,14 +177,15 @@ def test_fetch_spot_quote_map_uses_fallback(monkeypatch):
 
 # ---------- 2026-08-30 可观测性: 熔断短路日志 + 健康快照 ----------
 def test_yesterday_short_circuit_logs(caplog, monkeypatch):
-    """双源熔断短路必须留 warning 日志(否则运维无法区分"真熔断"和"逻辑 bug")"""
+    """三源全熔断短路 → 单只函数快速返回 None 且不逐只打日志
+    (2026-08-31 修复: 原逐只 WARNING 造成 36804 条日志风暴拖死 worker, 改为批级短路聚合日志)"""
     monkeypatch.setattr(fetcher, "_check_circuit", lambda src: True)
-    # 需要让 _fetch_yesterday_amount_one 走短路分支: 双源都熔断
     import logging
     with caplog.at_level(logging.WARNING):
         r = fetcher._fetch_yesterday_amount_one("600519")
     assert r is None
-    assert any("熔断短路" in rec.message for rec in caplog.records), "熔断短路未打日志"
+    # 新行为: 单只短路不打日志(批量短路日志在 fetch_yesterday_amounts 层聚合)
+    assert not any("熔断短路" in rec.message for rec in caplog.records), "单只短路不应逐只打日志"
 
 
 def test_health_serviceable_true_when_tencent_up(monkeypatch):

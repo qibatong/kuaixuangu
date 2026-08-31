@@ -115,6 +115,8 @@ def test_kpl_fallback_when_eastmoney_fails(client, monkeypatch):
     def boom(fs):
         raise RuntimeError("network down")
     monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", boom)
+    # 2026-08-31: 兜底链新增腾讯/量脉层, 需一并 mock 失败才能测到 kpl 兜底
+    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_tencent_market", boom)
 
     # 模拟开盘啦返回数据
     kpl_seal = [
@@ -143,6 +145,8 @@ def test_kpl_fallback_empty_when_kpl_also_fails(client, monkeypatch):
     def boom(fs):
         raise RuntimeError("network down")
     monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", boom)
+    # 2026-08-31: 兜底链新增腾讯/量脉层, 需一并 mock 失败才能测到 kpl 兜底
+    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_tencent_market", boom)
 
     import app.services.kpl as kpl_mod
     monkeypatch.setattr(kpl_mod, "fetch_bid_seal", lambda: [])
@@ -158,6 +162,8 @@ def test_snapshot_at_with_kpl_fallback(client, monkeypatch):
     def boom(fs):
         raise RuntimeError("network down")
     monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", boom)
+    # 2026-08-31: 兜底链新增腾讯/量脉层, 需一并 mock 失败才能测到 kpl 兜底
+    monkeypatch.setattr(auction_snapshot.fetcher, "fetch_tencent_market", boom)
 
     kpl_seal = [
         {"code": "600001", "name": "测试甲", "bidChange": 10.0, "bidAmt": 5e7, "bidSealAmt": 1.2e8, "board": "AI概念"},
