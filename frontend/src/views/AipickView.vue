@@ -63,6 +63,9 @@
               <span class="ap-rule-label">竞价涨幅≤</span>
               <input class="ap-rule-in" type="number" inputmode="numeric" v-model="chgMax" placeholder="7">
               <span class="ap-rule-unit">%</span>
+              <span class="ap-rule-label">涨停率≥</span>
+              <input class="ap-rule-in" type="number" inputmode="numeric" v-model="probMin" placeholder="50">
+              <span class="ap-rule-unit">%</span>
               <span class="ap-rule-n">{{ shownCount }} 只</span>
               <button class="ap-rule-reset" title="恢复默认规则" @click="resetRule"><i class="fa fa-undo"></i></button>
               <span class="ap-rule-tip">留空表示不限；回车即时过滤</span>
@@ -152,6 +155,7 @@ const mvMin = ref(30)     // 流通市值下限(亿)  默认与后端 predict �
 const mvMax = ref(100)    // 流通市值上限(亿)  2026-08-30 主人要求: 30-100亿
 const amtMin = ref(3000)  // 竞价金额下限(万)  2026-08-30 主人要求: ≥3000万
 const chgMax = ref(7)     // 竞价涨幅上限(%)   2026-08-30 主人要求: ≤7%
+const probMin = ref(50)   // 涨停率下限(%)     2026-08-31 主人要求: 剔除涨停率<50%
 
 // 全量候选集(生成脚本保存过滤前结果); 旧报告无 all 时回退已过滤的 top
 const base = computed(() => {
@@ -171,6 +175,7 @@ function num(v) {
 const filtered = computed(() => {
   const rMin = num(mvMin.value), rMax = num(mvMax.value)
   const aMin = num(amtMin.value), cMax = num(chgMax.value)
+  const pMin = num(probMin.value)
   const arr = base.value.filter(r => {
     const mv = Number(r.circ_mv)
     const amt = Number(r.bid_amount)
@@ -180,6 +185,7 @@ const filtered = computed(() => {
     if (rMax !== null && mv > rMax) return false
     if (aMin !== null && Number.isFinite(amt) && amt < aMin) return false
     if (cMax !== null && Number.isFinite(chg) && chg > cMax) return false
+    if (pMin !== null && (Number(r.ai_prob) || 0) * 100 < pMin) return false
     return true
   })
   return arr.sort((a, b) => (Number(b.ai_prob) || 0) - (Number(a.ai_prob) || 0))
@@ -252,17 +258,18 @@ function resetRule() {
   mvMax.value = 100
   amtMin.value = 3000
   chgMax.value = 7
+  probMin.value = 50
   saveRules()   // 明确落盘(下方 watch 也会触发, 双保险)
 }
 
 // ===== 规则持久化(localStorage): 记住用户筛选, 再次进入直接套用 =====
 const RULES_KEY = 'kx_aipick_rules'
-// 默认规则(2026-08-30 与后端 predict_daily.py 一致): 流通市值 30-100亿 / 竞价金额≥3000万 / 竞价涨幅≤7%
+// 默认规则(2026-08-31 与后端 predict_daily.py 一致): 流通市值 30-100亿 / 竞价金额≥3000万 / 竞价涨幅≤7% / 涨停率≥50%
 // 一次仅供"未自定义"用户跟随最新默认; HIST_DEFAULTS 用于识别旧默认并自动迁移
-const NEW_DEFAULT = [30, 100, 3000, 7]
+const NEW_DEFAULT = [30, 100, 3000, 7, 50]
 const HIST_DEFAULTS = [
-  [30, 500, 2000, 10],   // 早期默认
-  [30, 100, 3000, 7],    // 上一版"新默认"(避免再次被命中)
+  [30, 500, 2000, 10],      // 早期默认
+  [30, 100, 3000, 7],       // 上一版"新默认"(避免再次被命中)
 ]
 
 function loadRules() {
@@ -273,7 +280,7 @@ function loadRules() {
     const cur = [s.mvMin, s.mvMax, s.amtMin, s.chgMax]
     // 等于任一历史默认 → 认定为仍用默认, 迁移到最新默认并回写
     if (HIST_DEFAULTS.some(d => cur.every((v, i) => v === d[i]))) {
-      [mvMin.value, mvMax.value, amtMin.value, chgMax.value] = NEW_DEFAULT
+      [mvMin.value, mvMax.value, amtMin.value, chgMax.value, probMin.value] = NEW_DEFAULT
       saveRules()
       return
     }
@@ -281,6 +288,7 @@ function loadRules() {
     if (s.mvMax !== undefined) mvMax.value = s.mvMax
     if (s.amtMin !== undefined) amtMin.value = s.amtMin
     if (s.chgMax !== undefined) chgMax.value = s.chgMax
+    if (s.probMin !== undefined) probMin.value = s.probMin
   } catch (e) { /* 损坏/不可用则用默认 */ }
 }
 
@@ -289,12 +297,13 @@ function saveRules() {
     localStorage.setItem(RULES_KEY, JSON.stringify({
       mvMin: mvMin.value, mvMax: mvMax.value,
       amtMin: amtMin.value, chgMax: chgMax.value,
+      probMin: probMin.value,
     }))
   } catch (e) { /* 隐私模式等不可写, 忽略 */ }
 }
 
 // 任何规则变化都自动保存
-watch([mvMin, mvMax, amtMin, chgMax], saveRules)
+watch([mvMin, mvMax, amtMin, chgMax, probMin], saveRules)
 
 // 当前查看标签: 最新 vs 回看某天
 const viewDateLabel = computed(() => {

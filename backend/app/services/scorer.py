@@ -376,7 +376,8 @@ def compute_score(s):
         "confidence": js_round(conf),
         "bidTurnover": bid_turnover,
         "bidVolRatio": bid_vol_ratio,
-        "factors": factors,
+        # 2026-08-31 主人要求: 评分构成(五因子分项+权重)属内部逻辑, 不对用户暴露, factors 不再返回
+        # "factors": factors,
     }
 
 
@@ -436,7 +437,8 @@ def compute_score_spot(s, zt_info=None):
         "sealFund": fund,
         "limitBoards": int((zt_info or {}).get("lb") or 0),
         "breakCount": int((zt_info or {}).get("zbc") or 0),
-        "factors": factors,
+        # 2026-08-31 主人要求: 评分构成(五因子分项+权重)属内部逻辑, 不对用户暴露, factors 不再返回
+        # "factors": factors,
     }
 
 
@@ -460,7 +462,8 @@ def process_spot_stocks(raw, f, zt_map=None):
             "sealFund": sc["sealFund"],
             "limitBoards": sc["limitBoards"],
             "breakCount": sc["breakCount"],
-            "factors": sc["factors"],
+            # 2026-08-31 主人要求: 评分构成属内部逻辑, 不对用户暴露
+            # "factors": sc["factors"],
             "speed": parse_float(s.get("f8")),
             "circulationMV": parse_float(s.get("f21")) / 1e8,
             "price": parse_float(s.get("f2")),
@@ -601,7 +604,8 @@ def score_all_stocks(raw, yesterday_map=None, snapshot_map=None):
             "entityChange": get_entity_change(s),
             "bidTurnover": sc["bidTurnover"],
             "bidVolRatio": sc["bidVolRatio"],
-            "factors": sc["factors"],
+            # 2026-08-31 主人要求: 评分构成(五因子分项+权重)属内部逻辑, 不对用户暴露
+            # "factors": sc["factors"],
             "speed": parse_float(s.get("f8")),
             "warnType": get_warn_type(s),
             "circulationMV": parse_float(s.get("f21")) / 1e8,
