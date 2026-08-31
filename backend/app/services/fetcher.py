@@ -307,10 +307,13 @@ def fetch_eastmoney_all(fs):
     t_all = time.time()
     # 先并发拉前 N 页, 根据空页/短页判定真实页数
     pages_data = {}   # page -> diff list(失败/空为 None)
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futs = {ex.submit(_fetch_clist_page, fs, p, "f12"): p
-                for p in range(1, config.SPOT_MAX_PAGES + 1)}
-        for fut in as_completed(futs):
+    # 2026-08-31 线上加固: as_completed 无整体超时, 东财半死(每页 15s 超时)时
+    # 30 页 8 并发最坏 ~56s, 腾讯兜底再来一轮会拖死 worker → 整体 40s, 超时放弃剩余页
+    ex = ThreadPoolExecutor(max_workers=8)
+    futs = {ex.submit(_fetch_clist_page, fs, p, "f12"): p
+            for p in range(1, config.SPOT_MAX_PAGES + 1)}
+    try:
+        for fut in as_completed(futs, timeout=40):
             p = futs[fut]
             t0 = time.time()
             try:
@@ -321,6 +324,10 @@ def fetch_eastmoney_all(fs):
                 _record("eastmoney_clist", False, int((time.time() - t0) * 1000))
                 log.warning("全市场拉取分页失败 fs=%s page=%d err=%s", fs, p, e)
                 pages_data[p] = None
+    except TimeoutError:
+        log.warning("全市场分页整体超时 40s, 放弃未完成页 (数据源抖动, 走腾讯兜底/部分数据)")
+    finally:
+        ex.shutdown(wait=False)
     # 按 page 顺序合并, 遇到空页/短页即终止(后续页不会有效数据)
     out = []
     last_page = 0

@@ -3339,8 +3339,21 @@ def fill_close_change_from_kline(lst, date):
 
     if todo:
         import concurrent.futures as cf
-        with cf.ThreadPoolExecutor(max_workers=6) as ex:
-            list(ex.map(_one, todo))
+        # 2026-08-31 线上事故修复: 数据源(东财/同花顺)熔断抖动时, 多源日K逐只兜底无整体超时,
+        # 曾导致三时点榜接口卡 693s 占死全部 worker → 全站刷不出数据。
+        # 现在整体超时 15s: 超时未完成的放弃(不阻塞当前请求), 已启动的线程在后台跑完自然丢弃。
+        _FILL_TIMEOUT = 15
+        ex = cf.ThreadPoolExecutor(max_workers=6)
+        futs = [ex.submit(_one, it) for it in todo]
+        try:
+            for f in cf.as_completed(futs, timeout=_FILL_TIMEOUT):
+                pass
+        except cf.TimeoutError:
+            log.warning("现涨K线兜底整体超时 %ds, 放弃剩余 %d 只 (数据源抖动, 下次回看自动补齐)",
+                        _FILL_TIMEOUT, sum(1 for f in futs if not f.done()))
+        finally:
+            # 不等待线程结束, 避免请求被后台任务拖住; 线程跑完即丢
+            ex.shutdown(wait=False)
     # 收盘自愈修复(2026-08-24): 批量实时行情已把纠正值写入 fetched 并把 todo 清空,
     # 持久化必须放在 if todo 之外, 保证批量命中的纠正值也能写回库表。
     if fetched and _close_chg_persist_allowed(date):
