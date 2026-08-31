@@ -39,23 +39,31 @@ PAGE_TPL_MOBILE = """<!DOCTYPE html>
 <title>{title}</title>
 <style>
   body {{ margin:0; font-family:"Microsoft YaHei","PingFang SC",sans-serif; background:#eef0f3; }}
-  .hd {{ background:#0b3d91; color:#fff; padding:12px 16px; position:sticky; top:0; z-index:9; }}
-  .hd h1 {{ font-size:16px; margin:0 0 2px; }}
+  .hd {{ background:#0b3d91; color:#fff; padding:12px 16px; position:sticky; top:0; z-index:9;
+        display:flex; align-items:center; justify-content:space-between; gap:10px; }}
+  .hd .l {{ min-width:0; }}
+  .hd h1 {{ font-size:16px; margin:0 0 2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
   .hd .t {{ font-size:11px; opacity:.85; }}
+  .dl {{ flex-shrink:0; background:#fff; color:#0b3d91; font-size:13px; font-weight:600;
+        text-decoration:none; padding:8px 12px; border-radius:18px; }}
   .page {{ position:relative; margin:10px 0; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.08); }}
   .page img {{ width:100%; display:block; }}
   .pgno {{ position:absolute; right:8px; bottom:6px; background:rgba(0,0,0,.55); color:#fff;
            font-size:11px; padding:2px 8px; border-radius:10px; }}
-  .tip {{ text-align:center; color:#999; font-size:12px; padding:10px 0 24px; }}
+  .tip {{ text-align:center; color:#999; font-size:12px; padding:10px 16px 24px; }}
+  .tip a {{ color:#0b3d91; }}
 </style>
 </head>
 <body>
 <div class="hd">
-  <h1>📄 {title}</h1>
-  <div class="t">共 {pages} 页 · 上传 {time} · 左右滑动查看</div>
+  <div class="l">
+    <h1>📄 {title}</h1>
+    <div class="t">共 {pages} 页 · 上传 {time} · 左右滑动查看</div>
+  </div>
+  <a class="dl" href="{pdf_url}" download>⬇️ 下载 PDF</a>
 </div>
 {pages_html}
-<div class="tip">内容由飞书群消息自动汇总生成，仅供参考，不构成投资建议</div>
+<div class="tip">长按图片可保存单页<br>如需保存完整 PDF，点击右上角「⬇️ 下载 PDF」；微信内若无法下载，请点右上角 ··· 选择「在浏览器中打开」</div>
 </body>
 </html>"""
 
@@ -70,6 +78,8 @@ PAGE_TPL = """<!DOCTYPE html>
   .hd {{ background:#0b3d91; color:#fff; padding:14px 20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }}
   .hd h1 {{ font-size:18px; margin:0; font-weight:600; }}
   .hd .t {{ font-size:12px; opacity:.85; }}
+  .dl {{ background:#fff; color:#0b3d91; font-size:13px; font-weight:600; text-decoration:none;
+        padding:7px 14px; border-radius:16px; }}
   .wrap {{ max-width:1100px; margin:14px auto; padding:0 12px; }}
   .info {{ background:#fff; border-radius:8px; padding:10px 16px; font-size:13px; color:#444; margin-bottom:12px;
           box-shadow:0 1px 3px rgba(0,0,0,.08); display:flex; gap:20px; flex-wrap:wrap; }}
@@ -80,8 +90,11 @@ PAGE_TPL = """<!DOCTYPE html>
 </head>
 <body>
 <div class="hd">
-  <h1>📄 {title}</h1>
-  <span class="t">上传时间 {time} · 大小 {size}</span>
+  <div>
+    <h1>📄 {title}</h1>
+    <span class="t">上传时间 {time} · 大小 {size}</span>
+  </div>
+  <a class="dl" href="{pdf_url}" download>⬇️ 下载 PDF</a>
 </div>
 <div class="wrap">
   <div class="info">
@@ -241,7 +254,8 @@ def view_summary(fid: str, request: Request):
                 fid=fid, i=i, total=len(imgs))
             for i in range(1, len(imgs) + 1))
         html = PAGE_TPL_MOBILE.format(title=meta["title"], time=meta["time"],
-                                      pages=len(imgs), pages_html=pages_html)
+                                      pages=len(imgs), pages_html=pages_html,
+                                      pdf_url="/s/" + fid + "/pdf")
     else:
         html = PAGE_TPL.format(title=meta["title"], time=meta["time"],
                                size=meta["size"], file=meta["file"],

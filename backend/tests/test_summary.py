@@ -111,6 +111,8 @@ def test_mobile_preview_shows_page_images(client, tmp_path, monkeypatch):
     assert "iframe" not in v.text
     assert "/s/%s/p/1" % fid in v.text
     assert "/s/%s/p/2" % fid in v.text
+    assert "下载 PDF" in v.text  # 手机端提供下载按钮
+    assert "/s/%s/pdf" % fid in v.text
     # 分页图片接口
     p = client.get("/s/" + fid + "/p/1")
     assert p.status_code == 200
@@ -131,6 +133,7 @@ def test_desktop_preview_keeps_iframe(client, tmp_path, monkeypatch):
     assert v.status_code == 200
     assert "iframe" in v.text
     assert "/s/%s/pdf" % fid in v.text
+    assert "下载 PDF" in v.text  # 桌面端也提供下载按钮
 
 
 def test_list_requires_token(client, tmp_path, monkeypatch):
