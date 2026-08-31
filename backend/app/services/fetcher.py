@@ -442,7 +442,8 @@ def get_same_time_yesterday(date=None):
 def _fetch_market_with_fallback(fs):
     """全市场行情容灾(2026-08-30 主人要求): 东财失败自动切腾讯兜底。
     腾讯无 f615/f616/f617 竞价专属字段, 用现价涨幅/成交额/成交量近似(盘中口径一致)。
-    东财与腾讯都失败时抛异常。"""
+    2026-08-31: 再加量脉第3源(liangmai market_snapshot_all, 字段更全 5901 只)。
+    东财/腾讯/量脉都失败时抛异常。"""
     try:
         return fetch_eastmoney(fs)
     except Exception as e:
@@ -453,13 +454,23 @@ def _fetch_market_with_fallback(fs):
             log.info("腾讯兜底成功 fs=%s 返回%d只 (东财故障时自动切换)", fs, len(rows))
             return rows
         except Exception as e2:
-            log.error("腾讯兜底也失败 fs=%s err=%s", fs, str(e2)[:120])
-            raise RuntimeError("全市场行情数据源全部失败(东财+腾讯): %s" % str(e)[:80])
+            log.warning("腾讯兜底也失败, 切量脉第3源 fs=%s err=%s", fs, str(e2)[:120])
+            try:
+                from . import liangmai
+                rows = liangmai.fetch_market_all()
+                if rows:
+                    log.info("量脉全市场兜底成功 fs=%s 返回%d只", fs, len(rows))
+                    return rows
+                raise RuntimeError("量脉返回空")
+            except Exception as e3:
+                log.error("全市场行情数据源全部失败(东财+腾讯+量脉) fs=%s err=%s", fs, str(e3)[:100])
+                raise RuntimeError("全市场行情数据源全部失败(东财+腾讯+量脉): %s" % str(e)[:80])
 
 
 def _fetch_market_all_with_fallback(fs):
     """2026-08-30 容灾加固(主人反馈用户截图): fetch_eastmoney_all 的腾讯兜底版。
-    覆盖 ensure_spot_cache 外的路径(351/497/auction_snapshot), 防止熔断异常冒到前端。"""
+    覆盖 ensure_spot_cache 外的路径(351/497/auction_snapshot), 防止熔断异常冒到前端。
+    2026-08-31: 再加量脉第3源。"""
     try:
         return fetch_eastmoney_all(fs)
     except Exception as e:
@@ -470,8 +481,17 @@ def _fetch_market_all_with_fallback(fs):
             log.info("腾讯全市场兜底成功 fs=%s 返回%d只 (东财故障时自动切换)", fs, len(rows))
             return rows
         except Exception as e2:
-            log.error("腾讯全市场兜底也失败 fs=%s err=%s", fs, str(e2)[:120])
-            raise RuntimeError("全市场分页数据源全部失败(东财+腾讯): %s" % str(e)[:80])
+            log.warning("腾讯全市场兜底失败, 切量脉第3源 fs=%s err=%s", fs, str(e2)[:120])
+            try:
+                from . import liangmai
+                rows = liangmai.fetch_market_all()
+                if rows:
+                    log.info("量脉全市场兜底成功 fs=%s 返回%d只 (东财/腾讯均故障)", fs, len(rows))
+                    return rows
+                raise RuntimeError("量脉返回空")
+            except Exception as e3:
+                log.error("全市场行情全部失败(东财+腾讯+量脉) fs=%s err=%s", fs, str(e3)[:100])
+                raise RuntimeError("全市场行情数据源全部失败(东财+腾讯+量脉): %s" % str(e)[:80])
 
 
 def ensure_cache(action, fs, before930):
@@ -707,11 +727,22 @@ def _fetch_yesterday_amount_one(code):
             _mark_host_broken(host)
             continue
     _record("eastmoney_kline", False)
-    # 东财全失败 → 同花顺兜底 → 腾讯日K兜底(2026-08-31: 东财K线被IP封禁, 腾讯作第三源)
+    # 东财全失败 → 同花顺兜底 → 腾讯日K兜底 → 量脉日K兜底(2026-08-31: 第4源, kline_vip_history 含成交额)
     v = _fetch_yesterday_amount_ths(code)
     if v is not None:
         return v
-    return _fetch_yesterday_amount_tencent(code)
+    v = _fetch_yesterday_amount_tencent(code)
+    if v is not None:
+        return v
+    try:
+        from . import liangmai
+        v = liangmai._fetch_yesterday_amount_one(code, _bj_date_str().replace("-", ""))
+        if v is not None:
+            log.info("昨比量脉兜底成功 code=%s", code)
+            return v
+    except Exception:
+        pass
+    return None
 
 
 def _kline_amount_pair(klines):

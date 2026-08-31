@@ -61,6 +61,11 @@ ZT_CACHE_TTL = int(os.environ.get("ZT_CACHE_TTL", "15"))       # 涨停池缓存
 SPOT_CACHE_TTL = int(os.environ.get("SPOT_CACHE_TTL", "60"))  # 盘中实时行情缓存新鲜度(秒); 2026-08-18: 30→120; 2026-08-19: 120→300(分页并发后冷启动0.5s, 延长TTL减少冷启动频率, 与market-brief 5min一致); 2026-08-24: 300→60(主人要求盘中现涨刷新更快, 前端轮询同步 60s→30s)
 SPOT_MAX_PAGES = int(os.environ.get("SPOT_MAX_PAGES", "30"))   # 盘中全市场分页拉取上限(每页200只; 30页=6000只覆盖全A+北交所)
 
+# ---------- 量脉金融数据平台 (liangmai.pro, 2026-08-31 第N数据源) ----------
+# 定位: 全市场行情兜底(第3源) + 昨比兜底(第4源) + 抢筹/涨停池独立校验
+# 套餐: 688元/年 120次/分, 5 IP 绑定; token 走 systemd drop-in 不进 git
+LIANGMAI_TOKEN = os.environ.get("LIANGMAI_TOKEN", "")
+
 # 昨日成交额(日K)抓取: 低并发 + 多域名轮询 + 熔断, 避免触发东财限流
 YESTERDAY_FETCH_WORKERS = 8
 YESTERDAY_FETCH_TIMEOUT = 20   # 批量并发整体超时上限(秒), 超时未完成跳过(昨比置空), 防阻塞
