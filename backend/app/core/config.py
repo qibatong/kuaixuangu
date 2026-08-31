@@ -31,6 +31,9 @@ LADDER_IMG_DIR = os.environ.get("LADDER_IMG_DIR", os.path.join(PROJECT_ROOT, "la
 # AI 竞价预测报告输出目录(独立项目 /opt/kuaixuan/aipick/output):
 # 含 latest.html / predictions_YYYY-MM-DD.html 等, 原 Nginx 静态暴露, 现改为后端鉴权后经 App 内查看
 AIPICK_OUTPUT_DIR = os.environ.get("AIPICK_OUTPUT_DIR", "/opt/kuaixuan/aipick/output")
+# 飞书群总结 PDF 存储目录与上传密钥(2026-08-31): 定时任务上传总结 PDF, /s/<id> 公开预览
+SUMMARY_DIR = os.environ.get("SUMMARY_DIR", os.path.join(PROJECT_ROOT, "data", "summaries"))
+SUMMARY_UPLOAD_TOKEN = os.environ.get("SUMMARY_UPLOAD_TOKEN", "")
 
 # ---------- 邮件重置密码 ----------
 SMTP_HOST = os.environ.get("SMTP_HOST", "")
