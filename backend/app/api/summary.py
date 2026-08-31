@@ -18,17 +18,47 @@ import re
 import time
 import uuid
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 from urllib.parse import unquote
 
 from ..core import config, logger
+from .deps import get_uid
 
 log = logger.get_logger(__name__)
 router = APIRouter()
 
 MAX_PDF_SIZE = 50 * 1024 * 1024  # 50MB 上限
 IMG_DPI = 90  # 转图分辨率: A4 -> ~750px 宽, 兼顾手机加载速度
+
+# 每天 4 个时段(2026-08-31 大V资讯页需求): 凌晨盘后/早间/午间/收盘
+SLOT_ORDER = ["night", "morning", "noon", "close"]
+SLOT_LABEL = {"night": "凌晨盘后", "morning": "早间", "noon": "午间", "close": "收盘"}
+
+
+def _slot_of(meta: dict) -> str:
+    """由标题关键词判断时段; 兜底按上传时间小时"""
+    t = meta.get("title", "")
+    if "收盘" in t:
+        return "close"
+    if "午间" in t:
+        return "noon"
+    if "早间" in t:
+        return "morning"
+    if "盘后" in t:
+        return "night"
+    hh = 0
+    try:
+        hh = int(str(meta.get("time", "00:00"))[11:13])
+    except Exception:
+        pass
+    if hh < 5:
+        return "night"
+    if hh < 10:
+        return "morning"
+    if hh < 14:
+        return "noon"
+    return "close"
 
 # 移动端图片版预览页(2026-08-31 用户反馈: 手机 iframe 只能看第一页, 改逐页图片滑动)
 PAGE_TPL_MOBILE = """<!DOCTYPE html>
@@ -299,3 +329,39 @@ def list_summaries(request: Request,
                 items.append(meta)
     items.sort(key=lambda m: m.get("time", ""), reverse=True)
     return {"ok": True, "items": items}
+
+
+@router.get("/api/summary/history")
+def summary_history(request: Request, uid: int = Depends(get_uid)):
+    """大V资讯列表(登录态): 按日期倒序分组, 每天内按时段(凌晨盘后/早间/午间/收盘)排序"""
+    _ensure_dir()
+    by_day = {}
+    for fn in os.listdir(config.SUMMARY_DIR):
+        if not fn.endswith(".json"):
+            continue
+        meta = _load_meta(fn[:-5])
+        if not meta:
+            continue
+        fid = meta.get("id", fn[:-5])
+        date = fid[:8]
+        if len(date) != 8 or not date.isdigit():
+            date = str(meta.get("time", ""))[:10].replace("-", "")
+        slot = _slot_of(meta)
+        item = {
+            "id": fid,
+            "date": "%s-%s-%s" % (date[:4], date[4:6], date[6:8]),
+            "slot": slot,
+            "label": SLOT_LABEL.get(slot, slot),
+            "title": meta.get("title", ""),
+            "time": str(meta.get("time", ""))[11:16],
+            "size": meta.get("size", ""),
+            "pages": meta.get("pages", 0),
+            "url": "/s/" + fid,
+        }
+        by_day.setdefault(date, []).append(item)
+    days = []
+    for date in sorted(by_day.keys(), reverse=True):
+        items = sorted(by_day[date], key=lambda it: SLOT_ORDER.index(it["slot"])
+                       if it["slot"] in SLOT_ORDER else 99)
+        days.append({"date": "%s-%s-%s" % (date[:4], date[4:6], date[6:8]), "items": items})
+    return {"ok": True, "days": days}

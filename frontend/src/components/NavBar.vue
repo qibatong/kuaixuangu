@@ -34,6 +34,9 @@
       <router-link to="/yidong" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-bullhorn"></i> 异动监管
       </router-link>
+      <router-link to="/bigv" exact-active-class="router-link-active" class="nav-item" title="大V资讯 · 飞书群消息总结">
+        <i class="fa fa-newspaper"></i> 大V资讯
+      </router-link>
       <router-link v-if="user.isAdmin" to="/admin" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-shield"></i> 管理
       </router-link>

@@ -144,3 +144,40 @@ def test_list_requires_token(client, tmp_path, monkeypatch):
     assert r.status_code == 200
     assert r.json()["ok"] is True
     assert r.json()["items"] == []
+
+
+def test_history_requires_login(client, tmp_path, monkeypatch):
+    """大V资讯列表: 未登录 401"""
+    monkeypatch.setattr(config, "SUMMARY_DIR", str(tmp_path))
+    assert client.get("/api/summary/history").status_code == 401
+
+
+def test_history_groups_by_day_and_slot(client, tmp_path, monkeypatch, first_user):
+    """大V资讯列表: 登录后可看, 按日期倒序 + 每天按时段排序"""
+    monkeypatch.setattr(config, "SUMMARY_UPLOAD_TOKEN", "secret123")
+    monkeypatch.setattr(config, "SUMMARY_DIR", str(tmp_path))
+    token, _, _ = first_user
+    hdrs = {"Authorization": "Bearer " + token}
+
+    # 上传 3 份不同时段/日期的总结(标题关键词映射时段)
+    cases = [
+        ("20260830_aaaa1111", "飞书群消息 · 收盘总结", "2026-08-30 15:02:11"),
+        ("20260830_bbbb2222", "飞书群消息 · 早间总结", "2026-08-30 09:05:33"),
+        ("20260831_cccc3333", "飞书群消息 · 盘后总结", "2026-08-31 00:03:10"),
+    ]
+    for fid, title, tm in cases:
+        import json
+        json.dump({"id": fid, "file": fid + ".pdf", "title": title,
+                   "time": tm, "size": "10.0 KB", "pages": 2},
+                  open(os.path.join(str(tmp_path), fid + ".json"), "w", encoding="utf-8"))
+
+    r = client.get("/api/summary/history", headers=hdrs)
+    assert r.status_code == 200
+    days = r.json()["days"]
+    assert [d["date"] for d in days] == ["2026-08-31", "2026-08-30"]
+    # 8/31: 只有凌晨盘后
+    assert [i["slot"] for i in days[0]["items"]] == ["night"]
+    assert days[0]["items"][0]["label"] == "凌晨盘后"
+    # 8/30: 早间在前, 收盘在后
+    assert [i["slot"] for i in days[1]["items"]] == ["morning", "close"]
+    assert days[1]["items"][1]["url"].startswith("/s/")
