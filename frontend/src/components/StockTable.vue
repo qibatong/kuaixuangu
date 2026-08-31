@@ -57,7 +57,7 @@
           <td :title="'集合竞价阶段撮合成交金额(万元)'">{{ bidAmtText(item.bidAmt) }}</td>
           <td :class="ratioCls(item.bidRatio)" :title="ratioTitle(item.bidRatio)">{{ ratioText(item.bidRatio) }}</td>
           <td>{{ item.circulationMV ? item.circulationMV.toFixed(1) : '-' }}</td>
-          <td class="score-cell" :title="factorTitle(item)">{{ item.probability }}分</td>
+          <td class="score-cell">{{ item.probability }}分</td>
           <td>{{ item.confidence }}%</td>
           <td class="concept-cell" :title="'概念: ' + (item.concept || '')">
             <template v-if="item.concept">
@@ -161,20 +161,7 @@ function addToPool(item) {
   showToast(n ? `✅ ${item.code} ${item.name} 已加入股票池` : `${item.code} 已在池中`, n ? 'success' : 'info')
 }
 
-// 评分构成 tooltip(五因子分项): "竞价涨幅 +3.20% → 88分 (权重34%)" 每行一个
-function factorTitle(item) {
-  const f = item.factors || {}
-  const rows = Object.values(f).map(x => {
-    let v = '-'
-    if (x.value !== null && x.value !== undefined && !isNaN(x.value)) {
-      v = x.label.includes('市值') ? x.value.toFixed(1) + '亿'
-        : x.label.includes('等级') ? x.value + '级'
-        : (x.value > 0 ? '+' : '') + x.value.toFixed(2) + '%'
-    }
-    return `${x.label} ${v} → ${x.score}分 (权重${Math.round(x.weight * 100)}%)`
-  })
-  return '评分构成：\n' + rows.join('\n')
-}
+// 2026-08-31 主人要求: 评分构成(五因子分项/权重)属于内部逻辑, 不对用户暴露, factorTitle 已移除
 // 是否已在池中
 function inPool(code) {
   return pool.stockPool.some(x => x.code === code)
