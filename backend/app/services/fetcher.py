@@ -255,7 +255,9 @@ def fetch_tencent_market(fs):
     """腾讯全市场行情兜底: 以全市场代码清单分批发拉 → 映射为东财 diff 格式
     (f2现价/f3涨跌%/f8换手/f12代码/f14名称/f21流通市值/f615竞价涨幅≈f3/
      f616竞价额≈成交额/f617量≈成交量/f630异动=0), 返回与 fetch_eastmoney 同构的列表。
-    竞价专属字段(f615/f616/f617)腾讯无精确值, 用现价涨幅/成交额近似(盘中口径一致)。"""
+    竞价专属字段(f615/f616/f617)腾讯无精确值, 用现价涨幅/成交额近似(盘中口径一致)。
+    2026-08-31 加速: 原串行 19 批(5500/300) + 每批 sleep0.1 ≈ 5-18s, 改 5 并发 ≈ 1-2s
+    (qt.gtimg.cn 批量接口抗并发, 东财故障兜底时快照/选股时点更准)"""
     if _check_circuit("tencent_market"):
         raise RuntimeError("腾讯数据源熔断中(故障冷却%d秒内), 快速失败" % _CIRCUIT_OPEN_SECONDS)
     codes = _all_market_codes()
@@ -264,30 +266,42 @@ def fetch_tencent_market(fs):
     t0 = time.time()
     symbols = [_tencent_symbol(c) for c in codes]
     result = []
-    try:
-        for i in range(0, len(symbols), _TENCENT_BATCH):
-            batch = symbols[i:i + _TENCENT_BATCH]
+
+    def _grab(batch):
+        """单批拉取并解析为东财 diff 格式; 失败返回空(单批失败跳过, 不影响其他批)"""
+        out = []
+        try:
             got = _fetch_tencent_batch(batch)
-            for code, f in got.items():
-                try:
-                    mv_yi = float(f[44])          # 流通市值(亿)
-                    price = float(f[3])
-                    chg = float(f[32])            # 涨跌%
-                    turnover = float(f[38])       # 换手率
-                    amt_wan = float(f[37])        # 成交额(万)
-                    vol_hand = float(f[36])        # 成交量(手)
-                except (ValueError, IndexError):
-                    continue
-                result.append({
-                    "f2": price, "f3": chg, "f8": turnover,
-                    "f12": code, "f14": f[1],
-                    "f21": mv_yi * 1e8,            # 元
-                    "f615": chg,                    # 竞价涨幅(近似)
-                    "f616": amt_wan * 1e4,          # 竞价金额(元, 近似成交额)
-                    "f617": vol_hand * 100,         # 竞价量(股, 近似成交量)
-                    "f630": 0,
-                })
-            time.sleep(0.1)   # 防腾讯限流
+        except Exception:
+            return out
+        for code, f in got.items():
+            try:
+                mv_yi = float(f[44])          # 流通市值(亿)
+                price = float(f[3])
+                chg = float(f[32])            # 涨跌%
+                turnover = float(f[38])       # 换手率
+                amt_wan = float(f[37])        # 成交额(万)
+                vol_hand = float(f[36])        # 成交量(手)
+            except (ValueError, IndexError):
+                continue
+            out.append({
+                "f2": price, "f3": chg, "f8": turnover,
+                "f12": code, "f14": f[1],
+                "f21": mv_yi * 1e8,            # 元
+                "f615": chg,                    # 竞价涨幅(近似)
+                "f616": amt_wan * 1e4,          # 竞价金额(元, 近似成交额)
+                "f617": vol_hand * 100,         # 竞价量(股, 近似成交量)
+                "f630": 0,
+            })
+        return out
+
+    batches = [symbols[i:i + _TENCENT_BATCH] for i in range(0, len(symbols), _TENCENT_BATCH)]
+    try:
+        # 5 并发拉批(实测 qt.gtimg.cn 批量抗并发, 5500 只 19 批 ≈ 1-2s)
+        import concurrent.futures as _cf
+        with _cf.ThreadPoolExecutor(max_workers=5) as ex:
+            for chunk in ex.map(_grab, batches):
+                result.extend(chunk)
     except Exception as e:
         _record("tencent_market", False, int((time.time() - t0) * 1000))
         raise
@@ -298,11 +312,12 @@ def fetch_tencent_market(fs):
 
 
 def fetch_eastmoney_all(fs):
-    """盘中实时模式: 分页拉取全市场股票快照(默认每页 200, 共 ~20 页),
+    """盘中实时模式: 分页拉取全市场股票快照(默认每页 200, 共 ~20-30 页),
     让过滤参数(涨幅/量比/换手)真正作用于全市场, 而不是只取涨幅前 200。
     按代码(f12)排序分页: 位置稳定, 任一分页失败只跳过该页, 不漏已跌出榜单的票。
-    并发拉取(2026-08-19 性能优化): 30 页 ThreadPoolExecutor 并发, 冷缓存 3s→0.5s;
-    空页=到底(提前结束), 任一页失败跳过该页, 全部失败抛异常。"""
+    并发拉取(2026-08-19 起): 30 页 ThreadPoolExecutor 并发, 实测 386ms/次(2026-08-31 生产);
+    空页=到底(提前结束), 任一页失败跳过该页, 全部失败抛异常。
+    注意: 18-28s 级耗时仅出现在东财故障走腾讯全市场兜底时(串行已改 5 并发 ≈ 1-2s)。"""
     if _check_circuit():
         raise RuntimeError("东财数据源熔断中(故障冷却%d秒内), 快速失败" % _CIRCUIT_OPEN_SECONDS)
     t_all = time.time()

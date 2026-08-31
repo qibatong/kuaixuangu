@@ -49,12 +49,13 @@ def _fetch_market_map(full=False):
     过滤异常涨幅(±30% 外, A股涨跌停上限20%/新股44%, 非交易时段字段可能异常)
     full=True : fetch_eastmoney_all 分页全市场(~5500只, 按代码f12排序, 时点快照用)
     full=False: fetch_eastmoney 单页200只×3分区(按涨幅倒序=竞价最强前600, 秒级采样用,
-                9:24:45-9:25:03 共18秒窗口, 分页全市场需60s+, 无法每秒完成)
-    并发: 沪深创科 3 分区 ThreadPoolExecutor 并发拉取(全市场分页内部仍串行防限流),
-          单页模式耗时 3×~1.5s → ~1.5s, 秒级采样 8 秒窗口可采 5-8 个点
+                9:24:45-9:25:03 共18秒窗口, 秒级采样窗口内无法全市场分页)
+    并发(2026-08-19 起): 全市场 30 页 ThreadPoolExecutor 并发(实测 386ms/次, 2026-08-31),
+          单页模式 3 分区并发 3×~1.5s → ~1.5s, 秒级采样 8 秒窗口可采 5-8 个点
     三源冗余(2026-08-25): 东财全部失败时用开盘啦竞价委买/爆量榜兜底,
           至少保存竞价异动关键股票(非全市场, 好过完全缺失)
     """
+    _t0 = time.time()
     with _fetch_lock:
         raw_all = {}
 
@@ -93,6 +94,9 @@ def _fetch_market_map(full=False):
         if not raw_all:
             log.warning("[快照采集] 东财全分区失败, 尝试开盘啦竞价榜兜底")
             raw_all = _fetch_kpl_fallback()
+        # 2026-08-31 可观测性: 采集阶段耗时单独记录(与落库耗时分离, 定位时点失真来源)
+        log.info("[快照采集] 行情拉取完成 full=%s 数量%d 耗时%.0fms", full, len(raw_all),
+                 (time.time() - _t0) * 1000)
         return raw_all
 
 
