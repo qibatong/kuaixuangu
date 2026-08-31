@@ -51,6 +51,7 @@ _HEALTH = {
     "eastmoney_zt_pool": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
     "ths_kline":       {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
     "tencent_market":  {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
+    "tencent_kline":   {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
 }
 _health_lock = threading.Lock()
 
@@ -608,15 +609,59 @@ def _fetch_yesterday_amount_ths(code):
     return None
 
 
+def _fetch_yesterday_amount_tencent(code):
+    """腾讯日K兜底源(第三源, 2026-08-31 东财K线被生产机IP封禁后新增):
+    返回最近两交易日成交额 [T日, T-1日] 万元; 失败返回 None
+    接口: proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get
+    qfqday 行: [date, open, close, high, low, volume, {}, 涨跌, 成交额(万元), '']
+    跳过今天(未收盘)行, 保证 T = 最近已收盘交易日(与东财/同花顺语义一致)
+    """
+    prefix = "sh" if code.startswith(("6", "9")) else ("bj" if code.startswith(("4", "8")) else "sz")
+    secid = prefix + code
+    t0 = time.time()
+    try:
+        url = ("https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get?param="
+               + urllib.parse.quote(secid) + ",day,,,8,qfq")
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        })
+        with urllib.request.urlopen(req, timeout=config.KLINE_TIMEOUT, context=_NO_VERIFY_CTX) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))
+        data = raw.get("data", {}).get(secid, {})
+        rows = data.get("qfqday") or data.get("day") or []
+        today = _bj_date_str().replace("-", "")
+        pairs = []
+        for row in rows:
+            if not isinstance(row, list) or len(row) < 9:
+                continue
+            dstr = str(row[0])[:10].replace("-", "")
+            if dstr == today:
+                continue  # 今天未收盘, 跳过
+            try:
+                amt = float(row[8])
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(amt) and amt > 0:
+                pairs.append((dstr, amt))
+        if len(pairs) >= 2:
+            _record("tencent_kline", True, int((time.time() - t0) * 1000))
+            return [pairs[-1][1], pairs[-2][1]]
+    except Exception as e:
+        log.warning("腾讯日K成交额拉取失败 code=%s err=%s", code, str(e)[:100])
+    _record("tencent_kline", False)
+    return None
+
+
 def _fetch_yesterday_amount_one(code):
     """拉单只股票最近两交易日成交额(万元): 返回 [T日, T-1日] (T=最近已收盘交易日);
     东财日K(多域名轮询)失败后自动切同花顺兜底; 完全失败返回 None
 
     2026-08-30 容灾加固(主人反馈用户中午盘中截图): 当东财日 K 与 ths_kline
     全部处于熔断中, 立即 return None 不浪费 5s×多 host 超时(5554 只全量会卡到 nginx 504)"""
-    # 快速短路: 两源都熔断中 → 立即跳过(昨比对该 code 置空, 评分时容忍缺失)
+    # 快速短路: 三源(东财/同花顺/腾讯日K)都熔断中 → 立即跳过(昨比对该 code 置空, 评分时容忍缺失)
     # 2026-08-31: 去掉逐只 WARNING(36804 条日志风暴拖死 worker), 聚合统计在 fetch_yesterday_amounts 批级短路处理
-    if _check_circuit("eastmoney_kline") and _check_circuit("ths_kline"):
+    if (_check_circuit("eastmoney_kline") and _check_circuit("ths_kline")
+            and _check_circuit("tencent_kline")):
         return None
     qs = urllib.parse.urlencode({
         "secid": _secid(code), "fields1": "f1,f2,f3,f4,f5,f6",
@@ -647,8 +692,11 @@ def _fetch_yesterday_amount_one(code):
             _mark_host_broken(host)
             continue
     _record("eastmoney_kline", False)
-    # 东财全失败 → 同花顺兜底
-    return _fetch_yesterday_amount_ths(code)
+    # 东财全失败 → 同花顺兜底 → 腾讯日K兜底(2026-08-31: 东财K线被IP封禁, 腾讯作第三源)
+    v = _fetch_yesterday_amount_ths(code)
+    if v is not None:
+        return v
+    return _fetch_yesterday_amount_tencent(code)
 
 
 def _kline_amount_pair(klines):
@@ -703,10 +751,12 @@ def fetch_yesterday_amounts(codes):
             if ent is None or ent[0] != today:
                 need.append(c)
     if need:
-        # 2026-08-31 线上事故: 双源全熔断时逐只短路打 WARNING → 36804 条日志风暴,
+        # 2026-08-31 线上事故: 全源熔断时逐只短路打 WARNING → 36804 条日志风暴,
         # 日志 I/O 阻塞 worker 导致 /api/stocks 674s、health 超时。改为批级短路: 一条聚合日志 + 直接返回
-        if _check_circuit("eastmoney_kline") and _check_circuit("ths_kline"):
-            log.warning("昨日成交额: 东财+同花顺双源熔断中, 本批%d只全部短路(昨比置空)", len(need))
+        # 三源(东财/同花顺/腾讯日K)全部熔断才短路; 任一源可用则继续尝试(腾讯作第三源)
+        if (_check_circuit("eastmoney_kline") and _check_circuit("ths_kline")
+                and _check_circuit("tencent_kline")):
+            log.warning("昨日成交额: 东财+同花顺+腾讯 三源全部熔断中, 本批%d只全部短路(昨比置空)", len(need))
             return {}
         ok_cnt = 0
         fail_cnt = len(need)
