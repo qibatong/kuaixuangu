@@ -615,9 +615,8 @@ def _fetch_yesterday_amount_one(code):
     2026-08-30 容灾加固(主人反馈用户中午盘中截图): 当东财日 K 与 ths_kline
     全部处于熔断中, 立即 return None 不浪费 5s×多 host 超时(5554 只全量会卡到 nginx 504)"""
     # 快速短路: 两源都熔断中 → 立即跳过(昨比对该 code 置空, 评分时容忍缺失)
-    # 2026-08-30 可观测性: 熔断短路必须留痕, 否则运维无法确认是"真熔断"还是"逻辑 bug"
+    # 2026-08-31: 去掉逐只 WARNING(36804 条日志风暴拖死 worker), 聚合统计在 fetch_yesterday_amounts 批级短路处理
     if _check_circuit("eastmoney_kline") and _check_circuit("ths_kline"):
-        log.warning("昨日成交额双源熔断短路 code=%s (eastmoney_kline+ths_kline 均熔断, 昨比置空)", code)
         return None
     qs = urllib.parse.urlencode({
         "secid": _secid(code), "fields1": "f1,f2,f3,f4,f5,f6",
@@ -704,28 +703,36 @@ def fetch_yesterday_amounts(codes):
             if ent is None or ent[0] != today:
                 need.append(c)
     if need:
+        # 2026-08-31 线上事故: 双源全熔断时逐只短路打 WARNING → 36804 条日志风暴,
+        # 日志 I/O 阻塞 worker 导致 /api/stocks 674s、health 超时。改为批级短路: 一条聚合日志 + 直接返回
+        if _check_circuit("eastmoney_kline") and _check_circuit("ths_kline"):
+            log.warning("昨日成交额: 东财+同花顺双源熔断中, 本批%d只全部短路(昨比置空)", len(need))
+            return {}
         ok_cnt = 0
         fail_cnt = len(need)
-        with ThreadPoolExecutor(max_workers=config.YESTERDAY_FETCH_WORKERS) as ex:
-            futs = {ex.submit(_fetch_yesterday_amount_one, c): c for c in need}
-            try:
-                for f in as_completed(futs, timeout=config.YESTERDAY_FETCH_TIMEOUT):
-                    c = futs[f]
-                    try:
-                        v = f.result()
-                        if v is not None:
-                            ok_cnt += 1
-                            with _yesterday_lock:
-                                _yesterday_cache[c] = [today, v]
-                    except Exception:
-                        pass
-                    fail_cnt -= 1
-            except _FutTimeout:
-                # 超时未完成: 跳过(不等待慢 code), 昨比对该 code 置空
-                done = len(need) - fail_cnt
-                log.warning("昨日成交额拉取超时(%ds) 已完成%d/%d, 超时跳过",
-                            config.YESTERDAY_FETCH_TIMEOUT, done, len(need))
-                fail_cnt = len(need) - ok_cnt
+        # 2026-08-31: shutdown(wait=False) — 整体超时后不再等待慢 code 线程(原 with 块 wait=True 仍会阻塞)
+        ex = ThreadPoolExecutor(max_workers=config.YESTERDAY_FETCH_WORKERS)
+        futs = {ex.submit(_fetch_yesterday_amount_one, c): c for c in need}
+        try:
+            for f in as_completed(futs, timeout=config.YESTERDAY_FETCH_TIMEOUT):
+                c = futs[f]
+                try:
+                    v = f.result()
+                    if v is not None:
+                        ok_cnt += 1
+                        with _yesterday_lock:
+                            _yesterday_cache[c] = [today, v]
+                except Exception:
+                    pass
+                fail_cnt -= 1
+        except _FutTimeout:
+            # 超时未完成: 跳过(不等待慢 code), 昨比对该 code 置空
+            done = len(need) - fail_cnt
+            log.warning("昨日成交额拉取超时(%ds) 已完成%d/%d, 超时跳过",
+                        config.YESTERDAY_FETCH_TIMEOUT, done, len(need))
+            fail_cnt = len(need) - ok_cnt
+        finally:
+            ex.shutdown(wait=False)
         if fail_cnt:
             log.warning("昨日成交额拉取: 需%d 成功%d 失败%d", len(need), ok_cnt, fail_cnt)
     out = {}
