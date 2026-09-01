@@ -1,5 +1,5 @@
 <template>
-  <div class="page-shell">
+  <div class="page-shell" :class="{ 'ap-embedded': embedded }">
     <!-- 会员门禁(2026-08-27): AI 竞价预测仅 VIP/付费会员可用 -->
     <VipGate v-if="!user.isVipOrPaid" title="AI竞价预测" :required-level="1" />
 
@@ -122,6 +122,10 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useUserStore } from '../stores/user'
 import VipGate from '../components/VipGate.vue'
 import { aipickDates, aipickData, aipickRealtime } from '../api/aipick'
+
+// 2026-09-01: 嵌入首页左视图(替换盘中选股)时传入 embedded=true,
+// 收紧面板间距并为半宽布局启用表格横向滚动
+defineProps({ embedded: { type: Boolean, default: false } })
 
 const user = useUserStore()
 const dates = ref([])
@@ -448,6 +452,14 @@ onUnmounted(stopRealtime)
   padding: 14px;
   overflow: hidden;
 }
+/* 嵌入首页左视图(替换盘中选股, 2026-09-01): 半宽布局下收紧面板,
+   表格启用横向滚动(9列在左栏必然超宽), 无需等待移动端断点 */
+.ap-embedded .ap-panel { padding: 10px; border-radius: 8px; }
+.ap-embedded .ap-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.ap-embedded .ap-stock-table { min-width: 920px; }
 .loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
 .spinner {
   width: 28px; height: 28px;
@@ -738,6 +750,8 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
     min-width: 1080px;     /* 9 列 + 徽章需要更多宽度, 防止字段换行或被压瘪 */
     font-size: 12px;
   }
+  /* 嵌入态: 移动端仍按全宽表格处理(优先级高于 .ap-embedded .ap-stock-table 的桌面 920px) */
+  .ap-embedded .ap-stock-table { min-width: 1080px; }
   .ap-stock-table thead th {
     position: sticky; top: 0; z-index: 1;
     padding: 8px 6px;

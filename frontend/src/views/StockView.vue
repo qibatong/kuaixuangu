@@ -19,46 +19,39 @@
       <div class="home-col home-col-left" :class="{ 'home-col-hidden': mobilePane !== 'stock' }">
         <!-- 紧凑规则条 + 内联模式切换 + 操作按钮 -->
         <div class="alert-rule alert-rule-compact">
-          <span class="rule-text"><strong>9:30前可重新选股 · 9:30后仅更新</strong></span>
-          <!-- 模式切换(内联): 竞价 / 盘中 -->
+          <span v-if="leftTab === 'auction'" class="rule-text"><strong>9:30前可重新选股 · 9:30后仅更新</strong></span>
+          <span v-else class="rule-text"><strong>AI 竞价预测 · 交易日 9:30 前自动生成</strong></span>
+          <!-- 模式切换(内联): 竞价 / AI预测 (2026-09-01: 原"盘中"替换为 AI预测) -->
           <span class="mode-tabs mode-tabs-inline">
-            <button class="mode-tab mode-tab-compact" :class="{ active: stocks.mode === 'auction' }" @click="switchMode('auction')">竞价</button>
-            <button class="mode-tab mode-tab-compact" :class="{ active: stocks.mode === 'spot' }" @click="switchMode('spot')">盘中</button>
+            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'auction' }" @click="switchTab('auction')"><i class="fa fa-sun-o"></i> 竞价</button>
+            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick' }" @click="switchTab('aipick')"><i class="fa fa-robot"></i> AI预测</button>
           </span>
-          <!-- 操作按钮 -->
-          <span class="right-group">
+          <!-- 操作按钮(仅竞价模式) -->
+          <span v-if="leftTab === 'auction'" class="right-group">
             <button class="tdx-export-btn reset-lock-btn" :disabled="!isBefore930()" @click="reLock"><i class="fa fa-lock"></i> 锁定</button>
             <button class="tdx-export-btn real-time-btn" @click="refreshRealTime"><i class="fa fa-refresh"></i> 刷新</button>
           </span>
         </div>
 
-        <!-- 筛选面板 -->
-        <div class="home-filter"><FilterPanel /></div>
+        <!-- 筛选面板(仅竞价模式) -->
+        <div v-if="leftTab === 'auction'" class="home-filter"><FilterPanel /></div>
 
-        <!-- 会员门禁: 竞价选股 / 盘中实时选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
-        <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价选股" />
-
-        <template v-if="user.isMember || !isMemberOnlyTime()">
-        <!-- 奖牌区(仅竞价模式) -->
-        <MedalPanel v-if="stocks.mode === 'auction'" :stocks="stocks.cachedStocks" />
-
-        <!-- 自选股票池 -->
-        <StockPoolPanel v-if="stocks.mode === 'spot'" @open-chart="showChart" />
-
-        <!-- 主表: 按模式显示 -->
-        <template v-if="stocks.mode === 'spot'">
-          <div v-if="!stocks.isSpotCached" class="stock-table-container">
-            <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
-          </div>
-          <StockTable v-else :stocks="stocks.spotStocks" mode="spot" :bid-seal-map="bidSealMap" />
+        <template v-if="leftTab === 'auction'">
+          <!-- 会员门禁: 竞价选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
+          <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价选股" />
+          <template v-if="user.isMember || !isMemberOnlyTime()">
+            <!-- 奖牌区 -->
+            <MedalPanel :stocks="stocks.cachedStocks" />
+            <!-- 主表 -->
+            <div v-if="!stocks.isDataCached" class="stock-table-container">
+              <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
+            </div>
+            <StockTable v-else :stocks="stocks.cachedStocks" mode="auction" :bid-seal-map="bidSealMap" />
+          </template>
         </template>
-        <template v-else>
-          <div v-if="!stocks.isDataCached" class="stock-table-container">
-            <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
-          </div>
-          <StockTable v-else :stocks="stocks.cachedStocks" mode="auction" :bid-seal-map="bidSealMap" />
-        </template>
-        </template>
+
+        <!-- AI预测(2026-09-01 替换原盘中选股; 自带 VIP 门禁/日期回看/规则过滤) -->
+        <AipickView v-else :embedded="true" />
       </div><!-- /.home-col-left -->
 
       <!-- 右栏: 竞价异动 -->
@@ -74,15 +67,14 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import FilterPanel from '../components/FilterPanel.vue'
 import SentimentPanel from '../components/SentimentPanel.vue'
 import MedalPanel from '../components/MedalPanel.vue'
-import StockPoolPanel from '../components/StockPoolPanel.vue'
 import StockTable from '../components/StockTable.vue'
 import AuctionView from './AuctionView.vue'
+import AipickView from './AipickView.vue'
 import VipGate from '../components/VipGate.vue'
 import { useStocksStore } from '../stores/stocks'
 import { usePoolStore } from '../stores/pool'
 import { useUserStore } from '../stores/user'
 import { kplBidSeal } from '../api/kpl'
-import { openStockChart } from '../composables/uiBus'
 import { showToast } from '../utils/toast'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
 import { copyText, downloadBlkFile } from '../utils/tdx'
@@ -95,12 +87,15 @@ const bjTime = ref('--:--:--')
 const bidSealMap = ref({})        // 竞价涨停委买额 map: code -> {limitBoards, bidSealAmt, bidNetAmt}
 const { refreshYidongCodes } = useYidongMonitor()
 
+// 2026-09-01: 左视图模式切换 竞价 / AI预测(原"盘中"已被 AI预测替换)
+// 使用本地 leftTab 而非 stocks.mode: 不再触发盘中数据流(fetchSpot/spotStocks)
+const leftTab = ref('auction')
+
 // 窄屏切换: 选股 / 竞价异动
 const mobilePane = ref('stock')
 
-// 图表弹窗: 现在由 App.vue 全局托管(uiBus.chartModal 驱动), 这里仅转发
-function showChart(code, name) { openStockChart(code, name) }
-
+// 图表弹窗: 由 App.vue 全局托管(uiBus.chartModal 驱动); 左视图已无自选池入口,
+// 股票点击图表由 StockTable 内部通过 uiBus 触发
 async function loadBidSeal() {
   try {
     const d = await kplBidSeal()
@@ -130,46 +125,35 @@ async function init() {
   }
   // 启动定时器: 时钟 / 自动收录 / 过期检查
   clockTimer = setInterval(() => { bjTime.value = bjDateTimeStr() }, 1000)
-  autoAddTimer = setInterval(() => pool.autoAdd(currentList(), stocks.isDataCached || stocks.isSpotCached), 20000)
+  autoAddTimer = setInterval(() => pool.autoAdd(currentList(), stocks.isDataCached), 20000)
   expiryTimer = setInterval(() => pool.checkExpiry(), 30000)
-  pool.autoAdd(currentList(), stocks.isDataCached || stocks.isSpotCached)
+  pool.autoAdd(currentList(), stocks.isDataCached)
   // 盘中 9:30-15:00: 每 30s 自动刷新一次现涨/实时涨幅(静默, 不弹 toast)。
-  // 后端行情缓存 TTL: 竞价30s / 盘中300s, 30s 轮询既能跟上涨幅变化又不超压。
+  // 后端行情缓存 TTL: 竞价30s, 30s 轮询既能跟上涨幅变化又不超压。
   realTimeTimer = setInterval(() => {
     if (!isIntradayNow()) return            // 盘前/收盘/周末: 不轮询, 现涨固定为当日收盘
     const safe = (p) => p.catch(() => {})  // 轮询失败静默, 不打断
-    if (stocks.mode === 'spot') safe(stocks.updateSpotRealTime({ silent: true }))
-    else safe(stocks.updateRealTimeOnly({ silent: true }))
+    safe(stocks.updateRealTimeOnly({ silent: true }))
   }, 30000)
 }
 
-// 当前模式的选股结果(竞价 cachedStocks / 盘中 spotStocks)
+// 当前模式的选股结果(左视图仅竞价模式, 恒为 cachedStocks)
 function currentList() {
-  return stocks.mode === 'spot' ? stocks.spotStocks : stocks.cachedStocks
+  return stocks.cachedStocks
 }
 
 function reLock() {
   stocks.reLockData().catch(e => showToast('❌ ' + e.message, 'error'))
 }
 function refreshRealTime() {
-  if (stocks.mode === 'spot') {
-    stocks.updateSpotRealTime().catch(e => showToast('❌ 更新失败：' + e.message, 'error'))
-    return
-  }
   stocks.updateRealTimeOnly().catch(e => showToast('❌ 更新失败：' + e.message, 'error'))
 }
-async function switchMode(m) {
-  if (stocks.mode === m) return
-  stocks.setMode(m)
-  // 首次进入该模式时拉一次数据
-  try {
-    if (m === 'spot') {
-      if (!stocks.isSpotCached) await stocks.fetchSpot()
-    } else {
-      if (!stocks.isDataCached) await stocks.fetchAndCache()
-    }
-  } catch (e) {
-    showToast('❌ ' + e.message, 'error')
+// 左视图模式切换: auction(竞价, 数据流与 store 联动) / aipick(AI预测, AipickView 自加载)
+function switchTab(m) {
+  if (leftTab.value === m) return
+  leftTab.value = m
+  if (m === 'auction' && !stocks.isDataCached) {
+    stocks.fetchAndCache().catch(e => showToast('❌ ' + e.message, 'error'))
   }
 }
 function downloadAll() { downloadBlkFile(stocks.cachedStocks, 0) }
