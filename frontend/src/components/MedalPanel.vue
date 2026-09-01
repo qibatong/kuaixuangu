@@ -5,7 +5,7 @@
     </template>
     <div v-for="(item, i) in top3" :key="item.code" class="medal-card">
       <div class="medal-rank"><span class="medal-rank-icon"></span> {{ ['金牌', '银牌', '铜牌'][i] }}</div>
-      <div class="medal-name-big">{{ item.name }}<span v-if="item.qiangchou" class="qc-badge" title="竞价涨幅≥2% 且 竞价/昨比≥20%">🔥抢筹</span></div>
+      <div class="medal-name-big">{{ item.name }}<span v-if="item.qiangchou" class="qc-badge" title="命中竞价异动-竞价抢筹(9:20→9:25 竞价涨幅 / 最后一秒竞价涨幅)">🔥抢筹</span></div>
       <div class="medal-code" @click="linkToSoftware(item.code)">{{ item.code }}</div>
       <!-- 实时涨幅顶替原"95分大字"位置(2026-08-18 主人反馈: 盘中关注点, 应是最显眼数字) -->
       <div class="medal-real-big" :class="{ 'green-real': item.realChange < item.bidChange }">

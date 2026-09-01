@@ -99,7 +99,9 @@ def _do_run(time_point):
     f = scorer.validate_filters({
         k: [str(v)]
         for k, v in f_raw.items() if k != "markets"})
-    result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map)
+    # 2026-09-01 抢筹口径: 命中右视图竞价异动"竞价抢筹"代码集才打抢筹标
+    qc_codes = kpl.get_qiangchou_codes()
+    result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_codes=qc_codes)
     kpl.apply_board_concept(result, "system_batch")
     # 截取 top 30(避免 batch_stocks 太大, 与 aipick 保持一致)
     result = result[:30]

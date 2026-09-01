@@ -1396,3 +1396,31 @@ def test_kpl_broken_fastpath_reads_broken_today(vip_user, client, monkeypatch):
     assert d["day"] == "2026-08-17"
     assert calls["merge"] == 1 and calls["fill_mv"] == 1
     assert fetch_broken_called[0] == 0
+
+
+# ---------- 左视图抢筹口径: get_qiangchou_codes (2026-09-01) ----------
+def test_get_qiangchou_codes_merge_three_tables(monkeypatch):
+    """左视图抢筹代码集 = 右视图竞价抢筹三表(list20/list20Chg/listLast) code 并集"""
+    fake = {
+        "list20": [{"code": "600001", "name": "A"}, {"code": "600002", "name": "B"}],
+        "list20Chg": [{"code": "600002", "name": "B"}, {"code": "600003", "name": "C"}],
+        "listLast": [{"code": "600003", "name": "C"}, {"code": "600004", "name": "D"}],
+        "date": "2026-09-01",
+    }
+    monkeypatch.setattr(kpl, "fetch_bid_qiangcang", lambda date=None: fake)
+    codes = kpl.get_qiangchou_codes()
+    assert isinstance(codes, set)
+    assert codes == {"600001", "600002", "600003", "600004"}
+    # 去重: B/C 在三表重复出现只计一次
+
+
+def test_get_qiangchou_codes_empty_and_exc(monkeypatch):
+    """空结果/异常 → 返回空 set(调用方回退旧公式, 防抢筹全灭)"""
+    monkeypatch.setattr(kpl, "fetch_bid_qiangcang", lambda date=None: {})
+    assert kpl.get_qiangchou_codes() == set()
+
+    def boom(date=None):
+        raise RuntimeError("数据源故障")
+
+    monkeypatch.setattr(kpl, "fetch_bid_qiangcang", boom)
+    assert kpl.get_qiangchou_codes() == set()

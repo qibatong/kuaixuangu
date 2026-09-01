@@ -2110,6 +2110,25 @@ def fetch_bid_qiangcang(date=None):
     return _cached("bid_qiangcang" + (("_" + date.replace("-", "")) if date else ""), 30, loader)
 
 
+def get_qiangchou_codes(date=None):
+    """竞价抢筹代码集合(供左视图抢筹标记, 2026-09-01):
+    合并 fetch_bid_qiangcang 三表(list20 竞额强度 / list20Chg 9:20→9:25 涨幅 / listLast 最后一秒段)
+    的 code 集合; 与竞价异动页"竞价抢筹"tab 数据同源(内置30s缓存), 保证左右视图口径一致。
+    返回 set(code); 异常返回空 set(调用方回退旧公式兜底, 防数据源故障导致抢筹全灭)。"""
+    try:
+        d = fetch_bid_qiangcang(date or None) or {}
+        codes = set()
+        for lst in (d.get("list20") or [], d.get("list20Chg") or [], d.get("listLast") or []):
+            for it in lst:
+                c = str(it.get("code", "") or "")
+                if c:
+                    codes.add(c)
+        return codes
+    except Exception as e:
+        log.warning("抢筹代码集获取失败(左视图抢筹按旧公式兜底) err=%s", e)
+        return set()
+
+
 def _surge_reason(sr):
     """surge_reason 是 dict: {stock_reason, related_plates:[{plate_name, plate_reason}]} → 拼接文本"""
     if not isinstance(sr, dict):

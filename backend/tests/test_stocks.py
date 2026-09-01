@@ -803,3 +803,24 @@ def test_api_stock_chart_fetcher_returns_empty(client, first_user, monkeypatch):
     r = client.get("/api/stock/chart?code=999999&period=day", headers=hdrs(token))
     assert r.status_code == 502
     assert not r.json().get("ok")
+
+
+# ---------- 抢筹口径改版: 左视图=右视图竞价抢筹集合 (2026-09-01) ----------
+def test_score_qiangchou_from_qc_codes():
+    """命中右视图"竞价抢筹"代码集 → qiangchou=1; 未命中 → 0(即使满足旧公式涨幅/竞昨比)"""
+    # MOCK_RAW 两条: 600001 竞价涨幅3.5% 竞额5e7万? (f616 5e7元=5000万); 000002 竞价涨幅4.8%
+    # 旧公式需 bid_ratio>=20 才打标; 新口径只看集合命中
+    raw = MOCK_RAW
+    # 集合命中 600001 与 000002
+    scored = scorer.score_all_stocks(raw, {}, {}, qiangchou_codes={"600001"})
+    m = {s["code"]: s for s in scored}
+    assert m["600001"]["qiangchou"] == 1     # 命中集合
+    assert m["000002"]["qiangchou"] == 0     # 未命中集合 → 不打标(即使竞价涨幅4.8%)
+    # 集合为空 → 回退旧公式(不崩, 至少 000002 竞/昨比达标与否由旧公式决定)
+    scored2 = scorer.score_all_stocks(raw, {}, {}, qiangchou_codes=set())
+    m2 = {s["code"]: s for s in scored2}
+    assert "qiangchou" in m2["600001"] and m2["600001"]["qiangchou"] in (0, 1)
+    # 未传集合(默认 None) → 走旧公式, 行为与改版前一致
+    scored3 = scorer.score_all_stocks(raw, {}, {})
+    m3 = {s["code"]: s for s in scored3}
+    assert "qiangchou" in m3["600001"]

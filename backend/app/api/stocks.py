@@ -65,7 +65,9 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
             # 复用竞价评分 + 竞价过滤: 盘中=不锁定的竞价, 9:30 后持续刷新, 名单会变(符合诗人预期)
             yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw])
             snapshot_map = auction_snapshot.load_snapshot()
-            result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map)
+            # 2026-09-01 抢筹口径: 左视图抢筹=右视图竞价异动"竞价抢筹"代码集(9:20→9:25涨幅/最后一秒段)
+            qc_codes = kpl.get_qiangchou_codes()
+            result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_codes=qc_codes)
             _apply_kpl_board(result, "spot")
             log.info("盘中选股(同竞价逻辑) uid=%s markets=%s raw=%d只 返回%d只 耗时%.0fms",
                      uid, ",".join(f["markets"]), len(raw), len(result), (time.time() - t0) * 1000)
@@ -104,7 +106,9 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         if action == "lock" and auction_ok and not snapshot_map:
             log.warning("9:25 lock 时当日 9:20 快照缺失! 加速度无法计算, 请检查9:20调度/东财接口 uid=%s", uid)
         # 评分计算不持锁: 多用户并发选股互不阻塞, 只共享只读的行情快照
-        result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map)
+        # 2026-09-01 抢筹口径: 左视图抢筹=右视图竞价异动"竞价抢筹"代码集(9:20→9:25涨幅/最后一秒段)
+        qc_codes = kpl.get_qiangchou_codes()
+        result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_codes=qc_codes)
         # 概念用开盘啦覆盖(落库前覆盖: 页面/历史批次/推送全部统一开盘啦概念)
         _apply_kpl_board(result, "auction")
     except Exception as e:

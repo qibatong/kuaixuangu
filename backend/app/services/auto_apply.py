@@ -23,7 +23,7 @@ import threading
 import time
 
 from ..core import logger
-from ..services import auction_snapshot, fetcher, history, scorer, users
+from ..services import auction_snapshot, fetcher, history, kpl, scorer, users
 from ..api import admin as admin_api   # 用 get_default_filters
 log = logger.get_logger(__name__)
 
@@ -104,7 +104,9 @@ def auto_apply_all_users(max_users=None):
     yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw]) or {}
     # 全市场评分一次
     try:
-        scored = scorer.score_all_stocks(raw, yesterday_map, snapshot_map)
+        # 2026-09-01 抢筹口径: 命中右视图竞价异动"竞价抢筹"代码集才打抢筹标
+        qc_codes = kpl.get_qiangchou_codes()
+        scored = scorer.score_all_stocks(raw, yesterday_map, snapshot_map, qiangchou_codes=qc_codes)
     except Exception as e:
         log.error("auto_apply 全市场评分失败 err=%s", e, exc_info=True)
         return {"applied": 0, "skipped": 0, "failed": 0, "total": 0,
