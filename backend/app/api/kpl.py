@@ -407,11 +407,13 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
 
 @router.get("/api/kpl/ladder")
 def api_kpl_ladder(request: Request, uid: int = Depends(get_uid), date: str = ""):
-    """连板梯队; date 空=实时(首板~五板+), 指定 'YYYY-MM-DD' 回看历史(ladder_history 快照)
-    周末/节假日自动对齐到最近交易日"""
+    """连板梯队; date 空=实时(首板~八板+), 指定 'YYYY-MM-DD' 回看历史(ladder_history 快照)
+    周末/节假日自动对齐到最近交易日
+    2026-09-01: 按东财涨停池真实连板数 rebin 为 1~8 档(五板+ 拆出 6/7/8+ 高度板)"""
     if date:
         resolved = _resolve_date(date)
         d = kpl.query_ladder_history(resolved)
+        d = kpl.rebin_ladder(d, resolved)
         return jr({"ok": True, "ladder": d, "date": resolved, "requestedDate": date})
     d = kpl.fetch_ladder_all()
     # 2026-08-18 修复: 开盘啦 DailyLimitPerformance 无涨幅字段 → 东财全市场实时行情 merge
@@ -430,6 +432,7 @@ def api_kpl_ladder(request: Request, uid: int = Depends(get_uid), date: str = ""
         log.info("ladder 实时涨幅 merge 完成 覆盖%d只", n)
     except Exception as e:
         log.warning("ladder 实时涨幅 merge 失败 err=%s", e)
+    d = kpl.rebin_ladder(d, _time.strftime("%Y-%m-%d"))
     return jr({"ok": True, "ladder": d, "date": ""})
 
 

@@ -56,6 +56,50 @@ def test_fetch_ladder_all(monkeypatch):
         assert isinstance(v, list)
 
 
+# ---------- 连板梯队 rebin(五板+ 拆 6/7/8+ 档) ----------
+def _ladder_5tier():
+    def mk(code, name):
+        return {"code": code, "name": name}
+    return {
+        1: [mk("600001", "首板A"), mk("600002", "首板B")],
+        2: [mk("600003", "二板A")],
+        3: [],
+        4: [mk("600004", "四板A")],
+        5: [mk("600005", "六板A"), mk("600006", "七板A"), mk("600007", "八板A")],
+    }
+
+
+def test_rebin_ladder_splits_height(monkeypatch):
+    """五板+ 按东财真实连板拆为 6/7/8 档, 超过 8 板归八板+"""
+    monkeypatch.setattr(kpl, "real_limit_days",
+                        lambda date: {"600005": 6, "600006": 7, "600007": 12, "600002": 2})
+    out = kpl.rebin_ladder(_ladder_5tier(), "2026-09-01")
+    assert set(out.keys()) == {1, 2, 3, 4, 5, 6, 7, 8}
+    assert [it["code"] for it in out[5]] == []
+    assert [it["code"] for it in out[6]] == ["600005"]
+    assert [it["code"] for it in out[7]] == ["600006"]
+    assert [it["code"] for it in out[8]] == ["600007"]        # 12 板 → 八板+
+    assert [it["code"] for it in out[2]] == ["600002", "600003"]  # 首板 600002 真实 2 板 → 升档
+    assert [it["code"] for it in out[1]] == ["600001"]
+
+
+def test_rebin_ladder_fallback_when_empty(monkeypatch):
+    """东财数据源失败(空 dict) → 原样返回 5 档结构, 前端兼容"""
+    monkeypatch.setattr(kpl, "real_limit_days", lambda date: {})
+    d = _ladder_5tier()
+    out = kpl.rebin_ladder(d, "2026-09-01")
+    assert out is d
+    assert set(out.keys()) == {1, 2, 3, 4, 5}
+
+
+def test_rebin_ladder_keeps_missing_codes(monkeypatch):
+    """东财缺失的股票保持 pid 档位(不丢股)"""
+    monkeypatch.setattr(kpl, "real_limit_days", lambda date: {"600005": 6})
+    out = kpl.rebin_ladder(_ladder_5tier(), "2026-09-01")
+    assert [it["code"] for it in out[6]] == ["600005"]
+    assert [it["code"] for it in out[5]] == ["600006", "600007"]  # 无东财数据 → 留在五板
+
+
 # ---------- 板块强度 / 成分 ----------
 def test_fetch_board_rank_parses(monkeypatch):
     lst = [_row("801001", "芯片", 100.5, 3.2, 1.5, 5.0e9, 2.0e8, 1.0e8, 1.0e8,

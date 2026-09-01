@@ -838,15 +838,37 @@ def _flash_pool(pool_name, date=None):
 
 def real_limit_days(date):
     """当日涨停池(封住)每只股票的真实连板数 {code: limitUpDays}。
-    用于连板天梯图: 开盘啦连板梯队 pid 只分到'五板+'(≥5), 无法区分 6 板以上;
+    用于连板天梯图/梯队表: 开盘啦连板梯队 pid 只分到'五板+'(≥5), 无法区分 6 板以上;
     用东财 flash 涨停池的 limit_up_days 取真实连板数, 修正显示的连板与顶部最高连板。
-    失败/为空返回 {}(调用方回退到 pid 档位)。"""
-    m = {}
-    for it in _flash_pool("limit_up_pool", date):
-        lu = int(it.get("limitUpDays") or 0)
-        if lu >= 1:
-            m[it.get("code")] = lu
-    return m
+    60s 缓存(梯队页每分钟轮询, 避免每轮都打东财)。失败/为空返回 {}(调用方回退到 pid 档位)。"""
+    def loader():
+        m = {}
+        for it in _flash_pool("limit_up_pool", date):
+            lu = int(it.get("limitUpDays") or 0)
+            if lu >= 1:
+                m[it.get("code")] = lu
+        return m
+    return _cached("real_lb_" + date.replace("-", ""), 60, loader) or {}
+
+
+def rebin_ladder(d, date):
+    """连板梯队 {1..5} → {1..8}: 用东财涨停池真实连板数把五板+ 拆分为 5/6/7/8+ 档。
+    真实连板 = max(pid, 东财 limitUpDays), ≥8 归「八板+」; 东财缺失的股票保持 pid 档位
+    (以开盘啦梯队为准, 不新增/不删股)。东财数据源失败(real_limit_days 空)时原样返回,
+    前端兼容 5 档结构(第 5 档标签回退「五板+」)。"""
+    real = real_limit_days(date)
+    if not real:
+        return d
+    out = {t: [] for t in (1, 2, 3, 4, 5, 6, 7, 8)}
+    for pid, lst in (d or {}).items():
+        for it in (lst or []):
+            try:
+                code = str(it.get("code", ""))
+                zt = max(int(pid), int(real.get(code) or 0))
+            except (TypeError, ValueError):
+                zt = int(pid)
+            out[min(zt, 8)].append(it)
+    return out
 
 
 def _prev_cal_days(n, end_date=None):

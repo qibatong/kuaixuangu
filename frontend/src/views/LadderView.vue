@@ -17,7 +17,7 @@
     <!-- 梯队 Tab -->
     <div class="ladder-tabs">
       <button
-v-for="pid in [1, 2, 3, 4, 5]" :key="pid" class="ladder-tab"
+v-for="pid in [1, 2, 3, 4, 5, 6, 7, 8]" :key="pid" class="ladder-tab"
         :class="{ active: active === pid }" @click="active = pid"
 >
         {{ labelOf(pid) }} <span class="tab-count">{{ (ladder[pid] || []).length }}</span>
@@ -160,10 +160,15 @@ async function loadImgDates() {
   }
 }
 
-const LABELS = { 1: '首板', 2: '二板', 3: '三板', 4: '四板', 5: '五板+' }
-function labelOf(pid) { return LABELS[pid] || pid + '板' }
+const LABELS = { 1: '首板', 2: '二板', 3: '三板', 4: '四板', 5: '五板', 6: '六板', 7: '七板', 8: '八板+' }
+// 五板+ 已按东财真实连板拆出 6/7/8 档时为「五板」, 否则回退「五板+」(历史数据无东财连板数)
+const hasHeightTier = computed(() => [6, 7, 8].some(p => (ladder.value[p] || []).length > 0))
+function labelOf(pid) {
+  if (pid === 5 && !hasHeightTier.value) return '五板+'
+  return LABELS[pid] || pid + '板'
+}
 
-const emptyText = '当前时段暂无该梯队涨停股（开盘后刷新）'
+const emptyText = '该档位暂无涨停股'
 
 function yi(v) { return (v / 1e8).toFixed(2) }
 
