@@ -108,32 +108,18 @@ def fetch_from_kuaixuan(trade_date):
     extra = fetch_extra_fields()
     for code, (_, name, bid_change, bid_amt, float_mv) in snap.items():
         ex = extra.get(code, {})
-        # bid_turnover: 竞价换手率 = 竞价金额 / 流通市值 × 100
-        # - 东财 f8 (ex["turnover"]) 是昨日全天换手率，不可用于竞价模型特征
-        #   → 之前误用造成多日 22.53% 固定假值，严重拉低模型概率
-        # bid_amt 单位判断: 默认万元；若 bid_amt > 1e7 (万元) 即 > 1e11 元, 明显超过市值，说明单位为元，自动转为万元
-        bid_amt_v = float(bid_amt or 0)
-        if float_mv and bid_amt_v > float_mv / 10.0:
-            # bid_amt 单位为元(异常大)，转万元
-            bid_amt_v = bid_amt_v / 1e4
-        circ_mv_yi = round(float(float_mv or 0) / 1e8, 2)    # 元 → 亿
-        if float_mv and float_mv > 0:
-            turnover = round(bid_amt_v * 10000 / float(float_mv) * 100, 4)
-        else:
-            # 市值缺失兜底: 放弃 f8 昨日值, 用 0 (竞价未成交更合理)
-            turnover = 0.0
         rows.append({
             "trade_date": trade_date,
             "code": code,
             "name": name or "",
             "bid_change": round(float(bid_change or 0), 2),
-            "bid_amount": round(bid_amt_v, 1),                    # 万元
+            "bid_amount": round(float(bid_amt or 0), 1),        # 快选 bid_amt 单位万元(与aipick一致)
             "bid_volume": None,
-            "bid_turnover": turnover,
+            "bid_turnover": _sf(ex.get("turnover")),
             "warn_type": 0,
             "price": _sf(ex.get("price")),
-            "circ_mv": circ_mv_yi,
-            "yesterday_chg": round(_sf(ex.get("chg")), 2),       # 最新涨幅(昨收盘→今日竞价)
+            "circ_mv": round(float(float_mv or 0) / 1e8, 2),    # 元 → 亿
+            "yesterday_chg": round(_sf(ex.get("chg")), 2),      # 最新涨幅(与旧逻辑一致, f3)
             "industry": "",
             "concept": "",
         })
@@ -169,22 +155,14 @@ def to_features(stocks, trade_date):
         bid_amt = safe_float(f616) if f616 not in (None, "-", "") else safe_float(s.get("f6"))
         mv = safe_float(s.get("f21")) / 1e8
         yesterday_chg = safe_float(s.get("f3"))
-        # bid_turnover: 竞价换手率 = 竞价金额 / 流通市值 × 100
-        # 东财 f8 为昨日全天换手率，不能用作竞价特征
-        bid_amt_wan = bid_amt / 10000 if bid_amt else 0.0
-        turnover_fallback = round(safe_float(s.get("f8")), 2)  # 仍保留以备 mv=0 极端情况(竞价未成交)
-        if mv > 0 and bid_amt_wan > 0:
-            bid_turn = round(bid_amt_wan / mv / 100.0 * 100.0, 4)  # bid_amt_wan/(mv亿*1e8) * 1e4 * 100 = bid_amt_wan/mv/100 *100
-        else:
-            bid_turn = turnover_fallback if turnover_fallback and turnover_fallback<=50 else 0.0
         rows.append({
             "trade_date": trade_date,
             "code": s.get("f12"),
             "name": s.get("f14"),
             "bid_change": round(bid_change, 2),
-            "bid_amount": round(bid_amt_wan, 1),                 # 万元
+            "bid_amount": round(bid_amt / 10000, 1),      # 万元
             "bid_volume": s.get("f617"),
-            "bid_turnover": bid_turn,
+            "bid_turnover": round(safe_float(s.get("f8")), 2),
             "warn_type": int(safe_float(s.get("f630"))),
             "price": s.get("f2"),
             "circ_mv": round(mv, 2),

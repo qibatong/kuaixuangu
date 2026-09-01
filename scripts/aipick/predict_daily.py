@@ -13,6 +13,7 @@ AI 竞价选股 - 每日预测 (增强版 2026-08-27)
 输出：output/predictions_YYYY-MM-DD.html / .json（直接浏览器打开）
 """
 import json
+import re
 import os
 import sys
 import glob
@@ -33,9 +34,11 @@ OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output
 FEATURES = ["bid_change", "bid_amount", "bid_turnover", "circ_mv", "yesterday_chg", "price"]
 
 # 默认过滤规则(与页面文案一致)
-DEFAULT_MV_MIN, DEFAULT_MV_MAX = 30, 500
-DEFAULT_BID_AMT_MIN = 2000
-DEFAULT_BID_CHG_MAX = 10
+DEFAULT_MV_MIN, DEFAULT_MV_MAX = 30, 100
+DEFAULT_BID_AMT_MIN = 3000
+DEFAULT_BID_CHG_MAX = 7
+# 2026-08-31 主人指令: 竞价涨幅下限方案废弃, 改为剔除涨停率(ai_prob) < 50% 的候选(见过滤处)
+MIN_PROB = 0.5
 
 # 后端概念库(开盘啦概念映射): 由 concept_refresh 每日采集, 存 code -> 全量概念(board_full)
 CONCEPT_DB = "/opt/kuaixuan/kuaixuan.db"
@@ -116,6 +119,8 @@ def predict(trade_date=None, mv_min=DEFAULT_MV_MIN, mv_max=DEFAULT_MV_MAX,
     df = df[(df["circ_mv"] >= mv_min) & (df["circ_mv"] <= mv_max)]
     df = df[(df["bid_amount"] >= bid_amt_min)]
     df = df[(df["bid_change"] <= bid_chg_max)]
+    # 2026-08-31 主人指令: 取消竞价涨幅下限过滤, 改为剔除涨停率(ai_prob) < 50% 的候选
+    df = df[(df["ai_prob"] >= 0.5)]
     result = df.sort_values("ai_prob", ascending=False).head(30)
     result_rows = [_attach(r) for r in result.to_dict(orient="records")]
 
@@ -127,9 +132,41 @@ def predict(trade_date=None, mv_min=DEFAULT_MV_MIN, mv_max=DEFAULT_MV_MAX,
     }
     json_path = os.path.join(OUT_DIR, f"predictions_{d}.json")
 
-    # === 上午版报告保护 ===
+    # === 上午版报告保护(2026-08-28 加空壳检测) ===
     existing = os.path.exists(json_path) and os.path.getsize(json_path) > 0
-    write_main = force or (not existing)
+    shell_empty = False  # 是否午夜空壳(半夜 backfill/worker 启动 predict 时 snapshot 未就绪，fallback 东财自拉写入了"昨日收盘涨幅"等假数据)
+    if existing and not force:
+        try:
+            with open(json_path, "r", encoding="utf-8") as _fh:
+                _old = json.load(_fh)
+            _all_len = len(_old.get("all") or [])
+            _top = _old.get("top") or []
+            _first = _top[0] if _top else {}
+            # 1) all < 5400: 快选 snapshot_bid 正常≈5550 只；fallback 东财自拉≈5209(空壳典型值)
+            #    → 或 snapshot 缺失时写的空壳(含 ST/停牌过滤后也应在 5400 左右)
+            # 2) 首行 trade_date 与文件 date 不符 → 跨日写串
+            # 3) 首行 bid_turnover 为 22.53(前一日 f8 误用历史换手)或 ai_prob 全 None → 坏数据
+            if _all_len < 5400:
+                shell_empty = True
+                print(f"[空壳检测] all.len={_all_len}<5400，判定为午夜空壳/旧 fallback 数据，允许覆盖")
+            elif _first.get("trade_date") and _first.get("trade_date") != d:
+                shell_empty = True
+                print(f"[空壳检测] 首行 trade_date={_first.get('trade_date')} != 文件日期={d}，判定为空壳，允许覆盖")
+            else:
+                # 用"最新跑出来的前 5 只 top 代码对比主文件 top5 代码": 完全一致概率极低 → 若 5/5 完全相同，可能是主文件正常（跳过空壳误判保护）
+                _old_top5 = set()
+                for _r in _top[:5]:
+                    _old_top5.add(str(_r.get("code")))
+                _new_top5 = set()
+                for _r in (result_rows or [])[:5]:
+                    _new_top5.add(str(_r.get("code")))
+                if len(_old_top5) >= 3 and len(_new_top5) >= 3 and len(_old_top5 & _new_top5) == 0 and len(payload.get("all") or []) > len(_old.get("all") or []):
+                    # 前5只代码完全不重 & 本次 all 数明显 > 主文件 all → 本次是快照全量版本，主文件是 fallback 空壳 → 覆盖
+                    shell_empty = True
+                    print(f"[空壳检测] top5 代码完全错位 + all.len {len(_old.get('all') or [])}→{len(payload.get('all') or [])}，判定为午夜空壳，允许覆盖")
+        except Exception as _e:
+            print(f"[空壳检测] 异常(按安全跳过覆盖): {_e}")
+    write_main = force or (not existing) or shell_empty
     # 下午重跑版无论如何都写到 _rerun 文件，做历史对照
     rerun_json = os.path.join(OUT_DIR, f"predictions_{d}_rerun.json")
     rerun_html = os.path.join(OUT_DIR, f"predictions_{d}_rerun.html")
@@ -145,11 +182,14 @@ def predict(trade_date=None, mv_min=DEFAULT_MV_MIN, mv_max=DEFAULT_MV_MAX,
     # 始终写一份 rerun 对照(含模型哈希、时间戳等元信息可选)
     try:
         _dump_payload(rerun_json)
-        print(f"[rerun] 对照版 → {rerun_json} (主文件写={write_main}, force={force}, existing={existing})")
+        print(f"[rerun] 对照版 → {rerun_json} (主文件写={write_main}, force={force}, existing={existing}, shell_empty={shell_empty})")
     except Exception as e:
         print(f"⚠️ 写入 rerun 对照失败: {e}")
 
-    # 主文件按规则决定是否覆盖(上午 9:27 首次 → 写；19:00 或任何时段二次 → 不覆盖)
+    # 主文件按规则决定是否覆盖:
+    #   - 上午 9:27 首次 → 写 (existing=False)
+    #   - 午夜空壳(00:00~9:24 之间误写) → 允许覆盖 (shell_empty=True)
+    #   - 19:00/其他时段正常二次重跑 → 不覆盖 (force=False 且主文件正常)
     if write_main:
         _dump_payload(json_path)
         gen_html(result, d)
@@ -193,7 +233,7 @@ td{{padding:8px 9px;border-bottom:1px solid #242a38}}
 .warn{{background:#3d2a10;border:1px solid #a07020;border-radius:10px;padding:14px 18px;font-size:12px;color:#e0b060;margin-bottom:16px;line-height:1.8}}
 </style></head><body>
 <div class="card"><h1>AI 竞价选股 · 涨停概率预测 <span class="tag">{d}</span></h1>
-<div class="sub">模型：快选・金睛 · 预测当日涨停概率 · 默认过滤（市值30-100亿 / 竞价金额&gt;3000万 / 竞价涨幅&lt;7%）· 供研究参考</div>
+<div class="sub">模型：快选・金睛 · 预测当日涨停概率 · 默认过滤（市值30-100亿 / 竞价金额≥3000万 / 竞价涨幅≤7%）· 供研究参考</div>
 <table><thead><tr><th>#</th><th>代码</th><th>名称</th><th>AI涨停概率</th><th>竞价涨幅</th><th>竞价金额</th><th>流通市值</th><th>换手率</th></tr></thead>
 <tbody>{rows}</tbody></table>
 </div>
@@ -226,17 +266,18 @@ def gen_html(df, d):
     _gen_html(df, d, None)
 
 
-def backfill():
-    """给历史 predictions json 补全 all/concepts。
-    保护规则(2026-08-27): 当日 predictions_{今天}.json 视为上午版(9:30竞价后生成)，
-    不做重跑覆盖；重跑仅 _rerun 文件(非主文件)。
-    历史日：缺少 'all' 或为空者，predict(d, force=False) → 已存在 → 只写 rerun；
-    有 all 的旧报告仅再次注入概念字段(不改 ai_prob)，走 _attach_concepts_only。"""
+def backfill(days=30):
+    """补全历史预测报告 (2026-08-30 增强: 按交易日历扫描, 解决"当天没跑9:27预测→无法回看")
+    ======================================================================================
+    原实现只遍历已存在的 predictions_*.json, 若某天 9:27 预测任务未执行(平台没开/脚本异常),
+    当天连文件都不存在 → 历史回看缺失。
+    本版: 从快选 snapshot_bid 表取最近 days 个有 9_25 快照的交易日,
+         凡 predictions_{d}.json 缺失 → predict(d, force=True) 直接补生成;
+         已存在空壳 → predict(d) 内部空壳检测覆盖; 已存在正常 → 仅补概念字段(不重算)。
+    9_25 快照是权威采集, 只要快选系统正常, 事后任何时间都能补生成, 保证历史回看完整。
+    保护: 当日已生成且正常的报告不覆盖(保留 9:27 上午版), 缺失/空壳才补。
+    """
     os.makedirs(OUT_DIR, exist_ok=True)
-    jsons = sorted(glob.glob(os.path.join(OUT_DIR, "predictions_*.json")))
-    if not jsons:
-        print("没有历史 json")
-        return
     today_str = today()
     cmap = _concept_map()
 
@@ -278,33 +319,54 @@ def backfill():
         else:
             print(f"跳过 {os.path.basename(jp)}: 概念/数据齐全", flush=True)
 
-    for jp in jsons:
-        fname = os.path.basename(jp)
-        d = fname.replace("predictions_", "").replace(".json", "")
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
-            continue  # 跳过 _rerun 等非日期主文件
-        # 当日上午版保护：不重算 predict；仅补概念字段
-        if d == today_str:
-            print(f"[保护] 今日 {d} 主报告，不重算 → 仅补概念字段", flush=True)
-            _inject_concepts_only(jp)
+    # 交易日历: 从快照库取最近 days 个有 9_25 快照的交易日(降序)
+    try:
+        conn = _sqlite3.connect(CONCEPT_DB)
+        rows = conn.execute(
+            "SELECT DISTINCT date FROM snapshot_bid WHERE time_point='9_25' "
+            "ORDER BY date DESC LIMIT ?", (int(days),)).fetchall()
+        conn.close()
+        dates = [str(r[0]) for r in rows if r[0]]
+        dates = [d for d in dates if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d)]
+    except Exception as e:
+        print(f"⚠️ 读取快照交易日历失败: {e}", flush=True)
+        dates = []
+
+    if not dates:
+        print("没有可补的交易日(快照库无 9_25 数据)", flush=True)
+        return
+
+    print(f"[backfill] 最近 {len(dates)} 个交易日: {dates}", flush=True)
+    n_gen, n_skip, n_fail = 0, 0, 0
+    for d in dates:
+        jp = os.path.join(OUT_DIR, f"predictions_{d}.json")
+        exists = os.path.isfile(jp) and os.path.getsize(jp) > 0
+        if not exists:
+            # 文件不存在 → 直接补生成(当天/历史都行, 快照同源)
+            print(f"[补生成] {d} 报告缺失, 用 9_25 快照补生成...", flush=True)
+            try:
+                predict(d, force=True)
+                n_gen += 1
+            except Exception as e:
+                print(f"  ⚠️ {d} 补生成失败: {e}", flush=True)
+                n_fail += 1
             continue
-        # 历史日：缺少 all → predict(d)；主文件存在会写 rerun；最后对主文件补概念字段
+        # 文件已存在 → 一律保留(2026-08-30 修正: 不 force 覆盖, 防止误伤历史快照残缺日
+        # 如 08-10/11/12 只有 600 只样本的报告)。仅当文件损坏(JSON 解析失败且无任何 top)才重算。
         try:
             with open(jp, "r", encoding="utf-8") as f:
                 cur = json.load(f)
-        except Exception:
-            cur = {}
-        if isinstance(cur.get("all"), list) and cur["all"]:
-            print(f"跳过 {d}: 已有 all {len(cur['all'])} 条 → 仅补概念字段", flush=True)
-            _inject_concepts_only(jp)
-            continue
-        print(f"回填 {d} (缺少 all)...", flush=True)
-        try:
-            predict(d)  # 主文件存在 → 仅写 rerun 对照；主文件缺失则生成
+            top_ok = isinstance(cur.get("top"), list) and len(cur.get("top") or []) > 0
+            if not top_ok:
+                # top 完全为空且文件陈旧 → 可能是坏数据, 但保守起见仍保留(不覆盖)
+                print(f"[保留] {d}: 报告存在但 top 为空(快照残缺日?), 保留原样仅补概念", flush=True)
         except Exception as e:
-            print(f"  ⚠️ {d} 回填失败: {e}", flush=True)
-        # 对主文件补概念字段
+            print(f"  ⚠️ {d}: 报告 JSON 损坏({e}), 保留原样", flush=True)
+        # 仅补概念字段, 不重算
         _inject_concepts_only(jp)
+        n_skip += 1
+
+    print(f"[backfill] 完成: 补生成 {n_gen} / 跳过 {n_skip} / 失败 {n_fail}", flush=True)
 
 
 if __name__ == "__main__":
