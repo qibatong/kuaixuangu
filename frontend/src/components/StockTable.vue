@@ -11,8 +11,6 @@
         <col style="width:46px" />
         <col style="width:50px" />
         <col style="width:40px" />
-        <col style="width:64px" />
-        <col style="width:58px" />
         <col style="width:52px" />
         <col style="width:42px" />
         <col style="width:46px" />
@@ -27,8 +25,6 @@
           <th class="sortable num col-bidchg" :class="{ active: sortKey === 'bidChange' }" title="竞价涨幅" @click="onSort('bidChange', 'number')">竞涨<span class="sort-ind">{{ sortInd('bidChange') }}</span></th>
           <th class="sortable num col-entchg" :class="{ active: sortKey === 'entityChange' }" @click="onSort('entityChange', 'number')">实体<span class="sort-ind">{{ sortInd('entityChange') }}</span></th>
           <th class="sortable col-warn" :class="{ active: sortKey === 'warnType' }" @click="onSort('warnType', 'number')">异动<span class="sort-ind">{{ sortInd('warnType') }}</span></th>
-          <th class="sortable num col-bidamt" :class="{ active: sortKey === 'bidAmt' }" @click="onSort('bidAmt', 'number')" :title="'集合竞价阶段撮合成交金额(万元)'">竞额<span class="sort-ind">{{ sortInd('bidAmt') }}</span></th>
-          <th class="sortable num col-bidratio" :class="{ active: sortKey === 'bidRatio' }" title="竞价成交额 ÷ 前一交易日全天成交额(%)。衡量竞价资金强度：值越高说明竞价阶段成交越活跃；≥20% 视为强抢筹（配合抢筹列使用）。非竞价时段/无数据时显示 -" @click="onSort('bidRatio', 'number')">竞/昨<span class="sort-ind">{{ sortInd('bidRatio') }}</span></th>
           <th class="sortable num col-mv" :class="{ active: sortKey === 'circulationMV' }" @click="onSort('circulationMV', 'number')">流通<span class="sort-ind">{{ sortInd('circulationMV') }}</span></th>
           <th class="sortable num col-score" :class="{ active: sortKey === 'probability' }" @click="onSort('probability', 'number')">评分<span class="sort-ind">{{ sortInd('probability') }}</span></th>
           <th class="sortable num col-conf" :class="{ active: sortKey === 'confidence' }" @click="onSort('confidence', 'number')">可信<span class="sort-ind">{{ sortInd('confidence') }}</span></th>
@@ -54,8 +50,6 @@
           <td :class="item.bidChange > 0 ? 'up' : 'down'" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'">{{ signed(item.bidChange) }}%</td>
           <td :class="item.entityChange === null || item.entityChange === undefined ? 'dim' : (item.entityChange > 0 ? 'up' : 'down')" :title="item.entityChange === null || item.entityChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + fmtPct(item._staleEntity) + '）') : ''">{{ item.entityChange === null || item.entityChange === undefined ? '-' : signed(item.entityChange) + '%' }}</td>
           <td>{{ warnLabel(item.warnType) }}</td>
-          <td :title="'集合竞价阶段撮合成交金额(万元)'">{{ bidAmtText(item.bidAmt) }}</td>
-          <td :class="ratioCls(item.bidRatio)" :title="ratioTitle(item.bidRatio)">{{ ratioText(item.bidRatio) }}</td>
           <td>{{ item.circulationMV ? item.circulationMV.toFixed(1) : '-' }}</td>
           <td class="score-cell">{{ item.probability }}分</td>
           <td>{{ item.confidence }}%</td>
@@ -166,27 +160,12 @@ function addToPool(item) {
 function inPool(code) {
   return pool.stockPool.some(x => x.code === code)
 }
-function ratioTitle(br) {
-  if (br === null || br === undefined || isNaN(br)) return '竞价成交额 ÷ 前一交易日全天成交额(%)，非竞价时段/无数据时显示 -'
-  return `竞价成交额 ÷ 前一交易日全天成交额 = ${br.toFixed(2)}%${br >= 20 ? '（≥20%，强抢筹！）' : br >= 10 ? '（竞价较活跃）' : '（竞价强度一般）'}`
-}
 function realCls(item) {
   if (item.realChange < item.bidChange) return 'real-green'
   return item.realChange > 0 ? 'up' : 'down'
 }
 function warnLabel(w) {
   return w === 5 ? '强' : w === 4 ? '⚡中' : w === 3 ? '↑弱' : '-'
-}
-function bidAmtText(amt) {
-  return amt >= 10000 ? (amt / 10000).toFixed(2) + '亿' : amt.toFixed(0)
-}
-function ratioCls(br) {
-  if (br === null || br === undefined || isNaN(br)) return 'dim'
-  return br >= 2 ? 'ratio-hot' : br >= 1 ? 'ratio-warm' : ''
-}
-function ratioText(br) {
-  if (br === null || br === undefined || isNaN(br)) return '-'
-  return br.toFixed(2) + '%'
 }
 </script>
 

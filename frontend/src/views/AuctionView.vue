@@ -57,7 +57,7 @@
             <td v-if="tab === 'boom' || tab === 'net'" :class="it.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(it.bidAmt) }}<span v-if="tab === 'boom' && it.yestBidAmt" class="yest-bid-amt" :title="'昨日竞价额 ' + amtText(it.yestBidAmt)">昨{{ amtText(it.yestBidAmt) }}</span></td>
             <td v-else :class="it.bidSealAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidSealAmt) }}</td>
             <td v-if="tab === 'boom'" :class="it.bidRatioYest ? (it.bidRatioYest >= 2 ? 'ratio-hot' : it.bidRatioYest >= 1.5 ? 'ratio-warm' : '') : 'dim'">{{ it.bidRatioYest ? it.bidRatioYest.toFixed(2) + 'x' : '-' }}</td>
-            <td class="dim">{{ it.bidTurnover !== null && it.bidTurnover !== undefined ? it.bidTurnover.toFixed(4) + '%' : '-' }}</td>
+            <td class="dim">{{ it.bidTurnover !== null && it.bidTurnover !== undefined ? it.bidTurnover.toFixed(2) + '%' : '-' }}</td>
             <td v-if="tab === 'net'" :class="it.bidNetAmt > 0 ? 'up' : it.bidNetAmt < 0 ? 'down' : 'dim'">{{ yi(it.bidNetAmt) }}</td>
             <td v-if="tab !== 'boom'"><span v-if="it.limitBoards > 0" class="lb-badge">{{ it.limitBoards }}板</span><span v-else class="dim">-</span></td>
             <td class="dim">{{ fmtMv(it.floatMv) }}</td>
@@ -106,7 +106,7 @@
             <td class="seal-col seal-col-20">{{ tpSeal(it, '9_20') }}</td>
             <td class="seal-col seal-col-15">{{ tpSeal(it, '9_15') }}</td>
             <td class="tp-th-25 chg-col" :class="tpChgCls(it, '9_25')">{{ tpChg(it, '9_25') }}</td>
-            <td class="dim">{{ it.bidTurnover !== null && it.bidTurnover !== undefined ? it.bidTurnover.toFixed(4) + '%' : '-' }}</td>
+            <td class="dim">{{ it.bidTurnover !== null && it.bidTurnover !== undefined ? it.bidTurnover.toFixed(2) + '%' : '-' }}</td>
             <td class="real-chg-col" :class="realChgCls(it)">{{ realChg(it) }}</td>
             <td class="dim">{{ mvText(it) }}</td>
             <td class="concept-cell" :title="it.board"><span v-if="it.board" class="concept-clamp">{{ conceptText(it.board) }}</span><span v-else class="dim">-</span></td>
@@ -156,7 +156,7 @@
                 <td :class="(qc20Mode === 'amt' ? q.qcDelta : q.qcDeltaChg) > 0 ? 'up' : (qc20Mode === 'amt' ? q.qcDelta : q.qcDeltaChg) < 0 ? 'down' : 'dim'"><b>{{ signed(qc20Mode === 'amt' ? q.qcDelta : q.qcDeltaChg) }}%</b></td>
                 <td :class="q.bidRatio !== null && q.bidRatio !== undefined ? (q.bidRatio >= 20 ? 'ratio-hot' : q.bidRatio >= 10 ? 'ratio-warm' : '') : 'dim'" :title="q.bidRatio !== null && q.bidRatio !== undefined ? ('今日竞价额 ÷ 昨日全天成交额 = ' + q.bidRatio.toFixed(2) + '%') : ''">{{ q.bidRatio !== null && q.bidRatio !== undefined ? q.bidRatio.toFixed(2) + '%' : '-' }}</td>
                 <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
-                <td class="dim">{{ q.bidTurnover !== null && q.bidTurnover !== undefined ? q.bidTurnover.toFixed(4) + '%' : '-' }}</td>
+                <td class="dim">{{ q.bidTurnover !== null && q.bidTurnover !== undefined ? q.bidTurnover.toFixed(2) + '%' : '-' }}</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
                 <td class="concept-cell dim qc-board" :title="q.board"><span v-if="q.board" class="concept-clamp">{{ conceptText(q.board) }}</span><span v-else class="dim">-</span></td>
                 <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已＋' : '＋自选' }}</button></td>
@@ -197,7 +197,7 @@
                 <td :class="q.qcDeltaLast > 0 ? 'up' : q.qcDeltaLast < 0 ? 'down' : 'dim'"><b>{{ signed(q.qcDeltaLast) }}%</b></td>
                 <td :class="q.bidRatio !== null && q.bidRatio !== undefined ? (q.bidRatio >= 20 ? 'ratio-hot' : q.bidRatio >= 10 ? 'ratio-warm' : '') : 'dim'" :title="q.bidRatio !== null && q.bidRatio !== undefined ? ('今日竞价额 ÷ 昨日全天成交额 = ' + q.bidRatio.toFixed(2) + '%') : ''">{{ q.bidRatio !== null && q.bidRatio !== undefined ? q.bidRatio.toFixed(2) + '%' : '-' }}</td>
                 <td :class="q.bidChange > 0 ? 'up' : q.bidChange < 0 ? 'down' : 'dim'">{{ signed(q.bidChange) }}%</td>
-                <td class="dim">{{ q.bidTurnover !== null && q.bidTurnover !== undefined ? q.bidTurnover.toFixed(4) + '%' : '-' }}</td>
+                <td class="dim">{{ q.bidTurnover !== null && q.bidTurnover !== undefined ? q.bidTurnover.toFixed(2) + '%' : '-' }}</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
                 <td class="concept-cell dim qc-board" :title="q.board"><span v-if="q.board" class="concept-clamp">{{ conceptText(q.board) }}</span><span v-else class="dim">-</span></td>
                 <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已＋' : '＋自选' }}</button></td>
@@ -238,7 +238,7 @@
             <td class="dim">{{ fmtMv(z.floatMv) }}</td>
             <td :class="z.change > 0 ? 'up' : z.change < 0 ? 'down' : 'dim'">{{ z.change !== null && z.change !== undefined ? signed(z.change) + '%' : '-' }}</td>
             <td :class="z.bidChange > 0 ? 'up' : z.bidChange < 0 ? 'down' : 'dim'">{{ z.bidChange !== null && z.bidChange !== undefined ? signed(z.bidChange) + '%' : '-' }}</td>
-            <td>{{ z.bidTurnover !== null && z.bidTurnover !== undefined ? z.bidTurnover.toFixed(4) + '%' : '-' }}</td>
+            <td>{{ z.bidTurnover !== null && z.bidTurnover !== undefined ? z.bidTurnover.toFixed(2) + '%' : '-' }}</td>
             <td>{{ z.bidAmt ? amtText(z.bidAmt) : '-' }}</td>
             <td class="reason-cell" @click="showReason(z)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
             <td class="concept-cell dim" :title="z.board"><span v-if="z.board" class="concept-clamp">{{ conceptText(z.board) }}</span><span v-else class="dim">-</span></td>
@@ -273,7 +273,7 @@
             <td :class="b2.change > 0 ? 'up' : b2.change < 0 ? 'down' : 'dim'">{{ b2.change !== null && b2.change !== undefined ? signed(b2.change) + '%' : '-' }}</td>
             <td :class="b2.bidChange > 0 ? 'up' : b2.bidChange < 0 ? 'down' : 'dim'">{{ b2.bidChange !== null && b2.bidChange !== undefined ? signed(b2.bidChange) + '%' : '-' }}</td>
             <td>{{ b2.bidAmt ? amtText(b2.bidAmt) : '-' }}</td>
-            <td>{{ b2.bidTurnover !== null && b2.bidTurnover !== undefined ? b2.bidTurnover.toFixed(4) + '%' : '-' }}</td>
+            <td>{{ b2.bidTurnover !== null && b2.bidTurnover !== undefined ? b2.bidTurnover.toFixed(2) + '%' : '-' }}</td>
             <td class="dim">{{ fmtMv(b2.floatMv) }}</td>
             <td class="reason-cell" @click="showReason(b2)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
             <td class="concept-cell dim" :title="b2.board"><span v-if="b2.board" class="concept-clamp">{{ conceptText(b2.board) }}</span><span v-else class="dim">-</span></td>
@@ -307,7 +307,7 @@
           </td>
             <td :class="l.change > 0 ? 'up' : 'down'">{{ signed(l.change) }}%</td>
             <td :class="l.bidChange > 0 ? 'up' : l.bidChange < 0 ? 'down' : 'dim'">{{ l.bidChange !== null && l.bidChange !== undefined ? signed(l.bidChange) + '%' : '-' }}</td>
-            <td class="dim">{{ l.bidTurnover !== null && l.bidTurnover !== undefined ? l.bidTurnover.toFixed(4) + '%' : '-' }}</td>
+            <td class="dim">{{ l.bidTurnover !== null && l.bidTurnover !== undefined ? l.bidTurnover.toFixed(2) + '%' : '-' }}</td>
             <td :class="l.buyIn > 0 ? 'up' : 'dim'">{{ yi(l.buyIn) }}</td>
             <td class="dim">{{ fmtMv(l.floatMv) }}</td>
             <td>{{ l.turnover.toFixed(2) }}</td>
@@ -344,7 +344,7 @@
           </td>
             <td :class="b.change > 0 ? 'up' : 'down'">{{ signed(b.change) }}%</td>
             <td :class="b.bidChange > 0 ? 'up' : b.bidChange < 0 ? 'down' : 'dim'">{{ b.bidChange !== null && b.bidChange !== undefined ? signed(b.bidChange) + '%' : '-' }}</td>
-            <td>{{ b.bidTurnover !== null && b.bidTurnover !== undefined ? b.bidTurnover.toFixed(4) + '%' : '-' }}</td>
+            <td>{{ b.bidTurnover !== null && b.bidTurnover !== undefined ? b.bidTurnover.toFixed(2) + '%' : '-' }}</td>
             <td class="dim">{{ fmtMv(b.floatMv) }}</td>
             <td v-if="tab === 'brokenYest'"><span v-if="b.limitUpDays > 0" class="lb-badge">{{ b.limitUpDays }}板</span><span v-else class="dim">-</span></td>
             <td v-else-if="tab === 'brokenToday'" class="dim">{{ fmtT(b.firstBreak) }}</td>
