@@ -129,3 +129,4 @@
   - **腾讯兜底 f4/f5 修复**（`e9b4940`）：9/25 东财 clist 反复熔断（09:20-09:34）→ system_batch 走腾讯兜底，原映射缺 **f4 昨收/f5 成交量** → `is_suspended`（f4≤0 或 f5==0 判停牌）把 5545 只全误判停牌 → 过滤 0 只、system batch 为空 → 补 pre_close/f4/f5 字段 + 回归用例防未来误改
   - **UI 优化**（`778eacc`）：竞价选股去「竞额」「竞/昨」两列（13→11 列）；竞价异动 8 处竞换/竞价换手 `toFixed(4)→toFixed(2)`
   - **自动化测试**：全量 **453 passed / 4 skipped**（新增 thread/熔断退避/抢筹打标/落库回读/腾讯重试/缺票告警/filter TTL/腾讯 f4/f5 回归/rebin 3 用例/fanbao 渲染等）
+- **aipick 模型脚本入库**（`5033666`）：审计发现核心脚本脱管（git 只有 8/27 旧快照且已分叉，5 个脚本从未入库）→ 拉线上最新版（predict_daily 376 行/collector/backfill/backtest/db/run/train_model + README）放入 `scripts/aipick/`，删除过期快照 `prod_predict_daily.py`/`prod_collector.py`/`_aipick_predict_daily.py`（8/31 涨停率过滤等改动已随本次入库留痕）
