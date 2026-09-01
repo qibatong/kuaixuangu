@@ -849,6 +849,55 @@ def real_limit_days(date):
     return m
 
 
+def _prev_cal_days(n, end_date=None):
+    """返回 end_date(缺省今天) 往前 n 个自然日(跳过周末)的日期列表, 不含 end_date 本身。
+    用于涨停池历史回溯(法定节假日由日期较近的交易日对齐容忍)。"""
+    from datetime import datetime, timedelta
+    d = datetime.strptime(end_date or time.strftime("%Y-%m-%d"), "%Y-%m-%d")
+    out = []
+    while len(out) < n:
+        d -= timedelta(days=1)
+        if d.weekday() < 5:
+            out.append(d.strftime("%Y-%m-%d"))
+    return out
+
+
+def fetch_fanbao_stocks(date=None):
+    """断板反包检测(东财 flash 涨停池):
+    当日涨停池中 limitUpDays==1(今日重新起板) 且 昨日不在涨停池(断板)
+    且 近 5 个交易日内曾涨停(有涨停史, 反包而非新首板) 的股票。
+    返回 [{code,name,reason,change,day}, ...]; 数据源失败返回 []。
+    用途: 连板天梯图「断板反包」区, 复盘一眼识别反包梯队。"""
+    day = date or time.strftime("%Y-%m-%d")
+
+    def loader():
+        today = _flash_pool("limit_up_pool", day)
+        if not today:
+            return []
+        prev = _prev_cal_days(6, day)          # 往前 6 自然日 ≈ 4 个交易日
+        pools = {}
+        for d in [day] + prev[:4]:             # 当日 + 近 4 个交易日(约 5 个自然日窗口)
+            pools[d] = {x["code"] for x in _flash_pool("limit_up_pool", d)}
+        yest_codes = pools.get(prev[0], set()) if prev else set()
+        hist_codes = set()
+        for d in prev[1:4]:                    # 更早 2~4 个交易日的涨停池并集
+            hist_codes |= pools.get(d, set())
+        out = []
+        for it in today:
+            if (it.get("limitUpDays") == 1 and it.get("code") not in yest_codes
+                    and it.get("code") in hist_codes):
+                out.append({
+                    "code": it.get("code", ""),
+                    "name": it.get("name", ""),
+                    "reason": it.get("reason", ""),
+                    "change": it.get("change", 0),
+                    "day": day,
+                })
+        return out
+
+    return _cached("fanbao_" + day.replace("-", ""), 30 * 60, loader) or []
+
+
 
 # ==================== xuangubao 免费接口封装(kaipanla 文档收录, 无需 Token) ====================
 # 16 个接口: 涨停/炸板/跌停(实时+历史) + 曲线(涨跌家数/涨停跌停/炸板率/昨涨停今表现/市场温度)

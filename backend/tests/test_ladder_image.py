@@ -15,8 +15,26 @@ def _sample():
         2: [{"code": "300001", "name": "连板二号", "reason": "机器人", "boardName": "机器人",
              "ztCount": 2, "limitTime": 9 * 3600 + 4000, "seal": 1.8e8,
              "turnover": 5.2}],
-        3: [], 4: [], 5: [],
+        3: [], 4: [],
+        # 五板+ 里含真实 6 板/8 板(limitUpDays 注入), 验证重分 8 档
+        5: [
+            {"code": "600005", "name": "六板王者", "reason": "低空经济", "boardName": "低空",
+             "ztCount": 5, "limitUpDays": 6, "limitTime": 9 * 3600 + 5000,
+             "seal": 3.2e8, "turnover": 4.1},
+            {"code": "600008", "name": "八板妖龙", "reason": "AI算力", "boardName": "算力",
+             "ztCount": 5, "limitUpDays": 8, "limitTime": 9 * 3600 + 6000,
+             "seal": 6.6e8, "turnover": 6.7},
+        ],
     }
+
+
+def _sample_fanbao():
+    return [
+        {"code": "603001", "name": "反包先锋", "reason": "数据要素",
+         "change": 10.0},
+        {"code": "002002", "name": "二度反包", "reason": "车路云",
+         "change": 19.97},
+    ]
 
 
 def test_build_png_writes_valid_image(tmp_path):
@@ -32,10 +50,32 @@ def test_build_png_writes_valid_image(tmp_path):
 
 def test_collect_counts(tmp_path):
     tiers, total, rows = ladder_image._collect(_sample())
-    assert total == 2
-    assert tiers[0]["count"] == 1  # 首板
-    assert tiers[1]["count"] == 1  # 二板
-    assert len(rows) == 5          # 五档齐
+    assert total == 4
+    # 8 档全量统计(含空档)
+    assert len(tiers) == 8
+    by_pid = {t["pid"]: t["count"] for t in tiers}
+    assert by_pid[1] == 1      # 首板
+    assert by_pid[2] == 1      # 二板
+    assert by_pid[3] == 0      # 空档
+    assert by_pid[4] == 0
+    assert by_pid[5] == 0      # 五板: 注入后 5 板无(6/8 板被分出)
+    assert by_pid[6] == 1      # 六板(真实 limitUpDays=6)
+    assert by_pid[7] == 0
+    assert by_pid[8] == 1      # 八板+(真实 limitUpDays=8, zt>=8 归入)
+    # 非空档高板在前: 8 板 → 6 板 → 2 板 → 1 板
+    assert [tier["pid"] for tier, _lst in rows] == [8, 6, 2, 1]
+    # 最高连板 = 8
+    mx = max(r["zt"] for _t, lst in rows for r in lst)
+    assert mx == 8
+
+
+def test_build_png_with_fanbao(tmp_path):
+    out = str(tmp_path / "2026-08-26-fb.png")
+    ladder_image.build_png(_sample(), "2026-08-26", out, fanbao=_sample_fanbao())
+    assert os.path.isfile(out)
+    from PIL import Image
+    im = Image.open(out)
+    assert im.size[1] > 0
 
 
 def test_truncate_respects_width():
