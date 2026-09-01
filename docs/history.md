@@ -116,3 +116,16 @@
   - **大V资讯页**（`3baf0f8`）：群总结按日期 + 4 时段展示、可回看往日（后端 summary API + 前端 SummaryNewsView）
   - **群总结 PDF 上传/预览/下载**（`2565f54`+`ae08957`+`51df786`）：在线预览服务 + 手机逐页图片适配 + 下载 PDF 按钮
   - **自动化测试**：全量 **420 passed**（新增量脉 15 用例 + system_batch 过滤 3 用例 + summary 用例）
+- **v4.5 (09-01 下午~晚)**：线程守护 + 抢筹口径改版 + AI 预测重构 + 连板梯队 8 档 + 兜底加固
+  - **生产线程爆炸根治**（`8d59c5d`）：东财全市场/昨比/K线填充三处由「每次请求新建 ThreadPoolExecutor + shutdown(wait=False)」改为**进程级常驻池**（`_EXECUTOR_CLIST`/`_EXECUTOR_YDAY`/`_EXECUTOR_FILL`，8+8+6 有界）——整体超时后线程滞留后台跑网络超时只增不减（实测 2 worker×2082 线程内存耗尽+负载 19 拖死全站）→ 线程 **4140→13**、负载 19.3→1.4、全市场行情 246ms
+  - **线程守护 thread_guard**（`6f50bd9`+`59126a4`）：新增 `scripts/thread_guard.py`，systemd timer **每分钟**查 kuaixuan/kx-worker 全部进程（cgroup.procs 精确取 PID）线程数，单进程>150 或总>300 且**连续 2 次超阈才告警**（去抖），冷却 600s 防刷屏 → 告警飞书（复用 NOTIFY_FEISHU_WEBHOOK 支持加签）+ **短信强提醒**（18883856602，阿里云号码认证通道，`THREAD_GUARD_PHONE` 可覆盖）；服务 down 也告警；兼容 CentOS 7 systemd 219 + 自编译 Python 缺 CA 用系统证书
+  - **昨比熔断根治**（`af59984`）：短路条件含量脉——**四源全挂才短路**（三源 down 但量脉可用走量脉兜底，修 9/1 短路 1207 次 vs 量脉兜底仅 21 次量脉正常时昨比全空）；熔断**指数退避** 60→120→240→480→600s（确定性故障不再空转探测刷 3316 条日志）；**抖动保护**（ths/tencent 连续 2 次失败才熔断、量脉 3 次防限流误伤）
+  - **左视图抢筹口径改版**（`bc3dd73`）：新增 `get_qiangchou_codes()` 合并右视图竞价抢筹三表（list20 竞额强度/list20Chg 9:20→9:25 涨幅/listLast 最后一秒段）代码集（30s 缓存）→ **命中集合才打抢筹标**，集合为空/未传回退旧公式（涨幅≥2% 且 竞/昨≥20%）兜底；scorer/stocks/auto_apply/system_batch 四处传参；实测右视图并集 107 只 vs 左视图抢筹 5 只，左有右无=0 口径一致
+  - **抢筹标记显示链路修复**（`d43259b`）：batch_stocks 表无 qiangchou 列 → 落库丢弃打标结论/读取不返回/前端不映射（四环全缺）→ database.py 老库迁移 ALTER 加列 + history.py 落库读回 + stocks.js 映射（9:30 后锁定名单回看可显示 🔥）；filter 行情缓存加 **TTL 30s**（原无过期时间，坏缓存污染整个下午）；腾讯兜底单批失败**重试 1 次** + 仍失败打缺票 error 告警（9/1 曾静默丢 8 只）
+  - **AI 预测入口重构**（`92fb629`+`b5c003f`+`91ef526`）：左视图**盘中选股替换为 AI 预测**（embedded 嵌入，自带 VIP 门禁/日期回看/规则过滤/实时涨幅）；导航栏去掉 AI 预测独立入口；完整报告按钮移除；左视图 Tab 切换位置漂移修复（justify-content 覆盖 + margin-left:auto）
+  - **AI 预测历史回看入导航**（`b1badf5`）：首页左视图 AI 预测只展示最新报告（`:show-date-picker=false`）；「历史回看」页新增第三个 tab「AI 预测」（全宽嵌入 AipickView，切 tab 才挂载加载，切走卸载停定时器）
+  - **AI 预测表格改版**（`43efcb4`+`288ce1d`+`0903f5a`+`717f423`+`c31a301`）：去序号/代码列（代码并入名称下方两行结构）、概念列限宽 110px 单行省略、表头 sticky+blur 背景防数据透出、**操作列加自选**（usePoolStore.addStocks）、名称列点击弹**分时/日K/周K/月K** 图（复用全局事件委托+StockChartModal）、筛选输入框对齐竞价选股紧凑风
+  - **连板天梯 8 档 + 断板反包区**（`e28769c`+`50f8cb5`）：开盘啦 pid 只到 5 → 按东财真实 limitUpDays 重分 **1~8 档**（`rebin_ladder`，≥8 归「八板+」，东财缺失保持 pid 档位不增删股）；天梯图 8 档阶梯条+chips（空档画短条暴露断层）、连板池只渲染非空档、summary chips 两行；梯队表格 tab 同步扩 8 档（第 5 档 label 动态「五板/五板+」兼容远古历史）；新增**断板反包区**（`fetch_fanbao_stocks`：今日涨停池 limitUpDays==1 + 昨日不在涨停池 + 近 5 日曾涨停，东财 flash 历史查询 5 次 30min 缓存，暖橙配色与连板红区分）
+  - **腾讯兜底 f4/f5 修复**（`e9b4940`）：9/25 东财 clist 反复熔断（09:20-09:34）→ system_batch 走腾讯兜底，原映射缺 **f4 昨收/f5 成交量** → `is_suspended`（f4≤0 或 f5==0 判停牌）把 5545 只全误判停牌 → 过滤 0 只、system batch 为空 → 补 pre_close/f4/f5 字段 + 回归用例防未来误改
+  - **UI 优化**（`778eacc`）：竞价选股去「竞额」「竞/昨」两列（13→11 列）；竞价异动 8 处竞换/竞价换手 `toFixed(4)→toFixed(2)`
+  - **自动化测试**：全量 **453 passed / 4 skipped**（新增 thread/熔断退避/抢筹打标/落库回读/腾讯重试/缺票告警/filter TTL/腾讯 f4/f5 回归/rebin 3 用例/fanbao 渲染等）
