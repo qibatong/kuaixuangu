@@ -74,8 +74,6 @@
             <table class="stock-table ap-stock-table">
               <thead>
                 <tr>
-                  <th @click="toggleSort('#')" :class="thCls('#')">#</th>
-                  <th @click="toggleSort('code')" :class="thCls('code')">代码</th>
                   <th @click="toggleSort('name')" :class="thCls('name')">名称</th>
                   <th @click="toggleSort('ai_prob')" :class="thCls('ai_prob')">AI涨停概率</th>
                   <th @click="toggleSort('bid_change')" :class="thCls('bid_change')">竞价涨幅</th>
@@ -89,9 +87,10 @@
               </thead>
               <tbody>
                 <tr v-for="(r, i) in rows" :key="r.code + i">
-                  <td class="rank-col">{{ i + 1 }}</td>
-                  <td class="code-click">{{ r.code }}</td>
-                  <td class="name-col"><div class="name-main">{{ r.name }}</div></td>
+                  <td class="name-col">
+                    <div class="name-main">{{ r.name }}</div>
+                    <div class="name-sub">{{ r.code }}</div>
+                  </td>
                   <td><span class="score-badge" :class="probCls(r.ai_prob)">{{ (r.ai_prob * 100).toFixed(1) }}%</span></td>
                   <td :class="chgCls(r.bid_change)">{{ fmtChg(r.bid_change) }}</td>
                   <td>{{ fmtAmt(r.bid_amount) }}</td>
@@ -197,7 +196,7 @@ const shownCount = computed(() => filtered.value.length)
 const hasData = computed(() => base.value.length > 0)
 
 // ===== 列排序 =====
-const sortKey = ref('ai_prob')   // 当前排序列; '#' 表示回到默认(概率降序)
+const sortKey = ref('ai_prob')   // 当前排序列(默认概率降序)
 const sortDir = ref('desc')      // asc / desc
 const NUM_COLS = ['ai_prob', 'bid_change', 'bid_amount', 'circ_mv', 'bid_turnover', 'realtime', 'day_change']
 
@@ -229,7 +228,6 @@ function sortCompare(a, b) {
 }
 
 function toggleSort(key) {
-  if (key === '#') { sortKey.value = 'ai_prob'; sortDir.value = 'desc'; return }
   if (sortKey.value === key) { sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'; return }
   sortKey.value = key
   sortDir.value = NUM_COLS.includes(key) ? 'desc' : 'asc'
@@ -244,7 +242,7 @@ const MAX_ROWS = 150
 // 展示行: 按当前排序键排序后截断前 MAX_ROWS
 const rows = computed(() => {
   const arr = filtered.value.slice()
-  if (sortKey.value && sortKey.value !== '#') arr.sort(sortCompare)
+  if (sortKey.value) arr.sort(sortCompare)
   return arr.slice(0, MAX_ROWS)
 })
 
@@ -454,7 +452,7 @@ onUnmounted(stopRealtime)
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
-.ap-embedded .ap-stock-table { min-width: 920px; }
+.ap-embedded .ap-stock-table { min-width: 800px; }
 .loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
 .spinner {
   width: 28px; height: 28px;
@@ -609,10 +607,33 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
 .ap-stock-table {
   /* 股性/连板页 stock-table 默认居中; AI预测表格数据统一居中展示 */
   text-align: center;
+  table-layout: auto;
 }
 .ap-stock-table thead th,
 .ap-stock-table tbody td {
   text-align: center;
+  white-space: nowrap;
+}
+/* 2026-09-01 列宽收紧: 去掉序号/代码列(代码并入名称列下方), 8列定宽防表头换行 */
+.ap-stock-table th:nth-child(1) { width: 92px; }    /* 名称(含代码副行) */
+.ap-stock-table th:nth-child(2) { width: 106px; }   /* AI涨停概率 */
+.ap-stock-table th:nth-child(3) { width: 66px; }    /* 竞价涨幅 */
+.ap-stock-table th:nth-child(4) { width: 88px; }    /* 竞价金额 */
+.ap-stock-table th:nth-child(5) { width: 74px; }    /* 流通市值 */
+.ap-stock-table th:nth-child(6) { width: 66px; }    /* 换手率 */
+.ap-stock-table th:nth-child(7) { width: auto; min-width: 90px; } /* 概念 */
+.ap-stock-table th:nth-child(8) { width: 70px; }    /* 实时/当日涨幅 */
+/* 名称列: 上方名称 + 下方代码(参考竞价异动页 stock-info-cell) */
+.ap-stock-table .name-col { width: 92px; padding: 4px 2px; }
+.ap-stock-table .name-main {
+  font-size: 13px; font-weight: 600; color: var(--text-main);
+  line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ap-stock-table .name-sub {
+  font-size: 11px; color: var(--text-muted);
+  font-family: "LXGW WenKai Mono", monospace;
+  letter-spacing: 0.5px; line-height: 1.3; margin-top: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* 表头可点击排序 + 方向箭头 */
 .ap-th { cursor: pointer; user-select: none; white-space: nowrap; }
@@ -643,7 +664,6 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   border-radius: 8px;
   font-weight: 700;
   font-size: 12.5px;
-  font-family: Consolas, monospace;
 }
 .score-high {
   background: var(--accent-bg2);
@@ -730,11 +750,11 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
     padding: 0 8px 4px;
   }
   .ap-stock-table {
-    min-width: 1080px;     /* 9 列 + 徽章需要更多宽度, 防止字段换行或被压瘪 */
+    min-width: 950px;     /* 8 列 + 徽章所需宽度, 防止字段换行或被压瘪 */
     font-size: 12px;
   }
-  /* 嵌入态: 移动端仍按全宽表格处理(优先级高于 .ap-embedded .ap-stock-table 的桌面 920px) */
-  .ap-embedded .ap-stock-table { min-width: 1080px; }
+  /* 嵌入态: 移动端仍按全宽表格处理(优先级高于 .ap-embedded .ap-stock-table 的桌面 800px) */
+  .ap-embedded .ap-stock-table { min-width: 950px; }
   /* 2026-09-01 手机适配: 嵌入首页左视图时, 修正 .ap-embedded .ap-panel(padding:10px)
      特异性高于 .ap-panel 导致手机端 padding 不被收紧的问题, 横滑表格贴边对齐 */
   .ap-embedded .ap-panel { padding: 8px 4px; }
