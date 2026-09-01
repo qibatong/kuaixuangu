@@ -12,11 +12,17 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 from ..core import config, logger
 from .cache_store import store
 
 log = logger.get_logger(__name__)
+
+# 进程级共享线程池(2026-09-01 生产线程爆炸修复): 现涨K线兜底 原每次请求新建池 +
+# shutdown(wait=False) 后线程滞留后台跑网络超时, 高并发下线程只增不减拖死生产。
+# 改常驻池: 线程数有界(6), 超时放弃的任务留池内排队, 不阻塞请求也不新建线程。
+_EXECUTOR_FILL = ThreadPoolExecutor(max_workers=6, thread_name_prefix="kf-fill")
 
 # ---------- 健康监控 ----------
 _HEALTH = {
@@ -3341,9 +3347,10 @@ def fill_close_change_from_kline(lst, date):
         import concurrent.futures as cf
         # 2026-08-31 线上事故修复: 数据源(东财/同花顺)熔断抖动时, 多源日K逐只兜底无整体超时,
         # 曾导致三时点榜接口卡 693s 占死全部 worker → 全站刷不出数据。
-        # 现在整体超时 15s: 超时未完成的放弃(不阻塞当前请求), 已启动的线程在后台跑完自然丢弃。
+        # 现在整体超时 15s: 超时未完成的放弃(不阻塞当前请求), 已提交任务留在常驻池排队。
+        # 2026-09-01: 线程爆炸修复 — 由每次新建池+shutdown(wait=False) 改进程级常驻池 _EXECUTOR_FILL
         _FILL_TIMEOUT = 15
-        ex = cf.ThreadPoolExecutor(max_workers=6)
+        ex = _EXECUTOR_FILL
         futs = [ex.submit(_one, it) for it in todo]
         try:
             for f in cf.as_completed(futs, timeout=_FILL_TIMEOUT):
@@ -3351,9 +3358,6 @@ def fill_close_change_from_kline(lst, date):
         except cf.TimeoutError:
             log.warning("现涨K线兜底整体超时 %ds, 放弃剩余 %d 只 (数据源抖动, 下次回看自动补齐)",
                         _FILL_TIMEOUT, sum(1 for f in futs if not f.done()))
-        finally:
-            # 不等待线程结束, 避免请求被后台任务拖住; 线程跑完即丢
-            ex.shutdown(wait=False)
     # 收盘自愈修复(2026-08-24): 批量实时行情已把纠正值写入 fetched 并把 todo 清空,
     # 持久化必须放在 if todo 之外, 保证批量命中的纠正值也能写回库表。
     if fetched and _close_chg_persist_allowed(date):

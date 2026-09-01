@@ -55,6 +55,14 @@ _HEALTH = {
 }
 _health_lock = threading.Lock()
 
+# 进程级共享线程池(2026-09-01 生产线程爆炸修复): 全市场分页/昨比 原每次请求新建
+# ThreadPoolExecutor + shutdown(wait=False) — 整体超时后线程仍滞留后台跑网络超时
+# (昨比单只链路最长 ~30-60s), 高并发选股请求下线程只增不减(实测 2 worker × 2000+
+# 线程, 内存耗尽 + 负载 19 拖死生产, 全站 nginx upstream timeout)。
+# 改常驻池: 线程数有界(8+8), 超时放弃的任务留池内排队, 不阻塞请求也不新建线程。
+_EXECUTOR_CLIST = ThreadPoolExecutor(max_workers=8, thread_name_prefix="kf-clist")
+_EXECUTOR_YDAY = ThreadPoolExecutor(max_workers=8, thread_name_prefix="kf-yday")
+
 
 def _check_circuit(src="eastmoney_clist"):
     """检查数据源是否熔断中; 熔断时快速失败, 不等超时(防单 worker 卡死雪崩)
@@ -325,7 +333,7 @@ def fetch_eastmoney_all(fs):
     pages_data = {}   # page -> diff list(失败/空为 None)
     # 2026-08-31 线上加固: as_completed 无整体超时, 东财半死(每页 15s 超时)时
     # 30 页 8 并发最坏 ~56s, 腾讯兜底再来一轮会拖死 worker → 整体 40s, 超时放弃剩余页
-    ex = ThreadPoolExecutor(max_workers=8)
+    ex = _EXECUTOR_CLIST
     futs = {ex.submit(_fetch_clist_page, fs, p, "f12"): p
             for p in range(1, config.SPOT_MAX_PAGES + 1)}
     try:
@@ -342,8 +350,6 @@ def fetch_eastmoney_all(fs):
                 pages_data[p] = None
     except TimeoutError:
         log.warning("全市场分页整体超时 40s, 放弃未完成页 (数据源抖动, 走腾讯兜底/部分数据)")
-    finally:
-        ex.shutdown(wait=False)
     # 按 page 顺序合并, 遇到空页/短页即终止(后续页不会有效数据)
     out = []
     last_page = 0
@@ -806,8 +812,9 @@ def fetch_yesterday_amounts(codes):
             return {}
         ok_cnt = 0
         fail_cnt = len(need)
-        # 2026-08-31: shutdown(wait=False) — 整体超时后不再等待慢 code 线程(原 with 块 wait=True 仍会阻塞)
-        ex = ThreadPoolExecutor(max_workers=config.YESTERDAY_FETCH_WORKERS)
+        # 2026-09-01: 改进程级常驻池(原 shutdown(wait=False) 后线程滞留后台跑网络超时,
+        # 高并发下线程只增不减拖死生产)。超时未完成的任务留在池内排队, 不阻塞请求。
+        ex = _EXECUTOR_YDAY
         futs = {ex.submit(_fetch_yesterday_amount_one, c): c for c in need}
         try:
             for f in as_completed(futs, timeout=config.YESTERDAY_FETCH_TIMEOUT):
@@ -827,8 +834,6 @@ def fetch_yesterday_amounts(codes):
             log.warning("昨日成交额拉取超时(%ds) 已完成%d/%d, 超时跳过",
                         config.YESTERDAY_FETCH_TIMEOUT, done, len(need))
             fail_cnt = len(need) - ok_cnt
-        finally:
-            ex.shutdown(wait=False)
         if fail_cnt:
             log.warning("昨日成交额拉取: 需%d 成功%d 失败%d", len(need), ok_cnt, fail_cnt)
     out = {}

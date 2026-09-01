@@ -660,6 +660,9 @@ def test_fetch_stock_chart_minute_ok(monkeypatch):
 
     monkeypatch.setattr(config, "KLINE_HOSTS", ["https://mock-em"])
     monkeypatch.setattr(fetcher, "_CHART_CACHE", {})
+    # 2026-09-01: _trim_minute_to_now 盘中会把分时对齐到全天 242 条网格(未交易置空),
+    # 测试在交易时段跑会断言失败(数据条数 242≠3) — mock 掉时间网格逻辑, 只验证解析本身
+    monkeypatch.setattr(fetcher, "_trim_minute_to_now", lambda r: r)
 
     mock_trends = [
         "2026-08-20 09:30,18.50,1500,18.45,27750000",
