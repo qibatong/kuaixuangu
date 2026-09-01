@@ -452,7 +452,7 @@ onUnmounted(stopRealtime)
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
-.ap-embedded .ap-stock-table { min-width: 800px; }
+.ap-embedded .ap-stock-table { min-width: 640px; }
 .loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
 .spinner {
   width: 28px; height: 28px;
@@ -614,17 +614,24 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   text-align: center;
   white-space: nowrap;
 }
+/* 2026-09-01 表头全局 sticky: 滚动时粘在 ap-table-scroll 容器顶部,
+   加 background 防止下面数据行透过表头显示造成视觉混乱 */
+.ap-stock-table thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--bg-panel);
+  backdrop-filter: blur(4px);
+}
 /* 2026-09-01 列宽收紧: 去掉序号/代码列(代码并入名称列下方), 8列定宽防表头换行 */
-.ap-stock-table th:nth-child(1) { width: 92px; }    /* 名称(含代码副行) */
-.ap-stock-table th:nth-child(2) { width: 106px; }   /* AI涨停概率 */
-.ap-stock-table th:nth-child(3) { width: 66px; }    /* 竞价涨幅 */
-.ap-stock-table th:nth-child(4) { width: 88px; }    /* 竞价金额 */
-.ap-stock-table th:nth-child(5) { width: 74px; }    /* 流通市值 */
-.ap-stock-table th:nth-child(6) { width: 66px; }    /* 换手率 */
-.ap-stock-table th:nth-child(7) { width: auto; min-width: 90px; } /* 概念 */
-.ap-stock-table th:nth-child(8) { width: 70px; }    /* 实时/当日涨幅 */
+.ap-stock-table th:nth-child(1) { width: 84px; }    /* 名称(含代码副行) */
+.ap-stock-table th:nth-child(2) { width: 96px; }    /* AI涨停概率 */
+.ap-stock-table th:nth-child(3) { width: 60px; }    /* 竞价涨幅 */
+.ap-stock-table th:nth-child(4) { width: 78px; }    /* 竞价金额 */
+.ap-stock-table th:nth-child(5) { width: 70px; }    /* 流通市值 */
+.ap-stock-table th:nth-child(6) { width: 58px; }    /* 换手率 */
+.ap-stock-table th:nth-child(7) { width: 110px; }   /* 概念(限宽110, 单行省略) */
+.ap-stock-table th:nth-child(8) { width: 64px; }    /* 实时/当日涨幅 */
 /* 名称列: 上方名称 + 下方代码(参考竞价异动页 stock-info-cell) */
-.ap-stock-table .name-col { width: 92px; padding: 4px 2px; }
+.ap-stock-table .name-col { width: 84px; padding: 4px 2px; }
 .ap-stock-table .name-main {
   font-size: 13px; font-weight: 600; color: var(--text-main);
   line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -640,11 +647,12 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
 .ap-th:hover { color: var(--accent); }
 .ap-th.sort-asc::after { content: ' ↑'; color: var(--accent); font-size: 11px; }
 .ap-th.sort-desc::after { content: ' ↓'; color: var(--accent); font-size: 11px; }
-/* 概念列: 限宽省略, 悬浮(title)显示全部 */
+/* 概念列: 限宽单行省略, 悬浮(title)显示全部 */
 .concept-col {
-  max-width: 170px; min-width: 90px;
+  max-width: 110px; min-width: 110px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--text-secondary);
+  font-size: 11.5px;
 }
 /* 桌面无额外包装, 直接继承父容器宽. 手机端启用为唯一横向滚动容器(见 @media) */
 .ap-table-scroll { }
@@ -753,16 +761,14 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
     min-width: 950px;     /* 8 列 + 徽章所需宽度, 防止字段换行或被压瘪 */
     font-size: 12px;
   }
-  /* 嵌入态: 移动端仍按全宽表格处理(优先级高于 .ap-embedded .ap-stock-table 的桌面 800px) */
+  /* 嵌入态: 移动端仍按全宽表格处理(优先级高于 .ap-embedded .ap-stock-table 的桌面 640px) */
   .ap-embedded .ap-stock-table { min-width: 950px; }
   /* 2026-09-01 手机适配: 嵌入首页左视图时, 修正 .ap-embedded .ap-panel(padding:10px)
      特异性高于 .ap-panel 导致手机端 padding 不被收紧的问题, 横滑表格贴边对齐 */
   .ap-embedded .ap-panel { padding: 8px 4px; }
   .ap-embedded .ap-table-scroll { margin: 0 -4px; padding: 0 4px 4px; }
   .ap-stock-table thead th {
-    position: sticky; top: 0; z-index: 1;
     padding: 8px 6px;
-    white-space: nowrap;
     font-size: 12px;
   }
   .ap-stock-table tbody td {
