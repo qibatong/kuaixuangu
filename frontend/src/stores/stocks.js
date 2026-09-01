@@ -251,7 +251,8 @@ export const useStocksStore = defineStore('stocks', {
         entityChange: s.entity_change, warnType: s.warn_type,
         bidAmt: s.bid_amt, bidRatio: s.bid_ratio,
         circulationMV: s.circulation_mv, industry: s.industry,
-        concept: s.concept, rank: s.rank
+        concept: s.concept, rank: s.rank,
+        qiangchou: s.qiangchou   // 2026-09-01: 锁定名单回看也显示抢筹标(落库保存)
       }))
       // 标记是否系统统一批次(9:26 自动应用): 统一批次不随用户筛选条件过滤, 保证全用户一致。
       // 仅当实际命中 auto_applied 批次(isAuto)时才为 true; 命中手动锁定批次则为 false(需按条件过滤)

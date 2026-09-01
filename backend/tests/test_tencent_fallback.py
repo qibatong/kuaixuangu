@@ -2,11 +2,22 @@
 """腾讯行情兜底源测试(2026-08-30 主人要求: 东财被墙时用其他数据源采集)
 注意: 直接测 fetcher._fetch_market_with_fallback / fetch_tencent_market,
 避开 conftest 对 ensure_cache 的 fake patch(否则测到的是假数据)。"""
+import logging
 import re
+import time
 
 import pytest
 
 from app.services import fetcher
+from app.core import config
+
+# conftest 的 session 级 mock_data_source 会 patch fetcher.ensure_cache,
+# 但测试模块 import 发生在 fixture 执行前 → 此处保存的是真实实现, 供 TTL 测试还原
+_ORIG_ENSURE_CACHE = fetcher.ensure_cache
+
+
+def _use_real_ensure_cache(monkeypatch):
+    monkeypatch.setattr(fetcher, "ensure_cache", _ORIG_ENSURE_CACHE)
 
 
 def _make_tx_line(code, name, price, chg, vol_hand, amt_wan, turnover, mv_yi, limit):
@@ -226,3 +237,107 @@ def test_health_serviceable_false_when_all_down(monkeypatch):
     st = fetcher.get_health_status()
     assert st["serviceable"] is False
     assert st["overall"] == "down"
+
+
+# ---------- 2026-09-01 腾讯兜底批失败重试 + 缺票告警 ----------
+def _reset_codes_cache():
+    fetcher._TENCENT_CODES_CACHE["codes"] = []
+    fetcher._TENCENT_CODES_CACHE["ts"] = 0
+
+
+def test_tencent_batch_retry_then_success(monkeypatch):
+    """单批首次失败 → 重试 1 次成功 → 正常返回, 不误报缺票"""
+    _reset_codes_cache()
+    monkeypatch.setattr(fetcher, "_check_circuit", lambda src: False)
+    monkeypatch.setattr(fetcher, "_all_market_codes", lambda: ["600519"])
+    calls = {"n": 0}
+
+    def _flaky(symbols):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("首次失败(网络抖动)")
+        body = _make_tx_line("600519", "贵州茅台", "1297.40", "0.39", "16126", "208601", "0.13", "16218.56", "1421.53")
+        return _parse_tx(body)
+
+    monkeypatch.setattr(fetcher, "_fetch_tencent_batch", _flaky)
+    rows = fetcher.fetch_tencent_market("m:1+t:2")
+    assert len(rows) == 1
+    assert calls["n"] == 2, "失败后必须重试 1 次"
+
+
+def test_tencent_fail_after_retry_alerts(caplog, monkeypatch):
+    """单批两次都失败 → 不再静默: 记录失败批并打缺票 error 告警"""
+    _reset_codes_cache()
+    monkeypatch.setattr(fetcher, "_check_circuit", lambda src: False)
+    monkeypatch.setattr(fetcher, "_all_market_codes", lambda: ["600519", "000001"])
+
+    def _boom(symbols):
+        raise RuntimeError("腾讯接口挂了")
+
+    monkeypatch.setattr(fetcher, "_fetch_tencent_batch", _boom)
+    with caplog.at_level(logging.ERROR):
+        rows = fetcher.fetch_tencent_market("m:1+t:2")
+    assert rows == []
+    assert any("缺票告警" in r.message for r in caplog.records), "严重缺票必须 error 告警"
+
+
+def test_tencent_partial_missing_alerts(caplog, monkeypatch):
+    """代码清单 3 只只返回 2 只(无失败批) → 比例超阈值触发缺票告警"""
+    _reset_codes_cache()
+    monkeypatch.setattr(fetcher, "_check_circuit", lambda src: False)
+    monkeypatch.setattr(fetcher, "_all_market_codes", lambda: ["600519", "000001", "300750"])
+
+    def _partial(symbols):
+        out = {}
+        out.update(_parse_tx(_make_tx_line("600519", "贵州茅台", "1297.40", "0.39", "16126", "208601", "0.13", "16218.56", "1421.53")))
+        out.update(_parse_tx(_make_tx_line("000001", "平安银行", "11.65", "0.52", "838126", "97322", "0.43", "2260.76", "12.75")))
+        return out   # 缺 300750
+
+    monkeypatch.setattr(fetcher, "_fetch_tencent_batch", _partial)
+    with caplog.at_level(logging.ERROR):
+        rows = fetcher.fetch_tencent_market("m:1+t:2")
+    assert len(rows) == 2
+    assert any("缺票告警" in r.message for r in caplog.records), "缺 1/3 属于严重缺票, 必须告警"
+
+
+def test_tencent_complete_no_alert(caplog, monkeypatch):
+    """完整返回无缺票 → 不产生缺票告警"""
+    _reset_codes_cache()
+    monkeypatch.setattr(fetcher, "_check_circuit", lambda src: False)
+    monkeypatch.setattr(fetcher, "_all_market_codes", lambda: ["600519"])
+
+    def _full(symbols):
+        return _parse_tx(_make_tx_line("600519", "贵州茅台", "1297.40", "0.39", "16126", "208601", "0.13", "16218.56", "1421.53"))
+
+    monkeypatch.setattr(fetcher, "_fetch_tencent_batch", _full)
+    with caplog.at_level(logging.ERROR):
+        rows = fetcher.fetch_tencent_market("m:1+t:2")
+    assert len(rows) == 1
+    assert not any("缺票" in r.message for r in caplog.records), "完整返回不应告警"
+
+
+# ---------- 2026-09-01 filter 缓存 TTL(修复: 原无 TTL, 一次坏缓存污染整个下午) ----------
+def test_ensure_cache_filter_expired_refreshes(monkeypatch):
+    """filter 缓存超过 CACHE_TTL → 自动重新拉取(不再永远命中坏缓存)"""
+    _use_real_ensure_cache(monkeypatch)
+    calls = []
+    monkeypatch.setattr(fetcher, "_fetch_market_with_fallback",
+                        lambda fs: calls.append(fs) or [{"f12": "600519"}])
+    key = "m:1+t:2"
+    fetcher._cache[key] = {"raw": [{"f12": "old"}], "ts": time.time() - config.CACHE_TTL - 1}
+    raw, err = fetcher.ensure_cache("filter", key, True)
+    assert calls, "过期缓存必须重新拉取"
+    assert raw[0]["f12"] == "600519"
+
+
+def test_ensure_cache_filter_fresh_hits(monkeypatch):
+    """filter 缓存新鲜(< CACHE_TTL) → 命中不重拉"""
+    _use_real_ensure_cache(monkeypatch)
+    calls = []
+    monkeypatch.setattr(fetcher, "_fetch_market_with_fallback",
+                        lambda fs: calls.append(fs) or [])
+    key = "m:1+t:2"
+    fetcher._cache[key] = {"raw": [{"f12": "old"}], "ts": time.time()}
+    raw, err = fetcher.ensure_cache("filter", key, True)
+    assert not calls, "新鲜缓存不应重拉"
+    assert raw[0]["f12"] == "old"

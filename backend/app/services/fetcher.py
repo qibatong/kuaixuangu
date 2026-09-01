@@ -301,14 +301,23 @@ def fetch_tencent_market(fs):
     t0 = time.time()
     symbols = [_tencent_symbol(c) for c in codes]
     result = []
+    _failed_batches = []   # 重试后仍失败的批次(记录批大小, 用于缺票告警)
 
     def _grab(batch):
-        """单批拉取并解析为东财 diff 格式; 失败返回空(单批失败跳过, 不影响其他批)"""
+        """单批拉取并解析为东财 diff 格式。
+        2026-09-01: 单批失败重试 1 次(间隔0.3s), 仍失败记入 _failed_batches(不再静默跳过)"""
+        got = None
+        for attempt in range(2):
+            try:
+                got = _fetch_tencent_batch(batch)
+                break
+            except Exception:
+                if attempt == 0:
+                    time.sleep(0.3)
+        if got is None:
+            _failed_batches.append(len(batch))
+            return []
         out = []
-        try:
-            got = _fetch_tencent_batch(batch)
-        except Exception:
-            return out
         for code, f in got.items():
             try:
                 mv_yi = float(f[44])          # 流通市值(亿)
@@ -341,6 +350,16 @@ def fetch_tencent_market(fs):
         _record("tencent_market", False, int((time.time() - t0) * 1000))
         raise
     _record("tencent_market", True, int((time.time() - t0) * 1000))
+    # 2026-09-01 可观测性: 缺票告警(2026-09-01 17:00 曾静默丢 8 只导致左视图缺票污染整个下午)
+    miss = len(codes) - len(result)
+    if _failed_batches or miss > 0:
+        ratio = miss / len(codes) if codes else 0.0
+        if miss >= 5 or ratio > 0.001:
+            log.error("腾讯兜底缺票告警! 代码清单%d只 实际返回%d只 缺%d只(%.2f%%) 重试后失败%d批=%s fs=%s",
+                      len(codes), len(result), miss, ratio * 100, len(_failed_batches), _failed_batches, fs)
+        else:
+            log.warning("腾讯兜底轻微缺票: 代码清单%d只 实际返回%d只 缺%d只 失败%d批",
+                        len(codes), len(result), miss, len(_failed_batches))
     log.info("腾讯兜底行情拉取成功 代码%d只 返回%d只 耗时%.0fms", len(codes), len(result),
              (time.time() - t0) * 1000)
     return result
@@ -549,11 +568,12 @@ def ensure_cache(action, fs, before930):
             else:
                 log.info("缓存命中 fs=%s 年龄%.0fs", fs, now - entry["ts"])
         else:  # filter
-            if fs not in _cache:
+            entry = _cache.get(fs)
+            if entry is None or now - entry["ts"] > config.CACHE_TTL:
                 _cache[fs] = {"raw": _fetch_market_with_fallback(fs), "ts": now}
-                log.info("缓存初建 fs=%s", fs)
+                log.info("缓存初建/过期刷新 fs=%s", fs)
             else:
-                log.info("缓存命中 fs=%s", fs)
+                log.info("缓存命中 fs=%s 年龄%.0fs", fs, now - entry["ts"])
         return _cache[fs]["raw"], None
 
 

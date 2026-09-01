@@ -58,6 +58,49 @@ def test_history_dedup_same_day_same_score(client, first_user):
         seen.add(k)
 
 
+def test_batch_save_keeps_qiangchou():
+    """2026-09-01 抢筹口径: 落库必须保存抢筹标记, 历史批次/9:30后锁定名单回看仍显示 🔥
+    (修复: batch_stocks 原无 qiangchou 列, 落库丢弃 → 竞价选股 tab 永远看不到抢筹标)"""
+    from app.services import history
+    f = {"markets": ["sh", "sz"]}
+    result = [
+        {"code": "600001", "name": "测试甲", "probability": 92, "confidence": 1,
+         "bidChange": 5.0, "realChange": 3.0, "entityChange": 2.0, "bidTurnover": 30.0,
+         "warnType": 1, "circulationMV": 40.0, "industry": "x", "concept": "y",
+         "bidAmt": 1e8, "bidRatio": 1.2, "qiangchou": 1},
+        {"code": "000002", "name": "测试乙", "probability": 60, "confidence": 1,
+         "bidChange": 2.0, "realChange": 1.0, "entityChange": 0.5, "bidTurnover": 10.0,
+         "warnType": 0, "circulationMV": 50.0, "industry": "x", "concept": "y",
+         "bidAmt": 5e7, "bidRatio": 0.8, "qiangchou": 0},
+        {"code": "300003", "name": "测试丙", "probability": 70, "confidence": 1,
+         "bidChange": 3.0, "realChange": 2.0, "entityChange": 1.0, "bidTurnover": 20.0,
+         "warnType": 2, "circulationMV": 60.0, "industry": "x", "concept": "y",
+         "bidAmt": 6e7, "bidRatio": 1.0},   # 不带 qiangchou → 落库默认为 0
+    ]
+    bid = history.save_batch(9999, "filter", result, f)
+    assert bid, "落库失败"
+    b, stocks = history.get_batch(bid, 9999)
+    assert b is not None
+    qc = {s["code"]: s.get("qiangchou") for s in stocks}
+    assert qc["600001"] == 1, "命中抢筹必须落库为 1"
+    assert qc["000002"] == 0, "未命中必须为 0"
+    assert qc["300003"] == 0, "缺省字段必须默认为 0"
+    # 历史条件查询也带 qiangchou
+    q = history.query_history(9999, {"date_from": ["2000-01-01"], "date_to": ["2099-12-31"],
+                                     "page": ["1"], "pageSize": ["50"]})
+    hit = [s for s in q["rows"] if s["code"] == "600001"]
+    assert hit and hit[0].get("qiangchou") == 1
+
+
+def test_batch_stocks_has_qiangchou_column():
+    """2026-09-01 迁移: batch_stocks 表必须含 qiangchou 列(老库 ALTER 升级)"""
+    from app.db import database
+    conn = database.get_conn()
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(batch_stocks)").fetchall()]
+    conn.close()
+    assert "qiangchou" in cols
+
+
 def test_history_invalid_page_param(client, first_user):
     """非法分页参数容错"""
     token, _, _ = first_user

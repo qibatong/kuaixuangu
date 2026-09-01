@@ -63,6 +63,10 @@ def init_db():
     bcols = [r[1] for r in cur.execute("PRAGMA table_info(batch_stocks)").fetchall()]
     if "bid_ratio" not in bcols:
         cur.execute("ALTER TABLE batch_stocks ADD COLUMN bid_ratio REAL")
+    # 老库迁移: 明细增加抢筹标记列(2026-09-01 抢筹口径改版: 左视图抢筹=右视图竞价抢筹代码集,
+    # 落库时保存打标结论, 历史批次/9:30后锁定名单回看仍能显示 🔥 抢筹)
+    if "qiangchou" not in bcols:
+        cur.execute("ALTER TABLE batch_stocks ADD COLUMN qiangchou INTEGER NOT NULL DEFAULT 0")
     # 用户表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
