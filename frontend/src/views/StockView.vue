@@ -231,6 +231,9 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   border-left-width: 3px;
   flex-wrap: wrap;
+  /* 覆盖 main.css .alert-rule 的 space-between: 让 rule-text + mode-tabs 始终紧贴左侧,
+     不再因 right-group 是否存在而在「居中/靠右」之间漂移 (2026-09-01 反馈) */
+  justify-content: flex-start;
 }
 .alert-rule.alert-rule-compact .rule-text { font-size: 12px; gap: 4px; flex: 0 1 auto; min-width: 0; }
 .alert-rule.alert-rule-compact .rule-text strong { font-size: 12px; }
@@ -240,6 +243,8 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   display: inline-flex;
   align-items: center;
+  /* right-group 自身推到右侧; 缺失时不影响 rule-text + mode-tabs 紧贴布局 */
+  margin-left: auto;
 }
 .mode-tabs.mode-tabs-inline {
   margin: 0;
