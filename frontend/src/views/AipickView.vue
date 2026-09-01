@@ -567,44 +567,47 @@ onUnmounted(stopRealtime)
   font-size: 12px;
   line-height: 1.8;
 }
-/* 用户可调规则过滤栏 */
+/* 用户可调规则过滤栏 — 2026-09-01 对齐竞价选股 FilterPanel 紧凑风格 */
 .ap-rulebar {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px;
-  margin-bottom: 10px;
-  padding: 8px 10px;
-  background: var(--bg-main);
-  border: 1px dashed var(--border-soft);
-  border-radius: 8px;
-}
-.ap-rule-label { color: var(--text-muted); font-size: 12px; }
-.ap-rule-in {
-  width: 74px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px;
+  margin-bottom: 8px;
   padding: 5px 8px;
+  background: var(--bg-main);
+  border: 1px solid var(--border-soft);
   border-radius: 6px;
+}
+.ap-rule-label { color: var(--text-muted); font-size: 11.5px; }
+.ap-rule-in {
+  width: 56px;
+  max-width: 72px;
+  min-width: 44px;
+  padding: 2px 4px;
+  border-radius: 4px;
   border: 1px solid var(--border-soft);
   background: var(--bg-input);
   color: var(--text-primary);
-  font-size: 13px;
-  font-family: Consolas, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.3;
   text-align: center;
+  box-sizing: border-box;
   color-scheme: dark;
 }
 body[data-bg="light"] .ap-rule-in { color-scheme: light; }
 .ap-rule-in:focus { outline: none; border-color: var(--accent); }
-.ap-rule-sep { color: var(--text-muted); }
-.ap-rule-unit { color: var(--text-muted); font-size: 12px; }
+.ap-rule-sep { color: var(--text-muted); font-size: 11px; }
+.ap-rule-unit { color: var(--text-muted); font-size: 11px; }
 .ap-rule-n {
-  color: var(--accent-deep); font-weight: 700; font-size: 13px;
+  color: var(--accent-deep); font-weight: 700; font-size: 11.5px;
   background: var(--accent-bg); border: 1px solid var(--accent-border);
-  padding: 2px 10px; border-radius: 12px; margin-left: 2px;
+  padding: 1px 8px; border-radius: 10px; margin-left: 2px;
 }
 .ap-rule-reset {
-  padding: 5px 10px; border-radius: 6px;
+  padding: 2px 8px; border-radius: 4px;
   border: 1px solid var(--border-soft);
   background: var(--bg-hover);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 11.5px;
 }
 .ap-rule-reset:hover { color: var(--accent); border-color: var(--accent); }
 .ap-rule-tip { color: var(--text-muted); font-size: 11px; }
@@ -794,10 +797,11 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
     text-align: left;
   }
   /* 手机端规则栏紧凑换行, 输入框等宽 */
-  .ap-rulebar { padding: 8px 6px; gap: 6px; }
-  .ap-rule-in { width: 64px; padding: 5px 6px; font-size: 12.5px; }
+  .ap-rulebar { padding: 4px 5px; gap: 3px 4px; }
+  .ap-rule-in { width: 48px; padding: 1px 3px; font-size: 11px; }
+  .ap-rule-label { font-size: 11px; }
   .ap-rule-tip { display: none; }
-  .ap-rule-n { font-size: 12px; }
+  .ap-rule-n { font-size: 11px; }
 }
 
 /* 极窄屏 (<= 390px, 比如 iPhone SE/小屏安卓): 工具栏自适应全屏宽度 */
