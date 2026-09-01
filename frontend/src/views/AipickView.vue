@@ -43,12 +43,7 @@
                   >
                 </button>
                 <button class="rot-reset-btn" title="回到最新" @click="resetLatest()"><i class="fa fa-bolt"></i></button>
-                <a
-                  class="rot-open-btn"
-                  :href="'/aipick/latest.html?token=' + encodeURIComponent(user.apiToken)"
-                  target="_blank"
-                  title="新窗口打开完整报告"
-                ><i class="fa fa-external-link"></i> 完整报告</a>
+                <!-- 2026-09-01: 完整报告入口已去掉(独立页无导航入口, 首页左视图即完整视图) -->
               </div>
             </div>
             <div class="ap-rulebar">
@@ -564,18 +559,6 @@ onUnmounted(stopRealtime)
   font-size: 13px;
 }
 .rot-reset-btn:hover { color: var(--accent); border-color: var(--accent); }
-.rot-open-btn {
-  padding: 6px 10px; border-radius: 8px;
-  border: 1px solid var(--border-soft);
-  background: var(--bg-hover);
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 13px;
-  text-decoration: none;
-  display: inline-flex; align-items: center; gap: 4px;
-  white-space: nowrap;
-}
-.rot-open-btn:hover { color: var(--accent); border-color: var(--accent); }
 
 .ap-report-sub {
   color: var(--text-muted);
@@ -752,6 +735,10 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   }
   /* 嵌入态: 移动端仍按全宽表格处理(优先级高于 .ap-embedded .ap-stock-table 的桌面 920px) */
   .ap-embedded .ap-stock-table { min-width: 1080px; }
+  /* 2026-09-01 手机适配: 嵌入首页左视图时, 修正 .ap-embedded .ap-panel(padding:10px)
+     特异性高于 .ap-panel 导致手机端 padding 不被收紧的问题, 横滑表格贴边对齐 */
+  .ap-embedded .ap-panel { padding: 8px 4px; }
+  .ap-embedded .ap-table-scroll { margin: 0 -4px; padding: 0 4px 4px; }
   .ap-stock-table thead th {
     position: sticky; top: 0; z-index: 1;
     padding: 8px 6px;
