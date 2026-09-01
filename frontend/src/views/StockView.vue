@@ -51,7 +51,8 @@
         </template>
 
         <!-- AI预测(2026-09-01 替换原盘中选股; 自带 VIP 门禁/日期回看/规则过滤) -->
-        <AipickView v-else :embedded="true" />
+        <!-- 2026-09-01: AI预测内嵌左视图; 隐藏日期回看(回看入口在导航栏「历史回看」页) -->
+        <AipickView v-else :embedded="true" :show-date-picker="false" />
       </div><!-- /.home-col-left -->
 
       <!-- 右栏: 竞价异动 -->

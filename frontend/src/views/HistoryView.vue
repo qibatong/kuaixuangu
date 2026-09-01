@@ -5,13 +5,16 @@
         <span class="history-title"><i class="fa fa-history"></i> 历史选股记录</span>
       </div>
 
-      <!-- 视图切换 Tab: 按批次 / 综合查询 -->
+      <!-- 视图切换 Tab: 按批次 / 综合查询 / AI预测回看 -->
       <div class="view-tabs">
         <button class="view-tab" :class="{ active: viewMode === 'batch' }" @click="switchView('batch')">
           <i class="fa fa-folder-open-o"></i> 按批次 <span class="view-tab-desc">每次选股一组</span>
         </button>
         <button class="view-tab" :class="{ active: viewMode === 'query' }" @click="switchView('query')">
           <i class="fa fa-search"></i> 综合查询 <span class="view-tab-desc">跨批次条件筛选</span>
+        </button>
+        <button class="view-tab" :class="{ active: viewMode === 'aipick' }" @click="switchView('aipick')">
+          <i class="fa fa-robot"></i> AI预测 <span class="view-tab-desc">按日期回看预测报告</span>
         </button>
       </div>
 
@@ -82,7 +85,7 @@
       </div>
 
       <!-- ===== 综合查询视图 ===== -->
-      <div v-else class="history-query">
+      <div v-else-if="viewMode === 'query'" class="history-query">
         <!-- 战绩统计(可折叠) -->
         <div v-if="stats" class="stats-panel">
           <div class="stats-title" style="cursor:pointer;" @click="statsCollapsed = !statsCollapsed">
@@ -183,6 +186,11 @@
           </template>
         </div>
       </div>
+
+      <!-- ===== AI预测回看视图(2026-09-01): 嵌入 AipickView, 全宽展示 + 日期选择器回看历史报告 ===== -->
+      <div v-else class="aipick-view">
+        <AipickView />
+      </div>
     </div>
   </div>
 </template>
@@ -196,13 +204,15 @@ import { linkToSoftware } from '../utils/tdx'
 import { fmtDate } from '../utils/time'
 import { useSortable } from '../composables/useSortable'
 import { signed } from '../utils/format'
+// 2026-09-01: AI预测回看 tab 直接嵌入组件(自带 VipGate 门禁 + 日期选择器 + 规则过滤)
+import AipickView from './AipickView.vue'
 
 const PAGE_SIZE = 100
 // 表格排序实例
 const batchSort = useSortable()
 const querySort = useSortable()
 // ---------- 视图切换 ----------
-const viewMode = ref('batch')   // batch(按批次) / query(综合查询)
+const viewMode = ref('batch')   // batch(按批次) / query(综合查询) / aipick(AI预测回看)
 function switchView(m) {
   if (viewMode.value === m) return
   viewMode.value = m

@@ -24,8 +24,9 @@
                 <span class="ap-date-badge">{{ data.date }}</span>
                 <span class="ap-count-chip">{{ shownCount }} 只</span>
               </div>
-              <div class="ap-toolbar">
-                <!-- 隐藏日期状态文字, 已去掉 -->
+              <!-- 2026-09-01: 按日期回看功能移到导航栏「历史回看」页;
+                   首页左视图嵌入态(showDatePicker=false)只展示最新报告 -->
+              <div v-if="showDatePicker" class="ap-toolbar">
                 <button
                   class="rot-date-btn"
                   title="选择日期回看历史报告"
@@ -43,7 +44,6 @@
                   >
                 </button>
                 <button class="rot-reset-btn" title="回到最新" @click="resetLatest()"><i class="fa fa-bolt"></i></button>
-                <!-- 2026-09-01: 完整报告入口已去掉(独立页无导航入口, 首页左视图即完整视图) -->
               </div>
             </div>
             <div class="ap-rulebar">
@@ -118,8 +118,12 @@ import VipGate from '../components/VipGate.vue'
 import { aipickDates, aipickData, aipickRealtime } from '../api/aipick'
 
 // 2026-09-01: 嵌入首页左视图(替换盘中选股)时传入 embedded=true,
-// 收紧面板间距并为半宽布局启用表格横向滚动
-defineProps({ embedded: { type: Boolean, default: false } })
+// 收紧面板间距并为半宽布局启用表格横向滚动;
+// showDatePicker=false 时隐藏日期回看(首页左视图只显示最新, 回看入口在「历史回看」页)
+defineProps({
+  embedded: { type: Boolean, default: false },
+  showDatePicker: { type: Boolean, default: true },
+})
 
 const user = useUserStore()
 const dates = ref([])
