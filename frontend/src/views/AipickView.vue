@@ -83,6 +83,7 @@
                   <th class="ap-th" title="开盘啦概念">概念</th>
                   <th v-if="isLatest" @click="toggleSort('realtime')" :class="thCls('realtime')">实时涨幅</th>
                   <th v-else @click="toggleSort('day_change')" :class="thCls('day_change')">当日涨幅</th>
+                  <th class="op-col">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -99,6 +100,7 @@
                   <td class="concept-col" :title="conceptFull(r) || '暂无概念'">{{ conceptText(r) }}</td>
                   <td v-if="isLatest" :class="chgCls(rt(r))">{{ rtText(r) }}</td>
                   <td v-else :class="chgCls(r.day_change)">{{ dayChgText(r) }}</td>
+                  <td><button class="pool-add-btn" :class="{ added: inPool(r.code) }" @click.stop="addToPool(r)">{{ inPool(r.code) ? '已＋' : '＋自选' }}</button></td>
                 </tr>
               </tbody>
             </table>
@@ -114,6 +116,8 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useUserStore } from '../stores/user'
+import { usePoolStore } from '../stores/pool'
+import { showToast } from '../utils/toast'
 import VipGate from '../components/VipGate.vue'
 import { aipickDates, aipickData, aipickRealtime } from '../api/aipick'
 
@@ -126,6 +130,7 @@ defineProps({
 })
 
 const user = useUserStore()
+const pool = usePoolStore()
 const dates = ref([])
 const latestDate = ref('')
 const selDate = ref('')
@@ -348,6 +353,21 @@ function rtText(row) {
 function dayChgText(row) {
   return row.day_change == null ? '--' : fmtChg(row.day_change)
 }
+
+// ===== 自选池 =====
+// 是否已在自选池中
+function inPool(code) {
+  return pool.stockPool.some(x => x.code === code)
+}
+
+// 手动收录单只股票到自选池(与竞价选股 StockTable 的 ＋自选 一致)
+function addToPool(r) {
+  const n = pool.addStocks([{
+    code: r.code, name: r.name,
+    bidChange: r.bid_change, probability: r.ai_prob,
+  }])
+  showToast(n ? `✅ ${r.code} ${r.name} 已加入自选` : `${r.code} 已在自选中`, n ? 'success' : 'info')
+}
 function chgCls(v) {
   if (v == null) return ''
   return v >= 0 ? 'up' : 'down'
@@ -456,7 +476,7 @@ onUnmounted(stopRealtime)
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
-.ap-embedded .ap-stock-table { min-width: 640px; }
+.ap-embedded .ap-stock-table { min-width: 696px; }  /* 9列: 8列定宽640 + 操作列56 */
 .loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
 .spinner {
   width: 28px; height: 28px;
@@ -637,6 +657,7 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
 .ap-stock-table th:nth-child(6) { width: 58px; }    /* 换手率 */
 .ap-stock-table th:nth-child(7) { width: 110px; }   /* 概念(限宽110, 单行省略) */
 .ap-stock-table th:nth-child(8) { width: 64px; }    /* 实时/当日涨幅 */
+.ap-stock-table th:nth-child(9) { width: 56px; }    /* 操作(＋自选, 对齐竞价选股) */
 /* 名称列: 上方名称 + 下方代码(参考竞价异动页 stock-info-cell) */
 .ap-stock-table .name-col { width: 84px; padding: 4px 2px; }
 .ap-stock-table .name-main {
@@ -765,11 +786,11 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
     padding: 0 8px 4px;
   }
   .ap-stock-table {
-    min-width: 950px;     /* 8 列 + 徽章所需宽度, 防止字段换行或被压瘪 */
+    min-width: 1006px;    /* 9 列 + 徽章所需宽度(原950 + 操作列56), 防止字段换行或被压瘪 */
     font-size: 12px;
   }
-  /* 嵌入态: 移动端仍按全宽表格处理(优先级高于 .ap-embedded .ap-stock-table 的桌面 640px) */
-  .ap-embedded .ap-stock-table { min-width: 950px; }
+  /* 嵌入态: 移动端仍按全宽表格处理(优先级高于 .ap-embedded .ap-stock-table 的桌面 696px) */
+  .ap-embedded .ap-stock-table { min-width: 1006px; }
   /* 2026-09-01 手机适配: 嵌入首页左视图时, 修正 .ap-embedded .ap-panel(padding:10px)
      特异性高于 .ap-panel 导致手机端 padding 不被收紧的问题, 横滑表格贴边对齐 */
   .ap-embedded .ap-panel { padding: 8px 4px; }
