@@ -16,11 +16,17 @@ def _reset_health():
     """每个测试前后重置数据源健康状态, 避免熔断器状态跨测试污染"""
     with fetcher._health_lock:
         for src in fetcher._HEALTH:
-            fetcher._HEALTH[src]["down_since"] = 0
+            h = fetcher._HEALTH[src]
+            h["down_since"] = 0
+            h["fails_in_row"] = 0
+            h["cooldown"] = h.get("base_cooldown", fetcher._CIRCUIT_OPEN_SECONDS)
     yield
     with fetcher._health_lock:
         for src in fetcher._HEALTH:
-            fetcher._HEALTH[src]["down_since"] = 0
+            h = fetcher._HEALTH[src]
+            h["down_since"] = 0
+            h["fails_in_row"] = 0
+            h["cooldown"] = h.get("base_cooldown", fetcher._CIRCUIT_OPEN_SECONDS)
 
 
 # ---------- 熔断器 ----------
@@ -87,6 +93,98 @@ def test_circuit_stays_open_on_half_open_fail():
     # 半开探测又失败 → 重新熔断
     fetcher._record("eastmoney_clist", False)
     assert fetcher._check_circuit() is True
+
+
+# ---------- 2026-09-01 熔断加固: 抖动保护 + 指数退避 + 短路含量脉 ----------
+
+def test_jitter_source_threshold_2_does_not_break_on_single_fail():
+    """ths/tencent 抖动保护: 单次失败不熔断, 连续2次才熔断"""
+    fetcher._record("ths_kline", False)
+    assert fetcher._check_circuit("ths_kline") is False, "单次抖动不应熔断"
+    fetcher._record("ths_kline", False)
+    assert fetcher._check_circuit("ths_kline") is True, "连续2次失败应熔断"
+
+
+def test_jitter_source_recovers_after_single_success():
+    """抖动源失败1次后成功: 计数清零, 不熔断"""
+    fetcher._record("tencent_kline", False)
+    assert fetcher._check_circuit("tencent_kline") is False
+    fetcher._record("tencent_kline", True, ms=100)
+    with fetcher._health_lock:
+        assert fetcher._HEALTH["tencent_kline"]["fails_in_row"] == 0
+    assert fetcher._check_circuit("tencent_kline") is False
+
+
+def test_cooldown_backoff_grows_on_consecutive_failures():
+    """连续失败: 冷却指数退避 60→120→240(上限600)"""
+    for _ in range(3):
+        fetcher._record("eastmoney_kline", False)
+    with fetcher._health_lock:
+        cd = fetcher._HEALTH["eastmoney_kline"]["cooldown"]
+    assert cd == 60 * (2 ** 2), "连续3次失败后冷却应为 240s, 实际 %s" % cd
+    # 冷却期内 check 为 True(熔断中)
+    assert fetcher._check_circuit("eastmoney_kline") is True
+    # 冷却期过后可半开探测
+    with fetcher._health_lock:
+        fetcher._HEALTH["eastmoney_kline"]["down_since"] = time.time() - cd - 1
+    assert fetcher._check_circuit("eastmoney_kline") is False
+
+
+def test_cooldown_resets_to_base_after_success():
+    """成功后冷却恢复基准值, fails_in_row 清零"""
+    fetcher._record("eastmoney_kline", False)
+    fetcher._record("eastmoney_kline", False)
+    fetcher._record("eastmoney_kline", True, ms=100)
+    with fetcher._health_lock:
+        h = fetcher._HEALTH["eastmoney_kline"]
+        assert h["fails_in_row"] == 0
+        assert h["cooldown"] == h["base_cooldown"]
+        assert h["down_since"] == 0
+
+
+def test_short_circuit_skips_when_all_four_down(monkeypatch):
+    """四源(东财/ths/tencent/量脉)全熔断: 单只链路直接短路, 不调底层兜底(连量脉也不试)"""
+    from app.services import liangmai
+    lm_calls = []
+    monkeypatch.setattr(fetcher, "_host_blocked", lambda host: True)   # 东财全部域名快速失败
+    monkeypatch.setattr(fetcher, "_fetch_yesterday_amount_ths", lambda c: None)
+    monkeypatch.setattr(fetcher, "_fetch_yesterday_amount_tencent", lambda c: None)
+    monkeypatch.setattr(liangmai, "_fetch_yesterday_amount_one",
+                        lambda c, d: lm_calls.append(c) or [111.0, 222.0])
+    # 四源全部打到熔断阈值
+    fetcher._record("eastmoney_kline", False)
+    for src in ("ths_kline", "tencent_kline"):
+        fetcher._record(src, False)
+        fetcher._record(src, False)
+    for _ in range(3):
+        fetcher._record("liangmai_kline", False)
+    assert all(fetcher._check_circuit(s)
+               for s in ("eastmoney_kline", "ths_kline", "tencent_kline", "liangmai_kline"))
+
+    res = fetcher._fetch_yesterday_amount_one("600519")
+    assert res is None, "四源全down应短路置空, 实际 %s" % res
+    assert lm_calls == [], "短路时不应调用量脉"
+
+
+def test_short_circuit_does_not_skip_when_liangmai_up(monkeypatch):
+    """三源down但量脉可用: 不短路, 走量脉兜底(2026-09-01 核心修复)"""
+    from app.services import liangmai
+    lm_calls = []
+    monkeypatch.setattr(fetcher, "_host_blocked", lambda host: True)   # 东财全部域名快速失败
+    monkeypatch.setattr(fetcher, "_fetch_yesterday_amount_ths", lambda c: None)
+    monkeypatch.setattr(fetcher, "_fetch_yesterday_amount_tencent", lambda c: None)
+    monkeypatch.setattr(liangmai, "_fetch_yesterday_amount_one",
+                        lambda c, d: lm_calls.append(c) or [333.0, 444.0])
+    # 仅三源(东财/ths/tencent)熔断, 量脉健康
+    fetcher._record("eastmoney_kline", False)
+    for src in ("ths_kline", "tencent_kline"):
+        fetcher._record(src, False)
+        fetcher._record(src, False)
+    assert not fetcher._check_circuit("liangmai_kline")
+
+    res = fetcher._fetch_yesterday_amount_one("600519")
+    assert res == [333.0, 444.0], "量脉可用时应兜底成功, 实际 %s" % res
+    assert lm_calls == ["600519"], "应调用量脉兜底"
 
 
 def test_ensure_spot_cache_returns_stale_on_circuit(monkeypatch):

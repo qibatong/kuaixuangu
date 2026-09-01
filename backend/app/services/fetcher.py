@@ -41,17 +41,31 @@ _HOST_COOLDOWN = 300   # 冷却 5 分钟
 # 数据源熔断器: 故障后 _CIRCUIT_OPEN_SECONDS 内直接快速失败, 不等超时(防单 worker 卡死)
 # 冷却期过后允许半开探测(一次请求), 成功则恢复, 失败继续熔断
 _CIRCUIT_OPEN_SECONDS = 60
+# 连续失败指数退避上限: 确定性故障(如东财K线接口被风控秒拒)60→120→240→480→600s,
+# 避免每 60s 半开探测刷日志(2026-09-01 生产 8/30 起 eastmoney_kline 3316 条故障日志)
+_CIRCUIT_MAX_COOLDOWN = 600
 
 # ---------- 数据源健康监控 ----------
 # src -> {ok, fail, last_ok, last_fail, ms_sum, ms_cnt, down_since}
 # down_since>0 表示自该时刻起处于"故障中"(失败后尚未成功恢复)
+# cooldown: 当前熔断冷却秒(连续失败指数退避); base_cooldown: 恢复后重置的基准冷却
+# down_threshold: 连续失败多少次才真正熔断(抖动保护, ths/tencent=2, 量脉限流=3, 其余=1)
+# fails_in_row: 连续失败计数(成功清零)
 _HEALTH = {
-    "eastmoney_clist": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
-    "eastmoney_kline": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
-    "eastmoney_zt_pool": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
-    "ths_kline":       {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
-    "tencent_market":  {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
-    "tencent_kline":   {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
+    "eastmoney_clist": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
+                        "cooldown": 60, "base_cooldown": 60, "down_threshold": 1, "fails_in_row": 0},
+    "eastmoney_kline": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
+                        "cooldown": 60, "base_cooldown": 60, "down_threshold": 1, "fails_in_row": 0},
+    "eastmoney_zt_pool": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
+                          "cooldown": 60, "base_cooldown": 60, "down_threshold": 1, "fails_in_row": 0},
+    "ths_kline":       {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
+                        "cooldown": 30, "base_cooldown": 30, "down_threshold": 2, "fails_in_row": 0},
+    "tencent_market":  {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
+                        "cooldown": 60, "base_cooldown": 60, "down_threshold": 1, "fails_in_row": 0},
+    "tencent_kline":   {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
+                        "cooldown": 30, "base_cooldown": 30, "down_threshold": 2, "fails_in_row": 0},
+    "liangmai_kline":  {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
+                        "cooldown": 60, "base_cooldown": 60, "down_threshold": 3, "fails_in_row": 0},
 }
 _health_lock = threading.Lock()
 
@@ -71,13 +85,16 @@ def _check_circuit(src="eastmoney_clist"):
         h = _HEALTH.get(src)
         if not h or not h["down_since"]:
             return False
-        if time.time() - h["down_since"] < _CIRCUIT_OPEN_SECONDS:
+        if time.time() - h["down_since"] < h.get("cooldown", _CIRCUIT_OPEN_SECONDS):
             return True
     return False
 
 
 def _record(src, ok, ms=0):
-    """记录一次数据源调用结果; 状态翻转时打告警/恢复日志"""
+    """记录一次数据源调用结果; 状态翻转时打告警/恢复日志
+    2026-09-01 加固: ①抖动保护 down_threshold>1 的源(ths/tencent/量脉)连续失败
+    达阈值才熔断, 单次抖动不误伤; ②连续失败指数退避 cooldown(上限600s), 确定性
+    故障(如东财K线秒拒)不再每 60s 空转探测刷日志"""
     with _health_lock:
         h = _HEALTH[src]
         now = time.time()
@@ -87,19 +104,29 @@ def _record(src, ok, ms=0):
             if ms > 0:
                 h["ms_sum"] += ms
                 h["ms_cnt"] += 1
+            h["fails_in_row"] = 0
+            h["cooldown"] = h.get("base_cooldown", _CIRCUIT_OPEN_SECONDS)
             if h["down_since"]:
                 log.info("数据源恢复: %s 恢复正常(故障%.0f秒)", src, now - h["down_since"])
                 h["down_since"] = 0
         else:
             h["fail"] += 1
             h["last_fail"] = now
+            h["fails_in_row"] += 1
+            threshold = h.get("down_threshold", 1)
+            if h["fails_in_row"] < threshold:
+                # 抖动保护: 未达阈值只计数不熔断
+                log.warning("数据源抖动: %s 连续失败%d/%d 次(暂不熔断)", src, h["fails_in_row"], threshold)
+                return
+            # 每次失败按连续次数指数退避冷却(上限600s); 冷却期内不重置 down_since, 但冷却时长持续拉长
+            h["cooldown"] = min(_CIRCUIT_OPEN_SECONDS * (2 ** (h["fails_in_row"] - 1)), _CIRCUIT_MAX_COOLDOWN)
             if not h["down_since"]:
                 h["down_since"] = now
-                log.error("数据源故障: %s 调用失败, 进入异常状态", src)
-            elif now - h["down_since"] >= _CIRCUIT_OPEN_SECONDS:
+                log.error("数据源故障: %s 调用失败, 进入异常状态(冷却%d秒)", src, h["cooldown"])
+            elif now - h["down_since"] >= h.get("cooldown", _CIRCUIT_OPEN_SECONDS):
                 # 半开探测失败: 冷却期过后重新熔断
                 h["down_since"] = now
-                log.error("数据源熔断器半开探测失败, 重新熔断: %s", src)
+                log.error("数据源熔断器半开探测失败, 重新熔断: %s(冷却%d秒)", src, h["cooldown"])
 
 
 def _src_status(h):
@@ -699,10 +726,10 @@ def _fetch_yesterday_amount_one(code):
 
     2026-08-30 容灾加固(主人反馈用户中午盘中截图): 当东财日 K 与 ths_kline
     全部处于熔断中, 立即 return None 不浪费 5s×多 host 超时(5554 只全量会卡到 nginx 504)"""
-    # 快速短路: 三源(东财/同花顺/腾讯日K)都熔断中 → 立即跳过(昨比对该 code 置空, 评分时容忍缺失)
-    # 2026-08-31: 去掉逐只 WARNING(36804 条日志风暴拖死 worker), 聚合统计在 fetch_yesterday_amounts 批级短路处理
+    # 快速短路: 四源(东财/同花顺/腾讯日K/量脉)都熔断中 → 立即跳过(昨比对该 code 置空, 评分时容忍缺失)
+    # 2026-09-01: 原三源短路会跳过第4源量脉(量脉正常时也置空) → 改为含量脉判断; 三源 down 但量脉可用时继续走量脉兜底
     if (_check_circuit("eastmoney_kline") and _check_circuit("ths_kline")
-            and _check_circuit("tencent_kline")):
+            and _check_circuit("tencent_kline") and _check_circuit("liangmai_kline")):
         return None
     qs = urllib.parse.urlencode({
         "secid": _secid(code), "fields1": "f1,f2,f3,f4,f5,f6",
@@ -742,12 +769,15 @@ def _fetch_yesterday_amount_one(code):
         return v
     try:
         from . import liangmai
+        t1 = time.time()
         v = liangmai._fetch_yesterday_amount_one(code, _bj_date_str().replace("-", ""))
         if v is not None:
+            _record("liangmai_kline", True, int((time.time() - t1) * 1000))
             log.info("昨比量脉兜底成功 code=%s", code)
             return v
+        _record("liangmai_kline", False)
     except Exception:
-        pass
+        _record("liangmai_kline", False)
     return None
 
 
@@ -805,10 +835,11 @@ def fetch_yesterday_amounts(codes):
     if need:
         # 2026-08-31 线上事故: 全源熔断时逐只短路打 WARNING → 36804 条日志风暴,
         # 日志 I/O 阻塞 worker 导致 /api/stocks 674s、health 超时。改为批级短路: 一条聚合日志 + 直接返回
-        # 三源(东财/同花顺/腾讯日K)全部熔断才短路; 任一源可用则继续尝试(腾讯作第三源)
+        # 四源(东财/同花顺/腾讯日K/量脉)全部熔断才短路; 任一源可用则继续尝试(量脉作第4源兜底)
+        # 2026-09-01: 原三源短路会跳过量脉(量脉正常时昨比也全置空, 9/1 短路1207次 vs 量脉兜底仅21次) → 含量脉
         if (_check_circuit("eastmoney_kline") and _check_circuit("ths_kline")
-                and _check_circuit("tencent_kline")):
-            log.warning("昨日成交额: 东财+同花顺+腾讯 三源全部熔断中, 本批%d只全部短路(昨比置空)", len(need))
+                and _check_circuit("tencent_kline") and _check_circuit("liangmai_kline")):
+            log.warning("昨日成交额: 东财+同花顺+腾讯+量脉 四源全部熔断中, 本批%d只全部短路(昨比置空)", len(need))
             return {}
         ok_cnt = 0
         fail_cnt = len(need)
