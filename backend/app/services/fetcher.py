@@ -288,8 +288,10 @@ def _fetch_tencent_batch(symbols):
 
 def fetch_tencent_market(fs):
     """腾讯全市场行情兜底: 以全市场代码清单分批发拉 → 映射为东财 diff 格式
-    (f2现价/f3涨跌%/f8换手/f12代码/f14名称/f21流通市值/f615竞价涨幅≈f3/
+    (f2现价/f3涨跌%/f4昨收/f5成交量/f8换手/f12代码/f14名称/f21流通市值/f615竞价涨幅≈f3/
      f616竞价额≈成交额/f617量≈成交量/f630异动=0), 返回与 fetch_eastmoney 同构的列表。
+    2026-09-01 修复: 原映射缺 f4/f5, scorer.is_suspended(f4<=0 或 f5==0 判停牌)
+    会把全部腾讯兜底数据误判为停牌 → 东财熔断时选股/自动锁定(system_batch/auto_apply)结果为空。
     竞价专属字段(f615/f616/f617)腾讯无精确值, 用现价涨幅/成交额近似(盘中口径一致)。
     2026-08-31 加速: 原串行 19 批(5500/300) + 每批 sleep0.1 ≈ 5-18s, 改 5 并发 ≈ 1-2s
     (qt.gtimg.cn 批量接口抗并发, 东财故障兜底时快照/选股时点更准)"""
@@ -326,10 +328,12 @@ def fetch_tencent_market(fs):
                 turnover = float(f[38])       # 换手率
                 amt_wan = float(f[37])        # 成交额(万)
                 vol_hand = float(f[36])        # 成交量(手)
+                pre_close = float(f[4])        # 昨收
             except (ValueError, IndexError):
                 continue
             out.append({
                 "f2": price, "f3": chg, "f8": turnover,
+                "f4": pre_close, "f5": vol_hand,   # 2026-09-01 修复: 缺 f4/f5 会被 is_suspended 误判停牌
                 "f12": code, "f14": f[1],
                 "f21": mv_yi * 1e8,            # 元
                 "f615": chg,                    # 竞价涨幅(近似)

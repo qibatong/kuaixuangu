@@ -88,11 +88,35 @@ def test_tencent_market_mapping(monkeypatch):
     assert r["f2"] == 1297.40          # 现价
     assert r["f3"] == 0.39             # 涨跌%
     assert r["f8"] == 0.13             # 换手率
+    assert r["f4"] == 1297.40          # 昨收(2026-09-01 修复: 缺 f4 被 is_suspended 误判停牌)
+    assert r["f5"] == 16126            # 成交量(手)(2026-09-01 修复: 缺 f5 同样误判停牌)
     assert abs(r["f21"] - 16218.56 * 1e8) < 1  # 流通市值(亿→元)
     assert r["f615"] == 0.39           # 竞价涨幅≈现价涨幅
     assert r["f616"] == 208601 * 1e4   # 竞价金额≈成交额
     assert r["f617"] == 16126 * 100    # 竞价量≈成交量
     assert r["f630"] == 0
+
+
+# ---------- 2026-09-01 修复: 腾讯兜底缺 f4/f5 → is_suspended 误判停牌 → 自动锁定/system_batch 选股为 0 ----------
+def test_tencent_mapping_not_suspended(monkeypatch):
+    """生产事故回归: 东财熔断走腾讯兜底时, 映射行必须含 f4(昨收)/f5(成交量),
+    否则 scorer.is_suspended(f4<=0 或 f5==0 判停牌) 把全部兜底数据误判停牌,
+    导致 9:25 自动锁定(system_batch/auto_apply)结果为空(2026-09-01 生产机 batch 7052 = 0 只)。"""
+    from app.services import scorer
+    body = _make_tx_line("600519", "贵州茅台", "1297.40", "0.39", "16126", "208601", "0.13", "16218.56", "1421.53")
+    fields = _parse_tx(body)["600519"]
+    fetcher._TENCENT_CODES_CACHE["codes"] = ["600519"]
+    fetcher._TENCENT_CODES_CACHE["ts"] = 0
+    monkeypatch.setattr(fetcher, "_all_market_codes", lambda: ["600519"])
+    monkeypatch.setattr(fetcher, "_fetch_tencent_batch", lambda symbols: {"600519": fields})
+    rows = fetcher.fetch_tencent_market("m:1+t:2")
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["f4"] > 0 and r["f5"] > 0, "腾讯兜底必须带 f4/f5, 否则被误判停牌"
+    assert scorer.is_suspended(r) is False, "正常行情不得被判停牌"
+    # 修复前回归: 若未来映射缺 f4/f5(或字段被改丢), 测试立即失败
+    assert scorer.is_suspended({"f12": "600519", "f14": "茅台", "f2": 1297.40}) is True, \
+        "缺 f4/f5 时必须被判停牌(证明 is_suspended 敏感性, 防误改)"
 
 
 # ---------- 容灾: 东财失败自动切腾讯 ----------
