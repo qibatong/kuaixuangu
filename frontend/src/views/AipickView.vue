@@ -88,7 +88,7 @@
               </thead>
               <tbody>
                 <tr v-for="(r, i) in rows" :key="r.code + i">
-                  <td class="name-col">
+                  <td class="name-col" :data-stock-code="r.code" :data-stock-name="r.name" title="点击查看分时/日K/周K/月K">
                     <div class="name-main">{{ r.name }}</div>
                     <div class="name-sub">{{ r.code }}</div>
                   </td>
