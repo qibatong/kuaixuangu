@@ -116,8 +116,19 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         return jr({"ok": False, "msg": "服务端处理失败: %s" % e}, 500)
 
     # 落库: 锁定选股与筛选重算都保存为该用户的历史批次, 实时刷新(refresh)不落库
+    # 2026-09-02 同参去重: filter 60s 内相同筛选参数不重复落库(防脚本/手滑刷历史批次);
+    # lock 保留原语义(9:30 前唯一锁定+推送), system_batch(auto)/auto_apply 直连不经过此路由
     if action in ("lock", "filter"):
-        batch_id = history.save_batch(uid, action, result, f)
+        if action == "filter":
+            dup = history.recent_same_filter(uid, f, window=60)
+            if dup:
+                log.info("选股同参去重 uid=%s markets=%s 60s内重复filter命中批次=%s 跳过落库",
+                         uid, ",".join(f["markets"]), dup)
+                batch_id = dup
+            else:
+                batch_id = history.save_batch(uid, action, result, f)
+        else:
+            batch_id = history.save_batch(uid, action, result, f)
         log.info("选股落库 uid=%s action=%s markets=%s 返回%d只 batch=%s 耗时%.0fms",
                  uid, action, ",".join(f["markets"]), len(result), batch_id, (time.time() - t0) * 1000)
     else:

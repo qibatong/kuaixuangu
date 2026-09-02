@@ -53,6 +53,44 @@ def save_batch(user_id, action, result, f, auto_applied=False):
         return None
 
 
+def _canon_filter_fingerprint(f):
+    """规范化筛选参数指纹: 排除 markets, 键排序(兼容 dict 插入顺序差异)"""
+    return json.dumps({k: v for k, v in f.items() if k != "markets"},
+                      ensure_ascii=False, sort_keys=True)
+
+
+def _canon_markets_key(f):
+    """规范化 markets 集合键: 排序后拼接(兼容前端传参顺序差异: hs,cyb == cyb,hs)"""
+    return ",".join(sorted(f.get("markets") or []))
+
+
+def recent_same_filter(user_id, f, window=60):
+    """同一用户 window 秒内是否已存在相同参数(action=filter + 筛选参数 + markets 集合)的批次。
+    2026-09-02 防刷: 脚本/自动化/手滑在窗口内反复点"应用", 历史只落一条。
+    返回命中的最近批次 id, 无则 None(调用方正常落库)。
+    注: 仅用于用户主动 filter; lock / system_batch(auto) / auto_apply 不受影响。"""
+    fk = _canon_filter_fingerprint(f)
+    mk = _canon_markets_key(f)
+    t = int(time.time())
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, filters, markets FROM batches "
+            "WHERE user_id=? AND action='filter' AND ts>=? ORDER BY ts DESC LIMIT 50",
+            (user_id, t - window)).fetchall()
+    finally:
+        conn.close()
+    for r in rows:
+        try:
+            old_fk = _canon_filter_fingerprint(json.loads(r["filters"] or "{}"))
+        except Exception:
+            old_fk = None
+        old_mk = ",".join(sorted((r["markets"] or "").split(",")))
+        if old_fk == fk and old_mk == mk:
+            return r["id"]
+    return None
+
+
 def list_batches(user_id, limit=200):
     """历史批次列表(2026-08-30 主人需求: 即使用户没点选股, 也要看 system 自动存的批次)
     合并返回: 当前用户自己的批次 + system 公共批次(user_id=0, auto_applied=1)
