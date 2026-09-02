@@ -89,8 +89,8 @@ def _do_run(time_point):
     if not raw:
         log.warning("system_batch[%s] raw 为空, 跳过", time_point)
         return
-    # 拉昨日成交额 + 9_20 快照(同 stocks.py)
-    yesterday_map = fetch_yesterday_amounts([s.get("f12") for s in raw])
+    # 拉昨日成交额 + 9_20 快照(同 stocks.py); wait=True: 系统批次需完整昨比(后台任务可等待)
+    yesterday_map = fetch_yesterday_amounts([s.get("f12") for s in raw], wait=True)
     snapshot_map = auction_snapshot.load_snapshot()
     # 评分(用系统默认过滤 = 管理员全局默认, 与首页左视图一致; 不用用户 filter_prefs)
     f_raw = _system_filter()

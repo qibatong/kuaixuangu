@@ -70,8 +70,12 @@ SPOT_MAX_PAGES = int(os.environ.get("SPOT_MAX_PAGES", "30"))   # 盘中全市场
 LIANGMAI_TOKEN = os.environ.get("LIANGMAI_TOKEN", "")
 
 # 昨日成交额(日K)抓取: 低并发 + 多域名轮询 + 熔断, 避免触发东财限流
-YESTERDAY_FETCH_WORKERS = 8
-YESTERDAY_FETCH_TIMEOUT = 20   # 批量并发整体超时上限(秒), 超时未完成跳过(昨比置空), 防阻塞
+YESTERDAY_FETCH_WORKERS = 4        # 2026-09-02 生产事故: 8 并发持续打爆源, 降 4
+YESTERDAY_FETCH_TIMEOUT = 12   # 批量并发整体超时上限(秒), 超时未完成跳过(昨比置空), 防阻塞
+                               # (2026-09-02: 20→12, 全量重试时卡顿减半)
+YESTERDAY_RETRY_TTL = 600      # 昨比失败缓存重试窗口(秒): 失败也写当日缓存, 窗口内不重复拉取,
+                               # 避免每请求重复拉全市场触发源限流(2026-09-02 生产事故根因;
+                               # 180→600 降重试频率, 东财限流期 10 分钟才一次全量重试)
 KLINE_TIMEOUT = 5
 KLINE_HOSTS = [
     "https://push2his.eastmoney.com",

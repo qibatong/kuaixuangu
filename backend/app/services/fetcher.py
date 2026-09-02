@@ -30,9 +30,13 @@ log = logger.get_logger(__name__)
 _cache = {}
 _fetch_lock = threading.Lock()
 
-# 昨日全天成交额(万元): code -> [缓存日期, 金额], 当日有效
+# 昨日全天成交额(万元): code -> [缓存日期, 金额(pair) 或 None(失败), 写入时间戳], 当日有效
 _yesterday_cache = {}
 _yesterday_lock = threading.Lock()
+# 昨比批量拉取互斥(2026-09-02 生产事故): 并发请求同时进 need 判定都判定为空 → 各自全量拉取
+# (14s 内 5 次全量 5000 只), 失败缓存只挡串行挡不住并发。批锁: 同时只允许一个全量拉取,
+# 其余请求直接返回当前缓存(可能为空), 避免并发重复打爆数据源。
+_yday_batch_lock = threading.Lock()
 
 # 域名熔断: 请求失败/被限流时冷却, 避免反复重试拖慢响应
 _broken_hosts = {}
@@ -75,7 +79,10 @@ _health_lock = threading.Lock()
 # 线程, 内存耗尽 + 负载 19 拖死生产, 全站 nginx upstream timeout)。
 # 改常驻池: 线程数有界(8+8), 超时放弃的任务留池内排队, 不阻塞请求也不新建线程。
 _EXECUTOR_CLIST = ThreadPoolExecutor(max_workers=8, thread_name_prefix="kf-clist")
-_EXECUTOR_YDAY = ThreadPoolExecutor(max_workers=8, thread_name_prefix="kf-yday")
+# 2026-09-02 生产事故: 昨比并发 8 在高并发选股下持续打爆东财/同花顺K线(2h 失败 3万次),
+# 每请求重复拉 3950 只 → /api/stocks 20-43s。降为 4 线程, 配合失败缓存(见 fetch_yesterday_amounts)
+_EXECUTOR_YDAY = ThreadPoolExecutor(max_workers=config.YESTERDAY_FETCH_WORKERS,
+                                    thread_name_prefix="kf-yday")
 
 
 def _check_circuit(src="eastmoney_clist"):
@@ -843,19 +850,26 @@ def _kline_amount_pair(klines):
     return [t, t1]
 
 
-def fetch_yesterday_amounts(codes):
-    """并发获取一批股票的昨日成交额(万元), 带当日缓存; 返回 {code: 金额万元}
-    (2026-08-17 修复: ex.map 会等所有并发完成, 东财限流时单个 code 遍历多域名+同花顺兜底
-     可拖 30-60s → 抢筹 listLast 阻塞 62s; 改 as_completed + 整体超时, 超时未完成跳过(昨比置空)"""
+def fetch_yesterday_amounts(codes, wait=False):
+    """读取昨比缓存并(可选)触发批量拉取; 返回 {code: [T日, T-1日]万元}
+    - wait=False(默认, 用户请求路径): 有 need 时后台线程拉取, 当前请求立即返回现有缓存
+      (昨比部分/空, 评分容忍缺失) → 请求永不因昨比卡顿(2026-09-02 生产事故核心修复)
+    - wait=True(auto_apply/system_batch 等后台任务): 同步等待拉取完成(最多超时), 保证
+      锁定/自动应用名单昨比完整
+    其余(失败缓存/批锁/超时cancel)见 _do_fetch_yesterday。
+    """
     if not codes:
         return {}
     today = _bj_date_str()
+    now = time.time()
     need = []
     with _yesterday_lock:
         for c in codes:
             ent = _yesterday_cache.get(c)
             if ent is None or ent[0] != today:
                 need.append(c)
+            elif ent[1] is None and now - ent[2] >= config.YESTERDAY_RETRY_TTL:
+                need.append(c)          # 失败缓存过期, 允许重试(窗口内不再打扰数据源)
     if need:
         # 2026-08-31 线上事故: 全源熔断时逐只短路打 WARNING → 36804 条日志风暴,
         # 日志 I/O 阻塞 worker 导致 /api/stocks 674s、health 超时。改为批级短路: 一条聚合日志 + 直接返回
@@ -864,40 +878,91 @@ def fetch_yesterday_amounts(codes):
         if (_check_circuit("eastmoney_kline") and _check_circuit("ths_kline")
                 and _check_circuit("tencent_kline") and _check_circuit("liangmai_kline")):
             log.warning("昨日成交额: 东财+同花顺+腾讯+量脉 四源全部熔断中, 本批%d只全部短路(昨比置空)", len(need))
+            with _yesterday_lock:
+                for c in need:          # 短路也写失败缓存, 避免下个请求重复判定
+                    _yesterday_cache[c] = [today, None, now]
             return {}
-        ok_cnt = 0
-        fail_cnt = len(need)
-        # 2026-09-01: 改进程级常驻池(原 shutdown(wait=False) 后线程滞留后台跑网络超时,
-        # 高并发下线程只增不减拖死生产)。超时未完成的任务留在池内排队, 不阻塞请求。
-        ex = _EXECUTOR_YDAY
-        futs = {ex.submit(_fetch_yesterday_amount_one, c): c for c in need}
-        try:
-            for f in as_completed(futs, timeout=config.YESTERDAY_FETCH_TIMEOUT):
-                c = futs[f]
-                try:
-                    v = f.result()
-                    if v is not None:
-                        ok_cnt += 1
-                        with _yesterday_lock:
-                            _yesterday_cache[c] = [today, v]
-                except Exception:
-                    pass
-                fail_cnt -= 1
-        except _FutTimeout:
-            # 超时未完成: 跳过(不等待慢 code), 昨比对该 code 置空
-            done = len(need) - fail_cnt
-            log.warning("昨日成交额拉取超时(%ds) 已完成%d/%d, 超时跳过",
-                        config.YESTERDAY_FETCH_TIMEOUT, done, len(need))
-            fail_cnt = len(need) - ok_cnt
-        if fail_cnt:
-            log.warning("昨日成交额拉取: 需%d 成功%d 失败%d", len(need), ok_cnt, fail_cnt)
+        if wait:
+            # 同步路径(后台任务): 等待批锁, 前一个拉取完成后可能已填充缓存 → 重新判定
+            _yday_batch_lock.acquire()
+            try:
+                need2 = []
+                with _yesterday_lock:
+                    for c in codes:
+                        ent = _yesterday_cache.get(c)
+                        if ent is None or ent[0] != today:
+                            need2.append(c)
+                        elif ent[1] is None and now - ent[2] >= config.YESTERDAY_RETRY_TTL:
+                            need2.append(c)
+                if need2:
+                    ok_cnt, fail_cnt = _do_fetch_yesterday(need2, today)
+                    if fail_cnt:
+                        log.warning("昨日成交额(同步)拉取: 需%d 成功%d 失败%d",
+                                    len(need2), ok_cnt, fail_cnt)
+            finally:
+                _yday_batch_lock.release()
+        else:
+            # 异步路径(用户请求): 非阻塞拿锁, 拿到就后台拉; 拿不到说明已在拉, 直接返回缓存
+            if _yday_batch_lock.acquire(blocking=False):
+                threading.Thread(target=_yday_background_fetch, args=(need, today),
+                                 daemon=True, name="yday-bg").start()
     out = {}
     with _yesterday_lock:
         for c in codes:
             ent = _yesterday_cache.get(c)
-            if ent and ent[0] == today:
+            if ent and ent[0] == today and ent[1] is not None:
                 out[c] = ent[1]
     return out
+
+
+def _yday_background_fetch(need, today):
+    """后台昨比拉取线程(异步路径)"""
+    try:
+        ok_cnt, fail_cnt = _do_fetch_yesterday(need, today)
+        if fail_cnt:
+            log.info("昨比后台拉取完成: 需%d 成功%d 失败%d", len(need), ok_cnt, fail_cnt)
+        elif ok_cnt:
+            log.info("昨比后台拉取完成: %d 只全部成功", ok_cnt)
+    except Exception as e:
+        log.warning("昨比后台拉取异常 err=%s", e)
+    finally:
+        _yday_batch_lock.release()
+
+
+def _do_fetch_yesterday(need, today):
+    """实际批量拉取(批锁内执行): 返回 (成功数, 失败数)
+    2026-09-02 超时后 cancel 队列中未运行任务: 原实现超时后任务滞留线程池队列
+    (5000 只 4 线程 12s 只完成部分, 剩余全排队) → 后续抢筹/其他拉取排队等线程 → 全站卡顿"""
+    ok_cnt = 0
+    fail_cnt = len(need)
+    # 2026-09-01: 改进程级常驻池(原 shutdown(wait=False) 后线程滞留后台跑网络超时,
+    # 高并发下线程只增不减拖死生产)。超时未完成的任务留在池内排队, 不阻塞请求。
+    ex = _EXECUTOR_YDAY
+    futs = {ex.submit(_fetch_yesterday_amount_one, c): c for c in need}
+    try:
+        for f in as_completed(futs, timeout=config.YESTERDAY_FETCH_TIMEOUT):
+            c = futs[f]
+            try:
+                v = f.result()
+            except Exception:
+                v = None
+            with _yesterday_lock:
+                _yesterday_cache[c] = [today, v, time.time()]   # 成功/失败都缓存
+            if v is not None:
+                ok_cnt += 1
+            fail_cnt -= 1
+    except _FutTimeout:
+        # 超时未完成: cancel 队列中未运行任务(立即释放线程给后续拉取), 已运行任务继续(完成写缓存)
+        done = len(need) - fail_cnt
+        log.warning("昨日成交额拉取超时(%ds) 已完成%d/%d, 取消队列任务(写失败缓存)",
+                    config.YESTERDAY_FETCH_TIMEOUT, done, len(need))
+        with _yesterday_lock:
+            for f, c in futs.items():
+                if not f.done():
+                    f.cancel()          # 未开始任务从队列移除, 线程立即空闲
+                    _yesterday_cache[c] = [today, None, time.time()]
+        fail_cnt = len(need) - ok_cnt
+    return ok_cnt, fail_cnt
 
 
 # ---------- 盘中实时选股: 东财涨停池(封单/连板/炸板) ----------
