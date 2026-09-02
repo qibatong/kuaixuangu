@@ -82,3 +82,11 @@ def on_startup():
     # 注意: 快照采集/尾盘推送调度已拆分到独立进程 app/worker.py (kx-worker.service)
     # web 进程只处理 API 请求: 避免 9:25 高峰采集与请求抢资源, web 重启不影响采集
     # (Phase1 2026-08-16)
+    # 昨比预热必须挂 web 进程: 昨比缓存是 web 进程级(fetcher._yesterday_cache),
+    # kx-worker 独立进程缓存不共享。交易日 9:05 分批预热, 盘中请求直接命中缓存。
+    # (2026-09-02 生产事故后新增; --workers 2 下两 worker 各自预热, 早盘前压力小)
+    try:
+        from .services import yday_prewarm
+        yday_prewarm.start_prewarm_scheduler()
+    except Exception as e:
+        log.warning("昨比预热调度启动失败(不影响主服务) err=%s", e)
