@@ -91,6 +91,85 @@ def recent_same_filter(user_id, f, window=60):
     return None
 
 
+def find_today_lock(user_id, now_ts=None):
+    """查该用户"今日(北京时间)"最近一次手动 lock 批次(action='lock' AND auto_applied=0)。
+    2026-09-02 当日幂等: 9:25 后重新进入页面自动 lock 直接读库返回, 不再全量重拉/重复落库。
+    - now_ts 可注入(测试用), 默认当前时间; 返回该批次 dict(batches 行)或 None。
+    - 只认手动 lock(auto_applied=0): 9:26 系统统一批次(auto_applied=1, user_id=0)不算用户锁定。"""
+    t = now_ts if now_ts is not None else time.time()
+    g = time.gmtime(t + 8 * 3600)            # 北京时间
+    bdate = "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
+    conn = _conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM batches WHERE user_id=? AND action='lock' AND auto_applied=0 "
+            "AND batch_date=? ORDER BY ts DESC LIMIT 1",
+            (user_id, bdate)).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
+
+
+def find_today_lock_matching(user_id, f, now_ts=None):
+    """当日幂等命中判定: 是否已有"9:25 后落库 + 同筛选参数"的手动 lock 批次。
+
+    语义(2026-09-02 主人确认):
+    - 9:25 前竞价数据未定型, 每次进入页面都应重算拿最新 → 早于 9:25 的 lock 不幂等
+      (否则 9:15 早进锁了不准名单, 9:29 刷新页面拿不到新名单)。
+    - 9:25 后名单定型, 自动 lock(页面刷新/重新登录)若与已锁参数相同 → 直读该批次返回,
+      不再全量重拉行情 + 不再堆 lock 历史; 用户主动点「锁定」带 force=1 强制重算。
+    - 参数不同(用户改过筛选条件再重锁) → 不幂等, 正常重算落新批次。
+    返回命中的批次 dict 或 None。"""
+    t = now_ts if now_ts is not None else time.time()
+    g = time.gmtime(t + 8 * 3600)
+    bdate = "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
+    gate = "09:25:00"                        # 9:25 后落库才算名单定型
+    fk = _canon_filter_fingerprint(f)
+    mk = _canon_markets_key(f)
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM batches WHERE user_id=? AND action='lock' AND auto_applied=0 "
+            "AND batch_date=? AND batch_time>=? ORDER BY ts DESC LIMIT 10",
+            (user_id, bdate, gate)).fetchall()
+    finally:
+        conn.close()
+    for r in rows:
+        try:
+            old_fk = _canon_filter_fingerprint(json.loads(r["filters"] or "{}"))
+        except Exception:
+            old_fk = None
+        old_mk = ",".join(sorted((r["markets"] or "").split(",")))
+        if old_fk == fk and old_mk == mk:
+            return dict(r)
+    return None
+
+
+def get_batch_stocks_mapped(batch_id):
+    """读批次明细并映射为前端 list 结构(与 score_all_stocks 输出同 camelCase 字段)。
+    幂等直读批次时返回给前端, 保证字段与正常选股结果一致(不缺失 price 等实时字段为 None 由前端容错)。"""
+    conn = _conn()
+    try:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM batch_stocks WHERE batch_id=? ORDER BY rank", (batch_id,)).fetchall()]
+    finally:
+        conn.close()
+    out = []
+    for s in rows:
+        out.append({
+            "code": s["code"], "name": s["name"],
+            "probability": s["probability"], "confidence": s["confidence"],
+            "bidChange": s["bid_change"], "realChange": s["real_change"],
+            "entityChange": s["entity_change"], "bidTurnover": s["bid_turnover"],
+            "warnType": s["warn_type"], "circulationMV": s["circulation_mv"],
+            "industry": s["industry"], "concept": s["concept"],
+            "bidAmt": s["bid_amt"],
+            "bidRatio": s.get("bid_ratio"),
+            "qiangchou": 1 if s.get("qiangchou") else 0,
+        })
+    return out
+
+
 def list_batches(user_id, limit=200):
     """历史批次列表(2026-08-30 主人需求: 即使用户没点选股, 也要看 system 自动存的批次)
     合并返回: 当前用户自己的批次 + system 公共批次(user_id=0, auto_applied=1)

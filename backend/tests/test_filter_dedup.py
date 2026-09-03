@@ -122,13 +122,15 @@ def test_api_filter_same_params_saves_once(client, create_user_token):
     assert _count_filter(uid) == 2, "不同参数应新增批次"
 
 
-def test_api_lock_still_saves_each_time(client, create_user_token, monkeypatch):
-    """lock 语义不受影响: 连续两次同参 lock 每次都会落库(9:30 前唯一锁定+推送场景)"""
+def test_api_lock_force_still_saves_each_time(client, create_user_token, monkeypatch):
+    """lock 语义: 主动重锁(force=1)绕过当日幂等, 每次都会落库(9:30 前唯一锁定+推送场景)。
+    (2026-09-02 当日幂等加入后: 无 force 同参自动 lock 9:25 后会被直读拦截,
+     用户显式点「锁定」= force → 仍逐次落库, 语义不变)"""
     u = create_user_token()
     token, uid = u["token"], u["uid"]
     hdrs = {"Authorization": "Bearer " + token}
     base = "/api/stocks?action=lock&markets=hs,cyb,kcb&bidGt=7&probLt=65&confLt=65" \
-           "&floatMvGt=100&priceGt=30&bidAmtFloor=3000"
+           "&floatMvGt=100&priceGt=30&bidAmtFloor=3000&force=1"
     from app.services import scorer
     # conftest mock: lock 在 before930=True 时放行; 这里强制当前视为盘前场景仅验证落库次数
     monkeypatch.setattr(scorer, "bj_now", lambda: (9, 20, True))
@@ -139,4 +141,4 @@ def test_api_lock_still_saves_each_time(client, create_user_token, monkeypatch):
     n = conn.execute("SELECT COUNT(*) FROM batches WHERE user_id=? AND action='lock'",
                      (uid,)).fetchone()[0]
     conn.close()
-    assert n == 2, "lock 两次同参应各落一条(不去重)"
+    assert n == 2, "force 主动重锁两次同参应各落一条(不受幂等/去重影响)"

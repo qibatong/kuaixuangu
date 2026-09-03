@@ -29,6 +29,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
     q = qs(request)
     action = (q.get("action") or ["filter"])[0]
     mode = (q.get("mode") or ["auction"])[0]
+    force = (q.get("force") or ["0"])[0] in ("1", "true", "True")   # 主动重锁(绕过当日幂等)
     if action not in ("lock", "filter", "refresh", "ping"):
         log.warning("选股非法参数 action=%s uid=%s", action, uid)
         return jr({"ok": False, "msg": "非法参数"}, 400)
@@ -81,6 +82,26 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
             })
 
         # ---- 竞价模式 ----
+        # 2026-09-02 当日幂等(主人确认): 9:30 前页面自动 lock 若当日已存在
+        # "9:25 后落库 + 同筛选参数"的手动 lock 批次 → 直读批次返回,
+        # 不再全量重拉行情/重复落库/重复推送(解决"每次重新登录都重算一次+堆 lock 历史")。
+        # 仅拦自动 lock(force=0): 9:25 前数据未定型仍每次重算; 用户主动点「锁定」(force=1)
+        # 或参数已改 → 正常重算。命中返回结构含 idempotent=True 供前端识别。
+        if (action == "lock" and before930 and mode == "auction" and not force):
+            try:
+                lock_b = history.find_today_lock_matching(uid, f)
+                if lock_b:
+                    lst = history.get_batch_stocks_mapped(lock_b["id"])
+                    log.info("选股lock当日幂等 uid=%s batch=%s 直读%d只(跳重拉/落库/推送)",
+                             uid, lock_b["id"], len(lst))
+                    return jr({
+                        "ok": True, "mode": "auction", "list": lst,
+                        "count": len(lst), "before930": True,
+                        "spotMap": {}, "dataTime": int(lock_b.get("ts") or time.time()),
+                        "idempotent": True, "batch_id": lock_b["id"],
+                    })
+            except Exception as e:
+                log.warning("lock 当日幂等查询失败(降级正常重算) uid=%s err=%s", uid, e)
         # 评分筛选: 沿用原逻辑(9:30 前 lock 强制, refresh/filter 走 TTL 缓存, 至多200只)
         raw, err = fetcher.ensure_cache(action, fs, before930)
         if err:

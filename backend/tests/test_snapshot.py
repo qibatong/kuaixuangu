@@ -144,13 +144,15 @@ def test_accel_negative_when_pullback(monkeypatch):
 
 # ---------- 竞价排查日志 ----------
 def test_lock_missing_snapshot_warns(client, first_user, monkeypatch, caplog):
-    """竞价窗口内 lock 但当日 9:20 快照缺失 → 必须产生 warning 告警(排查关键)"""
+    """竞价窗口内 lock 但当日 9:20 快照缺失 → 必须产生 warning 告警(排查关键)
+    (2026-09-02 当日幂等: 无 force 自动 lock 若命中当日同参批次会直读返回跳过告警,
+     本用例验证的是重算路径的告警, 显式 force=1 锁定重算)"""
     token, _, _ = first_user
     monkeypatch.setattr(scorer, "in_auction_window", lambda: True)
     monkeypatch.setattr(scorer, "bj_now", lambda: (9, 25, True))
     monkeypatch.setattr(auction_snapshot, "load_snapshot", lambda *a, **k: {})
     with caplog.at_level(logging.WARNING, logger="app"):
-        r = client.get("/api/stocks?action=lock&markets=sh_sz",
+        r = client.get("/api/stocks?action=lock&markets=sh_sz&force=1",
                        headers={"Authorization": "Bearer " + token})
     assert r.status_code == 200
     msgs = [rec.getMessage() for rec in caplog.records]
@@ -158,12 +160,13 @@ def test_lock_missing_snapshot_warns(client, first_user, monkeypatch, caplog):
 
 
 def test_lock_context_log(client, first_user, monkeypatch, caplog):
-    """lock 上下文日志包含 窗口/快照/昨日额 状态"""
+    """lock 上下文日志包含 窗口/快照/昨日额 状态
+    (2026-09-02 当日幂等: 同参自动 lock 直读时无重算日志, 本用例验证重算路径, force=1)"""
     token, _, _ = first_user
     monkeypatch.setattr(scorer, "in_auction_window", lambda: True)
     monkeypatch.setattr(scorer, "bj_now", lambda: (9, 25, True))
     with caplog.at_level(logging.INFO, logger="app"):
-        r = client.get("/api/stocks?action=lock&markets=sh_sz",
+        r = client.get("/api/stocks?action=lock&markets=sh_sz&force=1",
                        headers={"Authorization": "Bearer " + token})
     assert r.status_code == 200
     msgs = [rec.getMessage() for rec in caplog.records]
