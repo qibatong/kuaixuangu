@@ -11,6 +11,7 @@
         <col style="width:46px" />
         <col style="width:50px" />
         <col style="width:40px" />
+        <col style="width:64px" />
         <col style="width:52px" />
         <col style="width:42px" />
         <col style="width:46px" />
@@ -25,6 +26,7 @@
           <th class="sortable num col-bidchg" :class="{ active: sortKey === 'bidChange' }" title="竞价涨幅" @click="onSort('bidChange', 'number')">竞涨<span class="sort-ind">{{ sortInd('bidChange') }}</span></th>
           <th class="sortable num col-entchg" :class="{ active: sortKey === 'entityChange' }" @click="onSort('entityChange', 'number')">实体<span class="sort-ind">{{ sortInd('entityChange') }}</span></th>
           <th class="sortable col-warn" :class="{ active: sortKey === 'warnType' }" @click="onSort('warnType', 'number')">异动<span class="sort-ind">{{ sortInd('warnType') }}</span></th>
+          <th class="sortable num col-bidamt" :class="{ active: sortKey === 'bidAmt' }" title="集合竞价阶段撮合成交金额" @click="onSort('bidAmt', 'number')">竞额<span class="sort-ind">{{ sortInd('bidAmt') }}</span></th>
           <th class="sortable num col-mv" :class="{ active: sortKey === 'circulationMV' }" @click="onSort('circulationMV', 'number')">流通<span class="sort-ind">{{ sortInd('circulationMV') }}</span></th>
           <th class="sortable num col-score" :class="{ active: sortKey === 'probability' }" @click="onSort('probability', 'number')">评分<span class="sort-ind">{{ sortInd('probability') }}</span></th>
           <th class="sortable num col-conf" :class="{ active: sortKey === 'confidence' }" @click="onSort('confidence', 'number')">可信<span class="sort-ind">{{ sortInd('confidence') }}</span></th>
@@ -50,6 +52,7 @@
           <td :class="item.bidChange > 0 ? 'up' : 'down'" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'">{{ signed(item.bidChange) }}%</td>
           <td :class="item.entityChange === null || item.entityChange === undefined ? 'dim' : (item.entityChange > 0 ? 'up' : 'down')" :title="item.entityChange === null || item.entityChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + fmtPct(item._staleEntity) + '）') : ''">{{ item.entityChange === null || item.entityChange === undefined ? '-' : signed(item.entityChange) + '%' }}</td>
           <td>{{ warnLabel(item.warnType) }}</td>
+          <td :title="'集合竞价阶段撮合成交金额: ' + (item.bidAmt ? bidAmtText(item.bidAmt) : '-')">{{ item.bidAmt || item.bidAmt === 0 ? bidAmtText(item.bidAmt) : '-' }}</td>
           <td>{{ item.circulationMV ? item.circulationMV.toFixed(1) : '-' }}</td>
           <td class="score-cell">{{ item.probability }}分</td>
           <td>{{ item.confidence }}%</td>
@@ -159,6 +162,11 @@ function addToPool(item) {
 // 是否已在池中
 function inPool(code) {
   return pool.stockPool.some(x => x.code === code)
+}
+// 2026-09-03 主人要求恢复: 竞价选股表重新展示「竞额」列(bidAmt, 万元); amt>=10000万(1亿)折算显示亿
+function bidAmtText(amt) {
+  if (amt === null || amt === undefined || isNaN(amt)) return '-'
+  return amt >= 10000 ? (amt / 10000).toFixed(2) + '亿' : Math.round(amt).toFixed(0)
 }
 function realCls(item) {
   if (item.realChange < item.bidChange) return 'real-green'
