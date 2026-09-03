@@ -1,8 +1,11 @@
 // 选股相关 API
 import { request } from './request'
 
-export function fetchStocks(action, filterParams, mode = 'auction') {
-  return request('/api/stocks', { query: { action, mode, ...filterParams } })
+export function fetchStocks(action, filterParams, mode = 'auction', force = false) {
+  // force=true: 主动重锁(绕过当日幂等, 9:25 后同参自动 lock 会直读当日批次)
+  return request('/api/stocks', {
+    query: { action, mode, ...(force ? { force: 1 } : {}), ...filterParams }
+  })
 }
 
 export function stockChart(code, period = 'day') {

@@ -260,11 +260,12 @@ export const useStocksStore = defineStore('stocks', {
       return stocks
     },
     // ---- 数据操作 ----
-    async fetchAndCache() {
+    async fetchAndCache(force = false) {
       if (this.isDataCached) return
       // 9:30 前锁定最新竞价数据(落库); 9:30 后保持锁定名单, 只更新实时行情
+      // force=true: 主动重锁(绕过当日幂等); 页面加载自动 lock 不带 force → 后端幂等直读
       const action = isBefore930() ? 'lock' : 'refresh'
-      const data = await fetchStocks(action, this.buildFilterParams())
+      const data = await fetchStocks(action, this.buildFilterParams(), 'auction', force && action === 'lock')
       if (action === 'lock') {
         this.saveBidSnapshot(data.list)          // 保存完整竞价锁定名单(含抢筹结论)
         this.cachedStocks = data.list
@@ -275,7 +276,8 @@ export const useStocksStore = defineStore('stocks', {
       this.isDataCached = true
       this.before930 = data.before930
       this.realTimeRefreshUsed = false
-      showToast('✅ 选股完成', 'success')
+      // 2026-09-02 当日幂等: 后端命中当日同参锁定批次时 idempotent=true → 提示已载入不误导用户
+      showToast(data.idempotent ? '✅ 已载入今日锁定名单' : '✅ 选股完成', 'success')
     },
     async updateRealTimeOnly({ silent = false } = {}) {
       this.realTimeRefreshUsed = true
@@ -309,7 +311,8 @@ export const useStocksStore = defineStore('stocks', {
       this.isDataCached = false
       this.cachedStocks = []
       this.realTimeRefreshUsed = false
-      await this.fetchAndCache()
+      // force=true: 用户主动点「锁定」→ 绕过当日幂等, 强制重算并落新批次
+      await this.fetchAndCache(true)
     },
     async     applyCustomFilter() {
       if (this.mode === 'spot') return this.applySpotFilter()
