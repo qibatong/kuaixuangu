@@ -84,6 +84,31 @@ _EXECUTOR_CLIST = ThreadPoolExecutor(max_workers=8, thread_name_prefix="kf-clist
 _EXECUTOR_YDAY = ThreadPoolExecutor(max_workers=config.YESTERDAY_FETCH_WORKERS,
                                     thread_name_prefix="kf-yday")
 
+# 腾讯兜底缺票告警限频(2026-09-03): 东财封锁期腾讯全市场兜底为常态, 稳定缺 ~8 只(0.14%)
+# 若每次拉取都打 ERROR 会每 20-30s 刷一条(实测单日 676 条, 占 ERROR 总量 72%), 淹没真实故障。
+# 语义: 缺票状态(缺票数+失败批)变化时即时 ERROR; 同状态 10 分钟最多 1 条 WARNING 汇总;
+# 完全恢复(缺票=0 且失败批=空)后重置, 下次缺票视为新变化重新 ERROR。
+_TENCENT_MISS_ALERT_INTERVAL = 600   # 同状态缺票 10 分钟最多报 1 条
+_tencent_miss_state = {"ts": 0.0, "key": None, "repeat": 0}
+
+
+def _miss_alert_decision(state, sig, now):
+    """腾讯兜底缺票告警限频判定(纯函数, 便于单测)。
+    sig: (缺票数, tuple(重试后仍失败批大小, 已排序))
+    返回动作字符串(同时原地更新 state{ts, key, repeat}):
+      'error'       — 状态变化或首次缺票 → 调用方立即按严重度打 ERROR/WARNING
+      'repeat_warn' — 同状态且距上次告警 >= interval → 打一条 WARNING 汇总(证明仍在刷, 但限频)
+      'silent'      — 同状态且限频内 → 静默只计数, 不产生日志"""
+    changed = sig != state["key"]
+    if changed:
+        state.update(ts=now, key=sig, repeat=1)
+        return "error"
+    state["repeat"] += 1
+    if now - state["ts"] >= _TENCENT_MISS_ALERT_INTERVAL:
+        state["ts"] = now
+        return "repeat_warn"
+    return "silent"
+
 
 def _check_circuit(src="eastmoney_clist"):
     """检查数据源是否熔断中; 熔断时快速失败, 不等超时(防单 worker 卡死雪崩)
@@ -362,15 +387,28 @@ def fetch_tencent_market(fs):
         raise
     _record("tencent_market", True, int((time.time() - t0) * 1000))
     # 2026-09-01 可观测性: 缺票告警(2026-09-01 17:00 曾静默丢 8 只导致左视图缺票污染整个下午)
+    # 2026-09-03 降噪: 东财封锁期腾讯兜底为常态, 稳定缺 ~8 只(0.14%), 原每次 ERROR 单日刷 676 条;
+    #   状态(缺票数+失败批)变化才即时 ERROR; 同状态 10 分钟最多 1 条 WARNING(见 _miss_alert_decision)
     miss = len(codes) - len(result)
     if _failed_batches or miss > 0:
         ratio = miss / len(codes) if codes else 0.0
-        if miss >= 5 or ratio > 0.001:
-            log.error("腾讯兜底缺票告警! 代码清单%d只 实际返回%d只 缺%d只(%.2f%%) 重试后失败%d批=%s fs=%s",
-                      len(codes), len(result), miss, ratio * 100, len(_failed_batches), _failed_batches, fs)
-        else:
-            log.warning("腾讯兜底轻微缺票: 代码清单%d只 实际返回%d只 缺%d只 失败%d批",
-                        len(codes), len(result), miss, len(_failed_batches))
+        sig = (miss, tuple(sorted(_failed_batches)))
+        act = _miss_alert_decision(_tencent_miss_state, sig, time.time())
+        if act == "error":
+            if miss >= 5 or ratio > 0.001:
+                log.error("腾讯兜底缺票告警! 代码清单%d只 实际返回%d只 缺%d只(%.2f%%) 重试后失败%d批=%s fs=%s",
+                          len(codes), len(result), miss, ratio * 100, len(_failed_batches), _failed_batches, fs)
+            else:
+                log.warning("腾讯兜底轻微缺票: 代码清单%d只 实际返回%d只 缺%d只 失败%d批",
+                            len(codes), len(result), miss, len(_failed_batches))
+        elif act == "repeat_warn":
+            log.warning("腾讯兜底缺票持续中: 代码%d只 返回%d只 缺%d只(%.2f%%) 失败%d批 (同状态第%d次触发, 10分钟内不重复告警)",
+                        len(codes), len(result), miss, ratio * 100, len(_failed_batches),
+                        _tencent_miss_state["repeat"])
+        # act == "silent": 同状态且限频内 → 静默(降噪换取 journald 信号纯度)
+    else:
+        # 完全恢复: 重置告警状态, 下次缺票视为新变化重新 ERROR 告警
+        _tencent_miss_state.update(ts=0.0, key=None, repeat=0)
     log.info("腾讯兜底行情拉取成功 代码%d只 返回%d只 耗时%.0fms", len(codes), len(result),
              (time.time() - t0) * 1000)
     return result
