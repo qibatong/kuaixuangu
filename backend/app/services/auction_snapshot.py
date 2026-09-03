@@ -371,6 +371,38 @@ def load_snapshot(date=None, time_point=DEFAULT_POINT):
     return {r[0]: {"bid_change": r[1], "bid_amt": r[2]} for r in rows}
 
 
+# 竞额定格读取(2026-09-03): 盘中「竞额」列应显示当日 9:25 定格竞价额而非行情实时成交额
+# (东财封禁期全市场行情走腾讯兜底, 腾讯无竞价额字段, fetcher 把累计实时成交额塞进 f616 近似 →
+#  盘中直接读行情 bidAmt=实时成交额失真)。9:30 前无连续竞价, 各时点快照 bid_amt=该时点竞价累计
+# 撮合额, 9:25 时点即当日最终定格竞价额, 全天(盘中/收盘)恒定可信。
+# 时点优先级: 9_25 定格 > 9_24 抢筹尾声 > 9_20 > 9_15(越晚越接近定格)
+_BID_AMT_POINT_RANK = {"9_25": 0, "9_24": 1, "9_20": 2, "9_15": 3}
+
+
+def load_day_bid_amt(date=None):
+    """当日竞价额定格 map: {code: bid_amt(万元)} — 取每只股票当日最晚时点的非空 bid_amt。
+    返回 {code: amt}; 当日无快照/无数据返回 {}。调用方(stocks.py/system_batch)在评分时传入
+    process_all_stocks(day_bid_amt=...), 使 bidAmt/bidRatio 以 9:25 定格竞价额为准。"""
+    date = date or _bj_date()
+    try:
+        conn = database.get_conn()
+        rows = conn.execute(
+            "SELECT code, time_point, bid_amt FROM snapshot_bid "
+            "WHERE date=? AND bid_amt>0", (date,)).fetchall()
+        conn.close()
+    except Exception:
+        return {}
+    best = {}
+    for code, tp, amt in rows:
+        r = _BID_AMT_POINT_RANK.get(tp)
+        if r is None:
+            continue
+        cur = best.get(code)
+        if cur is None or r < cur[0]:
+            best[code] = (r, float(amt))
+    return {c: v[1] for c, v in best.items()}
+
+
 def query_snapshot(date, time_point, limit=50):
     """历史回放: 某日某时点全市场快照(按竞价涨幅降序, 带名称)"""
     try:

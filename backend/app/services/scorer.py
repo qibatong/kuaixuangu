@@ -569,15 +569,20 @@ def is_qiangchou(bid_change, bid_ratio):
     return bid_change >= 2
 
 
-def score_all_stocks(raw, yesterday_map=None, snapshot_map=None, qiangchou_codes=None):
+def score_all_stocks(raw, yesterday_map=None, snapshot_map=None, qiangchou_codes=None,
+                     day_bid_amt=None):
     """全市场评分 + 排序(不按用户过滤); 返回 scored 列表(含 _raw)
     2026-08-16 拆分: 9:26 自动应用按用户复用同一份评分, 只各自过滤,
     避免 150+ 用户各跑一次全市场评分(性能 150 倍差距)。
     2026-09-01 抢筹口径: 新增 qiangchou_codes(右视图竞价异动"竞价抢筹"代码集合) —
     命中集合才打抢筹标(与右视图 9:20→9:25 涨幅/最后一秒段口径一致);
-    集合为空或未传时回退旧公式(竞价涨幅>=2% 且 竞/昨>=20%)兜底。"""
+    集合为空或未传时回退旧公式(竞价涨幅>=2% 且 竞/昨>=20%)兜底。
+    2026-09-03 竞额定格: day_bid_amt = 当日 9:25 定格竞价额 map {code: 万元}
+    (auction_snapshot.load_day_bid_amt), 窗口外(盘中/收盘)bidAmt/bidRatio 以其为准 — 
+    腾讯兜底期行情 f616 被近似为实时累计成交额, 直接读会把「竞额」显示成实时成交额。"""
     yesterday_map = yesterday_map or {}
     snapshot_map = snapshot_map or {}
+    day_bid_amt = day_bid_amt or {}
     scored = []
     # 竞价/昨比: 分子=今日竞价额(f616, 9:25定格), 分母=最近已收盘交易日(T)全天额。
     # pair 由 _kline_amount_pair 保证 [最近已收盘T日, T-1日], 任何时间(窗口/盘中/收盘)都可算,
@@ -585,8 +590,18 @@ def score_all_stocks(raw, yesterday_map=None, snapshot_map=None, qiangchou_codes
     auction_ok = in_auction_window()
     for s in raw:
         sc = compute_score(s)
-        bid_amt = get_bid_amt(s, auction_ok)   # 万元
-        pair = yesterday_map.get(s.get("f12"))   # [最近已收盘T日, T-1日] 万元
+        code = s.get("f12")
+        # 竞价额(万元): 2026-09-03 修复「竞额列=实时成交额」— 东财封禁期行情走腾讯兜底,
+        # f616 被近似为累计实时成交额(fetcher.py), 盘中(窗口外)直接读会把竞额显示成实时成交额。
+        # → 窗口内(9:15-9:31)行情 f616 新鲜(东财定格/腾讯仍在竞价累计阶段)直接用;
+        #   窗口外(盘中/收盘) f616 已失真, 以当日 9:25 定格快照为准(9:30 前无连续竞价,
+        #   9:25:xx 采集 bid_amt=当日竞价定格额, 全天恒定可信); 快照缺该 code 才回退 f616。
+        if auction_ok:
+            bid_amt = get_bid_amt(s, True)
+        else:
+            snap_amt = day_bid_amt.get(code)
+            bid_amt = snap_amt if (snap_amt or 0) > 0 else get_bid_amt(s, False)   # 万元
+        pair = yesterday_map.get(code)   # [最近已收盘T日, T-1日] 万元
         bid_ratio = None
         if pair:
             y_amt = pair[0]
@@ -632,9 +647,16 @@ def score_all_stocks(raw, yesterday_map=None, snapshot_map=None, qiangchou_codes
     return scored
 
 
-def process_all_stocks(raw, f, yesterday_map=None, snapshot_map=None, qiangchou_codes=None):
-    """评分 + 过滤 + 清理 _raw (兼容入口, 内部复用 score_all_stocks)"""
-    scored = score_all_stocks(raw, yesterday_map, snapshot_map, qiangchou_codes)
+def process_all_stocks(raw, f, yesterday_map=None, snapshot_map=None, qiangchou_codes=None,
+                       day_bid_amt=None):
+    """全市场竞价评分(与竞价锁定共用同一套): 评分 + 过滤 + 排序。
+    兼容入口(2026-09-01 可测性重构后内部复用 score_all_stocks + apply_filters);
+    与 score_all_stocks + apply_filters 拆分等价, 保留兼容入口: 评分 + 过滤 + 清理 _raw。
+    day_bid_amt: 当日 9:25 定格竞价额 map {code: 万元}(auction_snapshot.load_day_bid_amt),
+    非 None 时 bidAmt/bidRatio 优先用它 — 修复腾讯兜底期 f616=实时成交额导致盘中
+    「竞额」列显示成实时成交额(2026-09-03 主人反馈)。
+    """
+    scored = score_all_stocks(raw, yesterday_map, snapshot_map, qiangchou_codes, day_bid_amt)
     result = apply_filters(scored, f)
     for it in result:
         it.pop("_raw", None)
