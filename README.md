@@ -30,6 +30,8 @@
 | **数据源可观测性** | 熔断器（**指数退避 60→600s** + 抖动保护，连续失败达阈值才熔断）+ 健康快照 `/api/health`（`serviceable` 字段）+ 板块/热榜源故障前端警示 |
 | **数据源独立校验** | 量脉涨停池双源交叉比对 / 抢筹涨幅自检 / 行情健康自检（交易日 9:40+15:10 自动跑）→ 异常推**飞书 + Server酱（微信直达手机）+ 企业微信** |
 | **线程守护 thread_guard** | systemd timer 每分钟监控 kuaixuan/kx-worker 全部进程线程数（进程级共享线程池 8+8+6 有界），超阈连续 2 次 → **飞书 + 短信（18883856602）双通道告警**，600s 冷却防刷屏 |
+| **昨比异步化 + 9:05 预热** | 昨比(昨日成交额)拉取默认异步——用户请求**永不因昨比卡顿**（后台线程拉取 + 失败缓存 600s 重试窗口 + 批锁防并发全量拉）；交易日 9:05 web 进程分批预热全市场昨比填缓存，东财限流期盘中不冷拉 |
+| **lock 当日幂等** | 9:25 后同筛选参数自动 lock **直读当日批次**（不重拉/不重算/不重推）；主动点「锁定」带 force 强制重算；filter 60s 同参去重防脚本刷历史批次 |
 | **推送提醒** | 竞价锁定结果推飞书/Server酱/企业微信；尾盘抢筹 14:57 自动推送 |
 
 ## 页面总览
@@ -82,10 +84,10 @@ python scripts/sync_test_server.py   # 同步测试机(后端 md5 对比)
 
 ```bash
 cd backend
-python -m pytest tests/ -q     # 453 用例全绿 + 4 跳过(Redis 未装)
+python -m pytest tests/ -q     # 506 用例全绿 + 4 跳过(Redis 未装)
 ```
 
-覆盖：评分筛选算法、抢筹双表（差值回退/持久化/兜底/**左右视图口径一致**）、快照存取与多时点、三时点榜分层、会员三层/邀请奖励/邮箱认证、**短信验证码找回密码（阿里云闭环+防重放）**、**腾讯兜底源（字段映射/熔断切换/f4/f5 回归/单批重试/缺票告警）**、**量脉数据源（字段映射/节流/独立校验告警）**、**熔断指数退避/抖动保护**、**线程守护打点**、9:26 自动应用、**system_batch 自动批次监控（过滤与首页一致）**、**抢筹落库回读/老库迁移**、stats 全路由、CacheStore 跨进程状态等。
+覆盖：评分筛选算法、抢筹双表（差值回退/持久化/兜底/**左右视图口径一致**）、快照存取与多时点、三时点榜分层、会员三层/邀请奖励/邮箱认证、**短信验证码找回密码（阿里云闭环+防重放）**、**腾讯兜底源（字段映射/熔断切换/f4/f5 回归/单批重试/缺票告警）**、**量脉数据源（字段映射/节流/独立校验告警）**、**熔断指数退避/抖动保护**、**线程守护打点**、**昨比异步化（失败缓存/批锁/异步路径/预热调度）**、**filter 同参去重 + lock 当日幂等**、**竞额定格 9:25 快照**、9:26 自动应用、**system_batch 自动批次监控（过滤与首页一致）**、**抢筹落库回读/老库迁移**、stats 全路由、CacheStore 跨进程状态等。
 
 **真实浏览器回归**（测试机 chromium CDP，`scripts/browser_reg.py`）：登录 → /auction 各 Tab 数据断言 + 弹窗 + 排序，全过才算部署成功；systemd `ExecStartPost` 自动触发，失败推飞书。
 
@@ -100,7 +102,7 @@ kuaixuan/
 │   │   ├── core/ db/           # 配置/日志 + SQLite 建表迁移
 │   │   ├── services/           # cache_store/security/fetcher/scorer/kpl/auction_snapshot/system_batch/sms_verify/aipick_scheduler/liangmai/liangmai_check/notify...
 │   │   └── api/                # auth/stocks/history/invite/prefs/admin/kpl/stats/health/aipick/sms/summary
-│   └── tests/                  # pytest 453 用例
+│   └── tests/                  # pytest 506 用例
 ├── frontend/                   # Vue 3 + Vite
 │   └── src/
 │       ├── router/ stores/ views/ components/ composables/
