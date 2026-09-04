@@ -657,6 +657,9 @@ async function loadAll(fromUser = false) {
     }
     autoFallback = false
     s3List.value = s3.list || []
+    // 2026-09-04 修复: Promise.all 已拉过三时点榜, 须标记已加载, 否则下方
+    // ensureTabData('s3') 又重拉一次(每次 loadAll 双请求); 30s 轮询清标记自愈不受影响
+    loadedTabs.add('s3')
     // 记录实际数据日期(后端可能对齐到最近交易日)
     const d = (ov.days && ov.days.length ? ov.days[0].date : '') || dt || ''
     dataDate.value = d || dt || ''
