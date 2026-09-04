@@ -41,7 +41,7 @@ async def rate_limit_middleware(request: Request, call_next):
     if token:
         uid = security.valid_token(token)
 
-    if not security.rate_allow(ip):
+    if not security.rate_allow(ip, uid):
         cost = (time.time() - start) * 1000
         log.warning("限流拦截 ip=%s %s %s uid=%s 429 %.0fms",
                     ip, request.method, request.url.path, uid or "-", cost)

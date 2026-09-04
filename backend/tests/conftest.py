@@ -127,7 +127,8 @@ def mock_rate_limits(monkeypatch_session):
     from app.services import security
     monkeypatch_session.setattr(security, "register_allowed", lambda ip: True)
     monkeypatch_session.setattr(security, "register_ip_day_allowed", lambda ip: True)
-    monkeypatch_session.setattr(security, "rate_allow", lambda ip: True)
+    # 兼容 2026-09-04 新签名 rate_allow(ip, uid=None) — 测试默认全放行, 不走真实限流路径
+    monkeypatch_session.setattr(security, "rate_allow", lambda ip, uid=None: True)
 
 
 @pytest.fixture(scope="session")
