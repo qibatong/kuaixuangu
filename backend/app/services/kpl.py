@@ -376,6 +376,51 @@ def fetch_market_breadth():
     }
 
 
+# ==================== 市场概览聚合(2026-09-04) ====================
+# 生产实测(14:40-14:50 journald, uid=49): /api/kpl/market-brief 冷请求 1174ms,
+# 是首屏最慢接口且此前**完全无结果缓存**。耗时拆解:
+#   1) fetch_market_breadth() → _flash_line 两次 xuangubao 外网(无缓存, timeout=10s)
+#   2) fetch_market_brief()   → 300s 缓存 miss 时拉全市场(5556 只, 秒级)
+#   3) get_same_time_yesterday() + settings 读库
+# 修复: 整段聚合结果走跨进程缓存(30s) + single-flight 防击穿 → 命中 <50ms;
+#       数据低频(分时涨跌家数/两市成交额), 30s 新鲜度足够;
+#       预热线程(_kpl_prewarm_once)每 12s 兜底刷新, 消除冷窗口。
+# 注: 预热周期(12s) < TTL(30s) 时, 重算只跑第 1)3) 步 — 第 2) 步命中
+#     fetch_market_brief 的 300s 跨进程缓存, 不会每 12s 拉全市场。
+MARKET_BRIEF_TTL = 30
+_MB_PAYLOAD_KEY = "market_brief_payload"
+
+
+def build_market_brief_payload():
+    """市场概览聚合(纯 dict, 不含 ok 字段): breadth/market/last_same_time/last/ts
+    聚合逻辑下沉到 services 层, 供 api 与预热线程共用(预热在 services 层跑)"""
+    from ..db import database
+    from . import fetcher as _fetcher
+    breadth = fetch_market_breadth()
+    market = _fetcher.fetch_market_brief()
+    last_same_time = _fetcher.get_same_time_yesterday()
+    last = None
+    try:
+        conn = database.get_conn()
+        row = conn.execute("SELECT value FROM settings WHERE key='market_brief_last'").fetchone()
+        conn.close()
+        if row and row[0]:
+            last = json.loads(row[0])
+    except Exception:
+        last = None
+    return {"breadth": breadth, "market": market,
+            "last_same_time": last_same_time, "last": last,
+            "ts": int(time.time())}
+
+
+def fetch_market_brief_payload():
+    """带跨进程缓存 + single-flight 的市场概览(api 与预热统一入口)
+    预热用法: store.delete(_MB_PAYLOAD_KEY) 后再调本函数强制重算写缓存"""
+    from .cache_store import cached_singleflight
+    return cached_singleflight(store, _MB_PAYLOAD_KEY, MARKET_BRIEF_TTL,
+                               build_market_brief_payload)
+
+
 def fetch_sentiment():
     """情绪值/连板高度: {ztjs 涨停家数, strong 情绪, lbgd 连板高度, df_num 大幅回撤}"""
     def loader():
@@ -3503,15 +3548,22 @@ def _kpl_prewarm_once():
     缓存到期瞬间仍有空窗(与 spot-prewarm 直写内存 map 语义对齐)。
     只预热 yidong 4 key(TTL 15s 最短): sentiment(60s)/bid_seal(30s)/bid_net(30s)
     TTL 较长, 冷时 single-flight 只放行 1 个 loader(0.3-0.6s) 已足够 → 不浪费 KPL
-    付费配额(80000/日): 12s×4key×1worker ≈ 1200 次/小时, 占盘中日配额 <10%"""
+    付费配额(80000/日): 12s×4key×1worker ≈ 1200 次/小时, 占盘中日配额 <10%
+    2026-09-04 追加 market_brief_payload(TTL 30s): 它是首屏最慢接口(冷 1174ms),
+    且子调用 fetch_market_breadth 走 xuangubao(非 KPL 付费配额), 预热成本低;
+    重算时子调用 fetch_market_brief 命中 300s 跨进程缓存, 不会每 12s 拉全市场"""
     for name, fn in (
         ("yidong_doc90", fetch_kpl_doc90),
         ("yidong_doc108", fetch_kpl_doc108),
         ("yidong_doc109", fetch_kpl_doc109),
         ("yidong_pianli_hot", fetch_kpl_pianli_hot),
+        (_MB_PAYLOAD_KEY, fetch_market_brief_payload),
     ):
         try:
-            store.delete("kpl:" + name)      # 强制 miss → fn 内部 loader 重拉并写缓存
+            # yidong_* 走 _cached → 缓存 key 带 "kpl:" 前缀;
+            # market_brief_payload 的 key 本身已含命名空间, 不再加前缀
+            ck = ("kpl:" + name) if name.startswith("yidong_") else name
+            store.delete(ck)      # 强制 miss → fn 内部 loader 重拉并写缓存
             data = fn()
             if data is None:
                 log.warning("KPL预热 %s 返回空(数据源抖动, 下轮自愈)", name)

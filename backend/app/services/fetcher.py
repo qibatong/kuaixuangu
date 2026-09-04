@@ -17,6 +17,7 @@ import concurrent.futures
 
 from ..core import config, logger
 from . import scorer   # 仅复用 parse_float / market_fs (无循环: scorer 不依赖 fetcher)
+from .cache_store import store   # 2026-09-04: 两市概况改跨进程缓存(无循环: cache_store 只依赖 core)
 
 # 部分行情网关(走代理/自签名)证书校验失败, 仅关校验不关加密
 _NO_VERIFY_CTX = ssl.create_default_context()
@@ -466,7 +467,12 @@ def fetch_eastmoney_all(fs):
 
 
 # 两市市场概况缓存(2026-08-16): 全市场股票数 + 成交额, 5 分钟新鲜度
+# 2026-09-04: 由「进程内 dict」改为「跨进程 cache_store」——uvicorn --workers 2 下
+# 两 worker 原本各持一份 dict, 各自到期各拉一次全市场(外网重复翻倍); 跨进程共享后
+# 全市场拉取次数减半, 且与 spotMap 预热错峰。保留 dict 仅为降级回退(拉取失败时)。
 _market_brief_cache = {"ts": 0.0, "data": None}
+_MARKET_BRIEF_KEY = "market_brief_amt"      # 跨进程缓存 key
+_MARKET_BRIEF_TTL = 300                     # 默认新鲜度(秒), 与 max_age 默认值一致
 
 
 def fetch_market_brief(max_age=300):
@@ -474,15 +480,21 @@ def fetch_market_brief(max_age=300):
     - stockCount = 全市场股票数(沪+深+北, fetch_eastmoney_all 返回列表长度)
     - amount     = sum(f6) 全市场成交额(元 -> 亿)
     - 非交易时段(周末/收盘后) f6 可能全 0 -> amount 0, 由调用方决定展示
-    5 分钟缓存, 首次全市场分页拉取 5-10s, 之后命中缓存"""
+    5 分钟缓存, 首次全市场分页拉取 5-10s, 之后命中缓存
+    2026-09-04: 缓存改跨进程 cache_store(见上), max_age=0 语义保持——
+    跳过读缓存强制重拉, 拉完仍回写(ttl 取默认 300)供其他 worker 复用"""
     now = time.time()
-    if _market_brief_cache["data"] and now - _market_brief_cache["ts"] < max_age:
-        return _market_brief_cache["data"]
+    if max_age > 0:
+        cached = store.get(_MARKET_BRIEF_KEY)
+        if cached is not None:
+            _market_brief_cache.update({"ts": now, "data": cached})   # 同步进程内降级副本
+            return cached
     try:
         raw = _fetch_market_all_with_fallback(scorer.market_fs(["hs", "cyb", "kcb", "bj"]))
     except Exception as e:
         log.warning("两市概况拉取失败 err=%s", e)
-        return _market_brief_cache["data"] or None
+        # 降级顺序: 跨进程缓存(可能刚过期) → 进程内上次值
+        return store.get(_MARKET_BRIEF_KEY) or _market_brief_cache["data"] or None
     total_amt = sum(scorer.parse_float(s.get("f6")) for s in raw)
     g = time.gmtime(now + 8 * 3600)   # 北京时间
     d = {
@@ -490,6 +502,8 @@ def fetch_market_brief(max_age=300):
         "amount": round(total_amt / 1e8, 2),          # 亿元
         "date": "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday),
     }
+    ttl = max_age if max_age > 0 else _MARKET_BRIEF_TTL
+    store.set(_MARKET_BRIEF_KEY, d, ttl=ttl)
     _market_brief_cache.update({"ts": now, "data": d})
     return d
 

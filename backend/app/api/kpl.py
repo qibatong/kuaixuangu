@@ -184,31 +184,15 @@ def api_kpl_market_brief(request: Request, uid: int = Depends(get_uid)):
     - last_same_time: 上一交易日同一时点的成交额 + 股票数(2026-08-16 新增,
       由 worker 每 5 分钟滚动存 market_brief_intraday_{date}, 次日起可对比)
     - last: 上一交易日收盘全天快照(settings market_brief_last, 15:30 存)
-    前端据此展示 '两市总量 + 较昨日同时' 与 '涨跌家数分布'"""
-    from ..db import database
-    from ..services import fetcher
-    import time as _time
-    breadth = kpl.fetch_market_breadth()
-    market = fetcher.fetch_market_brief()
-    # 昨日同一时点(优先; 24h 内积累的分时快照)
-    last_same_time = fetcher.get_same_time_yesterday()
-    # 昨日全天(15:30 收盘快照, 兜底)
-    last = None
-    try:
-        conn = database.get_conn()
-        row = conn.execute("SELECT value FROM settings WHERE key='market_brief_last'").fetchone()
-        conn.close()
-        if row and row[0]:
-            import json
-            last = json.loads(row[0])
-    except Exception:
-        last = None
-    return jr({"ok": True,
-               "breadth": breadth,
-               "market": market,
-               "last_same_time": last_same_time,
-               "last": last,
-               "ts": int(_time.time())})
+    前端据此展示 '两市总量 + 较昨日同时' 与 '涨跌家数分布'
+    2026-09-04 缓存: 生产实测(uid=49, 14:40-14:50) 冷请求 1174ms 为首屏最慢接口,
+    且此前完全无结果缓存。聚合逻辑已下沉到 services/kpl.py
+    build_market_brief_payload, 整段结果走跨进程缓存 30s + single-flight 防击穿
+    → 命中 <50ms; 预热线程每 12s 兜底刷新消除冷窗口"""
+    payload = kpl.fetch_market_brief_payload()
+    if not payload:      # loader 异常兜底: 直接算一次(不写缓存), 保证接口不返空
+        payload = kpl.build_market_brief_payload()
+    return jr(dict(payload, ok=True))
 
 
 @router.get("/api/kpl/bid-seal")

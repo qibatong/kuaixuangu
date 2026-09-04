@@ -88,6 +88,13 @@ def mock_data_source(monkeypatch_session):
     try:
         from app.services import kpl as _kpl_mod
         monkeypatch_session.setattr(_kpl_mod, "start_kpl_prewarm", lambda: None)
+        # 桩掉前先留存真实函数: 预热**行为**测试(如 test_market_brief_cache_20260904
+        # 验证 market_brief 被纳入预热且 delete 用对 key)需要调真实实现;
+        # 真实实现内的 loader 由各用例自行 monkeypatch, 不会打外网。
+        # 注意: 必须 raising=False —— 该属性原本不存在, Monkeypatch 默认 raising=True
+        # 会对"新增属性"抛 AttributeError(被下面 except 静默吞掉, 极难排查)。
+        monkeypatch_session.setattr(_kpl_mod, "_kpl_prewarm_once_real",
+                                    _kpl_mod._kpl_prewarm_once, raising=False)
         monkeypatch_session.setattr(_kpl_mod, "_kpl_prewarm_once", lambda: None)
     except Exception:
         pass

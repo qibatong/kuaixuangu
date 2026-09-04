@@ -701,10 +701,13 @@ def test_market_brief_api(client, first_user, monkeypatch):
     def hdrs(token):
         return {"Authorization": "Bearer " + token}
 
-    """/api/kpl/market-brief 聚合返回 breadth + market + last"""
+    """/api/kpl/market-brief 聚合返回 breadth + market + last
+    2026-09-04: 接口新增 30s 结果缓存, 用例 monkeypatch 的是子函数 → 先清缓存"""
     from app.services import kpl, fetcher
+    from app.services.cache_store import store
     import app.api.kpl as kpl_api
 
+    store.delete(kpl._MB_PAYLOAD_KEY)
     monkeypatch.setattr(kpl, "fetch_market_breadth",
                         lambda: {"rise": 2423, "fall": 1882, "ts": 1, "day": "2026-08-17",
                                  "yesterday": {"rise": 2000, "fall": 3000, "ts": 1, "day": "2026-08-14"}})
@@ -749,8 +752,13 @@ def test_record_intraday_snapshot(client, monkeypatch):
 
 
 def test_market_brief_last_same_time(client, first_user, monkeypatch):
-    """/api/kpl/market-brief 返回 last_same_time 字段"""
+    """/api/kpl/market-brief 返回 last_same_time 字段
+    2026-09-04: 接口新增 30s 结果缓存(生产冷请求 1174ms → 命中 <50ms)。
+    用例 monkeypatch 的是子函数, 必须先清结果缓存, 否则会命中上一用例写入的
+    缓存数据而读不到本次桩值(曾导致 'NoneType' object is not subscriptable)"""
     from app.services import kpl, fetcher
+    from app.services.cache_store import store
+    store.delete(kpl._MB_PAYLOAD_KEY)
     monkeypatch.setattr(kpl, "fetch_market_breadth", lambda: {"rise": 1, "fall": 1, "ts": 1, "day": "x", "yesterday": None})
     monkeypatch.setattr(fetcher, "fetch_market_brief",
                         lambda *a, **k: {"stockCount": 100, "amount": 500.0, "date": "2026-08-17"})
