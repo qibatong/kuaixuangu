@@ -174,6 +174,9 @@ def test_bid_snapshot_3points_ok(client, first_user, monkeypatch):
         def gmtime(t=None):
             return _real_time.gmtime(t)
         @staticmethod
+        def time():
+            return _real_time.time()
+        @staticmethod
         def strftime(fmt, t=None):
             return "2026-08-20"   # == _seed_snapshot 写入日, 命中实时 merge 条件
     monkeypatch.setattr(stats_api, "_time", FakeTime)

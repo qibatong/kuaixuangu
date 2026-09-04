@@ -83,6 +83,14 @@ def mock_data_source(monkeypatch_session):
     # 单次拉取函数一并桩掉双保险。
     monkeypatch_session.setattr(fetcher, "start_spot_prewarm", lambda: None)
     monkeypatch_session.setattr(fetcher, "_spot_prewarm_once", lambda: None)
+    # 2026-09-04 KPL 首屏预热线程(main.py startup 同刻启动): 同样屏蔽, 防止测试进程
+    # 在窗口(9:15-15:05)内真拉开盘啦外网打 KPL 配额/污染日志。
+    try:
+        from app.services import kpl as _kpl_mod
+        monkeypatch_session.setattr(_kpl_mod, "start_kpl_prewarm", lambda: None)
+        monkeypatch_session.setattr(_kpl_mod, "_kpl_prewarm_once", lambda: None)
+    except Exception:
+        pass
 
 
 @pytest.fixture(scope="session")
