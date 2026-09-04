@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
 from ..services import auction_snapshot, fetcher, history, kpl, notify, scorer, stats
+from ..services.cache_store import store as _cstore   # 2026-09-04: refresh 计算缓存
 from .deps import get_uid, jr, qs
 
 log = logger.get_logger(__name__)
@@ -145,6 +146,32 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                     })
             except Exception as e:
                 log.warning("refresh 直读批次失败(降级正常重算) uid=%s err=%s", uid, e)
+        # 2026-09-04: refresh 全量重算**结果**缓存(只有无当日批次的用户才会走到这里 —
+        # 有批次用户已在上面 115 行直读返回)。无批次场景(新号 / 当日系统批次为空)
+        # 每次 ensure_cache 全市场 + 昨日K线 + 快照 + 全市场评分 ≈ 2.6s(测试机实测),
+        # 前端 30s 轮询会反复命中这条慢路径。
+        # 名单 + 评分按 (uid, fs, 参数指纹) 缓存 60s: 参数一改 key 就变 → 正常重算;
+        # 实时价格由下方 spot_map 每次现拉、前端 merge 覆盖, 故缓存**不影响价格实时性**。
+        # TTL 必须 > 前端 30s 轮询(TTL≤轮询周期 ⇒ 命中率≈0, auction-overview 已踩过)。
+        ck_full = None
+        if action == "refresh" and not before930 and mode == "auction":
+            ck_full = "stocks_refresh:%s:%s:%s" % (
+                uid, fs, history._canon_filter_fingerprint(f))
+            hit = _cstore.get(ck_full)
+            if hit is not None:
+                spot_map = {}
+                try:
+                    spot_map = fetcher.fetch_spot_quote_map(fs)
+                except Exception as e:
+                    log.warning("refresh计算缓存命中但全市场行情拉取失败(降级: 无实时覆盖) err=%s", e)
+                log.info("选股refresh命中计算缓存 uid=%s 返回%d只(跳全市场重拉/评分)",
+                         uid, len(hit))
+                return jr({
+                    "ok": True, "mode": "auction", "list": hit,
+                    "count": len(hit), "before930": before930,
+                    "spotMap": spot_map, "dataTime": int(time.time()),
+                    "reused": True, "source": "calc_cache",
+                })
         # 评分筛选: 沿用原逻辑(9:30 前 lock 强制, refresh/filter 走 TTL 缓存, 至多200只)
         raw, err = fetcher.ensure_cache(action, fs, before930)
         if err:
@@ -214,6 +241,13 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
             stats.record_daily_yizi(raw)
         except Exception as e:
             log.error("一字涨停统计失败 err=%s", e)
+
+    # 写回 refresh 计算缓存(仅 9:30 后 auction refresh; lock/filter 有落库副作用不缓存)
+    if ck_full and result:
+        try:
+            _cstore.set(ck_full, result, ttl=60)
+        except Exception as e:
+            log.warning("refresh计算缓存写入失败(不影响本次返回) err=%s", e)
 
     return jr({
         "ok": True,

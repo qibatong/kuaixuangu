@@ -33,6 +33,7 @@ def _clean_caches():
         store.clear_prefix("hist_batch:")
         store.clear_prefix("bidseal:")
         store.clear_prefix("auction_overview:")
+        store.clear_prefix("stocks_refresh:")
         for k in keys:
             try:
                 store.delete(k)
@@ -152,6 +153,66 @@ def test_auction_overview_ttl_is_60(monkeypatch):
 
 
 # ---------- ④ bid-seal ----------
+
+# ---------- ⑤ /api/stocks 无批次用户的全量重算 ----------
+
+def test_stocks_refresh_calc_cache(client, first_user, monkeypatch):
+    """P0: 无当日批次用户的 refresh 全量重算结果缓存(原每次 2.6s)
+    有批次的用户走 115 行直读分支; 新号/当日系统批次为空才落到这条慢路径"""
+    from app.services import fetcher, scorer
+
+    # 9:30 后(bj_now 返回 hour, minute, before930)
+    monkeypatch.setattr(scorer, "bj_now", lambda: (10, 30, False))
+    # 当日无可复用批次 → 进入全量重算
+    monkeypatch.setattr(
+        "app.services.history.find_today_reusable_batch",
+        lambda uid, f, now_ts=None: (None, None))
+    monkeypatch.setattr(fetcher, "fetch_spot_quote_map", lambda fs: {})
+
+    calls = {"n": 0}
+
+    def counting_process(*a, **k):
+        calls["n"] += 1
+        return [{"code": "600000", "name": "浦发银行", "probability": 0.9}]
+
+    monkeypatch.setattr(scorer, "process_all_stocks", counting_process)
+
+    h = {"Authorization": "Bearer " + first_user[0]}
+    url = "/api/stocks?action=refresh&mode=auction&markets=hs"
+    r1 = client.get(url, headers=h)
+    assert r1.status_code == 200, r1.text
+    assert r1.json().get("ok") is True
+    r2 = client.get(url, headers=h)
+    assert r2.status_code == 200
+    assert calls["n"] == 1, \
+        f"二次 refresh 应命中计算缓存(全市场评分仅1次), 实际 {calls['n']}"
+
+
+def test_stocks_refresh_cache_key_varies_by_params(client, first_user, monkeypatch):
+    """筛选参数改变 → 缓存 key 不同 → 正常重算(不能被旧参数的结果顶掉)"""
+    from app.services import fetcher, scorer
+
+    monkeypatch.setattr(scorer, "bj_now", lambda: (10, 30, False))
+    monkeypatch.setattr(
+        "app.services.history.find_today_reusable_batch",
+        lambda uid, f, now_ts=None: (None, None))
+    monkeypatch.setattr(fetcher, "fetch_spot_quote_map", lambda fs: {})
+
+    calls = {"n": 0}
+
+    def counting_process(*a, **k):
+        calls["n"] += 1
+        return [{"code": "600000", "name": "浦发银行"}]
+
+    monkeypatch.setattr(scorer, "process_all_stocks", counting_process)
+
+    h = {"Authorization": "Bearer " + first_user[0]}
+    # 注意: probLt 会被 scorer._clamp 夹到 5-95, 越界值(如 1/2)会被夹成同一个数
+    # → 必须用合法范围内的不同值, 否则指纹相同, 测不出参数隔离
+    client.get("/api/stocks?action=refresh&mode=auction&markets=hs&probLt=50", headers=h)
+    client.get("/api/stocks?action=refresh&mode=auction&markets=hs&probLt=70", headers=h)
+    assert calls["n"] == 2, f"参数改变应各自重算, 实际只算了 {calls['n']} 次"
+
 
 def test_bid_seal_postmarket_cached(client, first_user, monkeypatch):
     """P0: 盘后(非竞价时段)二次请求只走 1 次 fast-path 读库"""
