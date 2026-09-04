@@ -163,7 +163,10 @@ def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid), da
         return {"ok": True, "days": out}
 
     from ..services.cache_store import cached_singleflight
-    ttl = 30 if not date else 600
+    # 2026-09-04 二轮: date 空 TTL 30s→60s。原 30s 恰等于前端 30s 轮询周期 →
+    # 缓存刚过期就轮询, 命中率≈0(生产实测冷 1025ms); 60s 后命中率约 50%。
+    # 竞价数据每交易日仅 9:15/9:20/9:25 三次落库, 60s 新鲜度无业务影响。
+    ttl = 60 if not date else 600
     payload = cached_singleflight(_cstore, ck, ttl, _compute)
     return jr(payload)
 
@@ -277,9 +280,10 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
                  date, resolved)
     else:
         log.info("三时点榜 date=%s 命中当日数据", date)
-    rows = auction_snapshot.query_3points_board(resolved, limit)
-
     def _compute_rows():
+        # 2026-09-04 修复: 主查询原先写在缓存**外**(每请求必跑, 缓存形同虚设,
+        # 生产实测 956ms 里绝大部分是它) → 移进 _compute 内, 缓存命中时完全跳过
+        rows = auction_snapshot.query_3points_board(resolved, limit)
         # 2026-08-18 主人要求: 三时点榜加竞价换手 = 9_25竞价成交额/流通市值×100(与开盘啦口径一致)
         for it in rows:
             try:
@@ -313,7 +317,10 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
     from ..services.cache_store import cached_singleflight
     intraday = _is_intraday_stats() and resolved == _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 8 * 3600))
     ck = "s3points:%s:%s:%s" % ("live" if intraday else "hist", resolved, limit)
-    payload = cached_singleflight(_cstore, ck, 3 if intraday else 600, _compute_rows)
+    # 2026-09-04 二轮: 盘中 TTL 3s→15s。原 3s 远小于前端 30s 轮询周期 → 几乎每次
+    # 请求都 miss 重算(生产实测 956ms), 缓存命中率≈0; 15s 后命中率约 50%,
+    # 且现涨最坏延迟 15s 仍在"30s 轮询"原有延迟量级内, 体感无差别。
+    payload = cached_singleflight(_cstore, ck, 15 if intraday else 600, _compute_rows)
     return jr(payload)
 
 

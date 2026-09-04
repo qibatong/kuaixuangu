@@ -198,48 +198,64 @@ def api_kpl_market_brief(request: Request, uid: int = Depends(get_uid)):
 @router.get("/api/kpl/bid-seal")
 def api_kpl_bid_seal(request: Request, uid: int = Depends(require_vip_or_paid), date: str = ""):
     """竞价涨停委买额: date 空=实时, 指定 'YYYY-MM-DD' 回看历史(auction_daily_history)
-    2026-08-22: 竞价时段走实时 fetch_bid_seal + deep=True; 非竞价时段走 fast-path 读库"""
+    2026-08-22: 竞价时段走实时 fetch_bid_seal + deep=True; 非竞价时段走 fast-path 读库
+    2026-09-04 二轮缓存: 生产实测冷请求 709ms(14:45 盘后走 fast-path, 每次读库 +
+    多次 fill 补齐, 此前**无接口级缓存**) → 结果缓存 + single-flight 防击穿:
+    竞价时段 15s(现涨需实时感) / 盘后 300s(数据已定格) / 指定历史日 600s(不可变)"""
+    from ..services.cache_store import cached_singleflight, store
+
     if date:
-        resolved = _resolve_date(date)
-        d = kpl.query_auction_history(resolved, "seal")
-        kpl.fill_bid_turnover_from_snap(d, resolved)   # 2026-08-22: 历史快照竞换可能缺, 用当日快照补
-        # 2026-08-24: 开盘啦 Type4 bidChange 与自采竞价涨幅不一致 → 历史竞涨以自采快照为准强制覆盖
-        kpl.fill_bid_change_from_snap(d, resolved, override=True)
-        kpl.fill_close_change_from_kline(d, resolved)  # 2026-08-22: 历史回看现涨=当日收盘涨跌幅
-        return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
-                   "date": resolved, "requestedDate": date})
-    if not _is_auction_hours():
-        # 非竞价时段 → 从库快速读取 (当天优先, 历史回退)
-        d, d_str = _read_auction_fast("seal")
-        kpl.fill_bid_turnover_from_snap(d, d_str)   # 2026-08-22: 非交易日/历史回退补竞换
-        # 2026-08-24: 竞涨以自采快照为准强制覆盖(开盘啦 bidChange 不可靠)
-        kpl.fill_bid_change_from_snap(d, d_str, override=True)
-        _ensure_concepts(d, tag="auc:bid-seal[fast]")
-        # 2026-08-23 口径统一: fast-path 也按 serve_date 覆盖现涨(避免回退到历史日时仍是"最新今天涨幅")
+        ck = "bidseal:hist:" + date
+
+        def _load_hist():
+            resolved = _resolve_date(date)
+            d = kpl.query_auction_history(resolved, "seal")
+            kpl.fill_bid_turnover_from_snap(d, resolved)   # 2026-08-22: 历史快照竞换可能缺, 用当日快照补
+            # 2026-08-24: 开盘啦 Type4 bidChange 与自采竞价涨幅不一致 → 历史竞涨以自采快照为准强制覆盖
+            kpl.fill_bid_change_from_snap(d, resolved, override=True)
+            kpl.fill_close_change_from_kline(d, resolved)  # 2026-08-22: 历史回看现涨=当日收盘涨跌幅
+            return {"ok": True, "list": d or [], "count": len(d) if d else 0,
+                    "date": resolved, "requestedDate": date}
+        return jr(cached_singleflight(store, ck, 600, _load_hist))
+
+    auction = _is_auction_hours()
+    ck = "bidseal:" + ("live" if auction else "post")
+
+    def _load():
+        if not auction:
+            # 非竞价时段 → 从库快速读取 (当天优先, 历史回退)
+            d, d_str = _read_auction_fast("seal")
+            kpl.fill_bid_turnover_from_snap(d, d_str)   # 2026-08-22: 非交易日/历史回退补竞换
+            # 2026-08-24: 竞涨以自采快照为准强制覆盖(开盘啦 bidChange 不可靠)
+            kpl.fill_bid_change_from_snap(d, d_str, override=True)
+            _ensure_concepts(d, tag="auc:bid-seal[fast]")
+            # 2026-08-23 口径统一: fast-path 也按 serve_date 覆盖现涨(避免回退到历史日时仍是"最新今天涨幅")
+            try:
+                _apply_change_for(d, d_str)
+            except Exception as e:
+                log.warning("bid-seal fast-path 现涨覆盖失败 err=%s", e)
+            return {"ok": True, "list": d, "count": len(d), "date": d_str}
+        d = kpl.fetch_bid_seal() or []
+        # 2026-08-24 实时接口空时兜底: 竞价时段实时返空(开盘啦 Type4 偶发/未就绪) → 回退今天已落库
+        if not d:
+            _today = _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 8 * 3600))
+            d = kpl.query_auction_history(_today, "seal") or []
+            if d:
+                log.info("bid-seal 实时为空 → 回退今日落库 %d 只", len(d))
+        # 概念列统一用开盘啦接口覆盖(只取开盘啦概念, 避免东财长串多概念混入)
         try:
-            _apply_change_for(d, d_str)
+            kpl.apply_board_concept(d, log_tag="auc:bid-seal", deep=True,
+                                    field="board", truncate=2, blank_if_missing=True)
         except Exception as e:
-            log.warning("bid-seal fast-path 现涨覆盖失败 err=%s", e)
-        return jr({"ok": True, "list": d, "count": len(d), "date": d_str})
-    d = kpl.fetch_bid_seal() or []
-    # 2026-08-24 实时接口空时兜底: 竞价时段实时返空(开盘啦 Type4 偶发/未就绪) → 回退今天已落库
-    if not d:
-        _today = _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 8 * 3600))
-        d = kpl.query_auction_history(_today, "seal") or []
-        if d:
-            log.info("bid-seal 实时为空 → 回退今日落库 %d 只", len(d))
-    # 概念列统一用开盘啦接口覆盖(只取开盘啦概念, 避免东财长串多概念混入)
-    try:
-        kpl.apply_board_concept(d, log_tag="auc:bid-seal", deep=True,
-                                field="board", truncate=2, blank_if_missing=True)
-    except Exception as e:
-        log.warning("竞价异动概念开盘啦覆盖失败 bid-seal err=%s", e)
-    # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
-    try:
-        _apply_change_for(d, _time.strftime("%Y-%m-%d", _time.gmtime()))
-    except Exception as e:
-        log.warning("bid-seal 现涨覆盖失败 err=%s", e)
-    return jr({"ok": True, "list": d, "count": len(d)})
+            log.warning("竞价异动概念开盘啦覆盖失败 bid-seal err=%s", e)
+        # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
+        try:
+            _apply_change_for(d, _time.strftime("%Y-%m-%d", _time.gmtime()))
+        except Exception as e:
+            log.warning("bid-seal 现涨覆盖失败 err=%s", e)
+        return {"ok": True, "list": d, "count": len(d)}
+
+    return jr(cached_singleflight(store, ck, 15 if auction else 300, _load))
 
 
 @router.get("/api/kpl/bid-boom")
