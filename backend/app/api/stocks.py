@@ -105,6 +105,46 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                     })
             except Exception as e:
                 log.warning("lock 当日幂等查询失败(降级正常重算) uid=%s err=%s", uid, e)
+        # 2026-09-04 9:30 后直读(主人方案「打开/刷新直接取历史最新, 不再每次重算」):
+        # 9:30 后名单定型(当日 lock / 9:26 系统批次已落库), 页面打开与 30s 轮询的 refresh
+        # 若筛选参数未变 → 直读当日可复用批次(find_today_reusable_batch: lock→filter→auto)
+        # + 全市场实时行情(spotMap, 60s TTL 独立缓存)覆盖现价/涨幅返回。
+        # 跳过 ensure_cache 全市场拉取(30s TTL 恰与前端轮询同周期, 每次 miss 锁内拉腾讯
+        # 5548只, 多用户排队 = 加载慢/长尾根因)与全市场评分/板块外网覆盖。
+        # 名单冻结(评分用定格值, 不再盘中漂移), 行情照常实时; 参数已改/当日无批次才重算。
+        if (action == "refresh" and not before930 and mode == "auction"):
+            try:
+                reuse_bid, reuse_src = history.find_today_reusable_batch(uid, f)
+                if reuse_bid:
+                    lst = history.get_batch_stocks_mapped(reuse_bid)
+                    # 全市场实时行情(缓存命中≈0ms; 拉取失败降级: 定格名单无实时覆盖, 下轮自愈)
+                    spot_map = {}
+                    try:
+                        spot_map = fetcher.fetch_spot_quote_map(fs)
+                    except Exception as e:
+                        log.warning("refresh直读路径全市场行情拉取失败(降级: 定格名单) err=%s", e)
+                    # 定格评分(probability/confidence/bidChange/bidAmt...) + 实时行情覆盖
+                    # (price/realChange/entityChange/volRatio/turnover): 前端 merge 在榜分支
+                    # 用 lt.price/realChange 覆盖, 评分定格不回拨
+                    if spot_map:
+                        for it in lst:
+                            rt = spot_map.get(it["code"])
+                            if rt:
+                                it["price"] = rt.get("price")
+                                it["realChange"] = rt.get("realChange")
+                                it["entityChange"] = rt.get("entityChange")
+                                it["volRatio"] = rt.get("volRatio")
+                                it["turnover"] = rt.get("turnover")
+                    log.info("选股refresh直读批次 uid=%s src=%s batch=%s 返回%d只(跳全市场重拉/评分)",
+                             uid, reuse_src, reuse_bid, len(lst))
+                    return jr({
+                        "ok": True, "mode": "auction", "list": lst,
+                        "count": len(lst), "before930": False,
+                        "spotMap": spot_map, "dataTime": int(time.time()),
+                        "reused": True, "source": reuse_src, "batch_id": reuse_bid,
+                    })
+            except Exception as e:
+                log.warning("refresh 直读批次失败(降级正常重算) uid=%s err=%s", uid, e)
         # 评分筛选: 沿用原逻辑(9:30 前 lock 强制, refresh/filter 走 TTL 缓存, 至多200只)
         raw, err = fetcher.ensure_cache(action, fs, before930)
         if err:

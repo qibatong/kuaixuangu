@@ -145,6 +145,70 @@ def find_today_lock_matching(user_id, f, now_ts=None):
     return None
 
 
+def _batch_matches_fingerprint(r, fk, mk):
+    """批次行的筛选参数指纹 + markets 集合是否与请求一致(幂等/直读共用判定)"""
+    try:
+        old_fk = _canon_filter_fingerprint(json.loads(r["filters"] or "{}"))
+    except Exception:
+        return False
+    old_mk = ",".join(sorted((r["markets"] or "").split(",")))
+    return old_fk == fk and old_mk == mk
+
+
+def find_today_reusable_batch(user_id, f, now_ts=None):
+    """9:30 后 refresh 直读选批(2026-09-04 主人方案「打开/刷新直接从历史回看取最新」)。
+
+    9:30 后名单已定型(lock / 9:26 system 批次落库), 页面打开与 30s 轮询的 refresh 若筛选
+    参数未变 → 直读当日批次返回定格名单 + 实时行情覆盖, 不再全市场重拉 + 全量重评分
+    (修复: 缓存 TTL=30s 恰与前端 30s 轮询同周期 → 每次 refresh 锁内全市场拉取, 多用户
+    排队长尾, 生产实测最慢 57.97s)。
+
+    选批优先级(参数指纹/markets 集合同幂等口径, 不一致视为"用户改过条件需重算"):
+      ① 用户当日手动 lock(auto_applied=0)同参 — 9:25 定型权威名单(与前端 merge 的
+         loadLockedBatchFromServer 同源, 展示一致)
+      ② 无 → 用户当日手动 filter(auto_applied=0)同参 — 改条件应用后的最新筛选名单
+      ③ 用户当日无任何手动批次时 → 当日 9:26 系统统一批次(user_id=0, auto_applied=1)
+         — 全用户一致兜底名单(无需参数匹配, 与前端"无 lock/filter 展示统一名单"一致)
+    返回 (batch_id, source) 或 (None, None); source ∈ lock|filter|auto。
+    now_ts 可注入(测试用); 查询只读, 无副作用。"""
+    t = now_ts if now_ts is not None else time.time()
+    g = time.gmtime(t + 8 * 3600)
+    bdate = "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
+    fk = _canon_filter_fingerprint(f)
+    mk = _canon_markets_key(f)
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM batches WHERE user_id=? AND action IN ('lock','filter') "
+            "AND auto_applied=0 AND batch_date=? ORDER BY ts DESC LIMIT 100",
+            (user_id, bdate)).fetchall()
+    finally:
+        conn.close()
+    # ① lock 同参(当日最近, 按 ts desc 首个命中即权威锁定名单)
+    for r in rows:
+        if r["action"] == "lock" and _batch_matches_fingerprint(r, fk, mk):
+            return r["id"], "lock"
+    # ② filter 同参(当日最近)
+    for r in rows:
+        if r["action"] == "filter" and _batch_matches_fingerprint(r, fk, mk):
+            return r["id"], "filter"
+    # ③ 用户当日无任何手动批次才允许系统统一批次兜底(有手动批次但参数已改 → 必须重算,
+    #    否则改条件后刷新会错误直读系统名单); 空名单批次(stock_count=0)无直读价值,
+    #    跳过走原重算(与现状一致, 避免直读空名单导致页面空白)
+    if not rows:
+        conn = _conn()
+        try:
+            row = conn.execute(
+                "SELECT id FROM batches WHERE user_id=0 AND auto_applied=1 "
+                "AND batch_date=? AND stock_count>0 ORDER BY ts DESC LIMIT 1",
+                (bdate,)).fetchone()
+        finally:
+            conn.close()
+        if row:
+            return row["id"], "auto"
+    return None, None
+
+
 def get_batch_stocks_mapped(batch_id):
     """读批次明细并映射为前端 list 结构(与 score_all_stocks 输出同 camelCase 字段)。
     幂等直读批次时返回给前端, 保证字段与正常选股结果一致(不缺失 price 等实时字段为 None 由前端容错)。"""
