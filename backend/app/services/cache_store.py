@@ -249,6 +249,63 @@ class RedisCacheStore(CacheStore):
             pass
 
 
+# ---- 跨进程 single-flight(缓存击穿保护) 2026-09-04 ----
+# 背景: 首屏 11 并发请求(页面 loadAll)同刻 cache miss → N 个线程同时调 loader 打外网,
+#       每个再抢 KPL sem(limit=3) → 排队累积 1.7-2.0s(生产 nginx maxRt 实测)
+# 方案: miss 时 setnx 抢"加载锁"(原子, 同进程内严格; 跨进程 sqlite 尽力而为最坏 2 次),
+#       抢到者调 loader 写缓存, 未抢到者轮询等缓存(≤ 锁超时), 从 N 次外网降到 1-2 次
+_SF_WAIT = 15.0          # 未抢到锁的等待上限(秒); loader 网络超时 ≤12s 可覆盖
+_SF_POLL = 0.03          # 轮询间隔(秒)
+
+
+def cached_singleflight(store_obj, key, ttl, loader, wait=None, lock_ttl=None):
+    """缓存读取 + 击穿保护:
+    命中直接返回; miss 时抢锁(singleflight), 抢到者 loader 并写缓存;
+    其余请求等待缓存写入后返回(最多 wait 秒), loader 失败返回 None 不缓存。
+    key 建议含命名空间前缀(如 'kpl:' / 'ao:'), 锁 key 自动追加 ':lock'。
+
+    2026-09-04 v2: 等待者的降级路径(锁消失/超时)也必须先抢锁再 loader —
+    否则多个等待者同时超时/同时发现锁消失会各自 loader(N 次外网), 违背
+    singleflight 语义(测试并发 miss 仅 1 次 loader 曾偶发 2 次暴露此缺陷)。
+    """
+    v = store_obj.get(key)
+    if v is not None:
+        return v
+    lk = key + ":lock"
+    lttl = lock_ttl or (max(int(ttl * 2), 60) if ttl else 60)
+
+    def _locked_load():
+        """已持锁: 双检缓存后 loader 并写缓存(全程持锁, finally 释放)"""
+        try:
+            v = store_obj.get(key)
+            if v is not None:
+                return v
+            data = loader()
+            if data is not None:
+                store_obj.set(key, data, ttl)
+            return data
+        finally:
+            store_obj.delete(lk)
+
+    if store_obj.setnx(lk, 1, ttl=lttl):
+        return _locked_load()
+    # 未抢到锁: 轮询等持有者写缓存
+    deadline = time.time() + (wait if wait is not None else _SF_WAIT)
+    while time.time() < deadline:
+        time.sleep(_SF_POLL)
+        v = store_obj.get(key)
+        if v is not None:
+            return v
+        # 锁已消失但无缓存(持有者 loader 失败/异常/超时) → 抢锁兜底加载
+        # (先抢锁再 loader: 防止多个等待者同刻发现锁消失而各自打外网)
+        if store_obj.get(lk) is None and store_obj.setnx(lk, 1, ttl=lttl):
+            return _locked_load()
+    # 等待超时兜底: 同样先抢锁(可能锁已释放), 抢不到则直接加载不写缓存
+    if store_obj.setnx(lk, 1, ttl=lttl):
+        return _locked_load()
+    return loader()
+
+
 def create_store():
     """按 config.CACHE_BACKEND 创建单例; redis 不可用时自动降级 sqlite"""
     if getattr(config, "CACHE_BACKEND", "sqlite") == "redis" and _HAS_REDIS:

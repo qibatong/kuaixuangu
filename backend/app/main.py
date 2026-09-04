@@ -98,3 +98,12 @@ def on_startup():
         fetcher.start_spot_prewarm()
     except Exception as e:
         log.warning("spotMap预热启动失败(不影响主服务) err=%s", e)
+    # KPL 首屏接口预热(2026-09-04): 竞价异动首页 loadAll 并发请求 yidong/sentiment/
+    # bid-seal 等 KPL key, TTL 到期后同刻全 miss → 各 loader 抢 sem(3) 排队 → 首屏
+    # 1.7-2.0s。交易时段后台每 12s 预拉首屏 key 写缓存, 用户请求恒命中(<50ms)。
+    # 缓存走 kv_cache(sqlite/redis 跨进程共享), 两 worker 重复预热无害(single-flight 兜底)。
+    try:
+        from .services import kpl as _kpl
+        _kpl.start_kpl_prewarm()
+    except Exception as e:
+        log.warning("KPL首屏预热启动失败(不影响主服务) err=%s", e)

@@ -109,15 +109,11 @@ def _call(host_key, params, timeout=12):
 
 
 def _cached(key, ttl, loader):
-    """带缓存的读取: TTL 内命中直接返回, 否则调 loader 刷新(跨进程共享)"""
-    k = "kpl:" + key
-    v = store.get(k)
-    if v is not None:
-        return v
-    data = loader()
-    if data is not None:
-        store.set(k, data, ttl)
-    return data
+    """带缓存的读取: TTL 内命中直接返回, 否则调 loader 刷新(跨进程共享)
+    2026-09-04: 加 single-flight 防击穿 — 首屏 11 并发同刻 miss 时, 原实现 N 个线程
+    同时 loader 打外网再抢 KPL sem(limit=3) 排队累积 1.7-2.0s → 现在只放行 1 个 loader"""
+    from .cache_store import cached_singleflight
+    return cached_singleflight(store, "kpl:" + key, ttl, loader)
 
 
 # ==================== 竞价涨停委买额 ====================
@@ -3479,3 +3475,75 @@ def fill_close_change_from_kline(lst, date):
         it["real_change"] = v   # 2026-08-24: 统一回填 real_change(三时点表展示 key)
         n += 1
     return n
+
+
+# ==================== KPL 首屏接口预热(2026-09-04) ====================
+# 背景: 竞价异动首页 loadAll 同时请求 yidong/sentiment/bid-seal 等 9 个 KPL key,
+#       缓存 TTL(15-60s) 内首用户/轮询周期>TTL 后全部 miss → 各自调 loader 抢
+#       KPL sem(limit=3) 排队 → 首屏 1.7-2.0s(生产 nginx maxRt 锁死 1.71s)
+# 修复: 交易日 9:15-15:05 后台线程每 12s 预拉首屏 key 写缓存(single-flight 已保证
+#       同刻只 1 个 loader), 用户请求路径 100% 命中缓存(<50ms) 不再打外网
+_KPL_PREWARM_PERIOD = 12        # 秒; < KPL_YIDONG_TTL(15) 保证常新鲜
+_kpl_prewarm_started = False    # 幂等: 重复 startup 不叠线程
+
+
+def kpl_prewarm_active(now_ts):
+    """KPL 首屏预热窗口: 工作日北京时间 9:15-15:05(竞价+盘中+尾盘)"""
+    g = time.gmtime(now_ts + 8 * 3600)
+    if g.tm_wday >= 5:
+        return False
+    hm = g.tm_hour * 60 + g.tm_min
+    return 9 * 60 + 15 <= hm <= 15 * 60 + 5
+
+
+def _kpl_prewarm_once():
+    """预拉首屏 key(顺序执行避免与真实请求抢 KPL sem 槽位)
+    注意: 必须先 store.delete 再调 fn —— _cached 在 TTL 内命中直接返回不重写,
+    预热周期 < TTL 时若不清缓存, 调用全部命中空转, 真实刷新被 TTL 拉长,
+    缓存到期瞬间仍有空窗(与 spot-prewarm 直写内存 map 语义对齐)。
+    只预热 yidong 4 key(TTL 15s 最短): sentiment(60s)/bid_seal(30s)/bid_net(30s)
+    TTL 较长, 冷时 single-flight 只放行 1 个 loader(0.3-0.6s) 已足够 → 不浪费 KPL
+    付费配额(80000/日): 12s×4key×1worker ≈ 1200 次/小时, 占盘中日配额 <10%"""
+    for name, fn in (
+        ("yidong_doc90", fetch_kpl_doc90),
+        ("yidong_doc108", fetch_kpl_doc108),
+        ("yidong_doc109", fetch_kpl_doc109),
+        ("yidong_pianli_hot", fetch_kpl_pianli_hot),
+    ):
+        try:
+            store.delete("kpl:" + name)      # 强制 miss → fn 内部 loader 重拉并写缓存
+            data = fn()
+            if data is None:
+                log.warning("KPL预热 %s 返回空(数据源抖动, 下轮自愈)", name)
+        except Exception as e:
+            log.warning("KPL预热 %s 异常 err=%s", name, str(e)[:100])
+
+
+def _kpl_prewarm_loop():
+    """常驻后台循环(main.py startup 启动; 每 web worker 各一份, 与 spot-prewarm 同模式)
+    跨 worker 协调: uvicorn --workers 2 → 2 个循环都会到点执行, 用 cache_store.setnx
+    抢 12s 窗口锁, 只有抢到的 worker 真拉(避免双倍 KPL 调用浪费付费配额)"""
+    while True:
+        try:
+            if kpl_prewarm_active(time.time()):
+                # setnx 抢窗口锁(ttl=周期*1.5): 抢到者执行, 未抢到跳过本轮
+                if store.setnx("kpl_prewarm:turn", 1, ttl=int(_KPL_PREWARM_PERIOD * 1.5)):
+                    try:
+                        _kpl_prewarm_once()
+                    finally:
+                        store.delete("kpl_prewarm:turn")
+        except Exception as e:
+            log.warning("KPL预热循环异常 err=%s", str(e)[:100])
+        time.sleep(_KPL_PREWARM_PERIOD)
+
+
+def start_kpl_prewarm():
+    """启动 KPL 首屏接口预热线程: 用户打开竞价异动页时 9 个 KPL key 恒热命中。
+    幂等: 重复调用不起第二线程"""
+    global _kpl_prewarm_started
+    if _kpl_prewarm_started:
+        return
+    _kpl_prewarm_started = True
+    t = threading.Thread(target=_kpl_prewarm_loop, daemon=True, name="kpl-prewarm")
+    t.start()
+    log.info("KPL首屏预热线程已启动(工作日9:15-15:05每%ss刷新一次)", _KPL_PREWARM_PERIOD)

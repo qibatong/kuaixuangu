@@ -18,8 +18,11 @@ router = APIRouter()
 
 
 def _is_intraday_stats():
-    """当前北京时间是否盘中 (9:30 ~ 15:00), 仅工作日(三时点封单表现涨口径判断用)"""
-    t = _time.gmtime()
+    """当前北京时间是否盘中 (9:30 ~ 15:00), 仅工作日(三时点封单表现涨口径判断用)
+    (2026-09-04 修复: 此前用 gmtime(UTC) 判断 — 服务器本地虽 CST 但 gmtime 恒返回
+    UTC → 盘中 13:45 被误判 h=5 盘外 → 现涨走收盘兜底逐只查K线(慢+错)。与
+    api/kpl.py 2026-08-24 修复同源; 项目惯例: 北京时间 = gmtime(now + 8*3600))"""
+    t = _time.gmtime(_time.time() + 8 * 3600)
     if t.tm_wday >= 5:
         return False
     h, m = t.tm_hour, t.tm_min
@@ -38,7 +41,7 @@ def _apply_change_stats(lst, serve_date):
     - 其余 → 该交易日收盘涨跌幅(从 close_change_history + 多源K线兜底)"""
     if not lst:
         return
-    today = _time.strftime("%Y-%m-%d", _time.gmtime())
+    today = _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 8 * 3600))  # 北京日期(2026-09-04 修 UTC)
     if _is_intraday_stats() and serve_date == today:
         try:
             from app.services import fetcher
@@ -112,59 +115,56 @@ def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid), da
     2026-09-04 缓存: 历史4日聚合重算开销大(生产实测 avg 0.58s)且数据低频变化
     (竞价落库仅 9:15/9:20/9:25 三点) → date 空 TTL 30s / 指定历史日 TTL 600s"""
     # 缓存命中直接返回(跨进程共享); 秒级一致性要求低, 失败静默降级不阻塞
+    # 2026-09-04: single-flight 防击穿 — 页面并发请求同刻 miss 时只放行 1 个聚合计算
     ck = "auction_overview:" + (date or "_")
-    try:
-        hit = _cstore.get(ck)
-        if hit is not None:
-            return jr(hit)
-    except Exception:
-        pass
-    conn = database.get_conn()
-    try:
-        if date:
-            # 对齐到最近交易日(与市场雷达一致: 周末/节假日回退)
-            try:
-                row = conn.execute(
-                    "SELECT MAX(date) FROM snapshot_bid WHERE date <= ?", (date,)).fetchone()
-                resolved = str(row[0]) if row and row[0] else date
-            except Exception:
-                resolved = date
-            has = conn.execute(
-                "SELECT COUNT(*) FROM snapshot_bid WHERE date=?", (resolved,)).fetchone()[0]
-            dates = [resolved] if has else []
-        else:
-            dates = [r[0] for r in conn.execute(
-                "SELECT DISTINCT date FROM snapshot_bid ORDER BY date DESC LIMIT 4")]
-        out = []
-        for d in dates:
-            day = {"date": d, "points": {}, "yizi_count": None, "yizi_amt": None}
-            for tp in ("9_15", "9_20", "9_25"):
-                rows = conn.execute(
-                    "SELECT bid_change, bid_amt FROM snapshot_bid WHERE date=? AND time_point=?",
-                    (d, tp)).fetchall()
-                if rows:
-                    chgs = [r[0] for r in rows if r[0] is not None]
-                    amts = [r[1] for r in rows if r[1] is not None]
-                    day["points"][tp] = {
-                        "avg_change": round(sum(chgs) / len(chgs), 2) if chgs else None,
-                        "total_amt": round(sum(amts) * 10000) if amts else None,  # 万元→元
-                        "count": len(rows),
-                    }
-                else:
-                    day["points"][tp] = None
-            yizi = conn.execute(
-                "SELECT yizi_count, bid_amt FROM daily_yizi WHERE date=?", (d,)).fetchone()
-            if yizi:
-                day["yizi_count"] = yizi[0]
-                day["yizi_amt"] = (yizi[1] * 10000) if yizi[1] is not None else None  # 万元→元
-            out.append(day)
-    finally:
-        conn.close()
-    payload = {"ok": True, "days": out}
-    try:
-        _cstore.set(ck, payload, 30 if not date else 600)
-    except Exception:
-        pass
+
+    def _compute():
+        conn = database.get_conn()
+        try:
+            if date:
+                # 对齐到最近交易日(与市场雷达一致: 周末/节假日回退)
+                try:
+                    row = conn.execute(
+                        "SELECT MAX(date) FROM snapshot_bid WHERE date <= ?", (date,)).fetchone()
+                    resolved = str(row[0]) if row and row[0] else date
+                except Exception:
+                    resolved = date
+                has = conn.execute(
+                    "SELECT COUNT(*) FROM snapshot_bid WHERE date=?", (resolved,)).fetchone()[0]
+                dates = [resolved] if has else []
+            else:
+                dates = [r[0] for r in conn.execute(
+                    "SELECT DISTINCT date FROM snapshot_bid ORDER BY date DESC LIMIT 4")]
+            out = []
+            for d in dates:
+                day = {"date": d, "points": {}, "yizi_count": None, "yizi_amt": None}
+                for tp in ("9_15", "9_20", "9_25"):
+                    rows = conn.execute(
+                        "SELECT bid_change, bid_amt FROM snapshot_bid WHERE date=? AND time_point=?",
+                        (d, tp)).fetchall()
+                    if rows:
+                        chgs = [r[0] for r in rows if r[0] is not None]
+                        amts = [r[1] for r in rows if r[1] is not None]
+                        day["points"][tp] = {
+                            "avg_change": round(sum(chgs) / len(chgs), 2) if chgs else None,
+                            "total_amt": round(sum(amts) * 10000) if amts else None,  # 万元→元
+                            "count": len(rows),
+                        }
+                    else:
+                        day["points"][tp] = None
+                yizi = conn.execute(
+                    "SELECT yizi_count, bid_amt FROM daily_yizi WHERE date=?", (d,)).fetchone()
+                if yizi:
+                    day["yizi_count"] = yizi[0]
+                    day["yizi_amt"] = (yizi[1] * 10000) if yizi[1] is not None else None  # 万元→元
+                out.append(day)
+        finally:
+            conn.close()
+        return {"ok": True, "days": out}
+
+    from ..services.cache_store import cached_singleflight
+    ttl = 30 if not date else 600
+    payload = cached_singleflight(_cstore, ck, ttl, _compute)
     return jr(payload)
 
 
@@ -278,33 +278,43 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
     else:
         log.info("三时点榜 date=%s 命中当日数据", date)
     rows = auction_snapshot.query_3points_board(resolved, limit)
-    # 2026-08-18 主人要求: 三时点榜加竞价换手 = 9_25竞价成交额/流通市值×100(与开盘啦口径一致)
-    for it in rows:
-        try:
-            p25 = (it.get("points") or {}).get("9_25") or {}
-            amt = p25.get("bid_amt") or 0
-            fmv = p25.get("float_mv") or 0
-            if amt > 0 and fmv > 0:
-                # 注意单位: points 的 bid_amt 万元, float_mv 元 → amt×10000 转元
-                it["bidTurnover"] = round(amt * 10000 / fmv * 100, 2)
-        except Exception:
-            pass
-    # 2026-08-23 现涨(real_change)口径统一:
-    # - 盘中今日 → 东财实时 merge
-    # - 历史回看 / 回退 prev / 盘后今日 / 非交易日 → 该交易日收盘涨跌幅(close_change_history 优先, 再多源K线兜底)
-    #   (之前无条件 merge 今日实时, 导致历史日也显示最新今天涨幅 → 主人反馈 三时点封单表历史日期不正确)
-    _apply_change_stats(rows, resolved)
-    # 概念列: snapshot_bid.board 已是采集时开盘啦 overlay(无实时查询);
-    # 只做"取前 2 个"归一, 不再逐股实时打开盘啦(概念由 concept_refresh 定时落库)
-    try:
+
+    def _compute_rows():
+        # 2026-08-18 主人要求: 三时点榜加竞价换手 = 9_25竞价成交额/流通市值×100(与开盘啦口径一致)
         for it in rows:
-            b = it.get("board") or ""
-            if b:
-                parts = [p for p in str(b).split("、") if p]
-                it["board"] = "、".join(parts[:2])
-    except Exception as e:
-        log.warning("三时点榜概念归一失败 err=%s", e)
-    return jr({"ok": True, "date": resolved, "count": len(rows), "list": rows})
+            try:
+                p25 = (it.get("points") or {}).get("9_25") or {}
+                amt = p25.get("bid_amt") or 0
+                fmv = p25.get("float_mv") or 0
+                if amt > 0 and fmv > 0:
+                    # 注意单位: points 的 bid_amt 万元, float_mv 元 → amt×10000 转元
+                    it["bidTurnover"] = round(amt * 10000 / fmv * 100, 2)
+            except Exception:
+                pass
+        # 2026-08-23 现涨(real_change)口径统一:
+        # - 盘中今日 → 东财实时 merge
+        # - 历史回看 / 回退 prev / 盘后今日 / 非交易日 → 该交易日收盘涨跌幅(close_change_history 优先, 再多源K线兜底)
+        #   (之前无条件 merge 今日实时, 导致历史日也显示最新今天涨幅 → 主人反馈 三时点封单表历史日期不正确)
+        _apply_change_stats(rows, resolved)
+        # 概念列: snapshot_bid.board 已是采集时开盘啦 overlay(无实时查询);
+        # 只做"取前 2 个"归一, 不再逐股实时打开盘啦(概念由 concept_refresh 定时落库)
+        try:
+            for it in rows:
+                b = it.get("board") or ""
+                if b:
+                    parts = [p for p in str(b).split("、") if p]
+                    it["board"] = "、".join(parts[:2])
+        except Exception as e:
+            log.warning("三时点榜概念归一失败 err=%s", e)
+        return {"ok": True, "date": resolved, "count": len(rows), "list": rows}
+
+    # 2026-09-04: 结果缓存防页面并发重复全量计算(loadAll 同页 bid-snapshot ×2 + 30s 轮询)
+    # 竞价定格数据低频: 盘中现涨 3s 内一致, 历史回看数据不可变 → 历史 600s 缓存
+    from ..services.cache_store import cached_singleflight
+    intraday = _is_intraday_stats() and resolved == _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 8 * 3600))
+    ck = "s3points:%s:%s:%s" % ("live" if intraday else "hist", resolved, limit)
+    payload = cached_singleflight(_cstore, ck, 3 if intraday else 600, _compute_rows)
+    return jr(payload)
 
 
 @router.get("/api/stats/seal-quality")
