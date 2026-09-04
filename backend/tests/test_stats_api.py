@@ -9,6 +9,18 @@ def hdrs(token):
     return {"Authorization": "Bearer " + token}
 
 
+@pytest.fixture(autouse=True)
+def _clean_overview_cache():
+    """2026-09-04: auction-overview 加了跨进程缓存(date 空 key='_'), 测试 seed 不同日期
+    会互相污染(命中旧缓存 → 断言失败)。每个用例后清空该 key, 保证重算最新。"""
+    from app.services.cache_store import store as _cs
+    yield
+    try:
+        _cs.delete("auction_overview:_")
+    except Exception:
+        pass
+
+
 def _seed_snapshot(monkeypatch):
     """直接写入 snapshot_bid 三时点数据(绕开采集), 返回写入的日期"""
     import app.services.auction_snapshot as snap

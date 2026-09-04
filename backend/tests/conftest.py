@@ -91,8 +91,11 @@ def _pytest_session():
 
 
 @pytest.fixture(scope="session")
-def client():
-    """TestClient: 每个测试间共享(进程内单实例), 数据库独立"""
+def client(mock_data_source):
+    """TestClient: 每个测试间共享(进程内单实例), 数据库独立
+    显式依赖 mock_data_source(2026-09-04): session 级数据源桩必须早于 app startup 建立,
+    否则 lifespan 里 start_spot_prewarm 会在预热窗口(9:26-15:05)起真线程拉全市场网络
+    (autouse 与 client 实例化顺序不保证, 窗口内跑测试曾真拉腾讯 5556 只)"""
     with TestClient(app) as c:
         yield c
 
