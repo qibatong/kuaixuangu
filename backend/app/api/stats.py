@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
 from ..services import auction_snapshot, kpl, scorer, stats
+from ..services.cache_store import store as _cstore
 from ..db import database
 from .deps import get_uid, jr, qs
 
@@ -41,7 +42,9 @@ def _apply_change_stats(lst, serve_date):
     if _is_intraday_stats() and serve_date == today:
         try:
             from app.services import fetcher
-            spot = fetcher.fetch_spot_quote_map("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23")
+            # 2026-09-04 修复: 原硬编码 fs 顺序与预热线程 market_fs 生成的缓存 key 不一致
+            # → 每次 miss spotMap 缓存 → 锁内同步拉全市场(1-2s); 统一走 market_fs 保证命中
+            spot = fetcher.fetch_spot_quote_map(scorer.market_fs(["hs", "cyb", "kcb"]))
             n = 0
             for it in lst:
                 q = spot.get(str(it.get("code")))
@@ -105,7 +108,17 @@ def _fill_close_change_fallback(lst, serve_date):
 def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid), date: str = ""):
     """竞价多时点对比: date 空=最近4个交易日; 指定 'YYYY-MM-DD' 回看该日(自动对齐最近交易日)
     每日期 9:15/9:20/9:25 竞价涨幅均值/竞价额 + 一字涨停数
-    金额单位统一为元(bid_amt 原始单位为万元, 聚合时转元)"""
+    金额单位统一为元(bid_amt 原始单位为万元, 聚合时转元)
+    2026-09-04 缓存: 历史4日聚合重算开销大(生产实测 avg 0.58s)且数据低频变化
+    (竞价落库仅 9:15/9:20/9:25 三点) → date 空 TTL 30s / 指定历史日 TTL 600s"""
+    # 缓存命中直接返回(跨进程共享); 秒级一致性要求低, 失败静默降级不阻塞
+    ck = "auction_overview:" + (date or "_")
+    try:
+        hit = _cstore.get(ck)
+        if hit is not None:
+            return jr(hit)
+    except Exception:
+        pass
     conn = database.get_conn()
     try:
         if date:
@@ -147,7 +160,12 @@ def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid), da
             out.append(day)
     finally:
         conn.close()
-    return jr({"ok": True, "days": out})
+    payload = {"ok": True, "days": out}
+    try:
+        _cstore.set(ck, payload, 30 if not date else 600)
+    except Exception:
+        pass
+    return jr(payload)
 
 
 @router.get("/api/stats/auction-snapshot")

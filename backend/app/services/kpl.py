@@ -2849,9 +2849,14 @@ def fetch_kpl_doc90(**extra):
     a=GetPianLiZhi_Index, c=StockBidYiDong, apiv=w44 + extra
     resp 示例: {\"Day\":\"2026-08-13\",\"Many_Num\":19,\"Time\":1786610872,\"List\":[[\"603221\",\"\\u7231\\u4e3d\\u5bb6\\u5c45\",0,\"\\u80a1\\u7968\\u4ea4\\u6613\\u
     """
-    base = {"a": "GetPianLiZhi_Index", "c": "StockBidYiDong", "apiv": "w44"}
-    base.update(extra)
-    return _call("default", base)
+    def _load():
+        base = {"a": "GetPianLiZhi_Index", "c": "StockBidYiDong", "apiv": "w44"}
+        base.update(extra)
+        return _call("default", base)
+    # 2026-09-04: 无参(页面轮询)走共享缓存 KPL_YIDONG_TTL(15s); 原无缓存每请求真拉开盘啦(avg0.96s)
+    if extra:
+        return _load()
+    return _cached("yidong_doc90", config.KPL_YIDONG_TTL, _load)
 
 def fetch_kpl_doc91(**extra):
     r"""股东变更 (applhb.longhuvip.com) -> dict
@@ -3030,18 +3035,26 @@ def fetch_kpl_doc108(**extra):
     a=GetYDTP_ZDJK_Today, c=StockBidYiDong, apiv=w43 + extra
     resp 示例: {\"Time\":1786610881,\"List\":[[\"600721\",\"\\u767e\\u82b1\\u533b\\u836f\",\"2026-08-13\",\"2026-08-26\",2],[\"605255\",\"\\u5929\\u666e\\u80a1\\u4ef
     """
-    base = {"a": "GetYDTP_ZDJK_Today", "c": "StockBidYiDong", "apiv": "w43"}
-    base.update(extra)
-    return _call("default", base)
+    def _load():
+        base = {"a": "GetYDTP_ZDJK_Today", "c": "StockBidYiDong", "apiv": "w43"}
+        base.update(extra)
+        return _call("default", base)
+    if extra:
+        return _load()
+    return _cached("yidong_doc108", config.KPL_YIDONG_TTL, _load)
 
 def fetch_kpl_doc109(**extra):
     r"""多次异动个股 (apphwshhq.longhuvip.com) -> dict
     a=GetPianLiZhi_Many, c=StockBidYiDong, apiv=w43 + extra
     resp 示例: {\"Day\":\"2026-08-13\",\"Time\":1786610883,\"List\":[[\"000593\",\"\\u5fb7\\u9f99\\u6c47\\u80fd\",1,\"10\\u65e5\\u51852\\u6b21\\u5f02\\u52a8\\u4e2a\\
     """
-    base = {"a": "GetPianLiZhi_Many", "c": "StockBidYiDong", "apiv": "w43"}
-    base.update(extra)
-    return _call("default", base)
+    def _load():
+        base = {"a": "GetPianLiZhi_Many", "c": "StockBidYiDong", "apiv": "w43"}
+        base.update(extra)
+        return _call("default", base)
+    if extra:
+        return _load()
+    return _cached("yidong_doc109", config.KPL_YIDONG_TTL, _load)
 
 def fetch_kpl_pianli_hot(**extra):
     r"""热门股偏离值(热门度严重异常) (apphwshhq.longhuvip.com) -> dict
@@ -3049,9 +3062,13 @@ def fetch_kpl_pianli_hot(**extra):
     resp 示例: {\"Day\":\"2026-08-21\",\"Time\":1787404488,\"List\":[[\"300570\",\"\\u592a\\u8fb0\\u5149\",\"10\\u65e5100%\",0.5,53.11,\"\",30.86,30.71,\"CPO/MPO\\u3001\\u5149\\u6a21\\u5757\",0,\"8\\u65e5\",\"10\\u65e5100%\"], [\"002412\",\"\\u6c49\\u68ee\\u5236\\u836f\",\"10\\u65e5100%\",10.04,42.18,\"3\\u8fde\\u677f\",45.58,42.26,\"\\u4e2d\\u836f\\u3001\\u4e2d\\u62a5\\u589e\\u957f\",0,\"7\\u65e5\",\"10\\u65e5100%\"]], ...}
     字段([0]代码 [1]名称 [2]偏离类型 [3]今日涨跌% [4]偏离值 [5]连板/标签 [6]异动前涨幅 [7]偏离基准 [8]概念 [9]0 [10]偏离天数 [11]偏离规则)
     """
-    base = {"a": "GetPianLiZhi_Hot", "c": "StockBidYiDong", "apiv": "w44"}
-    base.update(extra)
-    return _call("default", base)
+    def _load():
+        base = {"a": "GetPianLiZhi_Hot", "c": "StockBidYiDong", "apiv": "w44"}
+        base.update(extra)
+        return _call("default", base)
+    if extra:
+        return _load()
+    return _cached("yidong_pianli_hot", config.KPL_YIDONG_TTL, _load)
 
 def fetch_kpl_doc110(**extra):
     r"""实时接口 (apphis.longhuvip.com) -> dict

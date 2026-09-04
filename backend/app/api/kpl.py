@@ -420,7 +420,10 @@ def api_kpl_ladder(request: Request, uid: int = Depends(get_uid), date: str = ""
     # (前端"实时涨幅"列读 change/realChange, 之前梯队页涨幅全空)
     try:
         from ..services import fetcher
-        spot = fetcher.fetch_spot_quote_map("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23")
+        # 2026-09-04 修复: fs 统一走 market_fs(与 spotMap 预热线程缓存 key 一致), 原硬编码串
+        # 顺序不同 → 每次 miss 缓存锁内拉全市场; 现命中预热缓存, ladder 涨幅 merge 秒回
+        from ..services.scorer import market_fs
+        spot = fetcher.fetch_spot_quote_map(market_fs(["hs", "cyb", "kcb"]))
         n = 0
         for pid in d:
             for it in (d[pid] or []):

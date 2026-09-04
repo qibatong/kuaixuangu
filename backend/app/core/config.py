@@ -104,6 +104,7 @@ KPL_BID_ST = os.environ.get("KPL_BID_ST", "200")              # Type4 涨停委�
 KPL_SENTI_TTL = int(os.environ.get("KPL_SENTI_TTL", "60"))    # 情绪值缓存新鲜度(秒)
 KPL_LADDER_TTL = int(os.environ.get("KPL_LADDER_TTL", "60"))  # 连板梯队缓存新鲜度(秒)
 KPL_BOARD_TTL = int(os.environ.get("KPL_BOARD_TTL", "30"))    # 板块强度缓存新鲜度(秒)
+KPL_YIDONG_TTL = int(os.environ.get("KPL_YIDONG_TTL", "15"))  # 异动(偏离/重点监控/热门)缓存新鲜度(秒); 2026-09-04 加: 原无缓存每请求拉开盘啦 avg0.96s
 
 # ---------- 推送提醒(选股结果 → 微信/飞书) ----------
 # 任一渠道配置后即启用; 全部未配置则推送自动跳过(不影响选股主流程)
