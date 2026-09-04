@@ -11,7 +11,7 @@ HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8010"))
 TOKEN_TTL = 12 * 3600                     # Token 有效期(秒), 默认 12 小时
 TOKEN_TTL_REMEMBER = 30 * 24 * 3600       # 「记住我」Token 有效期(秒), 30 天免登录
-RATE_LIMIT_PER_MIN = int(os.environ.get("RATE_LIMIT", "60"))   # 每 IP 每分钟最大请求数
+RATE_LIMIT_PER_MIN = int(os.environ.get("RATE_LIMIT", "400"))   # 每 IP 每分钟最大请求数 (2026-09-04 60→200→400: 首页 12-17 接口并发 + 30s 轮询 + 切 tab 重拉被 429 误伤; admin/VIP/付费账号见 security.rate_allow 旁路)
 PBKDF2_ITERS = int(os.environ.get("PBKDF2_ITERS", "50000"))    # 密码哈希迭代次数
 CACHE_TTL = int(os.environ.get("CACHE_TTL", "30"))             # 行情缓存新鲜度(秒)
 # 管理员: 逗号分隔的用户名; 空则自动把 id 最小的用户设为管理员(种子账号)

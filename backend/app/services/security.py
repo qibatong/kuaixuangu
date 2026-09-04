@@ -101,7 +101,65 @@ def revoke_user_tokens(user_id):
 
 
 # ---------- 接口限流: 每 IP 每分钟 N 次 (跨进程共享, CacheStore 固定窗口) ----------
-def rate_allow(ip):
+# (2026-09-04: 新增 admin 旁路 — admin 账号不限流, 避免首页并发触发误伤;
+#  is_admin 走 store 缓存 60s, 避免每个请求都查 users 表)
+# (2026-09-04 二次放宽: 旁路扩到「付费会员 + VIP」— 他们是真实付费客户, 首页 12-17
+#  接口并发 + 30s 轮询 + 切 tab 重拉极易撞 IP 阈值, 限流误伤直接等于付费体验受损。
+#  普通/试用用户仍按 IP 限流(防刷), 管理员/付费/VIP 走高信任旁路)
+_ADMIN_CACHE_TTL = 60  # admin/付费标记缓存(秒)
+
+
+def _is_admin_user(uid):
+    """查询 uid 是否管理员, 结果缓存 60s。uid 为空或非法返回 False。"""
+    if not uid:
+        return False
+    try:
+        uid = int(uid)
+    except (ValueError, TypeError):
+        return False
+    cache_key = "is_admin:%s" % uid
+    cached = store.get(cache_key)
+    if cached is not None:
+        return bool(int(cached))
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT is_admin FROM users WHERE id=?", (uid,)).fetchone()
+        is_admin = 1 if (row and row[0]) else 0
+    finally:
+        conn.close()
+    store.set(cache_key, is_admin, ttl=_ADMIN_CACHE_TTL)
+    return bool(is_admin)
+
+
+def _is_privileged_user(uid):
+    """高信任用户: 管理员 or 付费会员(member_level>=1, 含 VIP=2), 结果缓存 60s。
+    与 _is_admin_user 同样一次 DB 查询(顺带取 member_level), 缓存后无额外开销。"""
+    if not uid:
+        return False
+    try:
+        uid = int(uid)
+    except (ValueError, TypeError):
+        return False
+    cache_key = "is_priv:%s" % uid
+    cached = store.get(cache_key)
+    if cached is not None:
+        return bool(int(cached))
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT is_admin, member_level FROM users WHERE id=?", (uid,)).fetchone()
+        is_admin = 1 if (row and row[0]) else 0
+        level = int(row[1] or 0) if row else 0
+        privileged = 1 if (is_admin or level >= 1) else 0
+    finally:
+        conn.close()
+    store.set(cache_key, privileged, ttl=_ADMIN_CACHE_TTL)
+    return bool(privileged)
+
+
+def rate_allow(ip, uid=None):
+    """每 IP 每分钟 N 次。管理员/付费会员/VIP 直接放行(免计数免 429)。"""
+    if _is_privileged_user(uid):
+        return True
     n = store.incr("rate:%s" % ip, ttl=60)
     return n <= config.RATE_LIMIT_PER_MIN
 
