@@ -690,6 +690,66 @@ def fetch_spot_quote_map(fs):
     return out
 
 
+# ---------- spotMap 预热(2026-09-04) ----------
+# 背景: 9:30 后 refresh 直读命中历史批次后, 响应仍需 spotMap 覆盖实时行情; spotMap 缓存
+# TTL=60s, 到期瞬间的请求要在锁内同步拉全市场(东财封禁期=腾讯 5556 只 1-4.6s) → refresh
+# 出现秒级长尾, 用户感知"打开/刷新还在计算选股转几秒"。交易时段后台线程每 40s 主动刷新
+# 缓存(周期 < TTL 60s), 请求路径永远命中缓存(<50ms), 长尾消除。
+_SPOT_PREWARM_PERIOD = 40        # 秒; < SPOT_CACHE_TTL(60) 保证缓存常新鲜
+_spot_prewarm_started = False     # 幂等: uvicorn reload/重复 startup 不叠线程
+
+
+def spot_prewarm_active(now_ts):
+    """是否处于 spotMap 预热窗口: 工作日北京时间 9:26-15:05。
+    9:26 起预热(错开 9:25 快照采集高峰), 保证 9:30 首个 refresh 直读即命中缓存。"""
+    g = time.gmtime(now_ts + 8 * 3600)
+    if g.tm_wday >= 5:
+        return False
+    hm = g.tm_hour * 60 + g.tm_min
+    return 9 * 60 + 26 <= hm <= 15 * 60 + 5
+
+
+def _spot_prewarm_fs_set():
+    """预热 fs 集合: 默认全市场(hs+cyb+kcb) + 缓存中出现过的其它 fs(北交所等组合)"""
+    base = scorer.market_fs(["hs", "cyb", "kcb"])
+    return sorted(set(list(_quote_map_cache.keys())) | {base})
+
+
+def _spot_prewarm_once():
+    """刷新一次全部预热 fs 的 spotMap 缓存; 单 fs 失败不影响其它/下轮自愈"""
+    for fs in _spot_prewarm_fs_set():
+        try:
+            raw = _fetch_market_all_with_fallback(fs)
+            with _quote_map_lock:
+                _quote_map_cache[fs] = {"raw": raw, "ts": time.time()}
+            log.info("spotMap预热完成 fs=%s 共%d只", fs, len(raw))
+        except Exception as e:
+            log.warning("spotMap预热失败 fs=%s err=%s", fs, str(e)[:120])
+
+
+def _spot_prewarm_loop():
+    """常驻后台循环(main.py startup 启动; 每个 web worker 各跑一份, 与 yday-prewarm 同模式)"""
+    while True:
+        try:
+            if spot_prewarm_active(time.time()):
+                _spot_prewarm_once()
+        except Exception as e:
+            log.warning("spotMap预热循环异常 err=%s", str(e)[:120])
+        time.sleep(_SPOT_PREWARM_PERIOD)
+
+
+def start_spot_prewarm():
+    """启动 spotMap 预热线程: 9:30 后直读响应所需的全市场实时行情常新鲜, 请求永不阻塞。
+    幂等: 重复调用不起第二线程(main.py startup 每 worker 进程调一次)"""
+    global _spot_prewarm_started
+    if _spot_prewarm_started:
+        return
+    _spot_prewarm_started = True
+    t = threading.Thread(target=_spot_prewarm_loop, daemon=True, name="spot-prewarm")
+    t.start()
+    log.info("spotMap预热线程已启动(工作日9:26-15:05每%ss刷新一次)", _SPOT_PREWARM_PERIOD)
+
+
 def _parse_float(v):
     try:
         return float(v)

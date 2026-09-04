@@ -90,3 +90,11 @@ def on_startup():
         yday_prewarm.start_prewarm_scheduler()
     except Exception as e:
         log.warning("昨比预热调度启动失败(不影响主服务) err=%s", e)
+    # spotMap 预热(2026-09-04): 9:30 后 refresh 直读需全市场行情覆盖, 缓存 60s TTL 到期时
+    # 请求内同步拉全市场会出秒级长尾(实测 4.6s) → 交易时段后台每 40s 预刷, 请求永远命中。
+    # 必须挂 web 进程: spotMap 缓存是 web 进程级(fetcher._quote_map_cache)。
+    try:
+        from .services import fetcher
+        fetcher.start_spot_prewarm()
+    except Exception as e:
+        log.warning("spotMap预热启动失败(不影响主服务) err=%s", e)

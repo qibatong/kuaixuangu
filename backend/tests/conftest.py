@@ -77,6 +77,12 @@ def mock_data_source(monkeypatch_session):
 
     monkeypatch_session.setattr(fetcher, "ensure_cache", fake_ensure_cache)
     monkeypatch_session.setattr(fetcher, "fetch_yesterday_amounts", fake_yesterday_amounts)
+    # 2026-09-04 spotMap 预热线程: client fixture 的 TestClient(with)会触发 app startup
+    # → start_spot_prewarm 起真线程。若在预热窗口(9:26-15:05)内跑测试, 线程会真拉腾讯全市场
+    # 网络(测试进程内日志噪音/守护线程退出冲突)。测试环境直接屏蔽线程启动(空转也无意义),
+    # 单次拉取函数一并桩掉双保险。
+    monkeypatch_session.setattr(fetcher, "start_spot_prewarm", lambda: None)
+    monkeypatch_session.setattr(fetcher, "_spot_prewarm_once", lambda: None)
 
 
 @pytest.fixture(scope="session")
