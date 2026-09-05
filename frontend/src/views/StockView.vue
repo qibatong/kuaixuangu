@@ -17,24 +17,21 @@
 
       <!-- 左栏: 选股主流程 -->
       <div class="home-col home-col-left" :class="{ 'home-col-hidden': mobilePane !== 'stock' }">
-        <!-- 紧凑规则条 + 内联模式切换 + 操作按钮 -->
+        <!-- 模式切换(内联): 竞价 / AI预测 (2026-09-01: 原"盘中"替换为 AI预测)
+             2026-09-05 主人需求: ① 去掉原顶部提示文案(竞价「9:30前可重新选股…」与
+             AI预测「AI 竞价预测…」两行) ② 原右上角「锁定」按钮移除(下方 FilterPanel
+             已有同功能锁定) ③ 「刷新」按钮下移至 FilterPanel 的 应用/重置/锁定 组 -->
         <div class="alert-rule alert-rule-compact">
-          <span v-if="leftTab === 'auction'" class="rule-text"><strong>9:30前可重新选股 · 9:30后仅更新</strong></span>
-          <span v-else class="rule-text"><strong>AI 竞价预测 · 交易日 9:30 前自动生成</strong></span>
-          <!-- 模式切换(内联): 竞价 / AI预测 (2026-09-01: 原"盘中"替换为 AI预测) -->
           <span class="mode-tabs mode-tabs-inline">
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'auction' }" @click="switchTab('auction')"><i class="fa fa-sun-o"></i> 竞价</button>
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick' }" @click="switchTab('aipick')"><i class="fa fa-robot"></i> AI预测</button>
           </span>
-          <!-- 操作按钮(仅竞价模式) -->
-          <span v-if="leftTab === 'auction'" class="right-group">
-            <button class="tdx-export-btn reset-lock-btn" :disabled="!isBefore930()" @click="reLock"><i class="fa fa-lock"></i> 锁定</button>
-            <button class="tdx-export-btn real-time-btn" @click="refreshRealTime"><i class="fa fa-refresh"></i> 刷新</button>
-          </span>
         </div>
 
         <!-- 筛选面板(仅竞价模式) -->
-        <div v-if="leftTab === 'auction'" class="home-filter"><FilterPanel /></div>
+        <!-- 2026-09-05: 刷新按钮已下移到 FilterPanel(与 应用/重置/锁定 同组),
+             这里监听其 emit 并执行本视图的刷新逻辑 -->
+        <div v-if="leftTab === 'auction'" class="home-filter"><FilterPanel @refresh="refreshRealTime" /></div>
 
         <template v-if="leftTab === 'auction'">
           <!-- 会员门禁: 竞价选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
@@ -79,7 +76,8 @@ import { kplBidSeal } from '../api/kpl'
 import { showToast } from '../utils/toast'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
 import { copyText, downloadBlkFile } from '../utils/tdx'
-import { bjDateTimeStr, isBefore930, isIntradayNow, isMemberOnlyTime } from '../utils/time'
+// 2026-09-05: isBefore930 随「锁定」按钮移除后本视图不再使用, 从 import 中去掉
+import { bjDateTimeStr, isIntradayNow, isMemberOnlyTime } from '../utils/time'
 
 const stocks = useStocksStore()
 const pool = usePoolStore()
@@ -143,9 +141,8 @@ function currentList() {
   return stocks.cachedStocks
 }
 
-function reLock() {
-  stocks.reLockData().catch(e => showToast('❌ ' + e.message, 'error'))
-}
+// 2026-09-05: 原 reLock() 随右上角「锁定」按钮一并移除(下方 FilterPanel 已提供
+// 锁定/解锁, 且 store.reLockData() 保留供其使用), 此处不再需要包装函数。
 function refreshRealTime() {
   stocks.updateRealTimeOnly().catch(e => showToast('❌ 更新失败：' + e.message, 'error'))
 }

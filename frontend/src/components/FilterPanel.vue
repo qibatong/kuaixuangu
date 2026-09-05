@@ -34,6 +34,12 @@
         <button class="tdx-export-btn filter-apply" style="background:var(--accent-deep);" :disabled="store.isFilterLocked && store.mode === 'auction'" @click="apply">应用</button>
         <button class="tdx-export-btn filter-reset" :disabled="store.isFilterLocked && store.mode === 'auction'" @click="reset">重置</button>
         <button v-if="store.mode === 'auction'" class="tdx-export-btn filter-lock" :class="{ locked: store.isFilterLocked }" @click="store.toggleFilterLock()">{{ store.isFilterLocked ? '解锁' : '锁定' }}</button>
+        <!-- 2026-09-05: 刷新按钮从 StockView 顶部规则条移入本组(仅竞价模式; 9:30 后
+             刷新实时行情, 9:30 前等同重新选股)。点击 emit 给父组件处理。 -->
+        <button v-if="store.mode === 'auction'" class="tdx-export-btn filter-refresh"
+                title="刷新实时行情" @click="emit('refresh')">
+          <i class="fa fa-refresh"></i> 刷新
+        </button>
       </span>
     </div>
     <!-- 第二行: 数值输入框.
@@ -73,6 +79,9 @@ import { onBeforeUnmount, onMounted, reactive, computed } from 'vue'
 import { useStocksStore } from '../stores/stocks'
 
 const store = useStocksStore()
+// 2026-09-05: 刷新按钮由 StockView 顶部规则条下移至此(与 应用/重置/锁定 同一组),
+// 父组件通过 @refresh 绑定自己的刷新逻辑; 未监听时点击无副作用。
+const emit = defineEmits(['refresh'])
 const marketOptions = [
   { value: 'hs', label: '主' },
   { value: 'cyb', label: '创业' },
