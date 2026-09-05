@@ -51,9 +51,12 @@ def api_ladder_image(request: Request, l_date: str, uid: int = Depends(get_uid))
         return jr({"ok": False, "msg": "该日期暂无天梯图, 盘后(15:30)自动生成"}, 404)
     filename = f"连板天梯-{l_date}.png"
     media = "image/png"
+    # 每日图重生成后需即时可见, no-store 防浏览器启发式缓存旧图(2026-09-05)
+    no_store = {"Cache-Control": "no-store"}
     if request.query_params.get("download"):
-        return FileResponse(path, media_type=media, filename=filename)
-    return FileResponse(path, media_type=media)
+        return FileResponse(path, media_type=media, filename=filename,
+                            headers=no_store)
+    return FileResponse(path, media_type=media, headers=no_store)
 
 
 @router.get("/api/ladder/image/{l_date}/download")
@@ -63,7 +66,8 @@ def api_ladder_image_download(request: Request, l_date: str, uid: int = Depends(
     if not l_date or not os.path.isfile(path):
         return jr({"ok": False, "msg": "该日期暂无天梯图"}, 404)
     return FileResponse(path, media_type="image/png",
-                        filename=f"连板天梯-{l_date}.png")
+                        filename=f"连板天梯-{l_date}.png",
+                        headers={"Cache-Control": "no-store"})
 
 
 @router.post("/api/ladder/generate")
