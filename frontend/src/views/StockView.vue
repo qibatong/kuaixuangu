@@ -23,7 +23,7 @@
              已有同功能锁定) ③ 「刷新」按钮下移至 FilterPanel 的 应用/重置/锁定 组 -->
         <div class="alert-rule alert-rule-compact">
           <span class="mode-tabs mode-tabs-inline">
-            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'auction' }" @click="switchTab('auction')"><i class="fa fa-sun-o"></i> 竞价</button>
+            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'auction' }" @click="switchTab('auction')"><i class="fa fa-sun-o"></i> AI竞价</button>
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick' }" @click="switchTab('aipick')"><i class="fa fa-android"></i> AI预测</button>
           </span>
         </div>
@@ -268,20 +268,18 @@ onBeforeUnmount(() => {
   padding: 6px 16px;
   font-size: 13px;
   font-weight: 700;
-  /* 选中态明显高亮: 实色填充 + 白底/文字对比, 深色默认主题 */
+  /* 2026-09-05 主人需求: tab 选中后变为红色。
+     用 var(--accent) 自动适配双主题(深色 #ff5c5c / 浅色已重定义深红 #c62828,
+     白底保持可读), 渐变向下加深保证立体感 */
   color: #fff;
-  background: linear-gradient(180deg, #ffb400, #f08c00);
-  border-color: #ffb400;
-  box-shadow: 0 2px 6px rgba(255,160,0,0.45);
+  background: linear-gradient(180deg, var(--accent), var(--accent-deep));
+  border-color: var(--accent);
+  box-shadow: 0 2px 6px rgba(var(--accent-rgb), 0.45);
   transform: none;
 }
 .mode-tab.mode-tab-compact.active:after { display: none; }
-/* 浅色主题: 选中改用深色文字 + 浅橙底, 保持高对比这两态也能区分 */
-body[data-bg="light"] .mode-tab.mode-tab-compact.active {
-  color: #7a3d00;
-  background: linear-gradient(180deg, #ffd571, #ffb84d);
-  border-color: #f08c00;
-}
+/* 浅色主题: 由 :root 重定义的深红 --accent 变量自动适配(白字 on 深红渐变可读),
+   无需单独规则; 保留该选择器占位注释避免误以为遗漏 */
 .alert-rule.alert-rule-compact .tdx-export-btn { padding: 3px 8px; font-size: 11.5px; gap: 3px; border-radius: 4px; font-weight: 500; }
 .alert-rule.alert-rule-compact .tdx-export-btn:hover { transform: none; box-shadow: 0 2px 6px rgba(var(--accent-rgb),0.25); }
 /* 左栏筛选面板紧凑 */
