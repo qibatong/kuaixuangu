@@ -51,22 +51,45 @@ def test_build_png_writes_valid_image(tmp_path):
 def test_collect_counts(tmp_path):
     tiers, total, rows = ladder_image._collect(_sample())
     assert total == 4
-    # 8 档全量统计(含空档)
-    assert len(tiers) == 8
+    # 9 档全量统计(含空档: 首板~八板精确档 + 「八板+」溢出档)
+    assert len(tiers) == 9
     by_pid = {t["pid"]: t["count"] for t in tiers}
     assert by_pid[1] == 1      # 首板
     assert by_pid[2] == 1      # 二板
     assert by_pid[3] == 0      # 空档
     assert by_pid[4] == 0
     assert by_pid[5] == 0      # 五板: 注入后 5 板无(6/8 板被分出)
-    assert by_pid[6] == 1      # 六板(真实 limitUpDays=6)
+    assert by_pid[6] == 1      # 六板(真实 limitUpDays=6, 记录精确板数)
     assert by_pid[7] == 0
-    assert by_pid[8] == 1      # 八板+(真实 limitUpDays=8, zt>=8 归入)
-    # 非空档高板在前: 8 板 → 6 板 → 2 板 → 1 板
+    assert by_pid[8] == 1      # 八板(真实 limitUpDays=8, 精确「八板」)
+    assert by_pid["8+"] == 0   # 仅 >8 板(9+)归「八板+」; 样例无 9 板
+    # 非空档高板在前: 八板 → 六板 → 二板 → 首板
     assert [tier["pid"] for tier, _lst in rows] == [8, 6, 2, 1]
     # 最高连板 = 8
     mx = max(r["zt"] for _t, lst in rows for r in lst)
     assert mx == 8
+
+
+def test_collect_overflow_over8(tmp_path):
+    """>8 板(9+)放入「八板+」溢出档, 记录真实板数(9板)"""
+    data = {
+        5: [
+            {"code": "600009", "name": "九板妖刀", "reason": "AI", "boardName": "算力",
+             "ztCount": 5, "limitUpDays": 9, "limitTime": 9 * 3600 + 6000,
+             "seal": 6.6e8, "turnover": 6.7},
+        ],
+    }
+    tiers, total, rows = ladder_image._collect(data)
+    assert total == 1
+    by_pid = {t["pid"]: t["count"] for t in tiers}
+    assert by_pid["8+"] == 1       # 9 板 → 溢出档
+    assert by_pid[8] == 0          # 精确八板无
+    # 连板池记录真实板数
+    item = rows[0][1][0]
+    assert item["zt"] == 9
+    out = str(tmp_path / "2026-08-26-over8.png")
+    ladder_image.build_png(data, "2026-08-26", out)
+    assert os.path.isfile(out)
 
 
 def test_build_png_with_fanbao(tmp_path):

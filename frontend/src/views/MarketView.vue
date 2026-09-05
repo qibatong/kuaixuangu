@@ -141,13 +141,13 @@ v-for="s in sourceOptions" :key="s.key"
             <thead>
               <tr>
                 <th class="rot-rownum">排名</th>
-                <th v-for="d in rot.dates" :key="d" class="rot-date">{{ d.slice(5) }}</th>
+                <th v-for="d in historyDates" :key="d" class="rot-date">{{ d.slice(5) }}</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="rank in 10" :key="rank">
                 <td class="rot-rownum">{{ rank }}</td>
-                <td v-for="d in rot.dates" :key="d+rank" class="rot-cell">
+                <td v-for="d in historyDates" :key="d+rank" class="rot-cell">
                   <template v-for="b in boardAt(d, rank)" :key="b.name">
                     <div :class="['rot-board', 'rot-c-' + (colorMap[b.name] || 0)]">{{ b.name }}</div>
                     <div class="rot-strength">{{ Math.round(b.strength) }}</div>
@@ -442,6 +442,10 @@ const sourceOptions = [
 const rotLoading = ref(false)
 const rotSourceFailed = ref(false)
 const rot = reactive({ dates: [], days: [], windows: [], common_names: [], source: 'kpl' })
+
+// 板块历史表格列顺序: 从右到左天数递增 → 改为从左往右最新一天(左侧最新, 用于表格);
+// 趋势/量能等图表仍用 rot.dates(时间左旧右新, 自然流向)
+const historyDates = computed(() => [...rot.dates].reverse())
 
 const rotMap = computed(() => {
   const m = {}

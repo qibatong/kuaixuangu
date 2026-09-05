@@ -50,6 +50,7 @@ TIER_COLOR = {
     6: (146, 10, 62),
     7: (128, 8, 58),
     8: (110, 6, 54),
+    "8+": (88, 4, 48),   # >8 板(9板+)溢出档, 最深
 }
 
 FONT_PATH = os.path.join(
@@ -57,12 +58,18 @@ FONT_PATH = os.path.join(
     "assets", "fonts", "wqy-microhei.ttc",
 )
 
-# 高度板扩展到 8 板(2026-09-01 主人需求): 开盘啦 pid 只到 5, 真实连板数由东财
-# limitUpDays 注入, 按真实板数重分 1~8 档, ≥8 板归入「八板+」
+# 高度板按真实连板数拆分(2026-09-01 主人需求): 开盘啦 pid 只到 5, 真实连板数由东财
+# limitUpDays 注入, 按真实板数重分为 1~7 档 + 「八板」精确档 + 「八板+」溢出档。
+# t >= 8 的票: t==8 → 精确「八板」, t>8(9板+) → 溢出「八板+」。
+# (注: 东财缺失的股票回退 pid 档位)
 TIERS = [1, 2, 3, 4, 5, 6, 7, 8]
 TIER_LABEL = {1: "首板", 2: "二板", 3: "三板", 4: "四板", 5: "五板",
-              6: "六板", 7: "七板", 8: "八板+"}
+              6: "六板", 7: "七板", 8: "八板"}
 MAX_TIER = 8
+OVER8 = "8+"           # 溢出档 key(仅真实 >8 板, 即 9板+)
+OVER8_LABEL = "八板+"  # 超过 8 板才笼统为「八板+」
+# 全部渲染档序: 1~8 精确档 + 溢出档(条形图/阶梯按此顺序, 高板在上)
+ALL_TIERS = list(TIERS) + [OVER8]
 
 # 断板反包区配色(暖橙, 与连板红区分)
 FB_BG = (255, 248, 243)
@@ -92,10 +99,12 @@ COLS = [
 
 # ---------- 数据规整 ----------
 def _collect(data):
-    """按真实连板数(zt=max(pid, limitUpDays))重分 1~8 档;
-    返回 (tiers, total, rows): tiers=8 档全量统计(含空档, 供阶梯条/chips),
-    rows=[(tier_dict, 股票列表), ...] 只含非空档且高板在前(供连板池渲染)"""
-    grouped = {t: [] for t in TIERS}
+    """按真实连板数(zt=max(pid, limitUpDays))重分 1~8 档 + 溢出档;
+    返回 (tiers, total, rows): tiers=全档统计(9 档, 含空档, 供阶梯条/chips),
+    rows=[(tier_dict, 股票列表), ...] 只含非空档且高板在前(供连板池渲染)。
+    拆分规则(2026-09-01 主人需求): 超过 5 板记录真实几板(6/7/8 精确),
+    仅真实 >8 板(9+)归入「八板+」, 8 板本身精确为「八板」。"""
+    grouped = {k: [] for k in ALL_TIERS}
     total = 0
     for pid in (1, 2, 3, 4, 5):
         lst = data.get(pid) or []
@@ -111,8 +120,8 @@ def _collect(data):
                 # 真实连板数: 优先用当日涨停池注入的真实连板数(解决五板+里 6~8 板区分);
                 # 否则回退档位 pid
                 zt = max(int(pid), int(it.get("limitUpDays") or pid or 0))
-                tier = min(zt, MAX_TIER)
-                grouped[tier].append({
+                key = OVER8 if zt > MAX_TIER else zt   # 8 板精确「八板」, >8 归溢出档
+                grouped[key].append({
                     "code": str(it.get("code", "")),
                     "name": str(it.get("name", "")),
                     "zt": zt,
@@ -125,10 +134,11 @@ def _collect(data):
                 continue
     tiers = []
     rows = []
-    for t in TIERS:
-        clean = grouped[t]
+    for k in ALL_TIERS:
+        clean = grouped[k]
         total += len(clean)
-        tier = {"label": TIER_LABEL[t], "count": len(clean), "pid": t}
+        label = OVER8_LABEL if k == OVER8 else TIER_LABEL[k]
+        tier = {"label": label, "count": len(clean), "pid": k}
         tiers.append(tier)
         if clean:
             rows.append((tier, clean))
@@ -186,8 +196,8 @@ def build_png(data, date_str, out_path, fanbao=None):
 
     # ---------- 预计算结构/高度 ----------
     header_h = 118
-    summary_h = 134                     # 卡片 + 两行 chips(8 档)
-    stats_h = 250                       # 8 档阶梯条(46 + 8*24 + 余量)
+    summary_h = 134                     # 卡片 + 两行 chips(9 档)
+    stats_h = 280                       # 9 档阶梯条(46 + 9*24 + 余量)
     detail_pad = 14                     # 连板池内边距
     tier_bar_h = 46
     colh_h = 34
@@ -247,10 +257,10 @@ def build_png(data, date_str, out_path, fanbao=None):
         draw.text((cx + vw + 6, y + 28), unit, font=_font(16), fill=MUTED)
         draw.text((cx, y + 60), cap, font=lab_font, fill=MUTED)
         cx += 140
-    # 档位分布 chips(8 档两行: 1~4 一行, 5~8 一行; 空档也显示 count=0 以暴露断层)
+    # 档位分布 chips(9 档两行: 1~5 一行, 6~8+ 一行; 空档也显示 count=0 以暴露断层)
     chip_font = _font(14)
     cnt_font = _font(16)
-    for row_i, t_slice in enumerate((tiers[:4], tiers[4:])):
+    for row_i, t_slice in enumerate((tiers[:5], tiers[5:])):
         xc = MARGIN
         for t in t_slice:
             cw = chip_font.getbbox(t["label"])[2] + 34
@@ -265,22 +275,24 @@ def build_png(data, date_str, out_path, fanbao=None):
             xc += cw + 10
     y += summary_h
 
-    # ---------- 统计天梯(阶梯条, 8 档低→高, 高板色更深, 空档画短条暴露断层) ----------
+    # ---------- 统计天梯(阶梯条, 高板在上/首板在下, 高板色更深, 空档画短条暴露断层) ----------
     draw.rectangle([0, y, WIDTH, y + stats_h], fill=WHITE)
     draw.text((MARGIN, y + 14), "连板分布", font=_font(17), fill=INK)
     max_count = max([t["count"] for t in tiers] + [1])
     bar_area_w = WIDTH - 2 * MARGIN - 60
     bx = MARGIN + 60
-    for t in tiers:
-        by0 = y + 46 + (TIERS.index(t["pid"])) * 24
+    slot = 0
+    for t in reversed(tiers):          # 顶部=最高板, 底部=首板
+        by0 = y + 46 + slot * 24
         bw = int(bar_area_w * (t["count"] / max_count)) if t["count"] else 4
         bw = max(bw, 4)
-        color = TIER_COLOR[t["pid"]]
+        color = TIER_COLOR.get(t["pid"], TIER_COLOR[8])
         draw.rounded_rectangle([bx, by0, bx + bw, by0 + 18], radius=5, fill=color)
         draw.text((MARGIN, by0 - 2), t["label"], font=_font(14), fill=INK)
         c_t = f"{t['count']} 家"
         c_font = _font(14)
         draw.text((bx + bw + 8, by0 - 2), c_t, font=c_font, fill=MUTED)
+        slot += 1
     y += stats_h
 
     # ---------- 连板池逐股清单(高板在上, 只渲染非空档) ----------
