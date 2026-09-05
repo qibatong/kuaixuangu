@@ -83,13 +83,12 @@
                   <th class="ap-th" title="开盘啦概念">概念</th>
                   <th v-if="isLatest" @click="toggleSort('realtime')" :class="thCls('realtime')">实时涨幅</th>
                   <th v-else @click="toggleSort('day_change')" :class="thCls('day_change')">当日涨幅</th>
-                  <th class="op-col">操作</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="(r, i) in rows" :key="r.code + i">
                   <td class="name-col" :data-stock-code="r.code" :data-stock-name="r.name" title="点击查看分时/日K/周K/月K">
-                    <div class="name-main">{{ r.name }}</div>
+                    <div class="name-main"><span class="pool-hover-wrap">{{ r.name }}<PoolHoverBtn :item="r" /></span></div>
                     <div class="name-sub">{{ r.code }}</div>
                   </td>
                   <td><span class="score-badge" :class="probCls(r.ai_prob)">{{ (r.ai_prob * 100).toFixed(1) }}%</span></td>
@@ -100,7 +99,6 @@
                   <td class="concept-col" :title="conceptFull(r) || '暂无概念'">{{ conceptText(r) }}</td>
                   <td v-if="isLatest" :class="chgCls(rt(r))">{{ rtText(r) }}</td>
                   <td v-else :class="chgCls(r.day_change)">{{ dayChgText(r) }}</td>
-                  <td><button class="pool-add-btn" :class="{ added: inPool(r.code) }" @click.stop="addToPool(r)">{{ inPool(r.code) ? '已＋' : '＋自选' }}</button></td>
                 </tr>
               </tbody>
             </table>
@@ -116,9 +114,8 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useUserStore } from '../stores/user'
-import { usePoolStore } from '../stores/pool'
-import { showToast } from '../utils/toast'
 import VipGate from '../components/VipGate.vue'
+import PoolHoverBtn from '../components/PoolHoverBtn.vue'
 import { aipickDates, aipickData, aipickRealtime } from '../api/aipick'
 
 // 2026-09-01: 嵌入首页左视图(替换盘中选股)时传入 embedded=true,
@@ -130,7 +127,6 @@ defineProps({
 })
 
 const user = useUserStore()
-const pool = usePoolStore()
 const dates = ref([])
 const latestDate = ref('')
 const selDate = ref('')
@@ -349,25 +345,12 @@ function rtText(row) {
   const v = rt(row)
   return v == null ? '--' : fmtChg(v)
 }
+
 // 历史日期的当日涨幅(由后端按该交易日收盘相对前收盘算出)
 function dayChgText(row) {
   return row.day_change == null ? '--' : fmtChg(row.day_change)
 }
 
-// ===== 自选池 =====
-// 是否已在自选池中
-function inPool(code) {
-  return pool.stockPool.some(x => x.code === code)
-}
-
-// 手动收录单只股票到自选池(与竞价选股 StockTable 的 ＋自选 一致)
-function addToPool(r) {
-  const n = pool.addStocks([{
-    code: r.code, name: r.name,
-    bidChange: r.bid_change, probability: r.ai_prob,
-  }])
-  showToast(n ? `✅ ${r.code} ${r.name} 已加入自选` : `${r.code} 已在自选中`, n ? 'success' : 'info')
-}
 function chgCls(v) {
   if (v == null) return ''
   return v >= 0 ? 'up' : 'down'

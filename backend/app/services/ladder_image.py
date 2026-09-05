@@ -49,7 +49,7 @@ TIER_COLOR = {
     5: (163, 18, 62),
     6: (146, 10, 62),
     7: (128, 8, 58),
-    8: (110, 6, 54),
+    "8+": (88, 4, 48),   # ≥8 板(八板及以上)溢出档, 最深
 }
 
 FONT_PATH = os.path.join(
@@ -57,17 +57,23 @@ FONT_PATH = os.path.join(
     "assets", "fonts", "wqy-microhei.ttc",
 )
 
-# 高度板扩展到 8 板(2026-09-01 主人需求): 开盘啦 pid 只到 5, 真实连板数由东财
-# limitUpDays 注入, 按真实板数重分 1~8 档, ≥8 板归入「八板+」
-TIERS = [1, 2, 3, 4, 5, 6, 7, 8]
+# 高度板按真实连板数拆分(2026-09-01 主人需求): 开盘啦 pid 只到 5, 真实连板数由东财
+# limitUpDays 注入, 按真实板数重分为 1~7 档 + 「八板+」溢出档。
+# t >= 8 板(含 8 板)全部归入「八板+」, 8 板不再单列精确档;
+# 即档位为 首板~七板 精确 + 八板+ 收敛(2026-09-05 主人确认)。
+# (注: 东财缺失的股票回退 pid 档位)
+TIERS = [1, 2, 3, 4, 5, 6, 7]
 TIER_LABEL = {1: "首板", 2: "二板", 3: "三板", 4: "四板", 5: "五板",
-              6: "六板", 7: "七板", 8: "八板+"}
-MAX_TIER = 8
+              6: "六板", 7: "七板"}
+MAX_TIER = 7
+OVER8 = "8+"           # 溢出档 key(真实 ≥8 板, 含 8 板)
+OVER8_LABEL = "八板+"  # 8 板及以上统归「八板+」
+# 全部渲染档序: 1~7 精确档 + 溢出档(条形图/阶梯按此顺序, 高板在上)
+ALL_TIERS = list(TIERS) + [OVER8]
 
-# 断板反包区配色(暖橙, 与连板红区分)
+# 断板反包标签配色(暖橙小标签, 与连板红区分)
 FB_BG = (255, 248, 243)
 FB_HEAD = (255, 138, 62)
-FB_INK = (160, 74, 28)
 
 _font_cache = {}
 
@@ -92,10 +98,12 @@ COLS = [
 
 # ---------- 数据规整 ----------
 def _collect(data):
-    """按真实连板数(zt=max(pid, limitUpDays))重分 1~8 档;
-    返回 (tiers, total, rows): tiers=8 档全量统计(含空档, 供阶梯条/chips),
-    rows=[(tier_dict, 股票列表), ...] 只含非空档且高板在前(供连板池渲染)"""
-    grouped = {t: [] for t in TIERS}
+    """按真实连板数(zt=max(pid, limitUpDays))重分 1~7 档 + 八板+溢出档;
+    返回 (tiers, total, rows): tiers=全档统计(8 档, 含空档, 供条形图/chips),
+    rows=[(tier_dict, 股票列表), ...] 只含非空档且高板在前(供连板池渲染)。
+    拆分规则(2026-09-05 主人确认): 超过 5 板记录真实几板(6/7 精确),
+    真实 ≥8 板(含 8 板 与 9板+)统一归入「八板+」, 不再单列八板档。"""
+    grouped = {k: [] for k in ALL_TIERS}
     total = 0
     for pid in (1, 2, 3, 4, 5):
         lst = data.get(pid) or []
@@ -111,8 +119,8 @@ def _collect(data):
                 # 真实连板数: 优先用当日涨停池注入的真实连板数(解决五板+里 6~8 板区分);
                 # 否则回退档位 pid
                 zt = max(int(pid), int(it.get("limitUpDays") or pid or 0))
-                tier = min(zt, MAX_TIER)
-                grouped[tier].append({
+                key = OVER8 if zt > MAX_TIER else zt   # ≥8 板(含8板)归「八板+」
+                grouped[key].append({
                     "code": str(it.get("code", "")),
                     "name": str(it.get("name", "")),
                     "zt": zt,
@@ -125,10 +133,11 @@ def _collect(data):
                 continue
     tiers = []
     rows = []
-    for t in TIERS:
-        clean = grouped[t]
+    for k in ALL_TIERS:
+        clean = grouped[k]
         total += len(clean)
-        tier = {"label": TIER_LABEL[t], "count": len(clean), "pid": t}
+        label = OVER8_LABEL if k == OVER8 else TIER_LABEL[k]
+        tier = {"label": label, "count": len(clean), "pid": k}
         tiers.append(tier)
         if clean:
             rows.append((tier, clean))
@@ -180,28 +189,27 @@ def _baseline(text, font):
 # ---------- 渲染 ----------
 def build_png(data, date_str, out_path, fanbao=None):
     """渲染连板天梯 PNG。fanbao: 断板反包股列表 [{code,name,reason,change}, ...],
-    非空时在连板池下方渲染「断板反包」区(暖橙配色, 复盘一眼识别)。"""
+    其中落在首板行的个股, 在名称后用小号「反包」标签标记(不单独成区)。"""
     tiers, total, rows = _collect(data)
     fanbao = fanbao or []
+    # 断板反包股代码集合(用于在首板行内用小号「反包」标签标记, 不再单独成区)
+    fb_set = {str(it.get("code", "")) for it in fanbao}
 
     # ---------- 预计算结构/高度 ----------
     header_h = 118
-    summary_h = 134                     # 卡片 + 两行 chips(8 档)
-    stats_h = 250                       # 8 档阶梯条(46 + 8*24 + 余量)
+    summary_h = 124                     # 卡片 + 一行 chips(8 档)
+    n_dist = sum(1 for t in tiers if t["count"] > 0)
+    stats_h = 46 + max(n_dist, 1) * 24 + 12   # 阶梯条高度按非零档数自适应(0 家档不显示)
     detail_pad = 14                     # 连板池内边距
     tier_bar_h = 46
     colh_h = 34
     row_h = 44
-    fb_head_h = 40                      # 断板反包标题栏
-    fb_row_h = 36                       # 断板反包行高
 
     sections_h = 0
     for _tier, lst in rows:
         sections_h += (tier_bar_h + colh_h + max(len(lst), 1) * row_h + detail_pad)
-    fanbao_h = (fb_head_h + len(fanbao) * fb_row_h + 16) if fanbao else 0
-
     bottom_pad = 44
-    total_h = header_h + summary_h + stats_h + int(sections_h) + fanbao_h + bottom_pad
+    total_h = header_h + summary_h + stats_h + int(sections_h) + bottom_pad
 
     img = Image.new("RGB", (WIDTH, total_h), BG)
     draw = ImageDraw.Draw(img)
@@ -245,42 +253,49 @@ def build_png(data, date_str, out_path, fanbao=None):
         draw.text((cx, y + 18), val, font=big, fill=UP)
         vw = big.getbbox(val)[2]
         draw.text((cx + vw + 6, y + 28), unit, font=_font(16), fill=MUTED)
-        draw.text((cx, y + 60), cap, font=lab_font, fill=MUTED)
-        cx += 140
-    # 档位分布 chips(8 档两行: 1~4 一行, 5~8 一行; 空档也显示 count=0 以暴露断层)
+        draw.text((cx, y + 70), cap, font=lab_font, fill=MUTED)
+        cx += 150
+    # 档位分布 chips(8 档一行, label 与数值间留空格; 空档也显示 count=0 以暴露断层)
     chip_font = _font(14)
-    cnt_font = _font(16)
-    for row_i, t_slice in enumerate((tiers[:4], tiers[4:])):
-        xc = MARGIN
-        for t in t_slice:
-            cw = chip_font.getbbox(t["label"])[2] + 34
-            ch = 24
-            cy = y + (72 if row_i == 0 else 104)
-            draw.rounded_rectangle([xc, cy, xc + cw, cy + ch], radius=ch // 2,
-                                   fill=(255, 236, 236), outline=(255, 214, 214))
-            draw.text((xc + 12, cy + 4), t["label"], font=chip_font, fill=UP)
-            n_txt = str(t["count"])
-            nw = cnt_font.getbbox(n_txt)[2]
-            draw.text((xc + cw - 7 - nw, cy + 4), n_txt, font=cnt_font, fill=UP)
-            xc += cw + 10
+    cnt_font = _font(15)
+    xc = MARGIN
+    cy = y + 88
+    ch = 24
+    chip_gap = 8
+    for t in tiers:
+        label_w = chip_font.getbbox(t["label"])[2]
+        n_txt = str(t["count"])
+        nw = cnt_font.getbbox(n_txt)[2]
+        padx = 12
+        gap = 6
+        cw = padx * 2 + label_w + gap + nw
+        draw.rounded_rectangle([xc, cy, xc + cw, cy + ch], radius=ch // 2,
+                               fill=(255, 236, 236), outline=(255, 214, 214))
+        draw.text((xc + padx, cy + 4), t["label"], font=chip_font, fill=UP)
+        draw.text((xc + padx + label_w + gap, cy + 4), n_txt, font=cnt_font, fill=UP)
+        xc += cw + chip_gap
     y += summary_h
 
-    # ---------- 统计天梯(阶梯条, 8 档低→高, 高板色更深, 空档画短条暴露断层) ----------
+    # ---------- 统计天梯(阶梯条, 高板在上/首板在下, 高板色更深; 0 家档位不显示) ----------
     draw.rectangle([0, y, WIDTH, y + stats_h], fill=WHITE)
     draw.text((MARGIN, y + 14), "连板分布", font=_font(17), fill=INK)
+    non_zero = [t for t in tiers if t["count"] > 0]
     max_count = max([t["count"] for t in tiers] + [1])
     bar_area_w = WIDTH - 2 * MARGIN - 60
     bx = MARGIN + 60
-    for t in tiers:
-        by0 = y + 46 + (TIERS.index(t["pid"])) * 24
-        bw = int(bar_area_w * (t["count"] / max_count)) if t["count"] else 4
-        bw = max(bw, 4)
-        color = TIER_COLOR[t["pid"]]
-        draw.rounded_rectangle([bx, by0, bx + bw, by0 + 18], radius=5, fill=color)
-        draw.text((MARGIN, by0 - 2), t["label"], font=_font(14), fill=INK)
-        c_t = f"{t['count']} 家"
-        c_font = _font(14)
-        draw.text((bx + bw + 8, by0 - 2), c_t, font=c_font, fill=MUTED)
+    if non_zero:
+        slot = 0
+        for t in reversed(non_zero):          # 顶部=最高板, 底部=首板
+            by0 = y + 46 + slot * 24
+            bw = int(bar_area_w * (t["count"] / max_count))
+            bw = max(bw, 4)
+            color = TIER_COLOR.get(t["pid"], TIER_COLOR[OVER8])
+            draw.rounded_rectangle([bx, by0, bx + bw, by0 + 18], radius=5, fill=color)
+            draw.text((MARGIN, by0 - 2), t["label"], font=_font(14), fill=INK)
+            c_t = f"{t['count']} 家"
+            c_font = _font(14)
+            draw.text((bx + bw + 8, by0 - 2), c_t, font=c_font, fill=MUTED)
+            slot += 1
     y += stats_h
 
     # ---------- 连板池逐股清单(高板在上, 只渲染非空档) ----------
@@ -318,8 +333,18 @@ def build_png(data, date_str, out_path, fanbao=None):
             # 代码
             draw.text((COLS[0][1], y + 13), it["code"], font=_font(18), fill=INK)
             # 名称
-            draw.text((COLS[1][1], y + 13), _truncate(it["name"], COLS[1][2], 16),
-                      font=name_font, fill=INK)
+            name_txt = _truncate(it["name"], COLS[1][2], 16)
+            draw.text((COLS[1][1], y + 13), name_txt, font=name_font, fill=INK)
+            # 断板反包标记(仅首板行, 名称后小号橙边标签, 替代独立成区)
+            if tier["pid"] == 1 and it["code"] in fb_set:
+                tag = "反包"
+                tgt = _font(11)
+                tag_w = tgt.getbbox(tag)[2]
+                nx = COLS[1][1] + name_font.getbbox(name_txt)[2] + 6
+                if nx + tag_w + 10 <= COLS[3][1] - 4:
+                    draw.rounded_rectangle([nx, y + 14, nx + tag_w + 10, y + 30],
+                                           radius=8, fill=FB_BG, outline=FB_HEAD)
+                    draw.text((nx + 5, y + 16), tag, font=tgt, fill=FB_HEAD)
             # 连板
             zt_t = f"{it['zt']}板"
             zt_font = _font(15)
@@ -343,46 +368,6 @@ def build_png(data, date_str, out_path, fanbao=None):
             y += row_h
         # 组间分隔
         y += 6
-
-    # ---------- 断板反包(暖橙区) ----------
-    if fanbao:
-        y += 8
-        draw.rectangle([MARGIN, y, WIDTH - MARGIN, y + fb_head_h],
-                       fill=FB_HEAD)
-        draw.text((MARGIN + 14, y + 9), "断板反包", font=_font(19), fill=WHITE)
-        sub = f"今日重新涨停 · 昨日断板 · 近5日内曾涨停 · {len(fanbao)} 只"
-        sf = _font(14)
-        sw = sf.getbbox(sub)[2]
-        draw.text((WIDTH - MARGIN - 14 - sw, y + 11), sub, font=sf, fill=(255, 236, 220))
-        y += fb_head_h
-        # 列头
-        fb_colh = 30
-        draw.rectangle([MARGIN, y, WIDTH - MARGIN, y + fb_colh], fill=(255, 245, 238))
-        for cname, x0, cw, al in [
-                ("代码", 24, 96, "l"), ("名称", 120, 118, "l"),
-                ("涨停原因", 238, 430, "l"), ("涨幅", 668, 90, "r")]:
-            fh = _font(14)
-            if al == "r":
-                tx = x0 + cw - fh.getbbox(cname)[2]
-            else:
-                tx = x0
-            draw.text((tx, y + 7), cname, font=fh, fill=(180, 100, 60))
-        draw.line([MARGIN, y + fb_colh, WIDTH - MARGIN, y + fb_colh], fill=(255, 224, 200))
-        y += fb_colh
-        # 行
-        fb_row_bg = [WHITE, FB_BG]
-        for i, it in enumerate(fanbao):
-            draw.rectangle([MARGIN, y, WIDTH - MARGIN, y + fb_row_h],
-                           fill=fb_row_bg[i % 2])
-            draw.text((24, y + 9), it["code"], font=_font(17), fill=FB_INK)
-            draw.text((120, y + 9), _truncate(it["name"], 118, 16), font=_font(16), fill=INK)
-            draw.text((238, y + 9), _truncate(it["reason"], 430, 15), font=_font(15), fill=MUTED)
-            chg_t = f"+{it['change']:.1f}%"
-            cf = _font(16)
-            cwv = cf.getbbox(chg_t)[2]
-            draw.text((668 + 90 - cwv, y + 9), chg_t, font=cf, fill=FB_HEAD)
-            y += fb_row_h
-        y += 10
 
     # ---------- 底部 ----------
     y += 10

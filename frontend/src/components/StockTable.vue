@@ -14,9 +14,8 @@
         <col style="width:64px" />
         <col style="width:52px" />
         <col style="width:42px" />
-        <col style="width:46px" />
+        <col style="width:52px" />
         <col style="width:72px" />
-        <col style="width:50px" />
       </colgroup>
       <thead>
         <tr>
@@ -31,14 +30,16 @@
           <th class="sortable num col-score" :class="{ active: sortKey === 'probability' }" @click="onSort('probability', 'number')">评分<span class="sort-ind">{{ sortInd('probability') }}</span></th>
           <th class="sortable num col-conf" :class="{ active: sortKey === 'confidence' }" @click="onSort('confidence', 'number')">可信<span class="sort-ind">{{ sortInd('confidence') }}</span></th>
           <th class="sortable col-concept" :class="{ active: sortKey === 'concept' }" @click="onSort('concept', 'string')">概念<span class="sort-ind">{{ sortInd('concept') }}</span></th>
-          <th class="op-col col-op">操作</th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="(item, idx) in sortedStocks" :key="item.code">
           <td class="stock-info-cell" :data-stock-code="item.code" :data-stock-name="item.name" @click="emit('open-chart', item.code, item.name)">
             <div class="stock-name-row">
-              <span class="stock-name">{{ item.name }}</span>
+              <span class="pool-hover-wrap">
+                <span class="stock-name">{{ item.name }}</span>
+                <PoolHoverBtn :item="item" />
+              </span>
             </div>
             <div class="stock-code-row"><span class="stock-code">{{ item.code }}</span></div>
             <div v-if="yidongTag(item.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(item.code) }}</span></div>
@@ -62,7 +63,6 @@
             </template>
             <span v-else>-</span>
           </td>
-          <td><button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click.stop="addToPool(item)">{{ inPool(item.code) ? '已＋' : '＋自选' }}</button></td>
         </tr>
       </tbody>
     </table>
@@ -73,11 +73,9 @@
 import { ref, computed } from 'vue'
 import { linkToSoftware } from '../utils/tdx'
 import { isBefore930 } from '../utils/time'
-import { usePoolStore } from '../stores/pool'
-import { showToast } from '../utils/toast'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
+import PoolHoverBtn from './PoolHoverBtn.vue'
 
-const pool = usePoolStore()
 const { yidongTag } = useYidongMonitor()
 
 const props = defineProps({
@@ -152,17 +150,6 @@ function fmtPct(v) {
   return (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%'
 }
 
-// 手动收录单只股票到策略池(任意数量)
-function addToPool(item) {
-  const n = pool.addStocks([item])
-  showToast(n ? `✅ ${item.code} ${item.name} 已加入股票池` : `${item.code} 已在池中`, n ? 'success' : 'info')
-}
-
-// 2026-08-31 主人要求: 评分构成(五因子分项/权重)属于内部逻辑, 不对用户暴露, factorTitle 已移除
-// 是否已在池中
-function inPool(code) {
-  return pool.stockPool.some(x => x.code === code)
-}
 // 2026-09-03 主人要求恢复: 竞价选股表重新展示「竞额」列(bidAmt, 万元); amt>=10000万(1亿)折算显示亿
 function bidAmtText(amt) {
   if (amt === null || amt === undefined || isNaN(amt)) return '-'

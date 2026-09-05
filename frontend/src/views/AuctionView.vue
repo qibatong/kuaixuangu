@@ -61,14 +61,14 @@
             <th v-if="tab !== 'boom'" class="sortable" :class="{ active: sealSort.keyOf('limitBoards') }" @click="sealSort.onSort('limitBoards')">连板<span class="sort-ind">{{ sealSort.ind('limitBoards') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('floatMv') }" @click="sealSort.onSort('floatMv')">流通(亿)<span class="sort-ind">{{ sealSort.ind('floatMv') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('board') }" @click="sealSort.onSort('board', 'string')">概念<span class="sort-ind">{{ sealSort.ind('board') }}</span></th>
-            <th>操作</th>
+            
           </tr>
         </thead>
         <tbody>
           <tr v-for="(it, idx) in sealSort.sorted(sealList)" :key="it.code">
             <td class="stock-info-cell" @click="linkToSoftware(it.code)">
             <div class="stock-code-row"><span class="stock-code">{{ it.code }}</span></div>
-            <div class="stock-name-row"><span class="stock-name">{{ it.name }}</span></div>
+            <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ it.name }}</span><PoolHoverBtn :item="it" /></span></div>
             <div v-if="yidongTag(it.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(it.code) }}</span></div>
           </td>
             <td :class="it.realChange > 0 ? 'up' : 'down'">{{ signed(it.realChange) }}%</td>
@@ -81,7 +81,7 @@
             <td v-if="tab !== 'boom'"><span v-if="it.limitBoards > 0" class="lb-badge">{{ it.limitBoards }}板</span><span v-else class="dim">-</span></td>
             <td class="dim">{{ fmtMv(it.floatMv) }}</td>
             <td class="concept-cell dim" :title="it.board"><span v-if="it.board" class="concept-clamp">{{ conceptText(it.board) }}</span><span v-else class="dim">-</span></td>
-            <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已＋' : '＋自选' }}</button></td>
+            
           </tr>
         </tbody>
       </table>
@@ -111,14 +111,14 @@
             <th class="sortable" :class="{ active: s3Sort.keyOf('real_change') }" @click="s3Sort.onSort('real_change')">现涨<span class="sort-ind">{{ s3Sort.ind('real_change') }}</span></th>
             <th class="sortable" :class="{ active: s3Sort.keyOf('float_mv') }" @click="s3Sort.onSort('float_mv')">流通(亿)<span class="sort-ind">{{ s3Sort.ind('float_mv') }}</span></th>
             <th class="board-col sortable" :class="{ active: s3Sort.keyOf('board') }" @click="s3Sort.onSort('board', 'string')">概念<span class="sort-ind">{{ s3Sort.ind('board') }}</span></th>
-            <th>操作</th>
+            
           </tr>
         </thead>
         <tbody>
           <tr v-for="(it, idx) in s3Sort.sorted(s3List, s3Val)" :key="it.code">
             <td class="stock-info-cell" @click="linkToSoftware(it.code)">
             <div class="stock-code-row"><span class="stock-code">{{ it.code }}</span></div>
-            <div class="stock-name-row"><span class="stock-name">{{ it.name || it.code }}</span></div>
+            <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ it.name || it.code }}</span><PoolHoverBtn :item="it" /></span></div>
             <div v-if="yidongTag(it.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(it.code) }}</span></div>
           </td>
             <td class="seal-col seal-col-25">{{ tpSeal(it, '9_25') }}</td>
@@ -129,10 +129,10 @@
             <td class="real-chg-col" :class="realChgCls(it)">{{ realChg(it) }}</td>
             <td class="dim">{{ mvText(it) }}</td>
             <td class="concept-cell" :title="it.board"><span v-if="it.board" class="concept-clamp">{{ conceptText(it.board) }}</span><span v-else class="dim">-</span></td>
-            <td><button class="pool-add-btn" :class="{ added: inPool(it.code) }" @click.stop="addToPool(it)">{{ inPool(it.code) ? '已＋' : '＋自选' }}</button></td>
+            
           </tr>
           <tr v-if="!s3List.length">
-            <td colspan="10" class="snap-empty">该日期暂无封单榜单（可能：今日无涨停/数据采集中/非交易日）；下个交易日 9:15/9:20/9:25 采集后生效</td>
+            <td colspan="9" class="snap-empty">该日期暂无封单榜单（可能：今日无涨停/数据采集中/非交易日）；下个交易日 9:15/9:20/9:25 采集后生效</td>
           </tr>
         </tbody>
       </table>
@@ -160,14 +160,14 @@
                 <th class="sortable" :class="{ active: qcSort.keyOf('bidTurnover') }" @click="qcSort.onSort('bidTurnover')">竞换<span class="sort-ind">{{ qcSort.ind('bidTurnover') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('floatMv') }" @click="qcSort.onSort('floatMv')">流通(亿)<span class="sort-ind">{{ qcSort.ind('floatMv') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('board') }" @click="qcSort.onSort('board', 'string')">概念<span class="sort-ind">{{ qcSort.ind('board') }}</span></th>
-                <th>操作</th>
+                
               </tr>
             </thead>
             <tbody>
               <tr v-for="(q, idx) in qcSort.sorted(qc20Mode === 'amt' ? qcList : qcChgList)" :key="'a' + q.code + qc20Mode">
                 <td class="stock-info-cell" @click="linkToSoftware(q.code)">
             <div class="stock-code-row"><span class="stock-code">{{ q.code }}</span></div>
-            <div class="stock-name-row"><span class="stock-name">{{ q.name }}</span></div>
+            <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ q.name }}</span><PoolHoverBtn :item="q" /></span></div>
             <div v-if="yidongTag(q.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(q.code) }}</span></div>
           </td>
                 <td :class="q.realChange > 0 ? 'up' : q.realChange < 0 ? 'down' : 'dim'">{{ q.realChange !== null && q.realChange !== undefined ? signed(q.realChange) + '%' : '-' }}</td>
@@ -178,10 +178,10 @@
                 <td class="dim">{{ q.bidTurnover !== null && q.bidTurnover !== undefined ? q.bidTurnover.toFixed(2) + '%' : '-' }}</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
                 <td class="concept-cell dim qc-board" :title="q.board"><span v-if="q.board" class="concept-clamp">{{ conceptText(q.board) }}</span><span v-else class="dim">-</span></td>
-                <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已＋' : '＋自选' }}</button></td>
+                
               </tr>
               <tr v-if="(qc20Mode === 'amt' ? qcList : qcChgList).length === 0">
-                <td colspan="10" class="snap-empty">{{ qc20Mode === 'amt' ? '9:20-9:25 竞额抢筹数据 9:15-9:30 竞价时段可用' : '9:20-9:25 涨幅抢筹数据 9:20/9:25 快照采集后可用' }}</td>
+                <td colspan="9" class="snap-empty">{{ qc20Mode === 'amt' ? '9:20-9:25 竞额抢筹数据 9:15-9:30 竞价时段可用' : '9:20-9:25 涨幅抢筹数据 9:20/9:25 快照采集后可用' }}</td>
               </tr>
             </tbody>
           </table>
@@ -201,14 +201,14 @@
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('bidTurnover') }" @click="qcLastSort.onSort('bidTurnover')">竞换<span class="sort-ind">{{ qcLastSort.ind('bidTurnover') }}</span></th>
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('floatMv') }" @click="qcLastSort.onSort('floatMv')">流通(亿)<span class="sort-ind">{{ qcLastSort.ind('floatMv') }}</span></th>
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('board') }" @click="qcLastSort.onSort('board', 'string')">概念<span class="sort-ind">{{ qcLastSort.ind('board') }}</span></th>
-                <th>操作</th>
+                
               </tr>
             </thead>
             <tbody>
               <tr v-for="(q, idx) in qcLastSort.sorted(qcLastList)" :key="'b' + q.code">
                 <td class="stock-info-cell" @click="linkToSoftware(q.code)">
             <div class="stock-code-row"><span class="stock-code">{{ q.code }}</span></div>
-            <div class="stock-name-row"><span class="stock-name">{{ q.name }}</span></div>
+            <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ q.name }}</span><PoolHoverBtn :item="q" /></span></div>
             <div v-if="yidongTag(q.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(q.code) }}</span></div>
           </td>
                 <td :class="q.realChange > 0 ? 'up' : q.realChange < 0 ? 'down' : 'dim'">{{ q.realChange !== null && q.realChange !== undefined ? signed(q.realChange) + '%' : '-' }}</td>
@@ -219,10 +219,10 @@
                 <td class="dim">{{ q.bidTurnover !== null && q.bidTurnover !== undefined ? q.bidTurnover.toFixed(2) + '%' : '-' }}</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
                 <td class="concept-cell dim qc-board" :title="q.board"><span v-if="q.board" class="concept-clamp">{{ conceptText(q.board) }}</span><span v-else class="dim">-</span></td>
-                <td><button class="pool-add-btn" :class="{ added: inPool(q.code) }" @click.stop="addToPool(q)">{{ inPool(q.code) ? '已＋' : '＋自选' }}</button></td>
+                
               </tr>
               <tr v-if="!qcLastList.length">
-                <td colspan="10" class="snap-empty">最后一秒数据 9:25 后可用（9:24 时点采集后）</td>
+                <td colspan="9" class="snap-empty">最后一秒数据 9:25 后可用（9:24 时点采集后）</td>
               </tr>
             </tbody>
           </table>
@@ -242,14 +242,14 @@
             <th class="sortable" :class="{ active: yestZtSort.keyOf('bidAmt') }" @click="yestZtSort.onSort('bidAmt')">竞额(亿)<span class="sort-ind">{{ yestZtSort.ind('bidAmt') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('reason') }" @click="yestZtSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ yestZtSort.ind('reason') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('board') }" @click="yestZtSort.onSort('board', 'string')">概念<span class="sort-ind">{{ yestZtSort.ind('board') }}</span></th>
-            <th>操作</th>
+            
           </tr>
         </thead>
         <tbody>
           <tr v-for="(z, idx) in yestZtSort.sorted(yestZtList)" :key="z.code">
             <td class="stock-info-cell" @click="linkToSoftware(z.code)">
             <div class="stock-code-row"><span class="stock-code">{{ z.code }}</span></div>
-            <div class="stock-name-row"><span class="stock-name">{{ z.name }}</span>
+            <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ z.name }}</span><PoolHoverBtn :item="z" /></span>
             <span v-if="z.stillLimit" class="lb-badge">连板</span></div>
             <div v-if="yidongTag(z.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(z.code) }}</span></div>
           </td>
@@ -261,7 +261,7 @@
             <td>{{ z.bidAmt ? amtText(z.bidAmt) : '-' }}</td>
             <td class="reason-cell" @click="showReason(z)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
             <td class="concept-cell dim" :title="z.board"><span v-if="z.board" class="concept-clamp">{{ conceptText(z.board) }}</span><span v-else class="dim">-</span></td>
-            <td><button class="pool-add-btn" :class="{ added: inPool(z.code) }" @click.stop="addToPool(z)">{{ inPool(z.code) ? '已＋' : '＋自选' }}</button></td>
+            
           </tr>
         </tbody>
       </table>
@@ -278,14 +278,14 @@
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('floatMv') }" @click="yestBrokenSort.onSort('floatMv')">流通(亿)<span class="sort-ind">{{ yestBrokenSort.ind('floatMv') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('reason') }" @click="yestBrokenSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ yestBrokenSort.ind('reason') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('board') }" @click="yestBrokenSort.onSort('board', 'string')">概念<span class="sort-ind">{{ yestBrokenSort.ind('board') }}</span></th>
-            <th>操作</th>
+            
           </tr>
         </thead>
         <tbody>
           <tr v-for="(b2, idx) in yestBrokenSort.sorted(yestBrokenList)" :key="b2.code">
             <td class="stock-info-cell" @click="linkToSoftware(b2.code)">
             <div class="stock-code-row"><span class="stock-code">{{ b2.code }}</span></div>
-            <div class="stock-name-row"><span class="stock-name">{{ b2.name }}</span></div>
+            <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ b2.name }}</span><PoolHoverBtn :item="b2" /></span></div>
             <div v-if="yidongTag(b2.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(b2.code) }}</span></div>
           </td>
             <td :class="b2.yestChange > 0 ? 'up' : b2.yestChange < 0 ? 'down' : 'dim'">{{ b2.yestChange !== null && b2.yestChange !== undefined ? signed(b2.yestChange) + '%' : '-' }}</td>
@@ -296,7 +296,7 @@
             <td class="dim">{{ fmtMv(b2.floatMv) }}</td>
             <td class="reason-cell" @click="showReason(b2)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
             <td class="concept-cell dim" :title="b2.board"><span v-if="b2.board" class="concept-clamp">{{ conceptText(b2.board) }}</span><span v-else class="dim">-</span></td>
-            <td><button class="pool-add-btn" :class="{ added: inPool(b2.code) }" @click.stop="addToPool(b2)">{{ inPool(b2.code) ? '已＋' : '＋自选' }}</button></td>
+            
           </tr>
         </tbody>
       </table>
@@ -314,14 +314,14 @@
             <th class="sortable" :class="{ active: lhbSort.keyOf('turnover') }" @click="lhbSort.onSort('turnover')">换手%<span class="sort-ind">{{ lhbSort.ind('turnover') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('reason') }" @click="lhbSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ lhbSort.ind('reason') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('board') }" @click="lhbSort.onSort('board', 'string')">概念<span class="sort-ind">{{ lhbSort.ind('board') }}</span></th>
-            <th>操作</th>
+            
           </tr>
         </thead>
         <tbody>
           <tr v-for="l in lhbSort.sorted(lhbList)" :key="l.code">
             <td class="stock-info-cell" @click="linkToSoftware(l.code)">
             <div class="stock-code-row"><span class="stock-code">{{ l.code }}</span></div>
-            <div class="stock-name-row"><span class="stock-name">{{ l.name }}</span></div>
+            <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ l.name }}</span><PoolHoverBtn :item="l" /></span></div>
             <div v-if="yidongTag(l.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(l.code) }}</span></div>
           </td>
             <td :class="l.change > 0 ? 'up' : 'down'">{{ signed(l.change) }}%</td>
@@ -332,7 +332,7 @@
             <td>{{ l.turnover.toFixed(2) }}</td>
             <td class="reason-cell" @click="showReason(l)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
             <td class="concept-cell dim" :title="l.board"><span v-if="l.board" class="concept-clamp">{{ conceptText(l.board) }}</span><span v-else class="dim">-</span></td>
-            <td><button class="pool-add-btn" :class="{ added: inPool(l.code) }" @click.stop="addToPool(l)">{{ inPool(l.code) ? '已＋' : '＋自选' }}</button></td>
+            
           </tr>
         </tbody>
       </table>
@@ -351,14 +351,14 @@
             <th v-if="tab === 'brokenToday'" class="sortable" :class="{ active: brokenSort.keyOf('firstLimitUp') }" @click="brokenSort.onSort('firstLimitUp')">涨停时间<span class="sort-ind">{{ brokenSort.ind('firstLimitUp') }}</span></th>
             <th class="sortable" :class="{ active: brokenSort.keyOf('reason') }" @click="brokenSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ brokenSort.ind('reason') }}</span></th>
             <th class="sortable" :class="{ active: brokenSort.keyOf('board') }" @click="brokenSort.onSort('board', 'string')">概念<span class="sort-ind">{{ brokenSort.ind('board') }}</span></th>
-            <th>操作</th>
+            
           </tr>
         </thead>
         <tbody>
           <tr v-for="b in brokenSort.sorted(brokenList)" :key="b.code">
             <td class="stock-info-cell" @click="linkToSoftware(b.code)">
             <div class="stock-code-row"><span class="stock-code">{{ b.code }}</span></div>
-            <div class="stock-name-row"><span class="stock-name">{{ b.name }}</span></div>
+            <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ b.name }}</span><PoolHoverBtn :item="b" /></span></div>
             <div v-if="yidongTag(b.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(b.code) }}</span></div>
           </td>
             <td :class="b.change > 0 ? 'up' : 'down'">{{ signed(b.change) }}%</td>
@@ -370,7 +370,7 @@
             <td v-if="tab === 'brokenToday'" class="dim">{{ fmtT(b.firstLimitUp) }}</td>
             <td class="reason-cell" @click="showReason(b)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
             <td class="concept-cell dim" :title="b.board"><span v-if="b.board" class="concept-clamp">{{ conceptText(b.board) }}</span><span v-else class="dim">-</span></td>
-            <td><button class="pool-add-btn" :class="{ added: inPool(b.code) }" @click.stop="addToPool(b)">{{ inPool(b.code) ? '已＋' : '＋自选' }}</button></td>
+            
           </tr>
         </tbody>
       </table>
@@ -411,16 +411,15 @@ import { kplBidSeal, kplBidNet, kplBidBoom, kplBidQiangcang, kplBroken, kplLhb, 
 import { auctionOverview, bidSnapshot3points } from '../api/stats'
 import { linkToSoftware } from '../utils/tdx'
 import { isMemberOnlyTime, todayBj } from '../utils/time'
-import { usePoolStore } from '../stores/pool'
 import { showToast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
 import { useUserStore } from '../stores/user'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
 import { yi, signed, amtText, fmtAvg, fmtT, wan } from '../utils/format'
 import VipGate from '../components/VipGate.vue'
+import PoolHoverBtn from '../components/PoolHoverBtn.vue'
 
 const user = useUserStore()
-const pool = usePoolStore()
 const { yidongTag, refreshYidongCodes } = useYidongMonitor()
 const tab = ref('s3')   // 默认选中三时点封单
 const sealRaw = ref([])
@@ -616,16 +615,6 @@ const sealList = computed(() => {
 
 // 炸板: 昨/今 按 Tab 切换
 const brokenList = computed(() => (tab.value === 'brokenYest' ? brokenYestList.value : brokenTodayList.value))
-
-function addToPool(s) {
-  const n = pool.addStocks([{ code: s.code, name: s.name }])
-  showToast(n ? `✅ ${s.code} ${s.name} 已加入股票池` : `${s.code} 已在池中`, n ? 'success' : 'info')
-}
-
-// 是否已在股票池(与主页面 StockTable 一致: 已入池按钮变绿禁用)
-function inPool(code) {
-  return pool.stockPool.some(x => x.code === code)
-}
 
 // ---- 涨停原因弹窗 ----
 const reasonModal = ref({ show: false, code: '', name: '', board: '', text: '', extra: '' })

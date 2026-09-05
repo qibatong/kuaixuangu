@@ -39,14 +39,13 @@
             <th class="sortable" :class="{ active: rtSort.keyOf('deviation') }" @click="rtSort.onSort('deviation', 'number')">偏离值<span class="sort-ind">{{ rtSort.ind('deviation') }}</span></th>
             <th>触发条件</th>
             <th>是否触发</th>
-            <th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(item, idx) in rtSort.sorted(rtList)" :key="item.code">
             <td class="rank-col">{{ idx + 1 }}</td>
             <td class="stock-info-cell" @click="linkToSoftware(item.code)">
-              <div class="stock-name-row"><span class="stock-name">{{ item.name }}</span></div>
+              <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ item.name }}</span><PoolHoverBtn :item="item" /></span></div>
               <div class="stock-code-row"><span class="stock-code">{{ item.code }}</span></div>
             </td>
             <td class="type-col">{{ item.type }}</td>
@@ -58,11 +57,6 @@
             <td class="trigger-col">{{ item.trigger }}</td>
             <td>
               <span class="trigger-status" :class="{ triggered: isTriggered(item.triggered) }">{{ item.triggered }}</span>
-            </td>
-            <td>
-              <button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click="addToPool(item)">
-                {{ inPool(item.code) ? '已＋' : '＋自选' }}
-              </button>
             </td>
           </tr>
         </tbody>
@@ -88,14 +82,13 @@
             <th>连板/标签</th>
             <th class="sortable" :class="{ active: hotSort.keyOf('days') }" @click="hotSort.onSort('days', 'string')">偏离天数<span class="sort-ind">{{ hotSort.ind('days') }}</span></th>
             <th>概念</th>
-            <th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(item, idx) in hotSort.sorted(hotList)" :key="item.code">
             <td class="rank-col">{{ idx + 1 }}</td>
             <td class="stock-info-cell" @click="linkToSoftware(item.code)">
-              <div class="stock-name-row"><span class="stock-name">{{ item.name }}</span></div>
+              <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ item.name }}</span><PoolHoverBtn :item="item" /></span></div>
               <div class="stock-code-row"><span class="stock-code">{{ item.code }}</span></div>
             </td>
             <td class="type-col">{{ item.type }}</td>
@@ -106,11 +99,6 @@
             <td><span v-if="item.flag" class="lb-badge">{{ item.flag }}</span></td>
             <td>{{ item.days }}</td>
             <td class="concept-col">{{ item.concept }}</td>
-            <td>
-              <button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click="addToPool(item)">
-                {{ inPool(item.code) ? '已＋' : '＋自选' }}
-              </button>
-            </td>
           </tr>
         </tbody>
       </table>
@@ -132,24 +120,18 @@
             <th class="sortable" :class="{ active: monSort.keyOf('startDate') }" @click="monSort.onSort('startDate', 'string')">开始日期<span class="sort-ind">{{ monSort.ind('startDate') }}</span></th>
             <th class="sortable" :class="{ active: monSort.keyOf('endDate') }" @click="monSort.onSort('endDate', 'string')">结束日期<span class="sort-ind">{{ monSort.ind('endDate') }}</span></th>
             <th class="sortable" :class="{ active: monSort.keyOf('times') }" @click="monSort.onSort('times')">次数<span class="sort-ind">{{ monSort.ind('times') }}</span></th>
-            <th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(item, idx) in monSort.sorted(monList)" :key="item.code">
             <td class="rank-col">{{ idx + 1 }}</td>
             <td class="stock-info-cell" @click="linkToSoftware(item.code)">
-              <div class="stock-name-row"><span class="stock-name">{{ item.name }}</span></div>
+              <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ item.name }}</span><PoolHoverBtn :item="item" /></span></div>
               <div class="stock-code-row"><span class="stock-code">{{ item.code }}</span></div>
             </td>
             <td>{{ item.startDate }}</td>
             <td>{{ item.endDate }}</td>
             <td><span class="lb-badge">{{ item.times }}次</span></td>
-            <td>
-              <button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click="addToPool(item)">
-                {{ inPool(item.code) ? '已＋' : '＋自选' }}
-              </button>
-            </td>
           </tr>
         </tbody>
       </table>
@@ -170,23 +152,17 @@
             <th class="sortable merged-col" :class="{ active: mulSort.keyOf('code') || mulSort.keyOf('name') }" @click="mulSort.onSort('code', 'string')">名称<span class="sort-ind">{{ mulSort.ind('code') }}</span></th>
             <th class="sortable" :class="{ active: mulSort.keyOf('times') }" @click="mulSort.onSort('times')">异动次数<span class="sort-ind">{{ mulSort.ind('times') }}</span></th>
             <th>异动描述</th>
-            <th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(item, idx) in mulSort.sorted(mulList)" :key="item.code">
             <td class="rank-col">{{ idx + 1 }}</td>
             <td class="stock-info-cell" @click="linkToSoftware(item.code)">
-              <div class="stock-name-row"><span class="stock-name">{{ item.name }}</span></div>
+              <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ item.name }}</span><PoolHoverBtn :item="item" /></span></div>
               <div class="stock-code-row"><span class="stock-code">{{ item.code }}</span></div>
             </td>
             <td><span class="lb-badge">{{ item.times }}次</span></td>
             <td class="desc-col">{{ item.desc }}</td>
-            <td>
-              <button class="pool-add-btn" :class="{ added: inPool(item.code) }" @click="addToPool(item)">
-                {{ inPool(item.code) ? '已＋' : '＋自选' }}
-              </button>
-            </td>
           </tr>
         </tbody>
       </table>
@@ -201,10 +177,8 @@ import { useSortable } from '../composables/useSortable'
 import { kplYidongRealtime, kplYidongHot, kplYidongMonitor, kplYidongMulti } from '../api/kpl'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
-import { usePoolStore } from '../stores/pool'
-import { showToast } from '../utils/toast'
+import PoolHoverBtn from '../components/PoolHoverBtn.vue'
 
-const pool = usePoolStore()
 const tab = ref('realtime')
 const bjTime = ref('--:--:--')
 
@@ -237,15 +211,6 @@ function switchTab(t) {
 function isTriggered(status) {
   // 判断是否已触发异动
   return status && (status.includes('已触发') || status.includes('已停牌'))
-}
-
-function addToPool(item) {
-  const n = pool.addStocks([{ code: item.code, name: item.name }])
-  showToast(n ? `✅ ${item.code} ${item.name} 已加入自选` : `${item.code} 已在池中`, n ? 'success' : 'info')
-}
-
-function inPool(code) {
-  return pool.stockPool.some(x => x.code === code)
 }
 
 function fmtNum(v) {
