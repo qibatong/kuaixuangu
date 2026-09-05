@@ -116,6 +116,15 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         if (action == "refresh" and not before930 and mode == "auction"):
             try:
                 reuse_bid, reuse_src = history.find_today_reusable_batch(uid, f)
+                reuse_date = None
+                if not reuse_bid:
+                    # 2026-09-05 主人需求(多用户反馈): 休市时间/当日无批次时回退
+                    # **最近交易日**同参批次直读 —— 关闭平台后再打开, 首页直接显示
+                    # 关闭前选出的股, 不再全市场重算转圈。参数不一致(改过条件)仍重算。
+                    reuse_bid, reuse_src, reuse_date = history.find_recent_reusable_batch(uid, f)
+                    if reuse_bid:
+                        log.info("选股refresh当日无批次→回退最近交易日直读 uid=%s src=%s "
+                                 "batch=%s date=%s", uid, reuse_src, reuse_bid, reuse_date)
                 if reuse_bid:
                     lst = history.get_batch_stocks_mapped(reuse_bid)
                     # 全市场实时行情(缓存命中≈0ms; 拉取失败降级: 定格名单无实时覆盖, 下轮自愈)
@@ -143,6 +152,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                         "count": len(lst), "before930": False,
                         "spotMap": spot_map, "dataTime": int(time.time()),
                         "reused": True, "source": reuse_src, "batch_id": reuse_bid,
+                        "reusedDate": reuse_date,   # 回退最近交易日时非 None, 前端据此提示
                     })
             except Exception as e:
                 log.warning("refresh 直读批次失败(降级正常重算) uid=%s err=%s", uid, e)

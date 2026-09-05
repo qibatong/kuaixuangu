@@ -209,6 +209,58 @@ def find_today_reusable_batch(user_id, f, now_ts=None):
     return None, None
 
 
+def find_recent_reusable_batch(user_id, f, now_ts=None, lookback_days=14):
+    """休市/当日无批次时的**回退直读**(2026-09-05 主人需求:
+    「多个用户反馈平台关闭后再打开首页就能显示关闭前选出的股, 别一进来就转圈」)。
+
+    场景: 开盘日 9:30 后(当日系统批次为空/参数变更前的旧名单)以及休市时间,
+    用户首屏 refresh 原先走 find_today_reusable_batch 只找**当日**批次 →
+    非交易日/当日无批次必然 miss → 全市场重算 2.6s+(转圈)。
+    本函数按同优先级口径(lock→filter→auto)在 lookback_days 窗口内取
+    **最近日期**的同参批次 → 直读"关闭前选出的名单", 秒开。
+
+    语义与当日版一致:
+      · 参数指纹/markets 不一致(用户改过条件) → 不回退, 走重算
+      · 空名单批次(stock_count=0)无直读价值, 跳过
+      · 窗口内用户无任何手动批次 → 最近系统统一批次兜底
+    返回 (batch_id, source, batch_date) 或 (None, None, None)。查询只读。"""
+    t = now_ts if now_ts is not None else time.time()
+    fk = _canon_filter_fingerprint(f)
+    mk = _canon_markets_key(f)
+    g = time.gmtime(t + 8 * 3600 - lookback_days * 86400)
+    since = "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
+    conn = _conn()
+    try:
+        # 注意: 主查询**不过滤** stock_count —— 与当日版语义一致(空批次也算
+        # "用户有手动批次", 不触发 ③ 系统兜底), 空批次仅在 ①② 命中时跳过
+        rows = conn.execute(
+            "SELECT * FROM batches WHERE user_id=? AND action IN ('lock','filter') "
+            "AND auto_applied=0 AND batch_date>=? "
+            "ORDER BY ts DESC LIMIT 200",
+            (user_id, since)).fetchall()
+        # ① 窗口内最近同参 lock(权威锁定名单); 空名单批次无直读价值, 跳过
+        for r in rows:
+            if r["action"] == "lock" and (r["stock_count"] or 0) > 0 \
+                    and _batch_matches_fingerprint(r, fk, mk):
+                return r["id"], "lock", r["batch_date"]
+        # ② 窗口内最近同参 filter
+        for r in rows:
+            if r["action"] == "filter" and (r["stock_count"] or 0) > 0 \
+                    and _batch_matches_fingerprint(r, fk, mk):
+                return r["id"], "filter", r["batch_date"]
+        # ③ 窗口内用户无任何手动批次 → 最近系统统一批次
+        if not rows:
+            row = conn.execute(
+                "SELECT id, batch_date FROM batches WHERE user_id=0 AND auto_applied=1 "
+                "AND batch_date>=? AND stock_count>0 ORDER BY ts DESC LIMIT 1",
+                (since,)).fetchone()
+            if row:
+                return row["id"], "auto", row["batch_date"]
+    finally:
+        conn.close()
+    return None, None, None
+
+
 def get_batch_stocks_mapped(batch_id):
     """读批次明细并映射为前端 list 结构(与 score_all_stocks 输出同 camelCase 字段)。
     幂等直读批次时返回给前端, 保证字段与正常选股结果一致(不缺失 price 等实时字段为 None 由前端容错)。"""

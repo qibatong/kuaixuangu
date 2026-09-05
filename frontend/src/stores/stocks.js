@@ -270,6 +270,17 @@ export const useStocksStore = defineStore('stocks', {
         this.saveBidSnapshot(data.list)          // 保存完整竞价锁定名单(含抢筹结论)
         this.cachedStocks = data.list
       } else {
+        // 2026-09-05 主人需求(多用户反馈): 休市/当日无批次时, 后端已回退**最近交易日**
+        // 同参批次直读(= 关闭前选出的名单, 服务端已完成实时行情覆盖) → 直接采用,
+        // 不再走 mergeSpotIntoLocked(其 loadLockedBatchFromServer 只查当日 lock 会落空)。
+        if (data.reusedDate) {
+          this.cachedStocks = data.list || []
+          this.isDataCached = true
+          this.before930 = data.before930
+          this.realTimeRefreshUsed = false
+          showToast('✅ 已载入 ' + data.reusedDate + ' 的选股名单', 'success')
+          return
+        }
         // 9:30 后: 锁定名单不变, 只把实时行情 merge 进名单(防"早盘跌出/午后复现")
         this.cachedStocks = await this.mergeSpotIntoLocked(data.list, data.spotMap, this.filterSettings)
       }
