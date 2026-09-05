@@ -673,8 +673,9 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
 /* 表头可点击排序 + 方向箭头 */
 .ap-th { cursor: pointer; user-select: none; white-space: nowrap; }
 .ap-th:hover { color: var(--accent); }
-.ap-th.sort-asc::after { content: ' ↑'; color: var(--accent); font-size: 11px; }
-.ap-th.sort-desc::after { content: ' ↓'; color: var(--accent); font-size: 11px; }
+/* 2026-09-05 主人需求: 所有表格去掉排序箭头。原 ::after content '↑'/'↓' 已移除;
+   排序功能保留(点击列头仍排序, 当前列以 ap-th 变色高亮作反馈)。
+   sort-asc/sort-desc class 由 thClass() 绑定, 保留以支持未来恢复箭头。 */
 /* 概念列: 限宽单行省略, 悬浮(title)显示全部 */
 .concept-col {
   max-width: 110px; min-width: 110px;

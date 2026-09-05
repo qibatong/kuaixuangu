@@ -921,12 +921,12 @@ th.sortable.active {
   border-radius: 4px;
 }
 .sort-ind {
-  display: inline-block;
-  min-width: 16px;
-  text-align: center;
-  color: #ff5028;
-  font-weight: 700;
-  font-size: 13px;
+  /* 2026-09-05 主人需求: 所有表格去掉排序箭头。
+     display:none 一网打尽: ① 各表 ind() 渲染的 ↓↑ ② :empty::before 的 ↕ 提示
+     都会随 span 隐藏(伪元素在 span 内, 父级不显示则一并隐藏);
+     !important 用于压过 StockTable.vue 中 scoped 的同名规则。
+     排序功能保留: 点击列头仍可排序, active 列头以文字变色+底色高亮作反馈。 */
+  display: none !important;
 }
 th.sortable:hover .sort-ind:not(:empty),
 th.sortable.active .sort-ind {
@@ -938,6 +938,7 @@ th.sortable .sort-ind:empty::before {
   font-weight: 400;
   color: #ff8066;
 }
+
 /* 浅色主题: 排序箭头用深橙保证可见 */
 body[data-bg="light"] .sort-ind { color: #b83010; }
 body[data-bg="light"] th.sortable:hover { color: #b83010; }
