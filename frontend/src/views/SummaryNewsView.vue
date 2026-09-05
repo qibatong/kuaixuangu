@@ -139,7 +139,7 @@ onMounted(load)
   flex-wrap: wrap; gap: 10px;
 }
 .sn-title { font-size: 17px; font-weight: 700; color: var(--text-main, #1a1a1a); }
-.sn-icon { color: #0b3d91; margin-right: 6px; }
+.sn-icon { color: #b83010; margin-right: 6px; }
 .sn-sub {
   font-size: 12px; font-weight: 400; color: var(--text-muted, #888);
   margin-left: 10px;
@@ -159,9 +159,9 @@ onMounted(load)
   background: var(--bg-input, #f2f3f5); border: 1px solid var(--border, #e5e6eb);
   border-radius: 8px; padding: 6px 12px; cursor: pointer; color: var(--text-main, #333);
 }
-.sn-day { border-top: 2px solid #0b3d91; padding-top: 12px; }
+.sn-day { border-top: 2px solid #b83010; padding-top: 12px; }
 .sn-day-badge {
-  display: inline-block; background: #0b3d91; color: #fff; font-size: 13px;
+  display: inline-block; background: #b83010; color: #fff; font-size: 13px;
   font-weight: 600; padding: 4px 14px; border-radius: 14px; margin-bottom: 12px;
 }
 .sn-slot {
@@ -190,7 +190,7 @@ onMounted(load)
 }
 .sn-slot-meta { font-size: 12px; color: var(--text-muted, #888); margin-top: 3px; display: flex; gap: 10px; flex-wrap: wrap; }
 .sn-view-btn {
-  flex-shrink: 0; background: #0b3d91; color: #fff; font-size: 13px;
+  flex-shrink: 0; background: #b83010; color: #fff; font-size: 13px;
   text-decoration: none; padding: 7px 14px; border-radius: 16px; font-weight: 600;
 }
 .sn-view-btn:hover { opacity: 0.88; }
@@ -202,7 +202,7 @@ onMounted(load)
   border-radius: 8px; padding: 5px 10px; font-size: 12px; cursor: pointer;
   color: var(--text-main, #333); display: inline-flex; align-items: center; gap: 6px;
 }
-.sn-past-day.active { background: #0b3d91; color: #fff; border-color: #0b3d91; }
+.sn-past-day.active { background: #b83010; color: #fff; border-color: #b83010; }
 .sn-past-n {
   background: rgba(0, 0, 0, 0.12); border-radius: 9px; font-size: 11px;
   padding: 0 6px; line-height: 16px;

@@ -528,8 +528,8 @@ onUnmounted(() => {
 }
 .chart-tab:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
 .chart-tab.active {
-  background: rgba(59,130,246,0.12); color: #3b82f6;
-  border-bottom: 2px solid #3b82f6;
+  background: rgba(var(--accent-rgb),0.12); color: var(--accent);
+  border-bottom: 2px solid var(--accent);
 }
 
 .chart-body {

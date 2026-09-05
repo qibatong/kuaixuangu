@@ -1151,12 +1151,12 @@ body[data-bg="light"] .auc-title { color: #8a5500; }
 body[data-bg="light"] .auc-title .fa { color: #c79100; }
 body[data-bg="light"] .auc-tab:hover { color: #8a5500; background: rgba(199,145,0,0.08); }
 body[data-bg="light"] .auc-tab.active { color: #8a5500; background: linear-gradient(135deg, rgba(255,180,0,0.2), rgba(255,140,50,0.12)); box-shadow: 0 2px 6px rgba(199,145,0,0.18); }
-body[data-bg="light"] .page-back { color: #5a6b85; }
+body[data-bg="light"] .page-back { color: #6b6b6b; }
 body[data-bg="light"] .page-back:hover { color: #c79100; }
 body[data-bg="light"] .auc-panel { background: rgba(255,255,255,0.85); border-color: var(--border-soft); }
 body[data-bg="light"] .qc-panel { background: rgba(255,255,255,0.85); border-color: var(--border-soft); }
 body[data-bg="light"] .qc-panel-title { color: #5a4a3a; }
-body[data-bg="light"] .qc-mode-switch button { color: #5a6b85; border-color: var(--border-soft); background: rgba(255,255,255,0.6); }
+body[data-bg="light"] .qc-mode-switch button { color: #6b6b6b; border-color: var(--border-soft); background: rgba(255,255,255,0.6); }
 body[data-bg="light"] .qc-mode-switch button.active { color: #5a4a3a; background: rgba(255,180,0,0.15); border-color: #c79100; }
 body[data-bg="light"] .qc-mode-switch button:hover { color: #5a4a3a; border-color: #c79100; }
 body[data-bg="light"] .qc-panel .stock-table th { color: #5a4a3a; border-bottom-color: rgba(199,145,0,0.4); }
@@ -1164,7 +1164,7 @@ body[data-bg="light"] .qc-panel .stock-table td { border-bottom-color: rgba(0,0,
 body[data-bg="light"] .qc-panel .stock-table tbody tr:hover { background: rgba(184,48,16,0.04); }
 body[data-bg="light"] .lb-badge { color: #b83010; border-color: rgba(184,48,16,0.5); background: rgba(255,80,80,0.1); }
 body[data-bg="light"] .bk-hot { color: #b83010; }
-body[data-bg="light"] .snap-empty { color: #6a7a90; }
+body[data-bg="light"] .snap-empty { color: #8a8a8a; }
 body[data-bg="light"] .modal-mask { background: rgba(0,0,0,0.45); }
 
 /* ---- 涨停原因列(点击链接) ---- */

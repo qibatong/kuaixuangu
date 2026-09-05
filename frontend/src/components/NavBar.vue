@@ -305,7 +305,7 @@ body[data-bg="light"] .mini-btn:hover { background: rgba(255, 255, 255, 0.28); c
   position: fixed; z-index: 99999;   /* 2026-08-18: Teleport 到 body + fixed, 视图顶层(原被 nav-tools 滚动容器裁剪/遮挡) */
   background-color: #1f2230;          /* 默认深色主题: 深灰实色 */
   color: #eef2ff;
-  border: 1.5px solid #3a3e50;
+  border: 1.5px solid #2a2a30;
   border-radius: 8px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
   padding: 5px;
@@ -341,14 +341,14 @@ body[data-bg="light"] .nav-theme-dot { border-color: rgba(0, 0, 0, 0.3); }
 body[data-bg="light"] .nav-theme-dot.active { border-color: #c62828; box-shadow: 0 0 6px rgba(198, 40, 40, 0.4); }
 .menu-dot {
   width: 16px; height: 16px; border-radius: 50%;
-  border: 2px solid #3a3e50; cursor: pointer; padding: 0;
+  border: 2px solid #2a2a30; cursor: pointer; padding: 0;
   transition: transform 0.15s, border-color 0.15s;
 }
 .menu-dot:hover { transform: scale(1.2); }
 .menu-dot.active { border-color: #ffffff; box-shadow: 0 0 6px rgba(255, 255, 255, 0.8); }
 .menu-font {
   min-width: 22px; height: 22px; line-height: 1;
-  border: 1px solid #3a3e50; border-radius: 12px;
+  border: 1px solid #2a2a30; border-radius: 12px;
   background: transparent; color: #eef2ff;
   font-weight: 600; cursor: pointer; padding: 0 5px;
   transition: transform 0.15s, border-color 0.15s, background 0.15s, color 0.15s;
@@ -362,7 +362,7 @@ body[data-bg="light"] .nav-theme-dot.active { border-color: #c62828; box-shadow:
 .menu-fontfam {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   width: 100%; padding: 7px 10px;
-  border: 1px solid #3a3e50; border-radius: 8px;
+  border: 1px solid #2a2a30; border-radius: 8px;
   background: transparent; color: #eef2ff;
   cursor: pointer; text-align: left;
   transition: transform 0.12s, border-color 0.12s, background 0.12s;
@@ -399,19 +399,19 @@ body[data-bg="light"] .nav-theme-dot.active { border-color: #c62828; box-shadow:
 body[data-bg="light"] .user-menu {
   background-color: #ffffff;
   color: #1a1d26;
-  border-color: #c8ccd6;
+  border-color: #c9c9c9;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
 }
 body[data-bg="light"] .user-menu .menu-item { color: #1a1d26; }
 body[data-bg="light"] .user-menu .menu-item:hover { background: rgba(0, 0, 0, 0.06); color: #000000; }
 body[data-bg="light"] .user-menu .menu-item i { color: #555; }
 body[data-bg="light"] .menu-setting-label { color: #555; }
-body[data-bg="light"] .menu-dot { border-color: #c8ccd6; }
+body[data-bg="light"] .menu-dot { border-color: #c9c9c9; }
 body[data-bg="light"] .menu-dot.active { border-color: #1a1d26; box-shadow: 0 0 6px rgba(0, 0, 0, 0.25); }
-body[data-bg="light"] .menu-font { border-color: #c8ccd6; color: #1a1d26; }
+body[data-bg="light"] .menu-font { border-color: #c9c9c9; color: #1a1d26; }
 body[data-bg="light"] .menu-font.active { border-color: var(--accent); background: var(--accent); color: #fff; }
 /* 浅色主题: 字体族按钮适配 */
-body[data-bg="light"] .menu-fontfam { border-color: #c8ccd6; color: #1a1d26; background: #f7f8fb; }
+body[data-bg="light"] .menu-fontfam { border-color: #c9c9c9; color: #1a1d26; background: #f7f8fb; }
 body[data-bg="light"] .menu-fontfam.active {
   background: color-mix(in srgb, var(--accent) 14%, #fff);
   border-color: var(--accent);
@@ -445,8 +445,8 @@ body[data-bg="black"] .menu-fontfam { border-color: #2a2a30; }
 }
 .vip-badge { background: #ffd70022; color: #d4a017; border: 1px solid #ffd70088; }
 .paid-badge { background: rgba(255, 90, 90, 0.15); color: #ff6a6a; border: 1px solid rgba(255, 90, 90, 0.5); }
-.admin-badge { background: rgba(90, 160, 255, 0.15); color: #5aa0ff; border: 1px solid rgba(90, 160, 255, 0.5); }
-.trial-badge { background: rgba(180, 108, 255, 0.12); color: #b56cff; border: 1px solid rgba(180, 108, 255, 0.4); }
+.admin-badge { background: rgba(90, 160, 255, 0.15); color: var(--accent-text); border: 1px solid rgba(90, 160, 255, 0.5); }
+.trial-badge { background: rgba(255, 180, 0, 0.12); color: #ffd700; border: 1px solid rgba(255, 180, 0, 0.4); }
 /* 到期前 2 天续费提醒: 橙色高亮(紧急) */
 .renew-badge { background: rgba(255, 160, 40, 0.15); color: #ffa028; border: 1px solid rgba(255, 160, 40, 0.55); animation: renew-pulse 1.8s infinite; }
 @keyframes renew-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }

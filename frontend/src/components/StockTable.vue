@@ -383,5 +383,5 @@ body[data-bg="light"] th.sortable:hover {  color: #b83010;  }
 body[data-bg="light"] th.sortable.active {  color: #b83010;  }
 body[data-bg="light"] .sort-ind {  color: #b83010;  }
 body[data-bg="light"] .qc-badge {  color: #8a5500; background: rgba(184,48,16,0.15); border-color: #b83010;  }
-body[data-bg="light"] .qc-pending {  color: #6a7a90; border-color: #999;  }
+body[data-bg="light"] .qc-pending {  color: #8a8a8a; border-color: #999;  }
 </style>

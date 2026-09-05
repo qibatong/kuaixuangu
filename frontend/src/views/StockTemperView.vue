@@ -239,14 +239,14 @@ onMounted(() => {
 .score-badge { display: inline-block; min-width: 44px; text-align: center; padding: 3px 8px; border-radius: 8px; font-weight: 700; font-size: 13px; }
 .score-hi { background: rgba(255, 90, 90, 0.18); color: #ff5a5a; border: 1px solid rgba(255, 90, 90, 0.5); }
 .score-mid { background: rgba(255, 160, 40, 0.15); color: #ffa028; border: 1px solid rgba(255, 160, 40, 0.5); }
-.score-lo { background: rgba(180, 108, 255, 0.14); color: #b56cff; border: 1px solid rgba(180, 108, 255, 0.4); }
+.score-lo { background: rgba(201, 145, 0, 0.14); color: #c79100; border: 1px solid rgba(255, 180, 0, 0.4); }
 .score-low { background: var(--bg-input); color: var(--text-muted); border: 1px solid var(--border-soft); }
 .up { color: #ff5252; } .down { color: #5ac17a; }
 .zt-cell { font-weight: 700; color: #ffb400; }
 .rank-col { color: var(--text-muted); }
 .name-col { max-width: 120px; } .name-main { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tag-cell { max-width: 200px; white-space: normal; }
-.tag-chip { display: inline-block; margin: 1px 3px 1px 0; padding: 1px 7px; border-radius: 8px; background: rgba(90, 160, 255, 0.15); color: #5aa0ff; border: 1px solid rgba(90, 160, 255, 0.4); font-size: 11px; white-space: nowrap; }
+.tag-chip { display: inline-block; margin: 1px 3px 1px 0; padding: 1px 7px; border-radius: 8px; background: rgba(90, 160, 255, 0.15); color: var(--accent-text); border: 1px solid rgba(90, 160, 255, 0.4); font-size: 11px; white-space: nowrap; }
 .tag-chip-warn { background: rgba(255, 90, 90, 0.14); color: #ff6a6a; border-color: rgba(255, 90, 90, 0.45); }
 body[data-bg="light"] .tag-chip-warn { background: rgba(220, 60, 60, 0.12); color: #c62828; border-color: rgba(220, 60, 60, 0.5); }
 .code-click { color: #ffb400; cursor: pointer; }

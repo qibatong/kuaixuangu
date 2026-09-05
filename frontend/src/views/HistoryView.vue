@@ -412,7 +412,7 @@ onMounted(() => {
   padding: 1px 8px;
 }
 .type-lock { color: var(--accent); border: 1px solid var(--accent-deep); background: rgba(var(--accent-rgb), 0.1); }
-.type-filter { color: #a0e0ff; border: 1px solid #00b4ff; background: rgba(0,180,255,0.1); }
+.type-filter { color: var(--accent-text); border: 1px solid var(--accent); background: rgba(var(--accent-rgb),0.1); }
 .batch-auto-tag { font-size: 11px; color: #aaa; border: 1px dashed #888; border-radius: 4px; padding: 1px 6px; margin-left: 6px; }
 .batch-meta { display: flex; gap: 10px; margin-left: auto; align-items: center; }
 .batch-market { color: var(--text-muted); font-size: 12px; }

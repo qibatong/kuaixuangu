@@ -453,9 +453,9 @@ onMounted(() => {
 /* 浅色主题覆盖 */
 body[data-bg="light"] .yd-title { color: #8a5500; }
 body[data-bg="light"] .yd-title .fa { color: #c79100; }
-body[data-bg="light"] .yd-sub { color: #5a6b85; }
-body[data-bg="light"] .yd-time { color: #5a6b85; }
-body[data-bg="light"] .yd-tab { color: #5a6b85; border-color: var(--border-soft); background: rgba(255, 255, 255, 0.6); }
+body[data-bg="light"] .yd-sub { color: #6b6b6b; }
+body[data-bg="light"] .yd-time { color: #6b6b6b; }
+body[data-bg="light"] .yd-tab { color: #6b6b6b; border-color: var(--border-soft); background: rgba(255, 255, 255, 0.6); }
 body[data-bg="light"] .yd-tab:hover { color: #5a4a3a; border-color: #c79100; }
 body[data-bg="light"] .yd-tab.active { color: #5a4a3a; background: rgba(255, 180, 0, 0.15); border-color: #c79100; }
 body[data-bg="light"] .yd-panel { background: rgba(255, 255, 255, 0.85); border-color: var(--border-soft); }

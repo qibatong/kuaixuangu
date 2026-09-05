@@ -74,7 +74,7 @@ async function loadPlayback() {
 
 /* 浅色主题覆盖 */
 body[data-bg="light"] .card-title { color: #5a4a3a; }
-body[data-bg="light"] .admin-tip { color: #5a6b85; }
+body[data-bg="light"] .admin-tip { color: #6b6b6b; }
 body[data-bg="light"] .admin-save-btn { background: rgba(34,139,34,0.1); border: 1px solid #228722; color: #1a6b1a; }
 body[data-bg="light"] .admin-save-btn:hover { background: #228722; color: #fff; }
 </style>

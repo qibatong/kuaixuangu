@@ -285,7 +285,7 @@ body[data-bg="light"] .img-dl { background: #c79100; }
 /* 浅色主题覆盖 */
 body[data-bg="light"] .ladder-title {  color: #8a5500;  }
 body[data-bg="light"] .ladder-title .fa {  color: #c79100;  }
-body[data-bg="light"] .ladder-tab {  color: #5a6b85;  }
+body[data-bg="light"] .ladder-tab {  color: #6b6b6b;  }
 body[data-bg="light"] .ladder-tab:hover {  color: #5a4a3a; border-color: #c79100;  }
 body[data-bg="light"] .ladder-tab.active {  color: #5a4a3a; background: rgba(255,180,0,0.15); border-color: #c79100;  }
 body[data-bg="light"] .tab-count {  color: #8a5500;  }
@@ -295,7 +295,7 @@ body[data-bg="light"] .close-btn:hover {  color: #b83010;  }
 body[data-bg="light"] .reason-date {  color: #8a5500;  }
 body[data-bg="light"] .sclt {  color: #b83010; border-color: rgba(184,48,16,0.5);  }
 body[data-bg="light"] .reason-modal {  background: rgba(255,255,255,0.98); border-color: var(--border-soft);  }
-body[data-bg="light"] .page-back { color: #5a6b85; }
+body[data-bg="light"] .page-back { color: #6b6b6b; }
 body[data-bg="light"] .page-back:hover { color: #c79100; }
 body[data-bg="light"] .ladder-panel { background: rgba(255,255,255,0.85); border-color: var(--border-soft); }
 body[data-bg="light"] .ladder-row { border-bottom-color: rgba(0,0,0,0.08); }

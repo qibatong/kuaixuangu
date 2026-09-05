@@ -193,7 +193,7 @@ onMounted(async () => {
 .senti-tag.normal { color: #ccc; }
 .senti-loading { color: var(--text-muted); font-size: 13px; }
 /* 跌停家数: 蓝色(主人约定避免绿色), 与涨跌家数行的 mkt-fall 区分 */
-.senti-val.dt { color: #5aa0ff; font-weight: 700; }
+.senti-val.dt { color: var(--accent-text); font-weight: 700; }
 
 .senti-label.tab { margin-left: 8px; }
 

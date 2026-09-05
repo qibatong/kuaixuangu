@@ -592,13 +592,13 @@ body[data-bg="light"] .board-row:hover td { background: rgba(199, 145, 0, 0.08);
 .lhb-empty { color: #666; font-size: 12px; padding: 8px 0; }
 
 /* 浅色主题覆盖 */
-body[data-bg="light"] .page-back { color: #5a6b85; }
+body[data-bg="light"] .page-back { color: #6b6b6b; }
 body[data-bg="light"] .page-back:hover { color: #c79100; }
 body[data-bg="light"] .mrk-title { color: #8a5500; }
 body[data-bg="light"] .mrk-title .fa { color: #c79100; }
-body[data-bg="light"] .mrk-sub { color: #5a6b85; }
-body[data-bg="light"] .mrk-time { color: #5a6b85; }
-body[data-bg="light"] .mrk-tab { color: #5a6b85; border-color: var(--border-soft); background: rgba(255,255,255,0.6); }
+body[data-bg="light"] .mrk-sub { color: #6b6b6b; }
+body[data-bg="light"] .mrk-time { color: #6b6b6b; }
+body[data-bg="light"] .mrk-tab { color: #6b6b6b; border-color: var(--border-soft); background: rgba(255,255,255,0.6); }
 body[data-bg="light"] .mrk-tab:hover { color: #5a4a3a; border-color: #c79100; }
 body[data-bg="light"] .mrk-tab.active { color: #5a4a3a; background: rgba(255,180,0,0.15); border-color: #c79100; }
 body[data-bg="light"] .mrk-panel { background: rgba(255,255,255,0.85); border-color: var(--border-soft); }
@@ -611,7 +611,7 @@ body[data-bg="light"] .lhb-col-title { color: #5a4a3a; }
 body[data-bg="light"] .lhb-col-title.buy { color: #b83010; }
 body[data-bg="light"] .lhb-name { color: #1a1d26; }
 body[data-bg="light"] .lhb-row { border-bottom-color: rgba(0,0,0,0.08); }
-body[data-bg="light"] .lhb-empty { color: #6a7a90; }
+body[data-bg="light"] .lhb-empty { color: #8a8a8a; }
 body[data-bg="light"] .board-code { color: #1a1d26; }
 body[data-bg="light"] .reason-modal { background: rgba(255,255,255,0.98); border-color: var(--border-soft); }
 /* ===================== 板块轮动历史视图 ===================== */
