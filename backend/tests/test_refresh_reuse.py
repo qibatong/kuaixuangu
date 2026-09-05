@@ -259,7 +259,7 @@ def test_api_refresh_reuse_spotmap_fail_degrades(client, create_user_token, monk
     d = r.json()
     assert r.status_code == 200 and d.get("ok"), "spotMap 失败应降级不 500"
     assert d.get("reused") is True and d.get("source") == "lock"
-    assert d.get("spotMap") == {}, "降级时 spotMap 应为空"
+    assert "spotMap" not in d, "B方案后 /api/stocks 不再下发全市场 spotMap(改走 /api/quotes 按需取)"
     assert d.get("list"), "定格名单仍应返回"
     assert _batch_count(uid) == 1, "直读不应新增批次"
 

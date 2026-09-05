@@ -12,6 +12,13 @@ export function stockChart(code, period = 'day') {
   return request('/api/stock/chart', { query: { code, period } })
 }
 
+// 2026-09-05 B 方案(拆分独立行情接口): /api/stocks 不再下发全市场 spotMap,
+// 前端对"不在返回名单的锁定票"等少量 code 按需取实时价。codes 为 6 位代码数组。
+export function fetchQuotes(codes) {
+  if (!codes || !codes.length) return Promise.resolve({ ok: true, quotes: {} })
+  return request('/api/quotes', { query: { codes: codes.join(',') } })
+}
+
 // 2026-09-04 prefs 双读合并: 首屏 App.useTheme.load() + StockView/PoolView.loadUserPrefs()
 // 都调 getPrefs → 截图实测同一次打开请求 2 次(140ms+1.17s 撞首屏并发排队)。
 // getPrefs 做 30s 记忆化 + 在途请求去重: 同一页面生命周期内仅发一次网络请求,

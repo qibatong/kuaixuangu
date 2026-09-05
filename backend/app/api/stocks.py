@@ -53,17 +53,8 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
             if err:
                 log.warning("选股被拒 uid=%s action=%s mode=%s err=%s", uid, action, mode, err)
                 return jr({"ok": False, "msg": err}, 403)
-            # 全市场实时行情 map(供锁定名单 merge 用, 不参与评分)
-            spot_map = {}
-            for s in raw:
-                spot_map[s.get("f12")] = {
-                    "realChange": scorer.parse_float(s.get("f3")),
-                    "entityChange": scorer.get_entity_change(s),
-                    "price": scorer.parse_float(s.get("f2")),
-                    "volRatio": scorer.parse_float(s.get("f10")),
-                    "turnover": scorer.parse_float(s.get("f8")),
-                    "name": s.get("f14") or "",
-                }
+            # 2026-09-05 B 方案: 不再下发全市场 spotMap(前端实时价已内联在 items, 
+            # 跌出锁定票的实时价改走 /api/quotes 按需取, /api/stocks 响应因此大幅瘦身)
             # 复用竞价评分 + 竞价过滤: 盘中=不锁定的竞价, 9:30 后持续刷新, 名单会变(符合诗人预期)
             yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw])
             snapshot_map = auction_snapshot.load_snapshot()
@@ -81,7 +72,6 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                 "ok": True, "mode": "spot",
                 "list": result, "count": len(result),
                 "before930": before930,
-                "spotMap": spot_map,
                 "dataTime": int(fetcher._cache[fs]["ts"]),
             })
 
@@ -101,7 +91,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                     return jr({
                         "ok": True, "mode": "auction", "list": lst,
                         "count": len(lst), "before930": True,
-                        "spotMap": {}, "dataTime": int(lock_b.get("ts") or time.time()),
+                        "dataTime": int(lock_b.get("ts") or time.time()),
                         "idempotent": True, "batch_id": lock_b["id"],
                     })
             except Exception as e:
@@ -128,6 +118,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                 if reuse_bid:
                     lst = history.get_batch_stocks_mapped(reuse_bid)
                     # 全市场实时行情(缓存命中≈0ms; 拉取失败降级: 定格名单无实时覆盖, 下轮自愈)
+                    # 2026-09-05 B 方案: 行情仅内联覆盖 list item, 不再整体下发 spotMap 字段
                     spot_map = {}
                     try:
                         spot_map = fetcher.fetch_spot_quote_map(fs)
@@ -150,7 +141,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                     return jr({
                         "ok": True, "mode": "auction", "list": lst,
                         "count": len(lst), "before930": False,
-                        "spotMap": spot_map, "dataTime": int(time.time()),
+                        "dataTime": int(time.time()),
                         "reused": True, "source": reuse_src, "batch_id": reuse_bid,
                         "reusedDate": reuse_date,   # 回退最近交易日时非 None, 前端据此提示
                     })
@@ -169,17 +160,27 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                 uid, fs, history._canon_filter_fingerprint(f))
             hit = _cstore.get(ck_full)
             if hit is not None:
+                # 2026-09-05 B 方案: 行情仅内联覆盖 list item, 不再整体下发 spotMap 字段
                 spot_map = {}
                 try:
                     spot_map = fetcher.fetch_spot_quote_map(fs)
                 except Exception as e:
                     log.warning("refresh计算缓存命中但全市场行情拉取失败(降级: 无实时覆盖) err=%s", e)
+                if spot_map:
+                    for it in hit:
+                        rt = spot_map.get(it["code"])
+                        if rt:
+                            it["price"] = rt.get("price")
+                            it["realChange"] = rt.get("realChange")
+                            it["entityChange"] = rt.get("entityChange")
+                            it["volRatio"] = rt.get("volRatio")
+                            it["turnover"] = rt.get("turnover")
                 log.info("选股refresh命中计算缓存 uid=%s 返回%d只(跳全市场重拉/评分)",
                          uid, len(hit))
                 return jr({
                     "ok": True, "mode": "auction", "list": hit,
                     "count": len(hit), "before930": before930,
-                    "spotMap": spot_map, "dataTime": int(time.time()),
+                    "dataTime": int(time.time()),
                     "reused": True, "source": "calc_cache",
                 })
         # 评分筛选: 沿用原逻辑(9:30 前 lock 强制, refresh/filter 走 TTL 缓存, 至多200只)
@@ -187,14 +188,6 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         if err:
             log.warning("选股被拒 uid=%s action=%s mode=%s err=%s", uid, action, mode, err)
             return jr({"ok": False, "msg": err}, 403)
-        # 全市场实时行情 map(仅 9:30 后需要; 独立拉取, 不参与评分, 供锁定名单 merge)
-        spot_map = {}
-        if not before930:
-            try:
-                all_raw = fetcher.fetch_spot_quote_map(fs)
-                spot_map = all_raw
-            except Exception as e:
-                log.warning("竞价模式全市场行情拉取失败(降级: spotMap 为空) err=%s", e)
         # 昨日成交额(并发拉日K, 当日缓存), 用于计算竞价/昨日成交占比
         yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw])
         # 9:20 快照(用于 9:25 涨幅加速度); 非竞价时段读库无数据返回空 map
@@ -265,9 +258,27 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         "list": result,
         "count": len(result),
         "before930": before930,
-        "spotMap": spot_map,   # 全市场实时行情(9:30 后锁定名单 merge 用)
         "dataTime": int(fetcher._cache[fs]["ts"]),
     })
+
+
+@router.get("/api/quotes")
+def api_quotes(request: Request, uid: int = Depends(get_uid)):
+    """按需实时行情(2026-09-05 B 方案): 前端 9:30 后合并不在返回名单的锁定票时,
+    对少量 code 拉实时价; /api/stocks 已不再下发全市场 spotMap, 响应因此大幅瘦身。
+    codes = 逗号分隔的 6 位代码(取自名单 item.code, 如 600000,000001)"""
+    q = qs(request)
+    codes = [c.strip() for c in (q.get("codes") or [""])[0].split(",") if c.strip()]
+    if not codes:
+        return jr({"ok": False, "msg": "codes 必填"}, 400)
+    # 去重 + 限长保护(单个请求避免恶意超长)
+    codes = list(dict.fromkeys(codes))[:500]
+    try:
+        quotes = fetcher.fetch_spot_quotes_by_codes(codes)
+    except Exception as e:
+        log.warning("按需行情拉取失败 uid=%s err=%s", uid, str(e)[:200])
+        quotes = {}
+    return jr({"ok": True, "quotes": quotes, "count": len(quotes)})
 
 
 @router.get("/api/stock/chart")

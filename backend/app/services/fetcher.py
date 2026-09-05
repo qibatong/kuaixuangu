@@ -672,25 +672,8 @@ _quote_map_cache = {}
 _quote_map_lock = threading.Lock()
 
 
-def fetch_spot_quote_map(fs):
-    """9:30 后竞价模式: 全市场实时行情 map(code -> {realChange, entityChange, price, volRatio, turnover, name})。
-    独立缓存(SPOT_CACHE_TTL), 不参与评分, 供前端锁定名单 merge + 按当前筛选条件过滤。"""
-    with _quote_map_lock:
-        now = time.time()
-        ent = _quote_map_cache.get(fs)
-        if ent is None or now - ent["ts"] > config.SPOT_CACHE_TTL:
-            try:
-                raw = _fetch_market_all_with_fallback(fs)
-                _quote_map_cache[fs] = {"raw": raw, "ts": now}
-                log.info("全市场行情map刷新 fs=%s 共%d只", fs, len(raw))
-            except Exception as e:
-                if ent is not None:
-                    log.warning("全市场行情map拉取失败, 沿用旧缓存 fs=%s err=%s", fs, e)
-                else:
-                    raise
-        else:
-            log.info("全市场行情map命中 fs=%s 年龄%.0fs", fs, now - ent["ts"])
-        raw = _quote_map_cache[fs]["raw"]
+def _build_quote_map(raw):
+    """把全市场原始行情行构建成 code -> quote dict(供 fetch_spot_quote_map 缓存复用)。"""
     out = {}
     for s in raw:
         out[s.get("f12")] = {
@@ -701,6 +684,56 @@ def fetch_spot_quote_map(fs):
             "turnover": _parse_float(s.get("f8")),
             "name": s.get("f14") or "",
         }
+    return out
+
+
+def fetch_spot_quote_map(fs):
+    """9:30 后竞价模式: 全市场实时行情 map(code -> {realChange, entityChange, price, volRatio, turnover, name})。
+    独立缓存(SPOT_CACHE_TTL), 不参与评分; 2026-09-05 起构建好的 dict 一并缓存(entry['map']),
+    /api/quotes 按需过滤复用, 不再每次请求重建 ~5000 条。"""
+    with _quote_map_lock:
+        now = time.time()
+        ent = _quote_map_cache.get(fs)
+        if ent is None or now - ent["ts"] > config.SPOT_CACHE_TTL:
+            try:
+                raw = _fetch_market_all_with_fallback(fs)
+                _quote_map_cache[fs] = {"raw": raw, "map": _build_quote_map(raw), "ts": now}
+                log.info("全市场行情map刷新 fs=%s 共%d只", fs, len(raw))
+            except Exception as e:
+                if ent is not None:
+                    log.warning("全市场行情map拉取失败, 沿用旧缓存 fs=%s err=%s", fs, e)
+                else:
+                    raise
+        else:
+            if "map" not in ent:   # 旧格式缓存(仅 raw)兜底补建 map
+                ent["map"] = _build_quote_map(ent["raw"])
+                _quote_map_cache[fs] = ent
+            log.info("全市场行情map命中 fs=%s 年龄%.0fs", fs, now - ent["ts"])
+        return _quote_map_cache[fs]["map"]
+
+
+def fetch_spot_quotes_by_codes(code_list):
+    """按需取实时行情(2026-09-05 B 方案: 拆分独立行情接口): 仅回 code_list 中命中缓存的 code->quote,
+    不触发全市场拉取。供 /api/quotes 使用 —— 前端 9:30 后 merge 只对"不在返回名单的锁定 code"
+    要实时价, 全市场下发已从 /api/stocks 拆走; 缓存由预热线程(40s)+refresh 保证常新鲜。
+    读各 fs 已缓存的 spotMap(60s TTL); 仅当缓存从未预热(空)时才兜底拉一次全市场建 base。"""
+    if not code_list:
+        return {}
+    code_set = set(code_list)
+    with _quote_map_lock:
+        snap = [ent["map"] for ent in _quote_map_cache.values() if ent.get("map")]
+        cold = not _quote_map_cache
+    if not snap and cold:
+        base = scorer.market_fs(["hs", "cyb", "kcb"])
+        snap = [fetch_spot_quote_map(base)]
+    out = {}
+    for m in snap:
+        for code in list(code_set):
+            if code in m:
+                out[code] = m[code]
+                code_set.discard(code)
+        if not code_set:
+            break
     return out
 
 
@@ -735,7 +768,7 @@ def _spot_prewarm_once():
         try:
             raw = _fetch_market_all_with_fallback(fs)
             with _quote_map_lock:
-                _quote_map_cache[fs] = {"raw": raw, "ts": time.time()}
+                _quote_map_cache[fs] = {"raw": raw, "map": _build_quote_map(raw), "ts": time.time()}
             log.info("spotMap预热完成 fs=%s 共%d只", fs, len(raw))
         except Exception as e:
             log.warning("spotMap预热失败 fs=%s err=%s", fs, str(e)[:120])

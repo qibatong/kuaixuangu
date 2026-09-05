@@ -1,6 +1,6 @@
 // 主选股数据 store: 缓存结果 / 筛选条件 / 锁定状态 / 账号级偏好
 import { defineStore } from 'pinia'
-import { fetchStocks, getDefaultFilters, getPrefs, savePrefs } from '../api/stocks'
+import { fetchStocks, fetchQuotes, getDefaultFilters, getPrefs, savePrefs } from '../api/stocks'
 import { listBatches } from '../api/history'
 import { showToast } from '../utils/toast'
 import { isBefore930 } from '../utils/time'
@@ -160,13 +160,13 @@ export const useStocksStore = defineStore('stocks', {
         return raw ? JSON.parse(raw) : null
       } catch (e) { return null }
     },
-    // 9:30 后: 锁定名单 + 全市场实时行情(spotMap) 合并。
+    // 9:30 后: 锁定名单 + 实时行情合并(2026-09-05 起行情按需走 /api/quotes, 不再收全市场 spotMap)。
     // 关键语义修正: 用"当前筛选条件"对锁定名单重新过滤——
     //   · 被当前条件剔除(如勾了剔除昨日涨停, 而该票是昨日涨停) → 直接移除, 不显示
     //   · 条件放行但行情不在榜 → 保留 + 标"已跌出"
     // 避免"涨停票却显示已跌出"的荒谬现象(剔除条件 ≠ 行情跌出)。
     // 权威名单优先取"当天 lock 批次"(后端落库), 失败退回本地快照。
-    async mergeSpotIntoLocked(spotList, spotMap, filterSettings) {
+    async mergeSpotIntoLocked(spotList, filterSettings) {
       let locked = null
       let hasLockBatch = false
       try {
@@ -189,13 +189,23 @@ export const useStocksStore = defineStore('stocks', {
       const listMap = {}
       ;(spotList || []).forEach((s) => { listMap[s.code] = s })
       const fs = filterSettings || this.filterSettings
+      // 2026-09-05 B 方案: /api/stocks 不再下发全市场 spotMap。唯二需要实时价的场景是
+      // 1) 在榜票(lt=listMap[code] 后端已内联实时价); 2) 跌出但保留显示的锁定票(rt)。
+      // 故只对"不在返回名单(实时榜)的锁定 code"按需调 /api/quotes 拉少量实时价。
+      const missing = locked.map((it) => it.code).filter((c) => !listMap[c])
+      let rtMap = {}
+      if (missing.length) {
+        try {
+          const qres = await fetchQuotes(missing)
+          rtMap = (qres && qres.quotes) || {}
+        } catch (e) { /* 行情取失败: 跌出票退化为无实时值, 下轮自愈 */ rtMap = {} }
+      }
+      const quoteOf = (code) => listMap[code] || rtMap[code]   // 在榜取完整 item, 跌出取行情
       const out = []
       locked.forEach((it) => {
-        // 1) 当前筛选条件不允许 → 直接移除(哈药场景: 剔除昨日涨停)
-        //    2026-08-18: 系统统一批次(autoApplied)不过滤 — 9:26 统一标准结果对全用户一致
-        if (!locked.autoApplied && !passLockedFilter(it, (spotMap || {})[it.code], fs)) return
+        const rt = quoteOf(it.code)
+        if (!locked.autoApplied && !passLockedFilter(it, rt, fs)) return
         const lt = listMap[it.code]              // 在过滤名单里 → 有完整实时评分
-        const rt = (spotMap || {})[it.code]      // 全市场实时行情
         if (lt) {
           // 2) 在榜: 更新实时字段 + 实时评分
           out.push({
@@ -281,8 +291,19 @@ export const useStocksStore = defineStore('stocks', {
           showToast('✅ 已载入 ' + data.reusedDate + ' 的选股名单', 'success')
           return
         }
-        // 9:30 后: 锁定名单不变, 只把实时行情 merge 进名单(防"早盘跌出/午后复现")
-        this.cachedStocks = await this.mergeSpotIntoLocked(data.list, data.spotMap, this.filterSettings)
+        // 2026-09-05 修复: 用户刚点「应用」(filter)改了筛选 → 后端 refresh 直读命中的正是
+        // 该 filter 批次(source='filter'), data.list 即当前筛选的权威名单(含实时覆盖, 与后端
+        // 直读路径 merge 一致)。必须直接采用 data.list, 否则 mergeSpotIntoLocked 会按更早的
+        // **锁定批次**重建名单、丢弃用户刚应用的 filter 名单(如勾选"昨涨停"后 filter 含该票,
+        // 但 lock 批次早先按未勾生成 → 刷新后票凭空消失)。
+        // 仅当后端按 lock/auto 批次返回(source≠'filter')时, 才回退到"锁定名单不变, 只 merge 实时"
+        // 的定格语义。
+        if (data.source === 'filter') {
+          this.cachedStocks = data.list || []
+        } else {
+          // 9:30 后: 锁定名单不变, 只把实时行情 merge 进名单(防"早盘跌出/午后复现")
+          this.cachedStocks = await this.mergeSpotIntoLocked(data.list, this.filterSettings)
+        }
       }
       this.isDataCached = true
       this.before930 = data.before930
@@ -298,11 +319,21 @@ export const useStocksStore = defineStore('stocks', {
       // (改过筛选条件后点刷新, 应在当前新名单上更新, 而不是跳回早上 lock 的名单)
       const listMap = {}
       ;(data.list || []).forEach((s) => { listMap[s.code] = s })
-      const sm = data.spotMap || {}
+      // 2026-09-05 B 方案: /api/stocks 不再下发全市场 spotMap。仅对当前列表里"不在返回名单"
+      // 的跌出票按需拉实时价; 在榜票用 lt(后端已内联实时价)。
+      const missing = (this.cachedStocks || []).map((it) => it.code).filter((c) => !listMap[c])
+      let rtMap = {}
+      if (missing.length) {
+        try {
+          const qres = await fetchQuotes(missing)
+          rtMap = (qres && qres.quotes) || {}
+        } catch (e) { rtMap = {} }
+      }
       // 2026-08-18 主人澄清: 跌出实时榜的**保留显示**(只去标签), 名单不减少
       this.cachedStocks = (this.cachedStocks || []).map((it) => {
         const lt = listMap[it.code]
-        const rt = sm[it.code]
+        const rt = rtMap[it.code]
+
         if (lt) {
           return { ...it, realChange: lt.realChange, entityChange: lt.entityChange,
                    probability: lt.probability, confidence: lt.confidence, price: lt.price }
@@ -377,23 +408,21 @@ export const useStocksStore = defineStore('stocks', {
       }
       this.saveUserPrefs()
     },
-    resetFilterToDefault() {
+    async resetFilterToDefault() {
       if (this.isFilterLocked) {
         showToast(' 筛选已锁定，请先解锁再重置', 'error')
         return
       }
-      const locked = this.loadLockedFilter()
-      if (locked && locked.settings) {
-        this.filterSettings = { ...locked.settings }
-        showToast('✅ 已恢复为上次锁定的条件', 'success')
-      } else if (this.userFilterPrefs) {
-        this.filterSettings = { ...defaultFilterSettings, ...this.userFilterPrefs }
-        showToast('✅ 已恢复为你的默认筛选条件', 'success')
-      } else {
-        this.filterSettings = { ...defaultFilterSettings }
-        showToast('✅ 筛选条件已恢复默认', 'success')
+      // 2026-09-05(主人两次确认): 重置 = 恢复**管理员后台设置的全局默认**参数 + 立即重新选股。
+      // 旧实现只改表单不重选, 且恢复到'上次锁定/保存'条件(当前已等于保存值时'点了没变化'),
+      // 用户多次反馈'重置按钮没效果'; 后改为内置默认, 主人再确认应跟管理员后台参数一致,
+      // 故优先 globalDefaults(后端 getDefaultFilters, StockView 初始化已加载), 未有则回内置默认。
+      this.filterSettings = { ...(this.globalDefaults || defaultFilterSettings) }
+      try {
+        await this.applyCustomFilter()   // 内部按 mode 分支(auction→filter 重算 / spot→refresh), 自带成功 toast
+      } catch (e) {
+        showToast('已恢复默认条件, 重新选股失败', 'error')
       }
-      this.saveUserPrefs()
     }
   }
 })
