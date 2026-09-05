@@ -6,10 +6,29 @@
     <template v-else>
     <div class="auc-head">
       <span class="auc-title"><i class="fa fa-bullhorn"></i> 竞价异动</span>
+      <!-- 2026-09-05 P0: 静默刷新指示 —— 轮询/单 Tab 刷新时显示角落小 spinner,
+           不遮挡表格内容(区别于首屏 loading 的大块占位) -->
+      <span v-if="silentRefreshing" class="auc-silent-loading" title="数据刷新中">
+        <i class="fa fa-circle-o-notch fa-spin"></i>
+      </span>
+      <!-- 连续失败: 提示已保留旧数据并自动退避重试(不弹窗打扰) -->
+      <span v-else-if="pollFailCount > 0" class="auc-poll-warn"
+            title="刷新失败，已保留上次数据，稍后自动重试">
+        <i class="fa fa-exclamation-triangle"></i> 稍后重试
+      </span>
       <!-- 日期回看: 右侧对齐, 实时模式下日期框直接显示数据日期 -->
       <span class="auc-head-spacer"></span>
       <input :value="datePicker || dataDate" type="date" class="rot-date" title="选择历史交易日" @change="onDateChange">
       <button class="rot-reset-btn" title="回到实时" @click="clearDate"><i class="fa fa-bolt"></i></button>
+      <!-- 2026-09-05 P0: 手动刷新入口(用户主动触发, 不增加常态轮询负载) -->
+      <button class="rot-reset-btn" title="刷新当前 Tab 数据" :disabled="silentRefreshing"
+              @click="refreshCurrentTab">
+        <i class="fa fa-refresh" :class="{ 'fa-spin': silentRefreshing }"></i>
+      </button>
+      <button class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
+              :disabled="loading || silentRefreshing" @click="refreshAll">
+        <i class="fa fa-repeat"></i>
+      </button>
     </div>
 
     <!-- Tab 切换: 一排横排 -->
@@ -684,6 +703,8 @@ async function loadAll(fromUser = false) {
 const loadedTabs = new Set()   // 已加载数据的 tab(跨日期失效: datePicker 变化时清)
 const tabLoading = new Set()
 
+// 返回值语义(2026-09-05 配合 usePolling 退避): true=成功/无需请求, false=请求失败
+// 失败时**不清空**已有 list → 页面保留上一次成功数据, 不出现空白
 async function ensureTabData(t, { silent = false } = {}) {
   const dt = datePicker.value
   if (t === 's3') {
@@ -694,14 +715,15 @@ async function ensureTabData(t, { silent = false } = {}) {
         const r = await withTimeout(bidSnapshot3points(dt || todayBj()))
         s3List.value = (r && r.list) || []
         loadedTabs.add('s3')
-      } catch (e) { /* 静默 */ } finally {
+        return true
+      } catch (e) { /* 静默; 保留上次 s3List */ return false } finally {
         tabLoading.delete('s3')
       }
     }
-    return
+    return true
   }
-  if (loadedTabs.has(t)) return
-  if (tabLoading.has(t)) return
+  if (loadedTabs.has(t)) return true
+  if (tabLoading.has(t)) return true   // 正在加载中: 跳过而非失败, 不触发退避
   tabLoading.add(t)
   try {
     let r = {}
@@ -716,11 +738,54 @@ async function ensureTabData(t, { silent = false } = {}) {
       case 'lhb': r = await withTimeout(kplLhb(dt)); lhbList.value = (r && r.list) || []; break
       case 'brokenYest': r = await withTimeout(kplBroken(dt ? '' : 'yesterday', dt)); brokenYestList.value = (r && r.list) || []; break
       case 'brokenToday': r = await withTimeout(kplBroken('', dt)); brokenTodayList.value = (r && r.list) || []; break
-      default: return
+      default: return true
     }
     loadedTabs.add(t)
-  } catch (e) { /* 单 tab 失败不影响其他 */ } finally {
+    return true
+  } catch (e) {
+    // 单 tab 失败不影响其他; 各 list 保留上次成功值(不清空 → 页面不空白)
+    return false
+  } finally {
     tabLoading.delete(t)
+  }
+}
+
+// ===== 2026-09-05 P0: 静默刷新 / 手动刷新 / 失败提示 =====
+// 静默刷新态: 轮询或单 Tab 刷新时在标题栏角落显示小 spinner, 不遮挡内容
+// (区别于首屏 loading 的大块占位 —— 那个只在首次/切日时全量加载出现)
+const silentRefreshing = ref(false)
+// 连续失败次数(usePolling 维护), >0 时在角落提示"稍后重试", 数据仍保留旧值
+const pollFailCount = ref(0)
+// usePolling 句柄( onMounted 中赋值; 手动刷新成功后 resetBackoff 恢复正常频率)
+let polling = null
+
+/** 手动刷新当前 Tab: 清该 tab 标记重拉(不影响其他 tab) */
+async function refreshCurrentTab() {
+  if (silentRefreshing.value) return
+  silentRefreshing.value = true
+  try {
+    loadedTabs.delete(tab.value)
+    const ok = await ensureTabData(tab.value)
+    if (!ok) showToast('刷新失败，已保留上次数据', 'warning')
+    else polling.resetBackoff()      // 手动成功 → 立即恢复正常轮询频率
+  } finally {
+    silentRefreshing.value = false
+  }
+}
+
+/** 手动全局刷新: 清全部标记 + 重跑 loadAll(等价于重新进入页面) */
+async function refreshAll() {
+  if (loading.value || silentRefreshing.value) return
+  silentRefreshing.value = true
+  try {
+    loadedTabs.clear()
+    await loadAll(true)
+    polling.resetBackoff()
+    showToast('已刷新全部数据', 'success')
+  } catch (e) {
+    showToast('刷新失败，已保留上次数据', 'warning')
+  } finally {
+    silentRefreshing.value = false
   }
 }
 
@@ -745,12 +810,21 @@ onMounted(() => {
   // 历史回看模式暂停实时刷新(每分钟拉历史无意义)
   // 2026-08-18 性能优化: 轮询只刷新当前 tab(清标记重拉), 不再 10 接口全量
   // 2026-08-24 主人要求: 盘中实时刷新间隔 60s → 30s(配合后端快照 TTL 降到 60s)
-  usePolling(() => {
-    if (!datePicker.value) {
+  // 2026-09-05 P0: 轮询开启失败退避 — fn 返回成败, 连续失败时下一次间隔按 2^n 递增
+  // (30s → 60s → 120s … 上限 5min), 成功一次即重置。避免服务端抖动/限流时被前端
+  // 以固定 30s 持续打; 失败期间 ensureTabData 不清空 list, 页面保留上次成功数据。
+  polling = usePolling(async () => {
+    if (datePicker.value) return true      // 历史回看模式: 不轮询(每分钟拉历史无意义)
+    silentRefreshing.value = true
+    try {
       loadedTabs.clear()
-      ensureTabData(tab.value, { silent: true })
+      const ok = await ensureTabData(tab.value, { silent: true })
+      pollFailCount.value = ok ? 0 : (pollFailCount.value + 1)
+      return ok
+    } finally {
+      silentRefreshing.value = false
     }
-  }, 30000)
+  }, 30000, { backoff: true })
 })
 </script>
 
@@ -768,6 +842,22 @@ onMounted(() => {
 .auc-head .rot-reset-btn { flex-shrink: 0; }
 .auc-title { font-size: 20px; font-weight: 700; color: #ffe0a0; }
 .auc-title .fa { color: #ffb400; }
+/* 2026-09-05 P0: 静默刷新指示(角落, 不遮挡内容) —— 金色与页面主色一致 */
+.auc-silent-loading {
+  color: #ffb400; font-size: 13px; line-height: 1;
+  display: inline-flex; align-items: center;
+  opacity: .9;
+}
+/* 连续失败提示: 用橙黄警示(避开绿色 —— A 股语境绿=跌) */
+.auc-poll-warn {
+  color: #ff9d3c; font-size: 12px; line-height: 1;
+  display: inline-flex; align-items: center; gap: 3px;
+  background: rgba(255, 157, 60, .12);
+  border: 1px solid rgba(255, 157, 60, .3);
+  border-radius: 4px; padding: 2px 6px;
+}
+/* 刷新按钮禁用态: 降低透明度, 明确不可点 */
+.auc-head .rot-reset-btn:disabled { opacity: .45; cursor: not-allowed; }
 .auc-sub { color: var(--text-muted); font-size: 13px; }
 .auc-tabs {
   display: flex;
