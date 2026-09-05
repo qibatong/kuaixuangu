@@ -911,6 +911,11 @@ border-radius: 5px; font-size: 12px; outline: none; flex-shrink: 0;
   color: #e8ffd0;
   cursor: default;
 }
+/* 悬停名称浮现「＋自选/已＋」: 各表不再单列操作列(2026-09-05 主人需求)
+   按钮绝对定位于名称右侧, 不参与布局 → 名称恒居中、列宽恒定, 悬停浮现不造成左右晃动 */
+.pool-hover-wrap { position: relative; display: inline-flex; align-items: center; }
+.pool-hover-wrap .pool-hover-btn { position: absolute; left: calc(100% + 6px); top: 50%; transform: translateY(-50%); white-space: nowrap; visibility: hidden; }
+.pool-hover-wrap:hover .pool-hover-btn { visibility: visible; }
 
 /* ==================== 通用表头排序(各视图复用, 与 StockTable 交互一致) ==================== */
 th.sortable {

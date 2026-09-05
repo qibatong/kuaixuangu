@@ -192,16 +192,14 @@ v-for="s in sourceOptions" :key="s.key"
             <th class="sortable" :class="{ active: hotSort.keyOf('code') }" @click="hotSort.onSort('code', 'string')">代码<span class="sort-ind">{{ hotSort.ind('code') }}</span></th>
             <th class="sortable" :class="{ active: hotSort.keyOf('name') }" @click="hotSort.onSort('name', 'string')">名称<span class="sort-ind">{{ hotSort.ind('name') }}</span></th>
             <th class="sortable" :class="{ active: hotSort.keyOf('change') }" @click="hotSort.onSort('change')">涨跌幅%<span class="sort-ind">{{ hotSort.ind('change') }}</span></th>
-            <th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="h in hotSort.sorted(hotList)" :key="h.code">
             <td class="rank-col">{{ h.rank }}</td>
             <td class="code-click" @click="linkToSoftware(h.code)">{{ h.code }}</td>
-            <td>{{ h.name }}</td>
+            <td><span class="pool-hover-wrap"><span>{{ h.name }}</span><PoolHoverBtn :item="h" /></span></td>
             <td :class="h.change > 0 ? 'up' : h.change < 0 ? 'down' : 'dim'">{{ signed(h.change) }}%</td>
-            <td><button class="pool-add-btn" :class="{ added: inPool(h.code) }" @click.stop="addToPool(h)">{{ inPool(h.code) ? '已＋' : '＋自选' }}</button></td>
           </tr>
         </tbody>
       </table>
@@ -235,7 +233,7 @@ v-for="s in sourceOptions" :key="s.key"
         <tbody>
           <tr v-for="l in lhbSort.sorted(lhbList)" :key="l.code">
             <td class="code-click" @click="linkToSoftware(l.code)">{{ l.code }}</td>
-            <td class="name-col"><div class="name-main">{{ l.name }}</div></td>
+            <td class="name-col"><span class="pool-hover-wrap">{{ l.name }}<PoolHoverBtn :item="l" /></span></td>
             <td :class="l.change > 0 ? 'up' : 'down'">{{ signed(l.change) }}%</td>
             <td><span v-if="l.limitBoards > 0" class="lb-badge">{{ l.limitBoards }}板</span><span v-else class="dim">-</span></td>
             <td :class="l.buyIn > 0 ? 'up' : l.buyIn < 0 ? 'down' : 'dim'">{{ yi(l.buyIn) }}</td>
@@ -243,10 +241,7 @@ v-for="s in sourceOptions" :key="s.key"
             <td>{{ l.turnover.toFixed(2) }}</td>
             <td>{{ l.amplitude.toFixed(2) }}</td>
             <td>{{ yi(l.floatMv) }}</td>
-            <td>
-              <button class="pool-add-btn" style="margin-right:4px;" @click="viewLhbDetail(l)">明细</button>
-              <button class="pool-add-btn" :class="{ added: inPool(l.code) }" @click.stop="addToPool(l)">{{ inPool(l.code) ? '已＋' : '＋自选' }}</button>
-            </td>
+            <td><button class="pool-add-btn" @click="viewLhbDetail(l)">明细</button></td>
           </tr>
         </tbody>
       </table>
@@ -299,13 +294,11 @@ import { usePolling } from '../composables/usePolling'
 import { kplBoardRank, kplBoardStocks, kplHotRank, kplLhb, kplLhbDetail, sectorRotation } from '../api/kpl'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
-import { usePoolStore } from '../stores/pool'
-import { showToast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
 import { yi, signed } from '../utils/format'
 import RotCharts from '../components/RotCharts.vue'
+import PoolHoverBtn from '../components/PoolHoverBtn.vue'
 
-const pool = usePoolStore()
 const tab = ref('board')
 const boardList = ref([])
 const hotList = ref([])
@@ -351,16 +344,6 @@ async function viewLhbDetail(l) {
   } catch (e) { /* 静默 */ } finally {
     lhbLoading.value = false
   }
-}
-
-function addToPool(h) {
-  const n = pool.addStocks([{ code: h.code, name: h.name }])
-  showToast(n ? `✅ ${h.code} ${h.name} 已加入股票池` : `${h.code} 已在池中`, n ? 'success' : 'info')
-}
-
-// 是否已在股票池(与主页面 StockTable 一致: 已入池按钮变绿禁用)
-function inPool(code) {
-  return pool.stockPool.some(x => x.code === code)
 }
 
 async function loadBoard() {
