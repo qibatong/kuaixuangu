@@ -139,3 +139,19 @@
   - **竞额定格修复**（`45ad164`+`d8cd7c3`）：v4.5 误删「竞额」列恢复（万→亿折算 `bidAmtText`，≥1 亿显示 x.xx 亿）；东财封禁期全市场走腾讯兜底，腾讯无竞价额字段把**实时累计成交额**塞进 f616 近似 → 盘中「竞额」读到实时成交额失真 → 新增 `auction_snapshot.load_day_bid_amt`：从 snapshot_bid 读当日**9:25 定格竞价额**（时点优先级 9_25>9_24>9_20>9_15，越晚越接近定格），stocks.py/system_batch 评分时传入 process_all_stocks(day_bid_amt=...) 使 bidAmt/bidRatio 全天以定格竞价额为准
   - **腾讯缺票告警降噪**（`49f6e27`）：单批失败告警 WARNING 级 + 限频（防刷屏）
   - **自动化测试**：全量 **506 passed / 4 skipped**（新增 test_yesterday_cache 昨比失败缓存/批锁/异步路径、test_yday_prewarm 预热调度、test_filter_dedup 同参去重、test_lock_idempotent 当日幂等 305 行、test_bid_amt_fix 竞额定格、test_fetcher_miss_alert 告警降噪）
+- **v4.7 (09-04)**：限流治理 + 首屏慢接口缓存优化（用户反馈"转圈/慢"，主人授权 RATE_LIMIT 200→400）
+  - **限流旁路接线**（`5848b18`）：main.py 漏传 uid → 付费/VIP 的旁路此前形同虚设，全部用户都被限；接上后会员不再被 429
+  - **限流 200→400 + 会员旁路**（`524d48a`）：普通用户 400/min、付费/VIP 直接旁路
+  - **market-brief 缓存 30s + 两市概况跨进程**（`2e5eb86`）：1174ms → 6ms
+  - **3points 缓存失效 bug / history 缓存 / auction-overview TTL / bid-seal 缓存**（`8e41226`）：956ms → 11ms（含 TTL 与 30s 轮询错峰、耗时主体必须进 loader、错误不写缓存）
+  - **无批次用户 refresh 计算缓存 60s**（`fd238d1`）：3478ms → 82ms（价格仍由 spotMap 实时覆盖；参数指纹隔离）
+  - **字体长缓存**（Nginx `/assets/` immutable、index.html no-store）：586 个 woff2 不再每次刷新全量重下
+  - **自动化测试**：test_slow_api_cache_20260904.py（接口缓存命中/参数隔离/跨进程），全量 575 passed / 4 skipped（9/5 回退用例后为 575）
+- **v4.8 (09-05)**：休市回退秒开 + 前端体验/五色收敛大改
+  - **休市回退秒开**（`8ca56e4`，多用户反馈"关闭再打开首页转圈"）：`history.find_recent_reusable_batch` 14 天窗口回退最近交易日同参批次直读（lock→filter→auto 优先级、参数指纹不一致仍重算、空批次跳过、无手动批次才系统兜底）；API 响应新增 `reusedDate`；前端直接采用并 toast「已载入 X 的选股名单」→ 96ms vs 重算 2.6s（27 倍）
+  - **usePolling 失败指数退避**（`f3a65d4`）：fn 可返回成败标志，连续失败间隔 ×2^n（上限 5min）；ensureTabData 失败保留旧数据 + 角落「稍后重试」+ 手动单 Tab/全局刷新按钮（静默 spinner 不遮表格）
+  - **UI 微调**（`4772c7d`/`a704a94`/`e2600b4`/`a612691`）：去顶部提示文案、锁定按钮移除、刷新按钮下移并尺寸对齐、tab 放大、AI预测图标修复（FA5 fa-robot 在 FA4.7 不渲染 → fa-android）、竞价 tab 更名 **AI竞价** + 选中红色
+  - **去排序箭头**（`7d5502d`）：全站表格 .sort-ind 隐藏（保留排序功能，active 列头高亮反馈）
+  - **五色收敛**（`8434d03`+`5584624`）：用户反馈颜色过多 → 全站收敛 黑/白/红/绿/黄；清除蓝紫杂色 ~150 处（邀请页/按钮/徽章/蓝灰次要文字）；白主题重定义 --accent 深红 #c62828 保证对比度；三时点榜 9:15 列蓝→银白、跌色统一绿；图表内部（K 线均线/轮动图）豁免
+  - **AGENTS.md 工作手册**（`67a8c69`）：可公开约定迁移进仓库（工作流/部署/缓存/前端约束/数据源/测试坑，脱敏）
+  - **自动化测试**：test_stocks_refresh_fallback.py 8 用例，全量 **575 passed / 4 skipped**
