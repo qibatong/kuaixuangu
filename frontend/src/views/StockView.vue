@@ -24,7 +24,7 @@
         <div class="alert-rule alert-rule-compact">
           <span class="mode-tabs mode-tabs-inline">
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'auction' }" @click="switchTab('auction')"><i class="fa fa-sun-o"></i> 竞价</button>
-            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick' }" @click="switchTab('aipick')"><i class="fa fa-robot"></i> AI预测</button>
+            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick' }" @click="switchTab('aipick')"><i class="fa fa-android"></i> AI预测</button>
           </span>
         </div>
 
@@ -253,8 +253,10 @@ onBeforeUnmount(() => {
   align-items: center;
 }
 .mode-tab.mode-tab-compact {
-  padding: 3px 10px;
-  font-size: 12px;
+  /* 2026-09-05 主人需求: 竞价/AI预测 tab 适当放大(3px 10px → 6px 16px, 12→13px),
+     active 态同尺寸避免切换跳动 */
+  padding: 6px 16px;
+  font-size: 13px;
   border-radius: 6px;
   gap: 4px;
   line-height: 1.2;
@@ -263,8 +265,8 @@ onBeforeUnmount(() => {
 }
 .mode-tab.mode-tab-compact:hover { transform: none; box-shadow: none; border-color: #ffb400; }
 .mode-tab.mode-tab-compact.active {
-  padding: 3px 10px;
-  font-size: 12px;
+  padding: 6px 16px;
+  font-size: 13px;
   font-weight: 700;
   /* 选中态明显高亮: 实色填充 + 白底/文字对比, 深色默认主题 */
   color: #fff;

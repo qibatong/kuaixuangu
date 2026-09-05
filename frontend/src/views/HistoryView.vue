@@ -14,7 +14,8 @@
           <i class="fa fa-search"></i> 综合查询 <span class="view-tab-desc">跨批次条件筛选</span>
         </button>
         <button class="view-tab" :class="{ active: viewMode === 'aipick' }" @click="switchView('aipick')">
-          <i class="fa fa-robot"></i> AI预测 <span class="view-tab-desc">按日期回看预测报告</span>
+          <!-- 2026-09-05: fa-robot 为 FA5 图标, 项目用 FA4.7 不渲染(空白) → 换 fa-android -->
+          <i class="fa fa-android"></i> AI预测 <span class="view-tab-desc">按日期回看预测报告</span>
         </button>
       </div>
 
