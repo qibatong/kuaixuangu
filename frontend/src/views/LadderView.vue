@@ -280,7 +280,7 @@ body[data-bg="light"] .img-dl { background: #c79100; }
 .reason-date { color: #ffb400; font-size: 13px; margin-bottom: 6px; }
 .sclt { display: inline-block; margin-left: 8px; color: var(--accent-deep); font-size: 12px; border: 1px solid rgba(var(--accent-rgb), 0.5); border-radius: 4px; padding: 0 6px; }
 .reason-text { color: var(--text-secondary); font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
-.reason-boom { color: #9ab; font-size: 12px; margin-top: 6px; }
+.reason-boom { color: #8a8a8a; font-size: 12px; margin-top: 6px; }
 
 /* 浅色主题覆盖 */
 body[data-bg="light"] .ladder-title {  color: #8a5500;  }

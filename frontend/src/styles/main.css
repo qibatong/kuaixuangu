@@ -22,8 +22,8 @@
   --bg-hover: rgba(255, 255, 255, 0.06);
   --text-main: #eef2ff;
   --text-secondary: #ddd;
-  --text-muted: #9aa0aa;
-  --text-dim: #868c94;
+  --text-muted: #9a9a9a;
+  --text-dim: #8a8a8a;
   --border-soft: rgba(255, 255, 255, 0.1);
 }
 body[data-bg="light"] {
@@ -35,7 +35,7 @@ body[data-bg="light"] {
   --bg-input: rgba(255, 255, 255, 0.95);
   --bg-hover: rgba(0, 0, 0, 0.05);
   --text-main: #1a1d26;
-  --text-secondary: #3a3f4d;
+  --text-secondary: #3a3a3a;
   --text-muted: #4d4d4d;
   --text-dim: #5a5a5a;
   --border-soft: rgba(0, 0, 0, 0.12);
@@ -477,7 +477,7 @@ z-index: 9999;
 .real-time-btn { background: rgba(0,200,100,0.2); border: 1px solid #00c864; }
 .real-time-btn:hover { background: #00c864; }
 .reset-filter-btn { background: rgba(80,140,255,0.2); border: 1px solid rgba(184,48,16,0.5); color: var(--text-secondary); }
-.reset-filter-btn:hover { background: #4a7aff; color: white; border-color: white; transform: translateY(-1px); box-shadow: 0 5px 12px rgba(70,120,255,0.3); }
+.reset-filter-btn:hover { background: var(--accent-deep); color: white; border-color: white; transform: translateY(-1px); box-shadow: 0 5px 12px rgba(70,120,255,0.3); }
 /* 筛选按钮组独立行: 固定右对齐, 不参与控件换行 */
 .filter-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 2px; }
 .reset-filter-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
@@ -661,7 +661,7 @@ text-align: center; outline: none; font-family: "LXGW WenKai Mono", monospace; t
 .pool-item { display: flex; align-items: center; justify-content: space-between; background: var(--bg-panel); margin: 7px 0; padding: 9px 14px; border-radius: 12px; border: 1px solid rgba(255,140,140,0.18); border-left: 3px solid #ff8866; transition: 0.18s; }
 .pool-item:hover { background: var(--bg-panel); transform: translateX(3px); border-color: rgba(255,160,120,0.5); }
 .pool-item.gold { border-left-color: #ffd700; background: rgba(255,215,0,0.07); }
-.pool-item.silver { border-left-color: #c0c8d8; background: rgba(192,200,216,0.06); }
+.pool-item.silver { border-left-color: #c8c8c8; background: rgba(192,200,216,0.06); }
 .pool-item.bronze { border-left-color: #e8a04c; background: rgba(232,160,76,0.07); }
 .pool-item-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .pool-medal { font-size: 20px; line-height: 1; }
@@ -673,7 +673,7 @@ text-align: center; outline: none; font-family: "LXGW WenKai Mono", monospace; t
 .pool-item-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .pool-snaps { display: flex; align-items: center; gap: 6px; }
 .pool-snap { font-size: 12px; font-weight: 600; background: var(--bg-hover); padding: 2px 8px; border-radius: 10px; }
-.pool-score { font-size: 11px; color: #8ab4ff; background: rgba(90,120,255,0.14); padding: 2px 8px; border-radius: 10px; }
+.pool-score { font-size: 11px; color: var(--accent-text); background: rgba(90,120,255,0.14); padding: 2px 8px; border-radius: 10px; }
 .pool-add-time { font-size: 10px; color: var(--text-muted); }
 .del-single { background: rgba(var(--accent-rgb), 0.15); border: 1px solid rgba(255,90,90,0.4); color: #ffb0a0; font-size: 11px; padding: 3px 10px; border-radius: 12px; cursor: pointer; transition: 0.15s; opacity: 0.55; }
 .del-single:hover { background: #ff4a4a; color: #fff; opacity: 1; transform: translateY(-1px); }
@@ -773,7 +773,7 @@ border: 1px solid rgba(var(--accent-rgb),0.4); border-radius: 12px; display: fle
 display: flex; align-items: center; justify-content: space-between; padding: 12px 16px;
 border-bottom: 1px solid rgba(var(--accent-rgb),0.25); background: rgba(184,48,16,0.08);
 }
-.invite-title { font-size: 16px; font-weight: 700; color: #4dc3ff; display: flex; align-items: center; gap: 8px; }
+.invite-title { font-size: 16px; font-weight: 700; color: var(--accent); display: flex; align-items: center; gap: 8px; }
 .invite-close {
 background: rgba(var(--accent-rgb), 0.15); border: 1px solid var(--accent); color: #ffdddd; width: 30px; height: 30px;
 border-radius: 6px; cursor: pointer; font-size: 14px; line-height: 1;
@@ -786,7 +786,7 @@ padding: 16px; text-align: center;
 }
 .invite-code-label { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
 .invite-code-text {
-font-size: 30px; font-weight: 800; color: #4dc3ff; letter-spacing: 6px;
+font-size: 30px; font-weight: 800; color: var(--accent); letter-spacing: 6px;
 font-family: "LXGW WenKai Mono", monospace; user-select: all;
 }
 .invite-code-actions { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
@@ -794,7 +794,7 @@ font-family: "LXGW WenKai Mono", monospace; user-select: all;
 background: rgba(var(--accent-rgb),0.15); border: 1px solid var(--accent); color: var(--accent-text);
 border-radius: 6px; padding: 6px 16px; font-size: 12px; cursor: pointer;
 }
-.invite-btn:hover { background: #00a0e0; color: white; }
+.invite-btn:hover { background: var(--accent-deep); color: white; }
 .invite-btn.danger { background: rgba(255,140,40,0.15); border-color: #ff8c28; color: #ffd0a0; }
 .invite-btn.danger:hover { background: #ff7b1a; color: white; }
 .invite-tip { font-size: 12px; color: var(--text-muted); line-height: 1.6; }
@@ -967,14 +967,14 @@ body[data-bg="light"] th.sortable .sort-ind:empty::before { color: #c05a20; }
 body[data-bg="light"] .nav-history { color: #8a5500; }
 body[data-bg="light"] .nav-ladder { color: #b83010; }
 body[data-bg="light"] .nav-market { color: #00845a; }
-body[data-bg="light"] .nav-auction { color: #5a30b0; }
+body[data-bg="light"] .nav-auction { color: #b83010; }
 body[data-bg="light"] .nav-invite { color: #b83010; }
 body[data-bg="light"] .nav-admin { color: #8a6d00; }
 body[data-bg="light"] .nav-tdx { color: #8a4a00; }
 body[data-bg="light"] .nav-pool-import { color: #2d7020; }
 body[data-bg="light"] .health-degraded { color: #8a5500; background: rgba(255,180,0,0.12); border-color: rgba(255,150,30,0.6); }
 body[data-bg="light"] .health-down { color: #b83010; background: rgba(255,80,80,0.1); border-color: rgba(220,50,50,0.5); }
-body[data-bg="light"] .health-none { color: #44607a; background: rgba(120,160,200,0.12); border-color: rgba(100,140,180,0.4); }
+body[data-bg="light"] .health-none { color: #6b6b6b; background: rgba(120,160,200,0.12); border-color: rgba(100,140,180,0.4); }
 
 
 /* ===================== 浅色主题: 通用浅色文字深度修复 ===================== */
@@ -986,7 +986,7 @@ body[data-bg="light"] .live-time { background: rgba(0,0,0,0.04); border-color: v
 body[data-bg="light"] .health-ok { color: #2d7020; background: rgba(80,200,120,0.15); border-color: rgba(80,200,120,0.4); }
 body[data-bg="light"] .health-degraded { color: #8a5500; background: rgba(255,180,0,0.12); border-color: rgba(255,150,30,0.5); }
 body[data-bg="light"] .health-down { color: #b83010; background: rgba(255,80,80,0.1); border-color: rgba(220,50,50,0.5); }
-body[data-bg="light"] .health-none { color: #44607a; background: rgba(120,160,200,0.12); border-color: rgba(100,140,180,0.4); }
+body[data-bg="light"] .health-none { color: #6b6b6b; background: rgba(120,160,200,0.12); border-color: rgba(100,140,180,0.4); }
 body[data-bg="light"] .rule-text strong { color: var(--accent-deep); }
 body[data-bg="light"] .rule-text { color: var(--text-secondary); }
 /* tdx-export-btn 浅色文字 */

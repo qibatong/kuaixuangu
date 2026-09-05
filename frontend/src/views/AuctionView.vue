@@ -1066,8 +1066,8 @@ onMounted(() => {
   line-height: 1.6;
 }
 .s3-hint b { color: var(--accent-warm, #ffb400); }
-.s3-hint-soft { border-color: var(--border-soft); background: rgba(127, 224, 192, 0.05); color: var(--text-secondary); }
-.s3-hint-soft b { color: #7fe0c0; }
+.s3-hint-soft { border-color: var(--border-soft); background: rgba(106, 214, 106, 0.05); color: var(--text-secondary); }
+.s3-hint-soft b { color: #6ad66a; }
 body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 .s3-table { table-layout: auto; }
 .board-text { color: var(--text-secondary); font-size: 12px; line-height: 1.3; }
@@ -1094,7 +1094,7 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
    超出部分省略(完整概念仍在 td 的 title 悬浮中可看) */
 .concept-clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; line-height: 1.3; word-break: break-word; }
 .s3-table th.tp-th { text-align: center; font-weight: 600; }
-.s3-table th.tp-th-15 { color: #5fb4ff; border-bottom: 2px solid rgba(95, 180, 255, 0.35); }
+.s3-table th.tp-th-15 { color: #e8ecf2; border-bottom: 2px solid rgba(232,236,242,0.35); }
 .s3-table th.tp-th-20 { color: #ffb400; border-bottom: 2px solid rgba(255, 180, 0, 0.35); }
 .s3-table th.tp-th-25 { color: #ff5a5a; border-bottom: 2px solid rgba(255, 90, 90, 0.4); }
 .s3-table td.tp-th-15, .s3-table td.tp-th-20, .s3-table td.tp-th-25 { text-align: center; white-space: nowrap; }
@@ -1102,12 +1102,12 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 /* 实时涨幅列(开盘啦 realChange): 涨=红, 跌=蓝(A股忌讳绿, 避开绿色系) */
 .real-chg-col { text-align: center; white-space: nowrap; font-weight: 600; font-variant-numeric: tabular-nums; }
 .real-chg-col.up { color: #ff5a5a; }
-.real-chg-col.down { color: #6aa0ff; }
+.real-chg-col.down { color: #00c864; }
 .real-chg-col.dim { color: var(--text-muted); }
 /* 9:15 涨幅: 青蓝系(亮=涨, 暗=跌) */
-.chg-up-15 { color: #80d4ff; text-shadow: 0 0 6px rgba(95, 180, 255, 0.3); }
+.chg-up-15 { color: #e8ecf2; text-shadow: 0 0 6px rgba(255,255,255,0.25); }
 .chg-dn-15 { color: #4fc07a; }
-.dim-15    { color: #5a7898; }
+.dim-15    { color: #8a8a8a; }
 /* 9:20 涨幅: 橙系 */
 .chg-up-20 { color: #ffd566; text-shadow: 0 0 6px rgba(255, 180, 0, 0.3); }
 .chg-dn-20 { color: #35b866; }
@@ -1118,13 +1118,13 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 .dim-25    { color: #9a5a5a; }
 /* 封单额: 按时点主色, 弱色 */
 .seal-col { font-variant-numeric: tabular-nums; }
-.seal-col-15 { color: #80d4ff; }
+.seal-col-15 { color: #d8dce4; }
 .seal-col-20 { color: #ffb400; }
 .seal-col-25 { color: #ff6a6a; }
-body[data-bg="light"] .seal-col-15 { color: #0068b4; }
+body[data-bg="light"] .seal-col-15 { color: #5a5a5a; }
 body[data-bg="light"] .seal-col-20 { color: #b07800; }
 body[data-bg="light"] .seal-col-25 { color: #c82020; }
-body[data-bg="light"] .chg-up-15 { color: #0068b4; }
+body[data-bg="light"] .chg-up-15 { color: #5a5a5a; }
 body[data-bg="light"] .chg-up-20 { color: #8a5a00; }
 body[data-bg="light"] .chg-up-25 { color: #c82020; }
 /* 浅色主题: 竞价涨幅<0 绿色(中国股市惯例跌=绿) */
@@ -1135,13 +1135,13 @@ body[data-bg="light"] .chg-dn-25 { color: #1a8a4a; }
 /* === 加单趋势标签 === */
 .seal-mode { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .seal-mode-strong { color: #ffb400; border: 1px solid #ffb400; background: rgba(255, 180, 0, 0.12); }
-.seal-mode-mid { color: #7fe0c0; border: 1px solid #4fc0a0; background: rgba(79, 192, 160, 0.12); }
-.seal-mode-weak { color: #a0b8d0; border: 1px solid #6a88a8; background: rgba(106, 136, 168, 0.12); }
+.seal-mode-mid { color: #6ad66a; border: 1px solid #4a9e28; background: rgba(106, 214, 106, 0.12); }
+.seal-mode-weak { color: #9a9a9a; border: 1px solid #8a8a8a; background: rgba(154, 154, 154, 0.12); }
 .seal-mode-danger { color: #ff6a6a; border: 1px solid #ff6a6a; background: rgba(255, 106, 106, 0.12); }
 .seal-mode-flat { color: var(--text-muted); border: 1px solid var(--border-soft); background: transparent; }
 body[data-bg="light"] .seal-mode-strong { color: #8a5a00; border-color: #c79100; background: rgba(255, 180, 0, 0.12); }
-body[data-bg="light"] .seal-mode-mid { color: #1a7a60; border-color: #2a9a7a; }
-body[data-bg="light"] .seal-mode-weak { color: #486080; border-color: #6a88a8; }
+body[data-bg="light"] .seal-mode-mid { color: #2d7020; border-color: #4a9e28; }
+body[data-bg="light"] .seal-mode-weak { color: #6b6b6b; border-color: #8a8a8a; }
 body[data-bg="light"] .seal-mode-danger { color: #c82020; border-color: #c82020; }
 
 .snap-empty { text-align: center; color: var(--text-dim); padding: 30px 0; font-size: 13px; }

@@ -169,7 +169,7 @@ onMounted(load)
   background: var(--bg-input, #f7f8fa); border: 1px solid var(--border, #e8e9ed);
   border-left: 4px solid #999; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px;
 }
-.sn-slot.slot-night { border-left-color: #4a4a6a; }
+.sn-slot.slot-night { border-left-color: #4a4a4a; }
 .sn-slot.slot-morning { border-left-color: #f5a623; }
 .sn-slot.slot-noon { border-left-color: #34a853; }
 .sn-slot.slot-close { border-left-color: #d93025; }
@@ -179,7 +179,7 @@ onMounted(load)
   flex-shrink: 0; font-size: 12px; font-weight: 700; color: #fff;
   background: #666; border-radius: 12px; padding: 3px 10px;
 }
-.slot-night .sn-slot-tag { background: #4a4a6a; }
+.slot-night .sn-slot-tag { background: #4a4a4a; }
 .slot-morning .sn-slot-tag { background: #f5a623; }
 .slot-noon .sn-slot-tag { background: #34a853; }
 .slot-close .sn-slot-tag { background: #d93025; }

@@ -936,10 +936,10 @@ onMounted(() => {
 <style scoped>
 .inviter-tag {
   display: inline-block; padding: 2px 8px; border-radius: 10px;
-  background: rgba(120, 160, 255, 0.15); color: #7fb2ff;
+  background: rgba(120, 160, 255, 0.15); color: var(--accent-text);
   border: 1px solid rgba(120, 160, 255, 0.35); font-size: 12px; white-space: nowrap;
 }
-body[data-bg="light"] .inviter-tag { color: #3a5bb8; background: rgba(90, 130, 255, 0.1); border-color: rgba(90, 130, 255, 0.4); }
+body[data-bg="light"] .inviter-tag { color: #b83010; background: rgba(90, 130, 255, 0.1); border-color: rgba(90, 130, 255, 0.4); }
 .mono { font-family: "LXGW WenKai Mono", monospace; }
 .invite-chain { display: flex; flex-direction: column; gap: 8px; padding: 8px 4px; }
 .chain-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
@@ -1047,7 +1047,7 @@ body[data-bg="light"] .btn-create {
 /* 角色徽标 (合并 is_admin + member_level 显示, 紧贴用户名) */
 .user-name-row { display: inline-flex; align-items: center; gap: 6px; }
 .role-badge { display: inline-block; border-radius: 4px; padding: 2px 10px; font-size: 11px; font-weight: 600; }
-.role-admin { color: #4a9eff; border: 1px solid #4a9eff; background: rgba(74,158,255,0.12); }
+.role-admin { color: var(--accent-text); border: 1px solid var(--accent-text); background: rgba(74,158,255,0.12); }
 .role-vip   { color: #ffb347; border: 1px solid #ffb347; background: rgba(255,179,71,0.15); }
 .role-paid  { color: #ff6a6a; border: 1px solid #ff6a6a; background: rgba(255,106,106,0.12); }
 .role-trial { color: var(--text-muted); border: 1px solid #666; }
@@ -1124,7 +1124,7 @@ body[data-bg="light"] .btn-create {
 body[data-bg="light"] .member-tabs { background: rgba(0,0,0,0.04); }
 body[data-bg="light"] .member-tab { color: #6b7280; }
 body[data-bg="light"] .member-tab:hover { color: #1a1d26; }
-body[data-bg="light"] .member-tab.active { background: rgba(11,134,200,0.18); color: #0b4d80; font-weight: 600; }
+body[data-bg="light"] .member-tab.active { background: rgba(11,134,200,0.18); color: #b83010; font-weight: 600; }
 /* 用户列表工具区: desktop 横排右对齐(标题左边, tab+搜索+按钮挤右) */
 .user-toolbar {
   display: flex;
@@ -1183,7 +1183,7 @@ body[data-bg="light"] .factor-title {  color: #8a5500;  }
 body[data-bg="light"] .factor-tab {  color: #6b6b6b; border-color: var(--border-soft);  }
 body[data-bg="light"] .factor-tab:hover {  color: #5a4a3a; border-color: #c79100;  }
 body[data-bg="light"] .factor-tab.active {  color: #5a4a3a; border-color: #c79100; background: rgba(255,180,0,0.15);  }
-body[data-bg="light"] .page-btn {  color: #005c5a; background: rgba(0,180,180,0.12); border-color: #b83010;  }
+body[data-bg="light"] .page-btn {  color: #b83010; background: rgba(184,48,16,0.12); border-color: #b83010;  }
 body[data-bg="light"] .mini-date {  color: #1a1d26; background: rgba(255,255,255,0.95); border-color: var(--border-soft);  }
 body[data-bg="light"] .mini-btn {  color: #1a1d26; background: rgba(240,245,250,0.9); border-color: var(--border-soft);  }
 body[data-bg="light"] .admin-tag {  color: #8a5500; border-color: #c79100;  }

@@ -305,7 +305,7 @@ body[data-bg="light"] .mini-btn:hover { background: rgba(255, 255, 255, 0.28); c
   position: fixed; z-index: 99999;   /* 2026-08-18: Teleport 到 body + fixed, 视图顶层(原被 nav-tools 滚动容器裁剪/遮挡) */
   background-color: #1f2230;          /* 默认深色主题: 深灰实色 */
   color: #eef2ff;
-  border: 1.5px solid #2a2a30;
+  border: 1.5px solid #2a2a2a;
   border-radius: 8px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
   padding: 5px;
@@ -319,7 +319,7 @@ body[data-bg="light"] .mini-btn:hover { background: rgba(255, 255, 255, 0.28); c
 .menu-setting-row { display: flex; align-items: center; gap: 8px; }
 .menu-setting-label {
   display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12px; color: #b0b6c8; min-width: 56px; white-space: nowrap;
+  font-size: 12px; color: #b4b4b4; min-width: 56px; white-space: nowrap;
 }
 .menu-setting-label i { width: 14px; text-align: center; }
 /* 导航栏主题快捷圆点(2026-08-18 主人要求移出下拉) */
@@ -341,14 +341,14 @@ body[data-bg="light"] .nav-theme-dot { border-color: rgba(0, 0, 0, 0.3); }
 body[data-bg="light"] .nav-theme-dot.active { border-color: #c62828; box-shadow: 0 0 6px rgba(198, 40, 40, 0.4); }
 .menu-dot {
   width: 16px; height: 16px; border-radius: 50%;
-  border: 2px solid #2a2a30; cursor: pointer; padding: 0;
+  border: 2px solid #2a2a2a; cursor: pointer; padding: 0;
   transition: transform 0.15s, border-color 0.15s;
 }
 .menu-dot:hover { transform: scale(1.2); }
 .menu-dot.active { border-color: #ffffff; box-shadow: 0 0 6px rgba(255, 255, 255, 0.8); }
 .menu-font {
   min-width: 22px; height: 22px; line-height: 1;
-  border: 1px solid #2a2a30; border-radius: 12px;
+  border: 1px solid #2a2a2a; border-radius: 12px;
   background: transparent; color: #eef2ff;
   font-weight: 600; cursor: pointer; padding: 0 5px;
   transition: transform 0.15s, border-color 0.15s, background 0.15s, color 0.15s;
@@ -362,7 +362,7 @@ body[data-bg="light"] .nav-theme-dot.active { border-color: #c62828; box-shadow:
 .menu-fontfam {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   width: 100%; padding: 7px 10px;
-  border: 1px solid #2a2a30; border-radius: 8px;
+  border: 1px solid #2a2a2a; border-radius: 8px;
   background: transparent; color: #eef2ff;
   cursor: pointer; text-align: left;
   transition: transform 0.12s, border-color 0.12s, background 0.12s;
@@ -377,7 +377,7 @@ body[data-bg="light"] .nav-theme-dot.active { border-color: #c62828; box-shadow:
   font-size: 15px; font-weight: 600; line-height: 1.1;
 }
 .menu-fontfam .ff-desc {
-  font-size: 11px; color: #8f96a8; opacity: 0.92;
+  font-size: 11px; color: #949494; opacity: 0.92;
   margin-left: auto;
 }
 .menu-sep { height: 1px; background: rgba(255, 255, 255, 0.1); margin: 4px 6px; }
@@ -391,7 +391,7 @@ body[data-bg="light"] .nav-theme-dot.active { border-color: #c62828; box-shadow:
   transition: background 0.15s, color 0.15s;
 }
 .user-menu .menu-item:hover { background: rgba(255, 255, 255, 0.08); color: #ffffff; }
-.user-menu .menu-item i { width: 15px; text-align: center; color: #b0b6c8; }
+.user-menu .menu-item i { width: 15px; text-align: center; color: #b4b4b4; }
 .user-menu .menu-logout { color: #ff6a6a; }
 .user-menu .menu-logout:hover { background: rgba(255, 106, 106, 0.15); color: #ff8585; }
 .user-menu .menu-logout i { color: #ff6a6a; }
@@ -421,11 +421,11 @@ body[data-bg="light"] .menu-sep { background: rgba(0, 0, 0, 0.08); }
 /* 纯黑主题: 更深 */
 body[data-bg="black"] .user-menu {
   background-color: #0a0a0e;
-  border-color: #2a2a30;
+  border-color: #2a2a2a;
 }
-body[data-bg="black"] .menu-dot { border-color: #2a2a30; }
-body[data-bg="black"] .menu-font { border-color: #2a2a30; }
-body[data-bg="black"] .menu-fontfam { border-color: #2a2a30; }
+body[data-bg="black"] .menu-dot { border-color: #2a2a2a; }
+body[data-bg="black"] .menu-font { border-color: #2a2a2a; }
+body[data-bg="black"] .menu-fontfam { border-color: #2a2a2a; }
 .mini-btn {
   background: var(--bg-input); border: 1px solid var(--border-soft);
   color: var(--text-secondary); border-radius: 6px;
