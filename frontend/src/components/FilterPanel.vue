@@ -35,11 +35,11 @@
         <button class="tdx-export-btn filter-reset" :disabled="store.isFilterLocked && store.mode === 'auction'" @click="reset">重置</button>
         <button v-if="store.mode === 'auction'" class="tdx-export-btn filter-lock" :class="{ locked: store.isFilterLocked }" @click="store.toggleFilterLock()">{{ store.isFilterLocked ? '解锁' : '锁定' }}</button>
         <!-- 2026-09-05: 刷新按钮从 StockView 顶部规则条移入本组(仅竞价模式; 9:30 后
-             刷新实时行情, 9:30 前等同重新选股)。点击 emit 给父组件处理。 -->
+             刷新实时行情, 9:30 前等同重新选股)。点击 emit 给父组件处理。
+             样式与相邻的 重置/锁定 对齐(同 padding/字号, 见下方 .filter-refresh),
+             且**不带图标** —— 左侧三个按钮均为纯文字, 带图标会导致宽度不一致。 -->
         <button v-if="store.mode === 'auction'" class="tdx-export-btn filter-refresh"
-                title="刷新实时行情" @click="emit('refresh')">
-          <i class="fa fa-refresh"></i> 刷新
-        </button>
+                title="刷新实时行情" @click="emit('refresh')">刷新</button>
       </span>
     </div>
     <!-- 第二行: 数值输入框.
@@ -245,6 +245,9 @@ function reset() { store.resetFilterToDefault() }
 .filter-apply { padding: 4px 9px; font-size: 11.5px; }
 .filter-reset { padding: 3px 8px; font-size: 11.5px; }
 .filter-lock  { padding: 3px 8px; font-size: 11.5px; }
+/* 2026-09-05: 刷新按钮从 StockView 顶部移入本组, 尺寸与相邻的 重置/锁定 完全对齐
+   (纯文字无图标; 应用按钮略大是主按钮的既有设计, 保留其视觉主次) */
+.filter-refresh { padding: 3px 8px; font-size: 11.5px; }
 
 /* ===== 第二行: 核心布局 —— 桌面端一排两端对齐 ===== */
 .filter-row-2 {
@@ -311,6 +314,8 @@ function reset() { store.resetFilterToDefault() }
   .filter-apply { padding: 3px 7px; font-size: 11px; min-height: 24px; }
   .filter-reset { padding: 3px 7px; font-size: 11px; min-height: 24px; }
   .filter-lock  { padding: 3px 7px; font-size: 11px; min-height: 24px; }
+  /* 2026-09-05: 刷新按钮(手机端同 重置/锁定 尺寸, 含 min-height 保证等高) */
+  .filter-refresh { padding: 3px 7px; font-size: 11px; min-height: 24px; }
 
   /* 第二行: 换行 + 左对齐 */
   .filter-row-2 {
