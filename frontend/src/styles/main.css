@@ -914,8 +914,12 @@ border-radius: 5px; font-size: 12px; outline: none; flex-shrink: 0;
 /* 悬停名称浮现「＋自选/已＋」: 各表不再单列操作列(2026-09-05 主人需求)
    按钮绝对定位于名称右侧, 不参与布局 → 名称恒居中、列宽恒定, 悬停浮现不造成左右晃动 */
 .pool-hover-wrap { position: relative; display: inline-flex; align-items: center; }
-.pool-hover-wrap .pool-hover-btn { position: absolute; left: calc(100% + 6px); top: 50%; transform: translateY(-50%); white-space: nowrap; visibility: hidden; }
-.pool-hover-wrap:hover .pool-hover-btn { visibility: visible; }
+.pool-hover-wrap .pool-hover-btn { position: absolute; left: 100%; top: 50%; transform: translateY(-50%); white-space: nowrap; visibility: hidden; }
+/* 2026-09-05 修复「悬停要特别快否则图标消失」: 原 left 从 calc(100%+6px) 距名称 6px 空白,
+   :hover 只认名称(及子元素), 移向按钮途中越过该空白即触发 visibility:hidden → 慢速就消失。
+   改为 left:100%(紧贴名称右缘), 名称→按钮悬停连续, 不再有死区; 视觉间距由内边距/边框承担 */
+.pool-hover-wrap:hover .pool-hover-btn,
+.pool-hover-wrap .pool-hover-btn:hover { visibility: visible; }
 
 /* ==================== 通用表头排序(各视图复用, 与 StockTable 交互一致) ==================== */
 th.sortable {
