@@ -229,82 +229,117 @@ def bid_net_from_snap(date=None):
     return out
 
 
+def _boom_spot_map():
+    """竞价爆量 实时涨幅: 东财全市场行情 map 合并(独立缓存 SPOT_CACHE_TTL, 覆盖全部 6000 只)。
+    注意: 不能用 ensure_cache("filter") — 那只有涨幅前 200 只, 量比榜多数票不在其中 → 0"""
+    try:
+        from . import fetcher as _fetcher
+        from . import scorer as _scorer
+        _fs = _scorer.market_fs(["hs", "cyb", "kcb"])
+        return _fetcher.fetch_spot_quote_map(_fs)
+    except Exception as e:
+        log.warning("竞价爆量 实时涨幅合并失败(降级0) err=%s", e)
+        return {}
+
+
+def _boom_from_snap(snap_date, spot_map=None):
+    """从某交易日 snapshot_bid 重建竞价爆量(量比榜)。2026-09-05 抽出, 供 实时加载器 与
+    历史回看/非交易日重建 复用(历史 auction_daily_history 长期无 boom 落库 → 用快照重建)。
+    过滤口径与 fetch_bid_boom 一致: 竞价量比 > 2 且 竞价成交额 > 100万(万元=100) 且 竞价涨幅≥0.01%。
+    返回 [{code,name,bidAmt,bidChange,bidRatioYest,bidTurnover,floatMv,board,yestBidAmt},...] 按量比降序;
+    当日无快照/无昨日 → []。"""
+    import sqlite3
+    conn = sqlite3.connect(config.DB_FILE)
+    try:
+        # 当日最新时点: 字典序 9_15 < 9_20 < 9_24 < 9_25, MAX 即最新
+        row = conn.execute(
+            "SELECT MAX(time_point) FROM snapshot_bid WHERE date=? "
+            "AND time_point IN ('9_15','9_20','9_24','9_25')", (snap_date,)).fetchone()
+        cur_tp = str(row[0]) if row and row[0] else None
+        if not cur_tp:
+            return []          # 该日暂无快照
+        # 昨日(最近小于 snap_date 的交易日) 9_25 竞价额
+        row2 = conn.execute(
+            "SELECT MAX(date) FROM snapshot_bid WHERE date < ? AND time_point='9_25'",
+            (snap_date,)).fetchone()
+        yest = str(row2[0]) if row2 and row2[0] else None
+        if not yest:
+            return []          # 无昨日数据
+        # 当日全市场: code -> (bid_amt万元, name, bid_change, 实际流通市值free_mv, board)
+        today_map = {}
+        for code, amt, name, chg, fmv, board in conn.execute(
+                "SELECT code, bid_amt, name, bid_change, COALESCE(NULLIF(free_mv,0), float_mv), board FROM snapshot_bid "
+                "WHERE date=? AND time_point=?", (snap_date, cur_tp)):
+            today_map[code] = (amt or 0, name or "", chg or 0, fmv or 0, board or "")
+        # 昨日 9_25 竞价额(万元)
+        ymap = {}
+        for code, amt in conn.execute(
+                "SELECT code, bid_amt FROM snapshot_bid WHERE date=? AND time_point='9_25'",
+                (yest,)):
+            ymap[code] = amt or 0
+    finally:
+        conn.close()
+    if spot_map is None:
+        spot_map = _boom_spot_map()
+    out = []
+    for code, (amt, name, chg, fmv, board) in today_map.items():
+        ya = ymap.get(code)
+        if not ya or amt <= 100:      # 竞价成交额 ≤ 100万(万元=100) 或 昨日无竞价 → 跳过
+            continue
+        if chg < 0.01:                # 竞价涨幅 < 0.01%(基本零涨幅/未上涨) → 跳过
+            continue
+        ratio = round(amt / ya, 2)
+        if ratio <= 2:                # 竞价量比 ≤ 2 → 跳过
+            continue
+        bid_turnover = round(amt * 10000 / fmv * 100, 4) if fmv else 0.0   # 竞价换手 = 竞价额/流通市值×100
+        out.append({"code": code, "name": name,
+                    "realChange": (spot_map.get(code) or {}).get("realChange", 0.0),   # 实时涨幅(东财全市场map, 全天有值)
+                    "bidChange": chg,
+                    "bidAmt": amt * 10000,            # 万元 → 元(前端口径)
+                    "bidRatioYest": ratio,            # 竞价量比
+                    "bidTurnover": bid_turnover,      # 竞价换手(%)
+                    "floatMv": fmv, "board": board,
+                    "yestBidAmt": ya * 10000})        # 昨日竞价额(元)
+    out.sort(key=lambda x: x["bidRatioYest"], reverse=True)
+    return out
+
+
 def fetch_bid_boom():
     """竞价爆量榜(2026-08-19 主人要求改版):
     **按竞价量比排序(不限条数)** — 竞价量比 = 今日竞价额 / 昨日竞价额。
     全市场计算(不再只取 Type10 竞价额前 60): snapshot_bid 表
-      - 今日竞价额: 今日最新时点(9_25 > 9_24 > 9_20 > 9_15, 竞价时段自动用最近快照)
-      - 昨日竞价额: 最近(严格小于今日)交易日的 9_25 快照
+      - 今日竞价额: 当日最新时点(9_25 > 9_24 > 9_20 > 9_15)
+      - 昨日竞价额: 最近(严格小于当日)交易日的 9_25 快照
     过滤(2026-08-19 23:10 主人要求): 竞价量比 > 2 且 竞价成交额 > 100万(万元=100)
+    2026-09-05 非交易日(周末/节假日)/盘后今日无快照 → 自动回退最近交易日(与抢筹/bid-seal 一致)。
     返回 [{code,name,bidAmt(元),bidChange,bidRatioYest,floatMv,board}, ...] 按量比降序(全部)"""
     def loader():
         import sqlite3
         g2 = time.gmtime(time.time() + 8 * 3600)
         hm_in_bid = g2.tm_wday < 5 and (9 * 60 + 15) <= (g2.tm_hour * 60 + g2.tm_min) <= (9 * 60 + 30)
-        conn = sqlite3.connect(config.DB_FILE)
-        try:
-            today = time.strftime("%Y-%m-%d")
-            # 今日最新时点: 字典序 9_15 < 9_20 < 9_24 < 9_25, MAX 即最新
-            row = conn.execute(
-                "SELECT MAX(time_point) FROM snapshot_bid WHERE date=? "
-                "AND time_point IN ('9_15','9_20','9_24','9_25')", (today,)).fetchone()
-            cur_tp = str(row[0]) if row and row[0] else None
-            if not cur_tp:
-                return []          # 今日暂无快照(盘前/采集异常)
-            # 昨日(最近小于今日的交易日) 9_25 竞价额
-            row2 = conn.execute(
-                "SELECT MAX(date) FROM snapshot_bid WHERE date < ? AND time_point='9_25'",
-                (today,)).fetchone()
-            yest = str(row2[0]) if row2 and row2[0] else None
-            if not yest:
-                return []          # 无昨日数据(首日)
-            # 今日全市场: code -> (bid_amt万元, name, bid_change, 实际流通市值free_mv, board)
-            today_map = {}
-            for code, amt, name, chg, fmv, board in conn.execute(
-                    "SELECT code, bid_amt, name, bid_change, COALESCE(NULLIF(free_mv,0), float_mv), board FROM snapshot_bid "
-                    "WHERE date=? AND time_point=?", (today, cur_tp)):
-                today_map[code] = (amt or 0, name or "", chg or 0, fmv or 0, board or "")
-            # 昨日 9_25 竞价额(万元)
-            ymap = {}
-            for code, amt in conn.execute(
-                    "SELECT code, bid_amt FROM snapshot_bid WHERE date=? AND time_point='9_25'",
-                    (yest,)):
-                ymap[code] = amt or 0
-        finally:
-            conn.close()
-        # 实时涨幅: 东财全市场行情 map 合并(独立缓存 SPOT_CACHE_TTL, 覆盖全部 6000 只)
-        # 注意: 不能用 ensure_cache("filter") — 那只有涨幅前 200 只, 量比榜多数票不在其中 → 0
-        spot_map = {}
-        try:
-            from . import fetcher as _fetcher
-            from . import scorer as _scorer
-            _fs = _scorer.market_fs(["hs", "cyb", "kcb"])
-            spot_map = _fetcher.fetch_spot_quote_map(_fs)
-        except Exception as e:
-            log.warning("竞价爆量 实时涨幅合并失败(降级0) err=%s", e)
-            spot_map = {}
-        out = []
-        for code, (amt, name, chg, fmv, board) in today_map.items():
-            ya = ymap.get(code)
-            if not ya or amt <= 100:      # 竞价成交额 ≤ 100万(万元=100) 或 昨日无竞价 → 跳过
-                continue
-            if chg < 0.01:                # 竞价涨幅 < 0.01%(基本零涨幅/未上涨) → 跳过
-                continue
-            ratio = round(amt / ya, 2)
-            if ratio <= 2:                # 竞价量比 ≤ 2 → 跳过
-                continue
-            bid_turnover = round(amt * 10000 / fmv * 100, 4) if fmv else 0.0   # 竞价换手 = 竞价额/流通市值×100
-            out.append({"code": code, "name": name,
-                        "realChange": (spot_map.get(code) or {}).get("realChange", 0.0),   # 实时涨幅(东财全市场map, 全天有值)
-                        "bidChange": chg,
-                        "bidAmt": amt * 10000,            # 万元 → 元(前端口径)
-                        "bidRatioYest": ratio,            # 竞价量比(同单位万元)
-                        "bidTurnover": bid_turnover,      # 竞价换手(%)
-                        "floatMv": fmv, "board": board,
-                        "yestBidAmt": ya * 10000})        # 昨日竞价额(元)
-        out.sort(key=lambda x: x["bidRatioYest"], reverse=True)
-        log.info("竞价爆量(量比榜) date=%s 时点=%s 昨日=%s 全市场候选=%d (不限条数)",
-                 today, cur_tp, yest, len(out))
+        today = time.strftime("%Y-%m-%d")
+        # 2026-09-05 修复"竞价爆量表格无数据": 非交易日(周末/节假日)/盘后今日无快照时,
+        # 自动回退最近有快照的交易日 — 与 bid-seal/bid-net/抢筹 等 tab 盘后仍显示最近交易日一致
+        # (竞价时段不回退, 避免 9:15-9:25 早段拿昨日冒充今日实时)
+        if not hm_in_bid:
+            try:
+                conn = sqlite3.connect(config.DB_FILE)
+                try:
+                    has_today = conn.execute(
+                        "SELECT COUNT(*) FROM snapshot_bid WHERE date=? ", (today,)).fetchone()[0]
+                    if not has_today:
+                        r0 = conn.execute(
+                            "SELECT MAX(date) FROM snapshot_bid WHERE date <= ? AND time_point='9_25'",
+                            (today,)).fetchone()
+                        if r0 and r0[0]:
+                            log.info("竞价爆量[回退] date=%s 今日无快照, 自动回退最近交易日 %s", today, r0[0])
+                            today = str(r0[0])
+                finally:
+                    conn.close()
+            except Exception as e:
+                log.warning("竞价爆量 交易日回退判断失败(按今天处理) err=%s", e)
+        out = _boom_from_snap(today)
+        log.info("竞价爆量(量比榜) date=%s 全市场候选=%d (不限条数)", today, len(out))
         return out
     return _cached("bid_boom_ratio_v3", config.KPL_BID_TTL, loader)   # v3: 实时涨幅全市场map(2026-08-19)
 

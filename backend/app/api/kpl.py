@@ -264,6 +264,16 @@ def api_kpl_bid_boom(request: Request, uid: int = Depends(require_vip_or_paid), 
     if date:
         resolved = _resolve_date(date)
         d = kpl.query_auction_history(resolved, "boom")
+        # 2026-09-05 修复"竞价爆量历史/非交易日无数据": auction_daily_history 长期无 boom 落库
+        # (仅历史极早期有), 周末前端自动回退带 date.boom 会读到空 → 当日 snapshot_bid 存在则重建
+        if not d:
+            try:
+                d = kpl._boom_from_snap(resolved) or []
+                if d:
+                    log.info("bid-boom 历史 %s 无落库 → snapshot_bid 重建 %d 只", resolved, len(d))
+            except Exception as e:
+                log.warning("bid-boom 历史重建失败 err=%s", e)
+                d = []
         # 2026-08-23: 老版落库把大盘股 floatMv 错位为极小值 → 竞换荒谬; 用当日快照修复
         kpl.fill_bid_turnover_from_snap(d, resolved)
     else:
