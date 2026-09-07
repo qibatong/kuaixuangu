@@ -604,13 +604,25 @@ def record_intraday_snapshot(date=None):
     return snap
 
 
-def get_same_time_yesterday(date=None):
+def _hm_of_ts(ts):
+    """时间戳 → 北京时间的"日内分钟数"(9:30 → 570), 用于跨日的同一时刻匹配"""
+    g = time.gmtime(ts + 8 * 3600)
+    return g.tm_hour * 60 + g.tm_min
+
+
+def get_same_time_yesterday(date=None, now=None):
     """取昨日同一时点的成交额(用于'两市较昨日同一时点'对比);
-    今日 10:30 → 查昨日 intraday list, 找 ts <= 当前 ts 的最新点
-    返回 {amount, stockCount, ts} 或 None (无昨日数据)"""
+    返回 {amount, stockCount, ts, date} 或 None (无昨日数据)
+
+    2026-09-07 修复(主人"盘中不是和上个交易日同一时间比较"): 原逻辑
+    `[s for s in arr if s['ts'] <= now]` —— 昨日所有快照 ts 都早于"今天此刻",
+    条件恒真 → cand[-1] 永远取到**昨日最后一条(15:00 收盘=全天)**, 与"同一时点"
+    名不符实(实测 9/4 返回 15:00 的 20304 亿)。现按**日内时刻**匹配:
+    今日 14:00 → 取昨日 14:00(或之前最近)的快照; 收盘后则自然取昨日全天。
+    now 可注入(测试用)。"""
     from . import settings as settings_svc
     from datetime import datetime, timedelta
-    now = int(time.time())
+    now = int(now if now is not None else time.time())
     # 2026-09-07 修复(主人反馈"两市放量 0 亿"): 原用 datetime.fromtimestamp(now + 8*3600)
     # —— 服务器时区已是 **CST(+8)**, fromtimestamp 按本地时区转换, 再加 8h 会**多加 8 小时**
     # → 北京时间 19:16 被算成次日 03:16, "昨日"= 明天-1天 = **今天** → 拿今日 intraday
@@ -624,14 +636,12 @@ def get_same_time_yesterday(date=None):
         arr = settings_svc.get("market_brief_intraday_" + cur)
         if not arr:
             continue
-        # 找 ts <= now 的最新点
-        cand = [s for s in arr if s.get("ts", 0) <= now]
-        if cand:
-            return {"amount": cand[-1]["amount"], "stockCount": cand[-1]["stockCount"],
-                    "ts": cand[-1]["ts"], "date": cur}
-        # 全部都比当前 ts 新(跨日?) → 取最后一条
-        return {"amount": arr[-1]["amount"], "stockCount": arr[-1]["stockCount"],
-                "ts": arr[-1]["ts"], "date": cur}
+        # 按**日内时刻**匹配: 今日 14:30 → 昨日 <=14:30 的最后一点(14:00/14:25)
+        now_hm = _hm_of_ts(now)
+        cand = [s for s in arr if _hm_of_ts(s.get("ts", 0)) <= now_hm]
+        pick = cand[-1] if cand else arr[0]   # 早于昨日首条(竞价时段) → 取首条
+        return {"amount": pick["amount"], "stockCount": pick["stockCount"],
+                "ts": pick["ts"], "date": cur}
     return None
 
 
