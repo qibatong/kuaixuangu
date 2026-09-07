@@ -54,13 +54,13 @@
         涨停率 ≥<input v-model.number="store.filterSettings.probLt" type="number" min="5" max="95" step="1" :disabled="store.isFilterLocked" :style="inputStyle(22)">% 或 可信度 ≥<input v-model.number="store.filterSettings.confLt" type="number" min="50" max="90" step="1" :disabled="store.isFilterLocked" :style="inputStyle(22)">%
       </label>
       <label class="filter-cell">
-        流通 ≥<input v-model.number="store.filterSettings.floatMvFloor" type="number" min="1" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
+        流通 ≥<input v-model.number="store.filterSettings.floatMvFloor" type="number" min="0" max="5000" step="10" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
       </label>
       <label class="filter-cell">
-        流通 ≤<input v-model.number="store.filterSettings.floatMvGt" type="number" min="1" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
+        流通 ≤<input v-model.number="store.filterSettings.floatMvGt" type="number" min="0" max="5000" step="10" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
       </label>
       <label class="filter-cell">
-        股价 ≤<input v-model.number="store.filterSettings.priceGt" type="number" min="1" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)">元
+        股价 ≤<input v-model.number="store.filterSettings.priceGt" type="number" min="0" max="5000" step="10" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">元
       </label>
       <label class="filter-cell">
         竞额 ≥<input v-model.number="store.filterSettings.bidAmtFloor" type="number" min="0" max="100000" step="500" :disabled="store.isFilterLocked" :style="inputStyle(42)">万

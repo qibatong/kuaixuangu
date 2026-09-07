@@ -551,9 +551,9 @@ def apply_spot_filters(items, f):
             continue
         if mv < f["floatMvFloor"]:
             continue
-        if mv > f["floatMvGt"]:
+        if f["floatMvGt"] > 0 and mv > f["floatMvGt"]:
             continue
-        if price > f["priceGt"]:
+        if f["priceGt"] > 0 and price > f["priceGt"]:
             continue
         result.append(it)
     return result
@@ -588,11 +588,11 @@ def apply_filters(items, f):
             continue
         if mv < f["floatMvFloor"]:
             continue
-        if mv > f["floatMvGt"]:
+        if f["floatMvGt"] > 0 and mv > f["floatMvGt"]:
             continue
         if bid_amt < f["bidAmtFloor"]:
             continue
-        if price > f["priceGt"]:
+        if f["priceGt"] > 0 and price > f["priceGt"]:
             continue
         result.append(it)
     return result
@@ -741,9 +741,9 @@ def validate_filters(q):
         "bidGt": _clamp((q.get("bidGt") or ["7"])[0], 0, 20, 7),
         "probLt": _clamp((q.get("probLt") or ["65"])[0], 5, 95, 65),
         "confLt": _clamp((q.get("confLt") or ["65"])[0], 50, 90, 65),
-        "floatMvFloor": _clamp((q.get("floatMvFloor") or ["30"])[0], 1, 5000, 30),
-        "floatMvGt": _clamp((q.get("floatMvGt") or ["100"])[0], 1, 5000, 100),
-        "priceGt": _clamp((q.get("priceGt") or ["30"])[0], 1, 5000, 30),
+        "floatMvFloor": _clamp((q.get("floatMvFloor") or ["30"])[0], 0, 5000, 30),
+        "floatMvGt": _clamp((q.get("floatMvGt") or ["100"])[0], 0, 5000, 100),
+        "priceGt": _clamp((q.get("priceGt") or ["30"])[0], 0, 5000, 30),
         "bidAmtFloor": _clamp((q.get("bidAmtFloor") or ["3000"])[0], 0, 100000, 3000),
         # ---- 盘中实时(mode=spot)参数 ----
         "chgFloor": _clamp((q.get("chgFloor") or ["0"])[0], -20, 30, 0),       # 实时涨幅下限
