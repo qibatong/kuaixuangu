@@ -561,6 +561,16 @@ def fetch_market_brief(max_age=300):
         # 降级顺序: 跨进程缓存(可能刚过期) → 进程内上次值
         return store.get(_MARKET_BRIEF_KEY) or _market_brief_cache["data"] or None
     total_amt = sum(scorer.parse_float(s.get("f6")) for s in raw)
+    # 2026-09-07 修复(主人反馈"两市资金 0亿"): 收盘后/数据源异常时 f6 全 0 →
+    # amount=0 会被**写进 5 分钟缓存**并展示(上一版把 0 缓存了 300s)。
+    # 无效值: ① 不写缓存 ② 沿用上次有效值(收盘后仍显示收盘成交额)
+    if total_amt <= 0:
+        _last = store.get(_MARKET_BRIEF_KEY) or _market_brief_cache.get("data")
+        if _last and (_last.get("amount") or 0) > 0:
+            log.info("两市概况本次 amount=0(非交易时段/源异常), 沿用上次有效值 %.0f亿",
+                     _last.get("amount"))
+            return _last
+        log.warning("两市概况 amount=0 且无历史有效值(首次拉取异常)")
     g = time.gmtime(now + 8 * 3600)   # 北京时间
     d = {
         "stockCount": len(raw),
