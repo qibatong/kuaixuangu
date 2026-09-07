@@ -739,52 +739,6 @@ def fetch_spot_quotes_by_codes(code_list):
     return out
 
 
-def fetch_spot_details_by_codes(code_list):
-    """按需取**富**实时行情(2026-09-07 主人方案: 昨日板块成分名单 + 今日实时行情覆盖):
-    板块成分股等「结构性名单 + 实时数据」场景 —— 名单(哪些票)用历史接口, 每只票的
-    行情(价/涨跌/换手/量比/成交额/流通/主力净额)用本函数从实时行情缓存覆盖。
-
-    从全市场 spot map 缓存 ent['raw'](东财 diff 格式行; 腾讯兜底为映射简化行)直接提取,
-    不触发全市场拉取(预热线程每 40s 维持新鲜):
-      f2现价 / f3涨跌% / f8换手% / f10量比 / f21流通市值(元)  — 东财与腾讯映射均有
-      f6成交额(元) 东财; 腾讯映射行无 f6 → 回落 f616(≈成交额, 元)
-      f62主力净额(元) 仅东财; 腾讯缺 → None(前端显示 -)
-    返回 {code: {price, change, turnover, volRatio, amount, floatMv, mainNet}}。"""
-    if not code_list:
-        return {}
-    code_set = set(code_list)
-    with _quote_map_lock:
-        raws = [ent["raw"] for ent in _quote_map_cache.values() if ent.get("raw")]
-        cold = not _quote_map_cache
-    if not raws and cold:
-        base = scorer.market_fs(["hs", "cyb", "kcb"])
-        fetch_spot_quote_map(base)          # 建缓存(raw + map)
-        with _quote_map_lock:
-            raws = [ent["raw"] for ent in _quote_map_cache.values() if ent.get("raw")]
-    out = {}
-    for raw in raws:
-        for s in raw:
-            code = s.get("f12")
-            if not code or code not in code_set or code in out:
-                continue
-            amt = _parse_float(s.get("f6"))
-            if not amt > 0:
-                amt = _parse_float(s.get("f616"))     # 腾讯映射行无 f6
-            main = s.get("f62")
-            out[code] = {
-                "price": _parse_float(s.get("f2")),
-                "change": _parse_float(s.get("f3")),
-                "turnover": _parse_float(s.get("f8")),
-                "volRatio": _parse_float(s.get("f10")),
-                "amount": amt,
-                "floatMv": _parse_float(s.get("f21")),
-                "mainNet": _parse_float(main) if main is not None else None,
-            }
-        if not (code_set - set(out)):
-            break
-    return out
-
-
 # ---------- spotMap 预热(2026-09-04) ----------
 # 背景: 9:30 后 refresh 直读命中历史批次后, 响应仍需 spotMap 覆盖实时行情; spotMap 缓存
 # TTL=60s, 到期瞬间的请求要在锁内同步拉全市场(东财封禁期=腾讯 5556 只 1-4.6s) → refresh
