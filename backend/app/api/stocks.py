@@ -100,10 +100,13 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
             snapshot_map = auction_snapshot.load_snapshot()
             # 2026-09-03 竞额定格 map(9_25 快照): 盘中「竞额」不以腾讯伪 f616(=实时成交额)为准
             bid_amt_map = auction_snapshot.load_day_bid_amt()
+            # 2026-09-08 竞涨定格 map: 东财 f615 收盘后为 "-"(盘中 9:30+ 同理不可靠),
+            # bidChange 以当日 9:25 定格竞价涨幅为准(防退 f3 → 竞涨=现涨/过滤按现价)
+            bid_chg_map = auction_snapshot.load_day_bid_change()
             # 2026-09-01 抢筹口径: 左视图抢筹=右视图竞价异动"竞价抢筹"代码集(9:20→9:25涨幅/最后一秒段)
             qc_codes = kpl.get_qiangchou_codes()
             result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_codes=qc_codes,
-                                               day_bid_amt=bid_amt_map)
+                                               day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map)
             _apply_kpl_board(result, "spot")
             log.info("盘中选股(同竞价逻辑) uid=%s markets=%s raw=%d只 返回%d只 耗时%.0fms",
                      uid, ",".join(f["markets"]), len(raw), len(result), (time.time() - t0) * 1000)
@@ -263,6 +266,9 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         # 2026-09-03 竞额定格 map(9_25 快照): 竞价/落库 bidAmt 以当日定格竞价额为准,
         # 避免腾讯兜底期把实时成交额当竞额落库/展示
         bid_amt_map = auction_snapshot.load_day_bid_amt()
+        # 2026-09-08 竞涨定格 map(9_25 快照): 东财行情 f615 收盘后返回 "-", 评分阶段
+        # 窗口外 bidChange 以当日定格竞价涨幅为准(防退 f3 → 竞涨=现涨/涨幅过滤按现价)
+        bid_chg_map = auction_snapshot.load_day_bid_change()
         # 竞价上下文日志(排查关键): 窗口状态/快照覆盖/昨日额命中
         auction_ok = scorer.in_auction_window()
         log.info("选股上下文 uid=%s action=%s auction_window=%s 9_20快照=%d只 昨日额命中=%d/%d raw=%d只",
@@ -274,7 +280,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         # 2026-09-01 抢筹口径: 左视图抢筹=右视图竞价异动"竞价抢筹"代码集(9:20→9:25涨幅/最后一秒段)
         qc_codes = kpl.get_qiangchou_codes()
         result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_codes=qc_codes,
-                                           day_bid_amt=bid_amt_map)
+                                           day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map)
         # 概念用开盘啦覆盖(落库前覆盖: 页面/历史批次/推送全部统一开盘啦概念)
         _apply_kpl_board(result, "auction")
     except Exception as e:

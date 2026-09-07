@@ -94,6 +94,8 @@ def _do_run(time_point):
     snapshot_map = auction_snapshot.load_snapshot()
     # 2026-09-03 竞额定格 map(9_25 快照): 系统批次落库 bidAmt 用当日定格竞价额
     bid_amt_map = auction_snapshot.load_day_bid_amt()
+    # 2026-09-08 竞涨定格 map: 东财 f615 收盘后为 "-", bidChange 以 9:25 定格竞价涨幅为准
+    bid_chg_map = auction_snapshot.load_day_bid_change()
     # 评分(用系统默认过滤 = 管理员全局默认, 与首页左视图一致; 不用用户 filter_prefs)
     f_raw = _system_filter()
     # 转 query 形态 {key: [str]}(与 stocks.py 的 qs() 一致; 标量会被 `(q.get(k) or [..])[0]`
@@ -104,7 +106,7 @@ def _do_run(time_point):
     # 2026-09-01 抢筹口径: 命中右视图竞价异动"竞价抢筹"代码集才打抢筹标
     qc_codes = kpl.get_qiangchou_codes()
     result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_codes=qc_codes,
-                                       day_bid_amt=bid_amt_map)
+                                       day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map)
     kpl.apply_board_concept(result, "system_batch")
     # 截取 top 30(避免 batch_stocks 太大, 与 aipick 保持一致)
     result = result[:30]

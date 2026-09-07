@@ -101,13 +101,17 @@ def auto_apply_all_users(max_users=None):
         return {"applied": 0, "skipped": 0, "failed": 0, "total": 0,
                 "cost_ms": 0, "error": str(err)}
     snapshot_map = auction_snapshot.load_snapshot() or {}
+    # 2026-09-08 竞涨定格: 调度若延迟越过 9:30(窗口外)东财 f615 退化为 "-", bidChange
+    # 以当日 9:25 定格竞价涨幅为准(防评分用现价涨幅, 名单漂移/失真)
+    bid_chg_map = auction_snapshot.load_day_bid_change()
     # wait=True: 自动锁定需完整昨比(后台任务, 可等待; 用户请求路径走异步不阻塞)
     yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw], wait=True) or {}
     # 全市场评分一次
     try:
         # 2026-09-01 抢筹口径: 命中右视图竞价异动"竞价抢筹"代码集才打抢筹标
         qc_codes = kpl.get_qiangchou_codes()
-        scored = scorer.score_all_stocks(raw, yesterday_map, snapshot_map, qiangchou_codes=qc_codes)
+        scored = scorer.score_all_stocks(raw, yesterday_map, snapshot_map, qiangchou_codes=qc_codes,
+                                         day_bid_change=bid_chg_map)
     except Exception as e:
         log.error("auto_apply 全市场评分失败 err=%s", e, exc_info=True)
         return {"applied": 0, "skipped": 0, "failed": 0, "total": 0,

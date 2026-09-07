@@ -479,6 +479,36 @@ def load_day_bid_amt(date=None):
     return {c: v[1] for c, v in best.items()}
 
 
+def load_day_bid_change(date=None):
+    """当日竞价涨幅定格 map: {code: bid_change(%)} — 取每只股票当日最晚时点的非空 bid_change。
+    2026-09-08 生产事故修复: 东财行情 f615 收盘后返回 "-"(float 转换抛异常), scorer
+    get_bid_change 退 f3(现价/收盘涨幅) → 盘后 filter 竞涨=现涨 + 「涨幅≤bidGt」过滤按现价判,
+    筛出当日大跌票。与 bidAmt 定格(load_day_bid_amt)同理: 窗口外评分/展示以 9:25 定格
+    竞价涨幅为准(全天恒定)。返回 {code: %}; 当日无快照/无数据返回 {}。"""
+    date = date or _bj_date()
+    try:
+        conn = database.get_conn()
+        rows = conn.execute(
+            "SELECT code, time_point, bid_change FROM snapshot_bid "
+            "WHERE date=? AND bid_change IS NOT NULL AND bid_change<>''", (date,)).fetchall()
+        conn.close()
+    except Exception:
+        return {}
+    best = {}
+    for code, tp, chg in rows:
+        r = _BID_AMT_POINT_RANK.get(tp)
+        if r is None:
+            continue
+        try:
+            chg = float(chg)
+        except (TypeError, ValueError):
+            continue
+        cur = best.get(code)
+        if cur is None or r < cur[0]:
+            best[code] = (r, chg)
+    return {c: v[1] for c, v in best.items()}
+
+
 def query_snapshot(date, time_point, limit=50):
     """历史回放: 某日某时点全市场快照(按竞价涨幅降序, 带名称)"""
     try:
