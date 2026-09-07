@@ -564,9 +564,34 @@ def fetch_ladder_all():
 
 
 # ==================== 连板梯队历史落库与回看 ====================
+def _inject_real_limit_days(all_, date):
+    """连板梯队 {1..5} 落库前注入东财涨停池真实连板数 limitUpDays(东财优先, pid 兜底)。
+
+    根治: 连板天梯图此前依赖生成时实时拉 real_limit_days 注入, 盘后 15:30 东财偶发未就绪
+    → 图回退成「五板+」(龙版传媒真实 6 板却显示 5 板)。落库即带真实板数, 图/历史回看
+    不再依赖生成时实时拉取。deepcopy 每票, 不污染 fetch_ladder 的进程内缓存。"""
+    try:
+        real = real_limit_days(date)
+    except Exception:
+        real = {}
+    out = {}
+    for pid, lst in (all_ or {}).items():
+        out[pid] = []
+        for it in (lst or []):
+            c = dict(it)
+            code = str(c.get("code", ""))
+            lu = int(real.get(code) or 0)
+            # 东财真实连板数优先; 缺失则用开盘啦 pid 档位(≥5 即五板+下限)兜底
+            c["limitUpDays"] = max(int(pid), lu) if lu >= 1 else int(pid)
+            out[pid].append(c)
+    return out
+
+
 def save_ladder_history(date):
-    """抓取当日连板梯队全档落库 ladder_history(覆盖式), 返回总条数(失败 0)"""
-    all_ = fetch_ladder_all()
+    """抓取当日连板梯队全档落库 ladder_history(覆盖式), 返回总条数(失败 0)。
+    2026-09-07 根治: 落库即注入东财真实连板数(见 _inject_real_limit_days), 连板天梯图/
+    历史回看不再依赖图生成时实时拉取 —— 避免盘后 15:30 东财偶发未就绪导致图回退五板+。"""
+    all_ = _inject_real_limit_days(fetch_ladder_all(), date)
     total = sum(len(v or []) for v in all_.values())
     if total == 0:
         return 0

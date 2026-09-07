@@ -390,14 +390,19 @@ def generate_for_date(date_str):
         total = sum(len(v or []) for v in data.values())
         if total == 0:
             return None
-        # 注入当日涨停池的真实连板数, 修正五板+里 6~8 板以上显示与顶部最高连板
+        # 落库数据已注入真实连板数(limitUpDays, 见 kpl._inject_real_limit_days)作为保底;
+        # 此处用实时涨停池做最终校准: 仅当实时值 rt>=1 且 >= 落库值时覆盖, 实时缺失则保留
+        # 落库值 —— 根治盘后 15:30 东财偶发未就绪导致图回退「五板+」的偶发问题
         real_lb = kpl.real_limit_days(date_str)
         if real_lb:
             for pid, lst in data.items():
                 for it in lst:
                     code = str(it.get("code", ""))
                     if code in real_lb:
-                        it["limitUpDays"] = real_lb[code]
+                        rt = int(real_lb[code] or 0)
+                        if rt >= 1:
+                            lb = int(it.get("limitUpDays") or pid or 0)
+                            it["limitUpDays"] = max(rt, lb)
         # 断板反包检测(近5日内曾涨停 + 昨日断板 + 今日重新涨停)
         fanbao = kpl.fetch_fanbao_stocks(date_str)
         os.makedirs(config.LADDER_IMG_DIR, exist_ok=True)
