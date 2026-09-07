@@ -319,8 +319,14 @@ def is_suspended(s):
 
 
 # ---------- 评分 ----------
-def compute_score(s):
-    bid_change = get_bid_change(s)
+def compute_score(s, bid_change=None):
+    """2026-09-07 修复(主人反馈"AI竞价应用后偶尔出现大跌股, 且竞价涨幅=实时涨幅"):
+    bid_change 允许外部传入(9:25 定格快照值)。窗口外(盘中/收盘)腾讯 f615 被映射为
+    实时涨幅(f3), get_bid_change 直接读 f615 会把"竞价涨幅"显示成实时涨幅 → 大跌股
+    混入且 bidChange==realChange。调用方(score_all_stocks)在窗口外传 9:25 快照 bid_change
+    覆盖, 保证竞价列=定格值、与实时列分离。窗口内(9:15-9:30)不传 → 用行情 f615(新鲜)。"""
+    if bid_change is None:
+        bid_change = get_bid_change(s)
     bid_turnover = get_bid_turnover(s)
     bid_vol_ratio = 0.0
     warn_type = get_warn_type(s)
@@ -588,9 +594,27 @@ def score_all_stocks(raw, yesterday_map=None, snapshot_map=None, qiangchou_codes
     # pair 由 _kline_amount_pair 保证 [最近已收盘T日, T-1日], 任何时间(窗口/盘中/收盘)都可算,
     # 分母恒为最近已收盘交易日, 避免"今日累计额/地量日/前天"错位导致失真。
     auction_ok = in_auction_window()
+    # 2026-09-07 修复(主人反馈"AI竞价应用后偶尔出现大跌股, 且竞价涨幅=实时涨幅"):
+    # 窗口外(盘中/收盘)腾讯 f615 被映射为实时涨幅(f3), 直接读会让 bidChange==realChange,
+    # 大跌股(开盘后走低)混入竞价结果。与 bidAmt 定格同思路: 窗口外用 9:25 快照 bid_change
+    # 作为竞价涨幅真值; 窗口内(9:15-9:30)行情 f615 新鲜可信, 直接用。
+    bid_change_925 = {}
+    if not (auction_ok and _bj_hm() < 9 * 60 + 30):
+        try:
+            from . import auction_snapshot
+            bid_change_925 = {k: v.get("bid_change")
+                              for k, v in auction_snapshot.load_snapshot(time_point="9_25").items()}
+        except Exception:
+            bid_change_925 = {}
     for s in raw:
-        sc = compute_score(s)
         code = s.get("f12")
+        # 竞价涨幅: 窗口内用行情 f615; 窗口外用 9:25 快照定格值(缺该 code 才回退行情 f615/f3)
+        if auction_ok and _bj_hm() < 9 * 60 + 30:
+            bid_chg = get_bid_change(s)
+        else:
+            snap_bc = bid_change_925.get(code)
+            bid_chg = snap_bc if snap_bc is not None else get_bid_change(s)
+        sc = compute_score(s, bid_chg)
         # 竞价额(万元): 2026-09-03 修复「竞额列=实时成交额」— 东财封禁期行情走腾讯兜底,
         # f616 被近似为累计实时成交额(fetcher.py), 盘中(窗口外)直接读会把竞额显示成实时成交额。
         # → 窗口内(9:15-9:31)行情 f616 新鲜(东财定格/腾讯仍在竞价累计阶段)直接用;
@@ -611,13 +635,13 @@ def score_all_stocks(raw, yesterday_map=None, snapshot_map=None, qiangchou_codes
         if auction_ok:
             snap = snapshot_map.get(s.get("f12"))
             if snap and snap.get("bid_change") is not None:
-                accel = round(get_bid_change(s) - snap["bid_change"], 2)
+                accel = round(bid_chg - snap["bid_change"], 2)
         scored.append({
             "code": s.get("f12", ""),
             "name": s.get("f14", ""),
             "probability": sc["probability"],
             "confidence": sc["confidence"],
-            "bidChange": get_bid_change(s),
+            "bidChange": bid_chg,
             "realChange": parse_float(s.get("f3")),
             "entityChange": get_entity_change(s),
             "bidTurnover": sc["bidTurnover"],
@@ -637,7 +661,7 @@ def score_all_stocks(raw, yesterday_map=None, snapshot_map=None, qiangchou_codes
             # 2026-09-01 抢筹口径改版: 命中右视图"竞价抢筹"代码集合才打标;
             # 集合为空/未传(数据源故障或非竞价场景)回退旧公式(涨幅>=2% 且 竞/昨>=20%)
             "qiangchou": (1 if s.get("f12") in qiangchou_codes else 0)
-                        if qiangchou_codes else (1 if is_qiangchou(get_bid_change(s), bid_ratio) else 0),
+                        if qiangchou_codes else (1 if is_qiangchou(bid_chg, bid_ratio) else 0),
             # 实时维度字段(盘中模式同竞价模式都用, 前端展示; 不参与竞价评分/过滤)
             "volRatio": parse_float(s.get("f10")),
             "turnover": parse_float(s.get("f8")),
