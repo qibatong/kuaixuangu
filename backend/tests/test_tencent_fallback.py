@@ -95,6 +95,30 @@ def test_tencent_market_mapping(monkeypatch):
     assert r["f616"] == 208601 * 1e4   # 竞价金额≈成交额
     assert r["f617"] == 16126 * 100    # 竞价量≈成交量
     assert r["f630"] == 0
+    assert r["f17"] == 1297.40         # 今开(2026-09-07 修复: 缺 f17 → 实体列全 0%)
+
+
+# ---------- 2026-09-07 修复: 腾讯兜底缺 f17(今开) → 实体涨幅恒 0 ----------
+def test_tencent_mapping_includes_f17_entity_change(monkeypatch):
+    """生产问题回归(主人反馈「竞价选股实体列全是 0%」): 东财封禁期全市场走腾讯兜底,
+    原映射缺 f17(今开) → scorer.get_entity_change(f2现价 - f17今开) 恒为 0。
+    修复后 f17 = 腾讯 f[5](今开), 实体列有真实值(低开/高开时非 0)。"""
+    from app.services import scorer
+    body = _make_tx_line("600519", "贵州茅台", "1297.40", "0.39", "16126", "208601", "0.13", "16218.56", "1421.53")
+    fields = _parse_tx(body)["600519"]
+    fields[5] = "1280.00"    # 模拟低开(今开 1280 ≠ 现价 1297.40) → 实体应为 +1.36%
+    fetcher._TENCENT_CODES_CACHE["codes"] = ["600519"]
+    fetcher._TENCENT_CODES_CACHE["ts"] = 0
+    monkeypatch.setattr(fetcher, "_all_market_codes", lambda: ["600519"])
+    monkeypatch.setattr(fetcher, "_fetch_tencent_batch", lambda symbols: {"600519": fields})
+    rows = fetcher.fetch_tencent_market("m:1+t:2")
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["f17"] == 1280.00, "腾讯兜底必须带 f17(今开)"
+    ec = scorer.get_entity_change(r)
+    assert abs(ec - (1297.40 - 1280.00) / 1280.00 * 100) < 0.001, f"实体涨幅应≈+1.36%, 实际 {ec}"
+    # 修复前回归: 若未来映射缺 f17(取不到今开), 实体退化为 0 → 测试立即失败
+    assert scorer.get_entity_change({"f2": 1297.40}) == 0.0, "缺 f17 时实体应为 0(防误改回原状)"
 
 
 # ---------- 2026-09-01 修复: 腾讯兜底缺 f4/f5 → is_suspended 误判停牌 → 自动锁定/system_batch 选股为 0 ----------

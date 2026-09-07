@@ -362,11 +362,13 @@ def fetch_tencent_market(fs):
                 amt_wan = float(f[37])        # 成交额(万)
                 vol_hand = float(f[36])        # 成交量(手)
                 pre_close = float(f[4])        # 昨收
+                open_price = float(f[5])       # 今开 (2026-09-07 修复: 缺 f17 实体涨幅恒为 0)
             except (ValueError, IndexError):
                 continue
             out.append({
                 "f2": price, "f3": chg, "f8": turnover,
                 "f4": pre_close, "f5": vol_hand,   # 2026-09-01 修复: 缺 f4/f5 会被 is_suspended 误判停牌
+                "f17": open_price,                 # 2026-09-07 修复: 腾讯兜底缺今开 → 实体列全 0%
                 "f12": code, "f14": f[1],
                 "f21": mv_yi * 1e8,            # 元
                 "f615": chg,                    # 竞价涨幅(近似)
