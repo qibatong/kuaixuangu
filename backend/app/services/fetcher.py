@@ -926,10 +926,13 @@ _ULIST_BATCH = 60     # 每批 ≤60 只(实测 200 只 URL 过长; 60 稳)
 def fetch_raw_by_codes(code_list):
     """按 code 批量拉**完整行情 diff**(盘后 filter 快照候选补评分用, 2026-09-07):
     候选池先用 9:25 快照表初筛(免费), 命中几十只再这里点查, 替代"实时拉全市场 28 页"。
-    返回与 fetch_eastmoney_all 同构的 diff 列表(f2/f3/f4/f5/f6/f8/f10/f12/f14/f20/f21/
-    f100/f102/f103/f616), 可直接喂 scorer.process_all_stocks 完整评分; 逐批直拉东财
+    返回与 fetch_eastmoney_all/clist **完全同构**的 diff 列表(fields=config.FIELDS, 与
+    _fetch_clist_page 同用), 可直接喂 scorer.process_all_stocks 完整评分; 逐批直拉东财
     ulist(不依赖 spotMap 缓存, 评分字段全), 任一批失败抛异常(调用方降级回全市场)。
-    走 _http_get(自动出站 IP 轮询)。"""
+    走 _http_get(自动出站 IP 轮询)。
+    ⚠️ 2026-09-07 晚修: 曾只列 15 字段漏 **f615(竞价涨幅)/f17(今开)/f630 等** → scorer
+    get_bid_change 无 f615 退 f3(现价/收盘涨幅) → 竞涨列=现涨列 + 「涨幅≤bidGt」过滤按
+    现价判 → 盘后筛出一批大跌票(生产事故)。必须整段复用 config.FIELDS 防再次漏字段。"""
     if not code_list:
         return []
     out = []
@@ -939,7 +942,7 @@ def fetch_raw_by_codes(code_list):
         secids = ",".join(_secid(c) for c in chunk)
         qs = urllib.parse.urlencode({
             "fltt": 2, "invt": 2,
-            "fields": "f2,f3,f4,f5,f6,f8,f10,f12,f14,f20,f21,f100,f102,f103,f616",
+            "fields": config.FIELDS,     # 与全市场 clist 同构(必须整段复用, 勿手写子集!)
             "secids": secids, "ut": config.EASTMONEY_UT,
         })
         req = urllib.request.Request(_ULIST_URL + "?" + qs, headers={
