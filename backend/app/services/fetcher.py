@@ -28,59 +28,45 @@ _NO_VERIFY_CTX.verify_mode = ssl.CERT_NONE
 
 # ---------- 出站 IP 轮询池(2026-09-07 主人加辅助网卡防东财封单 IP) ----------
 # 配置: config.OUTBOUND_IPS(逗号分隔, 默认空走 OS 默认)
-# 行为: 线程局部 IP 状态, 连续失败 _IP_FAIL_THRESHOLD 次切下一个 IP;
-#       monkey-patch socket.create_connection, urllib.urlopen 自动用绑定 IP 出站。
-#       _ip_binding() context manager 负责切换+报告; _http_get() 包装 urlopen。
-# 失败计数按"每个 IP"独立, 线程池内 thread-local 隔离避免串扰; RR index 进程级共享锁。
-# thread-local 两状态: rot_ip = rotator 选中的"当前"IP(跨 urlopen 保留);
-#                       bind_ip = urlopen 实际绑定的 IP(出 context 清空)。
+# 行为: 每次请求严格 RR 轮询(请求1→IP A, 请求2→IP B, ...); 某 IP 连续失败
+#       _IP_FAIL_THRESHOLD 次进入"惩罚"(后续请求跳过它, 在健康 IP 间轮询),
+#       成功一次即恢复。monkey-patch socket.create_connection 注入 source_address。
+#       _ip_binding() context manager 负责取 IP+报告; _http_get() 包装 urlopen。
+# RR index 进程级共享锁; bind_ip 用 thread-local(仅本次 urlopen, 出 context 清空)。
 _IP_LOCAL = threading.local()
 _IP_FAIL_THRESHOLD = 2
 
 
 class _IPRotator:
-    """IP 轮询: 进程级 RR 共享索引 + 线程局部失败计数。
-    失败连续 N 次自动切下一个 IP(用于绕开被封的 IP)。"""
+    """IP 轮询: 进程级严格 RR(每次 acquire 切下一个) + 失败惩罚(连续失败 N 次跳过)。
+    report_success/report_fail 需传入实际使用的 ip(每请求独立, 无跨请求状态)。"""
 
     def __init__(self, ips):
         self.ips = list(ips) if ips else []
         self._rr_lock = threading.Lock()
-        self._rr_index = 0
-
-    def _state(self):
-        if not hasattr(_IP_LOCAL, "inited"):
-            _IP_LOCAL.inited = True
-            _IP_LOCAL.rot_ip = self.ips[0] if self.ips else None
-            _IP_LOCAL.fail = 0
-        return _IP_LOCAL
+        self._rr_index = -1
+        self._penalty = {}   # ip -> 连续失败次数
 
     def acquire(self):
-        """返回本线程当前应使用的 IP(必要时切下一个); 无 IP 池返回 None(走系统默认)"""
+        """严格 RR: 每次调用切下一个 IP(跳过惩罚中 IP); 全部被惩罚则放行 RR 下一个。"""
         if not self.ips:
             return None
-        st = self._state()
-        if st.rot_ip is None or st.fail >= _IP_FAIL_THRESHOLD:
-            with self._rr_lock:
-                if st.rot_ip is not None:
-                    try:
-                        old_idx = self.ips.index(st.rot_ip)
-                        new_idx = (old_idx + 1) % len(self.ips)
-                    except ValueError:
-                        new_idx = (self._rr_index + 1) % len(self.ips)
-                else:
-                    new_idx = self._rr_index % len(self.ips)
-                self._rr_index = new_idx
-                st.rot_ip = self.ips[new_idx]
-                st.fail = 0
-        return st.rot_ip
+        n = len(self.ips)
+        with self._rr_lock:
+            for _ in range(n):
+                self._rr_index = (self._rr_index + 1) % n
+                ip = self.ips[self._rr_index]
+                if self._penalty.get(ip, 0) < _IP_FAIL_THRESHOLD:
+                    return ip
+            # 全部 IP 都在惩罚中 → 放行(保证有 IP 可用, 不硬卡请求)
+            return self.ips[self._rr_index]
 
-    def report_success(self):
-        if self.ips:
-            self._state().fail = 0
+    def report_success(self, ip):
+        if ip in self._penalty:
+            self._penalty.pop(ip, None)
 
-    def report_fail(self):
-        if self.ips:
-            self._state().fail += 1
+    def report_fail(self, ip):
+        self._penalty[ip] = self._penalty.get(ip, 0) + 1
 
 
 _IP_ROTATOR = _IPRotator(config.OUTBOUND_IPS)
@@ -104,16 +90,18 @@ urllib.request.socket.create_connection = _patched_create_connection
 @contextlib.contextmanager
 def _ip_binding():
     """带 IP 轮询的 urlopen 上下文管理器。
-    切换/绑 IP, 成功 report_success, 失败 report_fail。无 IP 池时为 no-op。"""
+    取 IP(严格 RR)绑 thread-local; 成功 report_success(ip), 失败 report_fail(ip)。
+    无 IP 池时为 no-op。"""
     if not _IP_ROTATOR.ips:
         yield
         return
-    _IP_LOCAL.bind_ip = _IP_ROTATOR.acquire()
+    ip = _IP_ROTATOR.acquire()
+    _IP_LOCAL.bind_ip = ip
     try:
         yield
-        _IP_ROTATOR.report_success()
+        _IP_ROTATOR.report_success(ip)
     except Exception:
-        _IP_ROTATOR.report_fail()
+        _IP_ROTATOR.report_fail(ip)
         raise
     finally:
         _IP_LOCAL.bind_ip = None
