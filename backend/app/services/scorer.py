@@ -207,6 +207,12 @@ def bj_now():
     return t.tm_hour, t.tm_min, before930
 
 
+def _bj_hm():
+    """当前北京时间 hour*60+min(可 mock, 供竞价额来源判断与测试用)"""
+    t = time.gmtime(time.time() + 8 * 3600)
+    return t.tm_hour * 60 + t.tm_min
+
+
 def in_auction_window():
     """是否处于竞价数据窗口: 工作日 9:15-9:31(北京时间)。
     此时 f616(竞价成交额)为当日真实竞价额, bidRatio=当日竞价/昨日全天 语义正确;
@@ -633,7 +639,9 @@ def score_all_stocks(raw, yesterday_map=None, snapshot_map=None, qiangchou_codes
         # → 窗口内(9:15-9:31)行情 f616 新鲜(东财定格/腾讯仍在竞价累计阶段)直接用;
         #   窗口外(盘中/收盘) f616 已失真, 以当日 9:25 定格快照为准(9:30 前无连续竞价,
         #   9:25:xx 采集 bid_amt=当日竞价定格额, 全天恒定可信); 快照缺该 code 才回退 f616。
-        if auction_ok:
+        # 9:30 已开盘: 腾讯兜底行 f616=实时成交额 → 竞价窗口内也只在 **9:30 前**
+        # 用行情 f616(in_auction_window 到 9:31, 留出这 1 分钟边界)
+        if auction_ok and _bj_hm() < 9 * 60 + 30:
             bid_amt = get_bid_amt(s, True)
         else:
             # 2026-09-07 修复(主人反馈"竞价额 3000→2500 万, 选出 56 只, 是不是有问题"):

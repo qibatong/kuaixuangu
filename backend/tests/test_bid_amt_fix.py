@@ -94,8 +94,10 @@ def test_bid_amt_off_window_no_map_is_zero(monkeypatch):
 
 
 def test_bid_amt_in_window_uses_live_f616(monkeypatch):
-    """竞价窗口内: 行情 f616 新鲜(东财定格/腾讯仍在竞价累计)直接使用, 快照定格不覆盖"""
+    """竞价窗口内(且 9:30 前): 行情 f616 新鲜(东财定格/腾讯仍在竞价累计)直接使用,
+    快照定格不覆盖。注: 须同时 mock _bj_hm(否则用例在收盘后跑会走定格分支)"""
     monkeypatch.setattr(scorer, "in_auction_window", lambda: True)
+    monkeypatch.setattr(scorer, "_bj_hm", lambda: 9 * 60 + 25)   # 9:25
     r = scorer.process_all_stocks([dict(EM_RAW)], FILTER, {}, {},
                                   day_bid_amt={"600001": 3000.0})
     assert r[0]["bidAmt"] == 5000.0

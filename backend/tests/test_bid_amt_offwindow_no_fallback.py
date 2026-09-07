@@ -37,7 +37,43 @@ def test_offwindow_missing_snapshot_is_zero_not_amount(monkeypatch):
 
 
 def test_in_window_uses_live_f616(monkeypatch):
-    """竞价窗口内仍用行情 f616(新鲜可信), 不被本修复影响"""
+    """竞价窗口内(且 9:30 前)仍用行情 f616(新鲜可信), 不被本修复影响"""
     monkeypatch.setattr(scorer, "in_auction_window", lambda: True)
+    monkeypatch.setattr(scorer, "_bj_hm", lambda: 9 * 60 + 25)   # 9:25
     amt = _score_one(f616=8.0e7, day_bid_amt={}, auction_ok=True)   # 8000 万
     assert amt is not None and abs(amt - 8000.0) < 1, f"窗口内应取 f616=8000 万, 实际 {amt}"
+
+
+class TestIntraday930Boundary:
+    """9:30-15:00 连续竞价时段: 竞价额一律用 9:25 定格, 不得用实时成交额"""
+
+    def _amt(self, monkeypatch, hm, f616, snap):
+        from app.services import scorer
+        monkeypatch.setattr(scorer, "in_auction_window", lambda: True)   # 窗口内
+        monkeypatch.setattr(scorer, "_bj_hm", lambda: hm)
+        raw = [{"f12": "600000", "f14": "测试股", "f2": 10.0, "f3": 5.0, "f4": 9.5,
+                "f5": 1000, "f6": 5.0e8, "f8": 3.0, "f21": 5e10, "f615": 5.0,
+                "f616": f616, "f617": 1e6, "f630": 0}]
+        out = scorer.score_all_stocks(raw, {}, {}, qiangchou_codes=None,
+                                      day_bid_amt={"600000": snap} if snap else {})
+        return (out[0].get("bidAmt") if out else None)
+
+    def test_before_930_uses_live(self, monkeypatch):
+        """9:25(竞价中) → 用实时 f616"""
+        amt = self._amt(monkeypatch, 9 * 60 + 25, f616=8.0e7, snap=None)
+        assert abs((amt or 0) - 8000.0) < 1, f"9:25 应取 f616=8000 万, 实际 {amt}"
+
+    def test_at_930_uses_snapshot(self, monkeypatch):
+        """9:30(已开盘) → 用 9:25 定格, 不用实时成交额"""
+        amt = self._amt(monkeypatch, 9 * 60 + 30, f616=5.0e8, snap=3200.0)
+        assert abs((amt or 0) - 3200.0) < 1, f"9:30 应取定格 3200 万, 实际 {amt}"
+
+    def test_midday_uses_snapshot(self, monkeypatch):
+        """14:00(盘中) → 用 9:25 定格"""
+        amt = self._amt(monkeypatch, 14 * 60, f616=9.0e8, snap=4500.0)
+        assert abs((amt or 0) - 4500.0) < 1, f"14:00 应取定格 4500 万, 实际 {amt}"
+
+    def test_midday_missing_snapshot_zero(self, monkeypatch):
+        """盘中 + 快照缺失 → 0(不用成交额冒充)"""
+        amt = self._amt(monkeypatch, 11 * 60, f616=9.0e8, snap=None)
+        assert abs((amt or 0) - 0.0) < 1e-6, f"盘中快照缺失应为 0, 实际 {amt}"
