@@ -454,17 +454,46 @@ def load_snapshot_full(date=None, time_point="9_25"):
 # 时点优先级: 9_25 定格 > 9_24 抢筹尾声 > 9_20 > 9_15(越晚越接近定格)
 _BID_AMT_POINT_RANK = {"9_25": 0, "9_24": 1, "9_20": 2, "9_15": 3}
 
+# 定格回退(2026-09-08): 凌晨 0:00-9:25 采集前 / 周末 / 节假日当日无快照 → 定格 map 若返回 {}
+# 会导致: ① bidAmt 缺定格 → 竞价额门槛(bidAmtFloor)把整个名单滤空(主人反馈"周末名单消失");
+# ② bidChange 缺定格 → scorer 退 f3(收盘涨幅) → 重现"竞涨=现涨"。与 load_snapshot_full 同口径:
+# 9_25 每交易日必采, 以其存在性代表"该交易日已完成竞价定格"; 回退窗口 15 自然日(覆盖周末/法定长假)
+_FALLBACK_SNAP_DAYS = 15
+
+
+def _latest_snapshot_date(date):
+    """取应查快照日期: 当日已有 9_25 定格行(已过 9:25 采集) → 当日;
+    当日无(凌晨 0:00-9:25 前/周末/节假日/当日采集缺失) → 表内最近一个 ≤date 且有 9_25 行
+    的交易日(自动覆盖跨周末周一凌晨); 15 自然日内无任何 9_25 行(空库/长假超窗) → 原 date
+    (查询自然返回 {}, 保持现状兜底, 不把陈旧数据当最近交易日)。"""
+    try:
+        conn = database.get_conn()
+        row = conn.execute(
+            "SELECT MAX(date) FROM snapshot_bid WHERE date<=? AND time_point='9_25' "
+            "AND date>=date('now', '-%d days', '+8 hours')" % _FALLBACK_SNAP_DAYS,
+            (date,)).fetchone()
+        conn.close()
+    except Exception:
+        return date
+    return row[0] if row and row[0] else date
+
 
 def load_day_bid_amt(date=None):
     """当日竞价额定格 map: {code: bid_amt(万元)} — 取每只股票当日最晚时点的非空 bid_amt。
     返回 {code: amt}; 当日无快照/无数据返回 {}。调用方(stocks.py/system_batch)在评分时传入
-    process_all_stocks(day_bid_amt=...), 使 bidAmt/bidRatio 以 9:25 定格竞价额为准。"""
+    process_all_stocks(day_bid_amt=...), 使 bidAmt/bidRatio 以 9:25 定格竞价额为准。
+    2026-09-08 回退: 当日无 9_25 快照(凌晨 0:00-9:25 前/周末/节假日) → 自动用最近一个
+    交易日的定格(与 load_snapshot_full 同口径), 主人要求"非交易时段用上个交易日数据"。
+    正常交易日 9:25 采集完成后当日有行 → 行为不变(用当日)。"""
     date = date or _bj_date()
+    use_date = _latest_snapshot_date(date)
+    if use_date != date:
+        log.info("load_day_bid_amt: %s 无定格快照, 回退最近交易日 %s", date, use_date)
     try:
         conn = database.get_conn()
         rows = conn.execute(
             "SELECT code, time_point, bid_amt FROM snapshot_bid "
-            "WHERE date=? AND bid_amt>0", (date,)).fetchall()
+            "WHERE date=? AND bid_amt>0", (use_date,)).fetchall()
         conn.close()
     except Exception:
         return {}
@@ -484,13 +513,19 @@ def load_day_bid_change(date=None):
     2026-09-08 生产事故修复: 东财行情 f615 收盘后返回 "-"(float 转换抛异常), scorer
     get_bid_change 退 f3(现价/收盘涨幅) → 盘后 filter 竞涨=现涨 + 「涨幅≤bidGt」过滤按现价判,
     筛出当日大跌票。与 bidAmt 定格(load_day_bid_amt)同理: 窗口外评分/展示以 9:25 定格
-    竞价涨幅为准(全天恒定)。返回 {code: %}; 当日无快照/无数据返回 {}。"""
+    竞价涨幅为准(全天恒定)。返回 {code: %}; 当日无快照/无数据返回 {}。
+    2026-09-08 回退: 当日无 9_25 快照(凌晨 0:00-9:25 前/周末/节假日) → 自动用最近一个
+    交易日的定格(与 load_snapshot_full 同口径), 主人要求"非交易时段用上个交易日数据"。
+    正常交易日 9:25 采集完成后当日有行 → 行为不变(用当日)。"""
     date = date or _bj_date()
+    use_date = _latest_snapshot_date(date)
+    if use_date != date:
+        log.info("load_day_bid_change: %s 无定格快照, 回退最近交易日 %s", date, use_date)
     try:
         conn = database.get_conn()
         rows = conn.execute(
             "SELECT code, time_point, bid_change FROM snapshot_bid "
-            "WHERE date=? AND bid_change IS NOT NULL AND bid_change<>''", (date,)).fetchall()
+            "WHERE date=? AND bid_change IS NOT NULL AND bid_change<>''", (use_date,)).fetchall()
         conn.close()
     except Exception:
         return {}
