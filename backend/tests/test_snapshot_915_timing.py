@@ -83,3 +83,44 @@ def test_scheduler_defers_9_15_and_rereads():
     src = inspect.getsource(A._scheduler_loop)
     assert 'tp == "9_15" and g.tm_sec < 5' in src, "缺少 9:15:05 首采门槛(数据未生成保护)"
     assert '_zero_chg_rate' in src, "缺少数据未就绪重采逻辑"
+
+
+class TestKplSealNotBlockedByBidChange:
+    """开盘啦真实封单不应被东财 bid_change=0 误清零(9:15 列空白的另一半原因)"""
+
+    def _run(self, monkeypatch, bid_change):
+        from app.services import auction_snapshot as A
+        from app.services import kpl
+        from app.db import database
+
+        monkeypatch.setattr(A, "_bj_date", lambda: "2099-01-02")
+        # 模拟行情 map: 该票竞价涨幅未生成(东财 9:15 常见)
+        monkeypatch.setattr(A, "_fetch_market_map", lambda full=False: {
+            "600108": {"bid_change": bid_change, "bid_amt": 0.0, "name": "亚盛集团",
+                       "bid_buy_amt": 0.0, "float_mv": 1e10, "free_mv": 1e10, "board": ""}})
+        # 开盘啦委买榜返回真实封单 5 亿
+        monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: [
+            {"code": "600108", "name": "亚盛集团", "bidSealAmt": 5.0e8, "board": "农业"}])
+        monkeypatch.setattr(kpl, "clear_cache", lambda: None)
+
+        n = A.snapshot_at("9_15", force=True)
+        conn = database.get_conn()
+        row = conn.execute(
+            "SELECT bid_buy_amt, bid_change FROM snapshot_bid WHERE date='2099-01-02' AND code='600108'"
+        ).fetchone()
+        conn.execute("DELETE FROM snapshot_bid WHERE date='2099-01-02'")
+        conn.commit()
+        conn.close()
+        return n, row
+
+    def test_seal_kept_when_bid_change_not_ready(self, monkeypatch):
+        """9:15 东财涨幅未生成(bid_change=0) 但开盘啦有封单 → 必须保留封单"""
+        n, row = self._run(monkeypatch, 0.0)
+        assert n >= 1, "应成功落库"
+        assert row is not None, "应有落库行"
+        assert abs((row[0] or 0) - 5.0e8) < 1, f"封单应保留 5 亿, 实际 {row[0]}"
+
+    def test_seal_kept_when_zt(self, monkeypatch):
+        """涨停时同样保留(回归)"""
+        n, row = self._run(monkeypatch, 10.0)
+        assert row is not None and abs((row[0] or 0) - 5.0e8) < 1

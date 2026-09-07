@@ -217,7 +217,14 @@ def snapshot_at(time_point, force=False):
             s = kpl_map.get(code)
             if s:
                 seal = s.get("bidSealAmt") or 0
-                if seal and is_zt:
+                # 2026-09-07 修复(主人质疑"既然 9:20 能显示开盘啦封单, 9:15 为啥不能"):
+                # 开盘啦委买榜 bidSealAmt 是**真实封单**(该榜只含涨停/委买强势股),
+                # 不再要求 is_zt —— is_zt 依赖东财 bid_change, 而 9:15 东财竞价数据
+                # 常未生成(bid_change=0 占 70%) → 判定"非涨停"把真实封单误清零,
+                # 这正是 9:15 列空白的另一半原因(与采集过早叠加)。
+                # 注: 上面"非涨停清零"只针对**东财 f10×f5 伪封单**(2026-08-16 防开板股
+                # 残留误导), 真实封单不受该约束。
+                if seal:
                     v["bid_buy_amt"] = seal
                     n_seal += 1
                 b = s.get("board") or ""
