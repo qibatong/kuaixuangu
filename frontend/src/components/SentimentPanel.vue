@@ -18,9 +18,10 @@
       <div class="senti-item" v-if="brief.market" :title="'两市股票总数 ' + brief.market.stockCount + ' 只'">
         <span class="senti-label">两市资金</span>
         <span class="senti-val mkt-amt">{{ brief.market.amount.toFixed(0) }}亿</span>
+        <!-- 2026-09-07: 差为 0 时原显示"放量 0 亿"(0 不小于 0) → 改判「持平」 -->
         <template v-if="diffAmt !== null">
-          <span class="senti-tag-aux" :class="diffAmt < 0 ? 'mkt-shrink' : 'mkt-grow'">
-            {{ diffAmt < 0 ? '缩量' : '放量' }} {{ Math.abs(diffAmt).toFixed(0) }}亿
+          <span class="senti-tag-aux" :class="diffAmt < 0 ? 'mkt-shrink' : (diffAmt > 0 ? 'mkt-grow' : 'mkt-flat')">
+            {{ diffAmt < 0 ? '缩量' : (diffAmt > 0 ? '放量' : '持平') }}{{ diffAmt !== 0 ? ' ' + Math.abs(diffAmt).toFixed(0) + '亿' : '' }}
           </span>
         </template>
       </div>
@@ -151,6 +152,7 @@ onMounted(async () => {
 .senti-val.lbg { color: #ffb400; }
 .mkt-amt { color: #ffd76a; }      /* 两市成交额: 金色 */
 .mkt-shrink { color: #6ad66a; }   /* 缩量: 绿(缩=情绪降温) */
+.mkt-flat   { color: #9a9a9a; }   /* 持平: 中性灰(不放量不缩量) */
 .mkt-grow { color: #ff8a5a; }     /* 放量: 橙红 */
 .mkt-rise { color: #ff6a6a; }     /* 涨家数: 红 */
 .mkt-fall { color: #6ad66a; }     /* 跌家数: 绿 */
@@ -161,6 +163,7 @@ onMounted(async () => {
   font-weight: 500;
 }
 .mkt-shrink { background: rgba(106, 214, 106, 0.12); }
+.mkt-flat { background: rgba(154, 154, 154, 0.12); }
 .mkt-grow { background: rgba(255, 138, 90, 0.12); }
 .senti-val.dim { color: var(--text-secondary); }
 .senti-val.hot { color: #ff6a6a; }

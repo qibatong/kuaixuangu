@@ -712,6 +712,22 @@ def _scheduler_loop():
                             if brief:
                                 from ..db import database
                                 conn = database.get_conn()
+                                # 2026-09-07: 收盘后 market_brief_last 被**今日**覆盖,
+                                # 而它被用作"较昨日全天"的对比基准 → 自我比较恒 0
+                                # (前端显示"放量 0 亿")。写入前把上一份滚动存为 prev。
+                                _old = conn.execute(
+                                    "SELECT value FROM settings WHERE key='market_brief_last'"
+                                ).fetchone()
+                                if _old and _old[0]:
+                                    try:
+                                        _od = json.loads(_old[0]).get("date")
+                                    except Exception:
+                                        _od = None
+                                    if _od and _od != brief["date"]:
+                                        conn.execute(
+                                            "INSERT OR REPLACE INTO settings (key, value, updated_at) "
+                                            "VALUES (?,?,?)",
+                                            ("market_brief_prev", _old[0], int(time.time())))
                                 conn.execute(
                                     "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?,?,?)",
                                     ("market_brief_last",

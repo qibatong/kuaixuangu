@@ -601,10 +601,16 @@ def get_same_time_yesterday(date=None):
     from . import settings as settings_svc
     from datetime import datetime, timedelta
     now = int(time.time())
-    ydate = (datetime.fromtimestamp(now + 8 * 3600) - timedelta(days=1)).strftime("%Y-%m-%d")
+    # 2026-09-07 修复(主人反馈"两市放量 0 亿"): 原用 datetime.fromtimestamp(now + 8*3600)
+    # —— 服务器时区已是 **CST(+8)**, fromtimestamp 按本地时区转换, 再加 8h 会**多加 8 小时**
+    # → 北京时间 19:16 被算成次日 03:16, "昨日"= 明天-1天 = **今天** → 拿今日 intraday
+    # 自我对比 → 差额恒 0 → 前端显示"放量 0 亿"。
+    # 统一用 gmtime(UTC)+8h 取北京时间(与 scorer.in_auction_window 等一致, 与服务器时区无关)
+    bj = time.gmtime(now + 8 * 3600)
+    ydate = (datetime(*bj[:6]) - timedelta(days=1)).strftime("%Y-%m-%d")
     # 处理非交易日: 昨日=周六 → 周五数据(但周五数据可能也没有, 取更早)
     for offset in range(0, 5):    # 最多回溯 5 天
-        cur = (datetime.fromtimestamp(now + 8 * 3600) - timedelta(days=1 + offset)).strftime("%Y-%m-%d")
+        cur = (datetime(*bj[:6]) - timedelta(days=1 + offset)).strftime("%Y-%m-%d")
         arr = settings_svc.get("market_brief_intraday_" + cur)
         if not arr:
             continue

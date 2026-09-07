@@ -441,6 +441,13 @@ def build_market_brief_payload():
         conn.close()
         if row and row[0]:
             last = json.loads(row[0])
+        # 2026-09-07: 15:30 后 last 已被**今日收盘**覆盖 → 与今日自比恒 0,
+        # 此时改用 prev(上一交易日全天)作为"较昨日全天"基准
+        if last and last.get("date") == time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600)):
+            from . import settings as _settings_svc
+            prev = _settings_svc.get("market_brief_prev")
+            if prev:
+                last = prev
     except Exception:
         last = None
     return {"breadth": breadth, "market": market,
@@ -450,10 +457,19 @@ def build_market_brief_payload():
 
 def fetch_market_brief_payload():
     """带跨进程缓存 + single-flight 的市场概览(api 与预热统一入口)
-    预热用法: store.delete(_MB_PAYLOAD_KEY) 后再调本函数强制重算写缓存"""
+    预热用法: store.delete(_MB_PAYLOAD_KEY) 后再调本函数强制重算写缓存
+    2026-09-07 健壮性: 瞬时故障(重启/东财分页失败)算出的 **amount<=0 坏值**会被缓存
+    30s → 前端显示"两市资金 0 亿/放量 0 亿"。坏值不留存: 立刻清缓存, 下次请求重算。"""
     from .cache_store import cached_singleflight
-    return cached_singleflight(store, _MB_PAYLOAD_KEY, MARKET_BRIEF_TTL,
-                               build_market_brief_payload)
+    p = cached_singleflight(store, _MB_PAYLOAD_KEY, MARKET_BRIEF_TTL,
+                            build_market_brief_payload)
+    try:
+        if p and ((p.get("market") or {}).get("amount") or 0) <= 0:
+            store.delete(_MB_PAYLOAD_KEY)
+            log.warning("market_brief 缓存为坏值(amount<=0), 已清除待下轮重算")
+    except Exception:
+        pass
+    return p
 
 
 def fetch_sentiment():
