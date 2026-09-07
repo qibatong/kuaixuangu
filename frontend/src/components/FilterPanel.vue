@@ -77,6 +77,7 @@
 <script setup>
 import { onBeforeUnmount, onMounted, reactive, computed } from 'vue'
 import { useStocksStore } from '../stores/stocks'
+import { showToast } from '../utils/toast'
 
 const store = useStocksStore()
 // 2026-09-05: 刷新按钮由 StockView 顶部规则条下移至此(与 应用/重置/锁定 同一组),
@@ -188,7 +189,13 @@ function inputStyle(px) {
 function inputW(px) { return { width: `${px}px` } }
 
 async function apply() {
-  try { await store.applyCustomFilter() } catch (e) { /* request 层已处理 */ }
+  try {
+    await store.applyCustomFilter()
+  } catch (e) {
+    // 2026-09-07 主人反馈「点应用没更新股池」: 原实现空吞异常(无 toast 无更新, 静默失败
+    // 极难排查)—— 失败原因可见化(如会员/限流/后端异常), 便于定位
+    showToast('❌ 应用失败：' + (e.message || '未知错误'), 'error')
+  }
 }
 function reset() { store.resetFilterToDefault() }
 </script>

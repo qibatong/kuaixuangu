@@ -369,7 +369,8 @@ export const useStocksStore = defineStore('stocks', {
       this.isDataCached = true
       this.before930 = data.before930
       this.saveUserPrefs()
-      showToast('✅ 筛选条件已更新', 'success')
+      // 2026-09-07: toast 带条数(主人反馈"点应用没更新股池"——可据此判断后端是否生效)
+      showToast('✅ 筛选条件已更新（' + (data.list || []).length + ' 只）', 'success')
     },
 
     // ---- 盘中实时模式 ----
