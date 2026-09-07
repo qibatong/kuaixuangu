@@ -23,7 +23,9 @@ log = logger.get_logger(__name__)
 # 9_24 用于"最后一秒抢筹"兜底: 调度器在 9:24:30 后每轮询重采覆盖, 最后一份≈9:24:3x~4x
 # 真正秒级用 snapshot_lastsec(9:24:45-9:25:03 每秒高频采样 + 差值回退, 见 _lastsec_loop)
 TIME_POINTS = {
-    "9_15": (9 * 60 + 15, 9 * 60 + 16),
+    # 2026-09-07: 9_15 窗口扩到 9:17 —— 9:15:00 竞价刚开始行情源数据未生成, 需延后采集
+    # + 数据未就绪时窗口内重采(见 _scheduler_loop)
+    "9_15": (9 * 60 + 15, 9 * 60 + 17),
     "9_20": (9 * 60 + 20, 9 * 60 + 21),
     "9_24": (9 * 60 + 24, 9 * 60 + 25),
     "9_25": (9 * 60 + 25, 9 * 60 + 26),
@@ -141,6 +143,26 @@ def _fetch_kpl_fallback():
     except Exception as e:
         log.error("[快照采集] 开盘啦兜底失败 err=%s", e)
     return fallback
+
+
+def _zero_chg_rate(date, time_point):
+    """某时点快照中 bid_change=0(含 NULL) 的占比: 用于判断竞价数据是否已生成。
+    9:15 竞价刚开始时行情源字段常未更新(bid_change=0), 据此触发窗口内重采。"""
+    try:
+        conn = database.get_conn()
+        row = conn.execute(
+            "SELECT COUNT(*) n, SUM(CASE WHEN bid_change IS NULL OR bid_change=0 THEN 1 ELSE 0 END) z "
+            "FROM snapshot_bid WHERE date=? AND time_point=?", (date, time_point)).fetchone()
+        conn.close()
+        # 注意: database.get_conn() 未设 row_factory → 返回 tuple, 必须用下标取值
+        # (写 row["n"] 会 TypeError 被下面 except 吞掉 → 重采逻辑静默失效)
+        n = (row[0] if row else 0) or 0
+        if n < 100:      # 样本太小不判断(异常采集)
+            return 0.0
+        return ((row[1] if row else 0) or 0) / n
+    except Exception as e:
+        log.warning("[快照采集] 零值率统计失败 date=%s tp=%s err=%s", date, time_point, str(e)[:80])
+        return 0.0
 
 
 def snapshot_at(time_point, force=False):
@@ -584,10 +606,28 @@ def _scheduler_loop():
                     # 各机器轮询时刻不同导致快照不一致; 延迟到 9:25:10 后采, 拿最终竞价值
                     # 注: 9_25 窗口仍为 9:25:00-9:26:00, 9:25:10 后轮询触发(10s 间隔保证命中)
                     continue
+                elif tp == "9_15" and g.tm_sec < 5:
+                    # 2026-09-07 修复(主人反馈"竞价封单表格 9:15 列为空"):
+                    # 9:15:00 集合竞价刚开始, 行情源(东财/腾讯)竞价字段尚未生成 →
+                    # 实测 9:15:02 采集 **70% 的票 bid_change=0**(对照 9:20 仅 28%),
+                    # 一字板/强势票的竞价额与封单拿不到 → 表格 9:15 列大片空白。
+                    # 策略(**自适应**, 主人要求不要固定延后 30s 那么迟):
+                    #   9:15:05 即首采(尽量贴近 9:15 原始竞价状态) → 采完立刻校验
+                    #   零值率, >60% 说明数据未就绪 → 回滚标记, 10s 后重采覆盖,
+                    #   直到就绪或 9:17 窗口结束。数据早就早定格, 晚就晚定格。
+                    continue
                 else:
                     if store.setnx(key, 1, ttl=86400):
                         log.info("[快照采集] 触发时点窗口 tp=%s hm=%d:%02d date=%s", tp, hm // 60, hm % 60, date)
                         if snapshot_at(tp):
+                            # 2026-09-07: 9_15 数据就绪度校验 —— 涨幅=0 占比 >60% 说明
+                            # 行情源竞价数据仍未生成(极端行情/接口延迟), 回滚完成标记
+                            # 让窗口内下一轮(10s 后)重采覆盖, 避免整列空白
+                            if tp == "9_15" and _zero_chg_rate(date, tp) > 0.6:
+                                store.delete(key)
+                                log.warning("[快照采集] 9_15 数据未就绪(涨幅0占比>60%%), "
+                                            "窗口内重采 date=%s hm=%d:%02d", date, hm // 60, hm % 60)
+                                continue
                             log.info("[快照采集] 时点完成并入完成集 tp=%s date=%s", tp, date)
                             # 2026-08-18 主人要求: 9_25 竞价快照落库后立即触发 AI 采集+预测
                             # (不等 9:27 轮询窗口, 数据到手就预测, 9:30 前出结果)
