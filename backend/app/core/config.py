@@ -44,6 +44,12 @@ SMTP_FROM = os.environ.get("SMTP_FROM", "")
 RESET_TTL = int(os.environ.get("RESET_TTL", "1800"))
 RESET_RATE_LIMIT = int(os.environ.get("RESET_RATE_LIMIT", "3"))
 
+# ---------- 出站 IP 轮询池(2026-09-07 主人加辅助网卡防东财封单 IP) ----------
+# 配置示例: OUTBOUND_IPS=121.196.230.80,101.37.204.78
+# 空 = 走 OS 默认出站 IP(单 IP 场景, 如测试机)
+# 配置在 /etc/kuaixuan/env.conf, 重启服务生效; fetcher._IPRotator 自动接管所有 urllib urlopen
+OUTBOUND_IPS = [s.strip() for s in os.environ.get("OUTBOUND_IPS", "").split(",") if s.strip()]
+
 # ---------- 阿里云短信验证码(号码认证·短信认证, 2026-08-30) ----------
 # 个人开发者免资质; AccessKey 建议 RAM 子账号只授权 dypns; 走 systemd drop-in 注入
 # 签名/模板为号码认证控制台「系统赠送」: 恒创联众 + 100001(赠送模板必须配赠送签名)

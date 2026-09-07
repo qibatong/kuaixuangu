@@ -3,9 +3,11 @@
 数据抓取服务: 东方财富行情拉取 + 分区缓存 + 昨日成交额(日K) + 域名熔断
 ======================================================================
 """
+import contextlib
 import json
 import math
 import re
+import socket as _socket_mod
 import sqlite3
 import ssl
 import threading
@@ -23,6 +25,104 @@ from .cache_store import store   # 2026-09-04: 两市概况改跨进程缓存(�
 _NO_VERIFY_CTX = ssl.create_default_context()
 _NO_VERIFY_CTX.check_hostname = False
 _NO_VERIFY_CTX.verify_mode = ssl.CERT_NONE
+
+# ---------- 出站 IP 轮询池(2026-09-07 主人加辅助网卡防东财封单 IP) ----------
+# 配置: config.OUTBOUND_IPS(逗号分隔, 默认空走 OS 默认)
+# 行为: 线程局部 IP 状态, 连续失败 _IP_FAIL_THRESHOLD 次切下一个 IP;
+#       monkey-patch socket.create_connection, urllib.urlopen 自动用绑定 IP 出站。
+#       _ip_binding() context manager 负责切换+报告; _http_get() 包装 urlopen。
+# 失败计数按"每个 IP"独立, 线程池内 thread-local 隔离避免串扰; RR index 进程级共享锁。
+# thread-local 两状态: rot_ip = rotator 选中的"当前"IP(跨 urlopen 保留);
+#                       bind_ip = urlopen 实际绑定的 IP(出 context 清空)。
+_IP_LOCAL = threading.local()
+_IP_FAIL_THRESHOLD = 2
+
+
+class _IPRotator:
+    """IP 轮询: 进程级 RR 共享索引 + 线程局部失败计数。
+    失败连续 N 次自动切下一个 IP(用于绕开被封的 IP)。"""
+
+    def __init__(self, ips):
+        self.ips = list(ips) if ips else []
+        self._rr_lock = threading.Lock()
+        self._rr_index = 0
+
+    def _state(self):
+        if not hasattr(_IP_LOCAL, "inited"):
+            _IP_LOCAL.inited = True
+            _IP_LOCAL.rot_ip = self.ips[0] if self.ips else None
+            _IP_LOCAL.fail = 0
+        return _IP_LOCAL
+
+    def acquire(self):
+        """返回本线程当前应使用的 IP(必要时切下一个); 无 IP 池返回 None(走系统默认)"""
+        if not self.ips:
+            return None
+        st = self._state()
+        if st.rot_ip is None or st.fail >= _IP_FAIL_THRESHOLD:
+            with self._rr_lock:
+                if st.rot_ip is not None:
+                    try:
+                        old_idx = self.ips.index(st.rot_ip)
+                        new_idx = (old_idx + 1) % len(self.ips)
+                    except ValueError:
+                        new_idx = (self._rr_index + 1) % len(self.ips)
+                else:
+                    new_idx = self._rr_index % len(self.ips)
+                self._rr_index = new_idx
+                st.rot_ip = self.ips[new_idx]
+                st.fail = 0
+        return st.rot_ip
+
+    def report_success(self):
+        if self.ips:
+            self._state().fail = 0
+
+    def report_fail(self):
+        if self.ips:
+            self._state().fail += 1
+
+
+_IP_ROTATOR = _IPRotator(config.OUTBOUND_IPS)
+
+# monkey-patch socket.create_connection: 读 thread-local 绑定 IP 注入 source_address
+# 覆盖 socket 模块本身 + urllib.request.socket(后者是同一引用, 双保险)
+_orig_create_connection = _socket_mod.create_connection
+
+
+def _patched_create_connection(address, timeout=None, source_address=None, **kw):
+    ip = getattr(_IP_LOCAL, "bind_ip", None)
+    if ip:
+        source_address = (ip, 0)
+    return _orig_create_connection(address, timeout, source_address, **kw)
+
+
+_socket_mod.create_connection = _patched_create_connection
+urllib.request.socket.create_connection = _patched_create_connection
+
+
+@contextlib.contextmanager
+def _ip_binding():
+    """带 IP 轮询的 urlopen 上下文管理器。
+    切换/绑 IP, 成功 report_success, 失败 report_fail。无 IP 池时为 no-op。"""
+    if not _IP_ROTATOR.ips:
+        yield
+        return
+    _IP_LOCAL.bind_ip = _IP_ROTATOR.acquire()
+    try:
+        yield
+        _IP_ROTATOR.report_success()
+    except Exception:
+        _IP_ROTATOR.report_fail()
+        raise
+    finally:
+        _IP_LOCAL.bind_ip = None
+
+
+def _http_get(req, timeout, context=None):
+    """带 IP 轮询的 urlopen 包装(替换 fetcher 内所有 urllib.request.urlopen)。"""
+    with _ip_binding():
+        return urllib.request.urlopen(req, timeout=timeout, context=context)
 
 log = logger.get_logger(__name__)
 
@@ -227,7 +327,7 @@ def _fetch_zt_pool_date(date_str):
         req = urllib.request.Request(_ZT_POOL_URL + "?" + qs, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
             "Referer": "https://quote.eastmoney.com/"})
-        with urllib.request.urlopen(req, timeout=8, context=_NO_VERIFY_CTX) as resp:
+        with _http_get(req, timeout=8, context=_NO_VERIFY_CTX) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         pool = ((data.get("data") or {}).get("pool")) or []
         for x in pool:
@@ -284,7 +384,7 @@ def _fetch_clist_page(fs, page, fid="f3"):
         "Referer": "https://quote.eastmoney.com/",
     })
     # 服务器缺 CA 证书 → clash 校验失败; 用 unverified context(保留TLS加密), 否则竞价全市场快照全挂
-    with urllib.request.urlopen(req, timeout=10, context=_NO_VERIFY_CTX) as resp:
+    with _http_get(req, timeout=10, context=_NO_VERIFY_CTX) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     if data.get("rc") != 0 or not data.get("data", {}).get("diff"):
         raise RuntimeError("东方财富接口返回异常")
@@ -368,7 +468,7 @@ def _fetch_tencent_batch(symbols):
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
     })
-    with urllib.request.urlopen(req, timeout=15, context=_NO_VERIFY_CTX) as resp:
+    with _http_get(req, timeout=15, context=_NO_VERIFY_CTX) as resp:
         body = resp.read().decode("gbk", "ignore")
     out = {}
     for line in body.split("\n"):
@@ -924,7 +1024,7 @@ def _fetch_yesterday_amount_ths(code):
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
                 "Referer": "http://stockpage.10jqka.com.cn/",
             })
-            with urllib.request.urlopen(req, timeout=config.KLINE_TIMEOUT) as resp:
+            with _http_get(req, timeout=config.KLINE_TIMEOUT) as resp:
                 body = resp.read().decode("utf-8", "ignore")
             m = re.search(r"\{.*\}", body, re.S)
             if not m:
@@ -960,7 +1060,7 @@ def _fetch_yesterday_amount_tencent(code):
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         })
-        with urllib.request.urlopen(req, timeout=config.KLINE_TIMEOUT, context=_NO_VERIFY_CTX) as resp:
+        with _http_get(req, timeout=config.KLINE_TIMEOUT, context=_NO_VERIFY_CTX) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
         data = raw.get("data", {}).get(secid, {})
         rows = data.get("qfqday") or data.get("day") or []
@@ -1012,7 +1112,7 @@ def _fetch_yesterday_amount_one(code):
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
                 "Referer": "https://quote.eastmoney.com/",
             })
-            with urllib.request.urlopen(req, timeout=config.KLINE_TIMEOUT) as resp:
+            with _http_get(req, timeout=config.KLINE_TIMEOUT) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             klines = data.get("data", {}).get("klines") or []
             if not klines:
@@ -1227,7 +1327,7 @@ def fetch_zt_pool(date=None):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
             "Referer": "https://quote.eastmoney.com/",
         })
-        with urllib.request.urlopen(req, timeout=10, context=_NO_VERIFY_CTX) as resp:
+        with _http_get(req, timeout=10, context=_NO_VERIFY_CTX) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         pool = (data.get("data") or {}).get("pool") or []
         out = {}
@@ -1306,7 +1406,7 @@ def fetch_stock_chart(code, period="day"):
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
                 "Referer": "https://quote.eastmoney.com/",
             })
-            with urllib.request.urlopen(req, timeout=config.KLINE_TIMEOUT) as resp:
+            with _http_get(req, timeout=config.KLINE_TIMEOUT) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             klines = data.get("data", {}).get("klines") or []
             meta = data.get("data", {}) or {}
@@ -1421,7 +1521,7 @@ def _fetch_minute_trend(code):
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
                 "Referer": "https://quote.eastmoney.com/",
             })
-            with urllib.request.urlopen(req, timeout=config.KLINE_TIMEOUT) as resp:
+            with _http_get(req, timeout=config.KLINE_TIMEOUT) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             tr = data.get("data", {}).get("trends") or []
             meta = data.get("data", {}) or {}
@@ -1485,7 +1585,7 @@ def _fetch_kline_from_ths(code, period="day"):
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
                 "Referer": "http://stockpage.10jqka.com.cn/",
             })
-            with urllib.request.urlopen(req, timeout=config.KLINE_TIMEOUT) as resp:
+            with _http_get(req, timeout=config.KLINE_TIMEOUT) as resp:
                 body = resp.read().decode("utf-8", "ignore")
             m = re.search(r"\{.*\}", body, re.S)
             if not m:
@@ -1661,7 +1761,7 @@ def _fetch_chart_from_tushare(code, period="day"):
         req = urllib.request.Request(url, headers={
             "X-API-Key": config.TUSHARE_API_KEY, "User-Agent": "Mozilla/5.0",
         })
-        with urllib.request.urlopen(req, timeout=15, context=_NO_VERIFY_CTX) as resp:
+        with _http_get(req, timeout=15, context=_NO_VERIFY_CTX) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
         # 先检查网关层错误
         if raw.get("ok") is False and raw.get("error"):
@@ -1818,7 +1918,7 @@ def _fetch_minute_from_tencent(secid, code):
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
         })
-        with urllib.request.urlopen(req, timeout=config.KLINE_TIMEOUT, context=_NO_VERIFY_CTX) as resp:
+        with _http_get(req, timeout=config.KLINE_TIMEOUT, context=_NO_VERIFY_CTX) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
         d = raw.get("data", {}).get(secid, {}).get("data", {})
         rows = d.get("data") if isinstance(d, dict) else None
@@ -1876,7 +1976,7 @@ def _fetch_chart_from_tencent(code, period="day"):
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
         })
-        with urllib.request.urlopen(req, timeout=config.KLINE_TIMEOUT, context=_NO_VERIFY_CTX) as resp:
+        with _http_get(req, timeout=config.KLINE_TIMEOUT, context=_NO_VERIFY_CTX) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
         data = raw.get("data", {}).get(secid, {})
         if not data:
@@ -1928,7 +2028,7 @@ def _fetch_quote_tencent(code):
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         })
-        with urllib.request.urlopen(req, timeout=config.KLINE_TIMEOUT) as resp:
+        with _http_get(req, timeout=config.KLINE_TIMEOUT) as resp:
             body = resp.read().decode("gbk", "ignore")
         m = re.search(r'="(.*)"', body)
         if not m:
