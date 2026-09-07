@@ -679,12 +679,14 @@ def fetch_board_stocks(plate_id, date=None, st=30):
         "PlateID": str(plate_id), "TSZB": "0", "TSZB_Type": "0",
     }
     if not date:
-        # 盘中优先用实时接口(apphwshhq + w44, 不带Date)取当日数据;
-        # 实时接口被拒或空时回退历史接口(apphis + w41 + 上一交易日Date)
-        # 2026-08-30 修复: _call host_key "app" 不存在 → fallback default(apphwhq 竞价域名),
-        #   对板块成分股返回空导致盘中一直回退昨日; 实时 host 应为 "after"(apphwshhq)
-        params = dict(base, apiv="w44")
-        d = _call("after", params)
+        # 2026-09-07 改造: 原实时分支先试 _call("after", apiv=w44) —— 开盘啦盘中
+        # 一律 errcode=1020(8/18 已知; 9/7 全参数扫描 18 组合 after/default/market ×
+        # w44/w41 × 3 参数组全拒, 且 Date=今天也 1020 未冻结) → 白耗一次调用必失败。
+        # 改为直接历史接口: 优先 Date=今天(收盘冻结后可用), 1020/空回退上一交易日。
+        # **名单(成分股)盘中几乎不变**, 每只票的实时行情在下方由
+        # fetch_spot_details_by_codes 覆盖(价/涨跌/换手/额/流通/主力均为今日盘中)。
+        params = dict(base, apiv="w41", Date=time.strftime("%Y-%m-%d"))
+        d = _call("his", params)
         lst = d.get("list") if isinstance(d, dict) else None
         if not isinstance(lst, list) or not lst:
             date = _prev_trade_day()
@@ -722,6 +724,29 @@ def fetch_board_stocks(plate_id, date=None, st=30):
             })
         except (IndexError, ValueError, TypeError):
             continue
+    # 2026-09-07 主人方案: 名单保留(历史/当日冻结), 每只票行情用**实时接口**覆盖 ——
+    # 盘中看到「板块昨日成分(结构几乎不变) + 今日实时价/涨跌/换手/额/主力」,
+    # 不再整份显示上交易日的静止数据(用户反馈"成分股是上个交易日的")。
+    # 行情源: 全市场实时行情缓存(raw, 东财 push2 或腾讯兜底), 由预热线程维持新鲜。
+    if out:
+        try:
+            from . import fetcher as _fetcher
+            detail = _fetcher.fetch_spot_details_by_codes([x["code"] for x in out])
+            if detail:
+                for x in out:
+                    q = detail.get(x["code"])
+                    if not q:
+                        continue
+                    x["price"] = q["price"] or x["price"]
+                    x["change"] = q["change"] if q["change"] is not None else x["change"]
+                    x["turnover"] = q["turnover"] or x["turnover"]
+                    x["volRatio"] = q["volRatio"] or x["volRatio"]
+                    x["amount"] = q["amount"] or x["amount"]
+                    x["floatMv"] = q["floatMv"] or x["floatMv"]
+                    if q["mainNet"] is not None:
+                        x["mainNet"] = q["mainNet"]
+        except Exception as e:
+            log.warning("成分股实时行情覆盖失败(保留历史值) err=%s", str(e)[:120])
     return out
 
 
