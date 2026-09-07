@@ -204,6 +204,69 @@ def _bj_date_str():
     return "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
 
 
+# ==================== 昨日涨停池 (2026-09-07) ====================
+# 背景: 腾讯兜底行**无 f103 概念字段**(东财被墙走腾讯全市场时), 评分层 is_first_board
+#       (原只认 f103 "昨日涨停/连板"标签)恒为 False → 勾选「昨涨停」筛出空名单。
+# 方案: 东财 push2ex 域名(getTopicZTPool, 与 clist 的 push2 域名不同, 生产实测畅通)
+#       返回**指定交易日**涨停池(含连板/一字), 作为"昨日涨停"权威名单 —— 与数据源无关,
+#       东财/腾讯/量脉任一行都能判断昨日是否涨停。f103 标签仅作名单不可用时的降级。
+_ZT_POOL_URL = "https://push2ex.eastmoney.com/getTopicZTPool"
+_ZT_CACHE = {"codes": None, "ts": 0}        # 成功缓存
+_ZT_FAIL = {"ts": 0}                        # 失败冷却(防反复打网络)
+_ZT_OK_TTL = 600                            # 成功缓存 10min(交易日间数据冻结, 足够; 跨日自动重探)
+_ZT_FAIL_TTL = 120                          # 失败冷却 2min
+
+
+def _fetch_zt_pool_date(date_str):
+    """拉指定交易日(YYYYMMDD)涨停池, 返回 code set(空池返回空 set); 网络异常向上抛。"""
+    codes = set()
+    for page in range(5):                    # 至多 5 页(极端普涨 ~800 只)
+        qs = urllib.parse.urlencode({
+            "ut": "7eea3edcaed734bea9cbfc24409ed989", "dpt": "wz.ztzt",
+            "Pageindex": page, "pagesize": 200, "sort": "fbt:asc", "date": date_str})
+        req = urllib.request.Request(_ZT_POOL_URL + "?" + qs, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Referer": "https://quote.eastmoney.com/"})
+        with urllib.request.urlopen(req, timeout=8, context=_NO_VERIFY_CTX) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        pool = ((data.get("data") or {}).get("pool")) or []
+        for x in pool:
+            codes.add(str(x.get("c")))
+        if len(pool) < 200:
+            break
+    return codes
+
+
+def get_yesterday_zt_codes():
+    """昨日涨停代码集合(权威名单); 失败/无可用交易日返回 None(调用方降级 f103 概念标签)。
+    探测: 从昨天起往前最多 15 自然日(覆盖周末/长假), 取第一个返回**非空池**的交易日;
+    保护: 绝不探测今天(盘中 getTopicZTPool(date=今天) 返回的是"今日已涨停", 语义不符)。
+    缓存: 成功 600s / 失败 120s 冷却, 跨日自动重探测。"""
+    now = time.time()
+    if _ZT_CACHE["codes"] is not None and now - _ZT_CACHE["ts"] < _ZT_OK_TTL:
+        return _ZT_CACHE["codes"]
+    if now - _ZT_FAIL["ts"] < _ZT_FAIL_TTL:
+        return None
+    today = time.strftime("%Y%m%d")
+    for back in range(1, 16):
+        ds = time.strftime("%Y%m%d", time.localtime(now - back * 86400))
+        if ds >= today:
+            continue                        # 防时区边缘误探今天
+        try:
+            codes = _fetch_zt_pool_date(ds)
+        except Exception as e:
+            log.warning("昨涨停池拉取失败 date=%s err=%s", ds, str(e)[:100])
+            continue
+        if codes:
+            _ZT_CACHE.update({"codes": codes, "ts": now})
+            log.info("昨涨停池 date=%s 涨停%d只", ds, len(codes))
+            return codes
+        # 空池(非交易日/当日零涨停) → 继续往前找最近交易日
+    _ZT_FAIL["ts"] = now
+    log.warning("昨涨停池 15 天窗口内无可用交易日数据(判据降级 f103)")
+    return None
+
+
 def _secid(code):
     """沪市(6/9开头)用 1. 前缀, 深市/北交用 0. 前缀"""
     return ("1." if code.startswith(("6", "9")) else "0.") + code

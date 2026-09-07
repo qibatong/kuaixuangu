@@ -77,6 +77,10 @@ def mock_data_source(monkeypatch_session):
 
     monkeypatch_session.setattr(fetcher, "ensure_cache", fake_ensure_cache)
     monkeypatch_session.setattr(fetcher, "fetch_yesterday_amounts", fake_yesterday_amounts)
+    # 2026-09-07 is_first_board 改造(昨涨停名单判据): scorer 会调 fetcher.get_yesterday_zt_codes()
+    # 拉 push2ex 涨停池(真实网络)。测试一律桩成 None → 走 f103 概念降级路径(与旧行为一致,
+    # 保证既有用例零回归); 专项测试(test_zt_pool_filter.py)单独 monkeypatch 验证名单路径。
+    monkeypatch_session.setattr(fetcher, "get_yesterday_zt_codes", lambda: None)
     # 2026-09-04 spotMap 预热线程: client fixture 的 TestClient(with)会触发 app startup
     # → start_spot_prewarm 起真线程。若在预热窗口(9:26-15:05)内跑测试, 线程会真拉腾讯全市场
     # 网络(测试进程内日志噪音/守护线程退出冲突)。测试环境直接屏蔽线程启动(空转也无意义),

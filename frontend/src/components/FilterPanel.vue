@@ -27,7 +27,7 @@
         <input v-model="store.filterSettings.markets" type="checkbox" :value="m.value" :disabled="store.isFilterLocked"> {{ m.label }}
       </label>
       <span class="filter-divider" style="display:inline-block;">|</span>
-      <label style="white-space:nowrap;" title="勾选后只显示昨日涨停/昨日连板股; 不勾选则剔除"><input v-model="store.filterSettings.limitUp" type="checkbox" :disabled="store.isFilterLocked"> 昨涨停</label>
+      <label style="white-space:nowrap;" title="勾选后把昨日涨停/连板股也包含进结果; 不勾选则剔除这类票"><input v-model="store.filterSettings.limitUp" type="checkbox" :disabled="store.isFilterLocked"> 昨涨停</label>
 
       <!-- 按钮组: 桌面端吸右上角; 手机端紧凑靠右 -->
       <span class="filter-actions-top" :style="layoutStyle.actions">

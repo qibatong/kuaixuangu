@@ -283,8 +283,18 @@ def get_warn_type(s):
 
 
 def is_first_board(s):
-    """昨日涨停判断: f103 概念标签含 昨日涨停/昨日连板(含一字)
-    (原实现用 f630>=5, 但实测 f630 取值只有 0/1/2, 该条件永不成立, 过滤从未生效)"""
+    """昨日涨停/连板判断。
+    2026-09-07 改造(腾讯兜底期勾「昨涨停」筛空问题): 优先用 push2ex **昨涨停池名单**
+    (fetcher.get_yesterday_zt_codes, 与数据源无关 —— 腾讯/量脉兜底行无 f103 概念字段,
+    原实现只认 f103 导致兜底期恒 False 全滤空); 名单不可用(网络失败/非交易窗口返回 None)
+    降级 f103 概念标签(东财行)。行内无 code 时同样降级。
+    (历史: 原实现用 f630>=5, 但实测 f630 取值只有 0/1/2, 该条件永不成立, 过滤从未生效)"""
+    code = s.get("f12") or s.get("code")
+    if code:
+        from . import fetcher as _f
+        st = _f.get_yesterday_zt_codes()
+        if st is not None:
+            return code in st
     concept = s.get("f103") or ""
     return ("昨日涨停" in concept) or ("昨日连板" in concept)
 
@@ -511,16 +521,13 @@ def apply_spot_filters(items, f):
         vol_ratio = it["volRatio"]
         turnover = it["turnover"]
 
-        # 2026-08-25 语义反转(正逻辑): stSuspend/limitUp=true → "只看这类票", false → "剔除这类票"
-        # 旧逻辑是 true=剔除, 导致用户直觉与结果相反; 此处改为 NOT 判断实现反转.
-        # 2026-09-07 修复(主人反馈"勾选无变化"):
-        #   ① markets 下沉到评分层 —— 腾讯兜底无视 fs 按全市场拉 raw, 原实现靠 raw
-        #      范围过滤市场 → 兜底期 主/创/科 勾选整体失效(全市场 5548 只同参评分);
-        #   ② limitUp 补全"勾选=只看昨涨停/连板" —— 原实现只做"不勾选剔除",
-        #      勾选时并不过滤 → 勾不勾几乎无差, 与 UI「只看昨涨停」文案不符。
+        # 2026-09-07 主人确认语义: limitUp **勾选=把昨日涨停/连板股也包含进结果**,
+        # 不勾=剔除这类票(注意: 不是"只看昨涨停" —— 勾选后结果仍含正常筛选的票,
+        # 只是多出昨日涨停的票)。markets 下沉评分层: 腾讯兜底无视 fs 按全市场拉 raw,
+        # 原实现靠 raw 范围过滤市场 → 兜底期 主/创/科 勾选整体失效。
         if not _in_markets(it["code"], f["markets"]):
             continue
-        if bool(f["limitUp"]) != is_first_board(it["_raw"]):
+        if not f["limitUp"] and is_first_board(it["_raw"]):
             continue
         if not f["stSuspend"]:
             if is_st(name):
@@ -561,10 +568,10 @@ def apply_filters(items, f):
         bid_amt = it["bidAmt"]
 
         # 2026-08-25 语义反转(正逻辑): 同 apply_spot_filters, 见注释
-        # 2026-09-07 修复: markets 下沉评分层(腾讯兜底无视 fs) + limitUp 勾选=只看昨涨停
+        # 2026-09-07 主人确认: limitUp 勾选=包含昨涨停/连板股, 不勾=剔除(非"只看")
         if not _in_markets(it["code"], f["markets"]):
             continue
-        if bool(f["limitUp"]) != is_first_board(it["_raw"]):
+        if not f["limitUp"] and is_first_board(it["_raw"]):
             continue
         if not f["stSuspend"]:
             if is_st(name):
