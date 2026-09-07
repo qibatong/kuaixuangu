@@ -305,6 +305,8 @@ def _in_markets(code, markets):
     兜底, 任何数据源(东财/腾讯/量脉)都生效:
       hs=沪主板60x + 深主板00x | cyb=300/301 | kcb=688/689
     北交所(4/8/9开头)不在 UI 选项, 与东财 market_fs 口径一致(不返回)"""
+    if not markets:
+        return True    # markets 未提供(旧调用方/测试直接构造) → 不限制市场
     code = str(code or "")
     if code.startswith(("300", "301")):
         return "cyb" in markets
@@ -525,7 +527,8 @@ def apply_spot_filters(items, f):
         # 不勾=剔除这类票(注意: 不是"只看昨涨停" —— 勾选后结果仍含正常筛选的票,
         # 只是多出昨日涨停的票)。markets 下沉评分层: 腾讯兜底无视 fs 按全市场拉 raw,
         # 原实现靠 raw 范围过滤市场 → 兜底期 主/创/科 勾选整体失效。
-        if not _in_markets(it["code"], f["markets"]):
+        _mk_code = it.get("code") or (it.get("_raw") or {}).get("f12") or ""
+        if _mk_code and not _in_markets(_mk_code, f.get("markets") or []):
             continue
         if not f["limitUp"] and is_first_board(it["_raw"]):
             continue
@@ -569,7 +572,8 @@ def apply_filters(items, f):
 
         # 2026-08-25 语义反转(正逻辑): 同 apply_spot_filters, 见注释
         # 2026-09-07 主人确认: limitUp 勾选=包含昨涨停/连板股, 不勾=剔除(非"只看")
-        if not _in_markets(it["code"], f["markets"]):
+        _mk_code = it.get("code") or (it.get("_raw") or {}).get("f12") or ""
+        if _mk_code and not _in_markets(_mk_code, f.get("markets") or []):
             continue
         if not f["limitUp"] and is_first_board(it["_raw"]):
             continue
