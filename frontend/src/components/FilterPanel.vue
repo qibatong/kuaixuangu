@@ -47,8 +47,8 @@
          - 桌面端 (≥1100px): 一排 nowrap, space-between 两端对齐
          - 手机端 (≤768px): flex-wrap wrap, flex-start, 按内容宽度 flow 换行 -->
     <div class="filter-row filter-row-2">
-      <label class="filter-cell">
-        竞涨 ≤<input v-model.number="store.filterSettings.bidGt" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(22)">%
+      <label class="filter-cell" title="竞涨区间: 下限留空=不限 — 设如 -2 可剔除竞价大幅低开的票(深中华A/四方精创 类资金出逃形态, 当日常大跌)">
+        竞涨 ≥<input v-model.number="store.filterSettings.bidLt" type="number" min="-50" max="20" step="0.5" placeholder="不限" :disabled="store.isFilterLocked" :style="inputStyle(22)"> ≤<input v-model.number="store.filterSettings.bidGt" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(22)">%
       </label>
       <label class="filter-cell">
         涨停率 ≥<input v-model.number="store.filterSettings.probLt" type="number" min="5" max="95" step="1" :disabled="store.isFilterLocked" :style="inputStyle(22)">% 或 可信度 ≥<input v-model.number="store.filterSettings.confLt" type="number" min="50" max="90" step="1" :disabled="store.isFilterLocked" :style="inputStyle(22)">%

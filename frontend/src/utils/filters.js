@@ -8,6 +8,8 @@ export function passLockedFilter(it, rt, f) {
     const concept = it.concept || ''
     if (concept.includes('昨日涨停') || concept.includes('昨日连板')) return false
   }
+  const bidLt = (f.bidLt === null || f.bidLt === undefined || f.bidLt === '') ? -50 : f.bidLt  // 2026-09-08 竞涨下限(空=不限)
+  if (it.bidChange < bidLt) return false                 // 竞价大幅低开剔除(资金出逃形态)
   if (it.bidChange > f.bidGt) return false                 // 竞价涨幅过高剔除
   if (it.circulationMV < f.floatMvFloor) return false      // 市值过小
   if (it.circulationMV > f.floatMvGt) return false         // 市值过大
@@ -20,11 +22,13 @@ export function passLockedFilter(it, rt, f) {
 // 默认筛选参数(竞价)
 // 2026-08-25: 语义反转后, stSuspend/limitUp 默认 true = 默认"只看这类票",
 //   等价于旧默认(剔除ST/剔除昨涨停) → 保持默认行为一致但 UI 直觉正确.
+// 2026-09-08: bidLt 竞涨下限默认 null=不限(过滤面板可配「竞涨 ≥」, 剔除竞价大额低开票)
 export const defaultFilterSettings = {
   stSuspend: false,
   markets: ['hs', 'cyb', 'kcb'],
   limitUp: false,
   bidGt: 7,
+  bidLt: null,
   probLt: 65,
   confLt: 65,
   floatMvFloor: 30,
@@ -35,7 +39,7 @@ export const defaultFilterSettings = {
 
 // 构建后端筛选参数(把筛选设置转成 API query)
 export function buildFilterParams(f) {
-  return {
+  const p = {
     stSuspend: f.stSuspend ? '1' : '0',
     limitUp: f.limitUp ? '1' : '0',
     markets: f.markets.join(','),
@@ -47,4 +51,7 @@ export function buildFilterParams(f) {
     priceGt: f.priceGt,
     bidAmtFloor: f.bidAmtFloor
   }
+  // 竞涨下限: null/空 = 不限(不传给后端, 后端默认 -50)
+  if (f.bidLt !== null && f.bidLt !== undefined && f.bidLt !== '') p.bidLt = f.bidLt
+  return p
 }
