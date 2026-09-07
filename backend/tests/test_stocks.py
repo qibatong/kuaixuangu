@@ -380,7 +380,7 @@ def test_tencent_fetch_quote_parsing(monkeypatch):
     gbk_body = 'v_sh600001="' + "~".join(fields) + '";'
 
     monkeypatch.setattr(urllib.request, "urlopen",
-                        lambda req, timeout=5: _TencentResp(gbk_body, encoding="gbk"))
+                        lambda req, timeout=5, context=None: _TencentResp(gbk_body, encoding="gbk"))
 
     q = fetcher._fetch_quote_tencent("600001")
     assert q is not None
@@ -396,11 +396,11 @@ def test_tencent_fetch_quote_bad_responses(monkeypatch):
     from app.services import fetcher
 
     monkeypatch.setattr(urllib.request, "urlopen",
-                        lambda req, timeout=5: _TencentResp("", encoding="gbk"))
+                        lambda req, timeout=5, context=None: _TencentResp("", encoding="gbk"))
     assert fetcher._fetch_quote_tencent("600001") is None
 
     monkeypatch.setattr(urllib.request, "urlopen",
-                        lambda req, timeout=5: _TencentResp("nothing", encoding="gbk"))
+                        lambda req, timeout=5, context=None: _TencentResp("nothing", encoding="gbk"))
     assert fetcher._fetch_quote_tencent("600001") is None
 
 
@@ -580,7 +580,7 @@ def test_fetch_stock_chart_day_ok(monkeypatch):
     monkeypatch.setattr(config, "KLINE_HOSTS", ["https://mock-em"])
     monkeypatch.setattr(config, "KLINE_TIMEOUT", 1)
 
-    def fake_urlopen(req, timeout=5):
+    def fake_urlopen(req, timeout=5, context=None):
         return _FakeResp({
             "data": {
                 "code": "600001", "name": "测试股份",
@@ -607,7 +607,7 @@ def test_fetch_stock_chart_day_ok(monkeypatch):
     # 第二次调用命中缓存
     hits = [0]
 
-    def fake_urlopen_count(req, timeout=5):
+    def fake_urlopen_count(req, timeout=5, context=None):
         hits[0] += 1
         return _FakeResp({"data": {"name": "X", "klines": _mk_kline_rows(1)}})
 
@@ -630,7 +630,7 @@ def test_fetch_stock_chart_week_month_periods(period, lmt, monkeypatch):
 
     captured_url = {}
 
-    def fake_urlopen(req, timeout=5):
+    def fake_urlopen(req, timeout=5, context=None):
         captured_url["url"] = req.full_url
         return _FakeResp({
             "data": {
@@ -670,7 +670,7 @@ def test_fetch_stock_chart_minute_ok(monkeypatch):
         "2026-08-20 09:32,18.30,2500,18.40,45750000",
     ]
 
-    def fake_urlopen(req, timeout=5):
+    def fake_urlopen(req, timeout=5, context=None):
         return _FakeResp({
             "data": {
                 "code": "300003", "name": "测丙",
@@ -692,7 +692,7 @@ def test_fetch_stock_chart_minute_ok(monkeypatch):
     # 缓存命中
     count = [0]
 
-    def fake_c(req, timeout=5):
+    def fake_c(req, timeout=5, context=None):
         count[0] += 1
         return _FakeResp({"data": {"trends": []}})
 
@@ -716,7 +716,7 @@ def test_fetch_stock_chart_edge_and_host_fallbacks(monkeypatch):
 
     from urllib.error import URLError
 
-    def all_fail(req, timeout=5):
+    def all_fail(req, timeout=5, context=None):
         raise URLError("host down")
 
     monkeypatch.setattr(urllib.request, "urlopen", all_fail)
@@ -727,7 +727,7 @@ def test_fetch_stock_chart_edge_and_host_fallbacks(monkeypatch):
     monkeypatch.setattr(fetcher, "_broken_hosts", {})
     monkeypatch.setattr(fetcher, "_CHART_CACHE", {})
 
-    def one_good(req, timeout=5):
+    def one_good(req, timeout=5, context=None):
         return _FakeResp({
             "data": {
                 "name": "测丁", "preKPrice": 25,

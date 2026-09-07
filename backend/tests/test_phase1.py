@@ -177,12 +177,13 @@ def test_bid_ratio_any_time_uses_last_closed_day(monkeypatch):
          "floatMvFloor": 1, "floatMvGt": 5000, "priceGt": 5000, "bidAmtFloor": 0}
     result = scorer.process_all_stocks([raw], f, yesterday)
     assert abs(result[0]["bidRatio"] - 25.0) < 0.01
-    # 非窗口(盘中/收盘): 同样用 pair[0]=最近已收盘交易日, 仍计算显示
+    # 非窗口(盘中/收盘): 分子改认 9:25 定格快照(2026-09-07 起窗口外不回退 f616;
+    # day_bid_amt 有定格值 → 同样用 pair[0]=最近已收盘交易日, 仍计算显示)
     monkeypatch.setattr(scorer, "in_auction_window", lambda: False)
-    result2 = scorer.process_all_stocks([raw], f, yesterday)
+    result2 = scorer.process_all_stocks([raw], f, yesterday, day_bid_amt={"600001": 5000.0})
     assert abs(result2[0]["bidRatio"] - 25.0) < 0.01
-    # pair 缺失 → None
-    result3 = scorer.process_all_stocks([raw], f, {})
+    # pair 缺失 → None(定格有值但分母缺 → None)
+    result3 = scorer.process_all_stocks([raw], f, {}, day_bid_amt={"600001": 5000.0})
     assert result3[0]["bidRatio"] is None
 
 

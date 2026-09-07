@@ -13,7 +13,7 @@ def test_realtime_ladder_rebins_high_boards(client, create_user_token, monkeypat
     from app.services import kpl
 
     u = create_user_token()
-    client.headers["Authorization"] = "Bearer " + u["token"]
+    _hdrs = {"Authorization": "Bearer " + u["token"]}
     # 开盘啦: 龙版传媒放在五板+档(pid=5), 美格智能首板(pid=1)
     monkeypatch.setattr(kpl, "fetch_ladder_all", lambda: {
         1: [{"code": "002881", "name": "美格智能"}],
@@ -26,7 +26,7 @@ def test_realtime_ladder_rebins_high_boards(client, create_user_token, monkeypat
     from app.services import fetcher
     monkeypatch.setattr(fetcher, "fetch_spot_quote_map", lambda fs: {})
 
-    r = client.get("/api/kpl/ladder")
+    r = client.get("/api/kpl/ladder", headers=_hdrs)
     assert r.status_code == 200
     d = (r.json() or {}).get("ladder") or {}
     codes_in = lambda pid: [x.get("code") for x in (d.get(str(pid)) or d.get(pid) or [])]
@@ -41,13 +41,13 @@ def test_realtime_ladder_falls_back_when_real_missing(client, create_user_token,
     from app.services import fetcher
 
     u = create_user_token()
-    client.headers["Authorization"] = "Bearer " + u["token"]
+    _hdrs = {"Authorization": "Bearer " + u["token"]}
     monkeypatch.setattr(kpl, "fetch_ladder_all", lambda: {
         5: [{"code": "605577", "name": "龙版传媒"}]})
     monkeypatch.setattr(kpl, "real_limit_days", lambda date: {})
     monkeypatch.setattr(fetcher, "fetch_spot_quote_map", lambda fs: {})
 
-    r = client.get("/api/kpl/ladder")
+    r = client.get("/api/kpl/ladder", headers=_hdrs)
     d = (r.json() or {}).get("ladder") or {}
     all_codes = [x.get("code") for pid in d for x in (d[pid] or [])]
     assert "605577" in all_codes, "东财缺失时仍应保留该股(以开盘啦档位为准)"

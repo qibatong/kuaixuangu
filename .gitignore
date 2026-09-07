@@ -114,3 +114,4 @@ backend/scripts/*.bak_*
 
 # ========== 项目报告(不入库, 单独维护) ==========
 frontend-architecture-report.md
+.pytest_tmp/

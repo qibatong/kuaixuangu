@@ -369,7 +369,9 @@ def test_ensure_cache_filter_expired_refreshes(monkeypatch):
     """filter 缓存超过 CACHE_TTL → 自动重新拉取(不再永远命中坏缓存)"""
     _use_real_ensure_cache(monkeypatch)
     calls = []
-    monkeypatch.setattr(fetcher, "_fetch_market_with_fallback",
+    # 2026-09-07 fd27ebe 候选池=全市场: ensure_cache 三 action 改用
+    # _fetch_market_all_with_fallback(原 _fetch_market_with_fallback 仅快照模块用)
+    monkeypatch.setattr(fetcher, "_fetch_market_all_with_fallback",
                         lambda fs: calls.append(fs) or [{"f12": "600519"}])
     key = "m:1+t:2"
     fetcher._cache[key] = {"raw": [{"f12": "old"}], "ts": time.time() - config.CACHE_TTL - 1}
@@ -382,7 +384,7 @@ def test_ensure_cache_filter_fresh_hits(monkeypatch):
     """filter 缓存新鲜(< CACHE_TTL) → 命中不重拉"""
     _use_real_ensure_cache(monkeypatch)
     calls = []
-    monkeypatch.setattr(fetcher, "_fetch_market_with_fallback",
+    monkeypatch.setattr(fetcher, "_fetch_market_all_with_fallback",
                         lambda fs: calls.append(fs) or [])
     key = "m:1+t:2"
     fetcher._cache[key] = {"raw": [{"f12": "old"}], "ts": time.time()}

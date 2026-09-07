@@ -23,14 +23,16 @@ def _score_one(f616, day_bid_amt, auction_ok=False):
     return (out[0].get("bidAmt") if out else None)
 
 
-def test_offwindow_uses_snapshot_only():
+def test_offwindow_uses_snapshot_only(monkeypatch):
     """窗口外: 定格快照有值 → 用快照(即使 f616 是巨大的成交额)"""
+    monkeypatch.setattr(scorer, "in_auction_window", lambda: False)   # 显式窗口外(conftest 默认固定窗口内)
     amt = _score_one(f616=5.0e8, day_bid_amt={"600000": 3200.0})   # 快照 3200 万
     assert abs((amt or 0) - 3200.0) < 1, f"应取定格 3200 万, 实际 {amt}"
 
 
 def test_offwindow_missing_snapshot_is_zero_not_amount(monkeypatch):
     """窗口外: 快照缺失 → 0(不回退 f616/成交额; 否则门槛失效)"""
+    monkeypatch.setattr(scorer, "in_auction_window", lambda: False)   # 显式窗口外
     # 模拟腾讯兜底: f616 = 全天成交额 5 亿(元)
     amt = _score_one(f616=5.0e8, day_bid_amt={})
     assert abs((amt or 0) - 0.0) < 1e-6, f"快照缺失应返回 0, 实际 {amt}(若为 50000 万=成交额则门槛失效)"

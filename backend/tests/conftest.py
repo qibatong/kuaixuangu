@@ -142,6 +142,23 @@ def mock_rate_limits(monkeypatch_session):
     monkeypatch_session.setattr(security, "rate_allow", lambda ip, uid=None: True)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def mock_bj_auction_window(monkeypatch_session):
+    """固定北京 9:25(竞价窗口内)时间语义(2026-09-07 db91b5a/4b44500 起需要):
+    score_all_stocks 的竞额定格判定 = in_auction_window() AND _bj_hm()<9:30, 依赖
+    真实时刻的用例会随运行时间漂移(白天竞价窗口内才过 / 晚上跑全挂——MOCK_RAW 的
+    f616 语义只在窗口内生效, 窗口外 bid_amt 只认 9:25 定格快照 day_bid_amt, 测试
+    不传则=0 → 竞价额门槛把全部候选滤掉 → 返回空名单)。
+    默认固定 9:25 → 既有 MOCK_RAW f616 用例任何时刻稳定; 需要窗口外/9:30 后语义
+    的专项用例显式 monkeypatch 覆盖(如 test_bid_amt_offwindow_no_fallback)。
+    """
+    monkeypatch_session.setattr(scorer, "in_auction_window", lambda: True)
+    monkeypatch_session.setattr(scorer, "_bj_hm", lambda: 9 * 60 + 25)
+    # before930=True: 集成测试默认走 ensure_cache 老路径(快照候选池由
+    # test_snapshot_candidate 纯函数单测覆盖; 需盘后/9:30 后语义的用例显式 mock)
+    monkeypatch_session.setattr(scorer, "bj_now", lambda: (9, 25, True))
+
+
 @pytest.fixture(scope="session")
 def create_user_token(client):
     """注册关闭后(2026-08-25合规)测试建用户改用 service 层, 不经注册接口。
