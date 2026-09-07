@@ -193,6 +193,7 @@ def snapshot_at(time_point, force=False):
     # 涨停股封单额与概念(开盘啦概念优先, 东财 f103/f100 兜底)
     n_seal = 0
     n_board = 0
+    n_fill = 0        # 2026-09-07: 开盘啦补位(涨幅/竞价额)计数
     kpl_cnt = 0
     try:
         from . import kpl
@@ -201,6 +202,20 @@ def snapshot_at(time_point, force=False):
         kpl_map = {s["code"]: s for s in kpl_seal}
         kpl_cnt = len(kpl_seal)
         for code, v in raw_all.items():
+            s0 = kpl_map.get(code)
+            # 2026-09-07(主人要求): 开盘啦竞价榜(约 100-200 只强势/涨停股)的
+            # **涨幅与竞价额补位** —— 行情源在竞价期常给不出值:
+            #   9:15 东财竞价数据未生成(bid_change=0 占 70%)
+            #   9:20/9:24 腾讯兜底无真实竞价额(f616=成交额近似=0)
+            # 只在原值为 0/缺失时补(不覆盖已有正常值, 避免跨源口径冲突),
+            # 且必须**早于 is_zt 判定**, 否则补来的涨停涨幅不参与封单/涨停判定。
+            if s0:
+                if not (v.get("bid_change") or 0) and (s0.get("bidChange") or 0):
+                    v["bid_change"] = s0["bidChange"]
+                    n_fill += 1
+                if not (v.get("bid_amt") or 0) and (s0.get("bidAmt") or 0):
+                    v["bid_amt"] = s0["bidAmt"]
+                    n_fill += 1
             # 该时点是否涨停(与 _is_zt 一致): 决定封单额是否有效
             bc = v.get("bid_change") or 0
             if code[:2] in ("30", "68"):
@@ -231,9 +246,9 @@ def snapshot_at(time_point, force=False):
                 if b:
                     v["board"] = b     # 开盘啦概念覆盖东财
                     n_board += 1
-        if n_seal or n_board:
-            log.info("[快照采集] time=%s 开盘啦叠加 封单%d只 概念%d只 (开盘啦返回%d只)",
-                     time_point, n_seal, n_board, kpl_cnt)
+        if n_seal or n_board or n_fill:
+            log.info("[快照采集] time=%s 开盘啦叠加 封单%d只 概念%d只 补位%d项 "
+                     "(开盘啦返回%d只)", time_point, n_seal, n_board, n_fill, kpl_cnt)
         else:
             log.info("[快照采集] time=%s 开盘啦叠加 0 只 (开盘啦返回%d只, 可能非交易时段或接口异常)",
                      time_point, kpl_cnt)

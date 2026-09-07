@@ -124,3 +124,52 @@ class TestKplSealNotBlockedByBidChange:
         """涨停时同样保留(回归)"""
         n, row = self._run(monkeypatch, 10.0)
         assert row is not None and abs((row[0] or 0) - 5.0e8) < 1
+
+
+class TestKplFillBidChangeAndAmt:
+    """开盘啦竞价榜补位: 涨幅/竞价额缺失时用开盘啦值(仅补缺失, 不覆盖已有)"""
+
+    def _run(self, monkeypatch, raw, kpl_row):
+        from app.services import auction_snapshot as A
+        from app.services import kpl
+        from app.db import database
+
+        monkeypatch.setattr(A, "_bj_date", lambda: "2099-01-02")
+        monkeypatch.setattr(A, "_fetch_market_map", lambda full=False: {"600108": dict(raw)})
+        monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: [kpl_row])
+        monkeypatch.setattr(kpl, "clear_cache", lambda: None)
+        A.snapshot_at("9_15", force=True)
+
+        conn = database.get_conn()
+        row = conn.execute(
+            "SELECT bid_change, bid_amt, bid_buy_amt FROM snapshot_bid "
+            "WHERE date='2099-01-02' AND code='600108'").fetchone()
+        conn.execute("DELETE FROM snapshot_bid WHERE date='2099-01-02'")
+        conn.commit()
+        conn.close()
+        return row
+
+    BASE = {"bid_change": 0.0, "bid_amt": 0.0, "name": "亚盛集团",
+            "bid_buy_amt": 0.0, "float_mv": 1e10, "free_mv": 1e10, "board": ""}
+    KPL = {"code": "600108", "name": "亚盛集团", "bidChange": 9.99,
+           "bidAmt": 888.0, "bidSealAmt": 5.0e8, "board": "农业"}
+
+    def test_fill_when_market_missing(self, monkeypatch):
+        """行情源涨幅=0/竞价额=0 → 用开盘啦补位(9:15 / 腾讯兜底场景)"""
+        row = self._run(monkeypatch, self.BASE, self.KPL)
+        assert row is not None
+        assert abs((row[0] or 0) - 9.99) < 1e-6, f"涨幅应补为 9.99, 实际 {row[0]}"
+        assert abs((row[1] or 0) - 888.0) < 1e-6, f"竞价额应补为 888, 实际 {row[1]}"
+
+    def test_no_override_when_market_has_value(self, monkeypatch):
+        """行情源已有正常值 → 不覆盖(避免跨源口径冲突)"""
+        raw = dict(self.BASE, bid_change=3.5, bid_amt=120.0)
+        row = self._run(monkeypatch, raw, self.KPL)
+        assert abs((row[0] or 0) - 3.5) < 1e-6, "已有涨幅不应被覆盖"
+        assert abs((row[1] or 0) - 120.0) < 1e-6, "已有竞价额不应被覆盖"
+
+    def test_filled_change_participates_in_zt(self, monkeypatch):
+        """补位来的涨停涨幅应参与涨停判定: 东财伪封单(is_zt) 逻辑仍自洽;
+        真实封单不受影响(应保留 5 亿)"""
+        row = self._run(monkeypatch, self.BASE, self.KPL)
+        assert abs((row[2] or 0) - 5.0e8) < 1, f"封单应保留 5 亿, 实际 {row[2]}"
