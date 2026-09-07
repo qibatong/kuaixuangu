@@ -156,3 +156,54 @@ def test_board_stocks_fallback_yesterday_when_today_not_frozen(monkeypatch):
     out = kpl.fetch_board_stocks("801001")
     assert calls["n"] == 2, "今天被拒后应回退昨日(2 次 his 调用)"
     assert out and out[0]["price"] == 11.1, "回退昨日的名单也要被实时行情覆盖"
+
+
+# ---------- ③ 主人补充: 成分股 = 今日实时涨幅 top30 ----------
+
+def test_board_stocks_sorted_by_today_change_top30(monkeypatch):
+    """P0(主人 9/7 补充): 实时请求拉全量成分(st=500), 行情覆盖后按**今日 change
+    降序**截取 st=30 —— 而非开盘啦昨日排行(昨日跌幅榜的票今天可能排最前)"""
+    rows = []
+    # 构造 35 只(超过 30, 验证截断): 昨日排序使 code0 在最前(昨日强), 今日它最弱
+    for i in range(35):
+        r = _mk_kpl_row("60%04d" % i, price=10 + i * 0.1, chg=i - 20)
+        rows.append(r)
+
+    seen_st = {"v": None}
+
+    def fake_call(host_key, params):
+        seen_st["v"] = params.get("st")
+        if params.get("Date") == time.strftime("%Y-%m-%d"):
+            return {"errcode": 1020}
+        return {"errcode": "0", "list": rows}
+
+    monkeypatch.setattr(kpl, "_call", fake_call)
+    # 实时行情: code_i 的今日涨幅 = i(单调), 与昨日排序无关
+    monkeypatch.setattr(fetcher, "fetch_spot_details_by_codes", lambda codes: {
+        c: {"price": 12.0, "change": float(int(c[2:])), "turnover": 5.0, "volRatio": 1.0,
+            "amount": 1e9, "floatMv": 5e10, "mainNet": 1e6} for c in codes})
+
+    out = kpl.fetch_board_stocks("801001")
+    assert seen_st["v"] == "500", "实时请求应拉全量成分(st=500), 而非昨日 top30 再排序"
+    assert len(out) == 30, "截断到 30"
+    assert out[0]["code"] == "600034", "今日涨幅最大的应排第一(60 0034→change=34)"
+    assert out[-1]["code"] == "600005", "第 30 名应是 change=5(35 只里最小前 30)"
+    changes = [x["change"] for x in out]
+    assert changes == sorted(changes, reverse=True), "应按今日 change 严格降序"
+
+
+def test_board_stocks_history_keeps_original_order(monkeypatch):
+    """date 指定(历史回看) → 不做实时 top 排序(保持开盘啦当日排行)"""
+    calls = {"n": 0}
+
+    def fake_call(host_key, params):
+        calls["n"] += 1
+        assert params.get("Date") == "2026-09-04", "历史回看必须带指定 Date"
+        return {"errcode": "0", "list": [_mk_kpl_row("600000", chg=1.0),
+                                        _mk_kpl_row("600001", chg=9.0)]}
+
+    monkeypatch.setattr(kpl, "_call", fake_call)
+    monkeypatch.setattr(fetcher, "fetch_spot_details_by_codes", lambda codes: {})
+    out = kpl.fetch_board_stocks("801001", date="2026-09-04")
+    assert calls["n"] == 1
+    assert [x["code"] for x in out] == ["600000", "600001"], "历史回看保持开盘啦原排序"
