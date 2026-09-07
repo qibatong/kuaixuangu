@@ -636,8 +636,14 @@ def score_all_stocks(raw, yesterday_map=None, snapshot_map=None, qiangchou_codes
         if auction_ok:
             bid_amt = get_bid_amt(s, True)
         else:
-            snap_amt = day_bid_amt.get(code)
-            bid_amt = snap_amt if (snap_amt or 0) > 0 else get_bid_amt(s, False)   # 万元
+            # 2026-09-07 修复(主人反馈"竞价额 3000→2500 万, 选出 56 只, 是不是有问题"):
+            # 窗口外(盘中/收盘)**只认 9:25 定格竞价额**, 缺失即 0, **不再回退 f616** —
+            # 腾讯兜底行 f616 被近似为**全天累计成交额**(fetcher 腾讯映射),
+            # 收盘后动辄数亿 → 竞价额门槛形同虚设。实测同一参数因行情源(东财/腾讯)
+            # 抖动返回 19 / 56 / 122 只(批次 #8226/#8227/#8225), 结果完全不可信。
+            # 竞价额缺失(快照无该 code)应表现为 0 → 不满足"≥门槛"被过滤, 而非用
+            # 成交额冒充。竞价窗口内仍用行情 f616(新鲜可信)。
+            bid_amt = float(day_bid_amt.get(code) or 0)   # 万元
         pair = yesterday_map.get(code)   # [最近已收盘T日, T-1日] 万元
         bid_ratio = None
         if pair:

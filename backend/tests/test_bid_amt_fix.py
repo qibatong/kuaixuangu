@@ -76,19 +76,21 @@ def test_bid_amt_off_window_uses_day_snapshot(monkeypatch):
     assert r[0]["bidRatio"] == 40.0
 
 
-def test_bid_amt_off_window_fallback_f616_when_code_missing(monkeypatch):
-    """快照缺该 code(采集缺失) → 回退行情 f616(保底, 腾讯伪值 200000万)"""
+def test_bid_amt_off_window_missing_code_is_zero(monkeypatch):
+    """2026-09-07 语义变更: 快照缺该 code(采集缺失) → **0**, 不再回退行情 f616。
+    原回退会把腾讯兜底的"全天成交额"(此处 200000 万)当竞价额 → 竞价额门槛形同虚设
+    (实测同一参数返回 19/56/122 只)。缺失应表现为 0(不满足"≥门槛"被过滤)。"""
     monkeypatch.setattr(scorer, "in_auction_window", lambda: False)
     r = scorer.process_all_stocks([dict(TENCENT_RAW)], FILTER, {}, {},
                                   day_bid_amt={"000001": 500.0})
-    assert r[0]["bidAmt"] == 200000.0
+    assert r[0]["bidAmt"] == 0.0
 
 
-def test_bid_amt_off_window_no_map_compat(monkeypatch):
-    """不传 day_bid_amt(旧调用方/兼容) → 回退 get_bid_amt, 行为不变"""
+def test_bid_amt_off_window_no_map_is_zero(monkeypatch):
+    """不传 day_bid_amt(旧调用方/兼容) → 同样为 0(窗口外只认定格快照)"""
     monkeypatch.setattr(scorer, "in_auction_window", lambda: False)
     r = scorer.process_all_stocks([dict(EM_RAW)], FILTER, {}, {})
-    assert r[0]["bidAmt"] == 5000.0    # 5e7元 / 1e4 = 5000万
+    assert r[0]["bidAmt"] == 0.0
 
 
 def test_bid_amt_in_window_uses_live_f616(monkeypatch):
