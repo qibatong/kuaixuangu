@@ -289,6 +289,22 @@ def is_first_board(s):
     return ("昨日涨停" in concept) or ("昨日连板" in concept)
 
 
+def _in_markets(code, markets):
+    """市场范围过滤(2026-09-07 修复: 腾讯兜底无视 fs 按全市场拉取 → 后端若只依赖
+    raw 范围做市场过滤会整体失效, 主/创/科勾选不起作用)。此处按代码前缀在**评分层**
+    兜底, 任何数据源(东财/腾讯/量脉)都生效:
+      hs=沪主板60x + 深主板00x | cyb=300/301 | kcb=688/689
+    北交所(4/8/9开头)不在 UI 选项, 与东财 market_fs 口径一致(不返回)"""
+    code = str(code or "")
+    if code.startswith(("300", "301")):
+        return "cyb" in markets
+    if code.startswith(("688", "689")):
+        return "kcb" in markets
+    if code.startswith(("600", "601", "603", "605", "000", "001", "002", "003", "301")):
+        return "hs" in markets
+    return False    # 北交所等不在 UI 选项 → 一律排除
+
+
 def limit_pct(code, name, pre_close):
     """涨停幅度: ST 5% / 创业板·科创板 20% / 主板 10%"""
     if "ST" in (name or ""):
@@ -497,13 +513,20 @@ def apply_spot_filters(items, f):
 
         # 2026-08-25 语义反转(正逻辑): stSuspend/limitUp=true → "只看这类票", false → "剔除这类票"
         # 旧逻辑是 true=剔除, 导致用户直觉与结果相反; 此处改为 NOT 判断实现反转.
+        # 2026-09-07 修复(主人反馈"勾选无变化"):
+        #   ① markets 下沉到评分层 —— 腾讯兜底无视 fs 按全市场拉 raw, 原实现靠 raw
+        #      范围过滤市场 → 兜底期 主/创/科 勾选整体失效(全市场 5548 只同参评分);
+        #   ② limitUp 补全"勾选=只看昨涨停/连板" —— 原实现只做"不勾选剔除",
+        #      勾选时并不过滤 → 勾不勾几乎无差, 与 UI「只看昨涨停」文案不符。
+        if not _in_markets(it["code"], f["markets"]):
+            continue
+        if bool(f["limitUp"]) != is_first_board(it["_raw"]):
+            continue
         if not f["stSuspend"]:
             if is_st(name):
                 continue
             if is_suspended(it["_raw"]):
                 continue
-        if not f["limitUp"] and is_first_board(it["_raw"]):
-            continue
         if f["spotExcludeZT"] and it["limitBoards"] > 0:   # 剔除已涨停封板(买不进)
             continue
         if real_chg < f["chgFloor"] or real_chg > f["chgGt"]:
@@ -538,13 +561,16 @@ def apply_filters(items, f):
         bid_amt = it["bidAmt"]
 
         # 2026-08-25 语义反转(正逻辑): 同 apply_spot_filters, 见注释
+        # 2026-09-07 修复: markets 下沉评分层(腾讯兜底无视 fs) + limitUp 勾选=只看昨涨停
+        if not _in_markets(it["code"], f["markets"]):
+            continue
+        if bool(f["limitUp"]) != is_first_board(it["_raw"]):
+            continue
         if not f["stSuspend"]:
             if is_st(name):
                 continue
             if is_suspended(it["_raw"]):
                 continue
-        if not f["limitUp"] and is_first_board(it["_raw"]):
-            continue
         if bid_chg > f["bidGt"]:
             continue
         if prob < f["probLt"] and conf < f["confLt"]:
