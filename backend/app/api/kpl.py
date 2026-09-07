@@ -426,6 +426,14 @@ def api_kpl_ladder(request: Request, uid: int = Depends(get_uid), date: str = ""
         d = kpl.rebin_ladder(d, resolved)
         return jr({"ok": True, "ladder": d, "date": resolved, "requestedDate": date})
     d = kpl.fetch_ladder_all()
+    # 2026-09-07 修复(主人反馈"龙版传媒是 6 连板不是 5 连板"):
+    # 开盘啦连板梯队 pid 只分到 **五板+(pid=5)**, 6 板以上全塞进第 5 档 → 前端显示
+    # "五板+"/5板。历史回看路径早已用 rebin_ladder(东财涨停池真实 limitUpDays)拆成
+    # 1~8 档, **实时路径漏了这一步**。实测龙版传媒 real=6 → rebin 后正确落第 6 档。
+    try:
+        d = kpl.rebin_ladder(d, _time.strftime("%Y-%m-%d"))
+    except Exception as e:
+        log.warning("ladder 实时 rebin 失败(回退 5 档结构) err=%s", str(e)[:120])
     # 2026-08-18 修复: 开盘啦 DailyLimitPerformance 无涨幅字段 → 东财全市场实时行情 merge
     # (前端"实时涨幅"列读 change/realChange, 之前梯队页涨幅全空)
     try:
