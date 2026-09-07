@@ -364,8 +364,18 @@ export const useStocksStore = defineStore('stocks', {
       }
       const data = await fetchStocks('filter', this.buildFilterParams())
       // 筛选重算 = 按当前条件重新筛, 直接用后端新名单(不是锁定名单)
-      // 锁定名单恒定仅用于"刷新实时涨幅", 不影响筛选重算(否则改条件永远同一批票)
+      // 锁定名单恒定仅用于"刷新实时涨幅", 不影响筛选重算(否则改条件永远同一批)
       this.cachedStocks = data.list || []
+      // 2026-09-07 防御性重渲(主人反馈"点应用没更新股池"): 异步赋值后 nextTick 再 slice
+      // 一份新引用, 防止某些极端 case(异步队列被合并/引用复用)导致 StockTable
+      // 的 computed 未触发; 同时 console.log 便于复现时核对
+      console.log('[filter] cachedStocks len=', this.cachedStocks.length,
+                  '| 前 3:', this.cachedStocks.slice(0, 3).map(s => s.code))
+      this.$nextTick(() => {
+        if (this.cachedStocks && this.cachedStocks.length) {
+          this.cachedStocks = this.cachedStocks.slice()
+        }
+      })
       this.isDataCached = true
       this.before930 = data.before930
       this.saveUserPrefs()
