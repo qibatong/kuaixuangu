@@ -790,30 +790,32 @@ def _fetch_market_all_with_fallback(fs):
 
 def ensure_cache(action, fs, before930):
     """在锁内保证缓存可用且新鲜, 返回 (raw, 错误信息)。
-    - lock:    9:30 前强制重新拉取(锁定期权)
+    - lock:    9:30 前强制重新拉取(锁定期权; 10s 内复用防多用户并发全市场风暴)
     - refresh: 缓存过期(超过 CACHE_TTL 秒)才重新拉取
     - filter:  无缓存时拉取一次
     2026-08-30 容灾(主人要求): 东财失败自动切腾讯兜底(腾讯无 f615 竞价字段, 用近似)
-    """
+    2026-09-07 候选池=全市场(主人拍板): 原 _fetch_market_with_fallback 只取涨幅榜
+    Top200(f3 倒序), 与默认"涨幅≤7%"筛选条件反向错配 → 默认竞价额 3000万+涨幅≤7%
+    只交集出 5 只(全市场同条件 22 只)。改全市场分页(f12, 30页并发, 实测 386ms)。"""
     with _fetch_lock:
         now = time.time()
+        entry = _cache.get(fs)
         if action == "lock":
             if not before930:
                 return None, "9:30 后禁止重新选股"
-            _cache[fs] = {"raw": _fetch_market_with_fallback(fs), "ts": now}
-            log.info("缓存锁定 fs=%s", fs)
+            if entry is None or now - entry["ts"] > 10:
+                _cache[fs] = {"raw": _fetch_market_all_with_fallback(fs), "ts": now}
+            log.info("缓存锁定 fs=%s (候选池=全市场, 复用10s内缓存)", fs)
         elif action == "refresh":
-            entry = _cache.get(fs)
             if entry is None or now - entry["ts"] > config.CACHE_TTL:
-                _cache[fs] = {"raw": _fetch_market_with_fallback(fs), "ts": now}
-                log.info("缓存刷新 fs=%s", fs)
+                _cache[fs] = {"raw": _fetch_market_all_with_fallback(fs), "ts": now}
+                log.info("缓存刷新 fs=%s (候选池=全市场)", fs)
             else:
                 log.info("缓存命中 fs=%s 年龄%.0fs", fs, now - entry["ts"])
         else:  # filter
-            entry = _cache.get(fs)
             if entry is None or now - entry["ts"] > config.CACHE_TTL:
-                _cache[fs] = {"raw": _fetch_market_with_fallback(fs), "ts": now}
-                log.info("缓存初建/过期刷新 fs=%s", fs)
+                _cache[fs] = {"raw": _fetch_market_all_with_fallback(fs), "ts": now}
+                log.info("缓存初建/过期刷新 fs=%s (候选池=全市场)", fs)
             else:
                 log.info("缓存命中 fs=%s 年龄%.0fs", fs, now - entry["ts"])
         return _cache[fs]["raw"], None
@@ -913,6 +915,47 @@ def fetch_spot_quotes_by_codes(code_list):
                 code_set.discard(code)
         if not code_set:
             break
+    return out
+
+
+# 东财按 code 批量拉完整行情接口(2026-09-07 新增): ulist.np/get 返回与 clist 同构的 diff 列表
+_ULIST_URL = "https://push2.eastmoney.com/api/qt/ulist.np/get"
+_ULIST_BATCH = 60     # 每批 ≤60 只(实测 200 只 URL 过长; 60 稳)
+
+
+def fetch_raw_by_codes(code_list):
+    """按 code 批量拉**完整行情 diff**(盘后 filter 快照候选补评分用, 2026-09-07):
+    候选池先用 9:25 快照表初筛(免费), 命中几十只再这里点查, 替代"实时拉全市场 28 页"。
+    返回与 fetch_eastmoney_all 同构的 diff 列表(f2/f3/f4/f5/f6/f8/f10/f12/f14/f20/f21/
+    f100/f102/f103/f616), 可直接喂 scorer.process_all_stocks 完整评分; 逐批直拉东财
+    ulist(不依赖 spotMap 缓存, 评分字段全), 任一批失败抛异常(调用方降级回全市场)。
+    走 _http_get(自动出站 IP 轮询)。"""
+    if not code_list:
+        return []
+    out = []
+    t0 = time.time()
+    for i in range(0, len(code_list), _ULIST_BATCH):
+        chunk = code_list[i:i + _ULIST_BATCH]
+        secids = ",".join(_secid(c) for c in chunk)
+        qs = urllib.parse.urlencode({
+            "fltt": 2, "invt": 2,
+            "fields": "f2,f3,f4,f5,f6,f8,f10,f12,f14,f20,f21,f100,f102,f103,f616",
+            "secids": secids, "ut": config.EASTMONEY_UT,
+        })
+        req = urllib.request.Request(_ULIST_URL + "?" + qs, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Referer": "https://quote.eastmoney.com/"})
+        with _http_get(req, timeout=10, context=_NO_VERIFY_CTX) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        if data.get("rc") != 0:
+            raise RuntimeError("东财 ulist 返回异常 rc=%s" % data.get("rc"))
+        diff = (data.get("data") or {}).get("diff") or []
+        out.extend(diff)
+    if not out:
+        raise RuntimeError("东财 ulist 返回空")
+    log.info("东财按code点查 %d只(共%d批) 耗时%.0fms 返回%d只",
+             len(code_list), (len(code_list) + _ULIST_BATCH - 1) // _ULIST_BATCH,
+             (time.time() - t0) * 1000, len(out))
     return out
 
 

@@ -25,6 +25,46 @@ def _apply_kpl_board(result, log_tag=""):
     kpl.apply_board_concept(result, log_tag)
 
 
+# 快照候选池粗筛(2026-09-07 主人方案: 盘后 filter 不拉实时全市场, 直接用 9:25 定格快照表):
+# 与 scorer.apply_filters 同标准的"快照字段可判定"部分(市值/竞价额/涨幅/板块/ST/昨涨停),
+# 价格/停牌/概率等快照无字段的过滤留给点查行情后的 apply_filters(候选集小, 成本低)。
+_SNAP_CANDIDATE_MAX = 120    # 候选上限: 点查一批够覆盖, 防极端参数下 URL 过长
+
+
+def _snapshot_candidate_codes(snap_rows, f, yzt_codes):
+    """按快照字段粗筛 9:25 全市场快照 → 候选 code 列表(按竞价额降序)。
+    snap_rows: auction_snapshot.load_snapshot_full() 返回 {code: {...}}
+    yzt_codes: 昨日涨停/连板 code 集合(limitUp 未勾选时用于剔除, 替代快照缺的 concept)"""
+    codes = []
+    for code, v in snap_rows.items():
+        name = v.get("name") or ""
+        # 板块(与 apply_filters._in_markets 同标准)
+        if not scorer._in_markets(code, f.get("markets") or []):
+            continue
+        # ST 剔除(默认 stSuspend=False → 剔 ST, 语义同 apply_filters)
+        if not f["stSuspend"] and scorer.is_st(name):
+            continue
+        # 昨涨停/连板剔除(limitUp 未勾)
+        if not f["limitUp"] and (code in yzt_codes):
+            continue
+        # 竞价涨幅 > bidGt 剔除(与 apply_filters 同: 保留 ≤ bidGt)
+        if (v.get("bid_change") or 0) > f["bidGt"]:
+            continue
+        # 市值(快照 free_mv 单位元 → 亿; 与 circulationMV=f21/1e8 同)
+        mv = (v.get("free_mv") or v.get("float_mv") or 0.0) / 1e8
+        if mv < f["floatMvFloor"]:
+            continue
+        if f["floatMvGt"] > 0 and mv > f["floatMvGt"]:
+            continue
+        # 竞价额(9_25 定格, 万元; 与 day_bid_amt 同口径)
+        if (v.get("bid_amt") or 0) < f["bidAmtFloor"]:
+            continue
+        codes.append((code, v.get("bid_amt") or 0))
+    # 按竞价额降序, 限制候选量
+    codes.sort(key=lambda x: -x[1])
+    return [c for c, _ in codes[:_SNAP_CANDIDATE_MAX]]
+
+
 @router.get("/api/stocks")
 def api_stocks(request: Request, uid: int = Depends(get_uid)):
     q = qs(request)
@@ -183,8 +223,36 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                     "dataTime": int(time.time()),
                     "reused": True, "source": "calc_cache",
                 })
-        # 评分筛选: 沿用原逻辑(9:30 前 lock 强制, refresh/filter 走 TTL 缓存, 至多200只)
-        raw, err = fetcher.ensure_cache(action, fs, before930)
+        # 评分筛选: 沿用原逻辑(9:30 前 lock 强制, refresh/filter 走 TTL 缓存)
+        # 2026-09-07 主人方案「候选池=全市场, 且直接读快照不实时拉」:
+        #   窗口外(9:30 后/盘后/休市) filter 用当日 9:25 定格快照表(已自动采集)粗筛
+        #   → 候选几十只按 code 点查完整行情(fetch_raw_by_codes, 东财 ulist)
+        #   → 原 scorer 全流程评分过滤。替代原 ensure_cache: ①原 Top200 涨幅榜与
+        #   「涨幅≤7%」反向错配(默认只出 5 只) ②实时拉全市场 28 页(打数据源)。
+        #   点查失败/窗口内/无当日快照 → 降级 ensure_cache(已改全市场)。
+        raw = None
+        err = None
+        if action == "filter" and mode == "auction" and not before930:
+            try:
+                snap_rows = auction_snapshot.load_snapshot_full()
+                if snap_rows:
+                    yzt = set()
+                    if not f["limitUp"]:
+                        try:
+                            yzt = set(fetcher.get_yesterday_zt_codes())
+                        except Exception as e:
+                            log.warning("昨涨停集合拉取失败(不剔除昨涨停, 概念层兜底) err=%s", e)
+                    snap_codes = _snapshot_candidate_codes(snap_rows, f, yzt)
+                    if snap_codes:
+                        raw = fetcher.fetch_raw_by_codes(snap_codes)
+                        log.info("选股快照候选池 uid=%s markets=%s 粗筛%d只 点查%d只 "
+                                 "(快照表, 不拉全市场)", uid, ",".join(f["markets"]),
+                                 len(snap_codes), len(raw))
+            except Exception as e:
+                log.warning("快照候选池失败降级实时全市场 uid=%s err=%s", uid, str(e)[:150])
+                raw = None
+        if raw is None:
+            raw, err = fetcher.ensure_cache(action, fs, before930)
         if err:
             log.warning("选股被拒 uid=%s action=%s mode=%s err=%s", uid, action, mode, err)
             return jr({"ok": False, "msg": err}, 403)

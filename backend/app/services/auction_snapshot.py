@@ -415,6 +415,38 @@ def load_snapshot(date=None, time_point=DEFAULT_POINT):
     return {r[0]: {"bid_change": r[1], "bid_amt": r[2]} for r in rows}
 
 
+def load_snapshot_full(date=None, time_point="9_25"):
+    """读某日某时点**全市场快照行**(盘后 filter 候选池用, 2026-09-07 主人要求:
+    候选池=全市场且直接用已自动采集的快照表, 不再实时拉全市场 28 页)。
+    返回 {code: {name, bid_change, bid_amt, float_mv(元), free_mv(元), board}};
+    float_mv/free_mv 保持原始单位(元, 与行情 f20/f21 一致, /1e8=亿)。
+    当日该时点无快照(周末/休市/采集缺失)→ 自动回退**最近一个有快照的交易日**,
+    保证休市/盘后浏览仍能按最近竞价结果筛股。"""
+    date = date or _bj_date()
+    try:
+        conn = database.get_conn()
+        # 找最近的可用日期(含当天, 往前最多 15 个自然日; 交易日快照才有 9_25 行)
+        row = conn.execute(
+            "SELECT MAX(date) FROM snapshot_bid "
+            "WHERE date<=? AND time_point=? AND date>=" +
+            "date('now', '-15 days', '+8 hours')",
+            (date, time_point)).fetchone()
+        use_date = row[0] if row and row[0] else date
+        rows = conn.execute(
+            "SELECT code, name, bid_change, bid_amt, float_mv, free_mv, board "
+            "FROM snapshot_bid WHERE date=? AND time_point=?", (use_date, time_point)).fetchall()
+        conn.close()
+    except Exception:
+        return {}
+    if use_date != date:
+        log.info("load_snapshot_full: %s 无快照, 回退最近交易日 %s (time_point=%s)",
+                 date, use_date, time_point)
+    return {
+        r[0]: {"name": r[1] or "", "bid_change": r[2], "bid_amt": r[3],
+               "float_mv": r[4] or 0.0, "free_mv": r[5] or 0.0, "board": r[6] or ""}
+        for r in rows}
+
+
 # 竞额定格读取(2026-09-03): 盘中「竞额」列应显示当日 9:25 定格竞价额而非行情实时成交额
 # (东财封禁期全市场行情走腾讯兜底, 腾讯无竞价额字段, fetcher 把累计实时成交额塞进 f616 近似 →
 #  盘中直接读行情 bidAmt=实时成交额失真)。9:30 前无连续竞价, 各时点快照 bid_amt=该时点竞价累计
