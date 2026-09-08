@@ -58,22 +58,3 @@ test('buildFilterParams: 勾选后转"1"', () => {
   assert.equal(p.stSuspend, '1')
   assert.equal(p.limitUp, '1')
 })
-
-// 2026-09-08 竞涨下限 bidLt: 竞价大幅低开(资金出逃形态)剔除; null/undefined/'' = 不限(默认)
-test('passLockedFilter: bidLt 为空(null/undefined)不设下限, 负竞涨保留(老行为)', () => {
-  assert.equal(passLockedFilter({ code: 'b1', concept: '', bidChange: -5.46, circulationMV: 50, bidAmt: 5000 }, null, F), true)
-  assert.equal(passLockedFilter({ code: 'b2', concept: '', bidChange: -5.46, circulationMV: 50, bidAmt: 5000 }, null, { ...F, bidLt: undefined }), true)
-  assert.equal(passLockedFilter({ code: 'b3', concept: '', bidChange: -5.46, circulationMV: 50, bidAmt: 5000 }, null, { ...F, bidLt: '' }), true)
-})
-
-test('passLockedFilter: bidLt=-2 时竞价 -5.46 剔除, -1 保留', () => {
-  const FL = { ...F, bidLt: -2 }
-  assert.equal(passLockedFilter({ code: 'c1', concept: '', bidChange: -5.46, circulationMV: 50, bidAmt: 5000 }, null, FL), false)
-  assert.equal(passLockedFilter({ code: 'c2', concept: '', bidChange: -1.0, circulationMV: 50, bidAmt: 5000 }, null, FL), true)
-})
-
-test('buildFilterParams: bidLt null 不传给后端(后端默认不限), 有值才传', () => {
-  assert.equal('bidLt' in buildFilterParams({ ...F, bidLt: null }), false)
-  assert.equal('bidLt' in buildFilterParams({ ...F }), false)   // 默认 null
-  assert.equal(buildFilterParams({ ...F, bidLt: -2 }).bidLt, -2)
-})

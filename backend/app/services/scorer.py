@@ -590,10 +590,6 @@ def apply_filters(items, f):
                 continue
         if bid_chg > f["bidGt"]:
             continue
-        # 2026-09-08 竞涨下限: 竞价大幅低开(资金出逃形态)剔除; 默认 -50 不触发(保持老行为)
-        # .get 兼容历史手工构造的 filters dict(未走 validate_filters 的调用方/测试)
-        if bid_chg < f.get("bidLt", -50):
-            continue
         if prob < f["probLt"] and conf < f["confLt"]:
             continue
         if mv < f["floatMvFloor"]:
@@ -775,11 +771,6 @@ def validate_filters(q):
         "limitUp": _truthy((q.get("limitUp") or ["1"])[0]),
         "markets": markets,
         "bidGt": _clamp((q.get("bidGt") or ["7"])[0], 0, 20, 7),
-        # 2026-09-08 竞涨下限(默认 -50=不限): 竞价涨幅低于该值剔除 — 筛选历史上只有上限
-        # (防追高开), 无下限 → 竞价大额低开(-3%~-10% 资金出逃形态)的票稳定入选(主人反馈
-        # 「名单常现大跌票」: 深中华A/四方精创/恒宝 等 9/7 全天被选上百次, 当日均收跌 3.5-6.7%)。
-        # 前端 FilterPanel 可配「竞涨 ≥」; 默认不过滤保持老用户行为不变。
-        "bidLt": _clamp((q.get("bidLt") or ["-50"])[0], -50, 20, -50),
         "probLt": _clamp((q.get("probLt") or ["65"])[0], 5, 95, 65),
         "confLt": _clamp((q.get("confLt") or ["65"])[0], 50, 90, 65),
         "floatMvFloor": _clamp((q.get("floatMvFloor") or ["30"])[0], 0, 5000, 30),
