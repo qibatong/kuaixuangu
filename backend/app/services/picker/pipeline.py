@@ -48,6 +48,7 @@ class PickContext:
     yesterday_chg: Dict[str, float] = field(default_factory=dict)    # 真实昨日涨幅 %
     yesterday_map: Dict[str, list] = field(default_factory=dict)     # 成交额对(竞/昨比)
     snapshot_map: Dict[str, dict] = field(default_factory=dict)      # 9:20 快照(加速度)
+    strengths: Dict[str, float] = field(default_factory=dict)        # 竞价强度(注入后不再自加载)
     require_bid_change: bool = True
 
 
@@ -206,9 +207,14 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
     else:
         res.errors.append("补丁源不可用(价格门槛与实时展示字段将缺失)")
 
+    # 3.5) 竞价强度(替代失活的 f630 异动等级, 权重同为 w_warn=17%):
+    #      三层信号全部来自**快照表 + 开盘啦**, 对东财免疫 —— 东财点查断了照样有分。
+    #      只对候选加载(全市场拉没必要); 加载失败 → strengths 为空 → 退回 warn 因子。
+    strengths = _load_strength(codes, ctx)
+
     # 4) 评分 + 精筛(只针对候选) → **名单在此定型**
     cand_rows = [rows[c] for c in codes if c in rows]
-    srows = score_rows(cand_rows, cfg)
+    srows = score_rows(cand_rows, cfg, strengths)
     outcome = pfilter.apply_filters(srows, filters, fctx)
     res.stats = dict(outcome.stats)
 
@@ -308,3 +314,23 @@ def fill_yesterday(codes: Sequence[str],
     except Exception as e:                                    # noqa: BLE001
         log.warning("昨日成交额加载失败(竞/昨比不可算) err=%s", e)
     return ctx
+
+
+def _load_strength(codes: Sequence[str], ctx: PickContext) -> Dict[str, float]:
+    """加载竞价强度(替代 f630 异动等级), 返回 {code: 0~1}。
+
+    三层信号(抢筹名单 / 竞价量比 / 加速度)全部来自快照表 + 开盘啦, **不依赖东财**
+    —— 东财点查断了照样有分, 不会再出现"全员 default → 天花板崩 14 分"。
+    异常一律吞掉返回空 dict(调用方退回 warn 因子, 不阻塞选股)。
+    """
+    if ctx.strengths:                      # 调用方显式注入(测试/对拍)
+        return ctx.strengths
+    try:
+        from .. import bid_strength
+        st = bid_strength.load(list(codes), date=ctx.date)
+        out = {c: v for c, v in bid_strength.score_map(st).items() if v is not None}
+        log.info("[竞价强度] 候选%d只 取到强度%d只", len(codes), len(out))
+        return out
+    except Exception as e:                                    # noqa: BLE001
+        log.warning("[竞价强度] 加载失败(退回 f630 异动等级) err=%s", e)
+        return {}

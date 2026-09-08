@@ -37,11 +37,16 @@ class ScoreResult:
     parts: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
-def compute_score(row: QuoteRow, cfg: Optional[dict] = None) -> ScoreResult:
+def compute_score(row: QuoteRow, cfg: Optional[dict] = None,
+                  strength: Optional[float] = None) -> ScoreResult:
     """契约版竞价评分: 输入 QuoteRow, 输出与老链路同构的评分结果。
 
     因子取值全部来自契约层(唯一权威来源), 缺失(None)一律走该因子 default 分。
     cfg: 评分配置(缺省自动取 scorer.get_scoring_cfg()), 便于测试注入。
+    strength: **竞价强度**(0~1, 由 services/bid_strength 三层合成, pipeline 注入)。
+        提供时**替代** warn(f630 异动等级) 因子 —— f630 只有东财点查才给真实值,
+        腾讯/快照行恒填 0, 东财一断就全员 default(实测 2026-09-08 批次#1585 全部
+        39 只 warn=0, 天花板从 99.4 崩到 85.5)。None = 未启用, 退回 warn(对拍用)。
     """
     if cfg is None:
         from .. import scorer                       # 延迟导入: 避免模块循环
@@ -63,8 +68,15 @@ def compute_score(row: QuoteRow, cfg: Optional[dict] = None) -> ScoreResult:
                       else factor_score(cfg, "activity", bid_turnover))
     # 老链路 bid_vol_ratio 恒 0.0(量比加成是死代码, 从未触发): 此处保留同行为,
     # 不加成。留字段位是为了对拍可见 —— 哪天接了真实竞量比再启用。
-    warn_score = (factor_default(cfg, "warn") if warn_type is None
-                  else factor_score(cfg, "warn", warn_type))
+    if strength is not None:
+        # 竞价强度(三层合成, 对东财免疫) —— 已由 bid_strength.score_one 处理缺失,
+        # 返回 None(三层全缺)时这里才走 default
+        warn_score = strength
+        warn_label: Any = "竞价强度"
+    else:
+        warn_label = warn_type
+        warn_score = (factor_default(cfg, "warn") if warn_type is None
+                      else factor_score(cfg, "warn", warn_type))
     market_score = (factor_default(cfg, "market") if circ_mv is None
                     else factor_score(cfg, "market", circ_mv))
     yday_score = (factor_default(cfg, "yesterday") if yday is None
@@ -77,7 +89,11 @@ def compute_score(row: QuoteRow, cfg: Optional[dict] = None) -> ScoreResult:
 
     # ---- 置信度: 三项加成, 缺失(None)一律不加(老链路缺失=0 → 同样不加, 行为一致) ----
     conf = 65.0
-    if warn_type is not None and warn_type >= 4:
+    if strength is not None:
+        # 竞价强度 ≥0.85(≈命中抢筹且放量) 才加成, 与老链路 warn>=4 同档位
+        if strength >= 0.85:
+            conf += cfg["conf_warn_high"]
+    elif warn_type is not None and warn_type >= 4:
         conf += cfg["conf_warn_high"]
     if bid_turnover is not None and bid_turnover >= 0.4:
         conf += cfg["conf_turnover"]
@@ -92,7 +108,7 @@ def compute_score(row: QuoteRow, cfg: Optional[dict] = None) -> ScoreResult:
         "bid": {"value": _r2(bid_change), "score": bid_score, "weight": cfg["w_bid"]},
         "activity": {"value": _r2(bid_turnover), "score": activity_score,
                      "weight": cfg["w_activity"]},
-        "warn": {"value": warn_type, "score": warn_score, "weight": cfg["w_warn"]},
+        "warn": {"value": warn_label, "score": warn_score, "weight": cfg["w_warn"]},
         "market": {"value": _r2(circ_mv), "score": market_score, "weight": cfg["w_market"]},
         "yesterday": {"value": _r2(yday), "score": yday_score, "weight": cfg["w_yesterday"]},
     }
@@ -106,14 +122,18 @@ def compute_score(row: QuoteRow, cfg: Optional[dict] = None) -> ScoreResult:
 
 
 # ---------------------------------------------------------------- 批量评分
-def score_rows(rows: List[QuoteRow], cfg: Optional[dict] = None) -> List["ScoredRow"]:
+def score_rows(rows: List[QuoteRow], cfg: Optional[dict] = None,
+               strengths: Optional[Dict[str, float]] = None) -> List["ScoredRow"]:
     """批量评分 + 按 probability 降序排序(与老 score_all_stocks 同序)。
+
+    strengths: {code: 竞价强度 0~1}, 由 services/bid_strength 提供; 传了就用
+    竞价强度替代 warn 因子(见 compute_score 注释)。None = 退回 f630(对拍用)。
 
     返回 ScoredRow(QuoteRow + 评分 + 展示字段), 供过滤层与结果输出使用。
     """
     out: List[ScoredRow] = []
     for r in rows:
-        sr = compute_score(r, cfg)
+        sr = compute_score(r, cfg, (strengths or {}).get(r.code))
         out.append(ScoredRow(row=r, score=sr))
     out.sort(key=lambda x: (-x.score.probability, x.row.code))
     return out

@@ -192,3 +192,59 @@ def test_item_shape_matches_legacy(monkeypatch):
               "speed", "degraded", "source"):
         assert k in it, k
     assert it["bidRatio"] == pytest.approx(50.0)   # 5000万/10000万(单位同为万元)
+
+
+# ---------------------------------------------------------------- 竞价强度接入
+def test_strength_replaces_warn_when_provided():
+    """传 strengths → warn(f630) 因子被竞价强度替代。
+
+    f630=0 时老口径拿 default 0.18; 传 strength=0.9 后应拿 0.9 → 差 (0.9-0.18)*17 ≈ 12 分。
+    这正是"东财一断全员 default → 天花板崩 14 分"的修复点。
+    """
+    from app.services.picker.score import compute_score
+    row = _q("600000", warn=0)          # f630=0, 即当前线上所有票的实际状态
+    base = compute_score(row)
+    with_st = compute_score(row, strength=0.9)
+    assert with_st.probability - base.probability == 12      # (0.9-0.18)*0.17*100 ≈ 12.24
+    assert with_st.parts["warn"]["value"] == "竞价强度"
+
+
+def test_no_strength_keeps_legacy_warn():
+    """不传 strengths → 行为与改造前完全一致(对拍基线不变)"""
+    from app.services.picker.score import compute_score
+    row = _q("600000", warn=0)
+    assert compute_score(row).parts["warn"]["score"] == 0.18
+
+
+def test_strength_high_adds_confidence():
+    """竞价强度 ≥0.85 才加置信度(与老口径 warn>=4 同档位)"""
+    from app.services.picker.score import compute_score
+    row = _q("600000", warn=0)
+    assert compute_score(row, strength=0.5).confidence == compute_score(row).confidence
+    assert compute_score(row, strength=0.9).confidence > compute_score(row).confidence
+
+
+def test_pipeline_uses_injected_strengths(monkeypatch):
+    """pipeline: ctx.strengths 注入后直接用于评分, 不再自加载"""
+    from app.services.picker import pipeline as pl
+    _install(monkeypatch, {"snapshot": _FakeSource({"600000": _q("600000", warn=0)})})
+    ctx_a = _ctx()
+    res_a = pl.run(dict(FULL), ctx=ctx_a)
+    ctx_b = _ctx()
+    ctx_b.strengths = {"600000": 0.95}
+    res_b = pl.run(dict(FULL), ctx=ctx_b)
+    assert res_a.items and res_b.items
+    assert res_b.items[0]["probability"] - res_a.items[0]["probability"] >= 12
+
+
+def test_strength_load_failure_falls_back(monkeypatch):
+    """竞价强度加载抛异常 → 退回 f630 行为, 不阻塞选股(降级可见, 名单照出)"""
+    from app.services.picker import pipeline as pl
+    _install(monkeypatch, {"snapshot": _FakeSource({"600000": _q("600000", warn=0)})})
+
+    def _boom(*a, **k):
+        raise RuntimeError("模拟竞价强度源故障")
+
+    monkeypatch.setattr("app.services.bid_strength.load", _boom)
+    res = pl.run(dict(FULL), ctx=_ctx())
+    assert res.items, "强度源挂了也必须出名单(退回 f630)"

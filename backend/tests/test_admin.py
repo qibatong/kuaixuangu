@@ -150,7 +150,10 @@ def test_get_scoring_returns_factors(client, first_user):
     r = client.get("/api/admin/scoring", headers=hdrs(token))
     d = r.json()
     fac = d["scoring"]["factors"]
-    assert set(fac.keys()) == {"bid", "activity", "warn", "market", "yesterday"}
+    # 2026-09-08: 新增 bid_strength(替代失活的 f630 异动等级) → 断言改"包含"语义,
+    # 避免以后每加一个因子就要改一次这里的硬编码集合(原断言 == 5 个因子已失败一次)。
+    assert {"bid", "activity", "warn", "market", "yesterday"} <= set(fac.keys())
+    assert "bid_strength" in fac          # 竞价强度(三层合成, 对东财免疫)
     assert fac["bid"]["buckets"][0] == ["3", "5.5", 1.0]
     assert "default" in fac["bid"]
 

@@ -19,6 +19,38 @@ from .deps import get_uid, jr, qs
 log = logger.get_logger(__name__)
 
 
+def _load_strengths(raw):
+    """竞价强度 map {code: 0~1} —— 替代**已失活的 f630 异动等级**(权重 17%)。
+
+    f630 只有东财点查才给真实值, 腾讯兜底行/快照行恒填 0 → 东财一断全员 default
+    0.18 → 17%×0.82=13.9 分凭空蒸发(实测 2026-09-08 批次#1585 全部 39 只 warn=0,
+    概率天花板从 99.4 崩到 85.5)。
+
+    开关: settings 表 `use_bid_strength=1` 才启用; **默认关闭** → 返回空 dict →
+    老链路行为零变化(对拍基线不变)。三层信号(抢筹名单/竞价量比/加速度)全部来自
+    快照表 + 开盘啦, 不依赖东财, 任何异常都吞掉退回 f630 行为。
+    """
+    try:
+        from ..services import settings
+        if str(settings.get("use_bid_strength") or "0") not in ("1", "true", "True"):
+            return {}
+    except Exception:                                          # noqa: BLE001
+        return {}
+    try:
+        from ..services import bid_strength
+        codes = [str(s.get("f12") or "") for s in (raw or [])]
+        codes = [c for c in codes if c]
+        if not codes:
+            return {}
+        st = bid_strength.load(codes)
+        out = {c: v for c, v in bid_strength.score_map(st).items() if v is not None}
+        log.info("竞价强度启用: %d/%d 只取到强度分", len(out), len(codes))
+        return out
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("竞价强度加载失败(退回 f630 异动等级) err=%s", e)
+        return {}
+
+
 def _gray_enabled():
     """重构 P3 灰度开关: settings 表 picker_gray=1 时旁路跑新链路并打对拍日志。
     **默认关闭**, 且新链路结果不参与返回 —— 只观测不切换(切换在 P5)。"""
@@ -189,7 +221,8 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
             qc_codes = kpl.get_qiangchou_codes()
             result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_codes=qc_codes,
                                                day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map,
-                                               yesterday_chg_map=yesterday_chg_map)
+                                               yesterday_chg_map=yesterday_chg_map,
+                                               strengths=_load_strengths(raw))
             _apply_kpl_board(result, "spot")
             log.info("盘中选股(同竞价逻辑) uid=%s markets=%s raw=%d只 返回%d只 耗时%.0fms",
                      uid, ",".join(f["markets"]), len(raw), len(result), (time.time() - t0) * 1000)
@@ -423,7 +456,8 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         qc_codes = kpl.get_qiangchou_codes()
         result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_codes=qc_codes,
                                            day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map,
-                                           yesterday_chg_map=yesterday_chg_map)
+                                           yesterday_chg_map=yesterday_chg_map,
+                                           strengths=_load_strengths(raw))
         # 概念用开盘啦覆盖(落库前覆盖: 页面/历史批次/推送全部统一开盘啦概念)
         _apply_kpl_board(result, "auction")
         # 重构 P3 灰度: 旁路跑新链路并对拍(默认关闭; 开启时只打日志, 不参与返回)

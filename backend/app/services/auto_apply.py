@@ -59,6 +59,24 @@ def _get_system_filter():
     return f
 
 
+def _load_strengths(raw):
+    """竞价强度 map(替代失活的 f630 异动等级), settings `use_bid_strength=1` 才启用。
+    默认关闭 → 空 dict → 行为零变化。异常一律吞掉退回 f630。"""
+    try:
+        from . import bid_strength, settings
+        if str(settings.get("use_bid_strength") or "0") not in ("1", "true", "True"):
+            return {}
+        codes = [str(s.get("f12") or "") for s in (raw or [])]
+        codes = [c for c in codes if c]
+        if not codes:
+            return {}
+        st = bid_strength.load(codes)
+        return {c: v for c, v in bid_strength.score_map(st).items() if v is not None}
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("竞价强度加载失败(退回 f630 异动等级) err=%s", e)
+        return {}
+
+
 def _is_user_active(uid):
     """用户是否可自动应用: 存在 且 非管理员 且 未过期"""
     u = users.find_user_by_id(uid)
@@ -114,7 +132,8 @@ def auto_apply_all_users(max_users=None):
         qc_codes = kpl.get_qiangchou_codes()
         scored = scorer.score_all_stocks(raw, yesterday_map, snapshot_map, qiangchou_codes=qc_codes,
                                          day_bid_change=bid_chg_map,
-                                         yesterday_chg_map=yesterday_chg_map)
+                                         yesterday_chg_map=yesterday_chg_map,
+                                         strengths=_load_strengths(raw))
     except Exception as e:
         log.error("auto_apply 全市场评分失败 err=%s", e, exc_info=True)
         return {"applied": 0, "skipped": 0, "failed": 0, "total": 0,
