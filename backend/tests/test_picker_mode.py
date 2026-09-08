@@ -110,3 +110,43 @@ def test_trading_day_and_date():
     assert pm.is_trading_day(ts(2026, 9, 8, 10, 0)) is True     # 周二
     assert pm.is_trading_day(ts(2026, 9, 12, 10, 0)) is False   # 周六
     assert pm.bj_date(ts(2026, 9, 8, 23, 30)) == "2026-09-08"
+
+
+def test_accepts_datetime_and_timestamp_equally():
+    """2026-09-08 测试机部署实锤: 原 resolve_mode 只吃 float, 传 datetime 会在
+    `now + 8*3600` 抛 TypeError。业务代码 datetime.now() 直传是高频写法 →
+    两种入参必须完全等价(含跨时区: naive/UTC+8/UTC 三种 datetime 同解)。"""
+    cases = [
+        (2026, 9, 8, 8, 0, pm.PickMode.PREOPEN),
+        (2026, 9, 8, 9, 20, pm.PickMode.AUCTION),
+        (2026, 9, 8, 9, 27, pm.PickMode.LOCKED),
+        (2026, 9, 8, 10, 0, pm.PickMode.INTRADAY),
+        (2026, 9, 8, 16, 0, pm.PickMode.CLOSED),
+        (2026, 9, 12, 10, 0, pm.PickMode.CLOSED),   # 周六
+    ]
+    for y, m, d, hh, mm, expect in cases:
+        stamp = ts(y, m, d, hh, mm)
+        assert pm.resolve_mode(stamp).mode is expect, "时间戳入参 %s 解析错误" % (expect,)
+
+        # 带时区 datetime(UTC+8)
+        dt_bj = datetime(y, m, d, hh, mm, tzinfo=BJ)
+        assert pm.resolve_mode(dt_bj).mode is expect, "datetime(UTC+8) 入参 %s 解析错误" % (expect,)
+
+        # naive datetime(无时区, 按北京时间理解)
+        dt_naive = datetime(y, m, d, hh, mm)
+        assert pm.resolve_mode(dt_naive).mode is expect, "naive datetime 入参 %s 解析错误" % (expect,)
+
+        # UTC 时区 datetime(同一时刻)
+        dt_utc = dt_bj.astimezone(timezone.utc)
+        assert pm.resolve_mode(dt_utc).mode is expect, "datetime(UTC) 入参 %s 解析错误" % (expect,)
+
+        # 辅助函数同样兼容
+        assert pm.is_trading_day(dt_bj) == pm.is_trading_day(stamp)
+        assert pm.bj_date(dt_bj) == pm.bj_date(stamp) == "%04d-%02d-%02d" % (y, m, d)
+
+
+def test_none_now_does_not_raise():
+    """now=None 走当前时间, 不得抛异常(线上主路径)"""
+    p = pm.resolve_mode()
+    assert p.mode in set(pm.PickMode)
+    assert isinstance(pm.bj_date(), str) and len(pm.bj_date()) == 10

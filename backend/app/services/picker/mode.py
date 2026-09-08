@@ -26,6 +26,7 @@
 """
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Optional, Tuple
 
@@ -126,17 +127,41 @@ POLICIES = {
 }
 
 
-def bj_hm(now: Optional[float] = None) -> Tuple[int, int]:
-    """当前北京时间 (hour*60+min, 星期几 0=周一)。服务器时区无关(UTC+8)。"""
-    t = time.gmtime((now if now is not None else time.time()) + 8 * 3600)
+_BJ_TZ = timezone(timedelta(hours=8))
+
+
+def _ts(now) -> float:
+    """归一化时间为 POSIX 时间戳(秒)。
+
+    2026-09-08 修复(测试机部署探针实锤): resolve_mode/is_trading_day 等原只接受
+    时间戳 float, 调用方误传 datetime.datetime 会在 `now + 8*3600` 处抛
+    TypeError(unsupported operand type(s) for +: 'datetime.datetime' and 'int'),
+    且报错指向内部实现、难以定位。业务代码从 datetime.now() 直接传是高频写法,
+    故在此统一兼容 datetime / 时间戳 / None 三种入参。
+    """
+    if now is None:
+        return time.time()
+    if isinstance(now, datetime):
+        # naive(无时区) 按北京时间理解 — 业务代码 datetime.now() 跑在 UTC+8 服务器,
+        # 语义是"本地时间", 按 UTC 解释会整体偏移 8 小时(实测 08:00 被解成 16:00 闭市)
+        if now.tzinfo is None:
+            return now.replace(tzinfo=_BJ_TZ).timestamp()
+        return now.timestamp()          # aware datetime: 由 tzinfo 正确折算到 epoch
+    return float(now)
+
+
+def bj_hm(now=None) -> Tuple[int, int]:
+    """当前北京时间 (hour*60+min, 星期几 0=周一)。服务器时区无关(UTC+8)。
+    now 可为 datetime / 时间戳 / None(当前时间)。"""
+    t = time.gmtime(_ts(now) + 8 * 3600)
     return t.tm_hour * 60 + t.tm_min, t.tm_wday
 
 
-def is_trading_day(now: Optional[float] = None, holidays: Optional[set] = None) -> bool:
+def is_trading_day(now=None, holidays: Optional[set] = None) -> bool:
     """是否交易日。当前口径: 非周末即交易日(与老逻辑一致)。
     holidays: 预留法定节假日集合({'2026-10-01', ...}), 传入后生效 — 后续接入
-    真实交易日历不需改调用方。"""
-    t = time.gmtime((now if now is not None else time.time()) + 8 * 3600)
+    真实交易日历不需改调用方。now 可为 datetime / 时间戳 / None。"""
+    t = time.gmtime(_ts(now) + 8 * 3600)
     if t.tm_wday >= 5:
         return False
     if holidays:
@@ -146,17 +171,17 @@ def is_trading_day(now: Optional[float] = None, holidays: Optional[set] = None) 
     return True
 
 
-def bj_date(now: Optional[float] = None) -> str:
-    """当前北京时间日期 YYYY-MM-DD"""
-    t = time.gmtime((now if now is not None else time.time()) + 8 * 3600)
+def bj_date(now=None) -> str:
+    """当前北京时间日期 YYYY-MM-DD (now 可为 datetime / 时间戳 / None)"""
+    t = time.gmtime(_ts(now) + 8 * 3600)
     return "%04d-%02d-%02d" % (t.tm_year, t.tm_mon, t.tm_mday)
 
 
-def resolve_mode(now: Optional[float] = None,
+def resolve_mode(now=None,
                  holidays: Optional[set] = None) -> ModePolicy:
     """解析当前应选股模式(唯一入口 — 业务代码禁止再写时间判断)。
 
-    now: 可选时间戳(测试注入), 默认当前时间。
+    now: datetime 或时间戳(测试注入), 默认当前时间。两种入参等价。
     holidays: 预留节假日集合。
     """
     if not is_trading_day(now, holidays):
