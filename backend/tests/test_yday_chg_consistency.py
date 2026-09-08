@@ -162,3 +162,31 @@ def test_batch_consistency_can_be_disabled():
     })
     out = fetcher.fetch_yesterday_changes(["c1", "c2"], min_coverage=0)
     assert out == {"c1": 5.0}
+
+
+# ---------------- ④ 收盘后语义: 今天已定格, 不得再跳过(2026-09-08) ----------------
+def test_after_close_today_is_counted():
+    """收盘后(≥15:05)今天的 K 线已定格 → T 必须取今天, 否则"昨日涨幅"滞后一整天
+
+    此前无条件跳过今天 → 收盘后到午夜前, 用户看到的"昨日涨幅"实际是前天的。
+    """
+    today = fetcher._bj_date_str()
+    rows = [
+        "%s,10.0,10.2,10.3,9.9,1000,10200000,3.55" % _d(-1),
+        "%s,10.2,10.8,10.9,10.1,2000,21600000,5.88" % today,   # 今天(已收盘)
+    ]
+    pair, chg = fetcher._kline_amount_pair(rows, after_close=True)
+    assert pair is not None and abs(pair[0] - 2160.0) < 1, "收盘后 T 应为今天"
+    assert chg == 5.88, "收盘后涨跌幅应取今天的 5.88, 实际 %s" % chg
+
+
+def test_intraday_today_still_skipped():
+    """盘中(after_close=False)仍必须跳过今天 —— 未收盘 K 线不得参与"""
+    today = fetcher._bj_date_str()
+    rows = [
+        "%s,10.0,10.2,10.3,9.9,1000,10200000,3.55" % _d(-1),
+        "%s,10.2,10.8,10.9,10.1,2000,21600000,5.88" % today,
+    ]
+    pair, chg = fetcher._kline_amount_pair(rows, after_close=False)
+    assert pair is not None and abs(pair[0] - 1020.0) < 1, "盘中 T 应为上一交易日"
+    assert chg == 3.55

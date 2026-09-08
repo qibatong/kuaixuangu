@@ -15,7 +15,7 @@ def test_kline_pair_returns_change():
         "2026-09-04,10.0,10.2,10.3,9.9,1000,10200000,3.55",
         "2026-09-07,10.2,10.8,10.9,10.1,2000,21600000,5.88",   # 最近已收盘 T 日
     ]
-    pair, chg = fetcher._kline_amount_pair(klines)
+    pair, chg = fetcher._kline_amount_pair(klines, after_close=False)
     assert pair == [2160.0, 1020.0]        # 万元
     assert chg == 5.88                     # T 日真实涨跌幅
 
@@ -27,7 +27,7 @@ def test_kline_pair_skips_today_row():
         "2026-09-07,10.2,10.8,10.9,10.1,2000,21600000,5.88",
         "%s,10.8,11.0,11.1,10.7,500,5500000,1.85" % today,     # 今天(未收盘)应跳过
     ]
-    pair, chg = fetcher._kline_amount_pair(klines)
+    pair, chg = fetcher._kline_amount_pair(klines, after_close=False)
     assert pair[0] == 2160.0
     assert chg == 5.88                     # 不是今天的 1.85
 
