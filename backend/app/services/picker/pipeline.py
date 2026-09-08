@@ -222,6 +222,9 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
     ymap = ctx.yesterday_map or {}
     snap = ctx.snapshot_map or {}
     qc = ctx.qiangchou_codes
+    # 异动等级档位: 用**本次评分实际用到的 strength**(局部变量 strengths),
+    # 不是 ctx.strengths —— 后者在 load_context 里为空, 填充逻辑在 _load_strength。
+    strengths_score = strengths or {}
     for it in outcome.kept:
         r = it.row
         d = it.to_dict()
@@ -235,6 +238,15 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
         if policy.auction_window and s9.get("bid_change") is not None \
                 and r.bid_change is not None:
             accel = round(r.bid_change - s9["bid_change"], 2)
+        # 异动等级: 优先用竞价强度档位(对东财免疫), 无 strength 才退回 f630 warnType
+        #   强 ≥0.85 / 中 ≥0.65 / 弱 ≥0.40 / 极弱 <0.40 → 0
+        # 前端 warnLabel(5=强, 4=⚡中, 3=↑弱, 其他=-) —— 直接套用原档位映射,
+        # 业务视觉一致、零前端改动(2026-09-09 主反馈 9/9 0:37 异动列全空)
+        st_score = strengths_score.get(r.code)
+        if st_score is not None:
+            warn_label = 5 if st_score >= 0.85 else 4 if st_score >= 0.65 else 3 if st_score >= 0.40 else 0
+        else:
+            warn_label = r.warn_type
         d.update({
             "bidAmt": None if bid_amt_wan is None else round(bid_amt_wan, 2),
             "bidRatio": bid_ratio,
@@ -242,7 +254,7 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
             "qiangchou": (1 if (qc is not None and r.code in qc) else 0),
             "province": "-",
             "speed": r.turnover,
-            "warnType": r.warn_type,
+            "warnType": warn_label,
             "degraded": res.degraded or bool(r.degraded),
             "source": r.source,
         })

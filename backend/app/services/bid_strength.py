@@ -104,7 +104,12 @@ def _fill_snapshot(out: Dict[str, BidStrength], want, date: Optional[str]):
     try:
         cur = conn.cursor()
         # 目标交易日: 未指定 → 最近有 9:25 快照的交易日(节假日/盘前自动回退)
-        if not date:
+        # 2026-09-09 修正: 传入了 date 但当天还没 9:25 快照(如 9/9 凌晨传 date='2026-09-09'),
+        # 也不能让它空跑 —— 一样回退到 MAX(date) <= 传入 date 的最近交易日,
+        # 否则 strength 全空 → 异动列变成 0(主反馈 9/9 0:37 异动全空真因)
+        if not date or not cur.execute(
+                "SELECT 1 FROM snapshot_bid WHERE date=? AND time_point='9_25' LIMIT 1",
+                (date,)).fetchone():
             row = cur.execute("SELECT MAX(date) FROM snapshot_bid "
                               "WHERE time_point='9_25'").fetchone()
             date = str(row[0]) if row and row[0] else None

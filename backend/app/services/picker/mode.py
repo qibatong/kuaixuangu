@@ -71,12 +71,14 @@ POLICIES = {
     PickMode.PREOPEN: ModePolicy(
         mode=PickMode.PREOPEN,
         label="盘前定格",
-        source_priority=("snapshot", "tencent_point"),
+        source_priority=("snapshot", "eastmoney_realtime", "tencent_point"),
         deterministic=True,
         allow_lock=False,
         auction_window=False,
         allow_relock=True,           # 盘前用上个交易日定格, 允许改条件重选
-        realtime_patch=False,        # 未开盘, 无实时字段可补
+        realtime_patch=True,         # 盘前调用实时源(东财/腾讯)返回的是**最近交易日收盘定格**,
+                                     # 全天恒定不变 → 补它不破坏名单幂等, 也不影响确定性;
+                                     # 不补则现价/现涨/实体/异动列全空(P5 上线后主人反馈 9/9 0:37)
         fail_message="盘前未开盘, 且上个交易日竞价数据不可用 — 不提供名单",
     ),
     PickMode.AUCTION: ModePolicy(

@@ -96,6 +96,13 @@ def test_realtime_patch_only_display_fields():
     # 竞价窗口: 定格前无快照可用, 以实时为准
     # 竞价窗口无当日定格快照 → 名单只能来自实时全市场(点查源此时无候选 codes)
     assert pm.POLICIES[pm.PickMode.AUCTION].source_priority[0] == "eastmoney_market"
+    # 盘前: 实时源返回最近交易日收盘定格, 全天恒定, 补它可填现价/实体/异动列
+    # 且不影响名单幂等(名单仍由 snapshot 决定)
+    # 2026-09-09 主人反馈 9/9 0:37 盘前看昨收, 现涨/实体/异动/抢筹/奖牌区全空
+    preopen = pm.POLICIES[pm.PickMode.PREOPEN]
+    assert preopen.realtime_patch is True, "盘前必须允许补丁源补展示字段"
+    assert preopen.source_priority[0] == "snapshot", "名单必须优先认定格快照"
+    assert preopen.deterministic is True
     # 收盘后无需刷新展示字段
     # 收盘后补丁源返回的是**收盘定格值**(不再变化) → 补它不破坏幂等,
     # 且必须补, 否则现价/现涨列全空(P3 测试机实测)

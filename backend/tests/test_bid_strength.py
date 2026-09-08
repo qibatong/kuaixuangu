@@ -121,3 +121,49 @@ def test_strong_case_ranks_higher():
                                          qc_delta=1.2, qc_last=True, accel=1.5), _cfg())
     assert strong == 1.0
     assert strong > weak * 2
+
+
+# ---------------- 日期回退(2026-09-09) ----------------
+def test_fill_snapshot_falls_back_when_passed_date_has_no_snapshot(monkeypatch):
+    """传入未来日期(9/9 凌晨 date='2026-09-09', 9_25 快照未生成) → 自动回退到
+    MAX(date) 的最近 9:25 快照; 否则 strength 全空 → 异动列变成 0(9/9 0:37 主反馈真因)。
+    直接验证 mock 函数被调用 + date 被替换为最近交易日。"""
+    calls = []
+
+    def fake_get_conn():
+        class _Cur:
+            def execute(self_inner, sql, params=()):
+                sql_l = sql.strip()
+                if "SELECT 1 FROM snapshot_bid" in sql_l:
+                    class _R:
+                        def fetchone(_): return None
+                    return _R()
+                if "SELECT MAX(date) FROM snapshot_bid" in sql_l \
+                        and "WHERE time_point='9_25'" in sql_l and "date <" not in sql_l:
+                    calls.append(("max_no_lt", params))
+                    class _R:
+                        def fetchone(_): return ("2026-09-08",)
+                    return _R()
+                if "date < ? AND time_point='9_25'" in sql_l:
+                    calls.append(("yday", params))
+                    class _R:
+                        def fetchone(_): return None
+                    return _R()
+                # 默认空游标
+                class _Empty:
+                    def fetchone(_): return None
+                    def __iter__(self_inner): return iter([])
+                return _Empty()
+
+        class _Conn:
+            def cursor(self): return _Cur()
+            def close(self): pass
+        return _Conn()
+
+    monkeypatch.setattr("app.db.database.get_conn", fake_get_conn)
+    from app.services.bid_strength import _fill_snapshot
+    out = {}
+    _fill_snapshot(out, want={"600127"}, date="2099-01-01")
+    # 关键: 触发了 MAX(date) 回退查询
+    assert any(c[0] == "max_no_lt" for c in calls), \
+        "传入日期无快照时必须回退到 MAX(date) 的最近交易日 — 调用列表: %r" % calls

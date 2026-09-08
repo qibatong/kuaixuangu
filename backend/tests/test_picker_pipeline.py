@@ -248,3 +248,33 @@ def test_strength_load_failure_falls_back(monkeypatch):
     monkeypatch.setattr("app.services.bid_strength.load", _boom)
     res = pl.run(dict(FULL), ctx=_ctx())
     assert res.items, "强度源挂了也必须出名单(退回 f630)"
+
+
+# ---------------- 异动等级档位(2026-09-09) ----------------
+def test_warn_type_uses_strength_label_when_provided(monkeypatch):
+    """pipeline: 传 strengths → item.warnType 走竞价强度档位(强5/中4/弱3/0=无),
+    不再依赖东财 f630(腾讯/快照恒为 0 → 异动列全空)。"""
+    rows = {"600000": _q("600000", warn=0),
+            "600001": _q("600001", warn=0),
+            "600002": _q("600002", warn=0),
+            "600003": _q("600003", warn=0)}
+    _install(monkeypatch, {"snapshot": _FakeSource(rows)})
+    ctx = _ctx()
+    ctx.strengths = {"600000": 0.90,    # ≥0.85 → 强(5)
+                     "600001": 0.70,    # ≥0.65 → ⚡中(4)
+                     "600002": 0.50,    # ≥0.40 → ↑弱(3)
+                     "600003": 0.20}    # <0.40 → 0(前端显 "-")
+    res = pipeline.run(dict(FULL), ctx=ctx)
+    got = {it["code"]: it["warnType"] for it in res.items}
+    assert got["600000"] == 5
+    assert got["600001"] == 4
+    assert got["600002"] == 3
+    assert got["600003"] == 0
+
+
+def test_warn_type_falls_back_to_f630_without_strength(monkeypatch):
+    """不传 strengths → item.warnType 退回 QuoteRow.warn_type(对拍/老链路兼容)"""
+    rows = {"600000": _q("600000", warn=4)}
+    _install(monkeypatch, {"snapshot": _FakeSource(rows)})
+    res = pipeline.run(dict(FULL), ctx=_ctx())        # 不传 strengths
+    assert res.items[0]["warnType"] == 4
