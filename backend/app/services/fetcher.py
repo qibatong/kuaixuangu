@@ -1121,15 +1121,18 @@ def _fetch_yesterday_amount_ths(code):
             segs = [s for s in str(data).split(";") if s]
             if not segs:
                 continue
-            pair = _kline_amount_pair(segs)
+            # 2026-09-08: _kline_amount_pair 返回 (成交额对, T日涨跌幅%), 必须拆包。
+            # 漏拆会把二元组当成成交额对透传 → scorer 取 pair[0] 拿到 list →
+            # bid_amt / list 抛 TypeError, 选股接口 500(测试机部署实证教训)。
+            pair, chg = _kline_amount_pair(segs)
             if pair is None:
                 continue
             _record("ths_kline", True, int((time.time() - t0) * 1000))
-            return pair
+            return pair, chg
         except Exception:
             continue
     _record("ths_kline", False)
-    return None
+    return None, None
 
 
 def _fetch_yesterday_amount_tencent(code):
@@ -1216,10 +1219,11 @@ def _fetch_yesterday_amount_one(code):
             continue
     _record("eastmoney_kline", False)
     # 东财全失败 → 同花顺兜底 → 腾讯日K兜底 → 量脉日K兜底(2026-08-31: 第4源, kline_vip_history 含成交额)
-    # 2026-09-08: 兜底源只成交额对, 无涨跌幅 → 返回 (pair, None), 缺失即缺失不捏造
-    v = _fetch_yesterday_amount_ths(code)
-    if v is not None:
-        return v, None
+    # 返回值契约: 所有源统一返回 (成交额对 list, T日涨跌幅% 或 None)。
+    # ths 走 _kline_amount_pair 故自带涨跌幅; 腾讯/量脉只有成交额 → chg=None(不捏造)。
+    res = _fetch_yesterday_amount_ths(code)
+    if res is not None:
+        return res
     v = _fetch_yesterday_amount_tencent(code)
     if v is not None:
         return v, None
@@ -1379,6 +1383,28 @@ def fetch_yesterday_changes(codes):
     return out
 
 
+def _split_yday(res):
+    """拆分单只票昨日拉取结果为 (成交额对 list|None, T日涨跌幅% |None)。
+
+    契约: 上游各源统一返回 (pair, chg), pair 形如 [T日万元, T-1日万元]。
+    防御剥壳(2026-09-08 测试机部署实证教训): 曾有兜底源漏拆包, 返回 ((pair, chg), None)
+    双层结构 → 成交额对变成 tuple → scorer 侧 `bid_amt / pair[0]` 拿 list 做除法抛
+    TypeError, 选股接口直接 500。此处检测并剥掉多余一层: **宁可丢涨跌幅, 也绝不让
+    成交额对形状污染**(成交额对参与量比计算, 形状错 = 接口崩; 涨跌幅缺失只是评分降级)。
+    """
+    if res is None:
+        return None, None
+    if isinstance(res, tuple) and len(res) == 2 and isinstance(res[0], (list, tuple)):
+        pair, chg = res
+        # 剥壳: pair 本应形如 [万元T, 万元T-1]; 若里面还嵌着 (pair, chg) 则再取一层
+        if isinstance(pair, (list, tuple)) and len(pair) == 2 and isinstance(pair[0], (list, tuple)):
+            pair, chg = pair[0], pair[1]
+        return (list(pair) if isinstance(pair, (list, tuple)) else None), chg
+    if isinstance(res, (list, tuple)):
+        return list(res), None          # 旧格式: 纯成交额对
+    return None, None
+
+
 def _yday_background_fetch(need, today):
     """后台昨比拉取线程(异步路径)"""
     try:
@@ -1411,7 +1437,7 @@ def _do_fetch_yesterday(need, today):
             except Exception:
                 res = None
             # 2026-09-08: 返回值扩为 (成交额对, T日涨跌幅%); 兼容旧格式(纯 pair)
-            v, vchg = res if (isinstance(res, tuple) and len(res) == 2) else (res, None)
+            v, vchg = _split_yday(res)
             with _yesterday_lock:
                 _yesterday_cache[c] = [today, v, time.time(), vchg]   # 成功/失败都缓存
             if v is not None:

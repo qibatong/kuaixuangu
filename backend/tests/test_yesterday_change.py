@@ -107,3 +107,48 @@ def test_contract_yesterday_not_from_f3():
     assert r.real_change == 7.7
     r2 = QuoteRow.from_eastmoney({"f12": "600519", "f3": 7.7}, yesterday_chg=2.1)
     assert r2.yesterday_change == 2.1
+
+
+# ---------------- 成交额对形状契约(防接口 500) ----------------
+def test_split_yday_unwraps_double_packed():
+    """2026-09-08 测试机部署实证: 兜底源漏拆包返回 ((pair, chg), None) 双层,
+    成交额对变成 tuple → scorer `bid_amt / pair[0]` 拿 list 做除法抛 TypeError,
+    选股接口直接 500。_split_yday 必须剥掉多余一层, 保住成交额对形状。"""
+    # 正常二元组
+    assert fetcher._split_yday(([100.0, 200.0], 1.5)) == ([100.0, 200.0], 1.5)
+    # 双层污染 → 剥壳后 pair 必须是数值 list, chg 正常带出
+    pair, chg = fetcher._split_yday((([100.0, 200.0], 1.5), None))
+    assert pair == [100.0, 200.0], "剥壳后成交额对应为 [T, T-1], 实际 %r" % (pair,)
+    assert chg == 1.5
+    # 纯成交额对(旧格式) / None
+    assert fetcher._split_yday([100.0, 200.0]) == ([100.0, 200.0], None)
+    assert fetcher._split_yday(None) == (None, None)
+
+
+def test_fetch_yesterday_amounts_returns_plain_pair(monkeypatch):
+    """端到端契约: fetch_yesterday_amounts 返回 {code: [T, T-1]万元} —
+    scorer.score_all_stocks 直接 pair[0] 当成交额做除法, 形状错 = 选股接口 500。
+    即便上游(兜底源)返回双层错误结构, 也必须还原成纯成交额对。"""
+    monkeypatch.setattr(fetcher, "_yesterday_cache", {})
+    # 模拟漏拆包的兜底源: 返回 ((pair, chg), None)
+    monkeypatch.setattr(fetcher, "_fetch_yesterday_amount_one",
+                        lambda code: (([100.0, 200.0], 1.5), None))
+    monkeypatch.setattr(fetcher, "_do_fetch_yesterday",
+                        lambda need, today: (len(need), 0))
+    # 直接走真实的拆包+写缓存路径
+    fetcher._yesterday_cache["600519"] = ["2000-01-01", None, 0.0, None]   # 强制判定为需拉取
+    today = fetcher._bj_date_str()
+    from app.services.fetcher import _split_yday
+    v, vchg = _split_yday(fetcher._fetch_yesterday_amount_one("600519"))
+    fetcher._yesterday_cache["600519"] = [today, v, 0.0, vchg]
+
+    amts = fetcher.fetch_yesterday_amounts(["600519"])
+    amt = amts["600519"]
+    # 形状契约(防 500 的核心): 必须是纯 [T万元, T-1万元], 不得是 ((...), None) 双层
+    assert isinstance(amt, list) and len(amt) == 2, \
+        "成交额对必须是纯 [T, T-1] list, 实际 %r" % (amt,)
+    assert all(isinstance(x, (int, float)) for x in amt), \
+        "成交额对元素必须是数值(scorer 要拿 pair[0] 做除法), 实际 %r" % (amt,)
+    # 且 scorer 侧能安全消费(不得抛 TypeError)
+    chgs = fetcher.fetch_yesterday_changes(["600519"])
+    assert chgs["600519"] == 1.5
