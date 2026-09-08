@@ -32,7 +32,6 @@ warn_type=0 → 落 default 0.18 → 17% × 0.82 = **13.9 分凭空蒸发**, 概
 f630 那种"一个字段挂掉 → 全员 default → 天花板崩 14 分"的单点故障。
 """
 import logging
-import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence
 
