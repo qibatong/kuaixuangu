@@ -134,6 +134,8 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
             # 跌出锁定票的实时价改走 /api/quotes 按需取, /api/stocks 响应因此大幅瘦身)
             # 复用竞价评分 + 竞价过滤: 盘中=不锁定的竞价, 9:30 后持续刷新, 名单会变(符合诗人预期)
             yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw])
+            # 2026-09-08 昨日涨幅真实化: 复用上面日K缓存(零额外请求), 供"昨日涨幅"因子
+            yesterday_chg_map = fetcher.fetch_yesterday_changes([s.get("f12") for s in raw])
             snapshot_map = auction_snapshot.load_snapshot()
             # 2026-09-03 竞额定格 map(9_25 快照): 盘中「竞额」不以腾讯伪 f616(=实时成交额)为准
             bid_amt_map = auction_snapshot.load_day_bid_amt()
@@ -143,7 +145,8 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
             # 2026-09-01 抢筹口径: 左视图抢筹=右视图竞价异动"竞价抢筹"代码集(9:20→9:25涨幅/最后一秒段)
             qc_codes = kpl.get_qiangchou_codes()
             result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_codes=qc_codes,
-                                               day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map)
+                                               day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map,
+                                               yesterday_chg_map=yesterday_chg_map)
             _apply_kpl_board(result, "spot")
             log.info("盘中选股(同竞价逻辑) uid=%s markets=%s raw=%d只 返回%d只 耗时%.0fms",
                      uid, ",".join(f["markets"]), len(raw), len(result), (time.time() - t0) * 1000)
@@ -340,6 +343,8 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
             return jr({"ok": False, "msg": err}, 403)
         # 昨日成交额(并发拉日K, 当日缓存), 用于计算竞价/昨日成交占比
         yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw])
+        # 2026-09-08 昨日涨幅真实化: 走同一份日K缓存(零额外请求), 供"昨日涨幅"因子评分
+        yesterday_chg_map = fetcher.fetch_yesterday_changes([s.get("f12") for s in raw])
         # 9:20 快照(用于 9:25 涨幅加速度); 非竞价时段读库无数据返回空 map
         snapshot_map = auction_snapshot.load_snapshot()
         # 2026-09-03 竞额定格 map(9_25 快照): 竞价/落库 bidAmt 以当日定格竞价额为准,
@@ -359,7 +364,8 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         # 2026-09-01 抢筹口径: 左视图抢筹=右视图竞价异动"竞价抢筹"代码集(9:20→9:25涨幅/最后一秒段)
         qc_codes = kpl.get_qiangchou_codes()
         result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_codes=qc_codes,
-                                           day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map)
+                                           day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map,
+                                           yesterday_chg_map=yesterday_chg_map)
         # 概念用开盘啦覆盖(落库前覆盖: 页面/历史批次/推送全部统一开盘啦概念)
         _apply_kpl_board(result, "auction")
     except Exception as e:

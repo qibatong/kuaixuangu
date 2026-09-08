@@ -1185,7 +1185,7 @@ def _fetch_yesterday_amount_one(code):
     # 2026-09-01: 原三源短路会跳过第4源量脉(量脉正常时也置空) → 改为含量脉判断; 三源 down 但量脉可用时继续走量脉兜底
     if (_check_circuit("eastmoney_kline") and _check_circuit("ths_kline")
             and _check_circuit("tencent_kline") and _check_circuit("liangmai_kline")):
-        return None
+        return None, None       # 2026-09-08: 统一返回 (成交额对, 昨日涨跌幅)
     qs = urllib.parse.urlencode({
         "secid": _secid(code), "fields1": "f1,f2,f3,f4,f5,f6",
         "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
@@ -1206,22 +1206,23 @@ def _fetch_yesterday_amount_one(code):
             if not klines:
                 _mark_host_broken(host)
                 continue
-            pair = _kline_amount_pair(klines)
+            pair, chg = _kline_amount_pair(klines)
             if pair is None:
                 continue
             _record("eastmoney_kline", True, int((time.time() - t0) * 1000))
-            return pair
+            return pair, chg      # 2026-09-08: 顺带返回 T 日真实涨跌幅(f58)
         except Exception:
             _mark_host_broken(host)
             continue
     _record("eastmoney_kline", False)
     # 东财全失败 → 同花顺兜底 → 腾讯日K兜底 → 量脉日K兜底(2026-08-31: 第4源, kline_vip_history 含成交额)
+    # 2026-09-08: 兜底源只成交额对, 无涨跌幅 → 返回 (pair, None), 缺失即缺失不捏造
     v = _fetch_yesterday_amount_ths(code)
     if v is not None:
-        return v
+        return v, None
     v = _fetch_yesterday_amount_tencent(code)
     if v is not None:
-        return v
+        return v, None
     try:
         from . import liangmai
         t1 = time.time()
@@ -1229,49 +1230,64 @@ def _fetch_yesterday_amount_one(code):
         if v is not None:
             _record("liangmai_kline", True, int((time.time() - t1) * 1000))
             log.info("昨比量脉兜底成功 code=%s", code)
-            return v
+            return v, None
         _record("liangmai_kline", False)
     except Exception:
         _record("liangmai_kline", False)
-    return None
+    return None, None
 
 
 def _kline_amount_pair(klines):
-    """从日K行(逗号分隔, 第0字段=日期, 第7字段=成交额元)提取 [最近已收盘T日万元, T-1日万元];
+    """从日K行(逗号分隔)提取 ([最近已收盘T日万元, T-1日万元], T日涨跌幅%);
     自动跳过"今天"(未收盘)的K线, 保证 pair[0] 恒为最近已收盘交易日全天额。
-    东财日期格式 YYYY-MM-DD, 同花顺 YYYYMMDD, 两种都兼容; 不足/无效返回 None。
-    (修复: 东财盘中含今天未收盘K线, 同花顺不含 → 两源 pair 语义曾不一致, 导致分母错位)"""
+    东财日期格式 YYYY-MM-DD, 同花顺 YYYYMMDD, 两种都兼容; 不足/无效返回 (None, None)。
+    (修复: 东财盘中含今天未收盘K线, 同花顺不含 → 两源 pair 语义曾不一致, 导致分母错位)
+
+    2026-09-08 昨日涨幅真实化: 东财日K fields2=f51..f58 → parts[7]=涨跌幅(f58),
+    与成交额同一次请求返回, **零额外网络开销**。此前评分的"昨日涨幅"因子用的是
+    当日 f3 冒充(详见 scorer.compute_score), 语义错误; 本函数顺带把 T 日真实涨幅
+    带出, 供 fetch_yesterday_changes 使用。
+    (注: 兜底源 ths/腾讯/量脉只返回成交额对, 无涨跌幅 → chg=None, 缺失即缺失, 不捏造)"""
     today = _bj_date_str()
     def amt_of(row):
         parts = row.split(",")
         if len(parts) < 7:
-            return None, None
+            return None, None, None
         try:
             v = float(parts[6])
             if not (math.isfinite(v) and v > 0):
-                return None, None
-            return v / 10000.0, parts[0]
+                return None, None, None
         except (TypeError, ValueError):
-            return None, None
+            return None, None, None
+        chg = None
+        if len(parts) >= 8:
+            try:
+                c = float(parts[7])
+                if math.isfinite(c):
+                    chg = c
+            except (TypeError, ValueError):
+                chg = None
+        return v / 10000.0, parts[0], chg
     def is_today(dstr):
         if not dstr:
             return False
         d = dstr.replace("-", "")
         return d == today.replace("-", "")
-    # 收集所有 (日期, 金额), 跳过今天
+    # 收集所有 (日期, 金额, 涨跌幅), 跳过今天
     rows = []
     for row in klines:
-        amt, dstr = amt_of(row)
+        amt, dstr, chg = amt_of(row)
         if amt is not None and not is_today(dstr):
-            rows.append((dstr, amt))
+            rows.append((dstr, amt, chg))
     if not rows:
-        return None
+        return None, None
     # 最近已收盘 = 最后一行(按日期), 取它和它前一行
     t = rows[-1][1]
     t1 = rows[-2][1] if len(rows) >= 2 else None
+    chg_t = rows[-1][2]                  # T 日(最近已收盘交易日)真实涨跌幅
     if t is None and t1 is None:
-        return None
-    return [t, t1]
+        return None, None
+    return [t, t1], chg_t
 
 
 def fetch_yesterday_amounts(codes, wait=False):
@@ -1304,7 +1320,7 @@ def fetch_yesterday_amounts(codes, wait=False):
             log.warning("昨日成交额: 东财+同花顺+腾讯+量脉 四源全部熔断中, 本批%d只全部短路(昨比置空)", len(need))
             with _yesterday_lock:
                 for c in need:          # 短路也写失败缓存, 避免下个请求重复判定
-                    _yesterday_cache[c] = [today, None, now]
+                    _yesterday_cache[c] = [today, None, now, None]
             return {}
         if wait:
             # 同步路径(后台任务): 等待批锁, 前一个拉取完成后可能已填充缓存 → 重新判定
@@ -1339,6 +1355,30 @@ def fetch_yesterday_amounts(codes, wait=False):
     return out
 
 
+def fetch_yesterday_changes(codes):
+    """真实昨日涨幅 map {code: 涨跌幅%} — 供评分"昨日涨幅"因子使用。
+
+    2026-09-08 语义修正: 此前 scorer.compute_score 的"昨日涨幅"因子取的是**当日 f3**
+    (现价涨幅)冒充, 与因子分档语义(昨日强势 3~9.5% 给高分)完全不符。真实值来自东财
+    日K 的 f58 涨跌幅, 与成交额**同一次请求**返回(见 _kline_amount_pair), 故本函数
+    只读缓存、**零额外网络请求**。
+
+    缺失语义(契约铁律1): 未拉到 / 走的是 ths·腾讯·量脉兜底源(只返回成交额无涨跌幅)
+    → 该 code 不出现在返回 map 中, 调用方按"缺失"处理(不得填 0 冒充)。
+    调用顺序: 须在 fetch_yesterday_amounts 之后调用(由其填充缓存)。
+    """
+    if not codes:
+        return {}
+    today = _bj_date_str()
+    out = {}
+    with _yesterday_lock:
+        for c in codes:
+            ent = _yesterday_cache.get(c)
+            if ent and ent[0] == today and len(ent) > 3 and ent[3] is not None:
+                out[c] = ent[3]
+    return out
+
+
 def _yday_background_fetch(need, today):
     """后台昨比拉取线程(异步路径)"""
     try:
@@ -1367,11 +1407,13 @@ def _do_fetch_yesterday(need, today):
         for f in as_completed(futs, timeout=config.YESTERDAY_FETCH_TIMEOUT):
             c = futs[f]
             try:
-                v = f.result()
+                res = f.result()
             except Exception:
-                v = None
+                res = None
+            # 2026-09-08: 返回值扩为 (成交额对, T日涨跌幅%); 兼容旧格式(纯 pair)
+            v, vchg = res if (isinstance(res, tuple) and len(res) == 2) else (res, None)
             with _yesterday_lock:
-                _yesterday_cache[c] = [today, v, time.time()]   # 成功/失败都缓存
+                _yesterday_cache[c] = [today, v, time.time(), vchg]   # 成功/失败都缓存
             if v is not None:
                 ok_cnt += 1
             fail_cnt -= 1
@@ -1384,7 +1426,7 @@ def _do_fetch_yesterday(need, today):
             for f, c in futs.items():
                 if not f.done():
                     f.cancel()          # 未开始任务从队列移除, 线程立即空闲
-                    _yesterday_cache[c] = [today, None, time.time()]
+                    _yesterday_cache[c] = [today, None, time.time(), None]
         fail_cnt = len(need) - ok_cnt
     return ok_cnt, fail_cnt
 

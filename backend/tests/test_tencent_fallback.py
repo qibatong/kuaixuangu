@@ -242,7 +242,8 @@ def test_yesterday_short_circuit_logs(caplog, monkeypatch):
     import logging
     with caplog.at_level(logging.WARNING):
         r = fetcher._fetch_yesterday_amount_one("600519")
-    assert r is None
+    # 2026-09-08: 返回值扩为 (成交额对, 昨日涨跌幅%) → 短路时 (None, None)
+    assert r == (None, None)
     # 新行为: 单只短路不打日志(批量短路日志在 fetch_yesterday_amounts 层聚合)
     assert not any("熔断短路" in rec.message for rec in caplog.records), "单只短路不应逐只打日志"
 

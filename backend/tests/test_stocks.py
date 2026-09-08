@@ -174,15 +174,18 @@ def test_kline_amount_pair_skips_today(monkeypatch):
 
     # 东财格式(含今天): 今天1.5亿, 昨天2亿, 前天1亿 → pair[0] 应为 2亿(昨天)
     east = [f"{before},10,10,10,10,100,{1.0e8}", f"{yest},10,10,10,10,200,{2.0e8}", f"{today},10,10,10,10,300,{1.5e8}"]
-    p = fetcher._kline_amount_pair(east)
+    # 2026-09-08: 返回值扩为 (成交额对, T日涨跌幅%); 本用例 K 线行无涨跌幅字段 → chg=None
+    p, chg = fetcher._kline_amount_pair(east)
     assert p is not None and abs(p[0] - 20000.0) < 1   # 2亿(昨天, 万元)
     assert abs(p[1] - 10000.0) < 1                       # 1亿(前天)
+    assert chg is None, "无涨跌幅字段时应为 None(缺失即缺失)"
 
     # 同花顺格式(不含今天): 昨天2亿, 前天1亿 → pair[0]=2亿
     ths = [f"{before8},10,10,10,10,100,{1.0e8}", f"{yest8},10,10,10,10,200,{2.0e8}"]
-    p2 = fetcher._kline_amount_pair(ths)
+    p2, chg2 = fetcher._kline_amount_pair(ths)
     assert p2 is not None and abs(p2[0] - 20000.0) < 1
     assert abs(p2[1] - 10000.0) < 1
+    assert chg2 is None
 
 
 # ---------- 盘中全市场分页拉取 ----------

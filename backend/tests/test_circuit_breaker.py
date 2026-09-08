@@ -161,8 +161,9 @@ def test_short_circuit_skips_when_all_four_down(monkeypatch):
     assert all(fetcher._check_circuit(s)
                for s in ("eastmoney_kline", "ths_kline", "tencent_kline", "liangmai_kline"))
 
+    # 2026-09-08: 返回值扩为 (成交额对, 昨日涨跌幅%) — 短路时两者皆 None
     res = fetcher._fetch_yesterday_amount_one("600519")
-    assert res is None, "四源全down应短路置空, 实际 %s" % res
+    assert res == (None, None), "四源全down应短路置空, 实际 %s" % (res,)
     assert lm_calls == [], "短路时不应调用量脉"
 
 
@@ -182,8 +183,9 @@ def test_short_circuit_does_not_skip_when_liangmai_up(monkeypatch):
         fetcher._record(src, False)
     assert not fetcher._check_circuit("liangmai_kline")
 
+    # 2026-09-08: 量脉兜底只返回成交额对, 无涨跌幅 → (pair, None)
     res = fetcher._fetch_yesterday_amount_one("600519")
-    assert res == [333.0, 444.0], "量脉可用时应兜底成功, 实际 %s" % res
+    assert res == ([333.0, 444.0], None), "量脉可用时应兜底成功, 实际 %s" % (res,)
     assert lm_calls == ["600519"], "应调用量脉兜底"
 
 

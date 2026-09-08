@@ -187,6 +187,17 @@ def get_factor_score(cfg, factor, value):
         return 0.1
 
 
+def _factor_default(cfg, key, dflt=0.1):
+    """取某因子的 default 分(用于该因子**数据缺失**时的中性处理)。
+    契约铁律1: 缺失就是缺失, 不得填 0 冒充 —— 0 会落进 ["0","1"] 桶拿 0.4 分,
+    等于凭空给一只"昨日涨幅未知"的票打了个"昨日微涨"的分。"""
+    f = (cfg.get("factors") or {}).get(key) or {}
+    try:
+        return float(f.get("default", dflt))
+    except (TypeError, ValueError):
+        return dflt
+
+
 # ---------- 工具 ----------
 def parse_float(v, default=0.0):
     try:
@@ -353,13 +364,21 @@ def is_suspended(s):
 
 
 # ---------- 评分 ----------
-def compute_score(s):
+def compute_score(s, yesterday_chg=None):
+    """竞价评分。yesterday_chg: **真实昨日涨幅%**(T日已收盘涨跌幅, 见
+    fetcher.fetch_yesterday_changes); 不传/为 None 表示该票昨日涨幅未知 → 该因子走
+    default 分(不再用当日 f3 冒充, 详见下方注记)。"""
     bid_change = get_bid_change(s)
     bid_turnover = get_bid_turnover(s)
     bid_vol_ratio = 0.0
     warn_type = get_warn_type(s)
     circ_mv = parse_float(s.get("f21")) / 1e8          # 流通市值(亿)
-    yesterday_approx = parse_float(s.get("f3"))        # 原策略的"昨日涨幅"口径: f3
+    # 2026-09-08 语义修正(主人拍板): 原实现 yesterday_approx = f3, 即拿**当日涨幅**当
+    # "昨日涨幅"。但 factors.yesterday 的分档(3~9.5% 给 0.9 分)语义是"昨日强势股延续",
+    # 喂当日涨幅属语义错配 —— 竞价时点当日涨幅甚至尚未形成。
+    # 改为真实昨日涨幅(T 日已收盘涨跌幅, 东财日K f58, 与成交额同一次请求返回)。
+    # 缺失时(None)走 _factor_default, 不再 fallback 任何代理值。
+    yesterday_approx = yesterday_chg
 
     # 竞价分(按配置分档表)
     cfg = get_scoring_cfg()
@@ -377,7 +396,8 @@ def compute_score(s):
     market_score = get_factor_score(cfg, "market", circ_mv)
 
     # 昨日涨幅分
-    yesterday_score = get_factor_score(cfg, "yesterday", yesterday_approx)
+    yesterday_score = (_factor_default(cfg, "yesterday") if yesterday_approx is None
+                       else get_factor_score(cfg, "yesterday", yesterday_approx))
 
     base = (bid_score * cfg["w_bid"] + activity_score * cfg["w_activity"]
             + warn_score * cfg["w_warn"] + market_score * cfg["w_market"]
@@ -416,16 +436,19 @@ def compute_score(s):
 
 
 # ---------- 盘中实时评分 ----------
-def compute_score_spot(s, zt_info=None):
+def compute_score_spot(s, zt_info=None, yesterday_chg=None):
     """盘中实时评分: 因子=实时涨幅/量比/换手率/封单强度/市值/昨日涨幅。
     zt_info: 涨停池单股信息 {fund, lb, zbc, ...} 或 None(非涨停/无数据)。
     封单强度 = 封单额(亿) / 流通市值(亿) ×100 (封成比%), 非涨停股按 0 计。
-    """
+    yesterday_chg: 真实昨日涨幅%(同 compute_score, 2026-09-08 语义修正: 不再用实时
+    涨幅 real_chg 当"昨日涨幅")。"""
     real_chg = parse_float(s.get("f3"))          # 实时涨幅 %
     vol_ratio = parse_float(s.get("f10"))        # 量比
     turnover = parse_float(s.get("f8"))          # 换手率 %
     circ_mv = parse_float(s.get("f21")) / 1e8    # 流通市值(亿)
-    yesterday_approx = real_chg                  # 与竞价口径一致: f3 代理
+    # 2026-09-08 语义修正: 原为 yesterday_approx = real_chg(实时涨幅代理), 与竞价口径
+    # 同一个语义错配 → 改真实昨日涨幅; 缺失(None)走 default 分, 不再代理。
+    yesterday_approx = yesterday_chg
     fund = (zt_info or {}).get("fund") or 0      # 封单额(亿)
     seal_ratio = round(fund / circ_mv * 100, 2) if (fund > 0 and circ_mv > 0) else 0.0
 
@@ -435,7 +458,8 @@ def compute_score_spot(s, zt_info=None):
     turn_score = get_factor_score(cfg, "turnover", turnover)
     seal_score = get_factor_score(cfg, "seal", seal_ratio)
     market_score = get_factor_score(cfg, "market", circ_mv)
-    yesterday_score = get_factor_score(cfg, "yesterday", yesterday_approx)
+    yesterday_score = (_factor_default(cfg, "yesterday") if yesterday_approx is None
+                       else get_factor_score(cfg, "yesterday", yesterday_approx))
 
     base = (chg_score * cfg["w_chg"] + vol_score * cfg["w_vol_ratio"]
             + turn_score * cfg["w_turnover"] + seal_score * cfg["w_seal"]
@@ -476,14 +500,16 @@ def compute_score_spot(s, zt_info=None):
     }
 
 
-def process_spot_stocks(raw, f, zt_map=None):
+def process_spot_stocks(raw, f, zt_map=None, yesterday_chg_map=None):
     """盘中实时选股主流程: 评分 + 过滤 + 排序。
-    zt_map: code -> 涨停池信息 {fund, lb, zbc, zdp}(fetcher.fetch_zt_pool 结果)"""
+    zt_map: code -> 涨停池信息 {fund, lb, zbc, zdp}(fetcher.fetch_zt_pool 结果)
+    yesterday_chg_map: 真实昨日涨幅 {code: %}(2026-09-08 语义修正, 同竞价口径)"""
     zt_map = zt_map or {}
+    yesterday_chg_map = yesterday_chg_map or {}
     scored = []
     for s in raw:
         zt = zt_map.get(s.get("f12"))
-        sc = compute_score_spot(s, zt)
+        sc = compute_score_spot(s, zt, yesterday_chg_map.get(s.get("f12")))
         scored.append({
             "code": s.get("f12", ""),
             "name": s.get("f14", ""),
@@ -613,7 +639,7 @@ def is_qiangchou(bid_change, bid_ratio):
 
 
 def score_all_stocks(raw, yesterday_map=None, snapshot_map=None, qiangchou_codes=None,
-                     day_bid_amt=None, day_bid_change=None):
+                     day_bid_amt=None, day_bid_change=None, yesterday_chg_map=None):
     """全市场评分 + 排序(不按用户过滤); 返回 scored 列表(含 _raw)
     2026-08-16 拆分: 9:26 自动应用按用户复用同一份评分, 只各自过滤,
     避免 150+ 用户各跑一次全市场评分(性能 150 倍差距)。
@@ -631,6 +657,7 @@ def score_all_stocks(raw, yesterday_map=None, snapshot_map=None, qiangchou_codes
     snapshot_map = snapshot_map or {}
     day_bid_amt = day_bid_amt or {}
     day_bid_change = day_bid_change or {}
+    yesterday_chg_map = yesterday_chg_map or {}   # 真实昨日涨幅 {code: %}(2026-09-08)
     scored = []
     # 竞价/昨比: 分子=今日竞价额(f616, 9:25定格), 分母=最近已收盘交易日(T)全天额。
     # pair 由 _kline_amount_pair 保证 [最近已收盘T日, T-1日], 任何时间(窗口/盘中/收盘)都可算,
@@ -647,7 +674,8 @@ def score_all_stocks(raw, yesterday_map=None, snapshot_map=None, qiangchou_codes
         if not use_spot_bid and code in day_bid_change:
             s = dict(s)
             s["f615"] = day_bid_change[code]
-        sc = compute_score(s)
+        # 真实昨日涨幅(缺失 → None → 该因子走 default 分, 不用当日 f3 冒充)
+        sc = compute_score(s, yesterday_chg_map.get(code))
         # 竞价额(万元): 2026-09-03 修复「竞额列=实时成交额」— 东财封禁期行情走腾讯兜底,
         # f616 被近似为累计实时成交额(fetcher.py), 盘中(窗口外)直接读会把竞额显示成实时成交额。
         # → 窗口内(9:15-9:31)行情 f616 新鲜(东财定格/腾讯仍在竞价累计阶段)直接用;
@@ -713,7 +741,7 @@ def score_all_stocks(raw, yesterday_map=None, snapshot_map=None, qiangchou_codes
 
 
 def process_all_stocks(raw, f, yesterday_map=None, snapshot_map=None, qiangchou_codes=None,
-                       day_bid_amt=None, day_bid_change=None):
+                       day_bid_amt=None, day_bid_change=None, yesterday_chg_map=None):
     """全市场竞价评分(与竞价锁定共用同一套): 评分 + 过滤 + 排序。
     兼容入口(2026-09-01 可测性重构后内部复用 score_all_stocks + apply_filters);
     与 score_all_stocks + apply_filters 拆分等价, 保留兼容入口: 评分 + 过滤 + 清理 _raw。
@@ -725,7 +753,7 @@ def process_all_stocks(raw, f, yesterday_map=None, snapshot_map=None, qiangchou_
     f3 造成 竞涨=现涨 + 「涨幅≤bidGt」过滤按现价(细节见 score_all_stocks)。
     """
     scored = score_all_stocks(raw, yesterday_map, snapshot_map, qiangchou_codes,
-                              day_bid_amt, day_bid_change)
+                              day_bid_amt, day_bid_change, yesterday_chg_map)
     result = apply_filters(scored, f)
     for it in result:
         it.pop("_raw", None)

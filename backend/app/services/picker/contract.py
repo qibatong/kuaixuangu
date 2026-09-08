@@ -54,8 +54,9 @@ FIELD_AUTHORITY: Dict[str, str] = {
     "concept": "概念: 东财 f103 / 开盘啦覆盖",
 
     # ---- 可疑口径(保持老行为, 待确认) ----
-    "yesterday_change": "昨日涨幅%: **历史口径= f3(当日涨幅)代理**, 语义存疑。"
-                        "评分权重已按此校准, 改动需主人确认 + 重新校准",
+    "yesterday_change": "昨日涨幅%: 真实值 = T日(最近已收盘交易日)涨跌幅, 来自东财日K f58"
+                        "(fetcher.fetch_yesterday_changes, 与成交额**同一次请求**返回)。"
+                        "2026-09-08 已修正: 老逻辑拿**当日 f3** 冒充昨日涨幅(语义错配)已废弃",
 
     # ---- 元信息 ----
     "source": "本行数据来源标签(eastmoney/tencent/snapshot), 用于降级可见性",
@@ -203,6 +204,7 @@ class QuoteRow:
     def from_eastmoney(cls, s: Dict[str, Any], *, auction_window: bool = False,
                        day_bid_change: Optional[float] = None,
                        day_bid_amt_wan: Optional[float] = None,
+                       yesterday_chg: Optional[float] = None,
                        degraded: bool = False) -> "QuoteRow":
         """东财 push2 diff 行 → QuoteRow。
 
@@ -227,8 +229,8 @@ class QuoteRow:
             float_mv=_f(s.get("f21")),
             industry=s.get("f100") or None,
             concept=s.get("f103") or None,
-            # 可疑口径: 与老 scorer.compute_score 保持一致(f3 代理昨日涨幅)
-            yesterday_change=_f(s.get("f3")),
+            # 2026-09-08 修正: 昨日涨幅取真实值(日K f58), 不再用当日 f3 冒充
+            yesterday_change=yesterday_chg,
             source="eastmoney",
             degraded=degraded,
         )
@@ -274,7 +276,8 @@ class QuoteRow:
         )
 
     @classmethod
-    def from_tencent(cls, f: List[str], *, degraded: bool = False) -> "QuoteRow":
+    def from_tencent(cls, f: List[str], *, degraded: bool = False,
+                     yesterday_chg: Optional[float] = None) -> "QuoteRow":
         """腾讯 qt.gtimg.cn 单行(~分隔 88 字段) → QuoteRow。
         索引与 fetcher._tencent_diff 一致: f[1]名称 f[2]代码 f[3]现价 f[4]昨收
         f[5]今开 f[31]涨跌% f[36]成交量(手) f[37]成交额(万) f[38]换手 f[43]流通市值(亿)。
@@ -298,7 +301,7 @@ class QuoteRow:
             amount=(lambda a: None if a is None else a * 1e4)(_f(g(37))),
             turnover=_f(g(38)),
             float_mv=None if mv_yi is None else mv_yi * 1e8,
-            yesterday_change=_f(g(31)),      # 同老口径: f3 代理
+            yesterday_change=yesterday_chg,   # 腾讯无真实昨日涨幅 → 默认 None
             source="tencent",
             degraded=degraded,
         )

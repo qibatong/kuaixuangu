@@ -106,12 +106,15 @@ def auto_apply_all_users(max_users=None):
     bid_chg_map = auction_snapshot.load_day_bid_change()
     # wait=True: 自动锁定需完整昨比(后台任务, 可等待; 用户请求路径走异步不阻塞)
     yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw], wait=True) or {}
+    # 2026-09-08 昨日涨幅真实化: wait=True 已同步拉完日K, 直接读缓存(零额外请求)
+    yesterday_chg_map = fetcher.fetch_yesterday_changes([s.get("f12") for s in raw]) or {}
     # 全市场评分一次
     try:
         # 2026-09-01 抢筹口径: 命中右视图竞价异动"竞价抢筹"代码集才打抢筹标
         qc_codes = kpl.get_qiangchou_codes()
         scored = scorer.score_all_stocks(raw, yesterday_map, snapshot_map, qiangchou_codes=qc_codes,
-                                         day_bid_change=bid_chg_map)
+                                         day_bid_change=bid_chg_map,
+                                         yesterday_chg_map=yesterday_chg_map)
     except Exception as e:
         log.error("auto_apply 全市场评分失败 err=%s", e, exc_info=True)
         return {"applied": 0, "skipped": 0, "failed": 0, "total": 0,
