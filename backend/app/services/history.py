@@ -185,12 +185,19 @@ def find_today_reusable_batch(user_id, f, now_ts=None):
     finally:
         conn.close()
     # ① lock 同参(当日最近, 按 ts desc 首个命中即权威锁定名单)
+    # 2026-09-08 修复(主人反馈"页面刷新没有选股数据, 点击应用后才有"): 本函数注释早就
+    # 声明"空名单批次(stock_count=0)无直读价值, 跳过", 但 ①② 循环**从未实现该过滤**
+    # (仅 ③ 系统兜底做了) → 当日若存在 0 只的 lock 批次(如早盘数据源故障期间落的空批次),
+    # 每次 refresh 都直读它返回空名单, 页面一片空白; 而点「应用」走 filter 现算才有数据。
+    # 实测 uid=211 今日: 批次 1574/1575/1576 均 0 只, refresh 连续 64 次直读 1574 返回 0。
     for r in rows:
-        if r["action"] == "lock" and _batch_matches_fingerprint(r, fk, mk):
+        if r["action"] == "lock" and (r["stock_count"] or 0) > 0 \
+                and _batch_matches_fingerprint(r, fk, mk):
             return r["id"], "lock"
     # ② filter 同参(当日最近)
     for r in rows:
-        if r["action"] == "filter" and _batch_matches_fingerprint(r, fk, mk):
+        if r["action"] == "filter" and (r["stock_count"] or 0) > 0 \
+                and _batch_matches_fingerprint(r, fk, mk):
             return r["id"], "filter"
     # ③ 用户当日无任何手动批次才允许系统统一批次兜底(有手动批次但参数已改 → 必须重算,
     #    否则改条件后刷新会错误直读系统名单); 空名单批次(stock_count=0)无直读价值,

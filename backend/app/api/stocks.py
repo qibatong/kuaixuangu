@@ -200,6 +200,13 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                                  "batch=%s date=%s", uid, reuse_src, reuse_bid, reuse_date)
                 if reuse_bid:
                     lst = history.get_batch_stocks_mapped(reuse_bid)
+                    # 2026-09-08 双保险(主人反馈"刷新无数据"): 即便批次非空(stock_count>0),
+                    # 明细仍可能为空(落库异常/明细被清理) → 空名单不得直读返回, 视为未命中
+                    # 继续走下方重算, 避免页面空白(空名单 ≠ 有效定格名单)。
+                    if not lst:
+                        log.warning("选股refresh直读批次为空名单, 放弃直读改重算 uid=%s "
+                                    "batch=%s src=%s", uid, reuse_bid, reuse_src)
+                        reuse_bid = None
                     # 全市场实时行情(缓存命中≈0ms; 拉取失败降级: 定格名单无实时覆盖, 下轮自愈)
                     # 2026-09-05 B 方案: 行情仅内联覆盖 list item, 不再整体下发 spotMap 字段
                     spot_map = {}
@@ -291,10 +298,18 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         # 实时源。lock 与 filter 同源(9:30 前 lock=研究锁定, 同样受益于幂等名单);
         # lock 仅限 hm<9:15 走快照池 — 9:30 后 lock 仍需 ensure_cache 的
         # 「9:30 后禁止重新选股」业务拒绝, 不得绕过。
+        # 2026-09-08 同源修复(主人反馈"刷新无数据, 点应用才有"): 原 refresh 被排除在
+        # 快照候选池之外(条件只认 filter/9:15前lock) → 9:30 后无批次可直读时, refresh 走
+        # ensure_cache 实时全市场(盘中 f615 无竞价值 → 常被筛成 0 只), 而 filter 走定格
+        # 快照池能出几十只 → 同一套筛选条件刷新与应用结果不一致。
+        # 按模式层已定语义(INTRADAY: deterministic=True, source_priority 定格优先),
+        # 9:30 后 refresh 必须与 filter 同源走快照池: 名单幂等固定 + 刷新也有数据。
         hm = scorer._bj_hm()
-        if mode == "auction" and (
+        use_snapshot_pool = mode == "auction" and (
                 (action == "filter" and (not before930 or hm < 9 * 60 + 15))
-                or (action == "lock" and hm < 9 * 60 + 15)):
+                or (action == "lock" and hm < 9 * 60 + 15)
+                or (action == "refresh" and not before930))
+        if use_snapshot_pool:
             try:
                 snap_rows = auction_snapshot.load_snapshot_full()
                 if snap_rows:

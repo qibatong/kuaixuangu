@@ -282,3 +282,49 @@ def test_api_refresh_after930_param_changed_recomputes(client, create_user_token
     assert r.status_code == 200 and d.get("ok"), "参数不同应正常重算返回"
     assert not d.get("reused"), "参数已改不应直读"
     assert _batch_count(uid) == 1, "refresh 兜底重算不落库(语义同现状)"
+
+
+# ============================================================
+# 2026-09-08 主人反馈「页面刷新没有选股数据, 点击应用后才有」
+# 根因: find_today_reusable_batch 注释声明"空名单批次(stock_count=0)无直读价值, 跳过",
+#       但 ①② 循环从未实现该过滤(仅 ③ 系统兜底做了) → 当日存在 0 只 lock 批次时,
+#       refresh 每次直读它返回空名单(实测 uid=211 连续 64 次直读 0 只批次 1574)。
+# ============================================================
+
+def test_reuse_skips_empty_lock_batch():
+    """当日同参 lock 批次为 0 只 → 不得直读(返回 None 让上层重算), 避免页面空白"""
+    uid = 992111
+    f = _f()
+    _seed_batch(uid, f, action="lock", ts=TS_0926, n=0)      # 空名单批次(早盘故障期间落的)
+    bid, src = history.find_today_reusable_batch(uid, f, now_ts=TS_0931)
+    assert bid is None, "空名单 lock 批次不得直读, 实际命中 %s/%s" % (bid, src)
+
+
+def test_reuse_prefers_nonempty_over_empty_lock():
+    """同参 lock 有多个批次: 最新的 0 只、较早的 30 只 → 必须跳过空的, 返回有票的那个"""
+    uid = 992112
+    f = _f()
+    good = _seed_batch(uid, f, action="lock", ts=TS_0926, n=30)         # 较早, 有票
+    _seed_batch(uid, f, action="lock", ts=TS_0926 + 60, n=0)            # 较新, 空
+    bid, src = history.find_today_reusable_batch(uid, f, now_ts=TS_0931)
+    assert bid == good, "应跳过空批次返回有票批次 %s, 实际 %s" % (good, bid)
+    assert src == "lock"
+
+
+def test_reuse_skips_empty_filter_batch_too():
+    """② filter 分支同样跳过空名单(点应用若算出 0 只也不该被后续 refresh 直读)"""
+    uid = 992113
+    f = _f()
+    _seed_batch(uid, f, action="filter", ts=TS_0926, n=0)
+    bid, src = history.find_today_reusable_batch(uid, f, now_ts=TS_0931)
+    assert bid is None, "空名单 filter 批次不得直读, 实际命中 %s/%s" % (bid, src)
+
+
+def test_reuse_empty_batch_falls_through_to_nonempty_filter():
+    """lock 空 + filter 非空 → 应命中非空的 filter(而不是返回 None 让页面空白)"""
+    uid = 992114
+    f = _f()
+    _seed_batch(uid, f, action="lock", ts=TS_0926, n=0)
+    good = _seed_batch(uid, f, action="filter", ts=TS_0926 + 30, n=26)
+    bid, src = history.find_today_reusable_batch(uid, f, now_ts=TS_0931)
+    assert bid == good and src == "filter", "应回退到非空 filter 批次, 实际 %s/%s" % (bid, src)
