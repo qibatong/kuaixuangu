@@ -1,0 +1,304 @@
+# -*- coding: utf-8 -*-
+"""
+选股数据契约层 (重构 P0)
+=================================================================================
+老链路字段语义混乱实录(本层要消灭的东西):
+  - get_bid_change(): f615 缺失/异常 → **隐式退回 f3** → 盘后 f615 = "-" 时"竞价涨幅"
+    变成"当日涨幅", 过滤按现价判 → 大跌票混入(9/7 事故)
+  - compute_score(): "昨日涨幅"因子实际取 **f3(当日涨幅)** 代理, 语义错误但已成既定权重
+  - 降级构造行 price 填 0 → priceGt 门槛永不触发 → 名单虚胖一倍(9/8 事故)
+  - 降级构造行 f3 填 0 → 前端"现涨幅"列清一色 0.00%
+
+本层契约:
+  * 每个字段在 FIELD_AUTHORITY 里声明**唯一权威来源**, 任何改动必须改这里并补注释
+  * 缺失 = None, 永不填 0(填 0 = 静默撒谎: 0 会被过滤/展示当成有效值)
+  * 单位统一: 金额=元, 涨幅=百分点(%), 市值=元 — 展示层(to_dict)才转万元/亿
+  * 退化取值只允许出现在 DEGRADE_RULES 中, 且必须写明触发条件与理由
+
+待主人确认的可疑口径(先保持与老逻辑一致以保证双跑对拍, 但显式标注):
+  * yesterday_change: 老逻辑用 f3(当日涨幅)当"昨日涨幅"代理, 语义错误。
+    若要改为真实昨日涨幅, 需新数据源 + 重新校准权重(不在本次重构范围)。
+"""
+import math
+from dataclasses import dataclass, fields as dc_fields
+from typing import Any, Dict, List, Optional, Tuple
+
+# ============================ 字段权威来源表 ============================
+# 唯一真源: 任何"这个字段从哪来"的问题都以此表为准, 禁止在别处隐式 fallback。
+FIELD_AUTHORITY: Dict[str, str] = {
+    "code": "股票代码: 东财 f12 / 快照 code / 腾讯 v_xx#### 解析",
+    "name": "股票名称: 东财 f14 / 快照 name / 腾讯 f[1]",
+
+    # ---- 竞价字段: 权威 = 9:25 定格快照; 仅竞价窗口内可用实时 f615/f616 ----
+    "bid_change": "竞价涨幅%: ① 9:25 定格快照 bid_change ② 竞价窗口内 f615。"
+                  "**禁止**在非竞价窗口退回 f3(老逻辑隐式 fallback = 竞涨变现涨, 大跌票混入根因)",
+    "bid_amt": "竞价额(元): ① 9:25 定格快照 bid_amt ② 竞价窗口内 f616。"
+               "禁止用 f6(累计成交额)冒充 — 盘中 f6 是全天累计, 会算出 1000%+ 荒谬昨比",
+    "bid_vol": "竞价量(股): ① 定格快照 ② 竞价窗口内 f617",
+
+    # ---- 实时字段: 权威 = 实时行情源 ----
+    "price": "现价(元): 实时源 f2 / 腾讯 f[3]; 定格模式取昨收(prev_close)",
+    "prev_close": "昨收(元): 实时源 f18 / 腾讯 f[4]",
+    "open": "今开(元): 实时源 f17 / 腾讯 f[5]; 缺失时实体涨幅为 None(老逻辑填0导致实体列全0%)",
+    "real_change": "现涨幅%: 实时源 f3; 盘前未开盘时数据源本身无值 → None(不是 0)",
+    "vol": "成交量(股): 实时源 f5(手)×100 / 腾讯 f[36](手)×100",
+    "amount": "成交额(元): 实时源 f6 / 腾讯 f[37](万)×1e4",
+    "turnover": "换手率%: 实时源 f8 / 腾讯 f[38]",
+    "vol_ratio": "量比: 实时源 f10",
+    "warn_type": "异动等级: 实时源 f630(实测取值 0/1/2)",
+
+    # ---- 半静态 ----
+    "float_mv": "流通市值(元): 实时源 f21 / 快照 float_mv, **缺失时回退 free_mv**"
+                "(老逻辑只取 float_mv → 快照行市值为 0 被 floatMvFloor 误杀)",
+    "industry": "行业: 东财 f100 / 开盘啦覆盖",
+    "concept": "概念: 东财 f103 / 开盘啦覆盖",
+
+    # ---- 可疑口径(保持老行为, 待确认) ----
+    "yesterday_change": "昨日涨幅%: **历史口径= f3(当日涨幅)代理**, 语义存疑。"
+                        "评分权重已按此校准, 改动需主人确认 + 重新校准",
+
+    # ---- 元信息 ----
+    "source": "本行数据来源标签(eastmoney/tencent/snapshot), 用于降级可见性",
+    "degraded": "本行是否来自降级路径(True 时必须前端明示, 见铁律2)",
+}
+
+# ============================ 退化规则 ============================
+# 唯一允许的退化取值白名单。任何不在此表中的 fallback 都是 bug。
+DEGRADE_RULES: Tuple[str, ...] = (
+    "float_mv: 实时源 f21 缺失/为 0 → 回退快照 free_mv"
+    "  (理由: 快照表历史行存在 float_mv=0 但 free_mv 有值的脏数据)",
+    "price: 定格模式下无实时价 → 取 prev_close"
+    "  (理由: 定格名单本就是 9:25 状态, 昨收是该时点的真实价格基准)",
+)
+
+
+def _f(v: Any) -> Optional[float]:
+    """契约安全的 float 转换: 非法/空/'-'/NaN 一律 None(绝不返回 0)"""
+    if v is None or v == "" or v == "-":
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(f):
+        return None
+    return f
+
+
+@dataclass
+class QuoteRow:
+    """一行选股行情的契约实体。
+
+    铁律1: 所有值字段默认 None(而非 0)。None = "我不知道", 0 = "我知道它是 0",
+    这两者在过滤门槛与前端展示中语义完全不同 —— 9/8 名单虚胖一倍就是因为
+    降级行把 price 填 0, 让 priceGt 门槛静默失效。
+    """
+    # 标识
+    code: str = ""
+    name: str = ""
+
+    # 竞价字段(权威=9:25 定格)
+    bid_change: Optional[float] = None      # 竞价涨幅 %
+    bid_amt: Optional[float] = None         # 竞价额(元)
+    bid_vol: Optional[float] = None         # 竞价量(股)
+
+    # 实时字段
+    price: Optional[float] = None           # 现价(元)
+    prev_close: Optional[float] = None      # 昨收(元)
+    open: Optional[float] = None            # 今开(元)
+    real_change: Optional[float] = None     # 现涨幅 %
+    vol: Optional[float] = None             # 成交量(股)
+    amount: Optional[float] = None          # 成交额(元)
+    turnover: Optional[float] = None        # 换手率 %
+    vol_ratio: Optional[float] = None       # 量比
+    warn_type: Optional[int] = None         # 异动等级
+
+    # 半静态
+    float_mv: Optional[float] = None        # 流通市值(元)
+    industry: Optional[str] = None
+    concept: Optional[str] = None
+
+    # 可疑口径(保持老行为)
+    yesterday_change: Optional[float] = None
+
+    # 元信息
+    source: str = ""
+    degraded: bool = False
+
+    # ---------- 派生量(property 计算, 不存储, 避免冗余不一致) ----------
+    @property
+    def is_suspended(self) -> Optional[bool]:
+        """停牌判断: 昨收<=0 或 成交量==0 → 停牌。
+        老逻辑 is_suspended(f4<=0 或 f5==0): 降级行无 f4/f5 时会被**误判为停牌**
+        (2026-09-01 事故)。本契约下 prev_close/vol 皆 None → 返回 None(未知),
+        由调用方按模式策略决定"未知是否剔除", 不得默认剔除或默认保留。"""
+        if self.prev_close is None or self.vol is None:
+            return None
+        return self.prev_close <= 0 or self.vol == 0
+
+    @property
+    def entity_change(self) -> Optional[float]:
+        """实体涨幅%: 今开 → 现价。缺今开/现价 → None(老逻辑填 0 → 实体列全 0%)"""
+        o, p = self.open, self.price
+        if not o or not p:
+            return None
+        return (p - o) / o * 100
+
+    @property
+    def bid_turnover(self) -> Optional[float]:
+        """竞价换手率%(派生): 竞价量×价 / 流通市值 ×100"""
+        if not self.bid_vol or not self.price or not self.float_mv:
+            return None
+        if self.float_mv <= 0:
+            return None
+        t = self.bid_vol * self.price / self.float_mv * 100
+        return t if math.isfinite(t) else None
+
+    # ---------- 契约查询 ----------
+    def missing(self, *names: str) -> List[str]:
+        """返回这些字段中缺失(None/空)的字段名"""
+        out = []
+        for n in names:
+            v = getattr(self, n, None)
+            if v is None or v == "":
+                out.append(n)
+        return out
+
+    def require(self, *names: str) -> bool:
+        """关键字段是否齐全(用于"字段不全则该条件不生效"或"剔除此票"的策略判断)"""
+        return not self.missing(*names)
+
+    def missing_fields(self) -> List[str]:
+        """所有缺失字段(排除元信息)"""
+        skip = {"source", "degraded"}
+        return [f.name for f in dc_fields(self)
+                if f.name not in skip and (getattr(self, f.name) is None
+                                           or getattr(self, f.name) == "")]
+
+    # ---------- 展示层输出(单位转换在此, 内部一律元) ----------
+    def to_dict(self) -> Dict[str, Any]:
+        """前端字段映射。None 原样透出(前端应显示 '-' 而非 0.00)。
+        单位转换: bidAmt→万元, circulationMV→亿, amount→亿, 与前端现有约定一致。"""
+        return {
+            "code": self.code,
+            "name": self.name,
+            "price": self.price,
+            "realChange": self.real_change,
+            "entityChange": self.entity_change,
+            "bidChange": self.bid_change,
+            "bidAmt": None if self.bid_amt is None else round(self.bid_amt / 1e4, 2),
+            "bidTurnover": self.bid_turnover,
+            "turnover": self.turnover,
+            "volRatio": self.vol_ratio,
+            "amount": None if self.amount is None else round(self.amount / 1e8, 4),
+            "circulationMV": None if self.float_mv is None else round(self.float_mv / 1e8, 2),
+            "industry": self.industry,
+            "concept": self.concept,
+            "degraded": self.degraded,
+            "source": self.source,
+        }
+
+    # ================= 构造入口(字段映射 = 契约的一部分) =================
+    @classmethod
+    def from_eastmoney(cls, s: Dict[str, Any], *, auction_window: bool = False,
+                       day_bid_change: Optional[float] = None,
+                       day_bid_amt_wan: Optional[float] = None,
+                       degraded: bool = False) -> "QuoteRow":
+        """东财 push2 diff 行 → QuoteRow。
+
+        auction_window: 是否处于竞价窗口(9:15-9:31)。**仅窗口内**才允许取 f615/f616
+            作为竞价字段; 窗口外 f615 为 "-" / f616 退回历史值, 取之即事故。
+        day_bid_change / day_bid_amt_wan: 9:25 定格值(万元), 由调用方传入;
+            提供时**优先**于实时字段(定格是竞价字段的权威来源, 见 FIELD_AUTHORITY)。
+        """
+        vol_hand = _f(s.get("f5"))          # 成交量(手)
+        row = cls(
+            code=str(s.get("f12") or s.get("code") or ""),
+            name=str(s.get("f14") or s.get("name") or ""),
+            price=_f(s.get("f2")),
+            prev_close=_f(s.get("f18")) or _f(s.get("f4")),   # f18=昨收, f4 同义兜底
+            open=_f(s.get("f17")),
+            real_change=_f(s.get("f3")),
+            vol=None if vol_hand is None else vol_hand * 100,
+            amount=_f(s.get("f6")),
+            turnover=_f(s.get("f8")),
+            vol_ratio=_f(s.get("f10")),
+            warn_type=(lambda v: None if v is None else int(v))(_f(s.get("f630"))),
+            float_mv=_f(s.get("f21")),
+            industry=s.get("f100") or None,
+            concept=s.get("f103") or None,
+            # 可疑口径: 与老 scorer.compute_score 保持一致(f3 代理昨日涨幅)
+            yesterday_change=_f(s.get("f3")),
+            source="eastmoney",
+            degraded=degraded,
+        )
+        # 竞价字段: 定格值优先 → 窗口内实时 → None(绝不退化 f3)
+        if day_bid_change is not None:
+            row.bid_change = day_bid_change
+        elif auction_window:
+            row.bid_change = _f(s.get("f615"))
+        if day_bid_amt_wan is not None:
+            row.bid_amt = day_bid_amt_wan * 1e4      # 万元 → 元
+        elif auction_window:
+            row.bid_amt = _f(s.get("f616"))
+        row.bid_vol = _f(s.get("f617")) if auction_window else None
+        return row
+
+    @classmethod
+    def from_snapshot(cls, v: Dict[str, Any], *, degraded: bool = False) -> "QuoteRow":
+        """9:25 定格快照行 → QuoteRow。
+
+        快照是竞价字段的**权威来源**: bid_change/bid_amt 直接取; 无实时价 → price
+        取昨收(见 DEGRADE_RULES)。
+        float_mv 缺失回退 free_mv(快照表历史脏数据: float_mv=0 但 free_mv 有值)。
+        """
+        prev = _f(v.get("pre_close")) or _f(v.get("f18"))
+        fmv = _f(v.get("float_mv")) or _f(v.get("free_mv"))
+        amt_wan = _f(v.get("bid_amt"))          # 快照 bid_amt 单位=万元
+        return cls(
+            code=str(v.get("code") or ""),
+            name=str(v.get("name") or ""),
+            bid_change=_f(v.get("bid_change")),
+            bid_amt=None if amt_wan is None else amt_wan * 1e4,
+            bid_vol=_f(v.get("bid_vol")),
+            price=_f(v.get("price")) or prev,   # 定格无实时价 → 昨收(DEGRADE_RULES)
+            prev_close=prev,
+            open=_f(v.get("open")),
+            real_change=_f(v.get("change")) or _f(v.get("real_change")),
+            float_mv=fmv,
+            industry=v.get("industry") or None,
+            concept=v.get("concept") or None,
+            yesterday_change=_f(v.get("change")) or _f(v.get("real_change")),
+            source="snapshot",
+            degraded=degraded,
+        )
+
+    @classmethod
+    def from_tencent(cls, f: List[str], *, degraded: bool = False) -> "QuoteRow":
+        """腾讯 qt.gtimg.cn 单行(~分隔 88 字段) → QuoteRow。
+        索引与 fetcher._tencent_diff 一致: f[1]名称 f[2]代码 f[3]现价 f[4]昨收
+        f[5]今开 f[31]涨跌% f[36]成交量(手) f[37]成交额(万) f[38]换手 f[43]流通市值(亿)。
+        腾讯无竞价专属字段 → bid_* 一律 None(不拿现价涨幅冒充竞价涨幅)。"""
+        def g(i):
+            try:
+                return f[i]
+            except IndexError:
+                return None
+
+        vol_hand = _f(g(36))
+        mv_yi = _f(g(43))
+        return cls(
+            code=str(g(2) or ""),
+            name=str(g(1) or ""),
+            price=_f(g(3)),
+            prev_close=_f(g(4)),
+            open=_f(g(5)),
+            real_change=_f(g(31)),
+            vol=None if vol_hand is None else vol_hand * 100,
+            amount=(lambda a: None if a is None else a * 1e4)(_f(g(37))),
+            turnover=_f(g(38)),
+            float_mv=None if mv_yi is None else mv_yi * 1e8,
+            yesterday_change=_f(g(31)),      # 同老口径: f3 代理
+            source="tencent",
+            degraded=degraded,
+        )
