@@ -235,7 +235,22 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         #   点查失败/窗口内/无当日快照 → 降级 ensure_cache(已改全市场)。
         raw = None
         err = None
-        if action == "filter" and mode == "auction" and not before930:
+        # 2026-09-08 主人核心诉求(同条件名单波动 + 加载慢): 快照候选池适用时段从
+        # 「9:30 后(盘后)」扩展至「9:15 前(凌晨/盘前)」— 该时段当日既无 9_25 定格
+        # 快照也无实时竞价(东财只回昨日收盘缓存), 原 ensure_cache 实时拉全市场 28 页:
+        # ① 双 uvicorn worker 缓存不一致(raw 5548↔5556)+昨日额命中爬坡 → 同筛选参数
+        # 名单波动(9/8 07:26-07:29 生产实测同 filters 交集仅 13/30), 边界票进出即
+        # 「有概率」混入大跌票; ② 28 页拉取+全量昨日额 → 加载 5-15s。
+        # load_snapshot_full 自动回退最近交易日(15 自然日) → 凌晨拿到最近交易日 9:25
+        # 定格候选池: 快照不变 → 名单幂等稳定; 点查仅几十只 → 加载 <3s。
+        # 9:15-9:30 竞价窗口保持实时: 当日动态竞价(9:25 前涨幅演进/9:25 定格)只能走
+        # 实时源。lock 与 filter 同源(9:30 前 lock=研究锁定, 同样受益于幂等名单);
+        # lock 仅限 hm<9:15 走快照池 — 9:30 后 lock 仍需 ensure_cache 的
+        # 「9:30 后禁止重新选股」业务拒绝, 不得绕过。
+        hm = scorer._bj_hm()
+        if mode == "auction" and (
+                (action == "filter" and (not before930 or hm < 9 * 60 + 15))
+                or (action == "lock" and hm < 9 * 60 + 15)):
             try:
                 snap_rows = auction_snapshot.load_snapshot_full()
                 if snap_rows:
@@ -332,7 +347,9 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         "list": result,
         "count": len(result),
         "before930": before930,
-        "dataTime": int(fetcher._cache[fs]["ts"]),
+        # 2026-09-08: 快照候选池路径不写 fetcher._cache → 硬取 [fs] 会 KeyError(凌晨
+        # 全走快照池后必现)。dataTime 语义=行情数据时间, 兜底用当前时刻即可。
+        "dataTime": int((fetcher._cache.get(fs) or {}).get("ts") or time.time()),
     })
 
 
