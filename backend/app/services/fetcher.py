@@ -470,6 +470,37 @@ def _fetch_tencent_batch(symbols):
     return out
 
 
+def _tencent_diff(code, fields):
+    """腾讯单行 88 字段 → 东财 diff 同构(与 fetch_eastmoney_all/fetch_raw_by_codes 同构)。
+    fields 为 _fetch_tencent_batch 返回的 ~ 分隔列表(0-based):
+      [1]名称 [3]现价 [4]昨收 [5]今开 [32]涨跌% [36]成交量(手) [37]成交额(万)
+      [38]换手率 [44]流通市值(亿)
+    2026-09-08 提取(方案 A+ 腾讯点查与全市场兜底共用): 关键数值缺/异常返回 None,
+    调用方跳过该行 — 行为与原 fetch_tencent_market._grab 内联解析完全等价。"""
+    try:
+        mv_yi = float(fields[44])          # 流通市值(亿)
+        price = float(fields[3])
+        chg = float(fields[32])            # 涨跌%
+        turnover = float(fields[38])       # 换手率
+        amt_wan = float(fields[37])        # 成交额(万)
+        vol_hand = float(fields[36])       # 成交量(手)
+        pre_close = float(fields[4])       # 昨收
+        open_price = float(fields[5])      # 今开 (2026-09-07 修复: 缺 f17 实体涨幅恒为 0)
+    except (ValueError, IndexError):
+        return None
+    return {
+        "f2": price, "f3": chg, "f8": turnover,
+        "f4": pre_close, "f5": vol_hand,   # 2026-09-01 修复: 缺 f4/f5 会被 is_suspended 误判停牌
+        "f17": open_price,                 # 2026-09-07 修复: 腾讯兜底缺今开 → 实体列全 0%
+        "f12": code, "f14": fields[1],
+        "f21": mv_yi * 1e8,            # 元
+        "f615": chg,                    # 竞价涨幅(近似)
+        "f616": amt_wan * 1e4,          # 竞价金额(元, 近似成交额)
+        "f617": vol_hand * 100,         # 竞价量(股, 近似成交量)
+        "f630": 0,
+    }
+
+
 def fetch_tencent_market(fs):
     """腾讯全市场行情兜底: 以全市场代码清单分批发拉 → 映射为东财 diff 格式
     (f2现价/f3涨跌%/f4昨收/f5成交量/f8换手/f12代码/f14名称/f21流通市值/f615竞价涨幅≈f3/
@@ -505,28 +536,9 @@ def fetch_tencent_market(fs):
             return []
         out = []
         for code, f in got.items():
-            try:
-                mv_yi = float(f[44])          # 流通市值(亿)
-                price = float(f[3])
-                chg = float(f[32])            # 涨跌%
-                turnover = float(f[38])       # 换手率
-                amt_wan = float(f[37])        # 成交额(万)
-                vol_hand = float(f[36])        # 成交量(手)
-                pre_close = float(f[4])        # 昨收
-                open_price = float(f[5])       # 今开 (2026-09-07 修复: 缺 f17 实体涨幅恒为 0)
-            except (ValueError, IndexError):
-                continue
-            out.append({
-                "f2": price, "f3": chg, "f8": turnover,
-                "f4": pre_close, "f5": vol_hand,   # 2026-09-01 修复: 缺 f4/f5 会被 is_suspended 误判停牌
-                "f17": open_price,                 # 2026-09-07 修复: 腾讯兜底缺今开 → 实体列全 0%
-                "f12": code, "f14": f[1],
-                "f21": mv_yi * 1e8,            # 元
-                "f615": chg,                    # 竞价涨幅(近似)
-                "f616": amt_wan * 1e4,          # 竞价金额(元, 近似成交额)
-                "f617": vol_hand * 100,         # 竞价量(股, 近似成交量)
-                "f630": 0,
-            })
+            d = _tencent_diff(code, f)
+            if d is not None:
+                out.append(d)
         return out
 
     batches = [symbols[i:i + _TENCENT_BATCH] for i in range(0, len(symbols), _TENCENT_BATCH)]
@@ -959,6 +971,48 @@ def fetch_raw_by_codes(code_list):
     log.info("东财按code点查 %d只(共%d批) 耗时%.0fms 返回%d只",
              len(code_list), (len(code_list) + _ULIST_BATCH - 1) // _ULIST_BATCH,
              (time.time() - t0) * 1000, len(out))
+    return out
+
+
+def fetch_tencent_by_codes(code_list):
+    """腾讯按 code 点查兜底(2026-09-08 方案 A+, 主人拍板): 东财 ulist(fetch_raw_by_codes)
+    断连时, 用 qt.gtimg.cn 批量接口按候选 code 拉**真实行情** — 名单仍由 9:25 快照池粗筛
+    固定(幂等稳定), 但实时字段(现价/涨跌幅/今开/换手)真实 → 评分/过滤/展示与正常路径一致,
+    不再出现「快照行直出」的现价 0 + 双低/价格过滤失效导致名单虚胖(9/8 早 70 vs 35 只)。
+    返回与 fetch_raw_by_codes **完全同构**的 diff 列表, 可直接喂 scorer.process_all_stocks。
+
+    ⚠️ 竞价字段近似: 腾讯无竞价专属字段, f615=现价涨幅 / f616=累计成交额(元)。竞价模式
+    窗口外会被 9:25 定格 day_bid_change/day_bid_amt map 覆写(见 score_all_stocks 647-668),
+    评分不受影响 — 此函数只负责把「展示类实时字段」补真实。全部失败/空返回抛 RuntimeError,
+    调用方再降级快照行直出(保名单非空)。"""
+    if _check_circuit("tencent_market"):
+        raise RuntimeError("腾讯数据源熔断中(故障冷却%d秒内), 快速失败" % _CIRCUIT_OPEN_SECONDS)
+    if not code_list:
+        return []
+    t0 = time.time()
+    out = []
+    symbols = [_tencent_symbol(c) for c in code_list]
+    for i in range(0, len(symbols), _TENCENT_BATCH):
+        batch = symbols[i:i + _TENCENT_BATCH]
+        got = None
+        for attempt in range(2):
+            try:
+                got = _fetch_tencent_batch(batch)
+                break
+            except Exception:
+                if attempt == 0:
+                    time.sleep(0.3)
+        if got is None:
+            raise RuntimeError("腾讯按code点查失败(批次重试后仍失败)")
+        for code, fields in got.items():
+            d = _tencent_diff(code, fields)
+            if d is not None:
+                out.append(d)
+    if not out:
+        raise RuntimeError("腾讯按code点查返回空")
+    _record("tencent_market", True, int((time.time() - t0) * 1000))
+    log.info("腾讯按code点查兜底 %d只 返回%d只 耗时%.0fms",
+             len(code_list), len(out), (time.time() - t0) * 1000)
     return out
 
 

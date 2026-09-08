@@ -269,9 +269,11 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         #   → 候选几十只按 code 点查完整行情(fetch_raw_by_codes, 东财 ulist)
         #   → 原 scorer 全流程评分过滤。替代原 ensure_cache: ①原 Top200 涨幅榜与
         #   「涨幅≤7%」反向错配(默认只出 5 只) ②实时拉全市场 28 页(打数据源)。
-        #   2026-09-08 方案 A: 点查失败**降级 9:25 快照行直出名单**(不再降级实时全市场 —
-        #   双 worker 缓存不一致+28 页拉取 = 名单波动+大跌票有概率混入的根因); 窗口内
-        #   (9:15-9:30 实时竞价)/快照池整体不可用(空库/DB 故障)才降级 ensure_cache。
+        #   2026-09-08 方案 A+: 东财点查失败**先切腾讯按 code 点查**(名单仍=快照池固定,
+        #   实时字段补真实, 过滤不虚胖) — 腾讯也失败才降级 9:25 快照行直出(保名单非空);
+        #   全程不再降级实时全市场(双 worker 缓存不一致+28 页拉取 = 名单波动+大跌票有
+        #   概率混入的根因)。窗口内(9:15-9:30 实时竞价)/快照池整体不可用(空库/DB 故障)
+        #   才降级 ensure_cache。
         raw = None
         err = None
         # 2026-09-08 主人核心诉求(同条件名单波动 + 加载慢): 快照候选池适用时段从
@@ -307,14 +309,24 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                                      "(快照表, 不拉全市场)", uid, ",".join(f["markets"]),
                                      len(snap_codes), len(raw))
                         except Exception as e:
-                            # 2026-09-08 方案 A(主人拍板): 点查失败**不再降级实时全市场** —
-                            # 实时全市场 = 双 worker 缓存不一致 + 28 页拉取 → 同条件名单波动、
-                            # 大跌票有概率混入(9/8 早 Felix518 #8395/#8396 日志实锤 Remote end
-                            # closed)。直接以 9:25 定格快照行构造行情行出名单: 候选固定 →
-                            # 名单幂等干净(<3s), 过滤核心(竞涨/竞额/市值)全来自定格快照。
-                            log.warning("选股快照候选池点查失败, 降级快照行直出名单"
-                                        "(不拉实时全市场) uid=%s err=%s", uid, str(e)[:150])
-                            raw = _snapshot_rows_to_raw(snap_rows, snap_codes)
+                            # 2026-09-08 方案 A+(主人拍板, 接替方案 A): 东财 ulist 断连
+                            # → **先切腾讯按 code 点查**(fetch_tencent_by_codes): 名单仍=
+                            # 9:25 快照池粗筛候选(幂等固定), 腾讯只把现价/涨幅/今开/换手等
+                            # 实时展示字段补真实, 评分字段(竞涨/竞额)窗口外被 9:25 定格
+                            # day_bid_change/day_bid_amt map 覆写不受影响 → 过滤不再虚胖
+                            # (9/8 早实测: 同参数点查成功 35 只 vs 快照行直出 70 只 —
+                            # 直出行 price=0 让 priceGt 失效、confidence 偏高让双低剔除失效)。
+                            # 腾讯也失败(网络全挂/腾讯熔断)才最后降级 9:25 快照行直出保名单。
+                            try:
+                                raw = fetcher.fetch_tencent_by_codes(snap_codes)
+                                log.info("选股快照候选池东财点查失败→腾讯点查兜底成功 "
+                                         "uid=%s markets=%s 返回%d只", uid,
+                                         ",".join(f["markets"]), len(raw))
+                            except Exception as e2:
+                                log.warning("选股快照候选池东财+腾讯点查均失败, 降级快照行"
+                                            "直出名单(不拉实时全市场) uid=%s err=%s",
+                                            uid, str(e2)[:150])
+                                raw = _snapshot_rows_to_raw(snap_rows, snap_codes)
             except Exception as e:
                 # 快照池整体不可用(空库/DB 异常/粗筛异常)才兜底实时全市场 — 与点查网络
                 # 抖动(方案 A 快照行直出)区分: 空库场景无快照行可用, 只能实时拉
