@@ -154,3 +154,27 @@ def test_trigger_spawns_thread(monkeypatch):
     t = auto_apply.trigger_auto_apply()
     assert t.name == "auto_apply"
     assert t.join(timeout=10) is None  # join 返回 None 表示线程已结束(非阻塞等待)
+
+def test_auto_apply_empty_result_skips_all_without_failed(client, first_user, monkeypatch):
+    """2026-09-08: 系统统一筛选为空(行情源故障) → 空名单不落库, 且必须提前返回,
+    不能把每个候选用户都记一次 failed(否则"没票"被误报成"落库失败", 淹没真实告警)"""
+    monkeypatch.setattr(fetcher, "ensure_cache", lambda *a, **k: ([_mk_raw()], None))
+    monkeypatch.setattr(fetcher, "fetch_yesterday_amounts", lambda *a, **k: {})
+    monkeypatch.setattr(fetcher, "fetch_yesterday_changes", lambda *a, **k: {})
+    monkeypatch.setattr(auction_snapshot, "load_snapshot", lambda *a, **k: {})
+    monkeypatch.setattr(auction_snapshot, "load_day_bid_change", lambda *a, **k: {})
+    monkeypatch.setattr(scorer, "score_all_stocks", lambda *a, **k: [])
+    monkeypatch.setattr(scorer, "apply_filters", lambda scored, f: [])   # 筛选后 0 只
+
+    called = {"n": 0}
+    def _spy(*a, **k):
+        called["n"] += 1
+        return None
+    monkeypatch.setattr(history, "save_batch", _spy)
+
+    res = auto_apply.auto_apply_all_users()
+    assert res["applied"] == 0
+    assert res["failed"] == 0, "空名单不是落库失败, 不得计入 failed"
+    assert res["skipped"] == res["total"], "全部候选应计为 skipped"
+    assert res["total"] >= 1
+    assert called["n"] == 0, "空名单不得调用 save_batch"

@@ -114,9 +114,13 @@ def _do_run(time_point):
     # 截取 top 30(避免 batch_stocks 太大, 与 aipick 保持一致)
     result = result[:30]
     # 落库为 system batch(user_id=0, auto_applied=1, action='lock')
-    batch_id = history.save_batch(
-        user_id=SYSTEM_USER_ID, action="lock", result=result, f=f_raw,
-        auto_applied=True)
+    # 2026-09-08: 空名单不落库 — 行情源故障时系统批次为 0 只, 落库会污染历史并可能被
+    # 当作有效批次直读(页面空白事故)。batch_id=None 即本次未产出有效名单, 下次调度重跑。
+    batch_id = None
+    if result:
+        batch_id = history.save_batch(
+            user_id=SYSTEM_USER_ID, action="lock", result=result, f=f_raw,
+            auto_applied=True)
     log.info("system_batch[%s] 完成: top=%d只 batch_id=%s 耗时%.0fms",
              time_point, len(result), batch_id, (time.time() - t0) * 1000)
 

@@ -140,6 +140,16 @@ def auto_apply_all_users(max_users=None):
         user_ids = user_ids[:max_users]
     applied = skipped = failed = 0
     log.info("auto_apply 开始 候选=%d 当日=%s", len(user_ids), bdate)
+    # 2026-09-08: 空名单不落库(系统统一筛选为空 → 所有用户同一份结果都为空)。
+    # 必须在此提前返回, 否则每个候选用户都会被记一次 failed, 把"行情源故障/无票"
+    # 误报成"落库失败", 淹没真实告警。
+    if not result:
+        cost0 = (time.time() - t0) * 1000
+        log.warning("auto_apply 系统统一筛选为空(行情源故障或条件过严) 候选=%d "
+                    "空名单不落库 → 全部跳过", len(user_ids))
+        return {"applied": 0, "skipped": len(user_ids), "failed": 0,
+                "total": len(user_ids), "cost_ms": int(cost0),
+                "error": "空名单不落库"}
     for uid in user_ids:
         try:
             # 每个用户: 存在性/过期/当天已应用 三重跳过 (手动筛选优先)

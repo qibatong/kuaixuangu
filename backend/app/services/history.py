@@ -22,7 +22,18 @@ def _conn():
 
 def save_batch(user_id, action, result, f, auto_applied=False):
     """把一次选股结果存为一个历史批次(归属指定用户), 返回批次 id; 失败返回 None
-    auto_applied=True 用于 9:26 系统自动应用 (区别用户主动 lock/filter)"""
+    auto_applied=True 用于 9:26 系统自动应用 (区别用户主动 lock/filter)
+
+    2026-09-08 主人拍板: **空名单(stock_count=0)不落库** — 故障期不产生空批次。
+    背景: 数据源故障/竞价窗口未到/降级路径异常时会产出 0 只结果并落库, 这些空批次
+    会污染历史列表, 且此前被 refresh 当作"可复用批次"直读 → 页面刷新空白
+    (uid=211 连续 64 次直读 0 只批次 1574)。读取侧虽已加 stock_count>0 过滤,
+    写入侧仍会持续制造垃圾 → 源头拦截: 空结果直接返回 None, 不产生批次记录。
+    """
+    if not result:
+        log.info("空名单不落库(不产生空批次) user_id=%s action=%s auto=%s",
+                 user_id, action, 1 if auto_applied else 0)
+        return None
     t = time.time()
     g = time.gmtime(t + 8 * 3600)   # 北京时间
     bdate = "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)

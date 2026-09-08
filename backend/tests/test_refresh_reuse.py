@@ -328,3 +328,64 @@ def test_reuse_empty_batch_falls_through_to_nonempty_filter():
     good = _seed_batch(uid, f, action="filter", ts=TS_0926 + 30, n=26)
     bid, src = history.find_today_reusable_batch(uid, f, now_ts=TS_0931)
     assert bid == good and src == "filter", "应回退到非空 filter 批次, 实际 %s/%s" % (bid, src)
+
+
+# ============================================================
+# 2026-09-08 主人拍板: 空名单(stock_count=0)不落库 — 故障期不产生空批次
+# 背景: 读取侧 find_today_reusable_batch 已跳过空批次(修页面刷新空白), 但写入侧
+#       仍在持续制造 0 只批次 → 污染历史列表、且长期看仍是隐患。源头拦截。
+# ============================================================
+
+def _mk_items(n=2):
+    """save_batch 消费的选股结果项(字段与 scorer 输出同构)"""
+    return [{
+        "code": "6000%02d" % i, "name": "测%02d" % i, "probability": 50.0,
+        "confidence": 60.0, "bidChange": 3.0, "realChange": 2.0,
+        "entityChange": 1.0, "bidTurnover": 1.5, "warnType": 0,
+        "circulationMV": 50.0, "industry": "软件", "concept": "AI",
+        "bidAmt": 3000.0, "bidRatio": 1.0, "qiangchou": False,
+    } for i in range(n)]
+
+
+def test_save_batch_empty_result_not_persisted():
+    """空名单 filter → 不落库(返回 None, 批次表无记录)"""
+    uid = 992121
+    f = _f()
+    assert _batch_count(uid) == 0
+    bid = history.save_batch(uid, "filter", [], f)
+    assert bid is None, "空名单不得落库, 实际返回批次 %s" % bid
+    assert _batch_count(uid) == 0, "空名单不得产生批次行"
+
+
+def test_save_batch_empty_lock_and_auto_not_persisted():
+    """lock / auto_applied 路径同样不落空批次(系统自动应用不受豁免)"""
+    uid = 992122
+    f = _f()
+    assert history.save_batch(uid, "lock", [], f) is None
+    assert history.save_batch(uid, "lock", [], f, auto_applied=True) is None
+    assert _batch_count(uid) == 0
+
+
+def test_save_batch_nonempty_still_persisted():
+    """回归保护: 非空名单必须正常落库(不能误伤正常路径)"""
+    uid = 992123
+    f = _f()
+    bid = history.save_batch(uid, "filter", _mk_items(3), f)
+    assert bid is not None, "非空名单必须落库成功"
+    assert _batch_count(uid) == 1
+    conn = database.get_conn()
+    cnt = conn.execute("SELECT stock_count FROM batches WHERE id=?", (bid,)).fetchone()[0]
+    conn.close()
+    assert cnt == 3
+
+
+def test_empty_result_not_reusable_after_no_persist():
+    """端到端语义: 空结果不落库 → 后续 refresh 查无可复用批次(返回 None 走重算),
+    而不是直读到一个 0 只批次导致页面空白"""
+    uid = 992124
+    f = _f()
+    # 模拟故障期: 连续两次算出空名单
+    assert history.save_batch(uid, "lock", [], f) is None
+    assert history.save_batch(uid, "filter", [], f) is None
+    bid, src = history.find_today_reusable_batch(uid, f, now_ts=TS_0931)
+    assert bid is None, "空名单未落库, 应无可复用批次(走重算), 实际 %s/%s" % (bid, src)
