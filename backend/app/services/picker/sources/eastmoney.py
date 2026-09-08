@@ -30,6 +30,7 @@ def _rows_from_diff(raw: Optional[List[dict]], ctx: FetchContext,
             auction_window=bool(getattr(ctx.policy, "auction_window", False)),
             day_bid_change=ctx.day_bid_change.get(code),
             day_bid_amt_wan=ctx.day_bid_amt_wan.get(code),
+            day_bid_vol=ctx.day_bid_vol.get(code),
             yesterday_chg=ctx.yesterday_chg.get(code),
             degraded=degraded,
         )

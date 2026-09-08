@@ -15,6 +15,9 @@ picker — 竞价选股重构模块 (2026-09-08 立项, 主人拍板: 新建模�
               失败语义(消灭散落的时间硬编码)
   contract.py 契约层: QuoteRow + 每字段唯一权威来源, 缺=None 永不填 0
   sources/    适配层: 东财/腾讯/快照 各自 adapter → 统一输出 QuoteRow
+  score.py    评分层: QuoteRow → 分档打分; 缺失走因子 default 分(绝不落 0 值桶)
+  filter.py   过滤层: 逐条门槛 + **剔除原因计数**(老链路只知道"没了", 不知为何)
+  parity.py   对拍层: 新老链路逐票比对; 完备输入必须一致, 缺失差异必须可归因
   pipeline.py 编排层: 模式 → 取数 → 契约校验 → 评分 → 过滤 → 结果(带 degraded 标记)
 
 铁律(防复发, 改动即违规):

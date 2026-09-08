@@ -22,6 +22,7 @@ class FetchContext:
     markets: Optional[List[str]] = None                # 市场范围(全市场源用)
     day_bid_change: Dict[str, float] = field(default_factory=dict)   # 9:25 定格竞价涨幅 %
     day_bid_amt_wan: Dict[str, float] = field(default_factory=dict)  # 9:25 定格竞价额(万元)
+    day_bid_vol: Dict[str, float] = field(default_factory=dict)      # 9:25 定格竞价量(股)
     yesterday_chg: Dict[str, float] = field(default_factory=dict)    # 真实昨日涨幅 %
     prev_error: Optional[str] = None                   # 前序源失败原因(降级可见性)
 

@@ -34,7 +34,7 @@ def _rows_from_tencent(raw: Optional[List[dict]], ctx: FetchContext) -> Dict[str
         row.bid_change = ctx.day_bid_change.get(code)
         amt_wan = ctx.day_bid_amt_wan.get(code)
         row.bid_amt = None if amt_wan is None else amt_wan * 1e4   # 万元 → 元
-        row.bid_vol = None
+        row.bid_vol = ctx.day_bid_vol.get(code)     # 腾讯无竞价量, 只有定格值可用
         row.source = "tencent"
         row.degraded = True
         rows[code] = row

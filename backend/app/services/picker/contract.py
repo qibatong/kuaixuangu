@@ -34,7 +34,9 @@ FIELD_AUTHORITY: Dict[str, str] = {
                   "**禁止**在非竞价窗口退回 f3(老逻辑隐式 fallback = 竞涨变现涨, 大跌票混入根因)",
     "bid_amt": "竞价额(元): ① 9:25 定格快照 bid_amt ② 竞价窗口内 f616。"
                "禁止用 f6(累计成交额)冒充 — 盘中 f6 是全天累计, 会算出 1000%+ 荒谬昨比",
-    "bid_vol": "竞价量(股): ① 定格快照 ② 竞价窗口内 f617",
+    "bid_vol": "竞价量(股): ① 定格快照 bid_vol ② 竞价窗口内 f617。"
+               "**窗口外恒 None** — 老链路窗口外用 f5(当日累计成交量)算'竞价换手', "
+               "语义错误(盘中 f5 是全天累计, 会算出虚高换手), 契约层不允许该退化",
 
     # ---- 实时字段: 权威 = 实时行情源 ----
     "price": "现价(元): 实时源 f2 / 腾讯 f[3]; 定格模式取昨收(prev_close)",
@@ -70,6 +72,9 @@ DEGRADE_RULES: Tuple[str, ...] = (
     "  (理由: 快照表历史行存在 float_mv=0 但 free_mv 有值的脏数据)",
     "price: 定格模式下无实时价 → 取 prev_close"
     "  (理由: 定格名单本就是 9:25 状态, 昨收是该时点的真实价格基准)",
+    "is_suspended: prev_close/vol 缺失导致停牌**未知**时, 若 bid_amt>0 → 判非停牌"
+    "  (理由: 9:25 有竞价成交额本身就是'有成交'的强证据; 老逻辑 f4/f5 缺失被"
+    "  parse_float 转成 0 → 判为停牌并剔除, 是 2026-09-01 降级行整批被误杀的根因)",
 )
 
 
@@ -205,13 +210,15 @@ class QuoteRow:
                        day_bid_change: Optional[float] = None,
                        day_bid_amt_wan: Optional[float] = None,
                        yesterday_chg: Optional[float] = None,
+                       day_bid_vol: Optional[float] = None,
                        degraded: bool = False) -> "QuoteRow":
         """东财 push2 diff 行 → QuoteRow。
 
         auction_window: 是否处于竞价窗口(9:15-9:31)。**仅窗口内**才允许取 f615/f616
             作为竞价字段; 窗口外 f615 为 "-" / f616 退回历史值, 取之即事故。
-        day_bid_change / day_bid_amt_wan: 9:25 定格值(万元), 由调用方传入;
-            提供时**优先**于实时字段(定格是竞价字段的权威来源, 见 FIELD_AUTHORITY)。
+        day_bid_change / day_bid_amt_wan / day_bid_vol: 9:25 定格值(额为万元), 由
+            调用方传入; 提供时**优先**于实时字段(定格是竞价字段的权威来源,
+            见 FIELD_AUTHORITY)。窗口外竞价量只能来自定格 —— 没有就是 None。
         """
         vol_hand = _f(s.get("f5"))          # 成交量(手)
         row = cls(
@@ -243,7 +250,8 @@ class QuoteRow:
             row.bid_amt = day_bid_amt_wan * 1e4      # 万元 → 元
         elif auction_window:
             row.bid_amt = _f(s.get("f616"))
-        row.bid_vol = _f(s.get("f617")) if auction_window else None
+        row.bid_vol = (day_bid_vol if day_bid_vol is not None
+                       else (_f(s.get("f617")) if auction_window else None))
         return row
 
     @classmethod
