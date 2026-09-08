@@ -65,6 +65,43 @@ def _snapshot_candidate_codes(snap_rows, f, yzt_codes):
     return [c for c, _ in codes[:_SNAP_CANDIDATE_MAX]]
 
 
+def _snapshot_rows_to_raw(snap_rows, codes):
+    """点查失败降级: 用 9:25 定格快照行直接构造 scorer 最小可行行情行(2026-09-08 方案 A)。
+
+    背景: 快照候选池的点查(fetch_raw_by_codes, 东财 ulist)断连失败时, 原逻辑降级
+    ensure_cache 实时拉全市场 → 双 worker 缓存不一致+28 页拉取 → 同条件名单波动、
+    大跌票「有概率」混入(9/8 早 Felix518 #8395/#8396 即此降级所致, 日志实锤
+    Remote end closed connection without response)。主人拍板方案 A: 失败不再拉
+    实时全市场, 直接以 9:25 定格快照行出名单 — 候选固定 → 名单幂等干净。
+    快照行字段(bid_change/bid_amt/float_mv)齐全, 足够 apply_filters 的过滤核心
+    (竞涨/竞额/市值/板块/ST/昨涨停); 缺失的实时字段(现价/量比/异动)给保守默认,
+    使 prob/conf 取保守档(不入双低剔除), 停牌判断不被误伤(9:25 有竞价额的行必非停牌)。
+    """
+    raw = []
+    for code in codes:
+        v = snap_rows.get(code)
+        if not v:
+            continue
+        # f616: 行情口径为元(get_bid_amt 内部 /10000 → 万元), 快照 bid_amt 已是万元
+        # (score_all_stocks 窗口外 bidAmt 走 day_bid_amt map, 此字段仅窗口内路径兜底)
+        raw.append({
+            "f12": code,
+            "f14": v.get("name") or "",
+            "f615": v.get("bid_change") or 0.0,        # 竞价涨幅(9:25 定格)
+            "f616": (v.get("bid_amt") or 0.0) * 10000.0,
+            "f21": v.get("float_mv") or v.get("free_mv") or 0.0,   # 流通市值(元, 与行情 f21 同构)
+            "f117": v.get("free_mv") or 0.0,           # 自由流通(元, f21 兜底列)
+            "f2": 0.0,    # 现价未知 → priceGt(≤300)不过滤、竞价换手=0(保守)
+            "f3": 0.0,    # 现涨未知 → 昨日涨幅分 0(保守)、realChange 展示 0
+            "f4": 0.01,   # >0 防 is_suspended 误判(快照有 bid_amt 即非停牌)
+            "f5": 1.0,    # >0 防 is_suspended 误判
+            "f17": 0.0, "f18": 0.0,                    # 今开/昨收未知 → 一字/实体 0
+            "f8": 0.0, "f10": 0.0, "f630": 0,          # 换手/量比/异动 保守
+            "f100": "-", "f102": "-", "f103": "-",     # 概念由 _apply_kpl_board 覆盖
+        })
+    return raw
+
+
 @router.get("/api/stocks")
 def api_stocks(request: Request, uid: int = Depends(get_uid)):
     q = qs(request)
@@ -232,7 +269,9 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         #   → 候选几十只按 code 点查完整行情(fetch_raw_by_codes, 东财 ulist)
         #   → 原 scorer 全流程评分过滤。替代原 ensure_cache: ①原 Top200 涨幅榜与
         #   「涨幅≤7%」反向错配(默认只出 5 只) ②实时拉全市场 28 页(打数据源)。
-        #   点查失败/窗口内/无当日快照 → 降级 ensure_cache(已改全市场)。
+        #   2026-09-08 方案 A: 点查失败**降级 9:25 快照行直出名单**(不再降级实时全市场 —
+        #   双 worker 缓存不一致+28 页拉取 = 名单波动+大跌票有概率混入的根因); 窗口内
+        #   (9:15-9:30 实时竞价)/快照池整体不可用(空库/DB 故障)才降级 ensure_cache。
         raw = None
         err = None
         # 2026-09-08 主人核心诉求(同条件名单波动 + 加载慢): 快照候选池适用时段从
@@ -262,12 +301,25 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                             log.warning("昨涨停集合拉取失败(不剔除昨涨停, 概念层兜底) err=%s", e)
                     snap_codes = _snapshot_candidate_codes(snap_rows, f, yzt)
                     if snap_codes:
-                        raw = fetcher.fetch_raw_by_codes(snap_codes)
-                        log.info("选股快照候选池 uid=%s markets=%s 粗筛%d只 点查%d只 "
-                                 "(快照表, 不拉全市场)", uid, ",".join(f["markets"]),
-                                 len(snap_codes), len(raw))
+                        try:
+                            raw = fetcher.fetch_raw_by_codes(snap_codes)
+                            log.info("选股快照候选池 uid=%s markets=%s 粗筛%d只 点查%d只 "
+                                     "(快照表, 不拉全市场)", uid, ",".join(f["markets"]),
+                                     len(snap_codes), len(raw))
+                        except Exception as e:
+                            # 2026-09-08 方案 A(主人拍板): 点查失败**不再降级实时全市场** —
+                            # 实时全市场 = 双 worker 缓存不一致 + 28 页拉取 → 同条件名单波动、
+                            # 大跌票有概率混入(9/8 早 Felix518 #8395/#8396 日志实锤 Remote end
+                            # closed)。直接以 9:25 定格快照行构造行情行出名单: 候选固定 →
+                            # 名单幂等干净(<3s), 过滤核心(竞涨/竞额/市值)全来自定格快照。
+                            log.warning("选股快照候选池点查失败, 降级快照行直出名单"
+                                        "(不拉实时全市场) uid=%s err=%s", uid, str(e)[:150])
+                            raw = _snapshot_rows_to_raw(snap_rows, snap_codes)
             except Exception as e:
-                log.warning("快照候选池失败降级实时全市场 uid=%s err=%s", uid, str(e)[:150])
+                # 快照池整体不可用(空库/DB 异常/粗筛异常)才兜底实时全市场 — 与点查网络
+                # 抖动(方案 A 快照行直出)区分: 空库场景无快照行可用, 只能实时拉
+                log.warning("快照候选池不可用(空库/异常)降级实时全市场 uid=%s err=%s",
+                            uid, str(e)[:150])
                 raw = None
         if raw is None:
             raw, err = fetcher.ensure_cache(action, fs, before930)

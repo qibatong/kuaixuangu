@@ -128,3 +128,76 @@ def test_925_window_still_live_path(client, create_user_token, monkeypatch):
     assert r.status_code == 200 and d.get("ok"), d
     assert len(d["list"]) >= 1, "9:25 竞价窗口应走 ensure_cache(实时全市场路径)"
     assert point["n"] == 0, "9:25 竞价窗口内不应走快照点查"
+
+
+# ========== 2026-09-08 方案 A: 点查失败降级快照行直出(不再降级实时全市场) ==========
+def _snap_rows_broad():
+    """多候选快照: 600001 合格 / 600003 竞额不足(粗筛剔除) / 600004 竞价>bidGt(粗筛剔除)"""
+    return {
+        "600001": {"name": "测试甲", "bid_change": 3.5, "bid_amt": 5000.0,
+                   "free_mv": 500.0 * 1e8},
+        "600003": {"name": "测试丙", "bid_change": 2.0, "bid_amt": 100.0,
+                   "free_mv": 500.0 * 1e8},
+        "600004": {"name": "测试丁", "bid_change": 9.0, "bid_amt": 9000.0,
+                   "free_mv": 500.0 * 1e8},
+    }
+
+
+def _mock_8am_point_fail(monkeypatch):
+    """8:00 + 快照池数据源 + fetch_raw_by_codes 抛网络异常(东财 ulist 断连)"""
+    _mock_8am(monkeypatch)
+    calls = {"ensure": 0, "point": 0}
+
+    def fake_ensure(action, fs, before930):
+        if action == "lock" and not before930:
+            return None, "9:30 后禁止重新选股"
+        calls["ensure"] += 1
+        return [], None
+    monkeypatch.setattr(fetcher, "ensure_cache", fake_ensure)
+    monkeypatch.setattr(auction_snapshot, "load_snapshot_full", lambda: _snap_rows_broad())
+    monkeypatch.setattr(auction_snapshot, "load_snapshot", lambda: {})
+    monkeypatch.setattr(auction_snapshot, "load_day_bid_amt",
+                        lambda: {"600001": 5000.0, "600004": 9000.0})
+    monkeypatch.setattr(auction_snapshot, "load_day_bid_change",
+                        lambda: {"600001": 3.5, "600004": 9.0})
+
+    def fake_point(codes):
+        calls["point"] += 1
+        raise RuntimeError("Remote end closed connection without response")
+    monkeypatch.setattr(fetcher, "fetch_raw_by_codes", fake_point)
+    return calls
+
+
+def test_point_fail_filter_falls_back_to_snapshot_rows(client, create_user_token, monkeypatch):
+    """方案 A 核心: 点查失败 → 9:25 快照行直出名单, 绝不降级实时全市场(波动根因)"""
+    calls = _mock_8am_point_fail(monkeypatch)
+    u = create_user_token()
+    r = _get(client, u["token"], "filter")
+    d = r.json()
+    assert r.status_code == 200 and d.get("ok"), d
+    codes = {s["code"] for s in d["list"]}
+    assert "600001" in codes, "点查失败降级后合格快照候选应直出入选"
+    assert "600003" not in codes, "竞额<门槛的粗筛剔除票不得出现(直出集合=粗筛候选)"
+    assert "600004" not in codes, "竞价涨幅>bidGt 的粗筛剔除票不得出现"
+    assert calls["point"] == 1, "点查应被触发(随后失败)"
+    assert calls["ensure"] == 0, "点查失败不得降级 ensure_cache 实时全市场"
+    # 降级行用定格值(非退化): 直出行 bidChange=9:25 定格 3.5, bidAmt=5000(定格)
+    hit = [s for s in d["list"] if s["code"] == "600001"][0]
+    assert abs(hit["bidChange"] - 3.5) < 1e-6, "直出名单 bidChange 应为快照定格 3.5"
+    assert abs(hit["bidAmt"] - 5000.0) < 1e-6, "直出名单 bidAmt 应为快照定格 5000(万元)"
+    assert hit["realChange"] == 0.0 or hit["realChange"] is None, "降级行无实时现涨(不退化显示)"
+
+
+def test_point_fail_lock_falls_back_to_snapshot_rows(client, create_user_token, monkeypatch):
+    """9:30 前 lock 同场景: 点查失败 → 快照行直出(主人 07:26-07:29 真实操作路径)"""
+    from app.services import notify, stats
+    calls = _mock_8am_point_fail(monkeypatch)
+    monkeypatch.setattr(notify, "push_result_async", lambda result, f: None)
+    monkeypatch.setattr(stats, "record_daily_yizi", lambda raw: {"yizi_count": 0})
+    u = create_user_token()
+    r = _get(client, u["token"], "lock")
+    d = r.json()
+    assert r.status_code == 200 and d.get("ok"), d
+    codes = {s["code"] for s in d["list"]}
+    assert "600001" in codes
+    assert calls["ensure"] == 0, "lock 点查失败也不得降级 ensure_cache 实时全市场"
