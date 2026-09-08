@@ -35,6 +35,7 @@ class ParityReport:
     score_diff: List[dict] = field(default_factory=list)  # 同 code 但分不同
     field_diff: List[dict] = field(default_factory=list)  # 同 code 关键字段不同
     new_stats: Dict[str, int] = field(default_factory=dict)
+    errors: List[str] = field(default_factory=list)       # 新链路内部错误/降级
     elapsed_ms: int = 0
 
     @property
@@ -105,7 +106,76 @@ def _legacy_patch_clock(scorer, auction_window: bool):
 
 
 # ---------------------------------------------------------------- 对拍主入口
+def compare(legacy_items: List[dict], raw: List[dict], f: Dict, *,
+            auction_window: bool = False,
+            day_bid_change: Optional[Dict[str, float]] = None,
+            day_bid_amt_wan: Optional[Dict[str, float]] = None,
+            yesterday_chg: Optional[Dict[str, float]] = None,
+            zt_codes: Optional[Set[str]] = None,
+            day_bid_vol: Optional[Dict[str, float]] = None,
+            legacy_scored: Optional[List[dict]] = None) -> ParityReport:
+    """**灰度专用**: 老链路结果已算出(legacy_items)时, 只跑新链路并比对,
+    不重复跑老链路(线上双跑的成本减半)。
+
+    legacy_scored: 老链路 score_all_stocks 的输出(过滤前, 含全部评分行)。给了就能
+    比对"同为落选票的分数差异", 不给则只比对最终名单。
+    """
+    t0 = time.time()
+    rep = ParityReport(n_raw=len(raw or []))
+    dc = day_bid_change or {}
+    da = day_bid_amt_wan or {}
+    yc = yesterday_chg or {}
+    dv = day_bid_vol or {}
+
+    from ...core import logger
+    log = logger.get_logger(__name__)
+    try:
+        from . import pipeline
+        ctx = pipeline.PickContext(
+            markets=f.get("markets"), zt_codes=zt_codes,
+            day_bid_change=dc, day_bid_amt_wan=da, day_bid_vol=dv,
+            yesterday_chg=yc)
+        pres = pipeline.run(f, ctx=ctx, now=None)
+    except Exception as e:                                   # noqa: BLE001
+        log.warning("灰度新链路执行失败(不影响老链路返回) err=%s", e)
+        rep.errors.append("新链路异常: %s" % e)
+        rep.elapsed_ms = int((time.time() - t0) * 1000)
+        return rep
+    rep.errors.extend(pres.errors)
+    rep.new_stats = dict(pres.stats)
+    rep.new = list(pres.items)
+    rep.legacy = [{k: v for k, v in it.items() if k != "_raw"}
+                  for it in (legacy_items or [])]
+
+    lg = {it["code"]: it for it in rep.legacy}
+    nw = {it["code"]: it for it in rep.new}
+    rep.only_legacy = sorted(set(lg) - set(nw))
+    rep.only_new = sorted(set(nw) - set(lg))
+    for code in sorted(set(lg) & set(nw)):
+        a, b = lg[code], nw[code]
+        if int(a.get("probability") or 0) != int(b.get("probability") or 0) or \
+           int(a.get("confidence") or 0) != int(b.get("confidence") or 0):
+            rep.score_diff.append({
+                "code": code,
+                "prob": (a.get("probability"), b.get("probability")),
+                "conf": (a.get("confidence"), b.get("confidence")),
+            })
+        for key in ("bidChange", "bidAmt", "circulationMV", "bidTurnover"):
+            av, bv = a.get(key), b.get(key)
+            if av is None and bv is None:
+                continue
+            if av is None or bv is None:
+                rep.field_diff.append({"code": code, "field": key,
+                                       "legacy": av, "new": bv})
+            elif abs(float(av) - float(bv)) > 1e-6:
+                rep.field_diff.append({"code": code, "field": key,
+                                       "legacy": av, "new": bv})
+    rep.elapsed_ms = int((time.time() - t0) * 1000)
+    return rep
+
+
 def run(raw: List[dict], f: Dict, *, auction_window: bool = False,
+        legacy_items: Optional[List[dict]] = None,
         day_bid_change: Optional[Dict[str, float]] = None,
         day_bid_amt_wan: Optional[Dict[str, float]] = None,
         yesterday_chg: Optional[Dict[str, float]] = None,
@@ -133,6 +203,12 @@ def run(raw: List[dict], f: Dict, *, auction_window: bool = False,
 
     # ---------- A. 老链路 ----------
     from .. import scorer
+    # 老链路结果已由调用方算好(灰度场景) → 只跑新链路, 省一半开销
+    if legacy_items is not None:
+        return compare(legacy_items, raw, f, auction_window=auction_window,
+                       day_bid_change=dc, day_bid_amt_wan=da,
+                       yesterday_chg=yc, zt_codes=zt_codes,
+                       day_bid_vol=day_bid_vol)
     fetcher, orig_zt = _legacy_patch_zt(zt_codes)
     o_win, o_hm = _legacy_patch_clock(scorer, auction_window)
     try:

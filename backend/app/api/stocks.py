@@ -10,11 +10,54 @@ import time
 from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
-from ..services import auction_snapshot, fetcher, history, kpl, notify, scorer, stats
+from ..services import (auction_snapshot, fetcher, history, kpl, notify, scorer,
+                        stats)
 from ..services.cache_store import store as _cstore   # 2026-09-04: refresh 计算缓存
+from ..services.picker import parity as _parity      # 重构 P3: 新老双跑灰度
 from .deps import get_uid, jr, qs
 
 log = logger.get_logger(__name__)
+
+
+def _gray_enabled():
+    """重构 P3 灰度开关: settings 表 picker_gray=1 时旁路跑新链路并打对拍日志。
+    **默认关闭**, 且新链路结果不参与返回 —— 只观测不切换(切换在 P5)。"""
+    try:
+        from ..services import settings
+        return str(settings.get("picker_gray") or "0") in ("1", "true", "True")
+    except Exception:
+        return False
+
+
+def _gray_run(uid, action, raw, f, result, *, bid_amt_map, bid_chg_map,
+              yesterday_chg_map):
+    """旁路跑新链路并与老结果对拍(任何异常都不影响老链路返回)。"""
+    try:
+        rep = _parity.compare(
+            result, raw, f,
+            day_bid_change=bid_chg_map or {}, day_bid_amt_wan=bid_amt_map or {},
+            yesterday_chg=yesterday_chg_map or {},
+            zt_codes=_safe_zt_codes(),
+            legacy_scored=None)
+        if rep.identical:
+            log.info("选股灰度对拍一致 uid=%s action=%s 老=%d只 新=%d只 耗时%dms",
+                     uid, action, len(rep.legacy), len(rep.new), rep.elapsed_ms)
+        else:
+            log.warning("选股灰度对拍差异 uid=%s action=%s %s | 仅老=%s 仅新=%s "
+                        "分差=%s 字段差=%s 新链路错误=%s",
+                        uid, action, rep.summary(), rep.only_legacy[:10],
+                        rep.only_new[:10], rep.score_diff[:6],
+                        rep.field_diff[:6], rep.errors[:3])
+    except Exception as e:
+        log.warning("选股灰度对拍失败(不影响返回) uid=%s err=%s", uid, str(e)[:200])
+
+
+def _safe_zt_codes():
+    try:
+        v = fetcher.get_yesterday_zt_codes()
+        return set(v) if v else None
+    except Exception:
+        return None
 
 router = APIRouter()
 
@@ -383,6 +426,11 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                                            yesterday_chg_map=yesterday_chg_map)
         # 概念用开盘啦覆盖(落库前覆盖: 页面/历史批次/推送全部统一开盘啦概念)
         _apply_kpl_board(result, "auction")
+        # 重构 P3 灰度: 旁路跑新链路并对拍(默认关闭; 开启时只打日志, 不参与返回)
+        if _gray_enabled():
+            _gray_run(uid, action, raw or [], f, result,
+                      bid_amt_map=bid_amt_map, bid_chg_map=bid_chg_map,
+                      yesterday_chg_map=yesterday_chg_map)
     except Exception as e:
         log.error("选股处理失败 uid=%s action=%s mode=%s err=%s", uid, action, mode, e, exc_info=True)
         return jr({"ok": False, "msg": "服务端处理失败: %s" % e}, 500)

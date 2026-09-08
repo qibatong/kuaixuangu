@@ -94,7 +94,8 @@ def test_realtime_patch_only_display_fields():
     assert intraday.realtime_patch is True
     assert intraday.source_priority[0] == "snapshot", "名单必须优先认定格快照"
     # 竞价窗口: 定格前无快照可用, 以实时为准
-    assert pm.POLICIES[pm.PickMode.AUCTION].source_priority[0] == "eastmoney_realtime"
+    # 竞价窗口无当日定格快照 → 名单只能来自实时全市场(点查源此时无候选 codes)
+    assert pm.POLICIES[pm.PickMode.AUCTION].source_priority[0] == "eastmoney_market"
     # 收盘后无需刷新展示字段
     assert pm.POLICIES[pm.PickMode.CLOSED].realtime_patch is False
 

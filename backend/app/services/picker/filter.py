@@ -22,7 +22,7 @@
 必须逐票同结果; 差异只能出现在"字段缺失"分支, 且差异原因必须可在 stats 里查到。
 """
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from .score import ScoredRow
 
@@ -167,6 +167,61 @@ def apply_filters(rows: List[ScoredRow], f: Dict,
 
         out.kept.append(it)
     return out
+
+
+COARSE_MAX = 120
+"""候选上限: 与老链路 _SNAP_CANDIDATE_MAX 同值。粗筛后要按 code 拉日K(昨日涨幅)
+与点查行情, 候选过多会拖慢; 120 只足以覆盖任何常规参数组合的入选量。"""
+
+
+def coarse_filter(rows: Sequence[Any], f: Dict,
+                  ctx: Optional[FilterContext] = None,
+                  limit: int = COARSE_MAX) -> List[str]:
+    """**评分前**的粗筛: 只用"定格数据即可判定"的门槛, 返回候选 code(按竞价额降序)。
+
+    rows: QuoteRow 或 ScoredRow 均可(粗筛不需要评分结果, 故可跳过全市场评分)。
+
+    存在的理由(性能): 昨日涨幅要按 code 拉日K、展示字段要按 code 点查行情,
+    全市场 5500 只都做 = 加载慢的老根因。先按快照字段粗筛到 ~120 只再取数,
+    与老链路 _snapshot_candidate_codes 同思路(老代码在 api 层手写, 分散且不可测)。
+
+    粗筛**不含**需要评分的门槛(prob/conf 双低)与需要实时价的门槛(priceGt) —
+    那些留给 apply_filters; 因此粗筛只会"漏不掉"任何最终该入选的票。
+    """
+    ctx = ctx or FilterContext()
+    markets = ctx.markets if ctx.markets is not None else f.get("markets")
+    cand = []
+    for it in rows:
+        r = getattr(it, "row", it)          # ScoredRow → 取 row; QuoteRow 直接用
+        if not in_markets(r.code, markets):
+            continue
+        if not f.get("limitUp", True) and is_first_board(r.code, r.concept, ctx.zt_codes):
+            continue
+        if not f.get("stSuspend", True):
+            if is_st(r.name):
+                continue
+            susp = r.is_suspended
+            if susp is None and r.bid_amt and r.bid_amt > 0:
+                susp = False
+            if susp:                       # 未知(None)不剔除, 同 apply_filters
+                continue
+        bid_chg = r.bid_change
+        if bid_chg is None:
+            if ctx.require_bid_change:
+                continue
+        elif bid_chg > f["bidGt"]:
+            continue
+        mv = None if not r.float_mv else r.float_mv / 1e8
+        if mv is None or mv < f["floatMvFloor"]:
+            continue
+        if f["floatMvGt"] > 0 and mv > f["floatMvGt"]:
+            continue
+        bid_amt_wan = None if r.bid_amt is None else r.bid_amt / 1e4
+        if bid_amt_wan is None or bid_amt_wan < f["bidAmtFloor"]:
+            continue
+        cand.append((r.code, bid_amt_wan))
+    cand.sort(key=lambda x: -x[1])
+    return [c for c, _ in cand[:limit]]
 
 
 def kept_codes(outcome: FilterOutcome) -> List[str]:

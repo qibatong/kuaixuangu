@@ -82,7 +82,10 @@ POLICIES = {
     PickMode.AUCTION: ModePolicy(
         mode=PickMode.AUCTION,
         label="竞价窗口",
-        source_priority=("eastmoney_realtime", "tencent_point"),
+        # 2026-09-08 P3: 竞价窗口**没有当日定格快照**(9:25 才定格), 名单只能来自
+        # 实时全市场(点查源需要候选 codes, 此时无候选可用 → 取不到源)。
+        # 这是唯一允许"名单随行情变化"的模式(deterministic=False)。
+        source_priority=("eastmoney_market", "tencent_market"),
         deterministic=False,         # 竞价数据实时在变 — 唯一允许名单变化的模式
         allow_lock=False,
         auction_window=True,
@@ -105,7 +108,9 @@ POLICIES = {
         mode=PickMode.INTRADAY,
         label="盘中",
         # 名单只认 9:25 定格(幂等); 实时源**仅**用于补展示字段, 不得参与评分/排序/过滤
-        source_priority=("snapshot", "eastmoney_realtime"),
+        # 名单=定格快照(幂等); 后面两级只做**展示字段补丁**(现价/涨幅/换手),
+        # 不改变名单 — 补丁失败不影响名单(老链路点查失败会整批降级, 名单跟着变)
+        source_priority=("snapshot", "eastmoney_realtime", "tencent_point"),
         deterministic=True,
         allow_lock=False,
         auction_window=False,
