@@ -144,8 +144,27 @@ def compare(legacy_items: List[dict], raw: List[dict], f: Dict, *,
     rep.errors.extend(pres.errors)
     rep.new_stats = dict(pres.stats)
     rep.new = list(pres.items)
+    return _diff_into(rep, legacy_items, t0)
+
+
+def diff_items(legacy_items: List[dict], new_items: List[dict]) -> ParityReport:
+    """纯比对: 两条链路的**结果列表**已各自算出时, 直接比对(P4 锁仓双跑用)。
+
+    与 compare() 的区别: compare 负责"跑新链路再比对", 本函数只做比对 —
+    锁仓场景两条链路都要落各自的数(如对拍期), 不需要 compare 代跑。
+    """
+    return _diff_into(ParityReport(n_raw=len(legacy_items or [])),
+                      legacy_items, time.time(), new_items)
+
+
+def _diff_into(rep: "ParityReport", legacy_items, t0: float,
+               new_items: Optional[List[dict]] = None) -> "ParityReport":
+    """把比对结果写进 rep(compare/diff_items 共用, 避免两处各写一遍比对逻辑)。"""
     rep.legacy = [{k: v for k, v in it.items() if k != "_raw"}
                   for it in (legacy_items or [])]
+    if new_items is not None:
+        rep.new = [{k: v for k, v in it.items() if k != "_raw"}
+                   for it in (new_items or [])]
 
     lg = {it["code"]: it for it in rep.legacy}
     nw = {it["code"]: it for it in rep.new}

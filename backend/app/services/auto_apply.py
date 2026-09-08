@@ -55,26 +55,24 @@ def _get_system_filter():
     (2026-08-16 产品决策: 自动应用 = 系统筛选一次推给所有用户,
     用户手动筛选时才按个人偏好单独进行)"""
     f = admin_api.get_default_filters()
-    f.setdefault("markets", ["SH", "SZ", "BJ"])
+    # 2026-09-08 P4 实测修复: 原为 ["SH", "SZ", "BJ"] 大写形态, 而
+    # scorer._in_markets 只认小写 hs/cyb/kcb(按代码前缀判定) → 沪深创科**全部**
+    # 返回 False → 9:26 自动应用**恒出 0 只**。
+    # 实锤: 2026-09-08 批次#1578(user=213, auto_applied=1) count=0; 同日系统批次
+    # #1577 用 SYSTEM_MARKETS 小写口径 → 正常 30 只。
+    # 北交所不在 UI 选项(与 market_fs 口径一致), 不纳入。
+    f.setdefault("markets", ["hs", "cyb", "kcb"])
     return f
 
 
 def _load_strengths(raw):
     """竞价强度 map(替代失活的 f630 异动等级), settings `use_bid_strength=1` 才启用。
-    默认关闭 → 空 dict → 行为零变化。异常一律吞掉退回 f630。"""
-    try:
-        from . import bid_strength, settings
-        if str(settings.get("use_bid_strength") or "0") not in ("1", "true", "True"):
-            return {}
-        codes = [str(s.get("f12") or "") for s in (raw or [])]
-        codes = [c for c in codes if c]
-        if not codes:
-            return {}
-        st = bid_strength.load(codes)
-        return {c: v for c, v in bid_strength.score_map(st).items() if v is not None}
-    except Exception as e:                                     # noqa: BLE001
-        log.warning("竞价强度加载失败(退回 f630 异动等级) err=%s", e)
-        return {}
+    默认关闭 → 空 dict → 行为零变化。异常一律吞掉退回 f630。
+
+    口径统一收敛到 bid_strength.load_scores(system_batch / 本处共用)。
+    """
+    from . import bid_strength
+    return bid_strength.load_scores([s.get("f12") for s in (raw or [])])
 
 
 def _is_user_active(uid):
@@ -103,21 +101,46 @@ def _run_in_background(func, *args, **kwargs):
     return t
 
 
-def auto_apply_all_users(max_users=None):
-    """给所有活跃用户自动应用一次 (应在后台线程调用)
-    系统统一标准(全局默认筛选)过滤一次 -> 同一份结果推给所有用户 -> 各自落库
-    用户当天已手动筛选(lock/filter)则跳过, 手动优先
-    max_users: 限制本次处理用户数 (调试用, 默认 None=不限)
-    返回 {applied, skipped, failed, total, cost_ms}"""
-    t0 = time.time()
-    bdate = _today_bj()
+def _picker_lock_on():
+    """settings `picker_lock=1` → 走新链路(picker.pipeline); 默认 0 = 老链路。"""
+    try:
+        from . import settings
+        from .picker import lock as plock
+        return plock.enabled(settings.get("picker_lock"))
+    except Exception:                                          # noqa: BLE001
+        return False
+
+
+def _pick_result():
+    """算出"系统统一名单"(所有用户共享同一份), 返回 (result, error)。
+
+    P4: 开关 picker_lock=1 走 picker.pipeline(与首页选股同一条代码路径, 名单只认
+    9:25 定格); 否则走老链路(score_all_stocks + apply_filters)。两条路径都返回
+    老链路同构的 item 列表, 落库/推送逻辑无感。
+    """
+    if _picker_lock_on():
+        from .picker import lock as plock
+        try:
+            lr = plock.run_lock(_get_system_filter(), log_tag="auto_apply")
+            if lr.items:
+                return lr.items, ""
+            # 新链路没出票(含"竞价未结束/盘前"这类主动拒绝) → 回退老链路, 不让用户空窗
+            log.warning("auto_apply 新链路无结果(%s) → 回退老链路",
+                        "; ".join(lr.errors) or lr.summary())
+        except Exception as e:                                 # noqa: BLE001
+            log.warning("auto_apply 新链路异常, 回退老链路 err=%s", e)
+    return _legacy_result()
+
+
+def _legacy_result():
+    """老链路: 全市场行情 → 评分 → 系统统一过滤(改造前实现, 保留用于回退/对拍)
+    返回 (result, error) — error 非空表示本轮无法产出名单(行情缺失/评分失败)。"""
     # 与 9:25 撮合同样的默认市场范围(前端默认 hs+cyb+kcb), 确保命中同一份行情缓存
     fs = scorer.market_fs(["hs", "cyb", "kcb"])
     raw, err = fetcher.ensure_cache("filter", fs, before930=True)
     if not raw:
         log.warning("auto_apply 行情缓存缺失 err=%s, 跳过本轮", err)
-        return {"applied": 0, "skipped": 0, "failed": 0, "total": 0,
-                "cost_ms": 0, "error": str(err)}
+        return [], str(err)
     snapshot_map = auction_snapshot.load_snapshot() or {}
     # 2026-09-08 竞涨定格: 调度若延迟越过 9:30(窗口外)东财 f615 退化为 "-", bidChange
     # 以当日 9:25 定格竞价涨幅为准(防评分用现价涨幅, 名单漂移/失真)
@@ -136,8 +159,7 @@ def auto_apply_all_users(max_users=None):
                                          strengths=_load_strengths(raw))
     except Exception as e:
         log.error("auto_apply 全市场评分失败 err=%s", e, exc_info=True)
-        return {"applied": 0, "skipped": 0, "failed": 0, "total": 0,
-                "cost_ms": 0, "error": str(e)}
+        return [], str(e)
     # 系统统一标准过滤一次(所有用户共享同一份结果, 2026-08-16 产品决策)
     f = _get_system_filter()
     result = scorer.apply_filters(scored, f)
@@ -145,6 +167,22 @@ def auto_apply_all_users(max_users=None):
         it.pop("_raw", None)
     log.info("auto_apply 系统统一筛选完成 评分池=%d只 筛选后=%d只",
              len(scored), len(result))
+    return result, ""
+
+
+def auto_apply_all_users(max_users=None):
+    """给所有活跃用户自动应用一次 (应在后台线程调用)
+    系统统一标准(全局默认筛选)过滤一次 -> 同一份结果推给所有用户 -> 各自落库
+    用户当天已手动筛选(lock/filter)则跳过, 手动优先
+    max_users: 限制本次处理用户数 (调试用, 默认 None=不限)
+    返回 {applied, skipped, failed, total, cost_ms}"""
+    t0 = time.time()
+    bdate = _today_bj()
+    result, err = _pick_result()
+    f = _get_system_filter()      # 落库存的就是这份条件(新/老链路共用同一份系统标准)
+    if err:
+        return {"applied": 0, "skipped": 0, "failed": 0, "total": 0,
+                "cost_ms": int((time.time() - t0) * 1000), "error": str(err)}
     # 候选用户: 非管理员 + 未过期
     from ..db import database
     conn = database.get_conn()

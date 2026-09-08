@@ -254,3 +254,35 @@ def _bucket(buckets, value, default: float) -> float:
 def score_map(strengths: Dict[str, "BidStrength"],
               cfg: Optional[dict] = None) -> Dict[str, Optional[float]]:
     return {c: score_one(s, cfg) for c, s in (strengths or {}).items()}
+
+
+# ---------------------------------------------------------------- 调用方入口
+def enabled() -> bool:
+    """settings `use_bid_strength=1` 才启用(默认关 → 老链路零变化)。
+
+    各调用方(api/stocks · auto_apply · system_batch)统一走这里, 避免各处各写
+    一遍字符串比较导致口径漂移。
+    """
+    try:
+        from . import settings
+        return str(settings.get("use_bid_strength") or "0") in ("1", "true", "True")
+    except Exception:                                          # noqa: BLE001
+        return False
+
+
+def load_scores(codes, date: Optional[str] = None) -> Dict[str, float]:
+    """一步到位: 加载 + 合成 + 过滤 None。未启用/异常一律返回空 dict。
+
+    返回 {} 时调用方退回 f630 异动等级(老行为), 绝不阻塞选股。
+    """
+    if not enabled():
+        return {}
+    codes = [str(c) for c in (codes or []) if c]
+    if not codes:
+        return {}
+    try:
+        st = load(codes, date=date)
+        return {c: v for c, v in score_map(st).items() if v is not None}
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("[竞价强度] 加载失败(退回 f630 异动等级) err=%s", e)
+        return {}

@@ -40,7 +40,25 @@ def test_get_system_filter_uses_defaults(monkeypatch):
     f = auto_apply._get_system_filter()
     assert isinstance(f, dict)
     assert "markets" in f
-    assert f["markets"] == ["SH", "SZ", "BJ"]
+    assert f["markets"] == ["hs", "cyb", "kcb"]
+
+
+def test_system_filter_markets_must_be_lowercase():
+    """回归保护(2026-09-08 实测事故): markets 必须是**小写** hs/cyb/kcb。
+
+    曾为 ["SH","SZ","BJ"] 大写, 而 scorer._in_markets 按代码前缀匹配小写键 →
+    沪深创科**全部**返回 False → 9:26 自动应用恒出 0 只(实测批次#1578 count=0,
+    同日系统批次用小写口径正常出 30 只)。大小写一错, 整个自动应用功能静默失效。
+    """
+    from app.services import scorer
+    f = auto_apply._get_system_filter()
+    markets = f["markets"]
+    for m in markets:
+        assert m in ("hs", "cyb", "kcb"), "markets 只能是小写口径: %r" % (markets,)
+    # 三个板各取一个真实代码, 必须全部通过市场过滤
+    for code in ("600127", "000759", "300454", "688111"):
+        assert scorer._in_markets(code, markets), \
+            "%s 被市场过滤掉 → 自动应用会出 0 只(markets=%r)" % (code, markets)
 
 
 def test_is_user_active_missing():
