@@ -446,8 +446,13 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         bid_chg_map = auction_snapshot.load_day_bid_change()
         # 竞价上下文日志(排查关键): 窗口状态/快照覆盖/昨日额命中
         auction_ok = scorer.in_auction_window()
-        log.info("选股上下文 uid=%s action=%s auction_window=%s 9_20快照=%d只 昨日额命中=%d/%d raw=%d只",
-                 uid, action, auction_ok, len(snapshot_map), len(yesterday_map), len(raw), len(raw))
+        # 2026-09-08: 昨日涨幅命中率入日志 —— 该因子权重 6%, 缺失(default 0.15)与命中
+        # (0.4/0.65/0.9)单票概率差 1.5~4.5 分, 是"同参数两次结果 top 票 90↔93"的漂移源。
+        # 命中率低 = 本批整体降级, 必须可见(契约铁律2), 否则排查时只能看到分数变化。
+        log.info("选股上下文 uid=%s action=%s auction_window=%s 9_20快照=%d只 昨日额命中=%d/%d "
+                 "昨涨命中=%d/%d raw=%d只",
+                 uid, action, auction_ok, len(snapshot_map), len(yesterday_map), len(raw),
+                 len(yesterday_chg_map), len(raw), len(raw))
         # 竞价窗口内 lock 但当日 9:20 快照缺失 → 加速度无法计算, 必须告警(数据过了点无法补采)
         if action == "lock" and auction_ok and not snapshot_map:
             log.warning("9:25 lock 时当日 9:20 快照缺失! 加速度无法计算, 请检查9:20调度/东财接口 uid=%s", uid)

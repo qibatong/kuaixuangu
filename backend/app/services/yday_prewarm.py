@@ -47,15 +47,19 @@ def _prewarm_once():
             return
         total = len(codes)
         done = 0
+        chg_ok = 0          # 2026-09-08: 涨跌幅命中数(成交额对成功也可能没涨幅)
         t0 = time.time()
         for i in range(0, total, BATCH):
             batch = codes[i:i + BATCH]
             fetcher.fetch_yesterday_amounts(batch, wait=True)
+            chg_ok += sum(1 for c in batch
+                          if not fetcher._chg_missing(fetcher._yesterday_cache.get(c) or []))
             done += len(batch)
             if time.time() - t0 > MAX_SECONDS:
                 log.info("昨比预热达 10 分钟上限, 已处理 %d/%d, 剩余由盘中异步补齐", done, total)
                 return
-        log.info("昨比预热完成 date=%s 全市场%d只 耗时%.0fs", date, total, time.time() - t0)
+        log.info("昨比预热完成 date=%s 全市场%d只 昨涨命中=%d 耗时%.0fs",
+                 date, total, chg_ok, time.time() - t0)
     except Exception as e:
         log.warning("昨比预热异常 err=%s", e)
 
