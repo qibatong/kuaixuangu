@@ -53,12 +53,69 @@ def _load_strengths(raw):
 
 def _gray_enabled():
     """重构 P3 灰度开关: settings 表 picker_gray=1 时旁路跑新链路并打对拍日志。
-    **默认关闭**, 且新链路结果不参与返回 —— 只观测不切换(切换在 P5)。"""
+    **默认关闭**, 且新链路结果不参与返回 —— 只观测不切换。
+
+    P5 之后本开关语义变为「切流后仍旁路跑**老**链路做对拍」(反向对拍), 用于
+    观察期验证新链路没有把名单选歪; 老链路开销换可观测性, 稳定后可关闭。"""
     try:
         from ..services import settings
         return str(settings.get("picker_gray") or "0") in ("1", "true", "True")
     except Exception:
         return False
+
+
+def _cutover_enabled():
+    """重构 P5 切流开关: settings 表 picker_cutover=1 → **主链路走 picker.pipeline**。
+
+    新链路不可用(名单源取不到行 / 抛异常)时**自动回退老链路**并打 WARNING,
+    故开关打开不等于"无兜底硬切"。默认 0 = 老链路(与切流前行为完全一致)。
+    """
+    try:
+        from ..services import settings
+        return str(settings.get("picker_cutover") or "0") in ("1", "true", "True")
+    except Exception:
+        return False
+
+
+def _run_new_pipeline(uid, action, f, *, yesterday_map, yesterday_chg_map,
+                      snapshot_map, bid_amt_map, bid_chg_map):
+    """跑新链路 picker.pipeline; 返回 items(list) 或 **None(=不可用, 调用方回退老链路)**。
+
+    判定"不可用"只看一件事: **名单源有没有给出全市场行**(n_universe>0)。
+    - 名单源失败 → n_universe=0 → 回退(此时老链路还有快照池可兜底)
+    - 补丁源失败 / 强度缺失 → n_universe>0, 只是 degraded → **不回退**, 名单仍有效
+      (这正是新链路的设计目标: 展示字段降级不影响名单)
+    - 入选 0 只是合法空名单, 同样不算失败
+    异常一律吞掉 → 返回 None, 绝不把新链路的异常抛给用户。
+    """
+    try:
+        from ..services.picker import mode as pmode
+        from ..services.picker import pipeline
+        ctx = pipeline.PickContext(
+            date=pmode.bj_date(),
+            markets=f.get("markets"),
+            zt_codes=(_safe_zt_codes() if not f.get("limitUp") else None),
+            day_bid_change=bid_chg_map or {},
+            day_bid_amt_wan=bid_amt_map or {},
+            yesterday_chg=yesterday_chg_map or {},
+            yesterday_map=yesterday_map or {},
+            snapshot_map=snapshot_map or {},
+            require_bid_change=True,
+        )
+        res = pipeline.run(f, ctx=ctx)
+    except Exception as e:                                     # noqa: BLE001
+        log.error("新链路异常 → 回退老链路 uid=%s action=%s err=%s",
+                  uid, action, e, exc_info=True)
+        return None
+    if res.n_universe <= 0:
+        log.warning("新链路名单源无数据 → 回退老链路 uid=%s action=%s mode=%s errors=%s",
+                    uid, action, res.mode, res.errors[:3])
+        return None
+    log.info("选股走新链路 uid=%s action=%s mode=%s 全市场%d 候选%d 入选%d 源=%s "
+             "降级=%s 剔除=%s 耗时%dms",
+             uid, action, res.mode, res.n_universe, res.n_candidate, len(res.items),
+             ",".join(res.sources), res.degraded, res.stats, res.elapsed_ms)
+    return res.items
 
 
 def _gray_run(uid, action, raw, f, result, *, bid_amt_map, bid_chg_map,
@@ -82,6 +139,35 @@ def _gray_run(uid, action, raw, f, result, *, bid_amt_map, bid_chg_map,
                         rep.field_diff[:6], rep.errors[:3])
     except Exception as e:
         log.warning("选股灰度对拍失败(不影响返回) uid=%s err=%s", uid, str(e)[:200])
+
+
+def _parity_reverse(uid, action, raw, f, new_items, *, yesterday_map, snapshot_map,
+                    bid_amt_map, bid_chg_map, yesterday_chg_map):
+    """切流后的**反向对拍**: 返回给用户的已是新链路结果, 这里旁路跑一遍老链路比对。
+
+    观察期唯一目的: 证明新链路没把名单选歪(只老有/只新有/分差)。
+    老链路异常不影响返回 —— 对拍失败只打日志。
+    """
+    try:
+        legacy = scorer.process_all_stocks(
+            raw, f, yesterday_map, snapshot_map, qiangchou_codes=kpl.get_qiangchou_codes(),
+            day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map,
+            yesterday_chg_map=yesterday_chg_map, strengths=_load_strengths(raw))
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("切流对拍: 老链路旁路执行失败(不影响返回) uid=%s err=%s",
+                    uid, str(e)[:200])
+        return
+    try:
+        rep = _parity.diff_items(legacy, new_items)
+        if rep.identical:
+            log.info("切流对拍一致 uid=%s action=%s 老=%d只 新=%d只", uid, action,
+                     len(legacy), len(new_items))
+        else:
+            log.warning("切流对拍差异 uid=%s action=%s %s | 仅老=%s 仅新=%s 分差=%s",
+                        uid, action, rep.summary(), rep.only_legacy[:10],
+                        rep.only_new[:10], rep.score_diff[:6])
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("切流对拍失败(不影响返回) uid=%s err=%s", uid, str(e)[:200])
 
 
 def _safe_zt_codes():
@@ -459,17 +545,34 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         # 评分计算不持锁: 多用户并发选股互不阻塞, 只共享只读的行情快照
         # 2026-09-01 抢筹口径: 左视图抢筹=右视图竞价异动"竞价抢筹"代码集(9:20→9:25涨幅/最后一秒段)
         qc_codes = kpl.get_qiangchou_codes()
-        result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_codes=qc_codes,
-                                           day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map,
-                                           yesterday_chg_map=yesterday_chg_map,
-                                           strengths=_load_strengths(raw))
+        # 重构 P5 切流: picker_cutover=1 → 主链路走 picker.pipeline, 不可用自动回退老链路
+        used_new = False
+        result = None
+        if _cutover_enabled():
+            result = _run_new_pipeline(uid, action, f, yesterday_map=yesterday_map,
+                                       yesterday_chg_map=yesterday_chg_map,
+                                       snapshot_map=snapshot_map,
+                                       bid_amt_map=bid_amt_map,
+                                       bid_chg_map=bid_chg_map)
+            used_new = result is not None
+        if result is None:
+            result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_codes=qc_codes,
+                                               day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map,
+                                               yesterday_chg_map=yesterday_chg_map,
+                                               strengths=_load_strengths(raw))
         # 概念用开盘啦覆盖(落库前覆盖: 页面/历史批次/推送全部统一开盘啦概念)
         _apply_kpl_board(result, "auction")
-        # 重构 P3 灰度: 旁路跑新链路并对拍(默认关闭; 开启时只打日志, 不参与返回)
         if _gray_enabled():
-            _gray_run(uid, action, raw or [], f, result,
-                      bid_amt_map=bid_amt_map, bid_chg_map=bid_chg_map,
-                      yesterday_chg_map=yesterday_chg_map)
+            if used_new:
+                # 切流后反向对拍: 返回的是新结果, 旁路跑老链路比对(观察期用, 只打日志)
+                _parity_reverse(uid, action, raw or [], f, result,
+                                yesterday_map=yesterday_map, snapshot_map=snapshot_map,
+                                bid_amt_map=bid_amt_map, bid_chg_map=bid_chg_map,
+                                yesterday_chg_map=yesterday_chg_map)
+            else:
+                _gray_run(uid, action, raw or [], f, result,
+                          bid_amt_map=bid_amt_map, bid_chg_map=bid_chg_map,
+                          yesterday_chg_map=yesterday_chg_map)
     except Exception as e:
         log.error("选股处理失败 uid=%s action=%s mode=%s err=%s", uid, action, mode, e, exc_info=True)
         return jr({"ok": False, "msg": "服务端处理失败: %s" % e}, 500)

@@ -85,7 +85,8 @@ def _load_strengths(raw):
 def _do_run(time_point):
     """实际跑选股+落库(供 run_system_batch 调用)
 
-    2026-09-08 P4: 拆成老/新两条链路, 由 settings `picker_lock` 切换(默认老链路)。
+    2026-09-08 P4: 拆成老/新两条链路, 由 settings `picker_lock` 切换
+    (P5 切流后**默认新链路**, 显式 0/false/off 才回退老链路)。
     新链路走 picker.pipeline(模式层 → 定格快照 → 粗筛 → 评分 → 精筛), 与首页选股
     同一条代码路径 —— 锁仓不再有自己的一套取数与过滤逻辑。
     """
@@ -120,12 +121,16 @@ def _do_run(time_point):
 
 
 def _picker_lock_on():
-    """settings `picker_lock=1` → 走新链路(picker.pipeline); 默认 0 = 老链路。"""
+    """settings `picker_lock` 控制走哪条链路。
+
+    P5 切流后**默认走新链路**(未配置 = 新链路); 显式设为 0/false/off 才回退老链路
+    —— 回滚只需改 settings, 不需要改代码重新部署。
+    """
     try:
         from .picker import lock as plock
-        return plock.enabled(settings.get("picker_lock"))
+        return plock.enabled_default_on(settings.get("picker_lock"))
     except Exception:                                          # noqa: BLE001
-        return False
+        return True
 
 
 def _run_new(f_raw, time_point):

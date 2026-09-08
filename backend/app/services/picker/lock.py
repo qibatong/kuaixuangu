@@ -195,6 +195,19 @@ def enabled(setting_value: Any) -> bool:
     return str(setting_value or "0") in ("1", "true", "True", "yes", "on")
 
 
+def enabled_default_on(setting_value: Any) -> bool:
+    """P5 切流后的开关判定: **未配置/空 = 开启**, 显式 "0"/"false"/"off" 才关闭。
+
+    与 enabled() 的差别只在缺省值 —— 切流前新链路是"旁路实验"故默认关; 切流后
+    新链路是**主链路**, 未配置应走新链路, 老链路变成需要显式打开的应急回退。
+    这样回滚只需在 settings 写 picker_lock=0, 不需要改代码重新部署。
+    """
+    v = setting_value
+    if v is None or str(v).strip() == "":
+        return True
+    return str(v) in ("1", "true", "True", "yes", "on")
+
+
 def compare_with_legacy(new_items: Sequence[dict], legacy_items: Sequence[dict],
                         log_tag: str = "") -> Dict[str, Any]:
     """锁仓双跑对拍: 只比对**名单与关键分数**, 打日志, 不影响落库。

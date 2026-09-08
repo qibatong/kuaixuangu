@@ -102,13 +102,17 @@ def _run_in_background(func, *args, **kwargs):
 
 
 def _picker_lock_on():
-    """settings `picker_lock=1` → 走新链路(picker.pipeline); 默认 0 = 老链路。"""
+    """settings `picker_lock` 控制走哪条链路。
+
+    P5 切流后**默认走新链路**(未配置 = 新链路); 显式设为 0/false/off 才回退老链路
+    —— 回滚只需改 settings, 不需要改代码重新部署。
+    """
     try:
         from . import settings
         from .picker import lock as plock
-        return plock.enabled(settings.get("picker_lock"))
+        return plock.enabled_default_on(settings.get("picker_lock"))
     except Exception:                                          # noqa: BLE001
-        return False
+        return True
 
 
 def _pick_result():

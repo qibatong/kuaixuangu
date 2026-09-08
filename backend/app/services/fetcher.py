@@ -292,6 +292,21 @@ def _bj_date_str():
     return "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
 
 
+def _after_close():
+    """当前北京时间是否已过收盘 —— 决定"今天"的 K 线算不算已收盘交易日。
+
+    2026-09-08 语义修正: 此前所有日K解析**无条件跳过今天**(盘中口径正确: 今天未收盘,
+    T 必须是最近已收盘交易日)。但**收盘后到午夜前**仍在跳过 → "昨日涨幅"取的是前一
+    交易日, 整整滞后一天(盘中正确、收盘后错)。改为收盘后把今天视为已收盘。
+
+    留 5 分钟缓冲(15:05): 15:00 收盘后数据商日K落库有延迟, 缓冲期内仍按盘中处理,
+    避免拿到"今天未落库 → 静默退化成前天"的错位数据。
+    非交易日(周末/节假日)数据源本就不返回今天的行 → 自动无影响。
+    """
+    g = time.gmtime(time.time() + 8 * 3600)
+    return (g.tm_hour, g.tm_min) >= (15, 5)
+
+
 # ==================== 昨日涨停池 (2026-09-07) ====================
 # 背景: 腾讯兜底行**无 f103 概念字段**(东财被墙走腾讯全市场时), 评分层 is_first_board
 #       (原只认 f103 "昨日涨停/连板"标签)恒为 False → 勾选「昨涨停」筛出空名单。
@@ -1137,12 +1152,13 @@ def _fetch_yesterday_amount_ths(code):
     return None, None
 
 
-def _fetch_yesterday_amount_tencent(code):
+def _fetch_yesterday_amount_tencent(code, after_close=None):
     """腾讯日K兜底源(第三源, 2026-08-31 东财K线被生产机IP封禁后新增):
-    返回最近两交易日成交额 [T日, T-1日] 万元; 失败返回 None
+    返回最近两交易日成交额 [T日, T-1日] 万元 + T日涨跌幅%; 失败返回 None
     接口: proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get
     qfqday 行: [date, open, close, high, low, volume, {}, 涨跌, 成交额(万元), '']
-    跳过今天(未收盘)行, 保证 T = 最近已收盘交易日(与东财/同花顺语义一致)
+    盘中跳过今天(未收盘)行, **收盘后(≥15:05)不跳过**(与东财/同花顺语义一致,
+    见 _after_close) → 保证 T = 最近已收盘交易日, 收盘后即今天。
     """
     prefix = "sh" if code.startswith(("6", "9")) else ("bj" if code.startswith(("4", "8")) else "sz")
     secid = prefix + code
@@ -1158,13 +1174,15 @@ def _fetch_yesterday_amount_tencent(code):
         data = raw.get("data", {}).get(secid, {})
         rows = data.get("qfqday") or data.get("day") or []
         today = _bj_date_str().replace("-", "")
+        if after_close is None:
+            after_close = _after_close()
         pairs = []
         for row in rows:
             if not isinstance(row, list) or len(row) < 9:
                 continue
             dstr = str(row[0])[:10].replace("-", "")
-            if dstr == today:
-                continue  # 今天未收盘, 跳过
+            if dstr == today and not after_close:
+                continue  # 盘中: 今天未收盘, 跳过; 收盘后: 已定格, 参与计算
             try:
                 amt = float(row[8])
             except (TypeError, ValueError):
@@ -1255,11 +1273,15 @@ def _fetch_yesterday_amount_one(code):
     return None, None
 
 
-def _kline_amount_pair(klines, close_idx=2, chg_idx=7):
+def _kline_amount_pair(klines, close_idx=2, chg_idx=7, after_close=None):
     """从日K行(逗号分隔)提取 ([最近已收盘T日万元, T-1日万元], T日涨跌幅%);
     自动跳过"今天"(未收盘)的K线, 保证 pair[0] 恒为最近已收盘交易日全天额。
     东财日期格式 YYYY-MM-DD, 同花顺 YYYYMMDD, 两种都兼容; 不足/无效返回 (None, None)。
     (修复: 东财盘中含今天未收盘K线, 同花顺不含 → 两源 pair 语义曾不一致, 导致分母错位)
+
+    after_close: None(默认)=按当前北京时间自动判定(见 _after_close); True/False 可显式
+      指定(测试/回放用)。**收盘后(≥15:05)今天的K线已定格 → 不跳过, T 取今天**, 修掉
+      "收盘后昨日涨幅整整滞后一天"的语义 bug。
 
     2026-09-08 昨日涨幅真实化: 东财日K fields2=f51..f58 → parts[7]=涨跌幅(f58),
     与成交额同一次请求返回, **零额外网络开销**。此前评分的"昨日涨幅"因子用的是
@@ -1275,6 +1297,8 @@ def _kline_amount_pair(klines, close_idx=2, chg_idx=7):
     故: 官方涨跌幅列(chg_idx)缺失时, 一律用**收盘价环比自算**, 口径跨源统一。
     """
     today = _bj_date_str()
+    if after_close is None:
+        after_close = _after_close()
     def amt_of(row):
         parts = row.split(",")
         if len(parts) < 7:
@@ -1303,11 +1327,12 @@ def _kline_amount_pair(klines, close_idx=2, chg_idx=7):
                 close = None
         return v / 10000.0, parts[0], chg, close
     def is_today(dstr):
-        if not dstr:
+        if not dstr or after_close:
+            # 收盘后今天已定格 → 不再跳过(否则"昨日涨幅"滞后一整天)
             return False
         d = dstr.replace("-", "")
         return d == today.replace("-", "")
-    # 收集所有 (日期, 金额, 官方涨跌幅, 收盘价), 跳过今天
+    # 收集所有 (日期, 金额, 官方涨跌幅, 收盘价), 跳过今天(仅盘中)
     rows = []
     for row in klines:
         amt, dstr, chg, close = amt_of(row)
