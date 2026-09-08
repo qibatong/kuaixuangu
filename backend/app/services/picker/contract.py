@@ -151,6 +151,21 @@ class QuoteRow:
         return (p - o) / o * 100
 
     @property
+    def auction_price(self) -> Optional[float]:
+        """**9:25 定格竞价价** = 昨收 ×(1 + 竞价涨幅/100)。
+
+        存在的理由(2026-09-08 P3 实测): 快照表 snapshot_bid **没有 price 列**,
+        而 priceGt 门槛必须有个"定格价"才能判 —— 用实时价判, 盘中价格一漂
+        名单就变(票涨过 30 元被剔、跌回来又出现), 幂等直接不成立; 用昨收×
+        竞价涨幅推算出的竞价价, **全天恒定**, 既让门槛生效又不漂移。
+        缺昨收或竞价涨幅 → None(此时门槛不生效, 由调用方决定保留还是剔除)。
+        """
+        if not self.prev_close or self.bid_change is None:
+            return None
+        p = self.prev_close * (1.0 + self.bid_change / 100.0)
+        return p if math.isfinite(p) and p > 0 else None
+
+    @property
     def bid_turnover(self) -> Optional[float]:
         """竞价换手率%(派生): **竞价额 ÷ 流通市值 × 100**
 

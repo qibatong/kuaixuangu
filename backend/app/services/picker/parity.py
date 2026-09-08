@@ -167,11 +167,25 @@ def compare(legacy_items: List[dict], raw: List[dict], f: Dict, *,
             if av is None or bv is None:
                 rep.field_diff.append({"code": code, "field": key,
                                        "legacy": av, "new": bv})
-            elif abs(float(av) - float(bv)) > 1e-6:
+            elif _differs(av, bv):
                 rep.field_diff.append({"code": code, "field": key,
                                        "legacy": av, "new": bv})
     rep.elapsed_ms = int((time.time() - t0) * 1000)
     return rep
+
+
+def _differs(av, bv) -> bool:
+    """是否算"有差异": **相对容差 0.01%**, 而非绝对 1e-6。
+
+    原因(2026-09-08 测试机实测噪音): 老链路 bidAmt=4610.2322, 新链路 to_dict
+    按前端约定 round 成 4610.23 → 绝对差 0.0022 被判成差异, 一晚能刷出几十条
+    假差异, 真正的问题(竞价换手真实口径 vs 老口径差 37 倍)反被淹没。
+    """
+    try:
+        a, b = float(av), float(bv)
+    except (TypeError, ValueError):
+        return True
+    return abs(a - b) > max(1e-6, abs(a) * 1e-4)
 
 
 def run(raw: List[dict], f: Dict, *, auction_window: bool = False,
@@ -246,7 +260,7 @@ def run(raw: List[dict], f: Dict, *, auction_window: bool = False,
                 "prob": (a.get("probability"), b.get("probability")),
                 "conf": (a.get("confidence"), b.get("confidence")),
             })
-        # 关键字段比对(容忍浮点 1e-6)
+        # 关键字段比对(相对容差, 见 _differs)
         for key in ("bidChange", "bidAmt", "circulationMV", "bidTurnover"):
             av, bv = a.get(key), b.get(key)
             if av is None and bv is None:
@@ -254,7 +268,7 @@ def run(raw: List[dict], f: Dict, *, auction_window: bool = False,
             if av is None or bv is None:
                 rep.field_diff.append({"code": code, "field": key,
                                        "legacy": av, "new": bv})
-            elif abs(float(av) - float(bv)) > 1e-6:
+            elif _differs(av, bv):
                 rep.field_diff.append({"code": code, "field": key,
                                        "legacy": av, "new": bv})
     rep.elapsed_ms = int((time.time() - t0) * 1000)

@@ -69,6 +69,12 @@ class FilterContext:
     zt_codes: Optional[Set[str]] = None     # None = 名单不可用, 降级 concept 匹配
     require_bid_change: bool = True         # 竞价涨幅缺失是否剔除(见模块注释 3)
     drop_unknown_suspend: bool = False      # 停牌"未知"是否剔除(默认 False: 不误杀)
+    price_gate: str = "auction"
+    """价格门槛用哪个价判定:
+      "auction"  定格竞价价 = 昨收×(1+竞价涨幅)**全天恒定** → 名单不漂移(默认)
+      "realtime" 实时价(老链路行为) — 盘中价格一漂名单就变, 仅对拍老行为时用
+      缺失(None) → 门槛不生效, 保留该票(不误杀)
+    """
 
     @property
     def zt_available(self) -> bool:
@@ -161,7 +167,10 @@ def apply_filters(rows: List[ScoredRow], f: Dict,
             continue
 
         # 8) 价格上限(缺失 → 无法证明超限 → 保留, 与老口径 0>priceGt=False 同结果)
-        if f["priceGt"] > 0 and r.price is not None and r.price > f["priceGt"]:
+        #    判定价默认取**定格竞价价**(全天恒定), 不用实时价 — 否则盘中价格一漂
+        #    名单就变; 老链路用实时价, 对拍时用 price_gate="realtime" 复现其行为。
+        gate_price = (r.auction_price if ctx.price_gate == "auction" else r.price)
+        if f["priceGt"] > 0 and gate_price is not None and gate_price > f["priceGt"]:
             out.bump("price_gt")
             continue
 

@@ -97,7 +97,9 @@ def test_realtime_patch_only_display_fields():
     # 竞价窗口无当日定格快照 → 名单只能来自实时全市场(点查源此时无候选 codes)
     assert pm.POLICIES[pm.PickMode.AUCTION].source_priority[0] == "eastmoney_market"
     # 收盘后无需刷新展示字段
-    assert pm.POLICIES[pm.PickMode.CLOSED].realtime_patch is False
+    # 收盘后补丁源返回的是**收盘定格值**(不再变化) → 补它不破坏幂等,
+    # 且必须补, 否则现价/现涨列全空(P3 测试机实测)
+    assert pm.POLICIES[pm.PickMode.CLOSED].realtime_patch is True
 
 
 def test_every_mode_has_fail_message():

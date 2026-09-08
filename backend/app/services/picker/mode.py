@@ -121,12 +121,15 @@ POLICIES = {
     PickMode.CLOSED: ModePolicy(
         mode=PickMode.CLOSED,
         label="闭市回放",
-        source_priority=("snapshot",),
+        # 名单=定格快照; 后两级补**收盘价/收盘涨幅**(2026-09-08 P3 修正: 原设
+        # realtime_patch=False 导致收盘后现价/现涨全为 None, 前端列全空 —
+        # 收盘后实时源返回的就是收盘定格值, **不再变化**, 补它不破坏幂等)
+        source_priority=("snapshot", "eastmoney_realtime", "tencent_point"),
         deterministic=True,
         allow_lock=False,
         auction_window=False,
         allow_relock=False,
-        realtime_patch=False,        # 已收盘, 实时字段=收盘值, 无需刷新
+        realtime_patch=True,
         fail_message="最近交易日竞价数据不可用 — 不提供名单",
     ),
 }

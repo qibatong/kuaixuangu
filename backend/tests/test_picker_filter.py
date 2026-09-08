@@ -155,7 +155,8 @@ def test_mv_and_bid_amt_and_price_thresholds():
         _mk("600001", float_mv=20e8),        # 市值 < 30 亿
         _mk("600002", float_mv=300e8),       # 市值 > 100 亿
         _mk("600003", bid_amt=1e7),          # 竞价额 1000 万 < 3000 万
-        _mk("600004", price=50.0),           # 价格 > 30
+        # 价格 > 30: 昨收必须与现价自洽(现价=昨收×(1+竞价涨幅)), 否则数据本身矛盾
+        _mk("600004", price=50.0, prev_close=48.5, bid_change=3.0),
         _mk("600005"),                       # 正常
     ]
     out = _run(rows, ctx=pf.FilterContext(markets=["hs"], zt_codes=set()))

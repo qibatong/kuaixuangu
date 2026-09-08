@@ -30,6 +30,14 @@ def _raw(code, *, name="某股", price=10.5, prev=10.15, real=3.4, open_=10.2,
     "bid_amt"(权威竞价额)两种竞价换手口径数值相同 —— 真实行情两者本就近似相等
     (成交额 = 量×均价), 这里取严格相等以便对拍逐值比对。
     """
+    # 现价必须与昨收/竞价涨幅自洽: 现价 = 昨收×(1+竞价涨幅)。
+    # 否则"定格竞价价"(新链路价格门槛)与"实时价"(老链路)会算出不同值, 导致
+    # 对拍出现与本次重构无关的假差异。竞价涨幅缺失的用例不重算(沿用传入价)。
+    if bid_chg is not None:
+        price = round(prev * (1 + bid_chg / 100.0), 2)
+        real = bid_chg
+    else:
+        real = 3.4
     amt_yuan = bid_amt_wan * 1e4
     bid_vol = amt_yuan / price                 # 股
     return {
@@ -50,8 +58,9 @@ def _sample():
         _raw("600002", name="某银行B", bid_chg=2.0, bid_amt_wan=1000, mv_yi=45),   # 竞额不足
         _raw("300003", name="创业票C", bid_chg=4.0, bid_amt_wan=6000, mv_yi=20),   # 市值不足
         _raw("600004", name="ST异类", bid_chg=3.5, bid_amt_wan=5500, mv_yi=60),    # ST
+        # 价格超限: 用高昨收(85)而非硬塞现价, 保证 现价=昨收×(1+竞价涨幅) 自洽
         _raw("600005", name="高价票D", bid_chg=3.2, bid_amt_wan=5200, mv_yi=70,
-             price=88.0),                                                          # 价格超限
+             prev=85.0),
         _raw("600006", name="正常票E", bid_chg=5.0, bid_amt_wan=7000, mv_yi=50, warn=1),
     ]
 

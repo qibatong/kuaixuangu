@@ -194,27 +194,23 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
     if not ctx.yesterday_map:
         fill_yesterday(codes, ctx)
 
-    # 3) 评分 + 精筛(只针对候选) → **名单在此定型**
-    #    关键顺序: 补丁源在过滤**之后**才应用。若先补丁再过滤, 实时价会参与
-    #    priceGt 判定 → 盘中价格一漂名单就变(老链路正是如此, 幂等不成立)。
-    cand_rows = [rows[c] for c in codes if c in rows]
-    srows = score_rows(cand_rows, cfg)
-    outcome = pfilter.apply_filters(srows, filters, fctx)
-    res.stats = dict(outcome.stats)
-
-    # 4) 展示字段补丁: 只对**已入选票**拉, 且不再重新过滤(名单已定型)
-    #    补丁失败 → 现价列显示 '-', 名单不变(老链路点查失败会整批降级 → 名单虚胖)
-    pr = _fetch_patch(ctx, policy, [it.code for it in outcome.kept], filters)
+    # 3) 补丁源: 对**候选**补昨收/现价/市值等(补丁失败不阻塞, 只影响门槛与展示)
+    #    注意: 补丁带来的**实时价不参与价格门槛** — 门槛由 filter 用定格竞价价
+    #    (昨收×竞价涨幅, 全天恒定)判定, 故补丁在过滤前后都不改变名单。
+    pr = _fetch_patch(ctx, policy, codes, filters)
     if pr is not None:
         rows = _merge_rows(rows, pr.rows)
         res.sources.append(pr.label)
         if pr.degraded:
             res.degraded = True
-        # merge 返回的是**新行对象** → kept 按 code 重新指向(评分结果复用)
-        outcome.kept = [ScoredRow(row=rows[it.code], score=it.score)
-                        for it in outcome.kept if it.code in rows]
     else:
-        res.errors.append("补丁源不可用(仅影响实时展示字段, 名单仍有效)")
+        res.errors.append("补丁源不可用(价格门槛与实时展示字段将缺失)")
+
+    # 4) 评分 + 精筛(只针对候选) → **名单在此定型**
+    cand_rows = [rows[c] for c in codes if c in rows]
+    srows = score_rows(cand_rows, cfg)
+    outcome = pfilter.apply_filters(srows, filters, fctx)
+    res.stats = dict(outcome.stats)
 
     # 5) 输出(老链路 item 同构 + 定格派生字段)
     ymap = ctx.yesterday_map or {}
