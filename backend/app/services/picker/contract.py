@@ -152,13 +152,26 @@ class QuoteRow:
 
     @property
     def bid_turnover(self) -> Optional[float]:
-        """竞价换手率%(派生): 竞价量×价 / 流通市值 ×100"""
-        if not self.bid_vol or not self.price or not self.float_mv:
+        """竞价换手率%(派生): **竞价额 ÷ 流通市值 × 100**
+
+        口径选择(2026-09-08 关键): 竞价额(元)÷流通市值(元)×100 与
+        "竞价量×价÷流通市值"数学等价(竞价额 = 竞价量×价), 但**不依赖 bid_vol** ——
+        快照表 snapshot_bid 只存 bid_change/bid_amt, **没有竞价量字段**, 若用竞价量
+        口径则盘中/盘后全市场 bid_turnover 恒为 None → activity 因子(权重 32%)
+        全部走 default 0.1 → 评分体系塌陷。
+        老链路用 f5(当日成交量)×价÷市值: 竞价窗口内 f5 恰为竞价量故碰巧正确,
+        窗口外 f5 是全天累计 → 虚高(语义错误, 契约层不允许该退化)。
+        bid_amt 缺失时退回 bid_vol×price 兜底(竞价窗口内实时行有 f617/f2)。
+        """
+        mv = self.float_mv
+        if not mv or mv <= 0:
             return None
-        if self.float_mv <= 0:
-            return None
-        t = self.bid_vol * self.price / self.float_mv * 100
-        return t if math.isfinite(t) else None
+        t = None
+        if self.bid_amt:
+            t = self.bid_amt / mv * 100
+        elif self.bid_vol and self.price:
+            t = self.bid_vol * self.price / mv * 100
+        return t if (t is not None and math.isfinite(t)) else None
 
     # ---------- 契约查询 ----------
     def missing(self, *names: str) -> List[str]:

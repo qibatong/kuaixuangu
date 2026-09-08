@@ -22,18 +22,24 @@ FULL = {
 
 
 def _raw(code, *, name="某股", price=10.5, prev=10.15, real=3.4, open_=10.2,
-         bid_chg=3.0, bid_amt_wan=5000.0, bid_vol=4.8e6, mv_yi=55.0,
+         bid_chg=3.0, bid_amt_wan=5000.0, mv_yi=55.0,
          warn=2, turnover=0.9, vol_ratio=1.8, industry="银行", concept="金融"):
-    """构造东财行情行: f5(手) 与 f617(竞价量股) 保持一致, 使老链路"用 f5 算竞价换手"
-    与新链路"用 bid_vol 算竞价换手"数值相同(竞价窗口内 f5 即竞价量, 语义等价)。"""
+    """构造东财行情行。
+
+    令 **f616(竞价额) = 竞价量 × 价**, 使老链路"f5×100×f2"(量×价)与新链路
+    "bid_amt"(权威竞价额)两种竞价换手口径数值相同 —— 真实行情两者本就近似相等
+    (成交额 = 量×均价), 这里取严格相等以便对拍逐值比对。
+    """
+    amt_yuan = bid_amt_wan * 1e4
+    bid_vol = amt_yuan / price                 # 股
     return {
         "f12": code, "f14": name,
         "f2": price, "f3": real, "f4": prev, "f18": prev,
-        "f5": bid_vol / 100.0,
-        "f6": bid_amt_wan * 1e4, "f8": turnover, "f10": vol_ratio,
+        "f5": bid_vol / 100.0,                 # 手
+        "f6": amt_yuan, "f8": turnover, "f10": vol_ratio,
         "f17": open_, "f21": mv_yi * 1e8,
         "f100": industry, "f103": concept,
-        "f615": bid_chg, "f616": bid_amt_wan * 1e4, "f617": bid_vol, "f630": warn,
+        "f615": bid_chg, "f616": amt_yuan, "f617": bid_vol, "f630": warn,
     }
 
 

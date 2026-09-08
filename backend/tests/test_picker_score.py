@@ -90,12 +90,22 @@ def test_confidence_bonus_requires_known_value():
 
 
 def test_missing_bid_turnover_uses_default():
-    """竞价换手缺失(无竞价量) → default 0.1, 不得算成 0 再落桶"""
+    """竞价换手缺失(无竞价额/竞价量) → default 0.1, 不得算成 0 再落桶"""
     r = _row(code="600000", bid_change=3.0, warn_type=2, float_mv=55e8,
-             yesterday_change=2.0, price=10.5)      # 无 bid_vol → bid_turnover=None
+             yesterday_change=2.0, price=10.5)      # 无 bid_amt/bid_vol → None
     s = compute_score(r, _cfg())
     assert r.bid_turnover is None
     assert s.parts["activity"]["score"] == 0.1
+
+
+def test_bid_turnover_uses_amount_not_volume():
+    """竞价换手 = 竞价额÷流通市值(不依赖竞价量 — 快照表无 bid_vol 字段)"""
+    r = _row(code="600000", float_mv=55e8, bid_amt=3.0e7)     # 3000万 / 55亿
+    assert r.bid_vol is None
+    assert r.bid_turnover == pytest.approx(3.0e7 / 55e8 * 100)
+    # 无竞价额时退回 竞价量×价 兜底
+    r2 = _row(code="600000", float_mv=55e8, bid_vol=4.8e6, price=10.5)
+    assert r2.bid_turnover == pytest.approx(4.8e6 * 10.5 / 55e8 * 100)
 
 
 # ==================== 批量与排序 ====================
