@@ -54,7 +54,8 @@ def test_fetch_yesterday_changes_reads_cache(monkeypatch):
     today = fetcher._bj_date_str()
     fetcher._yesterday_cache["600519"] = [today, [2160.0, 1020.0], 0.0, 5.88]
     fetcher._yesterday_cache["000001"] = [today, [900.0, 800.0], 0.0, None]   # 无涨幅
-    out = fetcher.fetch_yesterday_changes(["600519", "000001", "300750"])
+    # min_coverage=0 关闭批级一致性(本例只验证"读缓存、不联网", 一致性另有用例)
+    out = fetcher.fetch_yesterday_changes(["600519", "000001", "300750"], min_coverage=0)
     assert out == {"600519": 5.88}         # 000001 缺失不出现, 300750 未缓存不出现
     assert called == [], "不得触发网络拉取"
 

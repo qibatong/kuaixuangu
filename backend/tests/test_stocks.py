@@ -173,19 +173,21 @@ def test_kline_amount_pair_skips_today(monkeypatch):
     today8 = today.replace("-", "")
 
     # 东财格式(含今天): 今天1.5亿, 昨天2亿, 前天1亿 → pair[0] 应为 2亿(昨天)
+    # 列序 日期,开,收,高,低,量,额[,涨跌幅] → close_idx=2(收)
     east = [f"{before},10,10,10,10,100,{1.0e8}", f"{yest},10,10,10,10,200,{2.0e8}", f"{today},10,10,10,10,300,{1.5e8}"]
-    # 2026-09-08: 返回值扩为 (成交额对, T日涨跌幅%); 本用例 K 线行无涨跌幅字段 → chg=None
+    # 2026-09-08: 返回值扩为 (成交额对, T日涨跌幅%); 无官方涨跌幅列 → 用**收盘价环比自算**
+    # (本用例三天收盘价都是 10 → 涨幅 0.0, 不是 None)
     p, chg = fetcher._kline_amount_pair(east)
     assert p is not None and abs(p[0] - 20000.0) < 1   # 2亿(昨天, 万元)
     assert abs(p[1] - 10000.0) < 1                       # 1亿(前天)
-    assert chg is None, "无涨跌幅字段时应为 None(缺失即缺失)"
+    assert chg == 0.0, "无官方涨跌幅列时用收盘价自算(三天收盘价相同 → 0.0)"
 
-    # 同花顺格式(不含今天): 昨天2亿, 前天1亿 → pair[0]=2亿
+    # 同花顺格式(不含今天, 列序 日期,开,高,低,收,量,额,换手率 → close_idx=4)
     ths = [f"{before8},10,10,10,10,100,{1.0e8}", f"{yest8},10,10,10,10,200,{2.0e8}"]
-    p2, chg2 = fetcher._kline_amount_pair(ths)
+    p2, chg2 = fetcher._kline_amount_pair(ths, close_idx=4, chg_idx=None)
     assert p2 is not None and abs(p2[0] - 20000.0) < 1
     assert abs(p2[1] - 10000.0) < 1
-    assert chg2 is None
+    assert chg2 == 0.0
 
 
 # ---------- 盘中全市场分页拉取 ----------
