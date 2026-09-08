@@ -61,11 +61,42 @@ def test_policy_semantics():
     assert pm.POLICIES[pm.PickMode.LOCKED].deterministic is True
     assert pm.POLICIES[pm.PickMode.LOCKED].allow_lock is True      # 仅锁定期可落库
     assert pm.POLICIES[pm.PickMode.PREOPEN].allow_lock is False
-    assert pm.POLICIES[pm.PickMode.INTRADAY].deterministic is False
     # 只有竞价窗口允许读实时 f615/f616
     assert pm.POLICIES[pm.PickMode.AUCTION].auction_window is True
     assert pm.POLICIES[pm.PickMode.INTRADAY].auction_window is False
     assert pm.POLICIES[pm.PickMode.LOCKED].auction_window is False
+
+
+def test_only_auction_allows_list_to_change():
+    """2026-09-08 主人拍板: 竞价结束后名单即定型。
+    盘中/收盘/盘前一律幂等; 只有竞价窗口(数据在变)允许名单变化。"""
+    for m in (pm.PickMode.PREOPEN, pm.PickMode.LOCKED,
+              pm.PickMode.INTRADAY, pm.PickMode.CLOSED):
+        assert pm.POLICIES[m].deterministic is True, \
+            "%s 必须幂等(同条件必同名单)" % m.value
+    assert pm.POLICIES[pm.PickMode.AUCTION].deterministic is False
+
+
+def test_no_relock_after_930():
+    """9:30 后禁止重新选股(原始版本 reLockData 同规则: '9:30后禁止重新选股')"""
+    assert pm.POLICIES[pm.PickMode.INTRADAY].allow_relock is False
+    assert pm.POLICIES[pm.PickMode.CLOSED].allow_relock is False
+    # 9:30 前允许改条件重选
+    assert pm.POLICIES[pm.PickMode.PREOPEN].allow_relock is True
+    assert pm.POLICIES[pm.PickMode.LOCKED].allow_relock is True
+
+
+def test_realtime_patch_only_display_fields():
+    """盘中可补展示字段, 但不得重算名单(幂等) — 与 source_priority 定格优先配套。
+    原始版本 updateRealTimeOnly() 即: 只更新已入选票 realChange/entityChange。
+    """
+    intraday = pm.POLICIES[pm.PickMode.INTRADAY]
+    assert intraday.realtime_patch is True
+    assert intraday.source_priority[0] == "snapshot", "名单必须优先认定格快照"
+    # 竞价窗口: 定格前无快照可用, 以实时为准
+    assert pm.POLICIES[pm.PickMode.AUCTION].source_priority[0] == "eastmoney_realtime"
+    # 收盘后无需刷新展示字段
+    assert pm.POLICIES[pm.PickMode.CLOSED].realtime_patch is False
 
 
 def test_every_mode_has_fail_message():

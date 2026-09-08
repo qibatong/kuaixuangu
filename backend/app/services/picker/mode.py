@@ -7,11 +7,19 @@
 原因)。本层把"现在是什么模式、该模式怎么取数、失败怎么办"收敛到**一个函数**。
 
 模式划分(比老逻辑多识别出 LOCKED — 9:25 竞价结束到 9:30 开盘是语义独立的锁定窗口):
-  PREOPEN  00:00-9:15   盘前定格  名单幂等, 用上交易日 9:25 定格
-  AUCTION  9:15-9:25    竞价窗口  实时竞价在变, 名单会变
+  PREOPEN  00:00-9:15   盘前定格  名单幂等, 用上交易日 9:25 定格(可改条件重选)
+  AUCTION  9:15-9:25    竞价窗口  竞价数据在变 → **唯一允许名单变化的模式**
   LOCKED   9:25-9:30    锁定期    9:25 定格已定型, 幂等且可锁定落库
-  INTRADAY 9:30-15:00   盘中实时  名单会变
+  INTRADAY 9:30-15:00   盘中      名单**固定**(9:25 定格), 仅刷新已入选票的展示字段
   CLOSED   15:00后/非交易日        最近交易日定格, 幂等
+
+幂等总原则(2026-09-08 主人拍板, 与最初单文件版 shunshi_fixed.html 一致:
+"9:30前可重新选股 · 9:30后仅更新实时涨幅"):
+  **竞价结束(9:25)后, 每种筛选条件下的名单即定型** — 盘中/收盘/非交易日一律不变;
+  改条件后出的是另一份名单, 但**条件改回来必须得到完全相同的名单**。
+  盘中实时源只允许补 realChange/entityChange 等展示字段: 不重排·不重筛·不增票。
+  (老代码 9:30 后仍按实时行情重算 → 同条件两次结果不同, 是"名单波动/大跌票混入"
+   类事故反复出现的主因之一)
 
 交易日判定: 目前仅周末(与老逻辑一致)。节假日日历为已知缺口 — 老代码同样没有,
 这里预留 is_trading_day 的 holidays 参数, 后续接入交易日历不需改调用方。
@@ -47,10 +55,18 @@ class ModePolicy:
     deterministic: bool              # 名单是否必须幂等(同条件必同结果)
     allow_lock: bool                 # 是否允许锁定落库
     auction_window: bool             # 是否可取实时竞价字段 f615/f616
+    allow_relock: bool               # 是否允许**重新选股**(重算名单); 9:30 后一律 False
+    realtime_patch: bool             # 是否允许刷新展示字段(realChange/entityChange)。
+                                     # 只补**已入选票**的展示值: 不重排/不重筛/不增票
     fail_message: str                # 取数全失败时给用户的明示文案(铁律2: 降级必须可见)
 
 
 POLICIES = {
+    # 2026-09-08 主人拍板(原始单文件版本 shunshi_fixed.html 的设计即如此:
+    # "9:30前可重新选股 · 9:30后仅更新实时涨幅"):
+    # **竞价结束(9:25)后名单就定型** — 盘中/收盘/非交易日一律幂等, 同筛选条件必得同
+    # 名单(改条件再改回来也必须完全一致)。盘中只补已入选票的展示字段(realChange/
+    # entityChange), 不重排·不重筛·不增票。仅 AUCTION 竞价进行中名单会变(数据在变)。
     PickMode.PREOPEN: ModePolicy(
         mode=PickMode.PREOPEN,
         label="盘前定格",
@@ -58,15 +74,19 @@ POLICIES = {
         deterministic=True,
         allow_lock=False,
         auction_window=False,
+        allow_relock=True,           # 盘前用上个交易日定格, 允许改条件重选
+        realtime_patch=False,        # 未开盘, 无实时字段可补
         fail_message="盘前未开盘, 且上个交易日竞价数据不可用 — 不提供名单",
     ),
     PickMode.AUCTION: ModePolicy(
         mode=PickMode.AUCTION,
         label="竞价窗口",
         source_priority=("eastmoney_realtime", "tencent_point"),
-        deterministic=False,
+        deterministic=False,         # 竞价数据实时在变 — 唯一允许名单变化的模式
         allow_lock=False,
         auction_window=True,
+        allow_relock=True,
+        realtime_patch=True,
         fail_message="竞价行情源不可用 — 不提供名单(竞价数据不可伪造)",
     ),
     PickMode.LOCKED: ModePolicy(
@@ -76,16 +96,21 @@ POLICIES = {
         deterministic=True,
         allow_lock=True,
         auction_window=False,
+        allow_relock=True,           # 9:25-9:30 仍可锁定/重选(定格已定型)
+        realtime_patch=False,
         fail_message="9:25 竞价定格数据不可用 — 无法锁定",
     ),
     PickMode.INTRADAY: ModePolicy(
         mode=PickMode.INTRADAY,
-        label="盘中实时",
-        source_priority=("eastmoney_realtime", "tencent_market"),
-        deterministic=False,
+        label="盘中",
+        # 名单只认 9:25 定格(幂等); 实时源**仅**用于补展示字段, 不得参与评分/排序/过滤
+        source_priority=("snapshot", "eastmoney_realtime"),
+        deterministic=True,
         allow_lock=False,
         auction_window=False,
-        fail_message="盘中行情源不可用 — 不提供名单",
+        allow_relock=False,          # 9:30 后禁止重选(原始版本 reLockData 同规则)
+        realtime_patch=True,         # 只更新已入选票的实时涨幅/实体涨幅
+        fail_message="9:25 竞价定格数据不可用 — 不提供名单(盘中不重算名单)",
     ),
     PickMode.CLOSED: ModePolicy(
         mode=PickMode.CLOSED,
@@ -94,6 +119,8 @@ POLICIES = {
         deterministic=True,
         allow_lock=False,
         auction_window=False,
+        allow_relock=False,
+        realtime_patch=False,        # 已收盘, 实时字段=收盘值, 无需刷新
         fail_message="最近交易日竞价数据不可用 — 不提供名单",
     ),
 }
