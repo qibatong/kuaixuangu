@@ -36,24 +36,6 @@ CONF_KEYS = [
     ("conf_bid", "温和竞价", "竞价涨幅2%~6.5%时置信度加成"),
 ]
 
-# 盘中实时评分(spot) 权重系数(key, 中文名, 说明)
-SPOT_W_KEYS = [
-    ("w_chg", "实时涨幅", "盘中实时涨幅区间得分(3%~6%为满分, 过高=追高风险)"),
-    ("w_vol_ratio", "量比", "量比放量确认得分(>=2 为满分)"),
-    ("w_turnover", "换手率", "盘中换手活跃度得分(3%~15%为满分)"),
-    ("w_seal", "封单强度", "涨停股封成比得分(>=2% 为满分; 非涨停=0分档)"),
-    ("w_market", "市值分", "流通市值越小分越高(小市值加分)"),
-    ("w_yesterday", "昨日涨幅", "昨日涨幅处于健康区间得分"),
-]
-
-# 盘中实时评分(spot) 置信度加成
-SPOT_CONF_KEYS = [
-    ("conf_seal_high", "强封单", "封成比>=2% 时置信度加成"),
-    ("conf_vol_ratio", "显著放量", "量比>=2 时置信度加成"),
-    ("conf_chg", "健康涨幅", "实时涨幅1.5%~6%时置信度加成"),
-]
-
-
 def get_admin(request: Request, uid: int = Depends(get_uid)):
     """管理员依赖: 未登录 401; 非管理员 403"""
     users.ensure_admin()   # 幂等初始化(ADMIN_USERNAME 或 id 最小用户)
@@ -436,15 +418,12 @@ def api_admin_user_reset_password(request: Request, body: dict = Body(...),
 @router.get("/api/admin/scoring")
 def api_admin_scoring_get(request: Request, uid: int = Depends(get_admin)):
     # 2026-09-09 命名消歧(与 /api/stocks 同步): 策略参数 mode → strategy ——
-    # 策略=用哪套因子表(auction 竞价 / spot 盘中), 与内部时段 PickMode 是两回事;
+    # 策略=用哪套因子表(2026-09-09 起仅 auction 竞价; spot 盘中已下线), 与内部时段 PickMode 是两回事;
     # 旧参数 mode 保留为兼容别名(前端 dist 缓存/书签仍在传), 下版本移除。
     strategy = (qs(request).get("strategy") or qs(request).get("mode") or ["auction"])[0]
-    if strategy not in ("auction", "spot"):
-        return jr({"ok": False, "msg": "非法 strategy"}, 400)
+    if strategy != "auction":
+        return jr({"ok": False, "msg": "非法 strategy(盘中实时选股已下线)"}, 400)
     cfg = scorer.get_scoring_cfg(strategy=strategy)
-    if strategy == "spot":
-        return jr({"ok": True, "strategy": "spot", "mode": "spot", "scoring": cfg,
-                   "w_keys": SPOT_W_KEYS, "conf_keys": SPOT_CONF_KEYS})
     return jr({"ok": True, "strategy": "auction", "mode": "auction",
                "scoring": cfg, "w_keys": W_KEYS, "conf_keys": CONF_KEYS})
 
@@ -455,27 +434,27 @@ def api_admin_scoring_put(request: Request, body: dict = Body(...), uid: int = D
     strategy = str(body.get("strategy") or body.get("mode")
                    or (qs(request).get("strategy") or qs(request).get("mode") or ["auction"])[0]
                    or "auction")
-    if strategy not in ("auction", "spot"):
-        return jr({"ok": False, "msg": "非法 strategy"}, 400)
+    if strategy != "auction":
+        return jr({"ok": False, "msg": "非法 strategy(盘中实时选股已下线)"}, 400)
     new = body.get("scoring")
     if not isinstance(new, dict) or not new:
         return jr({"ok": False, "msg": "缺少 scoring 配置"}, 400)
     err = _validate_scoring(new, strategy)
     if err:
         return jr({"ok": False, "msg": err}, 400)
-    if not settings.set("scoring_spot" if strategy == "spot" else "scoring", new):
+    if not settings.set("scoring", new):
         return jr({"ok": False, "msg": "保存失败"}, 500)
     scorer.reload_scoring_cfg()
-    log.info("管理端更新%s评分权重 uid=%s scoring=%s", "盘中" if strategy == "spot" else "竞价", uid, new)
+    log.info("管理端更新评分权重 uid=%s scoring=%s", uid, new)
     return jr({"ok": True, "msg": "已保存并生效", "strategy": strategy, "mode": strategy,
                "scoring": scorer.get_scoring_cfg(strategy=strategy)})
 
 
 def _validate_scoring(new, strategy="auction"):
-    """校验权重/置信度/打分明细; strategy=spot 用盘中因子表"""
-    default_cfg = scorer.DEFAULT_SCORING if strategy == "auction" else scorer.DEFAULT_SCORING_SPOT
-    w_keys = W_KEYS if strategy == "auction" else SPOT_W_KEYS
-    conf_keys = CONF_KEYS if strategy == "auction" else SPOT_CONF_KEYS
+    """校验权重/置信度/打分明细(2026-09-09 spot 下线后只校验竞价因子表)"""
+    default_cfg = scorer.DEFAULT_SCORING
+    w_keys = W_KEYS
+    conf_keys = CONF_KEYS
     w_sum = 0.0
     for k, _, _ in w_keys:
         try:

@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-选股路由: GET /api/stocks?action=lock|filter|refresh|ping&strategy=auction|spot&筛选参数...
+选股路由: GET /api/stocks?action=lock|filter|refresh|ping&strategy=auction&筛选参数...
 ===================================================================
 strategy=auction  竞价选股(默认, 行为不变): lock 9:30 前唯一锁定, 评分=竞价涨幅/竞价换手/异动...
-strategy=spot     盘中实时选股: 随时 refresh, 评分=实时涨幅/量比/换手/封单强度..., 涨停留池接口
+strategy=spot     盘中实时选股【2026-09-09 已下线, 前端无入口/后端零调用】: 随时 refresh, 评分=实时涨幅/量比/换手/封单强度..., 涨停留池接口
 """
 import time
 
@@ -270,16 +270,16 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
     # 2026-09-09 命名消歧(主人指示彻底改名): 策略参数 mode → strategy ——
     # 原 mode 与内部时段模式 PickMode(preopen/auction/locked/intraday/closed) 撞名,
     # 排查时极易误读(曾把回显的策略 mode=auction 当成"午休仍在竞价窗口")。
-    # 语义: strategy=选股策略(auction 竞价因子表 / spot 盘中实时因子表)。
+    # 语义: strategy=选股策略(2026-09-09 起仅 auction 竞价因子表; spot 盘中已下线)。
     # 旧参数 mode 保留为兼容别名(线上缓存前端/书签仍在传), 下版本移除。
     strategy = (q.get("strategy") or q.get("mode") or ["auction"])[0]
     force = (q.get("force") or ["0"])[0] in ("1", "true", "True")   # 主动重锁(绕过当日幂等)
     if action not in ("lock", "filter", "refresh", "ping"):
         log.warning("选股非法参数 action=%s uid=%s", action, uid)
         return jr({"ok": False, "msg": "非法参数"}, 400)
-    if strategy not in ("auction", "spot"):
-        log.warning("选股非法参数 strategy=%s uid=%s", strategy, uid)
-        return jr({"ok": False, "msg": "非法参数 strategy"}, 400)
+    if strategy != "auction":
+        log.warning("选股非法参数 strategy=%s uid=%s(盘中实时选股已于 2026-09-09 下线)", strategy, uid)
+        return jr({"ok": False, "msg": "非法参数 strategy(仅支持 auction)"}, 400)
     if action == "ping":
         _, _, before930 = scorer.bj_now()
         return jr({"ok": True, "before930": before930})
@@ -290,41 +290,6 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
     t0 = time.time()
 
     try:
-        # 盘中模式: 全市场拉取 + 与竞价同一套评分/过滤逻辑(诗人需求: 盘中=不锁定的竞价)
-        if strategy == "spot":
-            raw, err = fetcher.ensure_spot_cache("refresh", fs, before930)
-            if err:
-                log.warning("选股被拒 uid=%s action=%s strategy=%s err=%s", uid, action, strategy, err)
-                return jr({"ok": False, "msg": err}, 403)
-            # 2026-09-05 B 方案: 不再下发全市场 spotMap(前端实时价已内联在 items, 
-            # 跌出锁定票的实时价改走 /api/quotes 按需取, /api/stocks 响应因此大幅瘦身)
-            # 复用竞价评分 + 竞价过滤: 盘中=不锁定的竞价, 9:30 后持续刷新, 名单会变(符合诗人预期)
-            yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw])
-            # 2026-09-08 昨日涨幅真实化: 复用上面日K缓存(零额外请求), 供"昨日涨幅"因子
-            yesterday_chg_map = fetcher.fetch_yesterday_changes([s.get("f12") for s in raw])
-            snapshot_map = auction_snapshot.load_snapshot()
-            # 2026-09-03 竞额定格 map(9_25 快照): 盘中「竞额」不以腾讯伪 f616(=实时成交额)为准
-            bid_amt_map = auction_snapshot.load_day_bid_amt()
-            # 2026-09-08 竞涨定格 map: 东财 f615 收盘后为 "-"(盘中 9:30+ 同理不可靠),
-            # bidChange 以当日 9:25 定格竞价涨幅为准(防退 f3 → 竞涨=现涨/过滤按现价)
-            bid_chg_map = auction_snapshot.load_day_bid_change()
-            # 2026-09-01 抢筹口径: 左视图抢筹=右视图竞价异动"竞价抢筹"代码集(9:20→9:25涨幅/最后一秒段)
-            qc_detail = kpl.get_qiangchou_detail()
-            result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_detail=qc_detail,
-                                               day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map,
-                                               yesterday_chg_map=yesterday_chg_map,
-                                               strengths=_load_strengths(raw))
-            _apply_kpl_board(result, "spot")
-            log.info("盘中选股(同竞价逻辑) uid=%s markets=%s raw=%d只 返回%d只 耗时%.0fms",
-                     uid, ",".join(f["markets"]), len(raw), len(result), (time.time() - t0) * 1000)
-            # 盘中 refresh 不落库、不推送(避免高频刷屏); 只返回实时结果
-            return jr({
-                "ok": True, "strategy": "spot", "mode": "spot",
-                "list": result, "count": len(result),
-                "before930": before930,
-                "dataTime": int(fetcher._cache[fs]["ts"]),
-            })
-
         # ---- 竞价模式 ----
         # 2026-09-02 当日幂等(主人确认): 9:30 前页面自动 lock 若当日已存在
         # "9:25 后落库 + 同筛选参数"的手动 lock 批次 → 直读批次返回,

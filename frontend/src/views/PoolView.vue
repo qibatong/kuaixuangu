@@ -35,11 +35,12 @@ const user = useUserStore()
 let autoAddTimer = null
 let expiryTimer = null
 
+// 2026-09-09 盘中实时(spot)已下线, 选股结果只有竞价一份
 function currentList() {
-  return stocks.strategy === 'spot' ? stocks.spotStocks : stocks.cachedStocks
+  return stocks.cachedStocks
 }
 function canAutoAdd() {
-  return stocks.isDataCached || stocks.isSpotCached
+  return stocks.isDataCached
 }
 
 function downloadAll() { downloadBlkFile(pool.stockPool, 0) }
@@ -57,7 +58,7 @@ onMounted(async () => {
     stocks.initFilterFromStorage()
   } catch (e) { /* 静默: 筛选偏好不影响展示 */ }
 
-  if (!stocks.isDataCached && !stocks.isSpotCached) {
+  if (!stocks.isDataCached) {
     try {
       await stocks.fetchAndCache()
     } catch (e) {

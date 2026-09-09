@@ -87,7 +87,7 @@ const bidSealMap = ref({})        // 竞价涨停委买额 map: code -> {limitBo
 const { refreshYidongCodes } = useYidongMonitor()
 
 // 2026-09-01: 左视图模式切换 竞价 / AI预测(原"盘中"已被 AI预测替换)
-// 使用本地 leftTab 而非 stocks.strategy: 不再触发盘中数据流(fetchSpot/spotStocks)
+// 使用本地 leftTab 而非 stocks.strategy: 不触发盘中数据流(spot 已于 2026-09-09 下线)
 const leftTab = ref('auction')
 
 // 窄屏切换: 选股 / 竞价异动

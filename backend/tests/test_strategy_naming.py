@@ -41,7 +41,7 @@ def _as_admin(first_user):
 def test_new_strategy_param_accepted(client, first_user):
     """新参数 strategy 被接受(合法值不 400)"""
     token, _, _ = first_user
-    for s in ("auction", "spot"):
+    for s in ("auction",):
         r = client.get("/api/stocks?action=ping&strategy=%s" % s, headers=hdrs(token))
         assert r.status_code == 200, "strategy=%s 应被接受" % s
         assert r.json().get("ok")
@@ -50,7 +50,7 @@ def test_new_strategy_param_accepted(client, first_user):
 def test_legacy_mode_param_still_accepted(client, first_user):
     """旧参数 mode 仍兼容 —— 线上缓存前端/书签/未同步脚本还在传, 不得 400"""
     token, _, _ = first_user
-    for s in ("auction", "spot"):
+    for s in ("auction",):
         r = client.get("/api/stocks?action=ping&mode=%s" % s, headers=hdrs(token))
         assert r.status_code == 200, "旧参数 mode=%s 必须继续兼容" % s
         assert r.json().get("ok")
@@ -74,46 +74,42 @@ def test_invalid_strategy_rejected(client, first_user):
     assert "strategy" in r.json().get("msg", "")
 
 
-def test_spot_returns_both_strategy_and_mode(client, first_user, monkeypatch):
-    """盘中策略响应: strategy 为权威字段, 同时保留 mode 供旧前端兼容"""
-    from app.services import fetcher
-    monkeypatch.setattr(fetcher, "fetch_zt_pool", lambda *a, **k: {})
+def test_spot_strategy_now_rejected(client, first_user):
+    """2026-09-09 盘中实时选股(spot)下线: 前端无入口/后端零调用 → 传 spot 显式 400。
+
+    不静默退化成 auction —— 若旧书签还在传 spot, 宁可报错也不要给用户一份
+    他以为"盘中实时"、实际是竞价定格的名单。"""
     token, _, _ = first_user
-    r = client.get("/api/stocks?action=refresh&strategy=spot&markets=sh_sz"
-                   "&probLt=0&confLt=0", headers=hdrs(token))
-    assert r.status_code == 200
-    d = r.json()
-    assert d.get("ok")
-    assert d.get("strategy") == "spot"
-    assert d.get("mode") == "spot"          # 兼容字段, 值一致
+    for q in ("strategy=spot", "mode=spot"):
+        r = client.get("/api/stocks?action=refresh&%s" % q, headers=hdrs(token))
+        assert r.status_code == 400, q
+        assert not r.json().get("ok")
 
 
 # ==================== 评分配置 ====================
 def test_scoring_cfg_new_keyword():
     """get_scoring_cfg(strategy=) 取到对应因子表"""
-    assert abs(scorer.get_scoring_cfg(strategy="spot")["w_chg"] - 0.28) < 1e-9
     assert abs(scorer.get_scoring_cfg(strategy="auction")["w_bid"] - 0.34) < 1e-9
 
 
 def test_scoring_cfg_legacy_keyword_alias():
     """旧关键字 mode= 仍可用(兼容别名, 未同步部署的调用点不至于 TypeError)"""
-    assert abs(scorer.get_scoring_cfg(mode="spot")["w_chg"] - 0.28) < 1e-9
     assert abs(scorer.get_scoring_cfg(mode="auction")["w_bid"] - 0.34) < 1e-9
     # 两种写法结果完全一致
-    assert (scorer.get_scoring_cfg(strategy="spot") ==
-            scorer.get_scoring_cfg(mode="spot"))
+    assert (scorer.get_scoring_cfg(strategy="auction") ==
+            scorer.get_scoring_cfg(mode="auction"))
 
 
 def test_admin_scoring_accepts_both_params(client, first_user):
-    """管理端评分配置 GET: strategy 与旧 mode 都返回 spot 配置"""
+    """管理端评分配置 GET: strategy 与旧 mode 都返回竞价配置"""
     token, _, _ = first_user
-    for q in ("strategy=spot", "mode=spot"):
+    for q in ("strategy=auction", "mode=auction"):
         r = client.get("/api/admin/scoring?%s" % q, headers=hdrs(token))
         assert r.status_code == 200
         d = r.json()
-        assert d.get("strategy") == "spot", q
-        assert d.get("mode") == "spot", q        # 兼容字段
-        assert abs(d["scoring"]["w_chg"] - 0.28) < 1e-9
+        assert d.get("strategy") == "auction", q
+        assert d.get("mode") == "auction", q       # 兼容字段
+        assert abs(d["scoring"]["w_bid"] - 0.34) < 1e-9
 
 
 def test_admin_scoring_invalid_strategy(client, first_user):

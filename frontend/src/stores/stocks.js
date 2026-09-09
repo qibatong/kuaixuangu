@@ -28,11 +28,8 @@ export const useStocksStore = defineStore('stocks', {
     // 2026-08-18: 当前名单是否来自 9:26 系统统一批次(auto_applied)
     // 统一批次: 不过滤/不剔除, 所有用户看到同一份完整名单
     isAutoAppliedList: false,
-    // 当前模式: auction(竞价) / spot(盘中实时)
+    // 选股策略: auction(竞价)。2026-09-09 盘中实时(spot)已下线, 前端无入口、后端零调用
     strategy: 'auction',
-    // 盘中实时结果(独立缓存, 避免切换模式互相覆盖)
-    spotStocks: [],
-    isSpotCached: false,
     // 当前工作筛选条件
     filterSettings: { ...defaultFilterSettings },
     // 全局默认筛选参数(管理员后台可调), 未自定义偏好的用户使用
@@ -53,7 +50,7 @@ export const useStocksStore = defineStore('stocks', {
 
     // ---- 策略切换(2026-09-09 命名消歧: setMode → setStrategy) ----
     setStrategy(m) {
-      if (m !== 'auction' && m !== 'spot') return
+      if (m !== 'auction') return   // 2026-09-09: spot(盘中实时)已下线
       this.strategy = m
     },
 
@@ -359,8 +356,7 @@ export const useStocksStore = defineStore('stocks', {
       // force=true: 用户主动点「锁定」→ 绕过当日幂等, 强制重算并落新批次
       await this.fetchAndCache(true)
     },
-    async     applyCustomFilter() {
-      if (this.strategy === 'spot') return this.applySpotFilter()
+    async applyCustomFilter() {
       if (this.isFilterLocked) {
         showToast(' 筛选条件已锁定，无法手动应用', 'error')
         return
@@ -382,31 +378,6 @@ export const useStocksStore = defineStore('stocks', {
       showToast('✅ 筛选条件已更新（' + newList.length + ' 只）', 'success')
     },
 
-    // ---- 盘中实时模式 ----
-    async fetchSpot() {
-      if (this.isSpotCached) return
-      const data = await fetchStocks('refresh', this.buildFilterParams(), 'spot')
-      this.spotStocks = data.list || []
-      this.isSpotCached = true
-      this.before930 = data.before930
-      showToast('✅ 盘中选股完成', 'success')
-    },
-    async updateSpotRealTime({ silent = false } = {}) {
-      const data = await fetchStocks('refresh', this.buildFilterParams(), 'spot')
-      this.spotStocks = data.list || []
-      this.isSpotCached = true
-      this.before930 = data.before930
-      this.realTimeRefreshUsed = true
-      if (!silent) showToast('✅ 实时刷新完成', 'success')
-    },
-    async applySpotFilter() {
-      const data = await fetchStocks('refresh', this.buildFilterParams(), 'spot')
-      this.spotStocks = data.list || []
-      this.isSpotCached = true
-      this.before930 = data.before930
-      this.saveUserPrefs()
-      showToast('✅ 盘中筛选条件已更新', 'success')
-    },
     toggleFilterLock() {
       this.isFilterLocked = !this.isFilterLocked
       if (this.isFilterLocked) {
