@@ -435,40 +435,47 @@ def api_admin_user_reset_password(request: Request, body: dict = Body(...),
 
 @router.get("/api/admin/scoring")
 def api_admin_scoring_get(request: Request, uid: int = Depends(get_admin)):
-    mode = (qs(request).get("mode") or ["auction"])[0]
-    if mode not in ("auction", "spot"):
-        return jr({"ok": False, "msg": "非法 mode"}, 400)
-    cfg = scorer.get_scoring_cfg(mode=mode)
-    if mode == "spot":
-        return jr({"ok": True, "mode": "spot", "scoring": cfg,
+    # 2026-09-09 命名消歧(与 /api/stocks 同步): 策略参数 mode → strategy ——
+    # 策略=用哪套因子表(auction 竞价 / spot 盘中), 与内部时段 PickMode 是两回事;
+    # 旧参数 mode 保留为兼容别名(前端 dist 缓存/书签仍在传), 下版本移除。
+    strategy = (qs(request).get("strategy") or qs(request).get("mode") or ["auction"])[0]
+    if strategy not in ("auction", "spot"):
+        return jr({"ok": False, "msg": "非法 strategy"}, 400)
+    cfg = scorer.get_scoring_cfg(strategy=strategy)
+    if strategy == "spot":
+        return jr({"ok": True, "strategy": "spot", "mode": "spot", "scoring": cfg,
                    "w_keys": SPOT_W_KEYS, "conf_keys": SPOT_CONF_KEYS})
-    return jr({"ok": True, "mode": "auction", "scoring": cfg, "w_keys": W_KEYS, "conf_keys": CONF_KEYS})
+    return jr({"ok": True, "strategy": "auction", "mode": "auction",
+               "scoring": cfg, "w_keys": W_KEYS, "conf_keys": CONF_KEYS})
 
 
 @router.put("/api/admin/scoring")
 def api_admin_scoring_put(request: Request, body: dict = Body(...), uid: int = Depends(get_admin)):
-    mode = (qs(request).get("mode") or ["auction"])[0]
-    if mode not in ("auction", "spot"):
-        return jr({"ok": False, "msg": "非法 mode"}, 400)
+    # 2026-09-09 命名消歧: mode → strategy(旧 mode 兼容; body 与 query 都认)
+    strategy = str(body.get("strategy") or body.get("mode")
+                   or (qs(request).get("strategy") or qs(request).get("mode") or ["auction"])[0]
+                   or "auction")
+    if strategy not in ("auction", "spot"):
+        return jr({"ok": False, "msg": "非法 strategy"}, 400)
     new = body.get("scoring")
     if not isinstance(new, dict) or not new:
         return jr({"ok": False, "msg": "缺少 scoring 配置"}, 400)
-    err = _validate_scoring(new, mode)
+    err = _validate_scoring(new, strategy)
     if err:
         return jr({"ok": False, "msg": err}, 400)
-    if not settings.set("scoring_spot" if mode == "spot" else "scoring", new):
+    if not settings.set("scoring_spot" if strategy == "spot" else "scoring", new):
         return jr({"ok": False, "msg": "保存失败"}, 500)
     scorer.reload_scoring_cfg()
-    log.info("管理端更新%s评分权重 uid=%s scoring=%s", "盘中" if mode == "spot" else "竞价", uid, new)
-    return jr({"ok": True, "msg": "已保存并生效",
-               "scoring": scorer.get_scoring_cfg(mode=mode)})
+    log.info("管理端更新%s评分权重 uid=%s scoring=%s", "盘中" if strategy == "spot" else "竞价", uid, new)
+    return jr({"ok": True, "msg": "已保存并生效", "strategy": strategy, "mode": strategy,
+               "scoring": scorer.get_scoring_cfg(strategy=strategy)})
 
 
-def _validate_scoring(new, mode="auction"):
-    """校验权重/置信度/打分明细; mode=spot 用盘中因子表"""
-    default_cfg = scorer.DEFAULT_SCORING if mode == "auction" else scorer.DEFAULT_SCORING_SPOT
-    w_keys = W_KEYS if mode == "auction" else SPOT_W_KEYS
-    conf_keys = CONF_KEYS if mode == "auction" else SPOT_CONF_KEYS
+def _validate_scoring(new, strategy="auction"):
+    """校验权重/置信度/打分明细; strategy=spot 用盘中因子表"""
+    default_cfg = scorer.DEFAULT_SCORING if strategy == "auction" else scorer.DEFAULT_SCORING_SPOT
+    w_keys = W_KEYS if strategy == "auction" else SPOT_W_KEYS
+    conf_keys = CONF_KEYS if strategy == "auction" else SPOT_CONF_KEYS
     w_sum = 0.0
     for k, _, _ in w_keys:
         try:

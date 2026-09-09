@@ -29,7 +29,7 @@ export const useStocksStore = defineStore('stocks', {
     // 统一批次: 不过滤/不剔除, 所有用户看到同一份完整名单
     isAutoAppliedList: false,
     // 当前模式: auction(竞价) / spot(盘中实时)
-    mode: 'auction',
+    strategy: 'auction',
     // 盘中实时结果(独立缓存, 避免切换模式互相覆盖)
     spotStocks: [],
     isSpotCached: false,
@@ -51,10 +51,10 @@ export const useStocksStore = defineStore('stocks', {
       return _buildFilterParams(this.filterSettings)
     },
 
-    // ---- 模式切换 ----
-    setMode(m) {
+    // ---- 策略切换(2026-09-09 命名消歧: setMode → setStrategy) ----
+    setStrategy(m) {
       if (m !== 'auction' && m !== 'spot') return
-      this.mode = m
+      this.strategy = m
     },
 
     // ---- 账号级偏好 ----
@@ -360,7 +360,7 @@ export const useStocksStore = defineStore('stocks', {
       await this.fetchAndCache(true)
     },
     async     applyCustomFilter() {
-      if (this.mode === 'spot') return this.applySpotFilter()
+      if (this.strategy === 'spot') return this.applySpotFilter()
       if (this.isFilterLocked) {
         showToast(' 筛选条件已锁定，无法手动应用', 'error')
         return
@@ -429,7 +429,7 @@ export const useStocksStore = defineStore('stocks', {
       // 故优先 globalDefaults(后端 getDefaultFilters, StockView 初始化已加载), 未有则回内置默认。
       this.filterSettings = { ...(this.globalDefaults || defaultFilterSettings) }
       try {
-        await this.applyCustomFilter()   // 内部按 mode 分支(auction→filter 重算 / spot→refresh), 自带成功 toast
+        await this.applyCustomFilter()   // 内部按 strategy 分支(auction→filter 重算 / spot→refresh), 自带成功 toast
       } catch (e) {
         showToast('已恢复默认条件, 重新选股失败', 'error')
       }

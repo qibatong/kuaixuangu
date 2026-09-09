@@ -1,10 +1,12 @@
 // 选股相关 API
 import { request } from './request'
 
-export function fetchStocks(action, filterParams, mode = 'auction', force = false) {
+// 2026-09-09 命名消歧: 策略参数 mode → strategy(与后端同步)。
+// 语义: 选股策略(auction=竞价因子表 / spot=盘中实时因子表), 与内部时段 PickMode 无关。
+export function fetchStocks(action, filterParams, strategy = 'auction', force = false) {
   // force=true: 主动重锁(绕过当日幂等, 9:25 后同参自动 lock 会直读当日批次)
   return request('/api/stocks', {
-    query: { action, mode, ...(force ? { force: 1 } : {}), ...filterParams }
+    query: { action, strategy, ...(force ? { force: 1 } : {}), ...filterParams }
   })
 }
 

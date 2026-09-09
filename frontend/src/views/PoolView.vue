@@ -36,7 +36,7 @@ let autoAddTimer = null
 let expiryTimer = null
 
 function currentList() {
-  return stocks.mode === 'spot' ? stocks.spotStocks : stocks.cachedStocks
+  return stocks.strategy === 'spot' ? stocks.spotStocks : stocks.cachedStocks
 }
 function canAutoAdd() {
   return stocks.isDataCached || stocks.isSpotCached

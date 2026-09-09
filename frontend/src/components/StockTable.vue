@@ -80,7 +80,7 @@ const { yidongTag } = useYidongMonitor()
 
 const props = defineProps({
   stocks: { type: Array, default: () => [] },
-  mode: { type: String, default: 'auction' },
+  strategy: { type: String, default: 'auction' },
   bidSealMap: { type: Object, default: () => ({}) }  // code -> {limitBoards, bidSealAmt, bidNetAmt}
 })
 

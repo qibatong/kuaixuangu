@@ -24,7 +24,7 @@ def _snap_rows():
 
 
 def _url(action):
-    return ("/api/stocks?action=%s&mode=auction&markets=hs,cyb,kcb&bidGt=7&probLt=65"
+    return ("/api/stocks?action=%s&strategy=auction&markets=hs,cyb,kcb&bidGt=7&probLt=65"
             "&confLt=65&floatMvGt=1000&priceGt=300&bidAmtFloor=3000" % action)
 
 

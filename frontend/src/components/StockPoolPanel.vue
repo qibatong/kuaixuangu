@@ -84,7 +84,7 @@ const expiryText = computed(() => {
 
 // 当前模式的选股结果(竞价 cachedStocks / 盘中 spotStocks)
 function currentList() {
-  return stocksStore.mode === 'spot' ? stocksStore.spotStocks : stocksStore.cachedStocks
+  return stocksStore.strategy === 'spot' ? stocksStore.spotStocks : stocksStore.cachedStocks
 }
 
 function manualAdd() {

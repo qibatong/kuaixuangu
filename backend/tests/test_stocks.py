@@ -82,16 +82,16 @@ def test_filter_with_ratio(client, first_user, monkeypatch):
         fetcher.fetch_yesterday_amounts = orig
 
 
-# ---------- 盘中实时选股(mode=spot) ----------
+# ---------- 盘中实时选股(strategy=spot) ----------
 def test_spot_mode_returns_stocks(client, first_user, monkeypatch):
     """盘中模式: 返回实时评分结果(同竞价逻辑, 字段含实时维度量比/换手用于展示)"""
     token, _, _ = first_user
     monkeypatch.setattr(fetcher, "fetch_zt_pool", lambda *a, **k: {})
-    r = client.get("/api/stocks?action=refresh&mode=spot&markets=sh_sz&probLt=0&confLt=0",
+    r = client.get("/api/stocks?action=refresh&strategy=spot&markets=sh_sz&probLt=0&confLt=0",
                    headers=hdrs(token))
     assert r.status_code == 200
     d = r.json()
-    assert d.get("ok") and d.get("mode") == "spot"
+    assert d.get("ok") and d.get("strategy") == "spot"
     assert len(d.get("list", [])) > 0
     for s in d["list"]:
         assert s["code"] and s["name"]
@@ -108,7 +108,7 @@ def test_spot_mode_uses_zt_pool(client, first_user, monkeypatch):
     # 即使注入 zt 池数据, 盘中模式也不再使用(评分逻辑统一为竞价五因子)
     monkeypatch.setattr(fetcher, "fetch_zt_pool",
                         lambda *a, **k: {"600001": {"fund": 2.0, "fb": 930, "lb": 3, "zbc": 0, "zdp": 10.0}})
-    r = client.get("/api/stocks?action=refresh&mode=spot&markets=sh_sz&probLt=0&confLt=0",
+    r = client.get("/api/stocks?action=refresh&strategy=spot&markets=sh_sz&probLt=0&confLt=0",
                    headers=hdrs(token))
     d = r.json()
     assert d.get("ok")

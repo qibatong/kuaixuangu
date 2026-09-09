@@ -43,7 +43,7 @@
             <div v-if="!stocks.isDataCached" class="stock-table-container">
               <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
             </div>
-            <StockTable v-else :stocks="stocks.cachedStocks" mode="auction" :bid-seal-map="bidSealMap" />
+            <StockTable v-else :stocks="stocks.cachedStocks" strategy="auction" :bid-seal-map="bidSealMap" />
           </template>
         </template>
 
@@ -87,7 +87,7 @@ const bidSealMap = ref({})        // 竞价涨停委买额 map: code -> {limitBo
 const { refreshYidongCodes } = useYidongMonitor()
 
 // 2026-09-01: 左视图模式切换 竞价 / AI预测(原"盘中"已被 AI预测替换)
-// 使用本地 leftTab 而非 stocks.mode: 不再触发盘中数据流(fetchSpot/spotStocks)
+// 使用本地 leftTab 而非 stocks.strategy: 不再触发盘中数据流(fetchSpot/spotStocks)
 const leftTab = ref('auction')
 
 // 窄屏切换: 选股 / 竞价异动

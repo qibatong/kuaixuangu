@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-选股路由: GET /api/stocks?action=lock|filter|refresh|ping&mode=auction|spot&筛选参数...
+选股路由: GET /api/stocks?action=lock|filter|refresh|ping&strategy=auction|spot&筛选参数...
 ===================================================================
-mode=auction  竞价选股(默认, 行为不变): lock 9:30 前唯一锁定, 评分=竞价涨幅/竞价换手/异动...
-mode=spot     盘中实时选股: 随时 refresh, 评分=实时涨幅/量比/换手/封单强度..., 涨停留池接口
+strategy=auction  竞价选股(默认, 行为不变): lock 9:30 前唯一锁定, 评分=竞价涨幅/竞价换手/异动...
+strategy=spot     盘中实时选股: 随时 refresh, 评分=实时涨幅/量比/换手/封单强度..., 涨停留池接口
 """
 import time
 
@@ -108,10 +108,10 @@ def _run_new_pipeline(uid, action, f, *, yesterday_map, yesterday_chg_map,
                   uid, action, e, exc_info=True)
         return None
     if res.n_universe <= 0:
-        log.warning("新链路名单源无数据 → 回退老链路 uid=%s action=%s mode=%s errors=%s",
+        log.warning("新链路名单源无数据 → 回退老链路 uid=%s action=%s pick_mode=%s errors=%s",
                     uid, action, res.mode, res.errors[:3])
         return None
-    log.info("选股走新链路 uid=%s action=%s mode=%s 全市场%d 候选%d 入选%d 源=%s "
+    log.info("选股走新链路 uid=%s action=%s pick_mode=%s 全市场%d 候选%d 入选%d 源=%s "
              "降级=%s 剔除=%s 耗时%dms",
              uid, action, res.mode, res.n_universe, res.n_candidate, len(res.items),
              ",".join(res.sources), res.degraded, res.stats, res.elapsed_ms)
@@ -267,14 +267,19 @@ def _snapshot_rows_to_raw(snap_rows, codes):
 def api_stocks(request: Request, uid: int = Depends(get_uid)):
     q = qs(request)
     action = (q.get("action") or ["filter"])[0]
-    mode = (q.get("mode") or ["auction"])[0]
+    # 2026-09-09 命名消歧(主人指示彻底改名): 策略参数 mode → strategy ——
+    # 原 mode 与内部时段模式 PickMode(preopen/auction/locked/intraday/closed) 撞名,
+    # 排查时极易误读(曾把回显的策略 mode=auction 当成"午休仍在竞价窗口")。
+    # 语义: strategy=选股策略(auction 竞价因子表 / spot 盘中实时因子表)。
+    # 旧参数 mode 保留为兼容别名(线上缓存前端/书签仍在传), 下版本移除。
+    strategy = (q.get("strategy") or q.get("mode") or ["auction"])[0]
     force = (q.get("force") or ["0"])[0] in ("1", "true", "True")   # 主动重锁(绕过当日幂等)
     if action not in ("lock", "filter", "refresh", "ping"):
         log.warning("选股非法参数 action=%s uid=%s", action, uid)
         return jr({"ok": False, "msg": "非法参数"}, 400)
-    if mode not in ("auction", "spot"):
-        log.warning("选股非法参数 mode=%s uid=%s", mode, uid)
-        return jr({"ok": False, "msg": "非法参数 mode"}, 400)
+    if strategy not in ("auction", "spot"):
+        log.warning("选股非法参数 strategy=%s uid=%s", strategy, uid)
+        return jr({"ok": False, "msg": "非法参数 strategy"}, 400)
     if action == "ping":
         _, _, before930 = scorer.bj_now()
         return jr({"ok": True, "before930": before930})
@@ -286,10 +291,10 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
 
     try:
         # 盘中模式: 全市场拉取 + 与竞价同一套评分/过滤逻辑(诗人需求: 盘中=不锁定的竞价)
-        if mode == "spot":
+        if strategy == "spot":
             raw, err = fetcher.ensure_spot_cache("refresh", fs, before930)
             if err:
-                log.warning("选股被拒 uid=%s action=%s mode=%s err=%s", uid, action, mode, err)
+                log.warning("选股被拒 uid=%s action=%s strategy=%s err=%s", uid, action, strategy, err)
                 return jr({"ok": False, "msg": err}, 403)
             # 2026-09-05 B 方案: 不再下发全市场 spotMap(前端实时价已内联在 items, 
             # 跌出锁定票的实时价改走 /api/quotes 按需取, /api/stocks 响应因此大幅瘦身)
@@ -314,7 +319,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                      uid, ",".join(f["markets"]), len(raw), len(result), (time.time() - t0) * 1000)
             # 盘中 refresh 不落库、不推送(避免高频刷屏); 只返回实时结果
             return jr({
-                "ok": True, "mode": "spot",
+                "ok": True, "strategy": "spot", "mode": "spot",
                 "list": result, "count": len(result),
                 "before930": before930,
                 "dataTime": int(fetcher._cache[fs]["ts"]),
@@ -326,7 +331,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         # 不再全量重拉行情/重复落库/重复推送(解决"每次重新登录都重算一次+堆 lock 历史")。
         # 仅拦自动 lock(force=0): 9:25 前数据未定型仍每次重算; 用户主动点「锁定」(force=1)
         # 或参数已改 → 正常重算。命中返回结构含 idempotent=True 供前端识别。
-        if (action == "lock" and before930 and mode == "auction" and not force):
+        if (action == "lock" and before930 and strategy == "auction" and not force):
             try:
                 lock_b = history.find_today_lock_matching(uid, f)
                 if lock_b:
@@ -334,7 +339,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                     log.info("选股lock当日幂等 uid=%s batch=%s 直读%d只(跳重拉/落库/推送)",
                              uid, lock_b["id"], len(lst))
                     return jr({
-                        "ok": True, "mode": "auction", "list": lst,
+                        "ok": True, "strategy": "auction", "mode": "auction", "list": lst,
                         "count": len(lst), "before930": True,
                         "dataTime": int(lock_b.get("ts") or time.time()),
                         "idempotent": True, "batch_id": lock_b["id"],
@@ -348,7 +353,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         # 跳过 ensure_cache 全市场拉取(30s TTL 恰与前端轮询同周期, 每次 miss 锁内拉腾讯
         # 5548只, 多用户排队 = 加载慢/长尾根因)与全市场评分/板块外网覆盖。
         # 名单冻结(评分用定格值, 不再盘中漂移), 行情照常实时; 参数已改/当日无批次才重算。
-        if (action == "refresh" and not before930 and mode == "auction"):
+        if (action == "refresh" and not before930 and strategy == "auction"):
             try:
                 reuse_bid, reuse_src = history.find_today_reusable_batch(uid, f)
                 reuse_date = None
@@ -391,7 +396,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                     log.info("选股refresh直读批次 uid=%s src=%s batch=%s 返回%d只(跳全市场重拉/评分)",
                              uid, reuse_src, reuse_bid, len(lst))
                     return jr({
-                        "ok": True, "mode": "auction", "list": lst,
+                        "ok": True, "strategy": "auction", "mode": "auction", "list": lst,
                         "count": len(lst), "before930": False,
                         "dataTime": int(time.time()),
                         "reused": True, "source": reuse_src, "batch_id": reuse_bid,
@@ -407,7 +412,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         # 实时价格由下方 spot_map 每次现拉、前端 merge 覆盖, 故缓存**不影响价格实时性**。
         # TTL 必须 > 前端 30s 轮询(TTL≤轮询周期 ⇒ 命中率≈0, auction-overview 已踩过)。
         ck_full = None
-        if action == "refresh" and not before930 and mode == "auction":
+        if action == "refresh" and not before930 and strategy == "auction":
             ck_full = "stocks_refresh:%s:%s:%s" % (
                 uid, fs, history._canon_filter_fingerprint(f))
             hit = _cstore.get(ck_full)
@@ -430,7 +435,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                 log.info("选股refresh命中计算缓存 uid=%s 返回%d只(跳全市场重拉/评分)",
                          uid, len(hit))
                 return jr({
-                    "ok": True, "mode": "auction", "list": hit,
+                    "ok": True, "strategy": "auction", "mode": "auction", "list": hit,
                     "count": len(hit), "before930": before930,
                     "dataTime": int(time.time()),
                     "reused": True, "source": "calc_cache",
@@ -467,7 +472,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         # 按模式层已定语义(INTRADAY: deterministic=True, source_priority 定格优先),
         # 9:30 后 refresh 必须与 filter 同源走快照池: 名单幂等固定 + 刷新也有数据。
         hm = scorer._bj_hm()
-        use_snapshot_pool = mode == "auction" and (
+        use_snapshot_pool = strategy == "auction" and (
                 (action == "filter" and (not before930 or hm < 9 * 60 + 15))
                 or (action == "lock" and hm < 9 * 60 + 15)
                 or (action == "refresh" and not before930))
@@ -516,7 +521,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         if raw is None:
             raw, err = fetcher.ensure_cache(action, fs, before930)
         if err:
-            log.warning("选股被拒 uid=%s action=%s mode=%s err=%s", uid, action, mode, err)
+            log.warning("选股被拒 uid=%s action=%s strategy=%s err=%s", uid, action, strategy, err)
             return jr({"ok": False, "msg": err}, 403)
         # 昨日成交额(并发拉日K, 当日缓存), 用于计算竞价/昨日成交占比
         yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw])
@@ -574,7 +579,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                           bid_amt_map=bid_amt_map, bid_chg_map=bid_chg_map,
                           yesterday_chg_map=yesterday_chg_map)
     except Exception as e:
-        log.error("选股处理失败 uid=%s action=%s mode=%s err=%s", uid, action, mode, e, exc_info=True)
+        log.error("选股处理失败 uid=%s action=%s strategy=%s err=%s", uid, action, strategy, e, exc_info=True)
         return jr({"ok": False, "msg": "服务端处理失败: %s" % e}, 500)
 
     # 落库: 锁定选股与筛选重算都保存为该用户的历史批次, 实时刷新(refresh)不落库
@@ -618,7 +623,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
 
     return jr({
         "ok": True,
-        "mode": "auction",
+        "strategy": "auction", "mode": "auction",
         "list": result,
         "count": len(result),
         "before930": before930,

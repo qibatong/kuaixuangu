@@ -150,7 +150,7 @@ def test_api_stocks_refresh_fallback_http(client, create_user_token, monkeypatch
         conn.close()
 
     h = {"Authorization": "Bearer " + u["token"]}
-    r = client.get("/api/stocks?action=refresh&mode=auction&markets=hs,cyb&probLt=65&confLt=65",
+    r = client.get("/api/stocks?action=refresh&strategy=auction&markets=hs,cyb&probLt=65&confLt=65",
                    headers=h)
     assert r.status_code == 200, r.text
     d = r.json()

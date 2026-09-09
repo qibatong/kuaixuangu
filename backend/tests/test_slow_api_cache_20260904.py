@@ -178,7 +178,7 @@ def test_stocks_refresh_calc_cache(client, first_user, monkeypatch):
     monkeypatch.setattr(scorer, "process_all_stocks", counting_process)
 
     h = {"Authorization": "Bearer " + first_user[0]}
-    url = "/api/stocks?action=refresh&mode=auction&markets=hs"
+    url = "/api/stocks?action=refresh&strategy=auction&markets=hs"
     r1 = client.get(url, headers=h)
     assert r1.status_code == 200, r1.text
     assert r1.json().get("ok") is True
@@ -209,8 +209,8 @@ def test_stocks_refresh_cache_key_varies_by_params(client, first_user, monkeypat
     h = {"Authorization": "Bearer " + first_user[0]}
     # 注意: probLt 会被 scorer._clamp 夹到 5-95, 越界值(如 1/2)会被夹成同一个数
     # → 必须用合法范围内的不同值, 否则指纹相同, 测不出参数隔离
-    client.get("/api/stocks?action=refresh&mode=auction&markets=hs&probLt=50", headers=h)
-    client.get("/api/stocks?action=refresh&mode=auction&markets=hs&probLt=70", headers=h)
+    client.get("/api/stocks?action=refresh&strategy=auction&markets=hs&probLt=50", headers=h)
+    client.get("/api/stocks?action=refresh&strategy=auction&markets=hs&probLt=70", headers=h)
     assert calls["n"] == 2, f"参数改变应各自重算, 实际只算了 {calls['n']} 次"
 
 

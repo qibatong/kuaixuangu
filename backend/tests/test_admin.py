@@ -339,12 +339,12 @@ SPOT_VALID = {"w_chg": 0.28, "w_vol_ratio": 0.26, "w_turnover": 0.18, "w_seal": 
 
 
 def test_admin_scoring_spot_get_default(client, first_user):
-    """盘中评分配置 GET(mode=spot) 返回独立配置与键表"""
+    """盘中评分配置 GET(strategy=spot) 返回独立配置与键表"""
     token, _, _ = first_user
-    r = client.get("/api/admin/scoring?mode=spot", headers=hdrs(token))
+    r = client.get("/api/admin/scoring?strategy=spot", headers=hdrs(token))
     assert r.status_code == 200
     d = r.json()
-    assert d.get("ok") and d.get("mode") == "spot"
+    assert d.get("ok") and d.get("strategy") == "spot"
     sc = d["scoring"]
     assert abs(sc["w_chg"] - 0.28) < 1e-9
     assert abs(sc["w_vol_ratio"] - 0.26) < 1e-9
@@ -356,13 +356,13 @@ def test_admin_scoring_spot_get_default(client, first_user):
 def test_admin_scoring_spot_put_ok(client, first_user):
     """盘中评分配置 PUT 保存到独立 key(scoring_spot), 不影响竞价配置"""
     token, _, _ = first_user
-    r = client.put("/api/admin/scoring?mode=spot", json={"scoring": SPOT_VALID}, headers=hdrs(token))
+    r = client.put("/api/admin/scoring?strategy=spot", json={"scoring": SPOT_VALID}, headers=hdrs(token))
     assert r.status_code == 200
     assert r.json().get("ok")
     # 盘中缓存已刷新
-    assert abs(scorer.get_scoring_cfg(mode="spot")["w_chg"] - 0.28) < 1e-9
+    assert abs(scorer.get_scoring_cfg(strategy="spot")["w_chg"] - 0.28) < 1e-9
     # 竞价配置不受影响
-    assert abs(scorer.get_scoring_cfg(mode="auction")["w_bid"] - 0.34) < 1e-9
+    assert abs(scorer.get_scoring_cfg(strategy="auction")["w_bid"] - 0.34) < 1e-9
     # 存储 key 独立
     assert settings.get("scoring_spot")["w_chg"] == 0.28
 
@@ -372,7 +372,7 @@ def test_admin_scoring_spot_invalid_sum(client, first_user):
     token, _, _ = first_user
     bad = dict(SPOT_VALID)
     bad["w_chg"] = 0.9
-    r = client.put("/api/admin/scoring?mode=spot", json={"scoring": bad}, headers=hdrs(token))
+    r = client.put("/api/admin/scoring?strategy=spot", json={"scoring": bad}, headers=hdrs(token))
     assert r.status_code == 400
     assert "权重之和" in r.json().get("msg", "")
 

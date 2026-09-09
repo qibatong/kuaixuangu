@@ -131,11 +131,21 @@ _scoring_cfg = None
 _scoring_spot_cfg = None
 
 
-def get_scoring_cfg(force=False, mode="auction"):
+def get_scoring_cfg(force=False, strategy="auction", mode=None):
     """读取评分配置(权重+打分明细; 内存缓存; 管理端更新后调 reload 生效)
-    mode: "auction"=竞价 / "spot"=盘中实时, 各自独立配置"""
+
+    strategy: "auction"=竞价 / "spot"=盘中实时, 各自独立配置。
+
+    2026-09-09 命名消歧(主人指示): 原参数名 mode 与选股**时段模式** PickMode
+    (preopen/auction/locked/intraday/closed) 撞名, 排查时极易误读(曾把接口回显的
+    策略 mode='auction' 当成"午休仍在竞价窗口"的 bug)。此处统一改称 strategy,
+    语义=选股策略(用哪套因子表); mode 关键字保留为**兼容别名**——线上若仍有
+    旧调用点(未同步部署的脚本/老代码)传 mode= 不至于 TypeError, 下版本移除。
+    """
+    if mode is not None:
+        strategy = mode
     global _scoring_cfg, _scoring_spot_cfg
-    if mode == "spot":
+    if strategy == "spot":
         if _scoring_spot_cfg is None or force:
             cfg = settings.get("scoring_spot")
             if isinstance(cfg, dict):
@@ -187,7 +197,7 @@ def get_scoring_cfg(force=False, mode="auction"):
 def reload_scoring_cfg():
     """管理端更新配置后强制刷新内存缓存, 返回新配置"""
     get_scoring_cfg(force=True)
-    get_scoring_cfg(force=True, mode="spot")
+    get_scoring_cfg(force=True, strategy="spot")
     return get_scoring_cfg()
 
 
@@ -484,7 +494,7 @@ def compute_score_spot(s, zt_info=None, yesterday_chg=None):
     fund = (zt_info or {}).get("fund") or 0      # 封单额(亿)
     seal_ratio = round(fund / circ_mv * 100, 2) if (fund > 0 and circ_mv > 0) else 0.0
 
-    cfg = get_scoring_cfg(mode="spot")
+    cfg = get_scoring_cfg(strategy="spot")
     chg_score = get_factor_score(cfg, "chg", real_chg)
     vol_score = get_factor_score(cfg, "vol_ratio", vol_ratio)
     turn_score = get_factor_score(cfg, "turnover", turnover)
@@ -877,7 +887,7 @@ def validate_filters(q):
         "floatMvGt": _clamp((q.get("floatMvGt") or ["100"])[0], 0, 5000, 100),
         "priceGt": _clamp((q.get("priceGt") or ["30"])[0], 0, 5000, 30),
         "bidAmtFloor": _clamp((q.get("bidAmtFloor") or ["3000"])[0], 0, 100000, 3000),
-        # ---- 盘中实时(mode=spot)参数 ----
+        # ---- 盘中实时(strategy=spot)参数 ----
         "chgFloor": _clamp((q.get("chgFloor") or ["0"])[0], -20, 30, 0),       # 实时涨幅下限
         "chgGt": _clamp((q.get("chgGt") or ["9.5"])[0], -20, 30, 9.5),         # 实时涨幅上限
         "volRatioFloor": _clamp((q.get("volRatioFloor") or ["1"])[0], 0, 20, 1),  # 量比下限

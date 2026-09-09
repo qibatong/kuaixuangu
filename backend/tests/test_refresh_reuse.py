@@ -5,7 +5,7 @@
 30s 轮询同周期 → 9:30 后每次 refresh 都"恰好过期"触发锁内全市场拉取(东财封禁期=腾讯
 5548只), 多用户在 _fetch_lock 排队 → 长尾(生产实测最慢 57.97s); 而重算结果唯一用途是
 给早已落库的当日锁定名单 merge 实时行情(前端 mergeSpotIntoLocked 的 listMap + spotMap)。
-方案(主人确认): 9:30 后 mode=auction + action=refresh(页面打开/30s轮询)若当日存在可复用
+方案(主人确认): 9:30 后 strategy=auction + action=refresh(页面打开/30s轮询)若当日存在可复用
 批次 → 直读批次名单 + spotMap(60s TTL 缓存)实时覆盖返回, 跳过全市场重拉/全量重评分。
 选批优先级(history.find_today_reusable_batch): ①用户当日同参手动 lock → ②同参手动
 filter → ③用户当日无任何手动批次时的 9:26 系统批次(auto_applied=1); 参数指纹/markets
