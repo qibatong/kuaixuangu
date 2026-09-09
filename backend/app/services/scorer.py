@@ -25,8 +25,12 @@ DEFAULT_SCORING = {
     "factors": {
         "bid": {
             "label": "竞价涨幅", "unit": "%",
-            "buckets": [["3", "5.5", 1.0], ["5.5", "99", 0.88], ["2", "3", 0.88],
-                        ["1.5", "2", 0.65], ["0.001", "1.5", 0.4]],
+            # 2026-09-09 负涨幅低分桶: 低开/大跌(含平开, <0.001%)显式给 0.05, 不再与
+            # "数据缺失"同吃 default 0.1(中石科技 9/8 竞涨-8.01% → 0.1 事故:
+            # 34% 权重只扣 3.4 分, 负竞涨照样能靠其他因子凑分入选)
+            # 桶边界: [-99, 0.001) 与正桶下限 0.001 无缝衔接(左闭右开)
+            "buckets": [["-99", "0.001", 0.05], ["3", "5.5", 1.0], ["5.5", "99", 0.88],
+                        ["2", "3", 0.88], ["1.5", "2", 0.65], ["0.001", "1.5", 0.4]],
             "default": 0.1,
         },
         "activity": {
@@ -642,6 +646,11 @@ def apply_filters(items, f):
                 continue
             if is_suspended(it["_raw"]):
                 continue
+        # 2026-09-09 下限 bidLt(与 picker/filter 同口径): 默认 0=竞价翻绿即剔。
+        # 中石科技 9/8 竞涨 -8.01% 仍以 58 分混入名单事故 — 上限只管"过高", 负竞涨
+        # 一直畅通无阻; 竞价异动选的是走强票, 低开(哪怕放量)不是异动是出货。
+        if bid_chg is not None and bid_chg < f.get("bidLt", 0):
+            continue
         if bid_chg > f["bidGt"]:
             continue
         if prob < f["probLt"] and conf < f["confLt"]:
@@ -830,6 +839,7 @@ def validate_filters(q):
         "limitUp": _truthy((q.get("limitUp") or ["1"])[0]),
         "markets": markets,
         "bidGt": _clamp((q.get("bidGt") or ["7"])[0], 0, 20, 7),
+        "bidLt": _clamp((q.get("bidLt") or ["0"])[0], -20, 20, 0),   # 竞价涨幅下限(2026-09-09: 默认0=低开剔除; 可配负值放宽)
         "probLt": _clamp((q.get("probLt") or ["65"])[0], 5, 95, 65),
         "confLt": _clamp((q.get("confLt") or ["65"])[0], 50, 90, 65),
         "floatMvFloor": _clamp((q.get("floatMvFloor") or ["30"])[0], 0, 5000, 30),

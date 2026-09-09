@@ -154,21 +154,25 @@ def test_get_scoring_returns_factors(client, first_user):
     # 避免以后每加一个因子就要改一次这里的硬编码集合(原断言 == 5 个因子已失败一次)。
     assert {"bid", "activity", "warn", "market", "yesterday"} <= set(fac.keys())
     assert "bid_strength" in fac          # 竞价强度(三层合成, 对东财免疫)
-    assert fac["bid"]["buckets"][0] == ["3", "5.5", 1.0]
+    # 2026-09-09: 负涨幅低分桶(中石科技竞涨-8.01%吃 default 0.1 事故) → 首桶为负桶
+    assert fac["bid"]["buckets"][0][0] == "-99"          # 负桶在前: [-99,0.001)→0.05
+    assert ["3", "5.5", 1.0] in fac["bid"]["buckets"]    # 正区间桶仍完整
     assert "default" in fac["bid"]
 
 
 def test_factor_buckets_default_consistency():
     """默认分档打分与原硬编码逻辑一致(边界值抽样)"""
     cfg = scorer.get_scoring_cfg()
-    # 竞价涨幅: 3~5.5=1.0, >5.5或2~3=0.88, 1.5~2=0.65, 0~1.5=0.4, 其余=0.1
+    # 竞价涨幅: 3~5.5=1.0, >5.5或2~3=0.88, 1.5~2=0.65, 0.001~1.5=0.4,
+    #           负/平开(<0.001)=0.05(2026-09-09 低分桶), 数据缺失=default 0.1
     assert scorer.get_factor_score(cfg, "bid", 3.0) == 1.0
     assert scorer.get_factor_score(cfg, "bid", 5.49) == 1.0
     assert scorer.get_factor_score(cfg, "bid", 5.5) == 0.88
     assert scorer.get_factor_score(cfg, "bid", 2.5) == 0.88
     assert scorer.get_factor_score(cfg, "bid", 1.8) == 0.65
     assert scorer.get_factor_score(cfg, "bid", 0.5) == 0.4
-    assert scorer.get_factor_score(cfg, "bid", 0) == 0.1
+    assert scorer.get_factor_score(cfg, "bid", 0) == 0.05          # 平开落负桶
+    assert scorer.get_factor_score(cfg, "bid", -8.01) == 0.05      # 大跌惩罚分
     # 换手率: >=0.8=1.0, 0.4~0.8=0.88, 0.2~0.4=0.72, 0.08~0.2=0.5, 0~0.08=0.3
     assert scorer.get_factor_score(cfg, "activity", 0.8) == 1.0
     assert scorer.get_factor_score(cfg, "activity", 0.5) == 0.88

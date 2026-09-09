@@ -136,12 +136,17 @@ def apply_filters(rows: List[ScoredRow], f: Dict,
                 out.bump("suspend")
                 continue
 
-        # 4) 竞价涨幅上限(bidGt: 保留 ≤ 上限; 剔除过高=追高风险)
+        # 4) 竞价涨幅区间: 上限 bidGt(过高=追高风险) + 下限 bidLt(2026-09-09 新增:
+        #    低开/大跌剔除 — 中石科技 9/8 竞涨 -8.01% 仍以 prob 58 混入名单事故;
+        #    默认 0=竞价翻绿即剔; 负数可配置(极端低吸策略可放宽)。None → require_bid_change)
         bid_chg = r.bid_change
         if bid_chg is None:
             if ctx.require_bid_change:
                 out.bump("no_bid_change")
                 continue
+        elif bid_chg < f.get("bidLt", 0):
+            out.bump("bid_lt")
+            continue
         elif bid_chg > f["bidGt"]:
             out.bump("bid_gt")
             continue
@@ -218,6 +223,8 @@ def coarse_filter(rows: Sequence[Any], f: Dict,
         if bid_chg is None:
             if ctx.require_bid_change:
                 continue
+        elif bid_chg < f.get("bidLt", 0):
+            continue                                # 低开/大跌剔除(同 apply_filters)
         elif bid_chg > f["bidGt"]:
             continue
         mv = None if not r.float_mv else r.float_mv / 1e8

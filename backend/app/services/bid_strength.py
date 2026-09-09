@@ -235,13 +235,23 @@ def score_one(st: Optional["BidStrength"], cfg: Optional[dict] = None) -> Option
     if st.qc_last:
         score += float(fac.get("qc_last_bonus", 0.10))
     # 加速度修正: 竞价末段拉升加分、跳水减分(中性区间不修正)
+    # 2026-09-09 方向 gate: "拉升"只在**竞价翻红**(chg25>0)背景才成立 —
+    # 低开背景下跌幅收窄(-8.97→-8.01)是"跌势放缓"不是抢筹拉升, 不给加分;
+    # 跳水减分(含低开续跌)保持; chg25 未知(None)按旧行为放行(不误伤)。
+    chg25 = st._chg25
     if accel is not None:
         up = float(fac.get("accel_up", 0.08))
         down = float(fac.get("accel_down", -0.08))
         if accel > 0.5:
-            score += up
+            if chg25 is None or chg25 > 0:
+                score += up
         elif accel < -0.5:
             score += down
+    # 2026-09-09 低开 gate(中石科技 300684 事故): 竞价定格涨幅<=0(低开/平开)时,
+    # "放量"是**出货**不是**抢筹** —— 量比/抢筹/加速度合成后整体封顶 0.40(弱档),
+    # 防止高位放量低开被标成"强5"还加置信度(实测 9/8: -8.01% 竞涨 → warn 5 / conf 83)。
+    if chg25 is not None and chg25 <= 0:
+        score = min(score, 0.40)
     return max(0.05, min(1.0, score))
 
 

@@ -193,3 +193,35 @@ def test_stats_cover_every_drop_reason():
     out = _run(rows, ctx=pf.FilterContext(markets=["hs"], zt_codes=set()))
     assert out.rejected == 2
     assert sum(out.stats.values()) == 2
+
+
+# ==================== 竞涨下限 bidLt (2026-09-09) ====================
+def test_bid_lt_drops_negative_bid_change():
+    """低开/大跌竞涨不再入选(中石科技 9/8 竞涨 -8.01% 混入事故):
+    默认 bidLt=0 → 竞涨<0 剔除, 平开 0.0 保留; 剔除原因可查(stats.bid_lt)"""
+    f = dict(FULL, bidLt=0)
+    out = _run([_mk("600000", bid_change=-8.01),
+                _mk("600001", bid_change=0.0),
+                _mk("600002", bid_change=3.0)], f,
+               ctx=pf.FilterContext(markets=["hs"], zt_codes=set()))
+    assert [i.code for i in out.kept] == ["600001", "600002"]
+    assert out.stats.get("bid_lt") == 1
+
+
+def test_bid_lt_customizable_negative():
+    """bidLt 可配负值(极端低吸策略): bidLt=-5 时 -3 保留、-8 剔除"""
+    f = dict(FULL, bidLt=-5)
+    out = _run([_mk("600000", bid_change=-3.0),
+                _mk("600001", bid_change=-8.0)], f,
+               ctx=pf.FilterContext(markets=["hs"], zt_codes=set()))
+    assert [i.code for i in out.kept] == ["600000"]
+    assert out.stats.get("bid_lt") == 1
+
+
+def test_bid_lt_not_breaking_no_bid_change_rule():
+    """bid_change=None 仍走 require_bid_change(默认剔除), 与 bidLt 互不干扰"""
+    f = dict(FULL, bidLt=0)
+    out = _run([_mk("600000", bid_change=None)],
+               f, ctx=pf.FilterContext(markets=["hs"], zt_codes=set()))
+    assert not out.kept
+    assert out.stats.get("no_bid_change") == 1 and out.stats.get("bid_lt") is None

@@ -139,3 +139,19 @@ def test_scored_row_to_dict_shape():
     assert it["bidAmt"] == 5000.0            # 元 → 万元
     assert it["circulationMV"] == 55.0
     assert it["entityChange"] == pytest.approx((10.5 - 10.2) / 10.2 * 100)
+
+
+# ==================== 负竞涨低分桶 (2026-09-09) ====================
+def test_negative_bid_change_gets_penalty_bucket():
+    """中石科技事故: 竞涨 -8.01% 曾落不进正分档桶 → 与"数据缺失"同吃 default 0.1,
+    34% 权重只扣 3.4 分, 负竞涨照样靠换手/强度凑分入选。现显式负桶 [-99,0) → 0.05。"""
+    s = compute_score(_row(code="300684", bid_change=-8.01, bid_vol=4.8e6,
+                           warn_type=2, float_mv=196e8, yesterday_change=17.39,
+                           price=88.23), _cfg())
+    assert s.parts["bid"]["value"] == -8.01
+    assert s.parts["bid"]["score"] == 0.05
+    # 平开 0% 也落负桶(0 ∈ [-99, 0)); 微涨 0.5% 仍走低正桶 0.4
+    assert compute_score(_row(code="600000", bid_change=0.0), _cfg()).parts["bid"]["score"] == 0.05
+    assert compute_score(_row(code="600000", bid_change=0.5), _cfg()).parts["bid"]["score"] == 0.4
+    # 缺失仍 default 0.1(不知道 ≠ 差, 语义必须区分)
+    assert compute_score(_row(code="600000", bid_change=None), _cfg()).parts["bid"]["score"] == 0.1

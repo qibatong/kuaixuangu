@@ -100,6 +100,35 @@ def test_min_yday_amt_constant():
     assert bs.MIN_YDAY_BID_AMT_WAN == 100.0
 
 
+# ---------------------------------------------------------------- 低开方向 gate (2026-09-09)
+def test_low_open_strength_capped_at_weak():
+    """中石科技事故: 竞涨 <=0(低开/平开)时"放量"是出货不是抢筹 —
+    量比满分 + 抢筹全加成也只能到 0.40(弱档), 杜绝被标成"强5"+置信度加成"""
+    st = bs.BidStrength(code="1", bid_vol_ratio=5.0, qc_delta=2.0,
+                        qc_last=True, _chg25=-8.01)
+    assert bs.score_one(st, _cfg()) == pytest.approx(0.40)
+    # 翻红不受此 gate 影响
+    assert bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=5.0,
+                                       _chg25=3.0), _cfg()) == pytest.approx(1.0)
+    # chg25 未知(None)按旧行为(不误伤历史路径)
+    assert bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=5.0),
+                        _cfg()) == pytest.approx(1.0)
+
+
+def test_low_open_accel_recover_is_not_up():
+    """低开背景下跌幅收窄(-8.97→-8.01)是"跌势放缓"不是拉升: accel>0.5 不加分;
+    翻红背景的拉升才加分; 低开续跌照常减分"""
+    flat = bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=0.3, accel=2.0,
+                                       _chg25=-8.0), _cfg())
+    up = bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=0.3, accel=2.0,
+                                     _chg25=3.0), _cfg())
+    down = bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=0.3, accel=-3.0,
+                                       _chg25=-8.0), _cfg())
+    assert flat == pytest.approx(0.25)      # 0.25(0.6倍以下档) 无拉升加成
+    assert up == pytest.approx(0.33)        # 0.25 + 0.08
+    assert down == pytest.approx(0.17)      # 0.25 - 0.08
+
+
 # ---------------------------------------------------------------- 真实场景回归
 def test_jinjian_case():
     """金健米业 600127 (2026-09-08): 竞价全程撤单, 量能没放大 → 不该拿高分。
