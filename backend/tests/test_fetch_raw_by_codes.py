@@ -9,8 +9,21 @@ import sys
 os.environ["OUTBOUND_IPS"] = ""
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import pytest
+
 from app.services import fetcher, scorer
 from app.core import config
+
+# conftest 的 session fixture 会把 fetcher.fetch_raw_by_codes 整体桩掉(防测试打真实网络),
+# 但**本文件测的就是这个函数本身** → 必须在用例内还原真实实现。
+# 模块导入早于 session fixture, 此刻拿到的是未被桩的原始函数。
+_REAL_BY_CODES = fetcher.fetch_raw_by_codes
+
+
+@pytest.fixture(autouse=True)
+def _restore_real_by_codes(monkeypatch):
+    """还原真实 fetch_raw_by_codes; 用例内若自行 monkeypatch 则以其为准"""
+    monkeypatch.setattr(fetcher, "fetch_raw_by_codes", _REAL_BY_CODES)
 
 
 class _JsonResp:

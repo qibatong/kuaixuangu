@@ -15,6 +15,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 from ..core import config, logger
+from ..core import net as _net
 from .cache_store import store
 
 log = logger.get_logger(__name__)
@@ -69,6 +70,16 @@ def _record(ok, ms=0):
                 log.warning("开盘啦数据源故障(开始降级)")
 
 
+def _urlopen(req, timeout=10, context=None):
+    """开盘啦专用 urlopen: 包一层**出站 IP 轮询**。
+
+    2026-09-09: 此前 kpl 全部裸调 urllib.request.urlopen → 走 OS 默认单出口(eth0),
+    而 eth0 的公网 IP 已被新浪等源拉黑(403)。开盘啦是**竞价数据唯一来源**, 却没吃到
+    9/7 加的双网卡轮换。改走 core.net.http_get 后两个出口 RR 轮询 + 失败惩罚。
+    """
+    return _net.http_get(req, timeout=timeout, context=context)
+
+
 def _call(host_key, params, timeout=12):
     """调用开盘啦接口, 返回解析后的 dict; 失败返回 None(不抛异常)"""
     host = config.KPL_HOSTS.get(host_key, config.KPL_HOSTS["default"])
@@ -93,7 +104,7 @@ def _call(host_key, params, timeout=12):
         log.warning("KPL 并发信号量获取超时(限流) a=%s", params.get("a"))
         return None
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx) as r:
+        with _urlopen(req, timeout=timeout, context=_ssl_ctx) as r:
             body = r.read().decode("utf-8", "ignore")
         data = json.loads(body)
         _record(True, int((time.time() - t0) * 1000))
@@ -926,7 +937,7 @@ def _flash_pool(pool_name, date=None):
     url = _FLASH_BASE + pool_name + (("&date=" + date) if date else "")
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10, context=_ssl_ctx) as r:
+        with _urlopen(req, timeout=10, context=_ssl_ctx) as r:
             d = json.loads(r.read().decode("utf-8", "ignore"))
     except Exception as e:
         log.warning("flash 池请求失败 pool=%s date=%s err=%s", pool_name, date or "-", e)
@@ -1053,7 +1064,7 @@ def _flash_line(fields, date=None):
     url = _FLASH_LINE + fields + (("&date=" + date) if date else "")
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10, context=_ssl_ctx) as r:
+        with _urlopen(req, timeout=10, context=_ssl_ctx) as r:
             d = json.loads(r.read().decode("utf-8", "ignore"))
     except Exception as e:
         log.warning("xuangubao 曲线失败 fields=%s err=%s", fields, e)
@@ -1135,7 +1146,7 @@ def _flash_surge(path, params=""):
     url = _FLASH_SURGE + path + (("?" + params) if params else "")
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10, context=_ssl_ctx) as r:
+        with _urlopen(req, timeout=10, context=_ssl_ctx) as r:
             d = json.loads(r.read().decode("utf-8", "ignore"))
     except Exception as e:
         log.warning("xuangubao 热点失败 path=%s err=%s", path, e)
@@ -1193,7 +1204,7 @@ def fetch_live_room():
     url = "https://api.fupanwang.com/kpl/zhibo"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10, context=_ssl_ctx) as r:
+        with _urlopen(req, timeout=10, context=_ssl_ctx) as r:
             d = json.loads(r.read().decode("utf-8", "ignore"))
     except Exception as e:
         log.warning("涨停直播失败 err=%s", e)
@@ -3411,7 +3422,7 @@ def _close_chg_pct_sina(date, code):
                f"?symbol={sym}&scale=240&ma=no&datalen=160")
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0", "Referer": "https://finance.sina.com.cn/"})
-        with urllib.request.urlopen(req, timeout=12, context=ctx) as r:
+        with _urlopen(req, timeout=12, context=ctx) as r:
             arr = _json.loads(r.read().decode("utf-8", "ignore"))
         prev = None
         for row in arr:
@@ -3438,7 +3449,7 @@ def _close_chg_pct_tencent(date, code):
         url = (f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={sym},day,,,160,qfq")
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"})
-        with urllib.request.urlopen(req, timeout=12, context=ctx) as r:
+        with _urlopen(req, timeout=12, context=ctx) as r:
             txt = r.read().decode("utf-8", "ignore")
         obj = _json.loads(txt)
         # data.{sym}.qfqday / data.{sym}.day
@@ -3477,7 +3488,7 @@ def _close_chg_pct_ths(date, code):
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0",
             "Referer": f"https://stockpage.10jqka.com.cn/{code}/"})
-        with urllib.request.urlopen(req, timeout=12, context=ctx) as r:
+        with _urlopen(req, timeout=12, context=ctx) as r:
             js = r.read().decode("gbk", "ignore")
         # last.js 返回 json_hex = {...}
         m = _CLOSE_CHG_JSON_RE.search(js) if _CLOSE_CHG_JSON_RE else None

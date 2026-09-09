@@ -13,6 +13,7 @@ import urllib.parse
 import urllib.request
 
 from ..core import config, logger
+from ..core import net as _net
 from . import kpl
 
 log = logger.get_logger(__name__)
@@ -57,7 +58,7 @@ def _get_json(url, data=None, headers=None, timeout=10):
     body = data.encode("utf-8") if isinstance(data, str) else data
     req = urllib.request.Request(url, data=body, headers=hdr)
     import gzip
-    with urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx()) as r:
+    with _net.http_get(req, timeout=timeout, context=_ssl_ctx()) as r:
         raw = r.read()
     if r.headers.get("Content-Encoding") == "gzip":
         raw = gzip.decompress(raw)

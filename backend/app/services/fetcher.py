@@ -26,91 +26,21 @@ _NO_VERIFY_CTX = ssl.create_default_context()
 _NO_VERIFY_CTX.check_hostname = False
 _NO_VERIFY_CTX.verify_mode = ssl.CERT_NONE
 
-# ---------- 出站 IP 轮询池(2026-09-07 主人加辅助网卡防东财封单 IP) ----------
-# 配置: config.OUTBOUND_IPS(逗号分隔, 默认空走 OS 默认)
-# 行为: 每次请求严格 RR 轮询(请求1→IP A, 请求2→IP B, ...); 某 IP 连续失败
-#       _IP_FAIL_THRESHOLD 次进入"惩罚"(后续请求跳过它, 在健康 IP 间轮询),
-#       成功一次即恢复。monkey-patch socket.create_connection 注入 source_address。
-#       _ip_binding() context manager 负责取 IP+报告; _http_get() 包装 urlopen。
-# RR index 进程级共享锁; bind_ip 用 thread-local(仅本次 urlopen, 出 context 清空)。
-_IP_LOCAL = threading.local()
-_IP_FAIL_THRESHOLD = 2
+# ---------- 出站 IP 轮询(实现已下沉到 app.core.net, 2026-09-09) ----------
+# 历史: 本文件的 IP 轮换是 2026-09-07 为"双网卡防东财封单 IP"加的, 但只有 fetcher 自己
+#       走轮换 —— kpl(开盘啦, 竞价数据唯一来源)/hot_rank/sector_rotation 等模块的裸
+#       urlopen 全都单 IP 裸奔。故把 rotator 抽到 core.net, 各数据源共用同一份健康状态
+#       (否则两个 rotator 各罚各的, 惩罚信息割裂)。
+# 实测: 东财对两个出口都封(IDC 级, 换 IP 无效); 新浪 eth0=403/eth1=200 → 轮换对
+#       "按 IP 封禁"的源有效, 是出口容灾 + 分散限流的现成手段。
+from ..core import net as _net
 
-
-class _IPRotator:
-    """IP 轮询: 进程级严格 RR(每次 acquire 切下一个) + 失败惩罚(连续失败 N 次跳过)。
-    report_success/report_fail 需传入实际使用的 ip(每请求独立, 无跨请求状态)。"""
-
-    def __init__(self, ips):
-        self.ips = list(ips) if ips else []
-        self._rr_lock = threading.Lock()
-        self._rr_index = -1
-        self._penalty = {}   # ip -> 连续失败次数
-
-    def acquire(self):
-        """严格 RR: 每次调用切下一个 IP(跳过惩罚中 IP); 全部被惩罚则放行 RR 下一个。"""
-        if not self.ips:
-            return None
-        n = len(self.ips)
-        with self._rr_lock:
-            for _ in range(n):
-                self._rr_index = (self._rr_index + 1) % n
-                ip = self.ips[self._rr_index]
-                if self._penalty.get(ip, 0) < _IP_FAIL_THRESHOLD:
-                    return ip
-            # 全部 IP 都在惩罚中 → 放行(保证有 IP 可用, 不硬卡请求)
-            return self.ips[self._rr_index]
-
-    def report_success(self, ip):
-        if ip in self._penalty:
-            self._penalty.pop(ip, None)
-
-    def report_fail(self, ip):
-        self._penalty[ip] = self._penalty.get(ip, 0) + 1
-
-
-_IP_ROTATOR = _IPRotator(config.OUTBOUND_IPS)
-
-# monkey-patch socket.create_connection: 读 thread-local 绑定 IP 注入 source_address
-# 覆盖 socket 模块本身 + urllib.request.socket(后者是同一引用, 双保险)
-_orig_create_connection = _socket_mod.create_connection
-
-
-def _patched_create_connection(address, timeout=None, source_address=None, **kw):
-    ip = getattr(_IP_LOCAL, "bind_ip", None)
-    if ip:
-        source_address = (ip, 0)
-    return _orig_create_connection(address, timeout, source_address, **kw)
-
-
-_socket_mod.create_connection = _patched_create_connection
-urllib.request.socket.create_connection = _patched_create_connection
-
-
-@contextlib.contextmanager
-def _ip_binding():
-    """带 IP 轮询的 urlopen 上下文管理器。
-    取 IP(严格 RR)绑 thread-local; 成功 report_success(ip), 失败 report_fail(ip)。
-    无 IP 池时为 no-op。"""
-    if not _IP_ROTATOR.ips:
-        yield
-        return
-    ip = _IP_ROTATOR.acquire()
-    _IP_LOCAL.bind_ip = ip
-    try:
-        yield
-        _IP_ROTATOR.report_success(ip)
-    except Exception:
-        _IP_ROTATOR.report_fail(ip)
-        raise
-    finally:
-        _IP_LOCAL.bind_ip = None
+_ip_binding = _net.ip_binding          # 兼容旧名(测试/外部引用)
 
 
 def _http_get(req, timeout, context=None):
     """带 IP 轮询的 urlopen 包装(替换 fetcher 内所有 urllib.request.urlopen)。"""
-    with _ip_binding():
-        return urllib.request.urlopen(req, timeout=timeout, context=context)
+    return _net.http_get(req, timeout=timeout, context=context)
 
 log = logger.get_logger(__name__)
 

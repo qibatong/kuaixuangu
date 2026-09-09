@@ -11,6 +11,17 @@ import pytest
 
 from app.services import fetcher
 
+# 同 test_fetch_raw_by_codes: conftest 的 session fixture 会整体桩掉
+# fetch_tencent_market(防测试打真实网络), 而本文件测的正是它的日志行为 → 还原真实实现。
+# 模块导入早于 session fixture, 此刻拿到的是未被桩的原始函数。
+_REAL_TENCENT_MARKET = fetcher.fetch_tencent_market
+
+
+@pytest.fixture(autouse=True)
+def _restore_real_tencent_market(monkeypatch):
+    """还原真实 fetch_tencent_market(其内部依赖由各用例自行 monkeypatch)"""
+    monkeypatch.setattr(fetcher, "fetch_tencent_market", _REAL_TENCENT_MARKET)
+
 
 # ---------------- fixture: 每次重置告警状态 ----------------
 @pytest.fixture(autouse=True)

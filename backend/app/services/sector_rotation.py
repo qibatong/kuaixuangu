@@ -12,6 +12,7 @@ import urllib.parse
 import urllib.request
 
 from ..core import config, logger
+from ..core import net as _net
 from ..db import database
 from . import kpl
 
@@ -66,7 +67,7 @@ def fetch_em_board_rank():
             req = urllib.request.Request(config.EASTMONEY_URL + "?" + qs, headers={
                 "User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/",
             })
-            with urllib.request.urlopen(req, timeout=8, context=ctx) as r:
+            with _net.http_get(req, timeout=8, context=ctx) as r:
                 data = json.loads(r.read().decode("utf-8"))
             diff = (data.get("data") or {}).get("diff") or []
             for it in diff:
@@ -110,7 +111,7 @@ def _ths_get(url):
         "Referer": "https://q.10jqka.com.cn/",
         "Accept-Encoding": "gzip",
     })
-    with urllib.request.urlopen(req, timeout=10, context=ctx) as r:
+    with _net.http_get(req, timeout=10, context=ctx) as r:
         data = r.read()
     if r.headers.get("Content-Encoding") == "gzip":
         data = gzip.decompress(data)
