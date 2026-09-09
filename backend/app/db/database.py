@@ -14,7 +14,9 @@ log = logger.get_logger(__name__)
 
 
 def get_conn():
-    conn = sqlite3.connect(config.DB_FILE)
+    # timeout=10 → busy_timeout 10s: 高并发下多个写者排队等待, 而不是立刻抛
+    # "database is locked"(2026-09-09 开盘雪崩时该参数为默认的 0, 写冲突直接失败)
+    conn = sqlite3.connect(config.DB_FILE, timeout=10)
     return conn
 
 

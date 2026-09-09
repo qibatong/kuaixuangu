@@ -17,6 +17,7 @@
 import concurrent.futures
 import json
 import sqlite3
+from contextlib import closing
 import threading
 import time
 
@@ -76,7 +77,7 @@ def _collect_codes(date):
 
     # 1) 落库快照(9:26/15:30 已落库的, 兜底)
     try:
-        with sqlite3.connect(config.DB_FILE) as conn:
+        with closing(sqlite3.connect(config.DB_FILE, timeout=10)) as conn:
             for tab in ("seal", "boom", "bid_net", "qiangcang", "yest_zt", "yest_broken",
                         "broken_yest", "broken_today"):
                 row = conn.execute(
@@ -128,7 +129,7 @@ def _update_lists_with_board(date, code_to_board):
         return 0
     n_updated = 0
     try:
-        with sqlite3.connect(config.DB_FILE) as conn:
+        with closing(sqlite3.connect(config.DB_FILE, timeout=10)) as conn:
             # 1. 竞价异动各 tab
             for tab in ("seal", "boom", "bid_net", "qiangcang", "yest_zt", "yest_broken",
                         "broken_yest", "broken_today"):
@@ -273,7 +274,7 @@ def _write_stock_concept(date, code_to_board, code_to_full=None):
     code_to_full = code_to_full or {}
     _ensure_board_full()
     try:
-        with sqlite3.connect(config.DB_FILE) as conn:
+        with closing(sqlite3.connect(config.DB_FILE, timeout=10)) as conn:
             now = int(time.time())
             conn.executemany(
                 "INSERT OR REPLACE INTO stock_concept (date, code, board, board_full, ts) VALUES (?,?,?,?,?)",
@@ -289,7 +290,7 @@ def _write_stock_concept(date, code_to_board, code_to_full=None):
 def _ensure_board_full():
     """老库迁移: 给 stock_concept 补 board_full 列(全量概念)"""
     try:
-        with sqlite3.connect(config.DB_FILE) as conn:
+        with closing(sqlite3.connect(config.DB_FILE, timeout=10)) as conn:
             cols = [r[1] for r in conn.execute("PRAGMA table_info(stock_concept)").fetchall()]
             if "board_full" not in cols:
                 conn.execute("ALTER TABLE stock_concept ADD COLUMN board_full TEXT")

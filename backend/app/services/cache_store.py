@@ -23,6 +23,7 @@ import json
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 
 try:
     import redis as _redis
@@ -79,7 +80,7 @@ class SqliteCacheStore(CacheStore):
 
     def _ensure_table(self):
         try:
-            with self._conn() as conn:
+            with self._tx() as conn:
                 conn.execute("""CREATE TABLE IF NOT EXISTS kv_cache (
                     key TEXT PRIMARY KEY,
                     val TEXT NOT NULL DEFAULT '',
@@ -94,6 +95,27 @@ class SqliteCacheStore(CacheStore):
         conn.execute("PRAGMA busy_timeout=5000")
         return conn
 
+    @contextmanager
+    def _tx(self):
+        """事务上下文(必须走它, 不许 `with self._conn() as conn`)
+
+        2026-09-09 生产事故: `with sqlite3.connect(...) as conn` **只管事务
+        (commit/rollback), 不关连接** —— sqlite3.Connection 的 __exit__ 不调 close。
+        本类是全站最高频 DB 调用(kpl 逐股板块缓存/抢筹缓存/信号量), 开盘并发下
+        每次调用泄漏一个 fd: uvicorn 进程 open_fd 打满 ulimit 1024 →
+        "unable to open database file" + "database is locked" 全站报错, 首页竞价无数据。
+        故这里显式 close, 保留原有事务语义(无异常 commit / 异常 rollback)。
+        """
+        conn = self._conn()
+        try:
+            with conn:
+                yield conn
+        finally:
+            try:
+                conn.close()
+            except Exception:                                # noqa: BLE001
+                pass
+
     @staticmethod
     def _alive(row, now):
         return row is not None and (not row[1] or row[1] > now)
@@ -101,7 +123,7 @@ class SqliteCacheStore(CacheStore):
     def get(self, key, default=None):
         try:
             now = int(time.time())
-            with self._conn() as conn:
+            with self._tx() as conn:
                 row = conn.execute("SELECT val, expire_at FROM kv_cache WHERE key=?", (key,)).fetchone()
                 if not self._alive(row, now):
                     return default
@@ -113,7 +135,7 @@ class SqliteCacheStore(CacheStore):
         try:
             exp = int(time.time()) + int(ttl) if ttl else 0
             data = json.dumps(value, ensure_ascii=False)
-            with _DB_LOCK, self._conn() as conn:
+            with _DB_LOCK, self._tx() as conn:
                 conn.execute("INSERT OR REPLACE INTO kv_cache(key, val, expire_at) VALUES(?,?,?)",
                              (key, data, exp))
         except Exception as e:
@@ -121,14 +143,14 @@ class SqliteCacheStore(CacheStore):
 
     def delete(self, key):
         try:
-            with _DB_LOCK, self._conn() as conn:
+            with _DB_LOCK, self._tx() as conn:
                 conn.execute("DELETE FROM kv_cache WHERE key=?", (key,))
         except Exception:
             pass
 
     def clear_prefix(self, prefix):
         try:
-            with _DB_LOCK, self._conn() as conn:
+            with _DB_LOCK, self._tx() as conn:
                 conn.execute("DELETE FROM kv_cache WHERE key LIKE ?", (prefix + "%",))
         except Exception:
             pass
@@ -136,7 +158,7 @@ class SqliteCacheStore(CacheStore):
     def incr(self, key, ttl=0):
         try:
             now = int(time.time())
-            with _DB_LOCK, self._conn() as conn:
+            with _DB_LOCK, self._tx() as conn:
                 row = conn.execute("SELECT val, expire_at FROM kv_cache WHERE key=?", (key,)).fetchone()
                 if self._alive(row, now):
                     cur = int(row[0] or 0) + 1
@@ -154,7 +176,7 @@ class SqliteCacheStore(CacheStore):
     def setnx(self, key, value=1, ttl=0):
         try:
             now = int(time.time())
-            with _DB_LOCK, self._conn() as conn:
+            with _DB_LOCK, self._tx() as conn:
                 row = conn.execute("SELECT expire_at FROM kv_cache WHERE key=?", (key,)).fetchone()
                 if row and (not row[0] or row[0] > now):
                     return False
