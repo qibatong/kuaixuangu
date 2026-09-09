@@ -77,6 +77,44 @@ def mock_data_source(monkeypatch_session):
 
     monkeypatch_session.setattr(fetcher, "ensure_cache", fake_ensure_cache)
     monkeypatch_session.setattr(fetcher, "fetch_yesterday_amounts", fake_yesterday_amounts)
+    # 2026-09-09 起选股主链路 = picker.pipeline, 名单源在竞价窗口外是**9:25 定格快照**
+    # (auction_snapshot.load_snapshot_full), 而测试库里没有定格数据 → 不桩会返回
+    # "名单源无数据" 让所有接口级用例(落库/幂等/去重/推送/缓存)集体失败。
+    # 这里用 MOCK_RAW 造一份等价定格快照(字段见 QuoteRow.from_snapshot)。
+    def fake_load_snapshot_full(date=None):
+        out = {}
+        for s in MOCK_RAW:
+            code = s.get("f12")
+            if not code:
+                continue
+            out[code] = {
+                "code": code, "name": s.get("f14"),
+                "pre_close": s.get("f18") or s.get("f4"),
+                "bid_change": s.get("f615"),
+                "bid_amt": (s.get("f616") or 0) / 1e4,     # 元 → 万元(快照口径)
+                "bid_vol": s.get("f617"),
+                "price": s.get("f2"), "change": s.get("f3"),
+                "open": s.get("f17"), "float_mv": s.get("f21"),
+                "industry": s.get("f100"), "concept": s.get("f103"),
+            }
+        return out
+
+    from app.services import auction_snapshot as _asnap
+    monkeypatch_session.setattr(_asnap, "load_snapshot_full", fake_load_snapshot_full)
+    # 选股主链路(picker.pipeline)的**补丁源**东财点查/腾讯点查、以及昨日涨幅日K:
+    # 若不桩, 测试进程会对 push2 / qt.gtimg.cn 发起真实请求(本地网络不通 → 熔断
+    # 冷却 600s → 用例集体超时)。竞价窗口名单源(腾讯全市场)同样桩掉。
+    def fake_by_codes(codes, *a, **kw):
+        want = set(codes or [])
+        hit = [dict(s) for s in MOCK_RAW if s.get("f12") in want]
+        return hit or [dict(s) for s in MOCK_RAW]
+
+    monkeypatch_session.setattr(fetcher, "fetch_raw_by_codes", fake_by_codes)
+    monkeypatch_session.setattr(fetcher, "fetch_tencent_by_codes", fake_by_codes)
+    monkeypatch_session.setattr(fetcher, "fetch_tencent_market",
+                                lambda fs, *a, **kw: [dict(s) for s in MOCK_RAW])
+    monkeypatch_session.setattr(fetcher, "fetch_yesterday_changes",
+                                lambda codes, *a, **kw: {c: 1.5 for c in (codes or [])})
     # 2026-09-07 is_first_board 改造(昨涨停名单判据): scorer 会调 fetcher.get_yesterday_zt_codes()
     # 拉 push2ex 涨停池(真实网络)。测试一律桩成 None → 走 f103 概念降级路径(与旧行为一致,
     # 保证既有用例零回归); 专项测试(test_zt_pool_filter.py)单独 monkeypatch 验证名单路径。

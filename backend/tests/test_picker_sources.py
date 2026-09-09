@@ -155,10 +155,15 @@ def test_snapshot_empty_is_error(monkeypatch):
 # ==================== 腾讯源 ====================
 def test_tencent_never_fakes_bid_fields(monkeypatch):
     """★核心防复发: 腾讯无竞价字段, fetcher 会塞 f615=现价涨幅。
-    适配层必须显式清空 → 否则重现"竞涨=现涨 → 大跌票混入"事故。"""
+    适配层必须显式清空 → 否则重现"竞涨=现涨 → 大跌票混入"事故(9/7)。
+
+    2026-09-09 口径细化: **仅竞价窗口内**例外 —— 9:15-9:25 尚未撮合, 现价即竞价
+    虚拟价、累计额即竞价额, 此时 f615/f616 语义正确, 必须取(否则竞价窗口名单恒空,
+    生产实证 25 次调用入选全为 0)。窗口外(INTRADAY/CLOSED...)一律清空, 本用例即守此。
+    """
     raw = [dict(EM_ROW, f615=-7.8, f616=9.9e7)]     # 现价涨幅被塞进 f615
     monkeypatch.setattr(fetcher, "fetch_tencent_by_codes", lambda codes: raw)
-    r = tencent.TencentPointSource().run(_ctx(pm.PickMode.AUCTION, codes=["600354"]))
+    r = tencent.TencentPointSource().run(_ctx(pm.PickMode.INTRADAY, codes=["600354"]))
     row = r.rows["600354"]
     assert row.bid_change is None, "腾讯无竞价数据, 不得拿 f615(现价涨幅)冒充竞价涨幅"
     assert row.bid_amt is None
@@ -220,10 +225,10 @@ def test_eastmoney_market_source_ok_and_error(monkeypatch):
 
 
 def test_tencent_market_source_strips_bid_fields(monkeypatch):
-    """全市场腾讯兜底同样不得冒充竞价字段(与点查源同契约)"""
+    """全市场腾讯兜底同样不得冒充竞价字段(与点查源同契约, 窗口外口径)"""
     monkeypatch.setattr(fetcher, "fetch_tencent_market", lambda fs: [dict(EM_ROW, f615=9.9)])
-    r = tencent.TencentMarketSource().run(_ctx(pm.PickMode.AUCTION, markets=["hs"]))
+    r = tencent.TencentMarketSource().run(_ctx(pm.PickMode.CLOSED, markets=["hs"]))
     assert r.ok and r.rows["600354"].bid_change is None
     monkeypatch.setattr(fetcher, "fetch_tencent_market", lambda fs: [])
-    r2 = tencent.TencentMarketSource().run(_ctx(pm.PickMode.AUCTION, markets=["hs"]))
+    r2 = tencent.TencentMarketSource().run(_ctx(pm.PickMode.CLOSED, markets=["hs"]))
     assert not r2.ok

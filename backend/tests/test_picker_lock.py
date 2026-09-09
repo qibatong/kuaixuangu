@@ -239,11 +239,11 @@ def test_system_batch_empty_result_not_saved(monkeypatch):
     assert not saved
 
 
-def test_auto_apply_uses_picker_when_enabled(monkeypatch):
-    """picker_lock=1 → auto_apply 走新链路; 新链路无结果时回退老链路(不让用户空窗)"""
+def test_auto_apply_always_uses_picker(monkeypatch):
+    """2026-09-09 双轨已删: auto_apply 恒定走 picker 链路, 无结果则报 error
+    (不再回退老链路 —— 回退会让新链路无票的事实被掩盖)"""
     from app.services import auto_apply as aa
-
-    calls = {"new": 0, "legacy": 0}
+    calls = {"new": 0}
 
     class _LR:
         items = [{"code": "600000"}]
@@ -252,33 +252,28 @@ def test_auto_apply_uses_picker_when_enabled(monkeypatch):
         def summary(self):
             return ""
 
-    monkeypatch.setattr(aa, "_picker_lock_on", lambda: True)
-    monkeypatch.setattr(aa, "_load_strengths", lambda raw: {})
-    monkeypatch.setattr(aa, "_legacy_result",
-                        lambda: (calls.__setitem__("legacy", 1), [], "")[1])
     import app.services.picker.lock as plk
     monkeypatch.setattr(plk, "run_lock",
                         lambda f, **kw: (calls.__setitem__("new", 1), _LR())[1])
-    aa._pick_result()
-    assert calls["new"] == 1 and calls["legacy"] == 0
+    items, err = aa._pick_result()
+    assert calls["new"] == 1 and items and not err
 
-    # 新链路空 → 回退
     class _Empty:
         items = []
-        errors = ["拒绝锁仓"]
+        errors = ["名单源无数据(模拟)"]
 
         def summary(self):
-            return ""
+            return "模拟空名单"
 
     monkeypatch.setattr(plk, "run_lock", lambda f, **kw: _Empty())
-    aa._pick_result()
-    assert calls["legacy"] == 1
+    items2, err2 = aa._pick_result()
+    assert not items2 and err2, "无名单必须返回 error(降级可见), 不得静默空过"
+
+    def _boom(*a, **kw):
+        raise RuntimeError("选股链路爆炸")
+
+    monkeypatch.setattr(plk, "run_lock", _boom)
+    items3, err3 = aa._pick_result()
+    assert not items3 and "爆炸" in err3
 
 
-def test_auto_apply_legacy_when_disabled(monkeypatch):
-    """默认关 → 老链路(行为零变化)"""
-    from app.services import auto_apply as aa
-    monkeypatch.setattr(aa, "_picker_lock_on", lambda: False)
-    monkeypatch.setattr(aa, "_legacy_result", lambda: ([{"code": "600000"}], ""))
-    result, err = aa._pick_result()
-    assert result and not err

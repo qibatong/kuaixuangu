@@ -65,16 +65,6 @@ def _get_system_filter():
     return f
 
 
-def _load_strengths(raw):
-    """竞价强度 map(替代失活的 f630 异动等级), settings `use_bid_strength=1` 才启用。
-    默认关闭 → 空 dict → 行为零变化。异常一律吞掉退回 f630。
-
-    口径统一收敛到 bid_strength.load_scores(system_batch / 本处共用)。
-    """
-    from . import bid_strength
-    return bid_strength.load_scores([s.get("f12") for s in (raw or [])])
-
-
 def _is_user_active(uid):
     """用户是否可自动应用: 存在 且 非管理员 且 未过期"""
     u = users.find_user_by_id(uid)
@@ -101,77 +91,25 @@ def _run_in_background(func, *args, **kwargs):
     return t
 
 
-def _picker_lock_on():
-    """settings `picker_lock` 控制走哪条链路。
-
-    P5 切流后**默认走新链路**(未配置 = 新链路); 显式设为 0/false/off 才回退老链路
-    —— 回滚只需改 settings, 不需要改代码重新部署。
-    """
-    try:
-        from . import settings
-        from .picker import lock as plock
-        return plock.enabled_default_on(settings.get("picker_lock"))
-    except Exception:                                          # noqa: BLE001
-        return True
-
-
 def _pick_result():
     """算出"系统统一名单"(所有用户共享同一份), 返回 (result, error)。
 
-    P4: 开关 picker_lock=1 走 picker.pipeline(与首页选股同一条代码路径, 名单只认
-    9:25 定格); 否则走老链路(score_all_stocks + apply_filters)。两条路径都返回
-    老链路同构的 item 列表, 落库/推送逻辑无感。
+    2026-09-09 起与首页选股**同一条**链路(picker.pipeline), 不再回退老链路 ——
+    双轨的代价是: 新链路没出票时静默走老链路, 缺陷永远暴露不出来(首页竞价窗口
+    恒返回 0 只跑了一整天无人发现, 正是这条路径在"兜底")。现在没出票就是没出票,
+    返回 error 让调度跳过本轮并告警, 而不是用另一条链路的结果掩盖。
     """
-    if _picker_lock_on():
-        from .picker import lock as plock
-        try:
-            lr = plock.run_lock(_get_system_filter(), log_tag="auto_apply")
-            if lr.items:
-                return lr.items, ""
-            # 新链路没出票(含"竞价未结束/盘前"这类主动拒绝) → 回退老链路, 不让用户空窗
-            log.warning("auto_apply 新链路无结果(%s) → 回退老链路",
-                        "; ".join(lr.errors) or lr.summary())
-        except Exception as e:                                 # noqa: BLE001
-            log.warning("auto_apply 新链路异常, 回退老链路 err=%s", e)
-    return _legacy_result()
-
-
-def _legacy_result():
-    """老链路: 全市场行情 → 评分 → 系统统一过滤(改造前实现, 保留用于回退/对拍)
-    返回 (result, error) — error 非空表示本轮无法产出名单(行情缺失/评分失败)。"""
-    # 与 9:25 撮合同样的默认市场范围(前端默认 hs+cyb+kcb), 确保命中同一份行情缓存
-    fs = scorer.market_fs(["hs", "cyb", "kcb"])
-    raw, err = fetcher.ensure_cache("filter", fs, before930=True)
-    if not raw:
-        log.warning("auto_apply 行情缓存缺失 err=%s, 跳过本轮", err)
-        return [], str(err)
-    snapshot_map = auction_snapshot.load_snapshot() or {}
-    # 2026-09-08 竞涨定格: 调度若延迟越过 9:30(窗口外)东财 f615 退化为 "-", bidChange
-    # 以当日 9:25 定格竞价涨幅为准(防评分用现价涨幅, 名单漂移/失真)
-    bid_chg_map = auction_snapshot.load_day_bid_change()
-    # wait=True: 自动锁定需完整昨比(后台任务, 可等待; 用户请求路径走异步不阻塞)
-    yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw], wait=True) or {}
-    # 2026-09-08 昨日涨幅真实化: wait=True 已同步拉完日K, 直接读缓存(零额外请求)
-    yesterday_chg_map = fetcher.fetch_yesterday_changes([s.get("f12") for s in raw]) or {}
-    # 全市场评分一次
+    from .picker import lock as plock
     try:
-        # 2026-09-01 抢筹口径: 命中右视图竞价异动"竞价抢筹"代码集才打抢筹标
-        qc_detail = kpl.get_qiangchou_detail()
-        scored = scorer.score_all_stocks(raw, yesterday_map, snapshot_map, qiangchou_detail=qc_detail,
-                                         day_bid_change=bid_chg_map,
-                                         yesterday_chg_map=yesterday_chg_map,
-                                         strengths=_load_strengths(raw))
-    except Exception as e:
-        log.error("auto_apply 全市场评分失败 err=%s", e, exc_info=True)
+        lr = plock.run_lock(_get_system_filter(), log_tag="auto_apply")
+    except Exception as e:                                     # noqa: BLE001
+        log.error("auto_apply 选股异常 err=%s", e, exc_info=True)
         return [], str(e)
-    # 系统统一标准过滤一次(所有用户共享同一份结果, 2026-08-16 产品决策)
-    f = _get_system_filter()
-    result = scorer.apply_filters(scored, f)
-    for it in result:
-        it.pop("_raw", None)
-    log.info("auto_apply 系统统一筛选完成 评分池=%d只 筛选后=%d只",
-             len(scored), len(result))
-    return result, ""
+    if not lr.items:
+        msg = "; ".join(lr.errors) or lr.summary()
+        log.warning("auto_apply 本轮无名单(跳过应用) %s", msg)
+        return [], msg or "名单源无数据"
+    return lr.items, ""
 
 
 def auto_apply_all_users(max_users=None):

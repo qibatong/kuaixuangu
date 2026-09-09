@@ -64,37 +64,38 @@ def _gray_enabled():
         return False
 
 
-def _cutover_enabled():
-    """重构 P5 切流开关: settings 表 picker_cutover=1 → **主链路走 picker.pipeline**。
-
-    新链路不可用(名单源取不到行 / 抛异常)时**自动回退老链路**并打 WARNING,
-    故开关打开不等于"无兜底硬切"。默认 0 = 老链路(与切流前行为完全一致)。
-    """
-    try:
-        from ..services import settings
-        return str(settings.get("picker_cutover") or "0") in ("1", "true", "True")
-    except Exception:
-        return False
-
-
 def _run_new_pipeline(uid, action, f, *, yesterday_map, yesterday_chg_map,
                       snapshot_map, bid_amt_map, bid_chg_map):
-    """跑新链路 picker.pipeline; 返回 items(list) 或 **None(=不可用, 调用方回退老链路)**。
+    """跑新链路 picker.pipeline; 返回 (items, err) —— **二选一有值**。
 
-    判定"不可用"只看一件事: **名单源有没有给出全市场行**(n_universe>0)。
-    - 名单源失败 → n_universe=0 → 回退(此时老链路还有快照池可兜底)
-    - 补丁源失败 / 强度缺失 → n_universe>0, 只是 degraded → **不回退**, 名单仍有效
-      (这正是新链路的设计目标: 展示字段降级不影响名单)
+    2026-09-09 起新链路是**唯一**选股链路: 此前"新链路不可用 → 静默回退老链路"
+    的双轨已删除。理由: 双轨让新链路的缺陷永远暴露不出来(生产竞价窗口 25 次
+    调用全部入选 0 只, 因为 n_universe>0 被判成功、回退根本没触发, 用户只看到
+    空名单而日志一片 INFO)。现在失败就是失败 —— 明确报错, 降级**必须可见**。
+
+    判定失败只看一件事: **名单源有没有给出全市场行**(n_universe>0)。
+    - 名单源失败 → err(不提供名单: 竞价数据不可伪造)
+    - 补丁源失败 / 强度缺失 → n_universe>0, 只是 degraded → **不算失败**
     - 入选 0 只是合法空名单, 同样不算失败
-    异常一律吞掉 → 返回 None, 绝不把新链路的异常抛给用户。
+    异常一律转成 err, 绝不把堆栈抛给用户。
     """
     try:
         from ..services.picker import mode as pmode
         from ..services.picker import pipeline
+        # 抢筹明细必须在**此处**注入: 切流后 api 层直接构造 PickContext(不走
+        # pipeline.load_context), 漏传会让 ctx.qiangchou_detail 为空 → 左视图
+        # 抢筹细分(🔥竞额/🔥涨幅/🔥末秒)全丢, 只剩旧公式打标(2026-09-09 修)。
+        try:
+            qc_detail = kpl.get_qiangchou_detail() or {}
+        except Exception as e:                                 # noqa: BLE001
+            log.warning("抢筹明细加载失败(回退旧公式) err=%s", e)
+            qc_detail = {}
         ctx = pipeline.PickContext(
             date=pmode.bj_date(),
             markets=f.get("markets"),
             zt_codes=(_safe_zt_codes() if not f.get("limitUp") else None),
+            qiangchou_detail=qc_detail or None,
+            qiangchou_codes=set(qc_detail.keys()) if qc_detail else None,
             day_bid_change=bid_chg_map or {},
             day_bid_amt_wan=bid_amt_map or {},
             yesterday_chg=yesterday_chg_map or {},
@@ -104,41 +105,19 @@ def _run_new_pipeline(uid, action, f, *, yesterday_map, yesterday_chg_map,
         )
         res = pipeline.run(f, ctx=ctx)
     except Exception as e:                                     # noqa: BLE001
-        log.error("新链路异常 → 回退老链路 uid=%s action=%s err=%s",
-                  uid, action, e, exc_info=True)
-        return None
+        log.error("选股链路异常 uid=%s action=%s err=%s", uid, action, e, exc_info=True)
+        return None, "选股服务异常: %s" % e
     if res.n_universe <= 0:
-        log.warning("新链路名单源无数据 → 回退老链路 uid=%s action=%s pick_mode=%s errors=%s",
+        # 降级必须可见(铁律2): 不提供名单 + 明示原因, 而不是静默返回空列表
+        log.warning("名单源无数据 → 不提供名单 uid=%s action=%s pick_mode=%s errors=%s",
                     uid, action, res.mode, res.errors[:3])
-        return None
-    log.info("选股走新链路 uid=%s action=%s pick_mode=%s 全市场%d 候选%d 入选%d 源=%s "
+        msg = "；".join(res.errors[:2]) or "名单源无数据"
+        return None, "%s(%s)" % (res.mode_label or "当前时段", msg)
+    log.info("选股 uid=%s action=%s pick_mode=%s 全市场%d 候选%d 入选%d 源=%s "
              "降级=%s 剔除=%s 耗时%dms",
              uid, action, res.mode, res.n_universe, res.n_candidate, len(res.items),
              ",".join(res.sources), res.degraded, res.stats, res.elapsed_ms)
-    return res.items
-
-
-def _gray_run(uid, action, raw, f, result, *, bid_amt_map, bid_chg_map,
-              yesterday_chg_map):
-    """旁路跑新链路并与老结果对拍(任何异常都不影响老链路返回)。"""
-    try:
-        rep = _parity.compare(
-            result, raw, f,
-            day_bid_change=bid_chg_map or {}, day_bid_amt_wan=bid_amt_map or {},
-            yesterday_chg=yesterday_chg_map or {},
-            zt_codes=_safe_zt_codes(),
-            legacy_scored=None)
-        if rep.identical:
-            log.info("选股灰度对拍一致 uid=%s action=%s 老=%d只 新=%d只 耗时%dms",
-                     uid, action, len(rep.legacy), len(rep.new), rep.elapsed_ms)
-        else:
-            log.warning("选股灰度对拍差异 uid=%s action=%s %s | 仅老=%s 仅新=%s "
-                        "分差=%s 字段差=%s 新链路错误=%s",
-                        uid, action, rep.summary(), rep.only_legacy[:10],
-                        rep.only_new[:10], rep.score_diff[:6],
-                        rep.field_diff[:6], rep.errors[:3])
-    except Exception as e:
-        log.warning("选股灰度对拍失败(不影响返回) uid=%s err=%s", uid, str(e)[:200])
+    return res.items, None
 
 
 def _parity_reverse(uid, action, raw, f, new_items, *, yesterday_map, snapshot_map,
@@ -513,36 +492,26 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         if action == "lock" and auction_ok and not snapshot_map:
             log.warning("9:25 lock 时当日 9:20 快照缺失! 加速度无法计算, 请检查9:20调度/东财接口 uid=%s", uid)
         # 评分计算不持锁: 多用户并发选股互不阻塞, 只共享只读的行情快照
-        # 2026-09-01 抢筹口径: 左视图抢筹=右视图竞价异动"竞价抢筹"代码集(9:20→9:25涨幅/最后一秒段)
-        qc_detail = kpl.get_qiangchou_detail()
-        # 重构 P5 切流: picker_cutover=1 → 主链路走 picker.pipeline, 不可用自动回退老链路
-        used_new = False
-        result = None
-        if _cutover_enabled():
-            result = _run_new_pipeline(uid, action, f, yesterday_map=yesterday_map,
-                                       yesterday_chg_map=yesterday_chg_map,
-                                       snapshot_map=snapshot_map,
-                                       bid_amt_map=bid_amt_map,
-                                       bid_chg_map=bid_chg_map)
-            used_new = result is not None
-        if result is None:
-            result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_detail=qc_detail,
-                                               day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map,
-                                               yesterday_chg_map=yesterday_chg_map,
-                                               strengths=_load_strengths(raw))
+        # (抢筹明细由 pipeline 的 PickContext 内部注入, 见 _run_new_pipeline)
+        # 2026-09-09 起: picker.pipeline 是**唯一**选股链路, 不再回退老链路
+        # (双轨的存在让新链路缺陷永远暴露不出来 —— 竞价窗口恒返回 0 只跑了一整天
+        #  无人发现, 因为 n_universe>0 被判成功、回退根本没触发)。
+        result, perr = _run_new_pipeline(uid, action, f, yesterday_map=yesterday_map,
+                                         yesterday_chg_map=yesterday_chg_map,
+                                         snapshot_map=snapshot_map,
+                                         bid_amt_map=bid_amt_map,
+                                         bid_chg_map=bid_chg_map)
+        if perr:
+            return jr({"ok": False, "msg": "选股数据不可用: %s" % perr,
+                       "strategy": "auction", "mode": "auction", "list": [], "count": 0})
         # 概念用开盘啦覆盖(落库前覆盖: 页面/历史批次/推送全部统一开盘啦概念)
         _apply_kpl_board(result, "auction")
         if _gray_enabled():
-            if used_new:
-                # 切流后反向对拍: 返回的是新结果, 旁路跑老链路比对(观察期用, 只打日志)
-                _parity_reverse(uid, action, raw or [], f, result,
-                                yesterday_map=yesterday_map, snapshot_map=snapshot_map,
-                                bid_amt_map=bid_amt_map, bid_chg_map=bid_chg_map,
-                                yesterday_chg_map=yesterday_chg_map)
-            else:
-                _gray_run(uid, action, raw or [], f, result,
-                          bid_amt_map=bid_amt_map, bid_chg_map=bid_chg_map,
-                          yesterday_chg_map=yesterday_chg_map)
+            # 观察期旁路对拍: 跑一遍老链路与本次结果比对, 只打日志不影响返回
+            _parity_reverse(uid, action, raw or [], f, result,
+                            yesterday_map=yesterday_map, snapshot_map=snapshot_map,
+                            bid_amt_map=bid_amt_map, bid_chg_map=bid_chg_map,
+                            yesterday_chg_map=yesterday_chg_map)
     except Exception as e:
         log.error("选股处理失败 uid=%s action=%s strategy=%s err=%s", uid, action, strategy, e, exc_info=True)
         return jr({"ok": False, "msg": "服务端处理失败: %s" % e}, 500)

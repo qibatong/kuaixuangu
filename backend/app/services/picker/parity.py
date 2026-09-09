@@ -105,46 +105,10 @@ def _legacy_patch_clock(scorer, auction_window: bool):
     return o_win, o_hm
 
 
-# ---------------------------------------------------------------- 对拍主入口
-def compare(legacy_items: List[dict], raw: List[dict], f: Dict, *,
-            auction_window: bool = False,
-            day_bid_change: Optional[Dict[str, float]] = None,
-            day_bid_amt_wan: Optional[Dict[str, float]] = None,
-            yesterday_chg: Optional[Dict[str, float]] = None,
-            zt_codes: Optional[Set[str]] = None,
-            day_bid_vol: Optional[Dict[str, float]] = None,
-            legacy_scored: Optional[List[dict]] = None) -> ParityReport:
-    """**灰度专用**: 老链路结果已算出(legacy_items)时, 只跑新链路并比对,
-    不重复跑老链路(线上双跑的成本减半)。
-
-    legacy_scored: 老链路 score_all_stocks 的输出(过滤前, 含全部评分行)。给了就能
-    比对"同为落选票的分数差异", 不给则只比对最终名单。
-    """
-    t0 = time.time()
-    rep = ParityReport(n_raw=len(raw or []))
-    dc = day_bid_change or {}
-    da = day_bid_amt_wan or {}
-    yc = yesterday_chg or {}
-    dv = day_bid_vol or {}
-
-    from ...core import logger
-    log = logger.get_logger(__name__)
-    try:
-        from . import pipeline
-        ctx = pipeline.PickContext(
-            markets=f.get("markets"), zt_codes=zt_codes,
-            day_bid_change=dc, day_bid_amt_wan=da, day_bid_vol=dv,
-            yesterday_chg=yc)
-        pres = pipeline.run(f, ctx=ctx, now=None)
-    except Exception as e:                                   # noqa: BLE001
-        log.warning("灰度新链路执行失败(不影响老链路返回) err=%s", e)
-        rep.errors.append("新链路异常: %s" % e)
-        rep.elapsed_ms = int((time.time() - t0) * 1000)
-        return rep
-    rep.errors.extend(pres.errors)
-    rep.new_stats = dict(pres.stats)
-    rep.new = list(pres.items)
-    return _diff_into(rep, legacy_items, t0)
+# ---------------------------------------------------------------- 对拍入口
+# 2026-09-09: 正向对拍 compare()(灰度期老结果已算出, 只跑新链路比对)随
+# 老链路主路径一并删除 —— 选股已切到 picker.pipeline 且不再回退, 该函数零调用。
+# 反向对拍 _parity_reverse 走下面的 diff_items()。
 
 
 def diff_items(legacy_items: List[dict], new_items: List[dict]) -> ParityReport:

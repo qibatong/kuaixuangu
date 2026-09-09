@@ -95,20 +95,34 @@ def test_is_user_active_expired(client, first_user):
     assert ok is False and "过期" in why
 
 
+def _no_list(*a, **k):
+    """模拟名单源无数据(2026-09-09 起主链路 = picker.pipeline)"""
+    class _Empty:
+        items = []
+        errors = ["名单源无数据(模拟)"]
+
+        def summary(self):
+            return "模拟空名单"
+    return _Empty()
+
+
+def _boom_lock(*a, **k):
+    raise RuntimeError("boom")
+
+
 def test_auto_apply_missing_cache(monkeypatch):
-    """行情缓存缺失 → 返回 0 应用于 error"""
-    monkeypatch.setattr(fetcher, "ensure_cache", lambda *a, **k: (None, "no cache"))
+    """名单源无数据 → 返回 0 应用于 error(不再回退老链路)"""
+    from app.services.picker import lock as plock
+    monkeypatch.setattr(plock, "run_lock", _no_list)
     r = auto_apply.auto_apply_all_users()
     assert r["applied"] == 0
     assert "error" in r
 
 
 def test_auto_apply_score_failure(monkeypatch):
-    """评分异常 → 返回 0 应用于 error"""
-    monkeypatch.setattr(fetcher, "ensure_cache", lambda *a, **k: ([_mk_raw()], None))
-    monkeypatch.setattr(fetcher, "fetch_yesterday_amounts", lambda *a, **k: {})
-    monkeypatch.setattr(auction_snapshot, "load_snapshot", lambda *a, **k: {})
-    monkeypatch.setattr(scorer, "score_all_stocks", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    """选股链路异常 → 返回 0 应用于 error"""
+    from app.services.picker import lock as plock
+    monkeypatch.setattr(plock, "run_lock", _boom_lock)
     r = auto_apply.auto_apply_all_users()
     assert r["applied"] == 0 and "error" in r
 

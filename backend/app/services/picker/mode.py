@@ -60,6 +60,21 @@ class ModePolicy:
     realtime_patch: bool             # 是否允许刷新展示字段(realChange/entityChange)。
                                      # 只补**已入选票**的展示值: 不重排/不重筛/不增票
     fail_message: str                # 取数全失败时给用户的明示文案(铁律2: 降级必须可见)
+    list_source_count: int = 1
+    """前 N 个 source_priority 为**名单源**(依次尝试, 第一个成功的为准);
+    其余为**补丁源**(只补展示字段, 不改名单)。>1 = 该时段需多源容灾。
+
+    竞价窗口设 2(东财 → 腾讯全市场): 此前只有 source_priority[0] 是名单源,
+    tencent_market 排第二却只被当补丁源用 → 名单源实际单点; 生产机东财被墙时
+    全靠 ensure_cache 内部隐式切腾讯, 降级在日志里不可见(降级=False)。"""
+
+    @property
+    def list_sources(self) -> Tuple[str, ...]:
+        return self.source_priority[:max(1, self.list_source_count)]
+
+    @property
+    def patch_sources(self) -> Tuple[str, ...]:
+        return self.source_priority[max(1, self.list_source_count):]
 
 
 POLICIES = {
@@ -87,7 +102,12 @@ POLICIES = {
         # 2026-09-08 P3: 竞价窗口**没有当日定格快照**(9:25 才定格), 名单只能来自
         # 实时全市场(点查源需要候选 codes, 此时无候选可用 → 取不到源)。
         # 这是唯一允许"名单随行情变化"的模式(deterministic=False)。
+        # 2026-09-09 修正: 竞价窗口**两个都是名单源**(东财挂了直接切腾讯全市场),
+        # 此前 list_source_count 默认 1 → tencent_market 只被当补丁源用, 名单源实际
+        # 单点; 生产机东财被墙(今日东财全市场失败 2357 次)时全靠 ensure_cache 内部
+        # 隐式切腾讯, 降级在日志里不可见(降级=False), 排查只能靠猜。
         source_priority=("eastmoney_market", "tencent_market"),
+        list_source_count=2,
         deterministic=False,         # 竞价数据实时在变 — 唯一允许名单变化的模式
         allow_lock=False,
         auction_window=True,

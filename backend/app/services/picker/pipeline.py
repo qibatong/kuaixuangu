@@ -138,22 +138,36 @@ def _merge_rows(base: Dict[str, QuoteRow],
 
 def _fetch_list(ctx: PickContext, policy: pm.ModePolicy,
                 filters: Dict) -> SourceResult:
-    """名单源(source_priority[0])"""
-    label = policy.source_priority[0]
-    src = get_source(label)
-    if src is None:
-        return SourceResult(label=label, error="未知数据源标签: %s" % label,
-                            degraded=True)
-    return src.run(FetchContext(
-        policy=policy, date=ctx.date, markets=filters.get("markets"),
-        day_bid_change=ctx.day_bid_change, day_bid_amt_wan=ctx.day_bid_amt_wan,
-        day_bid_vol=ctx.day_bid_vol, yesterday_chg=ctx.yesterday_chg))
+    """名单源: source_priority[:list_source_count] **依次尝试**, 第一个成功的为准。
+
+    这不是"兜底"而是**源优先级** —— 外部行情源(东财被墙是生产常态)必须有替代,
+    该设计是业务必需而非技术债。区别在于: 每一步的 label/error/degraded 都进
+    PipelineResult, 降级在日志与接口里**可见**, 不是静默吞掉。
+    """
+    labels = list(policy.source_priority[:max(1, policy.list_source_count)])
+    last: Optional[SourceResult] = None
+    for label in labels:
+        src = get_source(label)
+        if src is None:
+            last = SourceResult(label=label, error="未知数据源标签: %s" % label,
+                                degraded=True)
+            continue
+        r = src.run(FetchContext(
+            policy=policy, date=ctx.date, markets=filters.get("markets"),
+            day_bid_change=ctx.day_bid_change, day_bid_amt_wan=ctx.day_bid_amt_wan,
+            day_bid_vol=ctx.day_bid_vol, yesterday_chg=ctx.yesterday_chg))
+        if r.ok:
+            return r
+        last = r
+        log.warning("名单源[%s]不可用, 尝试下一个 err=%s", label, r.error)
+    return last or SourceResult(label="?", error="无可用名单源", degraded=True)
 
 
 def _fetch_patch(ctx: PickContext, policy: pm.ModePolicy,
                  codes: Sequence[str], filters: Dict) -> Optional[SourceResult]:
-    """补丁源(source_priority[1:]): 逐个尝试, 第一个成功的即可。失败不影响名单。"""
-    for label in policy.source_priority[1:]:
+    """补丁源: source_priority[list_source_count:], 逐个尝试, 第一个成功的即可。
+    失败不影响名单(只影响现价/涨幅等展示字段与价格门槛)。"""
+    for label in policy.source_priority[max(1, policy.list_source_count):]:
         if not policy.realtime_patch:
             break
         src = get_source(label)

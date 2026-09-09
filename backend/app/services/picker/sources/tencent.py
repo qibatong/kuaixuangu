@@ -15,10 +15,16 @@ from .base import BaseSource, FetchContext, SourceResult
 
 
 def _rows_from_tencent(raw: Optional[List[dict]], ctx: FetchContext) -> Dict[str, QuoteRow]:
-    """腾讯 diff 行(东财同构) → QuoteRow, 并**强制**竞价字段只认定格值。
+    """腾讯 diff 行(东财同构) → QuoteRow, 竞价字段按**时段**决定是否可信。
 
-    auction_window 恒传 False: 腾讯 f615 本就是现价涨幅冒充的, 任何窗口都不该取。
+    腾讯没有竞价专属字段: f615 = 现价涨幅、f616 = 累计成交额(老链路兼容映射)。
+      窗口**外**(盘前/盘中/收盘): 现价涨幅 ≠ 竞价涨幅、累计额 ≠ 竞价额 → 取之即
+        事故(9/7 大跌票混入) → 一律清空, 只认 9:25 定格。
+      竞价窗口**内**(9:15-9:25): 尚未撮合, 现价就是竞价虚拟价、累计额就是竞价额
+        → 此时 f615/f616 **语义正确**, 必须取(否则竞价窗口内 bid_change 恒 None,
+        被 require_bid_change 全剔 → 名单恒空, 2026-09-09 生产实证)。
     """
+    win = bool(getattr(ctx.policy, "auction_window", False))
     rows: Dict[str, QuoteRow] = {}
     for s in raw or []:
         code = str(s.get("f12") or "")
@@ -26,15 +32,28 @@ def _rows_from_tencent(raw: Optional[List[dict]], ctx: FetchContext) -> Dict[str
             continue
         row = QuoteRow.from_eastmoney(
             s,
-            auction_window=False,                     # 腾讯无真实竞价字段, 永不取 f615
+            auction_window=win,                       # 源能力: 仅竞价窗口内可读 f615/f616
+            period_auction=win,                       # 时段事实: 供停牌判定(竞价期 vol 恒 0)
             yesterday_chg=ctx.yesterday_chg.get(code),
             degraded=True,                            # 走腾讯 = 东财已失败, 必然是降级
         )
-        # 竞价字段: 只有定格 map 是权威, 没有就 None(绝不拿现价涨幅顶替)
-        row.bid_change = ctx.day_bid_change.get(code)
+        # 竞价字段: 9:25 定格 map 是权威; 无定格时按**时段**决定是否保留行内实时值
+        #   - 竞价窗口内: 行内 f615/f616 语义正确(见上) → 保留
+        #   - 窗口外:     现价涨幅/累计额 ≠ 竞价数据 → 清空(绝不拿现价涨幅顶替)
+        if ctx.day_bid_change.get(code) is not None:
+            row.bid_change = ctx.day_bid_change[code]
+        elif not win:
+            row.bid_change = None
         amt_wan = ctx.day_bid_amt_wan.get(code)
-        row.bid_amt = None if amt_wan is None else amt_wan * 1e4   # 万元 → 元
-        row.bid_vol = ctx.day_bid_vol.get(code)     # 腾讯无竞价量, 只有定格值可用
+        if amt_wan is not None:
+            row.bid_amt = amt_wan * 1e4               # 万元 → 元
+        elif not win:
+            row.bid_amt = None
+        bv = ctx.day_bid_vol.get(code)                # 腾讯无竞价量字段, 只有定格值可用
+        if bv is not None:
+            row.bid_vol = bv
+        elif not win:
+            row.bid_vol = None
         row.source = "tencent"
         row.degraded = True
         rows[code] = row

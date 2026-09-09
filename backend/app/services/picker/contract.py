@@ -130,6 +130,14 @@ class QuoteRow:
     # 元信息
     source: str = ""
     degraded: bool = False
+    auction_window: bool = False
+    """**时段**标记: 本行是否采集于竞价窗口(9:15-9:25)。
+
+    与 from_eastmoney 的同名参数**语义不同**: 参数表示"该源是否允许读实时竞价字段
+    f615/f616"(源能力), 本字段表示"当前是不是竞价时段"(时段事实), 用于停牌判定:
+    竞价期内尚未撮合成交 → 成交量恒 0, 拿 vol==0 判停牌会把**全市场误杀**
+    (2026-09-09 生产实证: 竞价窗口 25 次调用入选恒为 0, 剔除原因全是 suspend)。
+    """
 
     # ---------- 派生量(property 计算, 不存储, 避免冗余不一致) ----------
     @property
@@ -137,9 +145,16 @@ class QuoteRow:
         """停牌判断: 昨收<=0 或 成交量==0 → 停牌。
         老逻辑 is_suspended(f4<=0 或 f5==0): 降级行无 f4/f5 时会被**误判为停牌**
         (2026-09-01 事故)。本契约下 prev_close/vol 皆 None → 返回 None(未知),
-        由调用方按模式策略决定"未知是否剔除", 不得默认剔除或默认保留。"""
+        由调用方按模式策略决定"未知是否剔除", 不得默认剔除或默认保留。
+
+        竞价窗口例外(2026-09-09 修复): 集合竞价期尚未撮合, 成交量**恒为 0**,
+        vol==0 此时是"还没开盘"而非"停牌" → 该时段只看昨收判定。真停牌股无竞价额,
+        仍会被 bidAmtFloor 门槛剔除(见 filter.apply_filters 第 7 步), 不放水。
+        """
         if self.prev_close is None or self.vol is None:
             return None
+        if self.auction_window:
+            return self.prev_close <= 0
         return self.prev_close <= 0 or self.vol == 0
 
     @property
@@ -239,11 +254,15 @@ class QuoteRow:
                        day_bid_amt_wan: Optional[float] = None,
                        yesterday_chg: Optional[float] = None,
                        day_bid_vol: Optional[float] = None,
-                       degraded: bool = False) -> "QuoteRow":
+                       degraded: bool = False,
+                       period_auction: Optional[bool] = None) -> "QuoteRow":
         """东财 push2 diff 行 → QuoteRow。
 
-        auction_window: 是否处于竞价窗口(9:15-9:31)。**仅窗口内**才允许取 f615/f616
-            作为竞价字段; 窗口外 f615 为 "-" / f616 退回历史值, 取之即事故。
+        auction_window: 该源**是否允许读取实时竞价字段** f615/f616(源能力)。
+            **仅竞价窗口内**才允许取; 窗口外 f615 为 "-" / f616 退回历史值,
+            取之即事故(9/7 竞涨=现涨)。腾讯等无竞价字段的源恒传 False。
+        period_auction: **时段**事实(是否 9:15-9:25), 写进 QuoteRow.auction_window
+            供停牌判定使用; None 时回退取 auction_window 的值(东财源两者同义)。
         day_bid_change / day_bid_amt_wan / day_bid_vol: 9:25 定格值(额为万元), 由
             调用方传入; 提供时**优先**于实时字段(定格是竞价字段的权威来源,
             见 FIELD_AUTHORITY)。窗口外竞价量只能来自定格 —— 没有就是 None。
@@ -268,6 +287,8 @@ class QuoteRow:
             yesterday_change=yesterday_chg,
             source="eastmoney",
             degraded=degraded,
+            auction_window=(auction_window if period_auction is None
+                            else period_auction),
         )
         # 竞价字段: 定格值优先 → 窗口内实时 → None(绝不退化 f3)
         if day_bid_change is not None:

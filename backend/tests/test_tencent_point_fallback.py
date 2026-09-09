@@ -4,6 +4,10 @@
 的快照行」(9/8 早生产实锤: 东财断连 30+ 分钟 → 快照行直出名单 real_change 全 0 +
 price=0 让 priceGt 失效/confidence 偏高让双低剔除失效 → 同参数名单虚胖 35→70 只)。
 
+计数口径(2026-09-09): 选股主链路切到 picker.pipeline 后, 补丁源(新链路)
+与 raw 准备(老路径)各点查一次 → 计数断言为"至少一次"; 真正要守住的是
+**ensure_cache 实时全市场 0 次**(名单波动与加载慢的根因)。
+
 核心不变量:
 1. 东财点查失败 → 腾讯点查被调用, 名单有真实实时涨幅(realChange≠0), 不拉实时全市场
 2. 东财+腾讯都失败 → 快照行直出兜底(保名单非空), 仍不拉实时全市场
@@ -15,6 +19,17 @@ from app.services import auction_snapshot, fetcher, scorer
 
 # 与 test_stocks.py 同款: conftest 的 MOCK_RAW(全通过默认筛选的行情行)
 from conftest import MOCK_RAW
+
+# conftest 的 session fixture 会把 fetch_tencent_by_codes 桩掉(防测试打真实网络),
+# 但本文件底部的**映射正确性单测**必须跑真实实现。模块导入早于 session fixture →
+# 此刻拿到的是未被桩的原始函数, 用 autouse fixture 还给这三个用例。
+_REAL_TX = fetcher.fetch_tencent_by_codes
+
+
+@pytest.fixture(autouse=True)
+def _restore_real_tencent(monkeypatch):
+    """映射单测需要真实实现; 用例内若自行 monkeypatch 则以其为准"""
+    monkeypatch.setattr(fetcher, "fetch_tencent_by_codes", _REAL_TX)
 
 
 def _snap_rows():
@@ -37,7 +52,7 @@ def _mock_8am(monkeypatch):
 
 def _mock_snap_pool_base(monkeypatch, calls):
     """桩掉快照池数据源与 ensure_cache(计数 ensure); 返回 calls dict"""
-    monkeypatch.setattr(auction_snapshot, "load_snapshot_full", lambda: _snap_rows())
+    monkeypatch.setattr(auction_snapshot, "load_snapshot_full", lambda *a, **kw: _snap_rows())
     monkeypatch.setattr(auction_snapshot, "load_snapshot", lambda: {})
     monkeypatch.setattr(auction_snapshot, "load_day_bid_amt",
                         lambda: {"600001": 5000.0})     # 万元, ≥bidAmtFloor
@@ -91,8 +106,8 @@ def test_point_fail_then_tencent_query(client, create_user_token, monkeypatch):
     codes = {s["code"] for s in d["list"]}
     assert "600001" in codes, "腾讯点查的合格候选应入选"
     hit = [s for s in d["list"] if s["code"] == "600001"][0]
-    assert calls["east"] == 1, "东财点查应先被触发(随后失败)"
-    assert calls["tx"] == 1, "东财失败后应切腾讯点查"
+    assert calls["east"] >= 1, "东财点查应先被触发(随后失败)"
+    assert calls["tx"] >= 1, "东财失败后应切腾讯点查"
     assert calls["ensure"] == 0, "东财+腾讯场景都不得降级 ensure_cache 实时全市场"
     assert hit["realChange"] != 0, "腾讯真实行情应进入评分/展示(现涨幅非 0, 不再是僵尸名单)"
     assert abs(hit["bidChange"] - 3.5) < 1e-6, "竞涨仍为 9:25 定格 3.5(窗口外 map 覆写)"
@@ -122,7 +137,7 @@ def test_point_and_tencent_both_fail_snapshot_rows(client, create_user_token, mo
     assert r.status_code == 200 and d.get("ok"), d
     codes = {s["code"] for s in d["list"]}
     assert "600001" in codes, "双源失败后快照行直出仍应保名单非空"
-    assert calls["east"] == 1 and calls["tx"] == 1, "双源都应被依次尝试"
+    assert calls["east"] >= 1 and calls["tx"] >= 1, "双源都应被依次尝试"
     assert calls["ensure"] == 0, "即使双源全挂也不得降级实时全市场(波动根因)"
     hit = [s for s in d["list"] if s["code"] == "600001"][0]
     assert hit["realChange"] in (0.0, None), "双源全挂的最终兜底=快照直出(无实时行情)"
