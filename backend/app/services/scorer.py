@@ -675,9 +675,41 @@ def is_qiangchou(bid_change, bid_ratio):
     return bid_change >= 2
 
 
+_QC_LABEL = {"amt": "竞额", "chg": "涨幅", "last": "末秒"}
+_QC_UNIT = {"amt": "%", "chg": "个百分点", "last": "个百分点"}
+
+
+def _qc_fields(code, qiangchou_codes=None, qiangchou_detail=None,
+               bid_change=None, bid_ratio=None):
+    """抢筹输出字段(2026-09-09 主人需求: 左视图只看到 🔥 分不清类型、看不到幅度)
+
+    三级回退, 口径由细到粗:
+      1) qiangchou_detail 命中 → 带类型(amt/chg/last) + 各自幅度 + 中文摘要 qcText
+      2) 仅有 qiangchou_codes(旧调用/数据源只给集合) → 只打标, 无类型无幅度
+      3) 两者皆无(数据源故障) → 旧公式 is_qiangchou 兜底, 并置 qcFallback=1
+    """
+    d = (qiangchou_detail or {}).get(str(code or ""))
+    if d and d.get("types"):
+        types = [t for t in d["types"] if t in _QC_LABEL]
+        parts = ["%s抢筹 %s%s" % (_QC_LABEL[t], d.get(t), _QC_UNIT[t])
+                 for t in types if d.get(t) is not None]
+        return {"qiangchou": 1, "qcType": "+".join(types),
+                "qcAmt": d.get("amt"), "qcChg": d.get("chg"), "qcLast": d.get("last"),
+                "qcText": "；".join(parts) or "命中竞价抢筹", "qcFallback": 0}
+    if qiangchou_codes:
+        hit = 1 if code in qiangchou_codes else 0
+        return {"qiangchou": hit, "qcType": "qc" if hit else "",
+                "qcAmt": None, "qcChg": None, "qcLast": None,
+                "qcText": "命中竞价抢筹" if hit else "", "qcFallback": 0}
+    hit = 1 if is_qiangchou(bid_change, bid_ratio) else 0
+    return {"qiangchou": hit, "qcType": "formula" if hit else "",
+            "qcAmt": None, "qcChg": None, "qcLast": None,
+            "qcText": "公式兜底(竞涨≥2% 且 竞/昨≥20%)" if hit else "", "qcFallback": 1 if hit else 0}
+
+
 def score_all_stocks(raw, yesterday_map=None, snapshot_map=None, qiangchou_codes=None,
                      day_bid_amt=None, day_bid_change=None, yesterday_chg_map=None,
-                     strengths=None):
+                     strengths=None, qiangchou_detail=None):
     """全市场评分 + 排序(不按用户过滤); 返回 scored 列表(含 _raw)
     2026-08-16 拆分: 9:26 自动应用按用户复用同一份评分, 只各自过滤,
     避免 150+ 用户各跑一次全市场评分(性能 150 倍差距)。
@@ -766,10 +798,8 @@ def score_all_stocks(raw, yesterday_map=None, snapshot_map=None, qiangchou_codes
             "bidRatio": bid_ratio,      # 竞价成交额/前一交易日成交额 (%)
             "accel": accel,             # 9:25-9:20 涨幅加速度(%)
             "price": parse_float(s.get("f2")),
-            # 2026-09-01 抢筹口径改版: 命中右视图"竞价抢筹"代码集合才打标;
-            # 集合为空/未传(数据源故障或非竞价场景)回退旧公式(涨幅>=2% 且 竞/昨>=20%)
-            "qiangchou": (1 if s.get("f12") in qiangchou_codes else 0)
-                        if qiangchou_codes else (1 if is_qiangchou(get_bid_change(s), bid_ratio) else 0),
+            **_qc_fields(s.get("f12"), qiangchou_codes, qiangchou_detail,
+                        get_bid_change(s), bid_ratio),
             # 实时维度字段(盘中模式同竞价模式都用, 前端展示; 不参与竞价评分/过滤)
             "volRatio": parse_float(s.get("f10")),
             "turnover": parse_float(s.get("f8")),
@@ -781,7 +811,7 @@ def score_all_stocks(raw, yesterday_map=None, snapshot_map=None, qiangchou_codes
 
 def process_all_stocks(raw, f, yesterday_map=None, snapshot_map=None, qiangchou_codes=None,
                        day_bid_amt=None, day_bid_change=None, yesterday_chg_map=None,
-                       strengths=None):
+                       strengths=None, qiangchou_detail=None):
     """全市场竞价评分(与竞价锁定共用同一套): 评分 + 过滤 + 排序。
     兼容入口(2026-09-01 可测性重构后内部复用 score_all_stocks + apply_filters);
     与 score_all_stocks + apply_filters 拆分等价, 保留兼容入口: 评分 + 过滤 + 清理 _raw。
@@ -793,7 +823,8 @@ def process_all_stocks(raw, f, yesterday_map=None, snapshot_map=None, qiangchou_
     f3 造成 竞涨=现涨 + 「涨幅≤bidGt」过滤按现价(细节见 score_all_stocks)。
     """
     scored = score_all_stocks(raw, yesterday_map, snapshot_map, qiangchou_codes,
-                              day_bid_amt, day_bid_change, yesterday_chg_map, strengths)
+                              day_bid_amt, day_bid_change, yesterday_chg_map, strengths,
+                              qiangchou_detail)
     result = apply_filters(scored, f)
     for it in result:
         it.pop("_raw", None)

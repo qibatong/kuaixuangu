@@ -67,6 +67,10 @@ def init_db():
     # 落库时保存打标结论, 历史批次/9:30后锁定名单回看仍能显示 🔥 抢筹)
     if "qiangchou" not in bcols:
         cur.execute("ALTER TABLE batch_stocks ADD COLUMN qiangchou INTEGER NOT NULL DEFAULT 0")
+    # 老库迁移: 抢筹明细 JSON(2026-09-09 左视图要区分竞额/涨幅/末秒抢筹并看幅度)
+    # 结构: {"t":"amt+chg","a":1.23,"c":0.85,"l":0.4,"x":"竞额抢筹 1.23%；...","f":0}
+    if "qc_detail" not in bcols:
+        cur.execute("ALTER TABLE batch_stocks ADD COLUMN qc_detail TEXT")
     # 用户表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (

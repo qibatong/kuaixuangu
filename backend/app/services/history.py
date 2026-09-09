@@ -14,6 +14,37 @@ from . import scorer
 log = logger.get_logger(__name__)
 
 
+def _qc_pack(s):
+    """实时评分 item → 抢筹明细 JSON(落库, 2026-09-09)
+
+    历史批次/9:30 后锁定名单回看时, 抢筹数据源已切到最新交易日, 重新拉会串味 ——
+    故落库时把"类型+幅度+摘要"一起存下, 回看直接读库还原。
+    """
+    if not s.get("qiangchou") or not s.get("qcType"):
+        return None
+    return json.dumps({"t": s.get("qcType") or "", "a": s.get("qcAmt"),
+                       "c": s.get("qcChg"), "l": s.get("qcLast"),
+                       "x": s.get("qcText") or "", "f": 1 if s.get("qcFallback") else 0},
+                      ensure_ascii=False)
+
+
+def _qc_unpack(d):
+    """落库 JSON → 输出字段(回看还原细分; 无明细=旧批次, 退化为只打 🔥)"""
+    out = {"qcType": "", "qcAmt": None, "qcChg": None,
+           "qcLast": None, "qcText": "", "qcFallback": 0}
+    if not d:
+        return out
+    try:
+        j = json.loads(d) if isinstance(d, str) else (d or {})
+    except (TypeError, ValueError):
+        return out
+    if isinstance(j, dict):
+        out.update({"qcType": j.get("t") or "", "qcAmt": j.get("a"),
+                    "qcChg": j.get("c"), "qcLast": j.get("l"),
+                    "qcText": j.get("x") or "", "qcFallback": j.get("f") or 0})
+    return out
+
+
 def _conn():
     conn = sqlite3.connect(config.DB_FILE)
     conn.row_factory = sqlite3.Row
@@ -49,11 +80,11 @@ def save_batch(user_id, action, result, f, auto_applied=False):
              1 if auto_applied else 0))
         batch_id = cur.lastrowid
         cur.executemany(
-            "INSERT INTO batch_stocks (batch_id, rank, code, name, probability, confidence, bid_change, real_change, entity_change, bid_turnover, warn_type, circulation_mv, industry, concept, bid_amt, bid_ratio, qiangchou) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO batch_stocks (batch_id, rank, code, name, probability, confidence, bid_change, real_change, entity_change, bid_turnover, warn_type, circulation_mv, industry, concept, bid_amt, bid_ratio, qiangchou, qc_detail) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [(batch_id, i + 1, s["code"], s["name"], s["probability"], s["confidence"],
               s["bidChange"], s["realChange"], s["entityChange"], s["bidTurnover"],
               s["warnType"], s["circulationMV"], s["industry"], s["concept"], s["bidAmt"],
-              s.get("bidRatio"), 1 if s.get("qiangchou") else 0)
+              s.get("bidRatio"), 1 if s.get("qiangchou") else 0, _qc_pack(s))
              for i, s in enumerate(result)])
         conn.commit()
         conn.close()
@@ -300,6 +331,7 @@ def get_batch_stocks_mapped(batch_id):
             "bidAmt": s["bid_amt"],
             "bidRatio": s.get("bid_ratio"),
             "qiangchou": 1 if s.get("qiangchou") else 0,
+            **_qc_unpack(s.get("qc_detail")),
         })
     return out
 
@@ -411,5 +443,9 @@ def query_history(uid, q):
         conn.close()
         raise
     conn.close()
-    return {"total": total, "page": page, "pageSize": page_size,
-            "rows": [dict(r) for r in rows]}
+    out_rows = []
+    for r in rows:
+        d = dict(r)
+        d.update(_qc_unpack(d.pop("qc_detail", None)))   # JSON → 抢筹细分字段
+        out_rows.append(d)
+    return {"total": total, "page": page, "pageSize": page_size, "rows": out_rows}

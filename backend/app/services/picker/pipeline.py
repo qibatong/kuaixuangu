@@ -35,6 +35,27 @@ from .sources.base import FetchContext, SourceResult, get_source
 log = logger.get_logger(__name__)
 
 
+_QC_LABEL = {"amt": "竞额", "chg": "涨幅", "last": "末秒"}
+_QC_UNIT = {"amt": "%", "chg": "个百分点", "last": "个百分点"}
+
+
+def _qc_of(code: str, ctx: "PickContext") -> dict:
+    """抢筹输出(2026-09-09): 明细优先(带类型 amt/chg/last + 各自幅度 + 中文摘要),
+    无明细才退回纯代码集合(只打标)。与 scorer._qc_fields 同口径, 双跑对拍结果一致。"""
+    d = (ctx.qiangchou_detail or {}).get(code)
+    if d and d.get("types"):
+        types = [t for t in d["types"] if t in _QC_LABEL]
+        parts = ["%s抢筹 %s%s" % (_QC_LABEL[t], d.get(t), _QC_UNIT[t])
+                 for t in types if d.get(t) is not None]
+        return {"qiangchou": 1, "qcType": "+".join(types),
+                "qcAmt": d.get("amt"), "qcChg": d.get("chg"), "qcLast": d.get("last"),
+                "qcText": "；".join(parts) or "命中竞价抢筹", "qcFallback": 0}
+    hit = 1 if (ctx.qiangchou_codes and code in ctx.qiangchou_codes) else 0
+    return {"qiangchou": hit, "qcType": "qc" if hit else "",
+            "qcAmt": None, "qcChg": None, "qcLast": None,
+            "qcText": "命中竞价抢筹" if hit else "", "qcFallback": 0}
+
+
 @dataclass
 class PickContext:
     """一次选股所需的**外部事实**(全部可注入 → 单测无需网络/DB)"""
@@ -42,6 +63,7 @@ class PickContext:
     markets: Optional[List[str]] = None
     zt_codes: Optional[Set[str]] = None          # 昨涨停/连板(None=名单不可用)
     qiangchou_codes: Optional[Set[str]] = None   # 竞价抢筹(None=回退公式)
+    qiangchou_detail: Optional[Dict[str, dict]] = None  # 抢筹明细{code:{types,amt,chg,last}}
     day_bid_change: Dict[str, float] = field(default_factory=dict)   # 9:25 定格涨幅 %
     day_bid_amt_wan: Dict[str, float] = field(default_factory=dict)  # 9:25 定格额(万元)
     day_bid_vol: Dict[str, float] = field(default_factory=dict)      # 9:25 定格量(股)
@@ -251,7 +273,7 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
             "bidAmt": None if bid_amt_wan is None else round(bid_amt_wan, 2),
             "bidRatio": bid_ratio,
             "accel": accel,
-            "qiangchou": (1 if (qc is not None and r.code in qc) else 0),
+            **_qc_of(r.code, ctx),
             "province": "-",
             "speed": r.turnover,
             "warnType": warn_label,
@@ -298,8 +320,10 @@ def load_context(date: Optional[str] = None,
     except Exception as e:                                    # noqa: BLE001
         log.warning("9:20 快照加载失败(加速度不可算) err=%s", e)
     try:
-        qc = kpl.get_qiangchou_codes()
-        ctx.qiangchou_codes = set(qc) if qc else None
+        # 用明细(含类型+幅度)而非纯代码集: 左视图要能区分竞额/涨幅/末秒抢筹(2026-09-09)
+        det = kpl.get_qiangchou_detail()
+        ctx.qiangchou_detail = det or None
+        ctx.qiangchou_codes = set(det.keys()) if det else None
     except Exception as e:                                    # noqa: BLE001
         log.warning("抢筹名单加载失败(回退公式) err=%s", e)
     return ctx

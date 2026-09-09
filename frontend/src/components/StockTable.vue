@@ -21,7 +21,7 @@
         <tr>
           <th class="sortable merged-col col-name" :class="{ active: sortKey === 'code' || sortKey === 'name' }" @click="onSort('code', 'string')">名称<span class="sort-ind">{{ sortInd('code') }}</span></th>
           <th class="sortable num col-realchg" :class="{ active: sortKey === 'realChange' }" title="实时涨幅：当前价相对昨收的涨幅" @click="onSort('realChange', 'number')">现涨<span class="sort-ind">{{ sortInd('realChange') }}</span></th>
-          <th class="sortable col-qc" :class="{ active: sortKey === 'qiangchou' }" title="命中竞价异动-竞价抢筹(9:20→9:25 竞价涨幅 / 最后一秒竞价涨幅)时标记 🔥抢筹：与右视图竞价抢筹口径一致，代表竞价阶段资金明显抢筹，是当日强势启动的先行信号" @click="onSort('qiangchou', 'number')">抢筹<span class="sort-ind">{{ sortInd('qiangchou') }}</span></th>
+          <th class="sortable col-qc" :class="{ active: sortKey === 'qiangchou' }" title="命中竞价异动-竞价抢筹时标记 🔥：与右视图竞价抢筹同源（9:20→9:25 竞额/涨幅抢筹 + 9:24→9:25 最后一秒）。徽章文字=抢筹类型（竞额/涨幅/末秒），悬停看各自幅度" @click="onSort('qiangchou', 'number')">抢筹<span class="sort-ind">{{ sortInd('qiangchou') }}</span></th>
           <th class="sortable num col-bidchg" :class="{ active: sortKey === 'bidChange' }" title="竞价涨幅" @click="onSort('bidChange', 'number')">竞涨<span class="sort-ind">{{ sortInd('bidChange') }}</span></th>
           <th class="sortable num col-entchg" :class="{ active: sortKey === 'entityChange' }" @click="onSort('entityChange', 'number')">实体<span class="sort-ind">{{ sortInd('entityChange') }}</span></th>
           <th class="sortable col-warn" :class="{ active: sortKey === 'warnType' }" @click="onSort('warnType', 'number')">异动<span class="sort-ind">{{ sortInd('warnType') }}</span></th>
@@ -46,7 +46,7 @@
           </td>
           <td :class="item.realChange === null || item.realChange === undefined ? 'dim' : realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + fmtPct(item._staleReal) + '）') : ''">{{ item.realChange === null || item.realChange === undefined ? '-' : signed(item.realChange) + '%' }}</td>
           <td>
-            <span v-if="item.qiangchou" class="qc-badge" title="命中竞价异动-竞价抢筹(9:20→9:25 竞价涨幅 / 最后一秒竞价涨幅)">🔥抢筹</span>
+            <span v-if="item.qiangchou" class="qc-badge" :title="qcTitle(item)">🔥{{ qcLabel(item) }}</span>
             <span v-else-if="item._snapshot || isAuction" title="竞价异动-竞价抢筹未命中(9:20→9:25 竞价涨幅 / 最后一秒竞价涨幅)">-</span>
             <span v-else class="qc-pending" title="9:25-9:30 竞价时段才判定抢筹信号">竞价时</span>
           </td>
@@ -85,6 +85,29 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['open-chart'])
+
+// ---- 抢筹细分(2026-09-09): 左视图区分竞额/涨幅/末秒抢筹并展示幅度 ----
+const QC_LABEL = { amt: '竞额', chg: '涨幅', last: '末秒' }
+
+function qcTypes(item) {
+  return (item.qcType || '').split('+').filter((t) => QC_LABEL[t])
+}
+
+function qcLabel(item) {
+  const ts = qcTypes(item)
+  if (!ts.length) return '抢筹'
+  return QC_LABEL[ts[0]] + (ts.length > 1 ? '·' + QC_LABEL[ts[1]] : '')
+}
+
+function qcTitle(item) {
+  const base = '竞价异动-竞价抢筹(与右视图同源)'
+  if (item.qcText) {
+    return base + '：' + item.qcText +
+      (item.qcFallback ? '（数据源异常，已用公式兜底，口径与右视图不同）' : '')
+  }
+  return item.qiangchou ? base + '：命中抢筹（本批次未记录细分幅度）'
+    : '竞价异动-竞价抢筹未命中'
+}
 
 // 是否处于竞价时段(9:30 前): 非竞价时段不判定抢筹, 显示"竞价时"
 const isAuction = isBefore930()

@@ -172,9 +172,9 @@ def _run_legacy(f_raw, time_point):
         k: [str(v)]
         for k, v in f_raw.items() if k != "markets"})
     # 2026-09-01 抢筹口径: 命中右视图竞价异动"竞价抢筹"代码集才打抢筹标
-    qc_codes = kpl.get_qiangchou_codes()
+    qc_detail = kpl.get_qiangchou_detail()
     result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map,
-                                       qiangchou_codes=qc_codes,
+                                       qiangchou_detail=qc_detail,
                                        day_bid_amt=bid_amt_map,
                                        day_bid_change=bid_chg_map,
                                        yesterday_chg_map=yesterday_chg_map,

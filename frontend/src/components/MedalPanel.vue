@@ -5,7 +5,7 @@
     </template>
     <div v-for="(item, i) in top3" :key="item.code" class="medal-card">
       <div class="medal-rank"><span class="medal-rank-icon"></span> {{ ['金牌', '银牌', '铜牌'][i] }}</div>
-      <div class="medal-name-big">{{ item.name }}<span v-if="item.qiangchou" class="qc-badge" title="命中竞价异动-竞价抢筹(9:20→9:25 竞价涨幅 / 最后一秒竞价涨幅)">🔥抢筹</span></div>
+      <div class="medal-name-big">{{ item.name }}<span v-if="item.qiangchou" class="qc-badge" :title="qcTitle(item)">🔥{{ qcLabel(item) }}</span></div>
       <div class="medal-code" @click="linkToSoftware(item.code)">{{ item.code }}</div>
       <!-- 实时涨幅顶替原"95分大字"位置(2026-08-18 主人反馈: 盘中关注点, 应是最显眼数字) -->
       <div class="medal-real-big" :class="{ 'green-real': item.realChange !== null && item.realChange !== undefined && item.realChange < item.bidChange }">
@@ -31,6 +31,25 @@ const props = defineProps({
 })
 
 const top3 = computed(() => props.stocks.slice(0, 3))
+
+// 抢筹细分(2026-09-09): 与选股表格同一套口径 —— 徽章显示类型, 悬停看幅度
+const QC_LABEL = { amt: '竞额', chg: '涨幅', last: '末秒' }
+function qcTypes(item) {
+  return (item.qcType || '').split('+').filter((t) => QC_LABEL[t])
+}
+function qcLabel(item) {
+  const ts = qcTypes(item)
+  if (!ts.length) return '抢筹'
+  return QC_LABEL[ts[0]] + (ts.length > 1 ? '·' + QC_LABEL[ts[1]] : '')
+}
+function qcTitle(item) {
+  const base = '竞价异动-竞价抢筹(与右视图同源)'
+  if (item.qcText) {
+    return base + '：' + item.qcText +
+      (item.qcFallback ? '（数据源异常，已用公式兜底）' : '')
+  }
+  return base + '：命中抢筹（本批次未记录细分幅度）'
+}
 
 // 涨幅格式化: null/undefined → '-'; >0 加 +
 function fmtPct(v) {

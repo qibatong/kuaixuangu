@@ -150,7 +150,7 @@ def _parity_reverse(uid, action, raw, f, new_items, *, yesterday_map, snapshot_m
     """
     try:
         legacy = scorer.process_all_stocks(
-            raw, f, yesterday_map, snapshot_map, qiangchou_codes=kpl.get_qiangchou_codes(),
+            raw, f, yesterday_map, snapshot_map, qiangchou_detail=kpl.get_qiangchou_detail(),
             day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map,
             yesterday_chg_map=yesterday_chg_map, strengths=_load_strengths(raw))
     except Exception as e:                                     # noqa: BLE001
@@ -304,8 +304,8 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
             # bidChange 以当日 9:25 定格竞价涨幅为准(防退 f3 → 竞涨=现涨/过滤按现价)
             bid_chg_map = auction_snapshot.load_day_bid_change()
             # 2026-09-01 抢筹口径: 左视图抢筹=右视图竞价异动"竞价抢筹"代码集(9:20→9:25涨幅/最后一秒段)
-            qc_codes = kpl.get_qiangchou_codes()
-            result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_codes=qc_codes,
+            qc_detail = kpl.get_qiangchou_detail()
+            result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_detail=qc_detail,
                                                day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map,
                                                yesterday_chg_map=yesterday_chg_map,
                                                strengths=_load_strengths(raw))
@@ -544,7 +544,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
             log.warning("9:25 lock 时当日 9:20 快照缺失! 加速度无法计算, 请检查9:20调度/东财接口 uid=%s", uid)
         # 评分计算不持锁: 多用户并发选股互不阻塞, 只共享只读的行情快照
         # 2026-09-01 抢筹口径: 左视图抢筹=右视图竞价异动"竞价抢筹"代码集(9:20→9:25涨幅/最后一秒段)
-        qc_codes = kpl.get_qiangchou_codes()
+        qc_detail = kpl.get_qiangchou_detail()
         # 重构 P5 切流: picker_cutover=1 → 主链路走 picker.pipeline, 不可用自动回退老链路
         used_new = False
         result = None
@@ -556,7 +556,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                                        bid_chg_map=bid_chg_map)
             used_new = result is not None
         if result is None:
-            result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_codes=qc_codes,
+            result = scorer.process_all_stocks(raw, f, yesterday_map, snapshot_map, qiangchou_detail=qc_detail,
                                                day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map,
                                                yesterday_chg_map=yesterday_chg_map,
                                                strengths=_load_strengths(raw))

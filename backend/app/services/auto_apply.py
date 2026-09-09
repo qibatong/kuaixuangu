@@ -156,8 +156,8 @@ def _legacy_result():
     # 全市场评分一次
     try:
         # 2026-09-01 抢筹口径: 命中右视图竞价异动"竞价抢筹"代码集才打抢筹标
-        qc_codes = kpl.get_qiangchou_codes()
-        scored = scorer.score_all_stocks(raw, yesterday_map, snapshot_map, qiangchou_codes=qc_codes,
+        qc_detail = kpl.get_qiangchou_detail()
+        scored = scorer.score_all_stocks(raw, yesterday_map, snapshot_map, qiangchou_detail=qc_detail,
                                          day_bid_change=bid_chg_map,
                                          yesterday_chg_map=yesterday_chg_map,
                                          strengths=_load_strengths(raw))
