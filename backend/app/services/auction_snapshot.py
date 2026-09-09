@@ -116,12 +116,15 @@ def _fetch_kpl_fallback():
             code = s.get("code") or ""
             if not code:
                 continue
+            # 单位: 开盘啦 bidAmt/floatMv 是**元**, 本表 bid_amt 是**万元** → 必须 /1e4。
+            # 2026-09-09 实锤: 漏除导致 9_20 时点竞价额中位 577.5 亿(应为 577 万), 放大 1e4 倍;
+            # float_mv 恒 0 会让这批兜底票全被 floatMvFloor 剔除 → 兜底白做。
             fallback[code] = {
                 "bid_change": s.get("bidChange") or 0,
-                "bid_amt": s.get("bidAmt") or 0,
+                "bid_amt": (s.get("bidAmt") or 0) / 1e4,
                 "name": s.get("name") or "",
                 "bid_buy_amt": s.get("bidSealAmt") or 0,
-                "float_mv": 0,
+                "float_mv": s.get("floatMv") or 0,
                 "board": s.get("board") or "",
             }
         # 竞价爆量榜: 高竞价量股票
@@ -132,10 +135,10 @@ def _fetch_kpl_fallback():
                 continue
             fallback[code] = {
                 "bid_change": s.get("bidChange") or 0,
-                "bid_amt": s.get("bidAmt") or 0,
+                "bid_amt": (s.get("bidAmt") or 0) / 1e4,
                 "name": s.get("name") or "",
                 "bid_buy_amt": 0,
-                "float_mv": 0,
+                "float_mv": s.get("floatMv") or 0,
                 "board": s.get("board") or "",
             }
         log.info("[快照采集] 开盘啦兜底: 委买%d只 爆量%d只 合并去重%d只",
@@ -213,8 +216,9 @@ def snapshot_at(time_point, force=False):
                 if not (v.get("bid_change") or 0) and (s0.get("bidChange") or 0):
                     v["bid_change"] = s0["bidChange"]
                     n_fill += 1
+                # 单位: 开盘啦 bidAmt 是**元**, 本表 bid_amt 是**万元**(与 scorer.get_bid_amt 一致)
                 if not (v.get("bid_amt") or 0) and (s0.get("bidAmt") or 0):
-                    v["bid_amt"] = s0["bidAmt"]
+                    v["bid_amt"] = (s0.get("bidAmt") or 0) / 1e4
                     n_fill += 1
             # 该时点是否涨停(与 _is_zt 一致): 决定封单额是否有效
             bc = v.get("bid_change") or 0
@@ -404,14 +408,22 @@ def _lastsec_loop():
 def load_snapshot(date=None, time_point=DEFAULT_POINT):
     """读取某日某时点快照, 返回 {code: {bid_change, bid_amt}}; 无数据返回 {}"""
     date = date or _bj_date()
+    # 2026-09-09: conn.close() 必须在 finally —— 原写法放在 try 末尾, 查询一旦抛异常
+    # (SQLite locked / 磁盘满) 连接就泄漏。本函数是每次选股必读的高频路径。
+    conn = None
     try:
         conn = database.get_conn()
         rows = conn.execute(
             "SELECT code, bid_change, bid_amt FROM snapshot_bid WHERE date=? AND time_point=?",
             (date, time_point)).fetchall()
-        conn.close()
     except Exception:
         return {}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:                                # noqa: BLE001
+                pass
     return {r[0]: {"bid_change": r[1], "bid_amt": r[2]} for r in rows}
 
 
@@ -423,6 +435,7 @@ def load_snapshot_full(date=None, time_point="9_25"):
     当日该时点无快照(周末/休市/采集缺失)→ 自动回退**最近一个有快照的交易日**,
     保证休市/盘后浏览仍能按最近竞价结果筛股。"""
     date = date or _bj_date()
+    conn = None
     try:
         conn = database.get_conn()
         # 找最近的可用日期(含当天, 往前最多 15 个自然日; 交易日快照才有 9_25 行)
@@ -435,9 +448,14 @@ def load_snapshot_full(date=None, time_point="9_25"):
         rows = conn.execute(
             "SELECT code, name, bid_change, bid_amt, float_mv, free_mv, board "
             "FROM snapshot_bid WHERE date=? AND time_point=?", (use_date, time_point)).fetchall()
-        conn.close()
     except Exception:
         return {}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:                                # noqa: BLE001
+                pass
     if use_date != date:
         log.info("load_snapshot_full: %s 无快照, 回退最近交易日 %s (time_point=%s)",
                  date, use_date, time_point)
@@ -489,14 +507,20 @@ def load_day_bid_amt(date=None):
     use_date = _latest_snapshot_date(date)
     if use_date != date:
         log.info("load_day_bid_amt: %s 无定格快照, 回退最近交易日 %s", date, use_date)
+    conn = None
     try:
         conn = database.get_conn()
         rows = conn.execute(
             "SELECT code, time_point, bid_amt FROM snapshot_bid "
             "WHERE date=? AND bid_amt>0", (use_date,)).fetchall()
-        conn.close()
     except Exception:
         return {}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:                                # noqa: BLE001
+                pass
     best = {}
     for code, tp, amt in rows:
         r = _BID_AMT_POINT_RANK.get(tp)
@@ -521,14 +545,20 @@ def load_day_bid_change(date=None):
     use_date = _latest_snapshot_date(date)
     if use_date != date:
         log.info("load_day_bid_change: %s 无定格快照, 回退最近交易日 %s", date, use_date)
+    conn = None
     try:
         conn = database.get_conn()
         rows = conn.execute(
             "SELECT code, time_point, bid_change FROM snapshot_bid "
             "WHERE date=? AND bid_change IS NOT NULL AND bid_change<>''", (use_date,)).fetchall()
-        conn.close()
     except Exception:
         return {}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:                                # noqa: BLE001
+                pass
     best = {}
     for code, tp, chg in rows:
         r = _BID_AMT_POINT_RANK.get(tp)
