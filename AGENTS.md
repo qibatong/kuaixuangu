@@ -50,6 +50,14 @@
 | 备份习惯 | dist.bak.N | backend.bak.N / dist.bak.N |
 
 - 后端同步：sftp 单文件 + 本地/远端 **md5 对比**（Windows 坑：md5sum 输出带前导反斜杠 `\2a16…`，须正则提取 32 位 hex 比对）→ `py_compile` → `systemctl restart kuaixuan`。
+- ⚠️ **两机版本不同步 · 部署前必做「依赖齐套性」预检（2026-09-10 事故）**：
+  **测试机长期落后于生产**，按仓库现状覆盖单文件会缺依赖 —— 实例：新 `fetcher.py` 用
+  `from ..core import net as _net`，而测试机**从没有过 `app/core/net.py`**（v4.10 `54e6f60`
+  才引入，只上过生产）→ 部署后 `ImportError` → kuaixuan 401/000 + kx-worker 重启循环。
+  **预检步骤**：① 抽出待传文件的全部 `from app...` / `from ..` 导入；
+  ② 逐个 `grep -c` 远端是否存在；③ 对**长期未同步的目标机优先整目录 `app/` 同步**
+  （避免"只传调用方不传被调方"）。**绝不要假设两台机器同版本**。
+  ④ 部署后必须 `python -c "import app.main"` 整站导入检查（只看 `py_compile` 抓不到 ImportError）。
 - 前端发布：`npm run build` 前若 dist 存在，用 **python shutil.rmtree** 清理（`rm -rf` 会被 node safe-delete shim 拦截）；上传用 **tar.gz 打包整个 dist 单文件 sftp**（34MB）；远端 `cp -a` 备份 → `rm -rf dist` → `tar -xzf` → chmod。
 - 远程基准测试脚本：服务器 venv 无 httpx2 → 不能用 FastAPI TestClient，改走 `127.0.0.1:8010` 真实 HTTP；上传 /tmp 执行须 `PYTHONPATH=/opt/kuaixuan/backend`。
 
