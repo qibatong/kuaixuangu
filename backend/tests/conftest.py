@@ -258,10 +258,25 @@ def vip_user(client, first_user):
 
 
 @pytest.fixture(autouse=True)
-def _clear_liangmai_cache():
-    """每个测试后清空量脉模块级缓存, 防止跨测试污染
-    (2026-08-31: test_liangmai 的 fetch_market_all 缓存残留会导致后续
-    兜底链测试命中缓存"成功返回"而不抛异常)"""
-    from app.services import liangmai
+def _isolate_fetcher_globals():
+    """每个用例前后隔离 fetcher 的模块级全局状态(2026-09-10 新增)。
+
+    背景: 去兜底后"昨日成交额"的短路条件从「东财/ths/腾讯/量脉 四源全熔断」收窄为
+    「东财日K单源熔断」(fetcher._fetch_yesterday_amount_one / fetch_yesterday_amounts),
+    于是任何把 eastmoney_kline 打进熔断的用例(如 test_stocks 的 K线兜底用例)都会让
+    后续用例里"数据源健康"的断言集体短路失败 —— 表征为**单文件绿、全量跑红**的顺序耦合。
+
+    这里在用例前后快照并还原熔断状态表与坏主机表, 消除顺序耦合; 用例内部对 _HEALTH
+    的直接改写(如 test_circuit_breaker)依然在本用例内生效, 只是不再泄漏给下一个用例。
+    """
+    import copy
+    with fetcher._health_lock:
+        health_snap = copy.deepcopy(fetcher._HEALTH)
+    broken_snap = copy.deepcopy(fetcher._broken_hosts)
     yield
-    liangmai._CACHE.clear()
+    with fetcher._health_lock:
+        fetcher._HEALTH.clear()
+        fetcher._HEALTH.update(health_snap)
+    fetcher._broken_hosts.clear()
+    fetcher._broken_hosts.update(broken_snap)
+

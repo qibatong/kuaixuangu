@@ -47,7 +47,7 @@ def test_scheduler_fires_once_per_day(monkeypatch):
     fired = []
     monkeypatch.setattr(yday_prewarm, "_bj",
                         lambda: (None, 3, 9 * 60 + 6, "2026-09-03"))   # 周四 09:06
-    monkeypatch.setattr(yday_prewarm, "_prewarm_once", lambda: fired.append(1))
+    monkeypatch.setattr(yday_prewarm, "_prewarm_once", lambda stage="open": fired.append(1))
 
     for _ in range(3):                                # 模拟轮询 3 次(同一天)
         g, wday, hm, date = yday_prewarm._bj()
@@ -63,7 +63,7 @@ def test_scheduler_weekend_skips(monkeypatch):
     fired = []
     monkeypatch.setattr(yday_prewarm, "_bj",
                         lambda: (None, 5, 9 * 60 + 5, "2026-09-05"))
-    monkeypatch.setattr(yday_prewarm, "_prewarm_once", lambda: fired.append(1))
+    monkeypatch.setattr(yday_prewarm, "_prewarm_once", lambda stage="open": fired.append(1))
     g, wday, hm, date = yday_prewarm._bj()
     if wday < 5 and abs(hm - yday_prewarm.PREWARM_AT) <= yday_prewarm.WINDOW:
         yday_prewarm._prewarm_once()
@@ -77,7 +77,7 @@ def test_tick_fires_intraday_prewarm_once(monkeypatch):
     monkeypatch.setattr(yday_prewarm, "_bj",
                         lambda: (None, 3, 9 * 60 + 6, "2026-09-03"))
     monkeypatch.setattr(yday_prewarm, "_prewarm_once",
-                        lambda: fired.append(1) or True)
+                        lambda stage="open": fired.append(1) or True)
     assert yday_prewarm._scheduler_tick() is True
     assert yday_prewarm._scheduler_tick() is False      # 同日已成功, 不再触发
     assert fired == [1]
@@ -89,7 +89,7 @@ def test_tick_catchup_after_restart(monkeypatch):
     monkeypatch.setattr(yday_prewarm, "_bj",
                         lambda: (None, 3, 12 * 60, "2026-09-03"))
     monkeypatch.setattr(yday_prewarm, "_prewarm_once",
-                        lambda: fired.append(1) or True)
+                        lambda stage="open": fired.append(1) or True)
     assert yday_prewarm._scheduler_tick() is True
     assert fired == [1]
 
@@ -100,7 +100,7 @@ def test_tick_close_refresh_after_1510(monkeypatch):
     monkeypatch.setattr(yday_prewarm, "_bj",
                         lambda: (None, 3, 15 * 60 + 12, "2026-09-03"))
     monkeypatch.setattr(yday_prewarm, "_prewarm_once",
-                        lambda: fired.append("close") or True)
+                        lambda stage="open": fired.append("close") or True)
     assert yday_prewarm._scheduler_tick() is True
     assert fired == ["close"]
 
@@ -111,7 +111,7 @@ def test_tick_failure_retries_next_round(monkeypatch):
     monkeypatch.setattr(yday_prewarm, "_bj",
                         lambda: (None, 3, 9 * 60 + 6, "2026-09-03"))
     monkeypatch.setattr(yday_prewarm, "_prewarm_once",
-                        lambda: calls.append(1) or False)
+                        lambda stage="open": calls.append(1) or False)
     assert yday_prewarm._scheduler_tick() is True       # 尝试了
     assert yday_prewarm._scheduler_tick() is True       # 失败 → 再试
     assert len(calls) == 2
@@ -122,7 +122,7 @@ def test_tick_no_catchup_after_1455(monkeypatch):
     monkeypatch.setattr(yday_prewarm, "_bj",
                         lambda: (None, 3, 15 * 60, "2026-09-03"))   # 15:00
     monkeypatch.setattr(yday_prewarm, "_prewarm_once",
-                        lambda: (_ for _ in ()).throw(AssertionError("15:00 不应再补盘中预热")))
+                        lambda stage="open": (_ for _ in ()).throw(AssertionError("15:00 不应再补盘中预热")))
     assert yday_prewarm._scheduler_tick() is False
 
 
@@ -131,5 +131,5 @@ def test_tick_weekend_skips_new(monkeypatch):
     monkeypatch.setattr(yday_prewarm, "_bj",
                         lambda: (None, 5, 9 * 60 + 5, "2026-09-05"))
     monkeypatch.setattr(yday_prewarm, "_prewarm_once",
-                        lambda: (_ for _ in ()).throw(AssertionError("周末不应触发")))
+                        lambda stage="open": (_ for _ in ()).throw(AssertionError("周末不应触发")))
     assert yday_prewarm._scheduler_tick() is False

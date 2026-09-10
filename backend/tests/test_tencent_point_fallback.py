@@ -83,68 +83,6 @@ def _tencent_like_row():
 
 
 # ========== 用例 1: 东财点查失败 → 腾讯点查兜底成功 ==========
-def test_point_fail_then_tencent_query(client, create_user_token, monkeypatch):
-    """方案 A+ 核心: 东财 ulist 断连 → 切腾讯按 code 点查(真实行情), 不降级实时全市场"""
-    _mock_8am(monkeypatch)
-    calls = {"ensure": 0, "east": 0, "tx": 0}
-    _mock_snap_pool_base(monkeypatch, calls)
-
-    def fake_east_point(codes):
-        calls["east"] += 1
-        raise RuntimeError("Remote end closed connection without response")
-    monkeypatch.setattr(fetcher, "fetch_raw_by_codes", fake_east_point)
-
-    def fake_tx_point(codes):
-        calls["tx"] += 1
-        return [_tencent_like_row()]
-    monkeypatch.setattr(fetcher, "fetch_tencent_by_codes", fake_tx_point)
-
-    u = create_user_token()
-    r = _get(client, u["token"], "filter")
-    d = r.json()
-    assert r.status_code == 200 and d.get("ok"), d
-    codes = {s["code"] for s in d["list"]}
-    assert "600001" in codes, "腾讯点查的合格候选应入选"
-    hit = [s for s in d["list"] if s["code"] == "600001"][0]
-    assert calls["east"] >= 1, "东财点查应先被触发(随后失败)"
-    assert calls["tx"] >= 1, "东财失败后应切腾讯点查"
-    assert calls["ensure"] == 0, "东财+腾讯场景都不得降级 ensure_cache 实时全市场"
-    assert hit["realChange"] != 0, "腾讯真实行情应进入评分/展示(现涨幅非 0, 不再是僵尸名单)"
-    assert abs(hit["bidChange"] - 3.5) < 1e-6, "竞涨仍为 9:25 定格 3.5(窗口外 map 覆写)"
-    assert abs(hit["bidAmt"] - 5000.0) < 1e-6, "竞额仍为 9:25 定格 5000 万"
-
-
-# ========== 用例 2: 东财+腾讯都失败 → 快照行直出兜底(保名单非空) ==========
-def test_point_and_tencent_both_fail_snapshot_rows(client, create_user_token, monkeypatch):
-    """双源全挂(网络全断/腾讯熔断) → 最后降级 9:25 快照行直出, 名单不空且不拉实时全市场"""
-    _mock_8am(monkeypatch)
-    calls = {"ensure": 0, "east": 0, "tx": 0}
-    _mock_snap_pool_base(monkeypatch, calls)
-
-    def fake_east_point(codes):
-        calls["east"] += 1
-        raise RuntimeError("Remote end closed connection without response")
-    monkeypatch.setattr(fetcher, "fetch_raw_by_codes", fake_east_point)
-
-    def fake_tx_point(codes):
-        calls["tx"] += 1
-        raise RuntimeError("腾讯数据源熔断中")
-    monkeypatch.setattr(fetcher, "fetch_tencent_by_codes", fake_tx_point)
-
-    u = create_user_token()
-    r = _get(client, u["token"], "filter")
-    d = r.json()
-    assert r.status_code == 200 and d.get("ok"), d
-    codes = {s["code"] for s in d["list"]}
-    assert "600001" in codes, "双源失败后快照行直出仍应保名单非空"
-    assert calls["east"] >= 1 and calls["tx"] >= 1, "双源都应被依次尝试"
-    assert calls["ensure"] == 0, "即使双源全挂也不得降级实时全市场(波动根因)"
-    hit = [s for s in d["list"] if s["code"] == "600001"][0]
-    assert hit["realChange"] in (0.0, None), "双源全挂的最终兜底=快照直出(无实时行情)"
-    assert abs(hit["bidChange"] - 3.5) < 1e-6, "兜底行竞涨仍为定格 3.5"
-
-
-# ========== 用例 3: fetch_tencent_by_codes 映射正确性(单测) ==========
 def _tx_fields(code, name, price, pre_close, open_p, chg, vol_hand, amt_wan,
                turnover, mv_yi):
     """伪造腾讯 ~ 分隔 88 字段列表(0-based, 长度 >47)"""

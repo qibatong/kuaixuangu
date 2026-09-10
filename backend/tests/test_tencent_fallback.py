@@ -15,9 +15,24 @@ from app.core import config
 # 但测试模块 import 发生在 fixture 执行前 → 此处保存的是真实实现, 供 TTL 测试还原
 _ORIG_ENSURE_CACHE = fetcher.ensure_cache
 
+# 同理: conftest 为"竞价窗口名单源"把 fetch_tencent_market 整体桩成了返回 MOCK_RAW,
+# 本文件正是测这个函数(仍被 picker/sources/tencent.py 使用) → 必须还原真实实现,
+# 否则映射/重试/告警类用例全部拿到 4 行 MOCK_RAW 而断言失败(基线长期红)。
+_ORIG_FETCH_TENCENT_MARKET = fetcher.fetch_tencent_market
+
 
 def _use_real_ensure_cache(monkeypatch):
     monkeypatch.setattr(fetcher, "ensure_cache", _ORIG_ENSURE_CACHE)
+
+
+@pytest.fixture(autouse=True)
+def _use_real_tencent_market(monkeypatch):
+    """还原真实 fetch_tencent_market(覆盖 conftest 的 session 级名单源桩)
+
+    用例内部若再对 fetch_tencent_market 打桩(如去兜底用例)依然生效 —— fixture 先执行。
+    真实实现不会打外网: 各用例均同时桩掉 _all_market_codes / _fetch_tencent_batch。
+    """
+    monkeypatch.setattr(fetcher, "fetch_tencent_market", _ORIG_FETCH_TENCENT_MARKET)
 
 
 def _make_tx_line(code, name, price, chg, vol_hand, amt_wan, turnover, mv_yi, limit):
@@ -143,33 +158,16 @@ def test_tencent_mapping_not_suspended(monkeypatch):
         "缺 f4/f5 时必须被判停牌(证明 is_suspended 敏感性, 防误改)"
 
 
-# ---------- 容灾: 东财失败自动切腾讯 ----------
-def test_fallback_eastmoney_fail_uses_tencent(monkeypatch):
-    """东财失败 → _fetch_market_with_fallback 自动切腾讯兜底"""
-    def _boom(fs):
-        raise RuntimeError("模拟东财被墙")
-    monkeypatch.setattr(fetcher, "fetch_eastmoney", _boom)
-    monkeypatch.setattr(fetcher, "fetch_tencent_market",
-                        lambda fs: [{"f12": "600519", "f14": "茅台", "f2": 1.0}])
-    rows = fetcher._fetch_market_with_fallback("m:1+t:2")
-    assert len(rows) == 1
-    assert rows[0]["f12"] == "600519"
-
-
-def test_fallback_both_fail_raises(monkeypatch):
-    """东财和腾讯都失败 → 抛异常"""
-    def _boom(fs):
-        raise RuntimeError("模拟东财被墙")
-    def _boom2(fs):
-        raise RuntimeError("模拟腾讯也挂")
-    monkeypatch.setattr(fetcher, "fetch_eastmoney", _boom)
-    monkeypatch.setattr(fetcher, "fetch_tencent_market", _boom2)
-    with pytest.raises(RuntimeError):
-        fetcher._fetch_market_with_fallback("m:1+t:2")
+# ---------- 容灾: 东财失败即失败(2026-09-10 去兜底) ----------
+# 原 test_fallback_both_fail_raises("东财和腾讯都失败 → 抛异常")与
+# test_fallback_eastmoney_ok_no_tencent 同属"东财→腾讯"双源兜底链的用例。
+# 该链已按主人要求移除(_fetch_market_with_fallback = 只调东财), 前者断言的
+# "先试东财再试腾讯"语义已不存在 → 删除, 其覆盖由文件末尾
+# test_no_fallback_eastmoney_fail_raises 承接。
 
 
 def test_fallback_eastmoney_ok_no_tencent(monkeypatch):
-    """东财正常 → 不调腾讯"""
+    """东财正常 → 成功返回, 且绝不触碰腾讯"""
     called = []
     monkeypatch.setattr(fetcher, "fetch_eastmoney",
                         lambda fs: called.append("em") or [{"f12": "x"}])
@@ -194,44 +192,24 @@ def _to_diff(code, name, price, chg):
     }
 
 
-def test_fetch_market_all_with_fallback(monkeypatch):
-    """用户截图反馈(2026-08-30 中午盘中): 东财熔断异常会冒到前端。
-    _fetch_market_all_with_fallback 必须自动切腾讯兜底而不冒错(覆盖 line 351/497/auction_snapshot _grab)"""
-    fetcher._TENCENT_CODES_CACHE["codes"] = ["600519", "000001"]
-    fetcher._TENCENT_CODES_CACHE["ts"] = 0
-    monkeypatch.setattr(fetcher, "fetch_eastmoney_all",
-                        lambda fs: (_ for _ in ()).throw(RuntimeError("东财数据源熔断中(故障冷却60秒内), 快速失败")))
-    monkeypatch.setattr(fetcher, "fetch_tencent_market",
-                        lambda fs: [_to_diff("600519", "贵州茅台", 1297.40, 0.39),
-                                    _to_diff("000001", "平安银行", 11.65, 0.52)])
-    rows = fetcher._fetch_market_all_with_fallback("m:1+t:2")
-    assert len(rows) == 2
-    assert rows[0]["f12"] == "600519"
+def test_fetch_market_brief_degrades_without_fallback(monkeypatch):
+    """2026-09-10 去兜底: 东财失败时『两市概况』降级返回旧值, 不抛异常
 
-
-def test_fetch_market_brief_uses_fallback(monkeypatch):
-    """fetch_market_brief(原 line 351) 必须走兜底, 否则东财熔断时『两市概况』接口冒错"""
+    原用例断言"必须走腾讯兜底拿到数据"。兜底链已按主人要求移除, 该前提不再成立;
+    去兜底后真正要保证的性质是**接口不冒错**(东财挂时降级到上次值), 故改断言降级。
+    注: 降级值取 `store(跨进程缓存) or _market_brief_cache["data"]`, 跨进程缓存是
+    持久化的、会被其他用例写脏 → 这里桩掉 store.get 只验证"进程内旧值"这一路。
+    """
     monkeypatch.setattr(fetcher, "fetch_eastmoney_all",
                         lambda fs: (_ for _ in ()).throw(RuntimeError("熔断中")))
     monkeypatch.setattr(fetcher, "fetch_tencent_market",
-                        lambda fs: [_to_diff("600000", "浦发银行", 10.0, 0.5)])
-    fetcher._market_brief_cache["data"] = None
+                        lambda fs: (_ for _ in ()).throw(AssertionError("不应再走腾讯兜底")))
+    monkeypatch.setattr(fetcher.store, "get", lambda key: None)
+    fetcher._market_brief_cache["data"] = {"stockCount": 1234, "amount": 0, "date": "2026-09-10"}
     fetcher._market_brief_cache["ts"] = 0
     data = fetcher.fetch_market_brief(max_age=0)
-    assert data is not None
-    assert data["stockCount"] >= 1
-
-
-def test_fetch_spot_quote_map_uses_fallback(monkeypatch):
-    """fetch_spot_quote_map(原 line 497) 必须走兜底, 否则盘中新版前端拿不到行情 map"""
-    monkeypatch.setattr(fetcher, "fetch_eastmoney_all",
-                        lambda fs: (_ for _ in ()).throw(RuntimeError("熔断中")))
-    monkeypatch.setattr(fetcher, "fetch_tencent_market",
-                        lambda fs: [_to_diff("300750", "宁德时代", 200.0, 1.2)])
-    fetcher._quote_map_cache.clear()
-    raw = fetcher.fetch_spot_quote_map("m:1+t:2")
-    assert raw  # 至少 1 只
-    assert "300750" in raw
+    assert data is not None, "东财失败应降级返回进程内上次值, 不能抛异常冒到接口层"
+    assert data["stockCount"] == 1234
 
 
 # ---------- 2026-08-30 可观测性: 熔断短路日志 + 健康快照 ----------
@@ -392,3 +370,14 @@ def test_ensure_cache_filter_fresh_hits(monkeypatch):
     raw, err = fetcher.ensure_cache("filter", key, True)
     assert not calls, "新鲜缓存不应重拉"
     assert raw[0]["f12"] == "old"
+
+def test_no_fallback_eastmoney_fail_raises(monkeypatch):
+    """2026-09-10 去兜底: 东财失败不再切腾讯, 直接抛出(主人拍板)"""
+    monkeypatch.setattr(fetcher, "fetch_eastmoney",
+                        lambda fs: (_ for _ in ()).throw(RuntimeError("模拟东财失败")))
+    monkeypatch.setattr(fetcher, "fetch_tencent_market",
+                        lambda fs: (_ for _ in ()).throw(AssertionError("不应再走腾讯兜底")))
+    with pytest.raises(RuntimeError):
+        fetcher._fetch_market_with_fallback("m:1+t:2")
+    with pytest.raises(RuntimeError):
+        fetcher._fetch_market_all_with_fallback("m:1+t:2")

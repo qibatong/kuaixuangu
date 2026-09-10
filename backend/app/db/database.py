@@ -409,6 +409,25 @@ def init_db():
             ts INTEGER NOT NULL
         )
     """)
+    # 昨日成交额落库(2026-09-10 主人拍板: 去掉多源兜底链, 改"收盘后落库 + 全天读库")
+    # 昨日成交额是**静态历史数据**, 原实现每次选股实时逐只拉东财日K(4 源兜底链切换),
+    # 既触发风控又因多源口径不一导致数据跳变。改为: 每交易日 15:10 收盘后批量拉一次
+    # 全市场写本表(按 code 覆盖写), 之后全天直接读库 —— 零网络、零兜底、零风控。
+    #
+    # 覆盖写语义(无需读时算"昨日是哪天"):
+    #   - 9/10 15:10 写入 T=9/10 数据 → 9/11 盘中读取即为"昨日"(正确)
+    #   - 9/11 15:10 覆盖为 T=9/11    → 9/11 收盘后读取即为"今日"(正确, 收盘后语义)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS yday_amount (
+            code TEXT PRIMARY KEY,
+            tdate TEXT NOT NULL,
+            amount REAL,
+            prev_amount REAL,
+            chg REAL,
+            ts INTEGER NOT NULL
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_yday_amount_tdate ON yday_amount(tdate)")
     # 股性画像落库(方案B): 每日盘后一次性算好全部画像, 排行直读此表避免实时逐股重算。
     # profile 为 compute_profile 全量 JSON; score/zt_count/name 供排行排序与搜索筛选。
     cur.execute("""

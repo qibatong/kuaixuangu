@@ -7,6 +7,23 @@
 """
 from app.services import fetcher, scorer
 
+import pytest
+
+# conftest 的 session 级 mock_data_source 把 fetch_yesterday_changes 整体替换为假实现
+# (恒返回 1.5), 本文件的缓存读取用例测的是真实实现 → 还原(同 test_yesterday_cache 做法)
+_ORIG_FETCH_YDAY_CHG = fetcher.fetch_yesterday_changes
+
+
+@pytest.fixture(autouse=True)
+def _use_real_fetch_yday_chg(monkeypatch):
+    """还原真实 fetch_yesterday_changes 并清空昨比缓存, 防跨用例污染"""
+    monkeypatch.setattr(fetcher, "fetch_yesterday_changes", _ORIG_FETCH_YDAY_CHG)
+    with fetcher._yesterday_lock:
+        fetcher._yesterday_cache.clear()
+    yield
+    with fetcher._yesterday_lock:
+        fetcher._yesterday_cache.clear()
+
 
 # ---------------- 日K 解析: 顺带取涨跌幅 ----------------
 def test_kline_pair_returns_change():

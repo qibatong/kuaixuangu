@@ -83,11 +83,37 @@
 
 ## 八、数据源与熔断（fetcher）
 
-- **全市场行情兜底链**：东财 clist（30 页并发 40s 超时）→ 腾讯 qt.gtimg.cn（5 并发 5500 只 1-2s）→ 量脉 → 同花顺。
-- **昨比（昨日成交额）**：东财 K线 → 同花顺 → 腾讯日K → 量脉。
-- **熔断器**：`fetcher._check_circuit(src)/_record(src, ok, ms)`；**短路 = 四源全 down**（东财/ths/tencent/量脉），任一源可用继续尝试；每源独立 down_threshold（ths/tencent=2、量脉=3）；指数退避 cooldown 60→…→600s。
-- 东财历史 K 线（push2his）自 8/30 被风控（服务器来源整体封锁），等自愈（熔断半开探测），外部不可控；腾讯/ths/量脉正常。
-- 腾讯符号：sh/sz/bj 前缀；**f4=昨收 / f5=成交量 必补**（缺这两个字段 `is_suspended` 会把兜底数据误判停牌 → 选股结果为 0，生产 7052 事故）。
+> **2026-09-10 去兜底重构（主人拍板）**：原「东财→腾讯→量脉→同花顺」多级兜底链**全部下线**。
+> 理由：① 兜底源没有 f615/f616/f617 竞价字段，只能用现价涨幅/成交额**近似填充** →
+> 竞价时段一旦切兜底，竞价数据即为编造值，选股结果失真；② 熔断一旦打开即整段冷却期
+> "不敢试"，流量全推给兜底源 → 主源与兜底源**横跳**，同一只票两次请求口径不同；
+> ③ 实测主力源 push2dycalc 盘中 11-14 时成功率 99-100%，兜底只集中在事故时段救场。
+> 现行为：**拿不到就如实失败/置空**，由上层沿用旧缓存或置空（评分层容忍缺失）。
+> 各兜底函数体**保留未删**（便于回滚），但主链不再调用。量脉（liangmai）**代码已整体删除**。
+
+- **全市场行情**：**单一东财** `push2dycalc`（clist 30 页并发 40s 超时，全市场 5558 只）。
+  `_fetch_market_with_fallback` / `_fetch_market_all_with_fallback` 现为东财直通；
+  `ensure_spot_cache` 失败时**只沿用本地旧缓存**，无旧缓存则抛出。
+- **K 线 chart**：**单一东财** `push2his`（`KLINE_HOSTS` 多域名轮询）。`fetch_stock_chart_robust`
+  的 `sources` 只剩 `["eastmoney"]`（原 东财→腾讯→tushare→ths→kpl→自聚合 链已下线）。
+- **昨比（昨日成交额）= 收盘落库 + 全天读库**（2026-09-10 新增，替代原四级兜底链）：
+  每交易日 **15:10** `yday_prewarm._prewarm_once(stage="close")` 批量拉全市场写入
+  `yday_amount` 表（**按 code 覆盖写**，见 `database.init_db` 建表注释），此后全天
+  `_yday_hydrate_from_db` 直接读库（**零网络零兜底**）；只有库里没有的（新股/停牌/任务未跑）
+  才实时拉东财日 K。**盘中预热(stage="open")不落库**（那时 T=前一交易日，写进去会污染语义）。
+  → 运维注意：机制**从首次收盘刷新（15:10）起才生效**，此前 `yday_amount` 为空 = 走实时源。
+- **腾讯并未废弃**，但它现在是**功能源不是兜底**：`picker/sources/tencent.py`（竞价窗口名单源）、
+  `fetch_tencent_by_codes`（点查补丁源）、`fetch_tencent_market`（picker 用）。
+  **f4=昨收 / f5=成交量 必补**（缺这两个字段 `is_suspended` 会把数据误判停牌 → 选股 0 只，
+  生产 7052 事故）；**f17=今开必补**（缺则实体列恒 0%）。
+- **熔断器**：`fetcher._check_circuit(src)/_record(src, ok, ms)`；**昨比/昨涨的短路 = 东财日 K
+  单源 down**（原「四源全 down」随兜底链删除而收窄）；每源独立 `down_threshold`
+  （ths/tencent=2、其余=1），指数退避 cooldown 60→…→600s。**熔断生效期内的成功不解除熔断**
+  （2026-09-10 commit 30f224a：防全市场 30 页并发时失败页刚置 down、成功页立刻清零 →
+  同一调用内反复横跳、下次仍完整重试 30 页）。
+- **东财 push2his（历史 K 线）自 8/30 起为接口级全局时段性风控**，与出口 IP 无关
+  （公司网/阿里云测试/生产/代理家宽同一时刻全部 0~10%，而同机 push2dycalc 100% 通）；
+  多米 + 快代理两家独立测出同一结论 → **买代理解决不了，别买**。等自愈（熔断半开探测）。
 - 健康接口 `/api/health`：overall / serviceable / sources；数据源故障前端琥珀提示。
 
 ## 九、测试约定与 pytest 坑
@@ -98,6 +124,18 @@
 - 已知 flake（非回归）：`test_stocks.py::test_fetch_eastmoney_all_paginates` 等全量偶发失败，单独重跑必绿（东财网络抖动），判定回归先单独复现。
 - 测试批次/指纹类用例：插入数据的 filters 必须用 `scorer.validate_filters()` 的**完整输出**构造（后端会补默认值，残缺参数指纹必然不匹配）。
 - 共享测试库下用例间数据隔离：批次等表跨用例污染 → 用独立用户（create_user_token）或清表。
+- **fetcher 全局状态隔离（2026-09-10 新增）**：`conftest._isolate_fetcher_globals` 每个用例前后
+  快照/还原 `fetcher._HEALTH` + `_broken_hosts`。原因：去兜底后短路条件收窄为「东财日 K 单源」，
+  任何把 `eastmoney_kline` 打进熔断的用例（如 test_stocks 的 K 线失败用例）都会让**后续用例**
+  期望"数据源健康"的断言集体失败 —— 表征为**单文件绿、全量红**（顺序耦合）。
+  → 新增用例若需改熔断状态，靠这个夹具自动隔离，不要自己 clear。
+- **conftest 会整体替换若干函数**：`fetch_tencent_market`、`fetch_yesterday_changes`、
+  `fetch_yesterday_amounts`、`ensure_cache`、`load_snapshot_full`。想测**真实实现**的文件必须在
+  import 期留下 `_ORIG_xxx = fetcher.xxx` 再用 autouse fixture 还原（见 test_yesterday_cache /
+  test_tencent_fallback），否则测到的是恒返回假数据的桩（曾导致 11 条用例长期假红）。
+- 基线认知：**HEAD 全量约 27 红**（多为历史债：test_history / test_slow_api_cache /
+  test_auction_snap_pool_offhours / test_snapshot_915_timing + 少量顺序污染）。
+  判定本次改动是否引入回归，**必须与 `_backend_bak/`（HEAD 物理备份）对比**，不要只看红数。
 
 ## 十、可复用工具脚本（scripts/）
 

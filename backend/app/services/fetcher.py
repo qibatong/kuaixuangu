@@ -20,6 +20,7 @@ import concurrent.futures
 from ..core import config, logger
 from . import scorer   # 仅复用 parse_float / market_fs (无循环: scorer 不依赖 fetcher)
 from .cache_store import store   # 2026-09-04: 两市概况改跨进程缓存(无循环: cache_store 只依赖 core)
+from ..db import database as _database   # 2026-09-10: 昨日成交额落库/读库(无循环: database 只依赖 core)
 
 # 部分行情网关(走代理/自签名)证书校验失败, 仅关校验不关加密
 _NO_VERIFY_CTX = ssl.create_default_context()
@@ -52,6 +53,80 @@ _fetch_lock = threading.Lock()
 # 昨日全天成交额(万元): code -> [缓存日期, 金额(pair) 或 None(失败), 写入时间戳], 当日有效
 _yesterday_cache = {}
 _yesterday_lock = threading.Lock()
+
+# ---------- 昨日成交额落库(2026-09-10: 收盘后写一次, 全天读库, 去掉多源兜底链) ----------
+# 说明见 database.init_db 中 yday_amount 建表注释: 按 code 覆盖写, 读时无需算"昨日是哪天"。
+# 兼容 CentOS 7 SQLite 3.7(不支持 ON CONFLICT) → 统一用 INSERT OR REPLACE。
+_YDAY_MAX_AGE_DAYS = 5   # tdate 距今超过 5 天(跨周末/长假)视为过期, 回落到实时源
+
+
+def _yday_tdate_fresh(tdate):
+    """tdate(YYYYMMDD) 是否足够新鲜(未被长假/停更拖成脏数据)"""
+    if not tdate or len(tdate) < 8:
+        return False
+    try:
+        t = time.mktime(time.strptime(tdate[:8], "%Y%m%d"))
+    except (ValueError, OverflowError):
+        return False
+    age = (time.time() - t) / 86400.0
+    return -1.0 <= age <= _YDAY_MAX_AGE_DAYS
+
+
+def yday_db_put(rows):
+    """批量写昨日成交额(按 code 覆盖)。rows: [(code, tdate, amount, prev_amount, chg), ...]
+    返回成功写入条数; 失败只告警不抛出(落库是加速手段, 不是主链路)"""
+    if not rows:
+        return 0
+    now = int(time.time())
+    conn = None
+    try:
+        conn = _database.get_conn()
+        cur = conn.cursor()
+        cur.executemany(
+            "INSERT OR REPLACE INTO yday_amount (code, tdate, amount, prev_amount, chg, ts) "
+            "VALUES (?,?,?,?,?,?)",
+            [(c, td, a, pa, ch, now) for (c, td, a, pa, ch) in rows])
+        conn.commit()
+        return len(rows)
+    except Exception as e:                                    # noqa: BLE001
+        log.warning("昨日成交额落库失败 err=%s", e)
+        return 0
+    finally:
+        if conn is not None:
+            try:
+                conn.close()   # sqlite3 的 with 不关连接, 必须显式 close(2026-09-09 fd 泄漏事故)
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def yday_db_get(codes):
+    """批量读昨日成交额: 返回 {code: (amount, prev_amount, chg)} (amount 为空或过期的不返回)"""
+    if not codes:
+        return {}
+    out = {}
+    conn = None
+    try:
+        conn = _database.get_conn()
+        cur = conn.cursor()
+        for i in range(0, len(codes), 500):        # SQLite 参数上限, 分批
+            batch = list(codes[i:i + 500])
+            ph = ",".join("?" * len(batch))
+            cur.execute(
+                "SELECT code, tdate, amount, prev_amount, chg FROM yday_amount "
+                "WHERE code IN (%s)" % ph, batch)
+            for code, tdate, amount, prev_amount, chg in cur.fetchall():
+                if amount is None or not _yday_tdate_fresh(tdate):
+                    continue
+                out[code] = (amount, prev_amount, chg)
+    except Exception as e:                                    # noqa: BLE001
+        log.warning("昨日成交额读库失败 err=%s", e)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+    return out
 # 昨比批量拉取互斥(2026-09-02 生产事故): 并发请求同时进 need 判定都判定为空 → 各自全量拉取
 # (14s 内 5 次全量 5000 只), 失败缓存只挡串行挡不住并发。批锁: 同时只允许一个全量拉取,
 # 其余请求直接返回当前缓存(可能为空), 避免并发重复打爆数据源。
@@ -72,7 +147,7 @@ _CIRCUIT_MAX_COOLDOWN = 600
 # src -> {ok, fail, last_ok, last_fail, ms_sum, ms_cnt, down_since}
 # down_since>0 表示自该时刻起处于"故障中"(失败后尚未成功恢复)
 # cooldown: 当前熔断冷却秒(连续失败指数退避); base_cooldown: 恢复后重置的基准冷却
-# down_threshold: 连续失败多少次才真正熔断(抖动保护, ths/tencent=2, 量脉限流=3, 其余=1)
+# down_threshold: 连续失败多少次才真正熔断(抖动保护, ths/tencent=2, 其余=1)
 # fails_in_row: 连续失败计数(成功清零)
 _HEALTH = {
     "eastmoney_clist": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
@@ -87,8 +162,6 @@ _HEALTH = {
                         "cooldown": 60, "base_cooldown": 60, "down_threshold": 1, "fails_in_row": 0},
     "tencent_kline":   {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
                         "cooldown": 30, "base_cooldown": 30, "down_threshold": 2, "fails_in_row": 0},
-    "liangmai_kline":  {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
-                        "cooldown": 60, "base_cooldown": 60, "down_threshold": 3, "fails_in_row": 0},
 }
 _health_lock = threading.Lock()
 
@@ -741,58 +814,24 @@ def get_same_time_yesterday(date=None, now=None):
 
 
 def _fetch_market_with_fallback(fs):
-    """全市场行情容灾(2026-08-30 主人要求): 东财失败自动切腾讯兜底。
-    腾讯无 f615/f616/f617 竞价专属字段, 用现价涨幅/成交额/成交量近似(盘中口径一致)。
-    2026-08-31: 再加量脉第3源(liangmai market_snapshot_all, 字段更全 5901 只)。
-    东财/腾讯/量脉都失败时抛异常。"""
-    try:
-        return fetch_eastmoney(fs)
-    except Exception as e:
-        log.warning("东财拉取失败, 切换腾讯兜底 fs=%s err=%s", fs, str(e)[:120])
-        try:
-            rows = fetch_tencent_market(fs)
-            # 2026-08-30 可观测性: 兜底成功后留成功痕迹(否则只有 warning 无结果确认)
-            log.info("腾讯兜底成功 fs=%s 返回%d只 (东财故障时自动切换)", fs, len(rows))
-            return rows
-        except Exception as e2:
-            log.warning("腾讯兜底也失败, 切量脉第3源 fs=%s err=%s", fs, str(e2)[:120])
-            try:
-                from . import liangmai
-                rows = liangmai.fetch_market_all()
-                if rows:
-                    log.info("量脉全市场兜底成功 fs=%s 返回%d只", fs, len(rows))
-                    return rows
-                raise RuntimeError("量脉返回空")
-            except Exception as e3:
-                log.error("全市场行情数据源全部失败(东财+腾讯+量脉) fs=%s err=%s", fs, str(e3)[:100])
-                raise RuntimeError("全市场行情数据源全部失败(东财+腾讯+量脉): %s" % str(e)[:80])
+    """全市场行情(2026-09-10 主人拍板: 去掉所有兜底, 单一东财源, 失败即失败)。
+
+    历史(已废弃): 原为 东财 → 腾讯 → 量脉 三级兜底链。废弃原因:
+      1) 兜底源无 f615/f616/f617 竞价专属字段, 只能用"现价涨幅/成交额"近似填充,
+         竞价时段一旦切兜底, 竞价数据即为编造值 → 选股结果失真(主人反馈"选出来不对");
+      2) 东财是滑动风控窗口会自愈, 但熔断一旦打开即整段冷却期"不敢试",
+         流量全推给兜底源 → 主源与兜底源横跳, 数据口径在两次请求间跳变;
+      3) 2026-09-10 实测: 主力源 push2dycalc 盘中 11-14 时成功率 99-100%,
+         兜底触发集中在 eth1 网卡事故时段与收盘批量时段, 兜底并未提升真实可用性。
+    现行为: 只调东财, 失败直接抛出(由上层决定沿用旧缓存或报错)。"""
+    return fetch_eastmoney(fs)
 
 
 def _fetch_market_all_with_fallback(fs):
-    """2026-08-30 容灾加固(主人反馈用户截图): fetch_eastmoney_all 的腾讯兜底版。
-    覆盖 ensure_spot_cache 外的路径(351/497/auction_snapshot), 防止熔断异常冒到前端。
-    2026-08-31: 再加量脉第3源。"""
-    try:
-        return fetch_eastmoney_all(fs)
-    except Exception as e:
-        log.warning("东财全市场拉取失败, 切换腾讯兜底 fs=%s err=%s", fs, str(e)[:120])
-        try:
-            rows = fetch_tencent_market(fs)
-            # 2026-08-30 可观测性: 兜底成功后必须留成功痕迹, 否则日志只有 warning 没有结果
-            log.info("腾讯全市场兜底成功 fs=%s 返回%d只 (东财故障时自动切换)", fs, len(rows))
-            return rows
-        except Exception as e2:
-            log.warning("腾讯全市场兜底失败, 切量脉第3源 fs=%s err=%s", fs, str(e2)[:120])
-            try:
-                from . import liangmai
-                rows = liangmai.fetch_market_all()
-                if rows:
-                    log.info("量脉全市场兜底成功 fs=%s 返回%d只 (东财/腾讯均故障)", fs, len(rows))
-                    return rows
-                raise RuntimeError("量脉返回空")
-            except Exception as e3:
-                log.error("全市场行情全部失败(东财+腾讯+量脉) fs=%s err=%s", fs, str(e3)[:100])
-                raise RuntimeError("全市场行情数据源全部失败(东财+腾讯+量脉): %s" % str(e)[:80])
+    """全市场分页行情(2026-09-10 主人拍板: 去掉所有兜底, 单一东财源)。
+    覆盖 ensure_spot_cache 外的路径(351/497/auction_snapshot); 废弃原因见
+    _fetch_market_with_fallback。失败直接抛出。"""
+    return fetch_eastmoney_all(fs)
 
 
 def ensure_cache(action, fs, before930):
@@ -840,16 +879,13 @@ def ensure_spot_cache(action, fs, before930):
                 _cache[fs] = {"raw": fetch_eastmoney_all(fs), "ts": now}
                 log.info("盘中全市场缓存刷新 fs=%s", fs)
             except Exception as e:
-                log.warning("东财盘中拉取失败, 切换腾讯兜底 fs=%s err=%s", fs, str(e)[:120])
-                try:
-                    _cache[fs] = {"raw": fetch_tencent_market(fs), "ts": now}
-                    log.info("腾讯兜底盘中全市场刷新 fs=%s", fs)
-                except Exception as e2:
-                    log.error("腾讯盘中兜底也失败 fs=%s err=%s", fs, str(e2)[:120])
-                    if entry is not None:
-                        log.warning("盘中双源失败, 沿用旧缓存 fs=%s", fs)
-                        return entry["raw"], None
-                    raise
+                # 2026-09-10 去兜底: 不再切腾讯。失败时仅沿用本地旧缓存(纯本地行为,
+                # 不引入异源语义), 无旧缓存则直接抛出, 让上层如实报错。
+                log.warning("盘中全市场拉取失败(东财) fs=%s err=%s", fs, str(e)[:120])
+                if entry is not None:
+                    log.warning("盘中拉取失败, 沿用旧缓存 fs=%s", fs)
+                    return entry["raw"], None
+                raise
         else:
             log.info("盘中缓存命中 fs=%s 年龄%.0fs", fs, now - entry["ts"])
         return _cache[fs]["raw"], None
@@ -1191,16 +1227,16 @@ def _fetch_yesterday_amount_tencent(code, after_close=None):
 
 
 def _fetch_yesterday_amount_one(code):
-    """拉单只股票最近两交易日成交额(万元): 返回 [T日, T-1日] (T=最近已收盘交易日);
-    东财日K(多域名轮询)失败后自动切同花顺兜底; 完全失败返回 None
+    """拉单只股票最近两交易日成交额(万元): 返回 (成交额对, T日涨跌幅%); 完全失败返回 (None, None)
 
-    2026-08-30 容灾加固(主人反馈用户中午盘中截图): 当东财日 K 与 ths_kline
-    全部处于熔断中, 立即 return None 不浪费 5s×多 host 超时(5554 只全量会卡到 nginx 504)"""
-    # 快速短路: 四源(东财/同花顺/腾讯日K/量脉)都熔断中 → 立即跳过(昨比对该 code 置空, 评分时容忍缺失)
-    # 2026-09-01: 原三源短路会跳过第4源量脉(量脉正常时也置空) → 改为含量脉判断; 三源 down 但量脉可用时继续走量脉兜底
-    if (_check_circuit("eastmoney_kline") and _check_circuit("ths_kline")
-            and _check_circuit("tencent_kline") and _check_circuit("liangmai_kline")):
-        return None, None       # 2026-09-08: 统一返回 (成交额对, 昨日涨跌幅)
+    2026-09-10 主人拍板: 去掉所有兜底源(原 东财→同花顺→腾讯→量脉 四级链), 只保留东财日K
+    (东财内部 KLINE_HOSTS 多域名轮询)。理由同 _fetch_market_with_fallback: 多源口径不一
+    致 + 熔断横跳导致数据跳变; 拿不到就置空, 评分层容忍缺失。
+
+    保留熔断短路: 东财日K熔断中时立即跳过, 不浪费 5s×多 host 超时
+    (5554 只全量会卡到 nginx 504)"""
+    if _check_circuit("eastmoney_kline"):
+        return None, None
     qs = urllib.parse.urlencode({
         "secid": _secid(code), "fields1": "f1,f2,f3,f4,f5,f6",
         "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
@@ -1230,26 +1266,7 @@ def _fetch_yesterday_amount_one(code):
             _mark_host_broken(host)
             continue
     _record("eastmoney_kline", False)
-    # 东财全失败 → 同花顺兜底 → 腾讯日K兜底 → 量脉日K兜底(2026-08-31: 第4源, kline_vip_history 含成交额)
-    # ths 走 _kline_amount_pair(close_idx=4, 无官方涨幅列 → 收盘价自算) 故自带涨跌幅;
-    # 腾讯同样自算(qfqday row[2] 收盘价环比); 仅量脉无收盘价字段 → chg=None(不捏造)。
-    res = _fetch_yesterday_amount_ths(code)
-    if res is not None:
-        return res
-    v = _fetch_yesterday_amount_tencent(code)
-    if v is not None:
-        return v          # 已是 (成交额对, 涨跌幅%) 契约, 勿再包一层
-    try:
-        from . import liangmai
-        t1 = time.time()
-        v = liangmai._fetch_yesterday_amount_one(code, _bj_date_str().replace("-", ""))
-        if v is not None:
-            _record("liangmai_kline", True, int((time.time() - t1) * 1000))
-            log.info("昨比量脉兜底成功 code=%s", code)
-            return v, None
-        _record("liangmai_kline", False)
-    except Exception:
-        _record("liangmai_kline", False)
+    # 2026-09-10 去兜底: 不再切同花顺/腾讯/量脉。东财拿不到 → 置空(评分层容忍缺失)。
     return None, None
 
 
@@ -1346,19 +1363,21 @@ def fetch_yesterday_amounts(codes, wait=False):
         return {}
     today = _bj_date_str()
     now = time.time()
-    need = _collect_yday_need(codes, today, now)
-    if need:
+    # 2026-09-10 落库优先: 昨日成交额是静态历史数据, 收盘后已批量落库 → 直接读库(零网络)。
+    # 只有库里没有的(新股/停牌/落库任务未跑)才进入下面的实时拉取路径。
+    all_codes = list(codes)
+    pending = _yday_hydrate_from_db(all_codes, today, now)
+    need = _collect_yday_need(pending, today, now)
+    if need and _check_circuit("eastmoney_kline"):
         # 2026-08-31 线上事故: 全源熔断时逐只短路打 WARNING → 36804 条日志风暴,
         # 日志 I/O 阻塞 worker 导致 /api/stocks 674s、health 超时。改为批级短路: 一条聚合日志 + 直接返回
-        # 四源(东财/同花顺/腾讯日K/量脉)全部熔断才短路; 任一源可用则继续尝试(量脉作第4源兜底)
-        # 2026-09-01: 原三源短路会跳过量脉(量脉正常时昨比也全置空, 9/1 短路1207次 vs 量脉兜底仅21次) → 含量脉
-        if (_check_circuit("eastmoney_kline") and _check_circuit("ths_kline")
-                and _check_circuit("tencent_kline") and _check_circuit("liangmai_kline")):
-            log.warning("昨日成交额: 东财+同花顺+腾讯+量脉 四源全部熔断中, 本批%d只全部短路(昨比置空)", len(need))
-            with _yesterday_lock:
-                for c in need:          # 短路也写失败缓存, 避免下个请求重复判定
-                    _yesterday_cache[c] = [today, None, now, None]
-            return {}
+        # 2026-09-10 去兜底后只剩东财一个源 → 东财日K熔断即短路
+        log.warning("昨日成交额: 东财日K熔断中, 本批%d只短路(昨比置空)", len(need))
+        with _yesterday_lock:
+            for c in need:              # 短路也写失败缓存, 避免下个请求重复判定
+                _yesterday_cache[c] = [today, None, now, None]
+        need = []                       # 置空后下面 if need 直接跳过(不再加锁/起空线程)
+    if need:
         if wait:
             # 同步路径(后台任务): 等待批锁, 前一个拉取完成后可能已填充缓存 → 重新判定
             _yday_batch_lock.acquire()
@@ -1378,11 +1397,45 @@ def fetch_yesterday_amounts(codes, wait=False):
                                  daemon=True, name="yday-bg").start()
     out = {}
     with _yesterday_lock:
-        for c in codes:
+        for c in all_codes:
             ent = _yesterday_cache.get(c)
             if ent and ent[0] == today and ent[1] is not None:
                 out[c] = ent[1]
     return out
+
+
+def _yday_hydrate_from_db(codes, today, now):
+    """用收盘后落库的昨日成交额填充当日缓存(零网络), 返回仍未命中的 code 列表。
+
+    2026-09-10 新增: 昨日成交额为静态历史数据, 原实现每次选股实时逐只拉东财日K,
+    既触发风控又是"多源兜底链"混乱的源头。改为收盘后落库 + 全天读库后, 稳态下
+    本函数即可命中全部候选, 完全不发网络请求。
+    """
+    if not codes:
+        return []
+    try:
+        dbmap = yday_db_get(codes)
+    except Exception as e:                                    # noqa: BLE001
+        log.warning("昨日成交额读库异常(回落实时源) err=%s", e)
+        return list(codes)
+    if not dbmap:
+        return list(codes)
+    rest = []
+    with _yesterday_lock:
+        for c in codes:
+            v = dbmap.get(c)
+            if v is None:
+                rest.append(c)
+                continue
+            amount, prev_amount, chg = v
+            ent = _yesterday_cache.get(c)
+            if ent and ent[0] == today and ent[1] is not None:
+                continue          # 当日已有成功缓存(刚实时拉过), 不覆盖
+            pair = [amount, prev_amount] if amount is not None else None
+            _yesterday_cache[c] = [today, pair, now, chg]
+    log.info("昨日成交额读库命中 %d/%d 只(零网络), 剩余%d只走实时源",
+             len(dbmap), len(codes), len(rest))
+    return rest
 
 
 def _collect_yday_need(codes, today, now):
@@ -2491,11 +2544,12 @@ def fetch_stock_chart_robust(code, period="day"):
         if ent and time.time() - ent["ts"] < ttl:
             return ent["data"]
     t0 = time.time()
-    sources = ["eastmoney", "tencent"]
-    if period != "minute":
-        sources.append("tushare")
-        sources.append("ths")
-    sources.append("kpl")
+    # 2026-09-10 主人拍板: 去掉所有兜底源, 只保留东财(东财内部已有 KLINE_HOSTS 多节点轮换)。
+    # 原链 东财→腾讯→tushare→ths→kpl→自聚合 已下线: 2026-09-10 实测 chart 各源命中
+    # 东财 27 / 腾讯 485 / ths 2, 多源链实际长期靠腾讯扛, 但两源字段/复权口径不同,
+    # 同一只票两次请求可能来自不同源 → K线口径跳变。现统一为东财单源, 拿不到就如实报错。
+    # (各 _fetch_chart_from_xxx 函数体保留未删, 便于回滚与单测引用, 但主链不再调用)
+    sources = ["eastmoney"]
     for src in sources:
         try:
             if src == "eastmoney":

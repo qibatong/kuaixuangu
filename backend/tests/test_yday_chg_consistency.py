@@ -6,18 +6,39 @@
       概率差 1.5~4.5 分; 而命中率随"缓存回填进度 + 日K源熔断"在 0%~100% 之间跳。
 
 本文件锁定三条修复:
-  ① 兜底源(同花顺/腾讯)**自算**涨跌幅 — 同花顺 parts[7] 是换手率不是涨幅(实测
-     600127: 真涨幅 8.35%, parts[7]=30.118)
+  ① 日K 行**不把换手率当涨跌幅** — 同花顺 parts[7] 是换手率(实测 600127:
+     真涨幅 8.35%, parts[7]=30.118); 东财走官方 f58 涨跌幅列
   ② 成交额对成功但涨跌幅缺失 → 允许**补齐重试**(原实现只按 pair 判定 → 预热走了
-     无涨幅的兜底源后, chg 整天都是 None)
+     无涨幅的源后, chg 整天都是 None)
   ③ 批级一致性: 本批命中率 < 阈值 → **整批返回空**, 杜绝半有半无
+
+2026-09-10 去兜底后: 昨比只剩东财一个源(东财内部 KLINE_HOSTS 多域名轮询),
+原"腾讯 qfqday 自算涨跌幅"用例所测的 _fetch_yesterday_amount_tencent 已从链路删除
+(生产 0 引用) → 该用例一并删除; 其余条目均针对仍在线实现。
 """
-import json
 import time
 from datetime import date, timedelta
 
+import pytest
+
 from app.core import config
 from app.services import fetcher
+
+# conftest 的 session 级 mock_data_source 把 fetch_yesterday_changes 整体替换为
+# 假实现(恒返回 1.5); 本文件的批级一致性用例测的正是真实实现 → 还原(同
+# test_yesterday_cache 对 fetch_yesterday_amounts 的处理)
+_ORIG_FETCH_YDAY_CHG = fetcher.fetch_yesterday_changes
+
+
+@pytest.fixture(autouse=True)
+def _use_real_fetch_yday_chg(monkeypatch):
+    """还原真实 fetch_yesterday_changes(该函数仍被 api/stocks.py 与 picker/pipeline 使用)"""
+    monkeypatch.setattr(fetcher, "fetch_yesterday_changes", _ORIG_FETCH_YDAY_CHG)
+    with fetcher._yesterday_lock:
+        fetcher._yesterday_cache.clear()
+    yield
+    with fetcher._yesterday_lock:
+        fetcher._yesterday_cache.clear()
 
 
 def _d(offset):
@@ -65,39 +86,6 @@ def test_eastmoney_uses_official_change_column():
     pair, chg = fetcher._kline_amount_pair(rows)
     assert pair is not None and abs(pair[0] - 1200.0) < 1
     assert chg == 5.00, "东财 f58 官方涨跌幅列应被优先采用"
-
-
-# ---------------- ① 腾讯: qfqday 自算 ----------------
-def test_tencent_qfqday_derives_change(monkeypatch):
-    """腾讯 qfqday 行 [日期,开,收,高,低,量,{},换手率,额万元,''] → 收盘价环比自算
-
-    实测 600127: 2026-09-07 收 13.53 → 2026-09-08 收 14.79 = +9.31%;
-    row[7] 是换手率(46.62), 不是涨跌。
-    """
-    d2, d1 = _d(-2), _d(-1)
-    payload = {"data": {"sh600127": {"qfqday": [
-        [d2, "13.23", "13.53", "13.53", "12.80", "1379519.00", {}, "21.50", "183383.84", ""],
-        [d1, "14.07", "14.79", "14.88", "14.01", "2992169.00", {}, "46.62", "434781.26", ""],
-    ]}}}
-
-    class _Resp:
-        def __init__(self, b):
-            self._b = b
-
-        def read(self):
-            return self._b
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-    monkeypatch.setattr(fetcher, "_http_get",
-                        lambda *a, **k: _Resp(json.dumps(payload).encode()))
-    pair, chg = fetcher._fetch_yesterday_amount_tencent("600127")
-    assert pair is not None and abs(pair[0] - 434781.26) < 1
-    assert abs(chg - 9.31) < 0.05, "应自算 (14.79-13.53)/13.53=9.31%%, 实际 %s" % chg
 
 
 # ---------------- ② 涨跌幅缺失 → 允许补齐重试 ----------------

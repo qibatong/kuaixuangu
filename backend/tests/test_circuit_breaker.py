@@ -131,9 +131,20 @@ def test_cooldown_backoff_grows_on_consecutive_failures():
 
 
 def test_cooldown_resets_to_base_after_success():
-    """成功后冷却恢复基准值, fails_in_row 清零"""
+    """冷却结束后的成功(半开探测): 冷却恢复基准值, fails_in_row 清零
+
+    2026-09-10 熔断语义修正(commit 30f224a): 熔断生效期内到达的成功**不认**
+    —— 只更新统计、不解除熔断、不重置退避计数。原因是东财全市场分页 30 页并发,
+    各页独立 _record, 失败页刚设上 down_since 同批成功页就清零, 熔断在同一调用内
+    反复横跳(日志"故障0秒"), 下次请求照旧完整重试 30 页 → 单次选股 30s+。
+    故本用例先把冷却期推过(模拟 60s 后的半开探测), 再验证恢复语义。
+    """
     fetcher._record("eastmoney_kline", False)
     fetcher._record("eastmoney_kline", False)
+    with fetcher._health_lock:
+        assert fetcher._HEALTH["eastmoney_kline"]["down_since"] > 0, "连续失败应进入熔断"
+        # 把 down_since 往前推, 让冷却期已过(等价于 60s 后的半开探测)
+        fetcher._HEALTH["eastmoney_kline"]["down_since"] = time.time() - 9999
     fetcher._record("eastmoney_kline", True, ms=100)
     with fetcher._health_lock:
         h = fetcher._HEALTH["eastmoney_kline"]
@@ -142,51 +153,31 @@ def test_cooldown_resets_to_base_after_success():
         assert h["down_since"] == 0
 
 
-def test_short_circuit_skips_when_all_four_down(monkeypatch):
-    """四源(东财/ths/tencent/量脉)全熔断: 单只链路直接短路, 不调底层兜底(连量脉也不试)"""
-    from app.services import liangmai
-    lm_calls = []
-    monkeypatch.setattr(fetcher, "_host_blocked", lambda host: True)   # 东财全部域名快速失败
-    monkeypatch.setattr(fetcher, "_fetch_yesterday_amount_ths", lambda c: None)
-    monkeypatch.setattr(fetcher, "_fetch_yesterday_amount_tencent", lambda c: None)
-    monkeypatch.setattr(liangmai, "_fetch_yesterday_amount_one",
-                        lambda c, d: lm_calls.append(c) or [111.0, 222.0])
-    # 四源全部打到熔断阈值
+def test_success_within_cooldown_does_not_reset():
+    """熔断生效期内的成功不解除熔断(2026-09-10 防横跳核心语义)"""
     fetcher._record("eastmoney_kline", False)
-    for src in ("ths_kline", "tencent_kline"):
-        fetcher._record(src, False)
-        fetcher._record(src, False)
-    for _ in range(3):
-        fetcher._record("liangmai_kline", False)
-    assert all(fetcher._check_circuit(s)
-               for s in ("eastmoney_kline", "ths_kline", "tencent_kline", "liangmai_kline"))
-
-    # 2026-09-08: 返回值扩为 (成交额对, 昨日涨跌幅%) — 短路时两者皆 None
-    res = fetcher._fetch_yesterday_amount_one("600519")
-    assert res == (None, None), "四源全down应短路置空, 实际 %s" % (res,)
-    assert lm_calls == [], "短路时不应调用量脉"
+    with fetcher._health_lock:
+        fetcher._HEALTH["eastmoney_kline"]["down_since"] = time.time()   # 刚开始冷却
+    fetcher._record("eastmoney_kline", True, ms=100)                     # 冷却期内的成功
+    with fetcher._health_lock:
+        h = fetcher._HEALTH["eastmoney_kline"]
+        assert h["down_since"] > 0, "冷却期内的成功不应解除熔断"
+        assert h["fails_in_row"] >= 1, "冷却期内的成功不应清零退避计数"
 
 
-def test_short_circuit_does_not_skip_when_liangmai_up(monkeypatch):
-    """三源down但量脉可用: 不短路, 走量脉兜底(2026-09-01 核心修复)"""
-    from app.services import liangmai
-    lm_calls = []
+def test_short_circuit_skips_when_eastmoney_kline_down(monkeypatch):
+    """2026-09-10 去兜底后: 东财日K熔断即短路置空。
+
+    原「四源(东财/ths/tencent/量脉)全熔断才短路」「量脉可用则不短路」两个用例,
+    随量脉下线 + 兜底链移除一并删除(其断言的多源兜底行为已不存在)。
+    """
     monkeypatch.setattr(fetcher, "_host_blocked", lambda host: True)   # 东财全部域名快速失败
-    monkeypatch.setattr(fetcher, "_fetch_yesterday_amount_ths", lambda c: None)
-    monkeypatch.setattr(fetcher, "_fetch_yesterday_amount_tencent", lambda c: None)
-    monkeypatch.setattr(liangmai, "_fetch_yesterday_amount_one",
-                        lambda c, d: lm_calls.append(c) or [333.0, 444.0])
-    # 仅三源(东财/ths/tencent)熔断, 量脉健康
     fetcher._record("eastmoney_kline", False)
-    for src in ("ths_kline", "tencent_kline"):
-        fetcher._record(src, False)
-        fetcher._record(src, False)
-    assert not fetcher._check_circuit("liangmai_kline")
+    assert fetcher._check_circuit("eastmoney_kline")
 
-    # 2026-09-08: 量脉兜底只返回成交额对, 无涨跌幅 → (pair, None)
+    # 去兜底后不再切同花顺/腾讯/量脉 → 直接 (None, None)
     res = fetcher._fetch_yesterday_amount_one("600519")
-    assert res == ([333.0, 444.0], None), "量脉可用时应兜底成功, 实际 %s" % (res,)
-    assert lm_calls == ["600519"], "应调用量脉兜底"
+    assert res == (None, None), "东财日K熔断应短路置空, 实际 %s" % (res,)
 
 
 def test_ensure_spot_cache_returns_stale_on_circuit(monkeypatch):
