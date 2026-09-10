@@ -1355,12 +1355,26 @@ def test_kpl_bid_qiangcang_fastpath_skips_deep_concept(vip_user, client, monkeyp
     assert spy["ensure_called"] is True
     assert spy["apply_deep_called"] is False
 
-    # 指定 date 参数 → 切回 deep=True
+    # 指定 date(历史回看) → 仍是轻量路径(2026-09-10 生产 504 止血):
+    #   概念是静态属性, 不随回看日期变化, 盘后回看不该付逐股外网查询的代价。
+    #   旧语义 `date or 竞价时段 → deep` 曾让历史回看单次 198s → nginx 60s 504,
+    #   并占满两个 worker 连累 /api/stocks 一起 504。
     spy["apply_deep_called"] = False
     spy["ensure_called"] = False
     r2 = client.get("/api/kpl/bid-qiangcang?date=2026-08-17", headers=_hdrs(token))
     assert r2.status_code == 200
+    assert spy["ensure_called"] is True
+    assert spy["apply_deep_called"] is False
+
+    # 竞价时段 → deep=True(只有竞价进行中才为实时性付逐股查询代价)
+    monkeypatch.setattr(_time, "gmtime",
+                        lambda *a, **k: _time.struct_time((2026, 8, 17, 9, 20, 0, 0, 229, 0)))
+    spy["apply_deep_called"] = False
+    spy["ensure_called"] = False
+    r3 = client.get("/api/kpl/bid-qiangcang", headers=_hdrs(token))
+    assert r3.status_code == 200
     assert spy["apply_deep_called"] is True
+    assert spy["ensure_called"] is False
 
 
 def test_kpl_broken_fastpath_reads_broken_today(vip_user, client, monkeypatch):

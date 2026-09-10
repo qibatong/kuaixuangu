@@ -643,7 +643,11 @@ def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(require_vip_or_pa
     lLast = d.get("listLast") or []
     lists_to_concept = [l20, l20Chg, lLast]
     # 指定 date → 走 deep=True 深查; 非竞价时段 → _ensure_concepts 轻量补
-    if date or _is_auction_hours():
+    # 2026-09-10 生产 504 止血: 概念是**静态属性**(某只票属于什么板块不随回看日期变化),
+    # 只有"竞价进行中"才值得为实时性付逐股外网查询的代价。原条件 `date or 竞价时段`
+    # 让盘后回看历史日也走 deep(100只×限流3并发 = 单次 198s, 日志实锤) → nginx 60s
+    # 504 且两个 worker 被占满, 连累 /api/stocks 一起 504。
+    if _is_auction_hours():
         try:
             for lst, tag in zip(lists_to_concept, ["auc:qc20", "auc:qc20Chg", "auc:qcLast"]):
                 kpl.apply_board_concept(lst, log_tag=tag, deep=True,

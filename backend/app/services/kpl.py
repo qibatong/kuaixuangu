@@ -1460,7 +1460,8 @@ def fetch_board_map():
 
 
 def apply_board_concept(result, log_tag="", deep=True, field="concept",
-                        truncate=None, blank_if_missing=False):
+                        truncate=None, blank_if_missing=False,
+                        time_budget=3.0):
     """用开盘啦概念覆盖选股/历史回看结果指定字段(2 层覆盖)
     1) 榜单合并(ladder+bid_seal+bid_boom+hot_stocks+snap25) - 快速覆盖热点/板块
     2) 按股查询(doc94 fetch_stock_plate) - 百分百覆盖, 1 天缓存限制频次
@@ -1469,6 +1470,13 @@ def apply_board_concept(result, log_tag="", deep=True, field="concept",
     result: [{code, ...}, ...], 原地修改 field 字段; 返回覆盖数
     deep=False: 只做榜单合并层(历史回看/大列表用, 避免海量按股查询拖慢接口)
     truncate: 概念最多保留前 N 个(按 '、' 分档); None/0=不截断
+    time_budget: **按股查询的总耗时预算(秒)**(2026-09-10 生产 504 事故新增)。
+      背景: 竞价异动抢筹右表 listLast 固定 100 只, 共享池命中率低(实测 10/100) →
+      90 只逐股打开盘啦, 并发受 _SEM=3 限流 → 单次耗时 183~198 秒(日志实锤),
+      远超 nginx 60s → 504; 且两个 uvicorn worker 被这种请求占满, 连累 /api/stocks
+      一起 504(08:56 同批 504)。概念只是展示字段, 不值得让整个接口赌上 3 分钟。
+      超预算即停止后续批次, 未查到的保留榜单值/原值(下轮 1h 共享池命中后自动补齐)。
+      传 0 = 不设预算(仅离线/回补任务用)。
     blank_if_missing: True 时, 开盘啦完全未覆盖到的股票, 把原 field(东财)清空,
                      保证概念只看开盘啦; False 则保留原值兜底"""
     if not result:
@@ -1546,7 +1554,15 @@ def apply_board_concept(result, log_tag="", deep=True, field="concept",
             # 并发受限流信号量(_SEM=3)保护, 分批执行避免一次开太多线程
             BATCH = 20
             new_pool = {}
+            t_deep = time.time()
             for i in range(0, len(miss_codes), BATCH):
+                # 2026-09-10 生产 504 止血: 逐股外网查询必须有总耗时上限,
+                # 否则"展示字段"能把接口拖到 200s 并占满 worker 拖垮全站。
+                if time_budget and time_budget > 0 and (time.time() - t_deep) > time_budget:
+                    log.warning("选股概念开盘啦覆盖[按股] %s 耗时预算%.1fs已用尽(已补%d只), "
+                                "剩余%d只本轮放弃(保留原值, 后续共享池命中自动补齐)",
+                                log_tag, time_budget, n2, len(miss_codes) - i)
+                    break
                 chunk = miss_codes[i:i + BATCH]
                 with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
                     plates = list(ex.map(fetch_stock_plate, chunk))
