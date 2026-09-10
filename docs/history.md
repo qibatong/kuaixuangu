@@ -303,4 +303,31 @@
   - **AGENTS.md 同步**：第七节新增「唯一链路 = `picker.pipeline.run()`」硬约定 —— 改选股只改
     `backend/app/services/picker/`、回滚只能 git 回版本、**测试必须打桩在唯一链路上**
     （打在 `scorer.process_all_stocks` 上的桩永远不被调用）。
+  - **回滚点**：tag **`v4.11.2`** → `36ce505`（删除前最后提交），已推远端。线上已无
+    `picker_lock` / `picker_gray` 开关，回滚命令：
+    `cd /opt/kuaixuan && git fetch --all --tags && git checkout v4.11.2 -- backend/app && systemctl restart kuaixuan kx-worker`。
+  - **双机部署（09-11 凌晨，非交易时段窗口）**：
+    - **测试机 01:35 / 生产机 01:46**，流程统一：备份 tarball → 上传 13 文件 →
+      **MD5 13/13 逐一校验** → 删 `parity.py`(+pyc) → **依赖齐套性预检**(重启前) → 重启双服务 → 全链路验证。
+    - **预检内容**（正反双向 assert，不过就不重启）：`scorer` 14 个老符号必须 `hasattr == False`、
+      `system_batch._run_legacy/_picker_lock_on == False`、`_run_picker/lock.run_lock/pipeline.run == True`，
+      并核 **运行时字节码** `_do_run.__code__.co_names` 只含 `_run_picker`。
+    - **部署前只读审计的意义**：先比生产 13 文件 MD5 vs 本地 `36ce505` / `HEAD`，确认
+      「13/13 全部 == 删除前版本」才动手 → 本次是干净增量，无跨版本错配风险。
+      审计同时暴露出两个此前不知道的事实：**生产 `parity.py` 确实存在（12753B）**、
+      **生产 `settings.picker_gray = 1`（即双跑对拍一直在生产真跑）**，而 `picker_lock = None`
+      说明老链路在生产**从未被执行**（默认走新链路）——这就是"删老链路零行为影响"的直接证据。
+    - **验证结果（双机一致）**：`kuaixuan`/`kx-worker` **active**；
+      `/api/login` 200（生产 `Felix518` is_admin=1 member_level=2）；`/api/stocks?action=filter`
+      **200 / 0.59~0.69s / 4 只**；`/api/health` `overall=ok serviceable=true`；
+      **Traceback / ImportError / ModuleNotFoundError 计数 = 0**；parity 残留 **NONE**。
+    - **两机选出同一份名单**（`603162 海通发展 89 / 600121 郑州煤电 82 / 000759 中百集团 81 /
+      002172 澳洋健康 81`，`bidChange / bidRatio / warnType` 全有值）—— 同一份数据下两机结果
+      完全一致，是"链路确定性 + 部署正确"的交叉证据。
+    - 前端 `dist` 未动（本次无前端改动），生产按 `umask=027` 对 13 个文件显式 `chmod 640`。
+    - 备份留存：测试机 `/opt/kuaixuan/backup/app_bak_20260911-013545.tar.gz`（1.7M）、
+      生产机 `app_bak_20260911-014628.tar.gz`（3.9M）。
+  - **⚠️ 本次部署后待办（已报主人，未动）**：`backend/app/worker.py:74` 启动日志仍为
+    `"...连板天梯盘后生成 + 量脉校验已启动"`，但量脉模块 v4.11 已整体删除 —— 纯文案、零行为影响，
+    属"误导性可观测性"（运维 grep 量脉会以为还在跑）。双机日志均可见此串。
 
