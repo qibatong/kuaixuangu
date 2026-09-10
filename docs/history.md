@@ -155,3 +155,17 @@
   - **五色收敛**（`8434d03`+`5584624`）：用户反馈颜色过多 → 全站收敛 黑/白/红/绿/黄；清除蓝紫杂色 ~150 处（邀请页/按钮/徽章/蓝灰次要文字）；白主题重定义 --accent 深红 #c62828 保证对比度；三时点榜 9:15 列蓝→银白、跌色统一绿；图表内部（K 线均线/轮动图）豁免
   - **AGENTS.md 工作手册**（`67a8c69`）：可公开约定迁移进仓库（工作流/部署/缓存/前端约束/数据源/测试坑，脱敏）
   - **自动化测试**：test_stocks_refresh_fallback.py 8 用例，全量 **575 passed / 4 skipped**
+- **v4.9 (09-06~09-09)**：picker 五段重构落地 + 9/9 事故链闭环 + 竞价语义正本清源
+  - **picker 模块重构 P1~P5**（`d44b03c`→`4df47c0`）：拆成 `mode / contract / sources / score / policy` 五层——数据源适配层（4 个 adapter 统一输出 `QuoteRow`）、评分/过滤层、编排层（新老双跑灰度，老代码零改动）、**P5 切流**（首页选股默认走新链路）；配套修正收盘后语义（竞价结束后名单即定型）与预热补强
+  - **评分因子语义修正**（`af79676`/`0fc8017`/`cfab537`/`c971986`/`f940375`）：昨日涨幅改用**真实值**（老逻辑拿当日 f3 冒充）；竞价换手改「竞价额 ÷ 流通市值」口径（不依赖快照没有的 bid_vol）；**竞价强度三层信号**替代已失活的 f630 异动等级；**竞价大跌票不再入选**（中石科技 300684 事故）；抢筹列区分竞额/涨幅/末秒并显示幅度
+  - **9/9 生产事故：SQLite 连接泄漏打满 fd**（`cdeecdc`）：`with sqlite3.connect()` 只管事务不关连接 → 高频缓存路径 fd 累积到 997/1024 → 10 分钟内 10.2 万次 `unable to open database file`，批次全落库失败，表征极像"数据源故障"；修法：`get_conn()` 加 `timeout=10`、读连接 `close()` 进 `finally`、systemd `LimitNOFILE=65535`
+  - **策略 / 时段消歧**（`e8d9df0`，主人拍板改名）：对外**策略** `strategy` = `auction`(竞价因子表) / `spot`(盘中因子表)，HTTP 参数 + `get_scoring_cfg(strategy=)` + 前端 store；内部**时段** `PickMode` = preopen/auction/locked/intraday/closed 由 `resolve_mode()` 按时间判定（午休与盘中都是 intraday）。旧名 `mode` 保留回退、出参双返防旧前端静默退化
+  - **下线盘中实时选股 spot**（`4c56083`）：整链零调用、前端无入口
+  - **竞价窗口语义修复 + 删双轨**（`867cd25`）：竞价期 `vol==0` 是"未撮合"不是停牌（`is_suspended` 窗口内只看昨收）、腾讯源窗口内才取 f615/f616 且窗口外清空（此前拿现价涨幅冒充竞价涨幅，9/7 全员 0 只）；AUCTION 名单源从单点 `[0]` 补成**真序列** `list_source_count=2`；删掉 api/stocks、auto_apply 的双轨回退与 parity.compare 死代码
+  - **竞价额单位 bug**（`1470e44`）：KPL `bidAmt` 是**元**、`get_bid_amt()` 返回**万元**，补位处漏换算 → 快照竞价额放大 1e4 倍，三处统一 `/1e4`
+  - **出口 IP 轮换下沉**（`54e6f60`）：轮换机制此前只有 fetcher 独享，kpl/hot_rank/sector_rotation 裸 `urlopen` 单 IP 裸奔 → 抽到 `app/core/net.py`（`IPRotator` 严格 RR + 失败惩罚、`ip_binding()` 上下文仅 with 块内绑定、`http_get`），覆盖全部对外源
+  - **自动化测试**：新增 test_auction_window 12 例、test_snapshot_kpl_unit 2 例、test_outbound_ip 13 例
+- **v4.10 (09-10)**：抢筹接口 504 止血 + 评分门槛 scoreFloor
+  - **504 止血**（`0747561`，生产实况 08:57 `/api/kpl/bid-qiangcang?date=历史日` 单次 183~198s → nginx 60s 超时 504，两个 worker 被占满连累 `/api/stocks` 一起 504）：① `apply_board_concept` 新增 `time_budget=3.0`，逐股外网查询总耗时超预算即停（未查到的保留原值，下轮 1h 共享池命中自动补齐），传 0 = 不限留给离线回补；② 触发条件 `date or 竞价时段` 收紧为**仅竞价时段**——概念是静态属性，不随回看日期变化，盘后回看历史日不该付逐股查询代价。**实测 198s → 0.42s**
+  - **评分门槛 scoreFloor = 80**（`9d290e4`，主人拍板全站默认、可配）：与既有 `probLt/confLt` **双低**剔除（高信心能救低概率）不同，`scoreFloor` 是**单阈值硬门槛**，不看信心，评分不够就是不够；只能放精筛（粗筛在评分前跑，拿不到 probability）。后端 scorer/filter/lock/admin 四处 + 前端 filters.js/FilterPanel/AdminView 同口径。**Felix518 原条件 14 只 → 6 只（评分 81~88，全部 ≥80）**
+  - **自动化测试**：新增 test_score_floor 6 例、test_concept_budget 2 例；修 test_ip_rotator 导入失效（轮换下沉后遗留，曾阻断全量收集）
