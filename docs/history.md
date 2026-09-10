@@ -178,3 +178,11 @@
     - **踩坑（已写进代码注释）**：扩容必须在 **async 上下文**调用（模块导入期调 `current_default_thread_limiter()` 会抛 `Not currently running on any asynchronous event loop`，被 try 吞掉后静默不生效）；startup handler 按注册顺序执行，必须排在 `on_startup` 之后，否则 `setup_logging()` 还没跑、日志打不出来无从确认
     - **验证**：生产 venv 实测把 anyio 池 40/40 槽占满（`available_tokens=0`）后 `asyncio.to_thread` 仍 **0.001s** 返回；生产日志两 worker 均「anyio 线程池扩容: 40 → 120 槽/worker」；`/api/stocks` 26~36s → **0.033s**，历史回看 0.299s，登录 0.062s
     - **自动化测试**：新增 test_circuit_fastfail 8 例；`git stash` 回退改动后 4 条核心用例立刻变红（证明非空断言）
+  - **批次落库全失败 · warn_type NOT NULL**（`94808ad`）：一个 `None` 值级联成全站故障——`item["warnType"]` 为 None（东财 f630 缺失，contract 语义上保留 None=未知）→ `executemany` 抛 `NOT NULL constraint failed: batch_stocks.warn_type` → **整个批次一条都存不下**；更糟的是 `except` 分支只 log 不关连接 → 连接泄漏持续持有写锁 → 后续任何写操作 `database is locked` 雪崩。修法：`_NOT_NULL_DEFAULTS` + `_safe_num()` 对 9 个 NOT NULL 无默认值列统一兜底（语义取舍：**"名单能落库"优先于"字段精确"**），`conn.close()` 移入 `finally`。**test_lock_idempotent 5 failed → 14 passed，耗时 46.9s → 5.67s（锁等待消失）**
+  - **9_20/9_24 竞价额长期崩塌 · 单位防御 + 缺失质量门**（`1032b77`）
+    - **实测规律**：9_25 定格稳定 **92-93%**，而 9_20/9_24 长期崩塌——9/4 与 9/7 为 **0%**，9/9 为 1.4%，9/10 为 0.7%（9/8 唯一正常 88.9%）。根因是竞价窗口内东财被限流 → 回退腾讯兜底，而腾讯无真实竞价额
+    - **两个后果**：① `INSERT OR REPLACE` 把窗口内上一轮重采集到的好数据直接冲成 0；② KPL 补位曾按"元"写入万元列 → 放大 1e4 倍（9/9 9_20 中位 5,775,000"万元"、9/9 9_24 max 341,698,188），带歪评分与加速度
+    - **修复**：`_fix_bid_amt_unit()` 单票 >10 亿判定单位错（实测 9_25 P99=4452 万、max=5.19 亿），`/1e4` 换算，换算后仍离谱（历史 4.9e15）→ 置 0 宁缺毋滥；`_guard_bid_amt_missing()` 全市场 ≥1000 只且竞价额覆盖率<30% 且涨幅覆盖率>50% → 判定源降级，捞回库内已有正值填回；`check_seal_quality` 纳入竞价额覆盖率进飞书告警
+    - **历史数据**：生产修复 **901 行**（先备份到 `snapshot_bid_bak_20260910` 再改），9/9 9_20 max 6837 万、9/9 9_24 max 3.4 亿、9/8 9_24 max 1.7 亿，全库无残留
+    - **影响面更正**：名单源固定 9_25（`load_snapshot_full`），回退是"换交易日"不是"换时点"，所以 **9_20 崩不影响名单**，只影响加速度与竞价额展示——此前"名单会塌成个位数"的判断有误
+    - **自动化测试**：新增 test_snapshot_bid_amt_guard 7 例（单位换算/置0/不误伤正常值/质量门 4 种分支）；全量对照 **新增失败 0 条、净修复 6 条**
