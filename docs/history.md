@@ -377,3 +377,40 @@
   - **遗留（已知、未动）**：`_fetch_yesterday_amount_ths`（死函数）+ `_HEALTH["ths_kline"]`
     条目仍保留 —— 后者被 `test_health.py` 断言依赖，删除属独立重构范围，未纳入本次注释清理。
 
+- **v4.11.6 (09-11) 同花顺昨比死源清理（死函数 + `_HEALTH` 死条目，6 源→5 源）**
+  - **判据**：仍沿用主人拍板的原话——「不要为了让测试用例通过而去瞎改，要看是不是我让你
+    去掉的功能所对应的测试用例」。即先查「被测/被删对象在生产代码还有没有引用」。
+  - **背景**：v4.11.5 报告遗留时确认 `_fetch_yesterday_amount_ths` 全仓 0 引用（死函数），
+    它是**唯一**写 `_record("ths_kline")` 的生产者 → `_HEALTH["ths_kline"]` 是**死源**
+    （从未有过计数），且被 `test_health.py` 断言依赖，故上一轮未动、单独收口。
+  - **生产代码删除**（`backend/app/services/fetcher.py`，净 -50 行）：
+    - `_fetch_yesterday_amount_ths`（41 行）—— 同花顺日 K 昨比源。
+    - `_HEALTH["ths_kline"]` 条目 → **`_HEALTH` 由 6 源收敛为 5 源**：
+      `eastmoney_clist` / `eastmoney_kline` / `eastmoney_zt_pool` / `tencent_market` / `tencent_kline`。
+    - 注释同步：`down_threshold` 说明 `(ths/tencent=2)` → `(tencent=2)`；`_record` docstring
+      抖动保护源清单；`_fetch_yesterday_amount_one` 备源说明；`_kline_amount_pair` docstring
+      注明 `close_idx=4` 列序配置**已无生产调用者**（保留仅为记录列序语义与历史踩坑）。
+  - **核实后保留（防「顺手删过头」）**：`_fetch_kline_from_ths`（K 线兜底链的 `elif` 分支引用）、
+    `_kline_amount_pair`（腾讯昨比备源仍在用）、`_yday_fallback_tencent` /
+    `_fetch_yesterday_amount_tencent`（现行昨比备源）。
+  - **测试调整**：
+    - `test_health.py`：`'ths_kline' in d["sources"]` → 断言**已消失**（锁「已收敛为 5 源」，防死源回归）。
+    - `test_tencent_fallback.py`：两处 `_HEALTH` 打桩里的 `ths_kline` 条目删除（结构与真实脱节）。
+    - `test_circuit_breaker.py` / `test_yday_chg_consistency.py`：历史表述收敛到位。
+    - 受影响用例 **86 passed**；**全量 874 例 / 7 失败 / 0 错误 → 零新增失败**（7 条全为基线历史债）。
+  - **双机部署**：测试机 `02:35:23` / 生产机 `02:35:34` —— 备份 `ths_deadsource_bak_<ts>.tar.gz`
+    → 上传 `fetcher.py` → **MD5 一致** → 预检 `PRECHECK-OK` → 重启双服务。
+    - 预检 6 组断言：① 死源条目已删且源数 == 5（并逐源点名核对）② 死函数已删
+      ③ **在线的必须保留**（`_fetch_kline_from_ths` / `_kline_amount_pair` / 腾讯昨比两函数）
+      ④ `tencent_kline.down_threshold == 2`（抖动保护仍由它承载）⑤ 唯一选股链路健全
+      （`_run_picker` 在、`_run_legacy` 不在，防老链路回退）⑥ 旧文案注释不得残留。
+    - 验证：`active / active`；`/api/health sources` = **5 源**、`ths_kline 残留 = False`、
+      `overall=ok serviceable=true`；`/api/stocks?action=filter` **200 / 4 只 / 0.59~0.76s**，
+      **两机名单完全一致**（603162/600121/000759/002172，`prob`/`conf`/`bidChange`/`bidRatio` 全有值）；
+      `Traceback` / `ImportError` / `ModuleNotFoundError` **计数 = 0**。
+    - 启动日志里 v4.11.4 的「股性数据落库已启动」文案已生效（交叉确认前序补丁在线）。
+  - **回滚点不变**：tag `v4.11.2` → `36ce505`。
+  - **⚠️ 新发现（本次范围外，未动，待主人定）**：K 线兜底链的 `sources = ["eastmoney", "tencent"]`，
+    故 `elif src == "ths"` / `"kpl"` / `"tushare"` 三个分支**运行时不可达** →
+    `_fetch_kline_from_ths` / `_fetch_chart_from_kpl` / `_fetch_chart_from_tushare` 属
+    「仅源码可达」的死代码（改 `sources` 即复活）。属独立重构范围。

@@ -140,7 +140,9 @@
   生产 7052 事故）；**f17=今开必补**（缺则实体列恒 0%）。
 - **熔断器**：`fetcher._check_circuit(src)/_record(src, ok, ms)`；**昨比/昨涨的短路 = 东财日 K
   **与** 腾讯 K 线**均** down**（一审的「东财单源 down」已随二审恢复腾讯备源而放宽）；
-  每源独立 `down_threshold`（ths/tencent=2、其余=1），指数退避 cooldown 60→…→600s。
+  每源独立 `down_threshold`（`tencent=2`、其余=1），指数退避 cooldown 60→…→600s。
+  （2026-09-11：`_HEALTH` 由 6 源收敛为 5 源——`ths_kline` 死源随死函数
+  `_fetch_yesterday_amount_ths` 一并删除；抖动保护现仅由 `tencent_kline` 承载。）
   **熔断生效期内的成功不解除熔断**（2026-09-10 commit 30f224a：防全市场 30 页并发时失败页刚置 down、
   成功页立刻清零 → 同一调用内反复横跳、下次仍完整重试 30 页）。
   ⚠️ `_fetch_chart_from_tencent` **不参与** `tencent_kline` 熔断统计（只有昨比路径会 `_record`）——
