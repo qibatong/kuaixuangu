@@ -345,7 +345,7 @@ def find_recent_reusable_batch(user_id, f, now_ts=None, lookback_days=14):
 
 
 def get_batch_stocks_mapped(batch_id):
-    """读批次明细并映射为前端 list 结构(与 score_all_stocks 输出同 camelCase 字段)。
+    """读批次明细并映射为前端 list 结构(与选股 item 同 camelCase 字段)。
     幂等直读批次时返回给前端, 保证字段与正常选股结果一致(不缺失 price 等实时字段为 None 由前端容错)。"""
     conn = _conn()
     try:

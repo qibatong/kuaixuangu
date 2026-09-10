@@ -3,7 +3,7 @@
 锁仓接入层 (重构 P4)
 =================================================================================
 给「系统批次 system_batch」与「9:26 自动应用 auto_apply」两条锁仓链路提供**同一个**
-新链路入口, 让它们与首页选股共用 pipeline(模式层 → 名单源 → 粗筛 → 评分 → 精筛)。
+统一入口, 让它们与首页选股共用 pipeline(模式层 → 名单源 → 粗筛 → 评分 → 精筛)。
 
 为什么需要单独一层(而不是直接调 pipeline.run):
   1. **filters 形态不统一**: system_batch 传的是 validate_filters 输出(标量 dict,
@@ -106,7 +106,7 @@ def to_picker_filters(f: Dict, markets: Any = None) -> Dict[str, Any]:
 # ---------------------------------------------------------------- 结果
 @dataclass
 class LockResult:
-    """锁仓选股结果(老链路 result 同构 + 诊断元信息)"""
+    """锁仓选股结果(与首页名单同构 + 诊断元信息)"""
     items: List[dict] = field(default_factory=list)
     mode: str = ""
     mode_label: str = ""
@@ -139,7 +139,7 @@ _REJECT = {
 def run_lock(f: Dict, *, markets: Any = None, top: Optional[int] = None,
              now=None, ctx=None, cfg: Optional[dict] = None,
              log_tag: str = "") -> LockResult:
-    """跑一次锁仓选股(新链路)。
+    """跑一次锁仓选股。
 
     f:       筛选参数(任意形态, 见 to_picker_filters)
     markets: 覆盖 f 里的市场范围(调用方自己的口径优先时传)
@@ -180,57 +180,13 @@ def run_lock(f: Dict, *, markets: Any = None, top: Optional[int] = None,
             items = items[:top]
         res.items = items
         res.elapsed_ms = int((time.time() - t0) * 1000)
-        log.info("%s锁仓新链路 %s", tag, res.summary())
+        log.info("%s锁仓完成 %s", tag, res.summary())
         return res
     except Exception as e:                                       # noqa: BLE001
         # 锁仓在后台线程, 抛异常没人看得见 —— 必须转成结果 + 日志
-        log.error("%s锁仓新链路异常 err=%s", tag, e, exc_info=True)
+        log.error("%s锁仓异常 err=%s", tag, e, exc_info=True)
         r = LockResult()
-        r.errors.append("锁仓新链路异常: %s" % e)
+        r.errors.append("锁仓异常: %s" % e)
         r.elapsed_ms = int((time.time() - t0) * 1000)
         return r
 
-
-def enabled(setting_value: Any) -> bool:
-    """settings 开关判定(统一口径, 避免三处各写一遍字符串比较)"""
-    return str(setting_value or "0") in ("1", "true", "True", "yes", "on")
-
-
-def enabled_default_on(setting_value: Any) -> bool:
-    """P5 切流后的开关判定: **未配置/空 = 开启**, 显式 "0"/"false"/"off" 才关闭。
-
-    与 enabled() 的差别只在缺省值 —— 切流前新链路是"旁路实验"故默认关; 切流后
-    新链路是**主链路**, 未配置应走新链路, 老链路变成需要显式打开的应急回退。
-    这样回滚只需在 settings 写 picker_lock=0, 不需要改代码重新部署。
-    """
-    v = setting_value
-    if v is None or str(v).strip() == "":
-        return True
-    return str(v) in ("1", "true", "True", "yes", "on")
-
-
-def compare_with_legacy(new_items: Sequence[dict], legacy_items: Sequence[dict],
-                        log_tag: str = "") -> Dict[str, Any]:
-    """锁仓双跑对拍: 只比对**名单与关键分数**, 打日志, 不影响落库。
-
-    与 parity.compare 的区别: 锁仓落库只关心名单是否一致(老链路与新链路给同一批
-    用户的必须是同一份), 字段级差异(竞/昨比等)不影响锁仓语义。
-    """
-    try:
-        from . import parity
-        rep = parity.diff_items(list(legacy_items), list(new_items))
-        tag = "[%s] " % log_tag if log_tag else ""
-        if rep.identical:
-            log.info("%s锁仓对拍一致 名单=%d只", tag, len(legacy_items))
-        else:
-            log.warning("%s锁仓对拍差异 新=%d 老=%d 仅新=%d 仅老=%d 分差=%d 字段差=%d %s",
-                        tag, len(new_items), len(legacy_items),
-                        len(rep.only_new), len(rep.only_legacy),
-                        len(rep.score_diff), len(rep.field_diff),
-                        (rep.only_new[:5], rep.only_legacy[:5]))
-        return {"identical": rep.identical, "legacy_only": rep.only_legacy,
-                "new_only": rep.only_new, "score_diff": rep.score_diff,
-                "field_diff": rep.field_diff}
-    except Exception as e:                                       # noqa: BLE001
-        log.warning("锁仓对拍失败(不影响落库) err=%s", e)
-        return {"identical": None, "error": str(e)}

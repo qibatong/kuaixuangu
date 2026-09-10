@@ -18,8 +18,8 @@
      (它根本不该出现在竞价名单里) → 默认剔除, 统计在 stats["no_bid_change"]。
      可用 ctx.require_bid_change=False 关掉(竞价窗口早期数据未全时的兼容开关)。
 
-对拍契约(见 parity.py): 字段完备 + 同 zt_codes 口径下, 本层与老 apply_filters
-必须逐票同结果; 差异只能出现在"字段缺失"分支, 且差异原因必须可在 stats 里查到。
+过滤口径契约: 字段完备 + 同 zt_codes 口径下, 本层与已退役老链路的 apply_filters
+逐票同结果; 差异只允许出现在"字段缺失"分支, 且每条剔除原因都必须能在 stats 里查到。
 """
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
@@ -27,8 +27,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 from .score import ScoredRow
 
 
-# 市场范围判定(与 scorer._in_markets 同口径, 独立实现以免 picker→scorer 循环依赖;
-# tests/test_picker_parity.py 有对拍用例锁死两边行为一致)
+# 市场范围判定(与 scorer._in_markets 同口径, 独立实现以免 picker→scorer 循环依赖)
 def in_markets(code: str, markets: Optional[List[str]]) -> bool:
     """hs=沪主板60x + 深主板00x | cyb=300/301 | kcb=688/689; 北交所一律排除。
     markets 为空/None → 不限制(老口径: 旧调用方不传 markets)"""
@@ -72,7 +71,7 @@ class FilterContext:
     price_gate: str = "auction"
     """价格门槛用哪个价判定:
       "auction"  定格竞价价 = 昨收×(1+竞价涨幅)**全天恒定** → 名单不漂移(默认)
-      "realtime" 实时价(老链路行为) — 盘中价格一漂名单就变, 仅对拍老行为时用
+      "realtime" 实时价(已退役老链路的行为) — 盘中价格一漂名单就变, 仅复现历史用
       缺失(None) → 门槛不生效, 保留该票(不误杀)
     """
 
@@ -181,7 +180,7 @@ def apply_filters(rows: List[ScoredRow], f: Dict,
 
         # 8) 价格上限(缺失 → 无法证明超限 → 保留, 与老口径 0>priceGt=False 同结果)
         #    判定价默认取**定格竞价价**(全天恒定), 不用实时价 — 否则盘中价格一漂
-        #    名单就变; 老链路用实时价, 对拍时用 price_gate="realtime" 复现其行为。
+        #    名单就变(老链路用实时价 → 名单漂移, 已退役)。
         gate_price = (r.auction_price if ctx.price_gate == "auction" else r.price)
         if f["priceGt"] > 0 and gate_price is not None and gate_price > f["priceGt"]:
             out.bump("price_gt")

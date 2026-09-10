@@ -7,7 +7,7 @@
 耦合、便于单测注入 cfg)。
 
 行为与 scorer.get_factor_score / _factor_default / js_round **逐行等价**,
-任何改动必须同步两边并补对拍用例(见 tests/test_picker_parity.py)。
+任何改动必须同步两边(scorer 侧仍是其它调用方的权威实现)。
 """
 import math
 from typing import Any, Optional

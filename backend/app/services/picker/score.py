@@ -14,9 +14,9 @@
   分档表/权重/置信度加成全部复用 scorer 的配置(同一份 settings "scoring"),
   保证调参行为一致、对拍可比。
 
-对拍契约(见 parity.py):
-  在**字段完备**的输入上, 本层输出必须与老 scorer 逐票一致(分与名单);
-  在字段缺失的输入上, 允许且**应当**出现差异(差异即修正), 由对拍报告分类。
+计分口径契约:
+  在**字段完备**的输入上, 本层输出与已退役老链路 scorer 逐票一致(分与名单);
+  在字段缺失的输入上，允许且**应当**出现差异(差异即修正: 缺失不再冒充 0 值桶)。
 """
 import math
 from dataclasses import dataclass, field
@@ -124,7 +124,7 @@ def compute_score(row: QuoteRow, cfg: Optional[dict] = None,
 # ---------------------------------------------------------------- 批量评分
 def score_rows(rows: List[QuoteRow], cfg: Optional[dict] = None,
                strengths: Optional[Dict[str, float]] = None) -> List["ScoredRow"]:
-    """批量评分 + 按 probability 降序排序(与老 score_all_stocks 同序)。
+    """批量评分 + 按 probability 降序排序(与已退役老链路同序)。
 
     strengths: {code: 竞价强度 0~1}, 由 services/bid_strength 提供; 传了就用
     竞价强度替代 warn 因子(见 compute_score 注释)。None = 退回 f630(对拍用)。
@@ -148,7 +148,7 @@ class ScoredRow:
     """
     row: QuoteRow
     score: ScoreResult
-    # ---- 竞价派生(由 pipeline 注入; 老链路在 score_all_stocks 里就地算) ----
+    # ---- 竞价派生(由 pipeline 注入; 老链路曾就地计算) ----
     bid_ratio: Optional[float] = None     # 竞价额/最近已收盘交易日全天额 (%)
     accel: Optional[float] = None         # 9:25-9:20 竞价涨幅加速度(%)
     qiangchou: int = 0                    # 抢筹标记 0/1
@@ -164,7 +164,7 @@ class ScoredRow:
         return self.row.name
 
     def to_dict(self) -> Dict[str, Any]:
-        """前端字段(与老 score_all_stocks 输出对齐, 含 province 等老字段位)"""
+        """前端字段(与老链路输出对齐, 含 province 等老字段位)"""
         r = self.row
         return {
             "code": r.code,

@@ -19,7 +19,7 @@
   2. **时间段判定只有一个入口**: resolve_mode, 不再散落 before930/hm 硬编码。
   3. **降级可观测**: 每一步的 source/error 都进 PipelineResult, 前端可提示。
 
-灰度: 本模块**不改任何老代码**。api 层旁路调用 run() 并与老结果比对(见 parity.compare)。
+2026-09-11: 老链路(含 api 层旁路对拍 parity.py)已整体退役 —— 本模块是**唯一**选股链路。
 """
 import time
 from dataclasses import dataclass, field, replace
@@ -41,7 +41,7 @@ _QC_UNIT = {"amt": "%", "chg": "个百分点", "last": "个百分点"}
 
 def _qc_of(code: str, ctx: "PickContext") -> dict:
     """抢筹输出(2026-09-09): 明细优先(带类型 amt/chg/last + 各自幅度 + 中文摘要),
-    无明细才退回纯代码集合(只打标)。与 scorer._qc_fields 同口径, 双跑对拍结果一致。"""
+    无明细才退回纯代码集合(只打标)。口径与老链路抢筹打标一致。"""
     d = (ctx.qiangchou_detail or {}).get(code)
     if d and d.get("types"):
         types = [t for t in d["types"] if t in _QC_LABEL]
@@ -189,7 +189,7 @@ def _fetch_patch(ctx: PickContext, policy: pm.ModePolicy,
 def run(filters: Dict, *, ctx: Optional[PickContext] = None,
         now=None, holidays: Optional[set] = None,
         cfg: Optional[dict] = None) -> PipelineResult:
-    """跑一次完整选股(新链路)。老链路零改动, 本函数可旁路调用做灰度对拍。
+    """跑一次完整选股(唯一链路)。
 
     filters: scorer.validate_filters 的输出
     ctx:     外部事实(定格 map / 昨涨停名单 / 昨日涨幅...); None 时自动加载
@@ -207,7 +207,7 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
         res.errors.append("名单源[%s]失败: %s" % (lr.label, lr.error or "无数据"))
         res.degraded = True
         res.elapsed_ms = int((time.time() - t0) * 1000)
-        log.warning("选股新链路 名单源失败 mode=%s err=%s — %s",
+        log.warning("选股失败 名单源无数据 mode=%s err=%s — %s",
                     policy.mode.value, lr.error, policy.fail_message)
         return res
     rows = lr.rows
@@ -298,7 +298,7 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
         res.rows[r.code] = r
     res.items.sort(key=lambda x: (-x.get("probability", 0), x.get("code", "")))
     res.elapsed_ms = int((time.time() - t0) * 1000)
-    log.info("选股新链路 mode=%s 全市场=%d 候选=%d 入选=%d 源=%s 降级=%s 剔除=%s 耗时%dms",
+    log.info("选股 mode=%s 全市场=%d 候选=%d 入选=%d 源=%s 降级=%s 剔除=%s 耗时%dms",
              policy.mode.value, res.n_universe, res.n_candidate, len(res.items),
              ",".join(res.sources), res.degraded, res.stats, res.elapsed_ms)
     return res

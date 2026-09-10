@@ -591,7 +591,7 @@ def _latest_snapshot_date(date):
 def load_day_bid_amt(date=None):
     """当日竞价额定格 map: {code: bid_amt(万元)} — 取每只股票当日最晚时点的非空 bid_amt。
     返回 {code: amt}; 当日无快照/无数据返回 {}。调用方(stocks.py/system_batch)在评分时传入
-    process_all_stocks(day_bid_amt=...), 使 bidAmt/bidRatio 以 9:25 定格竞价额为准。
+    picker 选股(day_bid_amt_wan=...), 使 bidAmt/bidRatio 以 9:25 定格竞价额为准。
     2026-09-08 回退: 当日无 9_25 快照(凌晨 0:00-9:25 前/周末/节假日) → 自动用最近一个
     交易日的定格(与 load_snapshot_full 同口径), 主人要求"非交易时段用上个交易日数据"。
     正常交易日 9:25 采集完成后当日有行 → 行为不变(用当日)。"""

@@ -13,55 +13,9 @@ from ..core import logger
 from ..services import (auction_snapshot, fetcher, history, kpl, notify, scorer,
                         stats)
 from ..services.cache_store import store as _cstore   # 2026-09-04: refresh 计算缓存
-from ..services.picker import parity as _parity      # 重构 P3: 新老双跑灰度
 from .deps import get_uid, jr, qs
 
 log = logger.get_logger(__name__)
-
-
-def _load_strengths(raw):
-    """竞价强度 map {code: 0~1} —— 替代**已失活的 f630 异动等级**(权重 17%)。
-
-    f630 只有东财点查才给真实值, 腾讯兜底行/快照行恒填 0 → 东财一断全员 default
-    0.18 → 17%×0.82=13.9 分凭空蒸发(实测 2026-09-08 批次#1585 全部 39 只 warn=0,
-    概率天花板从 99.4 崩到 85.5)。
-
-    开关: settings 表 `use_bid_strength=1` 才启用; **默认关闭** → 返回空 dict →
-    老链路行为零变化(对拍基线不变)。三层信号(抢筹名单/竞价量比/加速度)全部来自
-    快照表 + 开盘啦, 不依赖东财, 任何异常都吞掉退回 f630 行为。
-    """
-    try:
-        from ..services import settings
-        if str(settings.get("use_bid_strength") or "0") not in ("1", "true", "True"):
-            return {}
-    except Exception:                                          # noqa: BLE001
-        return {}
-    try:
-        from ..services import bid_strength
-        codes = [str(s.get("f12") or "") for s in (raw or [])]
-        codes = [c for c in codes if c]
-        if not codes:
-            return {}
-        st = bid_strength.load(codes)
-        out = {c: v for c, v in bid_strength.score_map(st).items() if v is not None}
-        log.info("竞价强度启用: %d/%d 只取到强度分", len(out), len(codes))
-        return out
-    except Exception as e:                                     # noqa: BLE001
-        log.warning("竞价强度加载失败(退回 f630 异动等级) err=%s", e)
-        return {}
-
-
-def _gray_enabled():
-    """重构 P3 灰度开关: settings 表 picker_gray=1 时旁路跑新链路并打对拍日志。
-    **默认关闭**, 且新链路结果不参与返回 —— 只观测不切换。
-
-    P5 之后本开关语义变为「切流后仍旁路跑**老**链路做对拍」(反向对拍), 用于
-    观察期验证新链路没有把名单选歪; 老链路开销换可观测性, 稳定后可关闭。"""
-    try:
-        from ..services import settings
-        return str(settings.get("picker_gray") or "0") in ("1", "true", "True")
-    except Exception:
-        return False
 
 
 def _run_new_pipeline(uid, action, f, *, yesterday_map, yesterday_chg_map,
@@ -120,35 +74,6 @@ def _run_new_pipeline(uid, action, f, *, yesterday_map, yesterday_chg_map,
     return res.items, None
 
 
-def _parity_reverse(uid, action, raw, f, new_items, *, yesterday_map, snapshot_map,
-                    bid_amt_map, bid_chg_map, yesterday_chg_map):
-    """切流后的**反向对拍**: 返回给用户的已是新链路结果, 这里旁路跑一遍老链路比对。
-
-    观察期唯一目的: 证明新链路没把名单选歪(只老有/只新有/分差)。
-    老链路异常不影响返回 —— 对拍失败只打日志。
-    """
-    try:
-        legacy = scorer.process_all_stocks(
-            raw, f, yesterday_map, snapshot_map, qiangchou_detail=kpl.get_qiangchou_detail(),
-            day_bid_amt=bid_amt_map, day_bid_change=bid_chg_map,
-            yesterday_chg_map=yesterday_chg_map, strengths=_load_strengths(raw))
-    except Exception as e:                                     # noqa: BLE001
-        log.warning("切流对拍: 老链路旁路执行失败(不影响返回) uid=%s err=%s",
-                    uid, str(e)[:200])
-        return
-    try:
-        rep = _parity.diff_items(legacy, new_items)
-        if rep.identical:
-            log.info("切流对拍一致 uid=%s action=%s 老=%d只 新=%d只", uid, action,
-                     len(legacy), len(new_items))
-        else:
-            log.warning("切流对拍差异 uid=%s action=%s %s | 仅老=%s 仅新=%s 分差=%s",
-                        uid, action, rep.summary(), rep.only_legacy[:10],
-                        rep.only_new[:10], rep.score_diff[:6])
-    except Exception as e:                                     # noqa: BLE001
-        log.warning("切流对拍失败(不影响返回) uid=%s err=%s", uid, str(e)[:200])
-
-
 def _safe_zt_codes():
     try:
         v = fetcher.get_yesterday_zt_codes()
@@ -161,13 +86,13 @@ router = APIRouter()
 
 def _apply_kpl_board(result, log_tag=""):
     """用开盘啦概念覆盖选股结果 concept(统一走 kpl.apply_board_concept 双层覆盖)
-    result: scorer.process_all_stocks 输出, 每项含 code/concept"""
+    result: 选股结果名单, 每项含 code/concept"""
     kpl.apply_board_concept(result, log_tag)
 
 
 # 快照候选池粗筛(2026-09-07 主人方案: 盘后 filter 不拉实时全市场, 直接用 9:25 定格快照表):
-# 与 scorer.apply_filters 同标准的"快照字段可判定"部分(市值/竞价额/涨幅/板块/ST/昨涨停),
-# 价格/停牌/概率等快照无字段的过滤留给点查行情后的 apply_filters(候选集小, 成本低)。
+# 与 picker.filter.apply_filters 同标准的"快照字段可判定"部分(市值/竞价额/涨幅/板块/ST/昨涨停),
+# 价格/停牌/概率等快照无字段的过滤留给点查行情后的 picker.filter.apply_filters(候选集小, 成本低)。
 _SNAP_CANDIDATE_MAX = 120    # 候选上限: 点查一批够覆盖, 防极端参数下 URL 过长
 
 
@@ -178,16 +103,16 @@ def _snapshot_candidate_codes(snap_rows, f, yzt_codes):
     codes = []
     for code, v in snap_rows.items():
         name = v.get("name") or ""
-        # 板块(与 apply_filters._in_markets 同标准)
+        # 板块(与 picker.filter.in_markets 同标准)
         if not scorer._in_markets(code, f.get("markets") or []):
             continue
-        # ST 剔除(默认 stSuspend=False → 剔 ST, 语义同 apply_filters)
+        # ST 剔除(默认 stSuspend=False → 剔 ST, 语义同 picker.filter.apply_filters)
         if not f["stSuspend"] and scorer.is_st(name):
             continue
         # 昨涨停/连板剔除(limitUp 未勾)
         if not f["limitUp"] and (code in yzt_codes):
             continue
-        # 竞价涨幅 > bidGt 剔除(与 apply_filters 同: 保留 ≤ bidGt)
+        # 竞价涨幅 > bidGt 剔除(与 picker.filter.apply_filters 同: 保留 ≤ bidGt)
         if (v.get("bid_change") or 0) > f["bidGt"]:
             continue
         # 市值(快照 free_mv 单位元 → 亿; 与 circulationMV=f21/1e8 同)
@@ -213,7 +138,7 @@ def _snapshot_rows_to_raw(snap_rows, codes):
     大跌票「有概率」混入(9/8 早 Felix518 #8395/#8396 即此降级所致, 日志实锤
     Remote end closed connection without response)。主人拍板方案 A: 失败不再拉
     实时全市场, 直接以 9:25 定格快照行出名单 — 候选固定 → 名单幂等干净。
-    快照行字段(bid_change/bid_amt/float_mv)齐全, 足够 apply_filters 的过滤核心
+    快照行字段(bid_change/bid_amt/float_mv)齐全, 足够 picker.filter.apply_filters 的过滤核心
     (竞涨/竞额/市值/板块/ST/昨涨停); 缺失的实时字段(现价/量比/异动)给保守默认,
     使 prob/conf 取保守档(不入双低剔除), 停牌判断不被误伤(9:25 有竞价额的行必非停牌)。
     """
@@ -223,7 +148,7 @@ def _snapshot_rows_to_raw(snap_rows, codes):
         if not v:
             continue
         # f616: 行情口径为元(get_bid_amt 内部 /10000 → 万元), 快照 bid_amt 已是万元
-        # (score_all_stocks 窗口外 bidAmt 走 day_bid_amt map, 此字段仅窗口内路径兜底)
+        # (窗口外 bidAmt 一律以 9:25 定格 map 为准, 此字段仅窗口内路径兜底)
         raw.append({
             "f12": code,
             "f14": v.get("name") or "",
@@ -506,12 +431,6 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                        "strategy": "auction", "mode": "auction", "list": [], "count": 0})
         # 概念用开盘啦覆盖(落库前覆盖: 页面/历史批次/推送全部统一开盘啦概念)
         _apply_kpl_board(result, "auction")
-        if _gray_enabled():
-            # 观察期旁路对拍: 跑一遍老链路与本次结果比对, 只打日志不影响返回
-            _parity_reverse(uid, action, raw or [], f, result,
-                            yesterday_map=yesterday_map, snapshot_map=snapshot_map,
-                            bid_amt_map=bid_amt_map, bid_chg_map=bid_chg_map,
-                            yesterday_chg_map=yesterday_chg_map)
     except Exception as e:
         log.error("选股处理失败 uid=%s action=%s strategy=%s err=%s", uid, action, strategy, e, exc_info=True)
         return jr({"ok": False, "msg": "服务端处理失败: %s" % e}, 500)
