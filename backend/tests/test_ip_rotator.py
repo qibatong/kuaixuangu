@@ -9,8 +9,12 @@ from unittest.mock import patch, MagicMock
 os.environ["OUTBOUND_IPS"] = ""
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.services.fetcher import _IPRotator, _ip_binding, _http_get
-from app.services.fetcher import _IP_LOCAL, _patched_create_connection
+# 2026-09-10: 轮换已从 fetcher 下沉到 app/core/net.py(供 kpl/hot_rank/sector_rotation 共用),
+# 本测试改为从新位置导入; 旧路径 app.services._net._ROTATOR 已不存在。
+from app.core import net as _net
+from app.core.net import IPRotator as _IPRotator, ip_binding as _ip_binding
+from app.core.net import http_get as _http_get
+from app.core.net import _LOCAL as _IP_LOCAL, _patched_create_connection
 
 
 class TestIPRotatorEmpty(unittest.TestCase):
@@ -108,12 +112,12 @@ class TestIPBindingContextManager(unittest.TestCase):
     def setUp(self):
         # 临时切到测试 IP 池,跑完恢复
         from app.services import fetcher
-        self._orig_rot = fetcher._IP_ROTATOR
-        fetcher._IP_ROTATOR = _IPRotator(["1.1.1.1", "2.2.2.2"])
+        self._orig_rot = _net._ROTATOR
+        _net._ROTATOR = _IPRotator(["1.1.1.1", "2.2.2.2"])
 
     def tearDown(self):
         from app.services import fetcher
-        fetcher._IP_ROTATOR = self._orig_rot
+        _net._ROTATOR = self._orig_rot
 
     def test_ip_set_in_threadlocal(self):
         with _ip_binding():
@@ -123,7 +127,7 @@ class TestIPBindingContextManager(unittest.TestCase):
 
     def test_success_clears_penalty(self):
         from app.services import fetcher
-        rot = fetcher._IP_ROTATOR
+        rot = _net._ROTATOR
         # 第一次 context 抛异常 → 该 IP 失败计数 +1
         ip_fail1 = None
         with self.assertRaises(ValueError):
@@ -141,7 +145,7 @@ class TestIPBindingContextManager(unittest.TestCase):
 
     def test_exception_reports_fail(self):
         from app.services import fetcher
-        rot = fetcher._IP_ROTATOR
+        rot = _net._ROTATOR
         with self.assertRaises(ValueError):
             with _ip_binding():
                 raise ValueError("boom")
@@ -154,7 +158,7 @@ class TestPatchedCreateConnection(unittest.TestCase):
 
     def test_no_bind_ip_means_no_binding(self):
         _IP_LOCAL.bind_ip = None
-        with patch("app.services.fetcher._orig_create_connection") as mock_orig:
+        with patch("app.core.net._orig_create_connection") as mock_orig:
             mock_orig.return_value = MagicMock()
             _patched_create_connection(("example.com", 443), timeout=5)
             mock_orig.assert_called_once_with(("example.com", 443), 5, None)
@@ -162,7 +166,7 @@ class TestPatchedCreateConnection(unittest.TestCase):
     def test_bind_ip_injected_as_source_address(self):
         _IP_LOCAL.bind_ip = "9.9.9.9"
         try:
-            with patch("app.services.fetcher._orig_create_connection") as mock_orig:
+            with patch("app.core.net._orig_create_connection") as mock_orig:
                 mock_orig.return_value = MagicMock()
                 _patched_create_connection(("example.com", 443), timeout=5)
                 mock_orig.assert_called_once_with(("example.com", 443), 5, ("9.9.9.9", 0))
@@ -175,12 +179,12 @@ class TestHTTPGetIntegration(unittest.TestCase):
 
     def setUp(self):
         from app.services import fetcher
-        self._orig_rot = fetcher._IP_ROTATOR
-        fetcher._IP_ROTATOR = _IPRotator(["1.1.1.1", "2.2.2.2"])
+        self._orig_rot = _net._ROTATOR
+        _net._ROTATOR = _IPRotator(["1.1.1.1", "2.2.2.2"])
 
     def tearDown(self):
         from app.services import fetcher
-        fetcher._IP_ROTATOR = self._orig_rot
+        _net._ROTATOR = self._orig_rot
 
     def test_http_get_calls_urlopen(self):
         mock_req = MagicMock()
@@ -196,7 +200,7 @@ class TestHTTPGetIntegration(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 _http_get(mock_req, timeout=10)
             # 应有 1 个 IP 被惩罚
-            self.assertEqual(len(fetcher._IP_ROTATOR._penalty), 1)
+            self.assertEqual(len(_net._ROTATOR._penalty), 1)
 
 
 class TestEmptyPoolBackwardCompat(unittest.TestCase):
@@ -204,12 +208,12 @@ class TestEmptyPoolBackwardCompat(unittest.TestCase):
 
     def setUp(self):
         from app.services import fetcher
-        self._orig_rot = fetcher._IP_ROTATOR
-        fetcher._IP_ROTATOR = _IPRotator([])  # 空
+        self._orig_rot = _net._ROTATOR
+        _net._ROTATOR = _IPRotator([])  # 空
 
     def tearDown(self):
         from app.services import fetcher
-        fetcher._IP_ROTATOR = self._orig_rot
+        _net._ROTATOR = self._orig_rot
 
     def test_no_bind_ip_when_empty(self):
         mock_req = MagicMock()
