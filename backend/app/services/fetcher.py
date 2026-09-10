@@ -147,7 +147,7 @@ _CIRCUIT_MAX_COOLDOWN = 600
 # src -> {ok, fail, last_ok, last_fail, ms_sum, ms_cnt, down_since}
 # down_since>0 表示自该时刻起处于"故障中"(失败后尚未成功恢复)
 # cooldown: 当前熔断冷却秒(连续失败指数退避); base_cooldown: 恢复后重置的基准冷却
-# down_threshold: 连续失败多少次才真正熔断(抖动保护, ths/tencent=2, 其余=1)
+# down_threshold: 连续失败多少次才真正熔断(抖动保护, tencent=2, 其余=1)
 # fails_in_row: 连续失败计数(成功清零)
 _HEALTH = {
     "eastmoney_clist": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
@@ -156,8 +156,6 @@ _HEALTH = {
                         "cooldown": 60, "base_cooldown": 60, "down_threshold": 1, "fails_in_row": 0},
     "eastmoney_zt_pool": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
                           "cooldown": 60, "base_cooldown": 60, "down_threshold": 1, "fails_in_row": 0},
-    "ths_kline":       {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
-                        "cooldown": 30, "base_cooldown": 30, "down_threshold": 2, "fails_in_row": 0},
     "tencent_market":  {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
                         "cooldown": 60, "base_cooldown": 60, "down_threshold": 1, "fails_in_row": 0},
     "tencent_kline":   {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
@@ -228,7 +226,7 @@ def _check_circuit(src="eastmoney_clist"):
 
 def _record(src, ok, ms=0):
     """记录一次数据源调用结果; 状态翻转时打告警/恢复日志
-    2026-09-01 加固: ①抖动保护 down_threshold>1 的源(ths/tencent)连续失败
+    2026-09-01 加固: ①抖动保护 down_threshold>1 的源(tencent)连续失败
     达阈值才熔断, 单次抖动不误伤; ②连续失败指数退避 cooldown(上限600s), 确定性
     故障(如东财K线秒拒)不再每 60s 空转探测刷日志"""
     with _health_lock:
@@ -1130,44 +1128,6 @@ def _mark_host_broken(host):
     _broken_hosts[host] = time.time()
 
 
-def _fetch_yesterday_amount_ths(code):
-    """同花顺日K兜底源: 返回最近两交易日成交额 [T日, T-1日] 万元; 失败返回 None
-    接口: d.10jqka.com.cn/v6/line/hs_{code}/01/last.js (全部历史K线, 含成交额)
-    字段: 日期,今开,最高,最低,收盘,成交量(股),成交额(元),换手率...
-    """
-    for proto in ("https", "http"):
-        url = "%s://d.10jqka.com.cn/v6/line/hs_%s/01/last.js" % (proto, code)
-        t0 = time.time()
-        try:
-            req = urllib.request.Request(url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                "Referer": "http://stockpage.10jqka.com.cn/",
-            })
-            with _http_get(req, timeout=config.KLINE_TIMEOUT) as resp:
-                body = resp.read().decode("utf-8", "ignore")
-            m = re.search(r"\{.*\}", body, re.S)
-            if not m:
-                continue
-            data = json.loads(m.group(0)).get("data") or ""
-            segs = [s for s in str(data).split(";") if s]
-            if not segs:
-                continue
-            # 2026-09-08: _kline_amount_pair 返回 (成交额对, T日涨跌幅%), 必须拆包。
-            # 漏拆会把二元组当成成交额对透传 → scorer 取 pair[0] 拿到 list →
-            # bid_amt / list 抛 TypeError, 选股接口 500(测试机部署实证教训)。
-            # 同花顺列序 日期,开,高,低,收,量,额,**换手率** → close_idx=4 且 **禁用官方
-            # 涨跌幅列**(parts[7] 是换手率, 不是涨幅) → 由收盘价环比自算。
-            pair, chg = _kline_amount_pair(segs, close_idx=4, chg_idx=None)
-            if pair is None:
-                continue
-            _record("ths_kline", True, int((time.time() - t0) * 1000))
-            return pair, chg
-        except Exception:
-            continue
-    _record("ths_kline", False)
-    return None, None
-
-
 def _fetch_yesterday_amount_tencent(code, after_close=None):
     """腾讯日K兜底源(第三源, 2026-08-31 东财K线被生产机IP封禁后新增):
     返回最近两交易日成交额 [T日, T-1日] 万元 + T日涨跌幅%; 失败返回 None
@@ -1269,7 +1229,7 @@ def _fetch_yesterday_amount_one(code):
             continue
     _record("eastmoney_kline", False)
     # 2026-09-10 二审修订: 东财拿不到时切**同语义备源**(腾讯 qfqday, 真实成交额万元)。
-    # 仍不切同花顺(列序不同)与量脉(已整体删除)。
+    # 备源只有腾讯这一条(量脉与同花顺昨比源均已整体删除)。
     return _yday_fallback_tencent(code)
 
 
@@ -1312,6 +1272,10 @@ def _kline_amount_pair(klines, close_idx=2, chg_idx=7, after_close=None):
         → 真涨幅 8.35%, 而 parts[7]=30.118 是换手率)。此前沿用东财列序把换手率当涨幅
         喂进 yesterday 因子, 30.118 落进 "9.5~99 → 0.65" 档 → 假数据。
     故: 官方涨跌幅列(chg_idx)缺失时, 一律用**收盘价环比自算**, 口径跨源统一。
+
+    2026-09-11: 同花顺昨比源 _fetch_yesterday_amount_ths 已整体删除 → 其 close_idx=4
+    列序配置**暂无生产调用者**(说明保留仅为记录列序语义与上述踩坑);
+    现行调用方只有东财(`close_idx=2, chg_idx=7`)与腾讯(默认参数)。
     """
     today = _bj_date_str()
     if after_close is None:
