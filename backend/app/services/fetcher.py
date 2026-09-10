@@ -129,6 +129,18 @@ def _miss_alert_decision(state, sig, now):
     return "silent"
 
 
+def _circuit_open(h, now=None):
+    """熔断是否仍处于生效期(纯函数, 调用方须持 _health_lock)
+    生效期 = down_since 已设 且 距故障起点尚未超过当前冷却时长。
+    2026-09-10 生产雪崩根因修复: 此前没有这个概念, _record 见一次成功就清 down_since,
+    导致同批次内"失败页触发熔断 / 成功页立刻解除"反复横跳(实测 66 次故障 ↔ 65 次恢复,
+    恢复日志全是"故障0秒"), 熔断形同虚设, 每次选股都完整重试 30 页 × 15s 超时。"""
+    if not h or not h.get("down_since"):
+        return False
+    now = now if now is not None else time.time()
+    return (now - h["down_since"]) < h.get("cooldown", _CIRCUIT_OPEN_SECONDS)
+
+
 def _check_circuit(src="eastmoney_clist"):
     """检查数据源是否熔断中; 熔断时快速失败, 不等超时(防单 worker 卡死雪崩)
     返回 True=熔断中(应快速失败), False=可请求(正常或半开探测)"""
@@ -136,7 +148,7 @@ def _check_circuit(src="eastmoney_clist"):
         h = _HEALTH.get(src)
         if not h or not h["down_since"]:
             return False
-        if time.time() - h["down_since"] < h.get("cooldown", _CIRCUIT_OPEN_SECONDS):
+        if _circuit_open(h):
             return True
     return False
 
@@ -155,6 +167,13 @@ def _record(src, ok, ms=0):
             if ms > 0:
                 h["ms_sum"] += ms
                 h["ms_cnt"] += 1
+            if h["down_since"] and _circuit_open(h, now):
+                # 熔断生效期内到达的成功: 只更新统计, 不解除熔断、不重置退避计数。
+                # 2026-09-10 事故: 东财全市场分页 30 页并发, 各页独立 _record —— 失败页刚把
+                # down_since 设上, 同批成功页紧接着就清零(日志"故障0秒"), 熔断在同一调用内
+                # 反复横跳, 下次请求照旧完整重试 30 页(每页 15s 超时) → 单次选股 30s+。
+                # 正确语义: 必须冷却结束后的半开探测成功才恢复, 冷却期内的成功一律不认。
+                return
             h["fails_in_row"] = 0
             h["cooldown"] = h.get("base_cooldown", _CIRCUIT_OPEN_SECONDS)
             if h["down_since"]:
@@ -525,6 +544,15 @@ def fetch_tencent_market(fs):
     return result
 
 
+# 全市场分页快速失败阈值(2026-09-10 生产雪崩加固)
+# 背景: 原实现 as_completed 整体超时 40s 且无失败率判定 —— 东财故障态每页 15s 超时、
+# 30 页 8 并发最坏 ~56s, 两个 uvicorn worker 被占满后**连登录都排队 38 分钟**。
+# 正常态实测 30 页仅 0.4s(生产 2026-09-10 10:22 实测), 故阈值可定得很激进而不误伤。
+_SPOT_ALL_TIMEOUT = 12      # 整体超时(秒): 正常态 30x 余量, 故障态快速放弃交腾讯兜底
+_SPOT_FAST_FAIL = 5         # 完成顺序连续失败 ≥N 页且无一成功 → 判定整源故障(秒拒场景)
+_SPOT_FAIL_SAMPLE = 8       # 已完成 ≥N 页且失败过半 → 判定整源故障(部分超时场景)
+
+
 def fetch_eastmoney_all(fs):
     """盘中实时模式: 分页拉取全市场股票快照(默认每页 200, 共 ~20-30 页),
     让过滤参数(涨幅/量比/换手)真正作用于全市场, 而不是只取涨幅前 200。
@@ -533,29 +561,51 @@ def fetch_eastmoney_all(fs):
     空页=到底(提前结束), 任一页失败跳过该页, 全部失败抛异常。
     注意: 18-28s 级耗时仅出现在东财故障走腾讯全市场兜底时(串行已改 5 并发 ≈ 1-2s)。"""
     if _check_circuit():
-        raise RuntimeError("东财数据源熔断中(故障冷却%d秒内), 快速失败" % _CIRCUIT_OPEN_SECONDS)
+        raise RuntimeError("东财数据源熔断中, 快速失败(交腾讯兜底)")
     t_all = time.time()
     # 先并发拉前 N 页, 根据空页/短页判定真实页数
     pages_data = {}   # page -> diff list(失败/空为 None)
-    # 2026-08-31 线上加固: as_completed 无整体超时, 东财半死(每页 15s 超时)时
-    # 30 页 8 并发最坏 ~56s, 腾讯兜底再来一轮会拖死 worker → 整体 40s, 超时放弃剩余页
     ex = _EXECUTOR_CLIST
     futs = {ex.submit(_fetch_clist_page, fs, p, "f12"): p
             for p in range(1, config.SPOT_MAX_PAGES + 1)}
+    done_ok = done_fail = streak_fail = 0
+    aborted = ""
     try:
-        for fut in as_completed(futs, timeout=40):
+        for fut in as_completed(futs, timeout=_SPOT_ALL_TIMEOUT):
             p = futs[fut]
-            t0 = time.time()
             try:
-                diff = fut.result()
-                _record("eastmoney_clist", True, int((time.time() - t0) * 1000))
-                pages_data[p] = diff
+                pages_data[p] = fut.result()
+                done_ok += 1
+                streak_fail = 0
             except Exception as e:
-                _record("eastmoney_clist", False, int((time.time() - t0) * 1000))
-                log.warning("全市场拉取分页失败 fs=%s page=%d err=%s", fs, p, e)
+                log.warning("全市场拉取分页失败 fs=%s page=%d err=%s", fs, p, str(e)[:80])
                 pages_data[p] = None
+                done_fail += 1
+                streak_fail += 1
+            # 快速失败: 故障态没必要等满 30 页, 越早放弃越早切腾讯兜底
+            if streak_fail >= _SPOT_FAST_FAIL and done_ok == 0:
+                aborted = "连续%d页失败且无一成功" % streak_fail
+                break
+            if (done_ok + done_fail) >= _SPOT_FAIL_SAMPLE and done_fail * 2 > done_ok + done_fail:
+                aborted = "已完成%d页中失败%d页(过半)" % (done_ok + done_fail, done_fail)
+                break
     except TimeoutError:
-        log.warning("全市场分页整体超时 40s, 放弃未完成页 (数据源抖动, 走腾讯兜底/部分数据)")
+        aborted = "整体超时%ds(已完成%d页/失败%d页)" % (_SPOT_ALL_TIMEOUT, done_ok, done_fail)
+    if aborted:
+        # 取消尚未启动的排队页(8 并发下 30 页有 22 页在排队), 减少故障期外网无效请求;
+        # 已在运行的页无法中断, 由线程池自然回收
+        for f in futs:
+            f.cancel()
+        log.warning("全市场分页快速失败 fs=%s %s → 取消剩余页, 交腾讯兜底", fs, aborted)
+    # 整批只记一次熔断采样(2026-09-10): 原逐页 _record 让 30 个采样点各自判定,
+    # 单次调用内"失败页熔断 + 成功页解除"交错 → 熔断横跳; 且 down_threshold=1 的源
+    # 会被任一页抖动误熔断。改为按整批成败判定: 失败页 ≥ 成功页 才判整批失败。
+    if aborted or (done_fail and done_fail >= done_ok):
+        _record("eastmoney_clist", False, int((time.time() - t_all) * 1000))
+    else:
+        _record("eastmoney_clist", True, int((time.time() - t_all) * 1000))
+    if aborted:
+        raise RuntimeError("东财全市场分页快速失败(%s)" % aborted)
     # 按 page 顺序合并, 遇到空页/短页即终止(后续页不会有效数据)
     out = []
     last_page = 0
