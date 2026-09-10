@@ -246,8 +246,8 @@ def test_health_serviceable_true_when_tencent_up(monkeypatch):
                             "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
         "eastmoney_zt_pool": {"ok": 10, "fail": 0, "last_ok": 9999999999, "last_fail": 0,
                               "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
-        "ths_kline": {"ok": 10, "fail": 0, "last_ok": 9999999999, "last_fail": 0,
-                      "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
+        "tencent_kline": {"ok": 10, "fail": 0, "last_ok": 9999999999, "last_fail": 0,
+                          "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
         "tencent_market": {"ok": 10, "fail": 0, "last_ok": 9999999999, "last_fail": 0,
                            "ms_sum": 0, "ms_cnt": 0, "down_since": 0},
     }
@@ -266,8 +266,8 @@ def test_health_serviceable_false_when_all_down(monkeypatch):
                             "ms_sum": 0, "ms_cnt": 0, "down_since": 9999999999},
         "eastmoney_zt_pool": {"ok": 10, "fail": 0, "last_ok": 0, "last_fail": 9999999999,
                               "ms_sum": 0, "ms_cnt": 0, "down_since": 9999999999},
-        "ths_kline": {"ok": 10, "fail": 0, "last_ok": 0, "last_fail": 9999999999,
-                      "ms_sum": 0, "ms_cnt": 0, "down_since": 9999999999},
+        "tencent_kline": {"ok": 10, "fail": 0, "last_ok": 0, "last_fail": 9999999999,
+                          "ms_sum": 0, "ms_cnt": 0, "down_since": 9999999999},
         "tencent_market": {"ok": 10, "fail": 5, "last_ok": 0, "last_fail": 9999999999,
                            "ms_sum": 0, "ms_cnt": 0, "down_since": 9999999999},
     }

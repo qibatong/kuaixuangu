@@ -95,15 +95,15 @@ def test_circuit_stays_open_on_half_open_fail():
     assert fetcher._check_circuit() is True
 
 
-# ---------- 2026-09-01 熔断加固: 抖动保护 + 指数退避 + 短路含量脉 ----------
+# ---------- 2026-09-01 熔断加固: 抖动保护 + 指数退避 ----------
 
 def test_jitter_source_threshold_2_does_not_break_on_single_fail():
     """tencent_kline 抖动保护: 单次失败不熔断, 连续2次才熔断
 
-    2026-09-11: 样本源由 **已下线的 ths_kline 换为在线的 tencent_kline**。
-    同花顺昨比源随「去兜底」摘链后, fetcher 内已无任何 _record("ths_kline")
-    生产者(唯一调用方 _fetch_yesterday_amount_ths 全仓 0 引用), 该熔断条目成死源;
-    而 tencent_kline 是真实在线的 down_threshold=2 源, 抖动保护仍由它承载。
+    2026-09-11: 样本源由 ths_kline 换为 tencent_kline。同花顺昨比源摘链后, fetcher 内
+    已无任何 _record("ths_kline") 生产者(其唯一调用方 _fetch_yesterday_amount_ths),
+    该熔断条目已成死源 → 同日随死函数一并删除, _HEALTH 由 6 源收敛为 5 源;
+    down_threshold=2 的抖动保护现由 tencent_kline 单独承载。
     """
     fetcher._record("tencent_kline", False)
     assert fetcher._check_circuit("tencent_kline") is False, "单次抖动不应熔断"

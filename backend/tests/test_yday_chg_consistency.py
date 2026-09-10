@@ -131,7 +131,7 @@ def test_yday_fallback_tencent_used_when_eastmoney_down(monkeypatch):
 # ---------------- ① 东财: 官方涨跌幅列优先 ----------------
 # (2026-09-11 删除 test_ths_close_derived_change_not_turnover:
 #  该用例锁的是 _kline_amount_pair(close_idx=4) 的**同花顺列序**(parts[7]=换手率)。
-#  同花顺昨比源随「去兜底」摘链, 唯一使用方 _fetch_yesterday_amount_ths 全仓 0 引用
+#  同花顺昨比源已摘链, 其唯一使用方 _fetch_yesterday_amount_ths 亦已于同日整体删除
 #  → 该参数组合在生产中已无调用者, 属「已删兜底代码对应的用例」。)
 
 
