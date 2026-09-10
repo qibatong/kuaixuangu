@@ -12,11 +12,14 @@
      无涨幅的源后, chg 整天都是 None)
   ③ 批级一致性: 本批命中率 < 阈值 → **整批返回空**, 杜绝半有半无
 
-2026-09-10 去兜底后: 昨比只剩东财一个源(东财内部 KLINE_HOSTS 多域名轮询),
-原"腾讯 qfqday 自算涨跌幅"用例所测的 _fetch_yesterday_amount_tencent 已从链路删除
-(生产 0 引用) → 该用例一并删除; 其余条目均针对仍在线实现。
+2026-09-10 二审: 昨比链 = 东财日K(主) → 腾讯 qfqday(同语义备源, 真实成交额万元)。
+  会"编造字段"的源(全市场竞价 f615/f616 用现价假造)必须删; 同语义真实数据保留 ——
+  东财 push2his 为接口级时段性风控(命中率约 5%), 单源会让收盘落库永久空转。
+  故 ① 中"腾讯 qfqday 自算涨跌幅"用例保留(_fetch_yesterday_amount_tencent 仍在线)。
 """
+import json
 import time
+import urllib.request
 from datetime import date, timedelta
 
 import pytest
@@ -56,6 +59,73 @@ def _setup_cache(entries):
 
 def teardown_function():
     fetcher._yesterday_cache.clear()
+
+
+# ---------------- ① 腾讯: qfqday 自算(同语义备源) ----------------
+def test_tencent_qfqday_derives_change(monkeypatch):
+    """腾讯 qfqday 行 [日期,开,收,高,低,量,{},换手率,额万元,''] → 收盘价环比自算
+
+    实测 600127: 2026-09-07 收 13.53 → 2026-09-08 收 14.79 = +9.31%;
+    row[7] 是换手率(46.62), 不是涨跌。
+    """
+    d2, d1 = _d(-2), _d(-1)
+    payload = {"data": {"sh600127": {"qfqday": [
+        [d2, "13.23", "13.53", "13.53", "12.80", "1379519.00", {}, "21.50", "183383.84", ""],
+        [d1, "14.07", "14.79", "14.88", "14.01", "2992169.00", {}, "46.62", "434781.26", ""],
+    ]}}}
+
+    class _Resp:
+        def __init__(self, b):
+            self._b = b
+
+        def read(self):
+            return self._b
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(fetcher, "_http_get",
+                        lambda *a, **k: _Resp(json.dumps(payload).encode()))
+    pair, chg = fetcher._fetch_yesterday_amount_tencent("600127")
+    assert pair is not None and abs(pair[0] - 434781.26) < 1
+    assert abs(chg - 9.31) < 0.05, "应自算 (14.79-13.53)/13.53=9.31%%, 实际 %s" % chg
+
+
+def test_yday_fallback_tencent_used_when_eastmoney_down(monkeypatch):
+    """东财日K失败 → 自动切腾讯(同语义真实成交额); 腾讯也熔断 → 置空不抛异常"""
+    from urllib.error import URLError
+
+    # 东财 KLINE_HOSTS 全部失败
+    monkeypatch.setattr(config, "KLINE_HOSTS", ["https://em1"])
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda req, timeout=5, context=None: (_ for _ in ()).throw(URLError("down")))
+    monkeypatch.setattr(fetcher, "_broken_hosts", {})
+    monkeypatch.setattr(fetcher, "_fetch_yesterday_amount_tencent",
+                        lambda code, after_close=None: ([434781.26, 183383.84], 9.31))
+    fetcher._HEALTH["eastmoney_kline"]["down_since"] = 0
+    fetcher._HEALTH["eastmoney_kline"]["fails_in_row"] = 0
+    fetcher._HEALTH["tencent_kline"]["down_since"] = 0
+    fetcher._HEALTH["tencent_kline"]["fails_in_row"] = 0
+
+    pair, chg = fetcher._fetch_yesterday_amount_one("600127")
+    assert pair == [434781.26, 183383.84], "东财失败应切腾讯同语义备源, 不能直接置空"
+    assert abs(chg - 9.31) < 0.05
+
+    # 腾讯也在熔断冷却中 → 直接放弃(不抛异常)
+    fetcher._HEALTH["eastmoney_kline"]["down_since"] = time.time()
+    fetcher._HEALTH["eastmoney_kline"]["cooldown"] = 600
+    fetcher._HEALTH["tencent_kline"]["down_since"] = time.time()
+    fetcher._HEALTH["tencent_kline"]["cooldown"] = 600
+    try:
+        pair2, chg2 = fetcher._fetch_yesterday_amount_one("600127")
+        assert pair2 is None and chg2 is None
+    finally:
+        for k in ("eastmoney_kline", "tencent_kline"):
+            fetcher._HEALTH[k]["down_since"] = 0
+            fetcher._HEALTH[k]["fails_in_row"] = 0
 
 
 # ---------------- ① 同花顺: parts[7] 是换手率, 必须自算 ----------------

@@ -165,19 +165,32 @@ def test_success_within_cooldown_does_not_reset():
         assert h["fails_in_row"] >= 1, "冷却期内的成功不应清零退避计数"
 
 
-def test_short_circuit_skips_when_eastmoney_kline_down(monkeypatch):
-    """2026-09-10 去兜底后: 东财日K熔断即短路置空。
+def test_short_circuit_requires_both_kline_sources_down(monkeypatch):
+    """2026-09-10 二审: 短路口径 = 东财日K **与** 腾讯K线**均**熔断。
 
-    原「四源(东财/ths/tencent/量脉)全熔断才短路」「量脉可用则不短路」两个用例,
-    随量脉下线 + 兜底链移除一并删除(其断言的多源兜底行为已不存在)。
+    与"去兜底"并不矛盾: 被判为必须删除的是**会编造字段**的换源(全市场竞价 f615/f616
+    用现价假造); 腾讯日K是**同语义真实成交额(万元)**, 保留。故东财单独熔断时不再短路,
+    要走腾讯备源; 只有两源都熔断才整批短路置空(避免逐只打日志的日志风暴, 见 8/31 事故)。
+
+    原「东财熔断即短路」用例断言的行为已按上面的设计变更 → 本用例替换之。
     """
     monkeypatch.setattr(fetcher, "_host_blocked", lambda host: True)   # 东财全部域名快速失败
+    monkeypatch.setattr(fetcher, "_fetch_yesterday_amount_tencent",
+                        lambda code, after_close=None: ([100.0, 90.0], 1.5))
     fetcher._record("eastmoney_kline", False)
     assert fetcher._check_circuit("eastmoney_kline")
+    assert not fetcher._check_circuit("tencent_kline")
 
-    # 去兜底后不再切同花顺/腾讯/量脉 → 直接 (None, None)
+    # 东财熔断但腾讯健康 → 走同语义备源(不得整只置空)
     res = fetcher._fetch_yesterday_amount_one("600519")
-    assert res == (None, None), "东财日K熔断应短路置空, 实际 %s" % (res,)
+    assert res == ([100.0, 90.0], 1.5), "东财熔断应切腾讯同语义备源, 实际 %s" % (res,)
+
+    # 腾讯K线也熔断(down_threshold=2) → 两源皆挂, 才短路置空
+    fetcher._record("tencent_kline", False)
+    fetcher._record("tencent_kline", False)
+    assert fetcher._check_circuit("tencent_kline")
+    res2 = fetcher._fetch_yesterday_amount_one("600519")
+    assert res2 == (None, None), "两源均熔断才应短路置空, 实际 %s" % (res2,)
 
 
 def test_ensure_spot_cache_returns_stale_on_circuit(monkeypatch):

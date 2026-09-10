@@ -1229,14 +1229,16 @@ def _fetch_yesterday_amount_tencent(code, after_close=None):
 def _fetch_yesterday_amount_one(code):
     """拉单只股票最近两交易日成交额(万元): 返回 (成交额对, T日涨跌幅%); 完全失败返回 (None, None)
 
-    2026-09-10 主人拍板: 去掉所有兜底源(原 东财→同花顺→腾讯→量脉 四级链), 只保留东财日K
-    (东财内部 KLINE_HOSTS 多域名轮询)。理由同 _fetch_market_with_fallback: 多源口径不一
-    致 + 熔断横跳导致数据跳变; 拿不到就置空, 评分层容忍缺失。
+    2026-09-10 修订(二审): 原四级兜底链(东财→同花顺→腾讯→量脉)中的**同花顺/量脉已删除**,
+    保留 东财日K(主, 内部 KLINE_HOSTS 多域名轮询) → 腾讯 qfqday(备, 同语义真实成交额)。
+    判据: 会"编造字段"的换源必须删(全市场竞价 f615/f616 用现价假造), 同语义真实数据可留;
+    且东财 push2his 为接口级时段性风控(命中率约 5%), 单源会让收盘落库永久空转。
 
     保留熔断短路: 东财日K熔断中时立即跳过, 不浪费 5s×多 host 超时
-    (5554 只全量会卡到 nginx 504)"""
+    (5554 只全量会卡到 nginx 504); 但**跳过东财后仍要试同语义备源(腾讯)**,
+    否则东财风控期整批昨比恒空。"""
     if _check_circuit("eastmoney_kline"):
-        return None, None
+        return _yday_fallback_tencent(code)
     qs = urllib.parse.urlencode({
         "secid": _secid(code), "fields1": "f1,f2,f3,f4,f5,f6",
         "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
@@ -1266,8 +1268,26 @@ def _fetch_yesterday_amount_one(code):
             _mark_host_broken(host)
             continue
     _record("eastmoney_kline", False)
-    # 2026-09-10 去兜底: 不再切同花顺/腾讯/量脉。东财拿不到 → 置空(评分层容忍缺失)。
-    return None, None
+    # 2026-09-10 二审修订: 东财拿不到时切**同语义备源**(腾讯 qfqday, 真实成交额万元)。
+    # 仍不切同花顺(列序不同)与量脉(已整体删除)。
+    return _yday_fallback_tencent(code)
+
+
+def _yday_fallback_tencent(code):
+    """昨比同语义备源: 腾讯 qfqday 第 9 列 = **真实成交额(万元)**, 份额为真, 非"编造值"。
+
+    2026-09-10 二审修订背景: 东财 push2his 是接口级时段性风控(实测 chart 命中率约 5%),
+    只留东财会让「收盘落库」永远填不上库 → 次日全天昨比仍为空, 落库机制空转。
+    腾讯是不可编造的真实 OHLC + 成交额, 与本轮被删除的"竞价字段 f615/f616 用现价假造"
+    性质不同(那是换源换数据, 这里是换源不换数据)。
+    腾讯也在熔断中时直接放弃(评分层容忍昨比缺失)。
+    """
+    if _check_circuit("tencent_kline"):
+        return None, None
+    try:
+        return _fetch_yesterday_amount_tencent(code)
+    except Exception:
+        return None, None
 
 
 def _kline_amount_pair(klines, close_idx=2, chg_idx=7, after_close=None):
@@ -1368,11 +1388,11 @@ def fetch_yesterday_amounts(codes, wait=False):
     all_codes = list(codes)
     pending = _yday_hydrate_from_db(all_codes, today, now)
     need = _collect_yday_need(pending, today, now)
-    if need and _check_circuit("eastmoney_kline"):
+    if need and _check_circuit("eastmoney_kline") and _check_circuit("tencent_kline"):
         # 2026-08-31 线上事故: 全源熔断时逐只短路打 WARNING → 36804 条日志风暴,
         # 日志 I/O 阻塞 worker 导致 /api/stocks 674s、health 超时。改为批级短路: 一条聚合日志 + 直接返回
-        # 2026-09-10 去兜底后只剩东财一个源 → 东财日K熔断即短路
-        log.warning("昨日成交额: 东财日K熔断中, 本批%d只短路(昨比置空)", len(need))
+        # 2026-09-10 二审: 短路条件 = 东财日K 与 腾讯K线 **均**熔断(腾讯为同语义备源)
+        log.warning("昨日成交额: 东财日K+腾讯K线均熔断中, 本批%d只短路(昨比置空)", len(need))
         with _yesterday_lock:
             for c in need:              # 短路也写失败缓存, 避免下个请求重复判定
                 _yesterday_cache[c] = [today, None, now, None]
@@ -2544,12 +2564,16 @@ def fetch_stock_chart_robust(code, period="day"):
         if ent and time.time() - ent["ts"] < ttl:
             return ent["data"]
     t0 = time.time()
-    # 2026-09-10 主人拍板: 去掉所有兜底源, 只保留东财(东财内部已有 KLINE_HOSTS 多节点轮换)。
-    # 原链 东财→腾讯→tushare→ths→kpl→自聚合 已下线: 2026-09-10 实测 chart 各源命中
-    # 东财 27 / 腾讯 485 / ths 2, 多源链实际长期靠腾讯扛, 但两源字段/复权口径不同,
-    # 同一只票两次请求可能来自不同源 → K线口径跳变。现统一为东财单源, 拿不到就如实报错。
-    # (各 _fetch_chart_from_xxx 函数体保留未删, 便于回滚与单测引用, 但主链不再调用)
-    sources = ["eastmoney"]
+    # 2026-09-10 二审修订(去兜底 ≠ 删同语义真实源):
+    #   · 东财 push2his 是**接口级时段性风控**(与出口 IP 无关), 实测 chart 命中
+    #     东财 27 / 腾讯 485 / ths 2 —— 单东财等于 K 线功能整体瘫痪
+    #     (测试机实测 5/5 返回 502), 这是不能接受的功能性回归。
+    #   · 腾讯 K 线是**同语义真实 OHLC**(与东财同为前复权日/周/月线, 经
+    #     _validate_chart_data + _kline_amount_pair 口径统一), 与「用现价涨幅假造
+    #     竞价字段 f615/f616」性质完全不同 —— 属"换源不换数据", 保留。
+    #   · 其余非真实同语义源(tushare/ths/kpl 拼接/自聚合)仍下线。
+    # 顺序: 东财(主, 内部 KLINE_HOSTS 多节点轮换) → 腾讯(同语义备源)。
+    sources = ["eastmoney", "tencent"]
     for src in sources:
         try:
             if src == "eastmoney":

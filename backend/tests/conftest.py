@@ -261,10 +261,10 @@ def vip_user(client, first_user):
 def _isolate_fetcher_globals():
     """每个用例前后隔离 fetcher 的模块级全局状态(2026-09-10 新增)。
 
-    背景: 去兜底后"昨日成交额"的短路条件从「东财/ths/腾讯/量脉 四源全熔断」收窄为
-    「东财日K单源熔断」(fetcher._fetch_yesterday_amount_one / fetch_yesterday_amounts),
-    于是任何把 eastmoney_kline 打进熔断的用例(如 test_stocks 的 K线兜底用例)都会让
-    后续用例里"数据源健康"的断言集体短路失败 —— 表征为**单文件绿、全量跑红**的顺序耦合。
+    背景: 昨日成交额的短路条件取决于 K线源熔断态(fetcher._fetch_yesterday_amount_one /
+    fetch_yesterday_amounts)。任何把 eastmoney_kline / tencent_kline 打进熔断的用例
+    (如 test_stocks 的 K线用例)都会让后续用例里"数据源健康"的断言集体短路失败
+    —— 表征为**单文件绿、全量跑红**的顺序耦合。
 
     这里在用例前后快照并还原熔断状态表与坏主机表, 消除顺序耦合; 用例内部对 _HEALTH
     的直接改写(如 test_circuit_breaker)依然在本用例内生效, 只是不再泄漏给下一个用例。

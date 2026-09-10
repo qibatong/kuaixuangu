@@ -98,27 +98,41 @@
 > ③ 实测主力源 push2dycalc 盘中 11-14 时成功率 99-100%，兜底只集中在事故时段救场。
 > 现行为：**拿不到就如实失败/置空**，由上层沿用旧缓存或置空（评分层容忍缺失）。
 > 各兜底函数体**保留未删**（便于回滚），但主链不再调用。量脉（liangmai）**代码已整体删除**。
+>
+> **⚠️ 2026-09-10 二审修订（同日，K 线回归修复，务必先读这条再改数据源）**：
+> 去兜底 **≠** 删「同语义真实源」。一审把 K 线腾讯源一并删掉，结果东财 `push2his` 一进
+> 风控窗口，**K 线功能整体瘫痪**（测试机实测 5/5 返回 502；实测 chart 命中 东财 27 / 腾讯 485）。
+> **判据（写死）**：
+> - **必须删**——换源会**编造字段**的（腾讯无 f615/f616/f617 竞价字段，用现价涨幅/成交额近似填充）；
+> - **可保留**——换源**不换数据**的同语义真实源（腾讯日/周/月 K 与 `qfqday` 成交额都是真实值，
+>   且经 `_validate_chart_data` + `_kline_amount_pair` 统一口径）。
+> 现源链：**K 线 = 东财 → 腾讯**；**昨比 = 东财日K → 腾讯 qfqday**；**全市场行情 = 单一东财**（不变）。
 
 - **全市场行情**：**单一东财** `push2dycalc`（clist 30 页并发 40s 超时，全市场 5558 只）。
   `_fetch_market_with_fallback` / `_fetch_market_all_with_fallback` 现为东财直通；
   `ensure_spot_cache` 失败时**只沿用本地旧缓存**，无旧缓存则抛出。
-- **K 线 chart**：**单一东财** `push2his`（`KLINE_HOSTS` 多域名轮询）。`fetch_stock_chart_robust`
-  的 `sources` 只剩 `["eastmoney"]`（原 东财→腾讯→tushare→ths→kpl→自聚合 链已下线）。
+- **K 线 chart**：**东财 `push2his`（主，`KLINE_HOSTS` 多域名轮询）→ 腾讯（同语义备源）**。
+  `fetch_stock_chart_robust` 的 `sources = ["eastmoney", "tencent"]`（原 东财→腾讯→tushare→ths→kpl→自聚合
+  的 tushare/ths/kpl/自聚合 已下线）。**不要再把腾讯删掉**：push2his 命中率约 5%，删了等于 K 线全灭。
 - **昨比（昨日成交额）= 收盘落库 + 全天读库**（2026-09-10 新增，替代原四级兜底链）：
   每交易日 **15:10** `yday_prewarm._prewarm_once(stage="close")` 批量拉全市场写入
   `yday_amount` 表（**按 code 覆盖写**，见 `database.init_db` 建表注释），此后全天
-  `_yday_hydrate_from_db` 直接读库（**零网络零兜底**）；只有库里没有的（新股/停牌/任务未跑）
-  才实时拉东财日 K。**盘中预热(stage="open")不落库**（那时 T=前一交易日，写进去会污染语义）。
+  `_yday_hydrate_from_db` 直接读库（**零网络**）；只有库里没有的（新股/停牌/任务未跑）
+  才走实时链 **东财日K → 腾讯 `qfqday`（`_yday_fallback_tencent`，真实成交额万元）**。
+  **盘中预热(stage="open")不落库**（那时 T=前一交易日，写进去会污染语义）。
   → 运维注意：机制**从首次收盘刷新（15:10）起才生效**，此前 `yday_amount` 为空 = 走实时源。
+  → 腾讯备源是**必需的**：push2his 风控期若单靠东财，收盘刷新会落 0 行 → 次日昨比全天为空、机制空转。
 - **腾讯并未废弃**，但它现在是**功能源不是兜底**：`picker/sources/tencent.py`（竞价窗口名单源）、
   `fetch_tencent_by_codes`（点查补丁源）、`fetch_tencent_market`（picker 用）。
   **f4=昨收 / f5=成交量 必补**（缺这两个字段 `is_suspended` 会把数据误判停牌 → 选股 0 只，
   生产 7052 事故）；**f17=今开必补**（缺则实体列恒 0%）。
 - **熔断器**：`fetcher._check_circuit(src)/_record(src, ok, ms)`；**昨比/昨涨的短路 = 东财日 K
-  单源 down**（原「四源全 down」随兜底链删除而收窄）；每源独立 `down_threshold`
-  （ths/tencent=2、其余=1），指数退避 cooldown 60→…→600s。**熔断生效期内的成功不解除熔断**
-  （2026-09-10 commit 30f224a：防全市场 30 页并发时失败页刚置 down、成功页立刻清零 →
-  同一调用内反复横跳、下次仍完整重试 30 页）。
+  **与** 腾讯 K 线**均** down**（一审的「东财单源 down」已随二审恢复腾讯备源而放宽）；
+  每源独立 `down_threshold`（ths/tencent=2、其余=1），指数退避 cooldown 60→…→600s。
+  **熔断生效期内的成功不解除熔断**（2026-09-10 commit 30f224a：防全市场 30 页并发时失败页刚置 down、
+  成功页立刻清零 → 同一调用内反复横跳、下次仍完整重试 30 页）。
+  ⚠️ `_fetch_chart_from_tencent` **不参与** `tencent_kline` 熔断统计（只有昨比路径会 `_record`）——
+  这是有意为之：否则 K 线失败会连带掐掉昨比备源。
 - **东财 push2his（历史 K 线）自 8/30 起为接口级全局时段性风控**，与出口 IP 无关
   （公司网/阿里云测试/生产/代理家宽同一时刻全部 0~10%，而同机 push2dycalc 100% 通）；
   多米 + 快代理两家独立测出同一结论 → **买代理解决不了，别买**。等自愈（熔断半开探测）。

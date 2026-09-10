@@ -195,3 +195,32 @@
   - **代理方案结论**（同日实测，未采用）：东财 push2his 是**接口级全局时段性风控**，与出口 IP 无关——公司网/阿里云测试机/生产机/代理家宽**同一时刻全部 0~10%**，而同机 push2dycalc 100% 通；多米（节点可用率 ~45%，还把主力源拖到 62%）与快代理（主力源 100% 但 K 线仍 25%）两家独立测出同一结论 → **买代理解决不了，别买**。主力源 push2dycalc 实测盘中 11-14 时成功率 99-100%，本就健康，套代理只引入新的单点风险
   - **代码缺陷顺手修**：`fetch_yesterday_amounts` 短路后 `need=[]` 仍会走 `if wait:` 加锁重判 / `else` 起空线程 → 改为 `if need and _check_circuit(...)` 前置，短路即跳过整段
   - **测试**：新增 `test_yday_amount_db.py` 11 例（落库/读库往返、覆盖写、过期与空值过滤、hydrate 命中零网络与不覆盖实时缓存、读库异常回落、**只有 stage=close 落库**）；conftest 新增 `_isolate_fetcher_globals` 夹具（快照/还原 `_HEALTH`+`_broken_hosts`）消除"单文件绿、全量红"的顺序耦合；删除随功能下线的用例 3 条（K 线腾讯降级、东财+腾讯双源链、腾讯 qfqday 昨比），还原被 conftest session 桩整体替换的 11 条真实实现用例。**对照 HEAD 基线 27 红，改后 11 红（全部为基线既有历史债，新增失败 0）**
+- **v4.11.1 (09-10 深夜) 二审修订：去兜底 ≠ 删同语义真实源（K 线回归修复）**
+  - **触发**：一审把「K 线腾讯源」也一并删掉后，测试机上 **K 线功能整体瘫痪** ——
+    `/api/stock/chart` 5/5 返回 502，日志 `chart[robust]全部数据源失败`，
+    push2his 直连 000（接口级时段性风控窗口内）。而实测 chart 历史命中是
+    **东财 27 / 腾讯 485 / ths 2**，即多源链长期由腾讯扛着，删掉等于删功能。
+  - **判据（主人当场校准，写死进 AGENTS.md）**：
+    - **必须删** —— 换源会**编造字段**的（腾讯无 f615/f616/f617 竞价字段，只能用现价涨幅/成交额
+      近似填充 → 竞价时段切过去数据即为编造值）；
+    - **可保留** —— 换源**不换数据**的**同语义真实源**（腾讯日/周/月 K 与 `qfqday` 成交额均为真实值，
+      且经 `_validate_chart_data` + `_kline_amount_pair` 统一口径）。
+  - **代码变更（仅 `app/services/fetcher.py`）**：
+    - `fetch_stock_chart_robust`：`sources` 由 `["eastmoney"]` 恢复为 `["eastmoney", "tencent"]`；
+      tushare/同花顺/kpl/自聚合 仍下线不变。
+    - `_fetch_yesterday_amount_one`：东财日K 失败**或熔断**时改调新增的
+      `_yday_fallback_tencent()`（腾讯 qfqday 第 9 列 = 真实成交额万元）；东财熔断不再"整只置空"。
+    - `fetch_yesterday_amounts`：批级短路条件由「东财日K 单源 down」放宽为
+      「东财日K **与** 腾讯K线**均** down」，否则风控期整批昨比恒空、落库机制空转。
+    - 注：`_fetch_chart_from_tencent` **不进** `tencent_kline` 熔断统计（有意为之，
+      避免 K 线失败连带掐掉昨比备源）。
+  - **测试**：恢复 2 条随功能下线的用例（K 线东财→腾讯降级、腾讯 qfqday 自算涨跌幅）+
+    新增 1 条「东财失败/熔断 → 切腾讯备源、双源皆挂才置空」；
+    `test_short_circuit_skips_when_eastmoney_kline_down` 因短路口径按上述设计变更而重写为
+    `test_short_circuit_requires_both_kline_sources_down`。**全量 935 例 / 10 失败 / 0 错误
+    （HEAD 基线 27 红，零新增失败，剩余 10 条全为基线既有历史债）。**
+  - **测试机实测（部署后）**：K 线 4/4 返回 **200**（600519/000001/300750/601127，各 200 根，
+    最后一根为当日 2026-09-10），日志明确 `chart[robust]源=tencent` 接管；
+    昨比 `_fetch_yesterday_amount_one('600519')` → `([242869.88, 416850.05], -0.45)`，
+    耗时 0.25s（东财 fail=1 / 腾讯 ok=1）；`/api/health` `serviceable=true`；
+    `/api/stocks?action=filter` 200 / 3.4s / 12 只；Traceback 计数 0。

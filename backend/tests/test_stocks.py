@@ -384,13 +384,38 @@ def test_ensure_latest_period_quote_failed(monkeypatch):
 
 
 # ---------- C. 源自动降级 ----------
-# 2026-09-10 去兜底: 原 test_fetch_stock_chart_robust_falls_back_to_tencent(东财失败→腾讯降级)
-# 随 K线兜底链(东财→腾讯→tushare→ths→kpl)一起删除 —— fetch_stock_chart_robust 现在
-# 只有 eastmoney 一个源, 该用例断言的"降级到腾讯成功"行为已不存在。
+# 2026-09-10 二审: 去兜底 ≠ 删同语义真实源 —— K线恢复 东财→腾讯(同语义真实 OHLC)。
+# 本用例随之恢复(它是"降级到同语义真实源"的锁定, 不是"用现价编造竞价字段"那类兜底)。
+
+
+def test_fetch_stock_chart_robust_falls_back_to_tencent(monkeypatch):
+    """东财失败时, 降级腾讯成功"""
+    from app.services import fetcher
+    from app.core import config
+    from urllib.error import URLError
+
+    monkeypatch.setattr(config, "KLINE_HOSTS", ["https://em1"])
+
+    def fake_urlopen(req, timeout=5, context=None):
+        if "gtimg" in (req.full_url or ""):
+            payload = {"data": {"sh600001": {
+                "day": [["2026-08-20", 10.0, 10.5, 10.8, 9.8, 100000],
+                        ["2026-08-21", 10.5, 11.0, 11.2, 10.3, 150000]]
+            }}}
+            return _TencentResp(payload)
+        raise URLError("eastmoney host down")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(fetcher, "_CHART_CACHE", {})
+    monkeypatch.setattr(fetcher, "_broken_hosts", {})
+
+    r = fetcher.fetch_stock_chart_robust("600001", "day")
+    assert r.get("period") == "day"
+    assert len(r.get("time", [])) == 2
 
 
 def test_fetch_stock_chart_robust_all_sources_fail(monkeypatch):
-    """唯一源(东财)失败 → 返回 {}"""
+    """全部源(东财+腾讯)都失败 → 返回 {}"""
     from app.services import fetcher
     from app.core import config
     from urllib.error import URLError
