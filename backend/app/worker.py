@@ -71,7 +71,7 @@ def main():
     concept_refresh.start_scheduler()  # 盘中每30分钟从开盘啦刷新竞价异动股票概念并写库
     ladder_daily.start_scheduler()     # 交易日 15:30 盘后生成连板天梯 PNG
     stock_temper.start_scheduler()     # 交易日 15:30 盘后落库涨停/炸板(股性数据源)
-    log.info("快照采集 + 尾盘推送 + AI竞价选股调度 + 盘中概念刷新 + 连板天梯盘后生成 + 量脉校验已启动")
+    log.info("快照采集 + 尾盘推送 + AI竞价选股调度 + 盘中概念刷新 + 连板天梯盘后生成 + 股性数据落库已启动")
     # 主线程阻塞消费队列
     consume_loop()
 
