@@ -88,6 +88,18 @@
 - **当日无批次/休市**：自动回退 14 天窗口内**最近交易日**同参批次直读（`find_recent_reusable_batch`），响应带 `reusedDate`，前端直接采用并提示「已载入 X 的选股名单」——解决「关闭后再打开首页转圈」。
 - 参数指纹（`_canon_filter_fingerprint`）不一致 = 用户改过条件 → 必须重算，不回退不直读；空名单批次（stock_count=0）无直读价值。
 - 筛选权重：竞价涨幅 34% / 换手率 32% / 异动等级 17% / 流通市值 11% / 昨日涨幅 6%（配套大票策略 ≤300 元、≤1000 亿）。
+- **🔴 唯一链路 = `picker.pipeline.run()`（2026-09-11 起）**。老链路（`scorer.score_all_stocks` +
+  `apply_filters` + `scorer.compute_score`）、回滚开关 `settings.picker_lock`、api 层旁路对拍
+  `picker/parity.py` / `stocks._parity_reverse` / `stocks._gray_enabled` / `settings.picker_gray`、
+  `picker/lock.compare_with_legacy` **全部已删除**。
+  → **改选股逻辑只改 `backend/app/services/picker/`**（contract → sources → score/score_factors → filter → pipeline → lock）。
+  → **回滚只能靠 git 回版本**（`git checkout <tag> -- backend/app/services/picker backend/app/services/scorer.py ...`），
+    线上已无开关可切。`scorer.py` 现在只剩**配置与共享工具**（`get_scoring_cfg` / `validate_filters` /
+    `parse_float` / `display filters` / `in_auction_window` / `is_st` / `is_yizi` / `limit_pct` …）。
+  → 测选股必须打桩在**唯一链路**上：refresh 打 `picker.pipeline.run`；锁仓/auto_apply 打
+    `picker.lock.run_lock`。打在 `scorer.process_all_stocks` 上的桩**永远不被调用**（曾因此假绿）。
+  → `scorer.js_round` / `is_first_board` / `get_factor_score` 已删，等价实现见
+    `picker/score_factors.py`（`js_round` / `factor_score` / `factor_default`）。
 
 ## 八、数据源与熔断（fetcher）
 

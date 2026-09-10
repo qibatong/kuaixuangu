@@ -255,3 +255,52 @@
   - **测试**：全量 **935 例 / 10 失败 / 0 错误**（HEAD 基线 27 红 → 零新增失败，
     剩余 10 条全为基线历史债：history×3 / slow_api_cache×2 / auction_snap_pool_offhours×2 /
     snapshot_915×1 / auto_apply×1 / stats_api×1）。日志降级改动**无测试依赖**（grep 确认）。
+- **v4.11.3 (09-11) 老链路彻底退役（主人拍板 C 方案：实现 + 用例全删）**
+  - **背景**：picker 重构自 9/7 双轨灰度，观察期已满（生产日志显示差异是**双向长期存在**的
+    picker 语义差异，危险形态 `新=0只` 7 天内 **0 次**）。主人拍板：**不再保留回滚保险**，
+    老链路连同其对拍/灰度开关一起删除，回滚只靠 git 回版本。
+  - **判据**（主人 09-10 原话）：**"不要为了让测试用例通过而去瞎改，要看是不是我让你去掉的
+    功能所对应的测试用例，该删的还是要删"** —— 分类依据是「被测函数在生产代码还有没有引用」，
+    不是"红了就删"。落在业务语义上的用例（accel / 竞昨比 / 昨日涨幅因子 / ST 过滤 / 抢筹打标 /
+    腾讯兜底契约）**必须迁到新链路，不能顺手删掉防线**。
+  - **生产代码删除**（净 -2090 行 / +396 行，43 文件）：
+    - `scorer.py`：`compute_score` / `score_all_stocks` / `apply_filters` / `process_all_stocks` /
+      `is_suspended` / `is_qiangchou` / `_qc_fields` / `get_entity_change` / `get_bid_turnover` /
+      `get_warn_type` / `get_factor_score` / `_factor_default` / `js_round` / `is_first_board`
+      + 常量 `_QC_LABEL`/`_QC_UNIT`。**保留**配置与共享工具：`get_scoring_cfg` / `reload_scoring_cfg` /
+      `validate_filters` / `parse_float` / `in_auction_window` / `bj_now` / `market_fs` /
+      `get_bid_change` / `get_bid_amt` / `is_st` / `is_yizi` / `limit_pct` / `_in_markets` /
+      `_q_date` / `_opt_float` / `_clamp` / `_truthy`（stats / auction_snapshot / auto_apply / kpl /
+      picker/filter 仍在用）。
+    - `picker/parity.py` **整文件删除**；`picker/lock.py` 删 `compare_with_legacy` / `enabled` /
+      `enabled_default_on`；`api/stocks.py` 删 `_load_strengths` / `_gray_enabled` / `_parity_reverse`
+      + parity 导入 + 调用点；`system_batch.py` 删 `_run_legacy` / `_picker_lock_on` / `_load_strengths`，
+      `_do_run` 内联为**恒走 picker**，`_run_new` 更名 `_run_picker`。
+    - `scorer.get_scoring_cfg` 的 `strategy` 参数保留（spot 策略 9/09 已下线，仅剩 auction）。
+  - **测试重构**（用例 935 → **874**，净 -61）：删整文件 `test_picker_parity.py` / `test_picker_gray.py` /
+    `test_bid_amt_fix.py` / `test_bid_amt_offwindow_no_fallback.py` / `test_bid_chg_offwindow_uses_day_snapshot.py` /
+    `test_zt_pool_filter.py` + 4 个诊断脚本（`_diag_chain_e2e` / `_diag_score_all` / `_diag_real_filters` /
+    `_diagnose_tencent_data`）；`test_phase1.py` AST 删 13 条、`test_picker_lock.py` 删 4 条并把
+    `test_system_batch_switches_by_setting` 重写为 `test_system_batch_always_uses_picker`
+    （断言 `not hasattr(sb,"_run_legacy")` / `not hasattr(sb,"_picker_lock_on")`）。
+  - **业务语义用例迁移**（防线不丢）：accel ×4 + 竞昨比 ×2 → `test_picker_pipeline.py`；
+    昨日涨幅因子 ×3 → `picker.score.compute_score`；ADMIN 评分配置生效 → `QuoteRow.from_eastmoney`
+    + `compute_score`；抢筹打标 ×3 → `pipeline._qc_of`（`formula_fallback_flagged` 反转为
+    `test_qc_of_no_source_never_fabricates`，锁"无源不得捏造"）；腾讯兜底实体/停牌 →
+    契约层 property（缺今开 `is None`、缺 f4/f5 `is_suspended is None`）；ST 过滤 → `picker.filter`。
+  - **顺手修正的「假绿」桩**（原桩打在老链路 → 新链路下永不触发，用例表面绿实为空跑）：
+    `test_auto_apply.py`（改打 `plock.run_lock`）、`test_slow_api_cache_20260904.py` 与
+    `test_stocks_refresh_fallback.py`（改打 `pl.run`）——修完基线里 7 条红**自然转绿**
+    （auto_apply×4 / slow_api_cache×2 / sqlite cache ttl×1）。
+  - **文件级失效引用清理**：`picker/{__init__,pipeline,filter,score,score_factors,lock}.py` +
+    `auction_snapshot` / `auto_apply` / `fetcher` / `history` / `conftest` 里"见 parity.compare"、
+    "test_picker_parity 有对拍用例"、"选股**新**链路"等表述统一改写；`picker/__init__.py`
+    模块说明由四层改五层（删 parity、加 lock）并补退役历史段。
+  - **测试**：全量 **874 例 / 7 失败 / 0 错误 / 4 跳过**（基线 `935 / 14 / 0 / 4`）
+    → **零新增失败**；剩余 7 条全为基线既有历史债（auction_snap_pool_offhours×2 =
+    scoreFloor 真缺陷、history×3 = scoreFloor=80 砍 mock 300003、kpl 单位口径×1、
+    stats_api 跨零点×1）。
+  - **AGENTS.md 同步**：第七节新增「唯一链路 = `picker.pipeline.run()`」硬约定 —— 改选股只改
+    `backend/app/services/picker/`、回滚只能 git 回版本、**测试必须打桩在唯一链路上**
+    （打在 `scorer.process_all_stocks` 上的桩永远不被调用）。
+

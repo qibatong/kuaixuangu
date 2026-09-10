@@ -13,6 +13,12 @@
 | 名单 | **9:30 前锁定后恒定** | 每日最新报告（历史回看走导航「历史回看」页 AI 预测 tab） |
 | 落库/推送 | lock 落库 + 推送 | 报告独立存储 |
 
+> **唯一选股链路（v4.11.3，2026-09-11）**：全站选股（首页 refresh / lock / 定时批次 auto_apply）
+> 统一由 **`picker.pipeline.run()`** 产出，模块分层 `contract → sources → score/score_factors → filter → pipeline → lock`。
+> 此前并行的"老链路"（`scorer.score_all_stocks + apply_filters`）、灰度对拍（`picker/parity.py`、
+> `stocks._parity_reverse`）与回滚开关（`settings.picker_lock` / `picker_gray`）**已整体删除**——
+> 回滚只能靠 git 回版本，线上无开关可切。改动前请读 `AGENTS.md` 第七节。
+
 **竞价锁定名单语义**：9:30 前 lock 的名单恒定不变（后端 lock 批次为权威 + 本地快照兜底）。9:30 后刷新时名单不增删，只按 code 合并全市场实时行情（spotMap）更新实时涨幅/评分；被筛选条件剔除的票直接移除，条件放行但行情不在榜的标"已跌出"。
 
 **评分门槛 scoreFloor**（v4.10，9/10 主人拍板，全站默认 **80**、条件面板/管理后台可配）：评分低于门槛的票**直接不入选**。与既有 `probLt`/`confLt` 的区别务必分清——
