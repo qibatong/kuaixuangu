@@ -44,6 +44,7 @@ _FILTER_DEFAULTS = {
     "bidGt": 7.0, "probLt": 65.0, "confLt": 65.0,
     "floatMvFloor": 30.0, "floatMvGt": 1000.0,
     "priceGt": 300.0, "bidAmtFloor": 1000.0,
+    "scoreFloor": 80.0,     # 2026-09-10 主人拍板: 评分 < 80 不入选
 }
 
 

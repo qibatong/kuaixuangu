@@ -513,6 +513,7 @@ DEFAULT_FILTERS_DEFAULT = {
     "probLt": 65.0, "confLt": 65.0,
     "floatMvFloor": 30.0, "floatMvGt": 1000.0, "priceGt": 300.0,
     "bidAmtFloor": 1000.0,   # 诗人需求: 默认竞价金额下限 1000万(原3000)
+    "scoreFloor": 80.0,      # 2026-09-10 主人拍板: 评分低于 80 分的票不显示(全站默认)
 }
 
 

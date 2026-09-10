@@ -651,6 +651,10 @@ def validate_filters(q):
         "bidLt": _clamp((q.get("bidLt") or ["0"])[0], -20, 20, 0),   # 竞价涨幅下限(2026-09-09: 默认0=低开剔除; 可配负值放宽)
         "probLt": _clamp((q.get("probLt") or ["65"])[0], 5, 95, 65),
         "confLt": _clamp((q.get("confLt") or ["65"])[0], 50, 90, 65),
+        # 评分下限(2026-09-10 主人拍板, 全站默认 80): 单票评分低于此分**直接不入选**。
+        # 与 probLt 的区别 —— probLt 是"概率<probLt **且** 信心<confLt"的**双低**剔除,
+        # 高信心可以救低概率票; scoreFloor 是**单阈值硬门槛**, 不管信心多高一律砍。
+        "scoreFloor": _clamp((q.get("scoreFloor") or ["80"])[0], 0, 100, 80),
         "floatMvFloor": _clamp((q.get("floatMvFloor") or ["30"])[0], 0, 5000, 30),
         "floatMvGt": _clamp((q.get("floatMvGt") or ["100"])[0], 0, 5000, 100),
         "priceGt": _clamp((q.get("priceGt") or ["30"])[0], 0, 5000, 30),

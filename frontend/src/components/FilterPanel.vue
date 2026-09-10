@@ -65,6 +65,10 @@
       <label class="filter-cell">
         竞额 ≥<input v-model.number="store.filterSettings.bidAmtFloor" type="number" min="0" max="100000" step="500" :disabled="store.isFilterLocked" :style="inputStyle(42)">万
       </label>
+      <!-- 2026-09-10 主人拍板: 评分低于此分的票不显示(全站默认 80, 0=不限) -->
+      <label class="filter-cell">
+        评分 ≥<input v-model.number="store.filterSettings.scoreFloor" type="number" min="0" max="100" step="1" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">分
+      </label>
     </div>
   </div>
   <!-- 2026-08-25: 偏好/全局默认异步加载完成前的占位, 避免先用内置默认(limitUp=false)

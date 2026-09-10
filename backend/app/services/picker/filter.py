@@ -156,6 +156,14 @@ def apply_filters(rows: List[ScoredRow], f: Dict,
             out.bump("prob_conf")
             continue
 
+        # 5.1) 评分下限(2026-09-10 主人拍板, 全站默认 80): 单阈值硬门槛 ——
+        #   与 5) 的双低剔除独立: 双低允许"高信心救低概率", scoreFloor 不看信心,
+        #   评分不够就是不够(低分票展示出来只会干扰决策)。0 = 关闭该门槛。
+        #   注意: 只能放精筛(评分后) — 粗筛在评分前跑, 拿不到 probability。
+        if f.get("scoreFloor", 0) > 0 and sc.probability < f["scoreFloor"]:
+            out.bump("score_floor")
+            continue
+
         # 6) 流通市值区间(缺失 → 无法证明达标 → 剔除, 与老口径 0<floor 同结果)
         mv = None if r.float_mv is None else r.float_mv / 1e8
         if mv is None or mv < f["floatMvFloor"]:

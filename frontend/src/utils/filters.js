@@ -14,6 +14,9 @@ export function passLockedFilter(it, rt, f) {
   const price = rt ? rt.price : it.price
   if (price && price > f.priceGt) return false             // 股价过高
   if (it.bidAmt < f.bidAmtFloor) return false              // 竞价金额过低
+  // 2026-09-10 主人拍板(全站默认 80): 评分低于门槛的票不显示 — 前端与后端同口径,
+  // 锁定名单在前端二次过滤时也必须一致, 否则"锁定后还能看到低分票"。
+  if (f.scoreFloor > 0 && (it.probability || 0) < f.scoreFloor) return false
   return true
 }
 
@@ -30,7 +33,8 @@ export const defaultFilterSettings = {
   floatMvFloor: 30,
   floatMvGt: 1000,
   priceGt: 300,
-  bidAmtFloor: 3000
+  bidAmtFloor: 3000,
+  scoreFloor: 80        // 2026-09-10 主人拍板: 评分低于 80 分不显示(管理员可在后台改默认)
 }
 
 // 构建后端筛选参数(把筛选设置转成 API query)
@@ -45,6 +49,7 @@ export function buildFilterParams(f) {
     floatMvFloor: f.floatMvFloor,
     floatMvGt: f.floatMvGt,
     priceGt: f.priceGt,
-    bidAmtFloor: f.bidAmtFloor
+    bidAmtFloor: f.bidAmtFloor,
+    scoreFloor: f.scoreFloor
   }
 }
