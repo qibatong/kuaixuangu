@@ -228,7 +228,7 @@ def _check_circuit(src="eastmoney_clist"):
 
 def _record(src, ok, ms=0):
     """记录一次数据源调用结果; 状态翻转时打告警/恢复日志
-    2026-09-01 加固: ①抖动保护 down_threshold>1 的源(ths/tencent/量脉)连续失败
+    2026-09-01 加固: ①抖动保护 down_threshold>1 的源(ths/tencent)连续失败
     达阈值才熔断, 单次抖动不误伤; ②连续失败指数退避 cooldown(上限600s), 确定性
     故障(如东财K线秒拒)不再每 60s 空转探测刷日志"""
     with _health_lock:
@@ -334,7 +334,7 @@ def _after_close():
 #       (原只认 f103 "昨日涨停/连板"标签)恒为 False → 勾选「昨涨停」筛出空名单。
 # 方案: 东财 push2ex 域名(getTopicZTPool, 与 clist 的 push2 域名不同, 生产实测畅通)
 #       返回**指定交易日**涨停池(含连板/一字), 作为"昨日涨停"权威名单 —— 与数据源无关,
-#       东财/腾讯/量脉任一行都能判断昨日是否涨停。f103 标签仅作名单不可用时的降级。
+#       东财/腾讯任一行都能判断昨日是否涨停。f103 标签仅作名单不可用时的降级。
 _ZT_POOL_URL = "https://push2ex.eastmoney.com/getTopicZTPool"
 _ZT_CACHE = {"codes": None, "ts": 0}        # 成功缓存
 _ZT_FAIL = {"ts": 0}                        # 失败冷却(防反复打网络)

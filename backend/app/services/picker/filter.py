@@ -9,7 +9,7 @@
      返回 None(未知) → 不剔除; 且"9:25 有竞价额"本身就是非停牌的强证据, 故
      bid_amt>0 时直接判非停牌(见 DEGRADE_RULES 新增条目)。
 
-  2. 昨涨停: 契约行没有"昨日涨停"这类东财概念标签的权威来源(腾讯/量脉行无 f103),
+  2. 昨涨停: 契约行没有"昨日涨停"这类东财概念标签的权威来源(腾讯行无 f103),
      老链路因此恒 False。本层以**外部昨涨停代码集合**为权威(ctx.zt_codes),
      集合不可用时才降级 concept 文本匹配(与老 is_first_board 同)。
 
@@ -52,7 +52,7 @@ def is_first_board(row_code: str, concept: Optional[str],
                    zt_codes: Optional[Set[str]]) -> bool:
     """昨日涨停/连板判定。
 
-    zt_codes: push2ex 昨涨停池名单(**权威**, 与数据源无关 — 腾讯/量脉行无 f103,
+    zt_codes: push2ex 昨涨停池名单(**权威**, 与数据源无关 — 腾讯行无 f103,
     只认 concept 会恒 False 全滤空, 2026-09-07 事故)。None = 名单不可用 → 降级 concept。
     """
     if zt_codes is not None:
