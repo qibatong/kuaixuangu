@@ -51,6 +51,29 @@ def _conn():
     return conn
 
 
+# batch_stocks 里 NOT NULL 且无默认值的列 → 落库兜底值。
+# 2026-09-10 生产事故: item["warnType"] 为 None(东财 f630 字段缺失, contract 语义上
+# 保留 None=未知) → executemany 抛 "NOT NULL constraint failed: batch_stocks.warn_type"
+# → 整个批次落库失败(名单一条都存不下), 且 except 分支没关连接 → 连接泄漏持有写锁,
+# 后续任何写操作报 "database is locked"。一个 None 值级联成全站故障。
+# 兜底语义: 未知按 0 存(异动等级 0 级), 保证"名单能落库"优先于"字段精确"。
+_NOT_NULL_DEFAULTS = {
+    "probability": 0.0, "confidence": 0.0, "bidChange": 0.0, "realChange": 0.0,
+    "entityChange": 0.0, "bidTurnover": 0.0, "warnType": 0,
+    "circulationMV": 0.0, "bidAmt": 0.0,
+}
+
+
+def _safe_num(s, key):
+    """取落库数值: None/非数值 → 该列兜底值(防 NOT NULL 约束炸掉整批)"""
+    v = s.get(key)
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return _NOT_NULL_DEFAULTS.get(key, 0.0)
+    if isinstance(v, float) and (v != v or v in (float("inf"), float("-inf"))):  # NaN/inf
+        return _NOT_NULL_DEFAULTS.get(key, 0.0)
+    return v
+
+
 def save_batch(user_id, action, result, f, auto_applied=False):
     """把一次选股结果存为一个历史批次(归属指定用户), 返回批次 id; 失败返回 None
     auto_applied=True 用于 9:26 系统自动应用 (区别用户主动 lock/filter)
@@ -71,6 +94,7 @@ def save_batch(user_id, action, result, f, auto_applied=False):
     btime = "%02d:%02d:%02d" % (g.tm_hour, g.tm_min, g.tm_sec)
     filters_json = json.dumps({k: v for k, v in f.items() if k != "markets"}, ensure_ascii=False)
     markets = ",".join(f["markets"])
+    conn = None
     try:
         conn = database.get_conn()
         cur = conn.cursor()
@@ -81,18 +105,28 @@ def save_batch(user_id, action, result, f, auto_applied=False):
         batch_id = cur.lastrowid
         cur.executemany(
             "INSERT INTO batch_stocks (batch_id, rank, code, name, probability, confidence, bid_change, real_change, entity_change, bid_turnover, warn_type, circulation_mv, industry, concept, bid_amt, bid_ratio, qiangchou, qc_detail) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            [(batch_id, i + 1, s["code"], s["name"], s["probability"], s["confidence"],
-              s["bidChange"], s["realChange"], s["entityChange"], s["bidTurnover"],
-              s["warnType"], s["circulationMV"], s["industry"], s["concept"], s["bidAmt"],
+            [(batch_id, i + 1, s.get("code") or "", s.get("name") or "",
+              _safe_num(s, "probability"), _safe_num(s, "confidence"),
+              _safe_num(s, "bidChange"), _safe_num(s, "realChange"),
+              _safe_num(s, "entityChange"), _safe_num(s, "bidTurnover"),
+              _safe_num(s, "warnType"), _safe_num(s, "circulationMV"),
+              s.get("industry"), s.get("concept"), _safe_num(s, "bidAmt"),
               s.get("bidRatio"), 1 if s.get("qiangchou") else 0, _qc_pack(s))
              for i, s in enumerate(result)])
         conn.commit()
-        conn.close()
         return batch_id
     except Exception as e:
         log.error("批次落库失败 user_id=%s action=%s 数量%d err=%s",
                   user_id, action, len(result), e)
         return None
+    finally:
+        # ⚠️ 必须关: 上面任一步抛异常(如 NOT NULL 约束)走 except 后若连接不关,
+        # 写锁一直持有 → 后续所有写操作 "database is locked" 雪崩(2026-09-10 实测)。
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _canon_filter_fingerprint(f):
@@ -439,10 +473,8 @@ def query_history(uid, q):
         total = conn.execute(
             "SELECT COUNT(*) FROM (SELECT 1 " + base_sql + ")", base_params).fetchone()[0]
         rows = conn.execute(sql, base_params + [page_size, (page - 1) * page_size]).fetchall()
-    except Exception:
+    finally:
         conn.close()
-        raise
-    conn.close()
     out_rows = []
     for r in rows:
         d = dict(r)
