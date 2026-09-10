@@ -7,7 +7,7 @@
 """
 import pytest
 
-from app.services import history, kpl, scorer
+from app.services import history, kpl
 
 
 def _mk(code, **kw):
@@ -68,11 +68,20 @@ def test_detail_and_codes_empty_on_exception(monkeypatch):
     assert kpl.get_qiangchou_codes() == set()
 
 
-# ==================== scorer 输出字段 ====================
-def test_qc_fields_detail_preferred():
+# ==================== 抢筹输出字段 (picker.pipeline._qc_of) ====================
+# 2026-09-11: 原用例直测 scorer._qc_fields(已随老链路退役)。抢筹打标唯一实现
+# 现为 picker/pipeline._qc_of; 新链路**不做公式兜底**(明细与集合皆无 → 不打标,
+# 宁缺勿造假), 故原 formula_fallback 用例随该分支一并删除。
+def _ctx(detail=None, codes=None):
+    from app.services.picker import pipeline as pl
+    return pl.PickContext(qiangchou_detail=detail, qiangchou_codes=codes)
+
+
+def test_qc_of_detail_preferred():
     """明细优先: 带类型 + 三张表各自幅度 + 中文摘要"""
+    from app.services.picker import pipeline as pl
     detail = {"300001": {"types": ["amt", "last"], "amt": 1.23, "chg": None, "last": 0.4}}
-    out = scorer._qc_fields("300001", {"300001"}, detail, 3.0, 25.0)
+    out = pl._qc_of("300001", _ctx(detail, {"300001"}))
     assert out["qiangchou"] == 1
     assert out["qcType"] == "amt+last"
     assert out["qcAmt"] == 1.23 and out["qcLast"] == 0.4 and out["qcChg"] is None
@@ -80,20 +89,20 @@ def test_qc_fields_detail_preferred():
     assert out["qcFallback"] == 0
 
 
-def test_qc_fields_codes_only():
+def test_qc_of_codes_only():
     """只有代码集合(旧调用): 仍打标, 但无类型无幅度, 不许误报 fallback"""
-    out = scorer._qc_fields("300001", {"300001"}, None, 3.0, 25.0)
+    from app.services.picker import pipeline as pl
+    out = pl._qc_of("300001", _ctx(None, {"300001"}))
     assert out["qiangchou"] == 1 and out["qcType"] == "qc"
     assert out["qcAmt"] is None and out["qcFallback"] == 0
-    assert scorer._qc_fields("300002", {"300001"}, None, 3.0, 25.0)["qiangchou"] == 0
+    assert pl._qc_of("300002", _ctx(None, {"300001"}))["qiangchou"] == 0
 
 
-def test_qc_fields_formula_fallback_flagged():
-    """明细与集合皆无(数据源故障): 旧公式兜底并置 qcFallback=1, 前端提示口径不同"""
-    out = scorer._qc_fields("300001", None, None, 3.0, 25.0)
-    assert out["qiangchou"] == 1 and out["qcType"] == "formula" and out["qcFallback"] == 1
-    # 不满足公式(竞涨<2%)不兜底
-    assert scorer._qc_fields("300001", None, None, 1.0, 25.0)["qiangchou"] == 0
+def test_qc_of_no_source_never_fabricates():
+    """明细与集合皆无(数据源故障) → 不打标(新链路不做公式兜底: 抢筹是事实, 不许编)"""
+    from app.services.picker import pipeline as pl
+    out = pl._qc_of("300001", _ctx(None, None))
+    assert out["qiangchou"] == 0 and out["qcType"] == "" and out["qcFallback"] == 0
 
 
 # ==================== 落库往返 ====================

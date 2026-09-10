@@ -6,7 +6,7 @@
      → is_suspended 判停牌 → 整批被误杀); 但"9:25 有竞价额"是强证据 → 判非停牌
   2. 昨涨停名单(zt_codes)为权威: 集合=None(名单不可用)才降级 concept 文本匹配
   3. 竞价涨幅缺失默认剔除(竞价选股没竞价数据的票不该入选), 且原因可在 stats 查到
-  4. 剔除顺序/条件与老 apply_filters 逐条一致(由 test_picker_parity 端到端锁死)
+  4. 剔除顺序/条件与已退役老链路 apply_filters 逐条一致(逐项用例锁死)
   5. 每个剔除分支都要有 stats 计数(可观测 = 可排查"为什么这只票没了")
 """
 import pytest

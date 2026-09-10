@@ -278,3 +278,72 @@ def test_warn_type_falls_back_to_f630_without_strength(monkeypatch):
     _install(monkeypatch, {"snapshot": _FakeSource(rows)})
     res = pipeline.run(dict(FULL), ctx=_ctx())        # 不传 strengths
     assert res.items[0]["warnType"] == 4
+
+
+# ==================== 涨幅加速度 accel (2026-09-11 由老链路用例迁移) ====================
+# 原 test_snapshot.py 的 4 条用例直测 scorer.process_all_stocks(已退役)。
+# accel 是 live 展示字段(9:25 竞价涨幅 - 9:20 快照涨幅), 语义原样保留:
+# 只在竞价窗口内计算, 无快照/非窗口一律 None。
+def test_accel_in_auction_window(monkeypatch):
+    """竞价窗口内: accel = 9:25 竞价涨幅 - 9:20 快照涨幅"""
+    rows = {"600000": _q("600000", bid_change=4.0)}
+    _install(monkeypatch, {"eastmoney_market": _FakeSource(rows, label="eastmoney_market")})
+    ctx = _ctx(snapshot_map={"600000": {"bid_change": 1.5}})
+    res = pipeline.run(dict(FULL), ctx=ctx, now=datetime.datetime(2026, 9, 8, 9, 20))
+    assert res.mode == "auction"
+    assert res.items[0]["accel"] == 2.5
+
+
+def test_accel_none_without_snapshot(monkeypatch):
+    """窗口内但无 9:20 快照 → accel None"""
+    rows = {"600000": _q("600000", bid_change=4.0)}
+    _install(monkeypatch, {"eastmoney_market": _FakeSource(rows, label="eastmoney_market")})
+    res = pipeline.run(dict(FULL), ctx=_ctx(snapshot_map={}),
+                       now=datetime.datetime(2026, 9, 8, 9, 20))
+    assert res.items[0]["accel"] is None
+
+
+def test_accel_none_off_window(monkeypatch):
+    """非竞价窗口 → accel None(避免收盘数据误导)"""
+    rows = {"600000": _q("600000", bid_change=4.0)}
+    _install(monkeypatch, {"snapshot": _FakeSource(rows)})
+    ctx = _ctx(snapshot_map={"600000": {"bid_change": 1.5}})
+    res = pipeline.run(dict(FULL), ctx=ctx, now=datetime.datetime(2026, 9, 8, 16, 0))
+    assert res.mode == "closed"
+    assert res.items[0]["accel"] is None
+
+
+def test_accel_negative_when_pullback(monkeypatch):
+    """9:25 涨幅低于 9:20(竞价回落) → accel 为负"""
+    rows = {"600000": _q("600000", bid_change=0.8)}
+    _install(monkeypatch, {"eastmoney_market": _FakeSource(rows, label="eastmoney_market")})
+    ctx = _ctx(snapshot_map={"600000": {"bid_change": 3.0}})
+    res = pipeline.run(dict(FULL), ctx=ctx, now=datetime.datetime(2026, 9, 8, 9, 20))
+    assert res.items[0]["accel"] == -2.2
+
+
+# ==================== 竞价/昨比口径 (2026-09-11 由老链路用例迁移) ====================
+def test_bid_ratio_uses_last_closed_day(monkeypatch):
+    """分子=当日竞价额(万元), 分母=最近已收盘交易日全天额(pair[0]), 窗口内外同口径"""
+    rows = {"600000": _q("600000", bid_amt=5.0e7)}      # 竞价 5000 万
+    _install(monkeypatch, {"snapshot": _FakeSource(rows)})
+    ctx = _ctx(yesterday_map={"600000": [20000.0, 15000.0]})   # T 日 2 亿
+    res = pipeline.run(dict(FULL), ctx=ctx, now=datetime.datetime(2026, 9, 8, 16, 0))
+    assert res.items[0]["bidRatio"] == pytest.approx(25.0)
+
+
+def test_bid_ratio_none_without_pair(monkeypatch):
+    """无日K pair 时 bidRatio 为 None, 抢筹为 0
+
+    注: yesterday_map 为空会触发 pipeline.fill_yesterday 按候选拉日K, 必须把
+    fetcher.fetch_yesterday_amounts 也打成空 —— 否则 conftest 的全局假实现
+    (恒返回 [20000.0, 15000.0]) 会把 pair 补回来, 用例假绿。
+    """
+    from app.services import fetcher
+    monkeypatch.setattr(fetcher, "fetch_yesterday_amounts", lambda codes: {})
+    rows = {"600000": _q("600000", bid_amt=5.0e7)}
+    _install(monkeypatch, {"snapshot": _FakeSource(rows)})
+    res = pipeline.run(dict(FULL), ctx=_ctx(yesterday_map={}),
+                       now=datetime.datetime(2026, 9, 8, 16, 0))
+    assert res.items[0]["bidRatio"] is None
+    assert res.items[0]["qiangchou"] == 0

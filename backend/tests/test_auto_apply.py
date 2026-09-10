@@ -4,18 +4,8 @@ import time
 
 import pytest
 
-from app.services import auto_apply, fetcher, history, scorer, auction_snapshot
+from app.services import auto_apply, history, scorer
 from app.db import database
-
-
-def _mk_raw(code="600001", chg=4.0):
-    return {
-        "f12": code, "f14": "测" + code[-3:], "f2": 18.5, "f3": chg, "f4": 3.1,
-        "f5": 150000.0, "f6": 2800.0, "f8": 5.5, "f10": 1.8, "f17": 18.9,
-        "f18": 17.9, "f20": 5.0e10, "f21": 4.0e9, "f100": "软件", "f102": "广东",
-        "f103": "AI", "f615": chg, "f616": 5.0e7, "f617": 300.0, "f618": 400.0,
-        "f630": 3,
-    }
 
 
 def test_user_auto_applied_today(client, first_user):
@@ -110,6 +100,32 @@ def _boom_lock(*a, **k):
     raise RuntimeError("boom")
 
 
+def _lock_items():
+    """锁仓链路返回的名单 item(字段齐套, 可直接落库)"""
+    return [{"code": "600001", "name": "测001", "probability": 82, "confidence": 75,
+             "bidChange": 4.0, "realChange": 4.2, "entityChange": 3.0,
+             "bidTurnover": 1.5, "warnType": 0, "circulationMV": 40.0,
+             "industry": "软件", "concept": "AI", "bidAmt": 8000.0,
+             "bidRatio": 25.0, "qiangchou": 0}]
+
+
+def _patch_lock(monkeypatch, items):
+    """把 auto_apply 的选股入口(picker.lock.run_lock)换成桩。
+
+    2026-09-11: 老链路退役后 auto_apply 只有 picker 一条路径; 原用例打桩在
+    scorer.apply_filters / score_all_stocks 上, 早已不被调用(桩形同虚设)。
+    """
+    from app.services.picker import lock as plock
+
+    def _run_lock(f, **kw):
+        lr = plock.LockResult()
+        lr.items = list(items)
+        lr.errors = []
+        return lr
+
+    monkeypatch.setattr(plock, "run_lock", _run_lock)
+
+
 def test_auto_apply_missing_cache(monkeypatch):
     """名单源无数据 → 返回 0 应用于 error(不再回退老链路)"""
     from app.services.picker import lock as plock
@@ -129,11 +145,7 @@ def test_auto_apply_score_failure(monkeypatch):
 
 def test_auto_apply_skips_inactive(client, first_user, second_user, monkeypatch):
     """跳过管理员/过期/已应用用户, 只 apply 有效候选"""
-    monkeypatch.setattr(fetcher, "ensure_cache", lambda *a, **k: ([_mk_raw()], None))
-    monkeypatch.setattr(fetcher, "fetch_yesterday_amounts", lambda *a, **k: {})
-    monkeypatch.setattr(auction_snapshot, "load_snapshot", lambda *a, **k: {})
-    # 统一过滤后保留 1 只
-    monkeypatch.setattr(scorer, "apply_filters", lambda scored, f: scored)
+    _patch_lock(monkeypatch, _lock_items())
     res = auto_apply.auto_apply_all_users()
     # second_user 是非管理员普通用户 → 应被 apply
     assert res["total"] >= 1
@@ -147,10 +159,7 @@ def test_auto_apply_skips_inactive(client, first_user, second_user, monkeypatch)
 
 def test_auto_apply_failed_user_isolated(client, first_user, monkeypatch):
     """单个用户落库失败不影响其他用户"""
-    monkeypatch.setattr(fetcher, "ensure_cache", lambda *a, **k: ([_mk_raw()], None))
-    monkeypatch.setattr(fetcher, "fetch_yesterday_amounts", lambda *a, **k: {})
-    monkeypatch.setattr(auction_snapshot, "load_snapshot", lambda *a, **k: {})
-    monkeypatch.setattr(scorer, "apply_filters", lambda scored, f: scored)
+    _patch_lock(monkeypatch, _lock_items())
 
     # 清空 auto_applied 批次, 隔离前序测试(同一 session DB)
     conn = database.get_conn()
@@ -172,10 +181,7 @@ def test_auto_apply_failed_user_isolated(client, first_user, monkeypatch):
 
 def test_max_users_limit(client, first_user, second_user, monkeypatch):
     """max_users 限制候选数"""
-    monkeypatch.setattr(fetcher, "ensure_cache", lambda *a, **k: ([_mk_raw()], None))
-    monkeypatch.setattr(fetcher, "fetch_yesterday_amounts", lambda *a, **k: {})
-    monkeypatch.setattr(auction_snapshot, "load_snapshot", lambda *a, **k: {})
-    monkeypatch.setattr(scorer, "apply_filters", lambda scored, f: scored)
+    _patch_lock(monkeypatch, _lock_items())
     res = auto_apply.auto_apply_all_users(max_users=1)
     assert res["total"] == 1
 
@@ -188,15 +194,14 @@ def test_trigger_spawns_thread(monkeypatch):
     assert t.join(timeout=10) is None  # join 返回 None 表示线程已结束(非阻塞等待)
 
 def test_auto_apply_empty_result_skips_all_without_failed(client, first_user, monkeypatch):
-    """2026-09-08: 系统统一筛选为空(行情源故障) → 空名单不落库, 且必须提前返回,
-    不能把每个候选用户都记一次 failed(否则"没票"被误报成"落库失败", 淹没真实告警)"""
-    monkeypatch.setattr(fetcher, "ensure_cache", lambda *a, **k: ([_mk_raw()], None))
-    monkeypatch.setattr(fetcher, "fetch_yesterday_amounts", lambda *a, **k: {})
-    monkeypatch.setattr(fetcher, "fetch_yesterday_changes", lambda *a, **k: {})
-    monkeypatch.setattr(auction_snapshot, "load_snapshot", lambda *a, **k: {})
-    monkeypatch.setattr(auction_snapshot, "load_day_bid_change", lambda *a, **k: {})
-    monkeypatch.setattr(scorer, "score_all_stocks", lambda *a, **k: [])
-    monkeypatch.setattr(scorer, "apply_filters", lambda scored, f: [])   # 筛选后 0 只
+    """2026-09-08 语义: 系统统一筛选为空(行情源故障/无票) → 空名单不落库, 且必须提前
+    返回, 不能把每个候选用户都记一次 failed(否则"没票"被误报成"落库失败", 淹没真实告警)。
+
+    2026-09-11: 空名单现在由 _pick_result 直接返回 error → 主流程提前返回 total=0
+    (老实现是遍历用户后各自 skipped)。核心保护不变: **不得调用 save_batch、不得计 failed**。
+    """
+    from app.services.picker import lock as plock
+    monkeypatch.setattr(plock, "run_lock", _no_list)
 
     called = {"n": 0}
     def _spy(*a, **k):
@@ -207,6 +212,5 @@ def test_auto_apply_empty_result_skips_all_without_failed(client, first_user, mo
     res = auto_apply.auto_apply_all_users()
     assert res["applied"] == 0
     assert res["failed"] == 0, "空名单不是落库失败, 不得计入 failed"
-    assert res["skipped"] == res["total"], "全部候选应计为 skipped"
-    assert res["total"] >= 1
     assert called["n"] == 0, "空名单不得调用 save_batch"
+    assert "error" in res, "空名单必须显式报错(降级可见), 而不是静默返回 0 应用"

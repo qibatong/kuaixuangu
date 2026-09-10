@@ -126,13 +126,15 @@ def test_recent_empty_batch_skipped(conn, create_user_token):
 
 def test_api_stocks_refresh_fallback_http(client, create_user_token, monkeypatch):
     """P0 端到端: 9:30 后 refresh, 当日无批次 → 直读回退批次, 响应含 reusedDate,
-    全市场评分(process_all_stocks)不被调用(不转圈重算)"""
+    全市场选股链路(picker.pipeline.run)不被调用(不转圈重算)"""
     from app.services import fetcher, scorer
+    from app.services.picker import pipeline as pl
 
     monkeypatch.setattr(scorer, "bj_now", lambda: (10, 30, False))   # 9:30 后
     calls = {"n": 0}
-    monkeypatch.setattr(scorer, "process_all_stocks",
-                        lambda *a, **k: calls.__setitem__("n", calls["n"] + 1) or [])
+    # 2026-09-11: 打桩目标从 scorer.process_all_stocks(老链路, 已退役)改为唯一链路
+    monkeypatch.setattr(pl, "run",
+                        lambda *a, **k: calls.__setitem__("n", calls["n"] + 1) or pl.PipelineResult())
     monkeypatch.setattr(fetcher, "fetch_spot_quote_map", lambda fs: {})
 
     # 3 天前同参 lock 批次(当日无任何批次)

@@ -116,9 +116,13 @@ def test_tencent_market_mapping(monkeypatch):
 # ---------- 2026-09-07 修复: 腾讯兜底缺 f17(今开) → 实体涨幅恒 0 ----------
 def test_tencent_mapping_includes_f17_entity_change(monkeypatch):
     """生产问题回归(主人反馈「竞价选股实体列全是 0%」): 东财封禁期全市场走腾讯兜底,
-    原映射缺 f17(今开) → scorer.get_entity_change(f2现价 - f17今开) 恒为 0。
-    修复后 f17 = 腾讯 f[5](今开), 实体列有真实值(低开/高开时非 0)。"""
-    from app.services import scorer
+    原映射缺 f17(今开) → 实体涨幅(f2现价 - f17今开) 恒为 0。
+    修复后 f17 = 腾讯 f[5](今开), 实体列有真实值(低开/高开时非 0)。
+
+    2026-09-11: 老链路 scorer.get_entity_change 已退役, 改测契约层实体涨幅
+    (唯一实现: QuoteRow.entity_change; 缺今开 → None, 不再冒充 0)。
+    """
+    from app.services.picker.contract import QuoteRow
     body = _make_tx_line("600519", "贵州茅台", "1297.40", "0.39", "16126", "208601", "0.13", "16218.56", "1421.53")
     fields = _parse_tx(body)["600519"]
     fields[5] = "1280.00"    # 模拟低开(今开 1280 ≠ 现价 1297.40) → 实体应为 +1.36%
@@ -130,18 +134,24 @@ def test_tencent_mapping_includes_f17_entity_change(monkeypatch):
     assert len(rows) == 1
     r = rows[0]
     assert r["f17"] == 1280.00, "腾讯兜底必须带 f17(今开)"
-    ec = scorer.get_entity_change(r)
+    row = QuoteRow.from_eastmoney(r)
+    ec = row.entity_change
     assert abs(ec - (1297.40 - 1280.00) / 1280.00 * 100) < 0.001, f"实体涨幅应≈+1.36%, 实际 {ec}"
-    # 修复前回归: 若未来映射缺 f17(取不到今开), 实体退化为 0 → 测试立即失败
-    assert scorer.get_entity_change({"f2": 1297.40}) == 0.0, "缺 f17 时实体应为 0(防误改回原状)"
+    # 修复前回归: 若未来映射缺 f17(取不到今开), 实体退化为 None → 测试立即失败
+    assert QuoteRow.from_eastmoney({"f2": 1297.40}).entity_change is None, \
+        "缺 f17 时实体应为 None(不冒充 0, 防误改回原状)"
 
 
-# ---------- 2026-09-01 修复: 腾讯兜底缺 f4/f5 → is_suspended 误判停牌 → 自动锁定/system_batch 选股为 0 ----------
+# ---------- 2026-09-01 修复: 腾讯兜底缺 f4/f5 → 停牌误判 → 自动锁定/system_batch 选股为 0 ----------
 def test_tencent_mapping_not_suspended(monkeypatch):
     """生产事故回归: 东财熔断走腾讯兜底时, 映射行必须含 f4(昨收)/f5(成交量),
-    否则 scorer.is_suspended(f4<=0 或 f5==0 判停牌) 把全部兜底数据误判停牌,
-    导致 9:25 自动锁定(system_batch/auto_apply)结果为空(2026-09-01 生产机 batch 7052 = 0 只)。"""
-    from app.services import scorer
+    否则停牌判定(f4<=0 或 f5==0)把全部兜底数据误判停牌,
+    导致 9:25 自动锁定(system_batch/auto_apply)结果为空(2026-09-01 生产机 batch 7052 = 0 只)。
+
+    2026-09-11: 老链路 scorer.is_suspended 已退役 —— 契约层语义更严: 字段缺失 →
+    **None(未知)**, 绝不默认判停牌(老实现把缺失当 0 → 全误杀, 正是本事故根因)。
+    """
+    from app.services.picker.contract import QuoteRow
     body = _make_tx_line("600519", "贵州茅台", "1297.40", "0.39", "16126", "208601", "0.13", "16218.56", "1421.53")
     fields = _parse_tx(body)["600519"]
     fetcher._TENCENT_CODES_CACHE["codes"] = ["600519"]
@@ -151,11 +161,12 @@ def test_tencent_mapping_not_suspended(monkeypatch):
     rows = fetcher.fetch_tencent_market("m:1+t:2")
     assert len(rows) == 1
     r = rows[0]
-    assert r["f4"] > 0 and r["f5"] > 0, "腾讯兜底必须带 f4/f5, 否则被误判停牌"
-    assert scorer.is_suspended(r) is False, "正常行情不得被判停牌"
-    # 修复前回归: 若未来映射缺 f4/f5(或字段被改丢), 测试立即失败
-    assert scorer.is_suspended({"f12": "600519", "f14": "茅台", "f2": 1297.40}) is True, \
-        "缺 f4/f5 时必须被判停牌(证明 is_suspended 敏感性, 防误改)"
+    assert r["f4"] > 0 and r["f5"] > 0, "腾讯兜底必须带 f4/f5, 否则停牌判定拿不到昨收/成交量"
+    assert QuoteRow.from_eastmoney(r).is_suspended is False, "正常行情不得被判停牌"
+    # 修复前回归: 映射缺 f4/f5 → 停牌"未知"(None), 而不是被判停牌后全批误杀
+    assert QuoteRow.from_eastmoney(
+        {"f12": "600519", "f14": "茅台", "f2": 1297.40}).is_suspended is None, \
+        "缺 f4/f5 时必须为'未知'(None), 绝不默认判停牌(防 2026-09-01 事故复发)"
 
 
 # ---------- 容灾: 东财失败即失败(2026-09-10 去兜底) ----------

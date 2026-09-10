@@ -156,9 +156,31 @@ def test_auction_overview_ttl_is_60(monkeypatch):
 
 # ---------- ⑤ /api/stocks 无批次用户的全量重算 ----------
 
+def _patch_pipeline(monkeypatch, calls):
+    """把**唯一**选股链路 picker.pipeline.run 换成计数桩。
+
+    2026-09-11 老链路退役: 原桩打在 scorer.process_all_stocks 上, 而 refresh 早已
+    走 picker.pipeline → 桩永远不被调用, 计数恒 0(本文件两条用例因此长期"假红")。
+    """
+    from app.services.picker import pipeline as pl
+
+    def _run(f, **kw):
+        calls["n"] += 1
+        pr = pl.PipelineResult()
+        pr.items = [{"code": "600000", "name": "浦发银行", "probability": 80,
+                     "confidence": 70, "bidChange": 3.0, "realChange": 3.1,
+                     "entityChange": 2.0, "bidTurnover": 1.2, "warnType": 0,
+                     "circulationMV": 55.0, "industry": "-", "concept": "-",
+                     "bidAmt": 5000.0, "bidRatio": 50.0, "qiangchou": 0}]
+        pr.n_universe = 1
+        return pr
+
+    monkeypatch.setattr(pl, "run", _run)
+
+
 def test_stocks_refresh_calc_cache(client, first_user, monkeypatch):
     """P0: 无当日批次用户的 refresh 全量重算结果缓存(原每次 2.6s)
-    有批次的用户走 115 行直读分支; 新号/当日系统批次为空才落到这条慢路径"""
+    有批次的用户走直读分支; 新号/当日系统批次为空才落到这条慢路径"""
     from app.services import fetcher, scorer
 
     # 9:30 后(bj_now 返回 hour, minute, before930)
@@ -170,12 +192,7 @@ def test_stocks_refresh_calc_cache(client, first_user, monkeypatch):
     monkeypatch.setattr(fetcher, "fetch_spot_quote_map", lambda fs: {})
 
     calls = {"n": 0}
-
-    def counting_process(*a, **k):
-        calls["n"] += 1
-        return [{"code": "600000", "name": "浦发银行", "probability": 0.9}]
-
-    monkeypatch.setattr(scorer, "process_all_stocks", counting_process)
+    _patch_pipeline(monkeypatch, calls)
 
     h = {"Authorization": "Bearer " + first_user[0]}
     url = "/api/stocks?action=refresh&strategy=auction&markets=hs"
@@ -199,12 +216,7 @@ def test_stocks_refresh_cache_key_varies_by_params(client, first_user, monkeypat
     monkeypatch.setattr(fetcher, "fetch_spot_quote_map", lambda fs: {})
 
     calls = {"n": 0}
-
-    def counting_process(*a, **k):
-        calls["n"] += 1
-        return [{"code": "600000", "name": "浦发银行"}]
-
-    monkeypatch.setattr(scorer, "process_all_stocks", counting_process)
+    _patch_pipeline(monkeypatch, calls)
 
     h = {"Authorization": "Bearer " + first_user[0]}
     # 注意: probLt 会被 scorer._clamp 夹到 5-95, 越界值(如 1/2)会被夹成同一个数

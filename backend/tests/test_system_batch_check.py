@@ -91,22 +91,33 @@ def test_system_filter_merges_admin_defaults(monkeypatch):
     assert f["priceGt"] == 300.0
 
 
-def test_system_filter_filters_out_st_suspend(monkeypatch):
-    """stSuspend=False 时 ST/停牌应被过滤(修复前康佳这类 *ST 混入批次)"""
-    from app.services import scorer
+def test_system_filter_filters_out_st_suspend():
+    """stSuspend=False 时 ST/停牌应被过滤(修复前康佳这类 *ST 混入批次)
+
+    2026-09-11: 老链路 scorer.apply_filters 已退役, 改测 picker/filter.apply_filters
+    (唯一过滤实现); 过滤参数仍由 system_batch 的系统默认条件经 validate_filters 产生,
+    保证"系统批次的默认条件真的能剔 ST"这条接线断言不丢。
+    """
+    from app.services import scorer, system_batch
+    from app.services.picker.contract import QuoteRow
+    from app.services.picker.filter import FilterContext
+    from app.services.picker.filter import apply_filters as pfilter
+    from app.services.picker.score import ScoredRow, compute_score
+
     f_raw = system_batch._system_filter()
-    f = scorer.validate_filters({
-        k: [str(v)]
-        for k, v in f_raw.items() if k != "markets"})
-    items = [
-        {"name": "*ST康佳A", "bidChange": 0.0, "probability": 80, "confidence": 80,
-         "circulationMV": 50, "price": 5, "bidAmt": 5000, "_raw": {}},
-        {"name": "沃特股份", "bidChange": 4.58, "probability": 80, "confidence": 80,
-         "circulationMV": 50, "price": 20, "bidAmt": 8000, "_raw": {}},
-    ]
-    from app.services.scorer import is_st
-    monkeypatch.setattr(scorer, "is_suspended", lambda raw: False)
-    ok = scorer.apply_filters(items, f)
-    names = [x["name"] for x in ok]
+    q = {k: [str(v)] for k, v in f_raw.items() if k != "markets"}
+    q["markets"] = [",".join(f_raw["markets"])]
+    f = scorer.validate_filters(q)
+
+    def _mk(code, name):
+        r = QuoteRow(code=code, name=name, bid_change=4.58, bid_vol=4.8e6, warn_type=2,
+                     float_mv=50e8, yesterday_change=2.0, price=20.0, bid_amt=8.0e7,
+                     prev_close=19.0, vol=4.8e6)
+        return ScoredRow(row=r, score=compute_score(r, scorer.get_scoring_cfg()))
+
+    rows = [_mk("600001", "*ST康佳A"), _mk("600002", "沃特股份")]
+    out = pfilter(rows, f, FilterContext())
+    names = [it.row.name for it in out.kept]
     assert "*ST康佳A" not in names, "ST 股不应进入 system batch"
     assert "沃特股份" in names
+    assert out.stats.get("st") == 1

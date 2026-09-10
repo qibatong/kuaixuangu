@@ -128,23 +128,11 @@ def test_yday_fallback_tencent_used_when_eastmoney_down(monkeypatch):
             fetcher._HEALTH[k]["fails_in_row"] = 0
 
 
-# ---------------- ① 同花顺: parts[7] 是换手率, 必须自算 ----------------
-def test_ths_close_derived_change_not_turnover():
-    """真实同花顺行: 日期,开,高,低,收,量,额,**换手率** → 涨跌幅必须自算(收盘价环比)
-
-    实测 600127 2026-09-08: 收 14.66 / 昨收 13.53 → 真涨幅 8.35%;
-    parts[7]=30.118 是换手率 —— 沿用东财列序会把 30.118 喂进 yesterday 因子,
-    落进 "9.5~99 → 0.65" 档, 与真实 8.35%(3~9.5 → 0.9 档)不符。
-    """
-    rows = [
-        "%s,10.00,10.10,9.90,10.00,1000,10000000.0,1.5,," % _d(-3),
-        "%s,10.10,11.20,10.05,11.00,1200,12000000.0,2.1,," % _d(-2),
-        "%s,11.00,11.60,10.90,11.50,900,9000000.0,30.118,," % _d(-1),
-    ]
-    pair, chg = fetcher._kline_amount_pair(rows, close_idx=4, chg_idx=None)
-    assert pair is not None and abs(pair[0] - 900.0) < 1          # 900 万 → 万元
-    assert abs(chg - 4.55) < 0.01, "应自算 (11.5-11.0)/11.0=4.55%%, 实际 %s" % chg
-    assert abs(chg - 30.118) > 1, "不得把换手率当涨跌幅"
+# ---------------- ① 东财: 官方涨跌幅列优先 ----------------
+# (2026-09-11 删除 test_ths_close_derived_change_not_turnover:
+#  该用例锁的是 _kline_amount_pair(close_idx=4) 的**同花顺列序**(parts[7]=换手率)。
+#  同花顺昨比源随「去兜底」摘链, 唯一使用方 _fetch_yesterday_amount_ths 全仓 0 引用
+#  → 该参数组合在生产中已无调用者, 属「已删兜底代码对应的用例」。)
 
 
 def test_eastmoney_uses_official_change_column():

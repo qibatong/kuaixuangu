@@ -139,45 +139,6 @@ def test_run_lock_passes_normalized_markets_to_pipeline(monkeypatch):
     assert seen["filters"]["markets"] == ["hs"]
 
 
-# ---------------------------------------------------------------- 开关与对拍
-@pytest.mark.parametrize("v,expect", [
-    ("1", True), ("true", True), ("True", True), ("yes", True), ("on", True),
-    ("0", False), ("", False), (None, False), ("2", False), ("false", False),
-])
-def test_enabled(v, expect):
-    assert plock.enabled(v) is expect
-
-
-def test_compare_with_legacy_identical():
-    items = [{"code": "600000", "probability": 80, "confidence": 70}]
-    out = plock.compare_with_legacy(items, items)
-    assert out["identical"] is True
-
-
-def test_compare_with_legacy_detects_diff():
-    legacy = [{"code": "600000", "probability": 80, "confidence": 70},
-              {"code": "600001", "probability": 70, "confidence": 70}]
-    new = [{"code": "600000", "probability": 80, "confidence": 70},
-           {"code": "600002", "probability": 90, "confidence": 70}]
-    out = plock.compare_with_legacy(new, legacy)
-    assert out["identical"] is False
-    assert out["legacy_only"] == ["600001"]
-    assert out["new_only"] == ["600002"]
-
-
-def test_compare_failure_never_raises(monkeypatch):
-    """对拍本身出错不影响落库"""
-    from app.services.picker import parity
-
-    def _boom(*a, **k):
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(parity, "diff_items", _boom)
-    out = plock.compare_with_legacy([], [])
-    assert out["identical"] is None
-    assert "error" in out
-
-
 # ---------------------------------------------------------------- 落库字段
 def test_items_have_save_batch_fields(monkeypatch):
     """锁仓结果必须能被 history.save_batch 直接落库(缺字段会整批失败)"""
@@ -201,37 +162,31 @@ def test_items_have_save_batch_fields(monkeypatch):
         assert k in r.items[0], "落库字段缺失: %s" % k
 
 
-# ---------------------------------------------------------------- 接入: 两条锁仓链路
-def test_system_batch_switches_by_setting(monkeypatch):
-    """settings picker_lock 开关决定 system_batch 走新链路还是老链路(默认老)"""
+# ---------------------------------------------------------------- 接入: 锁仓链路
+def test_system_batch_always_uses_picker(monkeypatch):
+    """2026-09-11 老链路退役: system_batch 恒定走 picker, 无 picker_lock 开关"""
     from app.services import system_batch as sb
 
-    called = {"new": 0, "legacy": 0}
-    monkeypatch.setattr(sb, "_run_new", lambda f, tp: (called.__setitem__("new", 1), [{"code": "600000"}])[1])
-    monkeypatch.setattr(sb, "_run_legacy", lambda f, tp: (called.__setitem__("legacy", 1), [{"code": "600001"}])[1])
-
-    monkeypatch.setattr(sb, "_picker_lock_on", lambda: False)
+    called = {"new": 0}
+    monkeypatch.setattr(sb, "_run_picker",
+                        lambda f, tp: (called.__setitem__("new", 1), [{"code": "600000"}])[1])
     monkeypatch.setattr(sb, "_has_today_system_batch", lambda d, t: False)
     monkeypatch.setattr(sb.history, "save_batch",
                         lambda **kw: 1 if kw.get("result") else None)
     monkeypatch.setattr(sb.kpl, "apply_board_concept", lambda r, tag: 0)
 
     sb._do_run("9_25")
-    assert called["legacy"] == 1 and called["new"] == 0
-
-    called["legacy"] = called["new"] = 0
-    monkeypatch.setattr(sb, "_picker_lock_on", lambda: True)
-    sb._do_run("9_25")
-    assert called["new"] == 1 and called["legacy"] == 0
+    assert called["new"] == 1
+    assert not hasattr(sb, "_run_legacy"), "老链路实现必须已删除"
+    assert not hasattr(sb, "_picker_lock_on"), "回滚开关必须已删除"
 
 
 def test_system_batch_empty_result_not_saved(monkeypatch):
-    """空名单不落库(故障期不产生空批次) — 新老链路都一样"""
+    """空名单不落库(故障期不产生空批次)"""
     from app.services import system_batch as sb
     saved = []
     monkeypatch.setattr(sb, "_has_today_system_batch", lambda d, t: False)
-    monkeypatch.setattr(sb, "_picker_lock_on", lambda: True)
-    monkeypatch.setattr(sb, "_run_new", lambda f, tp: [])
+    monkeypatch.setattr(sb, "_run_picker", lambda f, tp: [])
     monkeypatch.setattr(sb.kpl, "apply_board_concept", lambda r, tag: 0)
     monkeypatch.setattr(sb.history, "save_batch",
                         lambda **kw: saved.append(kw) or 1)

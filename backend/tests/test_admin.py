@@ -12,6 +12,18 @@ VALID = {"w_bid": 0.30, "w_activity": 0.35, "w_warn": 0.15, "w_market": 0.12, "w
          "conf_warn_high": 10, "conf_turnover": 8, "conf_bid": 7}
 
 
+def _prob(raw):
+    """用**当前生效的**评分配置给一行东财行情打分(走唯一评分实现 picker/score.py)。
+
+    2026-09-11 老链路退役前此处直调 scorer.compute_score; 现改走契约层 → 评分层,
+    与线上同一条代码路径, 保证"管理员改配置 → 概率变化"这条断言测的是真实实现。
+    """
+    from app.services.picker.contract import QuoteRow
+    from app.services.picker.score import compute_score
+    row = QuoteRow.from_eastmoney(raw, auction_window=True)
+    return compute_score(row, scorer.get_scoring_cfg()).probability
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _admin_setup(first_user):
     """显式把 first_user 设为管理员并标记 admin_initialized(测试库确定性,
@@ -161,43 +173,48 @@ def test_get_scoring_returns_factors(client, first_user):
 
 
 def test_factor_buckets_default_consistency():
-    """默认分档打分与原硬编码逻辑一致(边界值抽样)"""
+    """默认分档打分表(边界值抽样)
+
+    2026-09-11: 打分函数唯一实现是 picker/score_factors.factor_score(老链路
+    scorer.get_factor_score 已退役), 断言值随实现迁移, 语义与边界完全不变。
+    """
+    from app.services.picker.score_factors import factor_score as fs
     cfg = scorer.get_scoring_cfg()
     # 竞价涨幅: 3~5.5=1.0, >5.5或2~3=0.88, 1.5~2=0.65, 0.001~1.5=0.4,
     #           负/平开(<0.001)=0.05(2026-09-09 低分桶), 数据缺失=default 0.1
-    assert scorer.get_factor_score(cfg, "bid", 3.0) == 1.0
-    assert scorer.get_factor_score(cfg, "bid", 5.49) == 1.0
-    assert scorer.get_factor_score(cfg, "bid", 5.5) == 0.88
-    assert scorer.get_factor_score(cfg, "bid", 2.5) == 0.88
-    assert scorer.get_factor_score(cfg, "bid", 1.8) == 0.65
-    assert scorer.get_factor_score(cfg, "bid", 0.5) == 0.4
-    assert scorer.get_factor_score(cfg, "bid", 0) == 0.05          # 平开落负桶
-    assert scorer.get_factor_score(cfg, "bid", -8.01) == 0.05      # 大跌惩罚分
+    assert fs(cfg, "bid", 3.0) == 1.0
+    assert fs(cfg, "bid", 5.49) == 1.0
+    assert fs(cfg, "bid", 5.5) == 0.88
+    assert fs(cfg, "bid", 2.5) == 0.88
+    assert fs(cfg, "bid", 1.8) == 0.65
+    assert fs(cfg, "bid", 0.5) == 0.4
+    assert fs(cfg, "bid", 0) == 0.05          # 平开落负桶
+    assert fs(cfg, "bid", -8.01) == 0.05      # 大跌惩罚分
     # 换手率: >=0.8=1.0, 0.4~0.8=0.88, 0.2~0.4=0.72, 0.08~0.2=0.5, 0~0.08=0.3
-    assert scorer.get_factor_score(cfg, "activity", 0.8) == 1.0
-    assert scorer.get_factor_score(cfg, "activity", 0.5) == 0.88
-    assert scorer.get_factor_score(cfg, "activity", 0.3) == 0.72
-    assert scorer.get_factor_score(cfg, "activity", 0.1) == 0.5
-    assert scorer.get_factor_score(cfg, "activity", 0.05) == 0.3
+    assert fs(cfg, "activity", 0.8) == 1.0
+    assert fs(cfg, "activity", 0.5) == 0.88
+    assert fs(cfg, "activity", 0.3) == 0.72
+    assert fs(cfg, "activity", 0.1) == 0.5
+    assert fs(cfg, "activity", 0.05) == 0.3
     # 异动: 5=1.0, 4=0.85, 3=0.6, 其余=0.18
-    assert scorer.get_factor_score(cfg, "warn", 5) == 1.0
-    assert scorer.get_factor_score(cfg, "warn", 4) == 0.85
-    assert scorer.get_factor_score(cfg, "warn", 3) == 0.6
-    assert scorer.get_factor_score(cfg, "warn", 2) == 0.18
+    assert fs(cfg, "warn", 5) == 1.0
+    assert fs(cfg, "warn", 4) == 0.85
+    assert fs(cfg, "warn", 3) == 0.6
+    assert fs(cfg, "warn", 2) == 0.18
     # 市值: <30=1.0, 30~60=0.88, 60~120=0.68, 120~250=0.45, >=250=0.22
-    assert scorer.get_factor_score(cfg, "market", 29.9) == 1.0
-    assert scorer.get_factor_score(cfg, "market", 30) == 0.88
-    assert scorer.get_factor_score(cfg, "market", 100) == 0.68
-    assert scorer.get_factor_score(cfg, "market", 200) == 0.45
-    assert scorer.get_factor_score(cfg, "market", 250) == 0.22
+    assert fs(cfg, "market", 29.9) == 1.0
+    assert fs(cfg, "market", 30) == 0.88
+    assert fs(cfg, "market", 100) == 0.68
+    assert fs(cfg, "market", 200) == 0.45
+    assert fs(cfg, "market", 250) == 0.22
     # 昨日涨幅: 3~9.5=0.9, 1~3=0.65, 0~1=0.4, -3~0=0.25, 其余=0.15
-    assert scorer.get_factor_score(cfg, "yesterday", 3) == 0.9
-    assert scorer.get_factor_score(cfg, "yesterday", 9.49) == 0.9
-    assert scorer.get_factor_score(cfg, "yesterday", 9.5) == 0.65
-    assert scorer.get_factor_score(cfg, "yesterday", 2) == 0.65
-    assert scorer.get_factor_score(cfg, "yesterday", 0.5) == 0.4
-    assert scorer.get_factor_score(cfg, "yesterday", -1) == 0.25
-    assert scorer.get_factor_score(cfg, "yesterday", -5) == 0.15
+    assert fs(cfg, "yesterday", 3) == 0.9
+    assert fs(cfg, "yesterday", 9.49) == 0.9
+    assert fs(cfg, "yesterday", 9.5) == 0.65
+    assert fs(cfg, "yesterday", 2) == 0.65
+    assert fs(cfg, "yesterday", 0.5) == 0.4
+    assert fs(cfg, "yesterday", -1) == 0.25
+    assert fs(cfg, "yesterday", -5) == 0.15
 
 
 def test_put_custom_factor_bucket_affects_score(client, first_user):
@@ -220,10 +237,10 @@ def test_put_custom_factor_bucket_affects_score(client, first_user):
            "f100": "软件服务", "f102": "广东", "f103": "AI概念",
            "f615": 3.50, "f616": 5.0e7, "f617": 300.0, "f618": 400.0, "f630": 3}
     raw["f615"] = 1.0   # 竞价涨幅 1%(默认档 0.4, 自定义全区间 1.0)
-    p_new = scorer.compute_score(raw)["probability"]
+    p_new = _prob(raw)
     settings.set("scoring", DEFAULT)
     scorer.reload_scoring_cfg()
-    p_default = scorer.compute_score(raw)["probability"]
+    p_default = _prob(raw)
     assert p_new > p_default
 
 
@@ -262,8 +279,8 @@ def test_scoring_cfg_affects_compute(client, first_user):
     small.update({"f12": "300001", "f14": "小盘股", "f20": 2.0e10, "f21": 3.0e9})
     r = client.put("/api/admin/scoring", json={"scoring": VALID}, headers=hdrs(token))
     assert r.status_code == 200
-    p_big_default = scorer.compute_score(big)["probability"]
-    p_small_default = scorer.compute_score(small)["probability"]
+    p_big_default = _prob(big)
+    p_small_default = _prob(small)
     assert p_small_default > p_big_default   # 默认: 小市值分更高
 
     # 把市值权重调高到 0.5(其他按比例缩到 0.5 合计), 差距应拉大
@@ -271,8 +288,8 @@ def test_scoring_cfg_affects_compute(client, first_user):
                "conf_warn_high": 10, "conf_turnover": 8, "conf_bid": 7}
     r = client.put("/api/admin/scoring", json={"scoring": high_mv}, headers=hdrs(token))
     assert r.status_code == 200
-    p_big_high = scorer.compute_score(big)["probability"]
-    p_small_high = scorer.compute_score(small)["probability"]
+    p_big_high = _prob(big)
+    p_small_high = _prob(small)
     assert (p_small_high - p_big_high) > (p_small_default - p_big_default) * 0.9
 
 

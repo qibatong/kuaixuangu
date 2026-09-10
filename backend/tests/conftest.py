@@ -183,7 +183,7 @@ def mock_rate_limits(monkeypatch_session):
 @pytest.fixture(scope="session", autouse=True)
 def mock_bj_auction_window(monkeypatch_session):
     """固定北京 9:25(竞价窗口内)时间语义(2026-09-07 db91b5a/4b44500 起需要):
-    score_all_stocks 的竞额定格判定 = in_auction_window() AND _bj_hm()<9:30, 依赖
+    选股链路的竞额定格判定 = in_auction_window() AND _bj_hm()<9:30, 依赖
     真实时刻的用例会随运行时间漂移(白天竞价窗口内才过 / 晚上跑全挂——MOCK_RAW 的
     f616 语义只在窗口内生效, 窗口外 bid_amt 只认 9:25 定格快照 day_bid_amt, 测试
     不传则=0 → 竞价额门槛把全部候选滤掉 → 返回空名单)。
