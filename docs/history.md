@@ -169,3 +169,12 @@
   - **504 止血**（`0747561`，生产实况 08:57 `/api/kpl/bid-qiangcang?date=历史日` 单次 183~198s → nginx 60s 超时 504，两个 worker 被占满连累 `/api/stocks` 一起 504）：① `apply_board_concept` 新增 `time_budget=3.0`，逐股外网查询总耗时超预算即停（未查到的保留原值，下轮 1h 共享池命中自动补齐），传 0 = 不限留给离线回补；② 触发条件 `date or 竞价时段` 收紧为**仅竞价时段**——概念是静态属性，不随回看日期变化，盘后回看历史日不该付逐股查询代价。**实测 198s → 0.42s**
   - **评分门槛 scoreFloor = 80**（`9d290e4`，主人拍板全站默认、可配）：与既有 `probLt/confLt` **双低**剔除（高信心能救低概率）不同，`scoreFloor` 是**单阈值硬门槛**，不看信心，评分不够就是不够；只能放精筛（粗筛在评分前跑，拿不到 probability）。后端 scorer/filter/lock/admin 四处 + 前端 filters.js/FilterPanel/AdminView 同口径。**Felix518 原条件 14 只 → 6 只（评分 81~88，全部 ≥80）**
   - **自动化测试**：新增 test_score_floor 6 例、test_concept_budget 2 例；修 test_ip_rotator 导入失效（轮换下沉后遗留，曾阻断全量收集）
+  - **全站无法登录 38 分钟 · 雪崩根因修复**（`30f224a` + `246f85b`，P0+P1）
+    - **现象**：09:30 竞价结束集中刷新后，`/api/login` 排队 **2,321,182ms（38.7 分钟）**，连 `/api/prefs`、`/api/kpl/bid-seal` 同款；`database is locked` 1120 次。服务进程好好的、load 只有 0.20 —— 是**登录被慢请求挤在线程池里排队**，不是宕机
+    - **根因 1 · 熔断形同虚设（横跳）**：全市场分页 30 页并发，每页各自 `_record()`。失败页刚设上 `down_since`，同批成功页紧接着清零 → 日志里「数据源故障…冷却60秒」与「恢复（故障**0秒**）」成对出现 66/65 次；下次 `_check_circuit()` 永远返回 False，于是完整重试 30 页 × 单页 15s 超时
+    - **根因 2 · 分页无失败率判定**：整体超时 40s，故障态 30 页 8 并发最坏 ~56s；超时后剩余 future 不取消，线程滞留继续打外网。2 worker × 40 槽 = 80 个槽被占满 → 任何同步 def 路由（含登录）只能排队
+    - **P0 修复**：① 新增 `_circuit_open()` 熔断"生效期"概念——冷却期内到达的成功只更新统计，**不解除熔断、不重置退避**，必须冷却结束后的半开探测成功才恢复；② 分页**整批只记一次**采样（原 30 个采样点各自判定，`down_threshold=1` 的源会被任一页抖动误熔断）；③ 快速失败：连续 5 页失败且无一成功 / 已完成 ≥8 页且失败过半 / 整体超时 12s（原 40s），触发即 `cancel` 剩余排队页并抛异常交给腾讯兜底。阈值依据：生产实测正常态 30 页并发 **0.4s（30/30 成功）**，12s 有 30x 余量
+    - **P1 修复**：`api_login` / `api_verify_email` / `api_resend_verify` 改 `async def` + `await asyncio.to_thread(...)`，落到 event loop 默认 executor，**与 anyio 池物理隔离**（⚠️ 不能用 `run_in_threadpool`，那个正是会被占满的 anyio 池）；`/api/health` 探活同样改 async（同步时被堵会 504，让监控误判"服务挂了"）；anyio 线程池 40 → **120 槽**/worker
+    - **踩坑（已写进代码注释）**：扩容必须在 **async 上下文**调用（模块导入期调 `current_default_thread_limiter()` 会抛 `Not currently running on any asynchronous event loop`，被 try 吞掉后静默不生效）；startup handler 按注册顺序执行，必须排在 `on_startup` 之后，否则 `setup_logging()` 还没跑、日志打不出来无从确认
+    - **验证**：生产 venv 实测把 anyio 池 40/40 槽占满（`available_tokens=0`）后 `asyncio.to_thread` 仍 **0.001s** 返回；生产日志两 worker 均「anyio 线程池扩容: 40 → 120 槽/worker」；`/api/stocks` 26~36s → **0.033s**，历史回看 0.299s，登录 0.062s
+    - **自动化测试**：新增 test_circuit_fastfail 8 例；`git stash` 回退改动后 4 条核心用例立刻变红（证明非空断言）
