@@ -349,3 +349,31 @@
       **Traceback / ImportError / ERROR 计数 = 0**。
     - 回滚点不变（tag `v4.11.2` → `36ce505`），本补丁亦在该 tag 覆盖范围内。
 
+- **v4.11.5 (09-11) 清理已删模块的注释残留（现行描述型）**
+  - **背景**：v4.11 起「量脉」模块已整体删除、并已从 worker 启动日志摘除（v4.11.4），
+    但仍有 **5 处"现行描述型"注释**在点名量脉 —— 运维/新人按注释理解现行源链会被误导。
+    （带"已废弃/已删除/已下线"字样的**历史说明**按惯例保留，不计入。）
+  - **改动（纯注释，零行为影响）**：
+    | 位置 | 改前 | 改后 |
+    |---|---|---|
+    | `fetcher.py:231` | 抖动保护源清单 `(ths/tencent/量脉)` | `(ths/tencent)` |
+    | `fetcher.py:337` | `东财/腾讯/量脉任一行都能判断昨日是否涨停` | `东财/腾讯任一行…` |
+    | `picker/filter.py:12` `:55` | `腾讯/量脉行无 f103` | `腾讯行无 f103` |
+    | `scorer.py:205` | `任何数据源(东财/腾讯/量脉)都生效` | `(东财/腾讯)` |
+  - **✅ 一处事实纠正（重要）**：此前把 ths 与量脉并称"均已摘链"**不准确**。核实后：
+    同花顺 **K 线兜底 `_fetch_kline_from_ths` 仍在生产被调用**（`fetcher.py:2601`），
+    且 `_HEALTH["ths_kline"]` 条目（`down_threshold=2`）仍在 —— **只有"昨比源"那一路**
+    随「去兜底」摘链（其唯一使用方 `_fetch_yesterday_amount_ths` 全仓 0 引用，成死函数）。
+    → 故 `fetcher.py:231` **保留 ths**，只删确实已整体删除的量脉。
+  - **双机部署**：测试机 `02:17:23` / 生产机 `02:17:33` —— 备份 `comments_bak_<ts>.tar.gz`
+    （48K，3 文件）→ 上传 3 文件 → **MD5 3/3 一致** → 预检 `PRECHECK-OK` → 重启双服务。
+    - 预检脚本额外做了**双向断言**：旧文案必须不存在 + `_fetch_kline_from_ths` 必须仍在
+      （防止"顺手删过头"把在线的 ths K 线兜底一起清掉）。
+    - 验证：`active / active`；`/api/stocks?action=filter` **200 / 4 只 / 0.56~0.62s**，
+      **两机名单完全一致**；`/api/health overall=ok serviceable=true`；
+      **Traceback / ImportError / ERROR 计数 = 0**。
+    - 受影响用例 `test_circuit_breaker` / `test_health` / `test_tencent_fallback` /
+      `test_picker_filter` → **64 passed**。
+  - **遗留（已知、未动）**：`_fetch_yesterday_amount_ths`（死函数）+ `_HEALTH["ths_kline"]`
+    条目仍保留 —— 后者被 `test_health.py` 断言依赖，删除属独立重构范围，未纳入本次注释清理。
+
