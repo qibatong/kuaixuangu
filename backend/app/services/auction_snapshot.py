@@ -168,6 +168,80 @@ def _zero_chg_rate(date, time_point):
         return 0.0
 
 
+# ---- 竞价额: 单位防御 + 缺失质量门(2026-09-10) ----
+# 实测(生产全库统计): 9_25 定格竞价额 P99=4452万、max=5.19亿 → 单票竞价额超过
+# 10亿 即可判定**单位错误**(元当万元存储, 差 1e4 倍)。历史脏数据如
+# 9/9 9_20 中位 5,775,000"万元"(实为 577 万元)、9/9 9_24 max 341,698,188。
+BID_AMT_MAX_WAN = 100000.0      # 单票竞价额合理上限(万元) = 10 亿
+BID_AMT_COVER_MIN = 0.30        # 竞价额覆盖率下限: 低于此值判定"竞价额缺失"
+
+
+def _fix_bid_amt_unit(raw_all):
+    """单位防御(就地修正): bid_amt 超合理上限 → 按元→万元换算; 换算后仍离谱 → 置 0
+
+    返回 (换算只数, 置0只数)。宁可置 0 也不能让放大 1e4 倍的值落库 ——
+    竞价额参与评分与加速度计算, 一个脏值会带歪整批名单。
+    """
+    n_fix = n_zero = 0
+    for _code, v in raw_all.items():
+        amt = v.get("bid_amt") or 0
+        if amt <= BID_AMT_MAX_WAN:
+            continue
+        fixed = amt / 1e4
+        if 0 < fixed <= BID_AMT_MAX_WAN:
+            v["bid_amt"] = fixed
+            n_fix += 1
+        else:                       # 换算后仍离谱(如历史 4.9e15)= 不是单纯单位错, 弃用
+            v["bid_amt"] = 0.0
+            n_zero += 1
+    if n_fix or n_zero:
+        log.warning("[快照采集] 竞价额单位异常已修正: 换算%d只 置0%d只(阈值>%.0f万)",
+                    n_fix, n_zero, BID_AMT_MAX_WAN)
+    return n_fix, n_zero
+
+
+def _guard_bid_amt_missing(date, time_point, raw_all):
+    """竞价额缺失质量门: 行情源通(有涨幅)却几乎没竞价额 → 保留库内已有正值, 不让 0 冲掉
+
+    判定: 总量>=1000 只 且 竞价额覆盖率<30% 且 涨幅覆盖率>50%
+    典型场景(生产 9/4、9/7、9/9、9/10 实测): 9_20/9_24 时点东财被限流 → 回退腾讯
+    兜底, 而腾讯无真实竞价额(竞价窗口内字段被清零) → 5500 只里只有 0~130 只有额。
+    若不设防, INSERT OR REPLACE 会把窗口内上一轮重采集到的好数据直接冲成 0。
+    """
+    n = len(raw_all)
+    if n < 1000:
+        return 0
+    n_amt = sum(1 for v in raw_all.values() if (v.get("bid_amt") or 0) > 0)
+    n_chg = sum(1 for v in raw_all.values() if (v.get("bid_change") or 0) != 0)
+    if n_amt / n >= BID_AMT_COVER_MIN or n_chg / n <= 0.5:
+        return 0
+    prev = {}
+    conn = None
+    try:
+        conn = database.get_conn()
+        prev = {r[0]: r[1] for r in conn.execute(
+            "SELECT code, bid_amt FROM snapshot_bid WHERE date=? AND time_point=? AND bid_amt>0",
+            (date, time_point)).fetchall()}
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("[快照采集] 竞价额质量门读历史失败(跳过保留) err=%s", e)
+        return 0
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:                                 # noqa: BLE001
+                pass
+    restored = 0
+    for code, v in raw_all.items():
+        if (v.get("bid_amt") or 0) <= 0 and (prev.get(code) or 0) > 0:
+            v["bid_amt"] = prev[code]
+            restored += 1
+    log.warning("[快照采集] 竞价额疑似缺失 date=%s tp=%s: 有额%d/%d(%.1f%%) 有涨幅%d/%d "
+                "→ 判定源降级, 保留库内已有正值%d只",
+                date, time_point, n_amt, n, 100.0 * n_amt / n, n_chg, n, restored)
+    return n_amt
+
+
 def snapshot_at(time_point, force=False):
     """抓取并归档某时点全市场快照, 返回入库数量; 失败返回 0
     时点快照用全市场分页(fetch_eastmoney_all ~5500只), 非单页600只
@@ -258,6 +332,10 @@ def snapshot_at(time_point, force=False):
                      time_point, kpl_cnt)
     except Exception as e:
         log.warning("[快照采集] time=%s 开盘啦封单叠加失败 err=%s", time_point, e, exc_info=True)
+    # 落库前体检: ①单位防御(元当万元) ②竞价额缺失质量门(不让 0 冲掉已有正值)
+    _fix_bid_amt_unit(raw_all)
+    _guard_bid_amt_missing(date, time_point, raw_all)
+    conn = None
     try:
         conn = database.get_conn()
         conn.executemany(
@@ -267,10 +345,16 @@ def snapshot_at(time_point, force=False):
               v.get("bid_buy_amt", 0), v.get("float_mv", 0), v.get("free_mv", 0), v.get("board", ""), int(time.time()))
              for code, v in raw_all.items()])
         conn.commit()
-        conn.close()
     except Exception as e:
         log.error("[快照采集] 落库失败 time=%s err=%s", time_point, e, exc_info=True)
         return 0
+    finally:
+        # 落库失败也必须关连接: 否则写锁残留 → 后续 "database is locked" 雪崩
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:                                 # noqa: BLE001
+                pass
     log.info("[快照采集] 完成 date=%s time=%s 数量%d 耗时%.0fms (封单覆盖%d只)",
              date, time_point, len(raw_all), (time.time() - t0) * 1000, n_seal)
     # 数据质量自检(2026-08-16): 采集后立即校验"封单是否只出现在涨停时点"等规则,
@@ -297,19 +381,23 @@ def check_seal_quality(date, time_point, force=False):
     try:
         conn = database.get_conn()
         rows = conn.execute(
-            "SELECT code, bid_change, bid_buy_amt, float_mv FROM snapshot_bid "
+            "SELECT code, bid_change, bid_buy_amt, float_mv, bid_amt FROM snapshot_bid "
             "WHERE date=? AND time_point=?", (date, time_point)).fetchall()
         conn.close()
     except Exception:
         return None
     if not rows:
         return None
+    # 竞价额覆盖率(2026-09-10): 行情源降级(东财限流→腾讯兜底)时竞价额大面积缺失,
+    # 表现是"涨幅正常但竞价额几乎全 0" → 加速度不可算, 必须告警(不等用户发现)
+    n_amt = sum(1 for r in rows if (r[4] or 0) > 0)
+    amt_cover = (n_amt / len(rows)) if rows else 0.0
     n_nonzt_seal = 0
     nonzt_samples = []
     n_zt_no_seal = 0
     abnormal_ratio = []
     n_zt = 0
-    for code, bc, buy, mv in rows:
+    for code, bc, buy, mv, amt in rows:
         if bc is None:
             continue
         if code[:2] in ("30", "68"):
@@ -337,13 +425,17 @@ def check_seal_quality(date, time_point, force=False):
         problems.append("非涨停股挂封单 %d 只! 示例: %s" % (n_nonzt_seal, ", ".join(nonzt_samples)))
     if n_zt > 0 and n_zt_no_seal > n_zt * 0.3:
         problems.append("涨停股缺封单 %d/%d 只(KPL 未覆盖?)" % (n_zt_no_seal, n_zt))
+    if len(rows) >= 1000 and amt_cover < BID_AMT_COVER_MIN:
+        problems.append("竞价额缺失 %d/%d 只(%.1f%%, 阈值%.0f%%): 源降级无竞价额, 加速度不可算"
+                        % (n_amt, len(rows), 100.0 * amt_cover, 100.0 * BID_AMT_COVER_MIN))
     if abnormal_ratio:
         problems.append("封单/流通比异常 >50%%: %s" % ", ".join("%s:%s" % (c, r) for c, r in abnormal_ratio[:5]))
     if not problems:
-        log.info("[数据质量] date=%s tp=%s 自检通过(涨停%d只 缺封单%d 非涨停挂封单%d)",
-                 date, time_point, n_zt, n_zt_no_seal, n_nonzt_seal)
+        log.info("[数据质量] date=%s tp=%s 自检通过(涨停%d只 缺封单%d 非涨停挂封单%d "
+                 "竞价额覆盖%.1f%%)",
+                 date, time_point, n_zt, n_zt_no_seal, n_nonzt_seal, 100.0 * amt_cover)
         return {"ok": True, "n_zt": n_zt, "n_zt_no_seal": n_zt_no_seal,
-                "n_nonzt_seal": n_nonzt_seal}
+                "n_nonzt_seal": n_nonzt_seal, "amt_cover": amt_cover}
     # 有问题: 告警
     msg = "竞价封单数据异常 [%s %s]\n%s" % (date, time_point, "\n".join(problems))
     log.warning("[数据质量] %s", msg)
