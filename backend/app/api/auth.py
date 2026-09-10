@@ -3,6 +3,7 @@
 认证路由: 登录 / 注册 / 修改密码 / 忘记密码(邮件) / 重置密码
 ============================================================
 """
+import asyncio
 import re
 import secrets
 import sqlite3
@@ -21,7 +22,18 @@ router = APIRouter()
 
 
 @router.post("/api/login")
-def api_login(request: Request, body: dict = Body(...)):
+async def api_login(request: Request, body: dict = Body(...)):
+    """2026-09-10 生产事故修复(全站无法登录 38 分钟):
+    原为同步 def → FastAPI 放进 anyio 线程池执行(默认 40 槽/worker)。竞价结束大家
+    集中刷新, 30s 级慢选股把 2 worker × 40 槽全占满, 登录只能在队列里排队(实测
+    2,321,182ms ≈ 38 分钟), 表征就是"服务没挂但谁都登不进去"。
+    改 async + asyncio.to_thread: 落到 event loop 的默认 executor, 与 anyio 池物理
+    隔离 —— 慢请求再怎么堆积也挤不到登录, 且不用改动任何业务逻辑。
+    ⚠️ 不要用 starlette 的 run_in_threadpool, 那个走的正是会被占满的 anyio 池。"""
+    return await asyncio.to_thread(_login_sync, request, body)
+
+
+def _login_sync(request: Request, body: dict):
     login = str(body.get("login") or body.get("username") or "").strip()
     password = str(body.get("password") or "")
     remember = bool(body.get("remember"))   # 前端「记住我」→ 30 天 token
@@ -74,7 +86,13 @@ def api_register(request: Request, body: dict = Body(...)):
 
 
 @router.post("/api/verify-email")
-def api_verify_email(request: Request, body: dict = Body(...)):
+async def api_verify_email(request: Request, body: dict = Body(...)):
+    """同 api_login: 邮箱验证属登录链路(未验证账号正是靠它拿 token), 不能因慢请求
+    堆积而卡死; 走独立 executor(详见 api_login 注释)"""
+    return await asyncio.to_thread(_verify_email_sync, request, body)
+
+
+def _verify_email_sync(request: Request, body: dict):
     """邮箱验证: 输入注册邮箱收到的 6 位验证码; 验证成功后直接返回 token(自动登录)"""
     uid = int(body.get("uid") or 0)
     code = str(body.get("code") or "").strip()
@@ -96,7 +114,12 @@ def api_verify_email(request: Request, body: dict = Body(...)):
 
 
 @router.post("/api/resend-verify")
-def api_resend_verify(request: Request, body: dict = Body(...)):
+async def api_resend_verify(request: Request, body: dict = Body(...)):
+    """同 api_login: 属登录链路且要发邮件(慢 IO), 走独立 executor 更合适"""
+    return await asyncio.to_thread(_resend_verify_sync, request, body)
+
+
+def _resend_verify_sync(request: Request, body: dict):
     """重发邮箱验证码(5 分钟冷却, 每小时最多 3 次)"""
     uid = int(body.get("uid") or 0)
     user = users.find_user_by_id(uid) if uid else None

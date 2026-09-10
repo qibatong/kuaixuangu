@@ -26,6 +26,15 @@ log = app_logger.get_logger(__name__)
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
+# 同步 def 路由的线程池容量(2026-09-10 事故缓解, 见下方 _enlarge_thread_pool)
+# 同步 def 路由由 FastAPI 放进 anyio 线程池执行, 默认仅 40 槽/worker。竞价结束集中
+# 刷新时, 30s 级慢选股把 2 worker 的 80 个槽全占满 → 登录/health/prefs 只能在队列里
+# 排队到超时(实测登录排队 2,321,182ms ≈ 38 分钟)。扩容降低排队概率(线程按需创建)。
+# 真正的根治: ①fetcher 分页快速失败(慢请求 30s → ~1s) ②登录/验证/探活走独立 executor。
+_WORKER_THREAD_TOKENS = 120
+
+
+
 
 # ---------- 限流 + 访问日志中间件: 每 IP 每分钟 N 次, 全部请求落日志 ----------
 @app.middleware("http")
@@ -107,3 +116,23 @@ def on_startup():
         _kpl.start_kpl_prewarm()
     except Exception as e:
         log.warning("KPL首屏预热启动失败(不影响主服务) err=%s", e)
+
+
+@app.on_event("startup")
+async def _enlarge_thread_pool():
+    """扩容 anyio 线程池(同步 def 路由的执行池, 默认 40 槽/worker)。
+
+    两个坑, 都已避开:
+    1) 必须在 async 上下文调用 —— anyio 靠 sniffio 识别当前后端, 模块导入期/同步
+       startup 里调用会抛 'Not currently running on any asynchronous event loop',
+       被 try 吞掉后静默不扩容(第一版就栽在这);
+    2) 必须排在 on_startup 之后注册 —— startup handler 按注册顺序执行, 排前面时
+       setup_logging() 还没跑, 日志打不出来, 无从确认是否生效。"""
+    try:
+        import anyio.to_thread
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        old = limiter.total_tokens
+        limiter.total_tokens = _WORKER_THREAD_TOKENS
+        log.info("anyio 线程池扩容: %s → %s 槽/worker", old, _WORKER_THREAD_TOKENS)
+    except Exception as e:      # 扩容失败绝不能影响启动
+        log.warning("anyio 线程池扩容失败(服务照常启动): %s", e)
