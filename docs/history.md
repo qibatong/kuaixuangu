@@ -224,3 +224,34 @@
     昨比 `_fetch_yesterday_amount_one('600519')` → `([242869.88, 416850.05], -0.45)`，
     耗时 0.25s（东财 fail=1 / 腾讯 ok=1）；`/api/health` `serviceable=true`；
     `/api/stocks?action=filter` 200 / 3.4s / 12 只；Traceback 计数 0。
+- **v4.11.2 (09-10 深夜) 生产整包上线 + 收盘落库首次回填 + K线源内日志降噪**
+  - **生产升级**（`922c312` v4.10 → `e930d1b`，只动 `backend/app` 5 改 + 2 删）：
+    备份 → SFTP 上传 → md5 全一致 → **依赖齐套性预检**（`app/core/net.py` 在位、
+    py_compile + `import app.main/app.worker` 整站导入 OK）→ 删量脉（liangmai×2 + pyc，
+    生产无残留引用）→ 重启 `kuaixuan`/`kx-worker`（双 active）→ `yday_amount` 建表成功。
+    **线上实测**：K线 3/3 → **HTTP 200**（600519/000001/300750 各 200 根，末根 09-10，
+    东财 push2his 熔断 → **腾讯同语义备源接管**）；选股 `filter` 200 / 2.4s；
+    `_fetch_yesterday_amount_one('600519')` → `([242869.88, 416850.05], -0.45)` **0.38s**；
+    `/api/health` `serviceable=true`（`eastmoney_clist` ok / `eastmoney_kline` down /
+    `tencent_kline` ok 63 次 —— 备源承压实证）；**Traceback 计数 0**。
+  - **收盘落库首次回填（生产 + 测试机）**：手动触发一次
+    `yday_prewarm._prewarm_once(stage="close")` → 两台均 **`yday_amount` 0 → 5550 行**
+    （`tdate=20260910`，178s）。**这一步本身就是二审修复的最强证据**：日志里东财日 K
+    **整轮熔断**（`eastmoney_kline 调用失败, 进入异常状态`），全靠 `_yday_fallback_tencent`
+    把 5550 只全部拉回；没有备源，这次回填会写 **0 行**、机制空转（即"东财单源 = 收盘
+    落库永远填不上"）。此机制从此进入**稳态**：每交易日 15:10 落库，此后全天零网络读库。
+  - **顺手修正（本次改动引入的可观测性副作用）**：`_fetch_chart_from_eastmoney` 末尾
+    `log.warning("K线拉取失败 … (东财全HOST熔断)")` → **降为 `log.debug`**。原因：恢复腾讯
+    备源后，东财风控期失败是**已预期的常态**，原措辞会**误导运维**（以为 K 线整体挂了，
+    实际腾讯已接管），且每只票一条 WARNING —— 生产实测 23:31 一分钟 12 条。
+    外层已有权威表述：成功 `chart[robust]源=xxx`（INFO）/ 全源失败
+    `chart[robust]全部数据源失败`（ERROR）。**腾讯源内失败日志保留 WARNING**（它是最后一源，
+    失败即整体失败，且带 `err=` 有诊断价值）—— 差异化依据是"常态 ≠ 异常"。
+  - **双跑灰度对拍差异排查**（部署日志里发现 `老12只/新4只, 仅老8`）：拉近 7 天全量
+    `切流对拍差异` 日志比对 —— **部署前 23:22 就已是同形态**（`老7/新2`、`老6/新2`），
+    部署后 23:29 为 `老12/新4`；7 天内 `仅新非空`（新链路**多选**）448 条，说明差异是
+    **双向且长期存在**的 picker 灰度现象；危险形态 `新=0只`（新链路全空）**0 次**。
+    → 结论：**非本次去兜底引入**，继续按灰度观察。
+  - **测试**：全量 **935 例 / 10 失败 / 0 错误**（HEAD 基线 27 红 → 零新增失败，
+    剩余 10 条全为基线历史债：history×3 / slow_api_cache×2 / auction_snap_pool_offhours×2 /
+    snapshot_915×1 / auto_apply×1 / stats_api×1）。日志降级改动**无测试依赖**（grep 确认）。

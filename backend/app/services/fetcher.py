@@ -1739,7 +1739,12 @@ def fetch_stock_chart(code, period="day"):
             _mark_host_broken(host)
             continue
     _record("eastmoney_kline", False)
-    log.warning("K线拉取失败 code=%s period=%s (东财全HOST熔断)", code, period)
+    # 2026-09-10 二审配套修正: 本函数只是"东财一源", 外层 fetch_stock_chart_robust 会切
+    # 腾讯同语义备源。原措辞 "K线拉取失败" + WARNING 在恢复备源后**会误导运维**
+    # (东财 push2his 风控期是常态 → 每只票一条 WARNING 刷屏, 且让人误判 K 线整体不可用;
+    #  实测生产 23:31 一分钟就 12 条)。降为 debug, 外层已有权威表述:
+    # 成功 log.info("chart[robust]源=xxx") / 全源失败 log.error("chart[robust]全部数据源失败")。
+    log.debug("东财K线源失败(全HOST熔断) code=%s period=%s, 交由同语义备源接管", code, period)
     return {}
 
 
