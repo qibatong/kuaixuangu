@@ -74,6 +74,12 @@ class FilterContext:
       "realtime" 实时价(已退役老链路的行为) — 盘中价格一漂名单就变, 仅复现历史用
       缺失(None) → 门槛不生效, 保留该票(不误杀)
     """
+    score_floor_exempt: bool = False
+    """**降级豁免**评分下限(scoreFloor): 补丁源(东财点查/腾讯点查)全不可用时,
+    候选行只剩 9:25 定格字段 —— 换手/量比/异动/昨日涨幅全缺 → 评分算出来的不是
+    "这只票差", 而是"没有数据可算", 属**保守占位分**。此时 scoreFloor 硬门槛会把
+    "快照行直出保名单"整批砍成空名单(2026-09-11 修: 方案A 降级保命路径实效)。
+    豁免只作用于评分门槛, 其余过滤项(板块/ST/竞涨/市值/竞额)一律不变。"""
 
     @property
     def zt_available(self) -> bool:
@@ -159,7 +165,10 @@ def apply_filters(rows: List[ScoredRow], f: Dict,
         #   与 5) 的双低剔除独立: 双低允许"高信心救低概率", scoreFloor 不看信心,
         #   评分不够就是不够(低分票展示出来只会干扰决策)。0 = 关闭该门槛。
         #   注意: 只能放精筛(评分后) — 粗筛在评分前跑, 拿不到 probability。
-        if f.get("scoreFloor", 0) > 0 and sc.probability < f["scoreFloor"]:
+        #   2026-09-11: 补丁源全失败时评分失真(见 FilterContext.score_floor_exempt)
+        #   → 本次豁免该门槛, 否则"快照行直出保名单"会被砍成空名单。
+        if (not ctx.score_floor_exempt and f.get("scoreFloor", 0) > 0
+                and sc.probability < f["scoreFloor"]):
             out.bump("score_floor")
             continue
 

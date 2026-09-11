@@ -76,3 +76,27 @@ def test_missing_key_defaults_to_disabled():
     """调用方没给 scoreFloor(老调用点) → 门槛关闭, 不得静默启用硬门槛"""
     out = pf.apply_filters([_mk(prob=60)], _base(), pf.FilterContext(zt_codes=set()))
     assert len(out.kept) == 1
+
+
+# ==================== 降级豁免 (2026-09-11) ====================
+def test_degraded_exempts_floor():
+    """补丁源全失败(东财点查+腾讯点查都断)时, 候选行只有 9:25 定格字段 →
+    算出来的 probability 是**保守占位分**(换手/量比/异动/昨日涨幅全缺), 不是
+    "这只票差"。此时 scoreFloor 会把"点查失败 → 快照行直出保名单"这条降级
+    保命路径整批砍成空名单(2026-09-11 实测 2 例全空)。→ 豁免评分门槛。"""
+    ctx = pf.FilterContext(zt_codes=set(), score_floor_exempt=True)
+    out = pf.apply_filters([_mk(prob=40)], _base(scoreFloor=80), ctx)
+    assert [i.code for i in out.kept] == ["600000"], "降级时低占位分不得被 scoreFloor 砍掉"
+    assert "score_floor" not in out.stats
+
+
+def test_degraded_exempt_does_not_skip_other_filters():
+    """豁免只作用于评分门槛: 板块/竞涨/市值/竞额等硬条件在降级时**照常生效**
+    (防"降级 = 不过滤"的过度放行)"""
+    ctx = pf.FilterContext(zt_codes=set(), score_floor_exempt=True)
+    # 竞价涨幅 9 > bidGt 7 → 仍须剔除
+    row = _mk(prob=40)
+    row.row.bid_change = 9.0
+    out = pf.apply_filters([row], _base(scoreFloor=80), ctx)
+    assert out.kept == []
+    assert out.stats.get("bid_gt") == 1

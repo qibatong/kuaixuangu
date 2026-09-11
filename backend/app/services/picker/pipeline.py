@@ -242,6 +242,11 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
             res.degraded = True
     else:
         res.errors.append("补丁源不可用(价格门槛与实时展示字段将缺失)")
+        # 2026-09-11: 补丁源全失败 = 候选只有定格字段(换手/量比/异动/昨日涨幅全缺)
+        #   → 评分是"保守占位分"而非真实评分 → 评分下限(scoreFloor)必须豁免, 否则
+        #   "点查失败 → 快照行直出保名单"这条降级保命路径会被砍成空名单
+        #   (test_auction_snap_pool_offhours 暴露; 其余过滤项不受影响)。
+        fctx.score_floor_exempt = True
 
     # 3.5) 竞价强度(替代失活的 f630 异动等级, 权重同为 w_warn=17%):
     #      三层信号全部来自**快照表 + 开盘啦**, 对东财免疫 —— 东财点查断了照样有分。
