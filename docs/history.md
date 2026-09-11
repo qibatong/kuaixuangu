@@ -414,3 +414,37 @@
     故 `elif src == "ths"` / `"kpl"` / `"tushare"` 三个分支**运行时不可达** →
     `_fetch_kline_from_ths` / `_fetch_chart_from_kpl` / `_fetch_chart_from_tushare` 属
     「仅源码可达」的死代码（改 `sources` 即复活）。属独立重构范围。
+
+- **v4.11.7 (09-11) 基线红清零：scoreFloor 降级豁免（含一处真缺陷）+ 三类测试基线修正**
+  - **背景**：老链路退役（v4.11.3）后全量 874 例仍留 **7 红**，逐条定性后本轮全部修完 → **全量 0 红**。
+  - **① 真缺陷（产品行为修复）：补丁源全失败时 `scoreFloor` 把名单砍空**
+    - 现象：`test_auction_snap_pool_offhours` ×2「点查失败 → 快照行直出保名单」实得**空名单**。
+    - 根因链：补丁源（东财点查 `fetch_raw_by_codes` + 腾讯点查 `fetch_tencent_by_codes`）**全断**时，
+      候选行只剩 9:25 定格字段（换手/量比/异动/昨日涨幅全缺）→ 评分只可能拿到
+      **竞价涨幅 34% + 流通市值 11%** 两个因子（上限约 45 分）→ 被 v4.10 引入的全站默认
+      `scoreFloor=80` 整批砍掉 → 方案 A「点查失败降级直出保名单」这条**降级保命路径彻底失效**
+      （该路径的设计目标恰恰是"行情源全挂时名单也不为空"，结果比降级前更空）。
+    - 修法：`picker/filter.py::FilterContext` 新增 `score_floor_exempt`；`picker/pipeline.py` 在
+      `_fetch_patch` 返回 None（补丁源不可用）时置 True → 本次豁免评分门槛，
+      **其余过滤项（板块/ST/竞涨/市值/竞额）一律不变**。
+    - 语义判据：`scoreFloor` 砍的是"这只票评分低"，降级时算出来的是"没数据可算" —— 门槛不该
+      作用于失真的占位分。`test_score_floor` 新增 2 例锁定（豁免生效 + 豁免不放行其它过滤）。
+  - **② `test_history` ×3（分页 / 同参去重 / 战绩）**：MOCK_RAW 里 `300003` 实评分 **73 < 80**
+    被默认门槛剔掉 → 断言 4 只实得 3 只。该文件测的是落库/分页/去重，与评分门槛**无关** →
+    `run_filter` 显式传 `scoreFloor=0` 隔离该变量（**不改断言、不动共享 fixture**）。
+  - **③ KPL 金额单位（`test_snapshot_915_timing` ×1）**：fixture `bidAmt=888.0` 是按**万元**填的
+    过期数据，而 KPL 现行口径是**元**（`kpl.py`），落库 `/1e4` 后得 0.0888 万 → 改 `8_880_000`（元）。
+  - **④ `test_stats_api::test_overview_latest_4_days`（跨日漂移）**：`auction-overview` 无 `date`
+    时取 `SELECT DISTINCT date FROM snapshot_bid ORDER BY date DESC LIMIT 4`（**全表**最近 4 日）——
+    别的用例写入的真实当天日期会排到 seed 日（2026-08-20）之前 → 断言随执行日期漂移
+    （9/11 实测拿到 2026-09-11）。修法：**仅该用例** seed 远未来日期（2099-01-02）保证恒排第一
+    + 用例内清理；`_seed_snapshot(monkeypatch, date=...)` 加默认参数，其余用例继续用 2026-08-20。
+  - **⚠️ 本轮踩坑（已写进技能）**
+    1. **共用 seed 助手改日期必须加参数、只改需要的调用点**：第一版把 `_seed_snapshot` 的日期
+       **全局**改成 2099-01-02 → 同文件 4 条按 `date=2026-08-20` 查询的用例（auction-snapshot /
+       bid-snapshot / 三时点榜 / seal-quality）一次性被打挂，**全量多出 4 个新 F**。
+    2. **判定"是否回归"必须跑全量对照，不能只看单文件**：本仓库测试有大量 session 顺序依赖，
+       单文件/子集跑本就必红（基线同样红），只看单文件会把"既有顺序依赖红"误判成"改动引入的红"。
+    3. 全量 `-q` 跑的**进度条字符等价于用例**：对照基线与新版进度条的 F 位置，可快速判断
+       "红是不是换了地方"；`safe-delete` 提示会吃掉最后的摘要行 → 权威计数用 `--junitxml` 解析。
+  - **回滚点不变**：tag `v4.11.2` → `36ce505`。

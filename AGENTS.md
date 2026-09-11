@@ -169,9 +169,16 @@
   `fetch_yesterday_amounts`、`ensure_cache`、`load_snapshot_full`。想测**真实实现**的文件必须在
   import 期留下 `_ORIG_xxx = fetcher.xxx` 再用 autouse fixture 还原（见 test_yesterday_cache /
   test_tencent_fallback），否则测到的是恒返回假数据的桩（曾导致 11 条用例长期假红）。
-- 基线认知：**HEAD 全量约 27 红**（多为历史债：test_history / test_slow_api_cache /
-  test_auction_snap_pool_offhours / test_snapshot_915_timing + 少量顺序污染）。
-  判定本次改动是否引入回归，**必须与 `_backend_bak/`（HEAD 物理备份）对比**，不要只看红数。
+- 基线认知（**2026-09-11 v4.11.7 起**）：**全量 874 例 / 0 红 / 0 错 / 4 skip**。
+  此前那批历史债（`test_history`×3、`test_auction_snap_pool_offhours`×2、`test_snapshot_915_timing`×1、
+  `test_stats_api`×1）已逐条定性并修完 —— 其中 `auction_snap_pool_offhours` 是**真缺陷**
+  （`scoreFloor` 把降级直出名单砍空），其余为测试数据/顺序污染。
+  - 判定本次改动是否引入回归：**跑全量并与基线对照**，权威计数用 `--junitxml` 解析 XML
+    （`-q` 的摘要行可能被 sandbox 的 `safe-delete` 提示吃掉）。
+  - ⚠️ **测试有大量 session 顺序依赖**：单文件/子集跑**本就会红**（如 `test_stats_api` 单跑 5 红、
+    全量全绿）—— 只看单文件会把"既有顺序依赖红"误判成"本次改动引入的红"（9/11 已踩）。
+  - ⚠️ **共用 seed 助手改日期必须加参数**：`test_stats_api._seed_snapshot` 被多条用例复用且各自
+    按固定日期（2026-08-20）查询，全局改它的 seed 日期会一次打挂 4 条（9/11 已踩）。
 
 ## 十、可复用工具脚本（scripts/）
 
