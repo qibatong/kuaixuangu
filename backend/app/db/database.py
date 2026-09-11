@@ -73,6 +73,13 @@ def init_db():
     # 结构: {"t":"amt+chg","a":1.23,"c":0.85,"l":0.4,"x":"竞额抢筹 1.23%；...","f":0}
     if "qc_detail" not in bcols:
         cur.execute("ALTER TABLE batch_stocks ADD COLUMN qc_detail TEXT")
+    # 2026-09-11 P0-3: 缺失字段打标(逗号分隔的 camelCase 键, 如 "warnType,bidTurnover")。
+    # 背景: _safe_num 把 None 兜成 0 以绕过 NOT NULL 约束, 但 0 是有业务含义的实测值
+    #   (异动 0 级 / 换手 0%), 于是"未知"伪装成了"实测 0" —— 9/11 现涨全 0 即此类误导。
+    # 落库仍存 0(保证 NOT NULL 与排序), 同时记下哪些字段是"兜底出来的",
+    # 读侧据此还原为 null(前端显示「—」), 实现"未知 ≠ 0"。见 history._num_or_mark。
+    if "miss_fields" not in bcols:
+        cur.execute("ALTER TABLE batch_stocks ADD COLUMN miss_fields TEXT")
     # 用户表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (

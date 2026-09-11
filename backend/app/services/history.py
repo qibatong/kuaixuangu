@@ -74,6 +74,39 @@ def _safe_num(s, key):
     return v
 
 
+def _num_or_mark(s, key, miss):
+    """落库数值 + 缺失打标(2026-09-11 P0-3): 与 _safe_num 同兜底语义, 额外把
+    "被兜底的键"记入 miss 列表, 由 save_batch 写入 batch_stocks.miss_fields。
+
+    为什么: _safe_num 把 None 兜成 0 是为了绕过 NOT NULL 约束(见上方 9/10 事故注释),
+    但 0 在业务上是**真实值**(异动 0 级 / 换手 0% / 涨幅 0%), 于是"未知"伪装成"实测 0"
+    —— 前端显示 0.00% 让人以为测出来了, 实际是没测到。落库仍写 0(保约束与排序),
+    同时记下键名, 读侧 get_batch_stocks_mapped 据此还原为 null(前端显示「—」)。
+    """
+    v = s.get(key)
+    ok = isinstance(v, (int, float)) and not isinstance(v, bool)
+    if ok and isinstance(v, float) and (v != v or v in (float("inf"), float("-inf"))):
+        ok = False
+    if not ok:
+        miss.append(key)
+        return _NOT_NULL_DEFAULTS.get(key, 0.0)
+    return v
+
+
+def _null_restore_enabled():
+    """读侧是否把"兜底出来的 0"还原成 null(2026-09-11 P0-3)。
+
+    ⚠️ 默认关闭(0): 还原后前端会收到 null, 需要配套前端「—」容错 ——
+    StockTable.vue:58 / HistoryView.vue:77 是 `{{ item.probability }}分`,
+    null 会渲染成"分"(不崩但难看)。前端容错上线前保持 0; 上线后管理员置 1 即生效。
+    """
+    try:
+        from . import settings as _st
+        return bool(_st.get("history_null_restore", 0))
+    except Exception:
+        return False
+
+
 def save_batch(user_id, action, result, f, auto_applied=False):
     """把一次选股结果存为一个历史批次(归属指定用户), 返回批次 id; 失败返回 None
     auto_applied=True 用于 9:26 系统自动应用 (区别用户主动 lock/filter)
@@ -103,16 +136,23 @@ def save_batch(user_id, action, result, f, auto_applied=False):
             (bdate, btime, int(t), action, markets, filters_json, len(result), user_id,
              1 if auto_applied else 0))
         batch_id = cur.lastrowid
+        # 2026-09-11 P0-3: 逐票收集"被兜底"的字段键 → miss_fields(读侧据此还原 null)
+        rows = []
+        for i, s in enumerate(result):
+            miss = []
+            rows.append((
+                batch_id, i + 1, s.get("code") or "", s.get("name") or "",
+                _num_or_mark(s, "probability", miss), _num_or_mark(s, "confidence", miss),
+                _num_or_mark(s, "bidChange", miss), _num_or_mark(s, "realChange", miss),
+                _num_or_mark(s, "entityChange", miss), _num_or_mark(s, "bidTurnover", miss),
+                _num_or_mark(s, "warnType", miss), _num_or_mark(s, "circulationMV", miss),
+                s.get("industry"), s.get("concept"), _num_or_mark(s, "bidAmt", miss),
+                s.get("bidRatio"), 1 if s.get("qiangchou") else 0, _qc_pack(s),
+                ",".join(miss) or None,
+            ))
         cur.executemany(
-            "INSERT INTO batch_stocks (batch_id, rank, code, name, probability, confidence, bid_change, real_change, entity_change, bid_turnover, warn_type, circulation_mv, industry, concept, bid_amt, bid_ratio, qiangchou, qc_detail) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            [(batch_id, i + 1, s.get("code") or "", s.get("name") or "",
-              _safe_num(s, "probability"), _safe_num(s, "confidence"),
-              _safe_num(s, "bidChange"), _safe_num(s, "realChange"),
-              _safe_num(s, "entityChange"), _safe_num(s, "bidTurnover"),
-              _safe_num(s, "warnType"), _safe_num(s, "circulationMV"),
-              s.get("industry"), s.get("concept"), _safe_num(s, "bidAmt"),
-              s.get("bidRatio"), 1 if s.get("qiangchou") else 0, _qc_pack(s))
-             for i, s in enumerate(result)])
+            "INSERT INTO batch_stocks (batch_id, rank, code, name, probability, confidence, bid_change, real_change, entity_change, bid_turnover, warn_type, circulation_mv, industry, concept, bid_amt, bid_ratio, qiangchou, qc_detail, miss_fields) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            rows)
         conn.commit()
         return batch_id
     except Exception as e:
@@ -354,15 +394,22 @@ def get_batch_stocks_mapped(batch_id):
     finally:
         conn.close()
     out = []
+    restore = _null_restore_enabled()   # P0-3 开关, 默认关闭(见函数注释)
     for s in rows:
+        # 该票"被兜底"的字段(实为未知) → 还原 null, 前端显示「—」而非误导性的 0.00%
+        miss = set((s.get("miss_fields") or "").split(",")) if restore else ()
         out.append({
             "code": s["code"], "name": s["name"],
-            "probability": s["probability"], "confidence": s["confidence"],
-            "bidChange": s["bid_change"], "realChange": s["real_change"],
-            "entityChange": s["entity_change"], "bidTurnover": s["bid_turnover"],
-            "warnType": s["warn_type"], "circulationMV": s["circulation_mv"],
+            "probability": None if "probability" in miss else s["probability"],
+            "confidence": None if "confidence" in miss else s["confidence"],
+            "bidChange": None if "bidChange" in miss else s["bid_change"],
+            "realChange": None if "realChange" in miss else s["real_change"],
+            "entityChange": None if "entityChange" in miss else s["entity_change"],
+            "bidTurnover": None if "bidTurnover" in miss else s["bid_turnover"],
+            "warnType": None if "warnType" in miss else s["warn_type"],
+            "circulationMV": None if "circulationMV" in miss else s["circulation_mv"],
             "industry": s["industry"], "concept": s["concept"],
-            "bidAmt": s["bid_amt"],
+            "bidAmt": None if "bidAmt" in miss else s["bid_amt"],
             "bidRatio": s.get("bid_ratio"),
             "qiangchou": 1 if s.get("qiangchou") else 0,
             **_qc_unpack(s.get("qc_detail")),
