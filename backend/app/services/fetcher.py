@@ -160,6 +160,10 @@ _HEALTH = {
                         "cooldown": 60, "base_cooldown": 60, "down_threshold": 1, "fails_in_row": 0},
     "tencent_kline":   {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
                         "cooldown": 30, "base_cooldown": 30, "down_threshold": 2, "fails_in_row": 0},
+    # TickPlus 竞价源(P2-1): 第二源, 单次全推成本高于东财分页 → 抖动保护阈值 2,
+    # 冷却 120s(一个竞价时点内不再重试, 避免 9:15-9:25 反复空转)
+    "tickplus_fullbid": {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0, "ms_sum": 0, "ms_cnt": 0, "down_since": 0,
+                         "cooldown": 120, "base_cooldown": 120, "down_threshold": 2, "fails_in_row": 0},
 }
 _health_lock = threading.Lock()
 

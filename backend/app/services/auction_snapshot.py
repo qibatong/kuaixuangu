@@ -13,7 +13,7 @@ import time
 
 from ..core import logger
 from ..db import database
-from . import fetcher, scorer
+from . import fetcher, mv_cache, scorer, tickplus
 from .cache_store import store
 
 log = logger.get_logger(__name__)
@@ -96,10 +96,61 @@ def _fetch_market_map(full=False):
         if not raw_all:
             log.warning("[快照采集] 东财全分区失败, 尝试开盘啦竞价榜兜底")
             raw_all = _fetch_kpl_fallback()
+        # 双源并存(P2-1, 2026-09-12): 东财之外并发第二源 TickPlus fullbid。
+        # 串行放在东财之后(不并入上面的线程池): TP 是新域名不受东财限流约束,
+        # 但它挂了绝不能拖累主链路 —— 这里整体 try, 失败只记日志(见 tickplus 模块)。
+        # 只在 full=True(时点全市场快照)时启用: 秒级采样窗口 18 秒, 全推成本不划算。
+        if full:
+            n_em = len(raw_all)
+            try:
+                tp_map = tickplus.snapshot_map()
+            except Exception as e:                              # noqa: BLE001
+                tp_map = {}
+                log.warning("[快照采集] TickPlus 采集异常(已忽略) err=%s", e)
+            if tp_map:
+                st = _merge_tickplus(raw_all, tp_map)
+                log.info("[快照采集] 双源合并 东财%d只 + TickPlus%d只 → 补票%d只 补值%d项 → 合计%d只",
+                         n_em, len(tp_map), st["added"], st["filled"], len(raw_all))
         # 2026-08-31 可观测性: 采集阶段耗时单独记录(与落库耗时分离, 定位时点失真来源)
         log.info("[快照采集] 行情拉取完成 full=%s 数量%d 耗时%.0fms", full, len(raw_all),
                  (time.time() - _t0) * 1000)
         return raw_all
+
+
+def _merge_tickplus(raw_all, tp_map):
+    """把 TickPlus 全市场竞价数据并入东财结果(原地改 raw_all), 返回 {"added","filled"}。
+
+    合并纪律(**只补缺, 绝不覆盖** —— 两源口径不同, 覆盖会让同一时点出现两套数):
+      ① 东财没有的 code → 新增行(TickPlus 补票; 市值/名称由 mv_cache 后补)
+      ② 东财有但 bid_change=0 或 bid_amt=0(东财竞价期常给不出值) → 用 TP 补位
+      ③ 已有正常值 → 一律不动
+    TickPlus 无涨幅(zf=None)的行不新增: 没涨幅的票进不了评分, 只会污染名单。"""
+    added = filled = 0
+    for code, t in (tp_map or {}).items():
+        bc = t.get("bid_change")
+        v = raw_all.get(code)
+        if v is None:
+            if bc is None:
+                continue
+            raw_all[code] = {
+                "bid_change": bc,
+                "bid_amt": t.get("bid_amt") or 0.0,
+                "name": "",
+                "bid_buy_amt": 0,
+                "float_mv": 0,        # TickPlus 不给市值 → 由 mv_cache.fill 后补
+                "free_mv": 0,
+                "board": "",
+                "_src": "tp",
+            }
+            added += 1
+            continue
+        if not (v.get("bid_change") or 0) and bc:
+            v["bid_change"] = bc
+            filled += 1
+        if not (v.get("bid_amt") or 0) and (t.get("bid_amt") or 0):
+            v["bid_amt"] = t["bid_amt"]
+            filled += 1
+    return {"added": added, "filled": filled}
 
 
 def _fetch_kpl_fallback():
@@ -403,6 +454,17 @@ def snapshot_at(time_point, force=False):
     # 落库前体检: ①单位防御(元当万元) ②竞价额缺失质量门(不让 0 冲掉已有正值)
     _fix_bid_amt_unit(raw_all)
     _guard_bid_amt_missing(date, time_point, raw_all)
+    # P2-2(2026-09-12) 市值/名称兜底 + 写日频缓存。
+    # 必须在**落库之前**: 补到的市值要跟本次快照一起入库, 否则 TickPlus 补进来的票
+    # float_mv=0 → 被市值门槛当小盘股全部误杀(补了等于白补)。
+    try:
+        mst = mv_cache.fill(raw_all, date=date)
+        if mst["need"]:
+            log.info("[快照采集] 市值兜底 time=%s 缺%d只 → 缓存补%d 腾讯补%d 仍缺%d (落缓存%d行)",
+                     time_point, mst["need"], mst["from_cache"], mst["from_tencent"],
+                     mst["miss"], mst["saved"])
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("[快照采集] 市值兜底异常(不影响落库) time=%s err=%s", time_point, e)
     conn = None
     try:
         conn = database.get_conn()
