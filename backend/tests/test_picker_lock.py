@@ -5,12 +5,21 @@
 覆盖"静默失效"类故障: 市场口径大小写、模式拒绝、异常不抛、结果同构可落库。
 """
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from app.services.picker import lock as plock
 from app.services.picker import mode as pm
+
+_WEEKDAY_TS = datetime(2026, 9, 11, 9, 26,
+                       tzinfo=timezone(timedelta(hours=8))).timestamp()
+"""固定**工作日**(2026-09-11 周五)时间戳, 供 system_batch._do_run(now=...) 注入。
+
+2026-09-12 修复: _do_run 原本写死取当前时间, 周末 tm_wday>=5 会直接 return,
+导致这两个用例在周六周日**恒红/假绿**(业务断言根本没执行到)。显式注入后与
+星期无关。"工作日"语义本身不在此处测试(那是 _do_run 的职责)。
+"""
 
 
 # ---------------------------------------------------------------- 参数归一化
@@ -175,7 +184,7 @@ def test_system_batch_always_uses_picker(monkeypatch):
                         lambda **kw: 1 if kw.get("result") else None)
     monkeypatch.setattr(sb.kpl, "apply_board_concept", lambda r, tag: 0)
 
-    sb._do_run("9_25")
+    sb._do_run("9_25", now=_WEEKDAY_TS)
     assert called["new"] == 1
     assert not hasattr(sb, "_run_legacy"), "老链路实现必须已删除"
     assert not hasattr(sb, "_picker_lock_on"), "回滚开关必须已删除"
@@ -190,7 +199,7 @@ def test_system_batch_empty_result_not_saved(monkeypatch):
     monkeypatch.setattr(sb.kpl, "apply_board_concept", lambda r, tag: 0)
     monkeypatch.setattr(sb.history, "save_batch",
                         lambda **kw: saved.append(kw) or 1)
-    sb._do_run("9_25")
+    sb._do_run("9_25", now=_WEEKDAY_TS)
     assert not saved
 
 
