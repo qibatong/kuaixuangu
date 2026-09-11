@@ -477,6 +477,24 @@ def init_db():
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ssd_date_rank ON stock_score_daily(date, rank)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ssd_date_prob ON stock_score_daily(date, probability DESC)")
+    # 流通市值日频缓存(P2-2, 2026-09-12): 把 float_mv/free_mv/name/board 这类**静态
+    # 基础数据**与竞价采集解耦 —— 东财熔断时 TickPlus 补进来的全市场票没有市值,
+    # 从本表(≤15天)或腾讯 f44 补, 否则 float_mv=0 会被市值门槛当小盘股全部误杀。
+    # 数值列**可空**: 拿不到写 NULL, 绝不写 0(0=实测值, NULL=未知, 同 P0-3 铁律)。
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS stock_float_mv_daily (
+            date     TEXT NOT NULL,
+            code     TEXT NOT NULL,
+            name     TEXT,
+            float_mv REAL,
+            free_mv  REAL,
+            board    TEXT,
+            src      TEXT,
+            ts       INTEGER,
+            PRIMARY KEY (date, code)
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_mv_code_date ON stock_float_mv_daily(code, date)")
     # 股性画像落库(方案B): 每日盘后一次性算好全部画像, 排行直读此表避免实时逐股重算。
     # profile 为 compute_profile 全量 JSON; score/zt_count/name 供排行排序与搜索筛选。
     cur.execute("""
