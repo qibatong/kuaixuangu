@@ -23,11 +23,12 @@
 """
 import time
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from ...core import logger
 from . import filter as pfilter
 from . import mode as pm
+from . import precompute
 from .contract import QuoteRow
 from .score import ScoredRow, score_rows
 from .sources.base import FetchContext, SourceResult, get_source
@@ -136,6 +137,38 @@ def _merge_rows(base: Dict[str, QuoteRow],
     return out
 
 
+def _refreeze_locked(merged: Dict[str, QuoteRow],
+                     frozen: Dict[str, Tuple]) -> Dict[str, QuoteRow]:
+    """物化路径专用: 补丁补完展示字段后, 把**参与名单判定**的字段还原为物化值。
+
+    为什么需要(2026-09-12 P1-2): 物化路径下评分已由预计算定好, 若再让补丁源改写
+    float_mv(f21) / prev_close(f18), 则**评分用的是 A 值、门槛用的是 B 值**, 名单会
+    随行情源可用性漂移 —— 这正是预计算要消灭的问题。
+
+    只还原"物化表里确实有值"的字段(物化为 None 时保留补丁给的, 属于补缺不是改写)。
+    """
+    out: Dict[str, QuoteRow] = {}
+    for code, r in merged.items():
+        f = frozen.get(code)
+        if f is None:
+            out[code] = r
+            continue
+        bid_chg, bid_amt, bid_vol, float_mv, prev_close = f
+        r = replace(r)
+        if bid_chg is not None:
+            r.bid_change = bid_chg
+        if bid_amt is not None:
+            r.bid_amt = bid_amt
+        if bid_vol is not None:
+            r.bid_vol = bid_vol
+        if float_mv is not None:
+            r.float_mv = float_mv
+        if prev_close is not None:
+            r.prev_close = prev_close
+        out[code] = r
+    return out
+
+
 def _fetch_list(ctx: PickContext, policy: pm.ModePolicy,
                 filters: Dict) -> SourceResult:
     """名单源: source_priority[:list_source_count] **依次尝试**, 第一个成功的为准。
@@ -201,19 +234,41 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
     res = PipelineResult(mode=policy.mode.value, mode_label=policy.label)
 
     # 1) 名单源
-    lr = _fetch_list(ctx, policy, filters)
-    res.sources.append(lr.label)
-    if not lr.ok:
-        res.errors.append("名单源[%s]失败: %s" % (lr.label, lr.error or "无数据"))
-        res.degraded = True
-        res.elapsed_ms = int((time.time() - t0) * 1000)
-        log.warning("选股失败 名单源无数据 mode=%s err=%s — %s",
-                    policy.mode.value, lr.error, policy.fail_message)
-        return res
-    rows = lr.rows
-    res.n_universe = len(rows)
-    if lr.degraded:
-        res.degraded = True
+    #    2026-09-12 P1-2: 开关开启且物化表有当日全市场评分时, 直接读物化表(一次 SELECT,
+    #    无网络、天然幂等); 表缺失/行数不足 → 静默回退原路径, 接口永不报错。
+    mat_rows, mat_scores = ({}, {})
+    use_mat = False
+    if precompute.read_enabled():
+        try:
+            mat_rows, mat_scores = precompute.read_materialized(ctx.date)
+        except Exception as e:                                    # noqa: BLE001
+            log.warning("[预计算] 物化表读取异常(回退原路径) err=%s", e)
+            mat_rows, mat_scores = ({}, {})
+        use_mat = bool(mat_rows)
+
+    if use_mat:
+        rows = dict(mat_rows)
+        res.sources.append("precompute")
+        res.n_universe = len(rows)
+        frozen: Dict[str, Tuple] = {
+            c: (r.bid_change, r.bid_amt, r.bid_vol, r.float_mv, r.prev_close)
+            for c, r in rows.items()}
+        lr = None                                                 # 未走名单源
+    else:
+        lr = _fetch_list(ctx, policy, filters)
+        res.sources.append(lr.label)
+        if not lr.ok:
+            res.errors.append("名单源[%s]失败: %s" % (lr.label, lr.error or "无数据"))
+            res.degraded = True
+            res.elapsed_ms = int((time.time() - t0) * 1000)
+            log.warning("选股失败 名单源无数据 mode=%s err=%s — %s",
+                        policy.mode.value, lr.error, policy.fail_message)
+            return res
+        rows = lr.rows
+        res.n_universe = len(rows)
+        if lr.degraded:
+            res.degraded = True
+        frozen = {}
 
     # 2) 粗筛 → 候选(省日K与点查; 只按定格可判定的字段, 不需要先评分)
     fctx = pfilter.FilterContext(
@@ -237,6 +292,9 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
     pr = _fetch_patch(ctx, policy, codes, filters)
     if pr is not None:
         rows = _merge_rows(rows, pr.rows)
+        if use_mat:
+            # 名单字段仍以物化定格为准(补丁只补展示), 否则评分与门槛会用到两套值
+            rows = _refreeze_locked(rows, frozen)
         res.sources.append(pr.label)
         if pr.degraded:
             res.degraded = True
@@ -251,17 +309,27 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
         #   → 评分是"保守占位分"而非真实评分 → 评分下限(scoreFloor)必须豁免, 否则
         #   "点查失败 → 快照行直出保名单"这条降级保命路径会被砍成空名单
         #   (test_auction_snap_pool_offhours 暴露; 其余过滤项不受影响)。
-        fctx.score_floor_exempt = True
+        # 2026-09-12: 物化路径**不适用** —— 评分来自预计算(全市场、字段已定),
+        #   不因补丁缺失而失真, 故不豁免(豁免会让低分票混进物化名单)。
+        if not use_mat:
+            fctx.score_floor_exempt = True
 
     # 3.5) 竞价强度(替代失活的 f630 异动等级, 权重同为 w_warn=17%):
     #      三层信号全部来自**快照表 + 开盘啦**, 对东财免疫 —— 东财点查断了照样有分。
     #      只对候选加载(全市场拉没必要); 加载失败 → strengths 为空 → 退回 warn 因子。
-    strengths = _load_strength(codes, ctx)
+    #      物化路径跳过: 评分已含该因子, 且物化表的 warn_type 已是强度档位。
+    strengths: Dict[str, float] = {}
+    if not use_mat:
+        strengths = _load_strength(codes, ctx)
 
     # 4) 评分 + 精筛(只针对候选) → **名单在此定型**
-    cand_rows = [rows[c] for c in codes if c in rows]
-    srows = score_rows(cand_rows, cfg, strengths)
-    outcome = pfilter.apply_filters(srows, filters, fctx)
+    if use_mat:
+        # 评分已由预计算算好, 此处只按 code 取回(零网络、毫秒级)
+        cand_rows = [ScoredRow(row=rows[c], score=mat_scores[c])
+                     for c in codes if c in rows and c in mat_scores]
+    else:
+        cand_rows = score_rows([rows[c] for c in codes if c in rows], cfg, strengths)
+    outcome = pfilter.apply_filters(cand_rows, filters, fctx)
     res.stats = dict(outcome.stats)
 
     # 5) 输出(老链路 item 同构 + 定格派生字段)

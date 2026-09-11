@@ -68,20 +68,38 @@ def run_system_batch(time_point="9_25", sync=False):
         threading.Thread(target=_wrapped, daemon=True, name=f"system_batch_{time_point}").start()
 
 
-def _do_run(time_point):
+def _do_run(time_point, now=None):
     """实际跑选股+落库(供 run_system_batch 调用)
+
+    now: 时间注入(测试用), None = 当前时间。
+        2026-09-12: 原来写死取 time.time(), 导致**周末跑测试必红**(tm_wday>=5 直接
+        return, 业务断言根本没机会执行)。与 picker.pipeline.run(now=...) 同惯例。
 
     2026-09-11: 老链路(_run_legacy)与 settings `picker_lock` 回滚开关已删除 ——
     picker.pipeline 是**唯一**选股链路(模式层 → 定格快照 → 粗筛 → 评分 → 精筛),
     与首页选股同一条代码路径, 锁仓不再有自己的一套取数与过滤逻辑。
     """
-    t0 = time.time()
+    t0 = time.time() if now is None else float(now)
     g = time.gmtime(t0 + 8 * 3600)
     if g.tm_wday >= 5:  # 周六日跳过
         log.info("system_batch[%s] 非交易日跳过", time_point)
         return
     # 检查今日是否已存(防重复, 同日同 user_id 同 time_point 只一条)
     today_str = "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
+
+    # 2026-09-12 P1-1: 选股**之前**先跑全市场预计算(写 stock_score_daily)。
+    #   这样本次批跑与之后所有用户请求都能直接读物化表 —— 改筛选条件不必重跑取数与
+    #   评分(毫秒级), 且名单天然幂等。开关默认关; 失败只记日志, 不影响批跑
+    #   (读路径检测到物化表行数不足会静默回退原路径)。
+    #   注意放在"今日已存则跳过"**之前**: 否则批跑跳过的日子也不会预计算。
+    try:
+        from .picker import precompute
+        if precompute.write_enabled():
+            pst = precompute.precompute_all(today_str)
+            log.info("system_batch[%s] 预计算: %s", time_point, pst)
+    except Exception as e:                                        # noqa: BLE001
+        log.error("system_batch[%s] 预计算异常(不影响批跑) err=%s", time_point, e)
+
     if _has_today_system_batch(today_str, time_point):
         log.info("system_batch[%s] 今日已存, 跳过", time_point)
         return
