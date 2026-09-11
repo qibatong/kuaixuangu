@@ -100,6 +100,16 @@
     `picker.lock.run_lock`。打在 `scorer.process_all_stocks` 上的桩**永远不被调用**（曾因此假绿）。
   → `scorer.js_round` / `is_first_board` / `get_factor_score` 已删，等价实现见
     `picker/score_factors.py`（`js_round` / `factor_score` / `factor_default`）。
+  → **🔴 每个 PickMode 都必须有补丁源**（`mode.POLICIES[*].patch_sources` 非空 +
+    `realtime_patch=True`；名单源仍由 `list_source_count` 单独控制，两者互不影响）。
+    2026-09-11 事故：`LOCKED`(9:25-9:30) 曾只有 `("snapshot",)` + `realtime_patch=False`
+    → 定格行 `real_change=None` → 落库 `history._safe_num` 把 None 兜成 **0**
+    （`batch_stocks.real_change` 是 NOT NULL）→ 9:26 系统批次 / `auto_apply` 全员
+    **「现涨幅 0.00%」**。改 mode 策略前先看 `tests/test_picker_mode.py::test_locked_mode_has_patch_source`。
+  → **落库把 None 写成 0 是"未知被冒充实测值"**：`batch_stocks` 的数值列全 NOT NULL，
+    `history._safe_num` 一律兜 0，读侧无从区分"真的 0"和"没数据"。直读批次返回给前端前，
+    必须用 `stocks._fill_spot_fields(lst, fs)` 走一遍实时行情覆盖（lock 当日幂等直读、
+    refresh 两条分支**都要**）。
 
 ## 八、数据源与熔断（fetcher）
 

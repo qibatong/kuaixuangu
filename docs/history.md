@@ -502,3 +502,61 @@
     本次 `git tag -a v4.11.7` 因此第二次报 `fatal: tag 'v4.11.7' already exists` ——
     **"already exists" 不等于失败**，必须先 `git cat-file -t <tag>` +
     `git rev-parse <tag>^{commit}` 核实 tag 指向是否正确，别直接重建。
+
+- **v4.11.9 (09-11) 生产「选股现涨幅又为 0」事故：锁定期(9:25-9:30) 无补丁源**
+  - **症状**：主人在 **9:29**（竞价窗口收尾）反映「生产环境选股现涨又为 0」。属**时段性**故障：
+    9:25-9:30 显示 0.00%，9:30 后自愈（下方"为什么"）。
+  - **取证（都是只读探针 + DB 直查，未改任何线上文件）**
+    - 日志实锤：`选股 mode=locked 全市场=132 候选=5 入选=2 源=snapshot 降级=False`
+      —— **只有 snapshot 一个源，一个补丁源都没跑**，而 `降级=False` 让人看不出异常。
+    - 落库质量（`batch_stocks.real_change`）：
+      | 日期 | 9:20-9:35 锁仓批次 | 其中 real_change **全 0** | 零行占比 |
+      |---|---|---|---|
+      | 09-07 | 118 | 0 | 4% |
+      | 09-08 | 118 | 3 | 16% |
+      | 09-09 / 09-10 | **0**（该窗口无批次 → bug 潜伏未暴露） | — | — |
+      | **09-11** | **107** | **105** | **94%** |
+    - 当日汇总：170 个批次中 **105 个 real_change 全 0**；明细 777 行里 **310 行为 0**。
+    - 时间指纹：batch 8862~8881 全部落在 **同一秒 09:26:03**、不同 uid、各 3 行 →
+      正是 **9:26 系统批次 / `auto_apply` 全员自动锁仓**。
+    - 排除项：东财全市场 clist、腾讯、push2dycalc 均 200；`OUTBOUND_IPS=172.22.114.161`
+      正确（9/10 那个 eth1 坑没复发）；fd=13/65535；`Traceback` 计数 = 0。
+      即**不是数据源故障**，是**列缺值**。
+  - **根因链（四步，环环可证）**
+    1. `mode.POLICIES[LOCKED]`（9:25-9:30）原为 `source_priority=("snapshot",)` +
+       `realtime_patch=False` → **补丁源为空** → `pipeline._fetch_patch` 直接返回 None。
+    2. 定格快照行 `QuoteRow.from_snapshot` 无实时价 → `real_change = None`。
+    3. 落库 `history._safe_num(None)` → `_NOT_NULL_DEFAULTS["realChange"] = 0.0`
+       （`batch_stocks.real_change` 建表即 **NOT NULL**）→ **"未知"被写成 0**。
+    4. 9:25-9:30 前端走 `action=lock`，命中**当日幂等直读**分支 → 该分支当时**没有实时行情覆盖**
+       （只有 refresh 的两条分支有）→ 把 DB 里的 0 原样回吐 → 前端 `realChange=0` 渲染成
+       **`0.00%`**（`null` 才会渲染 `-`）。
+    - **为什么 9:30 后自愈**：refresh 直读分支有 `fetch_spot_quote_map` 覆盖，把 0 刷成真值；
+      前端 `mergeSpotIntoLocked` 再用 `lt.realChange` 覆盖。**症状因此只在 9:25-9:30 出现**
+      —— 恰好是主人每天看盘前的那个窗口。
+    - **为什么今天才爆**：v4.11.3（09-11）老链路彻底退役后 picker 成为**唯一**链路，
+      锁仓（system_batch / auto_apply）不再走"自己取实时行情"的老实现；9/9-9/10 该窗口
+      没有批次落库（bug 潜伏），9/11 自动锁仓恢复 + 新链路 ⇒ 一次性全暴露。
+  - **修复（三处，判据：只改"未知→0"的成因，不改任何过滤/名单语义）**
+    - **① 根因**：`mode.py` LOCKED 对齐其余三种模式 →
+      `source_priority=("snapshot","eastmoney_realtime","tencent_point")` + `realtime_patch=True`。
+      **不破坏幂等**：`list_source_count` 仍为 1 → 名单只由 snapshot 定；补丁只补展示字段，
+      且价格门槛按定格竞价价判定、不参与名单；`auction_window` 仍为 False → 竞价字段不取实时。
+    - **② 降级可见**：`pipeline.run` 中补丁源不可用除 `errors` 外加置 `res.degraded = True`
+      —— 原实现只 append errors、`degraded` 仍 False，日志「降级=False」直接误导排查（违背铁律 2）。
+    - **③ 症状兜底**：`api/stocks.py` 抽出 `_fill_spot_fields(lst, fs)`，把原先**只**出现在
+      refresh 两条分支的"实时行情覆盖展示字段"复用到 **lock 当日幂等直读**分支
+      （另外两处同时收敛为调用，去掉重复代码）。覆盖仅在取到非 None 值时进行，不增删票、
+      不改评分与排序。**这条对今天已落库的 105 个坏批次同样生效**（无需回填 DB）。
+  - **测试**：新增 3 例回归锁 —— `test_picker_mode.py::test_locked_mode_has_patch_source`
+    （LOCKED 必须有补丁源 **且** `list_sources` 仍唯一是 snapshot、`auction_window` 仍 False）、
+    `test_picker_pipeline.py::test_patch_unavailable_marks_degraded`、
+    `test_picker_pipeline.py::test_locked_mode_patch_fills_real_change`（9:26 跑 → 现涨由补丁补上）。
+  - **验证**：全量 **879 例 / 0 失败 / 0 错误 / 4 skip**（876 + 新增 3），与基线 `_v4118.xml`
+    集合差 → **新增失败 = 空集**。
+  - **回滚点**：tag **`v4.11.8`** → 见下方 v4.11.8 条目末尾的提交号；整体回滚点
+    `v4.11.2` → `36ce505` 仍有效。
+  - **⚠️ 遗留（本次未动，待主人定）**：`history._safe_num` 把 `real_change` 的 **None 兜成 0**
+    是"未知 = 0"的原始制造者（因列 NOT NULL）。彻底修需给 `batch_stocks` 加一列标记
+    "现涨是否已知"（`ALTER TABLE ADD COLUMN` 可平滑加），读侧把未知还原成 `null` →
+    前端显示 `-`。属独立小重构，本轮先用 ②③ 把可见性补上，未动表结构。
