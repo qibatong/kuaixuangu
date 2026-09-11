@@ -167,6 +167,41 @@ def _snapshot_rows_to_raw(snap_rows, codes):
     return raw
 
 
+def _fill_spot_fields(lst, fs):
+    """用全市场实时行情覆盖名单的**展示字段**(现价/现涨/实体/量比/换手)。
+
+    2026-09-11 抽取: 原先只有 refresh 的两条直读分支做这件事, lock 当日幂等直读分支
+    漏了 → 「9:25-9:30 前端走 lock 直读」时原样回吐落库值, 把"未知"当 0 显示
+    (batch_stocks.real_change NOT NULL, 落库 None 被 _safe_num 兜成 0)。
+
+    语义边界(与模式层「9:30 后名单固定, 只更新实时行情」一致):
+      * 只覆盖展示字段 —— 不增删票、不改 probability/confidence 与排序;
+      * 覆盖值取不到(None)时保留原值, 不用 None 抹掉已有数据;
+      * 行情拉取失败静默保留原值(下轮自愈), 不影响名单。
+    """
+    if not lst:
+        return lst
+    try:
+        spot_map = fetcher.fetch_spot_quote_map(fs)
+    except Exception as e:
+        log.warning("实时行情覆盖失败(降级: 保留落库原值) fs=%s err=%s", fs, e)
+        return lst
+    if not spot_map:
+        return lst
+    n = 0
+    for it in lst:
+        rt = spot_map.get(it.get("code"))
+        if not rt:
+            continue
+        for k in ("price", "realChange", "entityChange", "volRatio", "turnover"):
+            v = rt.get(k)
+            if v is not None:
+                it[k] = v
+        n += 1
+    log.info("直读名单实时行情覆盖 %d/%d 只 fs=%s", n, len(lst), fs)
+    return lst
+
+
 @router.get("/api/stocks")
 def api_stocks(request: Request, uid: int = Depends(get_uid)):
     q = qs(request)
@@ -205,6 +240,12 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                 lock_b = history.find_today_lock_matching(uid, f)
                 if lock_b:
                     lst = history.get_batch_stocks_mapped(lock_b["id"])
+                    # 2026-09-11: 直读批次必须补实时行情覆盖(与下方 refresh 直读分支同口径)。
+                    # 根因: batch_stocks.real_change 列是 NOT NULL, 落库时 history._safe_num 把
+                    #   "未知"(None) 兜成 0 → 原样回吐会让前端把"未知"显示成 0.00%
+                    #   (9/11 生产现涨全 0 事故)。这里用全市场实时行情把现存/现涨/实体/量比/换手
+                    #   刷成真值; 只覆盖展示字段, 不增删票、不改评分 → 幂等语义不变。
+                    _fill_spot_fields(lst, fs)
                     log.info("选股lock当日幂等 uid=%s batch=%s 直读%d只(跳重拉/落库/推送)",
                              uid, lock_b["id"], len(lst))
                     return jr({
@@ -243,25 +284,10 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                         log.warning("选股refresh直读批次为空名单, 放弃直读改重算 uid=%s "
                                     "batch=%s src=%s", uid, reuse_bid, reuse_src)
                         reuse_bid = None
-                    # 全市场实时行情(缓存命中≈0ms; 拉取失败降级: 定格名单无实时覆盖, 下轮自愈)
-                    # 2026-09-05 B 方案: 行情仅内联覆盖 list item, 不再整体下发 spotMap 字段
-                    spot_map = {}
-                    try:
-                        spot_map = fetcher.fetch_spot_quote_map(fs)
-                    except Exception as e:
-                        log.warning("refresh直读路径全市场行情拉取失败(降级: 定格名单) err=%s", e)
                     # 定格评分(probability/confidence/bidChange/bidAmt...) + 实时行情覆盖
                     # (price/realChange/entityChange/volRatio/turnover): 前端 merge 在榜分支
                     # 用 lt.price/realChange 覆盖, 评分定格不回拨
-                    if spot_map:
-                        for it in lst:
-                            rt = spot_map.get(it["code"])
-                            if rt:
-                                it["price"] = rt.get("price")
-                                it["realChange"] = rt.get("realChange")
-                                it["entityChange"] = rt.get("entityChange")
-                                it["volRatio"] = rt.get("volRatio")
-                                it["turnover"] = rt.get("turnover")
+                    _fill_spot_fields(lst, fs)
                     log.info("选股refresh直读批次 uid=%s src=%s batch=%s 返回%d只(跳全市场重拉/评分)",
                              uid, reuse_src, reuse_bid, len(lst))
                     return jr({
@@ -286,21 +312,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                 uid, fs, history._canon_filter_fingerprint(f))
             hit = _cstore.get(ck_full)
             if hit is not None:
-                # 2026-09-05 B 方案: 行情仅内联覆盖 list item, 不再整体下发 spotMap 字段
-                spot_map = {}
-                try:
-                    spot_map = fetcher.fetch_spot_quote_map(fs)
-                except Exception as e:
-                    log.warning("refresh计算缓存命中但全市场行情拉取失败(降级: 无实时覆盖) err=%s", e)
-                if spot_map:
-                    for it in hit:
-                        rt = spot_map.get(it["code"])
-                        if rt:
-                            it["price"] = rt.get("price")
-                            it["realChange"] = rt.get("realChange")
-                            it["entityChange"] = rt.get("entityChange")
-                            it["volRatio"] = rt.get("volRatio")
-                            it["turnover"] = rt.get("turnover")
+                _fill_spot_fields(hit, fs)
                 log.info("选股refresh命中计算缓存 uid=%s 返回%d只(跳全市场重拉/评分)",
                          uid, len(hit))
                 return jr({

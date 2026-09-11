@@ -242,6 +242,11 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
             res.degraded = True
     else:
         res.errors.append("补丁源不可用(价格门槛与实时展示字段将缺失)")
+        # 2026-09-11: 补丁源不可用必须置 degraded —— 此前只 append errors、degraded 仍是
+        #   False, 日志/接口显示「降级=False」而实际现价/现涨全缺, 排查被误导
+        #   (9/11 生产现涨全 0 事故: 日志 mode=locked 源=snapshot 降级=False,
+        #    看不出"根本没跑补丁源")。违背铁律2「降级必须可见」。
+        res.degraded = True
         # 2026-09-11: 补丁源全失败 = 候选只有定格字段(换手/量比/异动/昨日涨幅全缺)
         #   → 评分是"保守占位分"而非真实评分 → 评分下限(scoreFloor)必须豁免, 否则
         #   "点查失败 → 快照行直出保名单"这条降级保命路径会被砍成空名单

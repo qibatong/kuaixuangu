@@ -116,6 +116,27 @@ def test_every_mode_has_fail_message():
         assert p.source_priority, "模式 %s 缺少数据源优先级" % m.value
 
 
+def test_locked_mode_has_patch_source():
+    """🔒 2026-09-11 生产事故回归锁 —— 锁定期(9:25-9:30) 必须有补丁源。
+
+    事故链(生产「选股现涨幅又为 0」):
+      原 LOCKED = source_priority("snapshot",) + realtime_patch=False → **无补丁源** →
+      定格快照行无实时价 → real_change 恒 None → 落库时 history._safe_num 把它兜成 0
+      (batch_stocks.real_change 是 NOT NULL) → 9:26 系统批次 / auto_apply 自动锁仓
+      (恰在本窗口跑)的全员名单现涨 0.00%; 且 9:25-9:30 前端走 lock 当日幂等直读
+      (该路径当时无实时行情覆盖), 原样回吐该 0。
+
+    约束: 补上补丁源**不得**改变名单 —— list_sources 仍只能有 snapshot;
+    也不得引入实时竞价字段(竞价字段权威=9:25 定格, auction_window 必须 False)。
+    """
+    locked = pm.POLICIES[pm.PickMode.LOCKED]
+    assert locked.list_sources == ("snapshot",), "名单源仍必须唯一是定格快照(保幂等)"
+    assert locked.realtime_patch is True, "锁定期必须允许补丁源, 否则现涨落库为 0"
+    assert locked.patch_sources, "锁定期必须至少有一个补丁源"
+    assert locked.auction_window is False, "补丁不得注入实时竞价字段(仍认 9:25 定格)"
+    assert locked.deterministic is True
+
+
 def test_trading_day_and_date():
     assert pm.is_trading_day(ts(2026, 9, 8, 10, 0)) is True     # 周二
     assert pm.is_trading_day(ts(2026, 9, 12, 10, 0)) is False   # 周六

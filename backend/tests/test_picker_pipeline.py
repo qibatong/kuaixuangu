@@ -347,3 +347,34 @@ def test_bid_ratio_none_without_pair(monkeypatch):
                        now=datetime.datetime(2026, 9, 8, 16, 0))
     assert res.items[0]["bidRatio"] is None
     assert res.items[0]["qiangchou"] == 0
+
+
+# ==================== 2026-09-11 现涨全 0 事故回归锁 ====================
+def test_patch_unavailable_marks_degraded(monkeypatch):
+    """补丁源不可用必须 degraded=True —— 此前只 append errors、degraded 仍 False,
+    日志显示「降级=False 源=snapshot」, 完全看不出"根本没跑补丁源"(违背铁律2)。"""
+    rows = {"600000": _q("600000")}
+    _install(monkeypatch, {"snapshot": _FakeSource(rows)})
+    res = pipeline.run(dict(FULL), ctx=_ctx(), now=datetime.datetime(2026, 9, 8, 11, 0))
+    assert res.items, "补丁源缺失不影响名单"
+    assert res.degraded is True, "补丁源不可用必须标降级"
+    assert any("补丁源" in e for e in res.errors)
+
+
+def test_locked_mode_patch_fills_real_change(monkeypatch):
+    """🔒 9:25-9:30(锁定期) 补丁源必须真的补上现涨 —— 事故回归锁。
+
+    修复前 LOCKED 无补丁源 → 快照行 real_change=None → 一路 None 到落库被兜成 0 →
+    9:26 系统批次全员「现涨幅 0.00%」。
+    """
+    rows = {"600000": _q("600000", real=None)}       # 定格行: 无实时价
+    _install(monkeypatch, {"snapshot": _FakeSource(rows),
+                           "eastmoney_realtime": _FakePatch()})
+    res = pipeline.run(dict(FULL), ctx=_ctx(),
+                       now=datetime.datetime(2026, 9, 8, 9, 26))
+    assert res.mode == "locked"
+    it = res.items[0]
+    assert it["realChange"] == 9.9, "锁定期必须由补丁源补上现涨(不得为 None)"
+    assert it["price"] == 999.0
+    # 竞价位仍认定格(补丁污染字段被丢弃) —— 与 test_pipeline_patch_never_overwrites_bid_fields 同约束
+    assert it["bidChange"] == 3.0

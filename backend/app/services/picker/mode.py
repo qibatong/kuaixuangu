@@ -118,12 +118,20 @@ POLICIES = {
     PickMode.LOCKED: ModePolicy(
         mode=PickMode.LOCKED,
         label="锁定期",
-        source_priority=("snapshot",),
+        # 2026-09-11 事故修复(生产「选股现涨幅又为 0」): 原为 ("snapshot",) +
+        # realtime_patch=False → **一个补丁源都没有** → 定格快照行无实时价 →
+        # real_change 恒 None → 落库被 history._safe_num 兜成 0(列 NOT NULL) →
+        # 9:26 系统批次 / auto_apply 自动锁仓(恰在本窗口跑)全员名单现涨 0.00%;
+        # 且 9:25-9:30 前端走 lock 当日幂等直读, 原样回吐该 0。
+        # 9:25 竞价已成交, 实时点查有现价 → 与 PREOPEN/INTRADAY/CLOSED 对齐补齐补丁源。
+        # **不破坏幂等**: list_source_count 仍为 1 → 名单只由 snapshot 定;
+        # 补丁只补展示字段(price/现涨/换手), 且价格门槛按定格竞价价判定, 不参与名单。
+        source_priority=("snapshot", "eastmoney_realtime", "tencent_point"),
         deterministic=True,
         allow_lock=True,
-        auction_window=False,
+        auction_window=False,        # 竞价字段仍一律取 9:25 定格(补丁不得注入 f615/f616)
         allow_relock=True,           # 9:25-9:30 仍可锁定/重选(定格已定型)
-        realtime_patch=False,
+        realtime_patch=True,
         fail_message="9:25 竞价定格数据不可用 — 无法锁定",
     ),
     PickMode.INTRADAY: ModePolicy(
