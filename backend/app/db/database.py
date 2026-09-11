@@ -435,6 +435,48 @@ def init_db():
         )
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_yday_amount_tdate ON yday_amount(tdate)")
+    # ---------- 2026-09-12 P1: 全市场评分物化表 ----------
+    # 评分 5 因子(竞涨34/竞价换手32/竞价强度17/流通市值11/昨涨6)的输入**全部在 9:25 定格**,
+    # 无一依赖实时行情 → 可在竞价结束后对全市场(≈5557只)一次性算好分数落本表。
+    #
+    # 收益: 用户改筛选条件时不再重跑取数与评分, 只对本表做一次 SELECT + 纯 CPU 过滤
+    #       (毫秒级), 且名单**天然幂等**(同一交易日同一条件 → 同一名单)。
+    #
+    # 口径铁律: 本表**只由 DB 已落库数据算出**(snapshot_bid 定格 + yday_amount 昨涨
+    #   + bid_strength), **绝不触碰网络行情源** —— 否则东财一限流, 物化结果就随
+    #   可用性漂移, 幂等与"对东财免疫"两个目标同时失效。
+    #
+    # 幂等: PRIMARY KEY(date, code) + INSERT OR REPLACE(SQLite 3.7 不支持 ON CONFLICT)。
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS stock_score_daily (
+            date          TEXT NOT NULL,
+            code          TEXT NOT NULL,
+            name          TEXT,
+            probability   INTEGER NOT NULL,
+            confidence    INTEGER NOT NULL,
+            bid_change    REAL,
+            bid_amt       REAL,
+            bid_vol       REAL,
+            float_mv      REAL,
+            bid_turnover  REAL,
+            strength      REAL,
+            warn_type     INTEGER NOT NULL DEFAULT 0,
+            yday_chg      REAL,
+            prev_close    REAL,
+            auction_price REAL,
+            is_st         INTEGER NOT NULL DEFAULT 0,
+            is_zt_yday    INTEGER NOT NULL DEFAULT 0,
+            board         TEXT,
+            industry      TEXT,
+            concept       TEXT,
+            rank          INTEGER,
+            detail        TEXT,
+            ts            INTEGER NOT NULL,
+            PRIMARY KEY (date, code)
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ssd_date_rank ON stock_score_daily(date, rank)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ssd_date_prob ON stock_score_daily(date, probability DESC)")
     # 股性画像落库(方案B): 每日盘后一次性算好全部画像, 排行直读此表避免实时逐股重算。
     # profile 为 compute_profile 全量 JSON; score/zt_count/name 供排行排序与搜索筛选。
     cur.execute("""
