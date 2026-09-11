@@ -12,43 +12,71 @@ def hdrs(token):
 @pytest.fixture(autouse=True)
 def _clean_overview_cache():
     """2026-09-04: auction-overview 加了跨进程缓存(date 空 key='_'), 测试 seed 不同日期
-    会互相污染(命中旧缓存 → 断言失败)。每个用例后清空该 key, 保证重算最新。"""
+    会互相污染(命中旧缓存 → 断言失败)。每个用例后清空相关 key, 保证重算最新。
+    2026-09-11: 补上"指定日期"查询用到的两个 key(见 test_overview_specified_date)。"""
     from app.services.cache_store import store as _cs
     yield
-    try:
-        _cs.delete("auction_overview:_")
-    except Exception:
-        pass
+    for k in ("auction_overview:_", "auction_overview:2026-08-21",
+              "auction_overview:2099-01-03", "auction_overview:2000-01-01"):
+        try:
+            _cs.delete(k)
+        except Exception:
+            pass
 
 
-def _seed_snapshot(monkeypatch):
+# 2026-09-11: 只有"无 date → 全表最近 4 日"的用例需要**远未来** seed 日期。
+#   原因: /api/stats/auction-overview 无 date 时取 `SELECT DISTINCT date FROM snapshot_bid
+#   ORDER BY date DESC LIMIT 4` —— 别的用例写入的真实当天日期会排到 seed 日之前,
+#   断言 days[0] 随执行日期漂移(9/11 实测拿到 2026-09-11 而非 2026-08-20)。
+#   用远未来日期保证它恒排第一; 用例结束再删掉, 避免污染后续用例。
+#   ⚠️ 其余用例(auction-snapshot / bid-snapshot / seal-quality)按固定日期 2026-08-20
+#   查询, 必须继续用默认 seed 日期 —— 全局改日期会一次打挂 4~5 条(9/11 踩过)。
+_DEFAULT_SEED_DATE = "2026-08-20"
+_FUTURE_SEED_DATE = "2099-01-02"
+
+
+def _seed_snapshot(monkeypatch, date=_DEFAULT_SEED_DATE):
     """直接写入 snapshot_bid 三时点数据(绕开采集), 返回写入的日期"""
     import app.services.auction_snapshot as snap
     monkeypatch.setattr(snap.fetcher, "fetch_eastmoney_all", lambda fs: [
         {"f12": "600001", "f14": "测A", "f615": 10.0, "f616": 5e7, "f21": 4e9},
         {"f12": "000002", "f14": "测B", "f615": 5.0, "f616": 3e7, "f21": 5e9},
     ])
-    monkeypatch.setattr(snap, "_bj_date", lambda: "2026-08-20")
+    monkeypatch.setattr(snap, "_bj_date", lambda: date)
     snap.snapshot_at("9_15", force=True)
     snap.snapshot_at("9_20", force=True)
     snap.snapshot_at("9_25", force=True)
-    return "2026-08-20"
+    return date
+
+
+def _cleanup_snapshot(date):
+    """删除 seed 写入的行(远未来日期会永久占据"最近 4 日"首位, 不清理会污染后续用例)"""
+    conn = database.get_conn()
+    try:
+        conn.execute("DELETE FROM snapshot_bid WHERE date=?", (date,))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def test_overview_latest_4_days(client, first_user, monkeypatch):
-    """未指定 date → 返回最近的交易日期(本测试写入的 2026-08-20)"""
+    """未指定 date → 返回最近的交易日期(seed 用远未来日期, 保证不被别的用例写入的
+    真实当天日期顶掉, 断言不再随运行日期漂移)"""
     token, _, _ = first_user
-    _seed_snapshot(monkeypatch)
-    r = client.get("/api/stats/auction-overview", headers=hdrs(token))
-    assert r.status_code == 200
-    d = r.json()
-    assert d.get("ok")
-    assert d["days"], "应有至少 1 天"
-    day = d["days"][0]
-    assert day["date"] == "2026-08-20"
-    # 9:15 有数据: avg_change=(10+5)/2=7.5; total_amt=(5e7+3e7)/... 注意 snapshot bid_amt 存的是万元
-    assert day["points"]["9_15"]["count"] == 2
-    assert day["points"]["9_15"]["avg_change"] == 7.5
+    d0 = _seed_snapshot(monkeypatch, _FUTURE_SEED_DATE)
+    try:
+        r = client.get("/api/stats/auction-overview", headers=hdrs(token))
+        assert r.status_code == 200
+        d = r.json()
+        assert d.get("ok")
+        assert d["days"], "应有至少 1 天"
+        day = d["days"][0]
+        assert day["date"] == d0
+        # 9:15 有数据: avg_change=(10+5)/2=7.5; 注意 snapshot bid_amt 存的是万元
+        assert day["points"]["9_15"]["count"] == 2
+        assert day["points"]["9_15"]["avg_change"] == 7.5
+    finally:
+        _cleanup_snapshot(d0)
 
 
 def test_overview_specified_date(client, first_user, monkeypatch):

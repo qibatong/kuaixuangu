@@ -151,8 +151,11 @@ class TestKplFillBidChangeAndAmt:
 
     BASE = {"bid_change": 0.0, "bid_amt": 0.0, "name": "亚盛集团",
             "bid_buy_amt": 0.0, "float_mv": 1e10, "free_mv": 1e10, "board": ""}
+    # ⚠️ 单位: KPL 的 bidAmt 是**元**(kpl.py 解析口径), 快照表 bid_amt 是**万元**
+    # (auction_snapshot 落库时 /1e4) → fixture 必须给元值 8_880_000, 落库才得 888 万。
+    # (2026-09-11 修: 原写 888.0 是按"万元"填的过期数据 → 落库变 0.0888 万)
     KPL = {"code": "600108", "name": "亚盛集团", "bidChange": 9.99,
-           "bidAmt": 888.0, "bidSealAmt": 5.0e8, "board": "农业"}
+           "bidAmt": 8_880_000.0, "bidSealAmt": 5.0e8, "board": "农业"}
 
     def test_fill_when_market_missing(self, monkeypatch):
         """行情源涨幅=0/竞价额=0 → 用开盘啦补位(9:15 / 腾讯兜底场景)"""

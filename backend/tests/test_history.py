@@ -7,7 +7,11 @@ def hdrs(token):
 
 
 def run_filter(client, token):
-    r = client.get("/api/stocks?action=filter&markets=sh_sz", headers=hdrs(token))
+    # scoreFloor=0 显式隔离: 本文件测"落库/分页/去重/战绩统计", 与评分门槛无关。
+    # 全站默认 scoreFloor=80(2026-09-10 主人拍板) 会剔掉 MOCK_RAW 里评分 73 的
+    # 300003 → total 3 而非 4, 使本文件基线随门槛默认值漂移。显式关闭以聚焦被测语义。
+    r = client.get("/api/stocks?action=filter&markets=sh_sz&scoreFloor=0",
+                   headers=hdrs(token))
     assert r.status_code == 200 and r.json().get("ok")
     return r.json()
 
