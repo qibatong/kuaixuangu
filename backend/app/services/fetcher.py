@@ -1832,304 +1832,16 @@ def _fetch_minute_trend(code):
     return {}
 
 
-# ==================== 多数据源 fallback (2026-08-20) ====================
-# 当东财接口熔断时, 按顺序 fallback: 同花顺 → 开盘啦(kpl) → Tushare → 日线聚合
-# 覆盖所有周期: 分时/日K/周K/月K
-
-
-def _fetch_kline_from_ths(code, period="day"):
-    """同花顺 K-line 兜底源: day/week/month
-    URL 格式: https://d.10jqka.com.cn/v6/line/hs_{code}/{type}/last.js
-    type: 01=日K, 02=周K, 03=月K
-    返回标准格式 dict, 失败返回 {}"""
-    type_map = {"day": "01", "week": "02", "month": "03"}
-    tp = type_map.get(period, "01")
-    for proto in ("https", "http"):
-        url = "%s://d.10jqka.com.cn/v6/line/hs_%s/%s/last.js" % (proto, code, tp)
-        try:
-            req = urllib.request.Request(url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                "Referer": "http://stockpage.10jqka.com.cn/",
-            })
-            with _http_get(req, timeout=config.KLINE_TIMEOUT) as resp:
-                body = resp.read().decode("utf-8", "ignore")
-            m = re.search(r"\{.*\}", body, re.S)
-            if not m:
-                continue
-            data = json.loads(m.group(0)).get("data") or ""
-            if not data:
-                continue
-            segs = [s for s in str(data).split(";") if s]
-            if not segs:
-                continue
-            times, opens, closes, highs, lows, volumes, amounts = [], [], [], [], [], [], []
-            for seg in segs:
-                parts = seg.split(",")
-                if len(parts) < 7:
-                    continue
-                try:
-                    d = parts[0].replace("-", "")
-                    if len(d) == 8:
-                        d = d[:4] + "-" + d[4:6] + "-" + d[6:8]
-                    times.append(d)
-                    opens.append(float(parts[1]))
-                    highs.append(float(parts[2]))
-                    lows.append(float(parts[3]))
-                    closes.append(float(parts[4]))
-                    vol = float(parts[5])
-                    volumes.append(vol if vol < 10000000 else vol / 100.0)
-                    amounts.append(float(parts[6]))
-                except (TypeError, ValueError, IndexError):
-                    continue
-            if not times:
-                continue
-            preClose = 0
-            if len(closes) >= 2:
-                preClose = closes[-2]
-            elif closes:
-                preClose = closes[0]
-            result = {
-                "period": period, "code": code,
-                "time": times, "open": opens, "close": closes,
-                "high": highs, "low": lows,
-                "volume": volumes, "amount": amounts,
-                "preClose": preClose, "name": "",
-            }
-            log.info("同花顺K-line拉取成功 code=%s period=%s 条数=%d", code, period, len(times))
-            return result
-        except Exception as e:
-            log.debug("同花顺K-line拉取失败 code=%s err=%s", code, e)
-            continue
-    log.warning("同花顺K-line拉取失败 code=%s period=%s", code, period)
-    return {}
-
-
-def _fetch_chart_from_kpl(code, period="day"):
-    """开盘啦(kpl) chart 兜底源: 分时/日K (周K/月K 不支持)"""
-    try:
-        from . import kpl
-    except ImportError:
-        return {}
-    if period == "minute":
-        d = kpl.fetch_kpl_doc8(StockID=code)
-        if not d:
-            log.warning("kpl分时拉取失败 code=%s", code)
-            return {}
-        preClose = float(d.get("preclose_px") or d.get("preClose") or d.get("pre_close") or 0)
-        name = d.get("name") or ""
-        trend = d.get("trend") or []
-        if not trend:
-            log.warning("kpl分时无数据 code=%s", code)
-            if preClose > 0:
-                return {"period": "minute", "code": code, "name": name,
-                        "time": [], "price": [], "avg": [], "volume": [], "preClose": preClose}
-            return {}
-        times, prices, avgs, volumes = [], [], [], []
-        for row in trend:
-            if not isinstance(row, list) or len(row) < 4:
-                continue
-            try:
-                ts = str(row[0])
-                if " " in ts:
-                    ts = ts.split(" ", 1)[1]
-                times.append(ts)
-                prices.append(float(row[1]))
-                avgs.append(float(row[2]) if row[2] else None)
-                volumes.append(float(row[3]))
-            except (TypeError, ValueError, IndexError):
-                continue
-        if not times:
-            return {}
-        result = {"period": "minute", "code": code, "name": name,
-                  "time": times, "price": prices, "avg": avgs, "volume": volumes,
-                  "preClose": preClose}
-        log.info("kpl分时拉取成功 code=%s 条数=%d preClose=%.2f", code, len(times), preClose)
-        return result
-    if period == "day":
-        d = kpl.fetch_kpl_doc7(StockID=code, T="W8", RStart="0925", old="1")
-        if not d or d.get("errcode") not in (None, "0"):
-            log.warning("kpl日K拉取失败 code=%s errcode=%s", code, d.get("errcode") if d else "None")
-            return {}
-        x = d.get("x") or []
-        y = d.get("y") or []
-        if not x or not y:
-            log.warning("kpl日K无数据 code=%s x=%d y=%d", code, len(x), len(y))
-            return {}
-        vol_arr = d.get("vol") or []
-        bal_arr = d.get("bal") or []
-        times, opens, closes, highs, lows, volumes, amounts = [], [], [], [], [], [], []
-        n = min(len(x), len(y))
-        for i in range(n):
-            yi = y[i]
-            if not isinstance(yi, list) or len(yi) < 4:
-                continue
-            try:
-                times.append(str(x[i]))
-                opens.append(float(yi[0]))
-                closes.append(float(yi[1]))
-                highs.append(float(yi[2]))
-                lows.append(float(yi[3]))
-                volumes.append(float(vol_arr[i]) if i < len(vol_arr) else 0)
-                amounts.append(float(bal_arr[i]) if i < len(bal_arr) else 0)
-            except (TypeError, ValueError, IndexError):
-                times.pop()
-                continue
-        if not times:
-            return {}
-        if len(closes) >= 2:
-            preClose = closes[-2]
-        elif closes:
-            preClose = closes[0]
-        else:
-            preClose = 0
-        result = {"period": "day", "code": code,
-                  "time": times, "open": opens, "close": closes,
-                  "high": highs, "low": lows,
-                  "volume": volumes, "amount": amounts,
-                  "preClose": preClose, "name": d.get("name", "")}
-        log.info("kpl日K拉取成功 code=%s 条数=%d preClose=%.2f", code, len(times), preClose)
-        return result
-    log.info("kpl不支持周期 period=%s, code=%s", period, code)
-    return {}
-
-
-def _fetch_chart_from_tushare(code, period="day"):
-    """Tushare 代理网关 chart 兜底源 (K-line only, 分时不支持)
-
-    网关返回两种兼容格式:
-    A) 行格式(主流): { code:0, msg:'ok', data:{fields:[...], items:[[...],[...]]}, count, api_name }
-    B) 宽格式(文档):   { api_name, count, trade_date:[...], close:[...], ... }
-    两种格式同时兼容解析, 任一格式命中即返回.
-    """
-    if not config.TUSHARE_API_KEY:
-        return {}
-    if period not in ("day", "week", "month"):
-        return {}
-    if code.startswith(("6", "9", "5")):
-        ts_code = code + ".SH"
-    elif code.startswith(("0", "3", "2", "1")):
-        ts_code = code + ".SZ"
-    elif code.startswith(("8", "4")):
-        ts_code = code + ".BJ"
-    else:
-        ts_code = code + ".SZ"
-    api_map = {"day": "daily", "week": "weekly", "month": "monthly"}
-    api = api_map.get(period)
-    if not api:
-        return {}
-    path = "/tushare/pro/" + api
-    from datetime import date
-    # 传 end_date=今天: 让 weekly/monthly 返回最近一周/本月(含至今), 而非止于上一完整周期
-    params = {"ts_code": ts_code, "end_date": date.today().strftime("%Y%m%d")}
-    try:
-        qs = urllib.parse.urlencode(params)
-        url = config.TUSHARE_BASE_URL + path + "?" + qs
-        req = urllib.request.Request(url, headers={
-            "X-API-Key": config.TUSHARE_API_KEY, "User-Agent": "Mozilla/5.0",
-        })
-        with _http_get(req, timeout=15, context=_NO_VERIFY_CTX) as resp:
-            raw = json.loads(resp.read().decode("utf-8"))
-        # 先检查网关层错误
-        if raw.get("ok") is False and raw.get("error"):
-            log.warning("tushare 网关拒绝 code=%s period=%s err=%s msg=%s",
-                        code, period, raw.get("error"), raw.get("message"))
-            return {}
-        if raw.get("code") and raw.get("code") != 0:
-            log.warning("tushare 返回错误 code=%s period=%s code_val=%s msg=%s",
-                        code, period, raw.get("code"), raw.get("msg"))
-            return {}
-        count = raw.get("count", 0)
-        rows = []  # 统一转成 rows: list of dicts
-        # ===== 格式 A: data.fields + data.items (行格式) =====
-        ddata = raw.get("data")
-        if isinstance(ddata, dict) and isinstance(ddata.get("fields"), list) and isinstance(ddata.get("items"), list):
-            fields = ddata["fields"]
-            items = ddata["items"]
-            idx = {}
-            for i, fn in enumerate(fields):
-                idx[fn] = i
-            count = len(items) if not count else count
-            for it in items:
-                if not isinstance(it, list):
-                    continue
-                row = {}
-                for fn, i in idx.items():
-                    if i < len(it):
-                        row[fn] = it[i]
-                rows.append(row)
-        # ===== 格式 B: 宽格式 (key -> 平行数组) =====
-        if not rows and count:
-            array_fields = {}
-            for key, val in raw.items():
-                if key in ("api_name", "count", "code", "msg", "ts_code", "request_id", "data"):
-                    continue
-                if isinstance(val, list) and len(val) == count:
-                    array_fields[key] = val
-            if array_fields:
-                keys = list(array_fields.keys())
-                for i in range(count):
-                    row = {k: array_fields[k][i] for k in keys}
-                    rows.append(row)
-        if not rows:
-            return {}
-        times, opens, closes, highs, lows, volumes, amounts = [], [], [], [], [], [], []
-        preClose = 0
-        first_close = None
-        for row in rows:
-            try:
-                td = str(row.get("trade_date") or row.get("ann_date") or "")
-                if not td:
-                    continue
-                if len(td) == 8:
-                    td = td[:4] + "-" + td[4:6] + "-" + td[6:8]
-                c = float(row.get("close") or 0)
-                if not c:
-                    continue
-                times.append(td)
-                opens.append(float(row.get("open") or 0))
-                closes.append(c)
-                highs.append(float(row.get("high") or 0))
-                lows.append(float(row.get("low") or 0))
-                v = row.get("vol") or row.get("volume") or 0
-                volumes.append(float(v))
-                amounts.append(float(row.get("amount") or 0))
-                if first_close is None:
-                    first_close = c
-                pc = row.get("pre_close")
-                if not preClose and pc:
-                    preClose = float(pc)
-            except (TypeError, ValueError):
-                if times: times.pop()
-                continue
-        if not times:
-            return {}
-        # 按时间升序 (Tushare 默认可能倒序)
-        if len(times) >= 2 and times[0] > times[-1]:
-            times  = list(reversed(times))
-            opens  = list(reversed(opens))
-            closes = list(reversed(closes))
-            highs  = list(reversed(highs))
-            lows   = list(reversed(lows))
-            volumes= list(reversed(volumes))
-            amounts= list(reversed(amounts))
-        if not preClose and len(closes) >= 2:
-            preClose = closes[-2]
-        elif not preClose and closes:
-            preClose = closes[0]
-        result = {"period": period, "code": code,
-                  "time": times, "open": opens, "close": closes,
-                  "high": highs, "low": lows,
-                  "volume": volumes, "amount": amounts,
-                  "preClose": preClose, "name": ""}
-        log.info("tushare K-line拉取成功 code=%s period=%s 条数=%d", code, period, len(times))
-        return result
-    except Exception as e:
-        log.warning("tushare K-line拉取失败 code=%s period=%s err=%s", code, period, e)
-        return {}
+# ==================== chart 源链与校验 (2026-08-20 起, 2026-09-11 收敛) ====================
+# 现源链: 东财 push2his(主, 多节点轮换) → 腾讯(同语义备源); 周K/月K 主源全失败时走日线聚合。
+# 历史: 本处原有 同花顺 / 开盘啦(kpl) / Tushare 三个 fallback 实现, v4.11 去兜底重构
+#   把 sources 收窄为两源后, 它们的 elif 分支运行时不可达 → 属"仅源码可达"死代码,
+#   已于 v4.11.8 删除(判据: 引用它的分支运行时到不了 = 死代码)。
+# 下方 _validate_chart_data 是源链共用的数据合理性校验, 仍在生产使用, 故保留于此。
 
 
 def _validate_chart_data(data, period, source=None):
-    """验证图表数据合理性, 过滤异常数据(如同花顺累积前复权价)"""
+    """验证图表数据合理性, 过滤异常数据(如复权错乱导致的量级突变)"""
     if not data:
         return False
     
@@ -2155,7 +1867,7 @@ def _validate_chart_data(data, period, source=None):
     min_c = min(valid_closes)
     if max_c > 100000 or min_c < 0.01:
         return False
-    # 复权错乱检测: 替代 max>min*100 / ths 高价特判(二者会误伤长期高价股的完整K线,
+    # 复权错乱检测: 替代 max>min*100 这一类粗暴判据(会误伤长期高价股的完整K线,
     # 如茅台周K从 ~21 到 ~2600 跨多个除息周期)。仅当某根相对前一根出现数量级突变才判异常
     prev = None
     for c in valid_closes:
@@ -2517,8 +2229,8 @@ def _aggregate_kpl_daily_to_period(code, target_period):
 
 
 def fetch_stock_chart_robust(code, period="day"):
-    """多数据源 chart 拉取 (替代原 fetch_stock_chart):
-    顺序: 东财 → 同花顺 → kpl → tushare → 自聚合
+    """多源 chart 拉取 (替代原 fetch_stock_chart):
+    顺序: 东财(push2his) → 腾讯(同语义备源) → 自聚合(仅周/月K)
     任一数据源成功即返回, 全部失败返回 {}"""
     if not code:
         return {}
@@ -2540,7 +2252,10 @@ def fetch_stock_chart_robust(code, period="day"):
     #   · 腾讯 K 线是**同语义真实 OHLC**(与东财同为前复权日/周/月线, 经
     #     _validate_chart_data + _kline_amount_pair 口径统一), 与「用现价涨幅假造
     #     竞价字段 f615/f616」性质完全不同 —— 属"换源不换数据", 保留。
-    #   · 其余非真实同语义源(tushare/ths/kpl 拼接/自聚合)仍下线。
+    #   · 其余非真实同语义源(tushare / ths / kpl 拼接)已下线; 自聚合仅保留为周K/月K 的
+    #     最终兜底(见函数末 _aggregate_kpl_daily_to_period)。
+    # 2026-09-11: ths / kpl / tushare 三个分支的**函数实现已删除**——此前 sources 收窄为
+    #   两源后, 这三个 elif 分支运行时永不执行(仅源码可达), 属死代码。
     # 顺序: 东财(主, 内部 KLINE_HOSTS 多节点轮换) → 腾讯(同语义备源)。
     sources = ["eastmoney", "tencent"]
     for src in sources:
@@ -2559,30 +2274,6 @@ def fetch_stock_chart_robust(code, period="day"):
                     with _CHART_LOCK:
                         _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
                     log.info("chart[robust]源=tencent code=%s period=%s 耗时%.0fms",
-                             code, period, (time.time() - t0) * 1000)
-                    return _ensure_latest_period(d, code)
-            elif src == "ths":
-                d = _fetch_kline_from_ths(code, period)
-                if d and _validate_chart_data(d, period, source="ths"):
-                    with _CHART_LOCK:
-                        _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
-                    log.info("chart[robust]源=ths code=%s period=%s 耗时%.0fms",
-                             code, period, (time.time() - t0) * 1000)
-                    return _ensure_latest_period(d, code)
-            elif src == "kpl":
-                d = _fetch_chart_from_kpl(code, period)
-                if d and _validate_chart_data(d, period, source="kpl"):
-                    with _CHART_LOCK:
-                        _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
-                    log.info("chart[robust]源=kpl code=%s period=%s 耗时%.0fms",
-                             code, period, (time.time() - t0) * 1000)
-                    return _ensure_latest_period(d, code)
-            elif src == "tushare":
-                d = _fetch_chart_from_tushare(code, period)
-                if d and _validate_chart_data(d, period, source="tushare"):
-                    with _CHART_LOCK:
-                        _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
-                    log.info("chart[robust]源=tushare code=%s period=%s 耗时%.0fms",
                              code, period, (time.time() - t0) * 1000)
                     return _ensure_latest_period(d, code)
         except Exception as e:

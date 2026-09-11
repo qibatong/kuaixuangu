@@ -137,8 +137,3 @@ REG_IP_DAY_LIMIT = int(os.environ.get("REG_IP_DAY_LIMIT", "5"))               # 
 # redis=Redis(生产多 worker 共享) / sqlite=SQLite 表 kv_cache(测试/兜底, 零依赖)
 CACHE_BACKEND = os.environ.get("CACHE_BACKEND", "sqlite")
 REDIS_URL = os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0")
-
-# ---------- Tushare 代理网关(备用数据源) ----------
-# 用于东财/同花顺/kpl 都不可用时的兜底, 主要覆盖日线行情等
-TUSHARE_BASE_URL = os.environ.get("TUSHARE_BASE_URL", "https://ai-tool.indevs.in")
-TUSHARE_API_KEY = os.environ.get("TUSHARE_API_KEY", "20ad79ad14e0c8db0b8f6a551768a004ba86953ea50b506e59d8ebf7")
