@@ -168,12 +168,80 @@ def _zero_chg_rate(date, time_point):
         return 0.0
 
 
+def _same_as_prev_rate(date, time_point, prev_point):
+    """9_25 定格"未发布"保险丝: 与上一时点(9_24)逐票竞价额**完全相等**的占比。
+
+    判据: 9:25 撮合后东财定格值发布前, 接口返回的仍是 9:24 的残值 → 与 9_24 逐票相等;
+    一旦发布, 竞价额普遍变化 → 相等率骤降。
+
+    实测(生产全库 snapshot_bid, 2026-09-11 校准):
+        9/2~9/10 共 7 个正常交易日, 9_25 vs 9_24 相等率**恒为 0.0%**;
+        熔断日 9/11(仅 132 行兜底)为 7.8%。
+    → 阈值取 0.50: 正常日(0%)绝不会误触发, 真未发布(≈100%)必触发, 中间留足余量。
+
+    只统计**有额(>0)**的票: 否则大量 0==0 会把比率虚高到 1, 造成误判。
+    与 _zero_chg_rate 同款: database.get_conn() 未设 row_factory → 必须用下标取值。
+    """
+    try:
+        conn = database.get_conn()
+        row = conn.execute(
+            "SELECT COUNT(*) n, SUM(CASE WHEN a.bid_amt = b.bid_amt THEN 1 ELSE 0 END) s "
+            "FROM snapshot_bid a JOIN snapshot_bid b "
+            "  ON b.date = a.date AND b.code = a.code AND b.time_point = ? "
+            "WHERE a.date = ? AND a.time_point = ? AND a.bid_amt > 0",
+            (prev_point, date, time_point)).fetchone()
+        conn.close()
+        n = (row[0] if row else 0) or 0
+        if n < 100:      # 样本太小不判断(异常采集)
+            return 0.0
+        return ((row[1] if row else 0) or 0) / n
+    except Exception as e:
+        log.warning("[快照采集] 同额率统计失败 date=%s tp=%s err=%s",
+                    date, time_point, str(e)[:80])
+        return 0.0
+
+
+def _snapshot_quality(date, time_point):
+    """9:31 盘点用: 返回 (行数, 有竞价额占比)。
+
+    为什么需要: 旧自检只查 store 里"时点完成标记"是否存在, 不查实际落了多少行 ——
+    2026-09-11 东财熔断日 9_25 仅落 132 行(正常 5500+), 自检仍打印"采集完整",
+    故障静默到人工发现为止。行数与有额率是唯一能暴露"采集了但采废了"的指标。
+    """
+    try:
+        conn = database.get_conn()
+        row = conn.execute(
+            "SELECT COUNT(*) n, SUM(CASE WHEN bid_amt > 0 THEN 1 ELSE 0 END) a "
+            "FROM snapshot_bid WHERE date=? AND time_point=?", (date, time_point)).fetchone()
+        conn.close()
+        n = (row[0] if row else 0) or 0
+        if n <= 0:
+            return 0, 0.0
+        return n, ((row[1] if row else 0) or 0) / n
+    except Exception as e:
+        log.warning("[快照采集] 质量统计失败 date=%s tp=%s err=%s",
+                    date, time_point, str(e)[:80])
+        return -1, 0.0   # -1 = 统计失败, 调用侧按"不告警"处理(避免误报)
+
+
 # ---- 竞价额: 单位防御 + 缺失质量门(2026-09-10) ----
 # 实测(生产全库统计): 9_25 定格竞价额 P99=4452万、max=5.19亿 → 单票竞价额超过
 # 10亿 即可判定**单位错误**(元当万元存储, 差 1e4 倍)。历史脏数据如
 # 9/9 9_20 中位 5,775,000"万元"(实为 577 万元)、9/9 9_24 max 341,698,188。
 BID_AMT_MAX_WAN = 100000.0      # 单票竞价额合理上限(万元) = 10 亿
 BID_AMT_COVER_MIN = 0.30        # 竞价额覆盖率下限: 低于此值判定"竞价额缺失"
+
+# ---- 9_25 定格采集时刻下限(2026-09-11 P0-1) ----
+_BID25_MIN_SEC = 20             # 9:25 后至少 20 秒才采(原 10 秒)
+_SAME_PREV_MAX = 0.50           # 9_25 与 9_24 逐票竞价额"相等"占比上限, 超此值判定"定格值未发布"
+_BID25_RETRY_UNTIL = 9 * 3600 + 25 * 60 + 50   # 9:25:50 前允许回滚重采, 之后接受最后一次
+
+# ---- 9:31 盘点质量阈值(2026-09-11 P0-2) ----
+_SNAP_MIN_ROWS = 3000           # 单时点行数下限: 正常 5500+, 熔断日实测 132 → 3000 足够安全
+_SNAP_MIN_AMT_RATE = 0.50       # 有竞价额占比下限, **仅对 9_15/9_25 生效**
+# 9_20/9_24 不做有额率告警: 实测长期仅 0.7%~2.3%(东财限流→腾讯兜底, 竞价期无额字段),
+# 属结构性缺口而非故障, 若一并告警会造成"正常日天天误报"。
+_SNAP_AMT_RATE_POINTS = ("9_15", "9_25")
 
 
 def _fix_bid_amt_unit(raw_all):
@@ -841,11 +909,19 @@ def _scheduler_loop():
                     # 注意: 判断必须 < 9*60+25(窗口内), 写 9*60+30(9:30) 会导致永不采集!
                     if hm < 9 * 60 + 24 or (hm == 9 * 60 + 24 and g.tm_sec < 40):
                         snapshot_at(tp)
-                elif tp == "9_25" and g.tm_sec < 10:
+                elif tp == "9_25" and g.tm_sec < _BID25_MIN_SEC:
                     # 2026-08-18 主人要求: 9:25 竞价撮合后数据定格, 晚几秒采保证一致 —
                     # 9:25:00-10 是撮合瞬间, 接口返回中间态(如中石科技 20% vs 定格后 19.53%),
                     # 各机器轮询时刻不同导致快照不一致; 延迟到 9:25:10 后采, 拿最终竞价值
                     # 注: 9_25 窗口仍为 9:25:00-9:26:00, 9:25:10 后轮询触发(10s 间隔保证命中)
+                    #
+                    # 2026-09-11 P0-1: 阈值 10 → 20(常量 _BID25_MIN_SEC)。
+                    # 依据: 生产库 9_25 落库时刻实测 9/7=09:25:20 9/8=09:25:22 9/9=09:25:20
+                    #   9/10=09:25:32, 但熔断日 9/11=**09:25:12** —— 轮询相位(10s)使落库时刻
+                    #   在 10~40s 间抖动, 下限 10s 会踩到撮合未完成的中间态。
+                    #   提到 20s 消除相位抖动下限; 窗口内仍有 20/30/40/50 四次机会。
+                    # 注: 同额率实测(生产全库)正常日恒为 0.0%, 故下方"未发布"校验留作保险丝,
+                    #   正常日绝不会误触发(见 _same_as_prev_rate 注释)。
                     continue
                 elif tp == "9_15" and g.tm_sec < 5:
                     # 2026-09-07 修复(主人反馈"竞价封单表格 9:15 列为空"):
@@ -869,6 +945,23 @@ def _scheduler_loop():
                                 log.warning("[快照采集] 9_15 数据未就绪(涨幅0占比>60%%), "
                                             "窗口内重采 date=%s hm=%d:%02d", date, hm // 60, hm % 60)
                                 continue
+                            # 2026-09-11 P0-1: 9_25 定格值"未发布"保险丝
+                            # 与 9_24 逐票竞价额完全相等 → 说明接口仍在返回 9:24 残值,
+                            # 回滚完成标记让窗口内下一轮(10s 后)重采覆盖。
+                            # 9:25:50 之后不再回滚: 宁可保留中间值也不能整点缺失 ——
+                            # 9_25 缺失会连锁砸坏选股名单(9/11 熔断日仅 132 行即导致候选池塌陷)。
+                            # 必须放在 aipick / system_batch 触发之前: 不能用残值跑预测与锁仓。
+                            if tp == "9_25" and _same_as_prev_rate(date, tp, "9_24") > _SAME_PREV_MAX:
+                                if hm * 60 + g.tm_sec < _BID25_RETRY_UNTIL:
+                                    store.delete(key)
+                                    log.warning(
+                                        "[快照采集] 9_25 定格值疑似未发布(与9_24同额率>%.0f%%), "
+                                        "窗口内重采 date=%s hm=%d:%02d:%02d",
+                                        _SAME_PREV_MAX * 100, date, hm // 60, hm % 60, g.tm_sec)
+                                    continue
+                                log.warning(
+                                    "[快照采集] 9_25 临近窗口末尾, 接受当前值不再重采 "
+                                    "date=%s hm=%d:%02d:%02d", date, hm // 60, hm % 60, g.tm_sec)
                             log.info("[快照采集] 时点完成并入完成集 tp=%s date=%s", tp, date)
                             # 2026-08-18 主人要求: 9_25 竞价快照落库后立即触发 AI 采集+预测
                             # (不等 9:27 轮询窗口, 数据到手就预测, 9:30 前出结果)
@@ -1073,7 +1166,31 @@ def _scheduler_loop():
                     except Exception:
                         pass
                 else:
-                    log.info("今日快照采集完整: %s (date=%s)", ",".join(TIME_POINTS), date)
+                    # 2026-09-11 P0-2: 四个时点"标记都在" ≠ 采集成功。
+                    # 9/11 东财熔断日 9_25 仅落 132 行(正常 5500+), 旧逻辑照样打印"采集完整",
+                    # 故障静默 —— 名单从 132 只里选、竞价强度失分, 全靠人工发现。
+                    # 补行数 + 有额率双阈值; 有额率只对 9_15/9_25 生效(见常量注释)。
+                    bad = []
+                    for tp in TIME_POINTS:
+                        n, rate = _snapshot_quality(date, tp)
+                        if n < 0:          # 统计失败: 不告警, 避免误报
+                            continue
+                        if n < _SNAP_MIN_ROWS:
+                            bad.append("%s仅%d行(<%d)" % (tp, n, _SNAP_MIN_ROWS))
+                        elif tp in _SNAP_AMT_RATE_POINTS and rate < _SNAP_MIN_AMT_RATE:
+                            bad.append("%s有额率%.1f%%(<%.0f%%)"
+                                       % (tp, rate * 100, _SNAP_MIN_AMT_RATE * 100))
+                    if bad:
+                        msg = ("今日快照采集质量异常: %s (date=%s), 名单/竞价强度可能失真, "
+                               "请检查东财限流或熔断日志" % ("; ".join(bad), date))
+                        log.warning(msg)
+                        try:
+                            from . import notify
+                            notify.send_text("[快照告警] " + msg)
+                        except Exception:
+                            pass
+                    else:
+                        log.info("今日快照采集完整: %s (date=%s)", ",".join(TIME_POINTS), date)
             # 两市分时快照滚动存(2026-08-16): 交易时段每 5 分钟调用一次 fetch_market_brief,
             # 写入 settings market_brief_intraday_{date}, 供次日做"两市较昨日同时刻"对比
             # 累计成交额全天单调递增, 5min 粒度足够"同时刻对比"精度
