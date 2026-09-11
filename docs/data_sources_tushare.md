@@ -3,6 +3,10 @@
 > 本页根据代理网关接口目录（`catalog.json`）自动整理，覆盖全部分类的 137 个接口（125 个唯一接口名）。
 > 供 kuaixuan（快选 · 竞价 AI 选股系统）后续接入 Tushare 数据时参考。
 
+> ⚠️ **状态（2026-09-11）**：Tushare 作为 K 线兜底源**已下线** —— `fetcher._fetch_chart_from_tushare`
+> 与 `config.TUSHARE_BASE_URL` / `TUSHARE_API_KEY` 均已删除（属"仅源码可达"死代码清理，见 v4.11.8）。
+> 本页仅作**未来接入时的接口参考**保留，当前系统不请求 tushare。
+
 ## 一、接入方式（代理网关）
 
 系统不直连 tushare 官方，而是通过自建/第三方代理网关访问 Tushare Pro 的 replay 数据。开发时无需积分校验与积分判断。

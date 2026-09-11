@@ -448,3 +448,57 @@
     3. 全量 `-q` 跑的**进度条字符等价于用例**：对照基线与新版进度条的 F 位置，可快速判断
        "红是不是换了地方"；`safe-delete` 提示会吃掉最后的摘要行 → 权威计数用 `--junitxml` 解析。
   - **回滚点不变**：tag `v4.11.2` → `36ce505`。
+
+- **v4.11.8 (09-11) K 线兜底链「仅源码可达」死代码清理（3 死函数 + 3 死分支 + 死配置）**
+  - **背景**：v4.11.6 报告里明确留了一条**范围外**遗留——`fetch_stock_chart_robust` 的
+    `sources = ["eastmoney", "tencent"]` 使 `elif src == "ths"/"kpl"/"tushare"` 三分支
+    **运行时永不执行**；但 `grep _fetch_kline_from_ths` 会命中那行 `elif`，看起来"仍被使用"
+    → 属**第三类死代码「仅源码可达」**（分派表屏蔽，grep 查不出，必须读分派表）。
+  - **判据升级（已写进技能）**：对"在源码里有引用"的函数，还要再问一句
+    **「引用它的那条分支，运行时到得了吗？」** 到不了 = 死代码。
+  - **删除清单**（判据：`sources` 只有两源 → 三分支不可达 → 其被调函数 0 生产可达）
+    1. `fetcher._fetch_kline_from_ths`（同花顺 K 线兜底，65 行）
+    2. `fetcher._fetch_chart_from_kpl`（开盘啦 chart 兜底，87 行）
+    3. `fetcher._fetch_chart_from_tushare`（Tushare 网关兜底，133 行）
+    4. `fetch_stock_chart_robust` 内三个 `elif` 分支（`src == "ths"/"kpl"/"tushare"`）
+    5. `config.TUSHARE_BASE_URL` / `TUSHARE_API_KEY` —— 全仓仅第 3 项使用，
+       随之 `0 引用`；**顺带把公开仓库里硬编码的 API key 一起下线**（安全收益）。
+    - 净 **-334 行**（fetcher.py 单文件 -337/+3）。
+  - **核实后保留（防「顺手删过头」，三处都有明确理由）**
+    - `_aggregate_kpl_daily_to_period` + `kpl.fetch_kpl_doc7`：**仍在生产可达**——
+      周K/月K 两主源全失败时的最终兜底（`fetch_stock_chart_robust` 函数末 `if period in ("week","month")`）。
+      故原文档"自聚合已下线"是**错的**，本轮一并修正（AGENTS.md / backend-architecture.md）。
+    - `kpl.fetch_kpl_doc8`：删 `_fetch_chart_from_kpl` 后生产 0 引用，但它是 kpl 模块的
+      **接口表 wrapper**（`docs/kpl-interfaces.md` + `tests/test_kpl_doc.py` 逐接口覆盖，
+      同族 doc80~doc89 同样 0 引用）→ 属「接口面」而非死代码，**不动**。
+    - `_validate_chart_data`：源链共用校验，仍在生产使用 → 保留（顺带把 docstring 里
+      "如同花顺累积前复权价"的失效举例改为通用表述；其 `source` 形参早已未被函数体使用，
+      属既有设计位，本次不动）。
+  - **无效注释同步（现行描述型必改 / 历史说明型保留）**
+    - 改：fetcher.py 节头（原"当东财熔断时按顺序 fallback: 同花顺→开盘啦→Tushare→日线聚合"）、
+      `fetch_stock_chart_robust` docstring、`_validate_chart_data` docstring 与复权检测注释、
+      `kpl.py:3535` docstring + `:3596` 注释、`stock_temper.py:121` 注释、
+      `AGENTS.md` 源链硬约定、`docs/backend-architecture.md` 两行（数据源 / "5 源图表兜底"）、
+      `docs/deploy.md` 两行（个股图表 5 源→2 源；**昨日成交额一行也顺带修正**——同花顺昨比源
+      v4.11.6 已删，现行为"收盘落库 + 全天读库 → 东财日K → 腾讯 qfqday"）、
+      `docs/data_sources_tushare.md` 加「已下线，仅作未来接入参考」状态行。
+    - 留：`docs/history.md` 历史条目、`fetcher.py` 中"同花顺昨比源已整体删除""量脉已删除"等
+      **带"已删除/已下线"的历史说明**（后人理解"为什么这块长这样"的唯一线索）。
+  - **测试**：三个函数**无任何用例覆盖**（`grep` tests/ 0 命中）；`test_stocks.py` 的
+    robust 用例是**源无关**的（桩打在 `urllib.request.urlopen`，只断言"东财失败→腾讯成功"/
+    "全失败→{}"）→ **无需改任何测试**。
+  - **验证**：`ast.parse` + `import app.main` / `app.worker` 双预检 OK；运行时字节码断言
+    `fetch_stock_chart_robust.__code__.co_names` **已无 ths/kpl/tushare 任何符号**；
+    全仓 `grep` 三分支名 + `TUSHARE_` 在 `backend/app/` **0 命中**。
+    全量 **876 例 / 0 失败 / 0 错误 / 4 skip**，与基线 `_v4117.xml` 做集合差 →
+    **新增失败 = 空集**（"已转绿"亦为空，即纯删除、零行为影响）。
+  - **回滚点**：tag **`v4.11.7`** → `1224038`（本次删除前最后提交，已推远端）。
+    更早的整体回滚点 `v4.11.2` → `36ce505` 仍有效。
+    ```bash
+    cd /opt/kuaixuan && git fetch --all --tags
+    git checkout v4.11.7 -- backend/app && systemctl restart kuaixuan kx-worker
+    ```
+  - **⚠️ 环境踩坑**：带沙箱升级的命令在本环境可能**被执行两次**（沙箱内 + 升级后各一次）。
+    本次 `git tag -a v4.11.7` 因此第二次报 `fatal: tag 'v4.11.7' already exists` ——
+    **"already exists" 不等于失败**，必须先 `git cat-file -t <tag>` +
+    `git rev-parse <tag>^{commit}` 核实 tag 指向是否正确，别直接重建。

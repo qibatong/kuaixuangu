@@ -220,10 +220,10 @@ snapshot_scheduler_last_run{point}
 | 项 | 当时评估 | 当前实际 |
 |---|---|---|
 | Web 规模 | 7524 行 / 27 模块 | ~1.7 万行 / 40+ 模块（fetcher 单文件 1727 行） |
-| 数据源 | 东财 → 同花顺兜底 | **东财 → 腾讯兜底（全市场行情）** + 同花顺（昨日额/日K） + tushare + kpl + 选股宝（涨停池）；**熔断器 60s 冷却**（`_CIRCUIT_OPEN_SECONDS`）+ `/api/health` 健康快照 |
+| 数据源 | 东财 → 同花顺兜底 | **东财 → 腾讯兜底（全市场行情）** + 同花顺/新浪（历史回看日K兜底） + kpl（板块/抢筹） + 选股宝（涨停池）；**熔断器 60s 冷却**（`_CIRCUIT_OPEN_SECONDS`）+ `/api/health` 健康快照 |
 | 进程内状态 | `_cache` 全进程内 | 已实现 **CacheStore**（SQLite `kv_cache` 表 / Redis 双实现）：限流/调度去重/setnx 跨进程锁 |
 | 调度耦合 | 内嵌 FastAPI startup | **已拆分 `kx-worker.service`**（快照调度/aipick/推送/队列独立进程） |
-| 多数据源 | 串行容灾无熔断 | 腾讯兜底 + 双源熔断短路 + 5 源图表兜底（fetch_stock_chart_robust） |
+| 多数据源 | 串行容灾无熔断 | 腾讯兜底 + 双源熔断短路 + **2 源图表兜底**（`fetch_stock_chart_robust`：东财→腾讯，周/月K 另有日线聚合） |
 | 测试 | 191 用例 | **391 用例**（+3 东财网络偶发单跑通过）+ 4 跳过 |
 
 ### 新增能力（评估时未规划）

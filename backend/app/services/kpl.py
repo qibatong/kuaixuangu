@@ -3532,7 +3532,7 @@ def _close_chg_pct_ths(date, code):
 def fill_close_change_from_kline(lst, date):
     """历史回看: 把列表中股票 change/realChange 覆盖为所选交易日 date 的**当日收盘涨跌幅(%)
     数据来源优先级: 进程内存 → close_change_history 库表(持久化) → 多源日K(缺失才拉, 并写库)。
-    多源顺序: fetch_stock_chart_robust(东财→腾讯→同花顺→开盘啦) → 新浪 → 腾讯 → 同花顺。
+    多源顺序: fetch_stock_chart_robust(东财→腾讯) → 新浪 → 腾讯 → 同花顺。
     因此历史日首次补齐后, 后续回看不再请求外部接口。返回被覆盖的股票数。"""
     if not lst or not date:
         return 0
@@ -3593,7 +3593,7 @@ def fill_close_change_from_kline(lst, date):
     def _one(it):
         code = it.get("code") or ""
         try:
-            # 2a) robust chart (东财→腾讯→tushare→同花顺→开盘啦)
+            # 2a) robust chart (东财→腾讯, 见 fetcher.fetch_stock_chart_robust)
             k = fetcher.fetch_stock_chart_robust(code, "day")
             if k and k.get("time"):
                 times, closes = k["time"], k["close"]

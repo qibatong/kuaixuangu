@@ -59,8 +59,8 @@ python scripts/_sync_dist_fresh.py
 
 - **全市场行情主链**：东财 clist 被墙/熔断 → 自动切**腾讯行情**（qt.gtimg.cn，快照库全市场代码清单分批发拉，字段映射 f2/f3/f8/f21 等；无竞价专属字段用现价涨幅/成交额近似）
 - 入口已全覆盖：`ensure_cache` / `ensure_spot_cache` / `fetch_market_brief` / `fetch_spot_quote_map` / `auction_snapshot._grab`（grep `fetch_eastmoney\(` 确认无漏网）
-- **昨日成交额**：东财日K → 同花顺兜底 → 双源熔断短路（`_check_circuit` 两源都开时立即跳过，防 5554 只并发卡 504）
-- **个股图表**：`fetch_stock_chart_robust` 5 源（东财→腾讯→tushare→同花顺→kpl）
+- **昨日成交额**：**收盘落库 + 全天读库**（15:10 `yday_prewarm` 写 `yday_amount` 表，此后零网络）；库中缺失的（新股/停牌/任务未跑）才走实时链 **东财日K → 腾讯 `qfqday`** + 双源熔断短路（`_check_circuit` 两源都开时立即跳过，防 5554 只并发卡 504）。同花顺昨比源已于 v4.11.6 删除
+- **个股图表**：`fetch_stock_chart_robust` **2 源**（东财 push2his → 腾讯同语义备源；周K/月K 主源全失败时走日线聚合兜底）。tushare / 同花顺 / kpl 三分支已于 v4.11.8 删除（此前 `sources` 收窄后它们运行时不可达）
 - **涨停池**：走选股宝 flash-api（非东财，天然免疫）
 - **健康监控**：`/api/health` 返回 `{overall, serviceable, sources}`；板块/热榜 em 源失败时前端显示「数据源故障，请切换源」警示
 - 熔断器：故障后 60s 冷却直接快速失败（`_CIRCUIT_OPEN_SECONDS`），防单 worker 卡死雪崩

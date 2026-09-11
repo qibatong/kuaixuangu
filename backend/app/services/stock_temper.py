@@ -118,7 +118,7 @@ def _kline(code, refresh=False):
                 return json.loads(row[0])
         except Exception:
             pass
-    data = fetcher.fetch_stock_chart_robust(code, "day")   # 多源兜底: 东财→腾讯→tushare→同花顺→kpl
+    data = fetcher.fetch_stock_chart_robust(code, "day")   # 多源兜底: 东财→腾讯(见 fetcher.fetch_stock_chart_robust)
     if not data or not data.get("time"):
         return None
     try:

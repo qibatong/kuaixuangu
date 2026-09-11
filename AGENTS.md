@@ -125,7 +125,8 @@
   `ensure_spot_cache` 失败时**只沿用本地旧缓存**，无旧缓存则抛出。
 - **K 线 chart**：**东财 `push2his`（主，`KLINE_HOSTS` 多域名轮询）→ 腾讯（同语义备源）**。
   `fetch_stock_chart_robust` 的 `sources = ["eastmoney", "tencent"]`（原 东财→腾讯→tushare→ths→kpl→自聚合
-  的 tushare/ths/kpl/自聚合 已下线）。**不要再把腾讯删掉**：push2his 命中率约 5%，删了等于 K 线全灭。
+  中的 **tushare / ths / kpl 三分支及其函数实现已于 v4.11.8 删除**；**自聚合保留**，仅作周K/月K
+  的最终兜底 `_aggregate_kpl_daily_to_period`）。**不要再把腾讯删掉**：push2his 命中率约 5%，删了等于 K 线全灭。
 - **昨比（昨日成交额）= 收盘落库 + 全天读库**（2026-09-10 新增，替代原四级兜底链）：
   每交易日 **15:10** `yday_prewarm._prewarm_once(stage="close")` 批量拉全市场写入
   `yday_amount` 表（**按 code 覆盖写**，见 `database.init_db` 建表注释），此后全天
