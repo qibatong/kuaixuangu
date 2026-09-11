@@ -34,7 +34,7 @@ import urllib.request
 import zipfile
 
 from ..core import logger
-from . import fetcher, scorer, settings
+from . import fetcher, settings
 
 log = logger.get_logger(__name__)
 
