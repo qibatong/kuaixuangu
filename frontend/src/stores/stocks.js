@@ -1,11 +1,13 @@
 // 主选股数据 store: 缓存结果 / 筛选条件 / 锁定状态 / 账号级偏好
 import { defineStore } from 'pinia'
 import { fetchStocks, fetchQuotes, getDefaultFilters, getPrefs, savePrefs } from '../api/stocks'
+import { fetchPickerSnapshot } from '../api/picker'
 import { listBatches } from '../api/history'
 import { showToast } from '../utils/toast'
 import { isBefore930 } from '../utils/time'
 import { useUserStore } from './user'
-import { defaultFilterSettings, passLockedFilter, buildFilterParams as _buildFilterParams } from '../utils/filters'
+import { defaultFilterSettings, passLockedFilter, pickFromSnapshot,
+         buildFilterParams as _buildFilterParams } from '../utils/filters'
 
 // 兼容导出(历史引用方): 默认筛选参数
 export { defaultFilterSettings }
@@ -38,6 +40,11 @@ export const useStocksStore = defineStore('stocks', {
     // 账号级筛选偏好(后端 users 表, 跨设备一致)
     userFilterPrefs: null,
     isFilterLocked: false,
+    // 2026-09-12 P3: 当日全市场预计算快照(本地筛选用)。懒加载: 首次点「应用」才拉,
+    // 拿不到(接口未开/物化表不可用/非 VIP)就静默回退后端筛选, 60s 内不重试。
+    snapshot: null,
+    snapshotDate: '',
+    snapshotFailTs: 0,
     // 2026-08-25: 偏好/全局默认异步加载完成前为 false, 防止 FilterPanel 先用内置默认(limitUp=true)
     // 渲染勾选、随后被用户偏好(limitUp=false)覆盖导致"先勾选后取消"闪烁
     filterReady: false
@@ -356,9 +363,73 @@ export const useStocksStore = defineStore('stocks', {
       // force=true: 用户主动点「锁定」→ 绕过当日幂等, 强制重算并落新批次
       await this.fetchAndCache(true)
     },
+    // ---- 2026-09-12 P3: 本地筛选(全市场预计算快照) ----
+    /**
+     * 懒加载当日全市场评分快照。true = 可用(可本地筛选)。
+     *
+     * 为什么懒加载而不是首屏加载: 快照约 0.5MB, 首屏多一次大响应会拖慢首页且
+     * 在接口未开启时纯属浪费(多数请求会落空)。用户点「应用」时才需要它。
+     * 失败(未开启 / 物化表不可用 / 非 VIP 403 / 网络)一律静默回退后端筛选,
+     * 并记 60s 冷却 —— 否则用户连点几次「应用」会打出一串注定失败的请求。
+     */
+    async loadSnapshot() {
+      if (this.snapshot && this.snapshot.length) return true
+      if (Date.now() - this.snapshotFailTs < 60000) return false
+      try {
+        const d = await fetchPickerSnapshot()
+        if (d && d.enabled && Array.isArray(d.list) && d.list.length) {
+          this.snapshot = d.list
+          this.snapshotDate = d.date || ''
+          return true
+        }
+        this.snapshotFailTs = Date.now()
+        return false
+      } catch (e) {
+        this.snapshotFailTs = Date.now()
+        return false
+      }
+    },
+
+    /**
+     * 本地名单补实时行情(现价/现涨/实体/量比/换手)。
+     * 拿不到行情的票保留定格值(现价退化为定格竞价价), **不写 0** ——
+     * "未知"必须与"实测 0"区分(P0-3 同一原则), 前端显示「—」。
+     */
+    async _attachQuotes(rows) {
+      if (!rows.length) return rows
+      let q = {}
+      try {
+        const res = await fetchQuotes(rows.map((r) => r.code))
+        q = (res && res.quotes) || {}
+      } catch (e) { q = {} }
+      return rows.map((it) => {
+        const rt = q[it.code]
+        if (!rt) return { ...it, price: it.auctionPrice ?? null }
+        return {
+          ...it,
+          name: rt.name || it.name,
+          price: rt.price ?? it.auctionPrice ?? null,
+          realChange: rt.realChange ?? null,
+          entityChange: rt.entityChange ?? null,
+          volRatio: rt.volRatio ?? null,
+          turnover: rt.turnover ?? null
+        }
+      })
+    },
     async applyCustomFilter() {
       if (this.isFilterLocked) {
         showToast(' 筛选条件已锁定，无法手动应用', 'error')
+        return
+      }
+      // 2026-09-12 P3: 快照在手 → **本地筛选**(改条件秒出, 零网络往返; 实时价另拉一次)。
+      // 拿不到快照(未开启/物化表不可用/非 VIP) → 走原后端筛选路径, 行为与 P3 前一致。
+      if (await this.loadSnapshot()) {
+        const picked = pickFromSnapshot(this.snapshot, this.filterSettings)
+        const list = await this._attachQuotes(picked)
+        this.cachedStocks = list
+        this.isDataCached = true
+        this.saveUserPrefs()
+        showToast('⚡ 本地筛选完成（' + list.length + ' 只）', 'success')
         return
       }
       const data = await fetchStocks('filter', this.buildFilterParams())
