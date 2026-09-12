@@ -39,6 +39,8 @@
 | **首屏性能**（v4.7） | 慢接口结果缓存 + TTL 与 30s 轮询错峰 + Nginx `/assets/` immutable 长缓存（index.html 保持 no-store）→ 热态 7–82ms、刷新 0 字体请求 |
 | **评分门槛 scoreFloor**（v4.10） | **评分低于 80 分直接不入选**（全站默认、条件面板可下调）；与 `probLt/confLt` 的"概率+信心双低"剔除独立——双低允许高信心救低概率票，scoreFloor 不看信心，低分票一律砍 |
 | **单一选股链路 picker**（v4.11.3） | 选股全链（contract→sources→score→filter→pipeline→lock）收敛为**唯一实现** `picker.pipeline.run()`；老链路 `scorer.score_all_stocks/apply_filters`、灰度对拍 `picker/parity.py` 与回滚开关 `picker_lock/picker_gray` **已整体删除**（观察期已满，回滚只靠 git 回版本），`scorer.py` 只保留配置与共享工具 |
+| **前端本地秒筛**（v4.11.13） | 竞价后全市场评分已定格 → 后端一次性下发快照（`GET /api/picker/snapshot`，5557 行 ≈2MB，进程内缓存 60s），**改筛选条件在浏览器内毫秒出结果，零网络往返**；实时价另走 `/api/quotes` 按需补。过滤规则逐条复刻后端（含"竞额降序取前 120"截断），**真实数据 12 组条件前后端名单逐票一致**；开关 `frontend_local_filter` 默认关，关闭时前端**静默回退**原路径 |
+| **未知 ≠ 0**（v4.11.13） | 落库 `None` 被 NOT NULL 兜成 0 的问题闭环：落库打标 `miss_fields`（记录"被兜底的键"）+ 读侧 `history_null_restore=1` 还原 `null`，前端全链路容错 —— **未知显示「—」，实测 0 仍显示 0**（历史页 `circulation_mv.toFixed` null 崩溃点一并修复） |
 | **深查耗时预算**（v4.10） | 开盘啦按股概念查询带 `time_budget` 总耗时上限，超预算即停并保留原值（下轮共享池自动补齐）——"展示字段"不再能把接口拖到 198s 并占满 worker（历史回看 **198s → 0.42s**） |
 | **五色 UI**（v4.8） | 全站配色收敛 黑/白/红/绿/黄（清除蓝紫杂色约 130 处）；红涨绿跌 + 白主题深红变量自动适配；图表内部（K 线均线/轮动图）豁免多色 |
 | **推送提醒** | 竞价锁定结果推飞书/Server酱/企业微信；尾盘抢筹 14:57 自动推送 |

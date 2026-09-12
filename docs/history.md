@@ -668,3 +668,72 @@
   - ⚠️ **待办**：① 真实竞价时段验证（今天周六，TickPlus 返回的是 9/11 定格，
     9:15/9:20/9:24 三个时点的**实时**行为要等周一 9:15 看日志确认）；
     ② 生产部署需先配 `tickplus_token`（未配即天然关闭，可放心先上代码）。
+- **v4.11.13 (09-12 上午) P0-3 前端容错收尾 + P3 前端本地筛选**
+  - **P0-3 前端 null 容错**（`1ab0b74`）
+    * 背景：落库侧 `_safe_num`/`_num_or_mark` 把 None 兜成 0 以保 NOT NULL 与排序，
+      并把"被兜底的键"记入 `batch_stocks.miss_fields`；读侧 `history_null_restore=1`
+      时还原为 `null`。**0 = 实测值，null = 未知** —— 但前端拿到 null 会崩或显示 0.00。
+    * `utils/format.js`：新增 `fmtNum(v, digits, suffix)`；`signed`/`pct` 缺失返回
+      从 `'-'` 改为 **`'—'`**（与"-"=不适用区分）。口径：**未知显示「—」，实测 0 仍显示 0**。
+    * **修一个真实崩溃点**：`HistoryView.vue` 的 `{{ s.circulation_mv.toFixed(1) }}` ——
+      null 上调用 `.toFixed` 直接抛错整页白屏；改走 `fmtNum`。
+    * `StockTable.vue` / `HistoryView.vue`：涨跌三列统一走 `pct()` + `chgCls()`，
+      评分/可信/流通走 `fmtNum`；竞额/比缺失 → `'—'`；`realCls` 加 null 守卫；
+      删除组件内重复的 `pctText`/`fmtPct`（统一使用 format.js，防两套口径）。
+    * **顺带修 `passLockedFilter` 语义 bug**：`floatMvGt`/`priceGt` 为 **0 表示不限**，
+      旧实现无条件比较 → 用户把"流通≤"填 0 会把**所有票剔除**；已加 `> 0 &&` 与后端
+      `picker.filter` 同语义（对齐 2026-09-11 后端的同一处修复）。
+  - **P3-a 后端快照接口**（`9f19c87`）：`GET /api/picker/snapshot`
+    * 一次性下发当日**全市场预计算评分**（物化表 `stock_score_daily`），前端据此在
+      浏览器内完成筛选（改条件秒出，零网络往返），实时价仍走 `/api/quotes` 按需补。
+      依据：评分 5 因子输入全部在 9:25 定格（P1 已论证），改条件只是对同一份结果换门槛。
+    * **四条安全边界（缺一不可）**：① 开关 `frontend_local_filter` **默认 0**，关闭时
+      只回 `enabled=false`，前端静默回退原路径 —— **天然灰度，不需前后端同时上线**；
+      ② 门禁 `require_vip_or_paid`（与竞价异动同级）；③ **行数闸门** `< MIN_ROWS(500)`
+      视为不可用，**绝不发半张表**；④ 同口径（前端逐条复刻后端过滤 + 抢筹标复用
+      `pipeline.qc_fields`）。响应进程内缓存 60s（全市场 ~5500 行 ≈ 2MB，同日共享）。
+    * `precompute.read_snapshot_rows()`：物化表 → 前端扁平行（`bidAmt` 万元 / `floatMv` 亿，
+      与 filter 门槛同一单位口径）。
+    * **`is_zt_yday` 同口径修正**：`zt_codes or set()` → 改回
+      `is_first_board(r.code, r.concept, zt_codes)`，**保留 `zt_codes=None` 的 concept
+      降级语义**（写成空集会让"降级"变成"无昨涨停"，判据整体反转）。
+    * **`system_batch` 传昨涨停名单**：预计算调用改为显式取
+      `_fetcher.get_yesterday_zt_codes()` → `precompute_all(today_str, zt_codes=zt)`。
+      否则物化表 `is_zt_yday` **恒 0** → 前端"剔除昨涨停"在本地筛选里**整批失效**
+      （用户从名单上看不出来）。实测验证：传池后 9/10 落库 `is_zt_yday=1` 共 **48 只**
+      = 昨涨停池只数。
+    * `pipeline.qc_fields()` 抽为公共函数，`_qc_of` 委托调用 —— 本地/后端抢筹标不分叉。
+  - **P3-b 前端本地筛选**（`185b033`）
+    * `utils/filters.js`：`COARSE_MAX=120`、`inMarkets`（北交所一律排除）、
+      `_coarseOk`/`_refineOk`/`_frozenPrice`/`snapshotToRow`/`pickFromSnapshot`
+      —— **逐条复刻**后端 `coarse_filter` + `apply_filters`（含"竞额降序取前 120"截断
+      位置与"评分降序 + code 字典序"排序）。
+    * 口径坑：`bidGt` 是**竞价涨幅上限且无 `>0` 判断**（0 = 上限 0% ≈ 全剔），
+      而 `floatMvGt`/`priceGt` **有 `>0` 判断**（0 = 不限）—— 同后缀不同语义，必须逐字段照抄。
+    * 契约版过滤只有 **8 步**（market / first_board / ST+停牌 / 竞价涨幅区间 /
+      prob+conf 双低 / scoreFloor / 市值 / 竞额 / 价格）；`chgGt`/`volRatioFloor`/
+      `turnoverFloor` 等实时门槛**契约链路已不再检查**，前端同样不复刻。
+    * 价格门槛用**定格竞价价**（`auctionPrice`，缺失则 `昨收×(1+竞涨/100)` 派生），
+      不用实时价 —— 否则盘中价格一漂名单就变。
+    * `stores/stocks.js`：新增 `snapshot`/`loadSnapshot()`（懒加载 + 失败 60s 冷却）
+      /`_attachQuotes()`（`/api/quotes` 补实时价，拿不到保留定格值**不写 0**）；
+      `applyCustomFilter()` 开头加本地分支，成功即 `showToast('⚡ 本地筛选完成')` 并
+      `return`，失败/未开启**静默回退后端路径**（行为不变）。
+  - **测试**：前端 `node --test` **44 例全绿**；后端新增 `test_picker_snapshot.py`
+    **17 例**；**前后端共用夹具** `tests/fixtures/picker_parity.json`（16 行 / 7 case），
+    两侧各有一份对拍测试 —— 口径分叉的唯一防线。
+  - **部署与实测（测试机）**：预检 12/12 → 全量 **944 例 / 6 红（= 已知 kpl 历史债）/
+    0 新增红 / 0 错误** → 前端 dist 部署 → 08:42 重启（双服务 active，启动错误 0）。
+    * **P0-3 实测**：旧数据（无 `miss_fields`）开关 0/1 读结果**完全一致**（开启对历史
+      零影响）；构造样本（打标 `probability,realChange`）开关 1 时正确还原 `None`、
+      未打标字段不受影响、行数不变。
+    * **P3 实测**：用 9/10 完整快照（5557 只）+ 昨收（5555）+ 昨涨停池（48）**补跑
+      预计算**（落库 5557 行 / 835ms，`auction_price>0` 5554 / `is_zt_yday=1` 48）；
+      接口开关开 + VIP 返回 **5557 行 / 1.98MB / 522ms**（缓存命中 119ms）；四边界
+      全部符合预期（关→`enabled=false`；无鉴权→401；空表→`enabled=false` 不 500）。
+    * **真实数据前后端对拍：12/12 组条件名单逐票完全一致**（含 120 截断边界、
+      市场范围、ST/昨涨停、价格/市值/竞额门槛、全放宽）。
+  - **回滚点**：`v4.11.12` → `803ccbb`；备份
+    `backup/p03p3_test_bak_20260912-083819.tar.gz` + `backup/dist_bak_20260912-083819.tar.gz`。
+  - ⚠️ **上线纪律**：两个开关（`history_null_restore`、`frontend_local_filter`）**默认 0**，
+    本次随代码上线不影响任何现有行为；**生产未部署**（等 P2+P0-3+P3 一次性推，需主人明确指令）。
