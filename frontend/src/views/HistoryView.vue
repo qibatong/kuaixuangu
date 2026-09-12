@@ -66,16 +66,16 @@
                     <tr v-for="s in batchSort.sorted(batchStocks)" :key="s.code">
                       <td>{{ s.rank }}</td>
                       <td class="code-click" @click="linkToSoftware(s.code)">{{ s.code }}</td><td>{{ s.name }}</td>
-                      <td :class="s.bid_change > 0 ? 'up' : 'down'">{{ signed(s.bid_change) }}%</td>
-                      <td :class="s.real_change > 0 ? 'up' : 'down'">{{ signed(s.real_change) }}%</td>
-                      <td :class="s.entity_change > 0 ? 'up' : 'down'">{{ signed(s.entity_change) }}%</td>
+                      <td :class="chgCls(s.bid_change)">{{ chgPct(s.bid_change) }}</td>
+                      <td :class="chgCls(s.real_change)">{{ chgPct(s.real_change) }}</td>
+                      <td :class="chgCls(s.entity_change)">{{ chgPct(s.entity_change) }}</td>
                       <td>{{ warnLabel(s.warn_type) }}</td>
                       <td>{{ bidAmtText(s.bid_amt) }}</td>
                       <td :class="ratioCls(s.bid_ratio)">{{ ratioText(s.bid_ratio) }}</td>
-                      <td>{{ s.circulation_mv.toFixed(1) }}</td>
+                      <td>{{ fmtNum(s.circulation_mv, 1) }}</td>
                       <td>{{ s.industry }}</td>
-                      <td class="score-cell">{{ s.probability }}分</td>
-                      <td>{{ s.confidence }}%</td>
+                      <td class="score-cell">{{ fmtNum(s.probability, 0, '分') }}</td>
+                      <td>{{ fmtNum(s.confidence, 0, '%') }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -169,14 +169,14 @@
                     <td>{{ s.batch_date }}</td><td>{{ s.batch_time }}</td>
                     <td>{{ s.action === 'lock' ? '锁定' : '筛选' }}</td>
                     <td class="code-click" @click="linkToSoftware(s.code)">{{ s.code }}</td><td>{{ s.name }}</td>
-                    <td :class="s.bid_change > 0 ? 'up' : 'down'">{{ signed(s.bid_change) }}%</td>
-                    <td :class="realCls(s)">{{ signed(s.real_change) }}%</td>
-                    <td :class="s.entity_change > 0 ? 'up' : 'down'">{{ signed(s.entity_change) }}%</td>
+                    <td :class="chgCls(s.bid_change)">{{ chgPct(s.bid_change) }}</td>
+                    <td :class="realCls(s)">{{ chgPct(s.real_change) }}</td>
+                    <td :class="chgCls(s.entity_change)">{{ chgPct(s.entity_change) }}</td>
                     <td>{{ warnLabel(s.warn_type) }}</td>
                     <td>{{ bidAmtText(s.bid_amt) }}</td>
                     <td :class="ratioCls(s.bid_ratio)">{{ ratioText(s.bid_ratio) }}</td>
-                    <td>{{ s.circulation_mv.toFixed(1) }}</td><td>{{ s.industry }}</td>
-                    <td class="score-cell">{{ s.probability }}分</td><td>{{ s.confidence }}%</td>
+                    <td>{{ fmtNum(s.circulation_mv, 1) }}</td><td>{{ s.industry }}</td>
+                    <td class="score-cell">{{ fmtNum(s.probability, 0, '分') }}</td><td>{{ fmtNum(s.confidence, 0, '%') }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -204,7 +204,7 @@ import { showToast } from '../utils/toast'
 import { linkToSoftware } from '../utils/tdx'
 import { fmtDate } from '../utils/time'
 import { useSortable } from '../composables/useSortable'
-import { signed } from '../utils/format'
+import { signed, fmtNum, pct as chgPct } from '../utils/format'
 // 2026-09-01: AI预测回看 tab 直接嵌入组件(自带 VipGate 门禁 + 日期选择器 + 规则过滤)
 import AipickView from './AipickView.vue'
 
@@ -314,7 +314,10 @@ async function loadStats() {
   }
 }
 
-function pct(v) { return (v * 100).toFixed(1) + '%' }
+function pct(v) {
+  if (v === null || v === undefined || isNaN(v)) return '—'
+  return (Number(v) * 100).toFixed(1) + '%'
+}
 function rateCls(v) { return v >= 0.5 ? 'up' : v >= 0.3 ? '' : 'down' }
 
 async function loadMore() {
@@ -328,17 +331,28 @@ async function loadMore() {
 }
 
 function realCls(s) {
-  if (s.real_change < s.bid_change) return 'real-green'
-  return s.real_change > 0 ? 'up' : 'down'
+  const r = s.real_change
+  if (r === null || r === undefined || isNaN(r)) return 'dim'      // P0-3: 未知不配色
+  const b = s.bid_change
+  if (b !== null && b !== undefined && !isNaN(b) && r < b) return 'real-green'
+  return r > 0 ? 'up' : 'down'
+}
+// 涨跌配色(P0-3): 未知 → dim; 0 保持既有 down 口径
+function chgCls(v) {
+  if (v === null || v === undefined || isNaN(v)) return 'dim'
+  return v > 0 ? 'up' : 'down'
 }
 function warnLabel(w) { return w === 5 ? '强' : w === 4 ? '⚡中' : w === 3 ? '↑弱' : '-' }
-function bidAmtText(amt) { return amt >= 10000 ? (amt / 10000).toFixed(2) + '亿' : amt.toFixed(0) }
+function bidAmtText(amt) {
+  if (amt === null || amt === undefined || isNaN(amt)) return '—'
+  return amt >= 10000 ? (amt / 10000).toFixed(2) + '亿' : Number(amt).toFixed(0)
+}
 function ratioCls(br) {
   if (br === null || br === undefined || isNaN(br)) return 'dim'
   return br >= 2 ? 'ratio-hot' : br >= 1 ? 'ratio-warm' : ''
 }
 function ratioText(br) {
-  if (br === null || br === undefined || isNaN(br)) return '-'
+  if (br === null || br === undefined || isNaN(br)) return '—'
   return br.toFixed(2) + '%'
 }
 

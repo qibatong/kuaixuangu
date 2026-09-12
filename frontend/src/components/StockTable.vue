@@ -44,19 +44,19 @@
             <div class="stock-code-row"><span class="stock-code">{{ item.code }}</span></div>
             <div v-if="yidongTag(item.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(item.code) }}</span></div>
           </td>
-          <td :class="item.realChange === null || item.realChange === undefined ? 'dim' : realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + fmtPct(item._staleReal) + '）') : ''">{{ item.realChange === null || item.realChange === undefined ? '-' : signed(item.realChange) + '%' }}</td>
+          <td :class="realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + pct(item._staleReal) + '）') : ''">{{ pct(item.realChange) }}</td>
           <td>
             <span v-if="item.qiangchou" class="qc-badge" :title="qcTitle(item)">🔥{{ qcLabel(item) }}</span>
             <span v-else-if="item._snapshot || isAuction" title="竞价异动-竞价抢筹未命中(9:20→9:25 竞价涨幅 / 最后一秒竞价涨幅)">-</span>
             <span v-else class="qc-pending" title="9:25-9:30 竞价时段才判定抢筹信号">竞价时</span>
           </td>
-          <td :class="item.bidChange > 0 ? 'up' : 'down'" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'">{{ signed(item.bidChange) }}%</td>
-          <td :class="item.entityChange === null || item.entityChange === undefined ? 'dim' : (item.entityChange > 0 ? 'up' : 'down')" :title="item.entityChange === null || item.entityChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + fmtPct(item._staleEntity) + '）') : ''">{{ item.entityChange === null || item.entityChange === undefined ? '-' : signed(item.entityChange) + '%' }}</td>
+          <td :class="chgCls(item.bidChange)" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'">{{ pct(item.bidChange) }}</td>
+          <td :class="item.entityChange === null || item.entityChange === undefined ? 'dim' : (item.entityChange > 0 ? 'up' : 'down')" :title="item.entityChange === null || item.entityChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + pct(item._staleEntity) + '）') : ''">{{ pct(item.entityChange) }}</td>
           <td>{{ warnLabel(item.warnType) }}</td>
           <td :title="'集合竞价阶段撮合成交金额: ' + (item.bidAmt ? bidAmtText(item.bidAmt) : '-')">{{ item.bidAmt || item.bidAmt === 0 ? bidAmtText(item.bidAmt) : '-' }}</td>
-          <td>{{ item.circulationMV ? item.circulationMV.toFixed(1) : '-' }}</td>
-          <td class="score-cell">{{ item.probability }}分</td>
-          <td>{{ item.confidence }}%</td>
+          <td>{{ fmtNum(item.circulationMV, 1) }}</td>
+          <td class="score-cell">{{ fmtNum(item.probability, 0, '分') }}</td>
+          <td>{{ fmtNum(item.confidence, 0, '%') }}</td>
           <td class="concept-cell" :title="'概念: ' + (item.concept || '')">
             <template v-if="item.concept">
               <span v-for="(c, i) in conceptList(item.concept)" :key="i" class="concept-item">{{ c }}</span>
@@ -73,6 +73,7 @@
 import { ref, computed } from 'vue'
 import { linkToSoftware } from '../utils/tdx'
 import { isBefore930 } from '../utils/time'
+import { fmtNum, pct } from '../utils/format'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
 import PoolHoverBtn from './PoolHoverBtn.vue'
 
@@ -159,7 +160,11 @@ function columnType(key) {
   return strKeys.has(key) ? 'string' : 'number'
 }
 
-function signed(v) { return (v > 0 ? '+' : '') + v.toFixed(2) }
+// 涨跌配色(红涨绿跌): 未知不参与配色(dim), 0 保持既有 down 口径不变
+function chgCls(v) {
+  if (v === null || v === undefined || isNaN(v)) return 'dim'
+  return v > 0 ? 'up' : 'down'
+}
 
 // 概念最多显示前 2 个, 每个概念独立一行(换行显示, 而非顿号/空格拼接; 完整概念放 title hover)
 function conceptList(c) {
@@ -167,20 +172,17 @@ function conceptList(c) {
   return String(c).split(/[、,，]/).map(s => s.trim()).filter(Boolean).slice(0, 2)
 }
 
-// 涨跌百分比显示(兼容 null/undefined, 用于 tooltip 的锁定时刻值)
-function fmtPct(v) {
-  if (v === null || v === undefined || isNaN(v)) return '-'
-  return (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%'
-}
-
 // 2026-09-03 主人要求恢复: 竞价选股表重新展示「竞额」列(bidAmt, 万元); amt>=10000万(1亿)折算显示亿
 function bidAmtText(amt) {
-  if (amt === null || amt === undefined || isNaN(amt)) return '-'
+  if (amt === null || amt === undefined || isNaN(amt)) return '—'
   return amt >= 10000 ? (amt / 10000).toFixed(2) + '亿' : Math.round(amt).toFixed(0)
 }
 function realCls(item) {
-  if (item.realChange < item.bidChange) return 'real-green'
-  return item.realChange > 0 ? 'up' : 'down'
+  const r = item.realChange
+  if (r === null || r === undefined || isNaN(r)) return 'dim'      // P0-3: 未知不配色
+  const b = item.bidChange
+  if (b !== null && b !== undefined && !isNaN(b) && r < b) return 'real-green'
+  return r > 0 ? 'up' : 'down'
 }
 function warnLabel(w) {
   return w === 5 ? '强' : w === 4 ? '⚡中' : w === 3 ? '↑弱' : '-'

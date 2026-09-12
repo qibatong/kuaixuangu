@@ -10,9 +10,11 @@ export function passLockedFilter(it, rt, f) {
   }
   if (it.bidChange > f.bidGt) return false                 // 竞价涨幅过高剔除
   if (it.circulationMV < f.floatMvFloor) return false      // 市值过小
-  if (it.circulationMV > f.floatMvGt) return false         // 市值过大
+  // 2026-09-11 修: 与后端 picker.filter 同语义 —— floatMvGt/priceGt 为 0 表示**不限**,
+  //   旧实现无条件比较, 用户把"流通≤"填 0(不限) 会把所有票剔除(0 = 不限 ≠ 上限 0)。
+  if (f.floatMvGt > 0 && it.circulationMV > f.floatMvGt) return false
   const price = rt ? rt.price : it.price
-  if (price && price > f.priceGt) return false             // 股价过高
+  if (f.priceGt > 0 && price && price > f.priceGt) return false   // 股价过高(0=不限)
   if (it.bidAmt < f.bidAmtFloor) return false              // 竞价金额过低
   // 2026-09-10 主人拍板(全站默认 80): 评分低于门槛的票不显示 — 前端与后端同口径,
   // 锁定名单在前端二次过滤时也必须一致, 否则"锁定后还能看到低分票"。

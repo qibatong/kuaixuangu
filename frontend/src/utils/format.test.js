@@ -1,7 +1,7 @@
 // 纯函数单测(node:test 零依赖 ESM 版, 运行: node --test src/utils/format.test.js)
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { yi, signed, amtText, fmtAvg, fmtT, wan, pct } from './format.js'
+import { yi, signed, amtText, fmtAvg, fmtT, wan, pct, fmtNum } from './format.js'
 
 test('yi: 元转亿(2位)', () => {
   assert.equal(yi(1e8), '1.00')
@@ -46,5 +46,29 @@ test('wan: 取整', () => {
 test('pct: 百分比拼接', () => {
   assert.equal(pct(3.14159), '+3.14%')
   assert.equal(pct(-1), '-1.00%')
-  assert.equal(pct(undefined), '-')
+  assert.equal(pct(undefined), '—')
+})
+
+// ---- 2026-09-11 P0-3: 落库"未知"被读侧还原成 null, 前端必须显示「—」而不是 0 ----
+test('P0-3 signed/pct: null 显示「—」而非 0.00', () => {
+  assert.equal(signed(null), '—')
+  assert.equal(signed(undefined), '—')
+  assert.equal(signed(''), '—')
+  assert.equal(signed(NaN), '—')
+  assert.equal(pct(null), '—')
+  assert.equal(pct(NaN), '—')
+  // 真实 0 仍是 0(不能把实测 0 也变成「—」)
+  assert.equal(signed(0), '0.00')
+  assert.equal(pct(0), '0.00%')
+})
+
+test('P0-3 fmtNum: 定点小数 + 后缀, 缺失→「—」', () => {
+  assert.equal(fmtNum(93.456, 0, '分'), '93分')
+  assert.equal(fmtNum(93.456, 1), '93.5')
+  assert.equal(fmtNum(78.4, 0, '%'), '78%')
+  assert.equal(fmtNum(0, 0, '%'), '0%')          // 实测 0 必须保留
+  assert.equal(fmtNum(null, 0, '分'), '—')
+  assert.equal(fmtNum(undefined, 1), '—')
+  assert.equal(fmtNum(NaN, 1), '—')
+  assert.equal(fmtNum('', 1), '—')
 })

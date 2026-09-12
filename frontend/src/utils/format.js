@@ -5,9 +5,11 @@ export function yi(v) {
   return (v / 1e8).toFixed(2)
 }
 
-// signed: 带符号数值(2位小数), 正数加 +; 缺失/非法返回 '-' (防 NaN%)
+// signed: 带符号数值(2位小数), 正数加 +; 缺失/非法返回 '—' (防 NaN%)
+// 2026-09-11 P0-3: 统一用 '—' 表示"未测到"(落库未知被读侧还原成 null),
+// 与"-"(不适用: 无极弱档/无概念)区分开, 避免未知继续显示成 0.00。
 export function signed(v) {
-  if (v === null || v === undefined || isNaN(v)) return '-'
+  if (v === null || v === undefined || v === '' || isNaN(v)) return '—'
   return (v > 0 ? '+' : '') + Number(v).toFixed(2)
 }
 
@@ -34,8 +36,17 @@ export function wan(v) {
   return v ? Number(v).toFixed(0) : '0'
 }
 
-// pct: 百分比拼接
+// pct: 百分比拼接(带符号 2 位); 缺失 → '—'(同 signed, P0-3)
 export function pct(v) {
-  if (v === null || v === undefined) return '-'
+  if (v === null || v === undefined || v === '' || isNaN(v)) return '—'
   return (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%'
+}
+
+// fmtNum: 定点小数 + 可选后缀; 缺失/非法 → '—'
+// 2026-09-11 P0-3: 落库时"未知"被 NOT NULL 约束兜成 0, 读侧按 miss_fields 还原成 null
+// (开关 history_null_restore)。前端必须把 null 显示成「—」而不是 0.00/0分 —— 否则
+// "没测到"继续伪装成"实测 0", 与落库前的语义脱节。
+export function fmtNum(v, digits = 1, suffix = '') {
+  if (v === null || v === undefined || v === '' || isNaN(v)) return '—'
+  return Number(v).toFixed(digits) + suffix
 }
