@@ -737,3 +737,59 @@
     `backup/p03p3_test_bak_20260912-083819.tar.gz` + `backup/dist_bak_20260912-083819.tar.gz`。
   - ⚠️ **上线纪律**：两个开关（`history_null_restore`、`frontend_local_filter`）**默认 0**，
     本次随代码上线不影响任何现有行为；**生产未部署**（等 P2+P0-3+P3 一次性推，需主人明确指令）。
+- **v4.11.14 (09-12 上午) 生产全量部署：P0-3 + P1 + P2 + P3 一次性上线**
+  - **部署前漂移地图**（生产无 git，先全量比对再动手；两侧剥 `\r` 后比 MD5）：
+    共有文件 97 / **一致 70 / 不一致 27**；仅生产有 2（`scripts/backfill_kpl_seal.py`、
+    `scripts/recalc_boom_history.py` —— 生产独有，**一律不动**）；仅本地有 55（其中 4 个是
+    生产尚无的新源码，其余为测试文件 —— 生产无 pytest，**不上测试**）。
+  - 🔴 **最重要的发现：生产仍带 9/11 事故的病**。`picker/mode.py` 与 `api/stocks.py`
+    两处修复**此前从未上生产**：
+    * `mode.py`：生产 `LOCKED` 仍是 `source_priority=("snapshot",)` + `realtime_patch=False`
+      → **一个补丁源都没有** → 定格行无实时价 → `real_change` 恒 `None` → 落库被兜成 0；
+    * `api/stocks.py`：生产 lock 当日幂等直读分支**没有** `_fill_spot_fields`。
+    本次随推上线，**周一 9:25-9:30 锁定期生效**。
+  - **推送清单（17 个文件：16 app + requirements.txt）**
+    * 更新 12：`main.py`（注册 `picker.router`）、`core/config.py`（删 Tushare 死源配置）、
+      `db/database.py`（新增 2 张物化表）、`api/stocks.py`（`_fill_spot_fields` 抽取 +
+      lock 直读补行情）、`services/auction_snapshot.py`（TickPlus 双源合并 + 市值兜底）、
+      `services/fetcher.py`（TickPlus 熔断项 + 删 ths/kpl/tushare 死源）、
+      `services/kpl.py`、`services/stock_temper.py`（各 1~2 行注释收敛）、
+      `picker/filter.py`（`score_floor_exempt`）、`picker/mode.py`（LOCKED 修复）、
+      `picker/pipeline.py`（物化路径 + `_refreeze_locked` + degraded 修正）、
+      `system_batch.py`（`now` 注入 + 预计算调用）。
+    * 新增 4：`api/picker.py`、`services/mv_cache.py`、`services/tickplus.py`、
+      `picker/precompute.py`。
+  - **行尾策略**：实测生产是**混合行尾**（`main.py`/`kpl.py`/`stock_temper.py` 已是 LF，
+    `config.py`/`database.py`/`mode.py`/`requirements.txt` 是 CRLF）→ 上传时
+    **统一转 LF**（3 个保持原状、4 个归一，Linux 规范且 Python 完全兼容）。
+  - **风险残留预检**（推前只读）：被删的 `TUSHARE_BASE_URL`/`TUSHARE_API_KEY` 与
+    `_fetch_kline_from_ths`/`_fetch_chart_from_kpl`/`_fetch_chart_from_tushare`
+    在生产**只被本次替换的 fetcher.py / config.py 自身引用**（外加不推的 tests）
+    → 删改安全；`_aggregate_kpl_daily_to_period` 等仍在用的函数全部保留。
+    生产 venv 已装 `alibabacloud-dypnsapi20170525 2.0.0`（requirements 无需实际安装）；
+    TickPlus 只用标准库，无新依赖。
+  - **重启前预检 38 项全 PASS**：`import app.main` + `openapi()` **96 条路径**（含
+    `/api/picker/snapshot`）+ 正反断言（TUSHARE/死函数**已无**，自聚合/`fetch_spot_quote_map`
+    **仍在**）+ 开关默认全关 + `LOCKED.realtime_patch=True` 且补丁源非空 + 两张新表已建。
+    * 预检里一条自加的一致性断言首轮 FAIL（`auction` 时段 `realtime_patch=True` 却无补丁源）
+      → 复核确认其**两个名单源本身就是全市场实时快照**（`eastmoney_market`/`tencent_market`，
+      量额涨幅齐全），属合理设计，已把断言口径改为"无补丁源 **且** 名单源也非全市场实时源"。
+  - **部署与验证**：dist 原子替换（`dist.new` → 校验 → `mv` 换入，避免 nginx 读到半份产物）
+    → 双服务重启（`09:25:11` / `09:25:15`）→ 验证：
+    * 启动致命错误 **0**（kuaixuan / kx-worker）；
+    * 运行态 `openapi` 含 `/api/picker/snapshot`；快照接口无 token → **401/403**；
+      `/api/stocks`、`/api/quotes` 无 token → **401**（非 500）；未知路径 → 404；
+    * 登录接口正常（错密码 → 401 + 中文提示）；
+    * 前端新 JS/CSS 资源 **200**、首页引用新 hash；`dist/assets` 1016 个；
+    * 两张新表已建（`stock_score_daily`、`stock_float_mv_daily`）；
+    * kx-worker 调度全绿（快照 6 时点 / 尾盘推送 / AI 竞价 / 概念刷新 / 连板天梯 / 股性存档）。
+  - ⚠️ **开关全部保持默认（未开）**：`frontend_local_filter`、`history_null_restore`、
+    `precompute_read/write/detail`、`tickplus_enabled`/`tickplus_token` 在生产 settings
+    表**均无 key** → 走代码默认（全关）→ **行为与部署前一致**，仅两处 9/11 修复直接生效。
+    启用需显式写 settings（P1 写物化表 → 开 `precompute_write`；P3 本地筛选 → 开
+    `frontend_local_filter`；P2 第二源 → 配 `TICKPLUS_TOKEN` 并开 `tickplus_enabled`）。
+  - **遗留（不影响运行）**：生产 settings 里有历史 key `picker_gray='1'`，而该灰度开关
+    已在 v4.11.3 随老链路删除 → 现为**无效遗留 key**；systemd 里的
+    `Environment=TUSHARE_API_KEY=...` 也随 config 清理成为无用变量，均可后续清理。
+  - **回滚点**：备份 `backup/prod_p0123_bak_20260912-091953.tar.gz`（后端 3.3MB）+
+    `backup/prod_dist_bak_20260912-091953.tar.gz`（前端 36.6MB）。
