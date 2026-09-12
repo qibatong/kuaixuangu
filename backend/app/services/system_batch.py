@@ -95,7 +95,17 @@ def _do_run(time_point, now=None):
     try:
         from .picker import precompute
         if precompute.write_enabled():
-            pst = precompute.precompute_all(today_str)
+            # 昨涨停/连板名单必须**显式传入**: 物化表的 is_zt_yday 是前端本地筛选
+            # 判"剔除昨涨停"的唯一依据, 不传则恒 0 → 本地名单会凭空多一批昨涨停票
+            # (2026-09-12 P3 一致性修复)。取不到(None)时 precompute 内部降级 concept 匹配。
+            zt = None
+            try:
+                from . import fetcher as _fetcher
+                zt = _fetcher.get_yesterday_zt_codes()
+            except Exception as e:                                # noqa: BLE001
+                log.warning("system_batch[%s] 昨涨停名单加载失败(预计算降级 concept) err=%s",
+                            time_point, e)
+            pst = precompute.precompute_all(today_str, zt_codes=zt)
             log.info("system_batch[%s] 预计算: %s", time_point, pst)
     except Exception as e:                                        # noqa: BLE001
         log.error("system_batch[%s] 预计算异常(不影响批跑) err=%s", time_point, e)

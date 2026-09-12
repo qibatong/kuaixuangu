@@ -1,0 +1,58 @@
+{
+  "_note": "P3 本地筛选对拍夹具(2026-09-12) —— 后端 tests/test_picker_snapshot.py 与前端 frontend/src/utils/pickFromSnapshot.test.js 共用同一份。左侧算法(picker.filter)或右侧(pickFromSnapshot)任一漂移, 对拍即红。行字段单位与快照接口一致: bidAmt=万元, floatMv=亿, bidChange=%。",
+  "rows": [
+    {"code": "600001", "name": "甲股", "bidChange": 3.0, "bidAmt": 8000.0, "floatMv": 55.0, "prevClose": 10.0, "auctionPrice": 10.3, "probability": 88, "confidence": 80, "isSt": 0, "isZt": 0},
+    {"code": "600002", "name": "乙股", "bidChange": 3.0, "bidAmt": 8000.0, "floatMv": 55.0, "prevClose": 10.0, "auctionPrice": 10.3, "probability": 88, "confidence": 80, "isSt": 0, "isZt": 1},
+    {"code": "600003", "name": "ST丙", "bidChange": 3.0, "bidAmt": 8000.0, "floatMv": 55.0, "prevClose": 10.0, "auctionPrice": 10.3, "probability": 88, "confidence": 80, "isSt": 1, "isZt": 0},
+    {"code": "600004", "name": "丁股", "bidChange": 8.5, "bidAmt": 8000.0, "floatMv": 55.0, "prevClose": 10.0, "auctionPrice": 10.85, "probability": 88, "confidence": 80, "isSt": 0, "isZt": 0},
+    {"code": "600005", "name": "戊股", "bidChange": -1.5, "bidAmt": 8000.0, "floatMv": 55.0, "prevClose": 10.0, "auctionPrice": 9.85, "probability": 88, "confidence": 80, "isSt": 0, "isZt": 0},
+    {"code": "600006", "name": "己股", "bidChange": 3.0, "bidAmt": 2000.0, "floatMv": 55.0, "prevClose": 10.0, "auctionPrice": 10.3, "probability": 88, "confidence": 80, "isSt": 0, "isZt": 0},
+    {"code": "600007", "name": "庚股", "bidChange": 3.0, "bidAmt": 8000.0, "floatMv": 20.0, "prevClose": 10.0, "auctionPrice": 10.3, "probability": 88, "confidence": 80, "isSt": 0, "isZt": 0},
+    {"code": "600008", "name": "辛股", "bidChange": 3.0, "bidAmt": 8000.0, "floatMv": 1200.0, "prevClose": 10.0, "auctionPrice": 10.3, "probability": 88, "confidence": 80, "isSt": 0, "isZt": 0},
+    {"code": "600009", "name": "壬股", "bidChange": 3.0, "bidAmt": 8000.0, "floatMv": 55.0, "prevClose": 350.0, "auctionPrice": 360.5, "probability": 88, "confidence": 80, "isSt": 0, "isZt": 0},
+    {"code": "000010", "name": "癸股", "bidChange": 3.0, "bidAmt": 8000.0, "floatMv": 55.0, "prevClose": 10.0, "auctionPrice": 10.3, "probability": 60, "confidence": 60, "isSt": 0, "isZt": 0},
+    {"code": "000011", "name": "子股", "bidChange": 3.0, "bidAmt": 8000.0, "floatMv": 55.0, "prevClose": 10.0, "auctionPrice": 10.3, "probability": 60, "confidence": 70, "isSt": 0, "isZt": 0},
+    {"code": "000012", "name": "丑股", "bidChange": 3.0, "bidAmt": 8000.0, "floatMv": 55.0, "prevClose": 10.0, "auctionPrice": 10.3, "probability": 70, "confidence": 70, "isSt": 0, "isZt": 0},
+    {"code": "300013", "name": "寅股", "bidChange": 3.0, "bidAmt": 8000.0, "floatMv": 55.0, "prevClose": 10.0, "auctionPrice": 10.3, "probability": 88, "confidence": 80, "isSt": 0, "isZt": 0},
+    {"code": "688014", "name": "卯股", "bidChange": 3.0, "bidAmt": 8000.0, "floatMv": 55.0, "prevClose": 10.0, "auctionPrice": 10.3, "probability": 88, "confidence": 80, "isSt": 0, "isZt": 0},
+    {"code": "900015", "name": "辰股", "bidChange": 3.0, "bidAmt": 8000.0, "floatMv": 55.0, "prevClose": 10.0, "auctionPrice": 10.3, "probability": 88, "confidence": 80, "isSt": 0, "isZt": 0},
+    {"code": "600010", "name": "巳股", "bidChange": 3.0, "bidAmt": 8000.0, "floatMv": 55.0, "prevClose": 10.0, "auctionPrice": 10.3, "probability": 85, "confidence": 85, "isSt": 0, "isZt": 0}
+  ],
+  "cases": [
+    {
+      "name": "全站默认条件(剔昨涨停/ST, 30-1000亿, 竞额>=3000万, 竞涨<=7, 评分>=80)",
+      "filters": {"stSuspend": false, "limitUp": false, "markets": ["hs", "cyb", "kcb"], "bidGt": 7, "bidLt": 0, "probLt": 65, "confLt": 65, "floatMvFloor": 30, "floatMvGt": 1000, "priceGt": 300, "bidAmtFloor": 3000, "scoreFloor": 80},
+      "expect": ["300013", "600001", "688014", "600010"]
+    },
+    {
+      "name": "全放宽(0=不限: 市值上限/价格上限/评分下限/竞额下限, 含昨涨停与低开)",
+      "filters": {"stSuspend": false, "limitUp": true, "markets": ["hs", "cyb", "kcb"], "bidGt": 20, "bidLt": -20, "probLt": 0, "confLt": 0, "floatMvFloor": 0, "floatMvGt": 0, "priceGt": 0, "bidAmtFloor": 0, "scoreFloor": 0},
+      "expect": ["300013", "600001", "600002", "600004", "600005", "600006", "600007", "600008", "600009", "688014", "600010", "000012", "000010", "000011"]
+    },
+    {
+      "name": "只要沪深主板(创业/科创被市场范围剔除)",
+      "filters": {"stSuspend": false, "limitUp": false, "markets": ["hs"], "bidGt": 7, "bidLt": 0, "probLt": 65, "confLt": 65, "floatMvFloor": 30, "floatMvGt": 1000, "priceGt": 300, "bidAmtFloor": 3000, "scoreFloor": 80},
+      "expect": ["600001", "600010"]
+    },
+    {
+      "name": "包含昨涨停 + 包含ST(勾选=不剔除)",
+      "filters": {"stSuspend": true, "limitUp": true, "markets": ["hs", "cyb", "kcb"], "bidGt": 7, "bidLt": 0, "probLt": 65, "confLt": 65, "floatMvFloor": 30, "floatMvGt": 1000, "priceGt": 300, "bidAmtFloor": 3000, "scoreFloor": 80},
+      "expect": ["300013", "600001", "600002", "600003", "688014", "600010"]
+    },
+    {
+      "name": "竞价涨幅下限 bidLt=1.0(低开/大跌剔除)",
+      "filters": {"stSuspend": false, "limitUp": false, "markets": ["hs", "cyb", "kcb"], "bidGt": 7, "bidLt": 1.0, "probLt": 65, "confLt": 65, "floatMvFloor": 30, "floatMvGt": 1000, "priceGt": 300, "bidAmtFloor": 3000, "scoreFloor": 80},
+      "expect": ["300013", "600001", "688014", "600010"]
+    },
+    {
+      "name": "价格上限边界: 竞价价 == priceGt 不得剔除(360.5)",
+      "filters": {"stSuspend": false, "limitUp": false, "markets": ["hs", "cyb", "kcb"], "bidGt": 7, "bidLt": 0, "probLt": 65, "confLt": 65, "floatMvFloor": 30, "floatMvGt": 1000, "priceGt": 360.5, "bidAmtFloor": 3000, "scoreFloor": 80},
+      "expect": ["300013", "600001", "600009", "688014", "600010"]
+    },
+    {
+      "name": "双低剔除(概率与信心同时低于门槛才剔; 高信心可救低概率)",
+      "filters": {"stSuspend": false, "limitUp": false, "markets": ["hs", "cyb", "kcb"], "bidGt": 7, "bidLt": 0, "probLt": 65, "confLt": 65, "floatMvFloor": 30, "floatMvGt": 1000, "priceGt": 300, "bidAmtFloor": 3000, "scoreFloor": 0},
+      "expect": ["300013", "600001", "688014", "600010", "000012", "000011"]
+    }
+  ]
+}
