@@ -927,12 +927,16 @@ def fetch_yesterday_perf():
     return _cached("yesterday_perf", 300, loader)
 
 
-# ==================== 炸板/涨停池(东财 flash 公开接口, 无需 Token) ====================
+# ==================== 炸板/涨停池(选股宝 flash 公开接口, 无需 Token) ====================
+# 2026-09-13 修正: 注释原写「东财 flash」, 实际域名 flash-api.xuangubao.cn = **选股宝**。
+#   写错源名会直接误导排障(按东财的风控口径去查, 得出错误结论)。
+#   另一坑: 该接口当日数据在 **15:50 之后才发布**(生产实证 8/27 当天 15:25/15:37/15:47
+#   三次抓取均「池为空」) → 采集窗口必须晚于该时刻, 见 stock_temper.BACKFILL_AT。
 _FLASH_BASE = "https://flash-api.xuangubao.cn/api/pool/detail?pool_name="
 
 
 def _flash_pool(pool_name, date=None):
-    """东财 flash 池通用请求: pool_name=limit_up_broken/limit_up_pool 等, date 可选(YYYY-MM-DD)
+    """选股宝 flash 池通用请求: pool_name=limit_up_broken/limit_up_pool 等, date 可选(YYYY-MM-DD)
     返回 [{code,name,change,limitUpDays,breakTimes,reason,...}, ...]; 失败返回 []"""
     url = _FLASH_BASE + pool_name + (("&date=" + date) if date else "")
     try:

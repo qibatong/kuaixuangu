@@ -25,9 +25,30 @@ from . import fetcher, kpl
 
 log = logger.get_logger(__name__)
 
-# 盘后存档时间窗(北京时间): 与连板天梯 15:30 对齐
-BACKFILL_AT = 15 * 60 + 30
+# 盘后存档时间窗(北京时间)
+# 2026-09-13 P1-a 修正: 15:30 → 18:30。
+#   旧值 15:10~15:50 早于上游(xuangubao flash 池)发布时刻 —— 生产实证:
+#   8/27 当天 15:25 / 15:37 / 15:47 三次尝试全部「池为空」, 该任务自上线起
+#   「涨停/炸板落库」成功日志计数 = 0, 表中 27010 行全靠一次性回补脚本填充。
+#   改到 18:30(±20 分 = 18:10~18:50), 并在窗口内按退避重试(见 _daily_task)。
+BACKFILL_AT = 18 * 60 + 30
 WINDOW = 20
+_BACKOFF0 = 300           # 首次失败后的重试间隔(秒)
+_BACKOFF_MAX = 1800       # 退避上限(30 分钟), 避免空转打上游
+
+# 次日盘前补救窗(北京时间 09:00-09:05): 补最近 N 个自然日缺失的涨停池/龙虎榜
+# 2026-09-13 P1-b 新增: 让故障自愈 —— 晚间窗口若因重启/节假日错过, 次日开盘前兜住,
+# 不再累积成长缺口(生产实证: limit 缺 12 天 / lhb 缺 20 天)。
+# 选 09:00-09:05 是为了避开 9:15 起的竞价采集主流程。
+RESCUE_START = 9 * 60 + 0
+RESCUE_END = 9 * 60 + 5
+RESCUE_DAYS = 7           # 回溯自然日数(跳过周末, 实际覆盖约 5 个交易日)
+
+# 日K缓存新鲜度: 末根日期 < 期望最近交易日 → 视为陈旧并回源
+# 2026-09-13 P1-c 新增: 旧逻辑「命中缓存即永久返回、无任何 TTL」导致日K底座
+#   永久冻结在首次写入时刻 —— 生产实证 stock_kline / stock_temper_profile 的 ts
+#   全部 = 8/27, 相差 11 个交易日。不修这个, 调时间窗也治不好画像。
+_KLINE_CLOSE_HM = 15 * 60 + 5   # 收盘后当日日K才定型
 
 # 反包/修复的时间窗(交易日数): 炸板后 N 日内重新封住=反包; 大阴线后 N 日内重新封住=修复
 REBUY_N = 5
@@ -45,10 +66,11 @@ def _bj_date(g=None):
 
 
 # ==================== 落库: 单日涨停/炸板明细 ====================
-def save_day(date=None, force=False):
+def save_day(date=None):
     """把指定日(start默认今日)的涨停池+炸板池落库 limit_history。
     date: YYYY-MM-DD; 幂等(INSERT OR REPLACE)。
-    返回落库条数; 涨停/炸板都为空认为是无数据日(可能休市)。"""
+    返回落库条数; 涨停/炸板都为空认为是无数据日(可能休市)。
+    注: 2026-09-13 删除死参数 force(从未被函数体引用)。"""
     date = date or _bj_date()
     zt = kpl._flash_pool("limit_up_pool", date) or []
     broken = kpl._flash_pool("limit_up_broken", date) or []
@@ -90,7 +112,7 @@ def backfill(start_date, end_date):
     while d <= end:
         day = d.isoformat()
         try:
-            n = save_day(day, force=True)
+            n = save_day(day)
             if n > 0:
                 done += 1
                 fail = 0
@@ -106,16 +128,70 @@ def backfill(start_date, end_date):
     return done
 
 
-# ==================== 日K: 读缓存或现拉东财 ====================
+# ==================== 日K: 读缓存或现拉东财(带新鲜度) ====================
+def _norm_day(s):
+    """把 2026-09-11 / 2026/09/11 / 20260911 / '2026-09-11 00:00:00' 统一为 YYYY-MM-DD。
+    多源兜底(东财/腾讯)日期格式不一致, 统一后方可比较。解析失败返回 ''。"""
+    if s is None:
+        return ""
+    t = str(s).strip().replace("/", "-").replace(".", "-")
+    t = t.split(" ")[0].split("T")[0]
+    d = t.split("-")
+    try:
+        if len(d) == 3 and len(d[0]) == 4:
+            return "%s-%02d-%02d" % (d[0], int(d[1]), int(d[2]))
+        if len(t) == 8 and t.isdigit():
+            return "%s-%s-%s" % (t[:4], t[4:6], t[6:8])
+    except (ValueError, TypeError):
+        return ""
+    return ""
+
+
+def _expected_last_trade_day():
+    """期望的最近交易日(北京时间)。忽略节假日 —— 宁可多回源一次也不漏更新。
+    未收盘(<15:05)时当日日K尚未定型, 期望值取上一个工作日。"""
+    from datetime import date as _d, timedelta
+    g, hm = _bj()
+    d = _d(g.tm_year, g.tm_mon, g.tm_mday)
+    if hm < _KLINE_CLOSE_HM:
+        d -= timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d.isoformat()
+
+
+def _kline_last_day(day_data):
+    """取缓存日K最后一根的日期(YYYY-MM-DD); 无 time 字段或解析失败返回 ''。"""
+    try:
+        kl = json.loads(day_data) if isinstance(day_data, str) else (day_data or {})
+        ts = (kl or {}).get("time") or []
+        if not ts:
+            return ""
+        return _norm_day(max(str(x) for x in ts))
+    except Exception:
+        return ""
+
+
 def _kline(code, refresh=False):
-    """取得个股 day 日K({time,open,close,high,low,...}), 优先读 stock_kline 缓存"""
+    """取得个股 day 日K({time,open,close,high,low,...}), 优先读 stock_kline 缓存。
+
+    2026-09-13 P1-c: 缓存新增新鲜度判断 —— 末根日期早于期望最近交易日则回源。
+    旧逻辑「命中即永久返回、无任何 TTL」会让日K底座永久冻结在首次写入时刻:
+    生产实证 stock_kline 与 stock_temper_profile 的 ts 全部停在 8/27, 相差 11 个
+    交易日, 且 rebuild_profiles() 用默认 refresh_kline=False → 画像永不更新。
+    """
     if not refresh:
         try:
             conn = database.get_conn()
             row = conn.execute("SELECT day_data FROM stock_kline WHERE code=?", (code,)).fetchone()
             conn.close()
-            if row:
-                return json.loads(row[0])
+            if row and row[0]:
+                last = _kline_last_day(row[0])
+                want = _expected_last_trade_day()
+                # 解析失败(last='')按新鲜处理: 避免异常形态下全量回源打爆上游
+                if not last or last >= want:
+                    return json.loads(row[0])
+                log.info("日K缓存陈旧 code=%s 末根=%s < 期望=%s → 回源", code, last, want)
         except Exception:
             pass
     data = fetcher.fetch_stock_chart_robust(code, "day")   # 多源兜底: 东财→腾讯(见 fetcher.fetch_stock_chart_robust)
@@ -399,6 +475,7 @@ def rebuild_profiles(day_window=None):
     codes = [r[0] for r in conn.execute("SELECT DISTINCT code FROM limit_history").fetchall()]
     conn.close()
     ts = int(time.time())
+    t0 = time.time()
     done = 0
     for code in codes:
         try:
@@ -410,35 +487,110 @@ def rebuild_profiles(day_window=None):
             continue
         _store_profile(p, ts)
         done += 1
-    log.info("股性画像全量重建完成 目标=%d 入库=%d", len(codes), done)
+    log.info("股性画像全量重建完成 目标=%d 入库=%d 耗时=%.1fs",
+             len(codes), done, time.time() - t0)
     return done
 
 
-# ==================== 盘后调度 ====================
-_fired = None
+# ==================== 调度: 盘后存档 + 次日盘前补救 ====================
+_fired = None        # 已成功落库的日期(**成功后才置位**, 见 _daily_task)
+_backoff = 0         # 当前退避秒数(失败翻倍, 上限 _BACKOFF_MAX)
+_next_try = 0        # 下次允许尝试的时间戳
+_running = False     # 任务执行中防重入(rebuild 耗时可能超过 30s 轮询间隔)
+_rescued = None      # 当日已执行过盘前补救
+
+
+def _day_rows(table, day):
+    """某表某日已有行数; 查询失败返回 -1(调用方应跳过, 避免把异常误判成"缺失")"""
+    if table not in ("limit_history", "lhb_history"):      # 白名单防拼串
+        return -1
+    try:
+        conn = database.get_conn()
+        n = conn.execute("SELECT COUNT(*) FROM %s WHERE date=?" % table, (day,)).fetchone()[0]
+        conn.close()
+        return n
+    except Exception as e:
+        log.warning("盘前补救计数失败 table=%s day=%s err=%s", table, day, e)
+        return -1
+
+
+def _rescue_missing(days=RESCUE_DAYS):
+    """盘前补救(P1-b): 回溯最近 N 个自然日, 补齐缺失交易日的涨停池与龙虎榜。
+
+    意义: 上游发布时刻晚于采集时刻时, 当日窗口必然失败; 旧逻辑既不在窗口内
+    重试、也无次日补救 → 缺口持续累积(生产实证 limit 缺 12 个交易日 /
+    lhb 缺 20 个交易日)。幂等(INSERT OR REPLACE), 只回溯最近 N 天, 成本可控。
+    """
+    from datetime import date as _d, timedelta
+    today = _d.fromisoformat(_bj_date())
+    fixed = []
+    for back in range(1, days + 1):
+        day = (today - timedelta(days=back)).isoformat()
+        if _d.fromisoformat(day).weekday() >= 5:
+            continue
+        try:
+            if _day_rows("limit_history", day) == 0 and save_day(day):
+                fixed.append("limit:" + day)
+            if _day_rows("lhb_history", day) == 0:
+                lst = kpl.fetch_lhb(day) or []
+                if lst:
+                    conn = database.get_conn()
+                    conn.execute(
+                        "INSERT OR REPLACE INTO lhb_history (date, list, ts) VALUES (?,?,?)",
+                        (day, json.dumps(lst, ensure_ascii=False), int(time.time())))
+                    conn.commit()
+                    conn.close()
+                    fixed.append("lhb:" + day)
+        except Exception as e:
+            log.warning("盘前补救异常 day=%s err=%s", day, e)
+    log.info("股性盘前补救完成 回溯=%d天 补齐=%s", days, (",".join(fixed) or "无(数据齐全)"))
+    return fixed
 
 
 def _daily_task(date):
-    """每日盘后: 先落库当日涨停/炸板, 再全量重建画像(方案B), 保证排行表当日最新。"""
+    """每日盘后: 先落库当日涨停/炸板, 成功后再全量重建画像(保证排行表当日最新)。
+
+    2026-09-13 P1-a 修正: _fired 改为「成功后置位」+ 窗口内失败退避重试。
+    旧逻辑「起线程即置位」→ 窗口内只试一次, 上游未发布则当天彻底放弃且次日
+    无补救(生产实证: 「涨停/炸板落库」成功日志计数 = 0, 自上线起从未成功)。
+    """
+    global _fired, _backoff, _next_try, _running
     try:
-        n = save_day(date, force=True)
+        n = save_day(date)
         if n > 0:
+            _fired = date
+            _backoff = 0
             rebuild_profiles()
+            return
+        _backoff = min(_BACKOFF_MAX, _backoff * 2 if _backoff else _BACKOFF0)
     except Exception as e:
+        _backoff = min(_BACKOFF_MAX, _backoff * 2 if _backoff else _BACKOFF0)
         log.warning("股性盘后任务异常 err=%s", e)
+    finally:
+        _next_try = time.time() + _backoff
+        _running = False
 
 
 def _scheduler_loop():
-    global _fired
-    log.info("股性涨停/炸板盘后存档 调度已启动(交易日 %02d:%02d)", BACKFILL_AT // 60, BACKFILL_AT % 60)
+    global _fired, _rescued, _running
+    log.info("股性调度已启动: 盘后存档 %02d:%02d(±%d分) / 盘前补救 %02d:%02d-%02d:%02d",
+             BACKFILL_AT // 60, BACKFILL_AT % 60, WINDOW,
+             RESCUE_START // 60, RESCUE_START % 60, RESCUE_END // 60, RESCUE_END % 60)
     while True:
         try:
             g, hm = _bj()
             date = _bj_date(g)
-            if g.tm_wday < 5 and abs(hm - BACKFILL_AT) <= WINDOW and _fired != date:
+            # 次日盘前补救(P1-b): 每天一次, 选 09:00-09:05 避开 9:15 竞价主流程
+            if g.tm_wday < 5 and RESCUE_START <= hm <= RESCUE_END and _rescued != date:
+                _rescued = date
+                threading.Thread(target=_rescue_missing, daemon=True,
+                                 name="stock-temper-rescue").start()
+            # 盘后存档(P1-a): 成功后才置 _fired, 失败按退避在窗口内重试
+            if (g.tm_wday < 5 and abs(hm - BACKFILL_AT) <= WINDOW
+                    and _fired != date and not _running and time.time() >= _next_try):
+                _running = True
                 threading.Thread(target=_daily_task, args=(date,), daemon=True,
                                  name="stock-temper-daily").start()
-                _fired = date
             if _fired is not None and date != _fired and hm < BACKFILL_AT - WINDOW - 5:
                 _fired = None
         except Exception as e:
@@ -449,4 +601,8 @@ def _scheduler_loop():
 def start_scheduler():
     t = threading.Thread(target=_scheduler_loop, daemon=True, name="stock-temper-sched")
     t.start()
-    log.info("股性涨停/炸板盘后存档 调度线程已启动(交易日 15:30)")
+    # 2026-09-13: 原文案写死「交易日 15:30」, 与 BACKFILL_AT 改动后严重矛盾
+    # (排查时按 15:30 找窗口会得出错误结论) → 改为动态引用常量。
+    log.info("股性调度线程已启动(盘后存档 交易日 %02d:%02d±%d分 / 盘前补救 %02d:%02d)",
+             BACKFILL_AT // 60, BACKFILL_AT % 60, WINDOW,
+             RESCUE_START // 60, RESCUE_START % 60)

@@ -1166,7 +1166,8 @@ def _scheduler_loop():
                         log.warning("人气热榜兜底补跑异常 err=%s", he)
                 except Exception as e:
                     log.warning("板块轮动兜底补跑异常 err=%s", e)
-            # 人气热榜/龙虎榜/连板梯队/竞价异动 15:30-15:35 日终快照(与板块轮动同一窗口并行)
+            # 人气热榜/连板梯队/竞价异动 15:30-15:35 日终快照(与板块轮动同一窗口并行)
+            # 注: 龙虎榜**不在此窗口** —— 见下方 18:30-18:40 晚间窗口(P1-a)
             if g.tm_wday < 5 and 15 * 60 + 30 <= hm <= 15 * 60 + 35:
                 try:
                     # 人气热榜历史快照(三源): 供人气榜回看历史
@@ -1174,18 +1175,6 @@ def _scheduler_loop():
                     for src in ("kpl", "em", "ths"):
                         if store.setnx("sched:done:hot_%s_%s" % (src, date), 1, ttl=86400):
                             hot_rank.save_hot_rank_history(date, source=src)
-                    # 龙虎榜当日快照: 供龙虎榜回看历史(接口支持 Time 参数, 但落库保证数据在)
-                    if store.setnx("sched:done:lhb_" + date, 1, ttl=86400):
-                        from . import kpl
-                        lst = kpl.fetch_lhb(date)
-                        if lst:
-                            from ..db import database
-                            conn = database.get_conn()
-                            conn.execute(
-                                "INSERT OR REPLACE INTO lhb_history (date, list, ts) VALUES (?,?,?)",
-                                (date, json.dumps(lst, ensure_ascii=False), int(time.time())))
-                            conn.commit()
-                            conn.close()
                     # 连板梯队当日快照: 供连板天梯回看历史(接口不支持历史日期, 必须落库)
                     if store.setnx("sched:done:ladder_" + date, 1, ttl=86400):
                         from . import kpl as _kpl
@@ -1205,7 +1194,30 @@ def _scheduler_loop():
                         else:
                             store.delete("sched:done:auction_" + date)   # 失败回滚, 15:30-15:35 窗口内重试
                 except Exception as e:
-                    log.warning("日终快照(热榜/龙虎/连板/竞价异动)失败 err=%s", e, exc_info=True)
+                    log.warning("日终快照(热榜/连板/竞价异动)失败 err=%s", e, exc_info=True)
+            # 龙虎榜当日快照 18:30-18:40 晚间窗口(P1-a, 2026-09-13):
+            # 龙虎榜是**盘后公布**(通常 18:00 后), 旧逻辑放在 15:30 采必然为空 ——
+            # 生产实证 lhb_history 仅 7 行(全靠一次性回补脚本填充), 每日调度从未成功。
+            # 挪到晚间窗口, 并补失败回滚: 旧逻辑 setnx 占锁后判空不释放(对照同窗口
+            # ladder 子块有 store.delete 回滚), 窗口内不会重试 → 一次空就当天废弃。
+            if g.tm_wday < 5 and 18 * 60 + 30 <= hm <= 18 * 60 + 40:
+                try:
+                    if store.setnx("sched:done:lhb_" + date, 1, ttl=86400):
+                        from . import kpl
+                        from ..db import database
+                        lst = kpl.fetch_lhb(date)
+                        if lst:
+                            conn = database.get_conn()
+                            conn.execute(
+                                "INSERT OR REPLACE INTO lhb_history (date, list, ts) VALUES (?,?,?)",
+                                (date, json.dumps(lst, ensure_ascii=False), int(time.time())))
+                            conn.commit()
+                            conn.close()
+                            log.info("龙虎榜当日快照已存 date=%s 共%d条", date, len(lst))
+                        else:
+                            store.delete("sched:done:lhb_" + date)   # 失败回滚, 窗口内重试
+                except Exception as e:
+                    log.warning("龙虎榜晚间快照失败 err=%s", e, exc_info=True)
             # 9:31-9:35 盘点当日采集: 缺失时点告警(排查关键, 数据过了点无法补)
             if g.tm_wday < 5 and 9 * 60 + 31 <= hm <= 9 * 60 + 35 and store.setnx("sched:checked:" + date, 1, ttl=86400):
                 missing = []
