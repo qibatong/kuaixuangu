@@ -890,7 +890,7 @@
     ② 首次部署因自加断言写了不存在的 `save_snapshot` 被预检拦下并自动回滚（**闸门生效**），
     修正为真实函数名（`snapshot_at` 等）后重跑成功。
 
-- **v4.11.18 (09-13) 首页两市量能改取开盘啦实时接口（测试机已部署，生产待指令）**
+- **v4.11.18 (09-13 改 / 09-14 00:12 推生产并开启) 首页两市量能改取开盘啦实时接口**
   - **起因**：主人自查首页「市场情绪」并要求「先不要改代码」。只读审计发现三个问题 ——
     ① **真 bug**：`_close_chg_persist_allowed()` 只判「今天过没过 15:00」、**不判交易日**
       → 周日 15:47 照样触发，把实时涨幅（=9/11 值）写成 `date=2026-09-13`（53 行 vs 9/11 的 292 行）；
@@ -918,8 +918,22 @@
   - **测试机部署**：预检 12/12 PASS（含**真实网络**验证开盘啦 market 域名可达）后重启；
     双服务 active、HTTP 200；开关置 1 实测 `amount=19718.98 volSrc=kpl`、
     `last_same_time=16471.48 src=kpl`（周日"此刻"已过收盘 → 退化为昨日全天，属预期）。
-  - **回滚**：代码 `/opt/kuaixuan/backup/volrt_bak_20260913-235308.tar.gz`；
+  - **回滚**：代码 `/opt/kuaixuan/backup/volrt_bak_20260913-235308.tar.gz`（测试机）；
     功能回滚 `settings.set("market_vol_rt", 0)`，**实时生效不用重启**。
+  - **生产部署（09-14 00:12，commit `c0a4609`）**：备份
+    `/opt/kuaixuan/backup/volrt_bak_20260914-001213.tar.gz` → 预检 **11 PASS + RESULT=OK**
+    （含真实网络验证开盘啦 market 域名可达）→ 重启 → 3 文件 MD5 全部 OK →
+    开开关 `market_vol_rt=1` → 实测 `amount=19718.98 volSrc=kpl`、
+    `last_same_time=16471.48 src=kpl`、`volForecast="19718亿(19.72%,增量3247亿)"`、**VERIFY=OK**；
+    双服务 active，`https_root=200`（`http_root=301` 是 http→https 跳转，非故障），
+    近 5 分钟 kuaixuan / kx-worker **均无 ERROR/Traceback**；TTL 缓存生效（0.15s→0.11s，两次一致）。
+    生产回滚包同上，功能回滚 `settings.set("market_vol_rt", 0)`。
+  - ⚠️ **验收时点**：周日请求"此刻"已过收盘 → `last` 与 `s_zrtj` 都等于各自全天
+    （`prev_same_time == prev_full` 属预期）。**真实验证要等 9/14 盘中 10:00**，
+    届时 `last` 应为截至 10:00 的累计、`s_zrtj` 为 9/11 10:00 的值（≈5750 亿，增量应 ≈+857 亿
+    而非原算法的 +6631 亿）。
+  - ⚠️ 部署当时生产东财全市场**仍在熔断**（`page=29/30 东方财富接口返回异常`）→ 自算口径会少算，
+    实时接口不受影响，正体现本次改动价值。
   - ⚠️ 记录两点：① `fetch_kpl_doc110` 注释自称"实时接口"**名不符实**（只有日级 125 条，
     试遍 `st/Period/Type/apiv` 均无分时），已改注释；② 非交易日 `market.date` 仍标当天
     而 amount 是上一交易日的值（既有行为，非本次引入，未动）。
