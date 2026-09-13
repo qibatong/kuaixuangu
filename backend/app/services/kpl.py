@@ -442,9 +442,36 @@ def build_market_brief_payload():
     聚合逻辑下沉到 services 层, 供 api 与预热线程共用(预热在 services 层跑)"""
     from ..db import database
     from . import fetcher as _fetcher
+    from . import settings as _settings_svc
     breadth = fetch_market_breadth()
     market = _fetcher.fetch_market_brief()
     last_same_time = _fetcher.get_same_time_yesterday()
+    # 2026-09-13: 两市量能可切到开盘啦实时接口(a=MarketSCLN), 开关 market_vol_rt(默认 0=关)
+    # 背景(主人反馈"相比昨日永远比的昨日总成交, 不是同一时点"): 原基准来自 worker 自存
+    # 快照 market_brief_intraday_*, 有两个硬伤 ——
+    #   ① 09:30 存在 amount=0 脏点 → 早盘匹配到它后增量虚高 7.7 倍
+    #      (9/11 10:00 显示 +6631 亿, 正确应为 9/10 10:00 的 5750 亿 → +857 亿)
+    #   ② 东财分页失败即**静默少算**(9/8 少 1491 亿 = -7.6%), 基准侧与今日侧都可能失真。
+    # 实时接口一次请求即给「今日此刻 + 昨日同一时点」, 两侧同源同口径, 且不因东财失败缩水。
+    # ⚠️ 取不到(amount<=0 / 网络失败 / 异常)时**完全回退**原值, 不改变任何行为。
+    if _settings_svc.get("market_vol_rt", 0):
+        try:
+            vol = parse_market_volume_rt(fetch_kpl_market_scln())
+        except Exception as e:
+            vol = None
+            log.warning("实时市场量能取数异常(回退自算) err=%s", e)
+        if vol:
+            market = dict(market or {})
+            market["amount"] = vol["amount"]
+            market["volSrc"] = "kpl"
+            if vol.get("forecast_str"):
+                market["volForecast"] = vol["forecast_str"]
+            if vol.get("prev_same_time"):
+                last_same_time = {"amount": vol["prev_same_time"],
+                                  "stockCount": (last_same_time or {}).get("stockCount"),
+                                  "ts": vol.get("ts"),
+                                  "date": (last_same_time or {}).get("date"),
+                                  "src": "kpl"}
     last = None
     try:
         conn = database.get_conn()
@@ -455,7 +482,6 @@ def build_market_brief_payload():
         # 2026-09-07: 15:30 后 last 已被**今日收盘**覆盖 → 与今日自比恒 0,
         # 此时改用 prev(上一交易日全天)作为"较昨日全天"基准
         if last and last.get("date") == time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600)):
-            from . import settings as _settings_svc
             prev = _settings_svc.get("market_brief_prev")
             if prev:
                 last = prev
@@ -3250,7 +3276,10 @@ def fetch_kpl_pianli_hot(**extra):
     return _cached("yidong_pianli_hot", config.KPL_YIDONG_TTL, _load)
 
 def fetch_kpl_doc110(**extra):
-    r"""实时接口 (apphis.longhuvip.com) -> dict
+    r"""日级量能序列 (apphis.longhuvip.com) -> dict
+    2026-09-13 更正: 原名"实时接口"**名不符实** — 实测只返回 125 个交易日的日级
+    lastPoint, 拿不到盘中此刻值, 也拿不到昨日同一时点(试遍 st/Period/Type/apiv
+    均无效)。盘中实时量能请用 fetch_kpl_market_scln()(a=MarketSCLN, market 域名)。
     a=MarketSCLNKLine, c=HisHomeDingPan, apiv=w44 + extra
     resp 示例: {\"info\":[{\"lastPoint\":\"255091673\",\"Date\":\"2026-08-13\"},{\"lastPoint\":\"215242310\",\"Date\":\"2026-08-12\"},{\"lastPoint\":\"232098591\",\"
     """
@@ -3266,6 +3295,64 @@ def fetch_kpl_doc111(**extra):
     base = {"a": "MarketSCLNKLine", "c": "HisHomeDingPan", "apiv": "w44"}
     base.update(extra)
     return _call("his", base)
+
+def fetch_kpl_market_scln(**extra):
+    r"""实时市场量能 (apphq 域名) -> dict; 2026-09-13 新增
+    a=MarketSCLN, c=HomeDingPan, apiv=w44 + extra
+    ⚠️ 与 doc110/111(MarketSCLNKLine) **三处不同**, 混用会静默拿到日级历史:
+      接口名 MarketSCLN(无 KLine) / 域名 market(apphq, 非 his) / c=HomeDingPan(非 HisHomeDingPan)
+    单位 **万元**(÷1e4 = 亿元)。无 extra 时走 60s 跨进程缓存(防打爆 8 万/日配额)。
+    resp: {\"info\":{\"last\":\"197189848\",\"s_zrcs\":\"164714782\",\"s_zrtj\":\"164714782\",
+           \"s3_zrtj\":\"182102971\",\"ycln\":\"19718亿\",\"yclnstr\":\"19718亿(19.72%,增量3247亿)\",
+           \"csbl\":19.72,\"color\":\"1\",\"time\":1789313011,
+           \"trends\":[[\"09:30\",\"1794187\",\"1470081\",\"1557046\",\"27.39\",\"20983亿\",\"1\",\"1\"]]}}
+    字段: last=今日**此刻**累计, s_zrtj=昨日**同一时点**(★), s_zrcs=昨日全天,
+          s3_zrtj=前3日同期, ycln/yclnstr/csbl=全天预测量能/串/完成度%,
+          trends=当日分钟级序列 [时刻, 今日累计, 昨日同期, 前3日同期, 完成度%, 预测串, ...]
+    ⚠️ 非交易日或收盘后请求: "此刻"已过收盘 → last/s_zrtj 退化为各自**全天**(预期行为, 非故障)
+    """
+    def _load():
+        base = {"a": "MarketSCLN", "c": "HomeDingPan", "apiv": "w44"}
+        base.update(extra)
+        return _call("market", base)
+    if extra:
+        return _load()
+    return _cached("market_scln", config.KPL_MARKET_SCLN_TTL, _load)
+
+
+# 开盘啦量能单位: 万元 → 亿元
+_KPL_AMT_WAN2YI = 1e4
+
+
+def parse_market_volume_rt(data):
+    """解析 fetch_kpl_market_scln() 的返回为结构化量能(亿元); 取不到返回 None
+
+    返回 {amount, prev_same_time, prev_full, prev3_same_time, forecast, forecast_str, ts}
+    ⚠️ last<=0(非交易时段 0 值脏点) 视为**取不到** → 返回 None 由调用方回退,
+       绝不把 0 当实测值(0 会被前端当成"无量"渲染, 比不显示更糟)。"""
+    info = (data or {}).get("info")
+    if not isinstance(info, dict):
+        return None
+
+    def _yi(k):
+        try:
+            v = float(info.get(k))
+        except (TypeError, ValueError):
+            return None
+        return round(v / _KPL_AMT_WAN2YI, 2) if v > 0 else None
+
+    amount = _yi("last")
+    if not amount:
+        return None
+    return {
+        "amount": amount,
+        "prev_same_time": _yi("s_zrtj"),
+        "prev_full": _yi("s_zrcs"),
+        "prev3_same_time": _yi("s3_zrtj"),
+        "forecast": info.get("ycln"),
+        "forecast_str": info.get("yclnstr"),
+        "ts": info.get("time"),
+    }
 
 def fetch_kpl_doc112(**extra):
     r"""竞价大于1000万 (apphwshhq.longhuvip.com) -> dict
