@@ -50,8 +50,12 @@
       <label class="filter-cell">
         竞涨 ≤<input v-model.number="store.filterSettings.bidGt" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(22)">%
       </label>
+      <!-- 2026-09-14 主人拍板: 「涨停率」与「评分」筛的是同一个字段(probability), 属重复项 →
+           合并为一项「分数」, 沿用原「评分」的**单阈值硬门槛**(默认 80, 0=不限), 绑定 scoreFloor。
+           ⚠️ 保留说明: probLt/confLt 不再有 UI 入口, 但仍按默认值(65/65)传给后端,
+             "分数<65 且 可信度<65"的双低判据在用户把分数调到 65 以下时会额外生效(既有耦合, 未动)。 -->
       <label class="filter-cell">
-        涨停率 ≥<input v-model.number="store.filterSettings.probLt" type="number" min="5" max="95" step="1" :disabled="store.isFilterLocked" :style="inputStyle(22)">% 或 可信度 ≥<input v-model.number="store.filterSettings.confLt" type="number" min="50" max="90" step="1" :disabled="store.isFilterLocked" :style="inputStyle(22)">%
+        分数 ≥<input v-model.number="store.filterSettings.scoreFloor" type="number" min="0" max="100" step="1" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">分
       </label>
       <label class="filter-cell">
         流通 ≥<input v-model.number="store.filterSettings.floatMvFloor" type="number" min="0" max="5000" step="10" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
@@ -65,10 +69,7 @@
       <label class="filter-cell">
         竞额 ≥<input v-model.number="store.filterSettings.bidAmtFloor" type="number" min="0" max="100000" step="500" :disabled="store.isFilterLocked" :style="inputStyle(42)">万
       </label>
-      <!-- 2026-09-10 主人拍板: 评分低于此分的票不显示(全站默认 80, 0=不限) -->
-      <label class="filter-cell">
-        评分 ≥<input v-model.number="store.filterSettings.scoreFloor" type="number" min="0" max="100" step="1" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">分
-      </label>
+      <!-- 2026-09-14: 原「评分 ≥」行已删除(与「分数」重复, 同一个 probability 字段) -->
     </div>
   </div>
   <!-- 2026-08-25: 偏好/全局默认异步加载完成前的占位, 避免先用内置默认(limitUp=false)
