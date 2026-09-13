@@ -868,3 +868,24 @@
     真正的回滚点只有**首次**那个包。
   - **未做（等指令）**：画像链重建（`stock_temper_profile` 仍停 8/27）需在 P1-c 生效后
     刷日K + `rebuild_profiles()`；生产部署待主人确认。
+
+- **v4.11.17 (09-13) P1 推生产（commit `ae779ea` 的落地）**
+  - **部署前置 · 漂移审计**：生产 5 个目标文件与 git `ae779ea^` **逐字节一致（零漂移）**
+    → 确认无生产独有补丁，可安全整文件覆盖（生产是补丁拼盘，此步不可省）。
+  - **推送**：`stock_temper.py` / `auction_snapshot.py` / `kpl.py` / `core/net.py` / `worker.py`
+    + `tests/test_stock_temper_p1.py`（行尾统一 LF）。
+  - **预检 29/29 PASS 才重启**：新常量/新函数就位、`save_day` 已删 `force`、
+    龙虎榜在 18:30 窗口且带 `store.delete` 回滚、14 个原有函数仍在（防覆盖丢东西）、
+    `app.main` 可导入（96 路由）。
+  - **重启** `kuaixuan` + `kx-worker` 双服务 active；调度日志确认新时刻生效：
+    `股性调度已启动: 盘后存档 18:30(±20分) / 盘前补救 09:00-09:05`。
+  - **验证**：`_rescue_missing(days=7)` 生产实跑 = **无（数据齐全）** → 幂等，
+    且佐证 9/12 补采结果完好（limit 28069 行 / lhb 27 行，最新均 9/11）。
+    日K缓存抽样末根 8/27 → 判定"会回源"，符合预期（TTL 已生效，存量待重建）。
+  - **零影响佐证**：`stock_temper_profile` 3951 只 ts=8/27 16:59、`stock_kline` 3951 只
+    ts=8/27 15:18（本次未触碰）；`tickplus_token/enabled` 仍在位；`integrity_check = ok`。
+  - **回滚点**：代码 `/opt/kuaixuan/backup/p1_prod_bak_20260913-090538.tar.gz`、
+    DB `/opt/kuaixuan/backup/kuaixuan.db.pre_p1_20260913-090538`（418 MB，SQLite 在线备份 API）。
+  - ⚠️ 两点记录：① 生产 venv **无 pytest**，新守护用例无法远端跑（本地 961 全绿 + 预检覆盖运行时符号）；
+    ② 首次部署因自加断言写了不存在的 `save_snapshot` 被预检拦下并自动回滚（**闸门生效**），
+    修正为真实函数名（`snapshot_at` 等）后重跑成功。
