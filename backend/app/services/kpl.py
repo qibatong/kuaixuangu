@@ -453,6 +453,9 @@ def build_market_brief_payload():
     #      (9/11 10:00 显示 +6631 亿, 正确应为 9/10 10:00 的 5750 亿 → +857 亿)
     #   ② 东财分页失败即**静默少算**(9/8 少 1491 亿 = -7.6%), 基准侧与今日侧都可能失真。
     # 实时接口一次请求即给「今日此刻 + 昨日同一时点」, 两侧同源同口径, 且不因东财失败缩水。
+    # 🔴 2026-09-14 补正: 该接口 `zrtj` 系字段是**昨日全天**、`zrcs` 系才是**同一时点** ——
+    #    9/13 初版把两者判反, 基准实际取了昨日**全天**量(虚高 6.6 倍); 9/14 盘中实测后已纠正,
+    #    并加"同期>全天即丢弃"自检。字段语义细节见 parse_market_volume_rt docstring。
     # ⚠️ 取不到(amount<=0 / 网络失败 / 异常)时**完全回退**原值, 不改变任何行为。
     if _settings_svc.get("market_vol_rt", 0):
         try:
@@ -3302,14 +3305,18 @@ def fetch_kpl_market_scln(**extra):
     ⚠️ 与 doc110/111(MarketSCLNKLine) **三处不同**, 混用会静默拿到日级历史:
       接口名 MarketSCLN(无 KLine) / 域名 market(apphq, 非 his) / c=HomeDingPan(非 HisHomeDingPan)
     单位 **万元**(÷1e4 = 亿元)。无 extra 时走 60s 跨进程缓存(防打爆 8 万/日配额)。
-    resp: {\"info\":{\"last\":\"197189848\",\"s_zrcs\":\"164714782\",\"s_zrtj\":\"164714782\",
-           \"s3_zrtj\":\"182102971\",\"ycln\":\"19718亿\",\"yclnstr\":\"19718亿(19.72%,增量3247亿)\",
-           \"csbl\":19.72,\"color\":\"1\",\"time\":1789313011,
-           \"trends\":[[\"09:30\",\"1794187\",\"1470081\",\"1557046\",\"27.39\",\"20983亿\",\"1\",\"1\"]]}}
-    字段: last=今日**此刻**累计, s_zrtj=昨日**同一时点**(★), s_zrcs=昨日全天,
-          s3_zrtj=前3日同期, ycln/yclnstr/csbl=全天预测量能/串/完成度%,
+    resp: {\"info\":{\"last\":\"102144082\",\"s_zrcs\":\"116604857\",\"s_zrtj\":\"197189848\",
+           \"s3_zrtj\":\"182488431\",\"ycln\":\"16957亿\",\"yclnstr\":\"16957亿(-14%,缩量2761亿)\",
+           \"csbl\":-14,\"color\":\"2\",\"time\":1789355099,
+           \"trends\":[[\"09:30\",\"1645452\",\"1794187\",\"1670202\",\"-8.83\",\"17978亿\",\"2\",\"2\"]]}}
+    字段(**2026-09-14 盘中实测钉死**, 单位万元): last=今日此刻累计(==trends末[1]),
+          s_zrcs=昨日**同一时点**(==trends末[2]) ★, s_zrtj=昨日**全天**,
+          s3_zrtj=前3日**全天均值**(≠同期!), ycln/yclnstr/csbl=全天预测量能/串/完成度%,
           trends=当日分钟级序列 [时刻, 今日累计, 昨日同期, 前3日同期, 完成度%, 预测串, ...]
-    ⚠️ 非交易日或收盘后请求: "此刻"已过收盘 → last/s_zrtj 退化为各自**全天**(预期行为, 非故障)
+    ⚠️ 字段名极易误读: `zrtj` 系=**天级基准**, `zrcs` 系=**时点成交**; 9/13 曾把两者判反,
+       导致"较昨日"拿昨日**全天**量当基准(虚高 6.6 倍)。
+    ⚠️ 非交易日或收盘后请求: "此刻"已过收盘 → 同期与全天**退化重合**(两值相等),
+       此窗口**无法区分**这两类字段, 任何语义结论都不可靠 → 只能在盘中验证。
     """
     def _load():
         base = {"a": "MarketSCLN", "c": "HomeDingPan", "apiv": "w44"}
@@ -3329,26 +3336,57 @@ def parse_market_volume_rt(data):
 
     返回 {amount, prev_same_time, prev_full, prev3_same_time, forecast, forecast_str, ts}
     ⚠️ last<=0(非交易时段 0 值脏点) 视为**取不到** → 返回 None 由调用方回退,
-       绝不把 0 当实测值(0 会被前端当成"无量"渲染, 比不显示更糟)。"""
+       绝不把 0 当实测值(0 会被前端当成"无量"渲染, 比不显示更糟)。
+
+    🔴 2026-09-14 字段语义纠正(盘中实测钉死, 推翻 9/13 的臆断):
+       字段名极易误读 —— `zrtj` 系是**天级基准**, `zrcs` 系才是**时点成交**:
+         last   == trends 末行[1] 今日累计   → 今日此刻累计
+         s_zrcs == trends 末行[2] 昨日同期   → ★昨日**同一时点** ← prev_same_time
+         s_zrtj             昨日**全天**量   → prev_full
+         s3_zrtj            前 3 日**全天均值** → (≠同期! 不可用作 prev3_same_time)
+       前 3 日**同期**只能从 trends 末行[3] 取。
+       实测判据(9/14 11:05): last=10214.41 / s_zrcs=11660.49 / s_zrtj=19718.98 亿,
+         其中 s_zrtj **恰等于 9/11 全天实测 19716.63 亿**(settings market_brief_last);
+         trends 09:30 首行"昨日同期"= 179.42 亿, 远小于昨日全天 → 自洽。
+       ⚠️ 9/13 判反的根因: 在**周日**验证, 收盘后"同期"退化为"全天", 两字段完全相等,
+         看不出任何破绽。**字段语义只能在活跃窗口(盘中)实测钉死**。"""
     info = (data or {}).get("info")
     if not isinstance(info, dict):
         return None
 
-    def _yi(k):
+    def _wan2yi(v):
         try:
-            v = float(info.get(k))
+            v = float(v)
         except (TypeError, ValueError):
             return None
         return round(v / _KPL_AMT_WAN2YI, 2) if v > 0 else None
 
-    amount = _yi("last")
+    amount = _wan2yi(info.get("last"))
     if not amount:
         return None
+    # 🔴 2026-09-14 纠正: prev_same_time 取 s_zrcs(昨日**同一时点**),
+    #    prev_full 取 s_zrtj(昨日**全天**) —— 9/13 把这两个判反了(详见 docstring)。
+    prev_same_time = _wan2yi(info.get("s_zrcs"))
+    prev_full = _wan2yi(info.get("s_zrtj"))
+    # 前 3 日同期: s3_zrtj 是前 3 日**全天**均值(≠同期), 只能从 trends 末行取。
+    # trends 行 = [时刻, 今日累计, 昨日同期, 前3日同期, 完成度%, 预测串, ...]
+    prev3 = None
+    tr = info.get("trends")
+    if isinstance(tr, list) and tr:
+        row = tr[-1]
+        if isinstance(row, (list, tuple)) and len(row) > 3:
+            prev3 = _wan2yi(row[3])
+    # 自检: 盘中「同一时点累计」必然 **小于** 昨日全天量; 若反了 → 字段语义又漂了。
+    # (收盘后同期==全天属正常退化, 故用严格 > 判断, 不误伤)
+    if prev_same_time and prev_full and prev_same_time > prev_full:
+        log.warning("market_vol_rt 同期基准异常(%.2f > 昨日全天 %.2f), "
+                    "字段语义可能已漂移, 本次丢弃同期值", prev_same_time, prev_full)
+        prev_same_time = None
     return {
         "amount": amount,
-        "prev_same_time": _yi("s_zrtj"),
-        "prev_full": _yi("s_zrcs"),
-        "prev3_same_time": _yi("s3_zrtj"),
+        "prev_same_time": prev_same_time,
+        "prev_full": prev_full,
+        "prev3_same_time": prev3,
         "forecast": info.get("ycln"),
         "forecast_str": info.get("yclnstr"),
         "ts": info.get("time"),

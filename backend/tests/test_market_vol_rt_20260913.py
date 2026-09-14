@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""两市量能改取开盘啦实时接口(a=MarketSCLN) —— 2026-09-13
+"""两市量能改取开盘啦实时接口(a=MarketSCLN) —— 2026-09-13 新增 / 2026-09-14 语义纠正
 
 背景(主人反馈"相比昨日永远比的昨日总成交, 不是同一时点"): 首页「两市资金 /
 较昨日同时」原依赖 worker 自存快照 market_brief_intraday_*, 有两个硬伤 ——
@@ -7,6 +7,11 @@
      (9/11 10:00 显示 +6631 亿, 正确应为 9/10 10:00 的 5750 亿 → +857 亿)
   ② 东财分页失败即**静默少算**(9/8 少 1491 亿 = -7.6%), 基准侧与今日侧都可能失真。
 实时接口一次请求即给「今日此刻 + 昨日同一时点」, 两侧同源同口径。
+
+🔴 2026-09-14 纠正: 9/13 初版把字段**判反**了 ——
+  `s_zrtj` 是昨日**全天**(不是同期), `s_zrcs` 才是昨日**同一时点**。
+  根因: 9/13 在**周日**验证, 收盘后"同期"退化为"全天", 两字段完全相等 → 看不出破绽。
+  本文件 fixture 已改用 **9/14 11:05 盘中真实返回**(两字段可区分), 并加语义方向断言防回归。
 
 开关: settings market_vol_rt(默认 0=关, 1=开); 取不到时**完全回退**, 不改行为。
 """
@@ -16,15 +21,20 @@ from app.services import kpl, fetcher
 from app.services import settings as st_svc
 
 
-# 9/11 收盘实测形状的桩数据(单位: 万元)
+# 2026-09-14 11:05 生产实测形状的桩数据(单位: 万元; 各值取自真实接口返回)
+#   last=10214.41亿(今日此刻) / s_zrcs=11660.49亿(昨日同时点) / s_zrtj=19718.98亿(昨日全天)
 FAKE_SCLN = {"info": {
-    "last": "197189848",        # 今日此刻   → 19718.98 亿
-    "s_zrcs": "164714782",      # 昨日全天   → 16471.48 亿
-    "s_zrtj": "57500000",       # 昨日同一时点 → 5750.00 亿
-    "s3_zrtj": "182102971",     # 前 3 日同期 → 18210.30 亿
-    "ycln": "19718亿",
-    "yclnstr": "19718亿(19.72%,增量3247亿)",
-    "csbl": 19.72, "color": "1", "time": 1789313011, "trends": [],
+    "last": "102144082",        # 今日此刻         → 10214.41 亿 (== trends 末[1])
+    "s_zrcs": "116604857",      # ★昨日**同一时点** → 11660.49 亿 (== trends 末[2])
+    "s_zrtj": "197189848",      # 昨日**全天**      → 19718.98 亿 (= 9/11 全天实测 19716.63)
+    "s3_zrtj": "182488431",     # 前3日**全天均值**  → 18248.84 亿 (≠ 同期)
+    "ycln": "16957亿",
+    "yclnstr": "16957亿(-14%,缩量2761亿)",
+    "csbl": -14, "color": "2", "time": 1789355099,
+    "trends": [
+        ["09:30", "1645452", "1794187", "1670202", "-8.83", "17978亿(-8.83%,缩量1740亿)", "2", "2"],
+        ["11:05", "102144082", "116604857", "109923253", "-14", "16957亿(-14%,缩量2761亿)", "2", "2"],
+    ],
 }}
 
 
@@ -43,13 +53,37 @@ def test_parse_market_volume_rt_ok():
     """万元 → 亿元换算 + 四个量能字段 + 预测量能串"""
     v = kpl.parse_market_volume_rt(FAKE_SCLN)
     assert v is not None
-    assert v["amount"] == 19718.98
-    assert v["prev_same_time"] == 5750.00
-    assert v["prev_full"] == 16471.48
-    assert v["prev3_same_time"] == 18210.30
-    assert v["forecast"] == "19718亿"
-    assert v["forecast_str"] == "19718亿(19.72%,增量3247亿)"
-    assert v["ts"] == 1789313011
+    assert v["amount"] == 10214.41
+    # 🔴 防回归(9/14 纠正): 同期取 s_zrcs, 全天取 s_zrtj —— 9/13 曾经反着取
+    assert v["prev_same_time"] == 11660.49    # s_zrcs = 昨日**同一时点**
+    assert v["prev_full"] == 19718.98         # s_zrtj = 昨日**全天**
+    assert v["prev3_same_time"] == 10992.33   # trends 末行[3] = 前3日**同期**
+    assert v["forecast"] == "16957亿"
+    assert v["forecast_str"] == "16957亿(-14%,缩量2761亿)"
+    assert v["ts"] == 1789355099
+
+
+def test_parse_vol_rt_same_time_lt_full():
+    """语义方向铁律: 盘中「同一时点累计」必须 < 「昨日全天」(9/13 判反正是违反了这一条)"""
+    v = kpl.parse_market_volume_rt(FAKE_SCLN)
+    assert v["prev_same_time"] < v["prev_full"]
+
+
+def test_parse_vol_rt_swapped_guard():
+    """自检: 若字段语义再度漂移(同期 > 全天) → 丢弃同期值并告警, 不把荒谬基准喂给前端"""
+    bad = {"info": {"last": "1000000", "s_zrcs": "50000000", "s_zrtj": "30000000"}}
+    v = kpl.parse_market_volume_rt(bad)
+    assert v is not None
+    assert v["prev_same_time"] is None     # 异常同期值被丢弃
+    assert v["prev_full"] == 3000.00       # 全天值照常给出
+
+
+def test_parse_vol_rt_no_trends():
+    """trends 缺失/空 → prev3_same_time 为 None(而非 0), 其余字段不受影响"""
+    d = {"info": {"last": "1000000", "s_zrcs": "600000", "s_zrtj": "900000", "trends": []}}
+    v = kpl.parse_market_volume_rt(d)
+    assert v["prev3_same_time"] is None
+    assert v["amount"] == 100.00 and v["prev_same_time"] == 60.00 and v["prev_full"] == 90.00
 
 
 @pytest.mark.parametrize("bad", [
@@ -83,14 +117,17 @@ def test_build_vol_rt_on(monkeypatch):
     _stub_base(monkeypatch, 1)
     monkeypatch.setattr(kpl, "fetch_kpl_market_scln", lambda **k: FAKE_SCLN)
     d = kpl.build_market_brief_payload()
-    assert d["market"]["amount"] == 19718.98
+    assert d["market"]["amount"] == 10214.41
     assert d["market"]["volSrc"] == "kpl"
-    assert d["market"]["volForecast"] == "19718亿(19.72%,增量3247亿)"
-    # 关键: 基准从自存快照的 0 值脏点 → 昨日同一时点 5750 亿
-    assert d["last_same_time"]["amount"] == 5750.00
+    assert d["market"]["volForecast"] == "16957亿(-14%,缩量2761亿)"
+    # 关键: 基准从自存快照的 0 值脏点 → 昨日**同一时点** 11660.49 亿
+    # (9/13 判反时这里是 19718.98 = 昨日全天 → 前端显示"缩量 9505 亿", 虚高 6.6 倍)
+    assert d["last_same_time"]["amount"] == 11660.49
     assert d["last_same_time"]["src"] == "kpl"
     # stockCount 仍沿用自算(实时接口不含只数)
     assert d["last_same_time"]["stockCount"] == 5558
+    # 端到端: 前端 diffAmt = 今日 − 昨日同时点 → 小幅缩量(而非 -9505 亿的荒谬值)
+    assert d["market"]["amount"] - d["last_same_time"]["amount"] == pytest.approx(-1446.08, abs=0.01)
 
 
 def test_build_vol_rt_fallback(monkeypatch):
