@@ -1039,4 +1039,14 @@
     `last_same_time.amount=12748.48` / `diffAmt=−1705.37 亿`（修复前为 −8675 亿）；
     **真浏览器（Playwright + Edge，shiren 登录）**实测面板显示
     「两市资金 11043亿 / **缩量 1705亿**」✓。全量 pytest **979 passed / 0 failed / 0 error / 4 skipped**（976 → 979）。
-  - **生产未推**，等主人指令。
+  - **生产部署（09-14 11:52，代码根 `/opt/kuaixuan/backend`，venv `/opt/kuaixuan-venv`）**：
+    备份 `/opt/kuaixuan/backup/volfix_bak_prod_20260914-115235.tar.gz`（旧 `kpl.py` md5
+    `b09ca8a2` / 新 `a2ac0955`），MD5 双 OK → **重启前预检** PASS
+    （`prev_same_time=12748.48 < prev_full=19718.98`，语义方向正确；
+    今日此刻 11043.11 亿，较昨日同时点 **−1705.37 亿**）→ 重启三服务 active →
+    **复验**（`build_market_brief_payload` + 服务端直播缓存 `market_brief_payload`）
+    `amount=11043.11 volSrc=kpl`、`last_same_time=12748.48 (src=kpl)`、
+    `diff=−1705.37 亿`（修复前 −8675.87 亿，**虚高 5 倍**）。
+    HTTP 探针：https 根 200 / `/api/kpl/market-brief` 401（未带 token，路由存活）。
+    **选股链路零影响**（本次仅量能展示口径）。回滚：
+    `cd /opt/kuaixuan/backend && tar xzf /opt/kuaixuan/backup/volfix_bak_prod_20260914-115235.tar.gz && systemctl restart kuaixuan kx-worker`。
