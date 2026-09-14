@@ -1094,4 +1094,18 @@
     **教训：首页类页面的定位器必须带列作用域前缀（`.home-col-left` / `.home-col-right`）**。
   - ⚠️ **踩坑**：本机 bash 的 `PATH` 中途丢失（`dirname/ls/head` 全部 command not found），
     需显式 `export PATH=...PortableGit/.../usr/bin:/usr/bin:/bin:$PATH` 才能恢复。
-  - **生产未推**，等主人指令。
+  - **生产部署（09-14 13:09，`/opt/kuaixuan/dist`）**：备份 `dist_bak_prod_20260914-130851`
+    （39M；改动前的旧版入口 `index-PlTDAlqZ.js` = v4.11.19）→ 打包 34.9MB 上传 `/tmp` →
+    解压暂存**先断言**（`unpacked=1021 / new_marker=1 / new_le=1 / old_lt=0 / old_ge=0 / css=1`，
+    不通过不换）→ 同分区 `mv` 原子替换 → `files=1021 / entry=index-CExq6Nrm.js`。
+    **线上实取校验**：`https 根 200`、入口 js 200、css 200、懒加载 chunk `StockView-srOhE6pV.js` 200、
+    远程 curl 取 `≤ 流通 ≤` 命中 / `< 流通 <` 为空；`nginx -t` ok；三服务 active。
+    **全量 md5 逐文件比对**：本地 1021 vs 生产 1021，**仅本地 0 / 仅生产 0 / 内容不一致 0 → 逐字节一致**
+    （即与测试机已验证产物等价，行为背书成立）。
+  - 🔴 **踩坑（本轮新增）**：从 Windows 打包上传的 tar **带 666 权限**（`tarfile.add` 继承 Windows mode）
+    → 生产 1021 个文件**全部世界可写**（旧版是 644）。`chmod -R a+rX` **只加读权、不会去掉写权**，
+    所以 `a+rX` 挡不住这个 → 必须显式 `find -type d -exec chmod 755 {} +` /
+    `find -type f -exec chmod 644 {} +` 规整。已修正，世界可写文件数 1021 → **0**。
+  - **部署脚本已加幂等守卫**：若线上已含目标标记且入口相符 → 跳过备份/替换直接验证，
+    避免重放时多出备份（上次测试机被跑两次的教训）。
+  - **回滚**：`cd /opt/kuaixuan && mv dist dist.bad && mv dist_bak_prod_20260914-130851 dist && chmod -R a+rX dist`。
