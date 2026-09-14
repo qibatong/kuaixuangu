@@ -38,6 +38,21 @@ test('passLockedFilter: 市值上下限过滤', () => {
   assert.equal(passLockedFilter({ code: '6', concept: '', bidChange: 3, circulationMV: 2000, bidAmt: 5000, probability: 90 }, null, F), false) // 过大
 })
 
+// 2026-09-14 主人需求: 面板区间显示为 `xx ≤ 流通 ≤ yy`(非严格/含边界)。
+// 判据是 `mv < floor -> 剔除` / `mv > ceil -> 剔除`, 所以 mv **恰等于**两端时必须保留。
+// 此用例把"显示符号"与"真实行为"绑死 —— 若将来有人把判据改成严格不等,
+// 面板的 ≤ 就变成假话, 这条会立刻红。
+test('passLockedFilter: 流通区间含边界(mv 恰等于下限/上限均保留)', () => {
+  const Fb = { ...F, floatMvFloor: 30, floatMvGt: 200 }
+  const row = (mv) => ({ code: 'b', concept: '', bidChange: 3, circulationMV: mv, bidAmt: 5000, probability: 90 })
+  assert.equal(passLockedFilter(row(30), null, Fb), true, 'mv == 下限 → 保留(下限是「≥」)')
+  assert.equal(passLockedFilter(row(200), null, Fb), true, 'mv == 上限 → 保留(上限是「≤」)')
+  assert.equal(passLockedFilter(row(29.99), null, Fb), false, '略低于下限 → 剔除')
+  assert.equal(passLockedFilter(row(200.01), null, Fb), false, '略高于上限 → 剔除')
+  // 区间正中必过, 佐证开口方向没反
+  assert.equal(passLockedFilter(row(100), null, Fb), true)
+})
+
 test('passLockedFilter: 股价过滤(rt 实时价优先)', () => {
   assert.equal(passLockedFilter({ code: '7', concept: '', bidChange: 3, circulationMV: 50, bidAmt: 5000, price: 350, probability: 90 }, null, F), false)
   // 有 rt 时用 rt.price

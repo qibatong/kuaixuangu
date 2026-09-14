@@ -58,11 +58,14 @@
         分数 ≥<input v-model.number="store.filterSettings.scoreFloor" type="number" min="0" max="100" step="1" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">分
       </label>
       <!-- 2026-09-14 主人需求: 原「流通 ≥」与「流通 ≤」两个独立格子**合并为区间一格**,
-           显示为 `xx < 流通 < yy`。绑定字段不变(下限 floatMvFloor / 上限 floatMvGt),
+           显示为 `xx ≤ 流通 ≤ yy`。绑定字段不变(下限 floatMvFloor / 上限 floatMvGt),
            因此 filters.js 过滤语义、偏好持久化、后端传参全部零影响。
+           ⚠️ 符号必须是「≤」不能是「<」: filters.js 的判据是
+              `mv < floor → 剔除` / `mv > ceil → 剔除` (= 非严格),
+              显示成严格不等号会让文案与真实行为不符。
            ⚠️ 两端 0 仍表示「不限」(下限: mv<0 不可能命中; 上限: `floatMvGt > 0` 才生效)。 -->
-      <label class="filter-cell" title="流通市值区间(亿)；两端 0=不限">
-        <input v-model.number="store.filterSettings.floatMvFloor" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)"><span class="mv-range-op">&lt; 流通 &lt;</span><input v-model.number="store.filterSettings.floatMvGt" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
+      <label class="filter-cell" title="流通市值区间(亿)，含边界值；两端 0=不限">
+        <input v-model.number="store.filterSettings.floatMvFloor" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)"><span class="mv-range-op">≤ 流通 ≤</span><input v-model.number="store.filterSettings.floatMvGt" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
       </label>
       <label class="filter-cell">
         股价 ≤<input v-model.number="store.filterSettings.priceGt" type="number" min="0" max="5000" step="10" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">元

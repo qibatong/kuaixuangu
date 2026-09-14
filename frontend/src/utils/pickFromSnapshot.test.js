@@ -85,3 +85,15 @@ test('缺失值语义: floatMv/bidAmt 为 null 一律剔除(同后端"无法证�
   // bidChange 缺失 = 没有竞价数据 → 不属于竞价名单(同后端 no_bid_change)
   assert.equal(pickFromSnapshot([{ ...base, code: '600003', floatMv: 55, bidAmt: 8000, bidChange: null }], F).length, 0)
 })
+
+// 2026-09-14: 面板流通区间显示为 `xx ≤ 流通 ≤ yy`(含边界), 精筛路径判据与
+// passLockedFilter 是**两段重复代码**, 必须一起锁 — 否则将来只改一处会静默漂移。
+test('流通区间含边界(精筛路径): mv 恰等于下限/上限均保留', () => {
+  const base = { name: '边界股', bidChange: 3.0, bidAmt: 8000, probability: 90,
+                 confidence: 80, isSt: 0, isZt: 0 }
+  const Fb = { ...F, floatMvFloor: 30, floatMvGt: 200 }
+  assert.equal(pickFromSnapshot([{ ...base, code: '600001', floatMv: 30 }], Fb).length, 1, 'mv == 下限 → 保留(≥)')
+  assert.equal(pickFromSnapshot([{ ...base, code: '600002', floatMv: 200 }], Fb).length, 1, 'mv == 上限 → 保留(≤)')
+  assert.equal(pickFromSnapshot([{ ...base, code: '600003', floatMv: 29.9 }], Fb).length, 0, '略低于下限 → 剔除')
+  assert.equal(pickFromSnapshot([{ ...base, code: '600004', floatMv: 200.1 }], Fb).length, 0, '略高于上限 → 剔除')
+})
