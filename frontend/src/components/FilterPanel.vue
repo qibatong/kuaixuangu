@@ -57,11 +57,12 @@
       <label class="filter-cell">
         分数 ≥<input v-model.number="store.filterSettings.scoreFloor" type="number" min="0" max="100" step="1" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">分
       </label>
-      <label class="filter-cell">
-        流通 ≥<input v-model.number="store.filterSettings.floatMvFloor" type="number" min="0" max="5000" step="10" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
-      </label>
-      <label class="filter-cell">
-        流通 ≤<input v-model.number="store.filterSettings.floatMvGt" type="number" min="0" max="5000" step="10" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
+      <!-- 2026-09-14 主人需求: 原「流通 ≥」与「流通 ≤」两个独立格子**合并为区间一格**,
+           显示为 `xx < 流通 < yy`。绑定字段不变(下限 floatMvFloor / 上限 floatMvGt),
+           因此 filters.js 过滤语义、偏好持久化、后端传参全部零影响。
+           ⚠️ 两端 0 仍表示「不限」(下限: mv<0 不可能命中; 上限: `floatMvGt > 0` 才生效)。 -->
+      <label class="filter-cell" title="流通市值区间(亿)；两端 0=不限">
+        <input v-model.number="store.filterSettings.floatMvFloor" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)"><span class="mv-range-op">&lt; 流通 &lt;</span><input v-model.number="store.filterSettings.floatMvGt" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
       </label>
       <label class="filter-cell">
         股价 ≤<input v-model.number="store.filterSettings.priceGt" type="number" min="0" max="5000" step="10" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">元
@@ -286,6 +287,16 @@ function reset() { store.resetFilterToDefault() }
   font-size: 12px;
 }
 
+/* 2026-09-14: 流通市值区间一格的中间运算符 `< 流通 <`
+   (与两侧 input 之间留 3px, 手机端收紧到 2px; nowrap 保证不拆行) */
+.mv-range-op {
+  display: inline-block;
+  margin: 0 3px;
+  white-space: nowrap;
+  font-size: 11.5px;
+  line-height: 1.3;
+}
+
 .filter-cell input[type="number"] {
   width: auto;
   max-width: 85px;
@@ -343,6 +354,10 @@ function reset() { store.resetFilterToDefault() }
     max-width: 70px;
     font-size: 11px;
   }
+  .mv-range-op {
+    margin: 0 2px;
+    font-size: 11px;
+  }
 }
 
 /* 超窄屏 (≤480px): 进一步压缩 */
@@ -358,5 +373,6 @@ function reset() { store.resetFilterToDefault() }
   }
   .filter-cell { font-size: 10.5px; }
   .filter-cell input[type="number"] { max-width: 60px; font-size: 10.5px; }
+  .mv-range-op { margin: 0 1px; font-size: 10.5px; }
 }
 </style>

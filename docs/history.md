@@ -1050,3 +1050,31 @@
     HTTP 探针：https 根 200 / `/api/kpl/market-brief` 401（未带 token，路由存活）。
     **选股链路零影响**（本次仅量能展示口径）。回滚：
     `cd /opt/kuaixuan/backend && tar xzf /opt/kuaixuan/backup/volfix_bak_prod_20260914-115235.tar.gz && systemctl restart kuaixuan kx-worker`。
+
+- **v4.11.21 (09-14 午间) 首页筛选「流通市值」两格合并为区间一格 `xx < 流通 < yy`**
+  （主人需求「现在流通的大于和小于筛选是分开的，能否改为 xx < 流通 < yy」）：
+  - **改动**（纯前端，`frontend/src/components/FilterPanel.vue`）：原「流通 ≥□亿」+「流通 ≤□亿」
+    两个 `.filter-cell` → 合并为一格：`<input 下限> <span class="mv-range-op">&lt; 流通 &lt;</span>
+    <input 上限> 亿`。新增 `.mv-range-op` 样式（桌面 3px / ≤768px 2px / ≤480px 1px 边距）。
+  - **零影响的硬保证**：绑定字段仍是 `filterSettings.floatMvFloor`（下限）与 `floatMvGt`（上限），
+    **未新增/删除/改名任何字段** → `utils/filters.js` 过滤语义（两端 0=不限）、
+    `buildFilterParams` 后端传参、偏好持久化与「历史条件自动应用」**全部不变**。
+  - **验证**：前端单测 **44/44 通过**（含 `passLockedFilter: 市值上下限过滤` 与「floatMvGt=0 不限」）；
+    构建 700 模块通过（新入口 `index-bxCLmCeh.js`）；产物 grep：`mv-range-op` 在、
+    `< 流通 <` 在、`流通 ≥`/`流通 ≤` **均 0 处**。
+  - **测试机部署（09-14 12:15，`/opt/kuaixuan/dist`）**：备份 `dist.bak.20260914-121550`
+    （**旧版真身在 `dist.bak.20260914-115954`**，entry `index-PlTDAlqZ.js`）→ 暂存断言
+    （`new_marker=1 / 旧≥=0 / 旧≤=0`）→ 同分区原子替换 → 输出 `files=1021 / root=200 / chunk=200`。
+    **全量 md5 逐文件比对**：本地 1021 vs 远端 1021，**仅本地 0 / 仅远端 0 / 内容不一致 0 → 逐字节一致**。
+  - **真浏览器实测**（Playwright + Edge，shiren 登录）：筛选第二行单元数 **6 → 5**，
+    第 3 格文本 `< 流通 <` 且含 2 个输入框（30 / 200，即该账号已存偏好，证明绑定+持久化正常）；
+    旧「流通 ≥」「流通 ≤」文案 **0 处**。
+  - **功能实测**：`100 < 流通 < 300` 应用后命中 0 只（区间内无票，符合预期）；
+    恢复 `30 < 流通 < 200` 后 3 只（远望谷 53.50 / 众泰汽车 / 闽东电力 117.50）
+    **全部落在区间内** → 上下限双向生效。
+  - ⚠️ **踩坑（自省）**：首次功能验证把 `.stock-table` 当成唯一表格 → 首页左右两栏各有表，
+    列索引串位导致误报 FAIL；修正为 `.home-col-left .stock-table` 后通过。
+    **教训：首页类页面的定位器必须带列作用域前缀（`.home-col-left` / `.home-col-right`）**。
+  - ⚠️ **踩坑**：本机 bash 的 `PATH` 中途丢失（`dirname/ls/head` 全部 command not found），
+    需显式 `export PATH=...PortableGit/.../usr/bin:/usr/bin:/bin:$PATH` 才能恢复。
+  - **生产未推**，等主人指令。
