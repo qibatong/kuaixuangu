@@ -61,6 +61,24 @@
 - 前端发布：`npm run build` 前若 dist 存在，用 **python shutil.rmtree** 清理（`rm -rf` 会被 node safe-delete shim 拦截）；上传用 **tar.gz 打包整个 dist 单文件 sftp**（34MB）；远端 `cp -a` 备份 → `rm -rf dist` → `tar -xzf` → chmod。
 - 远程基准测试脚本：服务器 venv 无 httpx2 → 不能用 FastAPI TestClient，改走 `127.0.0.1:8010` 真实 HTTP；上传 /tmp 执行须 `PYTHONPATH=/opt/kuaixuan/backend`。
 
+### 运行开关清单（2026-09-14 汇总）
+
+全部存 `settings` 表，**用 `settings.set(key, val)` 写入**（JSON 序列化）；读侧**每次调用实时读库 → 改完无需重启**。
+
+| 开关 | 默认 | 作用（关 = 原行为） |
+|---|---|---|
+| `tickplus_enabled` | 1 | 竞价第二源 TickPlus fullbid（**未配 token 时零请求**，天然灰度） |
+| `tickplus_token` | — | 第二源鉴权 token；置空即停用 |
+| `market_vol_rt` | 0 | 两市量能改取开盘啦实时 `MarketSCLN`（关 → 东财自算） |
+| `precompute_write` | 0 | 9:26 批跑前产出物化表 `stock_score_daily`（**只管"跑不跑"，执行时刻恒为交易日 9:25 后**） |
+| `precompute_read` | 0 | pipeline 读物化表（与 write **独立**，可先写后读/随时回退） |
+| `precompute_detail` | 0 | 物化路径明细输出（排障用） |
+| `frontend_local_filter` | 0 | 前端浏览器内本地秒筛（关 → 前端静默回退后端筛选） |
+| `history_null_restore` | 0 | 历史读侧按 `miss_fields` 把兜底 0 还原为 `null`（未知 ≠ 0） |
+
+⚠️ **禁止裸 SQL 写这些 key**：读侧 `json.loads` 失败会**静默回退默认值**（不报错），
+表现为"开关设了像没设"。判断生效要 `SELECT value FROM settings WHERE key=...` 看**带引号**的 JSON。
+
 ## 五、缓存与性能硬约定（血泪教训）
 
 1. **结果缓存的耗时主体必须在 loader 内部**——曾把查询写在 `_compute()` 外面、缓存只包住装饰逻辑，命中缓存仍每次查库（生产 956ms 全是它）。加缓存后逐行确认。
@@ -180,7 +198,11 @@
   `fetch_yesterday_amounts`、`ensure_cache`、`load_snapshot_full`。想测**真实实现**的文件必须在
   import 期留下 `_ORIG_xxx = fetcher.xxx` 再用 autouse fixture 还原（见 test_yesterday_cache /
   test_tencent_fallback），否则测到的是恒返回假数据的桩（曾导致 11 条用例长期假红）。
-- 基线认知（**2026-09-11 v4.11.7 起**）：**全量 874 例 / 0 红 / 0 错 / 4 skip**。
+- 基线认知（**2026-09-14 起**）：**全量 976 例 / 0 红 / 0 错 / 4 skip**（实测 250s）。
+  演进：874（9/11 v4.11.7 清零）→ 961（9/13 v4.11.16 P1 自愈 21 例）→ **976**（9/13 v4.11.18 量能实时 11 例 + 其他）。
+  ⚠️ **测试机基线不同**：测试机为补丁拼盘（非 git 基线），全量**固有 2 红**
+  （`test_login_routes_are_async` / `test_kpl_bid_qiangcang_fastpath...`）——**与改动无关**，
+  回滚到改动前对照即可确认。
   此前那批历史债（`test_history`×3、`test_auction_snap_pool_offhours`×2、`test_snapshot_915_timing`×1、
   `test_stats_api`×1）已逐条定性并修完 —— 其中 `auction_snap_pool_offhours` 是**真缺陷**
   （`scoreFloor` 把降级直出名单砍空），其余为测试数据/顺序污染。

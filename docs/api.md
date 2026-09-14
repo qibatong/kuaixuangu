@@ -6,6 +6,10 @@
 
 `/api/stocks`（lock/filter/refresh/ping + mode=auction/spot）、`/api/login`（返回 expire_at/expired/member_level，未验证邮箱 401 `need_verify_email`；**成功 Set-Cookie `kx_token`**，地址栏直接访问 `/aipick/*` 自动鉴权）、`/api/register`（**邀请码非必填**，新用户默认 7 天；带邀请码则被邀人 +7 天、邀请人 +7 天）、`/api/verify-email` / `/api/resend-verify`（邮箱认证）、`/api/change-password`、`/api/forgot`（邮箱找回）、`/api/reset`、**`/api/sms/send` / `/api/sms/verify`**（阿里云短信验证码：无登录鉴权，防刷同号 60s + 同 IP 60s/10 次）、**`/api/forgot-phone/send`**（找回密码发码，仅已绑定手机号发送，未绑定 404 省短信费）、**`/api/reset-by-phone`**（短信找回：阿里云闭环校验 + 改密 + 踢下线 + 防重放 5min）、`/api/history`、`/api/invite`、`/api/prefs`（合并保存，不覆盖其他字段）、`/api/admin/*`（含 `/api/admin/users/expire` 续费、`/api/admin/users/expire-batch` 批量设到期、`/api/admin/users/member-level` 会员等级、`/api/admin/user-invites` 邀请关系、`/api/admin/users?keyword=` 支持用户名/手机/邮箱/微信名/备注/付款备注、`memberTab=all|member|paid|vip|normal|admin`）
 
+**`GET /api/picker/snapshot`**（v4.11.13，VIP/付费门禁）：全市场预计算快照（物化表 `stock_score_daily` 读侧），
+5557 行 ≈2MB、进程内缓存 60s，供前端浏览器内本地筛选；开关 `frontend_local_filter` 默认 0
+（关时不返回数据，前端静默回退后端筛选路径）。
+
 ## AI 预测（/api/aipick/）
 
 | 接口 | 说明 |
@@ -24,7 +28,7 @@
 | 接口 | 说明 |
 |---|---|
 | sentiment | 市场情绪（涨停家数/**跌停家数**/情绪值/连板高度/大幅回撤） |
-| market-brief | **市场概览**：两市成交额+股票数（东财全市场 5min 缓存）+ 涨跌家数分布（xuangubao）+ **较昨日同时刻对比**（last_same_time） |
+| market-brief | **市场概览**：两市成交额 + 涨跌家数分布（xuangubao）+ **较昨日同时刻对比**（last_same_time）。**v4.11.18 起成交额与同时点基准改取开盘啦实时接口 `MarketSCLN`**（开关 `market_vol_rt`，取不到完全回退自算；原自算口径含 09:30 零值脏点与东财分页失败静默少算两个硬伤）|
 | bid-seal | 竞价涨停委买额榜（Type4） |
 | bid-boom | 竞价爆量榜（Type10） |
 | bid-qiangcang | **竞价抢筹双表**（左=净额强度 / 右=秒级差值回退） |
@@ -65,5 +69,7 @@
 | sms_verify_codes / sms_verify_consumed | 短信验证码（阿里云发送记录 / 防重放消费标记，scene=register|login|forgot） |
 | hot_rank_history | 人气热榜日终快照（date+source+list，3 源 kpl/em/ths 回看） |
 | daily_sector_top | 板块轮动日终 TopN（date+source+boards，15:30 调度落库） |
+| stock_score_daily | **全市场预计算物化表**（PK date+code，v4.11.11）：9:25 定格后一次性算好全市场评分与定格字段（竞涨/换手/强度/市值/昨涨），1.5s / 5557 只；缺失写 NULL 不写 0、< 500 行不落表；读写开关 `precompute_read`/`precompute_write` |
+| stock_float_mv_daily | **流通市值日频缓存**（PK date+code，数值列可空，v4.11.12）：当日东财 f21/f117 → 本表 ≤15 天 → 腾讯 f44（亿→元）；9-13 已从历史快照回填 117713 行 / 22 个交易日 |
 | kv_cache | **跨进程状态存储**（CacheStore：缓存/限流/调度去重/分布式信号量，`CACHE_BACKEND=sqlite` 时使用） |
 | task_queue | 异步任务队列（worker 进程消费，Phase1 落库仍同步，框架就绪） |
