@@ -30,16 +30,26 @@
       <label style="white-space:nowrap;" title="勾选后把昨日涨停/连板股也包含进结果; 不勾选则剔除这类票"><input v-model="store.filterSettings.limitUp" type="checkbox" :disabled="store.isFilterLocked"> 昨涨停</label>
 
       <!-- 按钮组: 桌面端吸右上角; 手机端紧凑靠右 -->
+      <!-- 2026-09-16 选股闸门: 交易日 9:00-9:26 全部动作按钮置灰(store.pickBlocked),
+           title 显示具体原因; 输入框仍可编辑, 到点自动解禁后可直接点「应用」 -->
       <span class="filter-actions-top" :style="layoutStyle.actions">
-        <button class="tdx-export-btn filter-apply" style="background:var(--accent-deep);" :disabled="store.isFilterLocked && store.strategy === 'auction'" @click="apply">应用</button>
-        <button class="tdx-export-btn filter-reset" :disabled="store.isFilterLocked && store.strategy === 'auction'" @click="reset">重置</button>
-        <button v-if="store.strategy === 'auction'" class="tdx-export-btn filter-lock" :class="{ locked: store.isFilterLocked }" @click="store.toggleFilterLock()">{{ store.isFilterLocked ? '解锁' : '锁定' }}</button>
+        <button class="tdx-export-btn filter-apply" style="background:var(--accent-deep);"
+                :disabled="store.pickBlocked || (store.isFilterLocked && store.strategy === 'auction')"
+                :title="store.pickBlocked ? store.pickBlockedMsg : ''" @click="apply">应用</button>
+        <button class="tdx-export-btn filter-reset"
+                :disabled="store.pickBlocked || (store.isFilterLocked && store.strategy === 'auction')"
+                :title="store.pickBlocked ? store.pickBlockedMsg : ''" @click="reset">重置</button>
+        <button v-if="store.strategy === 'auction'" class="tdx-export-btn filter-lock" :class="{ locked: store.isFilterLocked }"
+                :disabled="store.pickBlocked" :title="store.pickBlocked ? store.pickBlockedMsg : ''"
+                @click="store.toggleFilterLock()">{{ store.isFilterLocked ? '解锁' : '锁定' }}</button>
         <!-- 2026-09-05: 刷新按钮从 StockView 顶部规则条移入本组(仅竞价模式; 9:30 后
              刷新实时行情, 9:30 前等同重新选股)。点击 emit 给父组件处理。
              样式与相邻的 重置/锁定 对齐(同 padding/字号, 见下方 .filter-refresh),
              且**不带图标** —— 左侧三个按钮均为纯文字, 带图标会导致宽度不一致。 -->
         <button v-if="store.strategy === 'auction'" class="tdx-export-btn filter-refresh"
-                title="刷新实时行情" @click="emit('refresh')">刷新</button>
+                :disabled="store.pickBlocked"
+                :title="store.pickBlocked ? store.pickBlockedMsg : '刷新实时行情'"
+                @click="emit('refresh')">刷新</button>
       </span>
     </div>
     <!-- 第二行: 数值输入框.

@@ -71,3 +71,33 @@ export function isMemberOnlyTime() {
   const mins = bj.getHours() * 60 + bj.getMinutes()
   return mins >= 9 * 60 + 15 && mins < 15 * 60   // 9:15-15:00
 }
+
+/* =========================================================
+   选股闸门 (2026-09-16 主人拍板: 开盘日 9:00-9:26 不支持选股)
+   ---------------------------------------------------------
+   与后端 backend/app/services/picker/mode.py 的 is_pick_open **同口径**
+   (常量与文案必须逐字一致, 有后端单测 test_pick_block_msg_shared_with_frontend 把关)。
+
+   为什么禁: 9:00-9:15 是上交易日定格; 9:15-9:25 竞价数据在变;
+   9:25-9:26 当日定格尚未落库(采集下限 20s, 实测落库 09:25:23~09:25:32)
+   → 后端 load_snapshot_full 会静默回退昨日, 用户拿到的是昨天的名单。
+   ========================================================= */
+export const PICK_BLOCK_FROM = 9 * 60        // 9:00
+export const PICK_OPEN = 9 * 60 + 26         // 9:26
+// 文案与后端 mode.PICK_BLOCK_MSG_TIME / PICK_BLOCK_MSG_SNAP 逐字一致
+export const PICK_BLOCK_MSG_TIME = '9:26 后开放 · 正在等待 9:25 竞价定格'
+export const PICK_BLOCK_MSG_SNAP = '9:25 竞价定格尚未落库 · 稍后自动恢复'
+
+/**
+ * 当前是否处于选股禁用时段(时间维)。
+ * 非交易日(周末)不拦 —— 回放最近交易日定格是既有功能。
+ * @param {Date} [bj] 可注入"北京时间视图"的 Date(测试用), 默认取当前
+ */
+export function isPickBlockedTime(bj) {
+  const t = bj || bjNow()
+  const day = t.getDay()
+  if (day === 0 || day === 6) return false      // 周末: 不拦
+  const mins = t.getHours() * 60 + t.getMinutes()
+  return mins >= PICK_BLOCK_FROM && mins < PICK_OPEN
+}
+

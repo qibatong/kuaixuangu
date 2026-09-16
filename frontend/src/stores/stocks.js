@@ -4,7 +4,7 @@ import { fetchStocks, fetchQuotes, getDefaultFilters, getPrefs, savePrefs } from
 import { fetchPickerSnapshot } from '../api/picker'
 import { listBatches } from '../api/history'
 import { showToast } from '../utils/toast'
-import { isBefore930 } from '../utils/time'
+import { isBefore930, isPickBlockedTime, PICK_BLOCK_MSG_TIME } from '../utils/time'
 import { useUserStore } from './user'
 import { defaultFilterSettings, passLockedFilter, pickFromSnapshot,
          buildFilterParams as _buildFilterParams } from '../utils/filters'
@@ -47,7 +47,12 @@ export const useStocksStore = defineStore('stocks', {
     snapshotFailTs: 0,
     // 2026-08-25: 偏好/全局默认异步加载完成前为 false, 防止 FilterPanel 先用内置默认(limitUp=true)
     // 渲染勾选、随后被用户偏好(limitUp=false)覆盖导致"先勾选后取消"闪烁
-    filterReady: false
+    filterReady: false,
+    // 2026-09-16 选股闸门(主人拍板: 开盘日 9:00-9:26 不支持选股)。
+    // true = 当前被拦(9:00-9:26, 或后端回 blocked=当日定格未落库); msg 供 UI 展示。
+    // 由 StockView 的闸门定时器在解禁后自动清除并重新选股(见 refreshPickGate)。
+    pickBlocked: false,
+    pickBlockedMsg: ''
   }),
   actions: {
     // ---- 筛选参数(盘中/竞价共用 filterSettings) ----
@@ -59,6 +64,37 @@ export const useStocksStore = defineStore('stocks', {
     setStrategy(m) {
       if (m !== 'auction') return   // 2026-09-09: spot(盘中实时)已下线
       this.strategy = m
+    },
+
+    // ---- 2026-09-16 选股闸门(9:00-9:26 不支持选股) ----
+    markPickBlocked(msg) {
+      this.pickBlocked = true
+      this.pickBlockedMsg = msg || PICK_BLOCK_MSG_TIME
+    },
+    clearPickBlocked() {
+      this.pickBlocked = false
+      this.pickBlockedMsg = ''
+    },
+    /**
+     * 闸门定时器调用(StockView 每 20s 一次)。
+     * 目的: 9:26 到点**自动解禁** —— 否则用户在 9:10 打开页面会一直停在禁用态,
+     * 必须手动刷新才行。解禁后又可能撞上"当日定格尚未落库"(后端 blocked),
+     * 此时 fetchAndCache 会重新标记, 下一轮再试, 天然形成等待重试。
+     * @returns {boolean} 是否处于禁用态
+     */
+    async refreshPickGate() {
+      if (!isPickBlockedTime()) {
+        // 时间维已开放: 若当前仍被标记(时间维到点 / 后端快照维), 触发一次选股
+        if (this.pickBlocked) {
+          this.clearPickBlocked()
+          if (!this.isDataCached) {
+            try { await this.fetchAndCache() } catch (e) { /* 下一轮重试 */ }
+          }
+        }
+        return this.pickBlocked
+      }
+      this.markPickBlocked(PICK_BLOCK_MSG_TIME)
+      return true
     },
 
     // ---- 账号级偏好 ----
@@ -279,10 +315,20 @@ export const useStocksStore = defineStore('stocks', {
     // ---- 数据操作 ----
     async fetchAndCache(force = false) {
       if (this.isDataCached) return
+      // 2026-09-16 选股闸门: 交易日 9:00-9:26 直接不发请求(后端另有时间+快照双闸门兜底)
+      if (isPickBlockedTime()) { this.markPickBlocked(PICK_BLOCK_MSG_TIME); return }
       // 9:30 前锁定最新竞价数据(落库); 9:30 后保持锁定名单, 只更新实时行情
       // force=true: 主动重锁(绕过当日幂等); 页面加载自动 lock 不带 force → 后端幂等直读
       const action = isBefore930() ? 'lock' : 'refresh'
-      const data = await fetchStocks(action, this.buildFilterParams(), 'auction', force && action === 'lock')
+      let data
+      try {
+        data = await fetchStocks(action, this.buildFilterParams(), 'auction', force && action === 'lock')
+      } catch (e) {
+        // 后端快照维拦截(≥9:26 但当日 9:25 定格尚未落库): 标记等待, 不算失败
+        if (e && e.blocked) { this.markPickBlocked(e.msg || PICK_BLOCK_MSG_TIME); return }
+        throw e
+      }
+      this.clearPickBlocked()
       if (action === 'lock') {
         this.saveBidSnapshot(data.list)          // 保存完整竞价锁定名单(含抢筹结论)
         this.cachedStocks = data.list
@@ -357,6 +403,12 @@ export const useStocksStore = defineStore('stocks', {
     },
     async reLockData() {
       if (!isBefore930()) { showToast('❌ 9:30后禁止重新选股', 'error'); return }
+      // 2026-09-16 选股闸门(与"9:30后禁止重选"同为时段规则)
+      if (isPickBlockedTime()) {
+        this.markPickBlocked(PICK_BLOCK_MSG_TIME)
+        showToast('⏳ ' + PICK_BLOCK_MSG_TIME, 'error')
+        return
+      }
       this.isDataCached = false
       this.cachedStocks = []
       this.realTimeRefreshUsed = false
@@ -419,6 +471,12 @@ export const useStocksStore = defineStore('stocks', {
     async applyCustomFilter() {
       if (this.isFilterLocked) {
         showToast(' 筛选条件已锁定，无法手动应用', 'error')
+        return
+      }
+      // 2026-09-16 选股闸门: 禁用时段不允许应用(按钮已置灰, 此处为兜底)
+      if (isPickBlockedTime()) {
+        this.markPickBlocked(PICK_BLOCK_MSG_TIME)
+        showToast('⏳ ' + PICK_BLOCK_MSG_TIME, 'error')
         return
       }
       // 2026-09-12 P3: 快照在手 → **本地筛选**(改条件秒出, 零网络往返; 实时价另拉一次)。

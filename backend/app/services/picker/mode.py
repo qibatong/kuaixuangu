@@ -46,6 +46,17 @@ T_AUCTION_END = 9 * 60 + 25     # 9:25 竞价结束(定格点)
 T_LOCKED_END = 9 * 60 + 30      # 9:30 开盘
 T_INTRADAY_END = 15 * 60        # 15:00 收盘
 
+# ---- 选股闸门(2026-09-16 主人拍板: 「开盘日 9:00-9:26 分就不要支持选股了」) ----
+# 为什么必须禁: 该区间三种情况都只能给出**非当日定格**的名单 ——
+#   ① 9:00-9:15 PREOPEN 用**上交易日**定格(设计如此, 但用户误以为是当日);
+#   ② 9:15-9:25 AUCTION 竞价数据在变(9/16 实测 9:19 出 9 只 → 9:25 只剩 2 只);
+#   ③ 9:25-9:26 当日 9_25 定格**尚未落库**(采集下限 _BID25_MIN_SEC=20s + 重采窗口
+#      _BID25_RETRY_UNTIL=09:25:50 → 实测落库 09:25:23/25/29, 最晚 09:25:32),
+#      load_snapshot_full 会**静默回退昨日** → 9/16 至少 2 个用户拿到 9/15 的名单。
+# 非交易日**不拦**(周末/节假日回放最近交易日定格是既有功能, 用户明确知情)。
+T_PICK_BLOCK_FROM = 9 * 60      # 9:00 起禁止选股
+T_PICK_OPEN = 9 * 60 + 26       # 9:26 起开放(须当日定格已落库, 见 api/stocks 双闸门)
+
 
 @dataclass(frozen=True)
 class ModePolicy:
@@ -234,3 +245,28 @@ def resolve_mode(now=None,
     if hm < T_INTRADAY_END:
         return POLICIES[PickMode.INTRADAY]
     return POLICIES[PickMode.CLOSED]
+
+
+# 闸门文案(前后端同口径 —— 前端 frontend/src/utils/time.js 的文案必须与此逐字一致,
+# 否则用户在不同触发路径下会看到两套说法)
+PICK_BLOCK_MSG_TIME = "9:26 后开放 · 正在等待 9:25 竞价定格"
+PICK_BLOCK_MSG_SNAP = "9:25 竞价定格尚未落库 · 稍后自动恢复"
+
+
+def is_pick_open(now=None, holidays: Optional[set] = None) -> bool:
+    """当前是否处于**允许选股**时段(闸门的时间维)。
+
+    规则(2026-09-16 主人拍板): 交易日 9:00 ≤ now < 9:26 → 关闭; 其余一律开放。
+      - 非交易日(周末/节假日) **不拦** —— 回放最近交易日定格是既有功能;
+      - 00:00-9:00 盘前 **不拦** —— PREOPEN「看上交易日定格」是设计内功能,
+        与 9:00 之后的"当日数据污染"不同(主人已确认接受 9:00 这个分割点);
+      - 9:26 之后开放, 但调用方还须叠加**快照维**闸门(当日 9_25 已落库)才真正放行
+        —— 见 api/stocks.py 与 auction_snapshot.has_today_snapshot。
+
+    分钟粒度: 9:25:59 仍关闭(hm=565), 9:26:00 起开放(hm=566)。
+    now 可为 datetime / 时间戳 / None。
+    """
+    if not is_trading_day(now, holidays):
+        return True
+    hm, _ = bj_hm(now)
+    return not (T_PICK_BLOCK_FROM <= hm < T_PICK_OPEN)

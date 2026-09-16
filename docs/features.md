@@ -26,6 +26,51 @@
 | 名单 | **9:30 前锁定后恒定** | 每日最新报告（历史回看走导航「历史回看」页 AI 预测 tab） |
 | 落库/推送 | lock 落库 + 推送 | 报告独立存储 |
 
+### 选股闸门：开盘日 9:00-9:26 不支持选股（v4.11.22，2026-09-16）
+
+**规则**：交易日 **9:00 ≤ now < 9:26 → 关闭选股**；非交易日（周末/节假日）与 **00:00-9:00 盘前不拦**
+（盘前「看上交易日定格」是 PREOPEN 的既有设计，主人确认接受 9:00 这个分割点）。
+
+**为什么必须禁** —— 该区间三种情况都只能给出**非当日定格**的名单：
+
+| 子时段 | 原行为 | 问题 |
+|---|---|---|
+| 9:00-9:15（PREOPEN） | 用**上交易日** 9:25 定格 | 用户误以为是当日名单 |
+| 9:15-9:25（AUCTION） | 实时全市场，名单随行情变 | 9/16 实测 9:19 出 9 只 → 9:25 只剩 2 只 |
+| **9:25-9:26（LOCKED 早段）** | 当日 9_25 **尚未落库** → `load_snapshot_full` **静默回退昨日** | 🔴 9/16 有 **2 个用户**（09:25:14 / 09:25:29）拿到 **9/15 的名单**，日志只有一句 INFO |
+
+> 9_25 定格**落库时刻**由采集下限 `_BID25_MIN_SEC=20s` 与重采窗口 `_BID25_RETRY_UNTIL=09:25:50`
+> 共同决定，实测近 15 日落在 **09:25:23 ~ 09:25:32** → 距 9:26 只剩 **10~30 秒余量**，
+> 所以**快照维不能省**（某日重采一次越过 9:26，纯时间闸门会放行而仍回退昨日）。
+
+**双闸门实现**（两维都过才放行）：
+
+| 维度 | 位置 | 判定 |
+|---|---|---|
+| 时间维 | `picker/mode.py` → `is_pick_open(now, holidays)` | 交易日 `T_PICK_BLOCK_FROM(9:00) ≤ hm < T_PICK_OPEN(9:26)` → 关 |
+| 快照维 | `auction_snapshot.py` → `has_today_snapshot(date)` | 当日有无 9_25 行（`SELECT 1 ... LIMIT 1`，走 PK 索引）。**查库异常返回 False（保守拦住）** |
+
+接口层落在 `api/stocks.py`（在 `action=ping` **之后**，故 ping 天然放行）：命中直接返回
+`{ok:false, blocked:true, msg, blockedUntil:'09:26', list:[], count:0}` —— **不跑 pipeline / 不落批次 / 不推送**。
+
+| 放过 / 拦截 | 说明 |
+|---|---|
+| ✅ `action=ping` | 在闸门之前 return，前端登录态与时段探测不受影响 |
+| ✅ 历史回看 | `/api/stocks` **没有 `date` 参数**，历史回看走 `batches` 接口 → 天然不受影响 |
+| ✅ `system_batch`(uid=0) / `auto_apply` | 走 `picker/lock.py`，**不经过这道 API 闸门**（且 lock 本身拒绝 PREOPEN/AUCTION） |
+| ✅ 竞价异动页 | 独立模块，9:20-9:25 正是它的主场 |
+| ✅ `/api/picker/snapshot` | `read_snapshot_rows` 直接 `WHERE date=?`，**不跨日回退** |
+
+**前端表现（置灰 + 文案）**：`utils/time.js` 的 `isPickBlockedTime(bj)`（与后端**同口径**，
+常量与文案由后端单测 `test_pick_block_msg_shared_with_frontend` 对拍）；
+`stores/stocks.js` 的 `pickBlocked/pickBlockedMsg` + `refreshPickGate()`；
+`StockView.vue` 显示黄色提示条「**9:26 后开放 · 正在等待 9:25 竞价定格**」（优先于 VipGate），
+`FilterPanel.vue` 的**应用/重置/锁定/刷新四按钮置灰**（title 显示原因），
+**输入框仍可编辑**（到点直接点「应用」）。**9:26 到点由 20s 巡检定时器自动解禁并选股** ——
+否则用户在 9:10 打开页面会一直停在禁用态。若后端因「定格尚未落库」继续拦，下一轮自动重试。
+
+**开关**：`settings.pick_window_guard` 默认 **1**（库中无键即开）；后台置 `0` **即时回滚，无需重启**。
+
 > **唯一选股链路（v4.11.3，2026-09-11）**：全站选股（首页 refresh / lock / 定时批次 auto_apply）
 > 统一由 **`picker.pipeline.run()`** 产出，模块分层 `contract → sources → score/score_factors → filter → pipeline → lock`。
 > 此前并行的"老链路"（`scorer.score_all_stocks + apply_filters`）、灰度对拍（`picker/parity.py`、

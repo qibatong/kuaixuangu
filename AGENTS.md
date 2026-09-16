@@ -75,6 +75,7 @@
 | `precompute_detail` | 0 | 物化路径明细输出（排障用） |
 | `frontend_local_filter` | 0 | 前端浏览器内本地秒筛（关 → 前端静默回退后端筛选） |
 | `history_null_restore` | 0 | 历史读侧按 `miss_fields` 把兜底 0 还原为 `null`（未知 ≠ 0） |
+| `pick_window_guard` | **1** | **选股闸门**：交易日 9:00-9:26 不提供选股（时间维 + 当日 9_25 已落库双闸门）。置 0 = 回到 9/16 前的行为（该区间会静默回退昨日名单，见 history v4.11.22） |
 
 ⚠️ **禁止裸 SQL 写这些 key**：读侧 `json.loads` 失败会**静默回退默认值**（不报错），
 表现为"开关设了像没设"。判断生效要 `SELECT value FROM settings WHERE key=...` 看**带引号**的 JSON。
@@ -102,6 +103,15 @@
 ## 七、选股核心语义（stocks store / 后端批次）
 
 - **9:30 前**：action=lock，全市场锁定 + 当日幂等落库（`batch_date`=当日）。
+- **🔴 选股闸门（v4.11.22，2026-09-16）**：交易日 **9:00-9:26 一律不提供选股** ——
+  时间维 `picker/mode.is_pick_open()` + 快照维 `auction_snapshot.has_today_snapshot()` 双闸门，
+  落在 `api/stocks.py`（`action=ping` 之后）。命中直接 `{ok:false, blocked:true, msg, ...}`，
+  **不跑 pipeline / 不落批次 / 不推送**。原因：9:25 定格实测 09:25:23~09:25:32 才落库，
+  此前 `load_snapshot_full` 会**静默回退昨日**（9/16 两个用户拿到 9/15 名单）。
+  **非交易日与 00:00-9:00 盘前不拦**（盘前看上交易日定格是 PREOPEN 既有设计）。
+  前端：`utils/time.isPickBlockedTime` + `stores/stocks.pickBlocked` + 20s 巡检自动解禁
+  （`refreshPickGate`）；四按钮置灰、提示条「9:26 后开放 · 正在等待 9:25 竞价定格」。
+  改这套逻辑时**必须同时改前后端文案**（后端有 `test_pick_block_msg_shared_with_frontend` 对拍）。
 - **9:30 后**：action=refresh → 后端直读当日批次（优先级：用户手动 lock → 手动 filter → 9:26 系统统一批次 auto），仅实时行情覆盖，名单定格。
 - **当日无批次/休市**：自动回退 14 天窗口内**最近交易日**同参批次直读（`find_recent_reusable_batch`），响应带 `reusedDate`，前端直接采用并提示「已载入 X 的选股名单」——解决「关闭后再打开首页转圈」。
 - 参数指纹（`_canon_filter_fingerprint`）不一致 = 用户改过条件 → 必须重算，不回退不直读；空名单批次（stock_count=0）无直读价值。

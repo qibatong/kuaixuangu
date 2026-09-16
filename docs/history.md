@@ -1109,3 +1109,74 @@
   - **部署脚本已加幂等守卫**：若线上已含目标标记且入口相符 → 跳过备份/替换直接验证，
     避免重放时多出备份（上次测试机被跑两次的教训）。
   - **回滚**：`cd /opt/kuaixuan && mv dist dist.bad && mv dist_bak_prod_20260914-130851 dist && chmod -R a+rX dist`。
+
+- **v4.11.22 (09-16) 选股闸门：开盘日 9:00-9:26 不支持选股（时间维 + 当日快照维双闸门）**
+  - **缘起**：主人指令「开盘日 9:00-9:26 分就不要支持选股了」。该区间三种情况都只能给出
+    **非当日定格**的名单 —— ① 9:00-9:15 PREOPEN 用上交易日定格（设计如此但用户会误认为当日）；
+    ② 9:15-9:25 AUCTION 竞价数据在变（9/16 实测 9:19 出 9 只 → 9:25 只剩 2 只）；
+    ③ **9:25-9:26 当日 9_25 定格尚未落库**（采集下限 `_BID25_MIN_SEC=20s`，实测落库
+    09:25:23/25/29）→ `load_snapshot_full` **静默回退昨日**且只打 INFO。
+    9/16 生产至少 **2 个用户**（批次时间 09:25:14 / 09:25:29）拿到的是 **9/15 的名单**。
+  - **实现（后端）**：
+    - `picker/mode.py`：新增 `T_PICK_BLOCK_FROM=9*60` / `T_PICK_OPEN=9*60+26` /
+      `is_pick_open(now, holidays)`（时间维唯一入口，与既有 `resolve_mode` 同风格）+
+      文案常量 `PICK_BLOCK_MSG_TIME` / `PICK_BLOCK_MSG_SNAP`。**非交易日不拦**（回放最近
+      交易日定格是既有功能）；**00:00-9:00 盘前不拦**（PREOPEN 有意设计，主人确认接受
+      9:00 这个分割点）。
+    - `auction_snapshot.py`：新增 `has_today_snapshot(date)`（快照维）——
+      与 `_latest_snapshot_date` 的区别：后者 15 日窗口内无 9_25 行时会**返回原 date**，
+      无法区分"当日有/没有"；闸门用 `SELECT 1 ... LIMIT 1`（走 PK 索引，亚毫秒）。
+      查库异常 → 返回 False（保守拦住，不放行可能回退昨日的名单）。
+    - `api/stocks.py`：`action=ping` 之后插闸门，**双闸门 = `is_pick_open()` 且
+      `has_today_snapshot()`**；命中直接返回 `{ok:false, blocked:true, msg, blockedUntil:'09:26',
+      list:[], count:0}`，**不跑 pipeline / 不落批次 / 不推送**。
+      快照维只在 `hm >= T_PICK_OPEN` 才判（盘前必然无当日快照，否则会误拦 PREOPEN）。
+    - **开关**：`settings.pick_window_guard` 默认 **1**（库中无键 → 开），后台置 0 即时回滚
+      （与 `picker_lock` / `frontend_local_filter` / `precompute_*` 同模式）。
+  - **实现（前端）**：`utils/time.js` 新增 `PICK_BLOCK_FROM/PICK_OPEN/PICK_BLOCK_MSG_*` +
+    `isPickBlockedTime(bj)`（可注入时间，便于单测）；`stores/stocks.js` 新增
+    `pickBlocked/pickBlockedMsg` state + `refreshPickGate()`（**9:26 到点自动解禁并重新选股**，
+    否则 9:10 打开页面会一直卡在禁用态）；`fetchAndCache/applyCustomFilter/reLockData` 三处
+    前置拦截 + 识别后端 `blocked` 响应；`StockView.vue` 新增黄色提示块（优先于 VipGate）
+    + 20s 闸门巡检定时器；`FilterPanel.vue` 应用/重置/锁定/刷新四按钮置灰 + title 提示
+    （**输入框仍可编辑**，到点直接点「应用」）。
+  - **测试**：新增 `tests/test_pick_window_guard.py`（**12 例**：时间维边界含 9:25:59/9:26、
+    周末与节假日放行、盘前放行、快照维缺失拦截、接口级三 action 返回 blocked、
+    **拦截不落批次**、ping 放行、闸门关闭时行为不变、**前后端文案逐字一致性**）。
+    `conftest.py` 新增 session 级 autouse fixture `mock_pick_window_guard` 把开关写 0
+    （理由同 `mock_bj_auction_window`：闸门依赖真实时刻 + 当日快照，测试库两者都不具备）。
+    前端 `time.test.js` 新增 3 例（常量对拍 + 交易日边界 + 盘前/周末放行）。
+  - **验证**：本地全量 `985 passed / 2 failed / 4 skipped`，**改动前 stash 复跑同样 2 红**
+    → 零回归（那 2 红是 `test_stocks_refresh_fallback.py` 的**既有**日期敏感用例：
+    批次 date 写死 `2026-09-01` 而 ts 用 `time.time()-3d`，随运行日期漂移，非本轮引入）。
+    前端单测 **49/49**（原 46 + 3）。测试机预检 `86 passed / 2 failed(同上既有) / 1 skipped`。
+  - **测试机部署（09-16 18:00，`/opt/kuaixuan`）**：
+    - 后端：备份 `/opt/kuaixuan/backup/pickguard_20260916_175203/` → 传 `/tmp/kxup` 暂存
+      **先校验 md5 5/5 一致** → 覆盖 → AST OK → 预检 → `systemctl restart kuaixuan kx-worker`。
+      **线上实测**（`_verify_pickguard_0916.py`）：`pick_window_guard=1`、
+      `has_today_snapshot(2026-09-16)=True`（5550 行 9_25）、8:59 放行 / 9:00-9:25 拦 /
+      9:26 放行、当前时刻放行 ✅。
+    - 前端：Python `tarfile` 打包 34.9MB（**Git Bash `tar -f C:/...` 会把盘符当远程主机，禁用**）
+      → 传 `/tmp` → 解压暂存**先断言**（1021 文件 + `grep -l '9:26 后开放'` 命中）→
+      `find -type d 755 / -type f 644`（**Windows tar 带 666，`a+rX` 去不掉写权**）→
+      同分区 `mv dist dist.old_20260916_180037` + `mv dist.new dist` → `nginx -t` ok
+      → 首页 200 / `StockView-iJFUgQFB.js` 200 / 旧 chunk `StockView-srOhE6pV.js` 404（证明确实替换）。
+    - **真浏览器验证（Playwright + Chromium，1440×920）**：
+      正常态 `VERDICT_NORMAL_OK=true`（无提示块 + 正常出名单）；
+      临时把窗口常量挪到 18:00-18:40 重启后实测 **`VERDICT_BLOCKED_OK=true`**
+      —— 黄色提示条「9:26 后开放 · 正在等待 9:25 竞价定格」、四按钮**全部 disabled**、
+      无 loading 转圈、右栏竞价异动**不受影响**；截图存档。**验证后已立即恢复**常量
+      （md5 回 `a10c24abf0c63246f2ee00b668bda739`）并重启确认放行。
+      脚本：`scripts/_verify_ui_pickguard.js`。
+  - ⚠️ **踩坑（本轮新增）**：
+    1. **测试机的 `bid-selector.service` 是无关老残留**（`WorkingDirectory=/opt/bid-selector`
+       已不存在 → `status=200/CHDIR` 一直重启失败循环）。**真正的后端单元是
+       `kuaixuan.service`**（`/opt/bid-venv/bin/uvicorn app.main:app` @8010）。
+       排查手法：`cat /proc/<pid>/cgroup` 反查 unit。**重启前务必先确认真身**。
+    2. 测试机 `/opt` 下有 **100+ 个名字含反斜杠的文件**（`kuaixuan\dist\assets\*.js`，09-01
+       一次失败的 sftp put 留下的垃圾，占据了 `/opt` 根目录）—— 遗留问题，未清理。
+    3. `_ssh_exec.py put` 的本地路径**必须转 Windows 路径**（Git Bash 的 `/tmp` ≠ Python 的
+       `/tmp`）：用 `cygpath -w` 或 `$TEMP`。
+  - **回滚**：后端 `cp /opt/kuaixuan/backup/pickguard_20260916_175203/{stocks.py,auction_snapshot.py,mode.py,conftest.py}`
+    对应位置 + `systemctl restart kuaixuan kx-worker`；前端 `mv dist dist.bad && mv dist.old_20260916_180037 dist`；
+    或**只关开关**：`settings.pick_window_guard = 0`（无需重启）。
