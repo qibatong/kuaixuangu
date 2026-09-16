@@ -1168,6 +1168,46 @@
       无 loading 转圈、右栏竞价异动**不受影响**；截图存档。**验证后已立即恢复**常量
       （md5 回 `a10c24abf0c63246f2ee00b668bda739`）并重启确认放行。
       脚本：`scripts/_verify_ui_pickguard.js`。
+  - **生产部署（09-16 21:41，主人拍板「今晚推生产」）**：
+    - **只读审计先行**：① `mode.py` / `auction_snapshot.py` / `stocks.py` 三文件 md5 与本地
+      `HEAD~1` **逐字节一致**（`c63c4b0a…` / `66b9890e…` / `e989f91c…`）→ **无热修漂移**；
+      ② **`snapshot_bid` 已有 `PRIMARY KEY (date, time_point, code)`**，`EXPLAIN QUERY PLAN` 为
+      `SEARCH TABLE snapshot_bid USING COVERING INDEX sqlite_autoindex_snapshot_bid_1 (date=? AND time_point=?)`
+      —— 表 536,527 行也是**索引定位**（该查询 9:26 后每次选股都跑）→ **无性能风险**；
+      ③ `settings` 表**无 `pick_window_guard` 键** → 部署后走代码默认 **1=开启**（无需手动拨开关）；
+      ④ 前端 `dist` 与本地**同构**（1021 文件 / 2 目录 / 5 个非 assets 文件），
+      nginx `location /aipick/`（alias 到 `/opt/kuaixuan/aipick/output/`）与 `/download/`
+      （root `/opt/kuaixuan`）都指向 dist 之外 → **换盘无连带**。
+    - **后端（3 文件，不含 `tests/`）**：备份 `/opt/kuaixuan/backend_bak_prod_20260916-214025/`
+      （含 `MANIFEST.md5`）→ 传 `/tmp` 暂存 → **暂存 md5 与本地 HEAD 三/三一致** → 覆盖原位 →
+      `py_compile` OK → **逻辑预检 ALL PASS** → `systemctl restart kuaixuan kx-worker`。
+      **刻意不部署 `tests/`**：生产 venv **未装 pytest**（`ModuleNotFoundError: No module named 'pytest'`），
+      且线上 `tests/conftest.py` 是 **08-30 的陈货**（md5 亦与 `HEAD~1` 不同）→ **tests 从未上过生产**，
+      保持既有惯例，避免造出半新半旧的 tests 目录。
+    - **预检探针（`scripts/_probe_pickguard_prod.py`，只读打真库）**：时间维 8:59 放 /
+      9:00·9:10·9:15·9:25·**9:25:59 拦**；快照维 `has_today_snapshot('2026-09-16')=True`、
+      `('2026-09-17')=False` → **`09:26:00 当日未落库 => 快照维拦截` PASS** ——
+      这条是**第二道闸门在真库上确实生效**的证据（不只是时间维）；已落库日 9/16 的 9:26 放行；
+      周六/周日放行；源码级接线（`"blocked": True` / `"blockedUntil": "09:26"`，
+      闸门 offset 10764 **早于** `_run_new_pipeline` offset 22828）。
+    - **前端**：Python `tarfile` 打包 **1021 文件 / 36.6MB** → 上传后 **prod 端 md5 与本地一致**
+      （`b3efcc2c…`）→ 解压暂存 `/opt/kuaixuan/dist.new_20260916-214335` → **断言全通过**
+      （1021 / 2 / 1016、4 个新 chunk 齐、index.html 引用新 entry **且不含旧 entry**、
+      两 chunk 含 `pickBlocked`、权限 755/644、属主 root:root）→ 同分区原子
+      `mv dist dist_bak_prod_20260916-214407` + `mv dist.new dist`（inode 1338275 → 1316421）。
+    - **线上验证**：`nginx -t` ok；首页 + `index-0LujzWyt.js` + `StockView-iJFUgQFB.js` +
+      `StockView-CZmNoLaW.css` + `stocks-DSXdwACC.js` **全 200**；旧 `index-CExq6Nrm.js` /
+      `StockView-srOhE6pV.js` / `stocks-DCIapwgN.js` **全 404**（证明确实替换）；
+      下发 index.html 引新 entry、`Cache-Control: no-store`、**served md5 == disk md5**
+      （`7e284183…`，中间无缓存层）；**闸门文案命中 3 文件**（`StockView-*.js` / `stocks-*.js`
+      含 `pickBlocked`，`index-*.js` 含中文「9:26 后开放」）；服务 MainPID 未变、`Traceback` 0。
+    - **关键交叉证据**：新旧资产名差异 **恰好 48 行 = 24 × 2**，与「只有 24 个内联了
+      `stores/stocks.js` / `utils/time.js` 的 chunk 会重新哈希」的预分析**精确吻合**；
+      未受影响模块（如 `format-kq4F0UyJ.js`）两侧哈希**完全相同** → 构建可复现、
+      **没有夹带任何其它前端改动**。
+    - **上线后真实流量**：日志见 uid=6 / 111 / 146 / 271 均 `200`（stats、kpl ladder），
+      `/api/stocks` 夜间 0 次（合理），`ERROR/CRITICAL` **0**、`Traceback` **0**。
+      ⏭️ **实盘端到端（时间维首度真实生效）待 09-17 09:00-9:26 观察**。
   - ⚠️ **踩坑（本轮新增）**：
     1. **测试机的 `bid-selector.service` 是无关老残留**（`WorkingDirectory=/opt/bid-selector`
        已不存在 → `status=200/CHDIR` 一直重启失败循环）。**真正的后端单元是
@@ -1177,6 +1217,24 @@
        一次失败的 sftp put 留下的垃圾，占据了 `/opt` 根目录）—— 遗留问题，未清理。
     3. `_ssh_exec.py put` 的本地路径**必须转 Windows 路径**（Git Bash 的 `/tmp` ≠ Python 的
        `/tmp`）：用 `cygpath -w` 或 `$TEMP`。
-  - **回滚**：后端 `cp /opt/kuaixuan/backup/pickguard_20260916_175203/{stocks.py,auction_snapshot.py,mode.py,conftest.py}`
-    对应位置 + `systemctl restart kuaixuan kx-worker`；前端 `mv dist dist.bad && mv dist.old_20260916_180037 dist`；
-    或**只关开关**：`settings.pick_window_guard = 0`（无需重启）。
+    4. **生产 nginx 会 301 跳转**（`server_name kuaixuangu.cn www.kuaixuangu.cn` + https 跳转），
+       测试机是纯 80 无跳转 → 生产端 `curl` 验资源**必须带 `-L -k`**，
+       否则拿到 301 会误判成"资源异常"。
+    5. **生产端不要随意签发 token**：鉴权是 `?token=` 或 `Authorization: Bearer`，而
+       `security.issue_token(uid)` 在**单设备登录**策略下会给该 uid 换发新会话 →
+       **可能把正在使用的真实用户顶下线**（前端弹「账号已在另一设备登录」）。
+       生产运行态冒烟只做**未鉴权探活**（`/api/health` 期望 401，即证明 uvicorn + 路由存活）。
+    6. **生产时钟口径已核**：prod TZ=`Asia/Shanghai`，`date +%s` 与本机**差 1 秒**，
+       `time.gmtime(t+8h)` 正确 → 闸门时间计算走**绝对 epoch、服务器时区无关**，无隐患。
+    7. `settings` 的导入路径是 **`app.services.settings`**（**不是** `app.core.settings`，
+       `app/core/` 下只有 config/logger/net）；远端跑探针脚本需 `cd <backend>` 且
+       设 `PYTHONPATH=<backend>`，否则 `ModuleNotFoundError: No module named 'app'`。
+    8. Windows 生成的 `.sh` 带 CRLF → 远端执行前先 `tr -d '\r'`，否则 bash 会因 `\r` 报错。
+  - **回滚**：
+    - **生产后端**：`cp -p -r /opt/kuaixuan/backend_bak_prod_20260916-214025/app /opt/kuaixuan/backend/`
+      + `systemctl restart kuaixuan kx-worker`；
+    - **生产前端（同分区，无需重启系统）**：
+      `mv /opt/kuaixuan/dist /opt/kuaixuan/dist_failed_$(date +%s) && mv /opt/kuaixuan/dist_bak_prod_20260916-214407 /opt/kuaixuan/dist`；
+    - **测试机**：后端 `cp /opt/kuaixuan/backup/pickguard_20260916_175203/{stocks.py,auction_snapshot.py,mode.py,conftest.py}`
+      对应位置 + `systemctl restart kuaixuan kx-worker`；前端 `mv dist dist.bad && mv dist.old_20260916_180037 dist`；
+    - **最轻回滚（生产/测试通用，无需重启）**：`settings.set('pick_window_guard', 0)`。
