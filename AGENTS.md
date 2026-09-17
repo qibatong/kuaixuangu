@@ -209,14 +209,18 @@
   `fetch_yesterday_amounts`、`ensure_cache`、`load_snapshot_full`。想测**真实实现**的文件必须在
   import 期留下 `_ORIG_xxx = fetcher.xxx` 再用 autouse fixture 还原（见 test_yesterday_cache /
   test_tencent_fallback），否则测到的是恒返回假数据的桩（曾导致 11 条用例长期假红）。
-- 基线认知（**2026-09-17 10:40 复测**）：**全量 1010 例 / 2 红 / 0 错 / 4 skip**（实测 321s）。
+- 基线认知（**2026-09-17 11:05 复测**）：**全量 1020 例 / 2 红 / 0 错 / 4 skip**（实测 290s）。
   🔴 **这 2 红是既有存量红，不是回归**：`test_stocks_refresh_fallback.py::test_recent_fallback_same_param_lock`
   与 `::test_api_stocks_refresh_fallback_http` —— 用例把**批次日期写死为字面量**（`2026-09-01/09-03`）而
   `ts` 用 `time.time()-N*86400` **相对今天**算，随日历推进必然漂移（实得 `2026-09-03` 期望 `2026-09-01`）。
   **排除回归的硬手法**：`git stash push -- backend/app/api/stocks.py` → 复跑 → 同样 2 红 → `git stash pop`。
   ⚠️ 这组用例**不可注入时间**，放久了会继续红 —— 建议后续改成注入 `now_ts`（函数本身已支持 `now_ts=` 入参）。
   演进：874（9/11 v4.11.7 清零）→ 961（9/13 v4.11.16 P1 自愈 21 例）→ 976（9/13 v4.11.18 量能实时 11 例）
-  → **1007 + 2 红**（9/17 v4.11.23 加 `test_bid_strength_switch` 22 例）→ **1008 + 2 红**（9/17 v4.11.24 加闸门开关→ping 联动 1 例）。
+  → **1007 + 2 红**（9/17 v4.11.23 加 `test_bid_strength_switch` 22 例）→ **1008 + 2 红**（9/17 v4.11.24 加闸门开关→ping 联动 1 例）
+  → **1014 + 2 红 / 总 1020 例**（9/17 v4.11.25 加 `test_today_system_fallback` 6 例）。
+  ⚠️ 新增"写 uid=0 系统批次"的用例**必须用 id 水位线在 teardown 回收**，否则跨文件污染
+  （uid=0 批次是全局共享的，会让别的用例的跨日回退错误命中今天）。
+  ⚠️ 写测试日期**一律按今天相对推算**，别写字面量 —— 那 2 条红就是这么来的。
   ⚠️ **测试机基线不同**：测试机为补丁拼盘（非 git 基线），全量**固有 2 红**
   （`test_login_routes_are_async` / `test_kpl_bid_qiangcang_fastpath...`）——**与改动无关**，
   回滚到改动前对照即可确认。

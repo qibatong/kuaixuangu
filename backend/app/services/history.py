@@ -384,6 +384,37 @@ def find_recent_reusable_batch(user_id, f, now_ts=None, lookback_days=14):
     return None, None, None
 
 
+def find_today_system_batch(now_ts=None):
+    """**当日**系统统一批次(user_id=0, auto_applied=1, stock_count>0) —— 与当日复用 ③ 同一口径,
+    但**无视用户当日是否有手动批次**。
+
+    2026-09-17 事故修复(主人拍板「先修④」)背景:
+      用户当日**点过** lock/filter, 但拿到的可能是**空名单批次**(例如当日评分被压到
+      `scoreFloor` 之下 → `候选=7 入选=0`) → 当日版 ①② 因 `stock_count=0` 跳过、
+      ③ 又被 `if not rows` 挡住 → 直落 `find_recent_reusable_batch` →
+      **交易日却显示昨日名单**(9/17 实测累计 756 次, 383 次集中在 09:30-10:00)。
+
+    ⚠️ 语义边界(不能简单去掉 ③ 的 `not rows`): 当日版 ③ 之所以要求"无任何手动批次",
+    是因为"有手动批次但参数已改 → 必须重算, 否则改条件后刷新会错误直读系统名单"。
+    本函数**不参与当日 ①②③ 的判定**, 只作为"跨日回退之前的当日兜底"由调用方在
+    **当日全部 miss 之后**调用 —— 此时对用户而言"当日系统名单"一定优于"昨日名单"。
+    返回 (batch_id, "auto") 或 (None, None)。查询只读。"""
+    t = now_ts if now_ts is not None else time.time()
+    g = time.gmtime(t + 8 * 3600)
+    bdate = "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
+    conn = _conn()
+    try:
+        row = conn.execute(
+            "SELECT id FROM batches WHERE user_id=0 AND auto_applied=1 "
+            "AND batch_date=? AND stock_count>0 ORDER BY ts DESC LIMIT 1",
+            (bdate,)).fetchone()
+    finally:
+        conn.close()
+    if row:
+        return row["id"], "auto"
+    return None, None
+
+
 def get_batch_stocks_mapped(batch_id):
     """读批次明细并映射为前端 list 结构(与选股 item 同 camelCase 字段)。
     幂等直读批次时返回给前端, 保证字段与正常选股结果一致(不缺失 price 等实时字段为 None 由前端容错)。"""

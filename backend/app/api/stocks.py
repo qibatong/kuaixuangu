@@ -330,6 +330,19 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                 reuse_bid, reuse_src = history.find_today_reusable_batch(uid, f)
                 reuse_date = None
                 if not reuse_bid:
+                    # 2026-09-17 事故修复(主人拍板「先修④」): 当日名单全部 miss 时,
+                    # **先试当日系统统一名单**, 再考虑跨日回退。
+                    # 根因: 用户当日点过却拿到空名单批次(当日评分被压到 scoreFloor 之下 →
+                    # 候选=7 入选=0)时, 当日版 ①② 因 stock_count=0 跳过、③ 被 `if not rows`
+                    # 挡住 → 直落跨日回退 → **交易日却显示昨日名单**(9/17 实测累计 756 次,
+                    # 383 次集中在 09:30-10:00, 正是主人反馈"9:30 后出来的像是昨天的")。
+                    # 当日已有系统名单时它一定优于任何昨日名单; 语义是"当日兜底"(与参数指纹
+                    # 无关), 故 reuse_date 保持 None → 前端不会误提示"这是历史名单"。
+                    reuse_bid, reuse_src = history.find_today_system_batch()
+                    if reuse_bid:
+                        log.info("选股refresh当日无可用批次→回退当日系统统一名单 uid=%s batch=%s",
+                                 uid, reuse_bid)
+                if not reuse_bid:
                     # 2026-09-05 主人需求(多用户反馈): 休市时间/当日无批次时回退
                     # **最近交易日**同参批次直读 —— 关闭平台后再打开, 首页直接显示
                     # 关闭前选出的股, 不再全市场重算转圈。参数不一致(改过条件)仍重算。
