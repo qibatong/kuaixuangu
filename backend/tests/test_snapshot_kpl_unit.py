@@ -36,14 +36,24 @@ def _kpl_seal(monkeypatch):
 
 
 def test_kpl_fallback_converts_yuan_to_wan(_kpl_seal):
-    """_fetch_kpl_fallback: 开盘啦元 → 本表万元, 且 float_mv 不得恒 0"""
+    """_fetch_kpl_fallback: 开盘啦元 → 本表万元; 市值必须落在**语义正确的列**
+
+    2026-09-18 口径修正(v4.11.28): 原断言"float_mv 必须透传 2.0e10"恰好**锁死了
+    错误行为** —— 开盘啦 `floatMv` 是"实际流通"(≈自由流通), 而 `float_mv` 列在全
+    系统的语义是东财 f21 **流通市值**。直接透传导致 49 亿流通的票落库成 14.75 亿,
+    被 floatMvFloor=30 系统性误剔(9/17 实测 56 只真大盘股, 其中 3 只其它门槛全过)。
+    现在: 开盘啦值写 **free_mv**, float_mv 留 0 → 由 mv_cache.fill 用东财 f21 /
+    腾讯 f44 补真值; 补不到则保持"未知"(粗筛不误杀, 见 picker.filter)。
+    """
     fb = asnap._fetch_kpl_fallback()
     assert "600000" in fb, "兜底应包含开盘啦榜单股票"
     row = fb["600000"]
     assert row["bid_amt"] == pytest.approx(_EXPECT_WAN), \
         "竞价额必须换算成万元(元/1e4), 否则放大 1e4 倍"
-    assert row["float_mv"] == pytest.approx(2.0e10), \
-        "float_mv 必须透传(恒 0 会让兜底票全被 floatMvFloor 剔除, 兜底白做)"
+    assert row["float_mv"] == 0, \
+        "float_mv 列 = 流通市值(f21), 开盘啦给的不是这个口径 → 必须留 0 交给 mv_cache"
+    assert row["free_mv"] == pytest.approx(2.0e10), \
+        "开盘啦的'实际流通'必须写进 free_mv(语义正确的列), 不能丢"
 
 
 def test_snapshot_at_backfill_converts_yuan_to_wan(monkeypatch, _kpl_seal):

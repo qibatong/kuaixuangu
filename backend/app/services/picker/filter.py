@@ -244,10 +244,18 @@ def coarse_filter(rows: Sequence[Any], f: Dict,
         elif bid_chg > f["bidGt"]:
             continue
         mv = None if not r.float_mv else r.float_mv / 1e8
-        if mv is None or mv < f["floatMvFloor"]:
-            continue
-        if f["floatMvGt"] > 0 and mv > f["floatMvGt"]:
-            continue
+        # 2026-09-18(v4.11.28): 市值**未知**(0/None) → 不在此剔除, 留给 apply_filters。
+        #   理由: 粗筛在补丁源(东财点查/腾讯点查)之前跑, 此时用不到真市值; 而补丁之后
+        #   的 apply_filters 能拿到 f21/f44 真值。在这里把"暂时没数据"当成"不达标"剔除,
+        #   等于让**行情源可用性决定名单** —— 9/17 东财全分区失败时, 5335 只快照行
+        #   市值未知, 其中 1335 只因腾讯补值上限被截断, 整批被 floatMvFloor 误杀。
+        #   精筛仍保持"缺失 → 无法证明达标 → 剔除"(与老口径一致), 故最终语义不变,
+        #   只是把判定推迟到**有真值的那一刻**。
+        if mv is not None:
+            if mv < f["floatMvFloor"]:
+                continue
+            if f["floatMvGt"] > 0 and mv > f["floatMvGt"]:
+                continue
         bid_amt_wan = None if r.bid_amt is None else r.bid_amt / 1e4
         if bid_amt_wan is None or bid_amt_wan < f["bidAmtFloor"]:
             continue

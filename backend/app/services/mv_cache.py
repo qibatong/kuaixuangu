@@ -170,6 +170,7 @@ def fill(raw_all, date=None):
     need = [c for c, v in raw_all.items() if not (v.get("float_mv") or 0)]
     st["need"] = len(need)
     got = {}          # 腾讯补到的 {code: {...}}; 下面 src 标记要用, 必须先定义
+    cache = {}        # 缓存补到的 {code: {...}}; 同上(src 标记用), 必须先定义
 
     # ② 缓存
     if need:
@@ -210,18 +211,30 @@ def fill(raw_all, date=None):
             log.info("[市值缓存] 腾讯补市值 %d/%d 只 耗时%.0fms",
                      len(got), len(still), (time.time() - t0) * 1000)
 
-    # 回写缓存: 所有拿到市值的(东财源优先, 腾讯源次之)
+    # 回写缓存: **只回写确实拿到流通市值的行**(东财源优先, 腾讯源次之)
+    # 2026-09-18 修正(v4.11.28): 此前 mv<=0 也会 INSERT OR REPLACE → 把当天早先时点
+    #   (东财正常时)存下的真值冲成 NULL, 缓存**自我劣化**, 且次日 lookup 读回 NULL
+    #   继续污染。开盘啦兜底(9:24/9:25 东财全分区失败时)恰好是这种行 → 危害最大。
+    #   宁可"这轮不缓存", 也不能用 NULL 覆盖真值。
+    # src 精确标注: tencent / em / cache:<来源日期>(此前缓存补的也标 em, 伪装东财真值,
+    #   导致 9/17 排查时误判"错值来自东财")。
     rows = {}
     for code, v in raw_all.items():
         mv = v.get("float_mv") or 0
-        if mv <= 0 and not (v.get("name") or ""):
+        if mv <= 0:
             continue
+        if code in got:
+            src = "tencent"
+        elif code in cache:
+            src = "cache:%s" % (cache[code].get("date") or "")
+        else:
+            src = "em"
         rows[code] = {
             "name": v.get("name") or "",
-            "float_mv": mv or None,
+            "float_mv": mv,
             "free_mv": (v.get("free_mv") or 0) or None,
             "board": v.get("board") or "",
-            "src": "tencent" if code in got else "em",
+            "src": src,
         }
     st["saved"] = save(date, rows)
     st["miss"] = sum(1 for c, v in raw_all.items() if not (v.get("float_mv") or 0))

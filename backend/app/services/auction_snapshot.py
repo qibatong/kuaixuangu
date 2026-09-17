@@ -155,8 +155,16 @@ def _merge_tickplus(raw_all, tp_map):
 
 def _fetch_kpl_fallback():
     """开盘啦竞价榜兜底: 东财故障时用竞价委买/爆量榜构造部分快照
-    返回 {code: {bid_change, bid_amt, name, bid_buy_amt, float_mv, board}}
-    非全市场(仅竞价活跃股), 但保证竞价异动页有数据可显示"""
+    返回 {code: {bid_change, bid_amt, name, bid_buy_amt, float_mv, free_mv, board}}
+    非全市场(仅竞价活跃股), 但保证竞价异动页有数据可显示
+
+    🔴 2026-09-18 口径修正(v4.11.28): 开盘啦 `floatMv` 是**实际流通**(≈自由流通市值),
+       不是东财 f21 的**流通市值**。此前直接写进 float_mv, 导致 49 亿流通的票被落库成
+       14.75 亿 → floatMvFloor=30 把真大盘股**系统性误剔**(9/17 实测 56 只, 其中 3 只
+       其它门槛全过)。行级签名 = float_mv>0 且 free_mv=0, 起始日 9/11。
+       现在: 开盘啦值写 **free_mv**(语义正确的列), float_mv 留 0 → 由 mv_cache.fill
+       用东财 f21 / 腾讯 f44 补真流通市值(补不到则保持未知, 粗筛不误杀, 见 filter)。
+    """
     fallback = {}
     try:
         from . import kpl
@@ -170,12 +178,15 @@ def _fetch_kpl_fallback():
             # 单位: 开盘啦 bidAmt/floatMv 是**元**, 本表 bid_amt 是**万元** → 必须 /1e4。
             # 2026-09-09 实锤: 漏除导致 9_20 时点竞价额中位 577.5 亿(应为 577 万), 放大 1e4 倍;
             # float_mv 恒 0 会让这批兜底票全被 floatMvFloor 剔除 → 兜底白做。
+            # 2026-09-18: 恒 0 由 mv_cache.fill 补齐; 把开盘啦值塞进 float_mv 是**更坏的错**
+            #   (拿到自由流通量级的错值, 远比"未知"危险 —— 未知不会误剔真大盘股)。
             fallback[code] = {
                 "bid_change": s.get("bidChange") or 0,
                 "bid_amt": (s.get("bidAmt") or 0) / 1e4,
                 "name": s.get("name") or "",
                 "bid_buy_amt": s.get("bidSealAmt") or 0,
-                "float_mv": s.get("floatMv") or 0,
+                "float_mv": 0,                          # 留给 mv_cache.fill 补真流通市值
+                "free_mv": s.get("floatMv") or 0,       # 开盘啦口径 = 实际流通(≈自由流通)
                 "board": s.get("board") or "",
             }
         # 竞价爆量榜: 高竞价量股票
@@ -189,7 +200,8 @@ def _fetch_kpl_fallback():
                 "bid_amt": (s.get("bidAmt") or 0) / 1e4,
                 "name": s.get("name") or "",
                 "bid_buy_amt": 0,
-                "float_mv": s.get("floatMv") or 0,
+                "float_mv": 0,                          # 同委买榜: 留给 mv_cache.fill 补
+                "free_mv": s.get("floatMv") or 0,       # 开盘啦口径 = 实际流通(≈自由流通)
                 "board": s.get("board") or "",
             }
         log.info("[快照采集] 开盘啦兜底: 委买%d只 爆量%d只 合并去重%d只",

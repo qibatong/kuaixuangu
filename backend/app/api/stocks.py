@@ -160,12 +160,24 @@ def _snapshot_candidate_codes(snap_rows, f, yzt_codes):
         # 竞价涨幅 > bidGt 剔除(与 picker.filter.apply_filters 同: 保留 ≤ bidGt)
         if (v.get("bid_change") or 0) > f["bidGt"]:
             continue
-        # 市值(快照 free_mv 单位元 → 亿; 与 circulationMV=f21/1e8 同)
-        mv = (v.get("free_mv") or v.get("float_mv") or 0.0) / 1e8
-        if mv < f["floatMvFloor"]:
-            continue
-        if f["floatMvGt"] > 0 and mv > f["floatMvGt"]:
-            continue
+        # 市值(快照 float_mv 单位元 → 亿; 与 circulationMV=f21/1e8 同)
+        # 2026-09-18 修正(v4.11.28):
+        #   ① 原本优先 free_mv, 与 picker.filter(用 float_mv)和 _snapshot_rows_to_raw
+        #      第 202 行**口径相反**。开盘啦兜底的 free_mv 是"实际流通"(≈自由流通,
+        #      量级为流通市值的 0.28~0.57 倍), 优先它会把真大盘股误判成小盘剔除
+        #      (9/17 华瓷股份 49 亿 → 14.75 亿被 floor=30 误剔)。
+        #   ② 门槛**只用 float_mv** 判 —— free_mv 更小, 拿它判下限必然误杀
+        #      (free_mv<30 不代表流通<30); float_mv 未知则**放行**给
+        #      picker.filter.apply_filters, 彼时点查补丁已补到真值。与
+        #      picker.filter.coarse_filter 同口径(9/17 东财全挂时整批被误杀的教训)。
+        #      注: _snapshot_rows_to_raw(点查失败降级)仍可用 free_mv 兜底 —— 那条路
+        #      没有补丁源, 有兜底值总比 0 强, 是**降级语义**, 与此处的门槛判据无关。
+        mv = (v.get("float_mv") or 0.0) / 1e8
+        if mv > 0:
+            if mv < f["floatMvFloor"]:
+                continue
+            if f["floatMvGt"] > 0 and mv > f["floatMvGt"]:
+                continue
         # 竞价额(9_25 定格, 万元; 与 day_bid_amt 同口径)
         if (v.get("bid_amt") or 0) < f["bidAmtFloor"]:
             continue
