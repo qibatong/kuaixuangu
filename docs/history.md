@@ -1238,3 +1238,50 @@
     - **测试机**：后端 `cp /opt/kuaixuan/backup/pickguard_20260916_175203/{stocks.py,auction_snapshot.py,mode.py,conftest.py}`
       对应位置 + `systemctl restart kuaixuan kx-worker`；前端 `mv dist dist.bad && mv dist.old_20260916_180037 dist`；
     - **最轻回滚（生产/测试通用，无需重启）**：`settings.set('pick_window_guard', 0)`。
+
+---
+
+- **v4.11.23 (09-17 08:41 已推生产) 评分 17% 异动因子改回东财 f630 —— 补开关短路 + 已知分档错配待裁**
+  - **指令**：主人要求「把选股评分里面占评分17%比例的异动改回东财的数据吧」→ 即 `settings.use_bid_strength` 置 0。
+  - 🔴 **关键发现（改动的真正工作量所在）**：**该开关原先对主链路完全无效**。
+    `picker/pipeline.py:_load_strength()` 直接 `bid_strength.load()` + `score_map()`，**没有判 `enabled()`**；
+    唯一带判断的 `bid_strength.load_scores()` 只被 `precompute.py` 调用，而生产 **`precompute_read` 未启用**（=None）
+    → **pipeline 主链路是唯一生效路径，光设开关等于没改**。已补 `if not bid_strength.enabled(): return {}`。
+  - ⚠️ **实测风险（本次改动的核心不确定性，已记录待裁）**：
+    用 `push2dycalc.eastmoney.com/api/qt/clist/get` 实测 f630（盘前 08:35，1800 样本）——
+    取值域 **`0,1,2,3,4,5,9,10,11,12,14`**，分布 `0`:977 / `4`:295 / `3`:126 / `9`:51 / `10`:49 /
+    `2`:48 / `1`:6 / `11`:2 / `12`:1 / `14`:1，**`5` 实测 0 只**。
+    而 `scoring.factors.warn.buckets` = `[["5","6",1],["4","5",0.85],["3","4",0.6]]`、default **0.18**
+    → **只覆盖 3/4/5，命中率仅 36%**，其余 63% 全落 default 0.18；最高档 1.0 实测拿不到。
+    **后果**：17% 权重对**排序**失效（常数不改变名次），但全员整体下移约 **13.9 分**，
+    会挤掉 `scoreFloor=80` 边缘的票。
+    注意 `contract.py:50` 注释「实时源 f630(实测取值 0/1/2)」是**竞价时段**口径，与本盘前实测不同 ——
+    **两种说法必须用竞价时段 9:25 定格的实测裁决**（探针见下）。
+    语义线索：f630=11 的两只都是 `N` 开头（新股首日 688837 / 920298），**不像 1~6 的等级**。
+  - **改动**：`backend/app/services/picker/pipeline.py`（`_load_strength` 补短路，+6 行）；
+    `settings.set('use_bid_strength','0')` → `enabled()=False`。
+  - **备份 / 回滚**：
+    - 备份 `/opt/kuaixuan/backend_bak_bidstrength_20260917-084139`（旧 `pipeline.py` md5 `a6be78379aa454091ea6129b3349f425`）
+    - 新 md5 `92d2f9b841c28aa55272a3a3cda3ea24`
+    - **最轻回滚 = `settings.set('use_bid_strength','1')`，无需重启**（恢复竞价强度口径）
+    - 整片回滚 = `cp -p <备份>/app/services/picker/pipeline.py /opt/kuaixuan/backend/app/services/picker/` + restart
+  - **预检（落盘后、重启前，只读）ALL PASS**：开关关闭 → `_load_strength` 短路返回 `{}`；
+    开关打开 → 不短路；显式注入优先于开关。
+  - **测试**：新增 `backend/tests/test_bid_strength_switch.py` **22 例**（开关解析含 DB 异常、
+    主链路短路、注入优先、异常吞掉、端到端 f630 分档；**并把「0/1/2/9/10/11/12/14 全落 default 0.18」
+    的错配钉死为测试**，将来重校分档表时同步更新）。全量 **1007 passed / 2 failed / 4 skipped**
+    （2 红 = 既有 `test_stocks_refresh_fallback` 日期敏感用例，与基线一致）。
+  - **运维**：重启 `kuaixuan`(PID 2940214) / `kx-worker`(2940215)，首页 200。
+    ⚠️ 部署窗口选在 **09:00-09:26 闸门拦截期**（用户无法选股）→ 重启对用户零影响。
+  - **待裁（9/27 后据采样定）**：竞价时段 f630 取值分布 + 分档命中率。探针
+    `scripts/_sample_f630_bidding.py`（生产 `/tmp/_sf630.py`，9:14 起每 60s、9:23 起每 10s，
+    输出 `/tmp/_f630_samples.jsonl`）。若命中率 <50%，建议**重校分档表**或**回滚到竞价强度**。
+  - **踩坑**：
+    1. 🔴 判断"现在几点"**必须读 `date`**，别按会话注入的 `current_time` 往后推算
+       （据此误报"现在 09:05"，实际 08:41）。
+    2. 🔴 本机 pytest 真身 = `C:/Users/User/.workbuddy/binaries/python/envs/default/Scripts/python.exe`
+       —— managed python 3.13 与系统 `Python311` **都没装 pytest**。
+    3. `QuoteRow` **没有 `bid_turnover` 字段**，它是派生属性（`bid_amt/float_mv*100`），
+       单测里要**反推构造** `bid_amt`，不能直接传 `bid_turnover=`。
+    4. `setsid nohup ... &` 经 `_ssh_exec.py` 下发会让 SSH 会话挂住（子进程持 fd），
+       另开一条命令即可确认；`pgrep -f` 会匹配到包装 shell 自身，**用 `ps -eo pid,ppid,cmd | grep "[_]xxx"` 才准**。

@@ -469,6 +469,13 @@ def _load_strength(codes: Sequence[str], ctx: PickContext) -> Dict[str, float]:
         return ctx.strengths
     try:
         from .. import bid_strength
+        # 2026-09-17 主人要求「把 17% 异动因子改回东财 f630」: 开关关闭必须在此短路。
+        # 注意 load_scores 内部才有 enabled() 判断, 但它只被 precompute 物化路径调用,
+        # 而生产 precompute_read 未启用 → 本函数是唯一生效路径;
+        # 不在这里判开关 = use_bid_strength 对主链路完全无效(曾踩)。
+        if not bid_strength.enabled():
+            log.info("[竞价强度] 开关已关闭(use_bid_strength=0) → 异动因子退回 f630 异动等级")
+            return {}
         st = bid_strength.load(list(codes), date=ctx.date)
         out = {c: v for c, v in bid_strength.score_map(st).items() if v is not None}
         log.info("[竞价强度] 候选%d只 取到强度%d只", len(codes), len(out))
