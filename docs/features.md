@@ -32,7 +32,7 @@
 > 按新口径重做」）：`mode.is_pick_open` / `auction_snapshot.has_today_snapshot` /
 > `stocks._pick_window_guard_on` / `ping.pickGateEnabled` 与前端置灰全部移除，回到 v4.11.21 的
 > 选股可用性（9:00-9:26 可自由选股）。**下面是回退前的存档描述，仅作事故复盘用**；
-> 新口径（只挡 9:00-9:15 + 9:25:00-9:25:35）见 history v4.11.27。
+> ✅ **新口径已于 v4.11.27 落地并部署测试机**：只挡 `09:00:00-09:14:59` 与 `09:25:00-09:25:35` 两段，**`09:15:00-09:24:59` 放行**（竞价主窗口）—— 见 history v4.11.27。
 
 **规则**：交易日 **9:00 ≤ now < 9:26 → 关闭选股**；非交易日（周末/节假日）与 **00:00-9:00 盘前不拦**
 （盘前「看上交易日定格」是 PREOPEN 的既有设计，主人确认接受 9:00 这个分割点）。
@@ -454,3 +454,22 @@ history v4.11.22 / v4.11.24；回退记录见 v4.11.26）。
 - `docs/kpl-interfaces.md` — 自动生成的接口索引文档（88 编号 + 31 具名，标已接入/未接入）
 - `GET /api/kpl/interfaces` — 运行时查询端点，curl 即返回全部接口 `name/title/called`
 - 全量核对报告：`docs/kpl-docs-coverage.md`（104 接口 100% 封装结论 + 具名覆盖映射表）
+
+---
+
+## `auto_apply` 幂等锁：一日一次 → **成功才置 done + 60s 节流**（v4.11.27，2026-09-17）
+
+**缺陷（旧实现）**：`store.setnx("sched:auto_apply:" + date, 1, ttl=86400)` —— 一把**每日一次性锁，
+且在成功前就被消费**。无票可锁时 `_pick_result()` 提前 `return error`，但锁已经烧掉 →
+09:26-09:30 剩余的 ~24 轮全部被挡 → **当日永不重试**（若 9:25 定格恰好晚落库，当日就彻底没有系统名单）。
+
+**新实现**：拆成两个键 ——
+- `sched:auto_apply:done:<date>`：**只有成功才置**（ttl 86400）；
+- `sched:auto_apply:try:<date>`：60s 节流（`AUTO_APPLY_RETRY_SEC = 60`）。
+
+`should_trigger(bdate) = (not already_done(bdate)) and try_acquire(bdate)`；
+`auction_snapshot.py` 的 9:26 触发点改为调用 `auto_apply.should_trigger(date)`。
+09:26-09:30 共 5 分钟 → 最多约 5 次尝试；**成功即不再重试**，失败则下一分钟再来。
+两个 `error` 分支**刻意不置 done**（这正是修复要点）。
+
+回归防线：`tests/test_auto_apply_retry.py`（7 例，含「失败不置 done + 节流过后可重试」核心时序）。

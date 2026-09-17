@@ -34,16 +34,24 @@
         <div v-if="leftTab === 'auction'" class="home-filter"><FilterPanel @refresh="refreshRealTime" /></div>
 
         <template v-if="leftTab === 'auction'">
-          <!-- 会员门禁: 竞价选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
-          <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价选股" />
-          <template v-if="user.isMember || !isMemberOnlyTime()">
-            <!-- 奖牌区 -->
-            <MedalPanel :stocks="stocks.cachedStocks" />
-            <!-- 主表 -->
-            <div v-if="!stocks.isDataCached" class="stock-table-container">
-              <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
-            </div>
-            <StockTable v-else :stocks="stocks.cachedStocks" strategy="auction" :bid-seal-map="bidSealMap" />
+          <!-- 2026-09-16 选股闸门(主人拍板: 开盘日 9:00-9:26 不支持选股) -->
+          <!-- 优先于会员门禁: 该时段连会员也不可用(不是权限问题, 是当日定格尚未产生) -->
+          <div v-if="stocks.pickBlocked" class="pick-blocked-notice">
+            <i class="fa fa-clock-o"></i>
+            <span>{{ stocks.pickBlockedMsg }}</span>
+          </div>
+          <template v-else>
+            <!-- 会员门禁: 竞价选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
+            <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价选股" />
+            <template v-if="user.isMember || !isMemberOnlyTime()">
+              <!-- 奖牌区 -->
+              <MedalPanel :stocks="stocks.cachedStocks" />
+              <!-- 主表 -->
+              <div v-if="!stocks.isDataCached" class="stock-table-container">
+                <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
+              </div>
+              <StockTable v-else :stocks="stocks.cachedStocks" strategy="auction" :bid-seal-map="bidSealMap" />
+            </template>
           </template>
         </template>
 
@@ -108,6 +116,7 @@ let clockTimer = null
 let autoAddTimer = null
 let expiryTimer = null
 let realTimeTimer = null
+let pickGateTimer = null    // 2026-09-16 选股闸门巡检(9:26 到点自动解禁)
 
 async function init() {
   user.migrateLegacyKeys()
@@ -116,17 +125,27 @@ async function init() {
   // 初始化筛选状态(本地锁定 > 账号偏好 > 全局默认 > 内置默认)
   await Promise.all([stocks.loadUserPrefs(), stocks.loadGlobalDefaults()])
   stocks.initFilterFromStorage()
-  // 首次拉数据
-  try {
-    await stocks.fetchAndCache()
-  } catch (e) {
-    showToast('❌ ' + e.message, 'error')
+  // 2026-09-16 选股闸门: 交易日 9:00-9:26 不发请求(该时段只能得到非当日定格的名单:
+  // 9:00-9:15 上交易日 / 9:15-9:25 竞价在变 / 9:25-9:26 当日定格尚未落库)。
+  // 2026-09-17: force=true 首屏必探后端开关(pick_window_guard=0 → 不置灰、正常拉数据)
+  await stocks.refreshPickGate(true)
+  // 首次拉数据(禁用时段由闸门提示块代替, 到点由 pickGateTimer 自动选股)
+  if (!stocks.pickBlocked) {
+    try {
+      await stocks.fetchAndCache()
+    } catch (e) {
+      showToast('❌ ' + e.message, 'error')
+    }
   }
   // 启动定时器: 时钟 / 自动收录 / 过期检查
   clockTimer = setInterval(() => { bjTime.value = bjDateTimeStr() }, 1000)
   autoAddTimer = setInterval(() => pool.autoAdd(currentList(), stocks.isDataCached), 20000)
   expiryTimer = setInterval(() => pool.checkExpiry(), 30000)
   pool.autoAdd(currentList(), stocks.isDataCached)
+  // 2026-09-16 闸门巡检: 每 20s 一次 —— 9:26 到点**自动解禁并选股**(否则用户 9:10
+  // 打开页面会一直停在禁用态, 必须手动刷新); 若后端因"当日定格尚未落库"继续拦,
+  // 下一轮自动重试, 天然形成等待。
+  pickGateTimer = setInterval(() => { stocks.refreshPickGate().catch(() => {}) }, 20000)
   // 盘中 9:30-15:00: 每 30s 自动刷新一次现涨/实时涨幅(静默, 不弹 toast)。
   // 后端行情缓存 TTL: 竞价30s, 30s 轮询既能跟上涨幅变化又不超压。
   realTimeTimer = setInterval(() => {
@@ -192,11 +211,30 @@ onBeforeUnmount(() => {
   if (autoAddTimer) clearInterval(autoAddTimer)
   if (expiryTimer) clearInterval(expiryTimer)
   if (realTimeTimer) clearInterval(realTimeTimer)
+  if (pickGateTimer) clearInterval(pickGateTimer)
   if (_stickyResizeFn) window.removeEventListener('resize', _stickyResizeFn)
 })
 </script>
 
 <style scoped>
+/* 2026-09-16 选股闸门提示块(交易日 9:00-9:26): 替代主表位置, 说明为何暂时看不到名单。
+   配色用黄色提示系(项目五色内), 与涨跌红绿语义无关。 */
+.pick-blocked-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(230, 180, 0, 0.5);
+  border-radius: 6px;
+  background: rgba(230, 180, 0, 0.10);
+  color: var(--text-main);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.pick-blocked-notice .fa { color: #e6b400; }
+body[data-bg="light"] .pick-blocked-notice { color: #8a5500; }
+
 /* 奖牌(金银铜) + 自选股票池 在左栏内: 保留原有紧凑处理 */
 .medal-section {
   display: flex;

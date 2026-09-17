@@ -104,12 +104,24 @@
 ## 七、选股核心语义（stocks store / 后端批次）
 
 - **9:30 前**：action=lock，全市场锁定 + 当日幂等落库（`batch_date`=当日）。
-- **🔴 选股闸门（v4.11.22，2026-09-16）**：交易日 **9:00-9:26 一律不提供选股** ——
-  时间维 `picker/mode.is_pick_open()` + 快照维 `auction_snapshot.has_today_snapshot()` 双闸门，
-  落在 `api/stocks.py`（`action=ping` 之后）。命中直接 `{ok:false, blocked:true, msg, ...}`，
-  **不跑 pipeline / 不落批次 / 不推送**。原因：9:25 定格实测 09:25:23~09:25:32 才落库，
-  此前 `load_snapshot_full` 会**静默回退昨日**（9/16 两个用户拿到 9/15 名单）。
-  **非交易日与 00:00-9:00 盘前不拦**（盘前看上交易日定格是 PREOPEN 既有设计）。
+- **🔴 选股闸门 v3（v4.11.27，2026-09-17 重做）**：交易日**只挡两段** ——
+  ① `[09:00:00, 09:15:00)` 盘前 PREOPEN（名单来自**上交易日**定格）；
+  ② `[09:25:00, 09:25:35]` 当日 9_25 尚未落库（实测 09:25:23~32 才写库，期间
+  `load_snapshot_full` 会**静默回退昨日**）。
+  🔴 **`09:15:00-09:24:59` 必须放行** —— 那是主人的真实选股窗口（竞价进行中）；
+  `AUCTION` 模式名单来自实时全市场（`eastmoney_market`/`tencent_market`），**不读 snapshot**，
+  不存在"回退昨日"的问题。**非交易日与 00:00-9:00 盘前不拦**（盘前看上交易日定格是既有设计）。
+  时间维 `picker/mode.is_pick_open()`（**秒级**判定，用 `bj_secs()`；`bj_hm()` 只到分钟，
+  表达不了 09:25:35/36 的边界）+ 快照维 `auction_snapshot.has_today_snapshot()`，
+  落在 `api/stocks.py`（`action=ping` 之后）。命中直接
+  `{ok:false, blocked:true, msg, blockedUntil, ...}`，**不跑 pipeline / 不落批次 / 不推送**。
+  开关 `pick_window_guard` 默认 1；`ping` 透出 `pickGateEnabled` 驱动前端置灰（v4.11.24）；
+  置 0 = 前后端同时放行（最轻回滚）。
+  ⚠️ **血泪史（务必连着读，否则会重犯）**：v4.11.22 口径是「9:00-9:26 整段禁选」，把
+  **9:15-9:25 竞价主窗口**一起治死 → 9/17 早盘该时段 **0 请求**事故 → v4.11.26 整体回退
+  并从代码摘除 → v4.11.27 重做为上面两段。
+  回归防线 = `tests/test_pick_window_guard.py::test_auction_window_must_be_open_incident_regression`
+  （9:15:00-9:24:59 **逐秒**断言放行 —— 谁把竞价窗口重新封上，它立刻红）。
   前端：`utils/time.isPickBlockedTime` + `stores/stocks.pickBlocked` + 20s 巡检自动解禁
   （`refreshPickGate`）；四按钮置灰、提示条「9:26 后开放 · 正在等待 9:25 竞价定格」。
   改这套逻辑时**必须同时改前后端文案**（后端有 `test_pick_block_msg_shared_with_frontend` 对拍）。
@@ -209,7 +221,9 @@
   `fetch_yesterday_amounts`、`ensure_cache`、`load_snapshot_full`。想测**真实实现**的文件必须在
   import 期留下 `_ORIG_xxx = fetcher.xxx` 再用 autouse fixture 还原（见 test_yesterday_cache /
   test_tencent_fallback），否则测到的是恒返回假数据的桩（曾导致 11 条用例长期假红）。
-- 基线认知（**2026-09-17 收盘后 v4.11.26 复测**）：**全量 1007 例 / 2 红 / 0 错 / 4 skip**（实测 284s）。
+- 基线认知（**2026-09-17 v4.11.27 复测**）：**全量 1034 例 / 0 红 / 0 错 / 4 skip**（实测 283.7s）。
+  🔴 **历史首次全量归零** —— 长期存在的 2 条日期漂移红已随 ③ 修掉（`test_stocks_refresh_fallback.py`
+  注入固定锚点 `_ANCHOR = 2026-09-15 10:30 +08` + 所有调用带 `now_ts=`）。
   🔴 **这 2 红是既有存量红，不是回归**：`test_stocks_refresh_fallback.py::test_recent_fallback_same_param_lock`
   与 `::test_api_stocks_refresh_fallback_http` —— 用例把**批次日期写死为字面量**（`2026-09-01/09-03`）而
   `ts` 用 `time.time()-N*86400` **相对今天**算，随日历推进必然漂移（实得 `2026-09-03` 期望 `2026-09-01`）。
@@ -219,6 +233,9 @@
   → **1007 + 2 红**（9/17 v4.11.23 加 `test_bid_strength_switch` 22 例）→ **1008 + 2 红**（9/17 v4.11.24 加闸门开关→ping 联动 1 例）
   → **1014 + 2 红 / 总 1020 例**（9/17 v4.11.25 加 `test_today_system_fallback` 6 例）
   → **1007 / 2 红**（9/17 v4.11.26 回退闸门：删 `test_pick_window_guard.py` 13 例 —— 总 1020 → 1007）。
+  → **1034 / 0 红**（9/17 v4.11.27 三项裁定落地：闸门测试按新口径重写 **19 例** + `test_auto_apply_retry` **7 例**
+  + `test_stocks_refresh_fallback` 新增窗口契约 **1 例** = 1007 + 27 → **1034**，且**红数归零**；
+  前端 `node --test src/utils/*.test.js` **54/54**）。
   ⚠️ 新增"写 uid=0 系统批次"的用例**必须用 id 水位线在 teardown 回收**，否则跨文件污染
   （uid=0 批次是全局共享的，会让别的用例的跨日回退错误命中今天）。
   ⚠️ 写测试日期**一律按今天相对推算**，别写字面量 —— 那 2 条红就是这么来的。

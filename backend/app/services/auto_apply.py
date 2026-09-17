@@ -25,7 +25,47 @@ import time
 from ..core import logger
 from ..services import auction_snapshot, fetcher, history, kpl, scorer, users
 from ..api import admin as admin_api   # 用 get_default_filters
+from .cache_store import store as _store
 log = logger.get_logger(__name__)
+
+
+# ---- 9:26 自动应用的**幂等 / 重试**守卫 (2026-09-17 v4.11.27 修复) ----
+# 缺陷: auction_snapshot 原用
+#     store.setnx("sched:auto_apply:" + date, 1, ttl=86400)
+# 作为**每日一次性**锁, 但它在**成功之前**就被消费 —— `_pick_result()` 无票时提前
+# return error, 锁却已烧掉 → 9:26-9:30 剩余 ~24 轮(10s 一轮)全部被 setnx 挡掉 →
+# **当日系统统一批次永久缺失** → 用户刷新直读只能跨日回退到**上一个交易日**的名单。
+# 这是 2026-09-17 早盘「9:30 后出来的数据好像是昨天的」事故的放大部分。
+#
+# 修复: 拆成两把键, 语义分离 ——
+#   · done 键: **成功算出非空名单后**才置, 当日幂等(防重复扇出);
+#   · try  键: TTL 节流(不是每日锁), 失败后节流过期即可重试。
+_AUTO_APPLY_DONE_KEY = "sched:auto_apply:done:"
+_AUTO_APPLY_TRY_KEY = "sched:auto_apply:try:"
+AUTO_APPLY_RETRY_SEC = 60      # 9:26-9:30 共 5 分钟 → 最多约 5 次尝试
+
+
+def already_done(bdate):
+    """当日是否已成功跑过一次(幂等位)"""
+    return bool(_store.get(_AUTO_APPLY_DONE_KEY + bdate))
+
+
+def mark_done(bdate):
+    """标记当日已成功(只在算出非空名单后调用)"""
+    _store.set(_AUTO_APPLY_DONE_KEY + bdate, 1, ttl=86400)
+
+
+def try_acquire(bdate):
+    """占**节流**位(不是每日锁) —— 返回 True 表示本轮可以跑"""
+    return bool(_store.setnx(_AUTO_APPLY_TRY_KEY + bdate, 1, ttl=AUTO_APPLY_RETRY_SEC))
+
+
+def should_trigger(bdate):
+    """9:26-9:30 调度分支的**唯一判据**: 未成功 且 不在节流窗口内。
+
+    抽成函数是为了可测(见 tests/test_auto_apply_retry.py), 调用点只做时间窗判断。
+    """
+    return (not already_done(bdate)) and try_acquire(bdate)
 
 
 def _today_bj():
@@ -170,8 +210,12 @@ def auto_apply_all_users(max_users=None):
             failed += 1
             log.warning("auto_apply 单用户失败 uid=%s err=%s", uid, e)
     cost = (time.time() - t0) * 1000
-    log.info("auto_apply 结束 applied=%d skipped=%d failed=%d 耗时%.0fms",
-             applied, skipped, failed, cost)
+    # 2026-09-17 (v4.11.27): 走到这里说明**名单已算出且非空** → 本轮有效, 置幂等位收工。
+    # 只有这一处置 done —— 上面两个 error 分支(无票 / 空名单)**刻意不置**, 好让
+    # 9:26-9:30 的后续轮次在节流过期后重试, 而不是当天彻底没有系统批次。
+    mark_done(bdate)
+    log.info("auto_apply 结束 applied=%d skipped=%d failed=%d 耗时%.0fms (已置 done=%s)",
+             applied, skipped, failed, cost, bdate)
     return {"applied": applied, "skipped": skipped, "failed": failed,
             "total": len(user_ids), "cost_ms": int(cost)}
 

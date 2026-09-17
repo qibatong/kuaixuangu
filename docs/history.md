@@ -1477,3 +1477,103 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.27 (09-17 收盘后) 三项待裁项落地：闸门口径重做（只挡两段）+ `auto_apply` 幂等锁 + 日期漂移用例**
+  - **指令**：主人对 v4.11.26 的遗留三项拍板 —— 「**确保两日改动都回退后再改，并且改完先在测试环境明天测试效果**」。
+    本版即三项的落地。**生产未部署**（等主人指令）；**测试机 47.99.153.123 已同步到新基线并端到端验收**。
+
+  - **① 选股闸门口径重做（双段、秒级）** —— 文件：`backend/app/services/picker/mode.py`（+77/-2）、
+    `backend/app/api/stocks.py`、`backend/app/services/auction_snapshot.py`、`frontend/src/utils/time.js`
+    - **为什么要重做**：v4.11.22 旧口径「交易日 9:00-9:26 整段禁选」把 **9:15-9:25 实时竞价选股**
+      （主人的真实选股来源）一起治死了，叠加成 9/17 早盘事故；主人已定新口径，v4.11.26 先把旧闸门
+      从代码里摘干净，本版按新口径重建。
+    - **新口径（只有两段拦，其余放行）**：
+
+      | 时段 | 行为 | 理由 |
+      |---|---|---|
+      | `[09:00:00, 09:15:00)` | 拦截 | 盘前 PREOPEN 用**上交易日**定格（用户会误认成当日） |
+      | `[09:15:00, 09:25:00)` | **放行** | 竞价主窗口 —— `AUCTION` 名单来自实时全市场，**不读 snapshot** |
+      | `[09:25:00, 09:25:35]` | 拦截 | 当日 9_25 尚未落库（实测 09:25:23~32）→ 会静默回退昨日 |
+      | `≥09:25:36` | 放行 | 时间维放行；还须过快照维（当日 9_25 已落库） |
+      | 非交易日 / `<09:00` | 放行 | 回放最近交易日定格是既有功能，不是缺陷 |
+
+      ⇒ 关键点：`09:15:00-09:24:59` **必须放行**（这是事故的直接教训）；两条闸门 = 时间维
+      `mode.is_pick_open()` + 快照维 `auction_snapshot.has_today_snapshot()`。
+    - **实现要点**：新增 **`bj_secs()`** —— `bj_hm()` 只到分钟，**表达不了 09:25:35/36 的边界**，
+      必须上秒级；`is_pick_open()` 改为双段秒级判定；新增 `pick_resume_at()` 给出动态放行时刻文案；
+      文案 `PICK_BLOCK_MSG_TIME` = `9:15 后开放 · 正在等待 9:25 竞价定格`。
+      接线恢复：`stocks.py` 的 `PICK_WINDOW_SWITCH` / `_pick_window_guard_on()` / `_pick_blocked_reason()`
+      （内部 `bj_hm` → `bj_secs`）/ 新增 `_pick_blocked_until()` / `ping.pickGateEnabled` / 拦截分支
+      （带 `blockedUntil`）；`has_today_snapshot()` 原样恢复。**④ hunk（当日系统名单优先）完整保留。**
+    - **前后端对拍升级（防静默错位）**：除文案共用外，新增**边界常量**对拍
+      `test_gate_boundaries_shared_with_frontend` —— 正则抠出 `time.js` 的数值，eval 后与 `mode.py` 逐条比对。
+    - **事故回归防线**：`test_auction_window_must_be_open_incident_regression` —— 对
+      **09:15:00-09:24:59 逐秒断言放行**。谁再把竞价窗口封上，它立刻红。
+    - **用例**：`backend/tests/test_pick_window_guard.py` 重写为 **19 例**（边界 17 点 + 4 接口级 + 2 对拍）；
+      前端 `frontend/src/utils/time.test.js` **14 例**。
+
+  - **② `auto_apply` 幂等锁：一日一次 → 成功才置位、失败可重试** —— 文件：`backend/app/services/auto_apply.py`（225 行）
+    - **缺陷**：`store.setnx("sched:auto_apply:" + date, 1, ttl=86400)` —— **每日一次性锁，且在成功之前
+      就消费掉了**。无票可锁时 `_pick_result()` 提前 `return error`，但锁已烧 → 09:26-09:30 剩余 ~24 轮
+      全被挡 → **当日永不重试**（若 9:25 定格晚落库，当日就彻底没有系统名单）。
+    - **修法**：拆两个键 —— `sched:auto_apply:done:<date>`（**成功后才置**，ttl 86400）
+      + `sched:auto_apply:try:<date>`（**60s 节流**，`AUTO_APPLY_RETRY_SEC = 60`）；
+      `should_trigger(bdate) = (not already_done(bdate)) and try_acquire(bdate)`；
+      `auction_snapshot.py` 的 9:26 触发点改调 `auto_apply.should_trigger(date)`。
+      09:26-09:30 共 5 分钟 → 最多约 5 次尝试。🔴 **两个 error 分支刻意不置 `done`** —— 这正是修复要点。
+    - **用例**：`backend/tests/test_auto_apply_retry.py`（新建，**7 例**，含「失败不置 done + 节流过后可重试」时序）。
+
+  - **③ 两条日期漂移用例（测试基线红数归零）** —— 文件：`backend/tests/test_stocks_refresh_fallback.py`
+    - **根因**：`find_recent_reusable_batch` 的窗口是按 **`batch_date` 字符串**算的（`>= 今天 - 14 天`），
+      用例里写死了 `"2026-09-01"` 之类字面量 → 随日历推移**必然出窗** → 长期 2 红。
+    - **修法**：注入固定锚点 `_ANCHOR = datetime(2026,9,15,10,30, +08)`，全部日期/时间戳由 `_d()` / `_ts()`
+      派生，每个 `find_recent_reusable_batch` 调用显式加 `now_ts=_ANCHOR_TS`；HTTP 用例 monkeypatch 包一层注入
+      + 桩掉 `find_today_system_batch` 隔离 uid=0 系统批次污染；另加 1 条**窗口口径契约**用例
+      `test_recent_window_boundary_is_batch_date_based`（-14 闭区间必中 / -15 必不中）。
+
+  - **部署与验证（仅测试机）**：
+    - 🔴 **先做全量 `app/` md5 差异核查** —— 发现测试机**落后 23 个文件**（含 `services/history.py` 缺
+      `find_today_system_batch`、`picker/pipeline.py` 缺 `bid_strength.enabled()` 短路）。
+      **原计划只传"三项涉及的 4 个文件"会让新 `stocks.py` 在运行时 `AttributeError`**
+      —— 而符号 grep / import 检查**全都查不出来**（预检当时还是全绿）。补全后 **67/67 文件 md5 与本地工作区 0 差异**。
+    - **前端**：重建 → 新入口 **`index-B5f0MnLL.js`**（750393 B）；旧入口 `index-0LujzWyt.js` → **404**；
+      1021 files / 1016 assets、权限 dir 755 / file 644；HTTP `/` 200、新入口 200；含新文案文件 1、旧文案 0。
+    - **开关**：**显式 `settings.set("pick_window_guard", 1)`** —— 测试机此前**根本没这个键，靠代码默认值 1
+      隐式开启**（不可控）；`use_bid_strength` 两机语义已一致（均启用），未动。
+    - **预检**（`scripts/_preflight_v41127.sh`，纯只读）全通过：P0 环境 / P1 16 项新符号 / P2 2 项旧符号消失 /
+      **P3 13 点秒级行为断言**（含 09:15:00、09:24:59 必须放行）/ **P4 AST 跨模块调用面 19 处 + import** / P5 路由 96。
+    - **回归**：后端全量 **1034 例 / 0 红 / 0 错 / 4 skip（283.7s）—— 历史首次全量归零**；
+      前端 `node --test src/utils/*.test.js` **54/54**。
+      计数对账：1007（v4.11.26 回退后）+ 19（闸门重写）+ 1（③ 窗口契约）+ 7（② 重试锁）= **1034** ✓
+    - **端到端（测试机真实时刻，非 mock）**：`ping` → `{"ok":true,"before930":false,"pickGateEnabled":true}`；
+      `filter` → `{"ok":true,"mode":"auction","list":[{"code":"002068",...}]}`（**无 `blocked`**）；
+      `history.find_today_system_batch()` = `(1663,'auto')`；`auto_apply.should_trigger()=True` /
+      `already_done()=False`；服务 active、日志 **Traceback 0**。
+    - **观测脚本试跑**：`_observe_v41127.sh` 第 0 节「口径自证」exit=0；09:15-09:24 nginx 请求数 0
+      = 该窗口无活跃用户（非闸门故障）。
+
+  - ⚠️ **踩坑（本轮新增，务必记住）**：
+    - 🔴 **同步"部分文件"到远端之前必须做全量 md5 差异核查**。调用方已更新、被调方没更新时，
+      **符号 grep 与 import 检查都查不出来**（预检全绿），上线才 `AttributeError`。
+      ⇒ 已把 **AST 跨模块调用面检查**固化进预检 P4（扫 `stocks/auto_apply/auction_snapshot/pipeline`
+      四个文件对 `history.*` / `settings.*` 等属性的访问，逐个 `hasattr` 验证）。
+    - 🔴 Windows 的 `md5sum` 在二进制模式下会给文件名加 `*` 前缀，与远端 Linux 输出格式不同 →
+      两机清单对比前必须 `awk '{gsub(/^\*/,"",$2); print $1,$2}'` 规范化；并且**不要依赖 `sort`**
+      （本机与远端排序规则可能不一致）→ 改用 Python 字典比对。
+    - 🔴 测试机 nginx **只监听 80**（443 配置全被注释）→ `_deploy_fe.sh` 必须传
+      `KX_PROBE_BASE=http://127.0.0.1`，否则探针全得 `000`（假失败）。
+    - 🔴 测试机 `systemctl` 为旧版，**不支持 `--value`** → `_deploy_be.sh` 的 `PID before -> after`
+      打印为空（非致命，服务状态检查不受影响）。
+    - 🔴 观测脚本里 `def ts(h, m, s)` 漏了默认值 → `ts(9,5)` 抛 `TypeError` 被吞成「1 处不符」**假告警**；
+      已改 `s=0`。**脚本里的"判定函数"自己也要有边界用例。**
+
+  - **回滚点**：测试机备份 `backend_bak_v41127_<TS>`（**原始 v4.11.22 状态**）、
+    `backend_bak_v41127b_<TS>`（4 文件混血中间态，**不可作回滚点**）、`dist_bak_20260917-154915`。
+    上一版 commit = `eaf1199`（v4.11.26）。**生产未部署，无需回滚。**
+
+  - **观测 / 待办**：
+    - 观测工具：`scripts/_observe_v41127.sh`（整机观测，第 0 节"口径自证"不依赖用户行为）
+      + `scripts/_probe_gate_live.sh`（真实时刻探针，主动发一次 filter）。
+    - 明早 09-18 已建两条**一次性 automation**：09:18 竞价窗口放行验证 + 09:35 综合观测。
+    - **生产部署待主人明确指令**；生产 `pick_window_guard` 当前仍为 `0`（v4.11.26 设）。
+    - 未修遗留（carried）：`use_snapshot_pool` 分支不对称；北交所 920 段三处映射；K 线主源全 RST；
+      Server酱告警 HTTP 400；`_close_chg_persist_allowed()` 非交易日 bug；`probLt/confLt` 未解耦。

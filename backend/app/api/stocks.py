@@ -11,11 +11,56 @@ from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
 from ..services import (auction_snapshot, fetcher, history, kpl, notify, scorer,
-                        stats)
+                        settings, stats)
 from ..services.cache_store import store as _cstore   # 2026-09-04: refresh 计算缓存
 from .deps import get_uid, jr, qs
 
 log = logger.get_logger(__name__)
+
+# ---- 选股闸门 v3(2026-09-17 主人拍板重做: 只挡「必然给出非当日定格名单」的两段) ----
+# 口径本体在 picker/mode.is_pick_open(纯函数, 有单测覆盖边界), 此处只做**接线**:
+#   - 时间维: ① [09:00:00,09:15:00) 盘前用上交易日定格;
+#             ② [09:25:00,09:25:35] 当日 9_25 尚未落库(load_snapshot_full 静默回退昨日);
+#             **09:15:00-09:24:59 放行** —— 竞价窗口, v4.11.22 曾把这段封死致 9/17 事故。
+#   - 快照维: ≥09:25:36 时间维放行, 但当日 9_25 未落库时**继续拦**(防重采越过放行点
+#     时闸门形同虚设; 重采窗口 _BID25_RETRY_UNTIL=09:25:50 距 09:25:36 仅 14 秒余量)。
+#   - 非交易日 / 盘前(<9:00) 一律放行 —— 回放最近交易日定格是既有功能。
+# 命中即 **直接返回, 不跑 pipeline / 不落批次 / 不推送**(不给用户任何假名单)。
+# 开关 pick_window_guard 默认 1, 出问题后台置 0 即时回滚(与 picker_lock /
+# frontend_local_filter / precompute_* 同一模式); ping 会把开关状态透给前端。
+PICK_WINDOW_SWITCH = "pick_window_guard"
+
+
+def _pick_window_guard_on() -> bool:
+    """闸门开关是否启用 —— **单一口径处**(闸门分支与 ping 上报共用)。
+
+    2026-09-17: 原写法 `bool(settings.get(k, 1))` 对字符串 "0" 会判成 True(非空串 truthy),
+    「关开关」会静默失效; 这里显式解析常见假值形态(0 / "0" / "false" / "no" / "off" / 空串)。
+    """
+    v = settings.get(PICK_WINDOW_SWITCH, 1)
+    if isinstance(v, str):
+        return v.strip().lower() not in ("0", "false", "no", "off", "")
+    return bool(v)
+
+
+def _pick_blocked_reason(now=None):
+    """返回拦截原因文案(未拦截返回 None)。now 可注入(测试/排查用)。"""
+    from ..services.picker import mode as pmode
+    if not pmode.is_trading_day(now):
+        return None
+    if not pmode.is_pick_open(now):
+        return pmode.PICK_BLOCK_MSG_TIME
+    secs, _ = pmode.bj_secs(now)
+    if secs >= pmode.T_PICK_OPEN and not auction_snapshot.has_today_snapshot(
+            pmode.bj_date(now)):
+        return pmode.PICK_BLOCK_MSG_SNAP
+    return None
+
+
+def _pick_blocked_until(now=None):
+    """拦截段的放行时刻(前端提示用)。非拦截时刻回退到快照维放行点 09:25:36。"""
+    from ..services.picker import mode as pmode
+    return pmode.pick_resume_at(now) or "09:25:36"
 
 
 def _run_new_pipeline(uid, action, f, *, yesterday_map, yesterday_chg_map,
@@ -221,7 +266,24 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         return jr({"ok": False, "msg": "非法参数 strategy(仅支持 auction)"}, 400)
     if action == "ping":
         _, _, before930 = scorer.bj_now()
-        return jr({"ok": True, "before930": before930})
+        # 2026-09-17: 把开关状态透给前端 —— 此前前端置灰是**纯时间判断**、不看开关,
+        #   于是 `pick_window_guard=0` 只关了后端, 前端依旧置灰且连自动加载都不发请求
+        #   (9/17 该时段 0 请求的根因), 用户完全点不动。
+        #   ping 在鉴权之后、闸门之前, 天然不受闸门影响, 适合做状态探测。
+        return jr({"ok": True, "before930": before930,
+                   "pickGateEnabled": _pick_window_guard_on()})
+
+    # ---- 选股闸门 v3(2026-09-17 重做) ----
+    # ping 在其之前 return(前端登录态/时段探测天然放行); 其余 action 一律过闸门。
+    # ok=False + blocked=True 走 request.js 的既有错误透传(Object.assign(e, data)),
+    # 前端据此显示"等待定格"提示而非"选股失败"。
+    if _pick_window_guard_on():
+        block_msg = _pick_blocked_reason()
+        if block_msg:
+            log.info("选股闸门拦截 uid=%s action=%s msg=%s", uid, action, block_msg)
+            return jr({"ok": False, "blocked": True, "msg": block_msg,
+                       "blockedUntil": _pick_blocked_until(),
+                       "list": [], "count": 0})
 
     f = scorer.validate_filters(q)
     fs = scorer.market_fs(f["markets"])

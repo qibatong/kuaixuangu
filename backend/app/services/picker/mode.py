@@ -46,6 +46,30 @@ T_AUCTION_END = 9 * 60 + 25     # 9:25 竞价结束(定格点)
 T_LOCKED_END = 9 * 60 + 30      # 9:30 开盘
 T_INTRADAY_END = 15 * 60        # 15:00 收盘
 
+# ---- 选股闸门 v3(2026-09-17 主人拍板重做: 只挡「必然给出非当日定格名单」的两段) ----
+# 演进(务必连着读, 否则会重犯):
+#   v4.11.22 首次引入, 口径「交易日 9:00-9:26 整段禁选」—— 但它把 **9:15-9:25
+#     竞价主窗口**(主人的真实选股来源)一起治死了 → 9/17 早盘该时段 0 请求事故
+#     → v4.11.26 已整体回退并摘除闸门本体。
+#   v4.11.27 重做, 只挡下面两段(其余一律放行):
+#     ① [09:00:00, 09:15:00)  盘前 PREOPEN —— 名单用**上交易日**定格
+#                            (设计如此, 但用户会误认为是当日名单);
+#     ② [09:25:00, 09:25:35]  竞价已定格但**当日 9_25 尚未落库** —— 采集下限
+#                            _BID25_MIN_SEC=20s + 重采窗口 _BID25_RETRY_UNTIL=09:25:50
+#                            → 实测落库 09:25:23~09:25:32, 期间 load_snapshot_full
+#                            会**静默回退昨日**(9/16 实测 2 个用户拿到 9/15 名单)。
+# **09:15:00-09:24:59 必须放行** —— 竞价数据确实在变, 但那正是用户要看的实时竞价;
+#   AUCTION 模式名单来自实时全市场(eastmoney_market/tencent_market), **不读
+#   snapshot**, 不存在"回退昨日"的问题。v4.11.22 把这段一起封死是本末倒置。
+# 非交易日**不拦**(周末/节假日回放最近交易日定格是既有功能, 用户明确知情)。
+# 秒级粒度(第二段边界必须到秒): 9:14:59 拦 / 9:15:00 放; 9:25:35 拦 / 9:25:36 放。
+T_PICK_BLOCK1_FROM = 9 * 3600                  # 09:00:00 (含) — 第一段起点
+T_PICK_BLOCK1_TO = 9 * 3600 + 15 * 60          # 09:15:00 (不含) — 到点即放行
+T_PICK_BLOCK2_FROM = 9 * 3600 + 25 * 60        # 09:25:00 (含) — 第二段起点
+T_PICK_BLOCK2_TO = 9 * 3600 + 25 * 60 + 35     # 09:25:35 (含) — 覆盖实测最晚落库 09:25:32
+# 时间维放行起点(= 第二段拦截结束的下一秒); ≥ 此点还须过**快照维**(见 api/stocks 双闸门)
+T_PICK_OPEN = T_PICK_BLOCK2_TO + 1             # 09:25:36
+
 
 @dataclass(frozen=True)
 class ModePolicy:
@@ -195,6 +219,17 @@ def bj_hm(now=None) -> Tuple[int, int]:
     return t.tm_hour * 60 + t.tm_min, t.tm_wday
 
 
+def bj_secs(now=None) -> Tuple[int, int]:
+    """当前北京时间**当日秒偏移** (hour*3600+min*60+sec, 星期几 0=周一)。
+
+    与 bj_hm 同源, 但**到秒** —— 闸门第二段的边界在 09:25:35 / 09:25:36 之间,
+    分钟粒度无法表达(9:25:35 与 9:25:59 会判成同一分钟)。
+    now 可为 datetime / 时间戳 / None。
+    """
+    t = time.gmtime(_ts(now) + 8 * 3600)
+    return t.tm_hour * 3600 + t.tm_min * 60 + t.tm_sec, t.tm_wday
+
+
 def is_trading_day(now=None, holidays: Optional[set] = None) -> bool:
     """是否交易日。当前口径: 非周末即交易日(与老逻辑一致)。
     holidays: 预留法定节假日集合({'2026-10-01', ...}), 传入后生效 — 后续接入
@@ -234,3 +269,53 @@ def resolve_mode(now=None,
     if hm < T_INTRADAY_END:
         return POLICIES[PickMode.INTRADAY]
     return POLICIES[PickMode.CLOSED]
+
+
+# 闸门文案(前后端同口径 —— 前端 frontend/src/utils/time.js 的常量必须与此逐字一致,
+# 否则用户在不同触发路径下会看到两套说法; 有后端单测 test_pick_block_msg_shared_with_frontend
+# 与前端单测 time.test.js 双向对拍)
+PICK_BLOCK_MSG_TIME = "9:15 后开放 · 正在等待 9:25 竞价定格"
+PICK_BLOCK_MSG_SNAP = "9:25 竞价定格尚未落库 · 稍后自动恢复"
+
+
+def is_pick_open(now=None, holidays: Optional[set] = None) -> bool:
+    """当前是否处于**允许选股**时段(闸门的时间维)。
+
+    规则(2026-09-17 重做): 交易日只挡两段, 其余一律开放 ——
+      - [09:00:00, 09:15:00)  盘前 PREOPEN(名单来自**上交易日**定格);
+      - [09:25:00, 09:25:35]  当日 9_25 定格尚未落库(load_snapshot_full 会回退昨日)。
+
+    🔴 **09:15:00-09:24:59 必须放行** —— 这是主人的真实选股窗口(竞价进行中)。
+      v4.11.22 曾把整段 9:00-9:26 封死 → 9/17 早盘 9:15-9:26 完全选不了股的事故根因。
+      本函数的第一条回归用例就是这一段「必须为 True」。
+      - 非交易日(周末/节假日) **不拦** —— 回放最近交易日定格是既有功能;
+      - 00:00-9:00 盘前 **不拦** —— PREOPEN「看上交易日定格」是设计内功能;
+      - ≥09:25:36 时间维放行, 但调用方还须叠加**快照维**(当日 9_25 已落库)才真正放行
+        —— 见 api/stocks.py 的 _pick_blocked_reason 与 auction_snapshot.has_today_snapshot。
+
+    秒级粒度: 9:14:59 仍拦, 9:15:00 放行; 9:25:35 仍拦, 9:25:36 放行。
+    now 可为 datetime / 时间戳 / None。
+    """
+    if not is_trading_day(now, holidays):
+        return True
+    s, _ = bj_secs(now)
+    if T_PICK_BLOCK1_FROM <= s < T_PICK_BLOCK1_TO:
+        return False
+    if T_PICK_BLOCK2_FROM <= s <= T_PICK_BLOCK2_TO:
+        return False
+    return True
+
+
+def pick_resume_at(now=None) -> str:
+    """当前拦截段的**放行时刻**字符串(供 API 回给前端做提示), 未拦截返回 ""。
+
+    第一段 → "09:15"; 第二段 → "09:25:36"。与 is_pick_open 同源同口径。
+    """
+    if not is_trading_day(now):
+        return ""
+    s, _ = bj_secs(now)
+    if T_PICK_BLOCK1_FROM <= s < T_PICK_BLOCK1_TO:
+        return "09:15"
+    if T_PICK_BLOCK2_FROM <= s <= T_PICK_BLOCK2_TO:
+        return "09:25:36"
+    return ""
