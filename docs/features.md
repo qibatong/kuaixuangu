@@ -34,6 +34,21 @@
 **上线状态**：**生产 + 测试机均已生效**（生产 09-16 21:41 部署，回滚点见
 history v4.11.22）。最轻回滚 = `settings.pick_window_guard = 0`，**无需重启**。
 
+> 🔴 **09-17 早盘事故（v4.11.24 闭环，务必先读这段再看下面的"为什么必须禁"）**：
+> 闸门上线后次日早盘，主人报「9:26 到 9:30 刷不出数据、9:30 后像是昨天的」。四层根因：
+> ① **闸门把 9:15-9:26 竞价主窗口也关了** —— 而这是**主人的真实选股来源**（9/16 该窗口产出
+> 13 批 / 98 只 / 均分 7.5 / 最高 35）；更糟的是**前端置灰是纯时间判断、不看开关** →
+> 用户**连按钮都点不动**，后端日志「选股闸门拦截」= **0**（不是闸门失灵，是请求压根没发出）。
+> ② `use_snapshot_pool` 分支不对称（**既有缺陷**）：`lock` 只在 **9:15 前**用快照池 →
+> 9/16 与 9/17 的 09:26-09:30 都是「~2 只」，行为一致，**证明不是闸门造成的**。
+> ③ 17% 因子口径改动把全市场评分压低 5~17 分 → 最高 66 < `scoreFloor=80` → 当日**一个系统批次都没落**。
+> ④ 无当日批次 → `find_recent_reusable_batch(lookback_days=14)` 命中 9/16 →
+> 日志「回退最近交易日直读 date=2026-09-16」当日 **756 次** → **用户看到的就是昨天的名单**。
+>
+> **结论**：闸门治好了「9:25-9:26 静默回退昨日」，却把「9:15-9:26 实时竞价选股」一起治死了，
+> 且因为前端不看开关而**丧失了最轻回滚能力**。**当前生产 `pick_window_guard = 0`（闸门关闭）**，
+> 口径重做中（候选：只挡 **9:00-9:15** + **9:25:00-9:25:35**，把 9:15-9:25 交还给实时竞价）。
+
 **为什么必须禁** —— 该区间三种情况都只能给出**非当日定格**的名单：
 
 | 子时段 | 原行为 | 问题 |
@@ -65,14 +80,31 @@ history v4.11.22）。最轻回滚 = `settings.pick_window_guard = 0`，**无需
 | ✅ `/api/picker/snapshot` | `read_snapshot_rows` 直接 `WHERE date=?`，**不跨日回退** |
 
 **前端表现（置灰 + 文案）**：`utils/time.js` 的 `isPickBlockedTime(bj)`（与后端**同口径**，
-常量与文案由后端单测 `test_pick_block_msg_shared_with_frontend` 对拍）；
+常量与文案由后端单测 `test_pick_block_msg_shared_with_frontend` 对拍）+ **纯函数
+`isPickGateOn(enabled, bj)`**（v4.11.24 新增，零依赖便于 `node --test` 直测）；
 `stores/stocks.js` 的 `pickBlocked/pickBlockedMsg` + `refreshPickGate()`；
 `StockView.vue` 显示黄色提示条「**9:26 后开放 · 正在等待 9:25 竞价定格**」（优先于 VipGate），
 `FilterPanel.vue` 的**应用/重置/锁定/刷新四按钮置灰**（title 显示原因），
 **输入框仍可编辑**（到点直接点「应用」）。**9:26 到点由 20s 巡检定时器自动解禁并选股** ——
 否则用户在 9:10 打开页面会一直停在禁用态。若后端因「定格尚未落库」继续拦，下一轮自动重试。
 
-**开关**：`settings.pick_window_guard` 默认 **1**（库中无键即开）；后台置 `0` **即时回滚，无需重启**。
+🔴 **置灰必须由后端开关驱动（v4.11.24）**：原先前端只看时间、不看 `pick_window_guard`，
+于是「关开关」只关后端 —— **前端依旧置灰且连自动加载都不发请求**，等于**最轻回滚开关失效**。
+现在改为：
+- `api/stocks.py` 的 `action=ping`（在鉴权后、**闸门之前** return）额外返回 `pickGateEnabled`；
+- 前端 `api/stocks.js::pingStocks()` 探测，`stores/stocks.js` 的 `_loadPickGateEnabled()`
+  **60s 节流**（`pickGateCheckedTs`），**探测失败沿用上次值不翻转**，初始默认 **true（保守）**；
+- 三个入口 `fetchAndCache` / `reLockData` / `applyCustomFilter` 由 `if (isPickBlockedTime())`
+  改为 `if (this._pickGateOn())`；`StockView.vue` 首屏 `refreshPickGate(true)` **强制探测**一次；
+- 解禁时若本地无缓存会**自动补拉一次**，不用用户手动点。
+
+⚠️ **`bool()` 真值陷阱**：开关解析**必须用 `stocks._pick_window_guard_on()`**（单一口径处），
+不能写 `bool(settings.get(k, 1))` —— 后者对字符串 `"0"` 判成 **True**（非空串 truthy）→
+**「关开关」会静默失败**。该 helper 显式解析 `0/"0"/"false"/"no"/"off"/""`，并有单测钉死。
+
+**开关**：`settings.pick_window_guard` 默认 **1**（库中无键即开）；后台置 `0` **即时回滚，无需重启**
+（**v4.11.24 起前端会跟随该开关实时解禁**，不再需要用户等前端时间到点）。
+🔴 **当前生产值 = `0`（闸门关闭，9/17 事故后回滚）**。
 
 > **唯一选股链路（v4.11.3，2026-09-11）**：全站选股（首页 refresh / lock / 定时批次 auto_apply）
 > 统一由 **`picker.pipeline.run()`** 产出，模块分层 `contract → sources → score/score_factors → filter → pipeline → lock`。

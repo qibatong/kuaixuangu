@@ -1,10 +1,12 @@
 // 主选股数据 store: 缓存结果 / 筛选条件 / 锁定状态 / 账号级偏好
 import { defineStore } from 'pinia'
-import { fetchStocks, fetchQuotes, getDefaultFilters, getPrefs, savePrefs } from '../api/stocks'
+import { fetchStocks, fetchQuotes, getDefaultFilters, getPrefs, savePrefs,
+         pingStocks } from '../api/stocks'
 import { fetchPickerSnapshot } from '../api/picker'
 import { listBatches } from '../api/history'
 import { showToast } from '../utils/toast'
-import { isBefore930, isPickBlockedTime, PICK_BLOCK_MSG_TIME } from '../utils/time'
+import { isBefore930, isPickBlockedTime, isPickGateOn,
+         PICK_BLOCK_MSG_TIME } from '../utils/time'
 import { useUserStore } from './user'
 import { defaultFilterSettings, passLockedFilter, pickFromSnapshot,
          buildFilterParams as _buildFilterParams } from '../utils/filters'
@@ -52,7 +54,12 @@ export const useStocksStore = defineStore('stocks', {
     // true = 当前被拦(9:00-9:26, 或后端回 blocked=当日定格未落库); msg 供 UI 展示。
     // 由 StockView 的闸门定时器在解禁后自动清除并重新选股(见 refreshPickGate)。
     pickBlocked: false,
-    pickBlockedMsg: ''
+    pickBlockedMsg: '',
+    // 2026-09-17 开关联动: 后端 `pick_window_guard` 的实际值(true=闸门启用)。
+    // 默认 true = 与后端默认值同口径(探测失败时保守沿用, 不会误放行)。
+    // 由 _loadPickGateEnabled() 通过 /api/stocks?action=ping 探测并刷新。
+    pickGateEnabled: true,
+    pickGateCheckedTs: 0,      // 上次探测开关的时间(60s 节流, 避免 20s 定时器反复发请求)
   }),
   actions: {
     // ---- 筛选参数(盘中/竞价共用 filterSettings) ----
@@ -77,14 +84,25 @@ export const useStocksStore = defineStore('stocks', {
     },
     /**
      * 闸门定时器调用(StockView 每 20s 一次)。
-     * 目的: 9:26 到点**自动解禁** —— 否则用户在 9:10 打开页面会一直停在禁用态,
-     * 必须手动刷新才行。解禁后又可能撞上"当日定格尚未落库"(后端 blocked),
-     * 此时 fetchAndCache 会重新标记, 下一轮再试, 天然形成等待重试。
+     * 目的: ① **开关联动** —— 后端 `pick_window_guard=0` 时立即放行。此前前端置灰是
+     *          纯时间判断、不看开关, 于是关开关只关了后端, 前端 9:00-9:26 依旧置灰且
+     *          连自动加载都不发请求(9/17 早盘用户 9:15-9:26 完全点不动的根因);
+     *       ② 9:26 到点**自动解禁** —— 否则用户在 9:10 打开页面会一直停在禁用态,
+     *          必须手动刷新才行;
+     *       ③ 解禁后可能撞上"当日定格尚未落库"(后端回 blocked), fetchAndCache 会重新
+     *          标记, 下一轮再试, 天然形成等待重试。
+     * @param {boolean} [force] 强制探测开关(首屏 init 用, 不受 60s 节流限制)
      * @returns {boolean} 是否处于禁用态
      */
-    async refreshPickGate() {
-      if (!isPickBlockedTime()) {
-        // 时间维已开放: 若当前仍被标记(时间维到点 / 后端快照维), 触发一次选股
+    async refreshPickGate(force = false) {
+      // 非闸门时段且未被标记 → 无事可做, 也不发探测请求(省流量)
+      if (!force && !isPickBlockedTime() && !this.pickBlocked) return false
+
+      const enabled = await this._loadPickGateEnabled(force)
+      const blocked = enabled && isPickBlockedTime()
+
+      if (!blocked) {
+        // 已放行: 若此前被标记(开关关闭 / 时间维到点 / 后端快照维), 清除并触发一次选股
         if (this.pickBlocked) {
           this.clearPickBlocked()
           if (!this.isDataCached) {
@@ -95,6 +113,35 @@ export const useStocksStore = defineStore('stocks', {
       }
       this.markPickBlocked(PICK_BLOCK_MSG_TIME)
       return true
+    },
+
+    /**
+     * 探测后端闸门开关(`settings.pick_window_guard`)。
+     * 60s 节流(定时器 20s 一轮, 不必每轮都问); force=true 绕过节流(首屏必探)。
+     * 探测失败 → 沿用上次值(默认 true, 保守不误放行)。
+     */
+    async _loadPickGateEnabled(force = false) {
+      const now = Date.now()
+      if (!force && this.pickGateCheckedTs && now - this.pickGateCheckedTs < 60000) {
+        return this.pickGateEnabled
+      }
+      try {
+        const d = await pingStocks()
+        if (d && typeof d.pickGateEnabled === 'boolean') {
+          this.pickGateEnabled = d.pickGateEnabled
+        }
+        this.pickGateCheckedTs = now
+      } catch (e) { /* 探测失败: 沿用上次值 */ }
+      return this.pickGateEnabled
+    },
+
+    /**
+     * 闸门是否正在生效(开关启用 + 处于禁用时段)。三处入口判断统一走它。
+     * 语义落在 utils/time.isPickGateOn(纯函数, 有单测), 此处只做 store 取值。
+     * @param {Date} [bj] 可注入"北京时间视图"的 Date(测试用), 默认取当前
+     */
+    _pickGateOn(bj) {
+      return isPickGateOn(this.pickGateEnabled, bj)
     },
 
     // ---- 账号级偏好 ----
@@ -315,8 +362,9 @@ export const useStocksStore = defineStore('stocks', {
     // ---- 数据操作 ----
     async fetchAndCache(force = false) {
       if (this.isDataCached) return
-      // 2026-09-16 选股闸门: 交易日 9:00-9:26 直接不发请求(后端另有时间+快照双闸门兜底)
-      if (isPickBlockedTime()) { this.markPickBlocked(PICK_BLOCK_MSG_TIME); return }
+      // 2026-09-16 选股闸门: 交易日禁用时段直接不发请求(后端另有时间+快照双闸门兜底)
+      // 2026-09-17: 改判 _pickGateOn() —— 后端开关关闭时不再置灰/不再短路(即时放行)
+      if (this._pickGateOn()) { this.markPickBlocked(PICK_BLOCK_MSG_TIME); return }
       // 9:30 前锁定最新竞价数据(落库); 9:30 后保持锁定名单, 只更新实时行情
       // force=true: 主动重锁(绕过当日幂等); 页面加载自动 lock 不带 force → 后端幂等直读
       const action = isBefore930() ? 'lock' : 'refresh'
@@ -404,7 +452,8 @@ export const useStocksStore = defineStore('stocks', {
     async reLockData() {
       if (!isBefore930()) { showToast('❌ 9:30后禁止重新选股', 'error'); return }
       // 2026-09-16 选股闸门(与"9:30后禁止重选"同为时段规则)
-      if (isPickBlockedTime()) {
+      // 2026-09-17: 改判 _pickGateOn()(开关关闭时即时放行)
+      if (this._pickGateOn()) {
         this.markPickBlocked(PICK_BLOCK_MSG_TIME)
         showToast('⏳ ' + PICK_BLOCK_MSG_TIME, 'error')
         return
@@ -474,7 +523,8 @@ export const useStocksStore = defineStore('stocks', {
         return
       }
       // 2026-09-16 选股闸门: 禁用时段不允许应用(按钮已置灰, 此处为兜底)
-      if (isPickBlockedTime()) {
+      // 2026-09-17: 改判 _pickGateOn()(开关关闭时即时放行)
+      if (this._pickGateOn()) {
         this.markPickBlocked(PICK_BLOCK_MSG_TIME)
         showToast('⏳ ' + PICK_BLOCK_MSG_TIME, 'error')
         return

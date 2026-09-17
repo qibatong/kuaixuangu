@@ -127,7 +127,8 @@ async function init() {
   stocks.initFilterFromStorage()
   // 2026-09-16 选股闸门: 交易日 9:00-9:26 不发请求(该时段只能得到非当日定格的名单:
   // 9:00-9:15 上交易日 / 9:15-9:25 竞价在变 / 9:25-9:26 当日定格尚未落库)。
-  await stocks.refreshPickGate()
+  // 2026-09-17: force=true 首屏必探后端开关(pick_window_guard=0 → 不置灰、正常拉数据)
+  await stocks.refreshPickGate(true)
   // 首次拉数据(禁用时段由闸门提示块代替, 到点由 pickGateTimer 自动选股)
   if (!stocks.pickBlocked) {
     try {

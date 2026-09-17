@@ -35,6 +35,18 @@ log = logger.get_logger(__name__)
 PICK_WINDOW_SWITCH = "pick_window_guard"
 
 
+def _pick_window_guard_on() -> bool:
+    """闸门开关是否启用 —— **单一口径处**(闸门分支与 ping 上报共用)。
+
+    2026-09-17: 原写法 `bool(settings.get(k, 1))` 对字符串 "0" 会判成 True(非空串 truthy),
+    「关开关」会静默失效; 这里显式解析常见假值形态(0 / "0" / "false" / "off" / 空串)。
+    """
+    v = settings.get(PICK_WINDOW_SWITCH, 1)
+    if isinstance(v, str):
+        return v.strip().lower() not in ("0", "false", "no", "off", "")
+    return bool(v)
+
+
 def _pick_blocked_reason(now=None):
     """返回拦截原因文案(未拦截返回 None)。now 可注入(测试/排查用)。
 
@@ -255,13 +267,18 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         return jr({"ok": False, "msg": "非法参数 strategy(仅支持 auction)"}, 400)
     if action == "ping":
         _, _, before930 = scorer.bj_now()
-        return jr({"ok": True, "before930": before930})
+        # 2026-09-17: 把开关状态透给前端 —— 此前前端置灰是**纯时间判断**、不看开关,
+        #   于是 `pick_window_guard=0` 只关了后端, 前端 9:00-9:26 依旧置灰且连自动加载
+        #   都不发请求(9/17 该时段 0 请求的根因), 用户完全点不动。
+        #   ping 在鉴权之后、闸门之前, 天然不受闸门影响, 适合做状态探测。
+        return jr({"ok": True, "before930": before930,
+                   "pickGateEnabled": _pick_window_guard_on()})
 
     # ---- 选股闸门(2026-09-16 主人拍板: 开盘日 9:00-9:26 不支持选股) ----
     # ping 在其之前 return(前端登录态/时段探测天然放行); 其余 action 一律过闸门。
     # ok=False + blocked=True 走 request.js 的既有错误透传(Object.assign(e, data)),
     # 前端据此显示"等待定格"提示而非"选股失败"。
-    if settings.get(PICK_WINDOW_SWITCH, 1):
+    if _pick_window_guard_on():
         block_msg = _pick_blocked_reason()
         if block_msg:
             log.info("选股闸门拦截 uid=%s action=%s msg=%s", uid, action, block_msg)

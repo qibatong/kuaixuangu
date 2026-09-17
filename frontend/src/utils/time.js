@@ -101,3 +101,18 @@ export function isPickBlockedTime(bj) {
   return mins >= PICK_BLOCK_FROM && mins < PICK_OPEN
 }
 
+/**
+ * 闸门是否**正在生效** = 后端开关启用 且 处于禁用时段(2026-09-17 增加)。
+ *
+ * 为什么需要它: 前端置灰原先只看时间、不看后端开关 → 把 `settings.pick_window_guard`
+ * 置 0 时只关掉了后端, 前端 9:00-9:26 依旧置灰**且连自动加载都不发请求**
+ * (9/17 早盘用户 9:15-9:26 完全点不动的根因)。加上开关维后, 关开关 = 前后端同时放行。
+ *
+ * @param {boolean} enabled 后端开关状态(来自 /api/stocks?action=ping 的 pickGateEnabled)
+ * @param {Date} [bj] 可注入的"北京时间视图" Date(测试用), 默认取当前
+ * @returns {boolean} true = 当前应拦截/置灰
+ */
+export function isPickGateOn(enabled, bj) {
+  return !!enabled && isPickBlockedTime(bj)
+}
+

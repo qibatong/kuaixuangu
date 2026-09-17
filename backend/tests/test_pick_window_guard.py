@@ -124,6 +124,26 @@ def test_api_ping_not_blocked(client, first_user, guard_on, monkeypatch):
     assert d.get("ok") is True and "before930" in d
 
 
+def test_api_ping_exposes_gate_switch(client, first_user):
+    """ping 必须透出 pickGateEnabled —— 前端置灰改由它驱动(2026-09-17)。
+
+    9/17 早盘事故: 前端置灰是纯时间判断、不看开关 → `pick_window_guard=0` 只关掉了后端,
+    前端 9:00-9:26 依旧置灰**且连自动加载都不发请求**, 用户完全点不动。
+    本用例把「开关 → ping 字段」的联动钉死, 并覆盖字符串假值
+    (原 `bool(settings.get(...))` 会把 "0" 判成 True, 让「关开关」静默失效)。
+    """
+    token, _, _ = first_user
+    for val in (0, "0", "false", "off", ""):
+        st.set(stocks_api.PICK_WINDOW_SWITCH, val)
+        d = client.get("/api/stocks?action=ping", headers=hdrs(token)).json()
+        assert d.get("pickGateEnabled") is False, (val, d)
+    for val in (1, "1", True):
+        st.set(stocks_api.PICK_WINDOW_SWITCH, val)
+        d = client.get("/api/stocks?action=ping", headers=hdrs(token)).json()
+        assert d.get("pickGateEnabled") is True, (val, d)
+    st.set(stocks_api.PICK_WINDOW_SWITCH, 0)      # 复原(session fixture 默认=关)
+
+
 def test_api_blocked_returns_flag(client, first_user, guard_on, monkeypatch):
     """命中闸门 → HTTP 200 + ok=False/blocked=True(msg 供前端提示), 名单为空"""
     token, _, _ = first_user

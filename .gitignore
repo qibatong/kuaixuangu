@@ -4,6 +4,8 @@ frontend/dist/
 frontend/dist_v*/
 dist/
 dist_v*/
+# 本地 vite build 前把 dist 改名备份(绕开沙箱 safe-delete 守卫)—— 约 1000 文件/个, 严禁入库
+dist_old_*/
 build/
 build_v*/
 

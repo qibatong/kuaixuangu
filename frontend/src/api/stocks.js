@@ -10,6 +10,14 @@ export function fetchStocks(action, filterParams, strategy = 'auction', force = 
   })
 }
 
+// 2026-09-17: 选股闸门开关探测。
+// 背景: 前端置灰原为**纯时间判断**, 不看后端开关 → `pick_window_guard=0` 只关了后端,
+// 前端 9:00-9:26 仍置灰、连自动加载都不发请求(9/17 早盘该时段 0 请求的根因)。
+// ping 走鉴权之后 / 闸门之前, 天然不受闸门影响, 是状态探测的最佳落点。
+export function pingStocks() {
+  return request('/api/stocks', { query: { action: 'ping', strategy: 'auction' } })
+}
+
 export function stockChart(code, period = 'day') {
   return request('/api/stock/chart', { query: { code, period } })
 }
