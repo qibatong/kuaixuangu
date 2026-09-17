@@ -75,7 +75,7 @@
 | `precompute_detail` | 0 | 物化路径明细输出（排障用） |
 | `frontend_local_filter` | 0 | 前端浏览器内本地秒筛（关 → 前端静默回退后端筛选） |
 | `history_null_restore` | 0 | 历史读侧按 `miss_fields` 把兜底 0 还原为 `null`（未知 ≠ 0） |
-| `pick_window_guard` | **0（当前生产值）** | **选股闸门**：交易日 9:00-9:26 不提供选股（时间维 + 当日 9_25 已落库双闸门）。置 0 = 回到 9/16 前的行为（该区间会静默回退昨日名单，见 history v4.11.22）。**09-16 21:41 上生产**；🔴 **09-17 早盘事故后已置 0 并回滚**（见 history v4.11.24）—— **v4.11.24 起前端置灰由本开关驱动**（`GET /api/stocks?action=ping` 返回 `pickGateEnabled`，前端 `stores/stocks.js` 60s 节流探测），**不再是纯前端时间判断**；改回 1 即恢复双闸门，无需重启 |
+| `pick_window_guard` | **已下线（v4.11.26 键保留但无代码读取）** | ~~**选股闸门**：交易日 9:00-9:26 不提供选股（时间维 + 当日 9_25 已落库双闸门）~~。🔴 **09-17 收盘后按主人拍板「闸门不保留、按新口径重做」把闸门本体从代码里摘除**（见 history v4.11.26）：`mode.is_pick_open` / `auction_snapshot.has_today_snapshot` / `stocks._pick_window_guard_on` / `ping.pickGateEnabled` 与前端置灰**全部移除**，回到 v4.11.21 的选股可用性。**本键暂时无人读取**，新口径重做时复用（见 v4.11.27）。⚠️ 历史教训：v4.11.22 治好了「9:25-9:26 静默回退昨日」却把「9:15-9:26 实时竞价选股」（主人真实选股来源）一起治死；且前端当时不看开关导致「最轻回滚」形同虚设 |
 | `use_bid_strength` | **'1'** | 17% 「异动等级」因子的取值口径：`1`=竞价强度（默认，`bid_strength`），`0`=东财 f630。🔴 **09-17 08:41 曾置 0（v4.11.23），同日 10:25 因评分普降 5~17 分压破 `scoreFloor` 事故回滚为 `1`**。改这个**必须同时**确认 `picker/pipeline._load_strength()` 的 `enabled()` 短路存在，否则开关静默无效 |
 
 ⚠️ **禁止裸 SQL 写这些 key**：读侧 `json.loads` 失败会**静默回退默认值**（不报错），
@@ -209,15 +209,16 @@
   `fetch_yesterday_amounts`、`ensure_cache`、`load_snapshot_full`。想测**真实实现**的文件必须在
   import 期留下 `_ORIG_xxx = fetcher.xxx` 再用 autouse fixture 还原（见 test_yesterday_cache /
   test_tencent_fallback），否则测到的是恒返回假数据的桩（曾导致 11 条用例长期假红）。
-- 基线认知（**2026-09-17 11:05 复测**）：**全量 1020 例 / 2 红 / 0 错 / 4 skip**（实测 290s）。
+- 基线认知（**2026-09-17 收盘后 v4.11.26 复测**）：**全量 1007 例 / 2 红 / 0 错 / 4 skip**（实测 284s）。
   🔴 **这 2 红是既有存量红，不是回归**：`test_stocks_refresh_fallback.py::test_recent_fallback_same_param_lock`
   与 `::test_api_stocks_refresh_fallback_http` —— 用例把**批次日期写死为字面量**（`2026-09-01/09-03`）而
   `ts` 用 `time.time()-N*86400` **相对今天**算，随日历推进必然漂移（实得 `2026-09-03` 期望 `2026-09-01`）。
   **排除回归的硬手法**：`git stash push -- backend/app/api/stocks.py` → 复跑 → 同样 2 红 → `git stash pop`。
-  ⚠️ 这组用例**不可注入时间**，放久了会继续红 —— 建议后续改成注入 `now_ts`（函数本身已支持 `now_ts=` 入参）。
+  ⚠️ 这组用例**此前未注入时间**，放久了会继续红 —— v4.11.27 已改为注入固定锚点 `now_ts`（见下条演进）。
   演进：874（9/11 v4.11.7 清零）→ 961（9/13 v4.11.16 P1 自愈 21 例）→ 976（9/13 v4.11.18 量能实时 11 例）
   → **1007 + 2 红**（9/17 v4.11.23 加 `test_bid_strength_switch` 22 例）→ **1008 + 2 红**（9/17 v4.11.24 加闸门开关→ping 联动 1 例）
-  → **1014 + 2 红 / 总 1020 例**（9/17 v4.11.25 加 `test_today_system_fallback` 6 例）。
+  → **1014 + 2 红 / 总 1020 例**（9/17 v4.11.25 加 `test_today_system_fallback` 6 例）
+  → **1007 / 2 红**（9/17 v4.11.26 回退闸门：删 `test_pick_window_guard.py` 13 例 —— 总 1020 → 1007）。
   ⚠️ 新增"写 uid=0 系统批次"的用例**必须用 id 水位线在 teardown 回收**，否则跨文件污染
   （uid=0 批次是全局共享的，会让别的用例的跨日回退错误命中今天）。
   ⚠️ 写测试日期**一律按今天相对推算**，别写字面量 —— 那 2 条红就是这么来的。

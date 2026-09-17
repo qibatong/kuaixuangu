@@ -1446,3 +1446,34 @@
   - **仍未做（等主人指令）**：① 今晚闸门口径重做（主人已定：只挡 9:00-9:15 + 9:25:00-9:25:35）；
     ② `auto_apply` 每日锁在成功前被消费的缺陷（见 v4.11.24 踩坑 4）；③ 那 2 条日期漂移用例
     （函数已支持 `now_ts=` 入参，改成注入时间即可）。
+- **v4.11.26 (09-17 收盘后) 回退：摘除选股闸门本体 —— 归还 v4.11.21 的选股可用性**
+  - **为什么要退**：v4.11.22 的闸门治好了「9:25-9:26 静默回退昨日」，却把**9:15-9:26 实时竞价选股**
+    一起治死了（那正是主人真实选股来源，9/16 该窗口产出 13 批 / 98 只 / 均分 7.5 / 最高 35），
+    并在 9/17 早盘叠加成「9:26-9:30 无数据 + 9:30 后像是昨天的」事故。主人拍板：
+    **闸门不保留、按新口径重做**（见 v4.11.27），重做前先**把旧闸门从代码里摘干净**，
+    不接受「靠 `pick_window_guard=0` 压着」的状态（历史上「关开关静默失败」本身就是事故一环）。
+  - **回退动作（按 hunk，不整文件覆盖）**：
+    - `backend/app/services/picker/mode.py`、`backend/app/services/auction_snapshot.py`、
+      `backend/tests/conftest.py`、`frontend/src/**`（6 文件）→ 全部 `git checkout df1e6fc --`（v4.11.21 状态）。
+      前端该区间**只有** v4.11.22 + v4.11.24 两个提交，可整目录回退。
+    - `backend/app/api/stocks.py` → **逐块手摘**（它被 v4.11.22/24/25 三版改过，整文件覆盖会连 ④ 一起退掉）：
+      去掉 import 里的 `settings`、`PICK_WINDOW_SWITCH`、`_pick_window_guard_on()`、`_pick_blocked_reason()`、
+      `action=ping` 的 `pickGateEnabled` 字段、以及 `api_stocks` 里的闸门拦截分支；
+      **保留** v4.11.25 的「当日系统统一名单优先于跨日回退」hunk。
+    - `backend/tests/test_pick_window_guard.py` 删除（闸门用例随功能一起退役，重做时按新口径重写）。
+  - **保留不动（它们是修复，不是问题改动）**：
+    - v4.11.23 的 `picker/pipeline.py` 开关修复 + `use_bid_strength=1`（异动因子回竞价强度）；
+    - v4.11.25 的 `history.find_today_system_batch()` + refresh 直读优先级。
+    ⇒ 净效果 = **v4.11.21 的选股可用性 + 两个真修复**。
+  - **为什么后端单独退不安全（踩坑）**：v4.11.24 的前端 `stores/stocks.js` 在 ping 不含 `pickGateEnabled`
+    时**沿用上次值（默认 `true`）** —— 只退后端会让前端继续置灰、9:00-9:26 按钮点不动。
+    **前后端必须同批退**，这就是「开关端到端生效」原则的反向约束。
+  - **验证**：
+    - 残留扫描 `pick_window_guard|pickGateEnabled|isPickBlockedTime|is_pick_open|has_today_snapshot` →
+      全仓（排除 docs/scripts）**0 命中**（唯一命中是 `frontend/dist` 的旧构建产物，重建后消失）；
+    - `git diff df1e6fc --stat` 对 mode.py / auction_snapshot.py / conftest.py / frontend/src → **全空**（逐字节一致）；
+    - 后端全量 pytest + 前端 `node --test src/utils/*.test.js`（46/46）。
+  - **回滚点**：本次部署前备份 `backend_bak_gateoff_<TS>` / `dist_bak_prod_<TS>`；
+    上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
+  - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
+    本版只是把「随时可能被误置 1 复活」的代码也退干净。

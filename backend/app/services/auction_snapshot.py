@@ -718,40 +718,6 @@ def _latest_snapshot_date(date):
     return row[0] if row and row[0] else date
 
 
-def has_today_snapshot(date=None) -> bool:
-    """当日是否已有 9_25 定格快照行(闸门**快照维**)。
-
-    2026-09-16 新增, 配合 picker/mode.is_pick_open 做双闸门:
-    9_25 定格**落库时刻**取决于采集下限 _BID25_MIN_SEC=20s 与重采窗口
-    _BID25_RETRY_UNTIL=09:25:50 —— 实测近 15 日落库在 09:25:23~09:25:32。若某日
-    重采一次越过 9:26, 纯时间闸门会放行, 而 load_snapshot_full 仍会**静默回退昨日**
-    (9/16 事故根因: 9:25:14/9:25:29 两个用户拿到 9/15 名单)。故此维不能省。
-
-    与 _latest_snapshot_date 的区别: 后者返回"最近有快照的日期"(15 自然日窗口内无
-    任何 9_25 行时会**返回原 date**, 无法区分"当日有"和"当日没有") —— 闸门必须精确
-    知道"当日有没有", 故直接 `SELECT 1 ... LIMIT 1`(走 PK 索引, 亚毫秒)。
-
-    查库异常 → 返回 False(保守: 宁可拦住, 也不放行一个可能回退昨日的名单)。
-    """
-    date = date or _bj_date()
-    conn = None
-    try:
-        conn = database.get_conn()
-        row = conn.execute(
-            "SELECT 1 FROM snapshot_bid WHERE date=? AND time_point='9_25' LIMIT 1",
-            (date,)).fetchone()
-        return row is not None
-    except Exception as e:                                        # noqa: BLE001
-        log.warning("has_today_snapshot 查询失败(保守视为无快照) date=%s err=%s", date, e)
-        return False
-    finally:
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:                                # noqa: BLE001
-                pass
-
-
 def load_day_bid_amt(date=None):
     """当日竞价额定格 map: {code: bid_amt(万元)} — 取每只股票当日最晚时点的非空 bid_amt。
     返回 {code: amt}; 当日无快照/无数据返回 {}。调用方(stocks.py/system_batch)在评分时传入

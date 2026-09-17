@@ -5,7 +5,9 @@
   Git Bash 下 `tar -f C:/...` 会把盘符当远程主机; 且 Windows 侧文件 mode 带 666,
   解压到生产后 nginx 因"组/其他可写"拒绝服务 → 这里在打包阶段就写死 mode。
 
-产物: scripts/deploy_tmp/_dist_pg_v2.tar.gz  (tar 内首层为 dist/)
+产物: scripts/deploy_tmp/<name>  (tar 内首层为 dist/)
+
+用法: python scripts/_mkdist_tar_0917.py [输出文件名, 默认 _dist_pg_v2.tar.gz]
 """
 import os
 import sys
@@ -13,7 +15,8 @@ import tarfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "frontend", "dist")
-OUT = os.path.join(ROOT, "scripts", "deploy_tmp", "_dist_pg_v2.tar.gz")
+NAME = (sys.argv[1] if len(sys.argv) > 1 else "_dist_pg_v2.tar.gz")
+OUT = os.path.join(ROOT, "scripts", "deploy_tmp", NAME)
 
 
 def main():

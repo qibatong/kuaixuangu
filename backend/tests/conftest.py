@@ -197,24 +197,6 @@ def mock_bj_auction_window(monkeypatch_session):
     monkeypatch_session.setattr(scorer, "bj_now", lambda: (9, 25, True))
 
 
-@pytest.fixture(scope="session", autouse=True)
-def mock_pick_window_guard(client):
-    """选股闸门(settings `pick_window_guard`)测试环境默认**关闭**(2026-09-16 新增)。
-
-    理由与 mock_bj_auction_window 同类: 闸门依赖**真实时刻**(交易日 9:00-9:26)
-    与**当日 9_25 是否落库**, 而测试库既没有当日定格快照(load_snapshot_full 被桩成
-    MOCK_RAW), 运行时刻又是随机的 —— 不关闭会让所有 /api/stocks 用例在早盘时段集体红
-    (表征为"时段相关的偶发失败", 极难排查)。
-
-    闸门自身的用例在 tests/test_pick_window_guard.py 里显式把开关置 1 +
-    注入时刻(monkeypatch app.api.stocks._pick_blocked_reason 的 now), 覆盖完整。
-
-    默认值说明: 生产 `settings.get(SWITCH, 1)` = 1(库中无该键 → 开); 本 fixture 只在
-    测试库写入 0, 不影响生产默认。"""
-    from app.services import settings as _st
-    _st.set("pick_window_guard", 0)
-
-
 @pytest.fixture(scope="session")
 def create_user_token(client):
     """注册关闭后(2026-08-25合规)测试建用户改用 service 层, 不经注册接口。
