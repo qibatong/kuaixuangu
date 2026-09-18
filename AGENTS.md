@@ -75,7 +75,7 @@
 | `precompute_detail` | 0 | 物化路径明细输出（排障用） |
 | `frontend_local_filter` | 0 | 前端浏览器内本地秒筛（关 → 前端静默回退后端筛选） |
 | `history_null_restore` | 0 | 历史读侧按 `miss_fields` 把兜底 0 还原为 `null`（未知 ≠ 0） |
-| `pick_window_guard` | **已下线（v4.11.26 键保留但无代码读取）** | ~~**选股闸门**：交易日 9:00-9:26 不提供选股（时间维 + 当日 9_25 已落库双闸门）~~。🔴 **09-17 收盘后按主人拍板「闸门不保留、按新口径重做」把闸门本体从代码里摘除**（见 history v4.11.26）：`mode.is_pick_open` / `auction_snapshot.has_today_snapshot` / `stocks._pick_window_guard_on` / `ping.pickGateEnabled` 与前端置灰**全部移除**，回到 v4.11.21 的选股可用性。**本键暂时无人读取**，新口径重做时复用（见 v4.11.27）。⚠️ 历史教训：v4.11.22 治好了「9:25-9:26 静默回退昨日」却把「9:15-9:26 实时竞价选股」（主人真实选股来源）一起治死；且前端当时不看开关导致「最轻回滚」形同虚设 |
+| `pick_window_guard` | **prod=0 / test=1** | **选股闸门 v4**（v4.11.29，2026-09-18）：交易日只挡 `[09:15:00, 09:25:35]` 一段；盘前放行（顶栏标注定格来源）；`≥09:25:36` 还须过快照维。置 `0` = **只放开时间维**，前端 `ping.pickGateEnabled` 同步放行（最轻回滚，无需重启）。🔴 **注意：置 0 不会关闭「定格前批次不复用/不回显」那条硬判据**（它不经开关）。⚠️ 血泪史：v4.11.22「9:00-9:26 整段禁」把竞价主窗口治死 → 9/17 早盘 0 请求事故 → v4.11.26 回退摘除 → v4.11.27「只挡两段」→ **v4.11.29「只挡一段」**。详见第七节 |
 | `use_bid_strength` | **'1'** | 17% 「异动等级」因子的取值口径：`1`=竞价强度（默认，`bid_strength`），`0`=东财 f630。🔴 **09-17 08:41 曾置 0（v4.11.23），同日 10:25 因评分普降 5~17 分压破 `scoreFloor` 事故回滚为 `1`**。改这个**必须同时**确认 `picker/pipeline._load_strength()` 的 `enabled()` 短路存在，否则开关静默无效 |
 
 ⚠️ **禁止裸 SQL 写这些 key**：读侧 `json.loads` 失败会**静默回退默认值**（不报错），
@@ -104,27 +104,48 @@
 ## 七、选股核心语义（stocks store / 后端批次）
 
 - **9:30 前**：action=lock，全市场锁定 + 当日幂等落库（`batch_date`=当日）。
-- **🔴 选股闸门 v3（v4.11.27，2026-09-17 重做）**：交易日**只挡两段** ——
-  ① `[09:00:00, 09:15:00)` 盘前 PREOPEN（名单来自**上交易日**定格）；
-  ② `[09:25:00, 09:25:35]` 当日 9_25 尚未落库（实测 09:25:23~32 才写库，期间
-  `load_snapshot_full` 会**静默回退昨日**）。
-  🔴 **`09:15:00-09:24:59` 必须放行** —— 那是主人的真实选股窗口（竞价进行中）；
-  `AUCTION` 模式名单来自实时全市场（`eastmoney_market`/`tencent_market`），**不读 snapshot**，
-  不存在"回退昨日"的问题。**非交易日与 00:00-9:00 盘前不拦**（盘前看上交易日定格是既有设计）。
-  时间维 `picker/mode.is_pick_open()`（**秒级**判定，用 `bj_secs()`；`bj_hm()` 只到分钟，
-  表达不了 09:25:35/36 的边界）+ 快照维 `auction_snapshot.has_today_snapshot()`，
-  落在 `api/stocks.py`（`action=ping` 之后）。命中直接
-  `{ok:false, blocked:true, msg, blockedUntil, ...}`，**不跑 pipeline / 不落批次 / 不推送**。
-  开关 `pick_window_guard` 默认 1；`ping` 透出 `pickGateEnabled` 驱动前端置灰（v4.11.24）；
-  置 0 = 前后端同时放行（最轻回滚）。
-  ⚠️ **血泪史（务必连着读，否则会重犯）**：v4.11.22 口径是「9:00-9:26 整段禁选」，把
-  **9:15-9:25 竞价主窗口**一起治死 → 9/17 早盘该时段 **0 请求**事故 → v4.11.26 整体回退
-  并从代码摘除 → v4.11.27 重做为上面两段。
-  回归防线 = `tests/test_pick_window_guard.py::test_auction_window_must_be_open_incident_regression`
-  （9:15:00-9:24:59 **逐秒**断言放行 —— 谁把竞价窗口重新封上，它立刻红）。
-  前端：`utils/time.isPickBlockedTime` + `stores/stocks.pickBlocked` + 20s 巡检自动解禁
-  （`refreshPickGate`）；四按钮置灰、提示条「9:26 后开放 · 正在等待 9:25 竞价定格」。
-  改这套逻辑时**必须同时改前后端文案**（后端有 `test_pick_block_msg_shared_with_frontend` 对拍）。
+- **🔴 选股闸门 v4（v4.11.29，2026-09-18 主人拍板）**：交易日**只挡一段** ——
+  `[09:15:00, 09:25:35]` 竞价进行中 + 当日 9_25 尚未落库。
+  🔴 **口径依据（主人原话）**：「**选股本来就是竞价结束后才选，竞价过程数据都在变化，
+  选的股也没意义**」⇒ 竞价进行中**不再提供名单**（v4.11.27 曾以"竞价数据在变但那正是用户
+  要看的实时竞价"为由放行这一段，**该理由已被推翻**）。
+  - **`09:15:00-09:24:59` 必须拦** —— 除了"名单无意义"，更硬的理由是**取数会回退昨日**：
+    当日 9_25 未落库时 `load_day_bid_change/load_day_bid_amt/load_snapshot_full` **静默回退
+    最近交易日**，而**竞涨幅占评分权重 34%** ⇒ 名单与评分双双失真。9/18 实证：09:15 落的
+    批次 #1674 竞涨幅逐位 = 9/17 的值（黑猫 3.35，今日实为 1.00）。
+  - **`00:00-09:14:59` 盘前放行**（PREOPEN 用上交易日定格是设计内功能/复盘预演），
+    改为由 API 透出定格来源日期 + 前端顶栏**常驻标注**消除"误当成当日名单"。
+  - `≥09:25:36` 时间维放行，还须叠加**快照维**；**非交易日不拦**（回放最近交易日定格，同样标注）。
+  - 时间维 `picker/mode.is_pick_open()`（**秒级**判定，用 `bj_secs()`；`bj_hm()` 只到分钟，
+    表达不了 09:25:35/36 的边界）+ 快照维 `auction_snapshot.has_today_snapshot()`，
+    落在 `api/stocks.py`（`action=ping` 之后）。命中直接
+    `{ok:false, blocked:true, msg, blockedUntil:'09:25:36', ...}`，**不跑 pipeline / 不落批次 / 不推送**。
+  - 开关 `pick_window_guard`；`ping` 透出 `pickGateEnabled` 驱动前端置灰（v4.11.24）；
+    置 0 = 前后端同时放行（最轻回滚）。**注意：置 0 只放开"时间维"，下面这条硬判据不受影响。**
+  - ⚠️ **血泪史（务必连着读，否则会重犯）**：v4.11.22「9:00-9:26 整段禁」把竞价主窗口一起治死
+    → 9/17 早盘该时段 **0 请求**事故 → v4.11.26 整体回退并从代码摘除 → v4.11.27「只挡两段」
+    → **v4.11.29「只挡一段」**。
+  - 回归防线 = `tests/test_pick_window_guard.py::test_auction_window_must_be_blocked`
+    （9:15:00-9:24:59 **逐秒**断言拦截）**和** `::test_preopen_window_must_be_open_incident_regression`
+    （9:00:00-9:14:59 **逐秒**断言放行 —— 谁把盘前重新封上，它立刻红）。
+  - 前端：`utils/time.isPickBlockedTime` + `stores/stocks.pickBlocked` + 20s 巡检自动解禁
+    （`refreshPickGate`）；四按钮置灰、提示条「**竞价进行中 · 9:25 定格后开放**」。
+    改这套逻辑时**必须同时改前后端文案与三个常量**（后端有
+    `test_pick_block_msg_shared_with_frontend` / `test_gate_boundaries_shared_with_frontend` 对拍）。
+
+- **🔴 定格前批次不复用 / 不回显（v4.11.29，与闸门开关无关的硬判据）**：
+  批次是否"建立在当日 9:25 定格之上" = **批次 `ts >= 当日 9_25 快照的落库 ts`**
+  （`history._freeze_landing_ts(bdate)`，该时点全部行同一 ts）。不满足则**不得被 refresh 直读、
+  不得被前端首屏回显**（`find_today_reusable_batch` ①②③ + `find_today_system_batch`；
+  `list_batches` 每行透出 **`freeze_ready`** 供前端消费）。
+  🔴 **判据必须数据驱动，绝不能用固定时刻 `09:25:36`**：落库时刻每天漂（实测 **09:25:23~09:25:32**），
+  而**系统批次（#9_25）由落库事件本身触发** —— 9/18 实测 **#1676 只比落库晚 3 秒**
+  （`snapshot 9_25 ts=1789694726` vs `#1676 ts=1789694729`）→ 用固定时刻会把这**份合法名单误杀**
+  成"定格前" → 掉到跨日回退 → 显示昨日名单。
+  ⚠️ **双口径不要混**：`mode.T_PICK_OPEN=09:25:36` 是**用户体验口径**（覆盖最晚落库 09:25:32，
+  这 35 秒内不让用户发起请求）；`_freeze_landing_ts` 是**数据真伪口径**。不可互相替代。
+  定格前名单**不删除**，仍可在「历史回看」查到。
+  回归防线 = `tests/test_freeze_guard_0918.py::test_system_batch_lands_just_after_freeze`。
 - **9:30 后**：action=refresh → 后端直读当日批次（优先级：用户手动 lock → 手动 filter → 9:26 系统统一批次 auto），仅实时行情覆盖，名单定格。
 - **当日无批次/休市**：自动回退 14 天窗口内**最近交易日**同参批次直读（`find_recent_reusable_batch`），响应带 `reusedDate`，前端直接采用并提示「已载入 X 的选股名单」——解决「关闭后再打开首页转圈」。
 - 参数指纹（`_canon_filter_fingerprint`）不一致 = 用户改过条件 → 必须重算，不回退不直读；空名单批次（stock_count=0）无直读价值。
@@ -221,27 +242,31 @@
   `fetch_yesterday_amounts`、`ensure_cache`、`load_snapshot_full`。想测**真实实现**的文件必须在
   import 期留下 `_ORIG_xxx = fetcher.xxx` 再用 autouse fixture 还原（见 test_yesterday_cache /
   test_tencent_fallback），否则测到的是恒返回假数据的桩（曾导致 11 条用例长期假红）。
-- 基线认知（**2026-09-17 v4.11.27 复测**）：**全量 1034 例 / 0 红 / 0 错 / 4 skip**（实测 283.7s）。
-  🔴 **历史首次全量归零** —— 长期存在的 2 条日期漂移红已随 ③ 修掉（`test_stocks_refresh_fallback.py`
-  注入固定锚点 `_ANCHOR = 2026-09-15 10:30 +08` + 所有调用带 `now_ts=`）。
-  🔴 **这 2 红是既有存量红，不是回归**：`test_stocks_refresh_fallback.py::test_recent_fallback_same_param_lock`
+- 基线认知（**2026-09-18 v4.11.29 复测**）：**全量 1022 passed / 4 skipped / 0 红**（实测 212.9s）。
+  🔴 **连续第二次全量归零**。4 条 skip = 前后端同口径对拍用例在**没有前端源码**的机器上主动跳过
+  （测试机此前 `/opt/kuaixuan/frontend/src` 是 08-25 旧副本 → 缺 `utils/time.js` 即判脏；
+  v4.11.29 把源码一并同步过去后改为真跑）。
+  🔴 **历史那 2 红是既有存量红，不是回归**：`test_stocks_refresh_fallback.py::test_recent_fallback_same_param_lock`
   与 `::test_api_stocks_refresh_fallback_http` —— 用例把**批次日期写死为字面量**（`2026-09-01/09-03`）而
-  `ts` 用 `time.time()-N*86400` **相对今天**算，随日历推进必然漂移（实得 `2026-09-03` 期望 `2026-09-01`）。
-  **排除回归的硬手法**：`git stash push -- backend/app/api/stocks.py` → 复跑 → 同样 2 红 → `git stash pop`。
-  ⚠️ 这组用例**此前未注入时间**，放久了会继续红 —— v4.11.27 已改为注入固定锚点 `now_ts`（见下条演进）。
+  `ts` 用 `time.time()-N*86400` **相对今天**算，随日历推进必然漂移。v4.11.27 已改为注入固定锚点修掉。
   演进：874（9/11 v4.11.7 清零）→ 961（9/13 v4.11.16 P1 自愈 21 例）→ 976（9/13 v4.11.18 量能实时 11 例）
   → **1007 + 2 红**（9/17 v4.11.23 加 `test_bid_strength_switch` 22 例）→ **1008 + 2 红**（9/17 v4.11.24 加闸门开关→ping 联动 1 例）
   → **1014 + 2 红 / 总 1020 例**（9/17 v4.11.25 加 `test_today_system_fallback` 6 例）
-  → **1007 / 2 红**（9/17 v4.11.26 回退闸门：删 `test_pick_window_guard.py` 13 例 —— 总 1020 → 1007）。
-  → **1034 / 0 红**（9/17 v4.11.27 三项裁定落地：闸门测试按新口径重写 **19 例** + `test_auto_apply_retry` **7 例**
-  + `test_stocks_refresh_fallback` 新增窗口契约 **1 例** = 1007 + 27 → **1034**，且**红数归零**；
-  前端 `node --test src/utils/*.test.js` **54/54**）。
+  → **1007 / 2 红**（9/17 v4.11.26 回退闸门：删 `test_pick_window_guard.py` 13 例）
+  → **1034 / 0 红**（9/17 v4.11.27 三项裁定落地，红数首次归零）
+  → **v4.11.28 修正 `test_snapshot_kpl_unit.py` 旧断言 → 989 / 5 skip + 6 红（v4.11.27 遗留红灯，非本次引入）**
+  → **1022 / 4 skip / 0 红**（9/18 v4.11.29：新增 `test_freeze_guard_0918.py` **19 例** + 闸门测试重写
+  + 修掉 `test_auto_apply.test_is_user_active_expired` 的**过期未还原**顺序耦合缺陷）。
   ⚠️ 新增"写 uid=0 系统批次"的用例**必须用 id 水位线在 teardown 回收**，否则跨文件污染
   （uid=0 批次是全局共享的，会让别的用例的跨日回退错误命中今天）。
   ⚠️ 写测试日期**一律按今天相对推算**，别写字面量 —— 那 2 条红就是这么来的。
-  ⚠️ **测试机基线不同**：测试机为补丁拼盘（非 git 基线），全量**固有 2 红**
-  （`test_login_routes_are_async` / `test_kpl_bid_qiangcang_fastpath...`）——**与改动无关**，
-  回滚到改动前对照即可确认。
+  ⚠️ **会话级 fixture（`first_user`）被用例改过的字段必须 `finally` 还原**：v4.11.29 实测
+  `test_auto_apply.test_is_user_active_expired` 把"第一个非管理员用户"设过期后不还原 →
+  污染 `first_user` → 后续 `test_history` 等文件的 API 用例集体 **403「过期账号」**。
+  表征是"**单文件绿、多文件连跑红**"，极易误判成本次回归。同文件里的
+  `test_auto_apply_skip_admin_and_expired`（在 test_history.py 内）就是**有还原**的正确写法。
+  ⚠️ **测试机基线**：v4.11.29 实测全量 **1022 / 0 红**（此前记录的"固有 2 红
+  `test_login_routes_are_async` / `test_kpl_bid_qiangcang_fastpath`"**已不再复现**，别再当成正常现象）。
   此前那批历史债（`test_history`×3、`test_auction_snap_pool_offhours`×2、`test_snapshot_915_timing`×1、
   `test_stats_api`×1）已逐条定性并修完 —— 其中 `auction_snap_pool_offhours` 是**真缺陷**
   （`scoreFloor` 把降级直出名单砍空），其余为测试数据/顺序污染。

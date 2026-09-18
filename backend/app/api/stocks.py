@@ -63,6 +63,25 @@ def _pick_blocked_until(now=None):
     return pmode.pick_resume_at(now) or "09:25:36"
 
 
+def _freeze_fields(now=None):
+    """定格数据来源字段(v4.11.29, 2026-09-18) —— 供前端顶栏标注。
+
+    盘前/非交易日按设计仍出名单(PREOPEN/CLOSED 用上一交易日 9:25 定格), 但必须让
+    "用的是哪天的定格"对用户可见, 否则会被误当成当日名单(主人 9/18 反馈
+    「刷出来是昨天的数据」即这类误解)。返回：
+      {"freezeDate": "YYYY-MM-DD", "freezeIsToday": bool}
+    查库异常 → 返回 {} (宁可少标, 也不误标成"当日")。
+    """
+    from ..services.picker import mode as pmode
+    try:
+        today = pmode.bj_date(now)
+        d = auction_snapshot.freeze_source_date(today)
+    except Exception as e:                                       # noqa: BLE001
+        log.warning("定格来源日期取值失败(不影响返回) err=%s", e)
+        return {}
+    return {"freezeDate": d, "freezeIsToday": (d == today)}
+
+
 def _run_new_pipeline(uid, action, f, *, yesterday_map, yesterday_chg_map,
                       snapshot_map, bid_amt_map, bid_chg_map):
     """跑新链路 picker.pipeline; 返回 (items, err) —— **二选一有值**。
@@ -327,6 +346,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                         "count": len(lst), "before930": True,
                         "dataTime": int(lock_b.get("ts") or time.time()),
                         "idempotent": True, "batch_id": lock_b["id"],
+                        **_freeze_fields(),
                     })
             except Exception as e:
                 log.warning("lock 当日幂等查询失败(降级正常重算) uid=%s err=%s", uid, e)
@@ -383,6 +403,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                         "dataTime": int(time.time()),
                         "reused": True, "source": reuse_src, "batch_id": reuse_bid,
                         "reusedDate": reuse_date,   # 回退最近交易日时非 None, 前端据此提示
+                        **_freeze_fields(),
                     })
             except Exception as e:
                 log.warning("refresh 直读批次失败(降级正常重算) uid=%s err=%s", uid, e)
@@ -407,6 +428,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                     "count": len(hit), "before930": before930,
                     "dataTime": int(time.time()),
                     "reused": True, "source": "calc_cache",
+                    **_freeze_fields(),
                 })
         # 评分筛选: 沿用原逻辑(9:30 前 lock 强制, refresh/filter 走 TTL 缓存)
         # 2026-09-07 主人方案「候选池=全市场, 且直接读快照不实时拉」:
@@ -582,6 +604,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         # 2026-09-08: 快照候选池路径不写 fetcher._cache → 硬取 [fs] 会 KeyError(凌晨
         # 全走快照池后必现)。dataTime 语义=行情数据时间, 兜底用当前时刻即可。
         "dataTime": int((fetcher._cache.get(fs) or {}).get("ts") or time.time()),
+        **_freeze_fields(),
     })
 
 

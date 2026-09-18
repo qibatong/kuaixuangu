@@ -765,6 +765,21 @@ def has_today_snapshot(date=None) -> bool:
                 pass
 
 
+def freeze_source_date(date=None):
+    """当前选股**实际使用的定格数据来源日期**(v4.11.29, 2026-09-18)。
+
+    与 load_day_bid_change / load_day_bid_amt / load_snapshot_full 同源口径:
+    当日已有 9_25 定格行 → 当日; 否则回退最近 15 自然日内有 9_25 行的交易日
+    (盘前/收盘后/周末/节假日), 都没有 → 返回原 date(表示"无定格可用")。
+
+    为什么要透出: 盘前(00:00-9:15)与非交易日按设计**仍允许出名单**, 用的是上一交易日
+    定格 —— 但用户无法从名单本身分辨, 容易误认为"当日名单"(9/18 主人反馈"刷出来是
+    昨天的数据"的来源之一)。前端据此在顶部常驻标注"当前为 X 日定格数据"。
+    """
+    date = date or _bj_date()
+    return _latest_snapshot_date(date)
+
+
 def load_day_bid_amt(date=None):
     """当日竞价额定格 map: {code: bid_amt(万元)} — 取每只股票当日最晚时点的非空 bid_amt。
     返回 {code: amt}; 当日无快照/无数据返回 {}。调用方(stocks.py/system_batch)在评分时传入

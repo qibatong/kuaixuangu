@@ -41,6 +41,16 @@
             <span>{{ stocks.pickBlockedMsg }}</span>
           </div>
           <template v-else>
+            <!-- 2026-09-18 (v4.11.29) 定格来源标注: 盘前/非交易日按设计出的是**上一交易日**
+                 9:25 定格名单(PREOPEN/CLOSED), 必须让用户一眼看出"这不是当日名单"。
+                 主人 9/18 反馈「刷出来是昨天的数据」就有这一类误解的成分。
+                 🔴 必须放在 v-else 分支**内部**: 放在 v-if 与 v-else 之间会打断
+                 v-if/v-else 链(Vue 编译期报 X_V_ELSE_NO_ADJACENT_IF, 构建直接失败),
+                 而且标注条要**与名单并存**, 不能用 v-else-if 顶掉名单。 -->
+            <div v-if="stocks.isDataCached && !stocks.freezeIsToday" class="freeze-notice">
+              <i class="fa fa-history"></i>
+              <span>当前为 <b>{{ stocks.freezeDate }}</b> 定格数据（上一交易日 / 回放），改条件可重选</span>
+            </div>
             <!-- 会员门禁: 竞价选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
             <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价选股" />
             <template v-if="user.isMember || !isMemberOnlyTime()">
@@ -234,6 +244,26 @@ onBeforeUnmount(() => {
 }
 .pick-blocked-notice .fa { color: #e6b400; }
 body[data-bg="light"] .pick-blocked-notice { color: #8a5500; }
+
+/* 2026-09-18 (v4.11.29) 定格来源标注条(上一交易日 / 回放): 黄色提示系(项目五色内),
+   与涨跌红绿语义无关。语义比"拦截"轻 —— 数据可用, 只是不是当日的。 */
+.freeze-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(230, 180, 0, 0.38);
+  border-radius: 6px;
+  background: rgba(230, 180, 0, 0.07);
+  color: var(--text-main);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.freeze-notice .fa { color: #e6b400; }
+.freeze-notice b { color: #e6b400; font-weight: 600; }
+body[data-bg="light"] .freeze-notice { color: #8a5500; }
+body[data-bg="light"] .freeze-notice b { color: #8a5500; }
 
 /* 奖牌(金银铜) + 自选股票池 在左栏内: 保留原有紧凑处理 */
 .medal-section {

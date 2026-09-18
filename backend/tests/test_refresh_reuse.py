@@ -15,6 +15,10 @@ filter → ③用户当日无任何手动批次时的 9:26 系统批次(auto_app
 - 纯函数: 直接 SQL 种批次行(batch_date/batch_time/ts 可控) + now_ts 注入, 单测选批逻辑。
 - API 集成: monkeypatch time.time 固定"当前时刻"北京 09:26(lock 落库) / 09:31(refresh
   直读, before930=False), 与真实运行时间无关; fetch_spot_quote_map 打桩防真实拉全市场。
+- 🔴 v4.11.29 (2026-09-18) 起新增前置条件: 直读只认建立在**当日** 9:25 定格上的批次
+  (批次 ts >= snapshot_bid 的 9_25 落库 ts)。故本文件的 autouse fixture 必须种一行当日
+  9_25 快照, 否则所有直读用例都会被判"定格前"而 miss —— 那不是本文件要测的语义。
+  该判据本身由 test_freeze_guard_0918.py 负责, 本文件只保证原有直读语义不回退。
 """
 import calendar
 import json
@@ -27,6 +31,8 @@ from app.services import history
 # ---- 固定"当前时刻": 2026-09-09(周三) 北京 09:26 / 09:31 (UTC 01:26 / 01:31) ----
 TS_0926 = calendar.timegm((2026, 9, 9, 1, 26, 0, 0, 0, 0))   # 北京 09:26 (lock 落库)
 TS_0931 = calendar.timegm((2026, 9, 9, 1, 31, 0, 0, 0, 0))   # 北京 09:31 (9:30 后 refresh)
+# v4.11.29: 当日 9:25 定格的**落库时刻**(实测 09:25:23~09:25:32 之间漂, 取 09:25:23)
+TS_FREEZE = calendar.timegm((2026, 9, 9, 1, 25, 23, 0, 0, 0))
 BDATE = "2026-09-09"
 
 
@@ -39,17 +45,32 @@ def _no_global_side_effects(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _clean_shared_batches():
-    """清理跨用例共享数据(用例 body 前执行):
+    """清理跨用例共享数据 + 种当日 9:25 定格(用例 body 前执行):
     - user_id=0 系统批次: find_today_reusable_batch ③级查询跨用例共享, 不清理会残留污染
       (如"无批次→None"用例被前面用例种的 auto 批次误命中返回 (id,'auto'))
-    - 本文件测试 uid 段(992101-992199): 防重复运行残留"""
+    - 本文件测试 uid 段(992101-992199): 防重复运行残留
+    - 🔴 v4.11.29 起**必须**先有当日 9_25 定格行: find_today_reusable_batch /
+      find_today_system_batch 只复用 `ts >= 定格落库 ts` 的批次(定格前批次的竞涨幅
+      整批来自上一交易日, 复用 = 拿昨日名单当今日权威名单)。本文件的批次 ts=09:26:00
+      > TS_FREEZE(09:25:23) ⇒ freeze_ready=True, 直读语义与本文件撰写时一致。
+      用例结束后删掉(该日期不留给其它文件, 避免 _latest_snapshot_date 被带偏)"""
     conn = database.get_conn()
     conn.execute("DELETE FROM batches WHERE user_id=0 AND auto_applied=1 AND batch_date=?",
                  (BDATE,))
     conn.execute("DELETE FROM batches WHERE user_id BETWEEN 992101 AND 992199")
+    conn.execute("DELETE FROM snapshot_bid WHERE date=?", (BDATE,))
+    for c in ("600001", "600002"):
+        conn.execute(
+            "INSERT INTO snapshot_bid (date, time_point, code, bid_change, bid_amt, ts, name) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (BDATE, "9_25", c, 1.23, 4567.0, TS_FREEZE, "测试股"))
     conn.commit()
     conn.close()
     yield
+    conn = database.get_conn()
+    conn.execute("DELETE FROM snapshot_bid WHERE date=?", (BDATE,))
+    conn.commit()
+    conn.close()
 
 
 def _f(**over):

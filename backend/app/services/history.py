@@ -271,6 +271,65 @@ def _batch_matches_fingerprint(r, fk, mk):
     return old_fk == fk and old_mk == mk
 
 
+# 当日定格**落库时刻**判据(v4.11.29, 2026-09-18)
+# ------------------------------------------------------------
+# 判据 = **批次 ts >= 当日 9_25 快照的落库 ts**(snapshot_bid.ts, 该时点全部行同一值)。
+# 为什么不用硬编码 "09:25:36": 实测落库 09:25:23~09:25:32 每天都在漂, 而**系统批次
+# (#9_25) 由落库事件本身触发** —— 2026-09-18 实测系统批次 #1676 只比落库晚 **3 秒**
+# (snapshot 9_25 ts=1789694726, #1676 ts=1789694729) → 用固定时刻会把这份**合法**名单
+# 误判成"定格前", 让 refresh 掉到跨日回退(显示昨日名单)。
+# 关联常量: 闸门放行点 picker/mode.T_PICK_OPEN=09:25:36 是**用户体验**口径(覆盖最晚
+# 落库 09:25:32, 该窗口内不让用户发起请求); 本判据是**数据真伪**口径。两者用途不同,
+# 不要互相替代。
+
+
+def _freeze_landing_ts(bdate):
+    """当日 9_25 定格的落库时间戳; 当日无 9_25 行 → None
+
+    该时刻**之前**写入的批次, 其 bid_change/bid_amt 必然取自上一交易日(当日 9_25
+    尚不存在 → load_day_bid_change 自动回退最近交易日)。查询走 (date,time_point)
+    主键, 亚毫秒; 调用方应**每次请求只查一次**并复用。
+    """
+    conn = None
+    try:
+        conn = _conn()
+        row = conn.execute(
+            "SELECT MAX(ts) FROM snapshot_bid WHERE date=? AND time_point='9_25'",
+            (bdate,)).fetchone()
+    except Exception:                                            # noqa: BLE001
+        return None
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:                                    # noqa: BLE001
+                pass
+    return (row[0] if row and row[0] else None)
+
+
+def _is_freeze_ready_batch(r, landing_ts) -> bool:
+    """批次是否建立在**当日** 9:25 定格之上(批次 ts >= 定格落库 ts)。
+
+    2026-09-18 主人现象:「测试环境刷出来是昨天的数据」—— 09:15 锁定的批次(#1674),
+    竞涨幅**整批是上一交易日 9_25 的值**, 而竞涨幅占评分权重 34% ⇒ 名单与评分双双
+    失真; 该批次下午仍被 refresh 直读 + 前端回显。本判据把它排除。
+
+    landing_ts: 由 _freeze_landing_ts(bdate) 传入(每次请求查一次, 勿在循环里重复查)。
+      · landing_ts 为 None(当日 9_25 未落库) → 一律 False: 此刻任何当日批次的竞价
+        字段都来自昨日, 复用等价于"拿昨日名单当今日权威名单";
+      · 批次 ts 缺失(脏数据) → 视为定格前(保守不复用)。
+
+    定格前的名单**不删除**, 仍可在「历史回看」里查到。
+    """
+    if not landing_ts:
+        return False
+    try:
+        ts = r["ts"]
+    except (KeyError, IndexError, TypeError):    # 脏行(缺 ts 列) → 保守视为定格前
+        return False
+    return (ts or 0) >= landing_ts
+
+
 def find_today_reusable_batch(user_id, f, now_ts=None):
     """9:30 后 refresh 直读选批(2026-09-04 主人方案「打开/刷新直接从历史回看取最新」)。
 
@@ -306,30 +365,58 @@ def find_today_reusable_batch(user_id, f, now_ts=None):
     # (仅 ③ 系统兜底做了) → 当日若存在 0 只的 lock 批次(如早盘数据源故障期间落的空批次),
     # 每次 refresh 都直读它返回空名单, 页面一片空白; 而点「应用」走 filter 现算才有数据。
     # 实测 uid=211 今日: 批次 1574/1575/1576 均 0 只, refresh 连续 64 次直读 1574 返回 0。
+    # 2026-09-18 增补: 定格落库前写入的批次**同样跳过** —— 其竞价字段全部来自上一交易日
+    # 9_25(_is_freeze_ready_batch 有完整说明), 复用 = 拿昨日名单当今日权威名单
+    # (#1674/#1675 下午仍被直读, 主人看到"是昨天的数据")。
+    land = _freeze_landing_ts(bdate)
     for r in rows:
         if r["action"] == "lock" and (r["stock_count"] or 0) > 0 \
+                and _is_freeze_ready_batch(r, land) \
                 and _batch_matches_fingerprint(r, fk, mk):
             return r["id"], "lock"
     # ② filter 同参(当日最近)
     for r in rows:
         if r["action"] == "filter" and (r["stock_count"] or 0) > 0 \
+                and _is_freeze_ready_batch(r, land) \
                 and _batch_matches_fingerprint(r, fk, mk):
             return r["id"], "filter"
     # ③ 用户当日无任何手动批次才允许系统统一批次兜底(有手动批次但参数已改 → 必须重算,
     #    否则改条件后刷新会错误直读系统名单); 空名单批次(stock_count=0)无直读价值,
     #    跳过走原重算(与现状一致, 避免直读空名单导致页面空白)
+    #    注: ③ 的可见性判据是 `not rows`(是否有**任何**手动批次), 与上面的定格过滤无关 ——
+    #    只有定格前批次的用户同样会落到这里, 由调用方接 find_today_system_batch 兜底。
     if not rows:
-        conn = _conn()
-        try:
-            row = conn.execute(
-                "SELECT id FROM batches WHERE user_id=0 AND auto_applied=1 "
-                "AND batch_date=? AND stock_count>0 ORDER BY ts DESC LIMIT 1",
-                (bdate,)).fetchone()
-        finally:
-            conn.close()
-        if row:
-            return row["id"], "auto"
+        sid = _today_system_batch_id(bdate, land)
+        if sid:
+            return sid, "auto"
     return None, None
+
+
+def _today_system_batch_id(bdate, land):
+    """当日系统统一批次 id(user_id=0, auto_applied=1, stock_count>0, ts >= 定格落库时刻)
+
+    系统批次(#9_25)由定格落库事件**本身触发**, 实测只比落库晚 3 秒(9/18 数据) →
+    必须用 ts>=land 判据, 不能用固定的 09:25:36(会把这份合法名单误判掉)。
+    land 为 None(当日无定格) → 无可用系统批次。返回 int 或 None。
+    """
+    if not land:
+        return None
+    conn = None
+    try:
+        conn = _conn()
+        row = conn.execute(
+            "SELECT id FROM batches WHERE user_id=0 AND auto_applied=1 "
+            "AND batch_date=? AND stock_count>0 AND ts>=? ORDER BY ts DESC LIMIT 1",
+            (bdate, land)).fetchone()
+    except Exception:                                            # noqa: BLE001
+        return None
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:                                    # noqa: BLE001
+                pass
+    return row["id"] if row else None
 
 
 def find_recent_reusable_batch(user_id, f, now_ts=None, lookback_days=14):
@@ -402,17 +489,10 @@ def find_today_system_batch(now_ts=None):
     t = now_ts if now_ts is not None else time.time()
     g = time.gmtime(t + 8 * 3600)
     bdate = "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
-    conn = _conn()
-    try:
-        row = conn.execute(
-            "SELECT id FROM batches WHERE user_id=0 AND auto_applied=1 "
-            "AND batch_date=? AND stock_count>0 ORDER BY ts DESC LIMIT 1",
-            (bdate,)).fetchone()
-    finally:
-        conn.close()
-    if row:
-        return row["id"], "auto"
-    return None, None
+    # v4.11.29: 只认建立在**当日** 9:25 定格上的系统批次(系统批次由定格落库事件触发,
+    # 实测落在落库后 3 秒内 → 必须用数据 ts 判据, 不能用固定时刻 09:25:36)。
+    sid = _today_system_batch_id(bdate, _freeze_landing_ts(bdate))
+    return (sid, "auto") if sid else (None, None)
 
 
 def get_batch_stocks_mapped(batch_id):
@@ -451,13 +531,28 @@ def get_batch_stocks_mapped(batch_id):
 def list_batches(user_id, limit=200):
     """历史批次列表(2026-08-30 主人需求: 即使用户没点选股, 也要看 system 自动存的批次)
     合并返回: 当前用户自己的批次 + system 公共批次(user_id=0, auto_applied=1)
+
+    2026-09-18 (v4.11.29): 每行附 `freeze_ready` —— 该批次是否建立在**当日** 9:25
+    定格之上(`ts >= 该日定格落库 ts`)。前端首屏回显(loadLockedBatchFromServer)据此
+    排除"定格前批次": 它们与"上一交易日的名单"等价(竞价字段整批回退昨日), 下午仍被
+    回显会让用户看到"今天的名单是昨天的数值"(主人 9/18 现象, 样本 #1674)。
+    **判据只在这里算一次**(前端无法自己判断正确性 —— 它没有 snapshot_bid 的落库时刻)。
     """
     conn = _conn()
     rows = conn.execute(
         "SELECT * FROM batches WHERE user_id=? OR (user_id=0 AND auto_applied=1) "
         "ORDER BY ts DESC LIMIT ?", (user_id, limit)).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    land_cache = {}
+    out = []
+    for r in rows:
+        d = dict(r)
+        bd = d.get("batch_date")
+        if bd not in land_cache:          # 每个日期只查一次(同批多行共用)
+            land_cache[bd] = _freeze_landing_ts(bd)
+        d["freeze_ready"] = _is_freeze_ready_batch(d, land_cache[bd])
+        out.append(d)
+    return out
 
 
 def get_batch(batch_id, user_id):

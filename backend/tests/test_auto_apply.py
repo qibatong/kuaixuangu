@@ -72,6 +72,7 @@ def test_is_user_active_admin(client, first_user):
 def test_is_user_active_expired(client, first_user):
     """过期用户 → 跳过"""
     conn = database.get_conn()
+    uid = None
     try:
         row = conn.execute("SELECT id FROM users WHERE is_admin=0 LIMIT 1").fetchone()
         if not row:
@@ -81,8 +82,17 @@ def test_is_user_active_expired(client, first_user):
         conn.commit()
     finally:
         conn.close()
-    ok, why = auto_apply._is_user_active(uid)
-    assert ok is False and "过期" in why
+    try:
+        ok, why = auto_apply._is_user_active(uid)
+        assert ok is False and "过期" in why
+    finally:
+        # 🔴 必须还原: 被改的往往是**会话级 first_user**(多个文件的 API 用例共用),
+        # 不还原会让后续 test_history / test_stocks 等文件全部收到 403「过期账号」
+        # —— 表征为"单文件绿、多文件连跑红"的顺序耦合(2026-09-18 实测踩到)。
+        conn = database.get_conn()
+        conn.execute("UPDATE users SET expire_at=0 WHERE id=?", (uid,))
+        conn.commit()
+        conn.close()
 
 
 def _no_list(*a, **k):

@@ -1477,6 +1477,116 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.29 (09-18 午后 已推测试机) 选股闸门 v4「只认当日 9:25 定格」+ 定格前批次不再回显 —— 「测试环境刷出来是昨天的数据」闭环**
+  - **起因（主人现象）**：主人看测试环境（admin 账号）刷出来的 5 只票（华瓷股份 / 西陇科学 /
+    黑猫股份 / 芒果超媒 / 澳弘电子），**竞价涨幅逐位就是 9/17 的值**（黑猫 3.35，今日实为 1.00）。
+    - 实测定位：这 5 只 = **批次 #1674（09:15:05, action=lock）** 逐位吻合（竞涨幅 7.86/7.33/3.35/
+      3.70/6.02 + 流通 53.98/41.23/66.44/181.35/76.67 + 评分 89/86/83/80/80）；而该批次这 5 个
+      竞涨幅**全部等于 9/17 的 9_25 定格**（今日 9_25 = 5.53/2.10/1.00/-2.43/0.49）。
+    - 15:32 的访问日志只有 `ping`（9ms）+ `bid-snapshot-3points` 轮询 → **页面在回显存量批次，
+      根本没有产生新批次**。即：**根因不是"数据源坏了"，是"定格前的批次被整天复用 + 回显"**。
+  - **根因（两个缺陷叠加）**
+    - **A 采集侧**：`load_day_bid_change` / `load_day_bid_amt` / `load_snapshot_full` 只认 `9_25` 时点；
+      当日 9_25 未落库时**静默回退最近交易日**（只打 INFO）。于是 **9:15 / 9:22 落库的批次，
+      竞涨幅与竞价额整批来自昨日** —— 而**竞涨幅占评分权重 34%** ⇒ 名单与评分双双失真。
+    - **B 复用侧**：`find_today_reusable_batch` ①② 只判 `stock_count>0` + 参数指纹，
+      **完全不看批次建立在哪天的定格上** → #1674 被每次 refresh 直读；前端首屏
+      `loadLockedBatchFromServer()` 又把这批读回来显示 → 全天都在给主人"昨天的名单"。
+    - 早前"lock 路径不受影响"的结论**作废**：lock 的**名单成员**是实时的，但
+      `bid_change/bid_amt` 同样回退昨日 → 评分同样被污染。
+  - **口径决策（主人拍板，2026-09-18）**：「**只能看当日 9_25 竞价结束后的**，
+    因为这选股本来就是竞价结束后采选，竞价过程数据都在变化，选的股也没意义」+ 盘前「保留但强制标注」。
+    ⇒ 闸门从 v3「只挡两段（9:00-9:15 / 9:25:00-9:25:35）」收敛为 **v4「只挡一段」**：
+    **`[09:15:00, 09:25:35]` 竞价进行中 + 当日 9_25 尚未落库，整段不出名单**；
+    **盘前 00:00-09:14:59 放行**（用上一交易日定格是设计内功能，改为由顶栏常驻标注明示来源）。
+    演进史：v4.11.22「9:00-9:26 整段禁」→ 误伤竞价主窗口 + 掐死前端自动加载 → 9/17 早盘事故 →
+    v4.11.26 回退 → v4.11.27「只挡两段」→ **v4.11.29 本轮「只挡一段」**。
+  - **代码修复**
+    - **P0 闸门本体** `picker/mode.py`：常量合并为 `T_PICK_BLOCK_FROM = 09:15:00`（含）/
+      `T_PICK_BLOCK_TO = 09:25:35`（含）/ `T_PICK_OPEN = 09:25:36`；`is_pick_open` 单段判定；
+      `pick_resume_at` 只返回 `"09:25:36"`；文案改 `"竞价进行中 · 9:25 定格后开放"`；
+      模块 docstring 的模式划分表更新（AUCTION 注明默认被闸门拦住）。
+      前端 `utils/time.js` 同口径（`PICK_BLOCK_FROM/TO/PICK_OPEN` + 同文案 + `isPickBlockedTime` 单段）。
+    - **P1 定格前批次排除（数据驱动判据，不是硬编码时刻）** `history.py`：
+      - `_freeze_landing_ts(bdate)` = 当日 9_25 快照的落库 ts（`SELECT MAX(ts) FROM snapshot_bid
+        WHERE date=? AND time_point='9_25'`，该时点全部行同一值）；无该行 → `None`。
+      - `_is_freeze_ready_batch(r, landing_ts)` = `(r["ts"] or 0) >= landing_ts`；`landing=None`
+        或批次 ts 缺失 → 一律 False（保守不复用）。
+      - `find_today_reusable_batch` ①② 加该判据（`land = _freeze_landing_ts(bdate)` **每次请求只查一次**）；
+        ③ 抽成 `_today_system_batch_id(bdate, land)`（`... AND ts>=?`），`find_today_system_batch` 同源。
+      - `list_batches` 每行附 **`freeze_ready`**（按 `batch_date` 缓存 landing，同批多行只查一次）
+        —— 前端**拿不到** `snapshot_bid` 的落库时刻，判据必须由后端给出。
+    - 🔴 **为什么判据是"数据时间戳"而不是固定的 `09:25:36`**：实测落库时刻每天在漂（09:25:23~09:25:32），
+      而**系统批次（#9_25）由落库事件本身触发** —— 9/18 实测 **#1676 只比落库晚 3 秒**
+      （snapshot 9_25 ts=1789694726，**#1676 ts=1789694729**）。用固定时刻会把**这份合法名单误判成
+      "定格前"** → refresh 掉到跨日回退 → 显示昨日名单。探针实测确认过该误杀，故改为数据驱动。
+      **双口径区分**：`mode.T_PICK_OPEN=09:25:36` 是**用户体验口径**（覆盖最晚落库 09:25:32，
+      该 35 秒窗口内不让用户发起请求）；`_freeze_landing_ts` 是**数据真伪口径**。两者用途不同，
+      不可互相替代。
+    - **P1 定格来源对用户可见** `auction_snapshot.freeze_source_date()` +
+      `stocks._freeze_fields()` → 返回体加 `freezeDate` / `freezeIsToday`（lock 幂等直读 / refresh
+      直读批次 / 计算缓存命中 / 最终结果**四处**都加；查库异常返回 `{}`，宁可少标不误标）。
+      前端 `stores/stocks.js` 记录 `freezeDate/freezeIsToday`，`StockView.vue` 新增 `.freeze-notice`
+      常驻标注条（**与闸门提示互斥、与名单并存**），首屏回显改用后端判据：
+      `freezeReady = (x) => x.batch_date === today && x.freezeReady === true`。
+    - 🔴 **踩坑（本版自查发现）**：`freeze-notice` 初版被插在 `v-if` 与 `v-else` **之间** ——
+      Vue 编译期直接报 `X_V_ELSE_NO_ADJACENT_IF`（`v-else has no adjacent v-if`），**前端构建必红**；
+      且标注条要**与名单并存**，不能用 `v-else-if` 顶掉名单。已改为放在 `v-else` 分支内部。
+  - **测试**
+    - 新增 `backend/tests/test_freeze_guard_0918.py`（**19 条**）：纯函数边界 / 定格前批次不复用 /
+      **`test_system_batch_lands_just_after_freeze`（落库后 3 秒的系统批次必须可用 —— 回归防线）** /
+      `list_batches` 透出 / `_freeze_fields` 三分支 / 前端同口径（含反向防线 `assert ">= '09:25:36'"
+      not in src`）。用**合成日期 `2026-08-03`** 避免与其它用例的日期互相污染。
+    - 重写 `test_pick_window_guard.py`（竞价段逐秒必须拦 + **盘前 9:00-9:14:59 逐秒必须放行**的
+      事故回归）；重写 `frontend/src/utils/time.test.js`（**53 全绿**）。
+    - `test_refresh_reuse.py`：v4.11.29 起直读有**新前置条件**（当日 9_25 必须已落库），
+      故 autouse 夹具补种一行当日 9_25 快照（ts=09:25:23）+ teardown 删除；否则 9 条直读用例
+      全部被判"定格前"而 miss（那不是本文件要测的语义，已在文件头写明）。
+    - 🔴 **修掉一处既有顺序耦合缺陷**：`test_auto_apply.py::test_is_user_active_expired` 把
+      「第一个非管理员用户」设成过期后**没有还原** → 污染**会话级 `first_user`**，
+      后续 `test_history` 等文件的 API 用例集体收 403「过期账号」。表征为"单文件绿、多文件连跑红"。
+      本次 **9 文件连跑时实测踩到**（uid=1 被置过期），已加 `finally` 还原。
+    - **回归**：后端全量 **1022 passed / 4 skipped / 0 failed（212.9s）**；前端 `node --test` **53/53**；
+      `vite build` 通过（修掉模板 bug 前会直接失败）。
+  - **部署与验证（仅测试机；生产待主人指令）**
+    - 后端 4 文件 + 测试 5 文件 SFTP 上传，**md5 与本地逐字节一致**、`py_compile` 通过；
+      前端 `dist` **打包上传 + 整目录替换**（SFTP 逐文件传 1021 个文件会在 10 分钟内超时 ——
+      改为 `tar czf` 传 35MB 包 + 远端 `tar xzf`），`chmod -R a+rX`；旧目录留 `dist.bak_v41129` 作回滚点。
+    - 产物核对：`index.html` / `assets/StockView-BUQCar-V.js` / `assets/index-C317vB3K.js`
+      **md5 与本地一致**；新文案 `竞价进行中 · 9:25 定格后开放` 在位、**旧文案 `9:15 后开放` 零残留**、
+      `freeze-notice` 命中 1。服务 `kuaixuan` + `kx-worker` 重启后 active、启动日志无 Traceback。
+    - **端到端（测试机真实时刻 17:10，签 uid=211 admin token 打真实 8010 端口）**：
+      - `ping` → `{"ok":true,"before930":false,"pickGateEnabled":true}`；
+      - `refresh` → **`{"ok":true,"mode":"auction","count":2,"reused":true,"source":"filter",
+        "batch_id":1678,"freezeDate":"2026-09-18","freezeIsToday":true}`** ——
+        直读的是 **#1678（09:40:02，定格后）而非 #1674/#1675（定格前）**，
+        且名单首位 **西陇科学 bidChange = 2.10（今日真值）**，不再是昨日的 7.33 ✅
+      - `lock` → `{"ok":false,"msg":"9:30 后禁止重新选股"}`（时间语义正确）。
+    - **只读探针**（`scripts/deploy_tmp/_verify_gate_v4.py`，新判据重跑）：时间维 **14/14 边界点全符合**；
+      今日批次判定 **#1674/#1675 = 🔴 定格前（不得复用）**、**#1676/#1677/#1678/#1679/#1680 = ✅ 定格后（可复用）**
+      （**#1676 在旧硬编码判据下是 🔴，现已正确翻转**）；`find_today_system_batch()` = `(1676,'auto')`；
+      `freeze_source_date('2026-09-18')='2026-09-18'`、`_freeze_fields()={'freezeDate':'2026-09-18',
+      'freezeIsToday':True}`、`_pick_blocked_until(9:18)='09:25:36'`。
+  - ⚠️ **踩坑（本轮新增）**
+    - 🔴 **SFTP 逐文件同步 `dist`（1000+ 文件）会超时**（本轮 600s 直接 SIGTERM）→ 一律
+      打包 `tar czf` + 远端解包；注意 Git Bash 的 `/tmp` 与 Windows `python.exe` 路径不互通，
+      临时包要放**仓库内相对路径**再上传。
+    - 🔴 **Vue 里 `v-if` / `v-else` 之间不能插任何元素节点**（注释可以），否则编译期报错、构建失败。
+    - 🔴 **本机无 pytest**（只有 README 里说的远端 venv），所有后端用例必须在测试机跑；
+      前端用例可在本地 `node --test`。
+    - 🔴 本机 Git Bash 的 **PATH 缺 `/usr/bin`**（`ls` / `head` / `dirname` 全都 command not found）
+      → 每条 bash 命令前需 `export PATH="/usr/bin:/bin:$PATH"`。
+  - **回滚点**：测试机 `dist.bak_v41129`、上一版 commit = `57d855d`（v4.11.28）。
+    **生产未部署**，无需回滚。
+  - **待办 / 遗留**：
+    - **生产部署待主人明确指令**。注意：生产 `pick_window_guard` 目前仍为 `0`（v4.11.26 设）
+      —— 即闸门在生产**本来就没开**，本轮的价值主要在**定格前批次不复用 + 定格来源标注**这两条，
+      即使生产不开闸门也能生效（它们是 `history` / `stocks` 层的硬判据，不经开关）。
+    - `ModePolicy.allow_lock` 是**死标记**（全代码零引用）—— #1674 能在 09:15 落库正因无人拦它；
+      是否接线待主人裁定。
+    - 生产 DB 备份清理：`kuaixuan.db.bak_fixmv_20260918_013247`（502MB，磁盘 7.5G/80%）待确认。
+    - carried：历史评分是否重算、`MAX_FETCH=4000` 截断、腾讯补市值恒 0 的根因。
+
 - **v4.11.28 (09-18 01:40 已推测试机 + 生产) 流通市值口径错值修复 —— 「49 亿的票为什么被 30 亿门槛剔掉」闭环**
   - **起因（主人现象）**：「我把流通下限从 30 改成 10，就多出来一只 40 多亿的（华资股份），
     它 40 多亿大于默认 30 亿，为啥默认条件没出来？」

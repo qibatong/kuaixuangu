@@ -1,18 +1,24 @@
 # -*- coding: utf-8 -*-
-"""选股闸门测试 v3(2026-09-17 口径重做)
+"""选股闸门测试 v4(2026-09-18 口径)
 
-唯一权威口径 = picker/mode.is_pick_open。交易日**只挡两段**:
-  ① [09:00:00, 09:15:00)  盘前 PREOPEN —— 名单来自**上交易日**定格;
-  ② [09:25:00, 09:25:35]  当日 9_25 尚未落库 —— load_snapshot_full 会静默回退昨日;
-**09:15:00-09:24:59 放行**(竞价主窗口); 非交易日 / 盘前(<9:00) 放行;
-≥09:25:36 时间维放行, 但还须过**快照维**(当日 9_25 已落库)。
+唯一权威口径 = picker/mode.is_pick_open。交易日**只挡一段**:
+  [09:15:00, 09:25:35]  竞价进行中 / 当日 9_25 定格尚未落库。
+    · 竞价过程数据每 10 秒在变 ⇒ 排出来的名单不成立;
+    · 该段取数还会回退**上一交易日** 9_25(竞涨幅/竞价额整批错位, 竞涨幅权重 34%);
+    · ≥09:25:36 时间维放行, 但还须过**快照维**(当日 9_25 已落库)。
+  00:00-09:14:59 **盘前放行**(用上交易日定格是设计内功能, 由顶栏标注来源日期明示);
+  非交易日(周末/节假日)放行(回放最近交易日定格是既有功能)。
 
 🔴 血泪史(改本文件前必读):
-  v4.11.22 口径是「交易日 9:00-9:26 整段禁选」, 把 9:15-9:25 **竞价主窗口**
-  (主人的真实选股来源)一起治死 → 9/17 早盘 9:15-9:26 完全选不了股 / 0 请求事故
-  → v4.11.26 整体回退并摘除闸门本体 → v4.11.27 重做为上面两段。
-  下面 test_auction_window_must_be_open_incident_regression 就是这条事故的回归防线:
-  任何人把竞价窗口重新封上, 它会立刻红。
+  v4.11.22 口径「交易日 9:00-9:26 整段禁选」, 且当时前端置灰是纯时间判断、不看开关 →
+  9/17 早盘导致该时段 0 请求 + 页面完全点不动 → v4.11.26 整体回退。
+  **v4.11.22 真正的错不是"挡了竞价段", 而是**:
+    ① 把**盘前**(PREOPEN/上交易日定格, 设计内功能)与**竞价段**混为一段;
+    ② 前端不看开关、连自动加载都不发请求 → 用户看不到任何提示也点不动。
+  v4.11.29(本版)只挡竞价段、盘前放行, 且前端置灰由 `pickGateEnabled` 开关驱动 +
+  20s 定时器到点自动解禁(见 stores/stocks.refreshPickGate) ⇒ 拦得住但**看得见、会自愈**。
+  下面 test_preopen_window_must_be_open_incident_regression 是 ① 的回归防线:
+  任何人把盘前重新封上, 它会立刻红。
 """
 from datetime import datetime, timedelta, timezone
 
@@ -59,82 +65,95 @@ def snap_missing(monkeypatch):
 
 # ------------------------------------------------------- 1. 时间维(秒级边界)
 def test_pick_open_boundaries_seconds():
-    """两段的**秒级**边界(第二段必须到秒, 分钟粒度表达不了)"""
-    assert pm.is_pick_open(ts(*D, 8, 59, 59)) is True     # 盘前
-    assert pm.is_pick_open(ts(*D, 9, 0, 0)) is False      # 第一段起(含)
-    assert pm.is_pick_open(ts(*D, 9, 5, 0)) is False
-    assert pm.is_pick_open(ts(*D, 9, 14, 59)) is False    # 第一段末(仍拦)
-    assert pm.is_pick_open(ts(*D, 9, 15, 0)) is True      # ★ 放行(第一段末 + 1s)
-    assert pm.is_pick_open(ts(*D, 9, 24, 59)) is True
-    assert pm.is_pick_open(ts(*D, 9, 25, 0)) is False     # 第二段起(含)
-    assert pm.is_pick_open(ts(*D, 9, 25, 35)) is False    # 第二段末(含)
-    assert pm.is_pick_open(ts(*D, 9, 25, 36)) is True     # ★ 放行(第二段末 + 1s)
+    """拦截段**秒级**边界(必须到秒, 分钟粒度表达不了) + 盘前放行"""
+    assert pm.is_pick_open(ts(*D, 0, 30)) is True         # 盘前
+    assert pm.is_pick_open(ts(*D, 8, 59, 59)) is True
+    assert pm.is_pick_open(ts(*D, 9, 0, 0)) is True       # v4.11.27 曾是拦截点 → v4 放行
+    assert pm.is_pick_open(ts(*D, 9, 14, 59)) is True     # ★ 盘前最后一秒仍放行
+    assert pm.is_pick_open(ts(*D, 9, 15, 0)) is False     # ★ 拦截段起(含) — 竞价开始
+    assert pm.is_pick_open(ts(*D, 9, 19, 30)) is False
+    assert pm.is_pick_open(ts(*D, 9, 24, 59)) is False
+    assert pm.is_pick_open(ts(*D, 9, 25, 0)) is False     # 落库前仍在段内
+    assert pm.is_pick_open(ts(*D, 9, 25, 35)) is False    # 拦截段末(含)
+    assert pm.is_pick_open(ts(*D, 9, 25, 36)) is True     # ★ 放行(段末 + 1s)
     assert pm.is_pick_open(ts(*D, 9, 26, 0)) is True      # v4.11.22 旧口径的开放点
     assert pm.is_pick_open(ts(*D, 9, 30, 0)) is True
     assert pm.is_pick_open(ts(*D, 14, 59, 59)) is True
     assert pm.is_pick_open(ts(*D, 23, 0, 0)) is True
 
 
-def test_auction_window_must_be_open_incident_regression():
-    """🔴 9/17 事故回归防线: 09:15:00-09:24:59 **逐秒**必须放行。
+def test_auction_window_must_be_blocked():
+    """🔴 v4 核心口径: 竞价进行中 09:15:00-09:24:59 **逐秒必须拦**。
 
-    v4.11.22 把这段(竞价主窗口 = 主人真实选股来源)一起封死 → 早盘 0 请求。
-    这里逐秒抽样 9:15、9:16~9:24 每分钟的 0/30/59 秒、9:24 全秒, 任一时刻被拦
-    都说明口径回退了。
+    主人 2026-09-18 拍板:「选股本来就是竞价结束后才选, 竞价过程数据都在变化,
+    选的股也没意义」。实证动机是 9/18 早盘 09:15/09:22 两批因当日 9_25 未落库,
+    竞涨幅/竞价额**整批回退昨日**(黑猫 3.35=昨日值, 今日实为 1.00), 而竞涨幅占
+    评分权重 34% → 名单与评分双双失真。
     """
     for ss in range(60):                                  # 09:15:00-09:15:59 全秒
-        assert pm.is_pick_open(ts(*D, 9, 15, ss)) is True, "9:15:%02d" % ss
+        assert pm.is_pick_open(ts(*D, 9, 15, ss)) is False, "9:15:%02d" % ss
     for mm in range(16, 25):                              # 09:16-09:24
         for ss in (0, 30, 59):
-            assert pm.is_pick_open(ts(*D, 9, mm, ss)) is True, "9:%02d:%02d" % (mm, ss)
+            assert pm.is_pick_open(ts(*D, 9, mm, ss)) is False, "9:%02d:%02d" % (mm, ss)
     for ss in range(60):                                  # 09:24:00-09:24:59 全秒
-        assert pm.is_pick_open(ts(*D, 9, 24, ss)) is True, "9:24:%02d" % ss
+        assert pm.is_pick_open(ts(*D, 9, 24, ss)) is False, "9:24:%02d" % ss
+
+
+def test_preopen_window_must_be_open_incident_regression():
+    """🔴 v4.11.22 事故回归防线: 盘前 **09:00:00-09:14:59** 逐秒必须放行。
+
+    v4.11.22 把盘前(用上交易日定格, 设计内功能)与竞价段混成一段 9:00-9:26 一起封死;
+    v4.11.27 又反向只挡盘前。v4 主人拍板"盘前保留但强制标注" ⇒ 盘前必须放行,
+    由 API 透出定格来源日期 + 前端顶栏标注消除误认, 而不是靠禁选。
+    """
+    for ss in range(60):                                  # 09:00:00-09:00:59 全秒
+        assert pm.is_pick_open(ts(*D, 9, 0, ss)) is True, "9:00:%02d" % ss
+    for mm in range(1, 15):                               # 09:01-09:14
+        for ss in (0, 30, 59):
+            assert pm.is_pick_open(ts(*D, 9, mm, ss)) is True, "9:%02d:%02d" % (mm, ss)
+    for ss in range(60):                                  # 09:14:00-09:14:59 全秒
+        assert pm.is_pick_open(ts(*D, 9, 14, ss)) is True, "9:14:%02d" % ss
 
 
 def test_pick_open_offdays_passthrough():
     """非交易日不拦: 周末/节假日回放最近交易日定格是既有功能"""
-    assert pm.is_pick_open(ts(2026, 9, 19, 9, 5)) is True       # 周六(第一段内也放)
+    assert pm.is_pick_open(ts(2026, 9, 19, 9, 5)) is True       # 周六(拦截段内也放)
     assert pm.is_pick_open(ts(2026, 9, 20, 9, 10)) is True      # 周日
-    assert pm.is_pick_open(ts(2026, 9, 20, 9, 25, 10)) is True  # 周日(第二段内也放)
+    assert pm.is_pick_open(ts(2026, 9, 20, 9, 25, 10)) is True  # 周日(拦截段内也放)
     hol = {"2026-10-01"}
     assert pm.is_pick_open(ts(2026, 10, 1, 9, 5), holidays=hol) is True
 
 
 def test_pick_resume_at_matches_segments():
-    """pick_resume_at 必须与 is_pick_open 同源: 拦截段给对应放行点, 放行段给空串"""
-    assert pm.pick_resume_at(ts(*D, 9, 5)) == "09:15"
-    assert pm.pick_resume_at(ts(*D, 9, 14, 59)) == "09:15"
-    assert pm.pick_resume_at(ts(*D, 9, 15, 0)) == ""
-    assert pm.pick_resume_at(ts(*D, 9, 19, 30)) == ""
+    """pick_resume_at 必须与 is_pick_open 同源: 拦截段给放行点, 放行段给空串"""
+    assert pm.pick_resume_at(ts(*D, 8, 0)) == ""
+    assert pm.pick_resume_at(ts(*D, 9, 5)) == ""          # 盘前已放行
+    assert pm.pick_resume_at(ts(*D, 9, 14, 59)) == ""
+    assert pm.pick_resume_at(ts(*D, 9, 15, 0)) == "09:25:36"
+    assert pm.pick_resume_at(ts(*D, 9, 19, 30)) == "09:25:36"
     assert pm.pick_resume_at(ts(*D, 9, 25, 10)) == "09:25:36"
     assert pm.pick_resume_at(ts(*D, 9, 25, 35)) == "09:25:36"
     assert pm.pick_resume_at(ts(*D, 9, 25, 36)) == ""
 
 
 # ------------------------------------------------------- 2. 双闸门组合
-def test_blocked_first_segment(snap_ok):
-    """第一段 9:00:00-9:14:59 一律拦(时间维), 与快照是否存在无关"""
-    for t in (ts(*D, 9, 0), ts(*D, 9, 10), ts(*D, 9, 14, 59)):
-        assert stocks_api._pick_blocked_reason(t) == pm.PICK_BLOCK_MSG_TIME
-
-
-def test_blocked_second_segment(snap_ok):
-    """第二段 9:25:00-9:25:35 一律拦(时间维)
+def test_blocked_auction_segment(snap_ok):
+    """竞价段 9:15:00-9:25:35 一律拦(时间维), 与快照是否存在无关
 
     实测落库时刻 09:25:23~09:25:32 全在段内 —— 这正是设 09:25:35 上界的依据。
     """
-    for t in (ts(*D, 9, 25, 0), ts(*D, 9, 25, 23), ts(*D, 9, 25, 32), ts(*D, 9, 25, 35)):
+    for t in (ts(*D, 9, 15, 0), ts(*D, 9, 19, 30), ts(*D, 9, 24, 59),
+              ts(*D, 9, 25, 0), ts(*D, 9, 25, 23), ts(*D, 9, 25, 32), ts(*D, 9, 25, 35)):
         assert stocks_api._pick_blocked_reason(t) == pm.PICK_BLOCK_MSG_TIME
 
 
-def test_auction_window_not_blocked_even_without_snapshot(snap_missing):
-    """🔴 竞价主窗口 9:15:00-9:24:59 **不拦**, 且**不查快照**。
+def test_preopen_not_blocked_even_without_snapshot(snap_missing):
+    """盘前(00:00-09:14:59)**不拦**, 且**不查快照**(盘前当日必然无快照)。
 
-    刻意用 snap_missing: 该时段当日必然没有 9_25 快照, 若快照维在此生效会误拦
-    (这正是 _pick_blocked_reason 里 `secs >= T_PICK_OPEN` 前置条件的作用)。
-    同时也是 v4.11.22 事故(竞价窗口被整段封死)的第二道回归防线。
+    刻意用 snap_missing: 若快照维在盘前生效会误拦 —— 这正是 _pick_blocked_reason
+    里 `secs >= T_PICK_OPEN` 前置条件的作用。
     """
-    for t in (ts(*D, 9, 15, 0), ts(*D, 9, 19, 30), ts(*D, 9, 24, 59)):
+    for t in (ts(*D, 0, 30), ts(*D, 8, 0), ts(*D, 9, 5), ts(*D, 9, 14, 59)):
         assert stocks_api._pick_blocked_reason(t) is None
 
 
@@ -150,15 +169,6 @@ def test_pass_when_all_clear(snap_ok):
         assert stocks_api._pick_blocked_reason(t) is None
 
 
-def test_preopen_before_9_pass(snap_missing):
-    """9:00 前(盘前)放行 —— PREOPEN「看上交易日定格」是设计内功能。
-
-    刻意用 snap_missing: 盘前当日必然没有快照, 若快照维在盘前也生效, 这条会误拦。
-    """
-    assert stocks_api._pick_blocked_reason(ts(*D, 0, 30)) is None
-    assert stocks_api._pick_blocked_reason(ts(*D, 8, 0)) is None
-
-
 def test_offday_pass_even_without_snapshot(snap_missing):
     """非交易日放行, 且**不查当日快照**(周末查必然为空 → 误拦)"""
     assert stocks_api._pick_blocked_reason(ts(2026, 9, 19, 9, 5)) is None
@@ -167,9 +177,9 @@ def test_offday_pass_even_without_snapshot(snap_missing):
 
 def test_blocked_until_matches_segment():
     """_pick_blocked_until 与拦截段一致(前端据此提示"何时恢复")"""
-    assert stocks_api._pick_blocked_until(ts(*D, 9, 5)) == "09:15"
+    assert stocks_api._pick_blocked_until(ts(*D, 9, 5)) == "09:25:36"     # 非拦截 → 兜底
+    assert stocks_api._pick_blocked_until(ts(*D, 9, 19)) == "09:25:36"
     assert stocks_api._pick_blocked_until(ts(*D, 9, 25, 10)) == "09:25:36"
-    assert stocks_api._pick_blocked_until(ts(*D, 9, 19)) == "09:25:36"   # 非拦截 → 兜底
 
 
 # ------------------------------------------------------- 3. 接口级
@@ -209,7 +219,7 @@ def test_api_blocked_returns_flag(client, first_user, guard_on, monkeypatch):
     token, _, _ = first_user
     monkeypatch.setattr(stocks_api, "_pick_blocked_reason",
                         lambda now=None: pm.PICK_BLOCK_MSG_TIME)
-    monkeypatch.setattr(stocks_api, "_pick_blocked_until", lambda now=None: "09:15")
+    monkeypatch.setattr(stocks_api, "_pick_blocked_until", lambda now=None: "09:25:36")
     for act in ("filter", "lock", "refresh"):
         r = client.get(f"/api/stocks?action={act}&markets=sh_sz", headers=hdrs(token))
         assert r.status_code == 200, act
@@ -217,7 +227,7 @@ def test_api_blocked_returns_flag(client, first_user, guard_on, monkeypatch):
         assert d.get("ok") is False and d.get("blocked") is True, act
         assert d.get("msg") == pm.PICK_BLOCK_MSG_TIME, act
         assert d.get("count") == 0 and d.get("list") == [], act
-        assert d.get("blockedUntil") == "09:15", act
+        assert d.get("blockedUntil") == "09:25:36", act
 
 
 def test_api_blocked_writes_no_batch(client, first_user, guard_on, monkeypatch):
@@ -258,7 +268,12 @@ def _fe_time_js():
     fe = os.path.join(here, "..", "..", "frontend", "src", "utils", "time.js")
     if not os.path.exists(fe):
         pytest.skip("前端源码不在本仓库布局内")
-    return io.open(fe, encoding="utf-8").read()
+    txt = io.open(fe, encoding="utf-8").read()
+    # 服务器上可能残留旧副本(实测有 08-25 版 frontend/src) → 与旧副本对拍是假结果。
+    # v4.11.29 闸门文案是"当前版本"的标志, 缺失即视为陈旧副本。
+    if "竞价进行中" not in txt:
+        pytest.skip("本机前端源码非最新副本(缺 v4.11.29 闸门文案), 对拍无意义")
+    return txt
 
 
 def test_pick_block_msg_shared_with_frontend():
@@ -283,11 +298,9 @@ def test_gate_boundaries_shared_with_frontend():
         assert m, ("未找到前端常量 " + name)
         return eval(m.group(1))               # noqa: S307 — 仅本地源码的算术式
 
-    assert num("PICK_BLOCK1_FROM") == pm.T_PICK_BLOCK1_FROM
-    assert num("PICK_BLOCK1_TO") == pm.T_PICK_BLOCK1_TO
-    assert num("PICK_BLOCK2_FROM") == pm.T_PICK_BLOCK2_FROM
-    assert num("PICK_BLOCK2_TO") == pm.T_PICK_BLOCK2_TO
-    # PICK_OPEN 在前端是 `PICK_BLOCK2_TO + 1` 的引用式, 单独核对定义形态 + 数值
-    assert re.search(r"PICK_OPEN\s*=\s*PICK_BLOCK2_TO\s*\+\s*1", src), \
+    assert num("PICK_BLOCK_FROM") == pm.T_PICK_BLOCK_FROM
+    assert num("PICK_BLOCK_TO") == pm.T_PICK_BLOCK_TO
+    # PICK_OPEN 在前端是 `PICK_BLOCK_TO + 1` 的引用式, 单独核对定义形态 + 数值
+    assert re.search(r"PICK_OPEN\s*=\s*PICK_BLOCK_TO\s*\+\s*1", src), \
         "前端 PICK_OPEN 定义形态变了, 需人工核对"
-    assert pm.T_PICK_OPEN == pm.T_PICK_BLOCK2_TO + 1
+    assert pm.T_PICK_OPEN == pm.T_PICK_BLOCK_TO + 1

@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { pad2, fmtDate, fmtTsDate, todayBj, fmtTsTime, fmtBjDay,
          isPickBlockedTime, isPickGateOn, PICK_BLOCK_MSG_TIME, PICK_BLOCK_MSG_SNAP,
-         PICK_BLOCK1_FROM, PICK_BLOCK1_TO, PICK_BLOCK2_FROM, PICK_BLOCK2_TO,
+         PICK_BLOCK_FROM, PICK_BLOCK_TO,
          PICK_OPEN } from './time.js'
 
 test('pad2: 补零', () => {
@@ -41,41 +41,29 @@ test('fmtBjDay: 秒级时间戳(北京时间) → YYYY-MM-DD', () => {
   assert.equal(fmtBjDay(0), '-')
 })
 
-// ---- 2026-09-17 选股闸门 v3 (只挡 9:00-9:15 + 9:25:00-9:25:35) ----
+// ---- 2026-09-18 选股闸门 v4 (只挡竞价段 9:15:00-9:25:35) ----
 // 传参用"北京时间视图的 Date"(与 bjNow() 的返回形态一致), 2026-09-16 = 周三
-// 🔴 v4.11.22 旧口径挡 9:00-9:26 整段 → 把 9:15-9:25 竞价主窗口一起治死(9/17 事故)
-//    → v4.11.26 整体回退 → 本版按新口径重做。秒级粒度是本版的关键(旧版只有分钟)。
+// 🔴 演进: v4.11.22 挡 9:00-9:26 整段(连盘前一起封, 且前端不看开关) → 9/17 事故回退;
+//    v4.11.27 挡 9:00-9:15 + 9:25:00-9:25:35(竞价段放行) ;
+//    v4 主人拍板:**只认当日 9:25 定格** → 只挡竞价段, 盘前改为放行+顶栏标注来源日期。
+//    秒级粒度是关键(竞价段起止都必须到秒)。
 function bj(y, m, d, hh, mm, ss = 0) { return new Date(y, m - 1, d, hh, mm, ss) }
 
 test('选股闸门常量与后端同口径', () => {
-  assert.equal(PICK_BLOCK1_FROM, 9 * 3600)
-  assert.equal(PICK_BLOCK1_TO, 9 * 3600 + 15 * 60)
-  assert.equal(PICK_BLOCK2_FROM, 9 * 3600 + 25 * 60)
-  assert.equal(PICK_BLOCK2_TO, 9 * 3600 + 25 * 60 + 35)
+  assert.equal(PICK_BLOCK_FROM, 9 * 3600 + 15 * 60)
+  assert.equal(PICK_BLOCK_TO, 9 * 3600 + 25 * 60 + 35)
   assert.equal(PICK_OPEN, 9 * 3600 + 25 * 60 + 36)
   // 文案与 backend/app/services/picker/mode.py 逐字一致(后端有对拍单测)
-  assert.equal(PICK_BLOCK_MSG_TIME, '9:15 后开放 · 正在等待 9:25 竞价定格')
+  assert.equal(PICK_BLOCK_MSG_TIME, '竞价进行中 · 9:25 定格后开放')
   assert.equal(PICK_BLOCK_MSG_SNAP, '9:25 竞价定格尚未落库 · 稍后自动恢复')
 })
 
-test('isPickBlockedTime: 第一段 9:00:00-9:14:59 禁用', () => {
-  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 8, 59, 59)), false)
-  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 0, 0)), true)
-  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 5)), true)
-  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 14, 59)), true)
-  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 15, 0)), false)   // 边界: 放行
-})
-
-test('isPickBlockedTime: 9:15:00-9:24:59 **放行**(竞价主窗口, v4.11.22 事故修复核心)', () => {
-  // 这一段是主人的真实选股来源(9/16 该窗口产出 13 批 / 98 只 / 均分 7.5 / 最高 35)
-  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 15, 0)), false)
-  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 19, 30)), false)
-  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 24, 59)), false)
-})
-
-test('isPickBlockedTime: 第二段 9:25:00-9:25:35 禁用(秒级边界)', () => {
-  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 24, 59)), false)
-  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 25, 0)), true)
+test('isPickBlockedTime: 竞价段 9:15:00-9:25:35 禁用(秒级边界)', () => {
+  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 14, 59)), false)  // ★ 盘前最后一秒放行
+  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 15, 0)), true)    // ★ 边界: 含
+  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 19, 30)), true)   // 竞价进行中
+  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 24, 59)), true)
+  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 25, 0)), true)    // 当日定格未落库
   assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 25, 23)), true)   // 实测落库区间
   assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 25, 32)), true)
   assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 25, 35)), true)   // 边界: 含
@@ -85,20 +73,28 @@ test('isPickBlockedTime: 第二段 9:25:00-9:25:35 禁用(秒级边界)', () => 
   assert.equal(isPickBlockedTime(bj(2026, 9, 16, 14, 0)), false)
 })
 
-test('isPickBlockedTime: 盘前与周末放行', () => {
-  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 0, 30)), false)   // 盘前
-  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 8, 0)), false)
-  assert.equal(isPickBlockedTime(bj(2026, 9, 19, 9, 5)), false)    // 周六(第一段内也放行)
-  assert.equal(isPickBlockedTime(bj(2026, 9, 20, 9, 25, 10)), false)  // 周日(第二段内也放行)
+test('isPickBlockedTime: 盘前 9:00-9:14:59 **放行**(v4.11.22 事故回归防线)', () => {
+  // v4.11.22 把盘前(用上交易日定格, 设计内功能)与竞价段混成一段封死;
+  // v4 主人拍板"盘前保留但强制标注" ⇒ 必须放行, 由顶栏标注来源日期消歧。
+  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 0, 30)), false)
+  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 8, 59, 59)), false)
+  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 0, 0)), false)
+  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 5)), false)
+  assert.equal(isPickBlockedTime(bj(2026, 9, 16, 9, 14, 59)), false)
+})
+
+test('isPickBlockedTime: 周末放行(回放最近交易日定格是既有功能)', () => {
+  assert.equal(isPickBlockedTime(bj(2026, 9, 19, 9, 5)), false)       // 周六
+  assert.equal(isPickBlockedTime(bj(2026, 9, 20, 9, 25, 10)), false)  // 周日
 })
 
 // ---- 2026-09-17 闸门开关联动 ----------------------------------------
 // 9/17 早盘事故: 前端置灰只看时间、不看后端开关 → `pick_window_guard=0` 只关了后端,
-// 前端 9:00-9:26 依旧置灰且连自动加载都不发请求, 用户完全点不动。
+// 前端依旧置灰且连自动加载都不发请求, 用户完全点不动。
 // 以下用例是这条回归的防线(2026-09-17 = 周四)。
 test('isPickGateOn: 开关关闭时一律放行(9/17 事故回归防线)', () => {
   assert.equal(isPickGateOn(false, bj(2026, 9, 17, 9, 0)), false)
-  assert.equal(isPickGateOn(false, bj(2026, 9, 17, 9, 15)), false)       // 竞价主窗口
+  assert.equal(isPickGateOn(false, bj(2026, 9, 17, 9, 15)), false)       // 竞价段
   assert.equal(isPickGateOn(false, bj(2026, 9, 17, 9, 25, 10)), false)
   // 0 / null / undefined 等假值同样视为「开关关闭」
   assert.equal(isPickGateOn(0, bj(2026, 9, 17, 9, 15)), false)
@@ -108,9 +104,9 @@ test('isPickGateOn: 开关关闭时一律放行(9/17 事故回归防线)', () =>
 
 test('isPickGateOn: 开关开启时与纯时间口径逐点一致', () => {
   assert.equal(isPickGateOn(true, bj(2026, 9, 17, 8, 59)), false)
-  assert.equal(isPickGateOn(true, bj(2026, 9, 17, 9, 0)), true)
-  assert.equal(isPickGateOn(true, bj(2026, 9, 17, 9, 15)), false)     // 新口径: 放行
-  assert.equal(isPickGateOn(true, bj(2026, 9, 17, 9, 20)), false)
+  assert.equal(isPickGateOn(true, bj(2026, 9, 17, 9, 0)), false)      // 新口径: 盘前放行
+  assert.equal(isPickGateOn(true, bj(2026, 9, 17, 9, 15)), true)      // 新口径: 竞价段拦
+  assert.equal(isPickGateOn(true, bj(2026, 9, 17, 9, 20)), true)
   assert.equal(isPickGateOn(true, bj(2026, 9, 17, 9, 25, 10)), true)
   assert.equal(isPickGateOn(true, bj(2026, 9, 17, 9, 25, 36)), false)
   assert.equal(isPickGateOn(true, bj(2026, 9, 17, 9, 26)), false)

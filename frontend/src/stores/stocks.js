@@ -60,6 +60,11 @@ export const useStocksStore = defineStore('stocks', {
     // 由 _loadPickGateEnabled() 通过 /api/stocks?action=ping 探测并刷新。
     pickGateEnabled: true,
     pickGateCheckedTs: 0,      // 上次探测开关的时间(60s 节流, 避免 20s 定时器反复发请求)
+    // 2026-09-18 (v4.11.29) 定格数据来源日期: 盘前/非交易日按设计仍出名单(用上一交易日
+    // 9:25 定格), 顶栏据此常驻标注"当前为 X 日定格数据", 避免被误当成当日名单
+    // (主人 9/18 反馈「刷出来是昨天的数据」即这类误解)。
+    freezeDate: '',            // 后端 /api/stocks 返回的 freezeDate(名单所用定格日期)
+    freezeIsToday: true,       // == 当日? false 时顶栏出标注条
   }),
   actions: {
     // ---- 筛选参数(盘中/竞价共用 filterSettings) ----
@@ -335,8 +340,21 @@ export const useStocksStore = defineStore('stocks', {
       // 2026-08-22 主人需求: 9:30 后刷新页面必须保留用户当天**手动锁定**名单,
       // 不被统一批次覆盖(名单固定, 符合"9:30 后仅更新实时行情、不重选")。
       // 故手动 lock 批次优先; 仅当日未手动锁定时才用统一批次保证一致性。
-      const userLock = batches.find((x) => x.action === 'lock' && x.batch_date === today && !x.auto_applied)
-      const autoB = batches.find((x) => x.auto_applied && x.batch_date === today)
+      //
+      // 2026-09-18 (v4.11.29) 🔴 定格前批次**必须排除**:
+      //   早于当日 9:25 定格落库时刻写入的批次, 其竞涨幅/竞价额取自**上一交易日** 9_25
+      //   (当日定格尚未落库 → load_day_bid_change 自动回退), 而竞涨幅占评分权重 34%
+      //   ⇒ 名单与评分双双失真。今天(9/18)主人看到的"刷出来是昨天的数据"就是
+      //   09:15 锁定的 #1674 在下午被这里回显: 5 只票竞涨幅逐位 = 昨日值(黑猫 3.35,
+      //   今日实为 1.00)。排除后页面走 refresh 现取, 拿到当日定格名单。
+      //   定格前的名单仍可在「历史回看」里查到, 不丢。
+      //   🔴 判据由后端 `freeze_ready` 给出(它才拿得到 snapshot_bid 的落库时刻) ——
+      //   前端**不要**自己用 "09:25:36" 之类的固定时刻猜: 系统批次(#9_25)由落库事件
+      //   触发, 实测只比落库晚 3 秒, 固定时刻会把它(合法名单)误杀。
+      const freezeReady = (x) => x.batch_date === today && x.freezeReady === true
+      const userLock = batches.find((x) => x.action === 'lock' && !x.auto_applied &&
+        freezeReady(x))
+      const autoB = batches.find((x) => x.auto_applied && freezeReady(x))
       const isAuto = !userLock && !!autoB
       const b = userLock || autoB
       if (!b) return []
@@ -357,6 +375,10 @@ export const useStocksStore = defineStore('stocks', {
       // 标记是否系统统一批次(9:26 自动应用): 统一批次不随用户筛选条件过滤, 保证全用户一致。
       // 仅当实际命中 auto_applied 批次(isAuto)时才为 true; 命中手动锁定批次则为 false(需按条件过滤)
       stocks.autoApplied = isAuto
+      // 2026-09-18: 回显批次同样标注定格来源 —— 命中当日定格后批次 → freezeIsToday=true;
+      // 命中历史日期批次 → 顶栏出标注条。freezeReady 已保证不会命中定格前的当日批次。
+      stocks.freezeDate = b.batch_date || ''
+      stocks.freezeIsToday = (b.batch_date === today)
       return stocks
     },
     // ---- 数据操作 ----
@@ -377,6 +399,12 @@ export const useStocksStore = defineStore('stocks', {
         throw e
       }
       this.clearPickBlocked()
+      // 2026-09-18: 记录名单所用定格日期(后端透出)。盘前/非交易日 = 上一交易日 →
+      // 顶栏标注条据此显示, 避免"上一交易日名单被当成当日名单"。
+      if (data.freezeDate) {
+        this.freezeDate = data.freezeDate
+        this.freezeIsToday = data.freezeIsToday !== false
+      }
       if (action === 'lock') {
         this.saveBidSnapshot(data.list)          // 保存完整竞价锁定名单(含抢筹结论)
         this.cachedStocks = data.list
