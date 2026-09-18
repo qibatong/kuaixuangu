@@ -281,6 +281,7 @@ def init_db():
             bid_buy_amt REAL NOT NULL DEFAULT 0,
             float_mv REAL NOT NULL DEFAULT 0,
             free_mv REAL NOT NULL DEFAULT 0,
+            warn_type INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (date, time_point, code)
         )
     """)
@@ -298,6 +299,18 @@ def init_db():
     if "board" not in bcols2:
         # 概念/行业标签(f103概念优先, f100行业兜底), 供 昨日涨停/昨断板 等概念列补全
         cur.execute("ALTER TABLE snapshot_bid ADD COLUMN board TEXT")
+    # 2026-09-18 (v4.11.30): 异动等级(东财 f630) 随定格一起落库。
+    #   背景: 主人要求把评分 17% 权重的「异动」改回东财 f630, 但**东财点查
+    #   (push2 ulist.np) 长期被封**(实测 RemoteDisconnected) → 定格链路(9:25 后选股)
+    #   的名单行来自 snapshot_bid, 而 from_snapshot 原先不设 warn_type, 补丁源又拿不到
+    #   f630 → 全市场落 default 0.18, 17% 权重退化成常数(9/8、9/17 两次事故)。
+    #   而**全市场 clist(push2dycalc) 是通的且 config.FIELDS 本就带 f630**
+    #   (实测 5856 只里 1268 只非 0 = 21.7%, 取值域 0~14, 3/4/5 档齐全)
+    #   → 在 9_25 采集那一秒顺手落库,
+    #   定格链路就有了权威异动等级, 且与「9:25 定格一次定生死」的口径一致。
+    #   语义: 0=无异动(与历史 f630=0 同义, 评分落 default), 列 NOT NULL 故历史行回填 0。
+    if "warn_type" not in bcols2:
+        cur.execute("ALTER TABLE snapshot_bid ADD COLUMN warn_type INTEGER NOT NULL DEFAULT 0")
     # 密码重置令牌
     cur.execute("""
         CREATE TABLE IF NOT EXISTS reset_tokens (

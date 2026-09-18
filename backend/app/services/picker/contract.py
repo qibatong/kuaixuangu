@@ -310,6 +310,11 @@ class QuoteRow:
         快照是竞价字段的**权威来源**: bid_change/bid_amt 直接取; 无实时价 → price
         取昨收(见 DEGRADE_RULES)。
         float_mv 缺失回退 free_mv(快照表历史脏数据: float_mv=0 但 free_mv 有值)。
+
+        warn_type(2026-09-18 v4.11.30): 快照表现在也落**东财 f630 异动等级**。
+        这是 17% 异动因子在定格链路的唯一来源 —— 东财点查(push2 ulist)长期被封,
+        补丁源拿不到 f630(详见 database.init_db 的 snapshot_bid.warn_type 注释)。
+        老库/老行无此键 → None → 评分走 default(与改动前行为一致)。
         """
         prev = _f(v.get("pre_close")) or _f(v.get("f18"))
         fmv = _f(v.get("float_mv")) or _f(v.get("free_mv"))
@@ -324,6 +329,7 @@ class QuoteRow:
             prev_close=prev,
             open=_f(v.get("open")),
             real_change=_f(v.get("change")) or _f(v.get("real_change")),
+            warn_type=(lambda x: None if x is None else int(x))(_f(v.get("warn_type"))),
             float_mv=fmv,
             industry=v.get("industry") or None,
             concept=v.get("concept") or None,

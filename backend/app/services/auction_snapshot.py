@@ -8,6 +8,7 @@
 """
 import concurrent.futures
 import json
+import sqlite3
 import threading
 import time
 
@@ -91,6 +92,13 @@ def _fetch_market_map(full=False):
                         "float_mv": scorer.parse_float(s.get("f21")),             # 流通市值(元, 东财 f21)
                         "free_mv": scorer.parse_float(s.get("f117")) or scorer.parse_float(s.get("f21")),  # 实际流通市值(元): 东财 f117 自由流通≈开盘啦"实际流通", f21 兜底
                         "board": str(s.get("f103") or s.get("f100") or ""),       # 概念(f103优先, 行业f100兜底)
+                        # 异动等级(东财 f630, 2026-09-18 v4.11.30): 评分 17%「异动」因子在
+                        # 定格链路的唯一来源。东财**点查被封**(实测 push2 ulist 直接
+                        # RemoteDisconnected) → 只能靠全市场 clist 在采集时落库
+                        # (config.FIELDS 本就含 f630; 详见 database.init_db 的
+                        #  snapshot_bid.warn_type 迁移注释)。
+                        # 0 = 无异动(与历史 f630=0 同义, 评分落 default); 异常/缺失一律 0。
+                        "warn_type": int(scorer.parse_float(s.get("f630"))),
                     }
         # 三源冗余兜底: 东财全失败时用开盘啦竞价榜填充关键股票
         if not raw_all:
@@ -140,6 +148,7 @@ def _merge_tickplus(raw_all, tp_map):
                 "float_mv": 0,        # TickPlus 不给市值 → 由 mv_cache.fill 后补
                 "free_mv": 0,
                 "board": "",
+                "warn_type": 0,       # TickPlus 无 f630 → 0(未知按无异动处理, 与东财缺省一致)
                 "_src": "tp",
             }
             added += 1
@@ -188,6 +197,7 @@ def _fetch_kpl_fallback():
                 "float_mv": 0,                          # 留给 mv_cache.fill 补真流通市值
                 "free_mv": s.get("floatMv") or 0,       # 开盘啦口径 = 实际流通(≈自由流通)
                 "board": s.get("board") or "",
+                "warn_type": 0,                         # 开盘啦无 f630 异动等级 → 0(未知=无异动)
             }
         # 竞价爆量榜: 高竞价量股票
         boom_list = kpl.fetch_bid_boom() or []
@@ -203,6 +213,7 @@ def _fetch_kpl_fallback():
                 "float_mv": 0,                          # 同委买榜: 留给 mv_cache.fill 补
                 "free_mv": s.get("floatMv") or 0,       # 开盘啦口径 = 实际流通(≈自由流通)
                 "board": s.get("board") or "",
+                "warn_type": 0,                         # 同上: 兜底源无 f630
             }
         log.info("[快照采集] 开盘啦兜底: 委买%d只 爆量%d只 合并去重%d只",
                  len(seal_list), len(boom_list), len(fallback))
@@ -481,10 +492,11 @@ def snapshot_at(time_point, force=False):
     try:
         conn = database.get_conn()
         conn.executemany(
-            "INSERT OR REPLACE INTO snapshot_bid (date, time_point, code, bid_change, bid_amt, name, bid_buy_amt, float_mv, free_mv, board, ts) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO snapshot_bid (date, time_point, code, bid_change, bid_amt, name, bid_buy_amt, float_mv, free_mv, board, warn_type, ts) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             [(date, time_point, code, v["bid_change"], v["bid_amt"], v.get("name", ""),
-              v.get("bid_buy_amt", 0), v.get("float_mv", 0), v.get("free_mv", 0), v.get("board", ""), int(time.time()))
+              v.get("bid_buy_amt", 0), v.get("float_mv", 0), v.get("free_mv", 0), v.get("board", ""),
+              int(v.get("warn_type") or 0), int(time.time()))
              for code, v in raw_all.items()])
         conn.commit()
     except Exception as e:
@@ -661,10 +673,30 @@ def load_snapshot(date=None, time_point=DEFAULT_POINT):
     return {r[0]: {"bid_change": r[1], "bid_amt": r[2]} for r in rows}
 
 
+def _select_snap_rows(conn, use_date, time_point):
+    """读某日某时点定格行(列序: code,name,bid_change,bid_amt,float_mv,free_mv,board,warn_type)。
+
+    2026-09-18 (v4.11.30): `warn_type`(东财 f630 异动等级) 是后加的列。**未迁移的老库**
+    (或测试里自建的精简 snapshot_bid 表) 缺该列 → 这里显式降级为「无 warn_type」而非
+    让整个 load_snapshot_full 抛异常返回 {} —— 那会让**整个名单独不出来**(比"异动缺值"
+    严重得多)。降级行补 None → QuoteRow.warn_type=None → 评分走 default, 与改动前一致。
+    """
+    base = "SELECT code, name, bid_change, bid_amt, float_mv, free_mv, board "
+    try:
+        return conn.execute(
+            base + ", warn_type FROM snapshot_bid WHERE date=? AND time_point=?",
+            (use_date, time_point)).fetchall()
+    except sqlite3.OperationalError:
+        rows = conn.execute(
+            base + "FROM snapshot_bid WHERE date=? AND time_point=?",
+            (use_date, time_point)).fetchall()
+        return [tuple(r) + (None,) for r in rows]
+
+
 def load_snapshot_full(date=None, time_point="9_25"):
     """读某日某时点**全市场快照行**(盘后 filter 候选池用, 2026-09-07 主人要求:
     候选池=全市场且直接用已自动采集的快照表, 不再实时拉全市场 28 页)。
-    返回 {code: {name, bid_change, bid_amt, float_mv(元), free_mv(元), board}};
+    返回 {code: {name, bid_change, bid_amt, float_mv(元), free_mv(元), board, warn_type}};
     float_mv/free_mv 保持原始单位(元, 与行情 f20/f21 一致, /1e8=亿)。
     当日该时点无快照(周末/休市/采集缺失)→ 自动回退**最近一个有快照的交易日**,
     保证休市/盘后浏览仍能按最近竞价结果筛股。"""
@@ -679,9 +711,7 @@ def load_snapshot_full(date=None, time_point="9_25"):
             "date('now', '-15 days', '+8 hours')",
             (date, time_point)).fetchone()
         use_date = row[0] if row and row[0] else date
-        rows = conn.execute(
-            "SELECT code, name, bid_change, bid_amt, float_mv, free_mv, board "
-            "FROM snapshot_bid WHERE date=? AND time_point=?", (use_date, time_point)).fetchall()
+        rows = _select_snap_rows(conn, use_date, time_point)
     except Exception:
         return {}
     finally:
@@ -695,7 +725,11 @@ def load_snapshot_full(date=None, time_point="9_25"):
                  date, use_date, time_point)
     return {
         r[0]: {"name": r[1] or "", "bid_change": r[2], "bid_amt": r[3],
-               "float_mv": r[4] or 0.0, "free_mv": r[5] or 0.0, "board": r[6] or ""}
+               "float_mv": r[4] or 0.0, "free_mv": r[5] or 0.0, "board": r[6] or "",
+               # 异动等级(东财 f630, v4.11.30): 定格链路的 17% 异动因子来源。
+               # None(老库该列不存在/行缺失) → QuoteRow.warn_type=None → 走 default,
+               # 与改动前行为一致, 不制造回归。
+               "warn_type": r[7]}
         for r in rows}
 
 

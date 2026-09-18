@@ -1,0 +1,56 @@
+fix(异动因子): 17% 异动改回东财 f630 —— 采集侧随定格落库 (v4.11.30, 仅测试机)
+
+主人指令: 「把选股占 17% 比例的异动改回东财的异动字段, 也是上测试环境」。
+生产一律待主人放行, 本版只上测试机(47.99.153.123), 下周一实盘验证。
+
+🔴 关键结论: 光翻开关 settings.use_bid_strength='0' 等于复现事故
+  定格链路的名单行来自 snapshot_bid, 而 QuoteRow.from_snapshot 原先
+  **根本不设 warn_type** → 全员 default 0.18 → 17%×(1-0.18) = 13.9 分蒸发
+  → 概率天花板 99.4 崩到 85.5 → 被 scoreFloor=80 压成空名单。
+  9/8 批次 #1585 全 39 只 warn=0、9/17 全天零名单, 都是这一形态。
+  ⇒ 必须让 f630 进 snapshot_bid(采集侧落库), 而不是只动开关。
+
+🔴 东财两条通路实测: 一死一通(本版核心事实)
+  ❌ 点查 push2.eastmoney.com/api/qt/ulist.np/get (fetcher.fetch_raw_by_codes /
+     补丁源 eastmoney_realtime) —— 长期 RemoteDisconnected。
+  ✅ 全市场 clist push2dycalc —— config.FIELDS 本就含 f630;
+     实测 5856 只中 1268 只非 0(21.7%), 取值域 0~14, 3/4/5 档齐全。
+  ⇒ f630 只能在 9_25 采集那一秒随定格一起入库, 与「9:25 定格一次定生死」口径一致。
+
+实现四环(逐环验证通过):
+  ① db/database.py: snapshot_bid 加 warn_type INTEGER NOT NULL DEFAULT 0(幂等 ALTER)
+  ② auction_snapshot._fetch_market_map: 行构造加 warn_type = int(parse_float(f630));
+     兜底源一律写 0(_merge_tickplus / _fetch_kpl_fallback 的两个榜 —— 开盘啦与
+     TickPlus 都没有 f630)
+  ③ snapshot_at 的 INSERT 列 + 新增 _select_snap_rows(): 首选带 warn_type 的
+     SELECT, 捕获 sqlite3.OperationalError 后退回原列集并补 None ——
+     **未迁移老库要降级, 不许让整个名单失踪**
+  ④ picker/contract.QuoteRow.from_snapshot: 读 warn_type(缺键/None → None → 评分
+     走 default, 与改动前一致)
+
+档位映射(scorer.DEFAULT_SCORING.factors.warn.buckets, 本版未重校):
+  5→1.00 / 4→0.85 / 3→0.60, 其余(0,1,2,9,10…)→ default 0.18。
+  实测分布 ≈ 0:64% / 4:26% / 3:5% / 5 极稀有 ⇒ 真实增益主要来自 4 档。
+  同行情只改 warn_type 的量化: 全市场天花板 83 → 95, p99 55 → 69。
+
+A/B 实证(进程内直跑 pipeline.run(), 不落库 —— 接口级会命中批次复用 reused=True,
+证明不了主链路):
+  A 绕过开关直调 bid_strength.load: 400 只中 396 只有分
+  B pipeline._load_strength: {} (开关真短路)
+  C pipeline.run(): 零 3/4/5 档、candidate=8 kept=0 (当日定格表 warn_type 全 0 所致, 符合预期)
+
+验证: 新增 tests/test_f630_warn_0918.py 18 例, 含两条反向防线
+  test_config_fields_still_request_f630(谁把 f630 从 FIELDS 摘掉它红)
+  test_load_snapshot_full_degrades_on_old_schema(老库必须能降级)
+  测试机全量 1062 passed / 4 skipped / 0 failed (214.67s)。
+  部署: md5 逐文件比对一致 + py_compile + 重启后 warn_type 列成功加出。
+  DB 备份 /root/kuaixuan.db.bak_v41130_premig_20260918_180447。
+
+⚠️ 已知影响(不可误判为故障): 9/18 及更早定格表 warn_type 全 0(迁移前采集)
+  ⇒ 周末 + 周一盘前(PREOPEN 回退 09-18 定格)名单会偏少甚至为空,
+    周一 09:25:20~30 采集落库后恢复真值。
+
+⚠️ 遗留: 兜底源写 0 与「真无异动」同值 ⇒ 事后无法区分"真 0"与"没取到";
+  cyb/kcb 东财分页失败走腾讯兜底时那些票 f630=0(分板块覆盖缺口)。
+
+回滚: settings.set('use_bid_strength','1')(无需重启); warn_type 列留着无害。

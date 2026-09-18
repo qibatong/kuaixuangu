@@ -76,7 +76,7 @@
 | `frontend_local_filter` | 0 | 前端浏览器内本地秒筛（关 → 前端静默回退后端筛选） |
 | `history_null_restore` | 0 | 历史读侧按 `miss_fields` 把兜底 0 还原为 `null`（未知 ≠ 0） |
 | `pick_window_guard` | **prod=0 / test=1** | **选股闸门 v4**（v4.11.29，2026-09-18）：交易日只挡 `[09:15:00, 09:25:35]` 一段；盘前放行（顶栏标注定格来源）；`≥09:25:36` 还须过快照维。置 `0` = **只放开时间维**，前端 `ping.pickGateEnabled` 同步放行（最轻回滚，无需重启）。🔴 **注意：置 0 不会关闭「定格前批次不复用/不回显」那条硬判据**（它不经开关）。⚠️ 血泪史：v4.11.22「9:00-9:26 整段禁」把竞价主窗口治死 → 9/17 早盘 0 请求事故 → v4.11.26 回退摘除 → v4.11.27「只挡两段」→ **v4.11.29「只挡一段」**。详见第七节 |
-| `use_bid_strength` | **'1'** | 17% 「异动等级」因子的取值口径：`1`=竞价强度（默认，`bid_strength`），`0`=东财 f630。🔴 **09-17 08:41 曾置 0（v4.11.23），同日 10:25 因评分普降 5~17 分压破 `scoreFloor` 事故回滚为 `1`**。改这个**必须同时**确认 `picker/pipeline._load_strength()` 的 `enabled()` 短路存在，否则开关静默无效 |
+| `use_bid_strength` | **prod='1' / test='0'** | 17% 「异动等级」因子的取值口径：`1`=竞价强度（`bid_strength` 三层：快照自算量比 + 开盘啦抢筹 + 9_24→9_25 加速度，**对东财免疫**），`0`=东财 f630 异动等级。🔴 **09-17 08:41 曾置 0（v4.11.23），同日 10:25 因评分普降 5~17 分压破 `scoreFloor` 事故回滚为 `1`**；**09-18 夜 v4.11.30 重新置 0（仅测试机，生产待主人放行）**。⚠️ 改这个**两个前置条件**：① `picker/pipeline._load_strength()` 的 `enabled()` 短路必须存在（否则开关静默无效）；② **`snapshot_bid.warn_type` 必须已有该日 f630**（v4.11.30 起采集侧落库）—— 东财**点查**（`push2.../ulist.np`）长期 `RemoteDisconnected`，f630 只能靠**全市场 clist** 在 9_25 采集时入库，历史零名单日期没落过 → 那些日子切到 `0` 就是"全员 default 0.18"，必被 `scoreFloor=80` 压成空名单（9/17 形态）。详见第七节 |
 
 ⚠️ **禁止裸 SQL 写这些 key**：读侧 `json.loads` 失败会**静默回退默认值**（不报错），
 表现为"开关设了像没设"。判断生效要 `SELECT value FROM settings WHERE key=...` 看**带引号**的 JSON。
@@ -146,6 +146,39 @@
   这 35 秒内不让用户发起请求）；`_freeze_landing_ts` 是**数据真伪口径**。不可互相替代。
   定格前名单**不删除**，仍可在「历史回看」查到。
   回归防线 = `tests/test_freeze_guard_0918.py::test_system_batch_lands_just_after_freeze`。
+
+- **🔴 17% 异动因子 = 东财 f630，随定格落库（v4.11.30，2026-09-18 主人指令，仅测试机）**：
+  口径从「竞价强度」切回「东财异动等级」（`settings.use_bid_strength='0'`），**但光翻开关等于复现事故** ——
+  定格链路的行来自 `snapshot_bid`，而 `QuoteRow.from_snapshot` 原本**根本不设 `warn_type`**
+  → 全员 `default 0.18` → 17%×0.82 = **13.9 分蒸发** → 概率天花板 99.4→85.5 → 被 `scoreFloor=80`
+  压成**空名单**（9/17 全天零名单 / 9/8 批次#1585 全部 warn=0，同一形态）。所以必须**采集侧落库**。
+  - 🔴 **东财两条通路：一死一通**（本版核心事实，别再赌点查）：
+    ❌ **点查** `push2.eastmoney.com/api/qt/ulist.np/get`（`fetcher.fetch_raw_by_codes`，即补丁源
+    `eastmoney_realtime`）**长期 `RemoteDisconnected`**；且它**只是补丁源**，不参与定格名单行构造。
+    ✅ **全市场 clist** `push2dycalc`（`config.FIELDS` 本就含 `f630`）实测 5856 只中 **1268 只非 0**，
+    取值域 0~14、`3/4/5` 档齐全 —— ⇒ **f630 只能在 9_25 采集时随定格一起入库**。
+  - 实现四环（改这条链必逐环复查）：
+    ① 建表/迁移 `db/database.py`：`snapshot_bid` 加 `warn_type INTEGER NOT NULL DEFAULT 0`（幂等 `ALTER`）；
+    ② 采集 `auction_snapshot._fetch_market_map` 行构造加 `"warn_type": int(scorer.parse_float(s.get("f630")))`，
+       **兜底源一律写 0**（`_merge_tickplus` / `_fetch_kpl_fallback` 的两个榜：开盘啦与 TickPlus 都没有 f630）；
+    ③ 落库 `snapshot_at` 的 INSERT 列 + `_select_snap_rows()`（首选带 `warn_type` 的 SELECT，
+       捕获 `sqlite3.OperationalError` 后退回原列集并补 `None` —— **老库缺列要降级，不许让名单整体失踪**）；
+    ④ 契约 `QuoteRow.from_snapshot` 读 `warn_type`（缺键/None → `None` → 评分落 `default`）。
+  - 档位映射（`scorer.DEFAULT_SCORING.factors.warn.buckets`，**本版未重校**）：
+    `5→1.00 / 4→0.85 / 3→0.60`，**其余（0,1,2,9,10…）→ `default 0.18`**。
+    实测分布 ≈ `0:64% / 4:26% / 3:5% / 5 极稀有` ⇒ f630 的真实增益主要来自 `4` 档。
+    量化（同一行只改 `warn_type`）：全市场天花板 83 → 95，p99 55 → 69。
+  - 🔴 **降级纪律**：兜底源写 0 与「真无异动」同值 ⇒ **事后无法区分"真 0"与"没取到"**
+    （`miss_fields` 可解，未做）；分板块覆盖缺口 —— cyb/kcb 东财分页失败走腾讯兜底时**那些票 f630=0**。
+  - ⚠️ **本版已知影响（不可误判为故障）**：9/18 及更早的定格表 `warn_type` **全 0**（迁移前采集），
+    ⇒ **周末 + 周一盘前（PREOPEN 回退 09-18 定格）名单会偏少甚至为空**，
+    **周一 `09:25:20~30` 采集落库后恢复真值**。判断"是否真的生效"看 `snapshot_bid.warn_type` 的非 0 比例。
+  - A/B 验证手法（**别用接口级**：会命中批次复用 `reused=True` 证明不了主链路）：
+    **进程内直接跑 `picker.pipeline.run()`**（不落库）；对照 `bid_strength.load`（绕过开关）vs
+    `pipeline._load_strength`（走开关，应为 `{}`）。回归防线 = `tests/test_f630_warn_0918.py`（18 例），
+    内含两条反向防线：`test_config_fields_still_request_f630`（谁把 `f630` 从 FIELDS 摘掉它红）
+    与 `test_load_snapshot_full_degrades_on_old_schema`（老库必须能降级）。
+  - 回滚：`settings.set('use_bid_strength','1')`（**无需重启**）；`warn_type` 列留着无害。
 - **9:30 后**：action=refresh → 后端直读当日批次（优先级：用户手动 lock → 手动 filter → 9:26 系统统一批次 auto），仅实时行情覆盖，名单定格。
 - **当日无批次/休市**：自动回退 14 天窗口内**最近交易日**同参批次直读（`find_recent_reusable_batch`），响应带 `reusedDate`，前端直接采用并提示「已载入 X 的选股名单」——解决「关闭后再打开首页转圈」。
 - 参数指纹（`_canon_filter_fingerprint`）不一致 = 用户改过条件 → 必须重算，不回退不直读；空名单批次（stock_count=0）无直读价值。
@@ -257,12 +290,19 @@
   → **v4.11.28 修正 `test_snapshot_kpl_unit.py` 旧断言 → 989 / 5 skip + 6 红（v4.11.27 遗留红灯，非本次引入）**
   → **1022 / 4 skip / 0 红**（9/18 v4.11.29：新增 `test_freeze_guard_0918.py` **19 例** + 闸门测试重写
   + 修掉 `test_auto_apply.test_is_user_active_expired` 的**过期未还原**顺序耦合缺陷）。
+  → **1062 / 4 skip / 0 红**（9/18 夜 v4.11.30：新增 `test_f630_warn_0918.py` **18 例**
+  + 测试机补传 `test_bid_strength_switch.py` 22 例）。
+  ⚠️ **测"真实读库"必须绕过 session 级桩**：`conftest.mock_data_source`（session autouse）把
+  `auction_snapshot.load_snapshot_full` 桩成了 `MOCK_RAW` 造的快照 —— v4.11.30 起 conftest 额外暴露
+  `_asnap._real_load_snapshot_full`，需要打真实实现的用例用它（否则测的是桩、结论无效）。
   ⚠️ 新增"写 uid=0 系统批次"的用例**必须用 id 水位线在 teardown 回收**，否则跨文件污染
   （uid=0 批次是全局共享的，会让别的用例的跨日回退错误命中今天）。
   ⚠️ 写测试日期**一律按今天相对推算**，别写字面量 —— 那 2 条红就是这么来的。
   ⚠️ **会话级 fixture（`first_user`）被用例改过的字段必须 `finally` 还原**：v4.11.29 实测
   `test_auto_apply.test_is_user_active_expired` 把"第一个非管理员用户"设过期后不还原 →
   污染 `first_user` → 后续 `test_history` 等文件的 API 用例集体 **403「过期账号」**。
+  ⚠️ **同一文件的多个 `Edit` 不要并行提交**（后写的会覆盖前一次）—— v4.11.30 丢过一次改动，
+  靠 `git diff` 复查 + 新单测暴露。
   表征是"**单文件绿、多文件连跑红**"，极易误判成本次回归。同文件里的
   `test_auto_apply_skip_admin_and_expired`（在 test_history.py 内）就是**有还原**的正确写法。
   ⚠️ **测试机基线**：v4.11.29 实测全量 **1022 / 0 红**（此前记录的"固有 2 红

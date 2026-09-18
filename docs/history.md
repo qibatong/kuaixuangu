@@ -1477,6 +1477,47 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.30 (09-18 夜 已推测试机, 生产待放行) 17% 异动因子改回东财 f630 —— 点查被封 ⇒ 定格采集侧落库的通路打通**
+  - **指令**：主人「把选股占 17% 比例的异动改回东财的异动字段，也是上测试环境」+「后面生产环境都需要我允许才上」。
+  - **关键实测（决定了实现路径, 不是猜测）**：
+    - ❌ 东财**点查**（`push2.eastmoney.com/api/qt/ulist.np/get` = 补丁源 `eastmoney_realtime`）
+      实测 `RemoteDisconnected`（09-18 18:48 测试机复测）→ 定格链路**永远拿不到 f630**；
+    - ✅ 东财**全市场 clist**（`push2dycalc`）通，且 `config.FIELDS` **本就含 f630** →
+      实测 5856 只里 **1268 只** warn_type 非 0（hs 板块口径 36.4%），取值域 0~14，3/4/5 档齐全；
+    - ⇒ **光翻开关 = 复现 9/17 事故**（全员 default 0.18 → 评分普降 7~14 分 → `scoreFloor=80` 清零名单），
+      必须先把 f630 的**通路**打通再切。
+  - **实现（5 处, 全是"加一条数据通道", 不改评分口径）**：
+    1. `db/database.py`：`snapshot_bid` 增列 `warn_type INTEGER NOT NULL DEFAULT 0`（建表 + 幂等 ALTER 迁移）；
+    2. `services/auction_snapshot.py::_fetch_market_map`：全市场行收 `f630 → warn_type`（异常/缺失落 0）；
+    3. 同文件 `snapshot_at` 的 INSERT 带 warn_type；`_fetch_kpl_fallback` / `_merge_tickplus` 的兜底行
+       补 `warn_type=0`（兜底源没有 f630 —— **等价于 default 分, 评分无差别**，但事后无法区分
+       "真无异动" 与 "没取到"，这是本版**唯一的可观测性缺口**；要严格区分需改可空列或 -1 哨兵，未做）；
+    4. 同文件 `load_snapshot_full`：返回字典带 `warn_type`（新增 `_select_snap_rows`：
+       **老库缺列时降级为 None, 而不是让整个名单读成空** —— 后者比"异动缺值"严重得多）；
+    5. `picker/contract.py::from_snapshot`：读 `warn_type`（老库无该键 → None → 走 default, 行为与改动前一致）。
+  - **开关**：测试机 `settings.set('use_bid_strength','0')`（免重启）。生产**一律待主人放行**。
+  - **A/B 实证（测试机 18:10, 同一批 400 只候选）**：
+    | 路径 | 结果 |
+    |---|---|
+    | A 绕过开关直接 `bid_strength.load`（对照组） | 396 只有分, 档位将是 `{5:10, 4:5, 3:70, 0:311}` |
+    | B 主链路 `pipeline._load_strength` | **`{}`（开关真短路）** |
+    | C `pipeline.run()` 真跑 | 输出**零 3/4/5**; `candidate=8 kept=0 stats={'score_floor': 8}` |
+    ⇒ 强度层**有数据**却输出 0 档, 证明不是"没数据", 是**真的换了源**。
+  - **🔴 已知影响（衡量本版必须先读这段）**：9/18 及更早的定格表是**迁移前**采集的 → warn_type 全 0 →
+    **周末 + 周一盘前（用 09-18 定格）选股会明显偏少、甚至为空**（就是 9/17 那个 `score_floor` 形态）。
+    **周一 09:25:20~30 采集落库后即恢复真值。不要误判为故障。**
+  - **另一个覆盖缺口**：f630 只来自**东财全市场 clist 成功的板块**。实测当日 cyb/kcb 分页失败会走腾讯兜底
+    → 那些票 f630=0。⇒ 创业板/科创板的异动因子在"东财分板块被限流"的日子会落 default（不是全市场一起退化）。
+  - **验证**：新增 `tests/test_f630_warn_0918.py` **18 例**（采集→落库→读取→契约→评分**逐环断言**，
+    外加两条反向防线：「老库缺列必须降级而不是名单失踪」「`config.FIELDS` 必须继续含 f630」）；
+    测试机全量 **1062 passed / 4 skipped / 0 failed**（基线 1022 + 本版 18 + 补传 `test_bid_strength_switch` 22）。
+    🔴 **踩坑**：`conftest.mock_data_source` 是 session 级 autouse, 把 `load_snapshot_full` 桩成了 MOCK_RAW
+    造的快照 → 要测"真实读库那一环"必须用 conftest 本版新暴露的 `_real_load_snapshot_full`，否则测的是桩。
+    🔴 **操作教训**：同一文件的多个 `Edit` **不能并行提交** —— 后写的那次会覆盖前一次（本版丢过一次改动，
+    靠 `git diff` 复查才发现，并用单测暴露）。
+  - **回滚点**：设置级 `settings.set('use_bid_strength','1')`（免重启，回竞价强度口径）；
+    代码级 = 上一版 commit `457e4d1`（v4.11.29）；schema 级 = 备份
+    `/root/kuaixuan.db.bak_v41130_premig_20260918_180447`（迁移前, 235MB）。
 - **v4.11.29 (09-18 午后 已推测试机) 选股闸门 v4「只认当日 9:25 定格」+ 定格前批次不再回显 —— 「测试环境刷出来是昨天的数据」闭环**
   - **起因（主人现象）**：主人看测试环境（admin 账号）刷出来的 5 只票（华瓷股份 / 西陇科学 /
     黑猫股份 / 芒果超媒 / 澳弘电子），**竞价涨幅逐位就是 9/17 的值**（黑猫 3.35，今日实为 1.00）。

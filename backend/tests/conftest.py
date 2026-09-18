@@ -100,6 +100,10 @@ def mock_data_source(monkeypatch_session):
         return out
 
     from app.services import auction_snapshot as _asnap
+    # 2026-09-18: 桩住主链路的同时**保留真实实现入口** —— 需要验证「读库 → 契约」
+    # 这一环的用例(如 test_f630_warn_0918 的 warn_type 透出)必须打到真实实现,
+    # 否则测的是桩、结论无效。别名只加属性、不改任何行为。
+    _asnap._real_load_snapshot_full = _asnap.load_snapshot_full
     monkeypatch_session.setattr(_asnap, "load_snapshot_full", fake_load_snapshot_full)
     # 选股主链路(picker.pipeline)的**补丁源**东财点查/腾讯点查、以及昨日涨幅日K:
     # 若不桩, 测试进程会对 push2 / qt.gtimg.cn 发起真实请求(本地网络不通 → 熔断
