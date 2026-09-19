@@ -1048,8 +1048,58 @@ def fetch_spot_quotes_by_codes(code_list):
 
 
 # 东财按 code 批量拉完整行情接口(2026-09-07 新增): ulist.np/get 返回与 clist 同构的 diff 列表
-_ULIST_URL = "https://push2.eastmoney.com/api/qt/ulist.np/get"
+#
+# 🔴 2026-09-19 真因订正: **封的是域名, 不是接口**。同一 path、同一批参数实测(测试机):
+#     https://push2.eastmoney.com/api/qt/ulist.np/get      → RemoteDisconnected(48ms 秒断)
+#     https://push2dycalc.eastmoney.com/api/qt/ulist.np/get → rc=0 正常返回, **且带 f630**
+#                                                             (000001/300434/002584 实测均为 4)
+#   原先写死 push2 ⇒ fetcher.fetch_raw_by_codes / picker「eastmoney_realtime」补丁源**必然失败**
+#   ⇒ 每次降级腾讯点查, 而**腾讯无 f630** ⇒ 生产日志长期刷「选股快照候选池东财点查失败→腾讯
+#   点查兜底成功」。当初「换完整浏览器特征仍失败」的结论之所以错, 是因为**域名根本没换**
+#   —— 特征换一百遍也救不了一个被封的域名(详见 docs/legacy-baseline-audit.md §5.3)。
+#   ⇒ 改为**多域名顺序重试**(与 config.KLINE_HOSTS / hot_rank._fetch_em_quotes 同一套路):
+#     连接失败的域名进 _broken_hosts 冷却 300s, 上游域名恢复后自动重新探测。
+#   旁证: hot_rank.py 早已把 push2dycalc 版 ulist 排首选并注释「测试机可用」——该知识存在过,
+#   只是没同步到 fetcher。
+_ULIST_HOSTS = (
+    "https://push2dycalc.eastmoney.com",   # 首选: 与全市场 clist 同域名, 实测畅通
+    "https://push2.eastmoney.com",         # 备用: 长期 RemoteDisconnected, 留作域名切换兜底
+)
+_ULIST_PATH = "/api/qt/ulist.np/get"
 _ULIST_BATCH = 60     # 每批 ≤60 只(实测 200 只 URL 过长; 60 稳)
+_ULIST_TIMEOUT = 10
+
+
+def _fetch_ulist_batch(qs):
+    """单批 ulist 点查: 按 _ULIST_HOSTS 顺序重试, 成功即返回 diff(可能为空列表)。
+
+    - 连接层异常 → `_mark_host_broken` 标记该域名(冷却 300s)后换下一个域名;
+    - `rc != 0` 属**数据层**错误(域名是通的) → 不标记域名, 仅换下一个域名重试;
+    - 全部域名都失败 → 抛 RuntimeError, 调用方降级腾讯点查 / 全市场;
+    - 全部域名都在冷却中 → 仍逐一尝试(fail-open: 否则上游恢复后无人探测、永久哑火)。
+
+    ⚠️ 顺序重试只在**同一次调用**内生效; 跨调用靠 _broken_hosts 冷却避免反复打被封域名。
+    """
+    hosts = [h for h in _ULIST_HOSTS if not _host_blocked(h)] or list(_ULIST_HOSTS)
+    err = None
+    for host in hosts:
+        try:
+            req = urllib.request.Request(host + _ULIST_PATH + "?" + qs, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                "Referer": "https://quote.eastmoney.com/"})
+            with _http_get(req, timeout=_ULIST_TIMEOUT, context=_NO_VERIFY_CTX) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except Exception as e:                                    # noqa: BLE001
+            err = e
+            _mark_host_broken(host)
+            log.warning("东财 ulist 点查连接失败 host=%s err=%s", host, e)
+            continue
+        if data.get("rc") != 0:
+            err = RuntimeError("东财 ulist 返回异常 rc=%s" % data.get("rc"))
+            log.warning("东财 ulist 返回异常 host=%s rc=%s", host, data.get("rc"))
+            continue
+        return (data.get("data") or {}).get("diff") or []
+    raise RuntimeError("东财 ulist 点查失败(已试域名 %s): %s" % (",".join(hosts), err))
 
 
 def fetch_raw_by_codes(code_list):
@@ -1059,6 +1109,8 @@ def fetch_raw_by_codes(code_list):
     _fetch_clist_page 同用), 可直接喂 picker 契约层做完整评分; 逐批直拉东财
     ulist(不依赖 spotMap 缓存, 评分字段全), 任一批失败抛异常(调用方降级回全市场)。
     走 _http_get(自动出站 IP 轮询)。
+    ⚠️ 2026-09-19 修: 原写死 push2.eastmoney.com(整站 RST) → 本函数**必然失败**、补丁源形同
+    虚设。现按 _ULIST_HOSTS(push2dycalc 首选)顺序重试, 见该常量注释。
     ⚠️ 2026-09-07 晚修: 曾只列 15 字段漏 **f615(竞价涨幅)/f17(今开)/f630 等** → scorer
     get_bid_change 无 f615 退 f3(现价/收盘涨幅) → 竞涨列=现涨列 + 「涨幅≤bidGt」过滤按
     现价判 → 盘后筛出一批大跌票(生产事故)。必须整段复用 config.FIELDS 防再次漏字段。"""
@@ -1074,15 +1126,7 @@ def fetch_raw_by_codes(code_list):
             "fields": config.FIELDS,     # 与全市场 clist 同构(必须整段复用, 勿手写子集!)
             "secids": secids, "ut": config.EASTMONEY_UT,
         })
-        req = urllib.request.Request(_ULIST_URL + "?" + qs, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-            "Referer": "https://quote.eastmoney.com/"})
-        with _http_get(req, timeout=10, context=_NO_VERIFY_CTX) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        if data.get("rc") != 0:
-            raise RuntimeError("东财 ulist 返回异常 rc=%s" % data.get("rc"))
-        diff = (data.get("data") or {}).get("diff") or []
-        out.extend(diff)
+        out.extend(_fetch_ulist_batch(qs))
     if not out:
         raise RuntimeError("东财 ulist 返回空")
     log.info("东财按code点查 %d只(共%d批) 耗时%.0fms 返回%d只",

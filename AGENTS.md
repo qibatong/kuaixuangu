@@ -276,6 +276,25 @@
     （实测 **150ms 慢速串行同样复现** ⇒ 彻底排除频率因素，也再次印证「不要买代理」）。
   - ⚠️ `down_threshold` **保持 1 不改**：熔断自 2026-09-10 起已按**整批**判定（`done_fail >= done_ok`），
     单页抖动本就不会熔断；阈值 1 只在**真**故障（过半页失败）时触发，而那正是应尽快切兜底的场景。
+- 🔴 **东财"域名决定生死"（v4.11.33 修复，2026-09-19）**：同一 **path + 参数**，只换域名结果完全不同 ——
+  `push2.eastmoney.com` 整站 RST（`RemoteDisconnected`，48ms 秒断）；
+  `push2dycalc.eastmoney.com` 畅通。实测三处：
+
+  | 接口 | 可用域名 |
+  |---|---|
+  | `/api/qt/clist/get`（全市场分页） | ✅ `push2dycalc` |
+  | `/api/qt/ulist.np/get`（按 code 点查，补丁源 `eastmoney_realtime`） | ✅ `push2dycalc` ／ ❌ `push2` |
+  | `/api/qt/stock/kline/get`（K 线） | ✅ `push2his` + `1./33./48./92.push2his` |
+  | `/api/qt/stock/get`（单票详情） | ✅ `push2dycalc`，但**不返回 f630** |
+
+  - **事故**：`_ULIST_URL` 写死了被封的 `push2` ⇒ `fetch_raw_by_codes` **必然失败** ⇒
+    补丁源形同虚设、每轮退腾讯点查（**腾讯无 f630**）⇒ 生产日志长期刷「东财点查失败→腾讯点查兜底成功」。
+  - **现状**：`_ULIST_HOSTS` 双域名 + `_fetch_ulist_batch` **顺序重试**；
+    **连接层异常** → `_mark_host_broken` 冷却 300s；**`rc != 0`**（数据层，域名是通的）→ **不标记**，只换域名；
+    **全部域名在冷却中 → 仍逐一尝试（fail-open）**，否则上游恢复后永久哑火。
+  - 🔴 **纪律：判定"被封"前必须先做「同路径换域名」对照实验**。本仓跳过这一步得出过两个错误结论
+    （"`ulist.np` 接口级封死"、"东财限流"）。**换浏览器特征救不了被封的域名** —— 特征换一百遍也没用。
+    范式：`_ULIST_HOSTS` / `config.KLINE_HOSTS` / `hot_rank._fetch_em_quotes` 同一套路。
 - **东财 push2his（历史 K 线）自 8/30 起为接口级全局时段性风控**，与出口 IP 无关
   （公司网/阿里云测试/生产/代理家宽同一时刻全部 0~10%，而同机 push2dycalc 100% 通）；
   多米 + 快代理两家独立测出同一结论 → **买代理解决不了，别买**。等自愈（熔断半开探测）。
@@ -323,6 +342,10 @@
   **3 例真红 + 2 例否定断言因 `land=None` 恒成立而"侥幸全绿"**（覆盖实质失效，比红更危险）。
   ⇒ **改完必须比对两端文件数与收集数**：`ls backend/tests/*.py | LC_ALL=C sort` 逐行 diff（两端都要 `LC_ALL=C`，
   排序规则不同会误报），并核对 `pytest --collect-only -q | tail -1` 的收集总数。
+  → **1140 / 4 skip / 0 红（收集 1144，实测 215.4s）**（9/19 v4.11.33：新增
+  `test_ulist_domain_0919.py` **14 例**；两端测试集本轮已核对一致）。
+  🔬 **新用例必须做一次变异测试证明它"能红"** —— v4.11.33 的做法：把改动**反向注回**（首选域名改回被封的
+  `push2`）跑一遍，确认 **7 例真的红**。空跑的用例比没有用例更危险（会给出"已验证"的假象）。
   ⚠️ **测"真实读库"必须绕过 session 级桩**：`conftest.mock_data_source`（session autouse）把
   `auction_snapshot.load_snapshot_full` 桩成了 `MOCK_RAW` 造的快照 —— v4.11.30 起 conftest 额外暴露
   `_asnap._real_load_snapshot_full`，需要打真实实现的用例用它（否则测的是桩、结论无效）。

@@ -221,22 +221,35 @@ weight                = 0.17
 3. 旁证：`hot_rank.py:153-156` **早已**把 `push2dycalc` 版 `ulist.np` 排在**首选**（注释写着
    "push2dycalc … 测试机可用"）—— 这个知识**存在过**，只是**没有同步到 `fetcher`**。
 
-#### 5.3.1 🔴 由此定位到的真实缺陷：补丁源域名写错（未修）
+#### 5.3.1 ✅ 由此定位到的真实缺陷：补丁源域名写错（**已修 v4.11.33，2026-09-19**）
 
 ```python
-# backend/app/services/fetcher.py:1051
+# backend/app/services/fetcher.py:1051  （修复前）
 _ULIST_URL = "https://push2.eastmoney.com/api/qt/ulist.np/get"   # ← 整站 RST, 必失败
 ```
 
-改为 `https://push2dycalc.eastmoney.com/api/qt/ulist.np/get`（与 `hot_rank.py` 一致）即可。
+**已改为多域名顺序重试**（与 `hot_rank.py` 一致，首选 `push2dycalc`）：
 
-| 受影响 | 现状 | 改后 |
+```python
+_ULIST_HOSTS = (
+    "https://push2dycalc.eastmoney.com",   # 首选: 与全市场 clist 同域名, 实测畅通
+    "https://push2.eastmoney.com",         # 备用: 长期 RemoteDisconnected, 留作域名切换兜底
+)
+_ULIST_PATH = "/api/qt/ulist.np/get"
+```
+
+失败域名进 `_broken_hosts` 冷却 300s；`rc != 0`（数据层）不标记域名；全冷却时 fail-open。
+
+| 受影响 | 修复前 | 修复后（实测） |
 |---|---|---|
-| `fetch_raw_by_codes`（盘后候选补评分） | 必失败 → 降级 | 可用（含 `f630`） |
-| `eastmoney_realtime` 补丁源 | 必失败 → 退腾讯点查（**腾讯无 `f630`**） | 可用 |
+| `fetch_raw_by_codes`（盘后候选补评分） | 必失败 → 降级 | ✅ 8 只 / 54ms，**f630 非 0 = 7/8** |
+| `eastmoney_realtime` 补丁源 | 必失败 → 退腾讯点查（**腾讯无 `f630`**） | ✅ `源=snapshot,eastmoney_realtime` |
+| 生产日志 | 长期刷「东财点查失败→腾讯点查兜底成功」 | 应变为「东财按code点查 …只 …ms 返回…只」 |
+
+回归用例 `backend/tests/test_ulist_domain_0919.py`（14 例，含**变异测试**验证用例真能失败）。
 
 ⚠️ 连带需订正的注释（均基于旧错误结论而写）：`db/database.py:304`、`services/auction_snapshot.py:96`、
-`picker/contract.py:315`。
+`picker/contract.py:315` —— 本次**未动**（纯文案）。
 
 ### 5.4 代价清单（把打分整体搬到用户端）
 

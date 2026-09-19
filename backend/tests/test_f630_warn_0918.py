@@ -6,9 +6,12 @@
 主人要求把评分 17% 权重的「异动」改回东财 f630。**光翻 `use_bid_strength=0`
 开关不够** —— 实测发现:
 
-  * 东财**点查**(`push2.eastmoney.com/api/qt/ulist.np/get`, 即选股补丁源
-    `eastmoney_realtime`)在测试机**长期被重置**(`RemoteDisconnected`) →
-    补丁源永远拿不到 f630, 退腾讯点查(腾讯无 f630)。
+  * 东财**点查**(`.../api/qt/ulist.np/get`, 即选股补丁源 `eastmoney_realtime`)
+    长期失败(`RemoteDisconnected`) → 补丁源永远拿不到 f630, 退腾讯点查(腾讯无 f630)。
+    ⚠️ 2026-09-19 订正: 失败根因**不是接口被封, 而是域名**——原代码写死
+    `push2.eastmoney.com`(整站 RST), 换成 `push2dycalc.eastmoney.com` 同一 path
+    `rc=0` 且**带 f630**。已修(v4.11.33, `_ULIST_HOSTS` 顺序重试),
+    见 `test_ulist_domain_0919.py`。
   * 定格链路(9:25 后选股)的名单行来自 `snapshot_bid`, 而 `QuoteRow.from_snapshot`
     原先**不设 warn_type** → 全市场 warn_type=None → 落 default 0.18 →
     17% × 0.82 = 13.9 分凭空蒸发(9/8 批次#1585、9/17 批次 18/18 都是这个形态,
