@@ -313,6 +313,16 @@
   **不要相信工具返回的成功状态，改完必须 `grep` 目标行（或 `git diff`）复查是否真的变了。**
   表征是"**单文件绿、多文件连跑红**"，极易误判成本次回归。同文件里的
   `test_auto_apply_skip_admin_and_expired`（在 test_history.py 内）就是**有还原**的正确写法。
+  ⚠️ 🔴 **`git rebase` 会进中间态，且能删掉未跟踪文件（2026-09-19 实测事故）**：
+  远端领先时执行 `git rebase origin/main`，**即便报 `cannot rebase: You have unstaged changes`，
+  也可能已经开始了 `checkout`** → 工作区瞬间出现 **92 个 ` D`**（`docs/` 与 `scripts/` 几乎全空，
+  看起来像"被外部进程清库"，极易误判）。**处置 = 立刻 `git rebase --abort`**：
+  tracked 文件 100% 回滚（实测 92 → 3 条），但 **untracked 文件不会恢复**
+  （实测丢失 `scripts/_ssh_exec.py`、`scripts/deploy_tmp/_dl/` 等）。
+  三条纪律：① **`rebase` 前先 `git branch backup_<sha>` 备份**（本次靠它保住提交）；
+  ② 本地有独有提交、要与远端同步时**优先用 `git merge origin/main`**（温和、无中间态）；
+  ③ **未入库但关键的工具（`_ssh_exec.py`、`_dl/` 等）必须另存副本** —— `.gitignore` 挡住的
+  文件，git 救不回来。
   ⚠️ **测试机基线**：v4.11.29 实测全量 **1022 / 0 红**（此前记录的"固有 2 红
   `test_login_routes_are_async` / `test_kpl_bid_qiangcang_fastpath`"**已不再复现**，别再当成正常现象）。
   此前那批历史债（`test_history`×3、`test_auction_snap_pool_offhours`×2、`test_snapshot_915_timing`×1、
