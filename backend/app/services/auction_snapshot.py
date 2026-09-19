@@ -1188,6 +1188,23 @@ def _scheduler_loop():
                             from . import fetcher
                             brief = fetcher.fetch_market_brief(max_age=0)  # 强制刷新
                             if brief:
+                                # 2026-09-19(主人指令, v4.11.31): 收盘定格的两市资金改取
+                                # 开盘啦 MarketSCLNKLine 日级历史(his 域名, Type=0) ——
+                                # 与主数字(MarketCapacityKLine)同源同口径; 取不到/日期
+                                # 未定格回退东财自算值。开关 market_vol_rt=0 时完全不调。
+                                try:
+                                    from . import settings as _st_svc
+                                    if _st_svc.get("market_vol_rt", 0):
+                                        from . import kpl as _kpl_svc
+                                        _h = _kpl_svc.parse_market_scln_hist_latest(
+                                            _kpl_svc.fetch_kpl_market_scln_hist(),
+                                            expect_date=brief["date"])
+                                        if _h:
+                                            brief = dict(brief)
+                                            brief["amount"] = _h["amount"]
+                                            brief["amountSrc"] = "kpl_hist"
+                                except Exception as _e:
+                                    log.warning("MarketSCLNKLine 收盘定格取数异常(回退自算) err=%s", _e)
                                 from ..db import database
                                 conn = database.get_conn()
                                 # 2026-09-07: 收盘后 market_brief_last 被**今日**覆盖,
