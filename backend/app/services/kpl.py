@@ -3375,6 +3375,42 @@ def parse_market_capacity(data):
     return {"amount": round(v / _KPL_AMT_WAN2YI, 2), "date": info[0].get("Date")}
 
 
+def fetch_kpl_market_scln_hist(**extra):
+    r"""市场量能日级历史 (apphis 域名, 配置键 his) -> dict; 2026-09-19 新增
+    a=MarketSCLNKLine, c=HisHomeDingPan, apiv=w44, Type=0(全市场) + extra
+    主人 9/19 指令: 两市资金**历史**(收盘定格基准 market_brief_last)改用本接口,
+    与主数字(MarketCapacityKLine)同源同口径, 摆脱东财自算(分页失败静默少算 -7.6%)。
+    resp(9/19 实测): {"info":[{"lastPoint":"207710029","Date":"2026-09-18"},
+                     {"lastPoint":"182313427","Date":"2026-09-17"}, ...约125个交易日]}
+    交叉验证: 9/11=19718.98亿 == MarketSCLN 的 s_zrtj(昨日全天) == 自算 19716.63 亿。
+    与 doc110/111 同接口, 区别在带 Type=0 且语义钉死为「收盘定格基准源」。
+    调用频次极低(每交易日收盘 1 次), 不加缓存。
+    """
+    base = {"a": "MarketSCLNKLine", "c": "HisHomeDingPan", "apiv": "w44", "Type": "0"}
+    base.update(extra)
+    return _call("his", base)
+
+
+def parse_market_scln_hist_latest(data, expect_date=None):
+    """取最新一个交易日 {amount(亿), date}; expect_date 给了就必须等于它
+    (防接口滞后/盘中未定格拿到昨日值); 形状不符/0 值/日期不匹配 → None(调用方回退)"""
+    info = (data or {}).get("info")
+    if not isinstance(info, list) or not info or not isinstance(info[0], dict):
+        return None
+    d0 = info[0]
+    if expect_date and d0.get("Date") != expect_date:
+        log.warning("MarketSCLNKLine 最新日期 %s != 期望 %s(接口未定格?), 本次回退自算",
+                    d0.get("Date"), expect_date)
+        return None
+    try:
+        v = float(d0.get("lastPoint"))
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:
+        return None
+    return {"amount": round(v / _KPL_AMT_WAN2YI, 2), "date": d0.get("Date")}
+
+
 # 开盘啦量能单位: 万元 → 亿元
 _KPL_AMT_WAN2YI = 1e4
 

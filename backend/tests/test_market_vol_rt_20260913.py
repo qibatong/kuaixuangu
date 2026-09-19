@@ -246,3 +246,47 @@ def test_build_capacity_raise_fallback(monkeypatch):
     d = kpl.build_market_brief_payload()
     assert d["market"]["amount"] == 10214.41
     assert d["market"]["volSrc"] == "kpl"
+
+
+# ---------- ④ 收盘定格基准改 MarketSCLNKLine 日级历史(2026-09-19, 主人指令) ----------
+# 15:30 落库的 market_brief_last("较昨日全天"基准)改取 apphis 日级历史,
+# 与主数字同源; expect_date 不匹配(接口滞后/盘中未定格)必须回退自算。
+# 桩数据 = 2026-09-19(周六)真实返回形状(最新在前, 日级约 125 条)
+FAKE_HIST = {"info": [{"lastPoint": "207710029", "Date": "2026-09-18"},
+                      {"lastPoint": "182313427", "Date": "2026-09-17"},
+                      {"lastPoint": "197189848", "Date": "2026-09-11"}],
+             "errcode": "0"}
+
+
+def test_parse_scln_hist_latest_ok():
+    """取最新一条 + 万元→亿元换算"""
+    h = kpl.parse_market_scln_hist_latest(FAKE_HIST)
+    assert h is not None
+    assert h["amount"] == 20771.00
+    assert h["date"] == "2026-09-18"
+
+
+def test_parse_scln_hist_expect_date_match():
+    """expect_date 匹配 → 正常取值(收盘定格场景)"""
+    h = kpl.parse_market_scln_hist_latest(FAKE_HIST, expect_date="2026-09-18")
+    assert h is not None and h["amount"] == 20771.00
+
+
+def test_parse_scln_hist_expect_date_mismatch():
+    """🔴 接口滞后(最新仍是昨日) → None 回退自算, 绝不把昨日定格当今日"""
+    h = kpl.parse_market_scln_hist_latest(FAKE_HIST, expect_date="2026-09-19")
+    assert h is None
+
+
+@pytest.mark.parametrize("bad", [
+    None,                                       # 网络失败
+    {},                                         # 无 info
+    {"info": {"lastPoint": "207710029"}},       # info 是 dict —— SCLN 的形状(混用防线)
+    {"info": []},                               # 空列表(失效 Token 实测形状)
+    {"info": [{"lastPoint": "0"}]},             # 0 值脏点
+    {"info": [{"lastPoint": "abc"}]},           # 脏字符串
+    {"info": [None]},                           # 列表里不是 dict
+])
+def test_parse_scln_hist_bad(bad):
+    """任何异常形状都返回 None —— 与量能全家同纪律"""
+    assert kpl.parse_market_scln_hist_latest(bad, expect_date="2026-09-18") is None
