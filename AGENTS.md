@@ -1,9 +1,103 @@
 # 快选 Kuaixuan · Agent 工作手册
 
 > 本文件是仓库内给 AI 代理 / 协作者的项目约定速查。
-> 规则在每次改动前必须遵守；改动落地流程见「工作流」章节。
+> 🚀 **首次接手请先读「〇、接手速览」**（现状快照 / 30 秒上手 / 必背 6 条），**不必通读全文**。
+> 规则在每次改动前必须遵守；改动落地流程见「二、工作流硬性规则」。
 > ⚠️ 本仓库公开可见：**严禁写入任何服务器地址、账号、密码、token、邀请码等敏感信息**。
 > 部署所需的凭据以本机私有记忆（.workbuddy/memory）为准，不在仓库内复制。
+
+## 〇、接手速览（新 agent 从这一节开始）
+
+> 手册共 ~430 行，**不必通读**。先读本节 0.1~0.3，再按 0.4 的索引跳到对应章节。
+> 本节所有数字均为 **2026-09-19 实测**，不是历史记录。
+
+### 0.1 当前状态快照
+
+| 项 | 测试机（日常迭代） | 生产机（线上 kuaixuangu.cn） |
+|---|---|---|
+| `fetcher.py` | `ce55c537…` = 仓库 HEAD（**v4.11.33**，09-19 17:54） | `1cec0870…` = **2026-09-12** 老版，落后 4 个版本 |
+| `snapshot_bid.warn_type` 列 | ✅ 已有（v4.11.30 迁移已执行） | ❌ **没有**（迁移从未执行） |
+| `use_bid_strength` | `'1'`（竞价强度） | `'1'`（竞价强度） |
+| `pick_window_guard` | `1` | `0` |
+| `precompute_write` | 未设（**不走**物化表） | `1`（走物化表） |
+| `backend/tests/` | **93 个文件**（与仓库逐一致） | — |
+| 全量 pytest | **1140 passed / 4 skipped / 0 红**（215s） | — |
+
+🔴 **最容易误判的一条**：生产 fetcher 是 09-12 老版，**每天仍在中 clist 熔断**（v4.11.32 修的那个），
+但生产 `use_bid_strength='1'` —— 异动取**竞价强度**（自家快照 + 开盘啦，**对东财免疫**）⇒ 名单不受影响。
+**不要因为"生产看着正常"就以为数据源没问题。**
+反过来：**任何一台机器把 `use_bid_strength` 切成 `'0'`（f630 口径），会立刻撞上"沪主板 77% 拿不到 f630
+→ 全员被压 7~14 分 → 被 `scoreFloor=80` 压成空名单"** —— 09-17、09-19 各踩过一次。
+
+### 0.2 30 秒上手
+
+**① 连服务器**（唯一入口，两个目标 `prod` / `test`）：
+
+```bash
+python scripts/_ssh_exec.py <prod|test> cmd '<shell 命令>'
+python scripts/_ssh_exec.py <prod|test> put <本地文件> <远端绝对路径>
+```
+
+⚠️ **该脚本含明文凭据、被 `.gitignore` 排除、不在本仓**（2026-09-19 曾因一次 `git rebase` 中间态**丢失**）。
+必须从私有记忆取凭据后按下述骨架重建，**并保留两条铁律**：
+
+```python
+HOSTS = {"prod": {"host": "<生产IP>", "password": "<生产密码>"},
+         "test": {"host": "<测试IP>", "password": "<测试密码>"}}   # 真实值见私有记忆
+# 铁律 1: paramiko 必须 allow_agent=False, look_for_keys=False —— 否则本机私钥参与认证
+#         → MaxAuthTries → 误报"密码错"（排查时会浪费大量时间）
+# 铁律 2: 远端跑 python 写 `cd /opt/kuaixuan/backend && echo <b64> | base64 -d | python -`
+#         —— `cd` 必须在管道**前**，写到管道后会吃掉 stdin → 挂起超时
+```
+
+- 远端只读脚本的稳姿势：本地 `cat x.py | base64 -w0` → 远端 `echo <b64> | base64 -d | python -`
+  （免引号地狱、不落盘）。
+- 手测远端接口/读开关**必须带 systemd env**（`systemctl show kuaixuan -p Environment`），
+  否则读的是代码默认值、结论全错。
+
+**② 跑测试**：本地**没有 pytest**，一律上测试机（必跑**全量** —— 大量 session 顺序依赖，单文件跑本就会红）：
+
+```bash
+cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/python -m pytest -q --no-header -p no:cacheprovider
+```
+
+**③ 部署后端**：`put` → **两端 md5 比对** → `py_compile` **且** `python -c "import app.main"`
+（只 compile 抓不到 ImportError，09-10 事故就是这么来的）→ `systemctl restart kuaixuan kx-worker`
+→ 查 `/opt/kuaixuan/logs/app.log`（**不是** `backend/logs/`）有无 Traceback。
+
+**④ 验证（不接受仅接口测试）**：进程内直接跑 `picker.pipeline.run()` 走真实链路；
+新写的用例必须做**变异测试**（把改动反向注回，确认它**真的会红**）。
+
+### 0.3 🔴 接手前必背的 6 条
+
+1. **选股只有一条链路** = `picker.pipeline.run()`（`backend/app/services/picker/`）。**无开关可回滚**，
+   回滚只能 git 回版本；打桩必须打在这条链路上（打在别处**永远不被调用**，会假绿）。
+2. **不改生产**：测试通过后默认**只推测试机 + commit/push**；**生产必须等主人明确指令**。
+3. **不 rebase**：远端领先时用 `git merge origin/main`。`rebase` 会进中间态并**删掉未跟踪文件**
+   （已实测丢失 `_ssh_exec.py`）；确实要用就先 `git branch backup_<sha>`。
+4. **同一文件的多处 `Edit` 必须严格串行**：并行会互相覆盖（丢过代码、也丢过文档），
+   **且两次都返回 `success`** ⇒ **改完必须 `grep` 目标行或 `git diff` 复查**。
+5. **判定"被封 / 限流"前，先做「同路径换域名 / 换页号」对照实验**：本仓因此误判过两次
+   （"东财限流"、"`ulist.np` 接口级封死"），并让架构绕了远路。
+6. **每完成一项必须停下汇报、等主人指令**，不自行扩大改动范围。
+
+### 0.4 最近变更索引（测试机已上，生产待放行）
+
+| 版本 | 日期 | 一句话 |
+|---|---|---|
+| **v4.11.33** | 09-19 | `_ULIST_URL` 写死被封域名 → 改 `_ULIST_HOSTS` 双域名重试 ⇒ **补丁源从 `tencent_point` 恢复为 `eastmoney_realtime`**（且带 f630） |
+| **v4.11.32** | 09-19 | clist **越界页 `rc=102` 被当故障** → 每交易日 09:15:12 熔断到 09:29（**盖住整个竞价窗口**）；改为按 `total` 动态页数、只请求该请求的页 |
+| **v4.11.30** | 09-18 夜 | 17% 异动因子改回东财 f630，**采集侧随定格落库**（`snapshot_bid.warn_type`，四环链路见第七节） |
+| **v4.11.29** | 09-18 | 选股闸门 v4「只挡一段」`[09:15:00, 09:25:35]` + 定格前批次不复用/不回显的硬判据 |
+
+> 详细根因、决定性证据、验证数字见 `docs/history.md` 对应条目；
+> 两份专题文档：`docs/diagnosis-20260919-clist-paging-circuit-breaker.md`（分页熔断）、
+> `docs/legacy-baseline-audit.md`（祖本对标 + 东财通路口径）。
+
+### 0.5 挂起事项（等主人裁定）
+
+- **生产是否上** v4.11.29 / v4.11.30 / v4.11.32 / v4.11.33 —— 🔴 上生产**切勿**把 `use_bid_strength` 改成 `'0'`。
+- 生产磁盘清理；`ModePolicy.allow_lock` 死标记是否接线；历史评分是否重算；`MAX_FETCH=4000` 截断。
 
 ## 一、项目简介
 
@@ -76,7 +170,7 @@
 | `frontend_local_filter` | 0 | 前端浏览器内本地秒筛（关 → 前端静默回退后端筛选） |
 | `history_null_restore` | 0 | 历史读侧按 `miss_fields` 把兜底 0 还原为 `null`（未知 ≠ 0） |
 | `pick_window_guard` | **prod=0 / test=1** | **选股闸门 v4**（v4.11.29，2026-09-18）：交易日只挡 `[09:15:00, 09:25:35]` 一段；盘前放行（顶栏标注定格来源）；`≥09:25:36` 还须过快照维。置 `0` = **只放开时间维**，前端 `ping.pickGateEnabled` 同步放行（最轻回滚，无需重启）。🔴 **注意：置 0 不会关闭「定格前批次不复用/不回显」那条硬判据**（它不经开关）。⚠️ 血泪史：v4.11.22「9:00-9:26 整段禁」把竞价主窗口治死 → 9/17 早盘 0 请求事故 → v4.11.26 回退摘除 → v4.11.27「只挡两段」→ **v4.11.29「只挡一段」**。详见第七节 |
-| `use_bid_strength` | **prod='1' / test='0'** | 17% 「异动等级」因子的取值口径：`1`=竞价强度（`bid_strength` 三层：快照自算量比 + 开盘啦抢筹 + 9_24→9_25 加速度，**对东财免疫**），`0`=东财 f630 异动等级。🔴 **09-17 08:41 曾置 0（v4.11.23），同日 10:25 因评分普降 5~17 分压破 `scoreFloor` 事故回滚为 `1`**；**09-18 夜 v4.11.30 重新置 0（仅测试机，生产待主人放行）**。⚠️ 改这个**两个前置条件**：① `picker/pipeline._load_strength()` 的 `enabled()` 短路必须存在（否则开关静默无效）；② **`snapshot_bid.warn_type` 必须已有该日 f630**（v4.11.30 起采集侧落库）—— 东财**点查**（`push2.../ulist.np`）长期 `RemoteDisconnected`，f630 只能靠**全市场 clist** 在 9_25 采集时入库，历史零名单日期没落过 → 那些日子切到 `0` 就是"全员 default 0.18"，必被 `scoreFloor=80` 压成空名单（9/17 形态）。详见第七节 |
+| `use_bid_strength` | **两机现均 `'1'`**（2026-09-19 实测） | 17% 「异动等级」因子的取值口径：`1`=竞价强度（`bid_strength` 三层：快照自算量比 + 开盘啦抢筹 + 9_24→9_25 加速度，**对东财免疫**），`0`=东财 f630 异动等级。🔴 **09-17 08:41 曾置 0（v4.11.23），同日 10:25 因评分普降 5~17 分压破 `scoreFloor` 事故回滚为 `1`**；09-18 夜 v4.11.30 测试机又置 0 → **09-19 白天测试机名单全空**（`候选=67 入选=0 剔除={'score_floor': 67}`，日志无异常、极难自查）→ **当日切回 `'1'`**，uid=49 名单恢复 6 只。⚠️ 改这个**两个前置条件**：① `picker/pipeline._load_strength()` 的 `enabled()` 短路必须存在（否则开关静默无效）；② **`snapshot_bid.warn_type` 必须已有该日 f630**（v4.11.30 起采集侧落库；**生产库连这一列都还没有**）。⚠️ **名单侧** f630 只能靠**全市场 clist** 在 9_25 采集时随定格入库 —— 点查是**补丁源、不构造名单行**（其域名问题已于 v4.11.33 修复，见第八节）。详见第七节 |
 
 ⚠️ **禁止裸 SQL 写这些 key**：读侧 `json.loads` 失败会**静默回退默认值**（不报错），
 表现为"开关设了像没设"。判断生效要 `SELECT value FROM settings WHERE key=...` 看**带引号**的 JSON。
@@ -152,9 +246,11 @@
   定格链路的行来自 `snapshot_bid`，而 `QuoteRow.from_snapshot` 原本**根本不设 `warn_type`**
   → 全员 `default 0.18` → 17%×0.82 = **13.9 分蒸发** → 概率天花板 99.4→85.5 → 被 `scoreFloor=80`
   压成**空名单**（9/17 全天零名单 / 9/8 批次#1585 全部 warn=0，同一形态）。所以必须**采集侧落库**。
-  - 🔴 **东财两条通路：一死一通**（本版核心事实，别再赌点查）：
-    ❌ **点查** `push2.eastmoney.com/api/qt/ulist.np/get`（`fetcher.fetch_raw_by_codes`，即补丁源
-    `eastmoney_realtime`）**长期 `RemoteDisconnected`**；且它**只是补丁源**，不参与定格名单行构造。
+  - 🔴 **东财两条通路：名单侧只有一条**（别赌点查去构造名单行）：
+    📌 **点查**（`fetcher.fetch_raw_by_codes`，即补丁源 `eastmoney_realtime`）**不参与定格名单行的构造**，
+    只做盘后/盘中的实时覆盖。⚠️ 它**曾长期失效**：`_ULIST_URL` 写死了被封的 `push2.eastmoney.com`
+    （`RemoteDisconnected`）⇒ **v4.11.33 已修**（改 `_ULIST_HOSTS` 双域名重试，首选 `push2dycalc`），
+    实测恢复后**同样返回 f630**。详见第八节。
     ✅ **全市场 clist** `push2dycalc`（`config.FIELDS` 本就含 `f630`）**通** —— 2026-09-19 分板块复测：
     **全市场 5917 只中 2280 只非 0（38.5%）**、沪深主板 3487 只中 1268 只非 0（36.4%），
     取值域 0~14、`3/4/5` 档齐全、**无一只返回 `-`**（⇒ 坐实 `0` = 无异动的语义）。
@@ -177,8 +273,10 @@
   - 🔴 **降级纪律**：兜底源写 0 与「真无异动」同值 ⇒ **事后无法区分"真 0"与"没取到"**
     （`miss_fields` 可解，未做）；分板块覆盖缺口 —— cyb/kcb 东财分页失败走腾讯兜底时**那些票 f630=0**。
   - ⚠️ **本版已知影响（不可误判为故障）**：9/18 及更早的定格表 `warn_type` **全 0**（迁移前采集），
-    ⇒ **周末 + 周一盘前（PREOPEN 回退 09-18 定格）名单会偏少甚至为空**，
+    ⇒ 此时若 `use_bid_strength='0'`（f630 口径），**周末 + 周一盘前（PREOPEN 回退 09-18 定格）名单会偏少甚至为空**，
     **周一 `09:25:20~30` 采集落库后恢复真值**。判断"是否真的生效"看 `snapshot_bid.warn_type` 的非 0 比例。
+    📌 2026-09-19 实测：测试机正是因该形态**名单全空**（`候选=67 入选=0 剔除={'score_floor':67}`，日志无任何异常），
+    当日把开关**切回 `'1'`**（竞价强度，不依赖 f630）后立即恢复出票。**这是"空名单"最常见的成因，先查开关口径再查代码。**
   - A/B 验证手法（**别用接口级**：会命中批次复用 `reused=True` 证明不了主链路）：
     **进程内直接跑 `picker.pipeline.run()`**（不落库）；对照 `bid_strength.load`（绕过开关）vs
     `pipeline._load_strength`（走开关，应为 `{}`）。回归防线 = `tests/test_f630_warn_0918.py`（18 例），
@@ -231,7 +329,9 @@
 >   且经 `_validate_chart_data` + `_kline_amount_pair` 统一口径）。
 > 现源链：**K 线 = 东财 → 腾讯**；**昨比 = 东财日K → 腾讯 qfqday**；**全市场行情 = 单一东财**（不变）。
 
-- **全市场行情**：**单一东财** `push2dycalc`（clist 30 页并发 40s 超时，全市场 5558 只）。
+- **全市场行情**：**单一东财** `push2dycalc`（clist **页数按 `total` 动态算**，v4.11.32 起：首页串行取
+  `total` → 只请求 `min(ceil(total/200)+1, SPOT_MAX_PAGES)` 页；实测 hs/cyb/kcb = **11/9/5 页**，
+  三分区合计 **90 → 33 次/轮**；并发 40s 超时）。
   `_fetch_market_with_fallback` / `_fetch_market_all_with_fallback` 现为东财直通；
   `ensure_spot_cache` 失败时**只沿用本地旧缓存**，无旧缓存则抛出。
 - **K 线 chart**：**东财 `push2his`（主，`KLINE_HOSTS` 多域名轮询）→ 腾讯（同语义备源）**。
@@ -317,8 +417,9 @@
   `fetch_yesterday_amounts`、`ensure_cache`、`load_snapshot_full`。想测**真实实现**的文件必须在
   import 期留下 `_ORIG_xxx = fetcher.xxx` 再用 autouse fixture 还原（见 test_yesterday_cache /
   test_tencent_fallback），否则测到的是恒返回假数据的桩（曾导致 11 条用例长期假红）。
-- 基线认知（**2026-09-18 v4.11.29 复测**）：**全量 1022 passed / 4 skipped / 0 红**（实测 212.9s）。
-  🔴 **连续第二次全量归零**。4 条 skip = 前后端同口径对拍用例在**没有前端源码**的机器上主动跳过
+- 基线认知（**2026-09-19 v4.11.33 复测 = 当前最新**）：**全量 1140 passed / 4 skipped / 0 红**
+  （收集 1144，实测 215.4s）。⚠️ 下面是从旧到新的演进史，**越靠后越新**；判回归**只与最后一条比**。
+  （以下为 v4.11.29 那次的细节，保留作背景）🔴 **连续第二次全量归零**。4 条 skip = 前后端同口径对拍用例在**没有前端源码**的机器上主动跳过
   （测试机此前 `/opt/kuaixuan/frontend/src` 是 08-25 旧副本 → 缺 `utils/time.js` 即判脏；
   v4.11.29 把源码一并同步过去后改为真跑）。
   🔴 **历史那 2 红是既有存量红，不是回归**：`test_stocks_refresh_fallback.py::test_recent_fallback_same_param_lock`
@@ -385,6 +486,17 @@
 
 ## 十、可复用工具脚本（scripts/）
 
+- 🔴 **`_ssh_exec.py` = 双机执行器（部署 / 排查的唯一 SSH 入口）** ——
+  `python scripts/_ssh_exec.py <prod|test> cmd '<shell 命令>'` ／ `... put <本地文件> <远端绝对路径>`。
+  ⚠️ **含明文凭据 ⇒ `.gitignore` 排除 ⇒ 不在本仓**（2026-09-19 因一次 `git rebase` 中间态**丢失过**，
+  事后按原接口重写）。**重建骨架 + 两条铁律见 §〇.2**。教训：**未入库但关键的工具必须另存副本**
+  （`scripts/deploy_tmp/_dl/` 同理被忽略）。
+- **只读探针归档目录 `scripts/deploy_tmp/`**（2026-09-19 起当日探针**全部入库**，便于复现与接手）：
+  命名约定 `_diag_*`（链路诊断）／`_probe_*`（打真实接口取数）／`_verify_*`（验证某次修复）／
+  `_ab_*`（对照 / 梯度实验）／`_rehearse_*`（只读预演：注入后跑 pipeline 但不落库）。
+  用法：本地 `base64 -w0` 后喂给远端 `python -`（见 §〇.2），**全程只读、不改状态**。
+  ⚠️ 远端 `echo <b64> | python -` **必须带 `base64 -d`**，漏了会把 base64 当源码 →
+  `SyntaxError: invalid decimal literal`。
 - 后端同步部署 + 幂等/直读/缓存校验模板：`.deploy_*.py`（paramiko 直连 22 + 密码，md5 正则比对，py_compile + restart + journalctl 看 Traceback）。
 - 前端 dist 发布：build → tar.gz → sftp → 备份/解压/chmod → curl 入口 chunk 验证。
   🔴 **本机 `vite build` 会被沙箱 safe-delete 守卫拦下**（`[SAFE_DELETE_BULK_CONFIRM_REQUIRED] count=1017`，
