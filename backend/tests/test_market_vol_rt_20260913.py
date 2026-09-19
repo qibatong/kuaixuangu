@@ -14,6 +14,10 @@
   本文件 fixture 已改用 **9/14 11:05 盘中真实返回**(两字段可区分), 并加语义方向断言防回归。
 
 开关: settings market_vol_rt(默认 0=关, 1=开); 取不到时**完全回退**, 不改行为。
+
+2026-09-19(主人指令): 主数字 amount 改取 MarketCapacityKLine(见 ③ 节) ——
+  与开盘啦 App「市场量能」页同源; 昨日同一时点基准/全天预测仍由 MarketSCLN 提供
+  (新接口无该字段); 两源各自独立回退, 互不影响。
 """
 import pytest
 
@@ -105,6 +109,10 @@ def _stub_base(monkeypatch, vol_rt):
     st_svc.set("market_vol_rt", vol_rt)
     monkeypatch.setattr(kpl, "fetch_market_breadth",
                         lambda: {"rise": 1, "fall": 1, "ts": 1, "day": "x", "yesterday": None})
+    # 2026-09-19: 主数字改 MarketCapacityKLine 后, 旧用例默认桩其为"取不到"
+    # → 主数字仍来自 MarketSCLN, 保持旧断言语义; 新接口行为见 ③ 节专用用例。
+    # (不桩会打到真实外网 —— 9/19 曾因此 3 个用例红)
+    monkeypatch.setattr(kpl, "fetch_kpl_market_capacity", lambda **k: None)
     # 自算值: 9/11 收盘 19716.63 亿; 自存快照基准是 0 值脏点(早盘真实场景)
     monkeypatch.setattr(fetcher, "fetch_market_brief",
                         lambda *a, **k: {"stockCount": 5558, "amount": 19716.63, "date": "2026-09-11"})
@@ -161,3 +169,80 @@ def test_build_vol_rt_off(monkeypatch):
     assert d["market"]["amount"] == 19716.63
     assert "volSrc" not in d["market"]
     assert d["last_same_time"]["amount"] == 0.0
+
+
+# ---------- ③ 主数字改 MarketCapacityKLine(2026-09-19, 主人指令) ----------
+# 与开盘啦 App「市场量能」页同源(a=MarketCapacityKLine, after 域名, Type=0 全市场)。
+# 分工: 主数字 amount 优先取它; 昨日同一时点基准/全天预测仍由 MarketSCLN 提供
+# (新接口无该字段); 两源各自独立回退, 互不影响。
+# 桩数据 = 2026-09-19(周六)真实返回形状: info 为**列表**(与 SCLN 的 dict 不同!)
+FAKE_CAP = {"info": [{"lastPoint": "207710029", "Date": "2026-09-18"}],
+            "ttag": 0.001, "errcode": "0"}
+
+
+def test_parse_market_capacity_ok():
+    """万元 → 亿元换算 + 交易日透出"""
+    c = kpl.parse_market_capacity(FAKE_CAP)
+    assert c is not None
+    assert c["amount"] == 20771.00
+    assert c["date"] == "2026-09-18"
+
+
+@pytest.mark.parametrize("bad", [
+    None,                                       # 网络失败(_call 返回 None)
+    {},                                         # 无 info
+    {"info": {"lastPoint": "207710029"}},       # info 是 dict —— SCLN 的形状(混用防线)
+    {"info": []},                               # 空列表(失效 Token 实测形状)
+    {"info": [{"lastPoint": "0"}]},             # 0 值脏点
+    {"info": [{"lastPoint": "abc"}]},           # 脏字符串
+    {"info": None},                             # info 显式 None
+])
+def test_parse_market_capacity_bad(bad):
+    """任何异常形状都返回 None —— 与 parse_market_volume_rt 同纪律"""
+    assert kpl.parse_market_capacity(bad) is None
+
+
+def test_build_capacity_priority(monkeypatch):
+    """两源都取到 → 主数字用 CapacityKLine, 基准/预测仍用 SCLN"""
+    _stub_base(monkeypatch, 1)
+    monkeypatch.setattr(kpl, "fetch_kpl_market_capacity", lambda **k: FAKE_CAP)
+    monkeypatch.setattr(kpl, "fetch_kpl_market_scln", lambda **k: FAKE_SCLN)
+    d = kpl.build_market_brief_payload()
+    assert d["market"]["amount"] == 20771.00          # 主数字来自新接口
+    assert d["market"]["volSrc"] == "kpl_capacity"
+    assert d["market"]["volForecast"] == "16957亿(-14%,缩量2761亿)"   # 预测仍 SCLN
+    assert d["last_same_time"]["amount"] == 11660.49  # 昨日同一时点仍 SCLN
+    assert d["last_same_time"]["src"] == "kpl"
+
+
+def test_build_capacity_only(monkeypatch):
+    """SCLN 挂 + CapacityKLine 好 → 主数字照常, 基准/预测保持原值不冒异常"""
+    _stub_base(monkeypatch, 1)
+    monkeypatch.setattr(kpl, "fetch_kpl_market_capacity", lambda **k: FAKE_CAP)
+    monkeypatch.setattr(kpl, "fetch_kpl_market_scln", lambda **k: None)
+    d = kpl.build_market_brief_payload()
+    assert d["market"]["amount"] == 20771.00
+    assert d["market"]["volSrc"] == "kpl_capacity"
+    assert "volForecast" not in d["market"]           # SCLN 挂 → 无预测
+    assert d["last_same_time"]["amount"] == 0.0       # 基准保持自存快照原值
+
+
+def test_build_capacity_down_scln_up(monkeypatch):
+    """CapacityKLine 挂 + SCLN 好 → 主数字回退 SCLN(9/13-9/14 老行为)"""
+    _stub_base(monkeypatch, 1)
+    monkeypatch.setattr(kpl, "fetch_kpl_market_scln", lambda **k: FAKE_SCLN)
+    d = kpl.build_market_brief_payload()              # _stub_base 已桩 capacity=None
+    assert d["market"]["amount"] == 10214.41
+    assert d["market"]["volSrc"] == "kpl"
+
+
+def test_build_capacity_raise_fallback(monkeypatch):
+    """CapacityKLine 抛异常(非 None 失败) → 回退 SCLN, 异常不冒到接口层"""
+    _stub_base(monkeypatch, 1)
+    def _boom(**k):
+        raise RuntimeError("模拟网络异常")
+    monkeypatch.setattr(kpl, "fetch_kpl_market_capacity", _boom)
+    monkeypatch.setattr(kpl, "fetch_kpl_market_scln", lambda **k: FAKE_SCLN)
+    d = kpl.build_market_brief_payload()
+    assert d["market"]["amount"] == 10214.41
+    assert d["market"]["volSrc"] == "kpl"

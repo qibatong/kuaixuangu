@@ -463,13 +463,25 @@ def build_market_brief_payload():
         except Exception as e:
             vol = None
             log.warning("实时市场量能取数异常(回退自算) err=%s", e)
-        if vol:
+        # 2026-09-19(主人指令): 两市资金主数字改 MarketCapacityKLine(after 域名,
+        # 与开盘啦 App「市场量能」页同源); 昨日同一时点基准/全天预测仍由 MarketSCLN
+        # 提供(新接口无该字段); 两源各自独立回退, 互不影响。
+        try:
+            cap = parse_market_capacity(fetch_kpl_market_capacity())
+        except Exception as e:
+            cap = None
+            log.warning("市场量能KLine取数异常(主数字回退 MarketSCLN/自算) err=%s", e)
+        if cap or vol:
             market = dict(market or {})
-            market["amount"] = vol["amount"]
-            market["volSrc"] = "kpl"
-            if vol.get("forecast_str"):
+            if cap:
+                market["amount"] = cap["amount"]
+                market["volSrc"] = "kpl_capacity"
+            elif vol:
+                market["amount"] = vol["amount"]
+                market["volSrc"] = "kpl"
+            if vol and vol.get("forecast_str"):
                 market["volForecast"] = vol["forecast_str"]
-            if vol.get("prev_same_time"):
+            if vol and vol.get("prev_same_time"):
                 last_same_time = {"amount": vol["prev_same_time"],
                                   "stockCount": (last_same_time or {}).get("stockCount"),
                                   "ts": vol.get("ts"),
@@ -3325,6 +3337,42 @@ def fetch_kpl_market_scln(**extra):
     if extra:
         return _load()
     return _cached("market_scln", config.KPL_MARKET_SCLN_TTL, _load)
+
+
+def fetch_kpl_market_capacity(**extra):
+    r"""市场量能K线 (apphwshhq 域名, 配置键 after) -> dict; 2026-09-19 新增
+    a=MarketCapacityKLine, c=HomeDingPan, apiv=w44, Type=0(全市场) + extra
+    主人 9/19 指令: 两市资金主数字改用本接口(与开盘啦 App「市场量能」页同源)。
+    resp(2026-09-19 周六实测): {"info":[{"lastPoint":"207710029","Date":"2026-09-18"}],"errcode":"0"}
+    字段: lastPoint=量能(万元, /1e4=亿元), Date=交易日。
+    Type 实测(9/19): 0=20771亿(全市场) 1=9942亿 2=5224亿 3=161亿。
+    ⚠️ 休市时只回最近交易日**日级单点**; 盘中是否逐分钟实时待 9/21 盘中验证。
+    ⚠️ 无昨日同一时点/全天预测字段 → 同期基准与预测仍由 MarketSCLN 提供。
+    无 extra 时走跨进程缓存(与 market_scln 同 TTL, 防打爆 8 万/日配额)。
+    """
+    def _load():
+        base = {"a": "MarketCapacityKLine", "c": "HomeDingPan", "apiv": "w44", "Type": "0"}
+        base.update(extra)
+        return _call("after", base)
+    if extra:
+        return _load()
+    return _cached("market_capacity", config.KPL_MARKET_SCLN_TTL, _load)
+
+
+def parse_market_capacity(data):
+    """解析 fetch_kpl_market_capacity() 返回 -> {amount(亿), date}; 取不到 None
+    ⚠️ lastPoint<=0 视为取不到(同 parse_market_volume_rt 的 0 值脏点纪律),
+       绝不把 0 当实测值。"""
+    info = (data or {}).get("info")
+    if not isinstance(info, list) or not info or not isinstance(info[0], dict):
+        return None
+    try:
+        v = float(info[0].get("lastPoint"))
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:
+        return None
+    return {"amount": round(v / _KPL_AMT_WAN2YI, 2), "date": info[0].get("Date")}
 
 
 # 开盘啦量能单位: 万元 → 亿元
