@@ -201,18 +201,42 @@ weight                = 0.17
 
 ### 5.3 实测：通路矩阵（哪个接口能拿 `f630`）
 
-| 接口 | 用途 | 实测结果 | `f630` |
+| 接口（**域名决定生死**） | 用途 | 实测结果 | `f630` |
 |---|---|---|---|
 | `push2dycalc…/clist/get` | 列表（祖本用的） | ✅ 通（HTTP 200，前 200 全返回） | ✅ **有值** |
-| `push2…/ulist.np/get` | 按代码点查（服务端补丁源） | ❌ **`RemoteDisconnected`**（浏览器特征 / 裸特征**都一样**） | — |
-| `push2…/stock/get` | 单票详情 | ✅ 通（浦发/平安/芯联集成均 OK） | ❌ **不返回**（`None`） |
+| `push2dycalc…/ulist.np/get` | 按代码点查 | ✅ **通**（`rc=0`，6 只全返回，139ms） | ✅ **有值**（000001/300434/002584 均为 `4`） |
+| `push2…/ulist.np/get` | 按代码点查（**`fetcher._ULIST_URL` 写死的域名**） | ❌ `RemoteDisconnected`（48ms 秒断） | — |
+| `push2dycalc…/stock/get` | 单票详情 | ✅ 通（29ms） | ❌ 不返回该字段 |
 
-**两条硬结论：**
+> 🔴 **2026-09-19 17:30 重大订正**：本节原结论「`ulist.np` 被**接口级**封死 ⇒ 补丁源永久失效、
+> 改特征也救不回来」**是错的**。错因 = **把"域名被封"误判成"接口被封"**。以下为订正后结论。
 
-1. **`ulist.np` 是被"接口级"封死的** —— 换成完整浏览器特征（UA/Accept/Referer/Origin/Sec-Fetch-\*）
-   依然 `RemoteDisconnected`。⇒ **快选服务端的 `eastmoney_realtime` 补丁源已永久失效，改特征救不回来。**
-2. **`f630` 只有列表接口给** —— 单票 `stock/get` 通但不带该字段。
-   ⇒ **想要 `f630`，只能走 clist。** 这反向印证了 v4.11.30 的选择（采集侧随定格落库）是唯一可行路径。
+**三条硬结论（订正版）：**
+
+1. **封的是「域名」，不是「接口」**：`push2.eastmoney.com` 整站 RST/`RemoteDisconnected`；
+   **同一路径换 `push2dycalc.eastmoney.com` 立刻通**。原实测"换完整浏览器特征亦失败"
+   之所以失败，是因为**域名根本没换** —— 特征换一百遍也救不了一个被封的域名。
+2. **`f630` 不止列表接口给**：`ulist.np` 点查**同样返回 `f630`**（实测 000001 / 300434 / 002584 均为 `4`）。
+   ⇒ `eastmoney_realtime` 补丁源**并未永久失效**，改域名即可恢复。
+3. 旁证：`hot_rank.py:153-156` **早已**把 `push2dycalc` 版 `ulist.np` 排在**首选**（注释写着
+   "push2dycalc … 测试机可用"）—— 这个知识**存在过**，只是**没有同步到 `fetcher`**。
+
+#### 5.3.1 🔴 由此定位到的真实缺陷：补丁源域名写错（未修）
+
+```python
+# backend/app/services/fetcher.py:1051
+_ULIST_URL = "https://push2.eastmoney.com/api/qt/ulist.np/get"   # ← 整站 RST, 必失败
+```
+
+改为 `https://push2dycalc.eastmoney.com/api/qt/ulist.np/get`（与 `hot_rank.py` 一致）即可。
+
+| 受影响 | 现状 | 改后 |
+|---|---|---|
+| `fetch_raw_by_codes`（盘后候选补评分） | 必失败 → 降级 | 可用（含 `f630`） |
+| `eastmoney_realtime` 补丁源 | 必失败 → 退腾讯点查（**腾讯无 `f630`**） | 可用 |
+
+⚠️ 连带需订正的注释（均基于旧错误结论而写）：`db/database.py:304`、`services/auction_snapshot.py:96`、
+`picker/contract.py:315`。
 
 ### 5.4 代价清单（把打分整体搬到用户端）
 
