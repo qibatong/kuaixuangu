@@ -118,3 +118,10 @@ backend/scripts/*.bak_*
 # ========== 项目报告(不入库, 单独维护) ==========
 frontend-architecture-report.md
 .pytest_tmp/
+
+# ========== 测试产物 / 远端下载缓存(不入库) ==========
+# pytest --junitxml 输出的报告(_junit_*.xml)是每次跑测试的产物, 严禁入库
+backend/_junit_*.xml
+reports/_junit_*.xml
+# deploy_tmp/_dl: 从远端/外部拉回的临时原件(如祖本 html), 存档用不入库
+scripts/deploy_tmp/_dl/

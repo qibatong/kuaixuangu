@@ -383,9 +383,19 @@ def test_ensure_cache_filter_fresh_hits(monkeypatch):
     assert raw[0]["f12"] == "old"
 
 def test_no_fallback_eastmoney_fail_raises(monkeypatch):
-    """2026-09-10 去兜底: 东财失败不再切腾讯, 直接抛出(主人拍板)"""
+    """2026-09-10 去兜底: 东财失败不再切腾讯, 直接抛出(主人拍板)
+
+    2026-09-19 补桩: 原用例只 mock 了 fetch_eastmoney, 但
+    `_fetch_market_all_with_fallback` 走的是 **fetch_eastmoney_all** —— 那条路径
+    没被 mock, 一直在打**真实外网**。旧代码固定请求 30 页, 越界页 rc=102 被判故障
+    → 恰好抛异常, 于是本用例"侥幸通过"; 本次修复分页越界后真实调用会成功返回,
+    用例才暴露。现显式补上 fetch_eastmoney_all 的桩, 让两段断言都只依赖 mock,
+    不再依赖网络状态。
+    """
     monkeypatch.setattr(fetcher, "fetch_eastmoney",
                         lambda fs: (_ for _ in ()).throw(RuntimeError("模拟东财失败")))
+    monkeypatch.setattr(fetcher, "fetch_eastmoney_all",
+                        lambda fs: (_ for _ in ()).throw(RuntimeError("模拟东财全市场失败")))
     monkeypatch.setattr(fetcher, "fetch_tencent_market",
                         lambda fs: (_ for _ in ()).throw(AssertionError("不应再走腾讯兜底")))
     with pytest.raises(RuntimeError):

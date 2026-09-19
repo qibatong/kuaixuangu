@@ -399,12 +399,46 @@ def _secid(code):
     return ("1." if code.startswith(("6", "9")) else "0.") + code
 
 
+_CLIST_PZ = 200        # clist 单页条数(全市场分页固定 200)
+_EM_RC_END = 102       # 东财"没有更多数据"(翻过末页)返回码 —— 正常语义, 不是故障
+
+
+class _ClistPage(list):
+    """clist 单页结果: 兼作 list(diff), 额外携带响应里的 total 总条数(用于算真实页数)。
+
+    2026-09-19: 用 list 子类而非新结构, 是为了**不改变既有调用方语义**
+    (len()/extend()/真值判断全部照旧); mock 返回普通 list 时 total 缺失 →
+    调用方回退固定页数上限, 老用例零改动。
+    """
+    __slots__ = ("total",)
+
+    def __init__(self, diff, total=0):
+        super().__init__(diff)
+        self.total = int(total or 0)
+
+
 def _fetch_clist_page(fs, page, fid="f3"):
-    """拉取 clist 单页(200只); 失败抛异常。
+    """拉取 clist 单页(200只)。
+
+    返回 _ClistPage(见上)。**空列表 = 该页没有数据(翻过末页)**, 不是错误:
+      - rc=102: 东财明确表示"没有更多数据"(pn 超过末页时必然出现)
+      - rc=0 且 diff 为空: 同样按"到底"处理
+    只有**明确异常**(rc 既非 0 也非 102)才抛 RuntimeError。
+
+    2026-09-19 修复(竞价窗口熔断事故根因): 原实现把 `rc != 0` 一律当"接口返回异常"抛,
+    而全市场分页固定请求 SPOT_MAX_PAGES(30) 页 —— 各板块真实页数只有 ceil(total/200)
+    (实测沪深主板 18 页 / 创业板 8 页 / 科创板 4 页), 越界页必然命中 rc=102 →
+    被判"整批故障"(失败页 ≥ 成功页) → 触发 eastmoney_clist 熔断, 且每轮轮询复现,
+    于是**每个交易日 09:15:12 起熔断到 09:29** —— 正好覆盖整个竞价窗口,
+    9_25 定格只能降级用兜底源(无 f630 异动字段)。
+    逐页实测：失败**只出现在第 19 页以后, 1~18 页零失败**, 150ms 慢速串行同样复现
+    → 确定性行为, 与请求频率、出口 IP 均无关(不是限流)。
+    详见 docs/diagnosis-20260919-clist-paging-circuit-breaker.md
+
     fid: "f3"=按涨幅排序(竞价模式取强票榜) / "f12"=按代码排序(全市场分页, 稳定不漏票)。"""
     qs = urllib.parse.urlencode({
         "fs": fs, "fltt": 2, "invt": 2, "fields": config.FIELDS,
-        "fid": fid, "po": 1, "pn": page, "pz": 200, "np": 1, "ut": config.EASTMONEY_UT,
+        "fid": fid, "po": 1, "pn": page, "pz": _CLIST_PZ, "np": 1, "ut": config.EASTMONEY_UT,
     })
     req = urllib.request.Request(config.EASTMONEY_URL + "?" + qs, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
@@ -413,9 +447,15 @@ def _fetch_clist_page(fs, page, fid="f3"):
     # 服务器缺 CA 证书 → clash 校验失败; 用 unverified context(保留TLS加密), 否则竞价全市场快照全挂
     with _http_get(req, timeout=10, context=_NO_VERIFY_CTX) as resp:
         data = json.loads(resp.read().decode("utf-8"))
-    if data.get("rc") != 0 or not data.get("data", {}).get("diff"):
-        raise RuntimeError("东方财富接口返回异常")
-    return data["data"]["diff"]
+    rc = data.get("rc")
+    d = data.get("data") or {}
+    diff = d.get("diff") or []
+    if diff:
+        return _ClistPage(diff, d.get("total"))
+    if rc in (0, _EM_RC_END):
+        # 翻过末页 / 空数据页: 正常"到底"语义, 返回空(旧实现此处抛异常 → 误熔断)
+        return _ClistPage([], d.get("total"))
+    raise RuntimeError("东方财富接口返回异常 rc=%s" % rc)
 
 
 def fetch_eastmoney(fs):
@@ -428,6 +468,12 @@ def fetch_eastmoney(fs):
     except Exception as e:
         _record("eastmoney_clist", False)
         raise
+    if not diff:
+        # 2026-09-19: _fetch_clist_page 现在把"空数据"当正常返回(到底语义, 见其 docstring),
+        # 但本函数只取第 1 页 —— 第 1 页为空即"该分区一只都没有", 属真故障。
+        # 在此显式判失败, 保持本函数原有"空即异常"契约(上游按异常走兜底)。
+        _record("eastmoney_clist", False)
+        raise RuntimeError("东方财富接口返回异常(首页无数据)")
     _record("eastmoney_clist", True, int((time.time() - t0) * 1000))
     log.info("东财行情拉取成功 fs=%s 数量%d", fs, len(diff))
     return diff
@@ -628,47 +674,85 @@ _SPOT_FAST_FAIL = 5         # 完成顺序连续失败 ≥N 页且无一成功 �
 _SPOT_FAIL_SAMPLE = 8       # 已完成 ≥N 页且失败过半 → 判定整源故障(部分超时场景)
 
 
+def _page_count(total, pz=_CLIST_PZ):
+    """真实页数 = ceil(total / pz); total 缺失或非正 → None(调用方回退固定上限)。"""
+    try:
+        t = int(total or 0)
+    except (TypeError, ValueError):
+        return None
+    if t <= 0:
+        return None
+    return max(1, -(-t // pz))
+
+
 def fetch_eastmoney_all(fs):
-    """盘中实时模式: 分页拉取全市场股票快照(默认每页 200, 共 ~20-30 页),
+    """盘中实时模式: 分页拉取全市场股票快照(每页 200, 页数按 total 动态算),
     让过滤参数(涨幅/量比/换手)真正作用于全市场, 而不是只取涨幅前 200。
     按代码(f12)排序分页: 位置稳定, 任一分页失败只跳过该页, 不漏已跌出榜单的票。
-    并发拉取(2026-08-19 起): 30 页 ThreadPoolExecutor 并发, 实测 386ms/次(2026-08-31 生产);
-    空页=到底(提前结束), 任一页失败跳过该页, 全部失败抛异常。
-    注意: 18-28s 级耗时仅出现在东财故障走腾讯全市场兜底时(串行已改 5 并发 ≈ 1-2s)。"""
+    并发拉取(2026-08-19 起): 第 1 页串行(取数据 + 取 total), 其余页 ThreadPoolExecutor 并发。
+    空页=到底(提前结束), 任一页失败跳过该页, 首页失败/过半失败抛异常交兜底。
+
+    2026-09-19 修复(竞价窗口熔断根因): 原实现**固定并发请求 SPOT_MAX_PAGES(30) 页**,
+    而各板块真实页数只有 ceil(total/200)(实测沪深主板 18 / 创业板 8 / 科创板 4 页)
+    → 越界页命中东财 rc=102「没有更多数据」→ 被当"接口异常"计入失败页 →
+    失败页 ≥ 成功页 → 判整批故障 → eastmoney_clist 熔断; 每轮轮询复现,
+    于是**每交易日 09:15:12 起熔断到 09:29**, 正好覆盖竞价窗口
+    (9_25 定格降级用兜底源 → 无 f630 异动字段)。
+    现改为: ① 第 1 页串行取回 total, 只请求必要页数(+1 页探测页兜住 total 少报);
+    ② 越界/空页在 _fetch_clist_page 层已是正常"到底"而非异常(双保险)。
+    实测请求量: 90 次/轮 → 33 次/轮(18/8/4 → 19/9/5, 各含 1 探测页)。
+    详见 docs/diagnosis-20260919-clist-paging-circuit-breaker.md"""
     if _check_circuit():
         raise RuntimeError("东财数据源熔断中, 快速失败(交腾讯兜底)")
     t_all = time.time()
-    # 先并发拉前 N 页, 根据空页/短页判定真实页数
-    pages_data = {}   # page -> diff list(失败/空为 None)
-    ex = _EXECUTOR_CLIST
-    futs = {ex.submit(_fetch_clist_page, fs, p, "f12"): p
-            for p in range(1, config.SPOT_MAX_PAGES + 1)}
-    done_ok = done_fail = streak_fail = 0
-    aborted = ""
+    # ① 第 1 页串行: 既取数据, 也用它带回来的 total 算真实页数
     try:
-        for fut in as_completed(futs, timeout=_SPOT_ALL_TIMEOUT):
-            p = futs[fut]
-            try:
-                pages_data[p] = fut.result()
-                done_ok += 1
-                streak_fail = 0
-            except Exception as e:
-                log.warning("全市场拉取分页失败 fs=%s page=%d err=%s", fs, p, str(e)[:80])
-                pages_data[p] = None
-                done_fail += 1
-                streak_fail += 1
-            # 快速失败: 故障态没必要等满 30 页, 越早放弃越早切腾讯兜底
-            if streak_fail >= _SPOT_FAST_FAIL and done_ok == 0:
-                aborted = "连续%d页失败且无一成功" % streak_fail
-                break
-            if (done_ok + done_fail) >= _SPOT_FAIL_SAMPLE and done_fail * 2 > done_ok + done_fail:
-                aborted = "已完成%d页中失败%d页(过半)" % (done_ok + done_fail, done_fail)
-                break
-    except TimeoutError:
-        aborted = "整体超时%ds(已完成%d页/失败%d页)" % (_SPOT_ALL_TIMEOUT, done_ok, done_fail)
+        first = _fetch_clist_page(fs, 1, "f12")
+    except Exception as e:
+        log.warning("全市场首页拉取失败 fs=%s err=%s", fs, str(e)[:80])
+        _record("eastmoney_clist", False, int((time.time() - t_all) * 1000))
+        raise
+    if not first:
+        # 首页为空 = 该分区无数据, 属真故障(第 ≥2 页为空才是"到底")
+        _record("eastmoney_clist", False, int((time.time() - t_all) * 1000))
+        raise RuntimeError("东方财富接口返回异常(首页无数据)")
+    total_raw = getattr(first, "total", 0)
+    real_pages = _page_count(total_raw)
+    # +1 探测页: total 若少报一档, 该页会拿到真实末页; 若 total 准确, 该页返回空(不报错)
+    n_pages = config.SPOT_MAX_PAGES if real_pages is None else min(real_pages + 1,
+                                                                 config.SPOT_MAX_PAGES)
+    # ② 其余页并发
+    pages_data = {1: first}   # page -> diff list(失败为 None)
+    done_ok, done_fail, streak_fail = 1, 0, 0
+    aborted = ""
+    futs = {}
+    if n_pages > 1:
+        ex = _EXECUTOR_CLIST
+        futs = {ex.submit(_fetch_clist_page, fs, p, "f12"): p
+                for p in range(2, n_pages + 1)}
+        try:
+            for fut in as_completed(futs, timeout=_SPOT_ALL_TIMEOUT):
+                p = futs[fut]
+                try:
+                    pages_data[p] = fut.result()
+                    done_ok += 1
+                    streak_fail = 0
+                except Exception as e:
+                    log.warning("全市场拉取分页失败 fs=%s page=%d err=%s", fs, p, str(e)[:80])
+                    pages_data[p] = None
+                    done_fail += 1
+                    streak_fail += 1
+                # 快速失败: 故障态没必要等满所有页, 越早放弃越早切腾讯兜底
+                if streak_fail >= _SPOT_FAST_FAIL and done_ok <= 1:
+                    aborted = "首页后连续%d页失败" % streak_fail
+                    break
+                if (done_ok + done_fail) >= _SPOT_FAIL_SAMPLE and done_fail * 2 > done_ok + done_fail:
+                    aborted = "已完成%d页中失败%d页(过半)" % (done_ok + done_fail, done_fail)
+                    break
+        except TimeoutError:
+            aborted = "整体超时%ds(已完成%d页/失败%d页)" % (_SPOT_ALL_TIMEOUT, done_ok, done_fail)
     if aborted:
-        # 取消尚未启动的排队页(8 并发下 30 页有 22 页在排队), 减少故障期外网无效请求;
-        # 已在运行的页无法中断, 由线程池自然回收
+        # 取消尚未启动的排队页, 减少故障期外网无效请求; 已在运行的页无法中断, 由线程池自然回收
         for f in futs:
             f.cancel()
         log.warning("全市场分页快速失败 fs=%s %s → 取消剩余页, 交腾讯兜底", fs, aborted)
@@ -684,7 +768,7 @@ def fetch_eastmoney_all(fs):
     # 按 page 顺序合并, 遇到空页/短页即终止(后续页不会有效数据)
     out = []
     last_page = 0
-    for p in range(1, config.SPOT_MAX_PAGES + 1):
+    for p in range(1, n_pages + 1):
         diff = pages_data.get(p)
         if not diff:
             if diff is None:
@@ -692,10 +776,10 @@ def fetch_eastmoney_all(fs):
             break          # 空页 = 到底
         out.extend(diff)
         last_page = p
-        if len(diff) < 200:
+        if len(diff) < _CLIST_PZ:
             break          # 最后一页
-    log.info("全市场行情拉取成功 fs=%s 共%d只(%d页) 并发耗时%.0fms",
-             fs, len(out), last_page, (time.time() - t_all) * 1000)
+    log.info("全市场行情拉取成功 fs=%s 共%d只(%d页/请求%d页 total=%s) 并发耗时%.0fms",
+             fs, len(out), last_page, n_pages, total_raw or "-", (time.time() - t_all) * 1000)
     if not out:
         raise RuntimeError("东方财富接口返回异常")
     return out

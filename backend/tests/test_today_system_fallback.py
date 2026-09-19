@@ -78,6 +78,25 @@ def _no_uid0_residue():
 F = {"markets": ["hs", "cyb"], "probLt": 65, "confLt": 65}
 
 
+@pytest.fixture
+def freeze(monkeypatch):
+    """当日 9:25 定格**已落库** —— v4.11.29 起是「当日系统名单」的前置条件。
+
+    🔴 2026-09-19 补记(本文件当时未同步 v4.11.29, 且从未上传测试机 → 缺陷双盲):
+    v4.11.25 写本文件时, `find_today_system_batch` 没有定格判据, 建个 uid=0 批次即可命中;
+    v4.11.29 给它加了 `ts >= _freeze_landing_ts(当日)` 之后, 旧用例的结局是:
+      · **正向 3 例 → 真红**: 当日无 snapshot_bid 9_25 行 → land=None → 恒不命中;
+      · **否定 2 例 → 侥幸全绿**: 也因 land=None 恒返回 None —— 断言虽过, 但**覆盖已失效**,
+        它们不再能证明"跨日批次不被误认"或"空名单被跳过"。
+    现由本 fixture 显式提供 land(定格落库时刻), 两类用例才真正测到各自语义。
+    建"当日系统批次"时 ts **必须 >= land**(返回的 land 即该阈值)。
+    """
+    land = time.time() - 7200                    # 定格落库于 2 小时前
+    monkeypatch.setattr(history, "_freeze_landing_ts",
+                        lambda bdate: land if bdate == _bj_day(0) else None)
+    return land
+
+
 def _mk_batch(conn, uid, action, date, ts, f, auto_applied=0, count=3):
     g = time.gmtime(ts + 8 * 3600)
     btime = "%02d:%02d:%02d" % (g.tm_hour, g.tm_min, g.tm_sec)
@@ -99,32 +118,62 @@ def _mk_batch(conn, uid, action, date, ts, f, auto_applied=0, count=3):
 
 # ---------------- history.find_today_system_batch 单元 ----------------
 
-def test_find_today_system_batch_hit(conn):
-    bid = _mk_batch(conn, 0, "lock", _bj_day(0), time.time() - 3600, F, auto_applied=1, count=2)
+def test_find_today_system_batch_hit(conn, freeze):
+    """定格落库后建立的当日系统批次 → 命中(ts 晚于 freeze)"""
+    bid = _mk_batch(conn, 0, "lock", _bj_day(0), freeze + 60, F, auto_applied=1, count=2)
     got_bid, src = history.find_today_system_batch()
     assert got_bid == bid and src == "auto"
 
 
-def test_find_today_system_batch_ignores_other_days(conn):
+def test_find_today_system_batch_ignores_other_days(conn, freeze):
     """只有昨日/前日的系统批次 → 不算"当日", 必须返回 None(否则跨日回退形同虚设)"""
-    _mk_batch(conn, 0, "lock", _bj_day(-1), time.time() - 86400, F, auto_applied=1, count=2)
-    _mk_batch(conn, 0, "lock", _bj_day(-3), time.time() - 3 * 86400, F, auto_applied=1, count=2)
+    _mk_batch(conn, 0, "lock", _bj_day(-1), freeze - 86400, F, auto_applied=1, count=2)
+    _mk_batch(conn, 0, "lock", _bj_day(-3), freeze - 3 * 86400, F, auto_applied=1, count=2)
     assert history.find_today_system_batch() == (None, None)
 
 
-def test_find_today_system_batch_skips_empty(conn):
+def test_find_today_system_batch_skips_empty(conn, freeze):
     """当日的系统批次若为空名单(stock_count=0) → 无直读价值, 跳过"""
-    _mk_batch(conn, 0, "lock", _bj_day(0), time.time() - 3600, F, auto_applied=1, count=0)
+    _mk_batch(conn, 0, "lock", _bj_day(0), freeze + 60, F, auto_applied=1, count=0)
     assert history.find_today_system_batch() == (None, None)
 
 
-def test_find_today_system_batch_ignores_manual(conn, create_user_token):
+def test_find_today_system_batch_ignores_manual(conn, create_user_token, freeze):
     """用户当日有手动批次**不影响**本函数(它刻意不看 `rows`)—— 这正是与当日版 ③ 的区别"""
     uid = _uid(create_user_token())
-    _mk_batch(conn, uid, "lock", _bj_day(0), time.time() - 7200, F, count=0)
-    sysbid = _mk_batch(conn, 0, "lock", _bj_day(0), time.time() - 3600, F, auto_applied=1, count=2)
+    _mk_batch(conn, uid, "lock", _bj_day(0), freeze + 120, F, count=0)
+    sysbid = _mk_batch(conn, 0, "lock", _bj_day(0), freeze + 60, F, auto_applied=1, count=2)
     got_bid, src = history.find_today_system_batch()
     assert got_bid == sysbid and src == "auto"
+
+
+# ---------------- v4.11.29 定格判据（此前零覆盖） ----------------
+
+def test_system_batch_before_freeze_is_rejected(conn, freeze):
+    """🔴 v4.11.29 核心防线: 定格**之前**落库的系统批次必须被排除。
+
+    这类批次的竞价字段整批取自上一交易日 9_25(当日 9_25 尚不存在 → 回退最近交易日),
+    而复用等价于"拿昨日名单当今日权威名单"(9/18 主人现象, 样本 #1674)。
+    """
+    _mk_batch(conn, 0, "lock", _bj_day(0), freeze - 60, F, auto_applied=1, count=2)
+    assert history.find_today_system_batch() == (None, None)
+
+
+def test_no_freeze_means_no_today_system_batch(conn, monkeypatch):
+    """当日 9_25 尚未落库(land=None) → 任何当日系统批次都不可用(不得侥幸命中)"""
+    monkeypatch.setattr(history, "_freeze_landing_ts", lambda bdate: None)
+    _mk_batch(conn, 0, "lock", _bj_day(0), time.time() - 60, F, auto_applied=1, count=2)
+    assert history.find_today_system_batch() == (None, None)
+
+
+def test_list_batches_marks_freeze_ready(conn, freeze):
+    """v4.11.29: 批次列表附 `freeze_ready`, 供前端首屏排除"定格前批次"回显"""
+    before = _mk_batch(conn, 0, "lock", _bj_day(0), freeze - 120, F, auto_applied=1, count=2)
+    after = _mk_batch(conn, 0, "lock", _bj_day(0), freeze + 60, F, auto_applied=1, count=2)
+    got = {r["id"]: r["freeze_ready"] for r in history.list_batches(999999, limit=200)
+           if r["id"] in (before, after)}
+    assert got.get(before) is False, "定格前批次应标 freeze_ready=False"
+    assert got.get(after) is True, "定格后批次应标 freeze_ready=True"
 
 
 # ---------------- 端到端: 事故场景正/反向 ----------------
@@ -141,7 +190,7 @@ def _http_setup(monkeypatch):
 
 
 def test_api_refresh_uses_today_system_when_today_manual_is_empty(
-        client, create_user_token, conn, monkeypatch):
+        client, create_user_token, conn, monkeypatch, freeze):
     """🔴 9/17 事故回归(正向): 用户当日点了 lock 但落的是**空名单批次**,
     且存在跨日同参批次 → **必须给当日系统名单, 绝不回退昨日**"""
     from app.services import scorer
@@ -150,11 +199,11 @@ def test_api_refresh_uses_today_system_when_today_manual_is_empty(
     f_full = scorer.validate_filters({"markets": ["hs,cyb"], "probLt": ["65"], "confLt": ["65"]})
 
     # 昨日 同参 lock(3 只) —— 修复前会命中它 → 用户看到"昨天的名单"
-    _mk_batch(conn, u["uid"], "lock", _bj_day(-1), time.time() - 86400, f_full, count=3)
+    _mk_batch(conn, u["uid"], "lock", _bj_day(-1), freeze - 86400, f_full, count=3)
     # 今日 用户手动 lock, 但**空名单**(stock_count=0) —— 事故的触发条件
-    _mk_batch(conn, u["uid"], "lock", _bj_day(0), time.time() - 3600, f_full, count=0)
+    _mk_batch(conn, u["uid"], "lock", _bj_day(0), freeze + 120, f_full, count=0)
     # 今日 系统统一名单(2 只) —— 应当命中它
-    sysbid = _mk_batch(conn, 0, "lock", _bj_day(0), time.time() - 1800, f_full,
+    sysbid = _mk_batch(conn, 0, "lock", _bj_day(0), freeze + 60, f_full,
                        auto_applied=1, count=2)
 
     h = {"Authorization": "Bearer " + u["token"]}
@@ -171,14 +220,18 @@ def test_api_refresh_uses_today_system_when_today_manual_is_empty(
 
 
 def test_api_refresh_still_uses_recent_when_no_today_system(
-        client, create_user_token, conn, monkeypatch):
-    """反向对照: 当日**没有**系统名单时, 跨日回退必须照旧生效(别把 2026-09-05 的需求改坏)"""
+        client, create_user_token, conn, monkeypatch, freeze):
+    """反向对照: 当日**没有**系统名单时, 跨日回退必须照旧生效(别把 2026-09-05 的需求改坏)
+
+    这里同样提供 freeze(当日定格已落库) —— 否则会因 land=None 而"侥幸通过",
+    证明不了"在定格已就绪的正常场景下, 找不到当日名单时也会正确回退昨日"。
+    """
     from app.services import scorer
     calls = _http_setup(monkeypatch)
     u = create_user_token()
     f_full = scorer.validate_filters({"markets": ["hs,cyb"], "probLt": ["65"], "confLt": ["65"]})
     yday = _bj_day(-1)
-    ybid = _mk_batch(conn, u["uid"], "lock", yday, time.time() - 86400, f_full, count=3)
+    ybid = _mk_batch(conn, u["uid"], "lock", yday, freeze - 86400, f_full, count=3)
 
     h = {"Authorization": "Bearer " + u["token"]}
     r = client.get("/api/stocks?action=refresh&strategy=auction&markets=hs,cyb&probLt=65&confLt=65",

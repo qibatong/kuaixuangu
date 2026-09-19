@@ -259,6 +259,23 @@
   成功页立刻清零 → 同一调用内反复横跳、下次仍完整重试 30 页）。
   ⚠️ `_fetch_chart_from_tencent` **不参与** `tencent_kline` 熔断统计（只有昨比路径会 `_record`）——
   这是有意为之：否则 K 线失败会连带掐掉昨比备源。
+- 🔴 **clist 分页口径（v4.11.32 修复，2026-09-19）**：`fetch_eastmoney_all` 原先**固定请求
+  `SPOT_MAX_PAGES=30` 页**，而各 fs 真实页数 = `ceil(total/200)`（hs 18 / cyb 8 / kcb 4）⇒ 越界页
+  恒返 `{"rc":102,"data":null}` = 东财「**没有更多数据**」——是**正常"到底"语义，不是故障、不是风控**。
+  原实现一律 `raise RuntimeError` → `done_fail >= done_ok` → `_record(False)` + `down_threshold=1`
+  ⇒ **每交易日 09:15:12 起把 `eastmoney_clist` 熔断到 09:29（535~546s，恰好完整覆盖竞价窗口）**
+  ⇒ 9_15/9_20/9_24/9_25 四个定格全走无 f630 的兜底源（cyb+kcb 共 2073 只 `warn_type` 恒 0）。
+  - **现状**：`_fetch_clist_page` 返回 `_ClistPage(list)`（`list` 子类，多带一个 `total`，
+    `len()/extend()` 语义零改动）；`rc in (0, 102)` **或** `diff` 为空 → 返空页（到底）；
+    仅**未知 rc** 才抛 `rc=%s`。**首页为空仍按真故障处理**（页 ≥2 为空才是到底）。
+  - **页数**：第 1 页串行取 `total` → `n_pages = min(ceil(total/200) + 1, SPOT_MAX_PAGES)`
+    （**+1 探测页**兜 `total` 少报一档，多打的那页返回空、不报错）；`total` 缺失 → 回退固定上限。
+    收益：三分区请求 **90 → 33 次/轮**。
+  - 🔴 **判据：区分「限流」与「越界误判」** —— 看**失败页号是否只出现在 `真实页数+1` 之后**。
+    若 1~真实页数**零失败**、失败清一色集中在越界段，就是自家越界误判，与频率/IP 无关
+    （实测 **150ms 慢速串行同样复现** ⇒ 彻底排除频率因素，也再次印证「不要买代理」）。
+  - ⚠️ `down_threshold` **保持 1 不改**：熔断自 2026-09-10 起已按**整批**判定（`done_fail >= done_ok`），
+    单页抖动本就不会熔断；阈值 1 只在**真**故障（过半页失败）时触发，而那正是应尽快切兜底的场景。
 - **东财 push2his（历史 K 线）自 8/30 起为接口级全局时段性风控**，与出口 IP 无关
   （公司网/阿里云测试/生产/代理家宽同一时刻全部 0~10%，而同机 push2dycalc 100% 通）；
   多米 + 快代理两家独立测出同一结论 → **买代理解决不了，别买**。等自愈（熔断半开探测）。
@@ -298,6 +315,14 @@
   + 修掉 `test_auto_apply.test_is_user_active_expired` 的**过期未还原**顺序耦合缺陷）。
   → **1062 / 4 skip / 0 红**（9/18 夜 v4.11.30：新增 `test_f630_warn_0918.py` **18 例**
   + 测试机补传 `test_bid_strength_switch.py` 22 例）。
+  → **1126 / 4 skip / 0 红（收集 1130，实测 214.9s）**（9/19 v4.11.32：新增 `test_clist_paging_0919.py`
+  **26 例** + 测试机补传 `test_auto_apply_retry.py`／`test_today_system_fallback.py` **2 个缺失文件**
+  + 修 `test_today_system_fallback.py` 3 例真红 + 新增 3 例补覆盖 v4.11.29 的定格判据）。
+  🔴 **教训：「改了什么就只上传什么」会让远端测试集与仓库长期偏离** —— 上述 2 个文件**从未上传过**，
+  长期不在全量覆盖内；且 `test_today_system_fallback.py` 停留在 v4.11.25，v4.11.29 改了判据后
+  **3 例真红 + 2 例否定断言因 `land=None` 恒成立而"侥幸全绿"**（覆盖实质失效，比红更危险）。
+  ⇒ **改完必须比对两端文件数与收集数**：`ls backend/tests/*.py | LC_ALL=C sort` 逐行 diff（两端都要 `LC_ALL=C`，
+  排序规则不同会误报），并核对 `pytest --collect-only -q | tail -1` 的收集总数。
   ⚠️ **测"真实读库"必须绕过 session 级桩**：`conftest.mock_data_source`（session autouse）把
   `auction_snapshot.load_snapshot_full` 桩成了 `MOCK_RAW` 造的快照 —— v4.11.30 起 conftest 额外暴露
   `_asnap._real_load_snapshot_full`，需要打真实实现的用例用它（否则测的是桩、结论无效）。
