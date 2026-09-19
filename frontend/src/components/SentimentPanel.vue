@@ -14,9 +14,9 @@
         <span class="senti-val" :class="strongCls">{{ s.strong }}</span>
         <span class="senti-tag" :class="strongCls">{{ strongText }}</span>
       </div>
-      <!-- 两市资金: 成交额(亿) + 较昨日同时刻缩量/放量 -->
+      <!-- 市场量能(2026-09-19 由"两市资金"改名, 主人指令): 成交额(亿) + 较昨日同时刻缩量/放量 -->
       <div class="senti-item" v-if="brief.market" :title="'两市股票总数 ' + brief.market.stockCount + ' 只'">
-        <span class="senti-label">两市资金</span>
+        <span class="senti-label">市场量能</span>
         <span class="senti-val mkt-amt">{{ brief.market.amount.toFixed(0) }}亿</span>
         <!-- 2026-09-07: 差为 0 时原显示"放量 0 亿"(0 不小于 0) → 改判「持平」 -->
         <template v-if="diffAmt !== null">
