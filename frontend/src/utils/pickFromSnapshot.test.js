@@ -68,7 +68,6 @@ test('snapshotToRow: 单位与字段名对齐 /api/stocks 的 item(流通=亿)',
   assert.equal(r.circulationMV, 55.0)     // 亿(与 batch_stocks 口径一致)
   assert.equal(r.bidAmt, 8000)            // 万元
   assert.equal(r.realChange, null)        // 实时字段留给 /api/quotes
-  assert.equal(r.qiangchou, 0)
 })
 
 test('空输入不炸: null/空快照/缺条件 → []', () => {

@@ -637,8 +637,7 @@ def daily_auc_amt(trademin="0925", date_offset=None, date=None):
         params["tradedate_offset"] = date_offset
     data = call_cached("daily_auc", params=params, ttl=_AUC_SNAP_TTL,
                        fields="tradedate,symbol,name,m_price,auc_pct_chg,open_bid_pct,auc_vol,"
-                              "auc_amt,um_vol,auc_vol_ratio,auc_turnover,auc_to_pre_vol_pct,"
-                              "auc_to_pre_auc_vol_ratio")
+                              "auc_amt,um_vol,auc_vol_ratio,auc_turnover,auc_to_pre_vol_pct")
     return _sym_rows(data)
 
 

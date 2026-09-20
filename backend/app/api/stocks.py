@@ -103,20 +103,10 @@ def _run_new_pipeline(uid, action, f, *, yesterday_map, yesterday_chg_map,
     try:
         from ..services.picker import mode as pmode
         from ..services.picker import pipeline
-        # 抢筹明细必须在**此处**注入: 切流后 api 层直接构造 PickContext(不走
-        # pipeline.load_context), 漏传会让 ctx.qiangchou_detail 为空 → 左视图
-        # 抢筹细分(🔥竞额/🔥涨幅/🔥末秒)全丢, 只剩旧公式打标(2026-09-09 修)。
-        try:
-            qc_detail = kpl.get_qiangchou_detail() or {}
-        except Exception as e:                                 # noqa: BLE001
-            log.warning("抢筹明细加载失败(回退旧公式) err=%s", e)
-            qc_detail = {}
         ctx = pipeline.PickContext(
             date=pmode.bj_date(),
             markets=f.get("markets"),
             zt_codes=(_safe_zt_codes() if not f.get("limitUp") else None),
-            qiangchou_detail=qc_detail or None,
-            qiangchou_codes=set(qc_detail.keys()) if qc_detail else None,
             day_bid_change=bid_chg_map or {},
             day_bid_amt_wan=bid_amt_map or {},
             yesterday_chg=yesterday_chg_map or {},

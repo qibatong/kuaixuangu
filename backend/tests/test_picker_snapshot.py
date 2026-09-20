@@ -18,9 +18,9 @@ import pytest
 
 from app.api import picker as api_picker
 from app.db import database
-from app.services import kpl, settings
+from app.services import settings
 from app.services.picker import filter as pfilter
-from app.services.picker import pipeline, precompute
+from app.services.picker import precompute
 from app.services.picker.contract import QuoteRow
 from app.services.picker.score import ScoreResult, ScoredRow
 
@@ -41,13 +41,12 @@ def _q(code, **kw):
 
 @pytest.fixture(autouse=True)
 def _setup(monkeypatch):
-    """假日期 + 放宽行数闸门 + 清接口缓存 + 桩掉抢筹外网。
+    """假日期 + 放宽行数闸门 + 清接口缓存。
 
     行数闸门降到 1: 用例只造几只票(生产闸门 500 会判"预定格数据缺失")。
     闸门语义本身由 test_enabled_false_when_table_incomplete 单独覆盖。
     """
     monkeypatch.setattr(precompute, "MIN_ROWS", 1)
-    monkeypatch.setattr(kpl, "get_qiangchou_detail", lambda *a, **kw: {})
     api_picker._cache.clear()
     database.init_db()
     precompute.clear_date(_DATE)
@@ -118,7 +117,7 @@ def test_requires_vip(client, second_user):
 
 
 def test_enabled_returns_all_rows(client, vip_user):
-    """开关开 + VIP + 物化表有数据 → 全市场行下发(含抢筹字段占位)"""
+    """开关开 + VIP + 物化表有数据 → 全市场行下发"""
     token = vip_user[0]
     settings.set(api_picker.SWITCH, 1)
     _seed(4)
@@ -127,7 +126,6 @@ def test_enabled_returns_all_rows(client, vip_user):
     codes = {r["code"] for r in d["list"]}
     assert codes == {_code(i) for i in range(4)}
     for r in d["list"]:
-        assert r["qiangchou"] == 0 and r["qcType"] == ""   # 无抢筹明细 → 未命中
         assert "probability" in r and "confidence" in r
 
 
@@ -151,37 +149,6 @@ def test_switch_on_but_table_read_raises(client, vip_user, monkeypatch):
     r = client.get("/api/picker/snapshot?token=%s&date=%s" % (token, _DATE))
     assert r.status_code == 200
     assert r.json()["enabled"] is False
-
-
-# ==================== 抢筹字段(与 pipeline 同口径) ====================
-def test_qc_fields_matches_pipeline_output():
-    """qc_fields: 有明细 → 类型+幅度+中文摘要; 无明细 → 未命中占位"""
-    det = {"600000": {"types": ["amt", "chg"], "amt": 6.5, "chg": 1.2, "last": None}}
-    got = pipeline.qc_fields("600000", det)
-    assert got["qiangchou"] == 1 and got["qcType"] == "amt+chg"
-    assert got["qcAmt"] == 6.5 and got["qcChg"] == 1.2
-    assert "竞额抢筹" in got["qcText"] and "涨幅抢筹" in got["qcText"]
-    # 明细里没有的票 → 未命中(不得凭空打标)
-    miss = pipeline.qc_fields("600001", det)
-    assert miss["qiangchou"] == 0 and miss["qcText"] == ""
-    # 明细为空 → 未命中
-    assert pipeline.qc_fields("600000", {})["qiangchou"] == 0
-
-
-def test_snapshot_attaches_qc_from_kpl(client, vip_user, monkeypatch):
-    """快照行带上 kpl 抢筹标(与后端名单同一份明细, 避免本地/后端分叉)"""
-    token = vip_user[0]
-    settings.set(api_picker.SWITCH, 1)
-    _seed(2)
-    monkeypatch.setattr(kpl, "get_qiangchou_detail",
-                        lambda *a, **kw: {_code(0): {"types": ["amt"], "amt": 5.5,
-                                                     "chg": None, "last": None}})
-    api_picker._cache.clear()
-    d = client.get("/api/picker/snapshot?token=%s&date=%s" % (token, _DATE)).json()
-    hit = [r for r in d["list"] if r["code"] == _code(0)][0]
-    assert hit["qiangchou"] == 1 and hit["qcType"] == "amt"
-    other = [r for r in d["list"] if r["code"] == _code(1)][0]
-    assert other["qiangchou"] == 0
 
 
 # ==================== 与前端 pickFromSnapshot 对拍(同一份夹具) ====================

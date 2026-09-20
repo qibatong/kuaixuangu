@@ -151,9 +151,6 @@ export function snapshotToRow(it) {
     prevClose: it.prevClose, auctionPrice: it.auctionPrice,
     warnType: it.warnType, industry: it.industry, concept: it.concept,
     rank: it.rank,
-    qiangchou: it.qiangchou || 0, qcType: it.qcType || '',
-    qcAmt: it.qcAmt ?? null, qcChg: it.qcChg ?? null, qcLast: it.qcLast ?? null,
-    qcText: it.qcText || '', qcFallback: it.qcFallback || 0,
     price: null, realChange: null, entityChange: null,
     volRatio: null, turnover: null
   }

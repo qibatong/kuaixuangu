@@ -2,9 +2,9 @@
 """一期测试: 一字涨停判定/统计 + 竞价额窗口口径
 
 (2026-09-11: 原"竞价抢筹信号"用例测的是老链路 is_qiangchou 公式与
- scorer.process_all_stocks —— 抢筹口径已改为右视图抢筹明细/集合命中,
- 新链路不做公式兜底, 相关用例随老链路删除; 现行覆盖见
- test_qiangchou_detail.py 与 test_picker_pipeline.py。)
+ scorer.process_all_stocks —— 相关用例随老链路删除。2026-09-20: 左视图
+ 选股表格抢筹标(🔥)已整体删除(前后端 + pipeline 输出), 抢筹仅剩右视图
+ 竞价抢筹面板(kpl.fetch_bid_qiangcang)。)
 """
 import pytest
 

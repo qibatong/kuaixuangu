@@ -48,8 +48,7 @@ def fake_meoz(monkeypatch):
     auc = {
         # auc_amt 单位=元
         "000001": {"tradedate": "20260920", "symbol": "000001", "name": "平安银行",
-                   "auc_pct_chg": -0.17, "auc_amt": 4232832, "m_price": 11.5,
-                   "auc_to_pre_auc_vol_ratio": 1.5},   # 官方竞昨量比(2026-09-20 换源)
+                   "auc_pct_chg": -0.17, "auc_amt": 4232832, "m_price": 11.5},
         "300999": {"tradedate": "20260920", "symbol": "300999", "name": "无涨幅票",
                    "auc_pct_chg": None, "auc_amt": 100000, "m_price": 0},
     }
@@ -89,8 +88,6 @@ def test_meoz_standalone_when_eastmoney_down(fake_meoz):
     # ★ 昨日封单额 + 封昨比(screening 独有)
     assert v["pre_fd_amount"] == 0
     assert v["fd_to_yesterday"] == 0         # None → 0(未落有效值)
-    # ★ 竞昨量比(官方成品, daily_auc 独有): 000001 从后备 daily_auc 补出
-    assert v["auc_pre_vol_ratio"] == 1.5
     # 600519: screening 全字段齐 + 封单额 + 题材
     m = raw["600519"]
     assert m["bid_change"] == -0.31
@@ -164,24 +161,6 @@ def test_meoz_fills_free_mv_when_float_mv_present(fake_meoz):
     assert b["float_mv"] == 1.0e12        # 东财流通市值保持不动
     assert b["free_mv"] == 7.1505e11      # ★ 补上自由流通市值
     assert st["mv"] == 0 and st["frmv"] == 1
-
-
-def test_meoz_pre_vol_ratio_fill_and_never_overwrite(fake_meoz):
-    """⑧ 竞昨量比(官方成品): 缺则补, 已有值不覆盖(与「只补缺」纪律一致)"""
-    raw = {
-        "000001": {"bid_change": 1.0, "bid_amt": 100.0, "name": "平安银行",
-                   "bid_buy_amt": 0, "float_mv": 2.0e11, "free_mv": 9.0e10,
-                   "board": "", "warn_type": 0,
-                   "auc_pre_vol_ratio": 9.99},   # 已有官方值 → 不覆盖
-    }
-    A._merge_meoz(raw)
-    assert raw["000001"]["auc_pre_vol_ratio"] == 9.99     # 保留原值
-    # 缺失场景: 无该键 → 从 daily_auc 补 1.5
-    raw2 = {"000001": {"bid_change": 1.0, "bid_amt": 100.0, "name": "平安银行",
-                       "bid_buy_amt": 0, "float_mv": 2.0e11, "free_mv": 9.0e10,
-                       "board": "", "warn_type": 0}}
-    A._merge_meoz(raw2)
-    assert raw2["000001"]["auc_pre_vol_ratio"] == 1.5
 
 
 def test_meoz_handles_disabled(monkeypatch):

@@ -188,7 +188,7 @@ def test_item_shape_matches_legacy(monkeypatch):
     for k in ("code", "name", "probability", "confidence", "bidChange", "realChange",
               "entityChange", "bidTurnover", "bidVolRatio", "warnType",
               "circulationMV", "industry", "concept", "bidAmt", "bidRatio",
-              "accel", "price", "volRatio", "turnover", "qiangchou", "province",
+              "accel", "price", "volRatio", "turnover", "province",
               "speed", "degraded", "source"):
         assert k in it, k
     assert it["bidRatio"] == pytest.approx(50.0)   # 5000万/10000万(单位同为万元)
@@ -335,7 +335,7 @@ def test_bid_ratio_uses_last_closed_day(monkeypatch):
 
 
 def test_bid_ratio_none_without_pair(monkeypatch):
-    """无日K pair 时 bidRatio 为 None, 抢筹为 0
+    """无日K pair 时 bidRatio 为 None
 
     注: yesterday_map 为空会触发 pipeline.fill_yesterday 按候选拉日K, 必须把
     fetcher.fetch_yesterday_amounts 也打成空 —— 否则 conftest 的全局假实现
@@ -348,7 +348,6 @@ def test_bid_ratio_none_without_pair(monkeypatch):
     res = pipeline.run(dict(FULL), ctx=_ctx(yesterday_map={}),
                        now=datetime.datetime(2026, 9, 8, 16, 0))
     assert res.items[0]["bidRatio"] is None
-    assert res.items[0]["qiangchou"] == 0
 
 
 # ==================== 2026-09-11 现涨全 0 事故回归锁 ====================

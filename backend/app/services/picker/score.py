@@ -157,7 +157,6 @@ class ScoredRow:
     # ---- 竞价派生(由 pipeline 注入; 老链路曾就地计算) ----
     bid_ratio: Optional[float] = None     # 竞价额/最近已收盘交易日全天额 (%)
     accel: Optional[float] = None         # 9:25-9:20 竞价涨幅加速度(%)
-    qiangchou: int = 0                    # 抢筹标记 0/1
     industry: Optional[str] = None        # 板块覆盖后(开盘啦)的行业/概念
     concept: Optional[str] = None
 
@@ -194,7 +193,6 @@ class ScoredRow:
             "bidRatio": self.bid_ratio,
             "accel": self.accel,
             "price": r.price,
-            "qiangchou": self.qiangchou,
             "volRatio": r.vol_ratio,
             "turnover": r.turnover,
             "degraded": r.degraded,

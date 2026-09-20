@@ -36,49 +36,12 @@ from .sources.base import FetchContext, SourceResult, get_source
 log = logger.get_logger(__name__)
 
 
-_QC_LABEL = {"amt": "竞额", "chg": "涨幅", "last": "末秒"}
-_QC_UNIT = {"amt": "%", "chg": "个百分点", "last": "个百分点"}
-
-
-def qc_fields(code: str, detail: Optional[Dict[str, dict]]) -> dict:
-    """抢筹展示字段(明细版口径) —— 供 pipeline 输出与 P3 快照接口**共用**。
-
-    单独抽出来的理由: P3 前端本地筛选的名单也要显示 🔥 抢筹标, 若两处各写一份,
-    "本地名单"与"后端名单"的抢筹标就会分叉(同一只票一边有一边没有)。
-    无明细时返回未命中(纯代码集命中的兜底在 _qc_of 里, 那里能拿到 ctx)。
-    """
-    d = (detail or {}).get(code)
-    if not (d and d.get("types")):
-        return {"qiangchou": 0, "qcType": "", "qcAmt": None, "qcChg": None,
-                "qcLast": None, "qcText": "", "qcFallback": 0}
-    types = [t for t in d["types"] if t in _QC_LABEL]
-    parts = ["%s抢筹 %s%s" % (_QC_LABEL[t], d.get(t), _QC_UNIT[t])
-             for t in types if d.get(t) is not None]
-    return {"qiangchou": 1, "qcType": "+".join(types),
-            "qcAmt": d.get("amt"), "qcChg": d.get("chg"), "qcLast": d.get("last"),
-            "qcText": "；".join(parts) or "命中竞价抢筹", "qcFallback": 0}
-
-
-def _qc_of(code: str, ctx: "PickContext") -> dict:
-    """抢筹输出(2026-09-09): 明细优先(带类型 amt/chg/last + 各自幅度 + 中文摘要),
-    无明细才退回纯代码集合(只打标)。口径与老链路抢筹打标一致。"""
-    d = (ctx.qiangchou_detail or {}).get(code)
-    if d and d.get("types"):
-        return qc_fields(code, ctx.qiangchou_detail)
-    hit = 1 if (ctx.qiangchou_codes and code in ctx.qiangchou_codes) else 0
-    return {"qiangchou": hit, "qcType": "qc" if hit else "",
-            "qcAmt": None, "qcChg": None, "qcLast": None,
-            "qcText": "命中竞价抢筹" if hit else "", "qcFallback": 0}
-
-
 @dataclass
 class PickContext:
     """一次选股所需的**外部事实**(全部可注入 → 单测无需网络/DB)"""
     date: str = ""
     markets: Optional[List[str]] = None
     zt_codes: Optional[Set[str]] = None          # 昨涨停/连板(None=名单不可用)
-    qiangchou_codes: Optional[Set[str]] = None   # 竞价抢筹(None=回退公式)
-    qiangchou_detail: Optional[Dict[str, dict]] = None  # 抢筹明细{code:{types,amt,chg,last}}
     day_bid_change: Dict[str, float] = field(default_factory=dict)   # 9:25 定格涨幅 %
     day_bid_amt_wan: Dict[str, float] = field(default_factory=dict)  # 9:25 定格额(万元)
     day_bid_vol: Dict[str, float] = field(default_factory=dict)      # 9:25 定格量(股)
@@ -360,7 +323,6 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
     # 5) 输出(老链路 item 同构 + 定格派生字段)
     ymap = ctx.yesterday_map or {}
     snap = ctx.snapshot_map or {}
-    qc = ctx.qiangchou_codes
     # 异动等级档位映射(强/中/弱)已删除(2026-09-20 主人指令): 强度分仍完整参与
     # 异动 17% 评分与置信度加成, 但不再对外输出强/中/弱档位。warnType 仅保留
     # 历史落库 NOT NULL 兼容值(回退 f630, 实测恒 0)。
@@ -382,7 +344,6 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
             "bidAmt": None if bid_amt_wan is None else round(bid_amt_wan, 2),
             "bidRatio": bid_ratio,
             "accel": accel,
-            **_qc_of(r.code, ctx),
             "province": "-",
             "speed": r.turnover,
             "warnType": warn_label,
@@ -407,7 +368,7 @@ def load_context(date: Optional[str] = None,
     任何一项失败都退化为"该事实不可用"而不是抛异常 —— 与适配层同原则:
     降级是数据, 不是控制流。
     """
-    from .. import auction_snapshot, fetcher, kpl
+    from .. import auction_snapshot, fetcher
     from .mode import bj_date
     date = date or bj_date()
     ctx = PickContext(date=date, markets=markets)
@@ -428,13 +389,6 @@ def load_context(date: Optional[str] = None,
         ctx.snapshot_map = snaps if isinstance(snaps, dict) else {}
     except Exception as e:                                    # noqa: BLE001
         log.warning("9:20 快照加载失败(加速度不可算) err=%s", e)
-    try:
-        # 用明细(含类型+幅度)而非纯代码集: 左视图要能区分竞额/涨幅/末秒抢筹(2026-09-09)
-        det = kpl.get_qiangchou_detail()
-        ctx.qiangchou_detail = det or None
-        ctx.qiangchou_codes = set(det.keys()) if det else None
-    except Exception as e:                                    # noqa: BLE001
-        log.warning("抢筹名单加载失败(回退公式) err=%s", e)
     return ctx
 
 

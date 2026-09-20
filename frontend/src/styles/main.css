@@ -1332,7 +1332,6 @@ body[data-bg="light"] select.rot-select option { background: #fff; color: #333; 
   .medal-real-big { font-size: 28px !important; }
   .medal-bid-sm { font-size: 13px !important; }
   .medal-score-row { font-size: 13px !important; gap: 4px !important; white-space: nowrap; overflow: hidden; }
-  .qc-badge { font-size: 11px !important; padding: 1px 4px !important; margin-left: 2px !important; }
 
   /* ========== 股票表格(左选股 + 右竞价所有tab) 手机端 ========== */
   .stock-table th, .stock-table td {

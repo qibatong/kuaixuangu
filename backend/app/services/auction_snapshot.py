@@ -252,9 +252,6 @@ def _merge_meoz(raw_all):
         ff = ff_map.get(code) or {}
         # 竞价主力净额(元, 9:25 起更新): 无值/0 → 0(=无信号, 评分走 default)
         auc_main_net = _f(ff.get("auction_main_net_amount")) or 0.0
-        # 竞昨量比(官方成品, 2026-09-20 换源): daily_auc.auc_to_pre_auc_vol_ratio =
-        # 今竞价成交量 ÷ 昨竞价成交量; 无值 → 0(=无官方值, 量比层回退自算)
-        pre_vol_ratio = _f(am.get("auc_to_pre_auc_vol_ratio")) or 0.0
 
         # 封单额: screening.fd_amount/fa_0925l 优先, daily_auc_fd.fa_0925 兜底(均元)
         seal = _f(s.get("fd_amount")) or _f(s.get("fa_0925l")) or _f(fd.get("fa_0925"))
@@ -286,7 +283,6 @@ def _merge_meoz(raw_all):
                 "fd_to_yesterday": fd_yday if fd_yday is not None else 0.0,        # 封昨比
                 "auc_turnover": _f(s.get("auc_turnover")) or 0.0,                 # 真实竞价换手率%(自由流通口径)
                 "auc_main_net": auc_main_net,                                      # 竞价主力净额(元)
-                "auc_pre_vol_ratio": pre_vol_ratio,                                # 竞昨量比(官方成品)
                 "board": str(s.get("theme_names_kpl") or fd.get("theme_names_kpl") or ""),
                 "warn_type": 0,             # f630 已失活
                 "_src": "meoz",
@@ -347,9 +343,6 @@ def _merge_meoz(raw_all):
         #   已有值(理论上不存在, 该键只由本函数写)则不覆盖 —— 同「只补缺」纪律。
         if not (v.get("auc_main_net") or 0) and auc_main_net:
             v["auc_main_net"] = auc_main_net
-        # 竞昨量比(官方成品): 仅 daily_auc 有 → 缺则补(0=无官方值, 量比层回退自算)
-        if not (v.get("auc_pre_vol_ratio") or 0) and pre_vol_ratio:
-            v["auc_pre_vol_ratio"] = pre_vol_ratio
     return stats
 
 
@@ -733,15 +726,14 @@ def snapshot_at(time_point, force=False):
     try:
         conn = database.get_conn()
         conn.executemany(
-            "INSERT OR REPLACE INTO snapshot_bid (date, time_point, code, bid_change, bid_amt, name, bid_buy_amt, float_mv, free_mv, board, warn_type, pre_fd_amount, fd_to_yesterday, auc_turnover, auc_main_net, auc_pre_vol_ratio, ts) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO snapshot_bid (date, time_point, code, bid_change, bid_amt, name, bid_buy_amt, float_mv, free_mv, board, warn_type, pre_fd_amount, fd_to_yesterday, auc_turnover, auc_main_net, ts) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [(date, time_point, code, v["bid_change"], v["bid_amt"], v.get("name", ""),
               v.get("bid_buy_amt", 0), v.get("float_mv", 0), v.get("free_mv", 0), v.get("board", ""),
               int(v.get("warn_type") or 0),
               v.get("pre_fd_amount", 0), v.get("fd_to_yesterday", 0),
               v.get("auc_turnover", 0),
               v.get("auc_main_net", 0),
-              v.get("auc_pre_vol_ratio", 0),
               int(time.time()))
              for code, v in raw_all.items()])
         conn.commit()

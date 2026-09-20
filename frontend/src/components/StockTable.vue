@@ -7,8 +7,6 @@
       <colgroup>
         <col style="width:88px" />
         <col style="width:46px" />
-        <!-- 抢筹列(隐藏开关 SHOW_QC) -->
-        <col v-if="SHOW_QC" style="width:54px" />
         <col style="width:46px" />
         <col style="width:50px" />
         <col style="width:64px" />
@@ -24,7 +22,6 @@
         <tr>
           <th class="sortable merged-col col-name" :class="{ active: sortKey === 'code' || sortKey === 'name' }" @click="onSort('code', 'string')">名称<span class="sort-ind">{{ sortInd('code') }}</span></th>
           <th class="sortable num col-realchg" :class="{ active: sortKey === 'realChange' }" title="实时涨幅：当前价相对昨收的涨幅" @click="onSort('realChange', 'number')">现涨<span class="sort-ind">{{ sortInd('realChange') }}</span></th>
-          <th v-if="SHOW_QC" class="sortable col-qc" :class="{ active: sortKey === 'qiangchou' }" title="命中竞价异动-竞价抢筹时标记 🔥：与右视图竞价抢筹同源（9:20→9:25 竞额/涨幅抢筹 + 9:24→9:25 最后一秒）。徽章文字=抢筹类型（竞额/涨幅/末秒），悬停看各自幅度" @click="onSort('qiangchou', 'number')">抢筹<span class="sort-ind">{{ sortInd('qiangchou') }}</span></th>
           <th class="sortable num col-bidchg" :class="{ active: sortKey === 'bidChange' }" title="竞价涨幅" @click="onSort('bidChange', 'number')">竞涨<span class="sort-ind">{{ sortInd('bidChange') }}</span></th>
           <th class="sortable num col-entchg" :class="{ active: sortKey === 'entityChange' }" @click="onSort('entityChange', 'number')">实体<span class="sort-ind">{{ sortInd('entityChange') }}</span></th>
           <th class="sortable num col-bidamt" :class="{ active: sortKey === 'bidAmt' }" title="集合竞价阶段撮合成交金额" @click="onSort('bidAmt', 'number')">竞额<span class="sort-ind">{{ sortInd('bidAmt') }}</span></th>
@@ -49,11 +46,6 @@
             <div v-if="yidongTag(item.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(item.code) }}</span></div>
           </td>
           <td :class="realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + pct(item._staleReal) + '）') : ''">{{ pct(item.realChange) }}</td>
-          <td v-if="SHOW_QC">
-            <span v-if="item.qiangchou" class="qc-badge" :title="qcTitle(item)">🔥{{ qcLabel(item) }}</span>
-            <span v-else-if="item._snapshot || isAuction" title="竞价异动-竞价抢筹未命中(9:20→9:25 竞价涨幅 / 最后一秒竞价涨幅)">-</span>
-            <span v-else class="qc-pending" title="9:25-9:30 竞价时段才判定抢筹信号">竞价时</span>
-          </td>
           <td :class="chgCls(item.bidChange)" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'">{{ pct(item.bidChange) }}</td>
           <td :class="item.entityChange === null || item.entityChange === undefined ? 'dim' : (item.entityChange > 0 ? 'up' : 'down')" :title="item.entityChange === null || item.entityChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + pct(item._staleEntity) + '）') : ''">{{ pct(item.entityChange) }}</td>
           <td class="col-muted" :title="'集合竞价阶段撮合成交金额: ' + (item.bidAmt ? bidAmtText(item.bidAmt) : '-')">{{ item.bidAmt || item.bidAmt === 0 ? bidAmtText(item.bidAmt) : '-' }}</td>
@@ -76,7 +68,6 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { linkToSoftware } from '../utils/tdx'
-import { isBefore930 } from '../utils/time'
 import { fmtNum, pct } from '../utils/format'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
 import PoolHoverBtn from './PoolHoverBtn.vue'
@@ -90,34 +81,6 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['open-chart'])
-
-// ---- 抢筹细分(2026-09-09): 左视图区分竞额/涨幅/末秒抢筹并展示幅度 ----
-// 2026-09-14 主人要求: 抢筹列先隐藏。**保留实现**, 改回 true 即恢复(列宽/表头/单元格三处同源)。
-const SHOW_QC = false
-const QC_LABEL = { amt: '竞额', chg: '涨幅', last: '末秒' }
-
-function qcTypes(item) {
-  return (item.qcType || '').split('+').filter((t) => QC_LABEL[t])
-}
-
-function qcLabel(item) {
-  const ts = qcTypes(item)
-  if (!ts.length) return '抢筹'
-  return QC_LABEL[ts[0]] + (ts.length > 1 ? '·' + QC_LABEL[ts[1]] : '')
-}
-
-function qcTitle(item) {
-  const base = '竞价异动-竞价抢筹(与右视图同源)'
-  if (item.qcText) {
-    return base + '：' + item.qcText +
-      (item.qcFallback ? '（数据源异常，已用公式兜底，口径与右视图不同）' : '')
-  }
-  return item.qiangchou ? base + '：命中抢筹（本批次未记录细分幅度）'
-    : '竞价异动-竞价抢筹未命中'
-}
-
-// 是否处于竞价时段(9:30 前): 非竞价时段不判定抢筹, 显示"竞价时"
-const isAuction = isBefore930()
 
 // 排序状态: { key: 'bidChange', dir: 'asc' | 'desc' } 或 null
 const sortState = ref(null)
@@ -230,12 +193,6 @@ function realCls(item) {
   text-overflow: ellipsis;
   max-width: 100%;
 }
-.stock-table-compact .qc-badge,
-.stock-table-compact .qc-pending {
-  padding: 1px 4px;
-  font-size: 11px;
-  border-radius: 3px;
-}
 .stock-table-compact .pool-add-btn {
   padding: 1px 5px;
   font-size: 11px;
@@ -337,23 +294,6 @@ th.sortable:hover .sort-ind:empty::before {
 body[data-bg="light"] .sort-ind { color: #fff; }
 body[data-bg="light"] th.sortable:hover { color: #fff; }
 body[data-bg="light"] th.sortable.active { color: #fff; }
-.qc-badge {
-  display: inline-block;
-  background: rgba(var(--accent-rgb), 0.18);
-  border: 1px solid var(--accent);
-  color: var(--accent-text);
-  border-radius: 4px;
-  padding: 0 6px;
-  font-size: 12px;
-  animation: qc-pulse 1.6s ease-in-out infinite;
-}
-.qc-pending {
-  color: var(--text-muted);
-  font-size: 12px;
-  border: 1px dashed #555;
-  border-radius: 4px;
-  padding: 0 6px;
-}
 .accel-hot {
   color: var(--accent-deep);
   font-weight: 700;
@@ -393,10 +333,6 @@ body[data-bg="light"] th.sortable.active { color: #fff; }
   border-radius: 4px;
   padding: 1px 5px;
 }
-@keyframes qc-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
-}
 
 /* 2026-09-20 性能优化: content-visibility 虚拟化渲染。
    数千行时浏览器自动跳过视口外行的布局/绘制, 滚动流畅度大幅提升。
@@ -411,6 +347,4 @@ body[data-bg="light"] th.sortable {  color: #fff;  }
 body[data-bg="light"] th.sortable:hover {  color: #fff;  }
 body[data-bg="light"] th.sortable.active {  color: #fff;  }
 body[data-bg="light"] .sort-ind {  color: #fff;  }
-body[data-bg="light"] .qc-badge {  color: #8a5500; background: rgba(184,48,16,0.15); border-color: #b83010;  }
-body[data-bg="light"] .qc-pending {  color: #8a8a8a; border-color: #999;  }
 </style>

@@ -14,11 +14,12 @@
 
 现状三层
 --------------------------------------------------------------------------------
-① 竞价量比     —— **猫爪 daily_auc.auc_to_pre_auc_vol_ratio 官方成品**(竞昨量比 =
-                  今竞价成交量 ÷ 昨竞价成交量, 落库 snapshot_bid.auc_pre_vol_ratio)。
-                  2026-09-20 主人拍板换源: 原「本地自算(今额/昨额)」与官方字段实测
-                  相关系数 0.854、相对差异中位 1.6%, 官方更精确且无「昨额<100万失真
-                  爆炸」(官方 max 26 vs 自算 582)。老库无列/无官方值时**回退自算**。
+① 竞价量比     —— **本地自算(今竞价额 ÷ 昨竞价额)**(snapshot_bid.bid_amt, 单位万元;
+                  万元相除单位抵消, 等价于猫爪 auc_amt 元相除)。
+                  2026-09-20 曾换源到猫爪 daily_auc.auc_to_pre_auc_vol_ratio 官方成品,
+                  回测/口径实证发现该字段不可靠(与真实竞昨量比 r≈0.19、max 691 倍),
+                  screening.volume_ratio 又是盘中量比口径 → **回退纯自算**(2026-09-20)。
+                  自算「今额/昨额」≈「今量/昨量」(r=0.9988), 口径可靠。
 ② 竞价主力净额 —— **猫爪 fundflow_kp**(采集链路 9:25 定格时落 snapshot_bid.auc_main_net):
                   净额 ÷ 自由流通市值 ×100 = 净额占比(%), 归一化后分档。
                   覆盖实测(2026-09-18 全市场): 非零仅 32% —— 主力净额是"有大单才有值",
@@ -32,8 +33,7 @@
 
 两个实测踩过的坑(不可回退)
 --------------------------------------------------------------------------------
-* 自算量比**必须**过滤昨日竞价额 < 100 万: 昨额 1 万 → 量比 302 倍, 严重失真
-  (仅官方值缺失回退自算时触发; 官方成品值天然无此问题)。
+* 自算量比**必须**过滤昨日竞价额 < 100 万: 昨额 1 万 → 量比 302 倍, 严重失真。
 * 加速度层曾要求以 9_24 为基准(9:20 前挂单可撤) —— 该层已删, 9_24 快照仅剩
   竞价异动页「加速度」展示列在用(与评分无关, 勿混)。
 
@@ -116,10 +116,7 @@ def _fill_snapshot(out: Dict[str, BidStrength], want, date: Optional[str]):
         # → 探测列存在性, 无则净额层整体判不可用(量比层照常, 独立降级)。
         cols = {r[1] for r in cur.execute("PRAGMA table_info(snapshot_bid)").fetchall()}
         has_ff = "auc_main_net" in cols and "free_mv" in cols
-        # 竞昨量比官方成品列(2026-09-20 换源): 老库无此列 → 该层回退自算(见下方)
-        has_pre_vol = "auc_pre_vol_ratio" in cols
         sel_extra = ", auc_main_net, free_mv" if has_ff else ", NULL, NULL"
-        sel_extra += ", auc_pre_vol_ratio" if has_pre_vol else ", NULL"
 
         # 目标交易日: 未指定 → 最近有 9:25 快照的交易日(节假日/盘前自动回退)
         # 2026-09-09 修正: 传入了 date 但当天还没 9:25 快照(如 9/9 凌晨传 date='2026-09-09'),
@@ -140,18 +137,16 @@ def _fill_snapshot(out: Dict[str, BidStrength], want, date: Optional[str]):
 
         # 今日 9:25 定格: 竞价额(自算量比兜底) + 竞价主力净额/自由流通市值(净额层)
         #                       + 竞昨量比(官方成品, 优先)
-        for code, amt, auc_main_net, free_mv, pre_vol in cur.execute(
+        for code, amt, auc_main_net, free_mv in cur.execute(
                 "SELECT code, bid_amt%s FROM snapshot_bid "
                 "WHERE date=? AND time_point='9_25'" % sel_extra, (date,)):
             code = str(code)
             if want is not None and code not in want:
                 continue
             st = BidStrength(code=code, _amt25=amt)
-            # 层① 竞昨量比: **官方成品优先**(daily_auc.auc_to_pre_auc_vol_ratio, 落库
-            #   auc_pre_vol_ratio)。官方值 = 今竞价成交量 ÷ 昨竞价成交量, 精确无昨额失真;
-            #   为 0/缺列(历史老行) → 回退自算(见下方昨日 9:25 竞价额兜底)。
-            if pre_vol and float(pre_vol) > 0:
-                st.bid_vol_ratio = round(float(pre_vol), 2)
+            # 层① 竞昨量比: **本地自算**(今 bid_amt ÷ 昨 bid_amt, 见下方昨日 9:25 兜底)。
+            #   官方成品(daily_auc.auc_to_pre_auc_vol_ratio)已实证不可靠(2026-09-20 回退),
+            #   故 bid_vol_ratio 只由自算产生, 不再读任何官方列。
             # 层② 净额占比(%): 0 = 竞价无大单(无信号) → None 走 default, 不当惩罚;
             #   分母必须用**自由流通市值**(与门槛/竞价换手同口径, 2026-09-20 铁律)。
             if auc_main_net and free_mv and float(free_mv) > 0:
@@ -162,15 +157,13 @@ def _fill_snapshot(out: Dict[str, BidStrength], want, date: Optional[str]):
                 st._free_mv = float(free_mv)          # noqa: SLF001
             out[code] = st
 
-        # 昨日 9:25 竞价额 → 自算量比(仅官方值缺失时兜底)
+        # 昨日 9:25 竞价额 → 自算量比(唯一路径)
         if yday:
             for code, yamt in cur.execute(
                     "SELECT code, bid_amt FROM snapshot_bid "
                     "WHERE date=? AND time_point='9_25'", (yday,)):
                 st = out.get(str(code))
                 if st is None or yamt is None:
-                    continue
-                if st.bid_vol_ratio is not None:     # 已有官方值 → 不自算覆盖
                     continue
                 if yamt < MIN_YDAY_BID_AMT_WAN:      # 昨额过小 → 量比失真, 判不可用
                     continue

@@ -18,7 +18,7 @@ GET /api/picker/snapshot —— 一次性下发当日**全市场预计算评分*
      绝不发半张表(前端据此回退, 不会出现"半市场名单")。
   4. **同口径**: 本地筛选的过滤规则由前端 utils/filters.js.pickFromSnapshot 逐条复刻
      picker.filter 的 coarse_filter + apply_filters(含"竞额降序取前 120"截断),
-     两侧各有一份对拍测试; 抢筹标复用 pipeline.qc_fields, 避免本地/后端分叉。
+     两侧各有一份对拍测试。
 
 下发字段只含"筛选与展示必需的定格值", 不含任何因子权重/算法 —— 即接口暴露的是
 当天的结论本身(用户本来就能通过反复调参枚举出来), 不是策略。
@@ -29,9 +29,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
-from ..services import kpl
 from ..services import settings as st
-from ..services.picker import pipeline as pl
 from ..services.picker import precompute
 from .deps import jr, qs, require_vip_or_paid
 
@@ -106,18 +104,11 @@ def api_picker_snapshot(request: Request, uid: int = Depends(require_vip_or_paid
         return jr({"ok": True, "enabled": False, "date": date,
                    "msg": "物化表不可用", "list": [], "count": 0})
 
-    # 抢筹标: 与 pipeline 输出同口径(复用 pipeline.qc_fields, 避免本地/后端分叉)
-    detail = {}
-    try:
-        detail = kpl.get_qiangchou_detail(date) or {}
-    except Exception as e:                                        # noqa: BLE001
-        log.warning("快照抢筹明细加载失败(本批无抢筹标) date=%s err=%s", date, e)
     for r in rows:
-        r.update(pl.qc_fields(r.get("code") or "", detail))
         r["degraded"] = False
 
     payload = {"ok": True, "enabled": True, "date": date,
                "count": len(rows), "list": rows, "ts": int(time.time())}
     _store(date, payload)
-    log.info("快照下发 uid=%s date=%s 行数=%d 抢筹标=%d", uid, date, len(rows), len(detail))
+    log.info("快照下发 uid=%s date=%s 行数=%d", uid, date, len(rows))
     return jr(payload)

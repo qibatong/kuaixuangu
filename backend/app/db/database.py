@@ -286,7 +286,6 @@ def init_db():
             auc_turnover REAL NOT NULL DEFAULT 0,
             warn_type INTEGER NOT NULL DEFAULT 0,
             auc_main_net REAL NOT NULL DEFAULT 0,
-            auc_pre_vol_ratio REAL NOT NULL DEFAULT 0,
             PRIMARY KEY (date, time_point, code)
         )
     """)
@@ -345,14 +344,6 @@ def init_db():
     #   默认 0(NOT NULL) —— 历史行/采集失败行 = 0 = 无信号。
     if "auc_main_net" not in bcols2:
         cur.execute("ALTER TABLE snapshot_bid ADD COLUMN auc_main_net REAL NOT NULL DEFAULT 0")
-    # 2026-09-20: 竞昨量比(猫爪 daily_auc.auc_to_pre_auc_vol_ratio = 今竞价成交量 ÷ 昨竞价成交量)。
-    #   用途: 评分 17% 异动分「量比层」官方成品值 —— 替换原「本地自算(今额/昨额)」。
-    #   ★ 与自算对比(9-18/9-17 实测): 相关系数 0.854, 相对差异中位仅 1.6%;
-    #     官方字段更精确且无「昨额<100万失真爆炸」(官方 max 26 vs 自算 582)。
-    #   ★ 零额外调用量: daily_auc 本就在采集链(源②)里, 只是 fields 多加一字段。
-    #   默认 0(NOT NULL) —— 历史行/采集失败行 = 0 = 无官方值 → 量比层回退自算。
-    if "auc_pre_vol_ratio" not in bcols2:
-        cur.execute("ALTER TABLE snapshot_bid ADD COLUMN auc_pre_vol_ratio REAL NOT NULL DEFAULT 0")
     # ⚠️ 历史遗留列(2026-09-20): pre_fd_break_amount / pre_fd_break_times —— 曾误加,
     #   猫爪无此字段(传即 422)。现已无任何代码读写, 值恒为默认 0。
     #   本机 SQLite 3.7.17 **不支持 DROP COLUMN**(需 3.35+) → 保留不动, 不影响查询与业务。

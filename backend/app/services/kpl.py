@@ -2616,56 +2616,6 @@ def fetch_bid_qiangcang(date=None):
     return _cached("bid_qiangcang" + (("_" + date.replace("-", "")) if date else ""), _ttl, loader)
 
 
-def get_qiangchou_detail(date=None):
-    """竞价抢筹明细(2026-09-09): 返回 {code: {"types": [...], "amt": x, "chg": x, "last": x}}
-
-    三张表各自携带"抢筹幅度", 左视图此前只取 code 并集(只有 🔥 无区分), 主人反馈
-    "分不清是竞额抢筹还是涨幅抢筹、看不到幅度" —— 这里把幅度一并带出:
-      amt  ← list20    qcDelta     竞价净额/自由流通市值×100(开盘啦抢筹强度 %)
-      chg  ← list20Chg qcDeltaChg  9:25 竞价涨幅 − 9:20 竞价涨幅(百分点)
-      last ← listLast  qcDeltaLast 9:24→9:25 最后一秒段涨幅差(百分点)
-    types 为命中的表标识列表(顺序固定 amt/chg/last)。异常返回空 dict, 调用方回退旧口径。
-    """
-    try:
-        d = fetch_bid_qiangcang(date or None) or {}
-    except Exception as e:
-        log.warning("抢筹明细获取失败(左视图回落旧口径) err=%s", e)
-        return {}
-
-    def _merge(lst, key, typ):
-        for it in (lst or []):
-            c = str(it.get("code", "") or "")
-            if not c:
-                continue
-            e = out.setdefault(c, {"types": [], "amt": None, "chg": None, "last": None})
-            if typ not in e["types"]:
-                e["types"].append(typ)
-            v = it.get(key)
-            if v in (None, ""):
-                continue
-            try:
-                e[typ] = round(float(v), 2)
-            except (TypeError, ValueError):
-                pass
-
-    out = {}
-    _merge(d.get("list20"), "qcDelta", "amt")
-    _merge(d.get("list20Chg"), "qcDeltaChg", "chg")
-    _merge(d.get("listLast"), "qcDeltaLast", "last")
-    return out
-
-
-def get_qiangchou_codes(date=None):
-    """竞价抢筹代码集合(供选股结果抢筹标记, 2026-09-01) —— 内部复用 get_qiangchou_detail,
-    保证"代码集合"与"明细"永远同一份数据(同源 30s 缓存), 不会出现两套口径打架。
-    返回 set(code); 异常返回空 set(调用方回退旧公式兜底, 防数据源故障导致抢筹全灭)。"""
-    try:
-        return set(get_qiangchou_detail(date).keys())
-    except Exception as e:
-        log.warning("抢筹代码集获取失败(左视图抢筹按旧公式兜底) err=%s", e)
-        return set()
-
-
 def _surge_reason(sr):
     """surge_reason 是 dict: {stock_reason, related_plates:[{plate_name, plate_reason}]} → 拼接文本"""
     if not isinstance(sr, dict):
