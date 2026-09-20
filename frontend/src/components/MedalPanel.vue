@@ -71,9 +71,10 @@ function fmtPct(v) {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
 }
-/* 实时涨幅大字(顶替原评分位置, 2026-08-18 主人反馈) */
+/* 实时涨幅大字(顶替原评分位置, 2026-08-18 主人反馈)
+   2026-09-20 视觉减噪: 56px → 34px; 2026-09-20晚 主人拍板回滚三张卡布局, 保留 34px 紧凑字号 */
 .medal-real-big {
-  font-size: 56px;
+  font-size: 34px;
   font-weight: 900;
   color: #ff5252;
   line-height: 1.1;
@@ -86,7 +87,7 @@ body[data-bg="light"] .medal-real-big { color: #c62828; }
 body[data-bg="light"] .medal-real-big.green-real { color: #1a7a2a !important; }
 /* 竞涨幅: 缩字号, 实时涨幅下面 */
 .medal-bid-sm {
-  font-size: 20px;
+  font-size: 13px;
   color: #ff8a6f;
   font-weight: 600;
   font-family: "LXGW WenKai Mono", monospace;
@@ -97,21 +98,19 @@ body[data-bg="light"] .medal-bid-sm { color: #c0562f; }
 .medal-score-row {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  font-size: 22px;
+  gap: 6px;
+  font-size: 13px;
   white-space: nowrap;
 }
 .medal-prob-sm { color: #e0a800; font-weight: 700; }
 .medal-conf { color: var(--text-muted); }
-body[data-bg="light"] .medal-prob-sm { color: #a06a00; }
-body[data-bg="light"] .medal-conf { color: #6b6b6b; }
 /* 手机端覆盖(2026-08-18 补: desktop 放大字号后, 这3个 scoped 类在 mobile 也要缩小, 否则手机端挤压) */
 @media (max-width: 899px) {
-  .medal-rank { font-size: 16px; }
-  .medal-name-big { font-size: 17px; }
-  .medal-code { font-size: 15px; }
-  .medal-real-big { font-size: 32px; }
-  .medal-bid-sm { font-size: 14px; }
-  .medal-score-row { font-size: 14px; gap: 5px; }
+  .medal-rank { font-size: 14px; }
+  .medal-name-big { font-size: 16px; }
+  .medal-code { font-size: 14px; }
+  .medal-real-big { font-size: 28px; }
+  .medal-bid-sm { font-size: 12px; }
+  .medal-score-row { font-size: 12px; gap: 5px; }
 }
 </style>

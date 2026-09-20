@@ -201,12 +201,12 @@ def test_factor_buckets_default_consistency():
     assert fs(cfg, "warn", 4) == 0.85
     assert fs(cfg, "warn", 3) == 0.6
     assert fs(cfg, "warn", 2) == 0.18
-    # 市值: <30=1.0, 30~60=0.88, 60~120=0.68, 120~250=0.45, >=250=0.22
-    assert fs(cfg, "market", 29.9) == 1.0
-    assert fs(cfg, "market", 30) == 0.88
-    assert fs(cfg, "market", 100) == 0.68
-    assert fs(cfg, "market", 200) == 0.45
-    assert fs(cfg, "market", 250) == 0.22
+    # 市值(2026-09-20 改自由流通口径): <15=1.0, 15~30=0.88, 30~60=0.68, 60~125=0.45, >=125=0.22
+    assert fs(cfg, "market", 14.9) == 1.0
+    assert fs(cfg, "market", 15) == 0.88
+    assert fs(cfg, "market", 50) == 0.68
+    assert fs(cfg, "market", 100) == 0.45
+    assert fs(cfg, "market", 125) == 0.22
     # 昨日涨幅: 3~9.5=0.9, 1~3=0.65, 0~1=0.4, -3~0=0.25, 其余=0.15
     assert fs(cfg, "yesterday", 3) == 0.9
     assert fs(cfg, "yesterday", 9.49) == 0.9

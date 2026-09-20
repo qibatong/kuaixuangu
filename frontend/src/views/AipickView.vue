@@ -625,11 +625,11 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   white-space: nowrap;
 }
 /* 2026-09-01 表头全局 sticky: 滚动时粘在 ap-table-scroll 容器顶部,
-   加 background 防止下面数据行透过表头显示造成视觉混乱 */
+   加 background 防止下面数据行透过表头显示造成视觉混乱
+   2026-09-20 视觉减噪: 统一红底白字(与全站表头一致; sticky 必须实色不透明底) */
 .ap-stock-table thead th {
   position: sticky; top: 0; z-index: 2;
-  background: var(--bg-panel);
-  backdrop-filter: blur(4px);
+  background: var(--accent-deep2);
 }
 /* 2026-09-01 列宽收紧: 去掉序号/代码列(代码并入名称列下方), 8列定宽防表头换行 */
 .ap-stock-table th:nth-child(1) { width: 84px; }    /* 名称(含代码副行) */
@@ -655,7 +655,7 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
 }
 /* 表头可点击排序 + 方向箭头 */
 .ap-th { cursor: pointer; user-select: none; white-space: nowrap; }
-.ap-th:hover { color: var(--accent); }
+.ap-th:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
 /* 2026-09-05 主人需求: 所有表格去掉排序箭头。原 ::after content '↑'/'↓' 已移除;
    排序功能保留(点击列头仍排序, 当前列以 ap-th 变色高亮作反馈)。
    sort-asc/sort-desc class 由 thClass() 绑定, 保留以支持未来恢复箭头。 */

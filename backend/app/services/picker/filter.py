@@ -172,8 +172,11 @@ def apply_filters(rows: List[ScoredRow], f: Dict,
             out.bump("score_floor")
             continue
 
-        # 6) 流通市值区间(缺失 → 无法证明达标 → 剔除, 与老口径 0<floor 同结果)
-        mv = None if r.float_mv is None else r.float_mv / 1e8
+        # 6) 市值区间(缺失 → 无法证明达标 → 剔除, 与老口径 0<floor 同结果)
+        #    ★ 2026-09-20 口径改**自由流通市值**(row.mv = free_mv 优先, 缺则回退 float_mv):
+        #      主人拍板「所有的流通市值改为自由流通市值」→ 门槛与 market 评分同口径,
+        #      不再出现"评分用 free_mv、门槛用 float_mv"的双口径名单漂移。
+        mv = r.mv_yi
         if mv is None or mv < f["floatMvFloor"]:
             out.bump("mv_floor")
             continue
@@ -243,14 +246,19 @@ def coarse_filter(rows: Sequence[Any], f: Dict,
             continue                                # 低开/大跌剔除(同 apply_filters)
         elif bid_chg > f["bidGt"]:
             continue
-        mv = None if not r.float_mv else r.float_mv / 1e8
-        # 2026-09-18(v4.11.28): 市值**未知**(0/None) → 不在此剔除, 留给 apply_filters。
+        # ★ 2026-09-20: 取值改 row.mv_yi(自由流通优先), 与精筛/评分同口径。
+        #   ⚠️ mv_yi 是忠实的(nv=0 → 0.0), 但本处语义要求 **0 也算"未知"** ——
+        #     0 市值不存在, 且粗筛跑在补丁源之前(见下), 此处把 0 当"不达标"剔除
+        #     等于让行情源可用性决定名单。故用 `mv_yi or None` 归零。
+        mv = r.mv_yi or None
+        # 2026-09-18(v4.11.28): 市值**未知**(None) → 不在此剔除, 留给 apply_filters。
         #   理由: 粗筛在补丁源(东财点查/腾讯点查)之前跑, 此时用不到真市值; 而补丁之后
         #   的 apply_filters 能拿到 f21/f44 真值。在这里把"暂时没数据"当成"不达标"剔除,
         #   等于让**行情源可用性决定名单** —— 9/17 东财全分区失败时, 5335 只快照行
         #   市值未知, 其中 1335 只因腾讯补值上限被截断, 整批被 floatMvFloor 误杀。
         #   精筛仍保持"缺失 → 无法证明达标 → 剔除"(与老口径一致), 故最终语义不变,
         #   只是把判定推迟到**有真值的那一刻**。
+        # ★ 2026-09-20: 取值改 row.mv_yi(自由流通优先), 与精筛/评分同口径。
         if mv is not None:
             if mv < f["floatMvFloor"]:
                 continue

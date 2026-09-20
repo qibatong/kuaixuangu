@@ -61,21 +61,24 @@
         竞涨 ≤<input v-model.number="store.filterSettings.bidGt" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(22)">%
       </label>
       <!-- 2026-09-14 主人拍板: 「涨停率」与「评分」筛的是同一个字段(probability), 属重复项 →
-           合并为一项「分数」, 沿用原「评分」的**单阈值硬门槛**(默认 80, 0=不限), 绑定 scoreFloor。
-           ⚠️ 保留说明: probLt/confLt 不再有 UI 入口, 但仍按默认值(65/65)传给后端,
-             "分数<65 且 可信度<65"的双低判据在用户把分数调到 65 以下时会额外生效(既有耦合, 未动)。 -->
+           合并为一项「分数」, 沿用原「评分」的**单阈值硬门槛**(2026-09-20 起默认 50, 最低 50), 绑定 scoreFloor。
+           ⚠️ 保留说明: probLt/confLt 不再有 UI 入口, 但仍按默认值(50/50)传给后端,
+             "分数<50 且 可信度<50"的双低判据在用户把分数调到 50 以下时会被主门槛覆盖(既有耦合, 未动)。 -->
       <label class="filter-cell">
-        分数 ≥<input v-model.number="store.filterSettings.scoreFloor" type="number" min="0" max="100" step="1" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">分
+        分数 ≥<input v-model.number="store.filterSettings.scoreFloor" type="number" min="50" max="100" step="1" title="最低 50" :disabled="store.isFilterLocked" :style="inputStyle(32)">分
       </label>
       <!-- 2026-09-14 主人需求: 原「流通 ≥」与「流通 ≤」两个独立格子**合并为区间一格**,
-           显示为 `xx ≤ 流通 ≤ yy`。绑定字段不变(下限 floatMvFloor / 上限 floatMvGt),
+           显示为 `xx ≤ 自由流通 ≤ yy`。绑定字段不变(下限 floatMvFloor / 上限 floatMvGt),
            因此 filters.js 过滤语义、偏好持久化、后端传参全部零影响。
-           ⚠️ 符号必须是「≤」不能是「<」: filters.js 的判据是
+           ★ 2026-09-20 主人拍板「所有的流通市值改为自由流通市值」: 门槛判据的**数据口径**
+             已从流通市值改为自由流通市值(后端 QuoteRow.mv = free_mv 优先, 缺则 float_mv;
+             明细见 picker/contract.py 的 FIELD_AUTHORITY「mv」条), 故文案同步改「自由流通」。
+             ⚠️ 符号必须是「≤」不能是「<」: filters.js 的判据是
               `mv < floor → 剔除` / `mv > ceil → 剔除` (= 非严格),
               显示成严格不等号会让文案与真实行为不符。
            ⚠️ 两端 0 仍表示「不限」(下限: mv<0 不可能命中; 上限: `floatMvGt > 0` 才生效)。 -->
-      <label class="filter-cell" title="流通市值区间(亿)，含边界值；两端 0=不限">
-        <input v-model.number="store.filterSettings.floatMvFloor" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)"><span class="mv-range-op">≤ 流通 ≤</span><input v-model.number="store.filterSettings.floatMvGt" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
+      <label class="filter-cell" title="自由流通市值区间(亿)，含边界值；两端 0=不限">
+        <input v-model.number="store.filterSettings.floatMvFloor" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)"><span class="mv-range-op">≤ 自由流通 ≤</span><input v-model.number="store.filterSettings.floatMvGt" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
       </label>
       <label class="filter-cell">
         股价 ≤<input v-model.number="store.filterSettings.priceGt" type="number" min="0" max="5000" step="10" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">元

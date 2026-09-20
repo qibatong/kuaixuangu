@@ -123,5 +123,5 @@ frontend-architecture-report.md
 # pytest --junitxml 输出的报告(_junit_*.xml)是每次跑测试的产物, 严禁入库
 backend/_junit_*.xml
 reports/_junit_*.xml
-# deploy_tmp/_dl: 从远端/外部拉回的临时原件(如祖本 html), 存档用不入库
-scripts/deploy_tmp/_dl/
+# deploy_tmp: 整个目录都是部署/诊断临时产物(含测试机密码明文、部署暂存 _kx_be/), 严禁入库
+scripts/deploy_tmp/

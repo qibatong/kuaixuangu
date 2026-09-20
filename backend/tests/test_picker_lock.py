@@ -47,7 +47,7 @@ def test_to_picker_filters_scalar_and_list_forms():
     a = plock.to_picker_filters({"bidGt": 9.5, "markets": ["SH", "SZ"]})
     assert a["bidGt"] == 9.5
     assert a["markets"] == ["hs"]
-    assert a["probLt"] == 65.0          # 缺失 → 兜底
+    assert a["probLt"] == 50.0          # 缺失 → 兜底
 
     b = plock.to_picker_filters({"bidGt": ["9.5"], "stSuspend": ["True"]})
     assert b["bidGt"] == 9.5
@@ -62,7 +62,7 @@ def test_to_picker_filters_bad_value_falls_back():
     """脏值(空串/非数字)落兜底, 不抛异常 — 后台任务不该因参数脏值崩掉"""
     f = plock.to_picker_filters({"bidGt": "", "probLt": "abc", "limitUp": None})
     assert f["bidGt"] == 7.0
-    assert f["probLt"] == 65.0
+    assert f["probLt"] == 50.0
     assert f["limitUp"] is False
 
 

@@ -23,7 +23,7 @@
         <i class="fa fa-radar"></i> 市场雷达
       </router-link>
       <router-link to="/ladder" exact-active-class="router-link-active" class="nav-item">
-        <i class="fa fa-sitemap"></i> 连板天梯
+        <i class="fa fa-sitemap"></i> 涨停梯队
       </router-link>
       <router-link to="/temper" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-fire"></i> 股性

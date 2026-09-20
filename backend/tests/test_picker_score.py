@@ -25,7 +25,11 @@ def _row(**kw):
 
 # ==================== 分档取值 ====================
 def test_full_fields_hits_buckets():
-    """字段完备: 各因子按分档表取值"""
+    """字段完备: 各因子按分档表取值
+
+    ★ 2026-09-20 市值口径改**自由流通** → market 分档按 ≈0.5 折算, 55 亿
+      落 [30, 60) → 0.68(旧流通口径 55 亿落 [30,60) 记 0.88, 分档已重标)。
+    """
     r = _row(code="600000", bid_change=3.0, bid_vol=4.8e6, warn_type=2,
              float_mv=55e8, yesterday_change=2.0, price=10.5)
     s = compute_score(r, _cfg())
@@ -33,9 +37,10 @@ def test_full_fields_hits_buckets():
     assert p["bid"]["score"] == 1.0            # 3.0 ∈ [3, 5.5)
     assert p["activity"]["score"] == 1.0       # 0.916% ∈ [0.8, 99)
     assert p["warn"]["score"] == 0.18          # 2 不在 [3,6) → default
-    assert p["market"]["score"] == 0.88        # 55亿 ∈ [30, 60)
+    assert p["market"]["score"] == 0.68        # 55亿 ∈ [30, 60) (自由流通口径分档)
     assert p["yesterday"]["score"] == 0.65     # 2.0 ∈ [1, 3)
-    assert s.probability == 83
+    # 1.0*0.34 + 1.0*0.32 + 0.18*0.17 + 0.68*0.11 + 0.65*0.06 = 0.34+0.32+0.0306+0.0748+0.039
+    assert s.probability == 80
     assert s.confidence == 80                  # 65 + 换手8 + 竞价7
 
 

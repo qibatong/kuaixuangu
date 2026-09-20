@@ -9,7 +9,10 @@ export function passLockedFilter(it, rt, f) {
     if (concept.includes('昨日涨停') || concept.includes('昨日连板')) return false
   }
   if (it.bidChange > f.bidGt) return false                 // 竞价涨幅过高剔除
-  if (it.circulationMV < f.floatMvFloor) return false      // 市值过小
+  // ★ 2026-09-20 口径改**自由流通市值**(主人拍板「所有流通市值改自由流通市值」):
+  //   绑定字段名 circulationMV 不变, 但其值由后端统一为 mv(= free_mv 优先, 缺则 float_mv),
+  //   与后端 picker.filter 的 floatMvFloor/Gt 门槛**同源同口径**。
+  if (it.circulationMV < f.floatMvFloor) return false      // 自由流通市值过小
   // 2026-09-11 修: 与后端 picker.filter 同语义 —— floatMvGt/priceGt 为 0 表示**不限**,
   //   旧实现无条件比较, 用户把"流通≤"填 0(不限) 会把所有票剔除(0 = 不限 ≠ 上限 0)。
   if (f.floatMvGt > 0 && it.circulationMV > f.floatMvGt) return false
@@ -33,13 +36,13 @@ export const defaultFilterSettings = {
   // 2026-09-12 P3: 竞价涨幅**下限**(后端 2026-09-09 已支持, 默认 0 = 竞价翻绿即剔)。
   // 前端此前不传该参数, 后端吃默认 0; 本地筛选要与后端同一套门槛, 故这里显式化。
   bidLt: 0,
-  probLt: 65,
-  confLt: 65,
+  probLt: 50,
+  confLt: 50,
   floatMvFloor: 30,
   floatMvGt: 1000,
   priceGt: 300,
   bidAmtFloor: 3000,
-  scoreFloor: 80        // 2026-09-10 主人拍板: 评分低于 80 分不显示(管理员可在后台改默认)
+  scoreFloor: 50        // 2026-09-20 主人拍板: 评分低于 50 分不显示(管理员可在后台改默认)
 }
 
 // 构建后端筛选参数(把筛选设置转成 API query)

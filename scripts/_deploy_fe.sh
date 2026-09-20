@@ -151,19 +151,22 @@ echo "--- nginx 配置检查 ---"
 nginx -t 2>&1 | tail -2
 
 echo
-echo "--- HTTP 探测(本机, 走 HTTPS —— nginx 对 80 做 301 跳转, 直接探 80 会得 301 假失败) ---"
-BASE="${KX_PROBE_BASE:-https://127.0.0.1}"
+echo "--- HTTP 探测(本机) ---"
+# ⚠️ 探测基础地址按**实际监听端口**选: 测试机 nginx **只监听 80**(无 443) →
+#    默认走 https 会全部拿 000 假失败(2026-09-20 踩坑)。生产机有 443 时再覆盖 KX_PROBE_BASE=https://127.0.0.1
+#    另: nginx 对 80 做 301 跳转的部署, 探测 80 会得 301 → 那种机器才需要 https。
+BASE="${KX_PROBE_BASE:-http://127.0.0.1}"
 for u in / /index.html; do
-  code=$(curl -sk -o /dev/null -w '%{http_code}' "$BASE$u")
+  code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE$u")
   printf '  %-40s %s\n' "$u" "$code"
 done
 if [ -n "$ACT" ]; then
-  code=$(curl -sk -o /dev/null -w '%{http_code}' "$BASE/assets/$ACT")
+  code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/assets/$ACT")
   printf '  %-40s %s  (新入口, 期望 200)\n' "/assets/$ACT" "$code"
   [ "$code" = "200" ] || FAIL=1
 fi
 if [ -n "$OLD_ENTRY" ]; then
-  code=$(curl -sk -o /dev/null -w '%{http_code}' "$BASE/assets/$OLD_ENTRY")
+  code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/assets/$OLD_ENTRY")
   printf '  %-40s %s  (旧入口, 期望 404)\n' "/assets/$OLD_ENTRY" "$code"
   [ "$code" = "404" ] || echo "   ⚠️ 旧入口非 404(非致命: 可能被 nginx/浏览器缓存)"
 fi

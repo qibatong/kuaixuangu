@@ -264,7 +264,10 @@ def test_f630_high_gear_actually_lifts_probability():
     p5 = compute_score(_row(5), cfg, None).probability
     assert 5 < p0 < 95 and 5 < p4 < 95, "样本票不该被概率上下限夹住, 否则差值失真"
     assert p5 > p4 > p0
-    assert (p4 - p0) == pytest.approx(0.17 * (0.85 - 0.18) * 100, abs=0.5)
+    # 概率按 js_round 取整 → 差值有 ±1 的取整误差; 故容差放到 1.0
+    # (2026-09-20 市值因子改自由流通口径后, 样本票绝对分位移导致取整边界跳动,
+    #  严格的 abs=0.5 会因 ±1 取整而误报; 语义仍是"4 档比 0 档高约 11.4 分")
+    assert (p4 - p0) == pytest.approx(0.17 * (0.85 - 0.18) * 100, abs=1.0)
 
 
 def test_injected_strength_still_wins_over_f630():

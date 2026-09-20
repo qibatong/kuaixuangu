@@ -9,6 +9,11 @@ export const usePoolStore = defineStore('pool', {
     stockPool: [],
     autoPoolLockTime: null
   }),
+  getters: {
+    // 2026-09-20 性能优化: 自选代码 Set 索引。PoolHoverBtn 每行一个实例,
+    // 原用 stockPool.some(x=>x.code===code) 在数千行时是 N×M 遍历; 改 Set.has 后 O(1)。
+    codeSet: (state) => new Set(state.stockPool.map(s => s.code))
+  },
   actions: {
     saveToStorage() {
       const user = useUserStore()

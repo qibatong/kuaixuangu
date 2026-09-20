@@ -50,8 +50,11 @@ FIELD_AUTHORITY: Dict[str, str] = {
     "warn_type": "异动等级: 实时源 f630(实测取值 0/1/2)",
 
     # ---- 半静态 ----
-    "float_mv": "流通市值(元): 实时源 f21 / 快照 float_mv, **缺失时回退 free_mv**"
-                "(老逻辑只取 float_mv → 快照行市值为 0 被 floatMvFloor 误杀)",
+    "float_mv": "流通市值(元): 实时源 f21 / 快照 float_mv。★ 2026-09-20 起**不再用于门槛判定**"
+                "(降级为 free_mv 缺失时的兜底 + 前端展示列); 门槛判据统一改 free_mv。",
+    "free_mv": "自由流通市值(元): 实时源 f117 / 快照 free_mv / 猫爪 screening.free_float_mv。"
+               "★ 2026-09-20 起**唯一市值口径** —— 门槛过滤(floatMvFloor/Gt)、竞价换手率、"
+               "抢筹强度、market 评分因子全部用它; 缺失时回退 float_mv(见 QuoteRow.mv)。",
     "industry": "行业: 东财 f100 / 开盘啦覆盖",
     "concept": "概念: 东财 f103 / 开盘啦覆盖",
 
@@ -68,8 +71,9 @@ FIELD_AUTHORITY: Dict[str, str] = {
 # ============================ 退化规则 ============================
 # 唯一允许的退化取值白名单。任何不在此表中的 fallback 都是 bug。
 DEGRADE_RULES: Tuple[str, ...] = (
-    "float_mv: 实时源 f21 缺失/为 0 → 回退快照 free_mv"
-    "  (理由: 快照表历史行存在 float_mv=0 但 free_mv 有值的脏数据)",
+    "mv(门槛/评分市值): free_mv(f117/快照 free_mv/猫爪 screening) 缺失 → 回退 float_mv"
+    "  (理由: 2026-09-20 起 free_mv 是唯一市值口径; 老库/实时源偶有无 f117 的行,"
+    "  回退 float_mv 避免整批被 mv_floor 误杀)",
     "price: 定格模式下无实时价 → 取 prev_close"
     "  (理由: 定格名单本就是 9:25 状态, 昨收是该时点的真实价格基准)",
     "is_suspended: prev_close/vol 缺失导致停牌**未知**时, 若 bid_amt>0 → 判非停牌"
@@ -120,7 +124,9 @@ class QuoteRow:
     warn_type: Optional[int] = None         # 异动等级
 
     # 半静态
-    float_mv: Optional[float] = None        # 流通市值(元)
+    float_mv: Optional[float] = None        # 流通市值(元) —— 门槛过滤用
+    free_mv: Optional[float] = None         # 自由流通市值(元) —— 竞价换手/抢筹强度用
+    auc_turnover: Optional[float] = None    # 真实竞价换手率 %(猫爪 screening 官方成品, 自由流通口径)
     industry: Optional[str] = None
     concept: Optional[str] = None
 
@@ -181,19 +187,34 @@ class QuoteRow:
         return p if math.isfinite(p) and p > 0 else None
 
     @property
-    def bid_turnover(self) -> Optional[float]:
-        """竞价换手率%(派生): **竞价额 ÷ 流通市值 × 100**
+    def mv(self) -> Optional[float]:
+        """**市值门槛/评分的唯一取值**(元) = 自由流通市值优先, 缺失回退流通市值。
 
-        口径选择(2026-09-08 关键): 竞价额(元)÷流通市值(元)×100 与
-        "竞价量×价÷流通市值"数学等价(竞价额 = 竞价量×价), 但**不依赖 bid_vol** ——
-        快照表 snapshot_bid 只存 bid_change/bid_amt, **没有竞价量字段**, 若用竞价量
-        口径则盘中/盘后全市场 bid_turnover 恒为 None → activity 因子(权重 32%)
-        全部走 default 0.1 → 评分体系塌陷。
-        老链路用 f5(当日成交量)×价÷市值: 竞价窗口内 f5 恰为竞价量故碰巧正确,
-        窗口外 f5 是全天累计 → 虚高(语义错误, 契约层不允许该退化)。
-        bid_amt 缺失时退回 bid_vol×price 兜底(竞价窗口内实时行有 f617/f2)。
+        ★ 2026-09-20 主人拍板「所有的流通市值改为自由流通市值」:
+        门槛过滤(floatMvFloor/floatMvGt)与 market 评分因子**统一走本属性**,
+        不再散落 `r.float_mv / 1e8`。语义:
+          - free_mv 有值 → 用它(与开盘啦/短线侠同口径)
+          - free_mv 缺失(老库脏行/实时源无 f117) → 退回 float_mv, 保证不因换源而丢票
+        与 `bid_turnover` 的分母保持**同一口径**, 避免"评分用 A 值、门槛用 B 值"的名单漂移。
+        ⚠️ 调用方判"缺失"用 `is None`, 不要用 falsy —— 0 是"已知为 0"不是"未知"。
         """
-        mv = self.float_mv
+        return self.free_mv if self.free_mv else self.float_mv
+
+    @property
+    def mv_yi(self) -> Optional[float]:
+        """市值(亿元) —— 门槛比较与前端展示的统一单位。缺失 → None。"""
+        mv = self.mv
+        if mv is None or not math.isfinite(mv):
+            return None
+        return mv / 1e8
+
+    @property
+    def bid_turnover(self) -> Optional[float]:
+        """竞价换手率% —— 2026-09-20 起**优先读猫爪官方成品 auc_turnover**(真实竞价换手率,
+        自由流通股本口径, 免自算); 缺失(老库行/实时源无此字段)时回退自算 bid_amt÷free_mv×100。"""
+        if self.auc_turnover is not None and self.auc_turnover > 0:
+            return self.auc_turnover
+        mv = self.mv
         if not mv or mv <= 0:
             return None
         t = None
@@ -241,6 +262,7 @@ class QuoteRow:
             "volRatio": self.vol_ratio,
             "amount": None if self.amount is None else round(self.amount / 1e8, 4),
             "circulationMV": None if self.float_mv is None else round(self.float_mv / 1e8, 2),
+            "freeCirculationMV": None if self.free_mv is None else round(self.free_mv / 1e8, 2),
             "industry": self.industry,
             "concept": self.concept,
             "degraded": self.degraded,
@@ -281,6 +303,7 @@ class QuoteRow:
             vol_ratio=_f(s.get("f10")),
             warn_type=(lambda v: None if v is None else int(v))(_f(s.get("f630"))),
             float_mv=_f(s.get("f21")),
+            free_mv=_f(s.get("f117")),      # 自由流通市值(元, 东财 f117)
             industry=s.get("f100") or None,
             concept=s.get("f103") or None,
             # 2026-09-08 修正: 昨日涨幅取真实值(日K f58), 不再用当日 f3 冒充
@@ -309,7 +332,9 @@ class QuoteRow:
 
         快照是竞价字段的**权威来源**: bid_change/bid_amt 直接取; 无实时价 → price
         取昨收(见 DEGRADE_RULES)。
-        float_mv 缺失回退 free_mv(快照表历史脏数据: float_mv=0 但 free_mv 有值)。
+        float_mv(流通市值) 与 free_mv(自由流通市值) **分别取列, 不互相顶替** ——
+        门槛用 float_mv, 竞价换手/抢筹强度用 free_mv。老库脏数据(float_mv=0 但
+        free_mv 有值)时 float_mv 回退 free_mv, 保证门槛不被误杀。
 
         warn_type(2026-09-18 v4.11.30): 快照表现在也落**东财 f630 异动等级**。
         这是 17% 异动因子在定格链路的唯一来源 —— 东财点查(push2 ulist)长期被封,
@@ -317,7 +342,8 @@ class QuoteRow:
         老库/老行无此键 → None → 评分走 default(与改动前行为一致)。
         """
         prev = _f(v.get("pre_close")) or _f(v.get("f18"))
-        fmv = _f(v.get("float_mv")) or _f(v.get("free_mv"))
+        free_mv = _f(v.get("free_mv"))
+        float_mv = _f(v.get("float_mv")) or free_mv   # 脏数据: float_mv=0 时用 free_mv 兜底
         amt_wan = _f(v.get("bid_amt"))          # 快照 bid_amt 单位=万元
         return cls(
             code=str(v.get("code") or ""),
@@ -330,7 +356,9 @@ class QuoteRow:
             open=_f(v.get("open")),
             real_change=_f(v.get("change")) or _f(v.get("real_change")),
             warn_type=(lambda x: None if x is None else int(x))(_f(v.get("warn_type"))),
-            float_mv=fmv,
+            float_mv=float_mv,
+            free_mv=free_mv,
+            auc_turnover=_f(v.get("auc_turnover")),
             industry=v.get("industry") or None,
             concept=v.get("concept") or None,
             yesterday_change=_f(v.get("change")) or _f(v.get("real_change")),

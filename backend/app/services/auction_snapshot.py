@@ -90,7 +90,7 @@ def _fetch_market_map(full=False):
                         # 涨停时买一委托即封单; 非涨停时=买一委托金额(竞价强弱参考)
                         "bid_buy_amt": scorer.parse_float(s.get("f10")) * scorer.parse_float(s.get("f5")) * 100,
                         "float_mv": scorer.parse_float(s.get("f21")),             # 流通市值(元, 东财 f21)
-                        "free_mv": scorer.parse_float(s.get("f117")) or scorer.parse_float(s.get("f21")),  # 实际流通市值(元): 东财 f117 自由流通≈开盘啦"实际流通", f21 兜底
+                        "free_mv": scorer.parse_float(s.get("f117")),  # 自由流通市值(元): 只取东财 f117, 缺失留空让猫爪 free_float_mv 补(2026-09-20 修: 原用 f21 流通市值兜底, 导致 free_mv 存成流通市值, 自由流通口径失效)
                         "board": str(s.get("f103") or s.get("f100") or ""),       # 概念(f103优先, 行业f100兜底)
                         # 异动等级(东财 f630, 2026-09-18 v4.11.30): 评分 17%「异动」因子在
                         # 定格链路的唯一来源。东财**点查被封**(实测 push2 ulist 直接
@@ -100,10 +100,19 @@ def _fetch_market_map(full=False):
                         # 0 = 无异动(与历史 f630=0 同义, 评分落 default); 异常/缺失一律 0。
                         "warn_type": int(scorer.parse_float(s.get("f630"))),
                     }
-        # 三源冗余兜底: 东财全失败时用开盘啦竞价榜填充关键股票
+        # 兜底链(2026-09-19 重排): 东财全失败时 —— ① 猫爪(全市场5553只, 首选)
+        #   ② 开盘啦竞价榜(仅活跃股, 二线)。猫爪能出全市场, 远比开盘啦的百来只强。
         if not raw_all:
-            log.warning("[快照采集] 东财全分区失败, 尝试开盘啦竞价榜兜底")
-            raw_all = _fetch_kpl_fallback()
+            log.warning("[快照采集] 东财全分区失败, 兜底链启动")
+            try:
+                mz = _merge_meoz(raw_all)
+                log.info("[快照采集] 兜底①猫爪成功: 选股%d只 估值%d只 竞价%d只 → %d只",
+                         mz["val_n"], mz["auc_n"], mz["fd_n"], len(raw_all))
+            except Exception as e:                              # noqa: BLE001
+                log.warning("[快照采集] 兜底①猫爪失败 err=%s", str(e)[:120])
+            if not raw_all:
+                log.warning("[快照采集] 兜底②改用开盘啦竞价榜")
+                raw_all = _fetch_kpl_fallback()
         # 双源并存(P2-1, 2026-09-12): 东财之外并发第二源 TickPlus fullbid。
         # 串行放在东财之后(不并入上面的线程池): TP 是新域名不受东财限流约束,
         # 但它挂了绝不能拖累主链路 —— 这里整体 try, 失败只记日志(见 tickplus 模块)。
@@ -119,10 +128,239 @@ def _fetch_market_map(full=False):
                 st = _merge_tickplus(raw_all, tp_map)
                 log.info("[快照采集] 双源合并 东财%d只 + TickPlus%d只 → 补票%d只 补值%d项 → 合计%d只",
                          n_em, len(tp_map), st["added"], st["filled"], len(raw_all))
+        # 猫爪主数源(P0, 2026-09-19): 东财外挂第二/第三源, 补齐 name/circ_mv/bid_amt/bid_change/封单额。
+        #   目标 = **彻底摆脱东财**: 东财全挂时猫爪仍能产出全市场(5565只)完整快照。
+        #   合并纪律同 _merge_tickplus「只补缺, 绝不覆盖」(两源口径不同, 覆盖会串数)。
+        #   只在 full=True(时点全市场快照)时启用 —— 竞价额/市值是全市场级数据,
+        #   秒级采样窗口(18秒)内拉两源会超时。
+        if full:
+            try:
+                mz = _merge_meoz(raw_all)
+                log.info("[快照采集] 猫爪合并 选股%d只 估值%d只 竞价%d只 封单%d只 → 补票%d只 "
+                         "补名%d 补流通市值%d 补自由流通%d 补额%d 补涨幅%d 补封单%d 补昨日封单%d → 合计%d只",
+                         mz["val_n"], mz["auc_n"], mz["fd_n"], mz["seal_n"], mz["added"],
+                         mz["name"], mz["mv"], mz["frmv"], mz["amt"], mz["chg"],
+                         mz["seal"], mz["prefd"], len(raw_all))
+            except Exception as e:                              # noqa: BLE001
+                log.warning("[快照采集] 猫爪合并异常(已忽略) err=%s", e)
         # 2026-08-31 可观测性: 采集阶段耗时单独记录(与落库耗时分离, 定位时点失真来源)
         log.info("[快照采集] 行情拉取完成 full=%s 数量%d 耗时%.0fms", full, len(raw_all),
                  (time.time() - _t0) * 1000)
         return raw_all
+
+
+def _merge_meoz(raw_all):
+    """把猫爪(实时选股 + 竞价额 + 封单额)并入快照结果(原地改 raw_all), 返回统计字典。
+
+    2026-09-20 重构: 主源改为 **screening(实时选股)** —— 一个接口全市场 5553 只,
+    同时给出 free_float_mv/circ_mv/name/auc_amt/auc_pct_chg, 免去四接口拼装。
+    字段映射(实测核实):
+      screening.name          → name                     [5553只]
+      screening.circ_mv       → float_mv(流通市值, 元)    [5553只]
+      screening.free_float_mv → free_mv(自由流通市值, 元)  [5553只] ★ 全市场唯一来源
+      screening.auc_amt       → bid_amt(竞价额, 万元)     [5444只, 元 → 需 /1e4]
+      screening.auc_pct_chg   → bid_change(竞价涨幅 %)     [4818只]
+      screening.fa_0925l / fd_amount → bid_buy_amt(封单额, 元)
+      screening.theme_names_kpl      → board(题材兜底)
+      screening.pre_fd_amount        → pre_fd_amount(昨日封单额, 元)      ★ 2026-09-20 新增
+      screening.fd_to_yesterday      → fd_to_yesterday(封昨比, 官方成品)  ★ 2026-09-20 新增
+
+    ⑤ 主力资金(2026-09-20 新增, 独立于上面四源): fundflow_kp 全市场批量
+      fundflow_kp.auction_main_net_amount → auc_main_net(竞价主力净额, 元, 9:25 起更新)
+      ★ 供评分 17% 异动分新因子(主人拍板: 删加速度修正+低开 gate, 换主力净额)。
+      ★ 覆盖实测(2026-09-18): 非零仅 32% —— 有大单才有值, 0=无信号(评分走 default)。
+      ★ 单位: 元, 不换算(与封单额同例; bid_amt 才需要 /1e4)。
+
+    后备(主源字段偶缺时):
+      valuation.circ_mv / daily_auc.auc_amt / daily_auc.auc_pct_chg
+      auc_kp.free_float_mv(138只) / daily_auc_fd.fa_0925(涨停封单)
+
+    🔴 单位: 猫爪 auc_amt 是**元**; 本表 bid_amt 存**万元**(见 BID_AMT_MAX_WAN)。
+       必须 /1e4, 否则落库放大 1e4 倍(历史上开盘啦兜底就踩过这个坑)。
+    🔴 float_mv 与 free_mv 是**两个不同口径**(流通 vs 自由流通), 分别落列不可混。
+       ★ 2026-09-20 主人拍板「所有流通市值改自由流通市值」→ 门槛/评分统一取
+         free_mv 优先(QuoteRow.mv); float_mv 仅为 free_mv 缺失时的兜底 + 展示列。
+    ★ bid_buy_amt(封单额) 由 daily_auc_fd.fa_0925 提供(口径对拍 0.986~1.0000),
+      非涨停股无封单(置 0, 与旧东财行为一致)。
+    ★ pre_fd_*(昨日封单三字段) 仅 screening 提供 —— 官方原生值, 不换算(单位元/次)。
+      东财链路完全无此三字段, 故只在猫爪侧填, 不存在"覆盖东财正确值"的风险。
+    🔴 无 warn_type: f630 已失活(bid_strength 替代) → 保持 0。
+    """
+    from . import meoz_client
+
+    stats = {"val_n": 0, "auc_n": 0, "fd_n": 0, "seal_n": 0, "added": 0, "name": 0,
+             "mv": 0, "frmv": 0, "amt": 0, "chg": 0, "seal": 0, "prefd": 0, "ff": 0}
+    if not meoz_client.enabled():
+        return stats
+
+    # ⓪ 主源: 实时选股 screening(全市场 5553 只, 含 free_float_mv)
+    try:
+        sc_map = meoz_client.screening_map(date_offset=0)
+        stats["val_n"] = len(sc_map)
+    except Exception as e:                                      # noqa: BLE001
+        sc_map = {}
+        log.warning("[快照采集] 猫爪 screening 读取失败 err=%s", str(e)[:120])
+
+    # ① 后备估值: valuation(全市场市值 + 名称), screening 缺市值时兜底
+    try:
+        val_map = meoz_client.valuation_map(date_offset=0)
+        stats["auc_n"] = len(val_map)
+    except Exception as e:                                      # noqa: BLE001
+        val_map = {}
+        log.warning("[快照采集] 猫爪 valuation 读取失败 err=%s", str(e)[:120])
+
+    # ② 后备竞价: daily_auc 0925(金额 + 涨幅 + 名称), screening 缺竞价字段时兜底
+    try:
+        auc_map = meoz_client.daily_auc_amt("0925", date_offset=0)
+        stats["fd_n"] = len(auc_map)
+    except Exception as e:                                      # noqa: BLE001
+        auc_map = {}
+        log.warning("[快照采集] 猫爪 daily_auc 读取失败 err=%s", str(e)[:120])
+
+    # ③ 封单: 9:25 涨停封单额(daily_auc_fd.fa_0925, 涨停/一字竞价池)
+    try:
+        fd_map = meoz_client.auc_fd_map(date_offset=0)
+        stats["seal_n"] = sum(1 for r in fd_map.values() if r.get("fa_0925") is not None)
+    except Exception as e:                                      # noqa: BLE001
+        fd_map = {}
+        log.warning("[快照采集] 猫爪 daily_auc_fd 读取失败 err=%s", str(e)[:120])
+
+    if not sc_map and not val_map and not auc_map and not fd_map:
+        return stats
+
+    # 全量 code 集合 = 东财 ∪ 猫爪四源(猫爪可能带来东财没有的票)
+    codes = set(raw_all) | set(sc_map) | set(val_map) | set(auc_map)
+
+    # ⑤ 主力资金: fundflow_kp 全市场批量(竞价主力净额 auction_main_net_amount)。
+    #   独立 try: 挂了不影响四源与主链路(独立降级), 调用方按"无信号"处理。
+    ff_map = {}
+    try:
+        ff_map = meoz_client.fundflow_map(sorted(codes))
+        stats["ff"] = sum(1 for r in ff_map.values()
+                          if r.get("auction_main_net_amount") not in (None, 0, "", "-"))
+        log.info("[快照采集] 猫爪 fundflow_kp: %d只(竞价净额非零%d)", len(ff_map), stats["ff"])
+    except Exception as e:                                      # noqa: BLE001
+        log.warning("[快照采集] 猫爪 fundflow_kp 读取失败 err=%s", str(e)[:120])
+
+    for code in codes:
+        code = str(code)
+        v = raw_all.get(code)
+        s = sc_map.get(code) or {}
+        vm = val_map.get(code) or {}
+        am = auc_map.get(code) or {}
+        fd = fd_map.get(code) or {}
+        ff = ff_map.get(code) or {}
+        # 竞价主力净额(元, 9:25 起更新): 无值/0 → 0(=无信号, 评分走 default)
+        auc_main_net = _f(ff.get("auction_main_net_amount")) or 0.0
+        # 竞昨量比(官方成品, 2026-09-20 换源): daily_auc.auc_to_pre_auc_vol_ratio =
+        # 今竞价成交量 ÷ 昨竞价成交量; 无值 → 0(=无官方值, 量比层回退自算)
+        pre_vol_ratio = _f(am.get("auc_to_pre_auc_vol_ratio")) or 0.0
+
+        # 封单额: screening.fd_amount/fa_0925l 优先, daily_auc_fd.fa_0925 兜底(均元)
+        seal = _f(s.get("fd_amount")) or _f(s.get("fa_0925l")) or _f(fd.get("fa_0925"))
+        # 竞价涨幅: screening 优先, daily_auc 兜底
+        chg = _f(s.get("auc_pct_chg"))
+        if chg is None:
+            chg = _f(am.get("auc_pct_chg"))
+        # 竞价额(元): screening 优先, daily_auc 兜底
+        amt = _f(s.get("auc_amt"))
+        if amt is None:
+            amt = _f(am.get("auc_amt"))
+
+        # 昨日封单额 + 封昨比(仅 screening 提供, 官方原生; 无则 0/None)
+        pre_fd = _f(s.get("pre_fd_amount"))
+        fd_yday = _f(s.get("fd_to_yesterday"))
+
+        if v is None:
+            # 东财没这只票 → 新建行(至少要能进评分: 有涨幅)
+            if chg is None:
+                continue                    # 没涨幅的票进不了评分, 不新增(同 TickPlus 纪律)
+            v = raw_all[code] = {
+                "bid_change": chg,
+                "bid_amt": (amt or 0.0) / 1e4,
+                "name": str(s.get("name") or am.get("name") or vm.get("name") or fd.get("name") or ""),
+                "bid_buy_amt": seal if seal is not None else 0,
+                "float_mv": _f(s.get("circ_mv")) or _f(vm.get("circ_mv")) or 0.0,   # 流通市值(元)
+                "free_mv": _f(s.get("free_float_mv")) or 0.0,                      # 自由流通市值(元)
+                "pre_fd_amount": pre_fd if pre_fd is not None else 0.0,            # 昨日封单额(元)
+                "fd_to_yesterday": fd_yday if fd_yday is not None else 0.0,        # 封昨比
+                "auc_turnover": _f(s.get("auc_turnover")) or 0.0,                 # 真实竞价换手率%(自由流通口径)
+                "auc_main_net": auc_main_net,                                      # 竞价主力净额(元)
+                "auc_pre_vol_ratio": pre_vol_ratio,                                # 竞昨量比(官方成品)
+                "board": str(s.get("theme_names_kpl") or fd.get("theme_names_kpl") or ""),
+                "warn_type": 0,             # f630 已失活
+                "_src": "meoz",
+            }
+            stats["added"] += 1
+            if pre_fd:
+                stats["prefd"] += 1
+            continue
+        # ---- 已有行: 只补缺, 绝不覆盖 ----
+        if not (v.get("name") or "").strip():
+            nm = str(s.get("name") or am.get("name") or vm.get("name") or fd.get("name") or "")
+            if nm:
+                v["name"] = nm
+                stats["name"] += 1
+        # 市值: 流通市值(float_mv)与自由流通(free_mv)分别补
+        if not (v.get("float_mv") or 0):
+            mv = _f(s.get("circ_mv")) or _f(vm.get("circ_mv"))
+            if mv and mv > 0:
+                v["float_mv"] = mv
+                stats["mv"] += 1
+        if not (v.get("free_mv") or 0):
+            fmv = _f(s.get("free_float_mv"))
+            if fmv and fmv > 0:
+                v["free_mv"] = fmv
+                stats["frmv"] += 1
+        if not (v.get("bid_amt") or 0):
+            if amt and amt > 0:
+                v["bid_amt"] = amt / 1e4
+                stats["amt"] += 1
+        if not (v.get("bid_change") or 0):
+            if chg is not None:
+                v["bid_change"] = chg
+                stats["chg"] += 1
+        # 封单额: 东财缺(0)且猫爪有 → 补(涨停票才有)
+        if not (v.get("bid_buy_amt") or 0) and seal:
+            v["bid_buy_amt"] = seal
+            stats["seal"] += 1
+        # 概念: 东财空且猫爪题材有 → 补(仅兜底, 不覆盖东财 f103)
+        if not (v.get("board") or "").strip():
+            bd = str(s.get("theme_names_kpl") or fd.get("theme_names_kpl") or "")
+            if bd:
+                v["board"] = bd
+        # 昨日封单三字段: 仅猫爪 screening 有(东财无此字段) → 缺则补, 只补不覆盖。
+        #   补缺判据统一用 `is None`(键不存在) —— 不用 falsy, 因为 0 是有效值
+        #   (0 = 昨日无封单/未炸板), 与新建行无条件落值保持**同一行为**。
+        if v.get("pre_fd_amount") is None and pre_fd is not None:
+            v["pre_fd_amount"] = pre_fd
+            if pre_fd:                       # 只对有意义的(非0)封单计次, 便于日志观测
+                stats["prefd"] += 1
+        if v.get("fd_to_yesterday") is None and fd_yday is not None:
+            v["fd_to_yesterday"] = fd_yday
+        # 真实竞价换手率: 猫爪 screening 官方成品(自由流通口径) → 缺则补, 只补不覆盖
+        if not (v.get("auc_turnover") or 0):
+            at = _f(s.get("auc_turnover"))
+            if at and at > 0:
+                v["auc_turnover"] = at
+        # 竞价主力净额: 仅 fundflow_kp 有(东财/其余猫爪源均无) → 东财行无此键, 直接写。
+        #   已有值(理论上不存在, 该键只由本函数写)则不覆盖 —— 同「只补缺」纪律。
+        if not (v.get("auc_main_net") or 0) and auc_main_net:
+            v["auc_main_net"] = auc_main_net
+        # 竞昨量比(官方成品): 仅 daily_auc 有 → 缺则补(0=无官方值, 量比层回退自算)
+        if not (v.get("auc_pre_vol_ratio") or 0) and pre_vol_ratio:
+            v["auc_pre_vol_ratio"] = pre_vol_ratio
+    return stats
+
+
+def _f(x):
+    """安全转 float(None/异常 → None)。"""
+    try:
+        if x is None or x == "":
+            return None
+        return float(x)
+    except (TypeError, ValueError):
+        return None
 
 
 def _merge_tickplus(raw_all, tp_map):
@@ -308,7 +546,10 @@ BID_AMT_COVER_MIN = 0.30        # 竞价额覆盖率下限: 低于此值判定"�
 # ---- 9_25 定格采集时刻下限(2026-09-11 P0-1) ----
 _BID25_MIN_SEC = 20             # 9:25 后至少 20 秒才采(原 10 秒)
 _SAME_PREV_MAX = 0.50           # 9_25 与 9_24 逐票竞价额"相等"占比上限, 超此值判定"定格值未发布"
-_BID25_RETRY_UNTIL = 9 * 3600 + 25 * 60 + 50   # 9:25:50 前允许回滚重采, 之后接受最后一次
+# 9:26:00 前允许回滚重采, 之后接受最后一次。
+# 2026-09-19: 09:25:50 → 09:26:00 —— 闸门末端顺延至 09:25:50(换猫爪源), 原窗口
+#   与此重合致余量归零; 现留 9 秒缓冲, 保证闸门放行时快照已重采定稿。
+_BID25_RETRY_UNTIL = 9 * 3600 + 26 * 60 + 0
 
 # ---- 9:31 盘点质量阈值(2026-09-11 P0-2) ----
 _SNAP_MIN_ROWS = 3000           # 单时点行数下限: 正常 5500+, 熔断日实测 132 → 3000 足够安全
@@ -492,11 +733,16 @@ def snapshot_at(time_point, force=False):
     try:
         conn = database.get_conn()
         conn.executemany(
-            "INSERT OR REPLACE INTO snapshot_bid (date, time_point, code, bid_change, bid_amt, name, bid_buy_amt, float_mv, free_mv, board, warn_type, ts) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO snapshot_bid (date, time_point, code, bid_change, bid_amt, name, bid_buy_amt, float_mv, free_mv, board, warn_type, pre_fd_amount, fd_to_yesterday, auc_turnover, auc_main_net, auc_pre_vol_ratio, ts) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [(date, time_point, code, v["bid_change"], v["bid_amt"], v.get("name", ""),
               v.get("bid_buy_amt", 0), v.get("float_mv", 0), v.get("free_mv", 0), v.get("board", ""),
-              int(v.get("warn_type") or 0), int(time.time()))
+              int(v.get("warn_type") or 0),
+              v.get("pre_fd_amount", 0), v.get("fd_to_yesterday", 0),
+              v.get("auc_turnover", 0),
+              v.get("auc_main_net", 0),
+              v.get("auc_pre_vol_ratio", 0),
+              int(time.time()))
              for code, v in raw_all.items()])
         conn.commit()
     except Exception as e:
@@ -770,7 +1016,7 @@ def has_today_snapshot(date=None) -> bool:
     2026-09-16 新增, 配合 picker/mode.is_pick_open 做双闸门; v4.11.26 随闸门回退
     一并摘除, v4.11.27 **原样恢复**(口径重做只动时间维, 快照维语义不变):
     9_25 定格**落库时刻**取决于采集下限 _BID25_MIN_SEC=20s 与重采窗口
-    _BID25_RETRY_UNTIL=09:25:50 —— 实测近 15 日落库在 09:25:23~09:25:32。若某日
+    _BID25_RETRY_UNTIL=09:26:00 —— 实测近 15 日落库在 09:25:23~09:25:32。若某日
     重采一次越过放行点, 纯时间闸门会放行, 而 load_snapshot_full 仍会**静默回退昨日**
     (9/16 事故根因: 9:25:14/9:25:29 两个用户拿到 9/15 名单)。故此维不能省。
 
@@ -1106,11 +1352,15 @@ def _scheduler_loop():
                             # 2026-09-11 P0-1: 9_25 定格值"未发布"保险丝
                             # 与 9_24 逐票竞价额完全相等 → 说明接口仍在返回 9:24 残值,
                             # 回滚完成标记让窗口内下一轮(10s 后)重采覆盖。
-                            # 9:25:50 之后不再回滚: 宁可保留中间值也不能整点缺失 ——
+                            # 9:26:00 之后不再回滚: 宁可保留中间值也不能整点缺失 ——
                             # 9_25 缺失会连锁砸坏选股名单(9/11 熔断日仅 132 行即导致候选池塌陷)。
                             # 必须放在 aipick / system_batch 触发之前: 不能用残值跑预测与锁仓。
+                            # ★ 单位修正(2026-09-19): _BID25_RETRY_UNTIL 是**绝对秒**(含 9*3600),
+                            #   原比较式 `hm*60+sec < _BID25_RETRY_UNTIL` 混用"当日秒" → 条件恒真,
+                            #   导致重采永不停止(直到窗口自然结束)。这里统一为当日秒。
+                            _retry_sec_today = _BID25_RETRY_UNTIL - 9 * 3600
                             if tp == "9_25" and _same_as_prev_rate(date, tp, "9_24") > _SAME_PREV_MAX:
-                                if hm * 60 + g.tm_sec < _BID25_RETRY_UNTIL:
+                                if hm * 60 + g.tm_sec < _retry_sec_today:
                                     store.delete(key)
                                     log.warning(
                                         "[快照采集] 9_25 定格值疑似未发布(与9_24同额率>%.0f%%), "

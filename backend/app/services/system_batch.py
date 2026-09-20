@@ -28,7 +28,7 @@ SYSTEM_USER_ID = 0  # system batch 归属用户, 所有用户都能看到
 # =====================================================================
 DEFAULT_FILTERS_DEFAULT = {
     "stSuspend": False, "limitUp": False, "bidGt": 7.0,
-    "probLt": 65.0, "confLt": 65.0,
+    "probLt": 50.0, "confLt": 50.0,
     "floatMvFloor": 30.0, "floatMvGt": 1000.0, "priceGt": 300.0,
     "bidAmtFloor": 1000.0,   # 与 admin.py 全局默认一致(默认竞价金额下限 1000万)
 }

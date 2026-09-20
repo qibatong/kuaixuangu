@@ -9,6 +9,16 @@ export function isBefore930() {
   return bj.getHours() < 9 || (bj.getHours() === 9 && bj.getMinutes() < 30)
 }
 
+// 重新选股(锁定)截止: 工作日 10:00 前允许(2026-09-20 主人拍板「ai选股放开到10点,
+// 10点之前不再锁定」—— 与后端 api/stocks 快照池 lock 条件同口径)。
+// 周末照 false(回放定格, 无锁定语义)。
+export function isBeforeRelockEnd() {
+  const bj = bjNow()
+  const day = bj.getDay()
+  if (day === 0 || day === 6) return false
+  return bj.getHours() < 10
+}
+
 export function pad2(n) { return String(n).padStart(2, '0') }
 
 export function bjTimeStr() {
@@ -84,18 +94,21 @@ export function isMemberOnlyTime() {
         选出来的股没意义** ⇒ 只挡一段。
 
    本版**只挡一段**:
-     [09:15:00, 09:25:35]  竞价进行中 + 当日 9_25 定格尚未落库。
+     [09:15:00, 09:25:50]  竞价进行中 + 当日 9_25 定格尚未落库。
        此时取数会回退**上一交易日** 9:25(竞涨幅/竞价额整批错位, 竞涨幅占评分权重 34%),
        且竞价过程数据本身每 10 秒在变 —— 双重不可信 ⇒ 不出名单。
      · 00:00-09:14:59 **盘前放行**(用上交易日定格是设计内功能) → 由顶栏标注来源日期明示;
-     · ≥09:25:36 时间维放行, 但还须叠加**快照维**(当日 9_25 已落库);
+     · ≥09:25:51 时间维放行, 但还须叠加**快照维**(当日 9_25 已落库);
      · 非交易日(周末)不拦 —— 回放最近交易日定格是既有功能(同样标注)。
-   秒级粒度: 9:14:59 放行(secs=33299), 9:15:00 拦(33900); 9:25:35 拦(33935), 9:25:36 放行(33936)。
+   秒级粒度: 9:14:59 放行(secs=33299), 9:15:00 拦(33900); 9:25:50 拦(33950), 9:25:51 放行(33951)。
+
+   v4.11.30(2026-09-19)主人拍板: 末端 09:25:35 → **09:25:50** —— 换猫爪源后 9:25 定格
+     数据落库更晚(需等交易所撮合完成), 原放行点会取到未完成快照致名单错位。
    ========================================================= */
 export const PICK_BLOCK_FROM = 9 * 3600 + 15 * 60         // 09:15:00 (含) 竞价开始即禁
-export const PICK_BLOCK_TO = 9 * 3600 + 25 * 60 + 35      // 09:25:35 (含) 覆盖实测最晚落库 09:25:32
+export const PICK_BLOCK_TO = 9 * 3600 + 25 * 60 + 50      // 09:25:50 (含) 换猫爪源后定格落库更晚(原 09:25:35)
 // 时间维放行起点(= 拦截段结束的下一秒); 此后还须过快照维
-export const PICK_OPEN = PICK_BLOCK_TO + 1                // 09:25:36
+export const PICK_OPEN = PICK_BLOCK_TO + 1                // 09:25:51
 // 文案与后端 mode.PICK_BLOCK_MSG_TIME / PICK_BLOCK_MSG_SNAP 逐字一致
 export const PICK_BLOCK_MSG_TIME = '竞价进行中 · 9:25 定格后开放'
 export const PICK_BLOCK_MSG_SNAP = '9:25 竞价定格尚未落库 · 稍后自动恢复'

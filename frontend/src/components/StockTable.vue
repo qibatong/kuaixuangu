@@ -11,8 +11,10 @@
         <col v-if="SHOW_QC" style="width:54px" />
         <col style="width:46px" />
         <col style="width:50px" />
-        <col style="width:40px" />
         <col style="width:64px" />
+        <!-- 2026-09-20: 主力净额列(盘中追踪)。🔴 colgroup 必须与表头列数一致 ——
+             fixed 布局下缺 col 的末列会吞掉全部剩余宽度(概念列曾因此独占 ~470px) -->
+        <col style="width:56px" />
         <col style="width:52px" />
         <col style="width:42px" />
         <col style="width:52px" />
@@ -25,9 +27,10 @@
           <th v-if="SHOW_QC" class="sortable col-qc" :class="{ active: sortKey === 'qiangchou' }" title="命中竞价异动-竞价抢筹时标记 🔥：与右视图竞价抢筹同源（9:20→9:25 竞额/涨幅抢筹 + 9:24→9:25 最后一秒）。徽章文字=抢筹类型（竞额/涨幅/末秒），悬停看各自幅度" @click="onSort('qiangchou', 'number')">抢筹<span class="sort-ind">{{ sortInd('qiangchou') }}</span></th>
           <th class="sortable num col-bidchg" :class="{ active: sortKey === 'bidChange' }" title="竞价涨幅" @click="onSort('bidChange', 'number')">竞涨<span class="sort-ind">{{ sortInd('bidChange') }}</span></th>
           <th class="sortable num col-entchg" :class="{ active: sortKey === 'entityChange' }" @click="onSort('entityChange', 'number')">实体<span class="sort-ind">{{ sortInd('entityChange') }}</span></th>
-          <th class="sortable col-warn" :class="{ active: sortKey === 'warnType' }" @click="onSort('warnType', 'number')">异动<span class="sort-ind">{{ sortInd('warnType') }}</span></th>
           <th class="sortable num col-bidamt" :class="{ active: sortKey === 'bidAmt' }" title="集合竞价阶段撮合成交金额" @click="onSort('bidAmt', 'number')">竞额<span class="sort-ind">{{ sortInd('bidAmt') }}</span></th>
-          <th class="sortable num col-mv" :class="{ active: sortKey === 'circulationMV' }" @click="onSort('circulationMV', 'number')">流通<span class="sort-ind">{{ sortInd('circulationMV') }}</span></th>
+          <th class="sortable num col-mainnet" :class="{ active: sortKey === 'mainNet' }" title="盘中主力净额(亿): 主力买入-卖出, 猫爪 fundflow_kp, 盘中约5分钟刷新; 盘后/非交易时段显示 -" @click="onSort('mainNet', 'number')">主力净额<span class="sort-ind">{{ sortInd('mainNet') }}</span></th>
+          <!-- 2026-09-20: 列文案改「自由流通」—— 后端 circulationMV 已统一为自由流通口径 -->
+          <th class="sortable num col-mv" :class="{ active: sortKey === 'circulationMV' }" title="自由流通市值(亿), 与选股门槛同口径" @click="onSort('circulationMV', 'number')">自由流通<span class="sort-ind">{{ sortInd('circulationMV') }}</span></th>
           <th class="sortable num col-score" :class="{ active: sortKey === 'probability' }" @click="onSort('probability', 'number')">评分<span class="sort-ind">{{ sortInd('probability') }}</span></th>
           <th class="sortable num col-conf" :class="{ active: sortKey === 'confidence' }" @click="onSort('confidence', 'number')">可信<span class="sort-ind">{{ sortInd('confidence') }}</span></th>
           <th class="sortable col-concept" :class="{ active: sortKey === 'concept' }" @click="onSort('concept', 'string')">概念<span class="sort-ind">{{ sortInd('concept') }}</span></th>
@@ -53,11 +56,11 @@
           </td>
           <td :class="chgCls(item.bidChange)" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'">{{ pct(item.bidChange) }}</td>
           <td :class="item.entityChange === null || item.entityChange === undefined ? 'dim' : (item.entityChange > 0 ? 'up' : 'down')" :title="item.entityChange === null || item.entityChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + pct(item._staleEntity) + '）') : ''">{{ pct(item.entityChange) }}</td>
-          <td>{{ warnLabel(item.warnType) }}</td>
-          <td :title="'集合竞价阶段撮合成交金额: ' + (item.bidAmt ? bidAmtText(item.bidAmt) : '-')">{{ item.bidAmt || item.bidAmt === 0 ? bidAmtText(item.bidAmt) : '-' }}</td>
-          <td>{{ fmtNum(item.circulationMV, 1) }}</td>
-          <td class="score-cell">{{ fmtNum(item.probability, 0, '分') }}</td>
-          <td>{{ fmtNum(item.confidence, 0, '%') }}</td>
+          <td class="col-muted" :title="'集合竞价阶段撮合成交金额: ' + (item.bidAmt ? bidAmtText(item.bidAmt) : '-')">{{ item.bidAmt || item.bidAmt === 0 ? bidAmtText(item.bidAmt) : '-' }}</td>
+          <td :class="item.mainNet === null || item.mainNet === undefined ? 'dim' : (item.mainNet > 0 ? 'up' : 'down')" :title="item.mainNet === null || item.mainNet === undefined ? '盘中主力净额(亿): 非交易时段或数据未就绪' : ('盘中主力净额: ' + (item.mainNet > 0 ? '+' : '') + item.mainNet + '亿（约每5分钟刷新）')">{{ item.mainNet === null || item.mainNet === undefined ? '-' : (item.mainNet > 0 ? '+' : '') + item.mainNet.toFixed(3) }}</td>
+          <td class="col-muted">{{ fmtNum(item.circulationMV, 1) }}</td>
+          <td class="score-cell col-muted">{{ fmtNum(item.probability, 0, '分') }}</td>
+          <td class="col-muted">{{ fmtNum(item.confidence, 0, '%') }}</td>
           <td class="concept-cell" :title="'概念: ' + (item.concept || '')">
             <template v-if="item.concept">
               <span v-for="(c, i) in conceptList(item.concept)" :key="i" class="concept-item">{{ c }}</span>
@@ -187,9 +190,6 @@ function realCls(item) {
   if (b !== null && b !== undefined && !isNaN(b) && r < b) return 'real-green'
   return r > 0 ? 'up' : 'down'
 }
-function warnLabel(w) {
-  return w === 5 ? '强' : w === 4 ? '⚡中' : w === 3 ? '↑弱' : '-'
-}
 </script>
 
 <style scoped>
@@ -204,11 +204,11 @@ function warnLabel(w) {
   text-align: center;
   vertical-align: middle;
   padding: 5px 2px !important;
-  font-size: 11.5px !important;
+  font-size: 12px !important;
 }
 .stock-table-compact th {
   padding: 7px 2px !important;
-  font-size: 11.5px !important;
+  font-size: 12px !important;
 }
 .stock-table-compact th.sortable {
   white-space: nowrap;
@@ -218,7 +218,7 @@ function warnLabel(w) {
   min-width: 0;
   white-space: normal;
   line-height: 1.3;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-secondary);
   padding: 4px 2px !important;
 }
@@ -241,6 +241,8 @@ function warnLabel(w) {
   font-size: 11px;
   border-radius: 3px;
 }
+/* 2026-09-20 视觉减噪: 中性列(竞额/市值/评分/可信)灰字, 页面只保留涨跌红绿一个彩色语义 */
+.col-muted { color: var(--text-muted); }
 /* 首列"名称": 代码+名称 上下排布, 可点击打开图表 */
 .stock-info-cell {
   cursor: pointer;
@@ -265,7 +267,7 @@ function warnLabel(w) {
 .stock-info-cell .stock-name {
   font-weight: 600;
   color: var(--text-main);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 /* 异动监管标签行: 始终占用固定高度(无标签也占位), 保证各列网格线对齐 */
 .yd-badge-row {
@@ -294,7 +296,7 @@ function warnLabel(w) {
 }
 .stock-info-cell .stock-code {
   font-family: "LXGW WenKai Mono", monospace;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--text-muted);
   letter-spacing: 0.5px;
 }
@@ -307,30 +309,34 @@ th.sortable {
   user-select: none;
 }
 th.sortable:hover {
-  color: var(--accent);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
 }
 th.sortable.active {
-  color: var(--accent-deep);
+  color: #fff;
 }
 .sort-ind {
   display: inline-block;
   width: 10px;
-  color: var(--accent-deep);
+  color: #fff;
   font-weight: 700;
 }
-th.sortable:hover .sort-ind:not(:empty),
 th.sortable.active .sort-ind {
   opacity: 1;
 }
+/* 2026-09-20 减噪: 排序提示箭头 ↕ 默认隐藏, 悬停该列头才显示(红底白字下更干净) */
 th.sortable .sort-ind:empty::before {
   content: '↕';
-  opacity: 0.6;   /* 默认排序提示: 0.25 太淡几乎不可见, 提到 0.6 */
+  opacity: 0;
   font-weight: 400;
 }
-/* 浅色主题: 排序箭头用深橙保证可见 */
-body[data-bg="light"] .sort-ind { color: #b83010; }
-body[data-bg="light"] th.sortable:hover { color: #b83010; }
-body[data-bg="light"] th.sortable.active { color: #c00; }
+th.sortable:hover .sort-ind:empty::before {
+  opacity: 0.75;
+}
+/* 浅色主题: 表头同为红底白字, 排序箭头白字 */
+body[data-bg="light"] .sort-ind { color: #fff; }
+body[data-bg="light"] th.sortable:hover { color: #fff; }
+body[data-bg="light"] th.sortable.active { color: #fff; }
 .qc-badge {
   display: inline-block;
   background: rgba(var(--accent-rgb), 0.18);
@@ -392,11 +398,19 @@ body[data-bg="light"] th.sortable.active { color: #c00; }
   50% { opacity: 0.55; }
 }
 
-/* 浅色主题覆盖 */
-body[data-bg="light"] th.sortable {  color: #5a4a3a;  }
-body[data-bg="light"] th.sortable:hover {  color: #b83010;  }
-body[data-bg="light"] th.sortable.active {  color: #b83010;  }
-body[data-bg="light"] .sort-ind {  color: #b83010;  }
+/* 2026-09-20 性能优化: content-visibility 虚拟化渲染。
+   数千行时浏览器自动跳过视口外行的布局/绘制, 滚动流畅度大幅提升。
+   纯 CSS 方案(不引入虚拟滚动库), 不影响既有 sticky 表头、排序、点击图表等。
+   contain-intrinsic-size 用首列固定高度 52px 撑稳定滚动条(行高恒定, 无跳动)。 */
+.stock-table-compact tbody tr {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 52px;
+}
+/* 浅色主题覆盖: 表头红底白字(与全局统一) */
+body[data-bg="light"] th.sortable {  color: #fff;  }
+body[data-bg="light"] th.sortable:hover {  color: #fff;  }
+body[data-bg="light"] th.sortable.active {  color: #fff;  }
+body[data-bg="light"] .sort-ind {  color: #fff;  }
 body[data-bg="light"] .qc-badge {  color: #8a5500; background: rgba(184,48,16,0.15); border-color: #b83010;  }
 body[data-bg="light"] .qc-pending {  color: #8a8a8a; border-color: #999;  }
 </style>

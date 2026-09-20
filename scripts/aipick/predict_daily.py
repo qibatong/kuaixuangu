@@ -10,6 +10,11 @@ AI 竞价选股 - 每日预测 (增强版 2026-08-27)
   3) 新增 backfill(): 遍历历史上已生成的 predictions_*.json, 凡缺 all 的重新调用 predict(d)
      重算全量候选(从快选 9_25 竞价快照库读 stock), 兼容 8-14 起的全市场快照
 
+2026-09-20: 数据源 **东财 → 猫爪**（主人指令）。
+  · collector.fetch_market(d) 现返回**特征行**(走猫爪 screening, 已单位换算),
+    故此处不再套 to_features(); fetch_market(d) 为空才回退东财(to_features(fetch_market_eastmoney())).
+  · FEATURES 6 项必须与 train_model.py 逐字一致（否则预测崩）。
+
 输出：output/predictions_YYYY-MM-DD.html / .json（直接浏览器打开）
 """
 import json
@@ -22,8 +27,8 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from db import today  # noqa E402
-from collector import fetch_from_kuaixuan, fetch_market, to_features  # noqa E402
-
+from collector import (fetch_from_kuaixuan, fetch_market,  # noqa E402
+                       fetch_market_eastmoney, to_features)
 import pandas as pd
 import numpy as np
 import xgboost as xgb
@@ -90,11 +95,22 @@ def predict(trade_date=None, mv_min=DEFAULT_MV_MIN, mv_max=DEFAULT_MV_MAX,
     model = xgb.XGBClassifier(use_label_encoder=False, verbosity=0)
     model.load_model(model_path)
 
-    stocks = fetch_from_kuaixuan(d) or to_features(fetch_market(), d)
+    # 取数: 快选快照(权威同源) → 猫爪自拉(collector.fetch_market 已返回特征行) → 东财兜底
+    stocks = fetch_from_kuaixuan(d) or fetch_market(d) or to_features(fetch_market_eastmoney(), d)
     df = pd.DataFrame(stocks or [])
+    # 2026-09-20 健壮性修复: 取数为空(非交易日无当日 9_25 快照 / 数据源全挂)时
+    #   旧代码会在下一行 `df[col]` 直接 KeyError: 'bid_change' 崩栈 —— 空 DF 无列。
+    #   这里显式兜底: 无数据就明确提示并返回, 不抛异常(调度器按 180s 超时容错, 但崩栈
+    #   会污染日志、且 backfill/定时任务拿不到可读原因)。
+    if df.empty:
+        print(f"⚠️ {d} 无可用行情数据(非交易日无快照, 或数据源取数失败) → 跳过预测")
+        return None
     for col in FEATURES:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     df = df.dropna(subset=FEATURES)
+    if df.empty:
+        print(f"⚠️ {d} 行情数据清洗后为空(关键特征全缺) → 跳过预测")
+        return None
 
     X = df[FEATURES].astype(float)
     proba = model.predict_proba(X)[:, 1]

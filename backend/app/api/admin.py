@@ -27,7 +27,7 @@ W_KEYS = [
     ("w_bid", "竞价分", "竞价涨幅区间得分(如3%~5.5%为满分)"),
     ("w_activity", "活跃度", "竞价换手率/量比活跃度得分"),
     ("w_warn", "异动分", "封单/抢筹等异动信号得分"),
-    ("w_market", "市值分", "流通市值越小分越高(小市值加分)"),
+    ("w_market", "市值分", "自由流通市值越小分越高(小市值加分)"),
     ("w_yesterday", "昨日涨幅", "昨日涨幅处于健康区间得分"),
 ]
 CONF_KEYS = [
@@ -510,10 +510,10 @@ def _validate_scoring(new, strategy="auction"):
 #   默认 False 等价于旧默认(勾上=剔除ST/剔除昨涨停), 实际过滤结果一致但 UI 直觉正确.
 DEFAULT_FILTERS_DEFAULT = {
     "stSuspend": False, "limitUp": False, "bidGt": 7.0,
-    "probLt": 65.0, "confLt": 65.0,
+    "probLt": 50.0, "confLt": 50.0,
     "floatMvFloor": 30.0, "floatMvGt": 1000.0, "priceGt": 300.0,
     "bidAmtFloor": 1000.0,   # 诗人需求: 默认竞价金额下限 1000万(原3000)
-    "scoreFloor": 80.0,      # 2026-09-10 主人拍板: 评分低于 80 分的票不显示(全站默认)
+    "scoreFloor": 50.0,      # 2026-09-20 主人拍板: 评分低于 50 分的票不显示(全站默认)
 }
 
 

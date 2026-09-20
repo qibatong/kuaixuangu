@@ -141,13 +141,13 @@ def test_freeze_landing_ts_reads_snapshot():
 
 
 def test_gate_open_point_documented_value():
-    """闸门放行点保持 09:25:36(用户体验口径: 覆盖实测最晚落库 09:25:32)
+    """闸门放行点 09:25:51 / 拦截上界 09:25:50(2026-09-19 换猫爪源后顺延, 原 09:25:36/09:25:35)
 
     注意它**不是**批次复用判据 —— 复用判据是数据时间戳(见文件头注释)。
     """
-    assert pm.T_PICK_OPEN == 9 * 3600 + 25 * 60 + 36
+    assert pm.T_PICK_OPEN == 9 * 3600 + 25 * 60 + 51
     assert pm.T_PICK_BLOCK_FROM == 9 * 3600 + 15 * 60
-    assert pm.T_PICK_BLOCK_TO == 9 * 3600 + 25 * 60 + 35
+    assert pm.T_PICK_BLOCK_TO == 9 * 3600 + 25 * 60 + 50
 
 
 # ============================================================

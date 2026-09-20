@@ -6,9 +6,9 @@
 
     因子          权重   来源                        是否漂移
     竞价涨幅      34%    snapshot_bid 9_25 定格       否
-    竞价换手      32%    bid_amt ÷ float_mv(派生)     否
+    竞价换手      32%    bid_amt ÷ free_mv(派生)      否
     竞价强度      17%    bid_strength(快照+开盘啦)    否
-    流通市值      11%    snapshot_bid float_mv        否(半静态)
+    流通市值      11%    snapshot_bid mv(free 优先)   否(半静态)
     昨日涨幅       6%    yday_amount 表(收盘落库)     否
 
 于是竞价结束后可对全市场(≈5557只)**一次性**算好分数, 写 stock_score_daily;
@@ -207,7 +207,8 @@ def precompute_all(date: Optional[str] = None, *,
                     warn = int(r.warn_type or 0)
                 payload.append((
                     date, r.code, r.name, sc.probability, sc.confidence,
-                    r.bid_change, r.bid_amt, r.bid_vol, r.float_mv,
+                    r.bid_change, r.bid_amt, r.bid_vol,
+                    r.mv,        # ★ 2026-09-20: 门槛/评分统一市值(自由流通优先) → 列名仍 float_mv
                     sc.bid_turnover, sval, warn,
                     r.yesterday_change, r.prev_close, r.auction_price,
                     1 if ("ST" in (r.name or "")) else 0,
@@ -278,7 +279,7 @@ def read_materialized(date: Optional[str] = None, *,
             continue
         rows[code] = QuoteRow(
             code=code, name=name or "", bid_change=bchg, bid_amt=bamt,
-            bid_vol=bvol, prev_close=prev, float_mv=mv,
+            bid_vol=bvol, prev_close=prev, free_mv=mv,   # ★ 列存统一市值 → 回填 free_mv
             industry=ind or None, concept=con or None,
             yesterday_change=ychg, warn_type=warn, source="precompute")
         scores[code] = ScoreResult(probability=prob or 0, confidence=conf or 0,
@@ -295,8 +296,11 @@ def read_snapshot_rows(date: Optional[str] = None, *,
       * 本函数服务前端(JSON 友好, 单位直接对齐前端 filters 的门槛单位)
 
     单位对齐(关键): 前端 filters 的门槛是「亿」(floatMvFloor) 与 「万元」(bidAmtFloor),
-    后端 apply_filters 内部同样按 `float_mv/1e8` / `bid_amt/1e4` 比较 —— 两边都从
+    后端 apply_filters 内部同样按 `mv_yi(=mv/1e8)` / `bid_amt/1e4` 比较 —— 两边都从
     **同一个整数元值**做同一次除法, 结果位级相同, 本地筛选与后端名单才能逐票一致。
+
+    ★ 2026-09-20: 物化表 `float_mv` 列存的是 **mv(free_mv 优先, 缺则 float_mv)** ——
+      列名保留以兼容既有 schema, 语义已统一为"门槛/评分市值"。前端 `floatMv` 字段名不变。
 
     行数不足(< min_rows)返回 [] —— 调用方视为"物化表不可用"并回退原路径,
     与 read_materialized 同一闸门语义(宁可不发, 不发半张表)。

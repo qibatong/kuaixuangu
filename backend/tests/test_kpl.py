@@ -365,85 +365,104 @@ def test_fetch_yest_broken(monkeypatch):
     assert "600683" not in codes  # 昨日仍涨停 → 连板中, 非断板
 
 
+def _mock_meoz(monkeypatch, kp=None, snap=None, ob=None, mv=None, sc=None):
+    """为 fetch_bid_qiangcang 注入猫爪 mock。
+    kp/snap/ob/sc: {symbol: {字段}} 猫爪各源返回; mv: 市值字典(缺省由 kp 的 free_float_mv 推导)。
+    返回一个 dict 便于测试断言调用次数。"""
+    calls = {"kp": 0, "snap": [], "ob": 0, "mv": 0, "sc": 0}
+
+    def _auc_qc_net(date_offset=None, date=None):
+        calls["kp"] += 1
+        return kp or {}
+
+    def _auc_snapshot(trademin, side="before", date_offset=None, date=None):
+        calls["snap"].append((trademin, side))
+        return (snap or {}).get((trademin, side), {})
+
+    def _auc_open_bid(trademin="0925", date_offset=None, date=None):
+        calls["ob"] += 1
+        return ob or {}
+
+    def _free_mv_map(date_offset=None, date=None, auc_kp_map=None):
+        calls["mv"] += 1
+        if mv is not None:
+            return mv
+        out = {}
+        for c, r in (kp or {}).items():
+            v = float(r.get("free_float_mv") or 0)
+            if v > 0:
+                out[str(c)] = v
+        return out
+
+    def _screening_map(date_offset=None, date=None):
+        calls["sc"] += 1
+        return sc or {}
+
+    import app.services.kpl as _k
+    from app.services import meoz_client as _m
+    monkeypatch.setattr(_k, "meoz_client", _m, raising=False)
+    monkeypatch.setattr(_m, "auc_qc_net", _auc_qc_net)
+    monkeypatch.setattr(_m, "auc_snapshot", _auc_snapshot)
+    monkeypatch.setattr(_m, "auc_open_bid", _auc_open_bid)
+    monkeypatch.setattr(_m, "free_mv_map", _free_mv_map)
+    monkeypatch.setattr(_m, "screening_map", _screening_map)
+    return calls
+
+
 def test_fetch_bid_qiangcang(monkeypatch):
-    """左右双表抢筹:
-    - list20 = 开盘啦 Type4 全市场竞价异动, 抢筹强度 qcDelta = bidNetAmt/floatMv*100
-    - listLast = snapshot_bid 9:24→9:25 段: 抢筹幅度 = 9:25涨幅 − 9:24涨幅"""
-    import sqlite3
+    """三张表(猫爪源, 2026-09-19 换源):
+    - list20    = auc_kp: qcDelta = auc_net_amount / free_float_mv * 100
+    - list20Chg = daily_auc_detail: auc_pct_chg(9:25) − auc_pct_chg(9:20)
+    - listLast  = daily_auc.open_bid_pct (官方原生开盘抢筹幅度)"""
     import time as _t
     class FakeT:
         tm_hour, tm_min, tm_wday = 9, 20, 3   # 竞价时段(9:20 周四)
     monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
-    class FakeCursor:
-        def __init__(self, rows): self.rows = rows
-        def fetchall(self): return self.rows
-    class FakeConn:
-        def __init__(self): self.executed = []
-        def execute(self, sql, params=()):
-            self.executed.append(sql)
-            if "snapshot_lastsec" in sql:
-                return FakeCursor([])   # 秒级序列空 → 走 9_24 兜底
-            if "9_24" in sql:
-                return FakeCursor([(1, 5.0, 500.0), (2, 5.5, 800.0), (3, 5.8, 700.0)])
-            # 9_25: code, bid_change, bid_amt(万元), float_mv, name
-            # 新过滤(2026-08-19 22:33): 竞价金额阈值 1000万 → 500万
-            return FakeCursor([
-                (1, 6.0, 1000.0, 5e9, "A"),     # 1000万 达标
-                (2, 6.0, 1500.0, 8e9, "B"),     # 1500万 达标
-                (3, 6.0, 400.0, 9e9, "C"),      # 400万 < 500万 → 被金额过滤
-            ])
-        def close(self): pass
-    real = sqlite3.connect
     monkeypatch.setattr(kpl, "_seal_map", lambda: {})
-    monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
-    # 模拟开盘啦 Type4 返回: bidNetAmt/floatMv*100 控制 qcDelta
-    # code1: 6e8/6e9=10%, code2: 4.8e8/8e9=6%, code3: 1e8/3e9=3.33%(被过滤), code4: fmv=1e9(=10亿)>2e8 通过, qcDelta=50%
-    fake_seal = [
-        {"code": "1", "name": "A", "realChange": 1.0, "bidNetAmt": 6e8, "floatMv": 6e9,
-         "bidAmt": 1e8, "bidTurnover": 0.5, "bidChange": 5.0, "board": "板块A"},
-        {"code": "2", "name": "B", "realChange": 0.5, "bidNetAmt": 4.8e8, "floatMv": 8e9,
-         "bidAmt": 5e7, "bidTurnover": 0.3, "bidChange": 4.0, "board": "板块B"},
-        {"code": "3", "name": "C", "realChange": 0.0, "bidNetAmt": 1e8, "floatMv": 3e9,
-         "bidAmt": 3e7, "bidTurnover": 0.1, "bidChange": 3.0, "board": "板块C"},   # 3.33% 被过滤
-        {"code": "4", "name": "D", "realChange": 0.0, "bidNetAmt": 5e8, "floatMv": 1e8,
-         "bidAmt": 5e7, "bidTurnover": 0.2, "bidChange": 2.0, "board": "板块D"},   # fmv=1亿<2e8被过滤
-        {"code": "5", "name": "E", "realChange": 0.0, "bidNetAmt": 0, "floatMv": 5e9,
-         "bidAmt": 5e7, "bidTurnover": 0.2, "bidChange": 2.0, "board": "板块E"},   # bidNetAmt=0被过滤
-    ]
-    monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: fake_seal)
+
+    # --- list20: auc_kp ---
+    kp = {
+        "1": {"name": "A", "auc_net_amount": 6e8, "free_float_mv": 6e9, "auc_amt": 1e8},   # 10.0%
+        "2": {"name": "B", "auc_net_amount": 4.8e8, "free_float_mv": 8e9, "auc_amt": 5e7},  # 6.0%
+        "3": {"name": "C", "auc_net_amount": 1e8, "free_float_mv": 3e9, "auc_amt": 3e7},    # 3.33%
+        "4": {"name": "D", "auc_net_amount": 5e8, "free_float_mv": 1e8, "auc_amt": 5e7},    # fmv<2亿 过滤
+        "5": {"name": "E", "auc_net_amount": 0, "free_float_mv": 5e9, "auc_amt": 5e7},      # 净额0 过滤
+    }
+    # --- listLast: daily_auc.open_bid_pct ---
+    ob = {
+        "1": {"name": "甲", "open_bid_pct": 1.0, "auc_amt": 1e7, "auc_pct_chg": 6.0},
+        "2": {"name": "乙", "open_bid_pct": 0.5, "auc_amt": 1.5e7, "auc_pct_chg": 6.0},
+        "3": {"name": "丙", "open_bid_pct": 2.0, "auc_amt": 4e6, "auc_pct_chg": 6.0},      # 额<500万 过滤
+        "4": {"name": "丁", "open_bid_pct": 3.0, "auc_amt": 1e7, "auc_pct_chg": 6.0},      # fmv<5亿 过滤
+        "5": {"name": "戊", "open_bid_pct": 0.0, "auc_amt": 1e7, "auc_pct_chg": 6.0},      # 幅度0 过滤
+    }
+    mv = {"1": 6e9, "2": 8e9, "3": 3e9, "4": 1e8, "5": 5e9}
+    _mock_meoz(monkeypatch, kp=kp, ob=ob, mv=mv)
     kpl.clear_cache()
     d = kpl.fetch_bid_qiangcang()
-    monkeypatch.setattr("sqlite3.connect", real)
     assert isinstance(d, dict)
     l20 = d["list20"]
     lLast = d["listLast"]
-    # 左表过滤 >0.5%(2026-08-18 阈值 5%→0.5%): code1(10%) + code2(6%) + code3(3.33%) 入选, code4(<2亿) code5(bidNetAmt=0) 过滤
+    # 左表 >0.5%: 1(10%) 2(6%) 3(3.33%) 入选; 4(fmv<2亿) 5(净额0) 过滤
     assert len(l20) == 3
     assert l20[0]["code"] == "1" and l20[0]["qcDelta"] == 10.0
     assert l20[1]["code"] == "2" and l20[1]["qcDelta"] == 6.0
-    # 右表 9:24→9:25 段; code3 竞价金额400万<500万被过滤(2026-08-19 阈值1000万→500万)
+    # 右表 open_bid_pct: 3(额<500万) 4(fmv<5亿) 5(幅度0) 过滤 → 2 只
     assert len(lLast) == 2
     mLast = {r["code"]: r for r in lLast}
-    # code1: qcDeltaLast = 6.0 - 5.0 = 1.0%
-    assert mLast[1]["qcDeltaLast"] == 1.0
-    assert mLast[1]["bidChange24"] == 5.0
-    # code2: qcDeltaLast = 6.0 - 5.5 = 0.5%
-    assert mLast[2]["qcDeltaLast"] == 0.5
-    # 右表按抢筹幅度降序: code1(1.0) > code2(0.5)
-    assert lLast[0]["code"] == 1
-    # 竞额/昨比: bidAmt(元) / 昨日额pair[0](万元) / 100 → %; code1 l20 bidAmt=1e8元 → 50%
-    assert l20[0]["bidRatio"] == 50.0
-    # listLast code1 bidAmt=9_25快照1000万*10000=1e7元 → 1e7/20000/100=5.0%
-    assert lLast[0]["bidRatio"] == 5.0
+    assert mLast["1"]["qcDeltaLast"] == 1.0
+    assert mLast["2"]["qcDeltaLast"] == 0.5
+    # 降序: 1(1.0) > 2(0.5)
+    assert lLast[0]["code"] == "1"
 
 
 def test_fetch_bid_qiangcang_persist(monkeypatch):
-    """抢筹结果持久化: 竞价时段(接口有数据)存库 → 非竞价时段读库, 不丢失
+    """抢筹结果持久化: 竞价时段(猫爪有数据)存库 → 非竞价时段读库, 不丢失
     注: fetch_bid_qiangcang 按时间窗(9:15-9:30)决定 live/读库, 测试必须 mock gmtime 固定时段"""
     import sqlite3
     import time as _t
     class FakeT:
-        def __init__(self, hour, minute, wday=3):  # wday=3 周四, 工作日
+        def __init__(self, hour, minute, wday=3):
             self.tm_hour, self.tm_min, self.tm_wday = hour, minute, wday
     def fake_gmtime(t=None):
         return _FIXED[0]
@@ -455,12 +474,14 @@ def test_fetch_bid_qiangcang_persist(monkeypatch):
         def execute(self, sql, params=()):
             self.executed.append(sql)
             if "snapshot_lastsec" in sql:
-                return FakeCursor([])   # 秒级序列空 → 走 9_24 兜底
+                return FakeCursor([])
             if "9_24" in sql:
                 return FakeCursor([])
+            if "snapshot_bid" in sql and "9_25" in sql:
+                return FakeCursor([])     # 市值兜底空(用 mock 的 mv)
             if sql.strip().startswith("SELECT code, name, real_change"):
+                # code, name, real_change, bid_amt, qc_delta, bid_turnover, bid_change, float_mv, board, bid_ratio
                 return FakeCursor([
-                    # code, name, real_change, bid_amt, qc_delta, bid_turnover, bid_change, float_mv, board, bid_ratio
                     ("600001", "测试甲", 1.5, 1e8, 12.3, 0.2, 5.0, 8e9, "AI概念", 50.0),
                     ("600002", "测试乙", 0.8, 5e7, 8.9, 0.1, 4.0, 6e9, "医药", 25.0),
                 ])
@@ -472,31 +493,23 @@ def test_fetch_bid_qiangcang_persist(monkeypatch):
     real_gmtime = _t.gmtime
     monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
     monkeypatch.setattr(kpl, "_seal_map", lambda: {})
-    # 阶段1: 竞价时段(9:20) mock 接口有数据 → live 分支 → 落库
+    # 阶段1: 竞价时段(9:20) 猫爪有数据 → live 分支 → 落库
     _FIXED = [FakeT(9, 20)]
     monkeypatch.setattr(_t, "gmtime", fake_gmtime)
-    fake_seal = [
-        {"code": "600001", "name": "测试甲", "realChange": 1.5, "bidNetAmt": 9.84e8,
-         "floatMv": 8e9, "bidAmt": 1e8, "bidTurnover": 0.2, "bidChange": 5.0, "board": "AI概念"},
-        {"code": "600002", "name": "测试乙", "realChange": 0.8, "bidNetAmt": 5.34e8,
-         "floatMv": 6e9, "bidAmt": 5e7, "bidTurnover": 0.1, "bidChange": 4.0, "board": "医药"},
-    ]
-    monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: fake_seal)
+    kp = {
+        "600001": {"name": "测试甲", "auc_net_amount": 9.84e8, "free_float_mv": 8e9, "auc_amt": 1e8},
+        "600002": {"name": "测试乙", "auc_net_amount": 5.34e8, "free_float_mv": 6e9, "auc_amt": 5e7},
+    }
+    _mock_meoz(monkeypatch, kp=kp, mv={"600001": 8e9, "600002": 6e9})
     kpl.clear_cache()
     d1 = kpl.fetch_bid_qiangcang()
     assert len(d1["list20"]) == 2, d1
-    # 阶段2: 非竞价时段(14:00) 即使接口返回"僵尸数据"(bidNetAmt=0)也必须走读库, 不丢失
+    # 阶段2: 非竞价时段(14:00) 猫爪返回空 → 必须走读库, 不丢失
     _FIXED = [FakeT(14, 0)]
-    zombie_seal = [
-        {"code": "600001", "name": "测试甲", "realChange": 0, "bidNetAmt": 0,
-         "floatMv": 8e9, "bidAmt": 0, "bidTurnover": 0, "bidChange": 0, "board": ""},
-        {"code": "600002", "name": "测试乙", "realChange": 0, "bidNetAmt": 0,
-         "floatMv": 6e9, "bidAmt": 0, "bidTurnover": 0, "bidChange": 0, "board": ""},
-    ]
-    monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: zombie_seal)
+    _mock_meoz(monkeypatch, kp={}, mv={})
     kpl.clear_cache()
     d2 = kpl.fetch_bid_qiangcang()
-    assert len(d2["list20"]) == 2, d2   # 读库返回, 非僵尸数据
+    assert len(d2["list20"]) == 2, d2   # 读库返回
     assert d2["list20"][0]["code"] == "600001"
     assert d2["list20"][0]["qcDelta"] == 12.3
     assert d2["list20"][0]["bidRatio"] == 50.0   # 竞额/昨比读库保留
@@ -505,102 +518,27 @@ def test_fetch_bid_qiangcang_persist(monkeypatch):
 
 
 def test_calc_lastsec_qc():
-    """最后一秒差值回退: 9_25 差值大直接用; 小则向前回退找大差值"""
-    # 场景1: 9_25(6.0) vs 最新秒(5.0) 差 1.0 ≥ 0.5 → 直接用
+    """最后一秒差值回退(旧口径保留, 现仅作猫爪不可用时的兜底): 9_25 差值大直接用; 小则向前回退"""
     d, ts = kpl._calc_lastsec_qc(6.0, [(34200, 5.0, 100.0), (34201, 5.0, 120.0)])
     assert d == 1.0
-    # 场景2: 9_25 vs 最新秒差 0.2(小) → 回退: 最新秒(5.2) vs 前一秒(4.0) 差 1.2 ≥ 0.5 → 用 1.2
-    # 序列: t1=4.0, t2=5.2(最后一秒实际变化发生在 t1→t2 之间)
     d, ts = kpl._calc_lastsec_qc(5.4, [(34200, 4.0, 100.0), (34201, 5.2, 150.0)])
     assert d == 1.2
-    # 场景3: 全部差值小(0.1/0.2) → 返回最大差值 0.2(仍标记)
     d, ts = kpl._calc_lastsec_qc(5.3, [(34200, 5.2, 100.0), (34201, 5.1, 120.0)])
     assert abs(abs(d) - 0.2) < 1e-9
-    # 场景4: 空序列 → None
     assert kpl._calc_lastsec_qc(5.0, []) == (None, None)
-    # 场景5: 单点序列(9_25 vs 唯一秒) 差大
     d, ts = kpl._calc_lastsec_qc(6.5, [(34200, 5.0, 100.0)])
     assert d == 1.5
 
 
-def test_fetch_bid_qiangcang_lastsec_full(monkeypatch):
-    """完整 mock 端到端: 秒级差值回退全场景(listLast)
+def test_fetch_bid_qiangcang_lastsec_fallback(monkeypatch):
+    """listLast 兜底路径(2026-09-19): 猫爪不可用 → 回退 snapshot_lastsec 秒级 + 9_24 时点
     A: 9_25−最新秒差大(1.0) → 直接用
-    B: 9_25−最新秒差小(0.2) → 回退 最新秒−前一秒(1.2) → 取 1.2
-    C: 全部差值小 → 取最大差(0.2)
-    D: 无秒级序列 → 9_24 兜底(0.5)
+    B: 差小(0.2) → 回退 最新秒−前一秒(1.2)
+    C: 全小 → 取最大差(0.2)
+    D: 无秒级 → 9_24 兜底(0.5)
     E: fmv=4亿<5亿 → 过滤
     F: 无秒级且无9_24 → 不进列表
     期望排序: B(1.2) > A(1.0) > D(0.5) > C(0.2)"""
-    import sqlite3
-    import time as _t
-    class FakeT:
-        tm_hour, tm_min, tm_wday = 9, 20, 3   # 竞价时段
-    monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
-    class FakeCursor:
-        def __init__(self, rows): self.rows = rows
-        def fetchall(self): return self.rows
-    class FakeConn:
-        def __init__(self): self.executed = []
-        def execute(self, sql, params=()):
-            self.executed.append(sql)
-            if "snapshot_lastsec" in sql:
-                # code -> [(ts, bid_change, bid_amt), ...] 升序
-                return FakeCursor([
-                    ("A", 5.0, 100.0, 35495), ("A", 5.0, 120.0, 35501),
-                    ("B", 4.0, 100.0, 35495), ("B", 5.2, 150.0, 35501),
-                    ("C", 5.2, 100.0, 35495), ("C", 5.1, 110.0, 35501),
-                    # D 无秒级; E/F 无秒级
-                ])
-            if "9_24" in sql:
-                # D 有 9_24: 6.0 → 9_25(6.5)−6.0=0.5
-                return FakeCursor([("D", 6.0, 800.0)])
-            if sql.strip().startswith("SELECT code, name, real_change"):
-                return FakeCursor([])
-            # 9_25: code, bid_change, bid_amt(万元), float_mv, name
-            # 新过滤(2026-08-19): 最后一秒抢筹要求竞价金额>1000万
-            return FakeCursor([
-                ("A", 6.0, 1000.0, 6e9, "甲"),
-                ("B", 5.4, 2000.0, 8e9, "乙"),
-                ("C", 5.3, 1500.0, 7e9, "丙"),
-                ("D", 6.5, 1200.0, 9e9, "丁"),
-                ("E", 6.0, 500.0, 4e8, "戊"),   # fmv=4亿<5亿
-                ("F", 6.0, 800.0, 8e9, "己"),   # 无秒级无9_24
-            ])
-        def close(self): pass
-    real = sqlite3.connect
-    monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
-    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
-    monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: [])   # 只看 listLast
-    kpl.clear_cache()
-    d = kpl.fetch_bid_qiangcang()
-    monkeypatch.setattr("sqlite3.connect", real)
-    lLast = d["listLast"]
-    m = {r["code"]: r for r in lLast}
-    # 6 只中 E 过滤(fmv<5亿), F 无数据源 → 4 只入选
-    assert len(lLast) == 4, lLast
-    # A: 9_25(6.0)−最新秒(5.0)=1.0
-    assert m["A"]["qcDeltaLast"] == 1.0
-    # B: 9_25(5.4)−5.2=0.2 小 → 回退 5.2−4.0=1.2
-    assert m["B"]["qcDeltaLast"] == 1.2
-    # C: 全小 → 最大差 5.2−5.1=0.1? 9_25(5.3)−5.1=0.2 更大 → 0.2
-    assert m["C"]["qcDeltaLast"] == 0.2
-    # D: 9_24 兜底 6.5−6.0=0.5
-    assert m["D"]["qcDeltaLast"] == 0.5
-    # E/F 不在
-    assert "E" not in m and "F" not in m
-    # 排序: B(1.2) > A(1.0) > D(0.5) > C(0.2)
-    assert [r["code"] for r in lLast] == ["B", "A", "D", "C"]
-
-
-def test_fetch_bid_qiangcang_list20chg(monkeypatch):
-    """涨幅抢筹(全市场快照): qcDeltaChg = 9_25涨幅 − 9_20涨幅, 过滤>5%, fmv≥2亿, 竞价额≥500万, 竞价涨幅>2%
-    A: 9_20=1.5 → 9_25=8.64, qcDeltaChg=7.14, amt=991.5 ✅ 入选
-    B: 9_20=3.0 → 9_25=7.0,  qcDeltaChg=4.0  被过滤(差<5)
-    C: fmv=1e8(<2亿) 被过滤
-    D: 9_20 无数据 → 不进
-    E: amt=300(<500万) 被过滤
-    F: chg25=1.5(竞价涨幅≤2%) 被过滤"""
     import sqlite3
     import time as _t
     class FakeT:
@@ -613,40 +551,106 @@ def test_fetch_bid_qiangcang_list20chg(monkeypatch):
         def __init__(self): self.executed = []
         def execute(self, sql, params=()):
             self.executed.append(sql)
-            if "9_20" in sql and "snapshot_lastsec" not in sql:
-                # code, bid_change
-                return FakeCursor([("A", 1.5), ("B", 3.0), ("C", 1.0), ("E", 1.0), ("F", -2.0)])
             if "snapshot_lastsec" in sql:
-                return FakeCursor([])
+                return FakeCursor([
+                    ("A", 5.0, 100.0, 35495), ("A", 5.0, 120.0, 35501),
+                    ("B", 4.0, 100.0, 35495), ("B", 5.2, 150.0, 35501),
+                    ("C", 5.2, 100.0, 35495), ("C", 5.1, 110.0, 35501),
+                ])
             if "9_24" in sql:
-                return FakeCursor([])
+                return FakeCursor([("D", 6.0, 800.0)])
             if sql.strip().startswith("SELECT code, name, real_change"):
                 return FakeCursor([])
-            # 9_25: code, bid_change, bid_amt, float_mv, name, board
             return FakeCursor([
-                ("A", 8.64, 991.5, 6.4e9, "甲", "AI概念"),
-                ("B", 7.0, 800.0, 8e9, "乙", "医药"),
-                ("C", 6.0, 500.0, 1e8, "丙", "芯片"),
-                ("D", 6.5, 900.0, 9e9, "丁", "军工"),
-                ("E", 8.0, 300.0, 7e9, "戊", "芯片"),   # 竞价额300万<500万
-                ("F", 1.5, 900.0, 7e9, "己", "消费"),   # 竞价涨幅1.5%≤2%
+                ("A", 6.0, 1000.0, 6e9, "甲"),
+                ("B", 5.4, 2000.0, 8e9, "乙"),
+                ("C", 5.3, 1500.0, 7e9, "丙"),
+                ("D", 6.5, 1200.0, 9e9, "丁"),
+                ("E", 6.0, 500.0, 4e8, "戊"),
+                ("F", 6.0, 800.0, 8e9, "己"),
             ])
         def close(self): pass
     real = sqlite3.connect
     monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
     monkeypatch.setattr(kpl, "_seal_map", lambda: {})
-    monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: [])
+    _mock_meoz(monkeypatch, kp={}, ob={}, mv={})   # 猫爪返回空 → 触发兜底
     kpl.clear_cache()
     d = kpl.fetch_bid_qiangcang()
     monkeypatch.setattr("sqlite3.connect", real)
+    lLast = d["listLast"]
+    m = {r["code"]: r for r in lLast}
+    assert len(lLast) == 4, lLast
+    assert m["A"]["qcDeltaLast"] == 1.0
+    assert m["B"]["qcDeltaLast"] == 1.2
+    assert m["C"]["qcDeltaLast"] == 0.2
+    assert m["D"]["qcDeltaLast"] == 0.5
+    assert "E" not in m and "F" not in m
+    assert [r["code"] for r in lLast] == ["B", "A", "D", "C"]
+
+
+def test_fetch_bid_qiangcang_list20chg(monkeypatch):
+    """涨幅抢筹(猫爪 daily_auc_detail): qcDeltaChg = auc_pct_chg(9:25) − auc_pct_chg(9:20)
+    过滤: fmv≥2亿, 竞价额≥500万, 9:25涨幅≥5%, 差值>5
+    A: 9:20=1.5 → 9:25=8.64, 差=7.14 ✅
+    B: 9:20=3.0 → 9:25=7.0,  差=4.0  过滤(<5)
+    C: fmv=1亿(<2亿) 过滤
+    D: 9:20 无数据 → 不进
+    E: amt=300万(<500万) 过滤
+    F: 9:25涨幅=1.5(<5) 过滤"""
+    import time as _t
+    class FakeT:
+        tm_hour, tm_min, tm_wday = 9, 20, 3
+    monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
+    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+    snap = {
+        ("0920", "before"): {
+            "A": {"auc_pct_chg": 1.5}, "B": {"auc_pct_chg": 3.0},
+            "C": {"auc_pct_chg": 1.0}, "E": {"auc_pct_chg": 1.0}, "F": {"auc_pct_chg": -2.0},
+        },
+        ("0925", "after"): {
+            "A": {"name": "甲", "auc_pct_chg": 8.64, "auc_amt": 9.915e6},
+            "B": {"name": "乙", "auc_pct_chg": 7.0, "auc_amt": 8e6},
+            "C": {"name": "丙", "auc_pct_chg": 6.0, "auc_amt": 5e6},
+            "D": {"name": "丁", "auc_pct_chg": 6.5, "auc_amt": 9e6},
+            "E": {"name": "戊", "auc_pct_chg": 8.0, "auc_amt": 3e6},     # 额<500万
+            "F": {"name": "己", "auc_pct_chg": 1.5, "auc_amt": 9e6},     # 涨幅<5
+        },
+    }
+    mv = {"A": 6.4e9, "B": 8e9, "C": 1e8, "D": 9e9, "E": 7e9, "F": 7e9}
+    _mock_meoz(monkeypatch, snap=snap, mv=mv)
+    kpl.clear_cache()
+    d = kpl.fetch_bid_qiangcang()
     l20c = d["list20Chg"]
     m = {r["code"]: r for r in l20c}
-    # A 入选 7.14; B 差<5 过滤; C fmv<2亿 过滤; D 无9_20 不进; E 竞价额<500万 过滤; F 竞价涨幅≤2% 过滤
     assert len(l20c) == 1, l20c
     assert m["A"]["qcDeltaChg"] == 7.14
     assert m["A"]["bidChange20"] == 1.5
     assert m["A"]["bidChange"] == 8.64
-    assert m["A"]["board"] == "AI概念"
+    assert m["A"]["name"] == "甲"
+
+
+def test_fetch_bid_qiangcang_list20chg_name_fallback(monkeypatch):
+    """涨幅抢筹名称补全: daily_auc_detail 不返回 name(铁律) → screening_map 补缺。
+    snap25 无 name; screening 提供 → 名称必须来自 screening, 而不是空(前端会回退显示代码)。"""
+    import time as _t
+    class FakeT:
+        tm_hour, tm_min, tm_wday = 9, 20, 3
+    monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
+    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+    snap = {
+        ("0920", "before"): {"A": {"auc_pct_chg": 1.5}},
+        ("0925", "after"): {"A": {"auc_pct_chg": 8.64, "auc_amt": 9.915e6}},   # 无 name
+    }
+    mv = {"A": 6.4e9}
+    sc = {"A": {"name": "screening甲", "free_float_mv": 6.4e9}}
+    calls = _mock_meoz(monkeypatch, snap=snap, mv=mv, sc=sc)
+    kpl.clear_cache()
+    d = kpl.fetch_bid_qiangcang()
+    l20c = d["list20Chg"]
+    assert len(l20c) == 1, l20c
+    assert l20c[0]["name"] == "screening甲", l20c[0]
+    assert calls["sc"] == 1
+
 
 
 # ---------- 市场概览: 涨跌家数分布 + 两市概况 (2026-08-16) ----------

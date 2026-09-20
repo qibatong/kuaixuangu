@@ -34,6 +34,40 @@ FEATURES = [
 
 TARGET = "is_limit_up"  # 当日是否涨停
 
+# ---------------------------------------------------------------- 训练数据来源
+# 🔴 2026-09-20 主人要求「重训模型」时实测发现: 库内数据**口径混杂** ——
+#   · 回补段(backfill.py, 新浪日线近似): ~784 行/天, 竞价涨幅≈开盘涨幅、
+#     竞价额≈开盘价×量×0.15 —— **是编出来的近似值**, 与真实采集口径不一致;
+#   · 真实段(collector.py, 东财/猫爪真实字段): >3000 行/天, 全市场覆盖。
+#   把两段混在一起训练 = 让模型去拟合一批"假特征" → 实测拖累明显。
+#
+#   8 个滚动窗口对拍(训练=该日之前全部数据, 测试=该日):
+#       全量(回补+真实) 均值 AUC 0.7600, 仅真实段 均值 AUC 0.7841 → **仅真实段 7/8 胜出**。
+#   故默认**只用真实采集段**; 真实段样本不足(< MIN_REAL_ROWS)时回退全量并告警。
+#   ⚠️ "真实段"判据 = 当日行数 > REAL_DAY_MIN_ROWS(3000): 全市场~5200+ vs 回补~784,
+#      中间无过渡, 阈值稳健。
+REAL_DAY_MIN_ROWS = 3000     # 单日行数 > 此值 = 真实采集日
+MIN_REAL_ROWS = 5000         # 真实段至少这么多行才单独用, 否则回退全量
+
+
+def _select_training_frame(df):
+    """挑训练数据: 优先**只用真实采集段**, 不足则回退全量。
+
+    返回 (df_selected, label)。label 用于日志/报告说明本次数据来源。
+    """
+    per_day = df.groupby("trade_date").size()
+    real_days = set(per_day[per_day > REAL_DAY_MIN_ROWS].index)
+    n_real_rows = int(df["trade_date"].isin(real_days).sum())
+
+    print(f"  数据来源判定: 全量 {len(df)} 行/{df['trade_date'].nunique()} 天; "
+          f"真实采集段 {n_real_rows} 行/{len(real_days)} 天 (单日>{REAL_DAY_MIN_ROWS}行)")
+    if n_real_rows >= MIN_REAL_ROWS:
+        d = df[df["trade_date"].isin(real_days)].copy()
+        print(f"  → 采用**仅真实采集段** (回补近似数据不参与训练: 口径不一致, 实测拖累 AUC)")
+        return d, "real_only"
+    print(f"  ⚠️ 真实段不足 {MIN_REAL_ROWS} 行 → 回退全量(含回补近似数据, 模型精度会受损)")
+    return df, "all_fallback"
+
 
 def train():
     init_db()
@@ -46,6 +80,11 @@ def train():
         print("⚠️ 数据不足 200 行，先跑 backfill.py 回补历史数据")
         return
 
+    df, data_source = _select_training_frame(df)
+    if len(df) < 200:
+        print(f"⚠️ 选出的训练数据仅 {len(df)} 行，不足 200，放弃本次训练")
+        return
+
     # 涨停率统计
     limit_rate = df[TARGET].mean()
     print(f"涨停样本占比: {limit_rate:.2%} ({int(df[TARGET].sum())}/{len(df)})")
@@ -53,6 +92,9 @@ def train():
     # 过滤异常值
     df = df.dropna(subset=FEATURES)
     df = df[(np.abs(df["bid_change"]) < 30) & (df["bid_amount"] > 0)]
+    if df[TARGET].nunique() < 2 or len(df) < 200:
+        print(f"⚠️ 清洗后仅 {len(df)} 行/标签类别 {df[TARGET].nunique()} 种，放弃本次训练")
+        return
 
     X = df[FEATURES].astype(float)
     y = df[TARGET].astype(int)
@@ -103,6 +145,7 @@ def train():
     # 保存评估报告（numpy 类型转 Python 原生类型）
     report = {
         "trained_at": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "data_source": data_source,
         "n_train": int(len(Xtr)), "n_test": int(len(Xte)),
         "test_date_range": [dates[split_idx], dates[-1]],
         "auc": float(auc),

@@ -195,6 +195,17 @@ def api_kpl_market_brief(request: Request, uid: int = Depends(get_uid)):
     return jr(dict(payload, ok=True))
 
 
+@router.get("/api/kpl/index-brief")
+def api_kpl_index_brief(request: Request, uid: int = Depends(get_uid)):
+    """A股核心指数实时快照 + 猫爪情绪周期(2026-09-20 首页指数带/情绪卡, 主人指令换猫爪数据)。
+    指数: 猫爪 index_snapshot(批量 8 指数); 情绪: 猫爪 emoindic_daily(最新交易日)。
+    服务端 30s 缓存(与盘中 30s 刷新节奏一致)。非交易时段返回最近交易日数据。"""
+    from ..services import meoz_client
+    rows = meoz_client.index_snapshot()
+    emo = meoz_client.emo_daily()
+    return jr({"ok": True, "list": rows, "emo": emo})
+
+
 @router.get("/api/kpl/bid-seal")
 def api_kpl_bid_seal(request: Request, uid: int = Depends(require_vip_or_paid), date: str = ""):
     """竞价涨停委买额: date 空=实时, 指定 'YYYY-MM-DD' 回看历史(auction_daily_history)
@@ -455,6 +466,14 @@ def api_kpl_ladder(request: Request, uid: int = Depends(get_uid), date: str = ""
         log.warning("ladder 实时涨幅 merge 失败 err=%s", e)
     d = kpl.rebin_ladder(d, _time.strftime("%Y-%m-%d"))
     return jr({"ok": True, "ladder": d, "date": ""})
+
+
+@router.get("/api/kpl/zt-echelon")
+def api_kpl_zt_echelon(request: Request, uid: int = Depends(get_uid)):
+    """涨停梯队一期聚合(2026-09-20): 顶部统计 + 晋级率 + 分层梯队 + 题材分组。
+    一期不含龙头星级/分歧预期等开盘啦私有标签(接口未提供)。"""
+    payload = kpl.build_zt_echelon()
+    return jr(dict(payload, ok=True))
 
 
 @router.get("/api/kpl/board-rank")

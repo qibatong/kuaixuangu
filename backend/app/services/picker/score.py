@@ -54,11 +54,17 @@ def compute_score(row: QuoteRow, cfg: Optional[dict] = None,
 
     # ---- 因子原始值(None = 我不知道) ----
     bid_change = row.bid_change
-    bid_turnover = row.bid_turnover                # 派生: 竞价量×价/流通市值
+    bid_turnover = row.bid_turnover                # 派生: 竞价量×价/自由流通市值
     warn_type = row.warn_type
-    # 流通市值: 0 与缺失同义(市值 0 的公司不存在, 且 0 会落进 ["0","30"] 桶拿**满分**
-    # 1.0 —— 老链路正是这样把"市值未知"翻译成"超小盘最优", 权重 11%)
-    circ_mv = (row.float_mv / 1e8) if row.float_mv else None
+    # 市值因子口径(2026-09-20 主人指令): **自由流通市值**优先, 缺失回退流通市值。
+    #   config.buckets 已按自由流通口径折算(见 scorer.DEFAULT_SCORING 注释)。
+    #   ★ 走 row.mv_yi 统一取值 —— 与 filter 的 floatMvFloor/Gt 门槛**同口径**,
+    #     避免"评分用 A 值、门槛用 B 值"的名单漂移。
+    #   0 与缺失同义(市值 0 的公司不存在, 且 0 会落进首桶拿**满分** 1.0 ——
+    #   老链路正是这样把"市值未知"翻译成"超小盘最优", 权重 11%)。
+    circ_mv = row.mv_yi
+    if not circ_mv:
+        circ_mv = None
     yday = row.yesterday_change
 
     # ---- 分档打分: 缺失 → default(绝不落 0 值桶) ----
@@ -178,7 +184,9 @@ class ScoredRow:
             "bidVolRatio": self.score.bid_vol_ratio,
             "speed": r.turnover,                       # 老链路 speed = f8 换手率
             "warnType": r.warn_type,
-            "circulationMV": None if r.float_mv is None else round(r.float_mv / 1e8, 4),
+            # 市值展示口径(2026-09-20): 走统一 mv_yi(自由流通优先) —— 与门槛/评分同口径
+            "circulationMV": None if not r.mv else round(r.mv_yi or 0.0, 4),
+            "freeCirculationMV": None if not r.free_mv else round(r.free_mv / 1e8, 4),
             "industry": self.industry or r.industry or "-",
             "concept": self.concept or r.concept or "-",
             "province": "-",                           # 老链路 f102, 前端未强依赖

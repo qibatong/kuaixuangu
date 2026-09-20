@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-"""评分门槛 scoreFloor(2026-09-10 主人拍板: 全站默认 80 分, 低于该分的票不显示)
+"""评分门槛 scoreFloor(2026-09-10 主人拍板全站默认 80; 2026-09-20 主人拍板降到 50,
+低于 50 分的票不显示)
 
 防复发断言:
-  1. validate_filters 默认 scoreFloor=80(全站默认, 不传参也生效)
+  1. validate_filters 默认 scoreFloor=50(全站默认, 不传参也生效)
   2. 评分 < scoreFloor 的票一律剔除, **不看可信度** —— 与 probLt 双低剔除(高信心
      可救低概率)是两条独立规则, 高信心不能让低分票过关
   3. 剔除原因可观测(stats['score_floor']), 排查"票为什么没了"不用人肉复算
-  4. scoreFloor=0 = 关闭门槛(老行为), 防止该门槛变成无法绕过的硬编码
+  4. clamp 下限=50(2026-09-20 起 0 不再合法, 50 是系统铁底)
 """
 import pytest
 
@@ -25,22 +26,22 @@ def _mk(code="600000", name="浦发", prob=85, conf=80):
 
 def _base(**over):
     f = {"stSuspend": True, "limitUp": True, "markets": ["hs", "cyb", "kcb"],
-         "bidGt": 7, "probLt": 65, "confLt": 65,
+         "bidGt": 7, "probLt": 50, "confLt": 50,
          "floatMvFloor": 30, "floatMvGt": 100, "priceGt": 30, "bidAmtFloor": 3000}
     f.update(over)
     return f
 
 
 # ==================== 默认值 ====================
-def test_validate_filters_default_is_80():
-    """全站默认 80: 调用方不传 scoreFloor 也生效"""
+def test_validate_filters_default_is_50():
+    """全站默认 50: 调用方不传 scoreFloor 也生效"""
     f = scorer.validate_filters({})
-    assert f["scoreFloor"] == 80
+    assert f["scoreFloor"] == 50
 
 
-def test_validate_filters_clamps_and_accepts_zero():
-    """0=关闭门槛; 越界值被夹到 0~100"""
-    assert scorer.validate_filters({"scoreFloor": ["0"]})["scoreFloor"] == 0
+def test_validate_filters_clamps_and_floor_min_50():
+    """clamp 下限=50(0 不再合法); 越界值被夹到 50~100"""
+    assert scorer.validate_filters({"scoreFloor": ["0"]})["scoreFloor"] == 50
     assert scorer.validate_filters({"scoreFloor": ["95"]})["scoreFloor"] == 95
     assert scorer.validate_filters({"scoreFloor": ["999"]})["scoreFloor"] == 100
 
@@ -65,7 +66,7 @@ def test_high_confidence_cannot_save_low_score():
 
 def test_double_low_still_works_when_floor_off():
     """scoreFloor=0 关闭门槛 → 退回老行为: 只有双低才剔除"""
-    out = pf.apply_filters([_mk(prob=70, conf=90), _mk("600001", prob=50, conf=50)],
+    out = pf.apply_filters([_mk(prob=70, conf=90), _mk("600001", prob=49, conf=49)],
                            _base(scoreFloor=0), pf.FilterContext(zt_codes=set()))
     assert [i.code for i in out.kept] == ["600000"]
     assert out.stats.get("prob_conf") == 1

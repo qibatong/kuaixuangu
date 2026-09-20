@@ -900,7 +900,8 @@ onMounted(() => {
 .qc-panel { width: 100%; background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px; overflow: visible; display: flex; flex-direction: column; gap: 8px; }
 .qc-table-scroll { overflow-x: auto; overflow-y: auto; max-height: 480px; scrollbar-width: none; -ms-overflow-style: none; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--bg-hover); }
 .qc-table-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
-.qc-table-scroll .stock-table thead th { position: sticky; top: 0; z-index: 8; background: var(--bg-hover); border-bottom: 2px solid var(--accent-deep); }
+/* 2026-09-20 视觉减噪: qc 抢筹双表 sticky 表头统一红底白字(与全局一致) */
+.qc-table-scroll .stock-table thead th { position: sticky; top: 0; z-index: 8; background: var(--accent-deep2); border-bottom: none; }
 .qc-panel-title { font-size: 14px; font-weight: 700; color: #ffe0a0; display: flex; align-items: center; gap: 10px; }
 .qc-mode-switch { display: inline-flex; gap: 4px; margin-left: auto; }
 .qc-mode-switch button {
@@ -921,18 +922,18 @@ onMounted(() => {
 .auc-panel .stock-table th, .auc-panel .stock-table td,
 .qc-panel .stock-table th, .qc-panel .stock-table td {
   padding: 5px 2px !important;
-  font-size: 11.5px !important;
+  font-size: 12px !important;
   vertical-align: middle;
 }
 .auc-panel .stock-table th,
 .qc-panel .stock-table th {
   padding: 7px 2px !important;
-  font-size: 11.5px !important;
+  font-size: 12px !important;
   white-space: nowrap;
 }
 /* S3 封单榜列宽 (已移除"状态"列, 优化各列宽度) */
 .s3-table th.board-col, .s3-table td.board-col { width: 64px; }
-.s3-table th.tp-th, .s3-table td.tp-th-15, .s3-table td.tp-th-20, .s3-table td.tp-th-25 { width: 54px; font-size: 11.5px; }
+.s3-table th.tp-th, .s3-table td.tp-th-15, .s3-table td.tp-th-20, .s3-table td.tp-th-25 { width: 54px; font-size: 12px; }
 .s3-table th:nth-of-type(1) { width: 84px; } /* 名称 */
 .s3-table th.tp-th-25 + th.tp-th-25 { width: 44px; } /* 竞涨 (紧跟最后一个 tp-th) */
 .s3-table tr th:nth-of-type(7) { width: 38px; } /* 竞换 */
@@ -995,7 +996,7 @@ onMounted(() => {
 .auc-panel .broken-today th:nth-of-type(9) { width: 66px; }  /* 涨停原因 */
 .auc-panel .broken-today th:nth-of-type(10) { width: 46px; } /* 操作 */
 /* 概念列已缩短 */
-.concept-cell { padding: 4px 2px !important; font-size: 11.5px !important; }
+.concept-cell { padding: 4px 2px !important; font-size: 12px !important; }
 /* 抢筹徽章缩小 */
 .qc-panel .qc-badge { padding: 1px 4px; font-size: 11px; }
 /* 操作列按钮缩小 */
@@ -1010,7 +1011,8 @@ onMounted(() => {
 .qc-panel .stock-table-container {
   padding: 6px !important;
 }
-.qc-panel .stock-table th { color: var(--text-muted); font-weight: 600; background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border-soft); }
+/* 2026-09-20 视觉减噪: qc-panel 表头统一红底白字 */
+.qc-panel .stock-table th { color: #fff; font-weight: 600; background: var(--accent-deep2); border-bottom: none; }
 .qc-panel .stock-table td { border-bottom: 1px solid rgba(255,255,255,0.04); }
 .qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) { text-align: center; white-space: nowrap; }  /* 操作 */
 .qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { max-width: 240px; white-space: pre-line; }  /* 概念: 按概念分隔换行, 不拆字 */
@@ -1063,7 +1065,7 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 /* 2026-08-20 合并代码+名称列: 上方名称, 下方代码, 代码字体更小 */
 .stock-info-cell { cursor: pointer; min-width: 120px; min-height: 0; height: 52px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .stock-info-cell .stock-name-row { order: 1; display: flex; align-items: center; justify-content: center; gap: 4px; line-height: 1.3; }
-.stock-info-cell .stock-name { font-weight: 600; color: var(--text-main); font-size: 12.5px; }
+.stock-info-cell .stock-name { font-weight: 600; color: var(--text-main); font-size: 13px; }
 .yd-badge-row { order: 3; height: 13px; display: flex; align-items: center; justify-content: center; margin-top: 2px; }
 .yd-badge { display: inline-block; font-size: 10px; line-height: 1; padding: 1px 5px; border-radius: 3px; border: 1px solid #ffd700; color: #ffd700; white-space: nowrap; }
 .stock-info-cell .stock-code-row { order: 2; line-height: 1.2; text-align: center; margin-top: 2px; }
@@ -1083,9 +1085,11 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
    超出部分省略(完整概念仍在 td 的 title 悬浮中可看) */
 .concept-clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; line-height: 1.3; word-break: break-word; }
 .s3-table th.tp-th { text-align: center; font-weight: 600; }
-.s3-table th.tp-th-15 { color: #e8ecf2; border-bottom: 2px solid rgba(232,236,242,0.35); }
-.s3-table th.tp-th-20 { color: #ffb400; border-bottom: 2px solid rgba(255, 180, 0, 0.35); }
-.s3-table th.tp-th-25 { color: #ff5a5a; border-bottom: 2px solid rgba(255, 90, 90, 0.4); }
+/* 2026-09-20 表头统一红底白字后: 时点色改为「白字 + 底部色条」表达(红底上原时点彩字不可读),
+   数据列 td 的三时点配色(9:25红/9:20金/9:15白)保持不变 */
+.s3-table th.tp-th-15 { color: #fff; border-bottom: 2px solid rgba(232,236,242,0.55); }
+.s3-table th.tp-th-20 { color: #fff; border-bottom: 2px solid rgba(255, 180, 0, 0.75); }
+.s3-table th.tp-th-25 { color: #fff; border-bottom: 2px solid rgba(255, 255, 255, 0.85); }
 .s3-table td.tp-th-15, .s3-table td.tp-th-20, .s3-table td.tp-th-25 { text-align: center; white-space: nowrap; }
 .s3-table td.chg-col { font-weight: 600; }
 /* 实时涨幅列(开盘啦 realChange): 涨=红, 跌=蓝(A股忌讳绿, 避开绿色系) */
@@ -1148,7 +1152,7 @@ body[data-bg="light"] .qc-panel-title { color: #5a4a3a; }
 body[data-bg="light"] .qc-mode-switch button { color: #6b6b6b; border-color: var(--border-soft); background: rgba(255,255,255,0.6); }
 body[data-bg="light"] .qc-mode-switch button.active { color: #5a4a3a; background: rgba(255,180,0,0.15); border-color: #c79100; }
 body[data-bg="light"] .qc-mode-switch button:hover { color: #5a4a3a; border-color: #c79100; }
-body[data-bg="light"] .qc-panel .stock-table th { color: #5a4a3a; border-bottom-color: rgba(199,145,0,0.4); }
+body[data-bg="light"] .qc-panel .stock-table th { color: #fff; border-bottom-color: transparent; }
 body[data-bg="light"] .qc-panel .stock-table td { border-bottom-color: rgba(0,0,0,0.08); }
 body[data-bg="light"] .qc-panel .stock-table tbody tr:hover { background: rgba(184,48,16,0.04); }
 body[data-bg="light"] .lb-badge { color: #b83010; border-color: rgba(184,48,16,0.5); background: rgba(255,80,80,0.1); }

@@ -41,15 +41,33 @@ def test_filter_invalid_action(client, first_user):
 
 
 def test_lock_after_930_rejected(client, first_user, monkeypatch):
-    """9:30 后 lock 应被拒(403)"""
+    """10:00 后 lock 应被拒(403) —— 2026-09-20 主人拍板: 重选窗口由 9:30 放宽到 10:00"""
     token, _, _ = first_user
 
     def fake_bj_now():
         return ("2099-01-01", "15:00:00", False)
 
     monkeypatch.setattr(scorer, "bj_now", fake_bj_now)
+    # use_snapshot_pool 的 hm 取自 _bj_hm(真实墙钟) —— 必须与 fake 时间同步, 否则
+    # 测试在真实 9:30-10:00 时段运行时放开条件会误命中
+    monkeypatch.setattr(scorer, "_bj_hm", lambda: 15 * 60)
     r = client.get("/api/stocks?action=lock&markets=sh_sz", headers=hdrs(token))
     assert r.status_code == 403
+
+
+def test_lock_930_to_1000_allowed(client, first_user, monkeypatch):
+    """交易日 9:30-10:00 主动 lock 放行(2026-09-20 主人拍板「10点之前不再锁定」):
+    走快照池重算(名单源=9:25 定格快照, 幂等), 不再触达 ensure_cache 拒绝"""
+    token, _, _ = first_user
+
+    def fake_bj_now():
+        return ("2099-01-01", "09:35:00", False)
+
+    monkeypatch.setattr(scorer, "bj_now", fake_bj_now)
+    monkeypatch.setattr(scorer, "_bj_hm", lambda: 9 * 60 + 35)
+    r = client.get("/api/stocks?action=lock&markets=sh_sz", headers=hdrs(token))
+    assert r.status_code == 200
+    assert r.json().get("ok")
 
 
 def test_lock_before_930_ok(client, first_user, monkeypatch):

@@ -5,7 +5,7 @@ import { fetchStocks, fetchQuotes, getDefaultFilters, getPrefs, savePrefs,
 import { fetchPickerSnapshot } from '../api/picker'
 import { listBatches } from '../api/history'
 import { showToast } from '../utils/toast'
-import { isBefore930, isPickBlockedTime, isPickGateOn,
+import { isBefore930, isBeforeRelockEnd, isPickBlockedTime, isPickGateOn,
          PICK_BLOCK_MSG_TIME } from '../utils/time'
 import { useUserStore } from './user'
 import { defaultFilterSettings, passLockedFilter, pickFromSnapshot,
@@ -17,6 +17,13 @@ export { defaultFilterSettings }
 function bjDateStr() {
   const d = new Date(Date.now() + 8 * 3600 * 1000)
   return d.toISOString().slice(0, 10)
+}
+
+// 2026-09-20 性能优化: 原地更新辅助 —— 字段值真正变化才赋值。
+// 用于 updateRealTimeOnly 等高频轮询路径: 保留对象引用(避免全表 patch + 重排),
+// 仅在字段变化时触发最小粒度响应式更新(消除高频刷新抖动)。
+function _assignIf(obj, key, val) {
+  if (val !== undefined && obj[key] !== val) obj[key] = val
 }
 
 // 盘中实时模式筛选参数(独立于竞价)
@@ -304,7 +311,9 @@ export const useStocksStore = defineStore('stocks', {
             ...it,
             realChange: lt.realChange, entityChange: lt.entityChange,
             probability: lt.probability, confidence: lt.confidence,
-            price: lt.price, _snapshot: true
+            price: lt.price,
+            mainNet: lt.mainNet ?? null,   // 2026-09-20: 盘中主力净额列(后端 fundflow_kp)
+            _snapshot: true
           })
           return
         }
@@ -389,7 +398,10 @@ export const useStocksStore = defineStore('stocks', {
       if (this._pickGateOn()) { this.markPickBlocked(PICK_BLOCK_MSG_TIME); return }
       // 9:30 前锁定最新竞价数据(落库); 9:30 后保持锁定名单, 只更新实时行情
       // force=true: 主动重锁(绕过当日幂等); 页面加载自动 lock 不带 force → 后端幂等直读
-      const action = isBefore930() ? 'lock' : 'refresh'
+      // 2026-09-20 主人拍板「重新选股放开到10点」: 9:30-10:00 仅**主动点锁定**(force)
+      // 才发 action=lock(后端重算+落库); 页面自动加载仍 refresh 直读 —— 防止打开页面
+      // 就触发落库+推送。10:00 后一律 refresh(后端恢复拒绝重选)。
+      const action = (isBefore930() || (force && isBeforeRelockEnd())) ? 'lock' : 'refresh'
       let data
       try {
         data = await fetchStocks(action, this.buildFilterParams(), 'auction', force && action === 'lock')
@@ -459,26 +471,45 @@ export const useStocksStore = defineStore('stocks', {
         } catch (e) { rtMap = {} }
       }
       // 2026-08-18 主人澄清: 跌出实时榜的**保留显示**(只去标签), 名单不减少
-      this.cachedStocks = (this.cachedStocks || []).map((it) => {
+      // 2026-09-20 性能优化: 由「map 全量重建对象」改为「原地更新 + 字段级 diff」。
+      //   旧实现每轮把每个 item 展开成新对象 → cachedStocks 数组引用变化 →
+      //   sortedStocks 重新 sort + 全表逐格 patch, 列表上千行时 30s 刷新肉眼可见抖动。
+      //   原地 mutate(数组/item 引用不变)后, Vue 只 patch 真正变化的单元格, 列表稳定不抖动。
+      const cur = this.cachedStocks || []
+      for (const it of cur) {
         const lt = listMap[it.code]
         const rt = rtMap[it.code]
-
         if (lt) {
-          return { ...it, realChange: lt.realChange, entityChange: lt.entityChange,
-                   probability: lt.probability, confidence: lt.confidence, price: lt.price }
+          _assignIf(it, 'realChange', lt.realChange)
+          _assignIf(it, 'entityChange', lt.entityChange)
+          _assignIf(it, 'probability', lt.probability)
+          _assignIf(it, 'confidence', lt.confidence)
+          _assignIf(it, 'price', lt.price)
+          _assignIf(it, 'mainNet', lt.mainNet)   // 2026-09-20: 盘中主力净额列
+        } else if (rt) {
+          _assignIf(it, 'realChange', rt.realChange)
+          _assignIf(it, 'entityChange', rt.entityChange)
+          _assignIf(it, 'volRatio', rt.volRatio)
+          _assignIf(it, 'turnover', rt.turnover)
+          _assignIf(it, 'price', rt.price)
         }
-        if (rt) {
-          return { ...it, realChange: rt.realChange, entityChange: rt.entityChange,
-                   volRatio: rt.volRatio, turnover: rt.turnover, price: rt.price }
-        }
-        return it    // 全市场都没有: 保留原值
-      })
+        // 全市场都没有: 保留原值(不动)
+      }
+      // 2026-09-20 主人拍板「10点前不再锁定」: 后端 9:30-10:00 会随盘中主力净流入
+      // 动态修正评分(只加不减), 按新 probability 降序**原地**重排(数组引用不变,
+      // 与上面的防抖设计兼容); 用户点了列头自定义排序时 StockTable.sortedStocks
+      // 仍以 sortState 为准, 不受影响。
+      if (this.cachedStocks && this.cachedStocks.length > 1) {
+        this.cachedStocks.sort((a, b) => (b.probability ?? -1) - (a.probability ?? -1))
+      }
       this.before930 = data.before930
       this.realTimeRefreshUsed = true
       if (!silent) showToast('✅ 实时涨幅更新完成', 'success')
     },
     async reLockData() {
-      if (!isBefore930()) { showToast('❌ 9:30后禁止重新选股', 'error'); return }
+      // 2026-09-20 主人拍板「ai选股放开到10点 · 10点之前不再锁定」: 重新选股(锁定)
+      // 截止由 9:30 放宽到 10:00(isBeforeRelockEnd, 与后端快照池 lock 条件同口径)。
+      if (!isBeforeRelockEnd()) { showToast('❌ 10:00后禁止重新选股', 'error'); return }
       // 2026-09-16 选股闸门(与"9:30后禁止重选"同为时段规则)
       // 2026-09-17: 改判 _pickGateOn()(开关关闭时即时放行)
       if (this._pickGateOn()) {

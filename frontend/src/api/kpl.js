@@ -9,6 +9,10 @@ export function kplMarketBrief() {
   return request('/api/kpl/market-brief')
 }
 
+export function kplIndexBrief() {
+  return request('/api/kpl/index-brief')
+}
+
 export function kplBidSeal(date = '') {
   return request('/api/kpl/bid-seal', { query: date ? { date } : {} })
 }
@@ -28,6 +32,10 @@ export function kplBroken(day = '', date = '') {
 
 export function kplLadder(date = '') {
   return request(`/api/kpl/ladder${date ? `?date=${date}` : ''}`)
+}
+
+export function kplZtEchelon() {
+  return request('/api/kpl/zt-echelon')
 }
 
 // 连板天梯盘后生成的日期列表(降序)

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
 from ..services import (auction_snapshot, fetcher, history, kpl, notify, scorer,
+                        meoz_client,
                         settings, stats)
 from ..services.cache_store import store as _cstore   # 2026-09-04: refresh 计算缓存
 from .deps import get_uid, jr, qs
@@ -20,14 +21,15 @@ log = logger.get_logger(__name__)
 # ---- 选股闸门 v3(2026-09-17 主人拍板重做: 只挡「必然给出非当日定格名单」的两段) ----
 # 口径本体在 picker/mode.is_pick_open(纯函数, 有单测覆盖边界), 此处只做**接线**:
 #   - 时间维: ① [09:00:00,09:15:00) 盘前用上交易日定格;
-#             ② [09:25:00,09:25:35] 当日 9_25 尚未落库(load_snapshot_full 静默回退昨日);
+#             ② [09:25:00,09:25:50] 当日 9_25 尚未落库(load_snapshot_full 静默回退昨日);
 #             **09:15:00-09:24:59 放行** —— 竞价窗口, v4.11.22 曾把这段封死致 9/17 事故。
-#   - 快照维: ≥09:25:36 时间维放行, 但当日 9_25 未落库时**继续拦**(防重采越过放行点
-#     时闸门形同虚设; 重采窗口 _BID25_RETRY_UNTIL=09:25:50 距 09:25:36 仅 14 秒余量)。
+#   - 快照维: ≥09:25:51 时间维放行, 但当日 9_25 未落库时**继续拦**(防重采越过放行点
+#     时闸门形同虚设; 重采窗口 _BID25_RETRY_UNTIL=09:26:00 距 09:25:51 留 9 秒余量)。
 #   - 非交易日 / 盘前(<9:00) 一律放行 —— 回放最近交易日定格是既有功能。
 # 命中即 **直接返回, 不跑 pipeline / 不落批次 / 不推送**(不给用户任何假名单)。
 # 开关 pick_window_guard 默认 1, 出问题后台置 0 即时回滚(与 picker_lock /
 # frontend_local_filter / precompute_* 同一模式); ping 会把开关状态透给前端。
+# 2026-09-19: 末端 09:25:35 → 09:25:50(换猫爪源后 9:25 定格落库更晚)。
 PICK_WINDOW_SWITCH = "pick_window_guard"
 
 
@@ -58,9 +60,10 @@ def _pick_blocked_reason(now=None):
 
 
 def _pick_blocked_until(now=None):
-    """拦截段的放行时刻(前端提示用)。非拦截时刻回退到快照维放行点 09:25:36。"""
+    """拦截段的放行时刻(前端提示用)。非拦截时刻回退到快照维放行点(现 09:25:51)。"""
     from ..services.picker import mode as pmode
-    return pmode.pick_resume_at(now) or "09:25:36"
+    t = pmode.T_PICK_OPEN
+    return pmode.pick_resume_at(now) or "%02d:%02d:%02d" % (t // 3600, (t % 3600) // 60, t % 60)
 
 
 def _freeze_fields(now=None):
@@ -179,19 +182,14 @@ def _snapshot_candidate_codes(snap_rows, f, yzt_codes):
         # 竞价涨幅 > bidGt 剔除(与 picker.filter.apply_filters 同: 保留 ≤ bidGt)
         if (v.get("bid_change") or 0) > f["bidGt"]:
             continue
-        # 市值(快照 float_mv 单位元 → 亿; 与 circulationMV=f21/1e8 同)
-        # 2026-09-18 修正(v4.11.28):
-        #   ① 原本优先 free_mv, 与 picker.filter(用 float_mv)和 _snapshot_rows_to_raw
-        #      第 202 行**口径相反**。开盘啦兜底的 free_mv 是"实际流通"(≈自由流通,
-        #      量级为流通市值的 0.28~0.57 倍), 优先它会把真大盘股误判成小盘剔除
-        #      (9/17 华瓷股份 49 亿 → 14.75 亿被 floor=30 误剔)。
-        #   ② 门槛**只用 float_mv** 判 —— free_mv 更小, 拿它判下限必然误杀
-        #      (free_mv<30 不代表流通<30); float_mv 未知则**放行**给
-        #      picker.filter.apply_filters, 彼时点查补丁已补到真值。与
-        #      picker.filter.coarse_filter 同口径(9/17 东财全挂时整批被误杀的教训)。
-        #      注: _snapshot_rows_to_raw(点查失败降级)仍可用 free_mv 兜底 —— 那条路
-        #      没有补丁源, 有兜底值总比 0 强, 是**降级语义**, 与此处的门槛判据无关。
-        mv = (v.get("float_mv") or 0.0) / 1e8
+        # 市值门槛(2026-09-20 主人拍板: 所有流通市值改**自由流通市值**)
+        #   取值口径 = picker.QuoteRow.mv —— free_mv 优先, 缺失回退 float_mv。
+        #   与 picker.filter.apply_filters/coarse_filter 及 score.py 的 market 因子**完全同口径**,
+        #   不再出现"评分用 free_mv、此处门槛用 float_mv"的双口径漂移。
+        #   历史教训(曾用于反面参考): 2026-09-18 之前此处优先 free_mv 而 picker 用 float_mv
+        #   口径相反 → 同一票在两个入口判出不同名单; 现两处统一走 mv, 该矛盾根除。
+        #   市值未知(0/None) → **放行**给 downstream(点查补丁会补真值, 同 coarse_filter 纪律)。
+        mv = float(v.get("free_mv") or v.get("float_mv") or 0.0) / 1e8
         if mv > 0:
             if mv < f["floatMvFloor"]:
                 continue
@@ -243,6 +241,249 @@ def _snapshot_rows_to_raw(snap_rows, codes):
     return raw
 
 
+# ---- 盘中主力净额列(2026-09-20 主人拍板): 猫爪 fundflow_kp.main_net_amount ----
+# 盘中每分钟更新(KPL 分钟 Worker) → 按 code 缓存 5 分钟(主人确认用量级 ≈48 次猫爪调用/日,
+# 前端 30s 轮询在缓存窗口内零成本); **评分不用它**(9:25 定格时无此数据), 纯展示列。
+_main_net_cache: dict = {}          # code -> (ts, 主力净额元 or None)
+_MAIN_NET_TTL = 300.0
+
+
+def _trading_hours_now() -> bool:
+    """是否工作日盘中(9:30-15:00 北京时间): 非该时段不拉主力净额,
+    避免最近交易日收盘值冒充"今日"误导(周末/盘后打开页面列显示 '-')。"""
+    t = time.gmtime(time.time() + 8 * 3600)
+    if t.tm_wday >= 5:
+        return False
+    hm = t.tm_hour * 60 + t.tm_min
+    return 9 * 60 + 30 <= hm < 15 * 60
+
+
+def _main_net_map(codes):
+    """批量取盘中主力净额(元; 猫爪 fundflow_kp.main_net_amount), code 级 300s 缓存。
+
+    _fill_main_net(展示列)与 _apply_intraday_ff_bonus(动态分)共用一条缓存 ——
+    前端 30s 轮询两处取数合并, 缓存窗口内零额外猫爪调用。
+    拉取失败返回已命中部分(不写负缓存, 下轮自然重试), 绝不抛异常。
+    """
+    now = time.time()
+    out, need = {}, []
+    for c in codes:
+        c = str(c or "")
+        if not c or c in out:
+            continue
+        hit = _main_net_cache.get(c)
+        if hit is not None and now - hit[0] < _MAIN_NET_TTL:
+            if hit[1] is not None:
+                out[c] = hit[1]
+        else:
+            need.append(c)
+    if not need:
+        return out
+    try:
+        fmap = meoz_client.fundflow_map(need)
+    except Exception as e:                                         # noqa: BLE001
+        log.warning("主力净额拉取失败(本次返回已缓存部分, 5分钟后重试) err=%s", e)
+        return out
+    for c in need:
+        r = fmap.get(c) or {}
+        try:
+            net = r.get("main_net_amount")
+            val = None if net in (None, "", "-") else float(net)
+        except (TypeError, ValueError):
+            val = None
+        _main_net_cache[c] = (now, val)
+        if val is not None:
+            out[c] = val
+    return out
+
+
+def _fill_main_net(lst):
+    """给名单行补 mainNet(主力净额, 亿元, 猫爪 fundflow_kp.main_net_amount)。
+
+    * 数据走 _main_net_map(code 级 300s 缓存): 不同用户名单差异不会互相打爆猫爪额度;
+    * 独立降级: 拉取失败列留空(前端显示 '-'), 5 分钟后自然重试, 绝不影响行情与名单;
+    * 仅盘中拉取(见 _trading_hours_now)。
+    """
+    if not lst or not _trading_hours_now():
+        return
+    nmap = _main_net_map([it.get("code") for it in lst])
+    if not nmap:
+        return
+    n = 0
+    for it in lst:
+        val = nmap.get(str(it.get("code") or ""))
+        if val is not None:
+            it["mainNet"] = round(val / 1e8, 3)
+            n += 1
+    log.info("主力净额补齐 %d/%d 只", n, len(lst))
+
+
+# ---- 盘中主力净流入动态异动分(2026-09-20 主人四连拍板) --------------------------
+# 「开盘后主力持续净流入的加分 · AI竞价选股放开到10点 · 10点之前不再锁定」:
+#   ① 9:30-10:00 评分动态: 用盘中实时主力净额(fundflow_kp.main_net_amount)重算
+#      异动分 17% 的净额层, 档位取 **max(竞价档, 盘中档)** —— 只加不减(盘中流出
+#      不倒扣, 保护竞价时的好分); 总分修正 = w_warn × Δwarn × 100, clamp(5,95)。
+#   ② 只重排不增票: 名单成员保持 9:25 定格, 仅修正分数并按新分降序重排。
+#   ③ 10:00 冻结: 动态分写 settings(intraday_ff_scores_{date}) 作为当日最终分;
+#      10:00 后读缓存(10:00 前无人访问 → 首次请求现算并冻结, 净额取值与 10:00 时点
+#      差异极小)。冻结缓存按日期隔离, 不跨日复用。
+#   ④ 批次落库值**不动**(历史回看保持 9:25 定格分), 本层只改 **API 返回层**。
+#   数据源: _main_net_map(code 级 300s 缓存, 与主力净额列共享) + bid_strength
+#   (定格三层输入, AI 层当日推理缓存命中近零开销)。独立降级: 任何异常 → 原样返回。
+_INTRA_DYN_FROM = 9 * 3600 + 30 * 60        # 09:30:00 动态窗口起(开盘)
+_INTRA_DYN_TO = 10 * 3600                   # 10:00:00 动态窗口止(冻结点, 主人拍板)
+_INTRA_FF_SWITCH = "intraday_ff_bonus"      # 开关(默认开; 异常时后台置 0 即时回滚)
+_intra_ff_write_ts = 0.0                    # 动态窗口内冻结缓存写入节流(60s)
+
+
+def _intraday_ff_on() -> bool:
+    v = settings.get(_INTRA_FF_SWITCH, 1)
+    if isinstance(v, str):
+        return v.strip().lower() not in ("0", "false", "no", "off", "")
+    return bool(v)
+
+
+def _bj_secs_wday():
+    """北京当前 (当日秒, 星期 0=周一)。"""
+    t = time.gmtime(time.time() + 8 * 3600)
+    return t.tm_hour * 3600 + t.tm_min * 60 + t.tm_sec, t.tm_wday
+
+
+def _intraday_ff_active_window():
+    """动态层是否应工作: 交易日 且 当日秒 ≥ 09:30:00。
+    返回 (bool, 当日秒)。10:00 前实时跟随盘中净额, 10:00 后走冻结缓存。"""
+    secs, wday = _bj_secs_wday()
+    return (wday < 5 and secs >= _INTRA_DYN_FROM), secs
+
+
+def _intraday_ff_compute(lst, today):
+    """现算盘中动态分 → {code: 修正后总分(int)}。失败抛异常(调用方降级定格分)。
+
+    算法(每票): warn_static = score_one(定格三层输入);
+               warn_live   = score_one_live_ff(同输入 + 盘中实时净额占比)  # ff 档 max
+               新分 = clamp(probability + w_warn × (warn_live − warn_static) × 100, 5, 95)
+    只对「有快照强度信号 + 有盘中净额 + 自由流通市值已知」的票修正, 其余保持定格。
+    """
+    from ..services import bid_strength
+    from ..services.picker import mode as pmode
+    # 名单=当日 9:25 定格 → 当日快照必须存在; 缺失(异常日)不叠加, 防跨日错位打分
+    if not auction_snapshot.has_today_snapshot(today):
+        log.info("盘中动态分跳过: 当日 %s 无 9_25 快照(异常日/回退)", today)
+        return {}
+    codes = [str(it.get("code") or "") for it in lst if it.get("code")]
+    strengths = bid_strength.load(codes, date=today)
+    if not strengths:
+        return {}
+    nmap = _main_net_map(codes)          # 与主力净额列共享缓存(通常全命中)
+    cfg = scorer.get_scoring_cfg()
+    try:
+        w_warn = float(cfg.get("w_warn") or 0.17)
+    except (TypeError, ValueError):
+        w_warn = 0.17
+    out = {}
+    for it in lst:
+        code = str(it.get("code") or "")
+        st = strengths.get(code)
+        # base 必须取 **9:25 定格分**: 优先取行内定格基准(_prob_static, 首次应用时记录),
+        # 防同一行被二次应用时把已加过分 probability 当 base → 分数逐轮爬升(非幂等)。
+        base = it.get("_prob_static")
+        if base is None:
+            base = it.get("probability")
+        if st is None or base is None:
+            continue
+        try:
+            base = float(base)
+        except (TypeError, ValueError):
+            continue
+        warn_static = bid_strength.score_one(st, cfg)
+        if warn_static is None:
+            continue
+        ff_live = None
+        net = nmap.get(code)
+        if net is not None and st._free_mv:                            # noqa: SLF001
+            ff_live = float(net) / float(st._free_mv) * 100.0
+        warn_live = bid_strength.score_one_live_ff(st, ff_live, cfg)
+        bonus = w_warn * (warn_live - warn_static) * 100.0             # ≥0(max 只加不减)
+        if bonus <= 0:
+            continue
+        out[code] = int(max(5.0, min(95.0, base + bonus)) + 0.5)
+    return out
+
+
+def _apply_intraday_ff_bonus(lst):
+    """把盘中动态分应用到名单(原地): 修正 probability 并按新分降序重排。
+
+    9:30-10:00 实时跟随盘中净额(60s 节流写冻结缓存); ≥10:00 只读冻结缓存
+    (缓存缺失 → 现算一次并冻结)。应用语义是**绝对赋值**(非增量) → 重复调用幂等。
+    任何异常静默降级(名单保持定格分), 绝不影响名单可用性。
+    """
+    if not lst or not _intraday_ff_on():
+        return
+    active, secs = _intraday_ff_active_window()
+    if not active:
+        return
+    from ..services.picker import mode as pmode
+    today = pmode.bj_date()
+    ck = "intraday_ff_scores_" + today
+    global _intra_ff_write_ts
+    frozen = None
+    if secs >= _INTRA_DYN_TO:
+        try:
+            frozen = settings.get(ck)
+        except Exception as e:                                     # noqa: BLE001
+            log.warning("盘中动态分冻结缓存读取失败(现算) err=%s", e)
+    if frozen is None:
+        # 现算前记录定格分基准(_prob_static): 同一行重复应用时 base 恒为定格分 → 幂等
+        for it in lst:
+            if it.get("_prob_static") is None and it.get("probability") is not None:
+                it["_prob_static"] = it["probability"]
+        try:
+            frozen = _intraday_ff_compute(lst, today)
+        except Exception as e:                                     # noqa: BLE001
+            log.warning("盘中净流入动态分计算失败(降级定格分) err=%s", str(e)[:200])
+            return
+        # 动态窗口内 60s 节流写; ≥10:00 首算必写(冻结语义, 之后恒读缓存)
+        if secs >= _INTRA_DYN_TO or time.time() - _intra_ff_write_ts >= 60:
+            try:
+                settings.set(ck, frozen)
+                _intra_ff_write_ts = time.time()
+            except Exception as e:                                 # noqa: BLE001
+                log.warning("盘中动态分冻结缓存写入失败(不影响本次返回) err=%s", e)
+    n = 0
+    for it in lst:
+        # 注意: _prob_static 基准键**保留不删** —— 同一行被二次应用时(如 calc 缓存对象
+        # 复用)base 仍取定格分; 前端按名取字段, 内部键自然忽略, 落库/缓存均在叠加前完成。
+        v = (frozen or {}).get(str(it.get("code") or ""))
+        if v is None:
+            continue
+        try:
+            it["probability"] = int(v)
+            n += 1
+        except (TypeError, ValueError):
+            pass
+    if n:
+        lst.sort(key=lambda x: -(x.get("probability") or 0))
+        log.info("盘中净流入动态分应用 %d/%d 只(%s)", n, len(lst),
+                 "10:00已冻结" if secs >= _INTRA_DYN_TO else "动态窗口内")
+
+
+def _maybe_intraday_overlay(result):
+    """重算路径的动态分叠加: 返回**新 list**(行浅拷贝后改), 原 result 不动 ——
+    落库批次/refresh 计算缓存保持 9:25 定格分(历史回看与缓存语义不变)。"""
+    try:
+        if not result:
+            return result
+        active, _ = _intraday_ff_active_window()
+        if not active:
+            return result
+        lst = [dict(it) for it in result]
+        _apply_intraday_ff_bonus(lst)
+        return lst
+    except Exception as e:                                         # noqa: BLE001
+        log.warning("盘中动态分叠加异常(返回定格分) err=%s", e)
+        return result
+
+
 def _fill_spot_fields(lst, fs):
     """用全市场实时行情覆盖名单的**展示字段**(现价/现涨/实体/量比/换手)。
 
@@ -257,6 +498,17 @@ def _fill_spot_fields(lst, fs):
     """
     if not lst:
         return lst
+    # 主力净额列(2026-09-20): 独立降级 —— 在行情拉取**之前**处理, 行情源挂了不影响它
+    try:
+        _fill_main_net(lst)
+    except Exception as e:                                         # noqa: BLE001
+        log.warning("主力净额列填充异常(已忽略) err=%s", e)
+    # 盘中净流入动态分(2026-09-20 主人拍板「10点前不再锁定」): 修正 9:30-10:00 的
+    # 评分/排序(只加不减), ≥10:00 走冻结缓存。独立降级, 失败保持定格分。
+    try:
+        _apply_intraday_ff_bonus(lst)
+    except Exception as e:                                         # noqa: BLE001
+        log.warning("盘中动态分叠加异常(已忽略) err=%s", e)
     try:
         spot_map = fetcher.fetch_spot_quote_map(fs)
     except Exception as e:
@@ -462,9 +714,14 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         # 按模式层已定语义(INTRADAY: deterministic=True, source_priority 定格优先),
         # 9:30 后 refresh 必须与 filter 同源走快照池: 名单幂等固定 + 刷新也有数据。
         hm = scorer._bj_hm()
+        # 2026-09-20 主人拍板「重新选股放开到10点」: 交易日 9:30-10:00 的主动 lock
+        # 也走快照池重算(名单源=9:25 定格快照, 评分=物化定格 → 与当日批次同参同名单,
+        # 幂等不破坏), raw 非空即不会触达 ensure_cache 的「9:30 后禁止重新选股」拒绝;
+        # 10:00 后恢复原拒绝(快照池条件不再命中 → raw=None → ensure_cache 拒绝)。
         use_snapshot_pool = strategy == "auction" and (
                 (action == "filter" and (not before930 or hm < 9 * 60 + 15))
-                or (action == "lock" and hm < 9 * 60 + 15)
+                or (action == "lock" and (hm < 9 * 60 + 15
+                                          or (not before930 and hm < 10 * 60)))
                 or (action == "refresh" and not before930))
         if use_snapshot_pool:
             try:
@@ -594,6 +851,10 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
             _cstore.set(ck_full, result, ttl=60)
         except Exception as e:
             log.warning("refresh计算缓存写入失败(不影响本次返回) err=%s", e)
+
+    # 盘中净流入动态分(2026-09-20 主人拍板): 重算路径同样叠加 —— 只改**返回层**,
+    # 落库批次与计算缓存保持 9:25 定格分(上面已完成)。返回新 list, 原 result 不动。
+    result = _maybe_intraday_overlay(result)
 
     return jr({
         "ok": True,

@@ -1,198 +1,163 @@
 # -*- coding: utf-8 -*-
-"""竞价强度(bid_strength)三层信号 — 替代已失活的 f630 异动等级"""
+"""竞价强度(bid_strength)三层合成(v6) — 量比0.45 + 净额0.30 + AI0.25
+
+v6(2026-09-20 主人拍板): 三层 = ①竞价量比(快照自算) + ②竞价主力净额占比
+(猫爪 fundflow_kp 落库 auc_main_net ÷ free_mv ×100) + ③AI 预测(aipick XGBoost
+全市场 Top30 ∩ p≥0.80 三档)。每层独立降级, 三层全缺才返回 None。
+"""
 import pytest
 
 from app.services import bid_strength as bs
 
 
 def _cfg():
+    """与 scorer.DEFAULT_SCORING 的 bid_strength 段同款(改这里要同步 scorer)"""
     return {
         "factors": {"bid_strength": {
+            # 层① 量比分档
             "buckets": [["3", "9999", 1.0], ["2", "3", 0.85], ["1.5", "2", 0.7],
                         ["1.0", "1.5", 0.55], ["0.6", "1.0", 0.4], ["0", "0.6", 0.25]],
             "default": 0.22,
-            "qc_bonus": 0.15, "qc_last_bonus": 0.10,
-            "accel_up": 0.08, "accel_down": -0.08,
+            "w_vol_ratio": 0.45, "w_ff": 0.30, "w_ai": 0.25,
+            # 层② 净额占自由流通市值% 分档(净流出负值档承接"出货识别")
+            "ff_buckets": [["0.30", "9999", 1.0], ["0.10", "0.30", 0.85],
+                           ["0.03", "0.10", 0.7], ["0.005", "0.03", 0.55],
+                           ["0.0001", "0.005", 0.45],
+                           ["-0.005", "0", 0.30], ["-0.03", "-0.005", 0.20],
+                           ["-9999", "-0.03", 0.10]],
+            "ff_default": 0.35,
+            # 层③ AI 预测: 全市场榜 Top30 ∩ p≥0.80 三档
+            "ai_buckets": [["0.90", "1.01", 1.0], ["0.85", "0.90", 0.85],
+                           ["0.80", "0.85", 0.70]],
+            "ai_topn": 30,
+            "ai_default": 0.35,
         }},
     }
 
 
-# ---------------------------------------------------------------- 主分: 竞价量比
+# ---------------------------------------------------------------- 层① 量比分档
 def test_vol_ratio_buckets():
     """量比越大分越高; 3 倍以上满分"""
-    assert bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=5.0), _cfg()) == pytest.approx(1.0)
-    assert bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=2.5), _cfg()) == pytest.approx(0.85)
-    assert bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=1.2), _cfg()) == pytest.approx(0.55)
-    assert bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=0.3), _cfg()) == pytest.approx(0.25)
+    assert bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=5.0), _cfg()) \
+        == pytest.approx(0.45 * 1.0 + 0.30 * 0.35 + 0.25 * 0.35)
+    assert bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=2.5), _cfg()) \
+        == pytest.approx(0.45 * 0.85 + 0.30 * 0.35 + 0.25 * 0.35)
+    assert bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=1.2), _cfg()) \
+        == pytest.approx(0.45 * 0.55 + 0.30 * 0.35 + 0.25 * 0.35)
+    assert bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=0.3), _cfg()) \
+        == pytest.approx(0.45 * 0.25 + 0.30 * 0.35 + 0.25 * 0.35)
 
 
 def test_vol_ratio_missing_uses_default_not_zero():
-    """量比缺失 → default 0.22, 不是 0(0 会落 ["0","0.6"] 桶拿 0.25, 差别虽小但语义不同)"""
-    st = bs.BidStrength(code="1", accel=0.0)      # 量比 None, 只有加速度
+    """量比缺失 → 该层走 default 0.22, 不是 0(独立降级)"""
+    st = bs.BidStrength(code="1")                  # 三层全缺 → 见下条
     assert st.bid_vol_ratio is None
-    # 加速度 0.0 属中性区间不修正 → 分数就是 default
-    assert bs.score_one(st, _cfg()) == pytest.approx(0.22)
+    # 只有净额层有信号: 量比层补 default 0.22, 不拖垮整体
+    st_ff = bs.BidStrength(code="1", ff_pct=0.5)   # ff → 满分档 1.0
+    assert bs.score_one(st_ff, _cfg()) \
+        == pytest.approx(0.45 * 0.22 + 0.30 * 1.0 + 0.25 * 0.35)
 
 
-# ---------------------------------------------------------------- 抢筹加成
-def test_qc_bonus_stacks():
-    """抢筹强度榜 +0.15, 最后一秒抢筹 +0.10, 可叠加"""
-    base = bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=1.2), _cfg())   # 0.55
-    with_qc = bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=1.2, qc_delta=1.5), _cfg())
-    with_both = bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=1.2,
-                                            qc_delta=1.5, qc_last=True), _cfg())
-    assert with_qc == pytest.approx(base + 0.15)
-    assert with_both == pytest.approx(base + 0.25)
+# ---------------------------------------------------------------- 层② 净额分档
+def test_ff_buckets():
+    """净额占比越高分越高; 净流出负值进低档(出货识别); 无信号走中性 0.35"""
+    cases = [(0.5, 1.0), (0.2, 0.85), (0.05, 0.7), (0.01, 0.55), (0.001, 0.45),
+             (-0.001, 0.30), (-0.01, 0.20), (-0.05, 0.10)]
+    for ff, expect in cases:
+        assert bs.score_one(bs.BidStrength(code="1", ff_pct=ff), _cfg()) \
+            == pytest.approx(0.45 * 0.22 + 0.30 * expect + 0.25 * 0.35), ff
 
 
-def test_qc_alone_when_vol_missing():
-    """量比缺失但命中抢筹 → default 0.22 + 0.15(不因一层缺失抹掉另一层信号)"""
-    st = bs.BidStrength(code="1", qc_delta=2.0)
-    assert bs.score_one(st, _cfg()) == pytest.approx(0.37)
+def test_ff_none_is_neutral_default():
+    """无大单(0/缺失) → ff_default 0.35 中性, 不当惩罚"""
+    st = bs.BidStrength(code="1", bid_vol_ratio=1.2)     # ff 缺
+    assert bs.score_one(st, _cfg()) \
+        == pytest.approx(0.45 * 0.55 + 0.30 * 0.35 + 0.25 * 0.35)
 
 
-# ---------------------------------------------------------------- 加速度修正
-def test_accel_up_and_down():
-    """9_24→9_25 拉升加分 / 跳水减分; 中性区间不修正"""
-    base = bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=1.2), _cfg())   # 0.55
-    up = bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=1.2, accel=2.0), _cfg())
-    down = bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=1.2, accel=-3.0), _cfg())
-    flat = bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=1.2, accel=0.1), _cfg())
-    assert up == pytest.approx(base + 0.08)
-    assert down == pytest.approx(base - 0.08)
-    assert flat == pytest.approx(base)
+# ---------------------------------------------------------------- 层③ AI 分档
+def test_ai_buckets():
+    """st.ai 存的是**已分档分值**(概率→档位映射在 ai_predict.ai_score_map 完成):
+    1.0 / 0.85 / 0.70; 不在榜(None, 常态) → ai_default 0.35 中性"""
+    cases = [(1.0, 1.0), (0.85, 0.85), (0.70, 0.70)]
+    for ai, expect in cases:
+        assert bs.score_one(bs.BidStrength(code="1", ai=ai), _cfg()) \
+            == pytest.approx(0.45 * 0.22 + 0.30 * 0.35 + 0.25 * expect), ai
+    st = bs.BidStrength(code="1", bid_vol_ratio=1.2)     # ai 不在榜
+    assert bs.score_one(st, _cfg()) \
+        == pytest.approx(0.45 * 0.55 + 0.30 * 0.35 + 0.25 * 0.35)
 
 
-def test_score_clamped():
-    """合成后封顶 1.0 / 保底 0.05"""
-    best = bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=99, qc_delta=9,
-                                       qc_last=True, accel=5), _cfg())
-    worst = bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=0.01, accel=-5), _cfg())
-    assert best == 1.0
-    assert worst == pytest.approx(0.17)      # 0.25 - 0.08
-
-
-# ---------------------------------------------------------------- 三层全缺
-def test_all_missing_returns_none():
-    """三层全缺 → None(交给上层 factor default), 绝不返回一个假分数"""
+# ---------------------------------------------------------------- 合成/降级契约
+def test_all_layers_missing_returns_none():
+    """三层全缺 → None(调用方走 factor default); score_one(None) 同样 None"""
     assert bs.score_one(bs.BidStrength(code="1"), _cfg()) is None
     assert bs.score_one(None, _cfg()) is None
 
 
-def test_partial_missing_still_scores():
-    """只要有一层可用就出分 —— 这正是为了解决 f630 '一层挂掉全员 default'"""
-    assert bs.score_one(bs.BidStrength(code="1", accel=1.0), _cfg()) is not None
-    assert bs.score_one(bs.BidStrength(code="1", qc_last=True), _cfg()) is not None
-    assert bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=1.0), _cfg()) is not None
+def test_sub_weights_normalized():
+    """子权重自动归一: 配置总和≠1 也按比例生效(防坏配置毒死整因子)"""
+    cfg = _cfg()
+    cfg["factors"]["bid_strength"]["w_vol_ratio"] = 2.0
+    cfg["factors"]["bid_strength"]["w_ff"] = 1.0
+    cfg["factors"]["bid_strength"]["w_ai"] = 1.0         # 归一后 0.5/0.25/0.25
+    st = bs.BidStrength(code="1", bid_vol_ratio=5.0)     # vol=1.0, ff/ai 缺→default
+    assert bs.score_one(st, cfg) \
+        == pytest.approx(0.5 * 1.0 + 0.25 * 0.35 + 0.25 * 0.35)
 
 
-# ---------------------------------------------------------------- 缺失标记
-def test_missing_tagging():
-    st = bs.BidStrength(code="1", bid_vol_ratio=1.5)
-    bs._tag_missing({"1": st})
-    assert set(st.missing) == {"accel", "qc"}
-    assert not st.complete
+def test_compose_clamped_0_05_to_1():
+    """合成结果 clamp 到 [0.05, 1.0]"""
+    assert bs._compose(5.0, 0.5, 1.0, _cfg()["factors"]["bid_strength"]) == 1.0
 
 
-# ---------------------------------------------------------------- 量比去噪
-def test_min_yday_amt_constant():
-    """昨日竞价额下限 100 万(低于此值量比失真: 昨额1万 → 量比302倍)"""
+def test_bucket_falls_back_to_default():
+    """值落在所有档位之外 → 该层 default"""
+    fac = _cfg()["factors"]["bid_strength"]
+    assert bs._bucket(fac["buckets"], 999.0, 0.22) == 1.0     # 顶格仍在 [3,9999) 内
+    assert bs._bucket([], 5.0, 0.22) == 0.22                  # 无档位表 → default
+    assert bs._bucket(None, 5.0, 0.22) == 0.22
+
+
+def test_min_yday_bid_amt_gate():
+    """昨日竞价额 <100 万 → 量比失真, 常量钉死(改阈值须主人拍板)"""
     assert bs.MIN_YDAY_BID_AMT_WAN == 100.0
 
 
-# ---------------------------------------------------------------- 低开方向 gate (2026-09-09)
-def test_low_open_strength_capped_at_weak():
-    """中石科技事故: 竞涨 <=0(低开/平开)时"放量"是出货不是抢筹 —
-    量比满分 + 抢筹全加成也只能到 0.40(弱档), 杜绝被标成"强5"+置信度加成"""
-    st = bs.BidStrength(code="1", bid_vol_ratio=5.0, qc_delta=2.0,
-                        qc_last=True, _chg25=-8.01)
-    assert bs.score_one(st, _cfg()) == pytest.approx(0.40)
-    # 翻红不受此 gate 影响
-    assert bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=5.0,
-                                       _chg25=3.0), _cfg()) == pytest.approx(1.0)
-    # chg25 未知(None)按旧行为(不误伤历史路径)
-    assert bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=5.0),
-                        _cfg()) == pytest.approx(1.0)
+def test_tag_missing_lists_missing_layers():
+    """missing 只标 ①②(③ 不在榜是常态, 不标)"""
+    out = {"1": bs.BidStrength(code="1")}
+    bs._tag_missing(out)
+    assert out["1"].missing == ["bid_vol_ratio", "ff_pct"]
+    assert not out["1"].complete
+    st = bs.BidStrength(code="1", bid_vol_ratio=1.0, ff_pct=0.01)
+    bs._tag_missing({"2": st})
+    assert st.missing == [] and st.complete
 
 
-def test_low_open_accel_recover_is_not_up():
-    """低开背景下跌幅收窄(-8.97→-8.01)是"跌势放缓"不是拉升: accel>0.5 不加分;
-    翻红背景的拉升才加分; 低开续跌照常减分"""
-    flat = bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=0.3, accel=2.0,
-                                       _chg25=-8.0), _cfg())
-    up = bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=0.3, accel=2.0,
-                                     _chg25=3.0), _cfg())
-    down = bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=0.3, accel=-3.0,
-                                       _chg25=-8.0), _cfg())
-    assert flat == pytest.approx(0.25)      # 0.25(0.6倍以下档) 无拉升加成
-    assert up == pytest.approx(0.33)        # 0.25 + 0.08
-    assert down == pytest.approx(0.17)      # 0.25 - 0.08
+# ---------------------------------------------------------------- 盘中动态净额层
+def test_live_ff_higher_adds_bonus():
+    """盘中大买(ff_live 档高于竞价档) → 取 max 只加不减"""
+    fac = _cfg()["factors"]["bid_strength"]
+    st = bs.BidStrength(code="1", bid_vol_ratio=1.2)     # 竞价 ff 无信号
+    static = bs.score_one(st, _cfg())                    # 0.45*0.55+0.30*0.35+0.25*0.35 = 0.44
+    assert static == pytest.approx(0.44)
+    live = bs.score_one_live_ff(st, 0.5, _cfg())         # 盘中 5% → 满分档
+    assert live == pytest.approx(0.45 * 0.55 + 0.30 * 1.0 + 0.25 * 0.35)
+    assert live > static
 
 
-# ---------------------------------------------------------------- 真实场景回归
-def test_jinjian_case():
-    """金健米业 600127 (2026-09-08): 竞价全程撤单, 量能没放大 → 不该拿高分。
-
-    实测: 9:24=7.54% → 9:25=3.99%(加速度 -3.55), 竞价量比 1.00(今11436万/昨11423万),
-    未命中抢筹名单。老口径靠"竞价涨幅 3.99% 恰好落 3~5.5% 满分档"登顶(80分),
-    新口径下该因子应显著低于满分(0.55 - 0.08 = 0.47)。
-    """
-    st = bs.BidStrength(code="600127", bid_vol_ratio=1.00, accel=-3.55)
-    s = bs.score_one(st, _cfg())
-    assert s == pytest.approx(0.47)      # 0.55(量比1.0档) - 0.08(跳水)
-    assert s < 0.6                        # 明确不是"强势"
+def test_live_ff_lower_keeps_static():
+    """盘中流出(档位低于竞价档/中性) → 不减分"""
+    fac = _cfg()["factors"]["bid_strength"]
+    st = bs.BidStrength(code="1", bid_vol_ratio=1.2, ff_pct=0.2)   # 竞价档 0.85
+    static = bs.score_one(st, _cfg())
+    live_out = bs.score_one_live_ff(st, -0.05, _cfg())   # 盘中转流出 → 0.10 档
+    assert live_out == pytest.approx(static)             # max 保持竞价档
 
 
-def test_strong_case_ranks_higher():
-    """放量 + 抢筹 + 末段拉升 → 接近满分, 排序必须高于金健米业"""
-    weak = bs.score_one(bs.BidStrength(code="600127", bid_vol_ratio=1.00, accel=-3.55), _cfg())
-    strong = bs.score_one(bs.BidStrength(code="000523", bid_vol_ratio=27.88,
-                                         qc_delta=1.2, qc_last=True, accel=1.5), _cfg())
-    assert strong == 1.0
-    assert strong > weak * 2
-
-
-# ---------------- 日期回退(2026-09-09) ----------------
-def test_fill_snapshot_falls_back_when_passed_date_has_no_snapshot(monkeypatch):
-    """传入未来日期(9/9 凌晨 date='2026-09-09', 9_25 快照未生成) → 自动回退到
-    MAX(date) 的最近 9:25 快照; 否则 strength 全空 → 异动列变成 0(9/9 0:37 主反馈真因)。
-    直接验证 mock 函数被调用 + date 被替换为最近交易日。"""
-    calls = []
-
-    def fake_get_conn():
-        class _Cur:
-            def execute(self_inner, sql, params=()):
-                sql_l = sql.strip()
-                if "SELECT 1 FROM snapshot_bid" in sql_l:
-                    class _R:
-                        def fetchone(_): return None
-                    return _R()
-                if "SELECT MAX(date) FROM snapshot_bid" in sql_l \
-                        and "WHERE time_point='9_25'" in sql_l and "date <" not in sql_l:
-                    calls.append(("max_no_lt", params))
-                    class _R:
-                        def fetchone(_): return ("2026-09-08",)
-                    return _R()
-                if "date < ? AND time_point='9_25'" in sql_l:
-                    calls.append(("yday", params))
-                    class _R:
-                        def fetchone(_): return None
-                    return _R()
-                # 默认空游标
-                class _Empty:
-                    def fetchone(_): return None
-                    def __iter__(self_inner): return iter([])
-                return _Empty()
-
-        class _Conn:
-            def cursor(self): return _Cur()
-            def close(self): pass
-        return _Conn()
-
-    monkeypatch.setattr("app.db.database.get_conn", fake_get_conn)
-    from app.services.bid_strength import _fill_snapshot
-    out = {}
-    _fill_snapshot(out, want={"600127"}, date="2099-01-01")
-    # 关键: 触发了 MAX(date) 回退查询
-    assert any(c[0] == "max_no_lt" for c in calls), \
-        "传入日期无快照时必须回退到 MAX(date) 的最近交易日 — 调用列表: %r" % calls
+def test_live_ff_none_equals_score_one():
+    """ff_live 无效 → 与 score_one 等价"""
+    st = bs.BidStrength(code="1", bid_vol_ratio=1.2, ff_pct=0.01)
+    assert bs.score_one_live_ff(st, None, _cfg()) == pytest.approx(
+        bs.score_one(st, _cfg()))

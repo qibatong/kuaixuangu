@@ -118,6 +118,23 @@ KPL_BOARD_TTL = int(os.environ.get("KPL_BOARD_TTL", "30"))    # 板块强度缓�
 KPL_YIDONG_TTL = int(os.environ.get("KPL_YIDONG_TTL", "15"))  # 异动(偏离/重点监控/热门)缓存新鲜度(秒); 2026-09-04 加: 原无缓存每请求拉开盘啦 avg0.96s
 KPL_MARKET_SCLN_TTL = int(os.environ.get("KPL_MARKET_SCLN_TTL", "60"))  # 实时市场量能缓存(秒); 2026-09-13 加: 盘中量能 60s 新鲜度足够, 且防打爆 8 万/日配额
 
+# ---------- 猫爪(meoz.cn)数据源 ----------
+# 竞价数据新主源(2026-09-19 主人拍板全面替换开盘啦竞价依赖)。
+# apikey 通过 systemd Environment= 注入(不进代码库, 避免泄露)。
+MEOZ_APIKEY = os.environ.get("MEOZ_APIKEY", "")
+# 专线(官方 SDK DEDICATED_API_URLS): sz/sh 双线互为备份。
+# 公网 https://numcat.net/api 因 SSL 证书验证失败不可用, 不列入默认。
+MEOZ_LINES = (
+    os.environ.get("MEOZ_LINE_SZ", "http://sz.numcat.net:8866/api"),
+    os.environ.get("MEOZ_LINE_SH", "http://sh.numcat.net:8866/api"),
+)
+# 竞价数据落库时刻(套餐表标注): 猫爪竞价数据 9:25:45 才更新。
+# 选股闸门(见 picker/mode.T_PICK_BLOCK_TO)必须 ≥ 此值 + 缓冲, 否则会取到上一交易日定格。
+MEOZ_AUC_READY = os.environ.get("MEOZ_AUC_READY", "092545")
+MEOZ_BID_TTL = int(os.environ.get("MEOZ_BID_TTL", "30"))       # 竞价数据缓存新鲜度(秒)
+MEOZ_AUC_TTL = int(os.environ.get("MEOZ_AUC_TTL", "6"))        # 竞价窗口内逐分钟数据缓存(秒)
+MEOZ_TICK_TTL = int(os.environ.get("MEOZ_TICK_TTL", "10"))     # tick 数据缓存新鲜度(秒)
+
 # ---------- 推送提醒(选股结果 → 微信/飞书) ----------
 # 任一渠道配置后即启用; 全部未配置则推送自动跳过(不影响选股主流程)
 NOTIFY_FEISHU_WEBHOOK = os.environ.get("NOTIFY_FEISHU_WEBHOOK", "")          # 飞书群机器人 webhook

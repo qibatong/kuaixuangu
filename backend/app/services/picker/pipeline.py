@@ -144,6 +144,9 @@ def _merge_rows(base: Dict[str, QuoteRow],
         # 市值: 实时 f21 优先, 缺失保留快照(free_mv 回退值)
         if p.float_mv:
             b.float_mv = p.float_mv
+        # 自由流通市值: 实时 f117 优先, 缺失保留快照 free_mv(竞价换手/抢筹强度用)
+        if p.free_mv:
+            b.free_mv = p.free_mv
         if p.yesterday_change is not None:
             b.yesterday_change = p.yesterday_change
         b.source = "%s+%s" % (b.source or "?", p.source or "?")
@@ -156,8 +159,12 @@ def _refreeze_locked(merged: Dict[str, QuoteRow],
     """物化路径专用: 补丁补完展示字段后, 把**参与名单判定**的字段还原为物化值。
 
     为什么需要(2026-09-12 P1-2): 物化路径下评分已由预计算定好, 若再让补丁源改写
-    float_mv(f21) / prev_close(f18), 则**评分用的是 A 值、门槛用的是 B 值**, 名单会
-    随行情源可用性漂移 —— 这正是预计算要消灭的问题。
+    mv(f21/f117 统一值) / prev_close(f18), 则**评分用的是 A 值、门槛用的是 B 值**,
+    名单会随行情源可用性漂移 —— 这正是预计算要消灭的问题。
+
+    ★ 2026-09-20 口径改自由流通: 冻结值改为 **mv**(= free_mv 优先, 缺则 float_mv),
+      还原时写回 `free_mv`(统一市值载体)。同时把 `float_mv` 一并置为同值, 保证
+      后端内部 `mv` 与 `float_mv` 展示列一致(不出现"门槛用 A、展示列显示 B")。
 
     只还原"物化表里确实有值"的字段(物化为 None 时保留补丁给的, 属于补缺不是改写)。
     """
@@ -167,7 +174,7 @@ def _refreeze_locked(merged: Dict[str, QuoteRow],
         if f is None:
             out[code] = r
             continue
-        bid_chg, bid_amt, bid_vol, float_mv, prev_close = f
+        bid_chg, bid_amt, bid_vol, mv, prev_close = f
         r = replace(r)
         if bid_chg is not None:
             r.bid_change = bid_chg
@@ -175,8 +182,9 @@ def _refreeze_locked(merged: Dict[str, QuoteRow],
             r.bid_amt = bid_amt
         if bid_vol is not None:
             r.bid_vol = bid_vol
-        if float_mv is not None:
-            r.float_mv = float_mv
+        if mv is not None:
+            r.free_mv = mv          # 统一市值载体(门槛/评分同口径)
+            r.float_mv = mv         # 展示列同值, 避免两列不一致
         if prev_close is not None:
             r.prev_close = prev_close
         out[code] = r
@@ -264,8 +272,11 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
         rows = dict(mat_rows)
         res.sources.append("precompute")
         res.n_universe = len(rows)
+        # ★ 2026-09-20: 冻结字段从 float_mv 改为 **mv(free_mv 优先, 缺则 float_mv)** ——
+        #   门槛与 market 评分统一走 mv, 故冻结的必须是同一口径; 预计算物化表
+        #   (precompute) 写入的也是 mv, 回填到 free_mv 列(见 precompute.read_materialized)。
         frozen: Dict[str, Tuple] = {
-            c: (r.bid_change, r.bid_amt, r.bid_vol, r.float_mv, r.prev_close)
+            c: (r.bid_change, r.bid_amt, r.bid_vol, r.mv, r.prev_close)
             for c, r in rows.items()}
         lr = None                                                 # 未走名单源
     else:
@@ -350,9 +361,9 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
     ymap = ctx.yesterday_map or {}
     snap = ctx.snapshot_map or {}
     qc = ctx.qiangchou_codes
-    # 异动等级档位: 用**本次评分实际用到的 strength**(局部变量 strengths),
-    # 不是 ctx.strengths —— 后者在 load_context 里为空, 填充逻辑在 _load_strength。
-    strengths_score = strengths or {}
+    # 异动等级档位映射(强/中/弱)已删除(2026-09-20 主人指令): 强度分仍完整参与
+    # 异动 17% 评分与置信度加成, 但不再对外输出强/中/弱档位。warnType 仅保留
+    # 历史落库 NOT NULL 兼容值(回退 f630, 实测恒 0)。
     for it in outcome.kept:
         r = it.row
         d = it.to_dict()
@@ -366,15 +377,7 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
         if policy.auction_window and s9.get("bid_change") is not None \
                 and r.bid_change is not None:
             accel = round(r.bid_change - s9["bid_change"], 2)
-        # 异动等级: 优先用竞价强度档位(对东财免疫), 无 strength 才退回 f630 warnType
-        #   强 ≥0.85 / 中 ≥0.65 / 弱 ≥0.40 / 极弱 <0.40 → 0
-        # 前端 warnLabel(5=强, 4=⚡中, 3=↑弱, 其他=-) —— 直接套用原档位映射,
-        # 业务视觉一致、零前端改动(2026-09-09 主反馈 9/9 0:37 异动列全空)
-        st_score = strengths_score.get(r.code)
-        if st_score is not None:
-            warn_label = 5 if st_score >= 0.85 else 4 if st_score >= 0.65 else 3 if st_score >= 0.40 else 0
-        else:
-            warn_label = r.warn_type
+        warn_label = r.warn_type
         d.update({
             "bidAmt": None if bid_amt_wan is None else round(bid_amt_wan, 2),
             "bidRatio": bid_ratio,

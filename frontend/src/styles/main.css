@@ -287,8 +287,8 @@ html, body, #app {
     position: sticky;
     top: var(--sticky-thead-top, 0px);
     z-index: 8;
-    background: var(--bg-panel-solid);
-    border-bottom: 2px solid var(--accent-deep);
+    background: var(--accent-deep2);
+    border-bottom: none;
   }
 
   /* 竞价抢筹双表: 仅 .qc-table-scroll 内部滚动, thead sticky top:0 只相对该容器.
@@ -345,8 +345,8 @@ html, body, #app {
     position: sticky;
     top: 0;
     z-index: 8;
-    background: var(--bg-panel-solid, rgba(245,238,230,1));
-    border-bottom: 2px solid var(--accent-deep);
+    background: var(--accent-deep2);
+    border-bottom: none;
   }
 }
 /* 特殊: 表格 / 竞价异动 10 个 Tab 自己保留横滚条(不受 global overflow 禁影响,
@@ -493,8 +493,8 @@ z-index: 9999;
 .live-time { background: transparent; border: 0; border-radius: 0; padding: 2px 6px; text-align: center; font-family: "LXGW WenKai Mono", monospace; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
 .live-time .time-digital { font-size: 11px; font-weight: 500; color: var(--text-muted); letter-spacing: 0; opacity: 0.7; }
 
-.medal-section { background: var(--bg-panel); backdrop-filter: blur(8px); border-radius: 10px; padding: 6px; border: 1px solid rgba(255,215,0,0.4); margin: 0; display: flex; flex-wrap: nowrap; gap: 6px; justify-content: center; align-items: stretch; }
-.medal-card { flex: 1 1 0; min-width: 0; text-align: center; margin: 0; padding: 10px 4px; border-radius: 12px; background: var(--bg-card); border: 1px solid rgba(255,215,0,0.3); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; position: relative; }
+.medal-section { background: var(--bg-panel); backdrop-filter: blur(8px); border-radius: 10px; padding: 6px; border: 1px solid var(--border-soft); margin: 0; display: flex; flex-wrap: nowrap; gap: 6px; justify-content: center; align-items: stretch; }
+.medal-card { flex: 1 1 0; min-width: 0; text-align: center; margin: 0; padding: 6px 4px; border-radius: 10px; background: var(--bg-card); border: 1px solid var(--border-soft); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; position: relative; }
 /* 移动端(手机浏览器): 三卡横排缩小, 避免 390px 视口挤压溢出; 自选池已纵向堆叠到下方 */
 @media (max-width: 899px) {
   .medal-section { padding: 4px; gap: 4px; max-width: 100%; box-sizing: border-box; width: 100%; }
@@ -512,11 +512,12 @@ z-index: 9999;
   .nav-bar { max-width: 100vw; overflow: hidden; }
   .nav-tabs { flex: 1 1 0; min-width: 0; }
 }
-.medal-rank { font-size: 32px; font-weight: 700; color: #ffd700; display: flex; align-items: center; gap: 6px; }
-.medal-rank-icon { font-size: 48px; }
-.medal-name-big { font-size: 38px; font-weight: 800; color: var(--text-main); letter-spacing: 1px; margin: 2px 0; }
-.medal-code { font-size: 32px; font-weight: 600; color: #ffd700; cursor: pointer; font-family: "LXGW WenKai Mono", monospace; letter-spacing: 1px; margin: 2px 0; transition: color 0.2s; }
-.medal-code:hover { color: #fff; text-shadow: 0 0 8px rgba(255,215,0,0.6); }
+/* 2026-09-20 视觉减噪: 奖牌区紧凑化 —— 大幅缩小字号、去掉大图标、金色收敛(金银铜只靠文字+小圆点)。 */
+.medal-rank { font-size: 15px; font-weight: 700; color: #c9a227; display: flex; align-items: center; gap: 4px; }
+.medal-rank-icon { display: none; }
+.medal-name-big { font-size: 19px; font-weight: 800; color: var(--text-main); letter-spacing: 0.5px; margin: 1px 0; }
+.medal-code { font-size: 14px; font-weight: 600; color: var(--text-muted); cursor: pointer; font-family: "LXGW WenKai Mono", monospace; letter-spacing: 0.5px; margin: 1px 0; transition: color 0.2s; }
+.medal-code:hover { color: var(--accent-text); text-shadow: none; }
 .medal-prob-big { font-size: 66px; font-weight: 900; color: #e0a800; line-height: 1; margin: 4px 0; }
 .medal-detail { font-size: 18px; color: var(--text-secondary); display: flex; gap: 12px; align-items: center; }
 .medal-detail .bid-chg { color: #ff8a6f; font-weight: 600; }
@@ -694,11 +695,12 @@ text-align: center; outline: none; font-family: "LXGW WenKai Mono", monospace; t
   .del-single { padding: 2px 8px; font-size: 10px; }
 }
 
-.stock-table-container { background: var(--bg-panel); backdrop-filter: blur(4px); border-radius: 8px; padding: 6px; border: 1px solid rgba(var(--accent-rgb), 0.35); margin: 6px 0; overflow-x: auto; }
+.stock-table-container { background: var(--bg-panel); backdrop-filter: blur(4px); border-radius: 8px; padding: 6px; border: 1px solid var(--border-soft); margin: 6px 0; overflow-x: auto; }
 .stock-table { width: 100%; border-collapse: collapse; text-align: center; min-width: 0; }
-.stock-table thead { background: rgba(var(--accent-rgb), 0.15); border-bottom: 2px solid var(--accent-deep); }
-.stock-table th { padding: 7px 2px; font-weight: 600; color: var(--accent-text); font-size: 11.5px; white-space: nowrap; }
-.stock-table td { padding: 5px 2px; border-bottom: 1px solid rgba(var(--accent-rgb), 0.1); font-size: 11.5px; vertical-align: middle; }
+/* 2026-09-20 视觉减噪: 表头统一实色红带 + 白字(对齐图2风格)。深浅主题一致。 */
+.stock-table thead { background: var(--accent-deep2); border-bottom: none; }
+.stock-table th { padding: 7px 2px; font-weight: 600; color: #fff; font-size: 12px; white-space: nowrap; }
+.stock-table td { padding: 5px 2px; border-bottom: 1px solid rgba(var(--accent-rgb), 0.1); font-size: 12px; vertical-align: middle; }
 .stock-table tbody tr:hover { background: rgba(var(--accent-rgb), 0.05); }
 .rank-col { font-weight: bold; color: var(--accent-deep); }
 .up { color: #ff8a6f; } .down { color: #00c864; } .real-green { color: #00c864 !important; }
@@ -928,11 +930,12 @@ th.sortable {
   white-space: nowrap;
 }
 th.sortable:hover {
-  color: #ff8a65;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
 }
 th.sortable.active {
-  color: #ff5028;
-  background: rgba(255, 80, 40, 0.10);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
   border-radius: 4px;
 }
 .sort-ind {
@@ -954,11 +957,11 @@ th.sortable .sort-ind:empty::before {
   color: #ff8066;
 }
 
-/* 浅色主题: 排序箭头用深橙保证可见 */
-body[data-bg="light"] .sort-ind { color: #b83010; }
-body[data-bg="light"] th.sortable:hover { color: #b83010; }
-body[data-bg="light"] th.sortable.active { color: #c00; background: rgba(200, 20, 0, 0.08); border-radius: 4px; }
-body[data-bg="light"] th.sortable .sort-ind:empty::before { color: #c05a20; }
+/* 浅色主题: 表头同为红底白字, hover/active 白字 + 半透明白底 */
+body[data-bg="light"] .sort-ind { color: #fff; }
+body[data-bg="light"] th.sortable:hover { color: #fff; background: rgba(255,255,255,0.12); }
+body[data-bg="light"] th.sortable.active { color: #fff; background: rgba(255,255,255,0.16); border-radius: 4px; }
+body[data-bg="light"] th.sortable .sort-ind:empty::before { color: #fff; }
 
 /* ===================== 顶部导航链接按钮(8 种主题色) =====================
    深色主题: 浅色文字配浅色背景; 浅色主题: 深色文字配更浅背景 */
@@ -1118,10 +1121,10 @@ body[data-bg="light"] .query-form input::placeholder { color: #888; }
 body[data-bg="light"] .query-tip { color: #6b6b6b; }
 body[data-bg="light"] .query-summary { color: #6b6b6b; }
 body[data-bg="light"] .query-submit-btn { background: var(--accent-deep); }
-body[data-bg="light"] .query-result .stock-table thead { background: rgba(184,48,16,0.08); border-bottom-color: var(--accent-deep); }
-body[data-bg="light"] .query-result .stock-table th { color: #5a4a3a; }
-body[data-bg="light"] .stock-table th { color: #5a4a3a; }
-body[data-bg="light"] .stock-table thead { background: rgba(184,48,16,0.08); border-bottom-color: var(--accent-deep); }
+body[data-bg="light"] .query-result .stock-table thead { background: var(--accent-deep2); border-bottom-color: transparent; }
+body[data-bg="light"] .query-result .stock-table th { color: #fff; }
+body[data-bg="light"] .stock-table th { color: #fff; }
+body[data-bg="light"] .stock-table thead { background: var(--accent-deep2); border-bottom-color: transparent; }
 body[data-bg="light"] .stock-table tbody tr:hover { background: rgba(184,48,16,0.04); }
 /* daily-row 表格 */
 body[data-bg="light"] .daily-row { color: #1a1d26; }

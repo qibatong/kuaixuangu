@@ -351,10 +351,10 @@
             竞价涨幅上限(%) <input v-model.number="adminDefaults.bidGt" type="number" min="0" class="admin-input" style="width:110px;" />
           </label>
           <label class="field-label" style="display:flex;flex-direction:column;gap:4px;">
-            流通市值下限(亿) <input v-model.number="adminDefaults.floatMvFloor" type="number" min="0" class="admin-input" style="width:110px;" />
+            自由流通市值下限(亿) <input v-model.number="adminDefaults.floatMvFloor" type="number" min="0" class="admin-input" style="width:110px;" />
           </label>
           <label class="field-label" style="display:flex;flex-direction:column;gap:4px;">
-            流通市值上限(亿) <input v-model.number="adminDefaults.floatMvGt" type="number" min="0" class="admin-input" style="width:110px;" />
+            自由流通市值上限(亿) <input v-model.number="adminDefaults.floatMvGt" type="number" min="0" class="admin-input" style="width:110px;" />
           </label>
           <label class="field-label" style="display:flex;flex-direction:column;gap:4px;">
             股价上限(元) <input v-model.number="adminDefaults.priceGt" type="number" min="0" class="admin-input" style="width:110px;" />
@@ -362,9 +362,9 @@
           <label class="field-label" style="display:flex;flex-direction:column;gap:4px;">
             评分下限(双低) <input v-model.number="adminDefaults.probLt" type="number" min="0" max="100" class="admin-input" style="width:110px;" />
           </label>
-          <!-- 2026-09-10 主人拍板: 单阈值硬门槛, 低于该分直接不显示(0=不限) -->
+          <!-- 2026-09-20 主人拍板: 单阈值硬门槛, 低于该分直接不显示(最低 50) -->
           <label class="field-label" style="display:flex;flex-direction:column;gap:4px;" title="单票评分低于此分直接不入选; 与「评分下限(双低)」不同, 不看可信度">
-            评分门槛 <input v-model.number="adminDefaults.scoreFloor" type="number" min="0" max="100" class="admin-input" style="width:110px;" />
+            评分门槛 <input v-model.number="adminDefaults.scoreFloor" type="number" min="50" max="100" class="admin-input" style="width:110px;" />
           </label>
           <!-- 2026-08-25 正逻辑: 勾上=只看这类票(不勾=剔除); tooltip 保留说明; 主人要求去掉"只看"二字 -->
           <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size:13px;" title="勾选后只显示昨日涨停/连板股; 不勾选则剔除">
@@ -444,7 +444,7 @@ function userVal(u) {
 // 全局默认筛选参数
 // 2026-08-25 语义改为正逻辑: limitUp/stSuspend 默认 false = 默认"剔除这类票",
 //   等价于旧默认(勾上剔除ST/剔除昨涨停) → 保持默认行为一致但 UI 直觉正确
-const adminDefaults = reactive({ bidAmtFloor: 1000, bidGt: 7, floatMvFloor: 30, floatMvGt: 1000, priceGt: 300, probLt: 65, scoreFloor: 80, limitUp: false, stSuspend: false })
+const adminDefaults = reactive({ bidAmtFloor: 1000, bidGt: 7, floatMvFloor: 30, floatMvGt: 1000, priceGt: 300, probLt: 50, scoreFloor: 50, limitUp: false, stSuspend: false })
 const savingDefaults = ref(false)
 const savingDefaultsForce = ref(false)
 const defaultsMsg = ref('')

@@ -196,21 +196,29 @@ def _snap_row(code, float_mv_yi, free_mv_yi):
                    "board": ""}}
 
 
-def test_snapshot_candidate_prefers_float_mv():
-    """B3: 49.07 亿流通 / 14.75 亿实际流通 → 按**流通**判定 → 通过 floor=30
+def test_snapshot_candidate_prefers_free_mv():
+    """B3: 门槛口径 = 自由流通市值(2026-09-20 主人拍板「所有流通市值改自由流通市值」)
 
-    9/17 反例: 优先 free_mv → 用 14.75 亿判 → 真大盘股被剔。"""
+    49.07 亿流通 / 14.75 亿自由流通 → 按**自由流通**判定 → 14.75 < floor=30 → 剔除。
+    ★ 口径反转说明: v4.11.28(2026-09-18) 曾把此处定为"只看 float_mv", 理由是
+      "free_mv 更小, 拿它判下限会误杀真大盘股"(9/17 华瓷股份 49 亿 → 14.75 亿被剔)。
+      2026-09-20 主人明确拍板统一改自由流通口径 —— 这是**产品口径决策**, 不是 bug 修复:
+      自由流通市值反映真实可流通筹码, 与本系统"竞价换手率/抢筹强度"口径一致。
+      改口径后门槛的实际效果 = 更严格(等效收紧了 30 亿下限), 属于预期行为。
+    """
     rows = _snap_row("600000", 49.07, 14.75)
-    assert "600000" in _snapshot_candidate_codes(rows, _snap_f(), set())
+    assert "600000" not in _snapshot_candidate_codes(rows, _snap_f(), set())
+    # 自由流通 49.07 亿 → 达标
+    rows2 = _snap_row("600009", 80.0, 49.07)
+    assert "600009" in _snapshot_candidate_codes(rows2, _snap_f(), set())
 
 
-def test_snapshot_candidate_passes_unknown_mv():
-    """float_mv 未知 → 放行(与 coarse_filter 同口径)
-
-    注意这里**不能**退回用 free_mv 判: free_mv(实际流通)恒 ≤ float_mv(流通),
-    拿它比下限必然误杀(free_mv 14.75 亿 < 30, 实际流通 49.07 亿完全达标)。"""
+def test_snapshot_candidate_falls_back_to_float_mv():
+    """B3-b: free_mv 缺失 → 回退 float_mv(不因换源而整批丢票)"""
+    # float_mv 49.07 亿, free_mv=0 → 回退 float_mv 判定 → 通过
     assert "600001" in _snapshot_candidate_codes(
-        _snap_row("600001", 0, 14.75), _snap_f(), set())
+        _snap_row("600001", 49.07, 0), _snap_f(), set())
+    # 两者皆 0(未知) → 放行, 由 downstream 补丁/精筛定夺
     assert "600002" in _snapshot_candidate_codes(
         _snap_row("600002", 0, 0), _snap_f(), set())
 

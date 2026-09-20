@@ -25,8 +25,15 @@ def _snap_rows():
 
 
 def _url(action):
+    # ⚠️ scoreFloor=0: 本组测试的**验证对象是「路径选择」**(凌晨走快照池点查, 不走实时
+    #   全市场), 不是评分高低。而 2026-09-10 上线的全站默认 scoreFloor=80(见 commit
+    #   9d290e4) 会把「只有 9:25 定格字段」的合成候选(评分 25~56 分)整批砍掉 →
+    #   名单恒空 → `"600001" in codes` 断言必败(2026-09-20 排查确认: 属**测试陈旧**,
+    #   非生产缺陷 —— 该 commit 未同步更新本文件)。故这里显式关闭评分下限,
+    #   让路径选择断言回到被测行为本身。点查失败降级快照行直出的用例(另有 score_floor
+    #   _exempt 豁免机制)不受本改动影响。
     return ("/api/stocks?action=%s&strategy=auction&markets=hs,cyb,kcb&bidGt=7&probLt=65"
-            "&confLt=65&floatMvGt=1000&priceGt=300&bidAmtFloor=3000" % action)
+            "&confLt=65&floatMvGt=1000&priceGt=300&bidAmtFloor=3000&scoreFloor=0" % action)
 
 
 def _mock_8am(monkeypatch):

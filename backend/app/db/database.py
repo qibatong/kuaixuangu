@@ -281,7 +281,12 @@ def init_db():
             bid_buy_amt REAL NOT NULL DEFAULT 0,
             float_mv REAL NOT NULL DEFAULT 0,
             free_mv REAL NOT NULL DEFAULT 0,
+            pre_fd_amount REAL NOT NULL DEFAULT 0,
+            fd_to_yesterday REAL NOT NULL DEFAULT 0,
+            auc_turnover REAL NOT NULL DEFAULT 0,
             warn_type INTEGER NOT NULL DEFAULT 0,
+            auc_main_net REAL NOT NULL DEFAULT 0,
+            auc_pre_vol_ratio REAL NOT NULL DEFAULT 0,
             PRIMARY KEY (date, time_point, code)
         )
     """)
@@ -313,6 +318,45 @@ def init_db():
     #   语义: 0=无异动(与历史 f630=0 同义, 评分落 default), 列 NOT NULL 故历史行回填 0。
     if "warn_type" not in bcols2:
         cur.execute("ALTER TABLE snapshot_bid ADD COLUMN warn_type INTEGER NOT NULL DEFAULT 0")
+    # 2026-09-20: 昨日封单额 + 封昨比(猫爪 screening 原生提供, 无需自算)。
+    #   来源: screening.params 不传 symbols → 全市场一次拿到的 pre_fd_amount /
+    #         fd_to_yesterday(见 meoz_client._SCREENING_FIELDS)。
+    #   语义: pre_fd_amount    昨日封单额(元) —— 昨日涨停/一字封单强度
+    #         fd_to_yesterday  封昨比 = 今日封单 ÷ 昨日封单 —— 官方成品值, 免自算;
+    #                          仅"今日有封单且昨日有封单"时有值, 其余 null
+    #   用途: 供"昨日封单强度/封单同比"类因子与展示; 与今日 bid_buy_amt 分列不混。
+    #   默认 0(NOT NULL) —— 与历史行语义一致(老行无此数据 = 0 = 无封单)。
+    #   🔴 血泪教训: 原先误加 pre_fd_break_amount / pre_fd_break_times 两列 —— 猫爪
+    #     **无此字段**, 传了即 422 → 整个 screening 调用失败。screening 字段以
+    #     ~/.meoz/cache/openapi.json 为准, 禁止凭截图推断字段名。
+    if "pre_fd_amount" not in bcols2:
+        cur.execute("ALTER TABLE snapshot_bid ADD COLUMN pre_fd_amount REAL NOT NULL DEFAULT 0")
+    if "fd_to_yesterday" not in bcols2:
+        cur.execute("ALTER TABLE snapshot_bid ADD COLUMN fd_to_yesterday REAL NOT NULL DEFAULT 0")
+    # 2026-09-20: 真实竞价换手率(猫爪 screening.auc_turnover, 自由流通股本口径, %)。
+    #   用途: 评分 activity 因子(权重 32%)直接读落库官方成品, 不再自算 bid_amt/free_mv。
+    #   默认 0(NOT NULL) —— 与历史行语义一致(老行无此数据 = 0 = 无竞价换手)。
+    if "auc_turnover" not in bcols2:
+        cur.execute("ALTER TABLE snapshot_bid ADD COLUMN auc_turnover REAL NOT NULL DEFAULT 0")
+    # 2026-09-20 (v5): 竞价主力净额(猫爪 fundflow_kp.auction_main_net_amount, 元, 9:25 起更新)。
+    #   用途: 评分 17% 异动分新因子层(主人拍板: 删加速度修正+低开 gate, 换主力净额)。
+    #   覆盖实测(2026-09-18 全市场): 非零仅 32% —— 主力净额是"有大单才有值",
+    #   0 = 竞价无大单异动(评分走该层 default, 不当惩罚)。
+    #   默认 0(NOT NULL) —— 历史行/采集失败行 = 0 = 无信号。
+    if "auc_main_net" not in bcols2:
+        cur.execute("ALTER TABLE snapshot_bid ADD COLUMN auc_main_net REAL NOT NULL DEFAULT 0")
+    # 2026-09-20: 竞昨量比(猫爪 daily_auc.auc_to_pre_auc_vol_ratio = 今竞价成交量 ÷ 昨竞价成交量)。
+    #   用途: 评分 17% 异动分「量比层」官方成品值 —— 替换原「本地自算(今额/昨额)」。
+    #   ★ 与自算对比(9-18/9-17 实测): 相关系数 0.854, 相对差异中位仅 1.6%;
+    #     官方字段更精确且无「昨额<100万失真爆炸」(官方 max 26 vs 自算 582)。
+    #   ★ 零额外调用量: daily_auc 本就在采集链(源②)里, 只是 fields 多加一字段。
+    #   默认 0(NOT NULL) —— 历史行/采集失败行 = 0 = 无官方值 → 量比层回退自算。
+    if "auc_pre_vol_ratio" not in bcols2:
+        cur.execute("ALTER TABLE snapshot_bid ADD COLUMN auc_pre_vol_ratio REAL NOT NULL DEFAULT 0")
+    # ⚠️ 历史遗留列(2026-09-20): pre_fd_break_amount / pre_fd_break_times —— 曾误加,
+    #   猫爪无此字段(传即 422)。现已无任何代码读写, 值恒为默认 0。
+    #   本机 SQLite 3.7.17 **不支持 DROP COLUMN**(需 3.35+) → 保留不动, 不影响查询与业务。
+    #   未来库重建/SQLite 升级时自然消除。
     # 密码重置令牌
     cur.execute("""
         CREATE TABLE IF NOT EXISTS reset_tokens (

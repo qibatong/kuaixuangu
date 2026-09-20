@@ -2,10 +2,10 @@
 """选股闸门测试 v4(2026-09-18 口径)
 
 唯一权威口径 = picker/mode.is_pick_open。交易日**只挡一段**:
-  [09:15:00, 09:25:35]  竞价进行中 / 当日 9_25 定格尚未落库。
+  [09:15:00, 09:25:50]  竞价进行中 / 当日 9_25 定格尚未落库。
     · 竞价过程数据每 10 秒在变 ⇒ 排出来的名单不成立;
     · 该段取数还会回退**上一交易日** 9_25(竞涨幅/竞价额整批错位, 竞涨幅权重 34%);
-    · ≥09:25:36 时间维放行, 但还须过**快照维**(当日 9_25 已落库)。
+    · ≥09:25:51 时间维放行, 但还须过**快照维**(当日 9_25 已落库)。
   00:00-09:14:59 **盘前放行**(用上交易日定格是设计内功能, 由顶栏标注来源日期明示);
   非交易日(周末/节假日)放行(回放最近交易日定格是既有功能)。
 
@@ -74,8 +74,9 @@ def test_pick_open_boundaries_seconds():
     assert pm.is_pick_open(ts(*D, 9, 19, 30)) is False
     assert pm.is_pick_open(ts(*D, 9, 24, 59)) is False
     assert pm.is_pick_open(ts(*D, 9, 25, 0)) is False     # 落库前仍在段内
-    assert pm.is_pick_open(ts(*D, 9, 25, 35)) is False    # 拦截段末(含)
-    assert pm.is_pick_open(ts(*D, 9, 25, 36)) is True     # ★ 放行(段末 + 1s)
+    assert pm.is_pick_open(ts(*D, 9, 25, 35)) is False    # 旧口径末点: 现仍在段内
+    assert pm.is_pick_open(ts(*D, 9, 25, 50)) is False    # ★ 拦截段末(含, 2026-09-19 顺延)
+    assert pm.is_pick_open(ts(*D, 9, 25, 51)) is True     # ★ 放行(段末 + 1s)
     assert pm.is_pick_open(ts(*D, 9, 26, 0)) is True      # v4.11.22 旧口径的开放点
     assert pm.is_pick_open(ts(*D, 9, 30, 0)) is True
     assert pm.is_pick_open(ts(*D, 14, 59, 59)) is True
@@ -97,6 +98,10 @@ def test_auction_window_must_be_blocked():
             assert pm.is_pick_open(ts(*D, 9, mm, ss)) is False, "9:%02d:%02d" % (mm, ss)
     for ss in range(60):                                  # 09:24:00-09:24:59 全秒
         assert pm.is_pick_open(ts(*D, 9, 24, ss)) is False, "9:24:%02d" % ss
+    for ss in range(51):                                  # 09:25:00-09:25:50 全秒(2026-09-19 顺延)
+        assert pm.is_pick_open(ts(*D, 9, 25, ss)) is False, "9:25:%02d" % ss
+    for ss in range(51, 60):                              # 09:25:51-09:25:59 全秒放行
+        assert pm.is_pick_open(ts(*D, 9, 25, ss)) is True, "9:25:%02d" % ss
 
 
 def test_preopen_window_must_be_open_incident_regression():
@@ -129,21 +134,21 @@ def test_pick_resume_at_matches_segments():
     assert pm.pick_resume_at(ts(*D, 8, 0)) == ""
     assert pm.pick_resume_at(ts(*D, 9, 5)) == ""          # 盘前已放行
     assert pm.pick_resume_at(ts(*D, 9, 14, 59)) == ""
-    assert pm.pick_resume_at(ts(*D, 9, 15, 0)) == "09:25:36"
-    assert pm.pick_resume_at(ts(*D, 9, 19, 30)) == "09:25:36"
-    assert pm.pick_resume_at(ts(*D, 9, 25, 10)) == "09:25:36"
-    assert pm.pick_resume_at(ts(*D, 9, 25, 35)) == "09:25:36"
-    assert pm.pick_resume_at(ts(*D, 9, 25, 36)) == ""
+    assert pm.pick_resume_at(ts(*D, 9, 15, 0)) == "09:25:51"
+    assert pm.pick_resume_at(ts(*D, 9, 19, 30)) == "09:25:51"
+    assert pm.pick_resume_at(ts(*D, 9, 25, 10)) == "09:25:51"
+    assert pm.pick_resume_at(ts(*D, 9, 25, 50)) == "09:25:51"
+    assert pm.pick_resume_at(ts(*D, 9, 25, 51)) == ""
 
 
 # ------------------------------------------------------- 2. 双闸门组合
 def test_blocked_auction_segment(snap_ok):
-    """竞价段 9:15:00-9:25:35 一律拦(时间维), 与快照是否存在无关
+    """竞价段 9:15:00-9:25:50 一律拦(时间维), 与快照是否存在无关
 
-    实测落库时刻 09:25:23~09:25:32 全在段内 —— 这正是设 09:25:35 上界的依据。
+    实测落库时刻 09:25:23~09:25:32 全在段内 —— 这正是设 09:25:50 上界的依据。
     """
     for t in (ts(*D, 9, 15, 0), ts(*D, 9, 19, 30), ts(*D, 9, 24, 59),
-              ts(*D, 9, 25, 0), ts(*D, 9, 25, 23), ts(*D, 9, 25, 32), ts(*D, 9, 25, 35)):
+              ts(*D, 9, 25, 0), ts(*D, 9, 25, 23), ts(*D, 9, 25, 32), ts(*D, 9, 25, 50)):
         assert stocks_api._pick_blocked_reason(t) == pm.PICK_BLOCK_MSG_TIME
 
 
@@ -158,14 +163,14 @@ def test_preopen_not_blocked_even_without_snapshot(snap_missing):
 
 
 def test_blocked_when_snapshot_missing(snap_missing):
-    """≥9:25:36 但当日定格未落库 → 继续拦(防重采越过放行点时静默回退昨日)"""
-    for t in (ts(*D, 9, 25, 36), ts(*D, 9, 27), ts(*D, 10, 30)):
+    """≥9:25:51 但当日定格未落库 → 继续拦(防重采越过放行点时静默回退昨日)"""
+    for t in (ts(*D, 9, 25, 51), ts(*D, 9, 27), ts(*D, 10, 30)):
         assert stocks_api._pick_blocked_reason(t) == pm.PICK_BLOCK_MSG_SNAP
 
 
 def test_pass_when_all_clear(snap_ok):
-    """≥9:25:36 + 当日定格已落库 → 放行"""
-    for t in (ts(*D, 9, 25, 36), ts(*D, 10, 0), ts(*D, 15, 30)):
+    """≥9:25:51 + 当日定格已落库 → 放行"""
+    for t in (ts(*D, 9, 25, 51), ts(*D, 10, 0), ts(*D, 15, 30)):
         assert stocks_api._pick_blocked_reason(t) is None
 
 
@@ -177,9 +182,9 @@ def test_offday_pass_even_without_snapshot(snap_missing):
 
 def test_blocked_until_matches_segment():
     """_pick_blocked_until 与拦截段一致(前端据此提示"何时恢复")"""
-    assert stocks_api._pick_blocked_until(ts(*D, 9, 5)) == "09:25:36"     # 非拦截 → 兜底
-    assert stocks_api._pick_blocked_until(ts(*D, 9, 19)) == "09:25:36"
-    assert stocks_api._pick_blocked_until(ts(*D, 9, 25, 10)) == "09:25:36"
+    assert stocks_api._pick_blocked_until(ts(*D, 9, 5)) == "09:25:51"     # 非拦截 → 兜底
+    assert stocks_api._pick_blocked_until(ts(*D, 9, 19)) == "09:25:51"
+    assert stocks_api._pick_blocked_until(ts(*D, 9, 25, 10)) == "09:25:51"
 
 
 # ------------------------------------------------------- 3. 接口级

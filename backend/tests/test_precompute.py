@@ -77,7 +77,9 @@ def test_precompute_roundtrip():
     for c, r in rows.items():
         assert got_rows[c].bid_change == r.bid_change
         assert got_rows[c].bid_amt == r.bid_amt
-        assert got_rows[c].float_mv == r.float_mv
+        # ★ 2026-09-20: 物化表 float_mv 列存的是**统一市值 mv**(free 优先, 缺则 float),
+        #   读回时回填到 free_mv → 校验去留后的统一口径, 而非原 float_mv 列。
+        assert got_rows[c].mv == r.mv
         assert got_rows[c].prev_close == r.prev_close
         assert got_rows[c].yesterday_change == r.yesterday_change
         assert 5 <= got_scores[c].probability <= 95

@@ -17,7 +17,8 @@ const props = defineProps({
 })
 
 const pool = usePoolStore()
-const inPool = computed(() => pool.stockPool.some(x => x.code === props.item.code))
+// 2026-09-20 性能优化: 用 codeSet(Set 索引) 替代 stockPool.some() —— 数千行时 O(1) vs O(n)
+const inPool = computed(() => pool.codeSet.has(props.item.code))
 
 function add() {
   const n = pool.addStocks([props.item])

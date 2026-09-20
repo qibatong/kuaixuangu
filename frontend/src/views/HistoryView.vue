@@ -53,7 +53,6 @@
                       <th class="sortable" :class="{ active: batchSort.keyOf('bid_change') }" @click="batchSort.onSort('bid_change')">竞价涨幅<span class="sort-ind">{{ batchSort.ind('bid_change') }}</span></th>
                       <th class="sortable" :class="{ active: batchSort.keyOf('real_change') }" @click="batchSort.onSort('real_change')">实时涨幅<span class="sort-ind">{{ batchSort.ind('real_change') }}</span></th>
                       <th class="sortable" :class="{ active: batchSort.keyOf('entity_change') }" @click="batchSort.onSort('entity_change')">实体涨幅<span class="sort-ind">{{ batchSort.ind('entity_change') }}</span></th>
-                      <th class="sortable" :class="{ active: batchSort.keyOf('warn_type') }" @click="batchSort.onSort('warn_type')">异动<span class="sort-ind">{{ batchSort.ind('warn_type') }}</span></th>
                       <th class="sortable" :class="{ active: batchSort.keyOf('bid_amt') }" @click="batchSort.onSort('bid_amt')">竞价金额(万)<span class="sort-ind">{{ batchSort.ind('bid_amt') }}</span></th>
                       <th class="sortable" :class="{ active: batchSort.keyOf('bid_ratio') }" @click="batchSort.onSort('bid_ratio')">竞价/昨比<span class="sort-ind">{{ batchSort.ind('bid_ratio') }}</span></th>
                       <th class="sortable" :class="{ active: batchSort.keyOf('circulation_mv') }" @click="batchSort.onSort('circulation_mv')">流通市值(亿)<span class="sort-ind">{{ batchSort.ind('circulation_mv') }}</span></th>
@@ -69,7 +68,6 @@
                       <td :class="chgCls(s.bid_change)">{{ chgPct(s.bid_change) }}</td>
                       <td :class="chgCls(s.real_change)">{{ chgPct(s.real_change) }}</td>
                       <td :class="chgCls(s.entity_change)">{{ chgPct(s.entity_change) }}</td>
-                      <td>{{ warnLabel(s.warn_type) }}</td>
                       <td>{{ bidAmtText(s.bid_amt) }}</td>
                       <td :class="ratioCls(s.bid_ratio)">{{ ratioText(s.bid_ratio) }}</td>
                       <td>{{ fmtNum(s.circulation_mv, 1) }}</td>
@@ -155,7 +153,6 @@
                     <th class="sortable" :class="{ active: querySort.keyOf('bid_change') }" @click="querySort.onSort('bid_change')">竞价涨幅<span class="sort-ind">{{ querySort.ind('bid_change') }}</span></th>
                     <th class="sortable" :class="{ active: querySort.keyOf('real_change') }" @click="querySort.onSort('real_change')">实时涨幅<span class="sort-ind">{{ querySort.ind('real_change') }}</span></th>
                     <th class="sortable" :class="{ active: querySort.keyOf('entity_change') }" @click="querySort.onSort('entity_change')">实体涨幅<span class="sort-ind">{{ querySort.ind('entity_change') }}</span></th>
-                    <th class="sortable" :class="{ active: querySort.keyOf('warn_type') }" @click="querySort.onSort('warn_type')">异动<span class="sort-ind">{{ querySort.ind('warn_type') }}</span></th>
                     <th class="sortable" :class="{ active: querySort.keyOf('bid_amt') }" @click="querySort.onSort('bid_amt')">竞价金额(万)<span class="sort-ind">{{ querySort.ind('bid_amt') }}</span></th>
                     <th class="sortable" :class="{ active: querySort.keyOf('bid_ratio') }" @click="querySort.onSort('bid_ratio')">竞价/昨比<span class="sort-ind">{{ querySort.ind('bid_ratio') }}</span></th>
                     <th class="sortable" :class="{ active: querySort.keyOf('circulation_mv') }" @click="querySort.onSort('circulation_mv')">流通市值(亿)<span class="sort-ind">{{ querySort.ind('circulation_mv') }}</span></th>
@@ -172,7 +169,6 @@
                     <td :class="chgCls(s.bid_change)">{{ chgPct(s.bid_change) }}</td>
                     <td :class="realCls(s)">{{ chgPct(s.real_change) }}</td>
                     <td :class="chgCls(s.entity_change)">{{ chgPct(s.entity_change) }}</td>
-                    <td>{{ warnLabel(s.warn_type) }}</td>
                     <td>{{ bidAmtText(s.bid_amt) }}</td>
                     <td :class="ratioCls(s.bid_ratio)">{{ ratioText(s.bid_ratio) }}</td>
                     <td>{{ fmtNum(s.circulation_mv, 1) }}</td><td>{{ s.industry }}</td>
@@ -342,7 +338,6 @@ function chgCls(v) {
   if (v === null || v === undefined || isNaN(v)) return 'dim'
   return v > 0 ? 'up' : 'down'
 }
-function warnLabel(w) { return w === 5 ? '强' : w === 4 ? '⚡中' : w === 3 ? '↑弱' : '-' }
 function bidAmtText(amt) {
   if (amt === null || amt === undefined || isNaN(amt)) return '—'
   return amt >= 10000 ? (amt / 10000).toFixed(2) + '亿' : Number(amt).toFixed(0)

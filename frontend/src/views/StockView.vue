@@ -359,16 +359,9 @@ body[data-bg="light"] .freeze-notice b { color: #8a5500; }
 .home-col-left .filter-apply { padding: 3px 8px; font-size: 11px; }
 .home-col-left .filter-reset,
 .home-col-left .filter-lock { padding: 3px 7px; font-size: 11px; }
-/* 左栏奖牌区紧凑 (奖牌内容在子组件 MedalPanel 内, 需 :deep 才能命中) */
+/* 左栏奖牌区 (2026-09-20 回滚三张卡布局; 字号由 MedalPanel scoped + main.css 统一控制,
+   不再需要 :deep 覆盖子元素字号 —— 旧 40px/18px 大字覆盖是"字体不统一"的元凶, 保持删除) */
 .home-col-left .medal-section { padding: 5px; margin: 4px 0; gap: 8px; border-radius: 8px; }
-.home-col-left :deep(.medal-card) { padding: 6px 4px; gap: 3px; border-radius: 8px; }
-.home-col-left :deep(.medal-rank) { font-size: 16px; }
-.home-col-left :deep(.medal-name-big) { font-size: 18px; }
-.home-col-left :deep(.medal-code) { font-size: 16px; }
-.home-col-left :deep(.medal-real-big) { font-size: 40px; margin: 0; }
-.home-col-left :deep(.medal-bid-sm) { font-size: 15px; }
-.home-col-left :deep(.medal-score-row) { font-size: 15px; gap: 5px; }
-.home-col-left :deep(.qc-badge) { font-size: 13px; top: 2px; right: 2px; }
 @media (max-width: 1099px) {
   .alert-rule.alert-rule-compact { flex-wrap: wrap; gap: 6px; }
 }
