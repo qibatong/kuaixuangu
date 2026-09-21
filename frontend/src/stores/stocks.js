@@ -92,6 +92,10 @@ export const useStocksStore = defineStore('stocks', {
     // (主人 9/18 反馈「刷出来是昨天的数据」即这类误解)。
     freezeDate: '',            // 后端 /api/stocks 返回的 freezeDate(名单所用定格日期)
     freezeIsToday: true,       // == 当日? false 时顶栏出标注条
+    // 2026-09-21 会员体系: 选股配额超限(后端 429 code=quota_exceeded) → 页面显示开通引导。
+    // quotaInfo 透传 {feature, feature_label, limit, used} 供 VipGate 配额模式渲染。
+    quotaExceeded: false,
+    quotaInfo: null,
   }),
   actions: {
     // ---- 筛选参数(盘中/竞价共用 filterSettings) ----
@@ -113,6 +117,15 @@ export const useStocksStore = defineStore('stocks', {
     clearPickBlocked() {
       this.pickBlocked = false
       this.pickBlockedMsg = ''
+    },
+    // ---- 2026-09-21 配额超限标记 ----
+    markQuotaExceeded(info) {
+      this.quotaExceeded = true
+      this.quotaInfo = info || null
+    },
+    clearQuotaExceeded() {
+      this.quotaExceeded = false
+      this.quotaInfo = null
     },
     /**
      * 闸门定时器调用(StockView 每 20s 一次)。
@@ -417,6 +430,17 @@ export const useStocksStore = defineStore('stocks', {
       } catch (e) {
         // 后端快照维拦截(≥9:26 但当日 9:25 定格尚未落库): 标记等待, 不算失败
         if (e && e.blocked) { this.markPickBlocked(e.msg || PICK_BLOCK_MSG_TIME); return }
+        // 配额超限(2026-09-21 会员体系): 429 code=quota_exceeded → 标记配额, 由页面显示开通引导
+        if (e && (e.code === 'quota_exceeded' || e.status === 429)) {
+          this.markQuotaExceeded({
+            feature: e.feature || 'picker',
+            feature_label: e.feature_label || '选股快照',
+            limit: e.limit || 0,
+            used: e.used || 0,
+            reason: e.reason || '',
+          })
+          return
+        }
         throw e
       }
       this.clearPickBlocked()

@@ -109,9 +109,9 @@ def test_paging_minor_failures_not_treated_as_source_down(monkeypatch):
 # ---------- 4. 登录链路不进 anyio 线程池 ----------
 
 def test_login_routes_are_async():
-    """登录/邮箱验证/探活必须为 async: 同步 def 会被慢请求堵在 anyio 线程池里排队"""
+    """登录/探活必须为 async: 同步 def 会被慢请求堵在 anyio 线程池里排队。
+    2026-09-21: 邮箱验证链路已下线(api_verify_email/api_resend_verify 删除),
+    改为断言新注册链路的 async 要求 —— 注册页发验证码要走短信 IO, 同样不许进 anyio 池。"""
     from app.api import auth, health
     assert inspect.iscoroutinefunction(auth.api_login)
-    assert inspect.iscoroutinefunction(auth.api_verify_email)
-    assert inspect.iscoroutinefunction(auth.api_resend_verify)
     assert inspect.iscoroutinefunction(health.api_health)

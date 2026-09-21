@@ -54,7 +54,13 @@
             </div>
             <!-- 会员门禁: 竞价选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
             <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价选股" />
-            <template v-if="user.isMember || !isMemberOnlyTime()">
+            <!-- 配额门禁(2026-09-21 会员体系): 免费用户每日有限次数, 用尽后 VipGate 转配额引导模式 -->
+            <VipGate
+              v-else-if="stocks.quotaExceeded"
+              ref="pickGateRef"
+              title="竞价选股"
+            />
+            <template v-else-if="user.isMember || !isMemberOnlyTime()">
               <!-- 5-1: 奖牌区已降级为 StockTable 行内徽标(前三行), 此处不再渲染三张重复卡片 -->
               <!-- 主表 -->
               <div v-if="!stocks.isDataCached" class="stock-table-container">
@@ -79,7 +85,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FilterPanel from '../components/FilterPanel.vue'
 import SentimentPanel from '../components/SentimentPanel.vue'
 import StockTable from '../components/StockTable.vue'
@@ -101,6 +107,8 @@ const pool = usePoolStore()
 const user = useUserStore()
 const bjTime = ref('--:--:--')
 const bidSealMap = ref({})        // 竞价涨停委买额 map: code -> {limitBoards, bidSealAmt, bidNetAmt}
+// 配额引导页引用(2026-09-21): stocks.quotaExceeded 时把 detail 塞进 VipGate 配额模式
+const pickGateRef = ref(null)
 const { refreshYidongCodes } = useYidongMonitor()
 
 // 2026-09-01: 左视图模式切换 竞价 / AI预测(原"盘中"已被 AI预测替换)
@@ -126,6 +134,14 @@ let autoAddTimer = null
 let expiryTimer = null
 let realTimeTimer = null
 let pickGateTimer = null    // 2026-09-16 选股闸门巡检(9:26 到点自动解禁)
+
+// 配额超限后, 把 detail 塞进 VipGate 的配额模式(2026-09-21)
+watch(() => stocks.quotaExceeded, (v) => {
+  if (!v) return
+  nextTick(() => {
+    if (pickGateRef.value && pickGateRef.value.openQuota) pickGateRef.value.openQuota(stocks.quotaInfo)
+  })
+})
 
 async function init() {
   user.migrateLegacyKeys()

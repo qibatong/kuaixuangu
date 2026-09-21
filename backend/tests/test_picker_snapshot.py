@@ -107,13 +107,37 @@ def test_switch_off_returns_disabled(client, vip_user):
 
 
 # ==================== 4. 门禁与正常下发 ====================
-def test_requires_vip(client, second_user):
-    """免费账号(member_level=0) → 403(全市场数据不下发给免费账号)"""
+def test_free_user_gets_quota_not_403(client, second_user):
+    """2026-09-21 配额制: 免费账号不再 403, 而是在配额内可正常取数。
+    (原来免费账号拿不到全市场数据 → 现在改为每日 3 次配额, 用超才 429)"""
     token = second_user[0]
     settings.set(api_picker.SWITCH, 1)
     _seed(3)
     r = client.get("/api/picker/snapshot?token=%s&date=%s" % (token, _DATE))
-    assert r.status_code == 403
+    assert r.status_code == 200
+    assert r.json().get("enabled") is True
+
+
+def test_free_user_quota_exceeded_429(client, create_user_token):
+    """免费账号超额 → 429 + code=quota_exceeded(前端据此弹开通引导)"""
+    from app.core import config
+    from app.db import database
+    from app.services import quota as quota_svc
+    u = create_user_token(member_level=0)
+    token, uname = u["token"], u["username"]
+    conn = database.get_conn()
+    row = conn.execute("SELECT id FROM users WHERE username=?", (uname,)).fetchone()
+    conn.close()
+    uid = int(row[0])
+    settings.set(api_picker.SWITCH, 1)
+    _seed(2)
+    quota_svc.reset_user(uid, "picker", bonus=True)
+    # 手动把额度耗尽
+    for _ in range(int(config.QUOTA_PICKER_DAILY) + 1):
+        quota_svc.consume(uid, "picker", dedup=False)
+    r = client.get("/api/picker/snapshot?token=%s&date=%s" % (token, _DATE))
+    assert r.status_code == 429
+    assert r.json().get("detail", {}).get("code") == "quota_exceeded"
 
 
 def test_enabled_returns_all_rows(client, vip_user):

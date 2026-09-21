@@ -17,6 +17,9 @@
       <!-- 用户统计卡片 -->
       <StatCards :stats="stats" />
 
+      <!-- 会员运营中心(2026-09-21 会员体系): 运营看板/到期预警/风控/邀请榜/审计/权益配置/导入导出 -->
+      <MemberAdminPanel @open-detail="openUserDetail" />
+
       <!-- 用户列表 -->
       <div class="admin-card">
         <div class="card-title">
@@ -392,6 +395,7 @@
         <div v-if="menuUid !== null && menuRect" class="row-menu"
              :style="{ position:'fixed', top: menuRect.top+'px', left: menuRect.left+'px' }"
              @click.stop>
+          <button class="row-menu-item" @click="menuAction(currentMenuUser, 'detail')">🔎 用户详情</button>
           <button class="row-menu-item" @click="menuAction(currentMenuUser, 'profile')">📝 编辑资料</button>
           <button class="row-menu-item" @click="menuAction(currentMenuUser, 'invites')">👥 邀请关系</button>
           <template v-if="currentMenuUser && !currentMenuUser.is_admin">
@@ -418,6 +422,9 @@
           </div>
         </div>
       </Teleport>
+
+      <!-- 用户详情抽屉(2026-09-21) -->
+      <UserDetailDrawer ref="detailDrawer" @goto-expire="onDrawerGotoExpire" />
     </template>
   </div>
 </template>
@@ -431,6 +438,8 @@ import { expireState } from '../utils/admin'
 import { fmtBjDay, fmtTsTime } from '../utils/time'
 import StatCards from '../components/admin/StatCards.vue'
 import PlaybackCard from '../components/admin/PlaybackCard.vue'
+import MemberAdminPanel from '../components/MemberAdminPanel.vue'
+import UserDetailDrawer from '../components/UserDetailDrawer.vue'
 
 // 表格排序实例(用户列表)
 const userSort = useSortable()
@@ -552,7 +561,22 @@ function menuAction(u, act) {
     else if (act === 'pwd') openPwdReset(u)
     else if (act === 'delete') deleteUser(u)
     else if (act === 'invites') openInvites(u)
+    else if (act === 'detail') openUserDetail(u.id)
   }
+}
+
+/* ---- 用户详情抽屉(2026-09-21) ---- */
+const detailDrawer = ref(null)
+function openUserDetail(uid) {
+  if (detailDrawer.value) detailDrawer.value.show(uid)
+}
+// 抽屉里点「设置到期」: 关掉抽屉, 打开该行的期限面板
+function onDrawerGotoExpire(uid) {
+  const u = rows.value.find((x) => x.id === uid)
+  if (!u) { toast('该用户不在当前页，请先搜索定位', 'warning'); return }
+  menuUid.value = uid
+  menuSection.value = 'expire'
+  setTimeout(setMenuRect, 0)
 }
 function onDocClick(e) {
   if (!e.target.closest('.expire-cell') && !e.target.closest('.row-actions')) {

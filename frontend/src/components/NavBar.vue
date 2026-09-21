@@ -76,6 +76,8 @@
 
       <div v-else class="user-tools">
         <router-link to="/login" class="mini-btn login-btn">登录</router-link>
+        <!-- 2026-09-21 注册放开: 未登录时暴露注册入口 -->
+        <router-link v-if="regOpen" :to="{ path: '/login', query: { mode: 'register' } }" class="mini-btn reg-btn">注册</router-link>
       </div>
       <!-- 下拉菜单: Teleport 到 body — 2026-08-18 iOS Safari 修复:
            fixed 元素在 .nav-tools(overflow滚动容器)内会被 Safari 当容器内容处理 → 被视图遮挡;
@@ -110,6 +112,7 @@
             </div>
           </div>
           <div class="menu-sep"></div>
+          <button class="menu-item" @click="menuOpen = false; router.push('/member')"><i class="fa fa-crown"></i> 我的会员</button>
           <button class="menu-item" @click="menuOpen = false; profileModal.open()"><i class="fa fa-id-card"></i> 个人信息</button>
           <button class="menu-item" @click="menuOpen = false; changePwdModal.open()"><i class="fa fa-key"></i> 修改密码</button>
           <button class="menu-item menu-logout" @click="menuOpen = false; logout()"><i class="fa fa-sign-out"></i> 退出登录</button>
@@ -138,6 +141,8 @@ const { bg, font, fontFam, setBg, setFont, setFontFam } = useTheme()
 
 const changePwdModal = ref(null)
 const profileModal = ref(null)
+// 注册入口开关(2026-09-21 放开注册, 由后端 /api/register/config 决定)
+const regOpen = ref(true)
 // 用户名下拉菜单
 const menuOpen = ref(false)
 const userDropdown = ref(null)
@@ -176,6 +181,12 @@ function onDocClick(e) {
 onMounted(() => {
   document.addEventListener('click', onDocClick)
   window.addEventListener('scroll', onScrollClose, true)   // 捕获阶段: 任何滚动容器滚动都关闭
+  // 注册开关: 未登录时才查, 决定是否显示「注册」入口
+  if (!user.isLoggedIn) {
+    import('../api/auth').then(({ registerConfig }) => {
+      registerConfig().then((d) => { regOpen.value = d.open !== false }).catch(() => {})
+    }).catch(() => {})
+  }
 })
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick)
@@ -441,6 +452,8 @@ body[data-bg="black"] .menu-fontfam { border-color: #2a2a2a; }
 .mini-btn:hover { background: var(--bg-hover); color: var(--text-main); border-color: var(--accent); }
 .logout-btn:hover { color: #ff6a6a; border-color: #ff6a6a; }
 .login-btn { color: var(--accent); border-color: var(--accent); }
+.reg-btn { color: #fff; background: var(--accent); border-color: var(--accent); }
+.reg-btn:hover { background: var(--accent); color: #fff; filter: brightness(1.1); }
 
 /* 会员等级标识 */
 .member-badge {

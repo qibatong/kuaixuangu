@@ -2,21 +2,38 @@
 import { request } from './request'
 
 export function login(body) {
-  // body: { login: 用户名/手机号/邮箱, password }
+  // body: { login: 用户名/手机号, password }
   return request('/api/login', { method: 'POST', auth: false, body })
 }
-
-
 
 export function changePassword(old_password, new_password) {
   return request('/api/change-password', { method: 'POST', body: { old_password, new_password } })
 }
 
-export function forgot(email) {
-  return request('/api/forgot', { method: 'POST', auth: false, body: { email } })
+/* ---------------- 注册(手机号 + 验证码, 2026-09-21 放开) ---------------- */
+
+// 注册开关与赠送天数
+export function registerConfig() {
+  return request('/api/register/config', { auth: false })
 }
 
-// 找回密码-短信验证码(2026-08-30)
+// 发送注册验证码(手机号已注册 → 409)
+export function sendRegisterSms(phone) {
+  return request('/api/register/send', { method: 'POST', auth: false, body: { phone } })
+}
+
+// body: { phone, code, password, invite_code? }
+export function register(body) {
+  return request('/api/register', { method: 'POST', auth: false, body })
+}
+
+// 邀请码prefill: 返回邀请人打码名 + 奖励天数; 无效 → 404
+export function inviteInfo(code) {
+  return request('/api/invite-info', { auth: false, query: { code } })
+}
+
+/* ---------------- 找回密码(手机号) ---------------- */
+
 export function sendForgotSms(phone) {
   return request('/api/forgot-phone/send', { method: 'POST', auth: false, body: { phone } })
 }
@@ -25,9 +42,11 @@ export function resetByPhone(phone, code, password) {
   return request('/api/reset-by-phone', { method: 'POST', auth: false, body: { phone, code, new_password: password } })
 }
 
-export function reset(token, password) {
-  return request('/api/reset', { method: 'POST', auth: false, body: { token, password } })
+export function forgotCheck(login) {
+  return request('/api/forgot/check', { method: 'POST', auth: false, body: { login } })
 }
+
+/* ---------------- 个人资料 ---------------- */
 
 export function ping() {
   return request('/api/stocks?action=ping')
@@ -39,17 +58,4 @@ export function getProfile() {
 
 export function updateProfile(body) {
   return request('/api/profile', { method: 'POST', body })
-}
-
-export function forgotCheck(login) {
-  return request('/api/forgot/check', { method: 'POST', auth: false, body: { login } })
-}
-
-// 邮箱认证(2026-08-17): 新注册强制验证
-export function verifyEmail(uid, code) {
-  return request('/api/verify-email', { method: 'POST', auth: false, body: { uid, code } })
-}
-
-export function resendVerify(uid) {
-  return request('/api/resend-verify', { method: 'POST', auth: false, body: { uid } })
 }

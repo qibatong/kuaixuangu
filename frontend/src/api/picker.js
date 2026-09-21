@@ -2,10 +2,11 @@
 import { request } from './request'
 
 // 当日全市场预计算评分快照 —— 前端据此在浏览器内完成筛选(改条件秒出)。
-// 后端 frontend_local_filter 开关关闭 / 物化表不可用 / 非 VIP 时:
+// 后端 frontend_local_filter 开关关闭 / 物化表不可用 / 配额用尽时:
 //   * 开关关与表不可用 → {ok:true, enabled:false, list:[]}
-//   * 非 VIP          → HTTP 403
-// 两种都不是故障, 调用方一律**静默回退**原后端筛选路径(不重试、不打扰用户)。
+//   * 配额用尽(2026-09-21) → HTTP 429, detail.code = 'quota_exceeded'
+//     (带 feature/feature_label/limit/used, 由调用方弹「我的会员」引导)
+// 都不是故障, 开关/表不可用时**静默回退**原后端筛选路径(不重试、不打扰用户)。
 export function fetchPickerSnapshot(date) {
   return request('/api/picker/snapshot', { query: date ? { date } : {} })
 }

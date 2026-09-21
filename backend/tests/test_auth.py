@@ -1,17 +1,55 @@
 # -*- coding: utf-8 -*-
-"""认证相关测试: 注册已关闭(403)/登录/鉴权/改密/踢下线"""
+"""认证相关测试: 注册(手机号+验证码)/登录/鉴权/改密/踢下线"""
+import uuid
 
 
-def test_register_disabled(client):
-    """注册已关闭(合规2026-08-25): 任何注册请求都返回 403, 且不创建用户"""
-    import uuid
-    uname = "reg_" + uuid.uuid4().hex[:8]
+def test_register_requires_phone_and_code(client):
+    """2026-09-21 放开注册: 手机号注册须带验证码。
+    缺验证码 → 400 (不是 403, 注册本身已开放)"""
     phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
-    email = uuid.uuid4().hex[:8] + "@test.local"
-    r = client.post("/api/register", json={"username": uname, "password": "Test123456",
-                                           "phone": phone, "email": email})
-    assert r.status_code == 403
-    assert "停止" in r.json().get("msg", "") or "开通账号" in r.json().get("msg", "")
+    r = client.post("/api/register", json={"phone": phone, "password": "Test123456"})
+    assert r.status_code == 400
+    assert "验证码" in r.json().get("msg", "")
+
+
+def test_register_bad_phone_format(client):
+    """手机号格式错 → 400"""
+    r = client.post("/api/register", json={"phone": "12345", "code": "123456",
+                                           "password": "Test123456"})
+    assert r.status_code == 400
+    assert "手机号" in r.json().get("msg", "")
+
+
+def test_register_short_password(client):
+    """密码 <6 位 → 400(在短信校验之前拦截, 不浪费短信)"""
+    phone = "138" + str(uuid.uuid4().int % 100000000).zfill(8)
+    r = client.post("/api/register", json={"phone": phone, "code": "123456",
+                                           "password": "123"})
+    assert r.status_code == 400
+    assert "6 位" in r.json().get("msg", "") or "6位" in r.json().get("msg", "")
+
+
+def test_register_config_endpoint(client):
+    """注册页配置: 开放状态 + 赠送天数(前端不硬编码)"""
+    r = client.get("/api/register/config")
+    assert r.status_code == 200
+    j = r.json()
+    assert j["ok"] is True
+    assert "open" in j and "gift_days" in j
+    assert j["gift_days"] >= 0
+
+
+def test_invite_info_invalid_code(client):
+    """邀请码预校验: 无效码 404"""
+    r = client.get("/api/invite-info?code=ZZZZZZZZ")
+    assert r.status_code == 404
+
+
+# 旧行为(2026-08-25 起注册关闭)已由放开注册取代, 保留一个回归断言防止误关:
+def test_register_not_hard_disabled(client):
+    """注册端点不再无条件 403(避免回退到「停止注册」状态)"""
+    r = client.post("/api/register", json={})
+    assert r.status_code != 403
 
 
 def test_login_ok(client, create_user_token):
@@ -95,15 +133,18 @@ def test_change_password_flow(client, create_user_token):
     assert r.status_code == 200 and r.json().get("token")
 
 
-def test_register_disabled_does_not_rate_limit(create_user_token):
-    """注册关闭后 register_allowed 防刷逻辑不再被注册接口触发(接口直接 403)。
-    保留 register_allowed 自身健全性检查(绕过注册接口调用真实函数)。"""
+def test_register_ip_limit_functions_healthy(create_user_token):
+    """注册防刷函数健全性: register_allowed / register_ip_day_allowed 在正常 IP 下放行。
+    2026-09-21 放开注册后这两个函数重新被注册接口调用, 需保证语义正确。"""
     from app.services import cache_store
     from app.services import security
     test_ip = "9.9.9.99_inv"
     cache_store.store.delete("reg:%s" % test_ip)
+    cache_store.store.delete("regip:%s" % test_ip)
     assert security.register_allowed(test_ip) is True
+    assert security.register_ip_day_allowed(test_ip) is True
     cache_store.store.delete("reg:%s" % test_ip)
+    cache_store.store.delete("regip:%s" % test_ip)
 
 
 def hdrs(token):

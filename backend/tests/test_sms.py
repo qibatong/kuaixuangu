@@ -99,6 +99,55 @@ def test_sms_send_code_custom(client, first_user, monkeypatch):
     assert captured.get("phone") == "13800138002"
 
 
+# ---------- 反代真实 IP 透传 (2026-09-21) ----------
+# 背景: Nginx 反代后 request.client.host 恒为 127.0.0.1, 会让全站用户
+# 共用一个 sms:ip:* 限流桶(一个人发多了所有人被 429)。
+# sms.py 必须改用 deps.client_ip (优先 X-Forwarded-For / X-Real-IP)。
+
+def test_sms_send_uses_forwarded_ip(client, monkeypatch):
+    """★ 反代透传: X-Forwarded-For 的 IP 应进入 sms:ip:* 限流桶, 而非 127.0.0.1"""
+    from app.core import config
+    from app.services.cache_store import store
+    monkeypatch.setattr(config, "SMS_SEND_INTERVAL", 60)
+    monkeypatch.setattr(sms_verify, "send_code", lambda *a, **k: (True, "OK"))
+    monkeypatch.setenv("ALIYUN_AK_ID", "test_ak")
+    monkeypatch.setenv("ALIYUN_AK_SECRET", "test_sk")
+    import app.core.config as cfg
+    monkeypatch.setattr(cfg, "SMS_SIGN_NAME", "签名")
+    monkeypatch.setattr(cfg, "SMS_TEMPLATE_CODE", "TPL001")
+
+    # 清掉可能残留的同 IP 桶, 保证断言确定
+    store.clear_prefix("sms:ip:")
+    real_ip = "203.0.113.77"
+    r = client.post("/api/sms/send", json={"phone": "13800138888", "scene": "register"},
+                    headers={"X-Forwarded-For": real_ip})
+    assert r.status_code == 200
+
+    assert store.get("sms:ip:%s" % real_ip) is not None, \
+        "X-Forwarded-For 的真实 IP 未进入限流桶(说明仍在用 request.client.host)"
+    assert store.get("sms:ip:127.0.0.1") is None, \
+        "限流桶被写成了 127.0.0.1(反代场景下全站共用一个桶)"
+
+
+def test_sms_send_x_real_ip_fallback(client, monkeypatch):
+    """只有 X-Real-IP (无 XFF) 时也应透传"""
+    from app.services.cache_store import store
+    monkeypatch.setattr(sms_verify, "send_code", lambda *a, **k: (True, "OK"))
+    monkeypatch.setenv("ALIYUN_AK_ID", "test_ak")
+    monkeypatch.setenv("ALIYUN_AK_SECRET", "test_sk")
+    import app.core.config as cfg
+    monkeypatch.setattr(cfg, "SMS_SIGN_NAME", "签名")
+    monkeypatch.setattr(cfg, "SMS_TEMPLATE_CODE", "TPL001")
+
+    store.clear_prefix("sms:ip:")
+    real_ip = "198.51.100.23"
+    r = client.post("/api/sms/send", json={"phone": "13800138899", "scene": "register"},
+                    headers={"X-Real-IP": real_ip})
+    assert r.status_code == 200
+    assert store.get("sms:ip:%s" % real_ip) is not None, \
+        "X-Real-IP 的真实 IP 未进入限流桶"
+
+
 # ---------- 找回密码-短信验证码 (2026-08-30) ----------
 # 注意: reset 用例会改密码/消费验证码标记, 必须用 create_user_token 独立用户
 # 避免污染 session 级 first_user(共享手机号)导致用例间相互影响

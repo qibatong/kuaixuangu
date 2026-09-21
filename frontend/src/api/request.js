@@ -41,9 +41,12 @@ export async function request(path, { method = 'GET', body, auth = true, query }
   if (!resp.ok || !data.ok) {
     logFront('warn', `API 失败: ${method} ${url} -> ${resp.status} ${data.msg || errBody.msg || ''}`)
     const e = new Error(data.msg || errBody.msg || '请求失败(' + resp.status + ')')
-    // 透传后端附加字段(如邮箱验证 need_verify_email/uid/email), 供前端分支处理
+    // 透传后端附加字段(如配额超限 code=quota_exceeded/feature/limit/used), 供前端分支处理
     if (data && typeof data === 'object') Object.assign(e, data)
     else if (errBody && typeof errBody === 'object') Object.assign(e, errBody)
+    // HTTPException(detail={...}) 时业务字段在 detail 里, 需再 merge 一层
+    if (errBody && typeof errBody === 'object' && errBody !== data) Object.assign(e, errBody)
+    e.status = resp.status
     throw e
   }
   return data

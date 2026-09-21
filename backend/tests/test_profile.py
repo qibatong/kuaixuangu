@@ -36,11 +36,21 @@ def test_profile_update_bad_phone(client, first_user):
     assert not r.json().get("ok")
 
 
-def test_forgot_check_no_email(client, first_user):
-    """forgot/check: 未绑定邮箱的用户提示联系管理员"""
-    import app.services.users as users
+def test_forgot_check_reports_phone_path(client, first_user):
+    """forgot/check: 2026-09-21 邮箱验证下线后, 自助找回只剩「手机号+短信」一条路。
+    该用户注册时绑了手机号 → has_phone=True, 返回脱敏手机号。"""
     token, username, _ = first_user
-    # 该用户注册时绑了 email → has_email=True
     r = client.post("/api/forgot/check", json={"login": username})
     assert r.status_code == 200
-    assert r.json().get("has_email") is True
+    j = r.json()
+    assert j.get("has_phone") is True
+    assert "phone" in j and "****" in j["phone"]
+    # 兼容字段仍在, 但邮箱路径已废弃 → 恒 False
+    assert j.get("has_email") is False
+
+
+def test_forgot_check_unknown_account(client):
+    """未知账号 → 404 且不暴露存在性细节"""
+    r = client.post("/api/forgot/check", json={"login": "no_such_user_zzz"})
+    assert r.status_code == 404
+    assert r.json().get("has_phone") is False

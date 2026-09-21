@@ -67,3 +67,77 @@ export function adminDeleteUser(payload) {
 export function bidSnapshot(date, timePoint = '9_25', limit = 50) {
   return request(`/api/stats/bid-snapshot?date=${date}&time_point=${timePoint}&limit=${limit}`)
 }
+
+/* ================= 运营后台新增(2026-09-21 会员体系重构) ================= */
+
+// 运营看板: 用户结构 + 14 日趋势 + 配额使用
+export function adminDashboard() {
+  return request('/api/admin/dashboard')
+}
+
+// 到期预警: ?days=7&tab=expiring|expired|all
+export function adminExpiring(days = 7, tab = 'expiring') {
+  return request(`/api/admin/expiring?days=${days}&tab=${tab}`)
+}
+
+// 风控视图: 同 IP 注册/邀请、重复领取、top 邀请人
+export function adminRisk() {
+  return request('/api/admin/risk')
+}
+
+// 邀请排行榜
+export function adminInviteRank() {
+  return request('/api/admin/invite-rank')
+}
+
+// 短信用量概览
+export function adminSmsUsage() {
+  return request('/api/admin/sms-usage')
+}
+
+// 审计日志(分页 + 按动作筛选)
+export function adminAudit(page = 1, pageSize = 20, action = '') {
+  const q = new URLSearchParams({ page, pageSize })
+  if (action) q.set('action', action)
+  return request('/api/admin/audit?' + q.toString())
+}
+
+export function adminAuditActions() {
+  return request('/api/admin/audit/actions')
+}
+
+// 用户详情抽屉: 资料 + 邀请关系 + 签到 + 手机号领取 + 审计
+export function adminUserDetail(targetUid) {
+  return request(`/api/admin/user-detail?target_uid=${targetUid}`)
+}
+
+// 重置某用户配额: feature 省略则全部
+export function adminResetQuota(uid, feature) {
+  return request('/api/admin/users/reset-quota', { method: 'POST', body: feature ? { uid, feature } : { uid } })
+}
+
+// 批量延长到期 + 可选一并设等级
+export function adminExtendPlus(uids, days, setLevel = null) {
+  const body = { uids, days }
+  if (setLevel !== null && setLevel !== undefined && setLevel !== '') body.set_level = setLevel
+  return request('/api/admin/users/extend-plus', { method: 'POST', body })
+}
+
+// 权益配置(MEMBER_CONF_KEYS 10 项)
+export function adminMemberConf() {
+  return request('/api/admin/member-conf')
+}
+
+export function saveAdminMemberConf(conf) {
+  return request('/api/admin/member-conf', { method: 'PUT', body: { conf } })
+}
+
+// 批量导入会员: csv 文本, 每行 "用户名,手机号,天数[,邀请码]"
+export function adminImportUsers(csv, defaultPassword = '') {
+  return request('/api/admin/users/import', { method: 'POST', body: { csv, default_password: defaultPassword } })
+}
+
+// 导出用户 CSV(浏览器直接下载, 不走 request 封装)
+export function adminUsersExportUrl() {
+  return '/api/admin/users/export'
+}

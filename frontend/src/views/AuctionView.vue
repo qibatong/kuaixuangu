@@ -1,8 +1,9 @@
 <template>
   <div class="page-shell">
     <h1 class="visually-hidden">竞价异动</h1>
-    <!-- 会员门禁(2026-08-17): 竞价异动仅 VIP/付费会员可用, 任何时段都生效(非 9:15-15:00 也门禁) -->
-    <VipGate v-if="!user.isVipOrPaid" title="竞价异动" :required-level="1" />
+    <!-- 配额门禁(2026-09-21 会员体系): 免费用户每天有限次数, 用尽后显示配额引导;
+         quotaExceeded 由接口 429(code=quota_exceeded) 触发 -->
+    <VipGate v-if="quotaExceeded" ref="gateRef" title="竞价异动" :required-level="1" />
 
     <template v-else>
     <div class="auc-head">
@@ -409,7 +410,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { usePolling } from '../composables/usePolling'
 import { kplBidSeal, kplBidNet, kplBidBoom, kplBidQiangcang, kplBroken, kplLhb, kplYestBroken, kplYestZt } from '../api/kpl'
 import { auctionOverview, bidSnapshot3points } from '../api/stats'
@@ -424,6 +425,9 @@ import VipGate from '../components/VipGate.vue'
 import PoolHoverBtn from '../components/PoolHoverBtn.vue'
 
 const user = useUserStore()
+// 配额用尽(2026-09-21): 接口返回 429 code=quota_exceeded 时置 true → 显示配额引导页
+const quotaExceeded = ref(false)
+const gateRef = ref(null)
 const { yidongTag, yidongTagTitle, refreshYidongCodes } = useYidongMonitor()
 const tab = ref('s3')   // 默认选中三时点封单
 const sealRaw = ref([])
@@ -737,14 +741,33 @@ async function ensureTabData(t, { silent = false } = {}) {
     return true
   } catch (e) {
     // 单 tab 失败不影响其他; 各 list 保留上次成功值(不清空 → 页面不空白)
+    handleQuota(e)
     return false
   } finally {
     tabLoading.delete(t)
   }
 }
 
-// ===== 2026-09-05 P0: 静默刷新 / 手动刷新 / 失败提示 =====
-// 静默刷新态: 轮询或单 Tab 刷新时在标题栏角落显示小 spinner, 不遮挡内容
+/** 配额超限(429)识别: 置位后整页显示配额引导(2026-09-21 会员体系) */
+function handleQuota(e) {
+  if (e && (e.code === 'quota_exceeded' || e.status === 429)) {
+    quotaExceeded.value = true
+    nextTick(() => {
+      if (gateRef.value && gateRef.value.openQuota) {
+        gateRef.value.openQuota({
+          feature: e.feature || 'auction',
+          feature_label: e.feature_label || '竞价异动',
+          limit: e.limit || 0,
+          used: e.used || 0,
+        })
+      }
+    })
+    return true
+  }
+  return false
+}
+
+// ===== 2026-09-05 P0: 静默刷新 / 手动刷新 / 失败提示 =====// 静默刷新态: 轮询或单 Tab 刷新时在标题栏角落显示小 spinner, 不遮挡内容
 // (区别于首屏 loading 的大块占位 —— 那个只在首次/切日时全量加载出现)
 const silentRefreshing = ref(false)
 // 连续失败次数(usePolling 维护), >0 时在角落提示"稍后重试", 数据仍保留旧值

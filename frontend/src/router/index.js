@@ -16,6 +16,8 @@ const router = createRouter({
     { path: '/temper', name: 'temper', component: () => import('../views/StockTemperView.vue') },
     { path: '/aipick', name: 'aipick', component: () => import('../views/AipickView.vue') },
     { path: '/bigv', name: 'bigv', component: () => import('../views/SummaryNewsView.vue') },
+    // 2026-09-21 会员体系: 我的会员(等级/到期/配额/签到/邀请)
+    { path: '/member', name: 'member', component: () => import('../views/MemberView.vue') },
     { path: '/admin', name: 'admin', component: () => import('../views/AdminView.vue'), meta: { admin: true } },
     // 2026-09-21: 由 redirect '/' 改为独立 404 视图, 避免未知路径静默落首页造成困惑
     { path: '/:pathMatch(.*)*', name: 'notFound', component: () => import('../views/NotFoundView.vue') }
@@ -27,6 +29,7 @@ const TITLES = {
   stock: '选股', pool: '自选', history: '历史回看', market: '市场雷达',
   concept: '题材异动', ladder: '涨停梯队', temper: '股性', yidong: '异动监管',
   bigv: '大V资讯', auction: '竞价异动', aipick: 'AI预测', admin: '管理后台',
+  member: '我的会员',
 }
 router.afterEach((to) => {
   if (to.name === 'login') { document.title = '登录 · 快选'; return }

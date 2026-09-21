@@ -1,8 +1,8 @@
 <template>
   <div class="page-shell" :class="{ 'ap-embedded': embedded }">
     <h1 class="visually-hidden">AI预测</h1>
-    <!-- 会员门禁(2026-08-27): AI 竞价预测仅 VIP/付费会员可用 -->
-    <VipGate v-if="!user.isVipOrPaid" title="AI竞价预测" :required-level="1" />
+    <!-- 配额门禁(2026-09-21 会员体系): 免费用户每天有限次数, 用尽后显示配额引导 -->
+    <VipGate v-if="quotaExceeded" ref="gateRef" title="AI竞价预测" :required-level="1" />
 
     <template v-else>
       <div class="ap-panel">
@@ -113,7 +113,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useUserStore } from '../stores/user'
 import VipGate from '../components/VipGate.vue'
 import PoolHoverBtn from '../components/PoolHoverBtn.vue'
@@ -128,6 +128,10 @@ defineProps({
 })
 
 const user = useUserStore()
+// 配额用尽(2026-09-21): 接口 429 code=quota_exceeded 时置位 → 配额引导页
+const quotaExceeded = ref(false)
+const quotaInfo = ref(null)
+const gateRef = ref(null)
 const dates = ref([])
 const latestDate = ref('')
 const selDate = ref('')
@@ -142,6 +146,14 @@ function todayStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 const maxDate = todayStr()
+
+// 配额超限后, 把 detail 塞进 VipGate 的配额模式
+watch(quotaExceeded, (v) => {
+  if (!v) return
+  nextTick(() => {
+    if (gateRef.value && gateRef.value.openQuota) gateRef.value.openQuota(quotaInfo.value)
+  })
+})
 
 // 日期器兜底: 透明 input 覆盖按钮时, 多数浏览器会点中 input 自动弹日历;
 // 但部分 iOS Safari/WebView 对 opacity:0 的 input 不触发弹层, 这里用 showPicker() 显式拉起兜底.
@@ -393,7 +405,17 @@ async function loadReport() {
     const r = await aipickData(selDate.value)
     data.value = r.data || { date: '', count: 0, top: [] }
   } catch (e) {
-    empty.value = true
+    if (e && (e.code === 'quota_exceeded' || e.status === 429)) {
+      quotaExceeded.value = true
+      quotaInfo.value = {
+        feature: e.feature || 'aipick',
+        feature_label: e.feature_label || 'AI 预测',
+        limit: e.limit || 0,
+        used: e.used || 0,
+      }
+    } else {
+      empty.value = true
+    }
   } finally {
     loading.value = false
     startRealtime()
