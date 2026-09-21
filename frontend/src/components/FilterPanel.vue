@@ -84,7 +84,8 @@
         股价 ≤<input v-model.number="store.filterSettings.priceGt" type="number" min="0" max="5000" step="10" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">元
       </label>
       <label class="filter-cell">
-        竞额 ≥<input v-model.number="store.filterSettings.bidAmtFloor" type="number" min="0" max="100000" step="500" :disabled="store.isFilterLocked" :style="inputStyle(42)">万
+        <!-- 2026-09-21 主人反馈「对数字有遮挡」: 宽屏固定宽 42→56px, 4 位数(3500/10000)不裁边 -->
+        竞额 ≥<input v-model.number="store.filterSettings.bidAmtFloor" type="number" min="0" max="100000" step="500" :disabled="store.isFilterLocked" :style="inputStyle(56)">万
       </label>
       <!-- 2026-09-14: 原「评分 ≥」行已删除(与「分数」重复, 同一个 probability 字段) -->
     </div>
@@ -282,16 +283,25 @@ function reset() { store.resetFilterToDefault() }
    (纯文字无图标; 应用按钮略大是主按钮的既有设计, 保留其视觉主次) */
 .filter-refresh { padding: 3px 8px; font-size: 0.75rem; }
 
-/* ===== 第二行: 核心布局 —— 桌面端一排两端对齐 ===== */
+/* ===== 第二行: 核心布局 =====
+   2026-09-21 主人反馈桌面端「很分散」: 原 space-between 把 5 个格子拉开到整行两端 →
+   改 flex-start 靠左聚拢 + 20px 列间距; margin-top 2→8px 与上方按钮行拉开, 防贴叠 */
 .filter-row-2 {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   flex-wrap: nowrap;
-  gap: 0;
+  gap: 20px;
   width: 100%;
   box-sizing: border-box;
-  margin-top: 2px;
+  margin-top: 8px;
+}
+
+/* 隐藏 number 输入框的上下箭头(spin button): 会占输入框宽度挤压数字显示 */
+.filter-cell input[type="number"]::-webkit-outer-spin-button,
+.filter-cell input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .filter-cell {
@@ -368,18 +378,20 @@ function reset() { store.resetFilterToDefault() }
   /* 2026-09-05: 刷新按钮(手机端同 重置/锁定 尺寸, 含 min-height 保证等高) */
   .filter-refresh { padding: 3px 7px; font-size: 0.75rem; min-height: 24px; }
 
-  /* 第二行: 换行 + 左对齐 */
+  /* 第二行: 换行 + 左对齐; 2026-09-21 主人反馈「对数字有遮挡」: 行间距 4→8px,
+     输入框 70→80px 留足 4 位数余量 */
   .filter-row-2 {
     flex-wrap: wrap !important;
     justify-content: flex-start !important;
-    gap: 4px 6px !important;
+    gap: 8px 8px !important;
+    margin-top: 8px !important;
   }
   .filter-cell {
     flex: 0 0 auto !important;
     font-size: 0.75rem;
   }
   .filter-cell input[type="number"] {
-    max-width: 70px;
+    max-width: 80px;
     font-size: 0.75rem;
   }
   .mv-range-op {
@@ -400,7 +412,8 @@ function reset() { store.resetFilterToDefault() }
     padding: 2px 6px; font-size: 0.75rem; min-height: 22px;
   }
   .filter-cell { font-size: 0.75rem; }
-  .filter-cell input[type="number"] { max-width: 60px; font-size: 0.75rem; }
+  /* 2026-09-21 主人反馈「对数字有遮挡」: 60→76px, 保证 4 位数完整显示 */
+  .filter-cell input[type="number"] { max-width: 76px; font-size: 0.75rem; }
   .mv-range-op { margin: 0 1px; font-size: 0.75rem; }
 }
 </style>

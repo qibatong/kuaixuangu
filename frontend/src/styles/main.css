@@ -1335,8 +1335,10 @@ body[data-bg="light"] select.rot-select option { background: #fff; color: #333; 
     min-height: 28px;
   }
 
-  /* ========== 市场情绪面板: 手机压缩字号, 支持换行 ========== */
-  .sentiment-panel { padding: 6px 6px !important; gap: 6px !important; flex-wrap: wrap !important; }
+  /* ========== 市场情绪面板: 手机端压缩字号 ==========
+     2026-09-21: 面板内部的行/横滑结构由 SentimentPanel.vue 的 scoped 样式
+     (断点 576/480) 负责 —— 上级固定为「上=指数行不可滑 / 下=市场量能行可滑」。
+     这里只保留不需要覆盖 flex-direction 的通用压缩项, 避免与之打架。 */
   .senti-title { font-size: 0.75rem !important; }
   .senti-item { gap: 2px !important; }
   .senti-label { font-size: 0.75rem !important; }
@@ -1409,7 +1411,6 @@ body[data-bg="light"] select.rot-select option { background: #fff; color: #333; 
 @media (max-width: 480px) {
   .home-mob-tab { font-size: 0.8125rem; min-height: 38px; }
   .alert-rule.alert-rule-compact .rule-text strong { font-size: 0.75rem !important; }
-  .sentiment-panel { padding: 5px 4px !important; gap: 4px !important; }
   .senti-time { font-size: 0.75rem !important; }
   .senti-val { font-size: 0.75rem !important; }
   .medal-name-big { font-size: 0.9375rem !important; }

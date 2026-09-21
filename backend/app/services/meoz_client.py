@@ -733,24 +733,119 @@ def index_snapshot():
 
 
 # 情绪周期字段(2026-09-20 首页市场情绪卡换猫爪数据源, 主人指令)
-_EMO_FIELDS = ("s2,s6,u5,d3,u12,fp108,l1,l2,l3,l17,l21,l22,"
-               "deep_retrace_count,am,am_diff")
+# 2026-09-21 修正: apiname 必须是 **emoindic**(不带 _daily)。实测对比(同一账户同一时点):
+#   - emoindic_daily: am_diff 恒为 null(即使指定历史 tradedate 也是 null) → "较昨日增量"永远显示 "-"
+#   - emoindic:       am_diff 历史日有值; 当日盘中为空, 但同时给出
+#                     am_pred(当日成交额预测终值) / am_pred_pct(预测较昨日 %) / am_pred_diff。
+#   两接口字段名完全一致, 且 **emoindic 是超集**(另有 s3~s10 分裂家数/mf_*/l2up_rate 等),
+#   所以统一改走 emoindic。tradedate 铁律: 必须 YYYYMMDD(传 YYYY-MM-DD 返 422)。
+_EMO_FIELDS = ("tradedate,s2,s6,u5,d3,u12,fp108,l1,l2,l3,l17,l21,l22,"
+               "deep_retrace_count,am,am_diff,am_pred,am_pred_pct,am_pred_diff")
+
+
+def _emo_unixts_to_ymd(ts) -> str:
+    """秒级/毫秒级 unix 时间戳 → 'YYYYMMDD'(北京时区, 无外部依赖)。"""
+    try:
+        v = float(ts)
+    except (TypeError, ValueError):
+        return ""
+    if v > 1e11:                       # 毫秒
+        v /= 1000.0
+    if v <= 0:
+        return ""
+    import time as _t
+    return _t.strftime("%Y%m%d", _t.gmtime(v + 8 * 3600))
+
+
+def _emo_prev_amt(ymd: str, back: int = 10):
+    """取 ymd **之前最近一个有数据的交易日** 的三市成交额 am(元); 找不到返 None。
+
+    🔴 铁律(2026-09-21 实测踩坑): 不能只回退 1 个自然日 —— 周末/节假日上游返回
+    code=1002「未找到情绪周期数据」。必须逐日回退直到拿到数据为止(周日 20260920 →
+    回退到 20260918 周五才拿到 20931.53 亿)。回退上限 back 天, 覆盖国庆/春节长假。
+
+    走 call(不缓存), 由外层 call_cached(ttl=600) 统一缓存 —— 历史值不可变, 长 TTL 无风险。
+    """
+    if not ymd:
+        return None
+    from datetime import datetime, timedelta
+    try:
+        d = datetime.strptime(ymd, "%Y%m%d")
+    except ValueError:
+        return None
+    for i in range(1, back + 1):
+        probe = (d - timedelta(days=i)).strftime("%Y%m%d")
+        try:
+            r = call(apiname="emoindic", params={"tradedate": probe}, fields="tradedate,am")
+        except Exception:                                      # noqa: BLE001
+            continue
+        dd = (r or {}).get("data") or {}
+        if isinstance(dd, dict) and dd.get("fields") and dd.get("items"):
+            try:
+                v = dict(zip(dd["fields"], (dd["items"] or [])[0])).get("am")
+            except (IndexError, TypeError):
+                v = None
+            if v is not None:
+                return v
+    return None
 
 
 def emo_daily():
-    """猫爪情绪周期(emoindic_daily, 默认最新交易日) -> 关键字段平铺 dict。
+    """猫爪情绪周期(emoindic, 默认最新交易日) -> 关键字段平铺 dict。
 
     字段: s2/s6 涨跌家数; u5/d3 涨停/跌停; u12/fp108 炸板; l17 最高连板;
           l21 一进二成功率(%) / l22 连板晋级率(%); deep_retrace_count 大幅回撤(亏钱效应);
-          am 三市成交额(元) / am_diff 较昨日此时(正=放量)。
-    兼容矩阵 {data:{fields,items}} 与平铺 {data:{...}} 两种返回结构。
+          am 三市成交额(元) / am_diff 较昨日增量(正=放量, 负=缩量)。
+
+    2026-09-21 增量兜底: 当日盘中 am_diff 上游为空, 但 am_pred(预测终值)可用,
+    因此按此优先级补出 am_diff / am 口径:
+      ① am_diff 有值           → 原样(历史日)
+      ② am_diff 空 & am_pred 有 → 用 am_pred − 昨 am 自算, 并置 am_is_pred=1
+      ③ 都缺 → am_diff 保持 None(前端显示 "-")
+    增量口径统一为 **今 − 昨**, 与 am_diff 上游定义一致, 故可直接比较。
     """
-    data = call_cached("emoindic_daily", ttl=30, fields=_EMO_FIELDS)
+    try:
+        import time as _t
+        _today = _t.strftime("%Y%m%d", _t.gmtime(_t.time() + 8 * 3600))
+    except Exception:                                          # noqa: BLE001
+        _today = ""
+    data = call_cached("emoindic", ttl=30, fields=_EMO_FIELDS)
     dd = (data or {}).get("data") or {}
     if isinstance(dd, dict) and dd.get("fields") and dd.get("items"):
         cols = dd["fields"]
         items = dd.get("items") or []
         if items and isinstance(items[0], (list, tuple)):
-            return dict(zip(cols, items[0]))
+            out = dict(zip(cols, items[0]))
+        else:
+            return {}
+    elif isinstance(dd, dict):
+        out = dict(dd)
+    else:
         return {}
-    return dd if isinstance(dd, dict) else {}
+
+    # ---- 增量兜底(仅当日需要: 历史日 am_diff 上游已给) ----
+    if out.get("am_diff") is None:
+        pred = out.get("am_pred")
+        cur = out.get("am")
+        base = pred if pred is not None else cur
+        if base is not None:
+            try:
+                tv = out.get("tradedate")
+                # 上游 tradedate 是 **字符串 'YYYYMMDD'**(实测 "20260921");
+                # 兼容 unix 时间戳(秒/毫秒)客户端。
+                if isinstance(tv, (int, float)) or (isinstance(tv, str) and tv.isdigit()
+                                                    and len(tv) > 8):
+                    td = _emo_unixts_to_ymd(tv)
+                else:
+                    td = "".join(ch for ch in str(tv or "") if ch.isdigit())[:8]
+                    if len(td) != 8:
+                        td = ""
+                prev = _emo_prev_amt(td)          # 内部逐日回退, 自动跳过周末/节假日
+                if prev is not None:
+                    out["am_diff"] = float(base) - float(prev)
+                    if pred is not None and cur is not None and pred != cur:
+                        out["am_is_pred"] = 1      # 用预测终值算的, 前端可标注"预测"
+            except Exception:                                  # noqa: BLE001
+                pass
+    return out
+

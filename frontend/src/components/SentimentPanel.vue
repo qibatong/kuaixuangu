@@ -11,9 +11,15 @@
     </div>
     <div class="senti-vdivider"></div>
 
-    <!-- 情绪卡(2026-09-20 主人指令: 数据源换猫爪 emoindic_daily 情绪周期) -->
-    <template v-if="emo && emo.u5 !== undefined">
-      <div class="emo-card">
+    <!-- 情绪卡(2026-09-20 数据源: 猫爪 emoindic 情绪周期)
+         2026-09-21 主人方案 A 定稿: 手机端上=指数行、下=市场量能行, **两行都可横滑**。
+         实现 = .emo-strip 弹性横排容器:
+           桌面端: flex:1 1 auto + min-width:0 → 与指数带**同排平铺**并吃掉剩余宽度
+           手机端: width:100% 独占第二行 + overflow-x:auto 可横滑
+         ⚠️ 历史坑(勿回退): flex:0 1 0 会让桌面端宽度归零(总需求不溢出→shrink 不触发,
+           而 grow:0 又永不长大), 实测 emo.width=0px → 整行被压没了(主人反馈"看不到了")。 -->
+    <div v-if="emo && emo.u5 !== undefined" class="emo-strip">
+      <div class="emo-card emo-card-mkt">
         <span class="idx-name">市场量能</span>
         <span class="emo-val mkt-amt">{{ fmtAmt(emo.am) }}</span>
         <span class="idx-chg" v-if="emo.am_diff !== null && emo.am_diff !== undefined" :class="emo.am_diff < 0 ? 'mkt-shrink' : 'mkt-grow'">{{ emo.am_diff < 0 ? '缩量' : '放量' }} {{ fmtAmt(Math.abs(emo.am_diff)) }}</span>
@@ -39,7 +45,7 @@
         <span class="emo-val loss">{{ emo.deep_retrace_count ?? '-' }}</span>
         <span class="idx-chg idx-flat">大幅回撤</span>
       </div>
-    </template>
+    </div>
     <div v-else-if="loading" class="senti-loading">加载中...</div>
     <div v-else class="senti-loading dim">情绪数据暂不可用</div>
   </div>
@@ -97,7 +103,10 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
   display: flex;
   align-items: stretch;
   gap: 10px;
-  flex-wrap: wrap;
+  /* 🔴 桌面端不换行(2026-09-21): 指数带 963 + 情绪带 449 = 1412 与容器 1413 **只差 1px**,
+     wrap 模式下任何内容微增都会把情绪带顶到第二行。改为 nowrap 后由两个带各自
+     overflow-x:auto 消化溢出, 布局恒定同排。手机端断点内显式覆盖为 column/nowrap。 */
+  flex-wrap: nowrap;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
@@ -112,7 +121,13 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
   align-self: center;
 }
 .senti-title .fa { color: #ffb400; margin-right: 4px; }
-/* 指数带: 紧凑靠左不拉伸(2026-09-20 主人反馈"情绪卡太靠右"), 空间不够时内部横滑 */
+/* 指数带: 紧凑靠左不拉伸(2026-09-20 主人反馈"情绪卡太靠右"), 空间不够时内部横滑。
+   🔴 桌面端总宽算术(1440 视口): 指数带自然 963 + 情绪带自然 449 + gap 10 + padding 24 = 1446,
+      而容器仅 1413 → **必然溢出 33px, 必然发生 shrink**。此时必须让**指数带独自承担全部收缩**
+      (它内部 overflow-x:auto, 收窄只是多滑一点, 信息不丢); 情绪带 shrink:0 **完全不让位**,
+      否则它的 449px 会被压缩 → 自身溢出(scrollW 449 > clientW 434) → 最后一两张卡被裁。
+      实测: shrink 5/1 → 情绪带被压到 445(溢 4px); 1/1 → 被压到 434(溢 15px, 更糟)。
+      故: 指数带 shrink:1(默认) 且情绪带 shrink:0 —— 由指数带吃掉全部 33px。 */
 .index-strip {
   flex: 0 1 auto;
   min-width: 0;
@@ -124,6 +139,32 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
   -ms-overflow-style: none;
 }
 .index-strip::-webkit-scrollbar { display: none; width: 0; height: 0; }
+/* 情绪带: 桌面端 = 指数带的延续, 与指数卡**同排平铺**, 按内容自然宽度占位。
+   🔴 2026-09-21 修复史(两次踩坑, 勿回退):
+      v1 `flex: 0 1 0`  → basis 0 + grow 0: 容器 1413 / 指数带 963 时总需求 963 < 1413
+                          **不触发 shrink**, 而 grow:0 又永不长大 → 宽度被钉死 **0px**,
+                          实测 emo.width=0 / scrollWidth=449 → 整行 5 张情绪卡不可见。
+                          (主人反馈"电脑端市场量能这一行看不到了")
+      v2 `flex: 1 1 auto` → basis auto(449) + grow 1: 吃掉全部剩余空间长到 **1387px**,
+                          把指数带挤到第二行(实测 indexTop=101 vs marketTop=177) → 换行回归。
+      v3 `flex: 0 1 auto` → basis auto(449) + grow 0, 但 shrink 1: 仍与指数带**均摊**收缩,
+                          实测情绪带被压到 434px → 自身溢出 15px(最后一两张卡被裁)。
+      v4 `flex: 0 0 auto` (当前) → basis auto + grow 0 + **shrink 0**: 情绪带宽度锁定为
+                          内容自然宽(449px)**绝不让位**; 桌面端溢出的 33px 全部由
+                          .index-strip 独自承担(它含 overflow-x:auto, 收窄仅意味着多滑一点,
+                          8 张指数卡信息完整不丢)。这是唯一能保证"情绪卡完整 + 不换行"的组合。
+      结论: 情绪带 basis auto / grow 0 / **shrink 0**; 指数带承担全部收缩。 */
+.emo-strip {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.emo-strip::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .index-card {
   flex: 0 0 auto;
   display: flex;
@@ -170,16 +211,77 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
 .emo-val.lbg { color: #ffb400; }
 .senti-val.dt, .emo-val .dt { color: var(--accent-text); }
 
-/* 手机端紧凑: 指数带独占一行横滑, 情绪卡换行堆叠 */
+/* 手机端(2026-09-21 主人指令, 方案 A 定稿):
+     上 = 指数行, 下 = 市场量能行, **两行都允许横滑**。
+   🔴 上一版把指数行做成「8 张卡平分整行 + 溢出裁掉」是错的:
+      390px 下每卡仅 ~44px, 而「中证1000」名称需 40px+、「13730.02」数值需 55px+,
+      装不下只能裁 → 实测出现 `3949.9113730.03` 数值粘连、名称首尾相连(主人截图反馈"太拥挤、不完整")。
+      正解 = 卡片**恢复自然宽度**(min-width:78px, 同桌面端) + 容器 overflow-x:auto,
+      内容完整不裁切, 超出部分左右滑动查看。
+   ⚠️ 不要再对 .index-card 用 flex:1 1 0(平分压扁) 或隐藏 .idx-chg-pts(丢信息)。 */
 @media (max-width: 576px) {
-  .sentiment-panel { padding: 6px 8px; gap: 6px 10px; }
-  .index-strip { flex-basis: 100%; order: 1; }
+  .sentiment-panel {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    padding: 6px 8px;
+    gap: 5px;
+  }
+  /* 第一行: 指数带占满整行, 卡片自然宽度, 溢出 → 横滑 */
+  .index-strip {
+    order: -1;
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    gap: 6px;
+    -webkit-overflow-scrolling: touch;
+  }
   .senti-vdivider { display: none; }
-  .index-card { min-width: 74px; }
-  .emo-card { min-width: 74px; }
-  .idx-name { font-size: 0.75rem; }
-  .idx-px { font-size: 0.8125rem; }
-  .idx-chg { font-size: 0.75rem; }
+  /* 卡片保持自然宽度, 不参与压缩(名称/数值完整显示) */
+  .index-card {
+    flex: 0 0 auto;
+    padding: 3px 7px;
+    gap: 0;
+    overflow: visible;
+  }
+  .index-card .idx-name,
+  .index-card .idx-px,
+  .index-card .idx-chg {
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+  }
+  /* 绝对值段恢复显示(横滑空间足够, 不再丢信息) */
+  .index-card .idx-chg-pts,
+  .index-card .idx-chg-sep { display: inline; }
+  .idx-name { font-size: 0.6875rem; }    /* 11px */
+  .idx-px   { font-size: 0.8125rem; }    /* 13px */
+  .idx-chg  { font-size: 0.6875rem; }    /* 11px */
+  /* 第二行: 情绪卡横排, 总宽超出屏宽 → 可横滑 */
+  .emo-strip {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 100%;
+    gap: 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .emo-card { min-width: 88px; padding: 3px 8px; flex: 0 0 auto; }
+  .emo-val { font-size: 0.875rem; }
+  .senti-loading { align-self: flex-start; }
+}
+
+/* 超窄屏(<=480px, iPhone SE 等): 同样横滑, 仅微调间距与内边距 */
+@media (max-width: 480px) {
+  .sentiment-panel { padding: 5px 6px; gap: 4px; }
+  .index-strip { gap: 5px; }
+  .index-card { padding: 3px 6px; }
+  .idx-name { font-size: 0.625rem; }     /* 10px */
+  .idx-px   { font-size: 0.78125rem; }   /* 12.5px */
+  .idx-chg  { font-size: 0.625rem; }     /* 10px */
+  .emo-strip { gap: 7px; }
+  .emo-card { min-width: 84px; padding: 3px 7px; }
   .emo-val { font-size: 0.8125rem; }
 }
 
