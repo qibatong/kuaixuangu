@@ -421,6 +421,8 @@ def fetch_meoz_jx_rank():
     idx = {c: i for i, c in enumerate(cols)}
     # 板块竞价异动: 竞价代码 801xxx(不带 k) + 'k' = 精选板块代码 801xxxk, 按此 merge
     auc_map = fetch_meoz_auc_kp()
+    # 领涨股: thememembers_jx tag=authentic 每板块正宗成分股里涨幅最高的一只
+    leader_map = fetch_meoz_jx_leaders()
     out = []
     for row in items:
         if not isinstance(row, (list, tuple)):
@@ -433,6 +435,7 @@ def fetch_meoz_jx_rank():
             if not sym or not name:
                 continue
             auc = auc_map.get(str(sym)[:-1]) if str(sym).endswith("k") else None
+            leader = leader_map.get(str(sym), {})
             out.append({
                 "boardCode": str(sym),
                 "name": str(name),
@@ -450,10 +453,72 @@ def fetch_meoz_jx_rank():
                 "aucBurst": (auc or {}).get("burst", 0.0),
                 "aucAbnormal": (auc or {}).get("abnormal", 0.0),
                 "aucNet": (auc or {}).get("net", 0.0),
+                "leaderCode": leader.get("code", ""),
+                "leaderName": leader.get("name", ""),
+                "leaderChange": leader.get("change", 0.0),
             })
         except (ValueError, TypeError):
             continue
     out.sort(key=lambda x: x["speed"], reverse=True)   # 异动榜默认按涨速降序
+    return out
+
+
+def fetch_meoz_jx_leaders():
+    """猫爪精选板块领涨股: thememembers_jx tag=authentic 拿每板块「最正宗」成分股,
+    再 screening 批量补行情, 每板块取涨幅最高的一只作为领涨股。
+
+    返回 {boardCode(801xxxk): {code, name, change}}; 失败返回空 dict(静默降级,
+    不阻断精选板块榜)。北交所过滤; 成分股全市场去重后分片拉行情(通常 1~2 次调用)。"""
+    try:
+        data = meoz.call_cached("thememembers_jx", params={"tag": "authentic"}, ttl=_JX_MEMBER_TTL)
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("猫爪精选板块正宗成分股抓取失败 err=%s", e)
+        _mark_source_error("meoz", e)
+        return {}
+    dd = data.get("data") if isinstance(data, dict) else None
+    items = (dd or {}).get("items") or []
+    board_codes = {}
+    for row in items:
+        if isinstance(row, (list, tuple)) and len(row) >= 2:
+            sym = str(row[0])
+            codes = [str(s) for s in (row[1] or []) if s]
+            if sym and codes:
+                board_codes[sym] = [c for c in codes if not scorer.is_bse(c)]
+    if not board_codes:
+        return {}
+    # 全市场去重后批量拉行情(只取 name/pct_chg 两个字段)
+    all_codes, seen = [], set()
+    for codes in board_codes.values():
+        for c in codes:
+            if c not in seen:
+                seen.add(c)
+                all_codes.append(c)
+    members_map = {}
+    try:
+        for i in range(0, len(all_codes), _MEOZ_SCREEN_BATCH):
+            chunk = all_codes[i:i + _MEOZ_SCREEN_BATCH]
+            d2 = meoz.call_cached(
+                "screening", params={"symbols": ",".join(chunk)}, ttl=_JX_MEMBER_TTL,
+                fields="symbol,name,pct_chg")
+            members_map.update(meoz._sym_rows(d2))
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("猫爪精选板块领涨股行情抓取失败 err=%s", e)
+        return {}
+    out = {}
+    for sym, codes in board_codes.items():
+        best = None
+        for c in codes:
+            r = members_map.get(c)
+            if not r:
+                continue
+            try:
+                chg = float(r.get("pct_chg") or 0)
+            except (ValueError, TypeError):
+                continue
+            if best is None or chg > best[1]:
+                best = (c, chg, str(r.get("name") or ""))
+        if best:
+            out[sym] = {"code": best[0], "change": round(best[1], 2), "name": best[2]}
     return out
 
 

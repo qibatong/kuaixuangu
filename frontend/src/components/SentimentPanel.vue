@@ -5,7 +5,8 @@
       <div v-for="it in indices" :key="it.code" class="index-card">
         <span class="idx-name">{{ it.name }}</span>
         <span class="idx-px" :class="idxCls(it.pctChg)">{{ fmtIdxPx(it.px) }}</span>
-        <span class="idx-chg" :class="idxCls(it.pctChg)">{{ fmtIdxChg(it.pctChg) }}<template v-if="it.chg !== null"> {{ fmtIdxPts(it.chg) }}</template></span>
+        <!-- 5-3: 百分比与绝对值用 · 分隔 + 绝对值降对比度, 避免 "+0.97%+38.04" 粘连误读 -->
+        <span class="idx-chg" :class="idxCls(it.pctChg)">{{ fmtIdxChg(it.pctChg) }}<template v-if="it.chg !== null"><span class="idx-chg-sep"> · </span><span class="idx-chg-pts">{{ fmtIdxPts(it.chg) }}</span></template></span>
       </div>
     </div>
     <div class="senti-vdivider"></div>
@@ -136,7 +137,10 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
 }
 .idx-name { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
 .idx-px { font-size: 0.9375rem; font-weight: 700; font-family: inherit; }
-.idx-chg { font-size: 0.75rem; font-weight: 600; font-family: inherit; white-space: nowrap; }
+.idx-chg { font-size: 0.75rem; font-weight: 600; font-family: inherit; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.idx-chg .idx-chg-sep { color: var(--text-muted); font-weight: 400; }
+.idx-chg .idx-chg-pts { color: var(--text-secondary); font-weight: 500; }
+.idx-px { font-variant-numeric: tabular-nums; }
 .idx-up { color: #ff5252; }
 .idx-down { color: #00c864; }
 .idx-flat { color: var(--text-muted); }
@@ -152,7 +156,7 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
   background: rgba(255, 255, 255, 0.04);
   min-width: 78px;
 }
-.emo-val { font-size: 0.9375rem; font-weight: 700; white-space: nowrap; }
+.emo-val { font-size: 0.9375rem; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* 亏钱效应: 绿色(负面指标, 主人指定) */
 .emo-val.loss { color: #00c864; }
 .senti-vdivider { width: 1px; align-self: stretch; background: rgba(255, 255, 255, 0.1); flex-shrink: 0; }
@@ -167,7 +171,7 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
 .senti-val.dt, .emo-val .dt { color: var(--accent-text); }
 
 /* 手机端紧凑: 指数带独占一行横滑, 情绪卡换行堆叠 */
-@media (max-width: 600px) {
+@media (max-width: 576px) {
   .sentiment-panel { padding: 6px 8px; gap: 6px 10px; }
   .index-strip { flex-basis: 100%; order: 1; }
   .senti-vdivider { display: none; }

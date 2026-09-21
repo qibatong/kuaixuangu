@@ -17,8 +17,21 @@ const router = createRouter({
     { path: '/aipick', name: 'aipick', component: () => import('../views/AipickView.vue') },
     { path: '/bigv', name: 'bigv', component: () => import('../views/SummaryNewsView.vue') },
     { path: '/admin', name: 'admin', component: () => import('../views/AdminView.vue'), meta: { admin: true } },
-    { path: '/:pathMatch(.*)*', redirect: '/' }
+    // 2026-09-21: 由 redirect '/' 改为独立 404 视图, 避免未知路径静默落首页造成困惑
+    { path: '/:pathMatch(.*)*', name: 'notFound', component: () => import('../views/NotFoundView.vue') }
   ]
+})
+
+// 2026-09-21: 路由级 <title>, 便于多标签区分/书签辨识/前进后退历史
+const TITLES = {
+  stock: '选股', pool: '自选', history: '历史回看', market: '市场雷达',
+  concept: '题材异动', ladder: '涨停梯队', temper: '股性', yidong: '异动监管',
+  bigv: '大V资讯', auction: '竞价异动', aipick: 'AI预测', admin: '管理后台',
+}
+router.afterEach((to) => {
+  if (to.name === 'login') { document.title = '登录 · 快选'; return }
+  if (to.name === 'notFound') { document.title = '页面不存在 · 快选'; return }
+  document.title = `${TITLES[to.name] || '快选'} · 快选 AI选股`
 })
 
 // 路由守卫: 除 /login 外均需登录; 已登录访问 /login 跳回主页; /admin 需管理员

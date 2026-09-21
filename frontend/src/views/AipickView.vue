@@ -1,5 +1,6 @@
 <template>
   <div class="page-shell" :class="{ 'ap-embedded': embedded }">
+    <h1 class="visually-hidden">AI预测</h1>
     <!-- 会员门禁(2026-08-27): AI 竞价预测仅 VIP/付费会员可用 -->
     <VipGate v-if="!user.isVipOrPaid" title="AI竞价预测" :required-level="1" />
 
@@ -550,7 +551,7 @@ onUnmounted(stopRealtime)
   font-size: 0.8125rem;
   display: inline-flex; align-items: center; gap: 6px;
   font-family: Consolas, Menlo, monospace;
-  transition: all 0.15s;
+  transition: color 0.15s, border-color 0.15s;
   overflow: hidden;
 }
 .rot-date-btn:hover { color: var(--accent); border-color: var(--accent); }

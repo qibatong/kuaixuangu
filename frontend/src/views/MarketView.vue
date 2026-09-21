@@ -1,5 +1,6 @@
 <template>
   <div class="page-shell">
+    <h1 class="visually-hidden">市场雷达</h1>
     <div class="mrk-head">
       <span class="mrk-title"><i class="fa fa-radar"></i> 市场雷达</span>
       <span class="mrk-sub">板块强度排行 · 盘中人气热榜 · 龙虎榜</span>
@@ -125,7 +126,7 @@ v-for="s in sourceOptions" :key="s.key"
           <option :value="30">近 30 日</option>
           <option :value="50">近 50 日</option>
         </select>
-        <button class="rot-reset-btn" title="刷新" @click="loadHistory"><i class="fa fa-refresh"></i></button>
+        <button class="rot-reset-btn" title="刷新" aria-label="刷新" @click="loadHistory"><i class="fa fa-refresh"></i></button>
       </div>
       <div v-if="rotLoading" class="loading-placeholder"><div class="spinner"></div></div>
       <div v-else-if="rotSourceFailed" class="empty-state src-fail">
@@ -545,7 +546,7 @@ body[data-bg="light"] .board-row:hover td { background: rgba(199, 145, 0, 0.08);
 .mrk-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
 .mrk-tab {
   padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border-soft);
-  background: var(--bg-hover); color: var(--text-secondary); font-size: 0.875rem; cursor: pointer; transition: all 0.2s;
+  background: var(--bg-hover); color: var(--text-secondary); font-size: 0.875rem; cursor: pointer; transition: border-color 0.2s, color 0.2s;
 }
 .mrk-tab:hover { border-color: #ffb400; color: #ffe0a0; }
 .mrk-tab.active { background: rgba(255,180,0,0.15); border-color: #ffb400; color: #ffd700; font-weight: 600; }

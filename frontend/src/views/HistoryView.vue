@@ -1,5 +1,6 @@
 <template>
   <div class="page-shell">
+    <h1 class="visually-hidden">历史回看</h1>
     <div class="history-panel">
       <div class="history-head">
         <span class="history-title"><i class="fa fa-history"></i> 历史选股记录</span>
@@ -375,7 +376,7 @@ onMounted(() => {
   padding: 8px 16px;
   font-size: 0.875rem;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: border-color 0.2s, color 0.2s;
 }
 .view-tab:hover { border-color: #ffb400; color: #ffe0a0; }
 .view-tab.active {

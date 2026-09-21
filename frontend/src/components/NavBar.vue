@@ -1,6 +1,6 @@
 <template>
   <!-- 全站顶部导航栏: 左品牌 logo+导航入口, 右主题/字号/账户工具 -->
-  <nav class="nav-bar">
+  <nav class="nav-bar" aria-label="主导航">
     <div class="nav-left">
       <router-link to="/" class="nav-brand" title="快选 · AI选股">
         <img src="/logo.jpg" class="nav-logo" alt="快选">
@@ -51,6 +51,7 @@
   v-for="b in BGS" :key="b.key"
           class="nav-theme-dot" :class="{ active: bg === b.key }"
           :style="{ background: b.color }" :title="b.label"
+          :aria-label="'切换主题：' + b.label"
           @click="setBg(b.key)"
 ></button>
       </div>
@@ -90,7 +91,7 @@
                 v-for="f in FONTS" :key="f.key"
                 class="menu-font" :class="{ active: font === f.key }"
                 :style="{ fontSize: f.key === 'sm' ? '12px' : f.key === 'lg' ? '16px' : '13px' }"
-                :title="f.label" @click="setFont(f.key)"
+                :title="f.label" :aria-label="'字号：' + f.label" @click="setFont(f.key)"
               >A</button>
             </div>
             <!-- 字体族: 霞鹜等宽 / 思源黑体 / 思源宋体 — 全部 SIL OFL 1.1 免费商用 -->
@@ -101,7 +102,7 @@
               <button
                 v-for="ff in FONT_FAMILIES" :key="ff.key"
                 class="menu-fontfam" :class="{ active: fontFam === ff.key }"
-                :title="ff.desc" @click="setFontFam(ff.key)"
+                :title="ff.desc" :aria-label="'字体：' + ff.label" @click="setFontFam(ff.key)"
               >
                 <span class="ff-label" :style="{ fontFamily: ff.family }">{{ ff.label }}</span>
                 <span class="ff-desc">{{ ff.desc }}</span>
@@ -359,7 +360,7 @@ body[data-bg="light"] .nav-theme-dot.active { border-color: #1a1d26; box-shadow:
   transition: transform 0.15s, border-color 0.15s, background 0.15s, color 0.15s;
 }
 .menu-font:hover { transform: scale(1.1); border-color: var(--accent); }
-.menu-font.active { border-color: var(--accent); background: var(--accent); color: #fff; }
+.menu-font.active { border-color: var(--accent); background: var(--accent-deep2); color: #fff; } /* 2026-09-21 深色 #ff5c5c 底白字对比 3.03, 改 deep2 深红达 5.4:1 */
 /* 字体族切换按钮组: 三个竖排选项, 选中高亮, 文字用对应字体渲染便于对比 */
 .menu-fontfam-list {
   display: flex; flex-direction: column; gap: 6px; margin-top: 6px;

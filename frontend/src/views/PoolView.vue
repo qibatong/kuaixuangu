@@ -1,5 +1,6 @@
 <template>
   <div class="page-shell">
+    <h1 class="visually-hidden">自选</h1>
     <!-- 页面标题 + 简说明 -->
     <div class="pool-page-head">
       <div class="pool-page-title"><i class="fa fa-database"></i> 自选股票池</div>

@@ -1,5 +1,6 @@
 <template>
   <div class="page-shell">
+    <h1 class="visually-hidden">涨停梯队</h1>
     <!-- 头部 -->
     <div class="zt-head">
       <span class="zt-title"><i class="fa fa-sitemap"></i> 涨停梯队</span>

@@ -1,5 +1,6 @@
 <template>
   <div>
+    <h1 class="visually-hidden">选股</h1>
     <!-- 窄屏(<1100px) 切换栏: 选股 / 竞价异动 (宽屏 50/50 并排, 本栏隐藏) -->
     <div class="home-mob-toggle">
       <button class="home-mob-tab" :class="{ active: mobilePane === 'stock' }" @click="mobilePane = 'stock'">
@@ -54,8 +55,7 @@
             <!-- 会员门禁: 竞价选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
             <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价选股" />
             <template v-if="user.isMember || !isMemberOnlyTime()">
-              <!-- 奖牌区 -->
-              <MedalPanel :stocks="stocks.cachedStocks" />
+              <!-- 5-1: 奖牌区已降级为 StockTable 行内徽标(前三行), 此处不再渲染三张重复卡片 -->
               <!-- 主表 -->
               <div v-if="!stocks.isDataCached" class="stock-table-container">
                 <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
@@ -82,7 +82,6 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import FilterPanel from '../components/FilterPanel.vue'
 import SentimentPanel from '../components/SentimentPanel.vue'
-import MedalPanel from '../components/MedalPanel.vue'
 import StockTable from '../components/StockTable.vue'
 import AuctionView from './AuctionView.vue'
 import AipickView from './AipickView.vue'

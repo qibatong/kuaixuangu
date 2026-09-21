@@ -78,7 +78,7 @@
               显示成严格不等号会让文案与真实行为不符。
            ⚠️ 两端 0 仍表示「不限」(下限: mv<0 不可能命中; 上限: `floatMvGt > 0` 才生效)。 -->
       <label class="filter-cell" title="自由流通市值区间(亿)，含边界值；两端 0=不限">
-        <input v-model.number="store.filterSettings.floatMvFloor" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)"><span class="mv-range-op">≤ 自由流通 ≤</span><input v-model.number="store.filterSettings.floatMvGt" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
+        <span class="mv-range-label">自由流通</span><input v-model.number="store.filterSettings.floatMvFloor" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)"><span class="mv-range-op">~</span><input v-model.number="store.filterSettings.floatMvGt" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
       </label>
       <label class="filter-cell">
         股价 ≤<input v-model.number="store.filterSettings.priceGt" type="number" min="0" max="5000" step="10" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">元
@@ -309,6 +309,14 @@ function reset() { store.resetFilterToDefault() }
 .mv-range-op {
   display: inline-block;
   margin: 0 3px;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+/* 5-5: 对称双输入框「自由流通 [20] ~ [200] 亿」的前置标签 */
+.mv-range-label {
+  display: inline-block;
+  margin-right: 3px;
   white-space: nowrap;
   font-size: 0.75rem;
   line-height: 1.3;

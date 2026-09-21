@@ -1,5 +1,6 @@
 <template>
   <div class="page-shell">
+    <h1 class="visually-hidden">异动监管</h1>
     <div class="yd-head">
       <span class="yd-title"><i class="fa fa-bullhorn"></i> 异动监管</span>
       <span class="yd-sub">严重异动 · 热门股偏离值 · 重点监控 · 多次异动</span>
@@ -26,7 +27,7 @@
       <div class="yd-toolbar">
         <span class="yd-tip"><i class="fa fa-info-circle"></i> 全市场严重异动个股（盘中持续刷新）</span>
         <span v-if="rtManyNum" class="yd-badge">异动家数: {{ rtManyNum }}</span>
-        <button class="rot-reset-btn" title="刷新" @click="loadRealtime"><i class="fa fa-refresh"></i></button>
+        <button class="rot-reset-btn" title="刷新" aria-label="刷新" @click="loadRealtime"><i class="fa fa-refresh"></i></button>
       </div>
       <div v-if="rtLoading" class="loading-placeholder"><div class="spinner"></div><div>加载严重异动...</div></div>
       <div v-else-if="!rtList.length" class="empty-state">暂无严重异动数据</div>
@@ -67,7 +68,7 @@
     <div v-else-if="tab === 'hot'" class="yd-panel">
       <div class="yd-toolbar">
         <span class="yd-tip"><i class="fa fa-info-circle"></i> 热门股偏离值（热度严重异常，近10日/30日累计偏离超阈值）</span>
-        <button class="rot-reset-btn" title="刷新" @click="loadHot"><i class="fa fa-refresh"></i></button>
+        <button class="rot-reset-btn" title="刷新" aria-label="刷新" @click="loadHot"><i class="fa fa-refresh"></i></button>
       </div>
       <div v-if="hotLoading" class="loading-placeholder"><div class="spinner"></div><div>加载热门股偏离值...</div></div>
       <div v-else-if="!hotList.length" class="empty-state">暂无热门股偏离值数据</div>
@@ -108,7 +109,7 @@
     <div v-else-if="tab === 'monitor'" class="yd-panel">
       <div class="yd-toolbar">
         <span class="yd-tip"><i class="fa fa-info-circle"></i> 当日重点监控股票列表</span>
-        <button class="rot-reset-btn" title="刷新" @click="loadMonitor"><i class="fa fa-refresh"></i></button>
+        <button class="rot-reset-btn" title="刷新" aria-label="刷新" @click="loadMonitor"><i class="fa fa-refresh"></i></button>
       </div>
       <div v-if="monLoading" class="loading-placeholder"><div class="spinner"></div><div>加载重点监控...</div></div>
       <div v-else-if="!monList.length" class="empty-state">暂无重点监控数据</div>
@@ -141,7 +142,7 @@
     <div v-else class="yd-panel">
       <div class="yd-toolbar">
         <span class="yd-tip"><i class="fa fa-info-circle"></i> 近10日内多次异动个股</span>
-        <button class="rot-reset-btn" title="刷新" @click="loadMulti"><i class="fa fa-refresh"></i></button>
+        <button class="rot-reset-btn" title="刷新" aria-label="刷新" @click="loadMulti"><i class="fa fa-refresh"></i></button>
       </div>
       <div v-if="mulLoading" class="loading-placeholder"><div class="spinner"></div><div>加载多次异动...</div></div>
       <div v-else-if="!mulList.length" class="empty-state">暂无多次异动数据</div>
@@ -297,7 +298,7 @@ onMounted(() => {
 .yd-tab {
   padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border-soft);
   background: var(--bg-hover); color: var(--text-secondary); font-size: 0.875rem;
-  cursor: pointer; transition: all 0.2s;
+  cursor: pointer; transition: border-color 0.2s, color 0.2s;
 }
 .yd-tab:hover { border-color: #ffb400; color: #ffe0a0; }
 .yd-tab.active {

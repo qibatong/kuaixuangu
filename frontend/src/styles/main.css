@@ -50,8 +50,8 @@ body[data-bg="light"] {
   --bg-hover: #f0f1f4;
   --text-main: #1a1d26;
   --text-secondary: #5f6672;
-  --text-muted: #8a919e;
-  --text-dim: #9aa1ad;
+  --text-muted: #6b7280;   /* 2026-09-21 对比度修正: #8a919e(3.17:1)→#6b7280(4.84:1) 达 AA */
+  --text-dim: #6d7786;     /* 2026-09-21 对比度修正: #9aa1ad(2.60:1)→#6d7786(4.53:1) 达 AA */
   --border-soft: #e8eaef;
   --shadow-card: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
   --accent-text: #b91c1c;  /* 深红, 白底可读 */
@@ -73,6 +73,18 @@ body[data-bg="light"] {
   --gold-text: #a06a00;
   --silver: #8a8a8a;
   --bronze: #b87220;
+}
+
+/* ===================== 键盘焦点可见性 (2026-09-21 WCAG 2.4.7) =====================
+   原状态: 全站无 focus-visible 样式, 且 6 处 outline:none 无替代 → 键盘 Tab 焦点
+   描边 rgb(16,16,16) 在深色底上对比仅 1.04:1, 等于不可见。
+   方案: 鼠标点击不显示描边(:focus:not(:focus-visible)), 键盘导航显示清晰描边。
+   --accent 深色 #ff5c5c(对 #0f1219 6.5:1) / 浅色 #c62828(对 #ffffff 5.6:1) 均达 3:1。 */
+:focus:not(:focus-visible) { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 /* ===================== 浅色主题专用覆盖(硬编码浅色文字) ===================== */
@@ -248,7 +260,7 @@ html, body, #app {
   color: var(--text-secondary);
   font-size: 0.875rem;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s;
 }
 .home-mob-tab.active {
   background: rgba(255,180,0,0.12);
@@ -431,7 +443,7 @@ a { color: inherit; }
 .hero-section { text-align: center; margin: 14px 0 8px; display: flex; align-items: center; justify-content: center; gap: 18px; padding: 4px 0; }
 .hero-logo { height: 60px; width: 60px; border-radius: 6px; box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.25), 0 6px 18px rgba(var(--accent-rgb), 0.3); flex-shrink: 0; }
 .hero-text { text-align: left; line-height: 1.1; }
-@media (max-width:780px) { .hero-logo { height: 46px; width: 46px; border-radius: 5px; } .hero-text { text-align: center; } }
+@media (max-width:768px) { .hero-logo { height: 46px; width: 46px; border-radius: 5px; } .hero-text { text-align: center; } }
 .dominant-title {
 font-size: 2.875rem; font-weight: 800;
 background: linear-gradient(135deg, var(--accent), var(--accent-deep2));
@@ -465,7 +477,7 @@ flex-wrap: wrap; backdrop-filter: blur(4px); gap: 10px;
 .tdx-export-btn {
 background: rgba(255,70,70,0.2); border: 1px solid var(--accent); padding: 6px 14px;
 border-radius: 4px; color: #fff0f0; font-weight: bold; font-size: 0.75rem;
-cursor: pointer; transition: all 0.2s; backdrop-filter: blur(4px);
+cursor: pointer; transition: background-color 0.2s, color 0.2s, border-color 0.2s, transform 0.2s, box-shadow 0.2s; backdrop-filter: blur(4px);
 display: flex; align-items: center; gap: 4px; white-space: nowrap;
 text-decoration: none;
 }
@@ -512,7 +524,7 @@ z-index: 9999;
 .filter-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 2px; }
 .reset-filter-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
 .reset-filter-btn:disabled:hover { background: rgba(80,140,255,0.2); border-color: rgba(184,48,16,0.5); color: var(--text-secondary); transform: none; box-shadow: none; }
-.lock-filter-btn { background: rgba(160,160,160,0.2); border: 1px solid #999; color: var(--text-secondary); transition: all 0.2s; }
+.lock-filter-btn { background: rgba(160,160,160,0.2); border: 1px solid #999; color: var(--text-secondary); transition: background-color 0.2s, color 0.2s, border-color 0.2s, transform 0.2s, box-shadow 0.2s; }
 .lock-filter-btn:hover { background: rgba(180,180,180,0.35); color: white; border-color: var(--text-secondary); transform: translateY(-1px); box-shadow: 0 5px 12px rgba(160,160,160,0.3); }
 .lock-filter-btn.locked { background: rgba(255,140,40,0.25); border: 1px solid #ff8c28; color: #ffe0c0; animation: lockPulse 2s ease-in-out infinite; }
 .lock-filter-btn.locked:hover { background: #ff7b1a; color: white; border-color: #fff; box-shadow: 0 5px 14px rgba(255,120,30,0.5); }
@@ -711,7 +723,7 @@ text-align: center; outline: none; font-family: inherit; transition: border-colo
 .empty-pool { text-align: center; padding: 20px; color: #ccaacc; font-size: 0.8125rem; }
 
 /* 手机端池子行紧凑(2026-08-18 主人反馈挤压): 改两行布局 — 上行主要信息, 下行时间+移除 */
-@media (max-width: 600px) {
+@media (max-width: 576px) {
   .pool-item { flex-direction: column; align-items: stretch; padding: 8px 12px; gap: 4px; }
   .pool-item-main { gap: 6px; min-width: 0; flex-shrink: 1; }
   .pool-item-info { gap: 6px; min-width: 0; flex: 1; }
@@ -746,7 +758,7 @@ text-align: center; outline: none; font-family: inherit; transition: border-colo
 .footnote { text-align: center; font-size: 0.75rem; color: var(--text-muted); margin-top: 20px; padding-bottom: 20px; border-top: 1px solid var(--border-soft); padding-top: 20px; }
 .toast-msg { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: var(--accent-deep); color: white; padding: 8px 22px; border-radius: 40px; font-size: 0.8125rem; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.3); animation: fadeInOut 2.2s forwards; }
 @keyframes fadeInOut { 0%{opacity:0;transform:translateX(-50%) translateY(10px);} 15%{opacity:1;transform:translateX(-50%) translateY(0);} 85%{opacity:1;transform:translateX(-50%) translateY(0);} 100%{opacity:0;transform:translateX(-50%) translateY(-10px);visibility:hidden;} }
-@media (max-width:780px) { .dominant-title{font-size:2rem;} .stock-table{min-width:900px;} .medal-card{min-width:0;} .medal-name-big{font-size:1.375rem;} .medal-prob-big{font-size:2.75rem;} }
+@media (max-width:768px) { .dominant-title{font-size:2rem;} .stock-table{min-width:900px;} .medal-card{min-width:0;} .medal-name-big{font-size:1.375rem;} .medal-prob-big{font-size:2.75rem;} }
 
 /* 登录/认证卡片 */
 .auth-overlay {
@@ -775,7 +787,7 @@ margin-top: 2px;
 /* 错误提示: 默认透明占位 (无背景无边框), 错误时显示红色块 (2026-08-16 用户反馈登录页底部留空块) */
 .login-err { color: #ffcc88; font-size: 0.75rem; line-height: 1.6;
   padding: 0; margin: 8px 0 0; min-height: 0;
-  background: transparent; border: 0; border-radius: 0; transition: all 0.15s; }
+  background: transparent; border: 0; border-radius: 0; transition: background-color 0.15s, color 0.15s, border-color 0.15s; }
 .login-switch { font-size: 0.75rem; color: var(--text-muted); margin-top: 12px; line-height: 1.7; }
 .login-switch a { color: #ffb347; text-decoration: none; cursor: pointer; margin: 0 2px; }
 .login-switch a:hover { color: #ffd700; text-decoration: underline; }
@@ -1221,7 +1233,7 @@ body[data-bg="light"] .rot-data-date { color: #8a5500; background: rgba(217, 123
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s;
+  transition: border-color 0.15s, color 0.15s;
   font-size: 0.8125rem;
 }
 .rot-reset-btn:hover { border-color: var(--accent-warm, #ffb400); color: var(--accent-warm, #ffb400); }
@@ -1431,4 +1443,31 @@ body[data-bg="light"] select.rot-select option { background: #fff; color: #333; 
 }
 .stock-info-cell:hover .stock-code {
   color: var(--accent-text) !important;
+}
+
+/* ===================== 无障碍: 视觉隐藏(仅读屏可见) =====================
+   用于各视图的 <h1> 等语义标题 —— 读屏用户可据此定位页面/区块,
+   但密集数据 UI 里不额外占用可见空间 */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* ===================== 动效偏好 (2026-09-21 WCAG 2.3.3) =====================
+   尊重系统「减少动态效果」偏好: 前庭敏感/晕动用户可通过系统设置关闭过渡与动画。
+   此前全站 0 处支持 prefers-reduced-motion, 用户无法关闭动效。 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -1,5 +1,6 @@
 <template>
   <div class="admin-wrap">
+    <h1 class="visually-hidden">管理后台</h1>
     <div class="admin-head">
       <h2 style="margin:0 auto;color:var(--accent-text);"><i class="fa fa-shield"></i> 管理后台</h2>
       <span style="width:120px;"></span>
@@ -1034,7 +1035,7 @@ body[data-bg="light"] .btn-create {
   padding: 6px 14px;
   font-size: 0.8125rem;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: border-color 0.2s, color 0.2s;
 }
 .factor-tab:hover { border-color: #ffb400; color: #ffe0a0; }
 .factor-tab.active {

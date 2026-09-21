@@ -1,5 +1,6 @@
 <template>
   <div class="page-shell">
+    <h1 class="visually-hidden">题材异动</h1>
     <div class="cpt-head">
       <span class="cpt-title"><i class="fa fa-fire"></i> 题材异动</span>
       <span class="cpt-sub">猫爪精选板块异动榜 · 点击左侧板块查看成分股</span>
@@ -40,6 +41,7 @@
                 <div class="cpt-subinfo">
                   <span>{{ b.boardCode }}</span>
                   <span v-if="b.aucGroup" class="auc-net" :class="b.aucNet > 0 ? 'up' : b.aucNet < 0 ? 'down' : 'dim'">竞价 {{ yi(b.aucNet) }}</span>
+                  <span v-if="b.leaderName" class="leader" :class="b.leaderChange > 0 ? 'up' : b.leaderChange < 0 ? 'down' : 'dim'">领涨 {{ b.leaderName }} {{ signed(b.leaderChange) }}%</span>
                 </div>
               </td>
               <td :class="b.change > 0 ? 'up' : b.change < 0 ? 'down' : 'dim'">{{ signed(b.change) }}%</td>
@@ -223,6 +225,8 @@ onMounted(() => {
 .cpt-row:hover td { background: rgba(255, 180, 0, 0.07); }
 .cpt-row.active td { background: rgba(255, 180, 0, 0.13); }
 .cpt-subinfo { font-size: 0.7188rem; color: var(--text-muted); margin-top: 2px; }
+/* 领涨股(2026-09-21): 每板块正宗成分股里涨幅最高的一只, 与竞价净额同排展示 */
+.cpt-subinfo .leader { margin-left: 6px; font-weight: 600; }
 
 /* 竞价异动徽章(2026-09-21 融合 theme_auc_kp 进精选板块榜) */
 .auc-badge {

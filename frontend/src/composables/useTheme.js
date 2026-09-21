@@ -29,10 +29,42 @@ export const FONT_FAMILIES = [
 
 const STORE_KEY = 'kuaixuan_bg'   // 本地兜底 { bg, font, fontFam }, 登录后以 prefs 为准
 
+// 系统配色偏好: 未登录/无明确偏好时, 跟随操作系统明暗主题作为初始值 (2026-09-21)
+// 此前一律强推深色; 现在首次访问的用户若系统是浅色, 自动落到浅色主题。
+function systemBg() {
+  try {
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) return 'light'
+  } catch (e) { /* ignore */ }
+  return 'dark'
+}
+
 // 模块级单例 state: 避免多次 useTheme() 各持独立 ref, 导致跨组件读不到最新主题
 const bg      = ref('dark')       // 默认黑色(深色)主题, 2026-08-22 主人确认
 const font    = ref('md')         // 默认标准字号
 const fontFam = ref('sans')       // 默认思源黑体 (2026-08-23 主人 A/B 对比后确认, 之前默认 lxgw 改 sans)
+
+// 可选字体按需加载: 默认正文 = 思源黑体(Noto Sans SC, 在 main.js 全局加载)。
+// 另外两个可选字体 —— 霞鹜等宽(lxgw, 数字列「去楷体」后已 inherit, 不再默认用) 与
+// 思源宋体(serif) 都只在设置里手动切换时才需要。若在 main.js 全局 import, 会连累所有
+// 用户首屏下载数百个 @font-face + 对应 woff(两字体合计约 22MB)。这里改为首次切换时
+// 才动态 import, Vite 会把它们拆成独立 chunk, 默认用户零开销。
+const _FONT_CSS = {
+  lxgw: [
+    () => import('lxgw-wenkai-webfont/lxgwwenkaimono-regular.css'),
+    () => import('lxgw-wenkai-webfont/lxgwwenkaimono-bold.css'),
+  ],
+  serif: [
+    () => import('@fontsource/noto-serif-sc/400.css'),
+    () => import('@fontsource/noto-serif-sc/700.css'),
+  ],
+}
+const _fontLoaded = {}
+function ensureFontCss(key) {
+  if (_fontLoaded[key] || !_FONT_CSS[key]) return
+  _fontLoaded[key] = true
+  // 动态 import CSS(副作用加载), 触发时才开始拉字体; 失败不阻塞主流程
+  _FONT_CSS[key].forEach((fn) => fn().catch(() => {}))
+}
 
 function applyBg(key) {
   document.body.dataset.bg = key || ''
@@ -64,17 +96,17 @@ export function useTheme() {
       if (settings && typeof settings === 'object') {
         // 已登录且拿到偏好: 有字段用之; 无字段说明账号从未设过 ->
         // 忽略 localStorage 残留, 强制默认
-        b  = BGS.some(x => x.key === settings.bg)                ? settings.bg        : 'dark'
+        b  = BGS.some(x => x.key === settings.bg)                ? settings.bg        : systemBg()
         ft = FONTS.some(x => x.key === settings.font)            ? settings.font      : 'md'
         ff = FONT_FAMILIES.some(x => x.key === settings.fontFam) ? settings.fontFam   : 'sans'   // 2026-08-23 默认改思源黑体
       } else {
-        // 服务器返回空偏好(新账号) -> 全部默认
-        b  = 'dark'
+        // 服务器返回空偏好(新账号) -> 背景跟随系统, 字号/字体用默认
+        b  = systemBg()
         ft = 'md'
         ff = 'sans'   // 2026-08-23 默认改思源黑体
       }
     } catch (e) { /* 未登录/请求失败: 保留本地兜底值 */ }
-    if (!BGS.some(x => x.key === b))                b  = 'dark'
+    if (!BGS.some(x => x.key === b))                b  = systemBg()
     if (!FONTS.some(x => x.key === ft))             ft = 'md'
     if (!FONT_FAMILIES.some(x => x.key === ff))     ff = 'sans'   // 2026-08-23 最终兜底也改成思源黑体
     bg.value      = b
@@ -83,6 +115,7 @@ export function useTheme() {
     applyBg(b)
     applyFont(ft)
     applyFontFam(ff)
+    if (ff !== 'sans') ensureFontCss(ff)   // 账号偏好是可选字体(lxgw/serif)时, 恢复加载对应字体
   }
 
   function persist() {
@@ -117,6 +150,7 @@ export function useTheme() {
     if (!FONT_FAMILIES.some(x => x.key === key)) return
     fontFam.value = key
     applyFontFam(key)
+    ensureFontCss(key)   // 切到可选字体(lxgw/serif)时才按需加载; sans 已全局加载自动跳过
     persist()
   }
 

@@ -1,5 +1,6 @@
 <template>
   <div class="page-shell">
+    <h1 class="visually-hidden">股性</h1>
     <div class="temper-head">
       <span class="temper-title"><i class="fa fa-fire"></i> 股性排行</span>
       <span class="temper-sub">历史封板率 · 次日溢价 · 炸板反包 · 波动画像</span>

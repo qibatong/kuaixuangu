@@ -524,7 +524,7 @@ onUnmounted(() => {
 .chart-tab {
   padding: 7px 16px; border-radius: 6px 6px 0 0; border: none; cursor: pointer;
   background: transparent; color: var(--text-secondary, #9ca3af); font-size: 0.8125rem;
-  font-weight: 500; transition: all 0.15s;
+  font-weight: 500; transition: background-color 0.15s, color 0.15s;
 }
 .chart-tab:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
 .chart-tab.active {

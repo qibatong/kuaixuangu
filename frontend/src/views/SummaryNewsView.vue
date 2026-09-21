@@ -1,5 +1,6 @@
 <template>
   <div class="page-shell">
+    <h1 class="visually-hidden">大V资讯</h1>
     <div class="sn-panel">
       <!-- 顶部: 标题 + 日期选择 -->
       <div class="sn-head">

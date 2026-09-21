@@ -1,7 +1,10 @@
 <template>
   <div class="container">
     <NavBar />
-    <router-view />
+    <!-- 无障碍: 主内容区用语义地标 main 包裹, 读屏可跳转到主内容 -->
+    <main class="app-main">
+      <router-view />
+    </main>
     <Watermark />
     <!-- 全局股票图表弹窗(分时/日K/周K/月K): 全站任意表格点击股票单元格弹出(data 委托在 App) -->
     <StockChartModal
@@ -10,18 +13,27 @@
       :code="chartCode"
       :name="chartName"
     />
-    <div class="footnote">
-      <i class="fa fa-bullhorn"></i> 9:30前可唯一选股并缓存 | 9:30后仅更新实时涨幅 | 实时涨幅＜竞价涨幅自动标绿 | 通达信导入：首次需下载工具并勾选通达信「监控剪贴板」一次 | 股票池10小时防刷新锁定
-    </div>
-    <div class="disclaimer">本平台仅提供软件工具使用权，不构成任何投资建议，股市有风险，投资需谨慎。</div>
+    <!-- 无障碍: 页脚用语义地标 footer 包裹规则条/术语图例/免责声明 -->
+    <footer class="app-footer">
+      <div class="footnote">
+        <i class="fa fa-bullhorn"></i> 9:30前可唯一选股并缓存 | 9:30后仅更新实时涨幅 | 实时涨幅＜竞价涨幅自动标绿 | 通达信导入：首次需下载工具并勾选通达信「监控剪贴板」一次 | 股票池10小时防刷新锁定
+      </div>
+      <!-- 5-7: 术语图例 —— 页面缩写/标记统一解释, 降低专业术语歧义 -->
+      <div class="footnote glossary">
+        术语：现涨=实时涨幅 · 竞涨=竞价涨幅 · 实体=实体涨幅 · 竞额=竞价成交额 · 竞换=竞价换手率 · 自由流通=自由流通市值(亿) · 竞标记=竞价额兜底(非封单额) · 偏离较大=热门股偏离值告警
+      </div>
+      <div class="disclaimer">本平台仅提供软件工具使用权，不构成任何投资建议，股市有风险，投资需谨慎。</div>
+    </footer>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, watch } from 'vue'
 import Watermark from './components/Watermark.vue'
 import NavBar from './components/NavBar.vue'
-import StockChartModal from './components/StockChartModal.vue'
+// 图表弹窗按需异步加载: 其内部引用了 echarts(数百 KB), 若静态引入会把 echarts 打进首屏主 bundle。
+// defineAsyncComponent 让 echarts 相关代码拆成独立 chunk, 首次点开图表才下载。
+const StockChartModal = defineAsyncComponent(() => import('./components/StockChartModal.vue'))
 import { uiBus, openStockChart, closeStockChart } from './composables/uiBus'
 import { useTheme } from './composables/useTheme'
 import { useUserStore } from './stores/user'
@@ -182,14 +194,24 @@ onBeforeUnmount(() => {
   margin: 0 auto;
   padding: 0 4px;
 }
-/* 网页底部免责声明 */
+/* 网页底部免责声明 (2026-09-21 对比度修正: 提级到 secondary 并去 opacity, 合规文字须最清晰) */
 .disclaimer {
   text-align: center;
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   margin: 8px 16px 24px;
   line-height: 1.7;
-  opacity: 0.75;
   letter-spacing: 0.3px;
+}
+/* 无障碍语义地标: 重置 main/footer 默认样式, 避免引入意外外边距 */
+.app-main { display: block; }
+.app-footer { display: block; }
+/* 5-7: 术语图例行 —— 比正文规则条更淡、更紧凑 */
+.footnote.glossary {
+  font-size: 0.6875rem;
+  color: var(--text-dim);
+  margin-top: 6px;
+  padding-top: 8px;
+  line-height: 1.8;
 }
 </style>

@@ -1,5 +1,6 @@
 <template>
   <div class="page-shell">
+    <h1 class="visually-hidden">竞价异动</h1>
     <!-- 会员门禁(2026-08-17): 竞价异动仅 VIP/付费会员可用, 任何时段都生效(非 9:15-15:00 也门禁) -->
     <VipGate v-if="!user.isVipOrPaid" title="竞价异动" :required-level="1" />
 
@@ -38,11 +39,14 @@
       <button class="auc-tab" :class="{ active: tab === 'qc' }" title="9:15-9:30 竞价抢筹(异动板块大单)" @click="switchTab('qc')">竞价抢筹</button>
       <button class="auc-tab" :class="{ active: tab === 'seal' }" @click="switchTab('seal')">竞价委买</button>
       <button class="auc-tab" :class="{ active: tab === 'net' }" @click="switchTab('net')">竞价净额</button>
+      <!-- 5-6: 按时间逻辑分组 —— 竞价口径(5) | 今日(1) | 昨日表现(4) -->
+      <span class="auc-tab-group" title="今日">|</span>
+      <button class="auc-tab" :class="{ active: tab === 'brokenToday' }" @click="switchTab('brokenToday')">今炸板</button>
+      <span class="auc-tab-group" title="昨日表现">|</span>
       <button class="auc-tab" :class="{ active: tab === 'yestZt' }" @click="switchTab('yestZt')">昨涨停</button>
       <button class="auc-tab" :class="{ active: tab === 'yestBroken' }" @click="switchTab('yestBroken')">昨断板</button>
       <button class="auc-tab" :class="{ active: tab === 'brokenYest' }" @click="switchTab('brokenYest')">昨炸板</button>
       <button class="auc-tab" :class="{ active: tab === 'lhb' }" @click="switchTab('lhb')">昨上榜</button>
-      <button class="auc-tab" :class="{ active: tab === 'brokenToday' }" @click="switchTab('brokenToday')">今炸板</button>
     </div>
 
     <div class="auc-panel">
@@ -69,7 +73,7 @@
             <td class="stock-info-cell" @click="linkToSoftware(it.code)">
             <div class="stock-code-row"><span class="stock-code">{{ it.code }}</span></div>
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ it.name }}</span><PoolHoverBtn :item="it" /></span></div>
-            <div v-if="yidongTag(it.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(it.code) }}</span></div>
+            <div v-if="yidongTag(it.code)" class="yd-badge-row"><span class="yd-badge" :title="yidongTagTitle(it.code)">{{ yidongTag(it.code) }}</span></div>
           </td>
             <td :class="it.realChange > 0 ? 'up' : 'down'">{{ signed(it.realChange) }}%</td>
             <td :class="it.bidChange > 0 ? 'up' : 'down'">{{ signed(it.bidChange) }}%</td>
@@ -119,7 +123,7 @@
             <td class="stock-info-cell" @click="linkToSoftware(it.code)">
             <div class="stock-code-row"><span class="stock-code">{{ it.code }}</span></div>
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ it.name || it.code }}</span><PoolHoverBtn :item="it" /></span></div>
-            <div v-if="yidongTag(it.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(it.code) }}</span></div>
+            <div v-if="yidongTag(it.code)" class="yd-badge-row"><span class="yd-badge" :title="yidongTagTitle(it.code)">{{ yidongTag(it.code) }}</span></div>
           </td>
             <td class="seal-col seal-col-25">{{ tpSeal(it, '9_25') }}</td>
             <td class="seal-col seal-col-20">{{ tpSeal(it, '9_20') }}</td>
@@ -168,7 +172,7 @@
                 <td class="stock-info-cell" @click="linkToSoftware(q.code)">
             <div class="stock-code-row"><span class="stock-code">{{ q.code }}</span></div>
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ q.name }}</span><PoolHoverBtn :item="q" /></span></div>
-            <div v-if="yidongTag(q.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(q.code) }}</span></div>
+            <div v-if="yidongTag(q.code)" class="yd-badge-row"><span class="yd-badge" :title="yidongTagTitle(q.code)">{{ yidongTag(q.code) }}</span></div>
           </td>
                 <td :class="q.realChange > 0 ? 'up' : q.realChange < 0 ? 'down' : 'dim'">{{ q.realChange !== null && q.realChange !== undefined ? signed(q.realChange) + '%' : '-' }}</td>
                 <td :class="q.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(q.bidAmt) }}</td>
@@ -209,7 +213,7 @@
                 <td class="stock-info-cell" @click="linkToSoftware(q.code)">
             <div class="stock-code-row"><span class="stock-code">{{ q.code }}</span></div>
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ q.name }}</span><PoolHoverBtn :item="q" /></span></div>
-            <div v-if="yidongTag(q.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(q.code) }}</span></div>
+            <div v-if="yidongTag(q.code)" class="yd-badge-row"><span class="yd-badge" :title="yidongTagTitle(q.code)">{{ yidongTag(q.code) }}</span></div>
           </td>
                 <td :class="q.realChange > 0 ? 'up' : q.realChange < 0 ? 'down' : 'dim'">{{ q.realChange !== null && q.realChange !== undefined ? signed(q.realChange) + '%' : '-' }}</td>
                 <td :class="q.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(q.bidAmt) }}</td>
@@ -251,7 +255,7 @@
             <div class="stock-code-row"><span class="stock-code">{{ z.code }}</span></div>
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ z.name }}</span><PoolHoverBtn :item="z" /></span>
             <span v-if="z.stillLimit" class="lb-badge">连板</span></div>
-            <div v-if="yidongTag(z.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(z.code) }}</span></div>
+            <div v-if="yidongTag(z.code)" class="yd-badge-row"><span class="yd-badge" :title="yidongTagTitle(z.code)">{{ yidongTag(z.code) }}</span></div>
           </td>
             <td><span v-if="z.limitUpDays > 0" class="lb-badge">{{ z.limitUpDays }}板</span><span v-else class="dim">-</span></td>
             <td class="dim">{{ fmtMv(z.floatMv) }}</td>
@@ -286,7 +290,7 @@
             <td class="stock-info-cell" @click="linkToSoftware(b2.code)">
             <div class="stock-code-row"><span class="stock-code">{{ b2.code }}</span></div>
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ b2.name }}</span><PoolHoverBtn :item="b2" /></span></div>
-            <div v-if="yidongTag(b2.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(b2.code) }}</span></div>
+            <div v-if="yidongTag(b2.code)" class="yd-badge-row"><span class="yd-badge" :title="yidongTagTitle(b2.code)">{{ yidongTag(b2.code) }}</span></div>
           </td>
             <td :class="b2.yestChange > 0 ? 'up' : b2.yestChange < 0 ? 'down' : 'dim'">{{ b2.yestChange !== null && b2.yestChange !== undefined ? signed(b2.yestChange) + '%' : '-' }}</td>
             <td :class="b2.change > 0 ? 'up' : b2.change < 0 ? 'down' : 'dim'">{{ b2.change !== null && b2.change !== undefined ? signed(b2.change) + '%' : '-' }}</td>
@@ -322,7 +326,7 @@
             <td class="stock-info-cell" @click="linkToSoftware(l.code)">
             <div class="stock-code-row"><span class="stock-code">{{ l.code }}</span></div>
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ l.name }}</span><PoolHoverBtn :item="l" /></span></div>
-            <div v-if="yidongTag(l.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(l.code) }}</span></div>
+            <div v-if="yidongTag(l.code)" class="yd-badge-row"><span class="yd-badge" :title="yidongTagTitle(l.code)">{{ yidongTag(l.code) }}</span></div>
           </td>
             <td :class="l.change > 0 ? 'up' : 'down'">{{ signed(l.change) }}%</td>
             <td :class="l.bidChange > 0 ? 'up' : l.bidChange < 0 ? 'down' : 'dim'">{{ l.bidChange !== null && l.bidChange !== undefined ? signed(l.bidChange) + '%' : '-' }}</td>
@@ -359,7 +363,7 @@
             <td class="stock-info-cell" @click="linkToSoftware(b.code)">
             <div class="stock-code-row"><span class="stock-code">{{ b.code }}</span></div>
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ b.name }}</span><PoolHoverBtn :item="b" /></span></div>
-            <div v-if="yidongTag(b.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(b.code) }}</span></div>
+            <div v-if="yidongTag(b.code)" class="yd-badge-row"><span class="yd-badge" :title="yidongTagTitle(b.code)">{{ yidongTag(b.code) }}</span></div>
           </td>
             <td :class="b.change > 0 ? 'up' : 'down'">{{ signed(b.change) }}%</td>
             <td :class="b.bidChange > 0 ? 'up' : b.bidChange < 0 ? 'down' : 'dim'">{{ b.bidChange !== null && b.bidChange !== undefined ? signed(b.bidChange) + '%' : '-' }}</td>
@@ -420,7 +424,7 @@ import VipGate from '../components/VipGate.vue'
 import PoolHoverBtn from '../components/PoolHoverBtn.vue'
 
 const user = useUserStore()
-const { yidongTag, refreshYidongCodes } = useYidongMonitor()
+const { yidongTag, yidongTagTitle, refreshYidongCodes } = useYidongMonitor()
 const tab = ref('s3')   // 默认选中三时点封单
 const sealRaw = ref([])
 const bidNetList = ref([])   // 2026-08-18: 竞价净额专用(开盘啦 Type2 竞价>1000万), 空时回退封单列表
@@ -868,6 +872,17 @@ onMounted(() => {
   -webkit-overflow-scrolling: touch;
 }
 .auc-tabs::-webkit-scrollbar { display: none; width: 0; height: 0; }
+/* 5-6: Tab 分组分隔线(竞价口径 | 今日 | 昨日表现) */
+.auc-tab-group {
+  display: inline-block;
+  color: var(--text-muted);
+  opacity: 0.5;
+  font-size: 0.75rem;
+  line-height: 1;
+  flex: 0 0 auto;
+  user-select: none;
+  margin: 0 1px;
+}
 .auc-tab {
   padding: 6px 10px;
   border-radius: 5px;
@@ -876,7 +891,7 @@ onMounted(() => {
   color: var(--text-secondary);
   font-size: 0.7812rem;
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
   font-weight: 500;
   white-space: nowrap;
   position: relative;
@@ -907,7 +922,7 @@ onMounted(() => {
 .qc-mode-switch button {
   font-size: 0.75rem; padding: 2px 10px; border-radius: 4px; cursor: pointer;
   background: var(--border-soft); border: 1px solid rgba(255,255,255,0.18);
-  color: #aaa; transition: all 0.2s;
+  color: #aaa; transition: background-color 0.2s, border-color 0.2s, color 0.2s;
 }
 .qc-mode-switch button.active { background: rgba(255,180,0,0.18); border-color: #ffb400; color: #ffd700; font-weight: 600; }
 .qc-mode-switch button:hover { border-color: #ffb400; color: #ffe0a0; }
@@ -1067,7 +1082,7 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 .stock-info-cell .stock-name-row { order: 1; display: flex; align-items: center; justify-content: center; gap: 4px; line-height: 1.3; }
 .stock-info-cell .stock-name { font-weight: 600; color: var(--text-main); font-size: 0.8125rem; }
 .yd-badge-row { order: 3; height: 17px; display: flex; align-items: center; justify-content: center; margin-top: 2px; }
-.yd-badge { display: inline-block; font-size: 0.75rem; line-height: 1; padding: 1px 5px; border-radius: 3px; border: 1px solid #ffd700; color: #ffd700; white-space: nowrap; }
+.yd-badge { display: inline-block; font-size: 0.75rem; line-height: 1; padding: 1px 5px; border-radius: 3px; background: #ff9632; border: 1px solid #ff9632; color: #3a1f00; font-weight: 600; white-space: nowrap; }
 .stock-info-cell .stock-code-row { order: 2; line-height: 1.2; text-align: center; margin-top: 2px; }
 .stock-info-cell .stock-code {
   font-family: inherit; font-size: 0.75rem; color: var(--text-muted);
@@ -1108,7 +1123,7 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 /* 9:25 涨幅: 红系(亮=涨停封死, 暗=回落, 灰=平) - 9:25 最终竞价结果用 A 股主色红 */
 .chg-up-25 { color: #ff6a6a; text-shadow: 0 0 6px rgba(255, 90, 90, 0.35); font-weight: 700; }
 .chg-dn-25 { color: #30b060; }
-.dim-25    { color: #9a5a5a; }
+.dim-25    { color: #b06b6b; }  /* 2026-09-21 对比度修正: #9a5a5a(3.69:1)→#b06b6b(4.77:1) 达 AA */
 /* 封单额: 按时点主色, 弱色 */
 .seal-col { font-variant-numeric: tabular-nums; }
 .seal-col-15 { color: #d8dce4; }
@@ -1162,7 +1177,7 @@ body[data-bg="light"] .modal-mask { background: rgba(0,0,0,0.45); }
 
 /* ---- 涨停原因列(点击链接) ---- */
 .reason-cell { cursor: pointer; text-align: center; font-size: 0.75rem; padding: 6px 10px; white-space: nowrap; }
-.reason-link { display: inline-flex; align-items: center; gap: 4px; color: #ffb400; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: rgba(255, 180, 0, 0.1); border: 1px solid rgba(255, 180, 0, 0.3); transition: all 0.15s ease; }
+.reason-link { display: inline-flex; align-items: center; gap: 4px; color: #ffb400; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: rgba(255, 180, 0, 0.1); border: 1px solid rgba(255, 180, 0, 0.3); transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease; }
 .reason-link:hover { background: rgba(255, 180, 0, 0.2); color: #ffd270; border-color: rgba(255, 180, 0, 0.6); }
 .reason-link .fa { font-size: 0.75rem; }
 body[data-bg="light"] .reason-link { color: #b83010; background: rgba(184,48,16,0.08); border-color: rgba(184,48,16,0.3); }
@@ -1191,7 +1206,7 @@ body[data-bg="light"] .reason-board-txt { background: rgba(184,48,16,0.04); }
 /* ===================== 移动端适配 (<=768px 手机/小平板) ===================== */
 /* 2026-08-20 右栏嵌入首页后: 右栏约占 50% 宽, 在 1100-1300px 区间右栏约 470-570px,
    10 个 tab 换行堆 2-3 行严重挤压 → 把"单行横滚"方案提前到 1300px 断点 */
-@media (max-width: 1300px) {
+@media (max-width: 1280px) {
   .auc-tab { padding: 5px 6px; font-size: 0.75rem; }
 }
 

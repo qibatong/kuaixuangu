@@ -9,6 +9,21 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
 </head>
 <body data-bg="dark">
+<script>
+  // 未登录首访跟随系统配色偏好 (2026-09-21 WCAG 1.4.8 偏好尊重):
+  // 此前 body 硬编码 data-bg="dark" 强推深色, 现在挂载前读取系统浅色偏好,
+  // 若本地/账号无明确偏好则切换到浅色, 避免首帧深色 FOUC 闪烁。
+  (function () {
+    try {
+      var local = null
+      try { local = JSON.parse(localStorage.getItem('kuaixuan_bg') || 'null') } catch (e) {}
+      if (local && local.bg) return // 本地已有明确偏好, 不覆盖
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+        document.body.setAttribute('data-bg', 'light')
+      }
+    } catch (e) {}
+  })()
+</script>
 <div id="app"></div>
 <script type="module" src="/src/main.js"></script>
 </body>

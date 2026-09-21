@@ -11,8 +11,9 @@
         <col style="width:50px" />
         <col style="width:64px" />
         <!-- 2026-09-20: 主力净额列(盘中追踪)。🔴 colgroup 必须与表头列数一致 ——
-             fixed 布局下缺 col 的末列会吞掉全部剩余宽度(概念列曾因此独占 ~470px) -->
-        <col style="width:56px" />
+             fixed 布局下缺 col 的末列会吞掉全部剩余宽度(概念列曾因此独占 ~470px)。
+             5-8: 整列为空时 v-if 隐藏 col(与 th/td 同步), 否则末列吞宽度 -->
+        <col v-if="hasMainNet" style="width:56px" />
         <col style="width:52px" />
         <col style="width:42px" />
         <col style="width:52px" />
@@ -20,22 +21,24 @@
       </colgroup>
       <thead>
         <tr>
-          <th class="sortable merged-col col-name" :class="{ active: sortKey === 'code' || sortKey === 'name' }" @click="onSort('code', 'string')">名称<span class="sort-ind">{{ sortInd('code') }}</span></th>
-          <th class="sortable num col-realchg" :class="{ active: sortKey === 'realChange' }" title="实时涨幅：当前价相对昨收的涨幅" @click="onSort('realChange', 'number')">现涨<span class="sort-ind">{{ sortInd('realChange') }}</span></th>
-          <th class="sortable num col-bidchg" :class="{ active: sortKey === 'bidChange' }" title="竞价涨幅" @click="onSort('bidChange', 'number')">竞涨<span class="sort-ind">{{ sortInd('bidChange') }}</span></th>
-          <th class="sortable num col-entchg" :class="{ active: sortKey === 'entityChange' }" @click="onSort('entityChange', 'number')">实体<span class="sort-ind">{{ sortInd('entityChange') }}</span></th>
-          <th class="sortable num col-bidamt" :class="{ active: sortKey === 'bidAmt' }" title="集合竞价阶段撮合成交金额" @click="onSort('bidAmt', 'number')">竞额<span class="sort-ind">{{ sortInd('bidAmt') }}</span></th>
-          <th class="sortable num col-mainnet" :class="{ active: sortKey === 'mainNet' }" title="盘中主力净额(亿): 主力买入-卖出, 猫爪 fundflow_kp, 盘中约5分钟刷新; 盘后/非交易时段显示 -" @click="onSort('mainNet', 'number')">主力净额<span class="sort-ind">{{ sortInd('mainNet') }}</span></th>
+          <th scope="col" class="sortable merged-col col-name" :class="{ active: sortKey === 'code' || sortKey === 'name' }" :aria-sort="ariaSortFor('code')" tabindex="0" @click="onSort('code', 'string')" @keydown.enter.prevent="onSort('code', 'string')" @keydown.space.prevent="onSort('code', 'string')">名称<span class="sort-ind" aria-hidden="true">{{ sortInd('code') }}</span></th>
+          <th scope="col" class="sortable num col-realchg" :class="{ active: sortKey === 'realChange' }" :aria-sort="ariaSortFor('realChange')" title="实时涨幅：当前价相对昨收的涨幅" tabindex="0" @click="onSort('realChange', 'number')" @keydown.enter.prevent="onSort('realChange', 'number')" @keydown.space.prevent="onSort('realChange', 'number')">现涨<span class="sort-ind" aria-hidden="true">{{ sortInd('realChange') }}</span></th>
+          <th scope="col" class="sortable num col-bidchg" :class="{ active: sortKey === 'bidChange' }" :aria-sort="ariaSortFor('bidChange')" title="竞价涨幅" tabindex="0" @click="onSort('bidChange', 'number')" @keydown.enter.prevent="onSort('bidChange', 'number')" @keydown.space.prevent="onSort('bidChange', 'number')">竞涨<span class="sort-ind" aria-hidden="true">{{ sortInd('bidChange') }}</span></th>
+          <th scope="col" class="sortable num col-entchg" :class="{ active: sortKey === 'entityChange' }" :aria-sort="ariaSortFor('entityChange')" tabindex="0" @click="onSort('entityChange', 'number')" @keydown.enter.prevent="onSort('entityChange', 'number')" @keydown.space.prevent="onSort('entityChange', 'number')">实体<span class="sort-ind" aria-hidden="true">{{ sortInd('entityChange') }}</span></th>
+          <th scope="col" class="sortable num col-bidamt" :class="{ active: sortKey === 'bidAmt' }" :aria-sort="ariaSortFor('bidAmt')" title="集合竞价阶段撮合成交金额" tabindex="0" @click="onSort('bidAmt', 'number')" @keydown.enter.prevent="onSort('bidAmt', 'number')" @keydown.space.prevent="onSort('bidAmt', 'number')">竞额<span class="sort-ind" aria-hidden="true">{{ sortInd('bidAmt') }}</span></th>
+          <th v-if="hasMainNet" scope="col" class="sortable num col-mainnet" :class="{ active: sortKey === 'mainNet' }" :aria-sort="ariaSortFor('mainNet')" title="盘中主力净额(亿): 主力买入-卖出, 猫爪 fundflow_kp, 盘中约5分钟刷新; 盘后/非交易时段显示 -" tabindex="0" @click="onSort('mainNet', 'number')" @keydown.enter.prevent="onSort('mainNet', 'number')" @keydown.space.prevent="onSort('mainNet', 'number')">主力净额<span class="sort-ind" aria-hidden="true">{{ sortInd('mainNet') }}</span></th>
           <!-- 2026-09-20: 列文案改「自由流通」—— 后端 circulationMV 已统一为自由流通口径 -->
-          <th class="sortable num col-mv" :class="{ active: sortKey === 'circulationMV' }" title="自由流通市值(亿), 与选股门槛同口径" @click="onSort('circulationMV', 'number')">自由流通<span class="sort-ind">{{ sortInd('circulationMV') }}</span></th>
-          <th class="sortable num col-score" :class="{ active: sortKey === 'probability' }" @click="onSort('probability', 'number')">评分<span class="sort-ind">{{ sortInd('probability') }}</span></th>
-          <th class="sortable num col-conf" :class="{ active: sortKey === 'confidence' }" @click="onSort('confidence', 'number')">可信<span class="sort-ind">{{ sortInd('confidence') }}</span></th>
-          <th class="sortable col-concept" :class="{ active: sortKey === 'concept' }" @click="onSort('concept', 'string')">概念<span class="sort-ind">{{ sortInd('concept') }}</span></th>
+          <th scope="col" class="sortable num col-mv" :class="{ active: sortKey === 'circulationMV' }" :aria-sort="ariaSortFor('circulationMV')" title="自由流通市值(亿), 与选股门槛同口径" tabindex="0" @click="onSort('circulationMV', 'number')" @keydown.enter.prevent="onSort('circulationMV', 'number')" @keydown.space.prevent="onSort('circulationMV', 'number')">自由流通<span class="sort-ind" aria-hidden="true">{{ sortInd('circulationMV') }}</span></th>
+          <th scope="col" class="sortable num col-score" :class="{ active: sortKey === 'probability' }" :aria-sort="ariaSortFor('probability')" tabindex="0" @click="onSort('probability', 'number')" @keydown.enter.prevent="onSort('probability', 'number')" @keydown.space.prevent="onSort('probability', 'number')">评分<span class="sort-ind" aria-hidden="true">{{ sortInd('probability') }}</span></th>
+          <th scope="col" class="sortable num col-conf" :class="{ active: sortKey === 'confidence' }" :aria-sort="ariaSortFor('confidence')" tabindex="0" @click="onSort('confidence', 'number')" @keydown.enter.prevent="onSort('confidence', 'number')" @keydown.space.prevent="onSort('confidence', 'number')">可信<span class="sort-ind" aria-hidden="true">{{ sortInd('confidence') }}</span></th>
+          <th scope="col" class="sortable col-concept" :class="{ active: sortKey === 'concept' }" :aria-sort="ariaSortFor('concept')" tabindex="0" @click="onSort('concept', 'string')" @keydown.enter.prevent="onSort('concept', 'string')" @keydown.space.prevent="onSort('concept', 'string')">概念<span class="sort-ind" aria-hidden="true">{{ sortInd('concept') }}</span></th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="(item, idx) in sortedStocks" :key="item.code">
-          <td class="stock-info-cell" :data-stock-code="item.code" :data-stock-name="item.name" @click="emit('open-chart', item.code, item.name)">
+          <td class="stock-info-cell" :class="{ 'has-medal': idx < 3 }" :data-stock-code="item.code" :data-stock-name="item.name" role="button" tabindex="0" :aria-label="'查看 ' + item.name + ' 分时图'" @click="emit('open-chart', item.code, item.name)" @keydown.enter.prevent="onCellKeydown($event, item)" @keydown.space.prevent="onCellKeydown($event, item)">
+            <!-- 5-1: 奖牌区降级为行内徽标(前三行), 替代原三张重复卡片 -->
+            <span v-if="idx < 3" class="row-medal" :title="['金牌','银牌','铜牌'][idx]">{{ ['🥇','🥈','🥉'][idx] }}</span>
             <div class="stock-name-row">
               <span class="pool-hover-wrap">
                 <span class="stock-name">{{ item.name }}</span>
@@ -43,13 +46,13 @@
               </span>
             </div>
             <div class="stock-code-row"><span class="stock-code">{{ item.code }}</span></div>
-            <div v-if="yidongTag(item.code)" class="yd-badge-row"><span class="yd-badge">{{ yidongTag(item.code) }}</span></div>
+            <div v-if="yidongTag(item.code)" class="yd-badge-row"><span class="yd-badge" :title="yidongTagTitle(item.code)">{{ yidongTag(item.code) }}</span></div>
           </td>
           <td :class="realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + pct(item._staleReal) + '）') : ''">{{ pct(item.realChange) }}</td>
           <td :class="chgCls(item.bidChange)" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'">{{ pct(item.bidChange) }}</td>
           <td :class="item.entityChange === null || item.entityChange === undefined ? 'dim' : (item.entityChange > 0 ? 'up' : 'down')" :title="item.entityChange === null || item.entityChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + pct(item._staleEntity) + '）') : ''">{{ pct(item.entityChange) }}</td>
           <td class="col-muted" :title="'集合竞价阶段撮合成交金额: ' + (item.bidAmt ? bidAmtText(item.bidAmt) : '-')">{{ item.bidAmt || item.bidAmt === 0 ? bidAmtText(item.bidAmt) : '-' }}</td>
-          <td :class="item.mainNet === null || item.mainNet === undefined ? 'dim' : (item.mainNet > 0 ? 'up' : 'down')" :title="item.mainNet === null || item.mainNet === undefined ? '盘中主力净额(亿): 非交易时段或数据未就绪' : ('盘中主力净额: ' + (item.mainNet > 0 ? '+' : '') + item.mainNet + '亿（约每5分钟刷新）')">{{ item.mainNet === null || item.mainNet === undefined ? '-' : (item.mainNet > 0 ? '+' : '') + item.mainNet.toFixed(3) }}</td>
+          <td v-if="hasMainNet" :class="item.mainNet === null || item.mainNet === undefined ? 'dim' : (item.mainNet > 0 ? 'up' : 'down')" :title="item.mainNet === null || item.mainNet === undefined ? '盘中主力净额(亿): 非交易时段或数据未就绪' : ('盘中主力净额: ' + (item.mainNet > 0 ? '+' : '') + item.mainNet + '亿（约每5分钟刷新）')">{{ item.mainNet === null || item.mainNet === undefined ? '-' : (item.mainNet > 0 ? '+' : '') + item.mainNet.toFixed(3) }}</td>
           <td class="col-muted">{{ fmtNum(item.circulationMV, 1) }}</td>
           <td class="score-cell col-muted">{{ fmtNum(item.probability, 0, '分') }}</td>
           <td class="col-muted">{{ fmtNum(item.confidence, 0, '%') }}</td>
@@ -72,7 +75,7 @@ import { fmtNum, pct } from '../utils/format'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
 import PoolHoverBtn from './PoolHoverBtn.vue'
 
-const { yidongTag } = useYidongMonitor()
+const { yidongTag, yidongTagTitle } = useYidongMonitor()
 
 const props = defineProps({
   stocks: { type: Array, default: () => [] },
@@ -81,6 +84,13 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['open-chart'])
+
+// 无障碍: 股票单元格键盘触发弹图(Enter/Space)。仅当焦点在单元格本身
+// (而非其内部的加自选等按钮)时触发, 避免内部按钮操作被误当成弹图。
+function onCellKeydown(e, item) {
+  if (e.target !== e.currentTarget) return
+  emit('open-chart', item.code, item.name)
+}
 
 // 排序状态: { key: 'bidChange', dir: 'asc' | 'desc' } 或 null
 const sortState = ref(null)
@@ -102,7 +112,16 @@ function sortInd(key) {
   return sortState.value.dir === 'desc' ? ' ↓' : ' ↑'
 }
 
+// 无障碍: th 的 aria-sort 取值(none/ascending/descending), 读屏可感知当前排序列与方向
+function ariaSortFor(key) {
+  if (!sortState.value || sortState.value.key !== key) return 'none'
+  return sortState.value.dir === 'desc' ? 'descending' : 'ascending'
+}
+
 const sortKey = computed(() => sortState.value ? sortState.value.key : null)
+
+// 5-8: 主力净额列整列为空(null/undefined)时自动隐藏(盘后/非交易时段), 数据到达自动恢复
+const hasMainNet = computed(() => props.stocks.some(s => s.mainNet !== null && s.mainNet !== undefined))
 
 // 排序后的列表; null/undefined 始终排到末尾(无论升降)
 const sortedStocks = computed(() => {
@@ -205,6 +224,7 @@ function realCls(item) {
   cursor: pointer;
   min-width: 0;
   min-height: 0;
+  position: relative; /* 奖牌徽标绝对定位锚点 */
   /* 2026-09-21 字号12px下限: badge 行高 13->17px, 单元格 52->56px 同步 */
   height: 56px;
   text-align: center;
@@ -227,6 +247,23 @@ function realCls(item) {
   color: var(--text-main);
   font-size: 0.8125rem;
 }
+/* 5-1: 行内奖牌徽标(前三行), 替代原奖牌卡片
+   2026-09-21 主人反馈: 徽标太小且挤占名称 → 改为绝对定位在单元格左侧垂直居中,
+   完全脱离文档流不占名称空间, 字号加大醒目
+   2026-09-21 手机端反馈: 名称列窄, 居中名称顶到左缘与徽标重叠
+   → has-medal 行给单元格预留左侧徽标位(padding-left 28px), 名称/代码整体右移, 互不叠字 */
+.stock-info-cell.has-medal {
+  padding-left: 28px !important;
+}
+.stock-info-cell .row-medal {
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.5rem;
+  line-height: 1;
+  z-index: 1;
+}
 /* 异动监管标签行: 始终占用固定高度(无标签也占位), 保证各列网格线对齐 */
 .yd-badge-row {
   order: 3;
@@ -243,8 +280,11 @@ function realCls(item) {
   line-height: 1;
   padding: 1px 5px;
   border-radius: 3px;
-  border: 1px solid #ffd700;
-  color: #ffd700;
+  /* 5-4: 监管告警标签从金色边框(奖牌语义)改为琥珀色实心胶囊(告警语义) */
+  background: #ff9632;
+  border: 1px solid #ff9632;
+  color: #3a1f00;
+  font-weight: 600;
   white-space: nowrap;
 }
 .stock-info-cell .stock-code-row {

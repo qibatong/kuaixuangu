@@ -398,7 +398,7 @@ onMounted(() => {
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all .15s;
+  transition: background-color .15s, border-color .15s, color .15s;
 }
 .forgot-tab.on {
   background: var(--accent);

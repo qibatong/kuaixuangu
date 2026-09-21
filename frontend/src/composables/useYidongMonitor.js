@@ -14,6 +14,13 @@ const Label = {
   MONITOR: '重点监控',
 }
 
+// 标签含义说明(悬浮 title + 术语图例共用): 报告 5-4/5-7 要求给无解释的标签补语义
+const LabelTitle = {
+  '严重异动': '全市场严重异动（交易所认定的涨跌幅/换手等异动）',
+  '偏离较大': '热门股偏离值过大（近10日/30日累计偏离超阈值）',
+  '重点监控': '当日交易所重点监控股票',
+}
+
 // code -> 标签; 按优先级覆盖: monitor 优先生效, 其次 hot, 再次 realtime
 const ydTagMap = ref(new Map())
 const loading = ref(false)
@@ -54,6 +61,12 @@ function yidongTag(code) {
   return ydTagMap.value.get(String(code)) || ''
 }
 
+// 返回标签的悬浮说明文案; 无标签返回 ''
+function yidongTagTitle(code) {
+  const t = yidongTag(code)
+  return t ? (LabelTitle[t] || t) : ''
+}
+
 export function useYidongMonitor() {
-  return { ydTagMap, loading, refreshYidongCodes, yidongTag }
+  return { ydTagMap, loading, refreshYidongCodes, yidongTag, yidongTagTitle }
 }
