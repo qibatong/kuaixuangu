@@ -90,10 +90,11 @@ cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/p
 8. **Nginx 反代后 IP 一律用 `deps.client_ip()`**，**不要用 `request.client.host`**（恒为 `127.0.0.1`
    → 全站共用一个限流桶）。
 
-### 0.4 最近变更索引（**两台机器均已上线**；生产于 2026-09-21 23:44 放行）
+### 0.4 最近变更索引（T175 两台机器均已上线；**09-22 看板卡片补丁仅上了测试机**）
 
 | 版本 | 日期 | 一句话 |
 |---|---|---|
+| **看板卡片补丁** | 09-22 | 运营看板「今日配额使用」卡片：**标题与内容不符**（写「Top」却没有排行，4 项里 3 项是配置）+ **前端盲遍历 `v-for` 后端 dict ⇒ 内部英文键名裸露到界面**（`checkin_today 0` / `limits picker:3 …`）。修：`quota_stats()` 改**固定 9 字段** + 新增 `usage_top()`（用量事实源 = `kv_cache` 的 `quota:{feature}:{uid}:{date}`，🔴 **必须排除 `quota:bonus:*`(额度) 与 `quota:dedup:*`(去重标记)**）+ 前端改按字段名渲染的中文卡片。**测试机已上线，生产待放行** |
 | **T175** | 09-21 | **会员体系重构（阶段一+阶段二）**：手机号注册/5 天体验/每日配额/签到/运营中心 7 Tab；**修管理端全线 500**（`admin.py` 用 `get_conn()` 返回 tuple 却 `dict(r)`）；`sms.py`/`summary.py` IP 改 `client_ip()`；测试集对齐。**09-21 23:44 已上生产**（后端 15 文件 + 前端 dist + 188 名存量用户补发 5 天，见 `docs/history.md`） |
 | **v4.11.33** | 09-19 | `_ULIST_URL` 写死被封域名 → 改 `_ULIST_HOSTS` 双域名重试 ⇒ **补丁源从 `tencent_point` 恢复为 `eastmoney_realtime`**（且带 f630） |
 | **v4.11.32** | 09-19 | clist **越界页 `rc=102` 被当故障** → 每交易日 09:15:12 熔断到 09:29（**盖住整个竞价窗口**）；改为按 `total` 动态页数、只请求该请求的页 |
@@ -464,18 +465,34 @@ cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/p
   `fetch_yesterday_amounts`、`ensure_cache`、`load_snapshot_full`。想测**真实实现**的文件必须在
   import 期留下 `_ORIG_xxx = fetcher.xxx` 再用 autouse fixture 还原（见 test_yesterday_cache /
   test_tencent_fallback），否则测到的是恒返回假数据的桩（曾导致 11 条用例长期假红）。
-- 基线认知（**2026-09-21 T175 复测 = 当前最新**）：**全量 1082 passed / 4 skipped / 0 红**。
-  🔴 **本轮口径变了（别按旧数字判回归）**：把测试机 `tests/` 与仓库**全量对齐**（此前测试机停在 9/11-9/18，
-  93 文件 vs 仓库 97 文件）+ **删除 6 个孤儿测试文件**后，从「50 failed」的**假阳性**收敛到全绿。
+- 基线认知（**2026-09-22 复测 = 当前最新**）：**全量 1206 收集 / 1202 passed / 4 skipped / 0 红**
+  （仓库 `backend/tests/` = **97 个 `test_*.py`**；测试机已对齐到同规模）。
+  🔴 **上一轮写的「1082 passed」是**测试机**在**少跑 5 个文件**的情况下的数字 —— 覆盖不全，别再引用。
+  真实经过：T175 那轮把 5 个**本地真实存在且 git 已跟踪**的测试文件
+  （`test_fetch_raw_by_codes / test_kpl / test_pick_window_guard / test_snapshot / test_stock_temper_p1`）
+  **误判为「孤儿」从测试机删掉**了（真孤儿只有 `test_qiangchou_detail.py`），于是「全绿」但少跑约 112 例。
   ⚠️ **`tests/` 不入部署产物 ⇒ 长期不同步必然假阳性**：判定三招 ——
   ① `git status --short` 看改了哪些文件；② `grep -l <模块> tests/<失败文件>.py`
-  （本轮 16/19 个失败文件里**连 "admin" 都没有** → 立刻排除是本次改动引入）；
+  （T175 那轮 16/19 个失败文件里**连 "admin" 都没有** → 立刻排除是本次改动引入）；
   ③ 比对两端文件数 + mtime。**对齐命令**：仓库 `tar czf` 打包 → 上传 → 远端解压覆盖
-  → `comm -13` 比对清单删除**孤儿文件**（🔴 `tar xzf` 是覆盖式、**不删孤儿**）。
+  → 比对清单删除**孤儿**（🔴 `tar xzf` 是覆盖式、**不删孤儿**）。
+  🔴🔴 **`comm` 比对清单前必须先剥 `\r`**：远端 `ls` 经 shell 回传是 **CRLF**，
+  不剥离会让两列「全不相等」—— 表现为同一份清单里**每个文件既算「缺失」又算「孤儿」**（2026-09-22 首次比对即如此）。
+  正解：Python 侧 `l.strip()` 后再比，且**删文件前先 `git ls-files` 确认它确实不在仓库里**。
+  🔴 **跨端对拍测试还依赖 `frontend/src`**：`test_pick_window_guard` / `test_freeze_guard_0918` /
+  `test_picker_snapshot` 会去读 `../../frontend/src/utils/time.js` 与后端常量对拍。
+  测试机上那份是 **09-18 的陈旧副本**（`PICK_BLOCK_TO` 还是 09:25:35）⇒ 后端没错也判红。
+  **部署/同步时要把 `frontend/src` 一起带过去**（本地 73 文件）。
   核对收集数：`pytest --collect-only -q | tail -1`。
   ⚠️ **远端跑 pytest 必须带 `PYTHONPATH`**：
   `cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/python -m pytest -q --no-header -p no:cacheprovider`
   （否则 `ModuleNotFoundError: No module named 'app'`）。
+  🔴 **本机跑全量 pytest：末行汇总会被沙箱 safe-delete 钩子吃掉**（pytest 结束时清理
+  `%TEMP%\pytest-of-*` 的一个 garbage 目录 → 命中"批量删除"钩子 → 进程在打印汇总前被中断，
+  **退出码 1 且没有 `N passed` 那一行**，但**进度点全是 `.`/`s`、一个 `F`/`E` 都没有**）。
+  别把这当成"有测试失败"。两个可靠判据：① `--junit-xml=` 后解析
+  `testsuites/testsuite@tests|failures|errors|skipped`；② 用 Python `subprocess` 包一层
+  `pytest` 把 stdout/stderr 写文件（`scripts/_kx_run_full.py`），再数进度字符。
   （以下为 v4.11.33 那次的记录，保留作背景）**全量 1140 passed / 4 skipped / 0 红**
   （收集 1144，实测 215.4s）。⚠️ 下面是从旧到新的演进史，**越靠后越新**；判回归**只与最后一条比**。
   （以下为 v4.11.29 那次的细节，保留作背景）🔴 **连续第二次全量归零**。4 条 skip = 前后端同口径对拍用例在**没有前端源码**的机器上主动跳过

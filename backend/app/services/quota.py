@@ -18,6 +18,7 @@
      SQLite 走事务加锁, Redis 走 INCR 原子命令, 语义一致。异常时按"不放行但也不计数"
      保守处理 —— 宁可短暂拦住免费用户, 也不能因存储故障把配额体系彻底放开。
 """
+import re
 import time
 
 from ..core import config, logger
@@ -94,6 +95,75 @@ def used_of(uid, feature, date=None):
         return int(v or 0)
     except Exception:
         return 0
+
+
+# 用量计数 key 的严格形态: quota:{feature}:{uid}:{YYYY-MM-DD}
+# 故意用整串匹配(而非 LIKE 前缀)把同前缀的另两类 key 排除干净:
+#   quota:bonus:{feature}:{uid}:{date}  签到加成 —— 是"额度"不是"用量", 混进来会虚高
+#   quota:dedup:{uid}:{feature}         10s 去重标记 —— 无日期段, 且非次数
+_DAILY_KEY_RE = re.compile(r"^quota:(picker|aipick|auction):(\d+):(\d{4}-\d{2}-\d{2})$")
+
+
+def _as_int(val):
+    """kv_cache 的 val 有两种历史写法, 都要认:
+      `store.incr()` → `str(n)`      → 库里是 `2`
+      `store.set()`  → `json.dumps`  → 库里是 `2`(int) 或 `"2"`(str, 带引号)
+    认不出时返回 0(而不是抛异常) —— 统计口径宁少不多, 不能因为一个脏值整榜 500。"""
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(str(val).strip().strip('"'))
+    except (TypeError, ValueError):
+        return 0
+
+
+def usage_top(feature=None, date=None, limit=10):
+    """管理端: 某日配额用量排行. 返回 [{feature, uid, used}] 降序, 以及汇总。
+
+    ★ 数据源 = CacheStore 的计数 key `quota:{feature}:{uid}:{date}`
+      (由 quota_guard 每次放行时 `store.incr` 原子自增), 这是全站唯一
+      的"用量事实来源" —— 没有第二张表记录用量, 所以只能扫 kv_cache。
+    ★ 只有**免费/试用**用户会被计数: 会员(member_level>=1)与管理员在
+      `consume()` 里直接 return True 且不落 key ⇒ 本榜天然只含免费用户。
+    ★ 读多写少, 且 kv_cache 有 idx_kv_expire, 单日量级 = 免费活跃用户 × 3 feature,
+      属小结果集; 用只读连接不阻塞写入。
+    """
+    d = date or _bj_date()
+    feats = [feature] if feature else list(_FEATURE_LIMITS.keys())
+    try:
+        conn = database.get_conn()
+        try:
+            # kv_cache 列名 val(非 value); 这里只取 quota: 前缀, 拿回后按正则严格筛选
+            rows = conn.execute(
+                "SELECT key, val FROM kv_cache WHERE key LIKE 'quota:%'").fetchall()
+        finally:
+            conn.close()
+    except Exception as e:
+        log.warning("配额用量统计失败 err=%s", e)
+        return {"date": d, "rows": [], "total": 0, "users": 0, "by_feature": {}}
+
+    agg = {}
+    by_feature = {}
+    for key, val in rows:
+        m = _DAILY_KEY_RE.match(key or "")
+        if not m:
+            continue
+        f, uid_s, day = m.group(1), m.group(2), m.group(3)
+        if day != d or f not in feats:
+            continue
+        uid = int(uid_s)
+        n = _as_int(val)
+        if n <= 0:
+            continue
+        agg[(f, uid)] = agg.get((f, uid), 0) + n
+        by_feature[f] = by_feature.get(f, 0) + n
+
+    out = [{"feature": f, "uid": uid, "used": n} for (f, uid), n in agg.items()]
+    out.sort(key=lambda x: (-x["used"], x["uid"]))
+    return {"date": d, "rows": out[:limit], "total": sum(by_feature.values()),
+            "users": len({u for _, u in agg}), "by_feature": by_feature}
 
 
 def is_privileged(uid):
@@ -177,18 +247,70 @@ def reset_user(uid, feature=None, bonus=True):
 
 
 def quota_stats(days=1):
-    """管理端: 配额相关统计. 汇总今日签到给免费用户加了多少额度"""
+    """管理端: 看板「今日配额」卡片的数据。
+
+    ★ 返回结构**固定字段**(前端按字段名逐项渲染, 不再盲遍历 dict)。
+      2026-09-21 的缺陷: 旧版把这四个内部键名直接遍历输出, 界面上就出现了
+      `checkin_today 0` / `limits picker:3 …` 这类英文键, 且卡片标题写「Top」
+      却没有排行 —— 键名与语义全部裸露给用户。
+
+    字段:
+      date                  统计日期(北京)
+      limits                各功能**每日基础额度**(配置值, 不是用量)
+      checkin_bonus_per_day 签到一次送多少额度
+      checkin_today         今日签到人数
+      bonus_granted_today   今日签到送出的额度合计
+      usage_total           今日免费用户配额消耗总次数
+      usage_users           今日用过配额的人数(去重)
+      usage_by_feature      分功能消耗次数
+      usage_top             按人汇总的用量 Top(含 username)
+    """
+    today = _bj_date()
+    out = {"date": today,
+           "limits": {f: base_limit(f) for f in _FEATURE_LIMITS},
+           "checkin_bonus_per_day": int(getattr(config, "QUOTA_CHECKIN_BONUS", 3)),
+           "checkin_today": 0, "bonus_granted_today": 0,
+           "usage_total": 0, "usage_users": 0, "usage_by_feature": {}, "usage_top": []}
+
+    usage = usage_top(date=today, limit=10)
+    out["usage_total"] = usage["total"]
+    out["usage_users"] = usage["users"]
+    out["usage_by_feature"] = usage["by_feature"]
+    out["usage_top"] = usage["rows"]
+    if out["usage_top"]:
+        names = _usernames([it["uid"] for it in out["usage_top"]])
+        for it in out["usage_top"]:
+            it["username"] = names.get(it["uid"]) or ("uid=%d" % it["uid"])
+
     try:
         conn = database.get_conn()
-        today = _bj_date()
-        rows = conn.execute(
-            "SELECT COUNT(*) n, COALESCE(SUM(reward),0) s FROM user_checkin WHERE date=?",
-            (today,)).fetchall()
-        conn.close()
-        r = rows[0] if rows else (0, 0)
-        return {"checkin_today": int(r[0] or 0), "bonus_granted_today": int(r[1] or 0),
-                "limits": {f: base_limit(f) for f in _FEATURE_LIMITS},
-                "checkin_bonus_per_day": int(getattr(config, "QUOTA_CHECKIN_BONUS", 3))}
+        try:
+            r = conn.execute(
+                "SELECT COUNT(*) n, COALESCE(SUM(reward),0) s FROM user_checkin WHERE date=?",
+                (today,)).fetchone()
+        finally:
+            conn.close()
+        out["checkin_today"] = int((r[0] if r else 0) or 0)
+        out["bonus_granted_today"] = int((r[1] if r else 0) or 0)
     except Exception as e:
         log.warning("配额统计失败 err=%s", e)
-        return {"checkin_today": 0, "bonus_granted_today": 0, "limits": {}, "checkin_bonus_per_day": 0}
+    return out
+
+
+def _usernames(uids):
+    """uid -> username 批量映射(一次查询). 失败返回空 dict, 由调用方兜底显示 uid。"""
+    uids = [int(u) for u in uids]
+    if not uids:
+        return {}
+    try:
+        conn = database.get_conn()
+        try:
+            marks = ",".join("?" * len(uids))
+            rows = conn.execute(
+                "SELECT id, username FROM users WHERE id IN (%s)" % marks, tuple(uids)).fetchall()
+        finally:
+            conn.close()
+        return {r[0]: r[1] for r in rows}
+    except Exception as e:
+        log.warning("用量 Top 用户名查询失败 err=%s", e)
+        return {}

@@ -1477,6 +1477,60 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **T175 补丁 (09-22 测试机已上线, 生产待放行) 运营看板「今日配额使用」卡片 —— 标题与内容不符 + 后端内部键名裸露到界面 + 用量 Top 榜其实从没实现**
+  - **触发**：主人贴出运营中心 看板 Tab 第 4 张卡截图问「这个没看懂」。卡上是
+    `checkin_today 0` / `bonus_granted_today 0` / `limits picker:3 aipick:1 auction:1` / `checkin_bonus_per_day 3`
+    —— **全是英文内部键名**；而标题写的是「今日配额使用（Top）」，**却没有任何排行**。
+  - **两处缺陷（T175 同一轮我自己写坏的，不是历史遗留）**：
+    1. **标题与内容不符**：四项里三项是**配置值**（每日额度上限、签到赠送次数），既没有「使用量」也没有「Top」；
+    2. **契约缺位**：`quota_stats()` 返回一个**没有字段契约的自由 dict**，前端 `MemberAdminPanel.vue`
+       用 `v-for="(v, k) in quotaStat"` 直接遍历渲染 —— 后端内部键名于是**原样变成界面文案**
+       （`featureLabel(k)` 只认 `picker/aipick/auction` 三个 key，另外四个 key 全部裸露）。
+  - **根因一句话**：统计接口没有**固定字段契约**，前端又按 dict 盲遍历 ⇒ **键名即界面**。
+  - **修复**：
+    - `services/quota.py::quota_stats()` 改为**固定 9 字段**
+      （`date / limits / checkin_bonus_per_day / checkin_today / bonus_granted_today /
+        usage_total / usage_users / usage_by_feature / usage_top`）；
+    - 新增 **`usage_top(feature=None, date=None, limit=10)`**：真实的按人用量排行。
+      **用量事实源 = CacheStore 计数 key `quota:{feature}:{uid}:{北京日期}`**
+      （`quota_guard` 每次放行时 `store.incr` 原子自增，**全站唯一**的用量记录，没有第二张表）；
+      🔴 **必须排除同前缀的另两类 key**：`quota:bonus:*`（签到**额度**，混进来会让用量虚高）
+      与 `quota:dedup:*`（10s 去重标记，**无日期段**）。实现用**整串正则**
+      `^quota:(picker|aipick|auction):(\d+):(\d{4}-\d{2}-\d{2})$`，**不用 LIKE 前缀**；
+      另加 `_as_int()` 兼容 `kv_cache.val` 的两种历史写法（`store.incr` 落 `2`、`store.set` 落 `"2"`），
+      脏值按 0 处理（统计宁少不多，不能因一个脏值让整榜 500）；
+    - 前端卡片改为**按字段名逐项渲染**的中文卡片：四颗 chip（今日用量/用过的人/今日签到/签到送出）
+      + 中文额度说明（写明「会员与管理员不计数 ⇒ 本页只反映免费/试用用户」口径）
+      + 用量 Top 表（`# / 用户名 / 功能 / 用量`），无数据显示「今日还没有免费用户消耗配额」；
+      **删掉 `fmtQuotaStat()`** —— 那个把 object 拼成 `a:b` 的格式化器正是裸露的直接元凶。
+  - **验证**（三层，每层都带负例）：
+    - **单元**：新增 `backend/tests/test_quota_usage_20260921.py` **8 例** —— bonus/dedup 排除、
+      跨日期排除、0 值与未知 feature 排除、降序 + limit + feature 过滤、字段集合**锁死**、
+      username 带出、存储读失败降级。🔬 **变异测试**：把正则放宽到容许 `bonus:` 前缀 →
+      `test_usage_top_excludes_bonus_and_dedup_keys` **确实变红**，还原即绿；
+    - **接口**：`/api/admin/dashboard` 实测 **8 OK / 0 FAIL** —— 造 2 个免费用户分别用满
+      picker 3 次 / aipick 1 次，Top 正确带出真实 `username`；**故意塞 `quota:bonus:*=100` 也没进榜**；
+      `quota` 键集合无多余项；无 token 仍 401；跑完自动删探针账号并清 key；
+    - **真实浏览器**（headless chromium + CDP，新增 `scripts/_kx_verify_card_ui.py`）**17 OK / 0 FAIL**：
+      标题 `今日配额使用`、四 chip 全中文、卡片正文**无任何内部键名**、Top 表渲染出真实用户名与次数、
+      卡片宽度 1468px、**0 console error**（截图 `scripts/_kx_shots/F_quota_card.png`）；
+    - 前端 `node --test src/utils/*.test.js` **58/58**；
+    - **后端全量（测试机实跑，`scripts/_kx_run_full.py` 落盘 `/root/_kx_pytest2.log`）**：
+      **收集 1206 / 1202 passed / 4 skipped / 0 failed**（188.78s，`PYTEST_EXIT=0`）。
+      🔴 这一轮之所以是「1206」而不是上一轮的「1082」，是因为先把测试机缺的 5 个测试文件
+      与 `frontend/src`（`test_pick_window_guard` 等要读 `utils/time.js` 对拍）、`sms.py`、`summary.py`
+      同步齐了才跑 —— **旧数字是覆盖不全的产物，不是基线**。
+  - **部署**：测试机已上（后端 `services/quota.py` 1 文件 + 前端换盘 `index-CBc1dpI0.js`）。
+    备份：`/opt/kuaixuan/backend/app/services/quota.py.bak_20260922_000717`、
+    `/opt/kuaixuan/dist_bak_20260922-000911`。**生产一格未动，等主人指令。**
+  - **回滚**：`git revert` 单 commit，外加恢复上面两个备份文件即可。
+  - 🔴 **顺带复核出一处我自己的错（测试集假阳性又一例）**：上一轮「测试集同步」把 5 个
+    **本地真实存在且 git 已跟踪**的测试文件（`test_fetch_raw_by_codes / test_kpl /
+    test_pick_window_guard / test_snapshot / test_stock_temper_p1`）**误判为「孤儿」从测试机删掉了**
+    —— 真孤儿只有 `test_qiangchou_detail.py`。后果是那轮「1082 passed / 0 红」其实**少跑了约 112 个用例**，
+    数字好看但覆盖不全。本轮已重新同步补齐（远端 **91 → 97 文件 / 1086 → 1206 用例**）。
+    **教训：用 `comm` 比对两端清单前必须先剥掉 `\r`** —— 远端 `ls` 经 shell 回传是 CRLF，
+    不剥离会让两列「全不相等」，表现为同一份清单里**每个文件既算「缺失」又算「孤儿」**（本轮首次比对即如此）。
 - **T175 (09-21 测试机 + 生产 均已上线) 会员体系重构（阶段一 + 阶段二）+ 管理端全线 500 修复 + 测试集对齐**
   - **指令**：主人「阶段一/阶段二」会员体系重构 → 测试机验收；期间主人追问「2 个 Traceback 是什么」→ 挖出管理端真实 Bug；随后「提交 git + 更新 docs/README/AGENTS」+「sms.py 用 request.client.host 而非 deps.client_ip，改」。
   - **① 管理端接口全线 500（真实 Bug，非本次重构引入）**：

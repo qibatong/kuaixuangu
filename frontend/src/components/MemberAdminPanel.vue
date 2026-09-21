@@ -28,12 +28,30 @@
           </div>
         </div>
         <div class="ma-card" v-if="quotaStat">
-          <div class="ma-card-title"><i class="fa fa-tachometer"></i> 今日配额使用（Top）</div>
+          <div class="ma-card-title"><i class="fa fa-tachometer"></i> 今日配额使用</div>
           <div class="ma-kv">
-            <span v-for="(v, k) in quotaStat" :key="k" class="ma-chip">
-              {{ featureLabel(k) }} <b>{{ fmtQuotaStat(v) }}</b>
-            </span>
+            <span class="ma-chip">今日用量 <b>{{ quotaStat.usage_total ?? 0 }}</b> 次</span>
+            <span class="ma-chip">用过的人 <b>{{ quotaStat.usage_users ?? 0 }}</b> 人</span>
+            <span class="ma-chip">今日签到 <b>{{ quotaStat.checkin_today ?? 0 }}</b> 人</span>
+            <span class="ma-chip">签到送出 <b>{{ quotaStat.bonus_granted_today ?? 0 }}</b> 次</span>
           </div>
+          <div class="ma-hint">
+            免费用户每日基础额度：选股 {{ quotaLimits.picker ?? 0 }} 次 · AI 预测 {{ quotaLimits.aipick ?? 0 }} 次 ·
+            竞价异动 {{ quotaLimits.auction ?? 0 }} 次；签到每天额外送 {{ quotaStat.checkin_bonus_per_day ?? 0 }} 次选股额度；
+            <b>会员与管理员不计数</b>，因此本页只反映免费/试用用户。
+          </div>
+          <table v-if="quotaTop.length" class="ma-table compact">
+            <thead><tr><th>#</th><th>用户名</th><th>功能</th><th>用量</th></tr></thead>
+            <tbody>
+              <tr v-for="(r, i) in quotaTop" :key="i">
+                <td>{{ i + 1 }}</td>
+                <td>{{ r.username || ('uid=' + r.uid) }}</td>
+                <td>{{ featureLabel(r.feature) }}</td>
+                <td><b>{{ r.used }}</b> 次</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="ma-empty">今日还没有免费用户消耗配额</div>
         </div>
         <button class="ma-btn ghost" @click="loadBoard"><i class="fa fa-refresh"></i> 刷新看板</button>
       </template>
@@ -393,11 +411,8 @@ const boardCards = computed(() => {
 const trendMax = computed(() => Math.max(1, ...trend.value.map((d) => d.count || 0)))
 function barH(n) { return Math.max(2, Math.round((n / trendMax.value) * 90)) }
 function featureLabel(k) { return FEATURE[k] || k }
-function fmtQuotaStat(v) {
-  if (v === null || v === undefined) return '-'
-  if (typeof v === 'object') return Object.entries(v).map(([a, b]) => `${a}:${b}`).join(' ')
-  return v
-}
+const quotaLimits = computed(() => (quotaStat.value && quotaStat.value.limits) || {})
+const quotaTop = computed(() => (quotaStat.value && quotaStat.value.usage_top) || [])
 
 async function loadBoard() {
   loading.board = true

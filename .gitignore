@@ -138,7 +138,14 @@ scripts/_kx_*.sh
 !scripts/_kx_direct.py
 # 回归截图/报文产物
 scripts/_shots/
+scripts/_kx_shots/
 scripts/_kx_tests.tgz
+scripts/_kx_*.tgz
+# 回归过程的中间产物(测试输出/清单/junit 报告/截图)
+scripts/_kx_*.txt
+scripts/_kx_*.xml
+scripts/_kx_*.log
+scripts/_kx_*.png
 # 诊断用的一次性补丁脚本
 scripts/_append_admin.py
 scripts/_mk_*.py
