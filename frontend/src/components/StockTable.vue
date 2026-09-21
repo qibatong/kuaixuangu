@@ -5,6 +5,7 @@
     <!-- 选股表(竞价/盘中共用同一套列; 对齐生产机紧凑布局: 固定列宽, 代码+名称合并) -->
     <table v-else class="stock-table stock-table-compact">
       <colgroup>
+        <col style="width:36px" />
         <col style="width:88px" />
         <col style="width:46px" />
         <col style="width:46px" />
@@ -21,6 +22,7 @@
       </colgroup>
       <thead>
         <tr>
+          <th scope="col" class="col-medal" aria-label="排名"></th>
           <th scope="col" class="sortable merged-col col-name" :class="{ active: sortKey === 'code' || sortKey === 'name' }" :aria-sort="ariaSortFor('code')" tabindex="0" @click="onSort('code', 'string')" @keydown.enter.prevent="onSort('code', 'string')" @keydown.space.prevent="onSort('code', 'string')">名称<span class="sort-ind" aria-hidden="true">{{ sortInd('code') }}</span></th>
           <th scope="col" class="sortable num col-realchg" :class="{ active: sortKey === 'realChange' }" :aria-sort="ariaSortFor('realChange')" title="实时涨幅：当前价相对昨收的涨幅" tabindex="0" @click="onSort('realChange', 'number')" @keydown.enter.prevent="onSort('realChange', 'number')" @keydown.space.prevent="onSort('realChange', 'number')">现涨<span class="sort-ind" aria-hidden="true">{{ sortInd('realChange') }}</span></th>
           <th scope="col" class="sortable num col-bidchg" :class="{ active: sortKey === 'bidChange' }" :aria-sort="ariaSortFor('bidChange')" title="竞价涨幅" tabindex="0" @click="onSort('bidChange', 'number')" @keydown.enter.prevent="onSort('bidChange', 'number')" @keydown.space.prevent="onSort('bidChange', 'number')">竞涨<span class="sort-ind" aria-hidden="true">{{ sortInd('bidChange') }}</span></th>
@@ -36,9 +38,8 @@
       </thead>
       <tbody>
         <tr v-for="(item, idx) in sortedStocks" :key="item.code">
-          <td class="stock-info-cell" :class="{ 'has-medal': idx < 3 }" :data-stock-code="item.code" :data-stock-name="item.name" role="button" tabindex="0" :aria-label="'查看 ' + item.name + ' 分时图'" @click="emit('open-chart', item.code, item.name)" @keydown.enter.prevent="onCellKeydown($event, item)" @keydown.space.prevent="onCellKeydown($event, item)">
-            <!-- 5-1: 奖牌区降级为行内徽标(前三行), 替代原三张重复卡片 -->
-            <span v-if="idx < 3" class="row-medal" :title="['金牌','银牌','铜牌'][idx]">{{ ['🥇','🥈','🥉'][idx] }}</span>
+          <td class="medal-cell"><span v-if="idx < 3" class="row-medal" :title="['金牌','银牌','铜牌'][idx]">{{ ['🥇','🥈','🥉'][idx] }}</span></td>
+          <td class="stock-info-cell" :data-stock-code="item.code" :data-stock-name="item.name" role="button" tabindex="0" :aria-label="'查看 ' + item.name + ' 分时图'" @click="emit('open-chart', item.code, item.name)" @keydown.enter.prevent="onCellKeydown($event, item)" @keydown.space.prevent="onCellKeydown($event, item)">
             <div class="stock-name-row">
               <span class="pool-hover-wrap">
                 <span class="stock-name">{{ item.name }}</span>
@@ -224,7 +225,6 @@ function realCls(item) {
   cursor: pointer;
   min-width: 0;
   min-height: 0;
-  position: relative; /* 奖牌徽标绝对定位锚点 */
   /* 2026-09-21 字号12px下限: badge 行高 13->17px, 单元格 52->56px 同步 */
   height: 56px;
   text-align: center;
@@ -247,22 +247,17 @@ function realCls(item) {
   color: var(--text-main);
   font-size: 0.8125rem;
 }
-/* 5-1: 行内奖牌徽标(前三行), 替代原奖牌卡片
-   2026-09-21 主人反馈: 徽标太小且挤占名称 → 改为绝对定位在单元格左侧垂直居中,
-   完全脱离文档流不占名称空间, 字号加大醒目
-   2026-09-21 手机端反馈: 名称列窄, 居中名称顶到左缘与徽标重叠
-   → has-medal 行给单元格预留左侧徽标位(padding-left 28px), 名称/代码整体右移, 互不叠字 */
-.stock-info-cell.has-medal {
-  padding-left: 28px !important;
+/* 5-1: 奖牌独立一列(2026-09-21 主人拍板: 绝对定位+padding 预留方案导致名称列前后行不对齐)
+   独立 36px 窄列, 前三名显示奖牌居中, 其余行空 —— 名称列恢复整齐对齐 */
+.medal-cell {
+  text-align: center;
+  vertical-align: middle;
+  padding: 0 !important;
 }
-.stock-info-cell .row-medal {
-  position: absolute;
-  left: 2px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 1.5rem;
+.stock-info-cell .row-medal,
+.medal-cell .row-medal {
+  font-size: 1.25rem;
   line-height: 1;
-  z-index: 1;
 }
 /* 异动监管标签行: 始终占用固定高度(无标签也占位), 保证各列网格线对齐 */
 .yd-badge-row {

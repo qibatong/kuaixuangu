@@ -14,6 +14,11 @@
             <input v-model="remember" type="checkbox" class="remember-check" />
             <span>记住我，30 天内免登录</span>
           </label>
+          <!-- 2026-09-21 主人需求: 电脑+手机每次都要重新输入账号密码 → 本地记住凭据自动填充 -->
+          <label class="remember-row">
+            <input v-model="savePwd" type="checkbox" class="remember-check" />
+            <span>记住密码（本机自动填充）</span>
+          </label>
           <button class="login-btn" type="submit" :disabled="busy">{{ busy ? '登录中...' : '登录' }}</button>
           <div class="login-err" :class="{error: errIsError}">{{ err }}</div>
         </form>
@@ -107,6 +112,10 @@ const err = ref('')
 // 错误提示是否显示红色背景块: 仅"真正的错误"才上色 (loading/✅成功 不算)
 const errIsError = ref(false)
 const remember = ref(true)         // 「记住我」默认勾选: 30 天免登录
+// 2026-09-21 主人需求「电脑和手机端都不能保存用户名和密码」: 登录成功后把凭据存
+// localStorage, 下次进登录页自动填充(免输)。私有工具站, 主人明确要求记住明文凭据。
+const SAVED_LOGIN_KEY = 'kuaixuan_saved_login'
+const savePwd = ref(true)          // 「记住密码」默认勾选
 const username = ref('')
 const password = ref('')
 const resetPwd = ref('')
@@ -145,6 +154,14 @@ async function submit() {
   try {
     const body = { login: username.value.trim(), password: password.value, remember: remember.value }
     const data = await apiLogin(body)
+    // 2026-09-21: 记住密码 —— 登录成功才落盘; 未勾选则清除旧凭据
+    try {
+      if (savePwd.value) {
+        localStorage.setItem(SAVED_LOGIN_KEY, JSON.stringify({ login: username.value.trim(), password: password.value }))
+      } else {
+        localStorage.removeItem(SAVED_LOGIN_KEY)
+      }
+    } catch { /* 存储不可用(隐私模式等)静默跳过 */ }
     // 注册已停止; 此分支仅兼容历史: 登录自动登录
     user.setSession(data.username, data.token, data.is_admin, data.expire_at, data.expired, remember.value, data.member_level)
     if (data.expired) {
@@ -324,9 +341,16 @@ onMounted(() => {
     resetToken.value = resetTok
     mode.value = 'reset'
   } else {
-    username.value = ''
-    password.value = ''
-    setTimeout(() => document.querySelector('input')?.focus(), 50)
+    // 2026-09-21 主人反馈「每次都要重新输入」: 原来这里强制清空 username/password,
+    // 且 SPA 表单浏览器也不弹保存 → 改为读取本机保存的凭据自动填充, 免输直达。
+    try {
+      const saved = JSON.parse(localStorage.getItem(SAVED_LOGIN_KEY) || 'null')
+      if (saved && saved.login) {
+        username.value = saved.login || ''
+        password.value = saved.password || ''
+      }
+    } catch { /* 损坏的存储值当不存在 */ }
+    if (!username.value) setTimeout(() => document.querySelector('input')?.focus(), 50)
   }
 })
 </script>

@@ -185,8 +185,11 @@ const layoutStyle = computed(() => {
       width: '100%', maxWidth: '100%', boxSizing: 'border-box', overflowX: 'hidden',
     },
     row1: {
-      display: 'flex', flexWrap: 'nowrap', justifyContent: 'flex-start',
-      alignItems: 'center', gap: '3px', width: '100%',
+      // 2026-09-21 主人手机反馈「应用旁边是重置按钮吗？显示不全」——原 nowrap 把
+      // 重置/锁定/刷新挤到 overflow-x:hidden 外直接裁掉。改 wrap: 筛选项排不下时
+      // 按钮组(marginLeft:auto)整体换到下一行靠右, 正是本文件头注释描述的设计。
+      display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-start',
+      alignItems: 'center', gap: '3px', rowGap: '5px', width: '100%',
       boxSizing: 'border-box', fontSize: '0.75rem',
     },
     actions: {
