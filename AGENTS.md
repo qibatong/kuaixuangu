@@ -20,8 +20,8 @@
 | `use_bid_strength` | `'1'`（竞价强度） | `'1'`（竞价强度） |
 | `pick_window_guard` | `1` | `0` |
 | `precompute_write` | 未设（**不走**物化表） | `1`（走物化表） |
-| `backend/tests/` | **93 个文件**（与仓库逐一致） | — |
-| 全量 pytest | **1140 passed / 4 skipped / 0 红**（215s） | — |
+| `backend/tests/` | **97 个文件**（与仓库逐一致，2026-09-21 已全量对齐 + 清 6 个孤儿） | — |
+| 全量 pytest | **1082 passed / 4 skipped / 0 红**（2026-09-21 测） | — |
 
 🔴 **最容易误判的一条**：生产 fetcher 是 09-12 老版，**每天仍在中 clist 熔断**（v4.11.32 修的那个），
 但生产 `use_bid_strength='1'` —— 异动取**竞价强度**（自家快照 + 开盘啦，**对东财免疫**）⇒ 名单不受影响。
@@ -80,11 +80,19 @@ cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/p
 5. **判定"被封 / 限流"前，先做「同路径换域名 / 换页号」对照实验**：本仓因此误判过两次
    （"东财限流"、"`ulist.np` 接口级封死"），并让架构绕了远路。
 6. **每完成一项必须停下汇报、等主人指令**，不自行扩大改动范围。
+7. **`database.get_conn()` 返回 tuple，不要加 `row_factory`**：它是**80+ 处调用共同依赖的既定契约**
+   （`auction_snapshot.py:478` 有显式注释）。要用 `dict(r)` / `r["列名"]` 的模块**必须自建 `_conn()`**
+   （`users.py` / `stats.py` / `history.py` / `admin.py` 都是这个范式）。🔴 2026-09-21 的管理端全线 500
+   就是 `admin.py` 用了 `get_conn()` 却全文 `dict(r)` → `TypeError: cannot convert dictionary update
+   sequence element #0 to a sequence`。
+8. **Nginx 反代后 IP 一律用 `deps.client_ip()`**，**不要用 `request.client.host`**（恒为 `127.0.0.1`
+   → 全站共用一个限流桶）。
 
 ### 0.4 最近变更索引（测试机已上，生产待放行）
 
 | 版本 | 日期 | 一句话 |
 |---|---|---|
+| **T175** | 09-21 | **会员体系重构（阶段一+阶段二）**：手机号注册/5 天体验/每日配额/签到/运营中心 7 Tab；**修管理端全线 500**（`admin.py` 用 `get_conn()` 返回 tuple 却 `dict(r)`）；`sms.py`/`summary.py` IP 改 `client_ip()`；测试集对齐 |
 | **v4.11.33** | 09-19 | `_ULIST_URL` 写死被封域名 → 改 `_ULIST_HOSTS` 双域名重试 ⇒ **补丁源从 `tencent_point` 恢复为 `eastmoney_realtime`**（且带 f630） |
 | **v4.11.32** | 09-19 | clist **越界页 `rc=102` 被当故障** → 每交易日 09:15:12 熔断到 09:29（**盖住整个竞价窗口**）；改为按 `total` 动态页数、只请求该请求的页 |
 | **v4.11.30** | 09-18 夜 | 17% 异动因子改回东财 f630，**采集侧随定格落库**（`snapshot_bid.warn_type`，四环链路见第七节） |
@@ -92,11 +100,14 @@ cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/p
 
 > 详细根因、决定性证据、验证数字见 `docs/history.md` 对应条目；
 > 两份专题文档：`docs/diagnosis-20260919-clist-paging-circuit-breaker.md`（分页熔断）、
-> `docs/legacy-baseline-audit.md`（祖本对标 + 东财通路口径）。
+> `docs/legacy-baseline-audit.md`（祖本对标 + 东财通路口径）、
+> `docs/membership-redesign-plan.md`（会员体系重构方案）。
 
 ### 0.5 挂起事项（等主人裁定）
 
+- **会员体系重构（T175）是否上生产** —— 测试机已全绿（1082/0 红 + 浏览器回归 PASS），**生产一格未动**。
 - **生产是否上** v4.11.29 / v4.11.30 / v4.11.32 / v4.11.33 —— 🔴 上生产**切勿**把 `use_bid_strength` 改成 `'0'`。
+- 存量 `email_verified=0` 用户是否补发 5 天；`scripts/_kx_direct.py` 已被 git 跟踪（含密码脚本族的安全性）。
 - 生产磁盘清理；`ModePolicy.allow_lock` 死标记是否接线；历史评分是否重算；`MAX_FETCH=4000` 截断。
 
 ## 一、项目简介
@@ -310,6 +321,36 @@ cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/p
     必须用 `stocks._fill_spot_fields(lst, fs)` 走一遍实时行情覆盖（lock 当日幂等直读、
     refresh 两条分支**都要**）。
 
+## 七·五、会员体系与配额（2026-09-21 重构）
+
+- **注册 = 手机号 + 短信验证码**（`/api/register/send` 注册前可发码；已注册手机号 400 省短信费）；
+  用户名自动生成 `138****5678`；**新用户送 5 天 `member_level=1`**（`NEW_USER_DAYS=5`）；
+  邀请**双方各 +5 天**（`INVITE_REWARD_DAYS=5`）。
+- 🔴 **`phone_claims` 台账**：每手机号**只能领 1 次**新用户 VIP，**该表不随 users 删除而清理**
+  —— 否则「删号 → 同号重注册」= 无限刷 VIP。改注册逻辑时**不要**顺手清理它。
+- **免费用户每日配额**（`services/quota.py`，方案 B：CacheStore 固定窗口原子自增）：
+  | feature | 每日基础 | 说明 |
+  |---|---|---|
+  | `picker` | 3 | 选股快照 |
+  | `aipick` | 1 | AI 预测 |
+  | `auction` | 1 | 竞价异动 |
+  - key `quota:{feature}:{uid}:{date}`（**北京日期**，TTL `86400+3600`）；签到加成 key `quota:bonus:*`。
+  - **会员（`member_level>=1`）/ 管理员直接放行不计数**（`privileged=True`、`limit=-1`）。
+  - 🔴 **10s 去重**（`QUOTA_DEDUP_SECONDS`）：前端一次页面加载会**并发打多接口**（快照 + 列表），
+    不去重会瞬间烧光配额 —— 这是「只有 3 次却马上用完」投诉的根源。改额度逻辑**别删这层**。
+  - 🔴 **429 统一由 `deps.quota_guard(feature)` 依赖抛**（**不在业务代码里抛**），结构固定：
+    `{"ok":false,"code":"quota_exceeded","feature","feature_label","limit","used","msg"}` ——
+    前端据 `code` 弹开通引导。新加配额功能**照抄这个依赖**，别自己造 429 结构。
+  - **存储故障保守处置**：`_incr` 失败返回 `10**9`（**不放行也不误计**）—— 不能让存储抖动把配额体系放开。
+- **新表**：`phone_claims` / `user_checkin`（PK (uid,date) 天然防重，签到送 `QUOTA_CHECKIN_BONUS`=3 次选股）/
+  `admin_audit`（管理端关键操作留痕：加时/改等级/删号/重置密码/重置配额）。
+- **接口**：`/api/member/overview`（我的会员页一接口拿全）/ `quota` / `checkin`(GET/POST) / `plans`；
+  管理端 `/api/admin/*` 扩至 **26 端点**（dashboard / expiring / risk / invite-rank / sms-usage / audit /
+  audit/actions / user-detail / reset-quota / extend-plus / member-conf / users/export / users/import）。
+- 🔴 **`admin.py` 必须自建 `_conn()`（`row_factory=sqlite3.Row`）** —— 见「接手前必背」第 7 条。
+- **前端**：`MemberView.vue`（我的会员页）、`MemberAdminPanel.vue`（运营中心 7 Tab）、
+  `UserDetailDrawer.vue`（用户详情抽屉）、`api/member.js`。
+
 ## 八、数据源与熔断（fetcher）
 
 > **2026-09-10 去兜底重构（主人拍板）**：原「东财→腾讯→量脉→同花顺」多级兜底链**全部下线**。
@@ -417,7 +458,19 @@ cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/p
   `fetch_yesterday_amounts`、`ensure_cache`、`load_snapshot_full`。想测**真实实现**的文件必须在
   import 期留下 `_ORIG_xxx = fetcher.xxx` 再用 autouse fixture 还原（见 test_yesterday_cache /
   test_tencent_fallback），否则测到的是恒返回假数据的桩（曾导致 11 条用例长期假红）。
-- 基线认知（**2026-09-19 v4.11.33 复测 = 当前最新**）：**全量 1140 passed / 4 skipped / 0 红**
+- 基线认知（**2026-09-21 T175 复测 = 当前最新**）：**全量 1082 passed / 4 skipped / 0 红**。
+  🔴 **本轮口径变了（别按旧数字判回归）**：把测试机 `tests/` 与仓库**全量对齐**（此前测试机停在 9/11-9/18，
+  93 文件 vs 仓库 97 文件）+ **删除 6 个孤儿测试文件**后，从「50 failed」的**假阳性**收敛到全绿。
+  ⚠️ **`tests/` 不入部署产物 ⇒ 长期不同步必然假阳性**：判定三招 ——
+  ① `git status --short` 看改了哪些文件；② `grep -l <模块> tests/<失败文件>.py`
+  （本轮 16/19 个失败文件里**连 "admin" 都没有** → 立刻排除是本次改动引入）；
+  ③ 比对两端文件数 + mtime。**对齐命令**：仓库 `tar czf` 打包 → 上传 → 远端解压覆盖
+  → `comm -13` 比对清单删除**孤儿文件**（🔴 `tar xzf` 是覆盖式、**不删孤儿**）。
+  核对收集数：`pytest --collect-only -q | tail -1`。
+  ⚠️ **远端跑 pytest 必须带 `PYTHONPATH`**：
+  `cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/python -m pytest -q --no-header -p no:cacheprovider`
+  （否则 `ModuleNotFoundError: No module named 'app'`）。
+  （以下为 v4.11.33 那次的记录，保留作背景）**全量 1140 passed / 4 skipped / 0 红**
   （收集 1144，实测 215.4s）。⚠️ 下面是从旧到新的演进史，**越靠后越新**；判回归**只与最后一条比**。
   （以下为 v4.11.29 那次的细节，保留作背景）🔴 **连续第二次全量归零**。4 条 skip = 前后端同口径对拍用例在**没有前端源码**的机器上主动跳过
   （测试机此前 `/opt/kuaixuan/frontend/src` 是 08-25 旧副本 → 缺 `utils/time.js` 即判脏；
@@ -491,6 +544,23 @@ cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/p
   ⚠️ **含明文凭据 ⇒ `.gitignore` 排除 ⇒ 不在本仓**（2026-09-19 因一次 `git rebase` 中间态**丢失过**，
   事后按原接口重写）。**重建骨架 + 两条铁律见 §〇.2**。教训：**未入库但关键的工具必须另存副本**
   （`scripts/deploy_tmp/_dl/` 同理被忽略）。
+  ℹ️ 另有 `scripts/_kx_direct.py`（同为 SSH 执行器，**参数序 `run <host> <pass> <cmd>`**，
+  易记反）。⚠️ **它已被 git 跟踪**（属 `_kx_*` 族但 .gitignore 显式放行 `!scripts/_kx_direct.py`），
+  自身凭据走命令行参数、文件内无明文；但 `_kx_*.py` 其余脚本（`_kx_e2e_member3.py` /
+  `_kx_forward.py` / `_mk_reg_user3.py` 等）**含明文密码/IP，已被 .gitignore 挡住**，勿误提交。
+- **真实浏览器 UI 回归（测试机 chromium + CDP）**：
+  - `scripts/_verify_member_ui.py`（2026-09-21 新增）—— 注册页/导航栏/登录页/我的会员页/后台 7 tab/配额引导
+    A~H 段断言 + 截图，**VERIFY PASSED（7 tab、16 卡、0 console error）**。
+  - `scripts/_verify_senti.py` —— 三档视口（390/1440/375）探 computed style。
+  - `scripts/_kx_forward.py` —— paramiko 本地 18880 → 测试机 80 端口转发
+    （浏览器对 IP 直连 http 会被 Chromium 拦 `ERR_BLOCKED_BY_CLIENT`，**必须走 localhost**）。
+  - `scripts/_clear_kx_cache.py` —— 清 `meoz:` 前缀缓存。
+  - `scripts/_mk_reg_user3.py` —— 建 UI 回归账号（**当前 `kxreg` / `Kxreg@2026`**）。
+  - ⚠️ 上述 `_verify_*` / `_mk_*` / `_clear_*` 均在 `.gitignore` 内（**不入库**，本地留存）。
+- **管理端接口回归**：`scripts/_kx_verify_admin_api.py`（2026-09-21 新增，**本地留存、不入库**）——
+  8 个管理端端点（risk / invite-rank / sms-usage / audit / audit/actions / expiring / users / users/export）
+  用 `security.issue_token(uid)` 拿真实 token、`urllib` 直连 `127.0.0.1`，**8 OK / 0 FAIL**。
+  ⚠️ 与 `_verify_*` 同族被 `.gitignore` 挡住（`scripts/_kx_*.py`）；若要让全队复用，需显式 `!` 放行。
 - **只读探针归档目录 `scripts/deploy_tmp/`**（2026-09-19 起当日探针**全部入库**，便于复现与接手）：
   命名约定 `_diag_*`（链路诊断）／`_probe_*`（打真实接口取数）／`_verify_*`（验证某次修复）／
   `_ab_*`（对照 / 梯度实验）／`_rehearse_*`（只读预演：注入后跑 pipeline 但不落库）。

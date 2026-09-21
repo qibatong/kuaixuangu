@@ -28,7 +28,9 @@
 | **点查域名修复**（v4.11.33，09-19，**测试机已部署**） | 🔴 **「`ulist.np` 接口级封死」结论证伪** —— 封的是**域名**不是接口：同一 path 下 `push2.eastmoney.com` 秒断（`RemoteDisconnected`）、`push2dycalc.eastmoney.com` 畅通**且带 f630**。而 `_ULIST_URL` 恰好写死前者 ⇒ 选股补丁源 `eastmoney_realtime` **长期必然失败**，每轮退腾讯点查（**腾讯无 f630**），生产日志因此长期刷「东财点查失败→腾讯点查兜底成功」。修复：改多域名顺序重试（`_ULIST_HOSTS`，失败域名冷却 300s，全冷却 fail-open）。实测：点查 **8 只/54ms、f630 非 0 7/8**；端到端 `源=snapshot,eastmoney_realtime`（此前为 `tencent_point`）。详见 `docs/legacy-baseline-audit.md` §5.3 |
 | **9:26 自动应用** | 系统统一标准筛一份推所有用户（`auto_applied=1`），没点"应用"也有历史；**9:26 自动检查缺失补跑 + 飞书告警** |
 | **概念开盘啦化** | 全部股票概念替换为开盘啦风格 + 概念定时落库（`stock_concept` 表，100% 覆盖低延迟） |
-| **会员体系** | 三层会员（免费试用/付费/VIP）；竞价/盘中/竞价异动会员专属；邀请码裂变 +7 天奖励 |
+| **会员体系**（2026-09-21 重构） | **手机号 + 短信验证码注册**，新用户送 **5 天完整体验**（`member_level=1`，每个手机号**仅领 1 次**，`phone_claims` 台账防删号重刷）；三层会员（免费/付费/VIP）；邀请双方各 +5 天；**免费用户每日配额**（选股 3 / AI 预测 1 / 竞价异动 1 次）+ **每日签到 +3 次** |
+| **我的会员页**（2026-09-21 新增） | `/member`：一接口拿全（等级/到期/剩余 + 三功能配额进度 + 签到 + 邀请战绩 + 套餐） |
+| **会员运营中心**（2026-09-21 新增） | 管理后台 **7 Tab**（概览/用户/风控/邀请/短信/到期/审计）+ 用户详情抽屉 + 导出 CSV（BOM）+ 重置配额 + 加时+ |
 | **两市量能实时同源** | 「两市资金 / 较昨日同时」改取开盘啦**实时**接口 `MarketSCLN`：一次请求即给「今日此刻 + **昨日同一时点** + 前 3 日同期 + 全天预测量能」，两侧同源同口径；修掉原自存快照的 09:30 零值脏点（早盘增量曾虚高 7.7 倍）与东财分页失败静默少算（-7.6%）。开关 `market_vol_rt`，**取不到完全回退自算值** |
 | **两市资金主数字 = 市场量能接口**（v4.11.31，09-19 主人拍板，**测试机已部署**）| 首页「两市资金」主数字改取开盘啦 `MarketCapacityKLine`（after 域名，Type=0 全市场，与 App「市场量能」页同源；9/18 实测 20771.0 亿，与自算 20768.52 亿交叉吻合）；**昨日同一时点基准/全天预测仍由 MarketSCLN 提供**（新接口无该字段），两源各自独立回退互不影响，都挂则回退东财自算链。`volSrc=kpl_capacity` 透出数据来源。⚠️ 休市日只回最近交易日日级单点，盘中是否逐分钟实时待 9/21 验证 |
 | **两市资金历史基准 = MarketSCLNKLine**（v4.11.31，09-19 主人拍板，**测试机已部署**）| 15:30 收盘落库的 `market_brief_last`（"较昨日全天"基准）改取开盘啦 `MarketSCLNKLine` 日级历史（his 域名，Type=0，约 125 交易日）——与主数字同源同口径，摆脱东财自算分页失败静默少算（-7.6%）；**日期守卫**：接口最新 Date ≠ 当日（滞后/未定格）即回退自算，绝不把昨日定格当今日；开关 `market_vol_rt=0` 时完全不调。9/19 实测：9/18=20771.0 亿、9/11=19718.98 亿（与 MarketSCLN `s_zrtj` 及自算 19716.63 亿三方吻合） |
@@ -71,7 +73,8 @@
 | 大V资讯 | `/summary` | 群总结按日期 + 4 时段展示，可回看往日 + PDF 上传/在线预览/下载 |
 | 历史回看 | `/history` | 按批次分组 / 条件分页查询 + **AI 预测 tab**（全表排序，含系统自动批次，与首页左视图同过滤） |
 | 邀请裂变 | `/invite` | 邀请码生成与名单 |
-| 管理后台 | `/admin` | 用户列表/会员到期+等级/评分权重/全局默认参数（仅管理员） |
+| **我的会员** | `/member` | **（2026-09-21 新增）**会员卡 + 三功能配额进度 + 每日签到 + 邀请战绩 + 套餐 |
+| 管理后台 | `/admin` | **运营中心 7 Tab**（概览/用户/风控/邀请/短信/到期/审计）/会员到期+等级/评分权重/全局默认参数（仅管理员） |
 
 ## 快速开始
 
@@ -109,8 +112,14 @@ python scripts/sync_test_server.py   # 同步测试机(后端 md5 对比)
 
 ```bash
 cd backend
-python -m pytest tests/ -q     # 1144 用例(1140 passed / 4 skipped / 0 红)
+python -m pytest tests/ -q     # 1082 用例(1082 passed / 4 skipped / 0 红)
 ```
+> 🔴 **2026-09-21 重测口径**：本轮把测试机 `tests/` 与仓库**全量对齐**（此前测试机停在 9/11-9/18，
+> 少 2 个文件、1 个文件过期多月，并残留 **6 个孤儿测试文件**）后实测 **1082 passed / 4 skipped / 0 failed**。
+> ⚠️ **`tests/` 不入部署产物** ⇒ 长期不同步会**假阳性**（跑出一堆陈旧断言红 + 孤儿文件红）。
+> 改完必须比对两端：`ls backend/tests/*.py | LC_ALL=C sort` 逐行 diff + 核对 `pytest --collect-only -q | tail -1` 收集数。
+> ⚠️ 远端跑 pytest **必须带 `PYTHONPATH`**：`cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/python -m pytest -q`。
+
 （日期漂移用例已在 v4.11.27 改为注入固定锚点；v4.11.29 起 `test_refresh_reuse.py` 的夹具会
 预置当日 9:25 定格行 —— 直读有"定格已落库"这一新前置条件；`test_today_system_fallback.py`
 的 `freeze` fixture 同理。v4.11.30 起测"真实读库"必须用
@@ -131,9 +140,9 @@ kuaixuan/
 │   │   ├── main.py             # web 入口(纯 API, 无调度)
 │   │   ├── worker.py           # worker 入口(快照调度/推送/队列, kx-worker.service)
 │   │   ├── core/ db/           # 配置/日志 + SQLite 建表迁移
-│   │   ├── services/           # cache_store/security/fetcher/scorer/kpl/auction_snapshot/system_batch/sms_verify/aipick_scheduler/yday_prewarm/notify...
-│   │   └── api/                # auth/stocks/history/invite/prefs/admin/kpl/stats/health/aipick/sms/summary
-│   └── tests/                  # pytest 575 用例
+│   │   ├── services/           # cache_store/security/fetcher/scorer/kpl/auction_snapshot/system_batch/sms_verify/**quota**/aipick_scheduler/yday_prewarm/notify...
+│   │   └── api/                # auth/stocks/history/invite/prefs/admin/**member**/kpl/stats/health/aipick/sms/summary
+│   └── tests/                  # pytest 1082 用例
 ├── frontend/                   # Vue 3 + Vite
 │   └── src/
 │       ├── router/ stores/ views/ components/ composables/
@@ -145,10 +154,13 @@ kuaixuan/
 
 ## 安全说明
 
-- 密码 PBKDF2-SHA256 加盐；Token 12h 有效、改密后全端失效；另一设备登录踢出旧会话
-- 每 IP 限流（跨进程 CacheStore 固定窗口）；注册防刷（同 IP 上限 + 自邀识别）；强制邮箱认证
+- 密码 PBKDF2-SHA256 加盐；Token 12h 有效（**「记住我」30 天**）、改密后全端失效；另一设备登录踢出旧会话
+- 每 IP 限流（跨进程 CacheStore 固定窗口）—— 🔴 **IP 一律走 `deps.client_ip()`**（`X-Forwarded-For` / `X-Real-IP`），**反代后 `request.client.host` 恒为 127.0.0.1**（会让全站共用一个限流桶）
+- 注册防刷（同 IP 24h 上限 + 同 IP 1h 上限 + 自邀识别）；**注册手机号领取台账 `phone_claims` 防删号重刷 VIP**
+- **免费用户每日配额**（选股 3 / AI 预测 1 / 竞价异动 1）+ **10 秒去重**；超限统一 429 `code=quota_exceeded`
 - 历史查询按 user_id 隔离；数据源 Token / 阿里云短信 AK 走 systemd drop-in 不进 git
-- 短信接口无登录鉴权（找回密码场景）→ 同号 60s + 同 IP 60s/10 次限流；验证码消费标记防重放
+- 短信接口无登录鉴权（找回密码 / 注册场景）→ 同号 60s + 同 IP 60s/10 次限流；验证码消费标记防重放
+- 管理端关键操作留痕 `admin_audit`（加时/改等级/删号/重置密码/重置配额）
 - 会员过期按权限拦截（管理员豁免）；生产已启用 HTTPS（www.kuaixuangu.cn）
 
 ## 品牌
@@ -162,11 +174,12 @@ kuaixuan/
 
 | 文档 | 内容 |
 |---|---|
-| [docs/features.md](docs/features.md) | 功能详述：选股模式（含**选股闸门 v4 + 定格前批次排除 + 定格来源标注**、**异动 f630 随定格落库**、**全市场预计算**、**前端本地秒筛**）/ 会员体系 / 主题字号 / 竞价异动 10 Tab / 抢筹双表 / **快照采集 + 落库自愈 + 日K TTL 与画像** / 概念开盘啦化 / 移动端 / 数据源（去兜底 + 昨比落库 + **两市量能实时**）/ 连板梯队 |
+| [docs/features.md](docs/features.md) | 功能详述：选股模式（含**选股闸门 v4 + 定格前批次排除 + 定格来源标注**、**异动 f630 随定格落库**、**全市场预计算**、**前端本地秒筛**）/ **会员体系（手机号注册 + 配额 + 签到 + 运营中心）** / 主题字号 / 竞价异动 10 Tab / 抢筹双表 / **快照采集 + 落库自愈 + 日K TTL 与画像** / 概念开盘啦化 / 移动端 / 数据源（去兜底 + 昨比落库 + **两市量能实时**）/ 连板梯队 |
 | [docs/deploy.md](docs/deploy.md) | 构建与部署手册：双服务/venv 差异/drop-in/推送配置/日志排查 |
 | [docs/api.md](docs/api.md) | 接口概览（用户/选股/预计算快照/kpl/stats）+ 数据表 |
 | [docs/history.md](docs/history.md) | 完整版本历史（v1 → **v4.11.30**，含每次生产部署/回滚点/踩坑记录） |
 | [docs/legacy-baseline-audit.md](docs/legacy-baseline-audit.md) | **祖本参考实现口径对照**：选股逻辑源头（单文件 HTML）的取数方式 / 字段映射（🔴 `f10` 量比当流通市值，43% 权重恒满档）/ 打分血缘（17% 异动 = `f630`）/ 祖本 vs 快选逐项对照 / **用户端本地取前 200 方案可行性评估（CORS 实测 + 通路矩阵）** |
 | [docs/backend-architecture.md](docs/backend-architecture.md) | 后端架构重构方案（现状盘点/目标架构/分阶段计划） |
+| [docs/membership-redesign-plan.md](docs/membership-redesign-plan.md) | **会员体系重构方案（阶段一/阶段二）**：手机号注册 / 5 天体验 / 配额门禁 / 签到 / 邀请 / 运营中心 |
 | [docs/kpl-interfaces.md](docs/kpl-interfaces.md) | 开盘啦接口索引（自动生成） |
 | [docs/kpl-docs-coverage.md](docs/kpl-docs-coverage.md) | 104 接口全量核对报告 |

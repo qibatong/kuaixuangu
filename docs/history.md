@@ -1477,6 +1477,61 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **T175 (09-21 已推测试机, 生产待放行) 会员体系重构（阶段一 + 阶段二）+ 管理端全线 500 修复 + 测试集对齐**
+  - **指令**：主人「阶段一/阶段二」会员体系重构 → 测试机验收；期间主人追问「2 个 Traceback 是什么」→ 挖出管理端真实 Bug；随后「提交 git + 更新 docs/README/AGENTS」+「sms.py 用 request.client.host 而非 deps.client_ip，改」。
+  - **① 管理端接口全线 500（真实 Bug，非本次重构引入）**：
+    - 现象：`/api/admin/risk`、`/api/admin/invite-rank` 等返回 500，日志
+      `TypeError: cannot convert dictionary update sequence element #0 to a sequence`。
+    - 根因：`db/database.py::get_conn()` **不设 `row_factory`** → 游标返回 **tuple**；
+      而 `admin.py` 全文用 `dict(r)` / `r["列名"]`（**32 处** `dict(r)` 中的 11 处在此文件）。
+    - 🔴 **关键决策：不改 `get_conn()`** —— `auction_snapshot.py:478` 有显式注释声明
+      「`database.get_conn()` 未设 row_factory → 返回 tuple, **必须用下标取值**」，
+      **80+ 处调用依赖 tuple 下标语义**，全局加 row_factory 会连锁打破它们。
+    - **修法**：`admin.py` 自建 `_conn()`（`sqlite3.connect(config.DB_FILE)` + `row_factory=sqlite3.Row`），
+      与 `users.py` / `stats.py` / `history.py` 的 `_conn()` 保持同一语义；11 处调用替换；
+      清掉 9 处已无用的 `from ..db import database`。`fetchone()[0]` 整数下标在 Row 上仍合法 → 向后兼容。
+    - **验证**：`scripts/_kx_verify_admin_api.py` 8 端点 **8 OK / 0 FAIL**；重启后 journalctl
+      **0 Traceback / 0 500**；浏览器 UI 回归后台 7 Tab 正常渲染（**风控 tab 225 字、邀请榜 186 字**，
+      正是此前 500 的两个接口）。
+  - **② 会员体系重构（阶段一）**：
+    - 注册通道 `用户名+邮箱` → **手机号 + 短信验证码**（`/api/register/send` 注册前可发码，已注册号 400 省短信费）；
+      用户名自动生成 `138****5678`；新用户送 **5 天 `member_level=1`**（原 7 天）；邀请**双方各 +5 天**。
+    - 🔴 **`phone_claims` 台账**：每个手机号**只能领 1 次**新用户 VIP，**该表不随 users 删除而清理**
+      —— 否则「删号 → 同号重注册」= 无限刷 VIP。
+    - **免费用户每日配额**（`services/quota.py`，方案 B CacheStore 固定窗口原子自增）：
+      key `quota:{feature}:{uid}:{date}`（北京日期，TTL `86400+3600`）；
+      `picker` 3 / `aipick` 1 / `auction` 1 次/日；签到 +3（`quota:bonus:*`）；
+      **会员/管理员直接放行不计数**；🔴 **10s 去重**（`QUOTA_DEDUP_SECONDS`，前端一次加载并发打多接口，不去重会瞬间烧光）；
+      🔴 **429 统一由 `deps.quota_guard(feature)` 依赖抛**（不在业务里抛），结构
+      `{ok:false, code:"quota_exceeded", feature, feature_label, limit, used, msg}`；
+      存储故障时 `_incr` 返回 `10**9`（**不放行也不误计**，保守处置）。
+    - **新表**：`phone_claims` / `user_checkin`（PK (uid,date) 天然防重）/ `admin_audit`（管理端操作留痕）。
+  - **③ 会员体系重构（阶段二）**：
+    - **我的会员页** `/member`（`MemberView.vue` 420 行）：`/api/member/overview` 一接口拿全
+      （等级/到期/剩余 + 三功能配额 + 签到 + 邀请战绩 + 套餐）；`/api/member/quota`（不消耗，供顶部常驻展示）。
+    - **会员运营中心**：`MemberAdminPanel.vue`（729 行，**7 Tab**：概览/用户/风控/邀请/短信/到期/审计）
+      + `UserDetailDrawer.vue`（293 行）；`admin.py` 扩至 **26 端点**（新增 dashboard/expiring/risk/invite-rank/
+      sms-usage/audit/audit-actions/user-detail/reset-quota/extend-plus/member-conf/users-export/import 等）。
+  - **④ sms.py / summary.py IP 透传修复（主人点名）**：
+    - Nginx 反代后 `request.client.host` **恒为 127.0.0.1** → 全站用户**共用一个 IP 限流桶**
+      （一个人发多了**所有人被 429**）。改 `deps.client_ip()`（优先 `X-Forwarded-For` 第一段 / `X-Real-IP`），
+      与 `auth.py` 口径一致。
+    - 新增 2 个回归用例（`test_sms_send_uses_forwarded_ip` / `test_sms_send_x_real_ip_fallback`），
+      🔬 **已做变异测试**：临时改回旧写法 → 2 例**确实红**；恢复后 17 passed。
+  - **⑤ 测试集对齐（重要方法论）**：
+    - 测试机 `tests/` 停在 9/11-9/18（93 文件），仓库已到 9/21（97 文件）→ 全量跑出 **50 failed**，
+      其中 **16/19 个失败文件里连 "admin" 字样都没有** → 判为**假阳性**（非本次回归）。
+    - 处置：tar 打包仓库 tests 上传覆盖 + `comm -13` 比对找出并删除 **6 个孤儿测试文件**
+      （`test_fetch_raw_by_codes.py` / `test_kpl.py` / `test_pick_window_guard.py` /
+      `test_qiangchou_detail.py` / `test_snapshot.py` / `test_stock_temper_p1.py`）
+      → **1082 passed / 4 skipped / 0 failed**。
+    - 🔴 **教训：`tar xzf` 是覆盖式、不删孤儿文件**；「tests 不上线」的部署约定会让远端测试集长期偏离。
+  - **⑥ 浏览器 UI 回归**：`scripts/_verify_member_ui.py`（测试机 chromium + CDP，A~H 段：
+    注册页/导航栏/登录页/我的会员页/后台 7 tab/配额引导）→ **VERIFY PASSED**（7 tab、16 卡、0 console error）。
+  - **提交分组（4 个 commit）**：`edf850f` fix(ui+sentiment) → `bdd15b6` feat(member) 13 文件后端
+    → `9d21dbf` feat(member-ui) 18 前端 + 6 测试 → `e8693e6` chore(deploy)。
+  - **回滚点**：上一版 commit = `f8f7918`（奖牌列/筛选按钮/页脚/记住密码）。
+  - **⚠️ 未改**：生产**一格没动**（121.196.230.80 未部署，等主人指令）。
 - **v4.11.33 (09-19 已推测试机, 生产待放行) 东财 ulist 点查域名写错 → 选股补丁源长期失效 修复 —— 「接口级封死」结论正式证伪**
   - **指令**：主人追问「我前面发你的那份原始的选股文件，是没有存数据库的，每次都是实时拉取，
     为啥就能拿到异动值」→ 查清后主人「修复」。

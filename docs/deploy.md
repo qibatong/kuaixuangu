@@ -44,6 +44,36 @@ Nginx 关键配置（/etc/nginx/conf.d/kuaixuan.conf）：
 - `/download/` → 通达信工具静态下载
 - `/aipick/` → **AI 预测报告静态托管 + VIP 门禁**：`auth_request /__aipick_auth`（子请求 → 后端 `/api/aipick/auth-check`，透传 X-Original-Authorization / X-Original-URI / Cookie；200 放行静态，401 匿名拒 / 403 免费拒）。子请求 location 固定 URI（**不要用 `$is_args$args` 变量**，CentOS7 nginx 对 auth_request URI 变量支持有问题）
 
+## 测试集同步（`tests/` 不入部署产物 ⇒ 必须单独同步）
+
+🔴 **部署只同步 `app/`（后端源码）与 `dist/`（前端产物），`backend/tests/` 不在部署范围内** ——
+这是有意的（测试不需要上服务器），但**副作用是远端测试集长期偏离仓库**，
+表现为「全量 pytest 跑出一批陈旧断言红 + 孤儿文件红」，**极易误判成本次改动引入的回归**
+（2026-09-21 实测：测试机停在 9/11-9/18 的 93 文件，仓库已到 9/21 的 97 文件 → **50 failed**，
+其中 **16/19 个失败文件里连被测模块名都没有**）。
+
+**同步步骤**（本地 → 测试机）：
+
+```bash
+# 1. 本地打包
+tar czf scripts/_kx_tests.tgz -C backend tests
+# 2. 上传 + 远端解压覆盖
+python scripts/_kx_direct.py run test '<pass>' "cd /opt/kuaixuan/backend && tar xzf /root/_kx_tests.tgz"
+# 3. 🔴 tar xzf 是覆盖式、不删孤儿 → 比对清单删多余文件
+ls backend/tests/*.py | xargs -n1 basename | LC_ALL=C sort > /tmp/local.txt
+ssh ... 'ls /opt/kuaixuan/backend/tests/*.py | xargs -n1 basename | LC_ALL=C sort' > /tmp/remote.txt
+comm -13 /tmp/local.txt /tmp/remote.txt   # 只存在于远端的 = 孤儿，逐个核对后删除
+```
+
+⚠️ **两端都要 `LC_ALL=C`**（排序规则不同会误报）。核对收集数：`pytest --collect-only -q | tail -1`。
+
+**跑测试**（远端必须带 `PYTHONPATH`，否则 `ModuleNotFoundError: No module named 'app'`）：
+
+```bash
+cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend \
+  /opt/bid-venv/bin/python -m pytest -q --no-header -p no:cacheprovider
+```
+
 ## 前端 dist 同步（轻量差异，防踩坑）
 
 ```bash
