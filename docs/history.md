@@ -1477,7 +1477,7 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
-- **T175 (09-21 已推测试机, 生产待放行) 会员体系重构（阶段一 + 阶段二）+ 管理端全线 500 修复 + 测试集对齐**
+- **T175 (09-21 测试机 + 生产 均已上线) 会员体系重构（阶段一 + 阶段二）+ 管理端全线 500 修复 + 测试集对齐**
   - **指令**：主人「阶段一/阶段二」会员体系重构 → 测试机验收；期间主人追问「2 个 Traceback 是什么」→ 挖出管理端真实 Bug；随后「提交 git + 更新 docs/README/AGENTS」+「sms.py 用 request.client.host 而非 deps.client_ip，改」。
   - **① 管理端接口全线 500（真实 Bug，非本次重构引入）**：
     - 现象：`/api/admin/risk`、`/api/admin/invite-rank` 等返回 500，日志
@@ -1531,8 +1531,57 @@
   - **提交分组（4 个 commit）**：`edf850f` fix(ui+sentiment) → `bdd15b6` feat(member) 13 文件后端
     → `9d21dbf` feat(member-ui) 18 前端 + 6 测试 → `e8693e6` chore(deploy)。
   - **回滚点**：上一版 commit = `f8f7918`（奖牌列/筛选按钮/页脚/记住密码）。
-  - **⚠️ 未改**：生产**一格没动**（121.196.230.80 未部署，等主人指令）。
-- **v4.11.33 (09-19 已推测试机, 生产待放行) 东财 ulist 点查域名写错 → 选股补丁源长期失效 修复 —— 「接口级封死」结论正式证伪**
+  - **⑦ 生产上线（2026-09-21 23:43~23:52，主人指令「上生产系统 / 补发 5 天 / `_kx_direct.py` 不用改」）**：
+    - **精确差异定位**：`scripts/_kx_md5map.py`（**行尾归一化后**算 md5）比对本地 `backend/app`(71 文件)
+      与生产(69) → 得出**恰好 15 个文件**（2 新增 `api/member.py`/`services/quota.py` + 13 修改：
+      admin/aipick/auth/deps/kpl/picker/sms/summary + core/config + db/database + main +
+      services/meoz_client + services/users），且**无「仅远端有」的孤儿文件**。
+    - **行尾**：`scripts/_kx_eol.py` 实测生产这 13 个既有文件**全部 LF** —— 与测试机**相反**
+      （测试机 auth/deps/aipick/admin/config/database/main/users 是 CRLF）⇒ `_kx_prep_prod.py` 的
+      CRLF 集合为**空**，新增文件同为 LF。
+    - **备份（双份）**：DB 在线备份 `/opt/kuaixuan/backup/kuaixuan.db.bak_20260921-234940`（536MB，上线前
+      23:43 另有一份；全程共 2 份）；backend 整目录由 `_deploy_be.sh` 自动备份到
+      `/opt/kuaixuan/backend_bak_member_t175_20260921-234425`。
+    - **后端两阶段**：Stage1 → 暂存 15/15 md5 OK + 落盘 15/15 md5 三方比对 OK + `py_compile` 15/15 OK +
+      导入预检 OK（打印 `NEW_USER_DAYS=5 INVITE_REWARD_DAYS=5 QUOTA_PICKER_DAILY=3 ... member routes=5`）；
+      Stage2 → 清 `__pycache__` → 重启 → **0 Traceback / 0 500**，日志 `会员配置已加载 {...}`。
+      ⚠️ **Stage1 第一次误报 ABORT**：原因是**我的预检脚本里写了不存在的断言**
+      （`quota.FEATURES/check`），模块导入其实全部成功；改成 `FEATURE_LABEL/consume/peek/deps.quota_guard`
+      后通过。**当时服务未重启 ⇒ 对线上零影响**（这正是「预检在前、重启在后」设计的价值）。
+    - **新表无需迁移**：`phone_claims` / `user_checkin` / `admin_audit` 由 `database.init_db()` 启动时
+      `CREATE TABLE IF NOT EXISTS` 自动建好（实测三张表均存在）。
+    - **前端两阶段**：本地 `npm run build`（`node --test src/utils/*.test.js` **58 passed**）→ 新入口
+      **`index-C-3PlV-Z.js`**（线上旧入口 `index-CXc8_hZW.js`）；换盘断言：文件数 **1034** / assets **1030** /
+      必备 `我的会员|开通会员|quota_exceeded` / 禁含 `邮箱验证`（该串只存在于生产旧包，新包已无）
+      → 换盘后 新入口 **200**、旧入口 **404**、nginx 配置 test 通过。
+      ⚠️ **新构建与 21:53 那版「所有 chunk hash 都不同」**（连没人动过的 `usePolling`/`useSortable` 都变）
+      → 判定为**构建工具链版本差异**（旧那次用的 node 不同），**非源码差异**：源码最新 mtime 21:52 < 构建时间
+      21:53，且**构建可复现**（连跑两次得到同一 hash）。旧包与仓库同为 30 js / 22 css / 978 字体 / 1034 文件。
+      ⚠️ `会员运营中心` 在新包中命中 0 —— 它只出现在 `AdminView.vue` 的**HTML 注释**里，构建时被剥离，属正常。
+    - **上线验证**：`scripts/_kx_verify_prod_t175.py` → **23 OK / 0 FAIL**：三张新表；`/api/register/config`
+      → `open:True`；`/api/member/{overview,quota,checkin,plans}` 全部 200（overview 返回 VIP 数据、
+      plans 返回免费/付费/VIP 三档）；管理端 13 个只读端点 + CSV 导出（BOM=1）；**配额闸门进程内实测
+      `consume#1~#3 True、#4 False`（picker limit=3）**，测试 key 已清理。
+      外网复核：`https://www.kuaixuangu.cn/` **200**，入口为新 hash，`/assets/index-C-3PlV-Z.js` **200**。
+      ⚠️ 首轮报 2 FAIL 仍是**我脚本参数名写错**（`uid=` 应为 `target_uid=`），非产品缺陷。
+    - **补发 5 天（口径 C，主人确认）**：`非管理员 且 member_level=0 且 已过期` = **188 人**
+      （141 有手机号 / 47 无；0 个管理员）→ `expire_at = now + 5d`、`member_level = 1`；
+      有手机号者写 `phone_claims` 台账（**141 条**，`last_ip='bulk_grant_t175'`，防「删号→同号重注册」刷 VIP）；
+      `admin_audit` 写 1 条汇总行（`admin_uid=0`, `action='bulk_grant_t175'`，detail 记命中人数与 uid 样本）。
+      复核：「level=0 已过期」**188 → 0**，「level=1 未过期」188，抽样 5 人「剩余 5.00 天」。
+    - 🔴 **连带打开的开关**：生产 `settings` 表**没有** `member_conf` 行 → `REG_OPEN` 取代码默认 `"1"`
+      ⇒ **注册对公网开放**（`/api/register/config` 实测 `{"ok":true,"open":true,"gift_days":5,"invite_reward_days":5}`）。
+      已在 AGENTS §0.5 登记；关闭方式 = 后台会员配置页置 `reg_open=0`（**不要改代码默认值**）。
+    - 🔴 **另一处产品语义变化**：`picker` / `aipick` / `auction` 三个端点由 `require_vip_or_paid`
+      **硬 VIP 门禁**改为 `quota_guard` **配额门禁**（免费用户 3 / 1 / 1 次每日，会员与管理员不限）。
+    - **未动的关键设置（已复核）**：`use_bid_strength="1"`、`scoring`、`meoz_apikey`、`precompute_write=1`、
+      `picker_cutover=1`。
+    - **顺带订正的两处过时认知**：生产 `fetcher.py` **已含** v4.11.32/33 的 `_ULIST_HOSTS`/`_EM_RC_END`
+      （mtime 09-20 23:50），`snapshot_bid.warn_type` 列**已迁移**（非 0 行 2894/603500）
+      ⇒ 旧快照「生产落后 4 个版本 / warn_type 没有」**均不成立**（AGENTS §0.1 已订正）。
+    - **回滚手段**：后端 `cp -a /opt/kuaixuan/backend_bak_member_t175_20260921-234425/. /opt/kuaixuan/backend/`
+      + 重启；前端 `dist_bak_20260921-234916` 换回；DB `kuaixuan.db.bak_20260921-234940`。
+- **v4.11.33 (09-19 已推测试机 + 生产) 东财 ulist 点查域名写错 → 选股补丁源长期失效 修复 —— 「接口级封死」结论正式证伪**
   - **指令**：主人追问「我前面发你的那份原始的选股文件，是没有存数据库的，每次都是实时拉取，
     为啥就能拿到异动值」→ 查清后主人「修复」。
   - **结论**：🔴 **封的是「域名」，不是「接口」**。`fetcher._ULIST_URL` 原写死
