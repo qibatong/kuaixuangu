@@ -11,8 +11,9 @@
 #   KX_ENTRY      index-XXXX.js        期望的入口 chunk 名(不含 assets/ 前缀)
 #   KX_OLD_ENTRY  index-YYYY.js        换盘后**不应**再出现的旧入口
 #   KX_EXPECT_FILES / KX_EXPECT_ASSETS 产物规模断言(留空则跳过)
-#   KX_NOT_PATTERNS  空格分隔, 整个产物**不得**出现的字符串
-#   KX_HAVE_PATTERNS 空格分隔, 整个产物**必须**出现的字符串
+#   KX_NOT_PATTERNS  用 **|** 分隔(不要用空格), 整个产物**不得**出现的字符串
+#   KX_HAVE_PATTERNS 用 **|** 分隔(不要用空格), 整个产物**必须**出现的字符串(逐个校验)
+#                    ⚠️ 用 | 是因为 CSS 值本身含空格(如 "flex:1 1 auto"), 用空格会被词分割
 #   KX_DIST_MARK     换盘后写入 /tmp 的标记文件名(默认 _kx_fe_newdir)
 #
 # 🔴 关键约定(踩坑记录):
@@ -77,18 +78,31 @@ if [ "$STAGE" = "1" ]; then
 
   echo
   echo "########## S1-4 内容断言(禁含 / 必备) ##########"
+  # 🔴 分隔符约定(2026-09-21 修正): 用 **|** 分隔, 不用空格。
+  #    旧版 `printf '%s\n' $NOT_PATTERNS` 未加引号 → 含空格的模式(如单个 CSS 值
+  #    "flex:0 1 0")会被词分割成 `flex:0` / `1` / `0`, 导致单字符模式匹配到上千个
+  #    文件(连 woff 二进制都命中), 断言形同虚设。CSS 值里不会出现 `|`, 故改用 | 。
+  #    用法: KX_NOT_PATTERNS='flex:0 1 0|some-other pattern'
   NP=$(mktemp); HP=$(mktemp)
-  [ -n "$NOT_PATTERNS" ] && printf '%s\n' $NOT_PATTERNS > "$NP"
-  [ -n "$HAVE_PATTERNS" ] && printf '%s\n' $HAVE_PATTERNS > "$HP"
+  if [ -n "$NOT_PATTERNS" ]; then printf '%s\n' "$NOT_PATTERNS" | tr '|' '\n' | grep -v '^$' > "$NP"; fi
+  if [ -n "$HAVE_PATTERNS" ]; then printf '%s\n' "$HAVE_PATTERNS" | tr '|' '\n' | grep -v '^$' > "$HP"; fi
   if [ -s "$NP" ]; then
+    echo "禁含模式: $(tr '\n' ' ' < "$NP")"
     HIT=$(grep -rlF -f "$NP" "$NEW" | wc -l)
     chk "禁含模式命中文件数" "$HIT" "0"
     [ "$HIT" != "0" ] && grep -rlF -f "$NP" "$NEW" | head -5 | sed 's/^/      命中: /'
   fi
   if [ -s "$HP" ]; then
-    HIT2=$(grep -rlF -f "$HP" "$NEW" | wc -l)
-    if [ "$HIT2" -gt 0 ]; then echo "OK   必备模式命中 $HIT2 个文件"
-    else echo "FAIL 必备模式一个都没命中"; FAIL=1; fi
+    echo "必备模式: $(tr '\n' ' ' < "$HP")"
+    # 逐个模式校验(全部必须命中, 而非"至少一个")
+    while IFS= read -r pat; do
+      [ -z "$pat" ] && continue
+      if grep -rqF -- "$pat" "$NEW"; then
+        printf 'OK   必备模式命中: %s (%s 个文件)\n' "$pat" "$(grep -rlF -- "$pat" "$NEW" | wc -l)"
+      else
+        printf 'FAIL 必备模式未命中: %s\n' "$pat"; FAIL=1
+      fi
+    done < "$HP"
   fi
   rm -f "$NP" "$HP"
 

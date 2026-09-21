@@ -7,6 +7,8 @@
   python _kx_direct.py put  <host> <pass> <local> <remote>
   python _kx_direct.py putm <host> <pass> <local_root> <remote_root> <rel1> <rel2> ...
        (批量上传, 保持相对路径; rel 用 / 分隔)
+  python _kx_direct.py get  <host> <pass> <remote> <local>
+       (下载单文件; 目录请先在远端 tar 打包再 get)
   python _kx_direct.py md5  <host> <pass> <remote> ...
 """
 import sys, os, posixpath
@@ -62,6 +64,16 @@ def do_putm(host, passwd, lroot, rroot, rels):
         print("up %-60s %8dB" % (rel, os.path.getsize(lp)))
     sftp.close(); c.close()
 
+def do_get(host, passwd, remote, local):
+    c = connect(host, passwd)
+    sftp = c.open_sftp()
+    ldir = os.path.dirname(local)
+    if ldir and not os.path.isdir(ldir):
+        os.makedirs(ldir)
+    sftp.get(remote, local)
+    print("down %s -> %s (%dB)" % (remote, local, os.path.getsize(local)))
+    sftp.close(); c.close()
+
 def do_md5(host, passwd, remotes):
     c = connect(host, passwd)
     for r in remotes:
@@ -79,5 +91,7 @@ if __name__ == "__main__":
         do_putm(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6:])
     elif mode == "md5":
         do_md5(sys.argv[2], sys.argv[3], sys.argv[4:])
+    elif mode == "get":
+        do_get(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
     else:
         print(__doc__); sys.exit(64)

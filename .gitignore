@@ -126,3 +126,20 @@ backend/_junit_*.xml
 reports/_junit_*.xml
 # deploy_tmp: 整个目录都是部署/诊断临时产物(含测试机密码明文、部署暂存 _kx_be/), 严禁入库
 scripts/deploy_tmp/
+
+# ========== 一键操作脚本(含测试机/生产机密码明文 + IP, 严禁入库) ==========
+# _kx_* 是 kuaixuan 运维一站式脚本族, 大多数把 host/password 写在参数或常量里。
+# 2026-09-21: 补上这组规则, 避免 _kx_verify_admin_api.py / _kx_e2e_member3.py /
+# _kx_forward.py / _mk_reg_user3.py 等带明文凭据的脚本入库。
+# 例外: scripts/_kx_direct.py 是通用 SSH 执行器(凭据只走命令行参数, 不含明文),
+#       历史上已入库并被多处引用, 故显式放行。
+scripts/_kx_*.py
+scripts/_kx_*.sh
+!scripts/_kx_direct.py
+# 回归截图/报文产物
+scripts/_shots/
+scripts/_kx_tests.tgz
+# 诊断用的一次性补丁脚本
+scripts/_append_admin.py
+scripts/_mk_*.py
+scripts/_clear_*.py

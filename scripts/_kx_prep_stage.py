@@ -16,16 +16,16 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BE = os.path.join(ROOT, "backend")
 OUT = os.path.join(ROOT, "scripts", "deploy_tmp", "_kx_be")
 
-# 生产机行尾现状(2026-09-20 实测): 仅这 8 个是 CRLF, 其余一律 LF
+# 测试机行尾现状(2026-09-21 实测): 见下, 其余一律 LF
 CRLF = {
-    "app/api/stocks.py",
-    "app/services/auction_snapshot.py",
-    "app/services/cache_store.py",
-    "app/services/concept_refresh.py",
-    "app/services/kpl.py",
-    "app/services/picker/__init__.py",
-    "app/services/picker/mode.py",
-    "app/services/yday_prewarm.py",
+    "app/api/auth.py",
+    "app/api/deps.py",
+    "app/api/aipick.py",
+    "app/api/admin.py",
+    "app/core/config.py",
+    "app/db/database.py",
+    "app/main.py",
+    "app/services/users.py",
 }
 
 
