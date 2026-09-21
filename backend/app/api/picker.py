@@ -31,7 +31,7 @@ from fastapi import APIRouter, Depends, Request
 from ..core import logger
 from ..services import settings as st
 from ..services.picker import precompute
-from .deps import jr, qs, require_vip_or_paid
+from .deps import jr, qs, quota_guard, require_vip_or_paid
 
 log = logger.get_logger(__name__)
 
@@ -74,8 +74,11 @@ def _store(date: str, payload: dict) -> None:
 
 
 @router.get("/api/picker/snapshot")
-def api_picker_snapshot(request: Request, uid: int = Depends(require_vip_or_paid)):
+def api_picker_snapshot(request: Request, uid: int = Depends(quota_guard("picker"))):
     """当日全市场预计算评分快照(前端本地筛选用)。
+
+    门禁: 配额版(2026-09-21) —— 会员/管理员不限; 免费用户 3 次/日(可签到加成)。
+    这一步替换了原 require_vip_or_paid: 免费用户现在也能用, 但受每日配额约束。
 
     返回:
       {"ok": true, "enabled": false, "msg": "...", "list": []}          —— 未开启/不可用

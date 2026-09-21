@@ -74,3 +74,36 @@ def require_vip_or_paid(request: Request) -> int:
                 uid, client_ip(request), (u or {}).get("member_level"))
     raise HTTPException(status_code=403, detail={"ok": False, "code": "vip_required",
                                                  "msg": "竞价异动仅限 VIP/付费会员，请升级后使用"})
+
+
+def quota_guard(feature):
+    """免费用户每日配额门禁工厂(2026-09-21, 方案 B).
+    用法: def api_xxx(uid: int = Depends(quota_guard("picker")))
+
+    行为: 会员/管理员直接放行(不计数); 免费用户消耗 1 次, 超额返 429 且带
+    code=quota_exceeded + 剩余/额度信息, 前端据此弹「开通会员」引导。
+    去重窗口内(默认 10s)的重复请求视为同一次, 避免前端并发加载瞬间烧完额度。"""
+    from ..services import quota as quota_svc
+
+    def _guard(request: Request) -> int:
+        uid = get_uid(request)
+        ok, info = quota_svc.consume(uid, feature)
+        if not ok:
+            log.warning("配额耗尽拦截 uid=%s feature=%s used=%s limit=%s ip=%s",
+                        uid, feature, info.get("used"), info.get("limit"),
+                        client_ip(request))
+            raise HTTPException(status_code=429, detail={
+                "ok": False,
+                "code": "quota_exceeded",
+                "feature": feature,
+                "feature_label": quota_svc.FEATURE_LABEL.get(feature, feature),
+                "limit": info.get("limit"),
+                "used": info.get("used"),
+                "msg": "今日%s次数已用完（%s/%s），开通会员可不限次数，或明日再来" % (
+                    quota_svc.FEATURE_LABEL.get(feature, feature),
+                    info.get("used"), info.get("limit")),
+            })
+        return uid
+
+    return _guard
+

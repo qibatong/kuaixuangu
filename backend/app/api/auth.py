@@ -42,14 +42,6 @@ def _login_sync(request: Request, body: dict):
     if not ok:
         log.warning("登录失败 login=%s ip=%s", login, client_ip(request))
         return jr({"ok": False, "msg": "用户名或密码错误"}, 401)
-    # 邮箱认证拦截(2026-08-17): 新注册未验证邮箱的账号禁止登录
-    # 注意 email_verified=0 时不能用 `or 1` 兜底(0 是 falsy 会被当成 1)
-    if user is not None and int(user.get("email_verified") or 0) != 1:
-        log.warning("登录拦截-未验证邮箱 uid=%s login=%s", user["id"], login)
-        return jr({"ok": False, "msg": "请先完成邮箱验证再登录",
-                   "need_verify_email": True,
-                   "uid": user["id"],
-                   "email": user.get("email") or ""}, 401)
     # 单点登录: 密码校验通过后, 作废该用户所有旧 token, 强制只保留当前会话(防账号共享)
     revoked = security.revoke_user_tokens(user["id"])
     log.info("登录成功 uid=%s user=%s ip=%s remember=%s 已踢旧会话%d个",
@@ -79,67 +71,189 @@ def _login_sync(request: Request, body: dict):
 
 @router.post("/api/register")
 def api_register(request: Request, body: dict = Body(...)):
-    """注册已停止开放(合规要求 2026-08-25): 新用户仅能由管理员在后台开通。
-    保留端点返回统一提示, 不创建任何用户。"""
-    log.info("注册请求被拒绝(注册已停止) ip=%s", client_ip(request))
-    return jr({"ok": False, "msg": "系统已停止开放注册，如需开通账号请联系管理员（微信 poet-1986）"}, 403)
+    """手机号注册(2026-09-21 放开注册):
+    body: {phone, code, password, invite_code?}
+    流程: 短信验证码校验(scene=register) → 手机号唯一性 → 注册送 5 天 level=1 完整体验
+          → 可选邀请码: 邀请人 +5 天(带同 IP 自邀/批量小号防刷)
 
+    ★ 三层防刷:
+      ① 同 IP 24h 注册数上限(config.REG_IP_DAY_LIMIT) —— security.register_ip_day_allowed
+      ② 同 IP 1h 注册数上限(security.register_allowed)
+      ③ phone_claims 台账: 每个手机号只能领 1 次新用户 VIP(删号重注册也刷不到)
+    老用户/管理员代建不受配额影响。"""
+    if not getattr(config, "REG_OPEN", True):
+        log.info("注册请求被拒绝(注册已关闭) ip=%s", client_ip(request))
+        return jr({"ok": False, "msg": "系统暂未开放注册，如需开通账号请联系管理员（微信 poet-1986）"}, 403)
 
-@router.post("/api/verify-email")
-async def api_verify_email(request: Request, body: dict = Body(...)):
-    """同 api_login: 邮箱验证属登录链路(未验证账号正是靠它拿 token), 不能因慢请求
-    堆积而卡死; 走独立 executor(详见 api_login 注释)"""
-    return await asyncio.to_thread(_verify_email_sync, request, body)
-
-
-def _verify_email_sync(request: Request, body: dict):
-    """邮箱验证: 输入注册邮箱收到的 6 位验证码; 验证成功后直接返回 token(自动登录)"""
-    uid = int(body.get("uid") or 0)
+    phone = str(body.get("phone") or "").strip()
     code = str(body.get("code") or "").strip()
-    if not uid or not code:
-        return jr({"ok": False, "msg": "参数不完整"}, 400)
-    ok, msg = users.verify_email_code(uid, code)
+    password = str(body.get("password") or "")
+    invite_code = str(body.get("invite_code") or body.get("inviteCode") or "").strip().upper()
+    ip = client_ip(request)
+
+    if not re.match(r"^1[3-9]\d{9}$", phone):
+        return jr({"ok": False, "msg": "手机号格式不正确"}, 400)
+    if not code or not code.isdigit():
+        return jr({"ok": False, "msg": "请输入短信验证码"}, 400)
+    if len(password) < 6:
+        return jr({"ok": False, "msg": "密码至少 6 位"}, 400)
+
+    # ---- 防刷层 ①②: IP 维度 ----
+    if not security.register_ip_day_allowed(ip):
+        log.warning("注册拦截-同 IP 24h 超限 ip=%s", ip)
+        return jr({"ok": False, "msg": "当前网络注册账号过多，请 24 小时后再试"}, 429)
+    if not security.register_allowed(ip):
+        log.warning("注册拦截-同 IP 1h 超限 ip=%s", ip)
+        return jr({"ok": False, "msg": "操作过于频繁，请稍后再试"}, 429)
+
+    # ---- 手机号唯一性 ----
+    if users.find_user_by_phone(phone):
+        return jr({"ok": False, "msg": "该手机号已注册，请直接登录或找回密码"}, 409)
+
+    # ---- 短信验证码校验(scene=register, 与发送时一致) ----
+    if sms_verify.is_consumed(phone, "register"):
+        return jr({"ok": False, "msg": "验证码已使用，请重新获取"}, 400)
+    try:
+        ok, msg = sms_verify.check_code(phone, code, scene="register")
+    except sms_verify.SmsNotConfigured as e:
+        log.warning("注册短信校验未配置: %s", e)
+        return jr({"ok": False, "msg": "短信服务未配置，请联系管理员"}, 503)
+    except Exception as e:
+        log.error("注册短信校验异常 phone=%s err=%s", phone, e)
+        return jr({"ok": False, "msg": "校验失败，请稍后再试"}, 500)
     if not ok:
-        return jr({"ok": False, "msg": msg}, 400)
-    u = users.find_user_by_id(uid)
-    username = u["username"] if u else ""
-    et = int(u.get("expire_at") or 0) if u else 0
-    log.info("邮箱验证成功 uid=%s user=%s", uid, username)
-    return jr({"ok": True, "msg": msg, "token": security.issue_token(uid),
-               "username": username, "uid": uid,
-               "email_verified": 1,
+        return jr({"ok": False, "msg": "验证码错误或已过期"}, 400)
+
+    # ---- 邀请码解析 ----
+    inviter = None
+    if invite_code:
+        inviter = users.find_user_by_invite_code(invite_code)
+        if inviter is None:
+            return jr({"ok": False, "msg": "邀请码无效，请核对后重试"}, 400)
+        if inviter.get("phone") and str(inviter["phone"]) == phone:
+            return jr({"ok": False, "msg": "不能使用自己的邀请码"}, 400)
+
+    # ---- 注册送 5 天完整体验(每个手机号仅 1 次, 见 phone_claims) ----
+    ua = (request.headers.get("User-Agent") or "")[:200]
+    # 用户名: 手机号打码(如 138****8888), 登录仍以手机号为主
+    username = phone[:3] + "****" + phone[-4:]
+    # 同号重名兜底(理论上 phone 唯一即唯一, 防止历史手工账号撞名)
+    if users.find_user(username):
+        username = username + "_" + str(int(time.time()) % 10000)
+
+    expire_days = 0
+    first_claim = True
+    if not inviter:
+        # 受邀注册: 由邀请奖励链路统一赠送(避免双份)
+        expire_days = config.NEW_USER_DAYS
+    else:
+        expire_days = config.NEW_USER_DAYS
+
+    uid = users.create_user(
+        username, password, phone=phone,
+        invited_by=(inviter["id"] if inviter else None),
+        register_ip=ip, register_ua=ua,
+        expire_days=expire_days,
+        member_level=getattr(config, "NEW_USER_MEMBER_LEVEL", 1))
+
+    # ---- 领取台账: 判定是否为该手机号首次领 VIP ----
+    is_first, claim_rec, blocked = users.claim_phone(phone, uid, ip)
+    if not is_first:
+        # 该号此前已领过 → 降级为普通试用(不送会员等级), 但仍可注册登录
+        first_claim = False
+        try:
+            conn = database.get_conn()
+            conn.execute("UPDATE users SET member_level=0 WHERE id=?", (uid,))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            log.warning("重注册降级失败 uid=%s err=%s", uid, e)
+        log.warning("注册成功但非首次领取 uid=%s phone=%s reason=%s", uid, phone, blocked)
+    else:
+        log.info("注册成功 uid=%s phone=%s 送 %s 天 level=%s 体验",
+                 uid, phone, expire_days, getattr(config, "NEW_USER_MEMBER_LEVEL", 1))
+
+    # ---- 邀请奖励: 邀请人 +5 天(带防刷判断) ----
+    invite_rewarded = False
+    if inviter:
+        blocked_flag, reason = users.invite_reward_blocked(inviter["id"], ip)
+        if blocked_flag:
+            log.warning("邀请奖励被拦截 inviter=%s invitee=%s reason=%s", inviter["id"], uid, reason)
+        else:
+            got = users.grant_invite_reward(inviter["id"], config.INVITE_REWARD_DAYS)
+            invite_rewarded = bool(got)
+            log.info("邀请奖励发放 inviter=%s invitee=%s days=%s new_expire=%s",
+                     inviter["id"], uid, config.INVITE_REWARD_DAYS, got)
+
+    sms_verify.mark_consumed(phone, "register", ttl=config.SMS_VALID_MIN * 60)
+
+    # 注册即登录
+    token = security.issue_token(uid)
+    u = users.find_user_by_id(uid) or {}
+    et = int(u.get("expire_at") or 0)
+    resp = jr({"ok": True, "msg": "注册成功，已赠送 %d 天完整体验" % expire_days,
+               "token": token, "uid": uid, "username": username,
                "expire_at": et,
                "member_level": users.get_member_level(uid),
-               "expired": 1 if (et and time.time() > et) else 0})
+               "first_claim": 1 if first_claim else 0,
+               "invite_rewarded": 1 if invite_rewarded else 0})
+    resp.set_cookie(key="kx_token", value=token, max_age=12 * 3600, path="/",
+                    httponly=True, samesite="lax", secure=False)
+    return resp
 
 
-@router.post("/api/resend-verify")
-async def api_resend_verify(request: Request, body: dict = Body(...)):
-    """同 api_login: 属登录链路且要发邮件(慢 IO), 走独立 executor 更合适"""
-    return await asyncio.to_thread(_resend_verify_sync, request, body)
-
-
-def _resend_verify_sync(request: Request, body: dict):
-    """重发邮箱验证码(5 分钟冷却, 每小时最多 3 次)"""
-    uid = int(body.get("uid") or 0)
-    user = users.find_user_by_id(uid) if uid else None
-    if not user:
-        return jr({"ok": False, "msg": "用户不存在"}, 400)
-    if int(user.get("email_verified") or 0):
-        return jr({"ok": True, "msg": "邮箱已验证，无需重复验证"})
-    email = str(user.get("email") or "")
-    if not email:
-        return jr({"ok": False, "msg": "账号未绑定邮箱，请联系管理员"}, 400)
-    ok, msg = security.verify_mail_allowed(email)
+@router.post("/api/register/send")
+def api_register_send(request: Request, body: dict = Body(...)):
+    """注册-发送短信验证码(scene=register).
+    与找回密码不同: 注册场景下手机号**必须未注册**才发送(省短信费 + 防枚举)"""
+    if not getattr(config, "REG_OPEN", True):
+        return jr({"ok": False, "msg": "系统暂未开放注册"}, 403)
+    phone = str(body.get("phone") or "").strip()
+    if not re.match(r"^1[3-9]\d{9}$", phone):
+        return jr({"ok": False, "msg": "手机号格式不正确"}, 400)
+    if users.find_user_by_phone(phone):
+        return jr({"ok": False, "msg": "该手机号已注册，请直接登录或找回密码"}, 409)
+    ip = client_ip(request)
+    allowed, reason = sms_verify.can_send(phone, ip, config.SMS_SEND_INTERVAL)
+    if not allowed:
+        return jr({"ok": False, "msg": reason}, 429)
+    try:
+        ok, msg = sms_verify.send_code(phone, scene="register",
+                                       interval=config.SMS_SEND_INTERVAL,
+                                       valid_time=config.SMS_VALID_MIN)
+    except sms_verify.SmsNotConfigured as e:
+        log.warning("注册短信发送未配置: %s", e)
+        return jr({"ok": False, "msg": "短信服务未配置，请联系管理员"}, 503)
+    except Exception as e:
+        log.error("注册短信发送异常 phone=%s err=%s", phone, e)
+        return jr({"ok": False, "msg": "发送失败，请稍后再试"}, 500)
     if not ok:
-        return jr({"ok": False, "msg": msg}, 429)
-    vcode = users.gen_verify_code()
-    users.set_email_verify_code(uid, vcode)
-    mail_ok = users.send_verify_email(email, user["username"], vcode)
-    if not mail_ok:
-        return jr({"ok": False, "msg": "邮件发送失败，请联系管理员"}, 500)
-    log.info("重发邮箱验证码 uid=%s to=%s", uid, email)
-    return jr({"ok": True, "msg": "验证邮件已发送，请查收"})
+        return jr({"ok": False, "msg": "发送失败: %s" % msg}, 500)
+    log.info("注册验证码已发送 phone=%s ip=%s", phone, ip)
+    return jr({"ok": True, "msg": "验证码已发送，请查收"})
+
+
+@router.get("/api/register/config")
+def api_register_config():
+    """注册页展示配置(是否开放 + 赠送天数), 前端不必硬编码"""
+    return jr({"ok": True,
+               "open": bool(getattr(config, "REG_OPEN", True)),
+               "gift_days": int(config.NEW_USER_DAYS),
+               "invite_reward_days": int(config.INVITE_REWARD_DAYS)})
+
+
+@router.get("/api/invite-info")
+def api_invite_info(code: str = ""):
+    """注册页预校验邀请码(展示邀请人昵称), 避免提交后才发现无效"""
+    code = (code or "").strip().upper()
+    if not code:
+        return jr({"ok": False, "msg": "请输入邀请码"}, 400)
+    inviter = users.find_user_by_invite_code(code)
+    if inviter is None:
+        return jr({"ok": False, "msg": "邀请码无效"}, 404)
+    name = inviter.get("wx_name") or inviter.get("username") or ""
+    return jr({"ok": True, "inviter": name[:2] + "**" if len(name) > 2 else name,
+               "reward_days": int(config.INVITE_REWARD_DAYS)})
 
 
 @router.post("/api/change-password")
@@ -164,69 +278,6 @@ def api_change_password(request: Request, uid: int = Depends(get_uid),
     security.revoke_user_tokens(uid)
     log.info("改密成功 uid=%s user=%s", uid, user.get("username"))
     return jr({"ok": True, "msg": "密码已修改，请重新登录"})
-
-
-@router.post("/api/forgot")
-def api_forgot(request: Request, body: dict = Body(...)):
-    email = str(body.get("email") or "").strip().lower()
-    if not users._is_email(email):
-        return jr({"ok": False, "msg": "邮箱格式不正确"}, 400)
-    if not users.smtp_configured():
-        return jr({"ok": False, "msg": "邮件服务未配置，请联系管理员"}, 500)
-    if not security.reset_mail_allowed(email):
-        return jr({"ok": False, "msg": "请求过于频繁，请 1 小时后再试"}, 429)
-    msg = "如果该邮箱已绑定账号，重置邮件已发送，请查收"
-    user = users.find_user_by_email(email)
-    if user is None:
-        return jr({"ok": True, "msg": msg})
-    now = time.time()
-    token = secrets.token_urlsafe(32)
-    conn = database.get_conn()
-    conn.execute("INSERT INTO reset_tokens (user_id, token, created_at, expires_at, used) VALUES (?,?,?,?,0)",
-                 (user["id"], token, int(now), int(now) + config.RESET_TTL))
-    conn.commit()
-    conn.close()
-    scheme = "https" if (request.headers.get("X-Forwarded-Proto") or "").lower() == "https" else "http"
-    host = request.headers.get("Host") or "127.0.0.1"
-    reset_url = "%s://%s/?reset=%s" % (scheme, host, token)
-    try:
-        users.send_reset_email(email, reset_url, user["username"])
-    except Exception as e:
-        log.error("重置邮件发送失败 email=%s err=%s", email, e)
-        return jr({"ok": False, "msg": "邮件发送失败：%s" % e}, 500)
-    log.info("重置邮件已发送 email=%s user=%s", email, user["username"])
-    return jr({"ok": True, "msg": msg})
-
-
-@router.post("/api/reset")
-def api_reset(request: Request, body: dict = Body(...)):
-    token = str(body.get("token") or "").strip()
-    password = str(body.get("password") or "")
-    if len(password) < 6:
-        return jr({"ok": False, "msg": "新密码至少 6 位"}, 400)
-    conn = database.get_conn()
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT * FROM reset_tokens WHERE token=? AND used=0", (token,)).fetchone()
-    if row is None:
-        conn.close()
-        log.warning("重置链接无效/已使用 ip=%s", client_ip(request))
-        return jr({"ok": False, "msg": "重置链接无效或已使用，请重新申请"}, 400)
-    if time.time() > row["expires_at"]:
-        conn.execute("UPDATE reset_tokens SET used=1 WHERE id=?", (row["id"],))
-        conn.commit()
-        conn.close()
-        log.warning("重置链接已过期 user_id=%s", row["user_id"])
-        return jr({"ok": False, "msg": "重置链接已过期，请重新申请"}, 400)
-    user_id = row["user_id"]
-    conn.execute("UPDATE users SET password_hash=? WHERE id=?",
-                 (security.hash_password(password), user_id))
-    conn.execute("UPDATE reset_tokens SET used=1 WHERE id=?", (row["id"],))
-    conn.commit()
-    conn.close()
-    # 踢下线: 使该用户所有已签发 token 失效
-    security.revoke_user_tokens(user_id)
-    log.info("密码重置成功 user_id=%s", user_id)
-    return jr({"ok": True, "msg": "密码已重置，请用新密码登录"})
 
 
 @router.post("/api/forgot-phone/send")
@@ -302,23 +353,22 @@ def api_reset_by_phone(request: Request, body: dict = Body(...)):
 
 @router.post("/api/forgot/check")
 def api_forgot_check(request: Request, body: dict = Body(...)):
-    """忘记密码辅助: 输入用户名/手机号, 返回是否绑定了邮箱
-    若未绑定邮箱 → 提示联系管理员(微信号 poet-1986)人工处理"""
+    """忘记密码辅助: 输入用户名/手机号, 告知走哪条自助路径.
+    邮箱验证已下线(2026-09-21), 现在只有「已绑定手机号 → 短信自助」一条路,
+    其余情况引导联系管理员人工处理。返回结构保留 has_email 字段兼容旧前端。"""
     login = str(body.get("login") or "").strip()
     if not login:
         return jr({"ok": False, "msg": "请输入用户名或手机号"}, 400)
     user = users.find_user_by_login(login)
     if user is None:
         # 未找到账号: 也提示联系管理员(避免枚举账号存在性)
-        return jr({"ok": False, "has_email": False,
-                   "msg": "未找到该账号或未绑定邮箱，请联系管理员人工处理（管理员微信号：poet-1986）"}, 404)
-    has_email = bool((user.get("email") or "").strip())
-    if not has_email:
-        return jr({"ok": False, "has_email": False,
-                   "msg": "该账号未绑定邮箱，无法自助找回密码，请联系管理员人工处理（管理员微信号：poet-1986）"}, 400)
-    # 已绑定邮箱: 返回脱敏邮箱提示用户确认
-    email = user["email"]
-    local, dom = email.split("@", 1) if "@" in email else (email, "")
-    masked = (local[:2] + "***@" + dom) if len(local) > 2 else ("**@" + dom)
-    return jr({"ok": True, "has_email": True, "email": masked,
-               "msg": "该账号已绑定邮箱 %s，请在忘记密码页输入该邮箱" % masked})
+        return jr({"ok": False, "has_email": False, "has_phone": False,
+                   "msg": "未找到该账号，请联系管理员人工处理（管理员微信号：poet-1986）"}, 404)
+    phone = str(user.get("phone") or "").strip()
+    if not phone:
+        return jr({"ok": False, "has_email": False, "has_phone": False,
+                   "msg": "该账号未绑定手机号，无法自助找回密码，请联系管理员人工处理（管理员微信号：poet-1986）"}, 400)
+    masked = phone[:3] + "****" + phone[-4:]
+    return jr({"ok": True, "has_email": False, "has_phone": True, "phone": masked,
+               "msg": "该账号已绑定手机号 %s，请用短信验证码重置密码" % masked})
+

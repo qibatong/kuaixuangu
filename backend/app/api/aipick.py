@@ -22,7 +22,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from ..core import config, logger
 from ..db import database
 from ..services import fetcher, hot_rank, security, users
-from .deps import jr, qs, require_vip_or_paid
+from .deps import jr, qs, quota_guard, require_vip_or_paid
 
 log = logger.get_logger(__name__)
 
@@ -190,8 +190,11 @@ def api_aipick_detail(request: Request, p_date: str,
 
 
 @router.get("/api/aipick/data")
-def api_aipick_data(request: Request, uid: int = Depends(require_vip_or_paid)):
-    """最新预测报告数据(JSON)。App 内直接原生渲染表格, 不再嵌套 iframe 老页面。"""
+def api_aipick_data(request: Request, uid: int = Depends(quota_guard("aipick"))):
+    """最新预测报告数据(JSON)。App 内直接原生渲染表格, 不再嵌套 iframe 老页面。
+
+    门禁: 配额版(2026-09-21) —— 免费用户 1 次/日, 会员/管理员不限。
+    只对"取数据"这一步计数; dates/realtime 等辅助接口不计数(见各自端点)。"""
     dates = _report_dates()
     if not dates:
         return jr({"ok": False, "msg": "暂无预测报告, 交易日 9:30 前自动生成"}, 404)
@@ -204,7 +207,9 @@ def api_aipick_data(request: Request, uid: int = Depends(require_vip_or_paid)):
 @router.get("/api/aipick/data/{p_date}")
 def api_aipick_data_date(request: Request, p_date: str,
                          uid: int = Depends(require_vip_or_paid)):
-    """指定日期预测报告数据(JSON)。若为历史日期, 每行补充当日涨跌幅 day_change(当日涨幅)。"""
+    """指定日期预测报告数据(JSON)。若为历史日期, 每行补充当日涨跌幅 day_change(当日涨幅)。
+
+    门禁: 仍为 VIP/付费 —— 历史回看属增值能力, 免费用户只给当日 1 次。"""
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", p_date or ""):
         return jr({"ok": False, "msg": "日期格式有误"}, 400)
     data = _read_json_report(p_date)

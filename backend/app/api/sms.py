@@ -14,7 +14,7 @@ from fastapi.params import Body
 
 from ..core import config, logger
 from ..db import database
-from .deps import jr
+from .deps import client_ip, jr
 from ..services import sms_verify
 
 log = logger.get_logger(__name__)
@@ -30,7 +30,10 @@ def api_sms_send(request: Request, body: dict = Body(...)):
     phone = str(body.get("phone") or "").strip()
     if not _PHONE_RE.match(phone):
         return jr({"ok": False, "msg": "手机号格式不正确"}, 400)
-    ip = request.client.host if request.client else ""
+    # ★ 必须用 client_ip: Nginx 反代后 request.client.host 恒为 127.0.0.1,
+    #   会让全站用户共用一个 IP 限流桶(一个人发多了所有人被 429)。
+    #   与 auth.py 的注册/忘记密码限流口径保持一致。
+    ip = client_ip(request)
     allowed, reason = sms_verify.can_send(phone, ip, config.SMS_SEND_INTERVAL)
     if not allowed:
         return jr({"ok": False, "msg": reason}, 429)

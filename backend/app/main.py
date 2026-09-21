@@ -16,7 +16,7 @@ import time
 from fastapi import FastAPI, Request
 
 from .api import (admin, aipick, auth, health, history, invite, kpl, ladder,
-                  picker, prefs, sms, stats, stock_temper, stocks, summary)
+                  member, picker, prefs, sms, stats, stock_temper, stocks, summary)
 from .api.deps import client_ip, jr
 from .core import logger as app_logger
 from .db import database
@@ -81,6 +81,7 @@ app.include_router(sms.router)
 app.include_router(aipick.router)
 app.include_router(summary.router)
 app.include_router(picker.router)   # P3(2026-09-12): 前端本地筛选快照
+app.include_router(member.router)   # 2026-09-21: 会员中心(总览/配额/签到)
 
 
 @app.on_event("startup")
@@ -117,6 +118,15 @@ def on_startup():
         _kpl.start_kpl_prewarm()
     except Exception as e:
         log.warning("KPL首屏预热启动失败(不影响主服务) err=%s", e)
+    # 会员权益配置回灌(2026-09-21): 后台改的会员配置存 settings 表, 重启后必须重新
+    # 写回运行时 config, 否则新开进程又用回环境变量默认值 —— 表现就是"后台改了但重启就还原"
+    try:
+        from .api import admin as _admin
+        _conf = _admin.get_member_conf()
+        _admin.apply_member_conf(_conf)
+        log.info("会员配置已加载: %s", _conf)
+    except Exception as e:
+        log.warning("会员配置加载失败(用环境变量默认值) err=%s", e)
 
 
 @app.on_event("startup")

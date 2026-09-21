@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
 from ..services import kpl, sector_rotation
-from .deps import get_uid, jr, require_vip_or_paid
+from .deps import get_uid, jr, quota_guard, require_vip_or_paid
 
 log = logger.get_logger(__name__)
 
@@ -207,7 +207,7 @@ def api_kpl_index_brief(request: Request, uid: int = Depends(get_uid)):
 
 
 @router.get("/api/kpl/bid-seal")
-def api_kpl_bid_seal(request: Request, uid: int = Depends(require_vip_or_paid), date: str = ""):
+def api_kpl_bid_seal(request: Request, uid: int = Depends(quota_guard("auction")), date: str = ""):
     """竞价涨停委买额: date 空=实时, 指定 'YYYY-MM-DD' 回看历史(auction_daily_history)
     2026-08-22: 竞价时段走实时 fetch_bid_seal + deep=True; 非竞价时段走 fast-path 读库
     2026-09-04 二轮缓存: 生产实测冷请求 709ms(14:45 盘后走 fast-path, 每次读库 +
@@ -270,7 +270,7 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(require_vip_or_paid), 
 
 
 @router.get("/api/kpl/bid-boom")
-def api_kpl_bid_boom(request: Request, uid: int = Depends(require_vip_or_paid), date: str = ""):
+def api_kpl_bid_boom(request: Request, uid: int = Depends(quota_guard("auction")), date: str = ""):
     """竞价爆量/撮合>2000万: date 空=实时, 指定日期回看历史"""
     if date:
         resolved = _resolve_date(date)
@@ -315,7 +315,7 @@ def api_kpl_bid_boom(request: Request, uid: int = Depends(require_vip_or_paid), 
 
 
 @router.get("/api/kpl/bid-net")
-def api_kpl_bid_net(request: Request, uid: int = Depends(require_vip_or_paid), date: str = ""):
+def api_kpl_bid_net(request: Request, uid: int = Depends(quota_guard("auction")), date: str = ""):
     """竞价净额榜(2026-08-18 主人要求): 开盘啦 MorningBiddingList Type=2(全市场竞价金额>1000万)
     替代仅从涨停封单列表按净额排序; 非竞价时段返回空 → 前端回退封单列表
     2026-08-22: 增加历史回看(date) + 非交易/非竞价时段回退上一交易日(历史快照 → 快照重建)"""
@@ -680,7 +680,7 @@ def api_kpl_wpqc(request: Request, uid: int = Depends(require_vip_or_paid)):
 
 
 @router.get("/api/kpl/bid-qiangcang")
-def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(require_vip_or_paid), date: str = ""):
+def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(quota_guard("auction")), date: str = ""):
     """竞价抢筹(左右双表): list20=9:20→9:25 竞额抢筹(开盘啦净额强度),
     list20Chg=9:20→9:25 涨幅抢筹(全市场快照涨幅差), listLast=9:24→9:25 最后1秒段
     date 空=实时; 指定 'YYYY-MM-DD' 回看历史(qc_snapshot + snapshot_bid)

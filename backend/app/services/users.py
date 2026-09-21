@@ -210,6 +210,191 @@ def extend_expire(uid, days):
     return new
 
 
+# ---------- 注册手机号领取台账(2026-09-21) ----------
+def check_phone_claim(phone):
+    """查询该手机号是否已领取过「新用户注册礼」.
+    返回 dict(首次领取信息) 或 None(从未领取).
+    ★ 该表不随 users 删除清理, 这是封堵「删号→同号重注册」无限刷 VIP 的关键。"""
+    if not phone:
+        return None
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT * FROM phone_claims WHERE phone=?", (str(phone),)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def claim_phone(phone, uid, ip=""):
+    """登记手机号领取新用户礼(幂等). 返回 (is_first, record, blocked_reason)
+    is_first=False 表示该号此前已领过 -> 本次不发 VIP, 但仍允许注册
+    防刷: 同号已有 first_uid, 且当前 ip 与上次不同而 first_uid 失败重注册, 一律按非首次处理"""
+    if not phone:
+        return False, None, "缺少手机号"
+    now = int(time.time())
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT * FROM phone_claims WHERE phone=?", (str(phone),)).fetchone()
+        if row:
+            conn.execute(
+                "UPDATE phone_claims SET claim_count=claim_count+1, last_claim=?, last_ip=? WHERE phone=?",
+                (now, str(ip or ""), str(phone)))
+            conn.commit()
+            rec = dict(row)
+            rec["claim_count"] = int(rec.get("claim_count") or 0) + 1
+            rec["last_claim"] = now
+            rec["last_ip"] = str(ip or "")
+            return False, rec, "该手机号已领取过新用户会员体验"
+        conn.execute(
+            "INSERT INTO phone_claims (phone, first_uid, first_claim, claim_count, last_claim, last_ip) "
+            "VALUES (?,?,?,1,?,?)",
+            (str(phone), uid, now, now, str(ip or "")))
+        conn.commit()
+        return True, {"phone": str(phone), "first_uid": uid, "first_claim": now,
+                      "claim_count": 1, "last_claim": now, "last_ip": str(ip or "")}, ""
+    except Exception as e:
+        log.warning("phone_claims 落库失败 phone=%s uid=%s err=%s", phone, uid, e)
+        # 落库异常时保守处理: 按已领取对待, 避免异常路径被刷
+        return False, None, "领取登记异常, 本号按已领取处理"
+    finally:
+        conn.close()
+
+
+def phone_claim_stats(days=30):
+    """管理端: 近期手机号领取统计(用于风控视图)"""
+    since = int(time.time()) - int(days) * 86400
+    conn = _conn()
+    try:
+        total = conn.execute("SELECT COUNT(*) FROM phone_claims").fetchone()[0]
+        recent = conn.execute(
+            "SELECT COUNT(*) FROM phone_claims WHERE first_claim>=?", (since,)).fetchone()[0]
+        # 同一 IP 短期内领多个号: 风控关注点
+        rows = conn.execute(
+            "SELECT COALESCE(last_ip,'') ip, COUNT(*) n FROM phone_claims "
+            "WHERE first_claim>=? AND COALESCE(last_ip,'')!='' "
+            "GROUP BY last_ip HAVING n>1 ORDER BY n DESC LIMIT 20", (since,)).fetchall()
+        return {"total": total, "recent": recent, "multi_ip": [dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+
+# ---------- 每日签到(2026-09-21) ----------
+def checkin_today(uid, date=None):
+    """今日是否已签到"""
+    d = date or time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600))
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT * FROM user_checkin WHERE uid=? AND date=?", (uid, d)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def do_checkin(uid, reward=None):
+    """签到(幂等, (uid,date) 主键天然防重). 返回 (ok, msg, reward, first_today)"""
+    d = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600))
+    reward = int(getattr(config, "QUOTA_CHECKIN_BONUS", 3) if reward is None else reward)
+    conn = _conn()
+    try:
+        if conn.execute("SELECT 1 FROM user_checkin WHERE uid=? AND date=?", (uid, d)).fetchone():
+            return False, "今日已签到", 0, False
+        conn.execute("INSERT INTO user_checkin (uid, date, reward, created_at) VALUES (?,?,?,?)",
+                     (uid, d, reward, int(time.time())))
+        conn.commit()
+        return True, "签到成功", reward, True
+    except sqlite3.IntegrityError:
+        return False, "今日已签到", 0, False
+    except Exception as e:
+        log.warning("签到失败 uid=%s err=%s", uid, e)
+        return False, "签到失败，请稍后重试", 0, False
+    finally:
+        conn.close()
+
+
+def checkin_streak(uid, max_days=60):
+    """连续签到天数(含今天; 今天没签则从昨天往前算)"""
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT date FROM user_checkin WHERE uid=? ORDER BY date DESC LIMIT ?",
+            (uid, int(max_days))).fetchall()
+    finally:
+        conn.close()
+    dates = {r[0] for r in rows}
+    base = time.time() + 8 * 3600
+    today = time.strftime("%Y-%m-%d", time.gmtime(base))
+    if today not in dates:
+        base -= 86400
+    n = 0
+    for i in range(int(max_days)):
+        d = time.strftime("%Y-%m-%d", time.gmtime(base - i * 86400))
+        if d in dates:
+            n += 1
+        else:
+            break
+    return n
+
+
+def checkin_stats(days=30):
+    """管理端: 签到统计"""
+    since = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600 - int(days) * 86400))
+    conn = _conn()
+    try:
+        today = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600))
+        n_today = conn.execute("SELECT COUNT(*) FROM user_checkin WHERE date=?", (today,)).fetchone()[0]
+        n_range = conn.execute("SELECT COUNT(*) FROM user_checkin WHERE date>=?", (since,)).fetchone()[0]
+        n_users = conn.execute("SELECT COUNT(DISTINCT uid) FROM user_checkin WHERE date>=?", (since,)).fetchone()[0]
+        return {"today": n_today, "range_days": int(days), "range_total": n_range, "range_users": n_users}
+    finally:
+        conn.close()
+
+
+def checkin_recent(uid, days=7):
+    """最近 N 天签到情况(倒序), 供「我的会员」页日历展示"""
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT date, reward FROM user_checkin WHERE uid=? ORDER BY date DESC LIMIT ?",
+            (uid, int(days))).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# ---------- 后台操作审计(2026-09-21) ----------
+def audit(admin_uid, action, target_uid=None, detail="", ip=""):
+    """记录一次管理员操作(失败不抛异常, 不阻塞主流程)"""
+    try:
+        conn = _conn()
+        conn.execute(
+            "INSERT INTO admin_audit (admin_uid, action, target_uid, detail, ip, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (int(admin_uid), str(action), (int(target_uid) if target_uid else None),
+             json.dumps(detail, ensure_ascii=False) if not isinstance(detail, str) else detail,
+             str(ip or ""), int(time.time())))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.warning("审计日志写入失败 action=%s err=%s", action, e)
+
+
+def audit_list(page=1, page_size=30, action=""):
+    """管理端: 审计日志分页"""
+    conn = _conn()
+    cond, params = "", []
+    if action:
+        cond = " WHERE a.action LIKE ?"
+        params.append("%" + action + "%")
+    total = conn.execute("SELECT COUNT(*) FROM admin_audit a" + cond, params).fetchone()[0]
+    rows = conn.execute(
+        "SELECT a.*, (SELECT username FROM users WHERE id=a.admin_uid) admin_name, "
+        "(SELECT username FROM users WHERE id=a.target_uid) target_name "
+        "FROM admin_audit a" + cond + " ORDER BY a.id DESC LIMIT ? OFFSET ?",
+        params + [page_size, (page - 1) * page_size]).fetchall()
+    conn.close()
+    return {"total": total, "page": page, "pageSize": page_size, "rows": [dict(r) for r in rows]}
+
+
 def is_expired(uid):
     """是否已过期: expire_at>0 且 当前时间 > expire_at"""
     row = find_user_by_id(uid)
@@ -360,22 +545,28 @@ def gen_unique_invite_code():
 
 
 def create_user(username, password, invited_by=None, invite_code=None, phone=None, email=None,
-                expire_days=None, register_ip=None, register_ua=None, email_verified=0):
+                expire_days=None, register_ip=None, register_ua=None, email_verified=1,
+                member_level=None):
     """创建用户. expire_days>0 注册即送 N 天会员(默认 config.NEW_USER_DAYS 天试用); 0 表示永久
     register_ip/register_ua: 注册时的 IP 与 UA(用于同 IP 防刷/自邀识别)
-    email_verified: 默认 0=新注册未验证(强制邮箱认证); 管理员代建传 1"""
+    email_verified: 默认 1(已放弃邮箱验证, 老链路统一视为已验证); 如需强制留 0
+    member_level: 注册赠送期间的会员等级, 默认 config.NEW_USER_MEMBER_LEVEL(1=完整体验),
+                  传 0 则仅延长试用期不给会员权益"""
     if expire_days is None:
         expire_days = config.NEW_USER_DAYS
+    if member_level is None:
+        member_level = getattr(config, "NEW_USER_MEMBER_LEVEL", 1)
     now = int(__import__("time").time())
     expire_at = now + int(expire_days) * 86400 if (expire_days or 0) > 0 else 0
     conn = database.get_conn()
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO users (username, password_hash, created_at, expire_at, invited_by, invite_code, "
-        "phone, email, register_ip, register_ua, email_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        "phone, email, register_ip, register_ua, email_verified, member_level) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (username, security.hash_password(password), now, expire_at,
          invited_by, invite_code, phone, email, register_ip, register_ua,
-         1 if email_verified else 0))
+         1 if email_verified else 0, int(member_level or 0)))
     uid = cur.lastrowid
     conn.commit()
     conn.close()
@@ -509,81 +700,6 @@ def send_reset_email(to_email, reset_url, username):
         server.sendmail(config.SMTP_FROM or config.SMTP_USER, [to_email], msg.as_string())
     finally:
         server.quit()
-
-
-# ---------- 邮箱认证(2026-08-17, 新注册强制) ----------
-def gen_verify_code():
-    """6 位数字验证码"""
-    return "%06d" % secrets.randbelow(1000000)
-
-
-def set_email_verify_code(uid, code, ttl=1800):
-    try:
-        conn = database.get_conn()
-        conn.execute("UPDATE users SET email_verify_code=?, email_verify_expire=? WHERE id=?",
-                     (code, int(time.time()) + ttl, uid))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        log.warning("设置邮箱验证码失败 uid=%s err=%s", uid, e)
-
-
-def send_verify_email(to_email, username, code):
-    """发送邮箱验证邮件(纯标准库 smtplib), 返回是否发送成功"""
-    if not smtp_configured():
-        log.warning("SMTP 未配置, 无法发送邮箱验证邮件 to=%s", to_email)
-        return False
-    body = (
-        "你好 %s：\n\n"
-        "欢迎注册快选！你的邮箱验证码是：\n\n"
-        "    %s\n\n"
-        "请在 30 分钟内输入该验证码完成验证（仅可使用一次）。\n"
-        "验证通过后才能正常登录使用。\n\n"
-        "如果这不是你本人的操作，请忽略本邮件。\n\n"
-        "—— 快选系统"
-    ) % (username, code)
-    msg = MIMEText(body, "plain", "utf-8")
-    msg["Subject"] = Header("快选 - 邮箱验证", "utf-8")
-    msg["From"] = formataddr((str(Header("快选股", "utf-8")), config.SMTP_FROM or config.SMTP_USER))
-    msg["To"] = to_email
-    try:
-        if config.SMTP_PORT == 465:
-            server = smtplib.SMTP_SSL(config.SMTP_HOST, config.SMTP_PORT, timeout=15)
-        else:
-            server = smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=15)
-            server.starttls()
-        server.login(config.SMTP_USER, config.SMTP_PASS)
-        server.sendmail(config.SMTP_FROM or config.SMTP_USER, [to_email], msg.as_string())
-        server.quit()
-        return True
-    except Exception as e:
-        log.warning("邮箱验证邮件发送失败 to=%s err=%s", to_email, e)
-        return False
-
-
-def verify_email_code(uid, code):
-    """校验验证码: 成功置 email_verified=1 并清码; 返回 (ok, msg)"""
-    user = find_user_by_id(uid)
-    if not user:
-        return False, "用户不存在"
-    if int(user.get("email_verified") or 0):
-        return True, "邮箱已验证"
-    saved = str(user.get("email_verify_code") or "")
-    exp = int(user.get("email_verify_expire") or 0)
-    if not saved or time.time() > exp:
-        return False, "验证码已过期，请重新发送"
-    if saved != str(code).strip():
-        return False, "验证码错误"
-    try:
-        conn = database.get_conn()
-        conn.execute("UPDATE users SET email_verified=1, email_verify_code=NULL, email_verify_expire=0 WHERE id=?",
-                     (uid,))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        log.warning("邮箱验证落库失败 uid=%s err=%s", uid, e)
-        return False, "验证失败，请重试"
-    return True, "邮箱验证成功"
 
 
 def update_profile(uid, phone=None, email=None, wx_name=None, remark=None):

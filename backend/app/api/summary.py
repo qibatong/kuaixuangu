@@ -23,7 +23,7 @@ from fastapi.responses import HTMLResponse, Response
 from urllib.parse import unquote
 
 from ..core import config, logger
-from .deps import get_uid
+from .deps import client_ip, get_uid
 
 log = logger.get_logger(__name__)
 router = APIRouter()
@@ -236,7 +236,7 @@ async def upload_summary(request: Request,
                          x_title: str = Header("", alias="X-Title")):
     """上传群总结 PDF, 返回预览链接(定时任务调用)"""
     if not _check_token(x_api_token):
-        log.warning("summary upload forbidden ip=%s", request.client.host if request.client else "-")
+        log.warning("summary upload forbidden ip=%s", client_ip(request))
         raise HTTPException(status_code=403, detail={"ok": False, "msg": "forbidden"})
     try:
         length = int(request.headers.get("content-length", 0) or 0)

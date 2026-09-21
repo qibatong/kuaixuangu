@@ -146,10 +146,20 @@ NOTIFY_TIMEOUT = float(os.environ.get("NOTIFY_TIMEOUT", "5"))                # �
 NOTIFY_DEDUP_SECONDS = int(os.environ.get("NOTIFY_DEDUP_SECONDS", "120"))    # 相同内容去重窗口(秒)
 
 # ---------- 会员/邀请 ----------
-INVITE_REWARD_DAYS = int(os.environ.get("INVITE_REWARD_DAYS", "7"))          # 每成功邀请一个新用户, 邀请人 +N 天使用时间
-NEW_USER_DAYS = int(os.environ.get("NEW_USER_DAYS", "7"))                    # 新用户注册即送 N 天试用(被邀请人同样得 N 天)
+INVITE_REWARD_DAYS = int(os.environ.get("INVITE_REWARD_DAYS", "5"))          # 每成功邀请一个新用户, 邀请人 +N 天使用时间
+NEW_USER_DAYS = int(os.environ.get("NEW_USER_DAYS", "5"))                    # 新用户注册即送 N 天完整体验(每个手机号仅限 1 次)
+NEW_USER_MEMBER_LEVEL = int(os.environ.get("NEW_USER_MEMBER_LEVEL", "1"))     # 注册赠送期间的会员等级(1=付费会员完整体验)
 INVITE_SAME_IP_LIMIT = int(os.environ.get("INVITE_SAME_IP_LIMIT", "3"))       # 邀请人同 IP 被邀超过 N 人后不再发奖励(防同 IP 小号刷)
 REG_IP_DAY_LIMIT = int(os.environ.get("REG_IP_DAY_LIMIT", "5"))               # 同 IP 24h 最多注册 N 个新账号(防批量刷号)
+REG_OPEN = os.environ.get("REG_OPEN", "1") == "1"                             # 是否开放注册(手机号+验证码)
+
+# ---------- 免费用户每日配额(方案 B: 固定窗口原子自增) ----------
+# 会员(member_level>=1)/管理员不受限; 免费用户每日可用次数, 签到可加额度
+QUOTA_PICKER_DAILY = int(os.environ.get("QUOTA_PICKER_DAILY", "3"))           # 选股快照 次/日
+QUOTA_AIPICK_DAILY = int(os.environ.get("QUOTA_AIPICK_DAILY", "1"))           # AI 预测数据 次/日
+QUOTA_AUCTION_DAILY = int(os.environ.get("QUOTA_AUCTION_DAILY", "1"))         # 竞价异动 次/日
+QUOTA_CHECKIN_BONUS = int(os.environ.get("QUOTA_CHECKIN_BONUS", "3"))         # 每日签到赠送选股额度
+QUOTA_DEDUP_SECONDS = int(os.environ.get("QUOTA_DEDUP_SECONDS", "10"))        # 同用户同功能 N 秒内重复请求不重复计数
 
 # ---------- 跨进程状态存储(CacheStore) ----------
 # redis=Redis(生产多 worker 共享) / sqlite=SQLite 表 kv_cache(测试/兜底, 零依赖)

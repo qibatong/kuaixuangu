@@ -131,6 +131,44 @@ def init_db():
         cur.execute("ALTER TABLE users ADD COLUMN email_verify_expire INTEGER NOT NULL DEFAULT 0")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_users_invited_by ON users(invited_by)")
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone)")
+    # 注册手机号领取台账(2026-09-21): 放开注册后「每个手机号只能领 1 次新用户 5 天 VIP」。
+    # 关键: 该表**不随 users 删除而清理**, 否则「删号 → 用同手机号重新注册」即可无限刷 VIP。
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS phone_claims (
+            phone        TEXT PRIMARY KEY,
+            first_uid    INTEGER,
+            first_claim  INTEGER NOT NULL DEFAULT 0,
+            claim_count  INTEGER NOT NULL DEFAULT 1,
+            last_claim   INTEGER NOT NULL DEFAULT 0,
+            last_ip      TEXT
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_phone_claims_uid ON phone_claims(first_uid)")
+    # 每日签到(2026-09-21): 免费用户签到送选股额度, (uid, date) 唯一即天然防重
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_checkin (
+            uid         INTEGER NOT NULL,
+            date        TEXT NOT NULL,
+            reward      INTEGER NOT NULL DEFAULT 0,
+            created_at  INTEGER NOT NULL,
+            PRIMARY KEY (uid, date)
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_checkin_date ON user_checkin(date)")
+    # 后台操作审计日志(2026-09-21): 管理员对用户的关键操作留痕(加时/改等级/删号/重置密码等)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS admin_audit (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_uid   INTEGER NOT NULL,
+            action      TEXT NOT NULL,
+            target_uid  INTEGER,
+            detail      TEXT,
+            ip          TEXT,
+            created_at  INTEGER NOT NULL
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_created ON admin_audit(created_at)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_target ON admin_audit(target_uid)")
     # 登录 Token 持久化表(进程重启不失效, 支持「记住我」30 天)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS tokens (
