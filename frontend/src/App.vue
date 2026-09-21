@@ -65,6 +65,9 @@ function onDocClick(ev) {
 // 登录/登出(用户名变化)后重新拉取账号主题偏好
 watch(() => userStore.username, () => loadTheme())
 
+// 980 虚拟视口修复函数: 提升到 setup 顶层, 便于 onBeforeUnmount 解绑 resize/orientationchange
+let fixViewportIfNeeded = null
+
 onMounted(() => {
   // 全局股票单元格点击 → 弹分时/K线(捕获阶段, 抢在单元格自己的 linkToSoftware 之前)
   document.addEventListener('click', onDocClick, true)
@@ -92,7 +95,7 @@ onMounted(() => {
        3) 把 padding-left 硬塞回 body 避免贴边太丑
        4) orientationchange 再触发一次, 横竖屏切换时重新计算
      ============================================================================ */
-  const fixViewportIfNeeded = () => {
+  fixViewportIfNeeded = () => {
     const ua = navigator.userAgent || ''
     const isMobileUA = /Android|iPhone|iPad|iPod|Mobile|MicroMessenger|HarmonyOS|XiaoMi|MIUI|Oppo|Vivo/i.test(ua)
     const dpr = Math.max(1, Math.round(window.devicePixelRatio || 1))
@@ -157,6 +160,11 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick, true)
+  // 解绑 980 虚拟视口修复的 resize/orientationchange 监听(2026-09-21 修复泄漏)
+  if (fixViewportIfNeeded) {
+    window.removeEventListener('resize', fixViewportIfNeeded)
+    window.removeEventListener('orientationchange', fixViewportIfNeeded)
+  }
 })
 </script>
 
@@ -177,7 +185,7 @@ onBeforeUnmount(() => {
 /* 网页底部免责声明 */
 .disclaimer {
   text-align: center;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   margin: 8px 16px 24px;
   line-height: 1.7;

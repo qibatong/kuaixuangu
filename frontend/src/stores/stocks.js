@@ -6,18 +6,38 @@ import { fetchPickerSnapshot } from '../api/picker'
 import { listBatches } from '../api/history'
 import { showToast } from '../utils/toast'
 import { isBefore930, isBeforeRelockEnd, isPickBlockedTime, isPickGateOn,
-         PICK_BLOCK_MSG_TIME } from '../utils/time'
+         PICK_BLOCK_MSG_TIME, todayBj } from '../utils/time'
 import { useUserStore } from './user'
+import { safeJsonGet, safeJsonSet, safeRemove } from '../utils/storage'
+import { logFront } from '../utils/logger'
 import { defaultFilterSettings, passLockedFilter, pickFromSnapshot,
          buildFilterParams as _buildFilterParams } from '../utils/filters'
 
 // 兼容导出(历史引用方): 默认筛选参数
 export { defaultFilterSettings }
 
-function bjDateStr() {
-  const d = new Date(Date.now() + 8 * 3600 * 1000)
-  return d.toISOString().slice(0, 10)
-}
+/**
+ * @typedef {Object} StockItem 选股名单条目(后端 /api/stocks 返回, 前端实时 merge 后的形状)。
+ * 字段按后端落库列 + 前端实时覆盖字段归类, 新增列时先在此登记, 避免靠记忆。
+ * @property {string} code            股票代码(6 位)
+ * @property {string} name            名称
+ * @property {number} [probability]   评分(0-100, 降序为主排序)
+ * @property {number} [confidence]    置信度
+ * @property {number} [bidChange]     竞价涨幅(%)
+ * @property {number} [bidAmt]        竞价额(元)
+ * @property {number} [bidRatio]      竞价抢筹比
+ * @property {number} [circulationMV] 流通市值(元)
+ * @property {number} [warnType]      异动类型(0=无)
+ * @property {number} [realChange]    实时涨幅(%)
+ * @property {number} [entityChange]  实体涨幅(%)
+ * @property {number} [volRatio]      量比
+ * @property {number} [turnover]      换手率(%)
+ * @property {number} [price]         现价(元)
+ * @property {number} [mainNet]       盘中主力净额(元, 2026-09-20 起)
+ * @property {string} [industry]      行业
+ * @property {string} [concept]       概念
+ * @property {number} [rank]          排名
+ */
 
 // 2026-09-20 性能优化: 原地更新辅助 —— 字段值真正变化才赋值。
 // 用于 updateRealTimeOnly 等高频轮询路径: 保留对象引用(避免全表 patch + 重排),
@@ -163,7 +183,7 @@ export const useStocksStore = defineStore('stocks', {
         if (data.settings && typeof data.settings === 'object') {
           this.userFilterPrefs = data.settings
         }
-      } catch (e) { /* 忽略, 用默认 */ }
+      } catch (e) { logFront('warn', '账号偏好加载失败, 用默认', e) }
     },
     // 全局默认筛选参数(管理员后台可调): 未自定义偏好的用户使用
     async loadGlobalDefaults() {
@@ -172,7 +192,7 @@ export const useStocksStore = defineStore('stocks', {
         if (d.defaults && typeof d.defaults === 'object') {
           this.globalDefaults = { ...defaultFilterSettings, ...d.defaults }
         }
-      } catch (e) { /* 忽略, 用内置默认 */ }
+      } catch (e) { logFront('warn', '全局默认筛选加载失败, 用内置默认', e) }
     },
     saveUserPrefs() {
       try { savePrefs(this.filterSettings).catch(() => {}) } catch (e) { /* ignore */ }
@@ -214,13 +234,11 @@ export const useStocksStore = defineStore('stocks', {
     },
     saveLockedFilter() {
       const user = useUserStore()
-      try {
-        localStorage.setItem(user.filterKey, JSON.stringify({ locked: true, settings: this.filterSettings }))
-      } catch (e) { /* ignore */ }
+      safeJsonSet(user.filterKey, { locked: true, settings: this.filterSettings })
     },
     clearLockedFilter() {
       const user = useUserStore()
-      try { localStorage.removeItem(user.filterKey) } catch (e) { /* ignore */ }
+      safeRemove(user.filterKey)
     },
 
     // ---- 初始化筛选状态 ----
@@ -245,19 +263,14 @@ export const useStocksStore = defineStore('stocks', {
     // 避免"早盘跌出/午后复现"等名单漂移(竞价结论应恒定)
     snapshotKey() {
       const user = useUserStore()
-      return 'kuaixuan_bid_snapshot_' + (user.username || 'guest') + '_' + bjDateStr()
+      return 'kuaixuan_bid_snapshot_' + (user.username || 'guest') + '_' + todayBj()
     },
     saveBidSnapshot(list) {
-      try {
-        // 完整名单 + 竞价专属结论(bidRatio/accel)
-        localStorage.setItem(this.snapshotKey(), JSON.stringify(list || []))
-      } catch (e) { /* ignore */ }
+      // 完整名单 + 竞价专属结论(bidRatio/accel)
+      safeJsonSet(this.snapshotKey(), list || [])
     },
     loadBidSnapshot() {
-      try {
-        const raw = localStorage.getItem(this.snapshotKey())
-        return raw ? JSON.parse(raw) : null
-      } catch (e) { return null }
+      return safeJsonGet(this.snapshotKey(), null)
     },
     // 9:30 后: 锁定名单 + 实时行情合并(2026-09-05 起行情按需走 /api/quotes, 不再收全市场 spotMap)。
     // 关键语义修正: 用"当前筛选条件"对锁定名单重新过滤——
@@ -343,7 +356,7 @@ export const useStocksStore = defineStore('stocks', {
     async loadLockedBatchFromServer() {
       const d = await listBatches()
       const batches = d.batches || []
-      const today = bjDateStr()
+      const today = todayBj()
       // 优先级: 用户当天手动锁定批次 > 9:26 系统统一批次
       // 2026-08-18: 9:26 自动应用后所有人看到同一份统一结果(auto_applied 兜底)
       // 2026-08-22 主人需求: 9:30 后刷新页面必须保留用户当天**手动锁定**名单,
@@ -541,6 +554,7 @@ export const useStocksStore = defineStore('stocks', {
         this.snapshotFailTs = Date.now()
         return false
       } catch (e) {
+        logFront('warn', '本地快照不可用, 回退后端筛选', e)
         this.snapshotFailTs = Date.now()
         return false
       }
@@ -600,10 +614,8 @@ export const useStocksStore = defineStore('stocks', {
       // 锁定名单恒定仅用于"刷新实时涨幅", 不影响筛选重算(否则改条件永远同一批)
       // 2026-09-07: slice 一份新引用 + 立即赋值(双保险触发响应); 之前 nextTick 里赋值
       // 已切到同步(实测 this.$nextTick 在 Pinia store 中不存在 → 上版本报错
-      // "this.$nextTick is not a function")。console.log 便于复现核对长度与 code
+      // "this.$nextTick is not a function")
       const newList = (data.list || []).slice()
-      console.log('[filter] cachedStocks len=', newList.length,
-                  '| 前 3:', newList.slice(0, 3).map(s => s.code))
       this.cachedStocks = newList
       this.isDataCached = true
       this.before930 = data.before930

@@ -24,7 +24,7 @@ import time
 from ..core import logger
 from ..db import database
 from ..core import config
-from . import kpl
+from . import kpl, scorer
 
 log = logger.get_logger(__name__)
 
@@ -118,6 +118,8 @@ def _collect_codes(date):
         _add(kpl.fetch_wpqc() or [])
     except Exception as e:
         log.warning("概念刷新[采集实时股票]失败 date=%s err=%s", date, e)
+    # 北交所(4/8/920)排除 —— 2026-09-21 主人拍板: 系统不需要北交所数据
+    codes = {c for c in codes if not scorer.is_bse(c)}
     log.info("概念刷新 date=%s 采集到 %d 只(实时+落库)", date, len(codes))
     return codes
 

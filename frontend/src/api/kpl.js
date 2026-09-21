@@ -51,6 +51,16 @@ export function kplBoardStocks(code, date = '') {
   return request(`/api/kpl/board-stocks?code=${code}${date ? `&date=${date}` : ''}`)
 }
 
+// 题材异动榜(2026-09-21 新增, 主源猫爪板块指数 theme_daily/theme_members+screening, 失败降级东财):
+// 左栏板块榜(概念 gn/行业 hy) + 右栏成分股
+export function emConceptRank(type = 'gn') {
+  return request(`/api/kpl/em-concept-rank?type=${type}`)
+}
+export function emBoardMembers(code) {
+  return request(`/api/kpl/em-board-members?code=${code}`)
+}
+
+
 export function kplHotRank(source = 'kpl', date = '') {
   return request(`/api/kpl/hot-rank?source=${source}${date ? `&date=${date}` : ''}`)
 }

@@ -245,6 +245,13 @@ def _in_markets(code, markets):
     return False    # 北交所等不在 UI 选项 → 一律排除
 
 
+def is_bse(code):
+    """北交所判定(2026-09-21 主人拍板「系统不需要北交所数据」): 4/8/920 开头 = 北交所。
+    4=老三板/北交所老段(43), 8=北交所(83/87/88), 920=北交所新段(2024 起切换)。
+    供采集层(auction_snapshot)与概念层(concept_refresh)全链路过滤复用。"""
+    return str(code or "").startswith(("4", "8", "920"))
+
+
 def limit_pct(code, name, pre_close):
     """涨停幅度: ST 5% / 创业板·科创板 20% / 主板 10%"""
     if "ST" in (name or ""):

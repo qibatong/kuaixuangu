@@ -2272,6 +2272,59 @@ def _load_lastsec_fallback(today, date, hhmm):
     return listLast
 
 
+def _list20_fundflow_fallback(today, hhmm, _meoz_date, _meoz_off):
+    """list20 兜底(2026-09-21): 猫爪 auc_kp 的 auc_net_amount 大面积缺失时,
+    用 fundflow_kp.auction_main_net_amount(竞价主力净额, 同语义) 全市场自算净额层。
+
+    背景: 2026-09-21 猫爪 auc_kp 竞价净额字段整体为 0(203 只仅 9 只>0, 竞价类数据缺),
+    list20 过滤后 0 只 → 面板空。fundflow_kp 同日 auction_main_net_amount 有 880 只>0,
+    可作净额层兜底。qcDelta 口径与主源一致 = 净额/自由流通市值*100, 阈值 0.5% 不变。
+    返回: list; 异常/无候选返回 []。"""
+    try:
+        from . import meoz_client
+        # 市值字典(≥2亿候选): free_mv_map 内部已走 screening(同一 call_cached 缓存), 零额外请求
+        mv_map = meoz_client.free_mv_map(date=_meoz_date, date_offset=_meoz_off) or {}
+        cand = [c for c, v in mv_map.items() if float(v or 0) >= 2e8]
+        if not cand:
+            log.warning("抢筹[list20兜底] date=%s %s 市值字典为空, 放弃", today, hhmm)
+            return []
+        # 全市场竞价主力净额(fundflow_kp.auction_main_net_amount)
+        ff = meoz_client.fundflow_map(cand, date=_meoz_date, date_offset=_meoz_off) or {}
+        # 名称/竞额/竞涨/竞换 补全: screening 全市场字段(同一 call_cached 缓存)
+        sc = meoz_client.screening_map(date=_meoz_date, date_offset=_meoz_off) or {}
+        out = []
+        for code, r in ff.items():
+            try:
+                net = float(r.get("auction_main_net_amount") or 0)
+                floatMv = float(mv_map.get(code) or 0)
+                if floatMv < 2e8 or net <= 0:
+                    continue
+                qcDelta = round(net / floatMv * 100, 2)
+                if qcDelta <= 0.5:
+                    continue
+                s = sc.get(code) or {}
+                out.append({
+                    "code": code,
+                    "name": str(r.get("name") or s.get("name") or ""),
+                    "realChange": None,                       # 无盘中实时涨幅, 前端显示 "-"
+                    "bidAmt": float(s.get("auc_amt") or 0),    # 竞价成交额(元)
+                    "qcDelta": qcDelta,
+                    "bidTurnover": float(s.get("auc_turnover") or 0),
+                    "bidChange": float(s.get("auc_pct_chg") or 0),
+                    "floatMv": floatMv,
+                    "board": "",
+                })
+            except (ValueError, TypeError):
+                continue
+        out.sort(key=lambda x: x["qcDelta"], reverse=True)
+        log.info("抢筹[list20兜底] date=%s %s fundflow净额=%d只 过滤后=%d只",
+                 today, hhmm, len(ff), len(out))
+        return out
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("抢筹[list20兜底] 失败 err=%s", e)
+        return []
+
+
 def fetch_bid_qiangcang(date=None):
     """竞价抢筹(左右三表, 对标短线侠) —— 数据源: 猫爪(meoz), 2026-09-19 全量换源:
 
@@ -2340,6 +2393,39 @@ def fetch_bid_qiangcang(date=None):
                 return {}
             return fn(*a, **kw) or {}
 
+        def _chg_from_snapshot(day):
+            """从 snapshot_bid 9_20/9_25 快照自算涨幅抢筹(旧口径回退 / 非竞价时段兜底)。
+            返回已按 qcDeltaChg 降序的 list20Chg 列表。"""
+            import sqlite3
+            conn = sqlite3.connect(config.DB_FILE)
+            rows20c = conn.execute(
+                "SELECT code, bid_change FROM snapshot_bid WHERE date=? AND time_point='9_20'",
+                (day,)).fetchall()
+            rows25c = conn.execute(
+                "SELECT code, bid_change, bid_amt, COALESCE(NULLIF(free_mv,0), float_mv), name, board "
+                "FROM snapshot_bid WHERE date=? AND time_point='9_25'", (day,)).fetchall()
+            conn.close()
+            m20c = {r[0]: r[1] for r in rows20c}
+            out = []
+            for code, chg25, amt25, fmv, name, board in rows25c:
+                if fmv < 2e8 or amt25 <= 0 or amt25 < 500 or chg25 < 5:
+                    continue
+                chg20 = m20c.get(code)
+                if chg20 is None:
+                    continue
+                qcChg = round(chg25 - chg20, 2)
+                if qcChg <= 5:
+                    continue
+                out.append({
+                    "code": code, "name": name or "",
+                    "realChange": None, "bidAmt": amt25 * 10000,
+                    "qcDeltaChg": qcChg, "bidChange20": chg20,
+                    "bidTurnover": round(amt25 * 10000 / fmv * 100, 2) if fmv else None,
+                    "bidChange": chg25, "floatMv": fmv, "board": board or "",
+                })
+            out.sort(key=lambda x: x["qcDeltaChg"], reverse=True)
+            return out
+
         list20 = []
         if in_bid or date:
             # ===== 竞价时段(或历史回看): 猫爪 auc_kp 拉取 + 落库 =====
@@ -2382,8 +2468,13 @@ def fetch_bid_qiangcang(date=None):
                     log.info("抢筹[live] date=%s %s 过滤后list20=%d只 已落库qc_snapshot",
                              today, hhmm, len(list20))
                 else:
-                    log.warning("抢筹[live] date=%s %s 猫爪 auc_kp 返回%d只但过滤后0只",
+                    log.warning("抢筹[live] date=%s %s 猫爪 auc_kp 返回%d只但过滤后0只, 尝试 fundflow 兜底",
                                 today, hhmm, len(net_map))
+                    list20 = _list20_fundflow_fallback(today, hhmm, _meoz_date, _meoz_off)
+                    if list20:
+                        _save_qc_snapshot(today, list20)
+                        log.info("抢筹[live兜底] date=%s %s fundflow 净额层兜底 list20=%d只 已落库",
+                                 today, hhmm, len(list20))
             else:
                 # 猫爪不可用 → 回落读库(不留空)
                 try:
@@ -2474,38 +2565,20 @@ def fetch_bid_qiangcang(date=None):
                 # 猫爪不可用 → 回退旧口径(snapshot_bid 9_20/9_25 自算), 不留空
                 log.warning("抢筹[list20Chg] 猫爪返回空, 回退 snapshot_bid 自算")
                 try:
-                    import sqlite3
-                    conn = sqlite3.connect(config.DB_FILE)
-                    rows20c = conn.execute(
-                        "SELECT code, bid_change FROM snapshot_bid WHERE date=? AND time_point='9_20'",
-                        (today,)).fetchall()
-                    rows25c = conn.execute(
-                        "SELECT code, bid_change, bid_amt, COALESCE(NULLIF(free_mv,0), float_mv), name, board FROM snapshot_bid "
-                        "WHERE date=? AND time_point='9_25'", (today,)).fetchall()
-                    conn.close()
-                    m20c = {r[0]: r[1] for r in rows20c}
-                    for code, chg25, amt25, fmv, name, board in rows25c:
-                        if fmv < 2e8 or amt25 <= 0 or amt25 < 500 or chg25 < 5:
-                            continue
-                        chg20 = m20c.get(code)
-                        if chg20 is None:
-                            continue
-                        qcChg = round(chg25 - chg20, 2)
-                        if qcChg <= 5:
-                            continue
-                        list20Chg.append({
-                            "code": code, "name": name or "",
-                            "realChange": None, "bidAmt": amt25 * 10000,
-                            "qcDeltaChg": qcChg, "bidChange20": chg20,
-                            "bidTurnover": round(amt25 * 10000 / fmv * 100, 2) if fmv else None,
-                            "bidChange": chg25, "floatMv": fmv, "board": board or "",
-                        })
-                    list20Chg.sort(key=lambda x: x["qcDeltaChg"], reverse=True)
-                    log.warning("抢筹[涨幅→回退] date=%s %s 9_20=%d条 9_25=%d条 结果=%d只",
-                                today, hhmm, len(rows20c), len(rows25c), len(list20Chg))
+                    list20Chg = _chg_from_snapshot(today)
+                    log.warning("抢筹[涨幅→回退] date=%s %s 结果=%d只", today, hhmm, len(list20Chg))
                 except Exception as e:
                     log.warning("抢筹涨幅列表计算失败 err=%s", e)
                     list20Chg = []
+        else:
+            # 非竞价时段: list20(listLast 同理)均有非竞价兜底, 唯独 list20Chg 缺失 → 快照自算补齐
+            try:
+                list20Chg = _chg_from_snapshot(today)
+                log.info("抢筹[涨幅→兜底] date=%s %s 非竞价时段快照自算 list20Chg=%d只",
+                         today, hhmm, len(list20Chg))
+            except Exception as e:
+                log.warning("抢筹涨幅列表计算失败 err=%s", e)
+                list20Chg = []
 
         # 右表"最后一秒": 2026-09-19 换源猫爪 daily_auc.open_bid_pct(开盘抢筹幅度)
         #   官方原生字段 = 9:25 开盘价相对 9:24 最后一笔有效竞价价的涨跌幅 → 零自算

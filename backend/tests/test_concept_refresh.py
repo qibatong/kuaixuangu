@@ -90,6 +90,41 @@ def test_collect_codes_aggregates_tabs(monkeypatch):
         _safe_unlink(db_path)
 
 
+def test_collect_codes_filters_bse(monkeypatch):
+    """_collect_codes: 北交所(4/8/920) 全链路排除"""
+    from app.services import concept_refresh
+    from app.core import config
+    orig_db = config.DB_FILE
+    try:
+        db_path, conn = _tmp_db()
+        config.DB_FILE = db_path
+        # mock 实时接口返回空 (测试环境无网络)
+        import app.services.kpl as kpl
+        monkeypatch.setattr(kpl, "fetch_bid_boom", lambda: [])
+        monkeypatch.setattr(kpl, "fetch_bid_net", lambda: [])
+        monkeypatch.setattr(kpl, "fetch_bid_qiangcang", lambda: {})
+        monkeypatch.setattr(kpl, "fetch_yest_zt", lambda: [])
+        monkeypatch.setattr(kpl, "fetch_yest_broken", lambda: [])
+        monkeypatch.setattr(kpl, "fetch_broken_zt", lambda: [])
+        monkeypatch.setattr(kpl, "fetch_lhb", lambda: [])
+        monkeypatch.setattr(kpl, "fetch_wpqc", lambda: [])
+
+        # 落库表混入北交所三只(920 新段 + 8 老段 + 4 老三板)
+        seal = [{"code": "600001"}, {"code": "920267"}, {"code": "830001"}, {"code": "430001"}]
+        conn.execute(
+            "INSERT INTO auction_daily_history(date,tab,list,ts) VALUES (?,?,?,?)",
+            ("2026-08-20", "seal", json.dumps(seal, ensure_ascii=False), 123))
+        conn.commit()
+        conn.close()
+
+        codes = concept_refresh._collect_codes("2026-08-20")
+        assert codes == {"600001"}       # 北交所三只全部被过滤
+        assert "920267" not in codes and "830001" not in codes and "430001" not in codes
+    finally:
+        config.DB_FILE = orig_db
+        _safe_unlink(db_path)
+
+
 def test_collect_codes_empty_and_corrupt(monkeypatch):
     """日期无数据 → 空 set; 某 tab JSON 坏了 → 跳过不崩"""
     from app.services import concept_refresh

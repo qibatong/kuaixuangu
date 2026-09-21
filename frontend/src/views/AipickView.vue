@@ -479,11 +479,11 @@ onUnmounted(stopRealtime)
   background: var(--accent-bg);
   color: var(--accent-deep);
   cursor: pointer;
-  font-size: 14px; font-weight: 600;
+  font-size: 0.875rem; font-weight: 600;
   display: inline-flex; align-items: center; gap: 6px;
 }
 .ap-empty-reset:hover { border-color: var(--accent); }
-.ap-empty-hint { font-size: 12px; }
+.ap-empty-hint { font-size: 0.75rem; }
 
 /* 报告头部: 标题左, 日期选择工具栏右, 一行排布, 小屏自动折行 */
 .ap-report-head {
@@ -497,7 +497,7 @@ onUnmounted(stopRealtime)
   gap: 12px; flex-wrap: wrap;
 }
 .ap-report-title {
-  font-size: 16px;
+  font-size: 1rem;
   font-weight: 700;
   color: var(--text-main);
   display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -510,7 +510,7 @@ onUnmounted(stopRealtime)
   color: var(--accent-deep);
   padding: 2px 10px;
   border-radius: 12px;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 600;
 }
 .ap-count-chip {
@@ -520,12 +520,12 @@ onUnmounted(stopRealtime)
   color: var(--text-secondary);
   padding: 2px 10px;
   border-radius: 12px;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .ap-toolbar {
   display: inline-flex; align-items: center; gap: 10px;
 }
-.ap-data-date { color: var(--text-muted); font-size: 13px; }
+.ap-data-date { color: var(--text-muted); font-size: 0.8125rem; }
 /* 透明 input 覆盖整个日期按钮: 保留下划线显示, opacity 0 让视觉只显示按钮文案,
    用户点击会直接命中 input, 原生弹日历. 不使用 width:0/left:-9999px(那会让 showPicker 失效). */
 .rot-date-hidden {
@@ -547,7 +547,7 @@ onUnmounted(stopRealtime)
   background: var(--bg-card);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 0.8125rem;
   display: inline-flex; align-items: center; gap: 6px;
   font-family: Consolas, Menlo, monospace;
   transition: all 0.15s;
@@ -561,13 +561,13 @@ onUnmounted(stopRealtime)
   background: var(--bg-hover);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 .rot-reset-btn:hover { color: var(--accent); border-color: var(--accent); }
 
 .ap-report-sub {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.8;
 }
 /* 用户可调规则过滤栏 — 2026-09-01 对齐竞价选股 FilterPanel 紧凑风格 */
@@ -579,7 +579,7 @@ onUnmounted(stopRealtime)
   border: 1px solid var(--border-soft);
   border-radius: 6px;
 }
-.ap-rule-label { color: var(--text-muted); font-size: 11.5px; }
+.ap-rule-label { color: var(--text-muted); font-size: 0.75rem; }
 .ap-rule-in {
   width: 56px;
   max-width: 72px;
@@ -589,7 +589,7 @@ onUnmounted(stopRealtime)
   border: 1px solid var(--border-soft);
   background: var(--bg-input);
   color: var(--text-primary);
-  font-size: 11.5px;
+  font-size: 0.75rem;
   line-height: 1.3;
   text-align: center;
   box-sizing: border-box;
@@ -597,10 +597,10 @@ onUnmounted(stopRealtime)
 }
 body[data-bg="light"] .ap-rule-in { color-scheme: light; }
 .ap-rule-in:focus { outline: none; border-color: var(--accent); }
-.ap-rule-sep { color: var(--text-muted); font-size: 11px; }
-.ap-rule-unit { color: var(--text-muted); font-size: 11px; }
+.ap-rule-sep { color: var(--text-muted); font-size: 0.75rem; }
+.ap-rule-unit { color: var(--text-muted); font-size: 0.75rem; }
 .ap-rule-n {
-  color: var(--accent-deep); font-weight: 700; font-size: 11.5px;
+  color: var(--accent-deep); font-weight: 700; font-size: 0.75rem;
   background: var(--accent-bg); border: 1px solid var(--accent-border);
   padding: 1px 8px; border-radius: 10px; margin-left: 2px;
 }
@@ -610,10 +610,10 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   background: var(--bg-hover);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 11.5px;
+  font-size: 0.75rem;
 }
 .ap-rule-reset:hover { color: var(--accent); border-color: var(--accent); }
-.ap-rule-tip { color: var(--text-muted); font-size: 11px; }
+.ap-rule-tip { color: var(--text-muted); font-size: 0.75rem; }
 .ap-stock-table {
   /* 股性/连板页 stock-table 默认居中; AI预测表格数据统一居中展示 */
   text-align: center;
@@ -644,12 +644,12 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
 /* 名称列: 上方名称 + 下方代码(参考竞价异动页 stock-info-cell) */
 .ap-stock-table .name-col { width: 84px; padding: 4px 2px; }
 .ap-stock-table .name-main {
-  font-size: 13px; font-weight: 600; color: var(--text-main);
+  font-size: 0.8125rem; font-weight: 600; color: var(--text-main);
   line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ap-stock-table .name-sub {
-  font-size: 11px; color: var(--text-muted);
-  font-family: "LXGW WenKai Mono", monospace;
+  font-size: 0.75rem; color: var(--text-muted);
+  font-family: inherit;
   letter-spacing: 0.5px; line-height: 1.3; margin-top: 1px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
@@ -664,13 +664,13 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   max-width: 110px; min-width: 110px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--text-secondary);
-  font-size: 11.5px;
+  font-size: 0.75rem;
 }
 /* 桌面无额外包装, 直接继承父容器宽. 手机端启用为唯一横向滚动容器(见 @media) */
 .ap-table-scroll { }
 .ap-note {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   margin-top: 14px;
   text-align: right;
 }
@@ -683,7 +683,7 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   padding: 3px 8px;
   border-radius: 8px;
   font-weight: 700;
-  font-size: 12.5px;
+  font-size: 0.7812rem;
 }
 .score-high {
   background: var(--accent-bg2);
@@ -711,7 +711,7 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   .ap-report-head { margin-bottom: 10px; padding-bottom: 10px; }
   .ap-report-title-row { gap: 8px; }
   .ap-report-title {
-    font-size: 15px;
+    font-size: 0.9375rem;
     gap: 8px;
     row-gap: 6px;
     width: 100%;
@@ -719,11 +719,11 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   }
   .ap-report-icon { margin-right: 2px; }
   .ap-date-badge, .ap-count-chip {
-    font-size: 11.5px;
+    font-size: 0.75rem;
     padding: 2px 8px;
   }
   .ap-report-sub {
-    font-size: 11.5px;
+    font-size: 0.75rem;
     line-height: 1.6;
     padding-top: 2px;
   }
@@ -736,7 +736,7 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   }
   .ap-data-date {
     width: 100%;
-    font-size: 12px;
+    font-size: 0.75rem;
     padding-left: 2px;
   }
   /* 移动端日期按钮和"最新"按钮同为 40px 触控高, 并排分布 */
@@ -745,7 +745,7 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
     min-width: 0;
     height: 40px;
     padding: 6px 12px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     justify-content: center;
     gap: 6px;
   }
@@ -755,7 +755,7 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
     width: 40px;
     height: 40px;
     padding: 0;
-    font-size: 13px;
+    font-size: 0.8125rem;
     display: inline-flex; align-items: center; justify-content: center;
   }
 
@@ -771,7 +771,7 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   }
   .ap-stock-table {
     min-width: 1006px;    /* 9 列 + 徽章所需宽度(原950 + 操作列56), 防止字段换行或被压瘪 */
-    font-size: 12px;
+    font-size: 0.75rem;
   }
   /* 嵌入态: 移动端仍按全宽表格处理(优先级高于 .ap-embedded .ap-stock-table 的桌面 696px) */
   .ap-embedded .ap-stock-table { min-width: 1006px; }
@@ -781,7 +781,7 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   .ap-embedded .ap-table-scroll { margin: 0 -4px; padding: 0 4px 4px; }
   .ap-stock-table thead th {
     padding: 8px 6px;
-    font-size: 12px;
+    font-size: 0.75rem;
   }
   .ap-stock-table tbody td {
     padding: 8px 6px;
@@ -793,20 +793,20 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   .score-badge {
     min-width: 52px;
     padding: 2px 6px;
-    font-size: 11.5px;
+    font-size: 0.75rem;
     border-radius: 6px;
   }
   .ap-note {
     margin-top: 10px;
-    font-size: 11px;
+    font-size: 0.75rem;
     text-align: left;
   }
   /* 手机端规则栏紧凑换行, 输入框等宽 */
   .ap-rulebar { padding: 4px 5px; gap: 3px 4px; }
-  .ap-rule-in { width: 48px; padding: 1px 3px; font-size: 11px; }
-  .ap-rule-label { font-size: 11px; }
+  .ap-rule-in { width: 48px; padding: 1px 3px; font-size: 0.75rem; }
+  .ap-rule-label { font-size: 0.75rem; }
   .ap-rule-tip { display: none; }
-  .ap-rule-n { font-size: 11px; }
+  .ap-rule-n { font-size: 0.75rem; }
 }
 
 /* 极窄屏 (<= 390px, 比如 iPhone SE/小屏安卓): 工具栏自适应全屏宽度 */

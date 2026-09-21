@@ -187,7 +187,7 @@ const layoutStyle = computed(() => {
     row1: {
       display: 'flex', flexWrap: 'nowrap', justifyContent: 'flex-start',
       alignItems: 'center', gap: '3px', width: '100%',
-      boxSizing: 'border-box', fontSize: '11px',
+      boxSizing: 'border-box', fontSize: '0.75rem',
     },
     actions: {
       marginLeft: 'auto', display: 'inline-flex', alignItems: 'center',
@@ -198,11 +198,12 @@ const layoutStyle = computed(() => {
 
 /* 输入框样式: 仅控制输入框本身的宽度/字号, 不涉及 cell/row2 布局 */
 function inputStyle(px) {
-  if (isWideDesktop.value) return { width: `${px}px`, padding: '1px 3px', fontSize: '11.5px', textAlign: 'center', lineHeight: '1.3' }
+  // 2026-09-21 P0-3 最小字号12px: 原窄屏 11px/宽屏 11.5px 统一提到 0.75rem(12px)
+  if (isWideDesktop.value) return { width: `${px}px`, padding: '1px 3px', fontSize: '0.75rem', textAlign: 'center', lineHeight: '1.3' }
   const maxW = (viewport.w <= 480) ? 65 : (viewport.w <= 768 ? 75 : 85)
   return {
     width: 'auto', maxWidth: `${maxW}px`, minWidth: `${Math.min(22, px)}px`,
-    padding: '2px 4px', fontSize: viewport.w <= 768 ? '11px' : '11.5px',
+    padding: '2px 4px', fontSize: '0.75rem',
     lineHeight: '1.3', textAlign: 'center', boxSizing: 'border-box',
   }
 }
@@ -246,7 +247,7 @@ function reset() { store.resetFilterToDefault() }
   padding: 0 4px;
 }
 .filter-loading-text {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--text-muted, #889);
   opacity: 0.7;
 }
@@ -271,12 +272,12 @@ function reset() { store.resetFilterToDefault() }
   gap: 6px;
   flex-wrap: nowrap;
 }
-.filter-apply { padding: 4px 9px; font-size: 11.5px; }
-.filter-reset { padding: 3px 8px; font-size: 11.5px; }
-.filter-lock  { padding: 3px 8px; font-size: 11.5px; }
+.filter-apply { padding: 4px 9px; font-size: 0.75rem; }
+.filter-reset { padding: 3px 8px; font-size: 0.75rem; }
+.filter-lock  { padding: 3px 8px; font-size: 0.75rem; }
 /* 2026-09-05: 刷新按钮从 StockView 顶部移入本组, 尺寸与相邻的 重置/锁定 完全对齐
    (纯文字无图标; 应用按钮略大是主按钮的既有设计, 保留其视觉主次) */
-.filter-refresh { padding: 3px 8px; font-size: 11.5px; }
+.filter-refresh { padding: 3px 8px; font-size: 0.75rem; }
 
 /* ===== 第二行: 核心布局 —— 桌面端一排两端对齐 ===== */
 .filter-row-2 {
@@ -300,7 +301,7 @@ function reset() { store.resetFilterToDefault() }
   padding: 0;
   min-width: 0;
   overflow: hidden;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 /* 2026-09-14: 流通市值区间一格的中间运算符 `< 流通 <`
@@ -309,7 +310,7 @@ function reset() { store.resetFilterToDefault() }
   display: inline-block;
   margin: 0 3px;
   white-space: nowrap;
-  font-size: 11.5px;
+  font-size: 0.75rem;
   line-height: 1.3;
 }
 
@@ -319,7 +320,7 @@ function reset() { store.resetFilterToDefault() }
   min-width: 46px;
   flex: 0 0 auto;
   padding: 2px 4px;
-  font-size: 11.5px;
+  font-size: 0.75rem;
   line-height: 1.3;
   text-align: center;
   box-sizing: border-box;
@@ -330,10 +331,10 @@ function reset() { store.resetFilterToDefault() }
   .filter-row-1 {
     flex-wrap: nowrap;
     gap: 3px;
-    font-size: 11px;
+    font-size: 0.75rem;
   }
   .filter-row-1 label {
-    font-size: 11px;
+    font-size: 0.75rem;
     gap: 2px;
   }
   .filter-divider {
@@ -350,11 +351,11 @@ function reset() { store.resetFilterToDefault() }
     gap: 3px;
     flex-shrink: 0;
   }
-  .filter-apply { padding: 3px 7px; font-size: 11px; min-height: 24px; }
-  .filter-reset { padding: 3px 7px; font-size: 11px; min-height: 24px; }
-  .filter-lock  { padding: 3px 7px; font-size: 11px; min-height: 24px; }
+  .filter-apply { padding: 3px 7px; font-size: 0.75rem; min-height: 24px; }
+  .filter-reset { padding: 3px 7px; font-size: 0.75rem; min-height: 24px; }
+  .filter-lock  { padding: 3px 7px; font-size: 0.75rem; min-height: 24px; }
   /* 2026-09-05: 刷新按钮(手机端同 重置/锁定 尺寸, 含 min-height 保证等高) */
-  .filter-refresh { padding: 3px 7px; font-size: 11px; min-height: 24px; }
+  .filter-refresh { padding: 3px 7px; font-size: 0.75rem; min-height: 24px; }
 
   /* 第二行: 换行 + 左对齐 */
   .filter-row-2 {
@@ -364,15 +365,15 @@ function reset() { store.resetFilterToDefault() }
   }
   .filter-cell {
     flex: 0 0 auto !important;
-    font-size: 11px;
+    font-size: 0.75rem;
   }
   .filter-cell input[type="number"] {
     max-width: 70px;
-    font-size: 11px;
+    font-size: 0.75rem;
   }
   .mv-range-op {
     margin: 0 2px;
-    font-size: 11px;
+    font-size: 0.75rem;
   }
 }
 
@@ -380,15 +381,15 @@ function reset() { store.resetFilterToDefault() }
 @media (max-width: 480px) {
   .filter-row-1 {
     gap: 2px;
-    font-size: 10.5px;
+    font-size: 0.75rem;
   }
-  .filter-row-1 label { font-size: 10.5px; }
+  .filter-row-1 label { font-size: 0.75rem; }
   .filter-actions-top { gap: 2px; }
   .filter-apply, .filter-reset, .filter-lock {
-    padding: 2px 6px; font-size: 10.5px; min-height: 22px;
+    padding: 2px 6px; font-size: 0.75rem; min-height: 22px;
   }
-  .filter-cell { font-size: 10.5px; }
-  .filter-cell input[type="number"] { max-width: 60px; font-size: 10.5px; }
-  .mv-range-op { margin: 0 1px; font-size: 10.5px; }
+  .filter-cell { font-size: 0.75rem; }
+  .filter-cell input[type="number"] { max-width: 60px; font-size: 0.75rem; }
+  .mv-range-op { margin: 0 1px; font-size: 0.75rem; }
 }
 </style>

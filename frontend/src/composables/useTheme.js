@@ -1,4 +1,4 @@
-// 主题 composable: 背景明暗(body[data-bg]) + 字号(html zoom) + 字体族(body[data-font]) 切换
+// 主题 composable: 背景明暗(body[data-bg]) + 字号(html 根字号百分比) + 字体族(body[data-font]) 切换
 // 持久化到账号级 prefs: { bg, font, fontFam }
 import { ref } from 'vue'
 import { getPrefs, savePrefs } from '../api/stocks'
@@ -8,11 +8,14 @@ export const BGS = [
   { key: 'light', label: '白色背景', color: '#f0f2f7' },
 ]
 
-// 字号档位: key 存 prefs, zoom 应用到 <html> (这是缩放倍率, 非字体族)
+// 字号档位: key 存 prefs, fontSize 应用到 <html> (根字号百分比, 全站字号已用 rem 描述).
+// 2026-09-21 由非标准 html.zoom 迁移到标准 font-size —— zoom 在部分浏览器(旧 Firefox 等)
+// 支持不一致, 且是物理整体缩放(会把固定列宽/卡片一起放大); font-size+rem 只缩放文字.
+// 档位百分比与旧 zoom 值一致(92/100/112), 切换视觉零漂移。
 export const FONTS = [
-  { key: 'sm', label: '小号', zoom: '0.92' },
-  { key: 'md', label: '标准', zoom: '1' },
-  { key: 'lg', label: '大号', zoom: '1.12' },
+  { key: 'sm', label: '小号', fsRoot: '92%' },
+  { key: 'md', label: '标准', fsRoot: '100%' },
+  { key: 'lg', label: '大号', fsRoot: '112%' },
 ]
 
 // 字体族: 控制中文正文显示的"主角字体", 对应 body[data-font=xxx].
@@ -36,7 +39,8 @@ function applyBg(key) {
 }
 function applyFont(key) {
   const f = FONTS.find(x => x.key === key)
-  document.documentElement.style.zoom = f ? f.zoom : '1'
+  // 标准 CSS: 根字号百分比缩放(全站 font-size 已迁移 rem, 随根字号联动)
+  document.documentElement.style.fontSize = f ? f.fsRoot : '100%'
 }
 function applyFontFam(key) {
   const ff = FONT_FAMILIES.find(x => x.key === key)

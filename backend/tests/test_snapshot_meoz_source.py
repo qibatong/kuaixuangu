@@ -203,3 +203,49 @@ def test_meoz_unit_conversion_guard():
     assert A._f("abc") is None
     # 1 亿元 → 10000 万元
     assert 100000000 / 1e4 == 10000.0
+
+
+def test_is_bse():
+    """北交所判定: 4/8/920 开头 = 北交所; 主板/创/科 = 非北交所"""
+    from app.services import scorer
+    assert scorer.is_bse("920267") is True       # 北交所新段
+    assert scorer.is_bse("830799") is True       # 北交所老段(8 开头)
+    assert scorer.is_bse("430001") is True       # 老三板(4 开头)
+    assert scorer.is_bse("600519") is False      # 沪主板
+    assert scorer.is_bse("000001") is False      # 深主板
+    assert scorer.is_bse("300750") is False      # 创业板
+    assert scorer.is_bse("688981") is False      # 科创板
+    assert scorer.is_bse("") is False            # 空
+    assert scorer.is_bse(None) is False          # None
+
+
+def test_meoz_filters_bse(monkeypatch):
+    """⑧ 北交所(4/8/920)全链路排除 —— screening 全市场含北交所, 不补进快照"""
+    from app.services import meoz_client
+    scr = {
+        "600519": {"tradedate": "20260920", "symbol": "600519", "name": "贵州茅台",
+                   "circ_mv": 1.5715e12, "free_float_mv": 7.1505e11,
+                   "auc_pct_chg": -0.31, "auc_amt": 14312200},
+        # 北交所三只(920 新段 + 8 老段 + 4 老三板), 均有涨幅 —— 若不过滤会被补进快照
+        "920267": {"tradedate": "20260920", "symbol": "920267", "name": "鑫汇科",
+                   "circ_mv": 1e9, "free_float_mv": 5e8,
+                   "auc_pct_chg": 5.2, "auc_amt": 3000000},
+        "830001": {"tradedate": "20260920", "symbol": "830001", "name": "北交所老段",
+                   "circ_mv": 1e9, "free_float_mv": 5e8,
+                   "auc_pct_chg": 6.0, "auc_amt": 4000000},
+        "430001": {"tradedate": "20260920", "symbol": "430001", "name": "老三板",
+                   "circ_mv": 1e9, "free_float_mv": 5e8,
+                   "auc_pct_chg": 7.0, "auc_amt": 5000000},
+    }
+    monkeypatch.setattr(meoz_client, "enabled", lambda: True)
+    monkeypatch.setattr(meoz_client, "screening_map", lambda **k: scr)
+    monkeypatch.setattr(meoz_client, "valuation_map", lambda **k: {})
+    monkeypatch.setattr(meoz_client, "daily_auc_amt", lambda *a, **k: {})
+    monkeypatch.setattr(meoz_client, "auc_fd_map", lambda *a, **k: {})
+    raw = {}
+    st = A._merge_meoz(raw)
+    # 北交所三只全部被过滤, 仅保留主板 600519
+    assert set(raw) == {"600519"}
+    assert "920267" not in raw and "830001" not in raw and "430001" not in raw
+    assert st["val_n"] == 4          # screening 返回 4 只(含北交所), 但过滤后才落
+

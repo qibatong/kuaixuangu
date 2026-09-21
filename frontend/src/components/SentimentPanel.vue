@@ -105,7 +105,7 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
 }
 .senti-title {
   color: #ffe0a0;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
   white-space: nowrap;
   align-self: center;
@@ -134,9 +134,9 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
   background: rgba(255, 255, 255, 0.04);
   min-width: 78px;
 }
-.idx-name { font-size: 12px; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
-.idx-px { font-size: 15px; font-weight: 700; font-family: "LXGW WenKai Mono", monospace; }
-.idx-chg { font-size: 12px; font-weight: 600; font-family: "LXGW WenKai Mono", monospace; white-space: nowrap; }
+.idx-name { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+.idx-px { font-size: 0.9375rem; font-weight: 700; font-family: inherit; }
+.idx-chg { font-size: 0.75rem; font-weight: 600; font-family: inherit; white-space: nowrap; }
 .idx-up { color: #ff5252; }
 .idx-down { color: #00c864; }
 .idx-flat { color: var(--text-muted); }
@@ -152,11 +152,11 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
   background: rgba(255, 255, 255, 0.04);
   min-width: 78px;
 }
-.emo-val { font-size: 15px; font-weight: 700; white-space: nowrap; }
+.emo-val { font-size: 0.9375rem; font-weight: 700; white-space: nowrap; }
 /* 亏钱效应: 绿色(负面指标, 主人指定) */
 .emo-val.loss { color: #00c864; }
 .senti-vdivider { width: 1px; align-self: stretch; background: rgba(255, 255, 255, 0.1); flex-shrink: 0; }
-.senti-loading { color: var(--text-muted); font-size: 13px; align-self: center; }
+.senti-loading { color: var(--text-muted); font-size: 0.8125rem; align-self: center; }
 .mkt-amt { color: #ffd76a; }      /* 成交额: 金色 */
 .mkt-shrink { color: #6ad66a; }   /* 缩量: 绿 */
 .mkt-grow { color: #ff8a5a; }     /* 放量: 橙红 */
@@ -173,10 +173,10 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
   .senti-vdivider { display: none; }
   .index-card { min-width: 74px; }
   .emo-card { min-width: 74px; }
-  .idx-name { font-size: 11px; }
-  .idx-px { font-size: 13px; }
-  .idx-chg { font-size: 11px; }
-  .emo-val { font-size: 13px; }
+  .idx-name { font-size: 0.75rem; }
+  .idx-px { font-size: 0.8125rem; }
+  .idx-chg { font-size: 0.75rem; }
+  .emo-val { font-size: 0.8125rem; }
 }
 
 /* 浅色主题覆盖 */

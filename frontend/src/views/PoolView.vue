@@ -82,7 +82,7 @@ onBeforeUnmount(() => {
   margin: 0 0 10px;
 }
 .pool-page-title {
-  font-size: 20px;
+  font-size: 1.25rem;
   font-weight: 800;
   color: var(--text-main);
   letter-spacing: 1px;
@@ -92,7 +92,7 @@ onBeforeUnmount(() => {
 }
 .pool-page-title i { color: var(--accent); }
 .pool-page-sub {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   margin-top: 4px;
 }
@@ -114,7 +114,7 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 .tdx-toolbar .tdx-tip {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   margin-left: auto;
 }

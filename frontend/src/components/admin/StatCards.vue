@@ -18,9 +18,9 @@ defineProps({
 <style scoped>
 .stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 14px; }
 .stat-card { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 16px; text-align: center; }
-.stat-num { font-size: 26px; font-weight: 700; color: #ffd700; }
-.stat-num.small { font-size: 16px; color: var(--accent-text); }
-.stat-label { margin-top: 6px; color: #aaa; font-size: 12px; }
+.stat-num { font-size: 1.625rem; font-weight: 700; color: #ffd700; }
+.stat-num.small { font-size: 1rem; color: var(--accent-text); }
+.stat-label { margin-top: 6px; color: #aaa; font-size: 0.75rem; }
 
 /* 浅色主题覆盖 */
 body[data-bg="light"] .stat-num { color: #1a1d26; }

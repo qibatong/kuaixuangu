@@ -61,14 +61,14 @@ async function loadPlayback() {
 
 <style scoped>
 .admin-card { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
-.card-title { display: flex; align-items: center; font-size: 15px; color: #ffe0a0; margin-bottom: 12px; }
-.admin-tip { color: #888; font-size: 12px; margin-left: 8px; }
-.admin-input { background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: 6px; color: var(--text-main); padding: 6px 10px; font-size: 13px; }
+.card-title { display: flex; align-items: center; font-size: 0.9375rem; color: #ffe0a0; margin-bottom: 12px; }
+.admin-tip { color: #888; font-size: 0.75rem; margin-left: 8px; }
+.admin-input { background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: 6px; color: var(--text-main); padding: 6px 10px; font-size: 0.8125rem; }
 .admin-input:focus { outline: none; border-color: #ffb400; }
-.admin-save-btn { background: rgba(120,200,80,0.2); border: 1px solid #78c850; color: #c0e8a0; padding: 6px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: opacity 0.15s; }
+.admin-save-btn { background: rgba(120,200,80,0.2); border: 1px solid #78c850; color: #c0e8a0; padding: 6px 14px; border-radius: 8px; font-size: 0.8125rem; cursor: pointer; transition: opacity 0.15s; }
 .admin-save-btn:hover:not(:disabled) { background: rgba(120,200,80,0.32); }
 .table-scroll { overflow-x: auto; }
-.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
 .admin-table th, .admin-table td { border-bottom: 1px solid var(--border-soft); padding: 8px 10px; text-align: center; color: var(--text-secondary); }
 .admin-table th { color: var(--text-muted); font-weight: 500; }
 

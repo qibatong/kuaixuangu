@@ -138,17 +138,17 @@ onMounted(load)
   display: flex; align-items: center; justify-content: space-between;
   flex-wrap: wrap; gap: 10px;
 }
-.sn-title { font-size: 17px; font-weight: 700; color: var(--text-main, #1a1a1a); }
+.sn-title { font-size: 1.0625rem; font-weight: 700; color: var(--text-main, #1a1a1a); }
 .sn-icon { color: #b83010; margin-right: 6px; }
 .sn-sub {
-  font-size: 12px; font-weight: 400; color: var(--text-muted, #888);
+  font-size: 0.75rem; font-weight: 400; color: var(--text-muted, #888);
   margin-left: 10px;
 }
 .sn-toolbar { display: flex; gap: 8px; }
 .rot-date-btn {
   position: relative; display: inline-flex; align-items: center; gap: 6px;
   background: var(--bg-input, #f2f3f5); border: 1px solid var(--border, #e5e6eb);
-  border-radius: 8px; padding: 6px 12px; font-size: 13px;
+  border-radius: 8px; padding: 6px 12px; font-size: 0.8125rem;
   color: var(--text-main, #333); cursor: pointer; overflow: hidden;
 }
 .rot-date-hidden {
@@ -161,7 +161,7 @@ onMounted(load)
 }
 .sn-day { border-top: 2px solid #b83010; padding-top: 12px; }
 .sn-day-badge {
-  display: inline-block; background: #b83010; color: #fff; font-size: 13px;
+  display: inline-block; background: #b83010; color: #fff; font-size: 0.8125rem;
   font-weight: 600; padding: 4px 14px; border-radius: 14px; margin-bottom: 12px;
 }
 .sn-slot {
@@ -176,7 +176,7 @@ onMounted(load)
 .sn-slot.empty { justify-content: center; color: var(--text-muted, #999); border-left-color: #ddd; }
 .sn-slot-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .sn-slot-tag {
-  flex-shrink: 0; font-size: 12px; font-weight: 700; color: #fff;
+  flex-shrink: 0; font-size: 0.75rem; font-weight: 700; color: #fff;
   background: #666; border-radius: 12px; padding: 3px 10px;
 }
 .slot-night .sn-slot-tag { background: #4a4a4a; }
@@ -185,28 +185,28 @@ onMounted(load)
 .slot-close .sn-slot-tag { background: #d93025; }
 .sn-slot-info { min-width: 0; }
 .sn-slot-title {
-  font-size: 14px; font-weight: 600; color: var(--text-main, #1a1a1a);
+  font-size: 0.875rem; font-weight: 600; color: var(--text-main, #1a1a1a);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.sn-slot-meta { font-size: 12px; color: var(--text-muted, #888); margin-top: 3px; display: flex; gap: 10px; flex-wrap: wrap; }
+.sn-slot-meta { font-size: 0.75rem; color: var(--text-muted, #888); margin-top: 3px; display: flex; gap: 10px; flex-wrap: wrap; }
 .sn-view-btn {
-  flex-shrink: 0; background: #b83010; color: #fff; font-size: 13px;
+  flex-shrink: 0; background: #b83010; color: #fff; font-size: 0.8125rem;
   text-decoration: none; padding: 7px 14px; border-radius: 16px; font-weight: 600;
 }
 .sn-view-btn:hover { opacity: 0.88; }
 .sn-past { margin-top: 16px; border-top: 1px dashed var(--border, #e0e0e0); padding-top: 12px; }
-.sn-past-title { font-size: 13px; font-weight: 600; color: var(--text-muted, #888); margin-bottom: 8px; }
+.sn-past-title { font-size: 0.8125rem; font-weight: 600; color: var(--text-muted, #888); margin-bottom: 8px; }
 .sn-past-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .sn-past-day {
   background: var(--bg-input, #f2f3f5); border: 1px solid var(--border, #e5e6eb);
-  border-radius: 8px; padding: 5px 10px; font-size: 12px; cursor: pointer;
+  border-radius: 8px; padding: 5px 10px; font-size: 0.75rem; cursor: pointer;
   color: var(--text-main, #333); display: inline-flex; align-items: center; gap: 6px;
 }
 .sn-past-day.active { background: #b83010; color: #fff; border-color: #b83010; }
 .sn-past-n {
-  background: rgba(0, 0, 0, 0.12); border-radius: 9px; font-size: 11px;
+  background: rgba(0, 0, 0, 0.12); border-radius: 9px; font-size: 0.75rem;
   padding: 0 6px; line-height: 16px;
 }
 .sn-past-day.active .sn-past-n { background: rgba(255, 255, 255, 0.25); }
-.sn-past-empty { font-size: 12px; color: var(--text-muted, #999); }
+.sn-past-empty { font-size: 0.75rem; color: var(--text-muted, #999); }
 </style>

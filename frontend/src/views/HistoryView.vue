@@ -23,7 +23,7 @@
       <div v-if="viewMode === 'batch'" class="batch-view">
         <div class="batch-tip">按选股批次分组展示：<b>每次选股操作（锁定/筛选）为一组</b>，点击批次可展开查看该批选出的股票明细</div>
         <div v-if="batchesLoading" class="loading-placeholder"><div class="spinner"></div><div>正在加载批次...</div></div>
-        <div v-else-if="!batches.length" class="empty-state">暂无历史批次<br><span style="font-size:11px">先在主页选股（锁定/筛选）后，这里就会按批次展示</span></div>
+        <div v-else-if="!batches.length" class="empty-state">暂无历史批次<br><span style="font-size:0.75rem">先在主页选股（锁定/筛选）后，这里就会按批次展示</span></div>
         <div v-else class="batch-list">
           <div v-for="b in batches" :key="b.id" class="batch-card" :class="{ expanded: expandedId === b.id }">
             <div class="batch-head" @click="toggleBatch(b.id)">
@@ -138,7 +138,7 @@
         <div class="query-tip">打开时已自动查询当月记录；<b>同一天同一只股票评分相同自动去重</b>（只保留一条）；竞价涨幅、流通市值、评分、可信度等条件可留空，留空表示不限制</div>
         <div class="query-result">
           <div v-if="loading" class="loading-placeholder"><div class="spinner"></div><div>正在查询...</div></div>
-          <div v-else-if="!rows.length" class="empty-state">没有符合条件的记录<br><span style="font-size:11px">可放宽日期范围或属性条件</span></div>
+          <div v-else-if="!rows.length" class="empty-state">没有符合条件的记录<br><span style="font-size:0.75rem">可放宽日期范围或属性条件</span></div>
           <template v-else>
             <div class="query-summary">共 {{ total }} 条记录（同一天同评分自动去重）</div>
             <div style="overflow-x:auto;">
@@ -373,7 +373,7 @@ onMounted(() => {
   color: var(--text-secondary);
   border-radius: 8px;
   padding: 8px 16px;
-  font-size: 14px;
+  font-size: 0.875rem;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -383,7 +383,7 @@ onMounted(() => {
   border-color: #ffb400;
   color: #ffd700;
 }
-.view-tab-desc { font-size: 11px; color: var(--text-muted); }
+.view-tab-desc { font-size: 0.75rem; color: var(--text-muted); }
 .view-tab.active .view-tab-desc { color: #c9a94a; }
 
 .batch-view { margin-top: 4px; }
@@ -393,7 +393,7 @@ onMounted(() => {
   border-radius: 8px;
   padding: 8px 12px;
   color: #c9a94a;
-  font-size: 12px;
+  font-size: 0.75rem;
   margin-bottom: 12px;
 }
 .batch-tip b { color: #ffd700; }
@@ -414,19 +414,19 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 .batch-head:hover { background: var(--bg-hover); }
-.batch-time { color: #ffe0a0; font-size: 14px; font-weight: 500; }
+.batch-time { color: #ffe0a0; font-size: 0.875rem; font-weight: 500; }
 .batch-type {
-  font-size: 11px;
+  font-size: 0.75rem;
   border-radius: 4px;
   padding: 1px 8px;
 }
 .type-lock { color: var(--accent); border: 1px solid var(--accent-deep); background: rgba(var(--accent-rgb), 0.1); }
 .type-filter { color: var(--accent-text); border: 1px solid var(--accent); background: rgba(var(--accent-rgb),0.1); }
-.batch-auto-tag { font-size: 11px; color: #aaa; border: 1px dashed #888; border-radius: 4px; padding: 1px 6px; margin-left: 6px; }
+.batch-auto-tag { font-size: 0.75rem; color: #aaa; border: 1px dashed #888; border-radius: 4px; padding: 1px 6px; margin-left: 6px; }
 .batch-meta { display: flex; gap: 10px; margin-left: auto; align-items: center; }
-.batch-market { color: var(--text-muted); font-size: 12px; }
-.batch-count { color: #7ce8a0; font-size: 12px; }
-.batch-toggle { color: var(--text-muted); font-size: 12px; }
+.batch-market { color: var(--text-muted); font-size: 0.75rem; }
+.batch-count { color: #7ce8a0; font-size: 0.75rem; }
+.batch-toggle { color: var(--text-muted); font-size: 0.75rem; }
 .batch-body { border-top: 1px solid var(--border-soft); padding: 8px 10px; }
 
 /* 浅色主题覆盖 */

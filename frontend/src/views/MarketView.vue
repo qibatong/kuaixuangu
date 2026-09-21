@@ -499,7 +499,7 @@ onMounted(() => {
 .board-click .name-main:hover { color: #ffb400; }
 .board-detail-hint {
   display: inline-flex; align-items: center; gap: 3px;
-  font-size: 11px; color: var(--accent); opacity: 0.85; margin-left: 6px;
+  font-size: 0.75rem; color: var(--accent); opacity: 0.85; margin-left: 6px;
   border: 1px solid rgba(var(--accent-rgb), 0.4); border-radius: 10px; padding: 0 6px;
 }
 /* 成分股弹层 */
@@ -521,13 +521,13 @@ onMounted(() => {
   display: flex; align-items: center; gap: 10px;
   padding: 12px 16px; border-bottom: 1px solid var(--border-soft);
 }
-.mrk-modal-title { font-size: 17px; font-weight: 700; color: var(--text-main); }
+.mrk-modal-title { font-size: 1.0625rem; font-weight: 700; color: var(--text-main); }
 .mrk-modal-title .fa { color: var(--accent); }
-.mrk-modal-code { font-size: 13px; color: var(--text-muted); font-family: "LXGW WenKai Mono", monospace; margin-left: 6px; }
-.mrk-modal-sub { font-size: 12px; color: var(--text-muted); margin-left: 8px; }
+.mrk-modal-code { font-size: 0.8125rem; color: var(--text-muted); font-family: inherit; margin-left: 6px; }
+.mrk-modal-sub { font-size: 0.75rem; color: var(--text-muted); margin-left: 8px; }
 .mrk-modal-close {
   margin-left: auto; background: transparent; border: none;
-  color: var(--text-muted); font-size: 18px; cursor: pointer; padding: 4px 8px;
+  color: var(--text-muted); font-size: 1.125rem; cursor: pointer; padding: 4px 8px;
 }
 .mrk-modal-close:hover { color: var(--text-main); }
 .mrk-modal-body { overflow-y: auto; padding: 10px 14px 14px; }
@@ -535,17 +535,17 @@ onMounted(() => {
 body[data-bg="light"] .mrk-modal-title { color: #1a1d26; }
 body[data-bg="light"] .board-detail-hint { color: #a06a00; border-color: rgba(160, 106, 0, 0.4); }
 body[data-bg="light"] .board-row:hover td { background: rgba(199, 145, 0, 0.08); }
-.page-back { color: var(--text-muted); cursor: pointer; font-size: 13px; margin-bottom: 12px; display: inline-block; }
+.page-back { color: var(--text-muted); cursor: pointer; font-size: 0.8125rem; margin-bottom: 12px; display: inline-block; }
 .page-back:hover { color: #ffb400; }
 .mrk-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.mrk-title { font-size: 20px; font-weight: 700; color: #ffe0a0; }
+.mrk-title { font-size: 1.25rem; font-weight: 700; color: #ffe0a0; }
 .mrk-title .fa { color: #ffb400; }
-.mrk-sub { color: var(--text-muted); font-size: 13px; }
-.mrk-time { margin-left: auto; color: #aaa; font-size: 14px; font-family: "LXGW WenKai Mono", monospace; }
+.mrk-sub { color: var(--text-muted); font-size: 0.8125rem; }
+.mrk-time { margin-left: auto; color: #aaa; font-size: 0.875rem; font-family: inherit; }
 .mrk-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
 .mrk-tab {
   padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border-soft);
-  background: var(--bg-hover); color: var(--text-secondary); font-size: 14px; cursor: pointer; transition: all 0.2s;
+  background: var(--bg-hover); color: var(--text-secondary); font-size: 0.875rem; cursor: pointer; transition: all 0.2s;
 }
 .mrk-tab:hover { border-color: #ffb400; color: #ffe0a0; }
 .mrk-tab.active { background: rgba(255,180,0,0.15); border-color: #ffb400; color: #ffd700; font-weight: 600; }
@@ -556,27 +556,27 @@ body[data-bg="light"] .board-row:hover td { background: rgba(199, 145, 0, 0.08);
 .empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
 .empty-state.src-fail { color: #ffb400; } /* 数据源故障警示(琥珀色, A股无绿) */
 .empty-state.src-fail i { margin-right: 6px; }
-.board-code { font-size: 11px; color: var(--text-muted); }
+.board-code { font-size: 0.75rem; color: var(--text-muted); }
 .strength { color: #ffb400; font-weight: 700; }
-.lb-badge { display: inline-block; color: #ff8a5c; border: 1px solid rgba(255,80,40,0.5); border-radius: 4px; padding: 0 5px; font-size: 11px; background: rgba(255,80,40,0.12); }
+.lb-badge { display: inline-block; color: #ff8a5c; border: 1px solid rgba(255,80,40,0.5); border-radius: 4px; padding: 0 5px; font-size: 0.75rem; background: rgba(255,80,40,0.12); }
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .reason-modal { background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 12px; width: 640px; max-width: 92vw; max-height: 76vh; overflow: auto; padding: 18px; }
-.reason-head { display: flex; align-items: center; justify-content: space-between; color: #ffe0a0; font-size: 16px; margin-bottom: 14px; }
-.close-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; }
+.reason-head { display: flex; align-items: center; justify-content: space-between; color: #ffe0a0; font-size: 1rem; margin-bottom: 14px; }
+.close-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1rem; }
 .close-btn:hover { color: #ff6a6a; }
 .reason-loading { color: var(--text-muted); padding: 20px; text-align: center; }
-.lhb-reason { color: #ffb400; font-size: 13px; margin-bottom: 10px; line-height: 1.5; }
-.lhb-total { display: flex; gap: 20px; color: #aaa; font-size: 13px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border-soft); }
+.lhb-reason { color: #ffb400; font-size: 0.8125rem; margin-bottom: 10px; line-height: 1.5; }
+.lhb-total { display: flex; gap: 20px; color: #aaa; font-size: 0.8125rem; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border-soft); }
 .lhb-cols { display: flex; gap: 16px; }
 .lhb-col { flex: 1; }
-.lhb-col-title { font-size: 13px; margin-bottom: 8px; }
+.lhb-col-title { font-size: 0.8125rem; margin-bottom: 8px; }
 .lhb-col-title.buy { color: #ff8a8a; }
 .lhb-col-title.sell { color: #8ae08a; }
-.lhb-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.lhb-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.04); }
 .lhb-idx { width: 16px; color: var(--text-muted); }
 .lhb-name { flex: 1; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lhb-amt { font-family: "LXGW WenKai Mono", monospace; }
-.lhb-empty { color: #666; font-size: 12px; padding: 8px 0; }
+.lhb-amt { font-family: inherit; }
+.lhb-empty { color: #666; font-size: 0.75rem; padding: 8px 0; }
 
 /* 浅色主题覆盖 */
 body[data-bg="light"] .page-back { color: #6b6b6b; }
@@ -603,12 +603,12 @@ body[data-bg="light"] .board-code { color: #1a1d26; }
 body[data-bg="light"] .reason-modal { background: rgba(255,255,255,0.98); border-color: var(--border-soft); }
 /* ===================== 板块轮动历史视图 ===================== */
 .rot-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-.rot-tip { color: var(--text-muted, #aaa); font-size: 12px; flex: 1; min-width: 0; }
+.rot-tip { color: var(--text-muted, #aaa); font-size: 0.75rem; flex: 1; min-width: 0; }
 
 /* 注: rot-date / rot-select / rot-reset-btn / rot-data-date 为全局通用样式,
    定义在 src/styles/main.css(市场雷达 & 连板天梯共用) */
 .rot-source { display: flex; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-soft, #444); }
-.rot-source-btn { background: var(--bg-input, #1a1a1a); color: var(--text-secondary, #aaa); border: none; padding: 5px 12px; font-size: 12px; cursor: pointer; transition: background 0.15s; }
+.rot-source-btn { background: var(--bg-input, #1a1a1a); color: var(--text-secondary, #aaa); border: none; padding: 5px 12px; font-size: 0.75rem; cursor: pointer; transition: background 0.15s; }
 .rot-source-btn:hover { background: var(--bg-card, #222); }
 .rot-source-btn.active { background: var(--accent-warm, #ffb400); color: #1a1a1a; font-weight: 600; }
 body[data-bg="light"] .rot-source { border-color: #d0d0d0; }
@@ -616,14 +616,14 @@ body[data-bg="light"] .rot-source-btn { background: #f5f5f5; color: #555; }
 body[data-bg="light"] .rot-source-btn:hover { background: #eaeaea; }
 body[data-bg="light"] .rot-source-btn.active { background: #d97b00; color: #fff; }
 .rot-table-scroll { overflow-x: auto; border: 1px solid var(--border-soft); border-radius: 6px; }
-.rot-table { border-collapse: collapse; min-width: 100%; font-size: 12px; }
+.rot-table { border-collapse: collapse; min-width: 100%; font-size: 0.75rem; }
 .rot-table th, .rot-table td { padding: 5px 8px; text-align: center; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
 .rot-table th { background: var(--bg-hover); color: var(--text-secondary); font-weight: 500; position: sticky; top: 0; }
-.rot-rownum { color: var(--text-muted); font-size: 11px; min-width: 40px; }
-.rot-date { color: var(--text-secondary); font-size: 11px; min-width: 70px; }
+.rot-rownum { color: var(--text-muted); font-size: 0.75rem; min-width: 40px; }
+.rot-date { color: var(--text-secondary); font-size: 0.75rem; min-width: 70px; }
 .rot-cell { min-width: 80px; padding: 3px 4px !important; vertical-align: middle; }
 /* 同名板块(出现 >= 2 次)按独立颜色高亮区分: 8 色循环, 暗/亮主题各一套 */
-.rot-board { font-size: 12px; color: var(--text-main); border-radius: 4px; padding: 1px 6px; display: inline-block; }
+.rot-board { font-size: 0.75rem; color: var(--text-main); border-radius: 4px; padding: 1px 6px; display: inline-block; }
 .rot-board.rot-c-0 { /* 仅出现 1 次: 不高亮 */ color: var(--text-main); background: transparent; }
 .rot-c-1 { color: #fff; background: #E24B4A; } .rot-c-2 { color: #fff; background: #F08C3F; }
 .rot-c-3 { color: #222; background: #E6BE2A; } .rot-c-4 { color: #fff; background: #5C6BC0; }
@@ -637,13 +637,13 @@ body[data-bg="light"] .rot-c-5 { background: #1E7FB5; }
 body[data-bg="light"] .rot-c-6 { background: #1D3F8C; }
 body[data-bg="light"] .rot-c-7 { background: #6B2B9A; }
 body[data-bg="light"] .rot-c-8 { background: #A82C6C; }
-.rot-strength { font-size: 10px; color: var(--text-muted); margin-top: 1px; }
+.rot-strength { font-size: 0.75rem; color: var(--text-muted); margin-top: 1px; }
 .rot-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
 .rot-chart-block { background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px; }
-.rot-chart-title { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+.rot-chart-title { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px; }
 .rot-svg { width: 100%; height: auto; }
 .rot-windows { margin-top: 16px; background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px; }
-.rot-window-legend { display: flex; gap: 16px; justify-content: center; margin-top: 6px; font-size: 12px; }
+.rot-window-legend { display: flex; gap: 16px; justify-content: center; margin-top: 6px; font-size: 0.75rem; }
 .rot-window-legend i { margin-right: 4px; }
 /* 移动端适配(<=768px): 表格横滑 + Tab 横滑 + 布局紧凑 */
 @media (max-width: 768px) {
@@ -656,15 +656,15 @@ body[data-bg="light"] .rot-c-8 { background: #A82C6C; }
   /* Tab 横向滑动(4 个 tab 一排滑, 不换行占纵向空间) */
   .mrk-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 4px; }
   .mrk-tabs::-webkit-scrollbar { display: none; }
-  .mrk-tab { flex-shrink: 0; white-space: nowrap; padding: 7px 12px; font-size: 13px; }
+  .mrk-tab { flex-shrink: 0; white-space: nowrap; padding: 7px 12px; font-size: 0.8125rem; }
   /* 头部紧凑 */
   .mrk-head { gap: 6px; }
-  .mrk-title { font-size: 17px; }
-  .mrk-sub { font-size: 11px; width: 100%; }
-  .mrk-time { margin-left: 0; font-size: 12px; }
+  .mrk-title { font-size: 1.0625rem; }
+  .mrk-sub { font-size: 0.75rem; width: 100%; }
+  .mrk-time { margin-left: 0; font-size: 0.75rem; }
   /* 表格字号压缩 */
-  .mrk-panel .stock-table th { padding: 7px 4px; font-size: 11px; }
-  .mrk-panel .stock-table td { padding: 6px 4px; font-size: 11px; }
+  .mrk-panel .stock-table th { padding: 7px 4px; font-size: 0.75rem; }
+  .mrk-panel .stock-table td { padding: 6px 4px; font-size: 0.75rem; }
   /* 龙虎榜弹窗: 买卖盘双列改单列(手机宽不足, 双列挤) */
   .lhb-cols { flex-direction: column; gap: 8px; }
   /* 涨停原因弹窗近全屏 */

@@ -15,6 +15,8 @@ from ..core import config, logger
 from ..core import net as _net
 from ..db import database
 from . import kpl
+from . import meoz_client as meoz
+from . import scorer
 
 log = logger.get_logger(__name__)
 
@@ -99,6 +101,424 @@ def fetch_em_board_rank():
         if prev is None or b["change"] > prev["change"]:
             seen[b["name"]] = b
     out = sorted(seen.values(), key=lambda x: x["change"], reverse=True)
+    return out
+
+
+# 东财概念板块榜单字段(涨速/领涨股/涨跌家数/主力净额) —— 题材异动榜数据源
+_EM_CONCEPT_FIELDS = "f12,f14,f3,f6,f62,f104,f105,f128,f136,f140,f222"
+# 东财板块成分股字段(涨速/主力净流入/市值/换手/成交额)
+_EM_MEMBER_FIELDS = "f2,f3,f6,f8,f11,f12,f13,f14,f20,f21,f62"
+
+# 统计型指数板块名关键词(与回补/fetch_em_board_rank 一致, 题材榜剔除)
+_EM_STAT_KW = ("昨日", "新高", "打板", "连板", "涨停", "跌停", "炸板", "首板", "晋级", "破板")
+
+
+def _em_clist(fs, fields, pz=200, fid="f3", pages=1):
+    """拉取东财 clist(push2dycalc 域名)指定分区, 返回 diff 列表(可多页)。
+
+    复用 config.EASTMONEY_URL / EASTMONEY_UT, 与 fetcher._fetch_clist_page 同源同参数。
+    仅本服务内部使用, 失败抛异常由调用方兜底。"""
+    ctx = _ssl_ctx()
+    out = []
+    for pn in range(1, pages + 1):
+        qs = urllib.parse.urlencode({
+            "pn": pn, "pz": pz, "po": 1, "np": 1, "fltt": 2, "invt": 2,
+            "fid": fid, "fs": fs, "fields": fields, "ut": config.EASTMONEY_UT,
+        })
+        req = urllib.request.Request(config.EASTMONEY_URL + "?" + qs, headers={
+            "User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/",
+        })
+        with _net.http_get(req, timeout=8, context=ctx) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        diff = (data.get("data") or {}).get("diff") or []
+        out.extend(diff)
+        if len(diff) < pz:
+            break
+    return out
+
+
+def fetch_em_concept_rank():
+    """东财概念板块异动榜(题材异动榜左栏): 按涨幅降序返回全部概念板块。
+
+    每项: {boardCode, name, change, speed, mainNet, amount, upCount, downCount,
+           leaderName, leaderCode, leaderChange}
+    speed=板块 5 分钟涨速(f222); leader*=领涨股(f128/f140/f136)。
+    剔除「昨日连板/打板」等统计型指数板块。数据源 push2dycalc 域名(测试/生产可达)。"""
+    out = []
+    try:
+        for it in _em_clist("m:90+t:3+f:!50", _EM_CONCEPT_FIELDS, fid="f3", pages=3):
+            code, name = it.get("f12"), it.get("f14")
+            if not code or not name:
+                continue
+            if any(kw in name for kw in _EM_STAT_KW):
+                continue
+            chg = it.get("f3") or 0
+            out.append({
+                "boardCode": code,
+                "name": name,
+                "change": round(float(chg), 2),
+                "speed": round(float(it.get("f222") or 0), 2),
+                "mainNet": float(it.get("f62") or 0),
+                "amount": float(it.get("f6") or 0),
+                "upCount": int(it.get("f104") or 0),
+                "downCount": int(it.get("f105") or 0),
+                "leaderName": it.get("f128") or "",
+                "leaderCode": it.get("f140") or "",
+                "leaderChange": round(float(it.get("f136") or 0), 2),
+            })
+    except Exception as e:
+        log.warning("东财概念板块异动榜抓取失败 err=%s", e)
+        _mark_source_error("em", e)
+        return []
+    out.sort(key=lambda x: x["change"], reverse=True)
+    return out
+
+
+def fetch_em_board_members(code):
+    """东财概念板块成分股(题材异动榜右栏): 按涨幅降序返回全部成分股。
+
+    每项: {code, name, price, change, speed, turnover, amount, mainNet, totalMv, floatMv}
+    speed=个股 5 分钟涨速(f11); mainNet=主力净流入(元, f62); 市值 totalMv/floatMv(元)。"""
+    if not code:
+        return []
+    out = []
+    try:
+        for it in _em_clist("b:" + str(code), _EM_MEMBER_FIELDS, fid="f3", pages=3):
+            c, name = it.get("f12"), it.get("f14")
+            if not c or not name:
+                continue
+            if scorer.is_bse(c):
+                continue    # 系统不需要北交所数据(全链路过滤, 题材异动榜成分股同样剔除)
+            chg = it.get("f3") or 0
+            out.append({
+                "code": c,
+                "name": name,
+                "price": float(it.get("f2") or 0),
+                "change": round(float(chg), 2),
+                "speed": round(float(it.get("f11") or 0), 2),
+                "turnover": round(float(it.get("f8") or 0), 2),
+                "amount": float(it.get("f6") or 0),
+                "mainNet": float(it.get("f62") or 0),
+                "totalMv": float(it.get("f20") or 0),
+                "floatMv": float(it.get("f21") or 0),
+            })
+    except Exception as e:
+        log.warning("东财板块成分股抓取失败 code=%s err=%s", code, e)
+        return []
+    out.sort(key=lambda x: x["change"], reverse=True)
+    return out
+
+
+# =====================================================================
+# 猫爪板块指数(题材异动榜数据源, 2026-09-21 主人: 东财的不行, 换猫爪板块指数)
+#   * 左栏板块榜 ← theme_daily(type=gn 概念 269 个 / hy 行业 145 个, 实测 2026-09-21)
+#     最新交易日自动合并实时缓存; fields 只传文档列出的字段(422 铁律: 多传全挂)
+#   * 右栏成分股 ← theme_members(theme_symbol=板块代码, 返回 [theme_symbol, [股票代码数组]])
+#     行情用 screening(symbols=逗号分隔) 补全: name/close/pct_chg/amount/turnover_rate_f/free_float_mv
+#   * 板块代码体系 880xxx(猫爪/同花顺口径), 与东财 BKxxxx 不同; 成分股含北交所 920 段须 is_bse 过滤
+# =====================================================================
+_MEOZ_BOARD_TTL = 30       # 板块榜缓存: 异动榜 30s 刷新节奏对齐前端
+_MEOZ_MEMBER_TTL = 60      # 成分股(成员池+行情)缓存: 按需点击+30s 轮询, 控制猫爪用量
+_MEOZ_SCREEN_BATCH = 2000  # screening symbols 分片大小(与 fundflow_map 同风格, 保守分片)
+
+
+def fetch_meoz_board_rank(btype="gn"):
+    """猫爪板块指数榜(题材异动榜左栏): theme_daily 按涨跌幅降序返回全部板块。
+
+    btype: gn=概念(默认, 269 个) / hy=行业(145 个)。
+    每项: {boardCode(880xxx), name, change, amount, close}
+    猫爪无涨速/主力净额/领涨股字段, 返回置 0/空以兼容前端列结构(前端已同步删列)。"""
+    try:
+        data = meoz.call_cached(
+            "theme_daily", params={"type": btype}, ttl=_MEOZ_BOARD_TTL,
+            fields="tradedate,symbol,name,type,close,pct_chg,amount")
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("猫爪板块指数榜抓取失败 type=%s err=%s", btype, e)
+        _mark_source_error("meoz", e)
+        return []
+    dd = data.get("data") if isinstance(data, dict) else None
+    cols = (dd or {}).get("fields") or []
+    items = (dd or {}).get("items") or []
+    if not cols or not items:
+        return []
+    idx = {c: i for i, c in enumerate(cols)}
+    out = []
+    for row in items:
+        if not isinstance(row, (list, tuple)):
+            continue
+        try:
+            def _g(k):
+                i = idx.get(k)
+                return row[i] if i is not None and len(row) > i else None
+            sym, name = _g("symbol"), _g("name")
+            if not sym or not name:
+                continue
+            out.append({
+                "boardCode": str(sym),
+                "name": str(name),
+                "change": round(float(_g("pct_chg") or 0), 2),
+                "amount": float(_g("amount") or 0),
+                "close": float(_g("close") or 0),
+                "speed": 0.0,
+                "mainNet": 0.0,
+                "upCount": 0,
+                "downCount": 0,
+                "leaderName": "",
+                "leaderCode": "",
+                "leaderChange": 0.0,
+            })
+        except (ValueError, TypeError):
+            continue
+    out.sort(key=lambda x: x["change"], reverse=True)
+    return out
+
+
+def fetch_meoz_board_members(code):
+    """猫爪板块成分股(题材异动榜右栏): theme_members 拿成员池 + screening 补行情。
+
+    每项: {code, name, price, change, turnover, amount, floatMv}
+    floatMv=自由流通市值(元, screening.free_float_mv, 全站口径铁律);
+    北交所(is_bse)过滤; 无行情的成员(停牌等)跳过; 按涨幅降序。"""
+    code = str(code or "").strip()
+    if not code:
+        return []
+    # 1) 成员池
+    try:
+        data = meoz.call_cached("theme_members", params={"theme_symbol": code},
+                                ttl=_MEOZ_MEMBER_TTL)
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("猫爪板块成员抓取失败 code=%s err=%s", code, e)
+        _mark_source_error("meoz", e)
+        return []
+    dd = data.get("data") if isinstance(data, dict) else None
+    items = (dd or {}).get("items") or []
+    codes = []
+    for row in items:
+        if isinstance(row, (list, tuple)) and len(row) >= 2 and str(row[0]) == code:
+            codes = [str(s) for s in (row[1] or []) if s]
+            break
+    if not codes:
+        return []
+    codes = [c for c in codes if not scorer.is_bse(c)]         # 系统不需要北交所数据
+    if not codes:
+        return []
+    # 2) screening 分片拉行情
+    members_map = {}
+    try:
+        for i in range(0, len(codes), _MEOZ_SCREEN_BATCH):
+            chunk = codes[i:i + _MEOZ_SCREEN_BATCH]
+            d2 = meoz.call_cached(
+                "screening", params={"symbols": ",".join(chunk)}, ttl=_MEOZ_MEMBER_TTL,
+                fields="symbol,name,close,pct_chg,amount,turnover_rate_f,free_float_mv")
+            members_map.update(meoz._sym_rows(d2))
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("猫爪板块成员行情抓取失败 code=%s err=%s", code, e)
+        return []
+    out = []
+    for c in codes:
+        r = members_map.get(c)
+        if not r:
+            continue
+        try:
+            out.append({
+                "code": c,
+                "name": str(r.get("name") or ""),
+                "price": float(r.get("close") or 0),
+                "change": round(float(r.get("pct_chg") or 0), 2),
+                "turnover": round(float(r.get("turnover_rate_f") or 0), 2),
+                "amount": float(r.get("amount") or 0),
+                "floatMv": float(r.get("free_float_mv") or 0),
+                "speed": 0.0,
+                "mainNet": 0.0,
+            })
+        except (ValueError, TypeError):
+            continue
+    out.sort(key=lambda x: x["change"], reverse=True)
+    return out
+
+
+# =====================================================================
+# 猫爪精选板块 jx(题材异动榜数据源, 2026-09-21 主人: 先换左栏为精选板块)
+#   * 左栏板块榜 ← themedaily_jx(level=parent 一级精选板块 267 个, 801xxxk 带 k)
+#     字段全有值(实测 267/267): strength强度/pct_chg涨幅/chg_speed涨速/amount成交额/
+#     main_net_amount主力净额/turnover_rate换手/volume_ratio量比/circ_mv流通市值/prev_pct_chg昨日涨幅
+#   * 右栏成分股 ← thememembers_jx(level=parent + theme_symbols, 不传 tag=股票池) + screening 补行情
+#   * 精选板块 801xxxk 与概念板块 880xxx/竞价 801xxx 不互通, 各拉各的
+# =====================================================================
+_JX_BOARD_TTL = 30     # 精选板块榜缓存(前端 30s 轮询对齐)
+_JX_MEMBER_TTL = 60    # 精选板块股票池+行情缓存
+_JX_AUC_TTL = 30       # 板块竞价异动缓存(09:28 定格, 30s 对齐前端)
+
+
+def fetch_meoz_auc_kp():
+    """猫爪板块竞价异动(theme_auc_kp): 交易日 09:28 更新, 按来源分组返回当日竞价异动板块。
+
+    返回 {theme_symbol(801xxx 不带 k): {group, rank, burst, abnormal, net, name}}
+    group: List1=今日新增竞价异动 / List2=昨日爆发延续 / List3=其它异动;
+    burst=竞价爆量(bid_volume_burst); abnormal=异动金额(元); net=竞价主力净额(元, main_net_amount)。
+    失败返回空 dict(merge 层静默降级, 不阻断精选板块榜)。"""
+    try:
+        data = meoz.call_cached(
+            "theme_auc_kp", ttl=_JX_AUC_TTL,
+            fields="source_day,group,group_rank,theme_symbol,theme_name,bid_volume_burst,abnormal_amount,main_net_amount")
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("猫爪板块竞价异动抓取失败 err=%s", e)
+        _mark_source_error("meoz", e)
+        return {}
+    dd = data.get("data") if isinstance(data, dict) else None
+    cols = (dd or {}).get("fields") or []
+    items = (dd or {}).get("items") or []
+    if not cols or not items:
+        return {}
+    idx = {c: i for i, c in enumerate(cols)}
+    out = {}
+    for row in items:
+        if not isinstance(row, (list, tuple)):
+            continue
+        try:
+            def _g(k):
+                i = idx.get(k)
+                return row[i] if i is not None and len(row) > i else None
+            sym = _g("theme_symbol")
+            if not sym:
+                continue
+            out[str(sym)] = {
+                "group": str(_g("group") or ""),
+                "rank": int(_g("group_rank") or 0),
+                "burst": float(_g("bid_volume_burst") or 0),
+                "abnormal": float(_g("abnormal_amount") or 0),
+                "net": float(_g("main_net_amount") or 0),
+                "name": str(_g("theme_name") or ""),
+            }
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
+def fetch_meoz_jx_rank():
+    """猫爪精选板块异动榜(题材异动榜左栏): themedaily_jx level=parent 按涨速降序返回一级精选板块。
+
+    每项: {boardCode(801xxxk), name, change, speed, mainNet, amount,
+           strength, turnover, volRatio, floatMv, prevChg,
+           aucGroup, aucRank, aucBurst, aucAbnormal, aucNet}
+    后 5 个为板块竞价异动(theme_auc_kp)按 竞价代码+'k' 融合进来的字段:
+    aucGroup=List1今日新增/List2昨日延续/List3其它(空串=无竞价异动);
+    aucBurst=竞价爆量; aucAbnormal=异动金额(元); aucNet=竞价主力净额(元)。
+    竞价失败或未命中时这些字段置 0/空串(不阻断精选板块榜)。"""
+    try:
+        data = meoz.call_cached(
+            "themedaily_jx", params={"level": "parent"}, ttl=_JX_BOARD_TTL,
+            fields="tradedate,theme_symbol,theme_name,strength,pct_chg,chg_speed,amount,main_net_amount,turnover_rate,volume_ratio,circ_mv,prev_pct_chg")
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("猫爪精选板块榜抓取失败 err=%s", e)
+        _mark_source_error("meoz", e)
+        return []
+    dd = data.get("data") if isinstance(data, dict) else None
+    cols = (dd or {}).get("fields") or []
+    items = (dd or {}).get("items") or []
+    if not cols or not items:
+        return []
+    idx = {c: i for i, c in enumerate(cols)}
+    # 板块竞价异动: 竞价代码 801xxx(不带 k) + 'k' = 精选板块代码 801xxxk, 按此 merge
+    auc_map = fetch_meoz_auc_kp()
+    out = []
+    for row in items:
+        if not isinstance(row, (list, tuple)):
+            continue
+        try:
+            def _g(k):
+                i = idx.get(k)
+                return row[i] if i is not None and len(row) > i else None
+            sym, name = _g("theme_symbol"), _g("theme_name")
+            if not sym or not name:
+                continue
+            auc = auc_map.get(str(sym)[:-1]) if str(sym).endswith("k") else None
+            out.append({
+                "boardCode": str(sym),
+                "name": str(name),
+                "change": round(float(_g("pct_chg") or 0), 2),
+                "speed": round(float(_g("chg_speed") or 0), 2),
+                "mainNet": float(_g("main_net_amount") or 0),
+                "amount": float(_g("amount") or 0),
+                "strength": float(_g("strength") or 0),
+                "turnover": round(float(_g("turnover_rate") or 0), 2),
+                "volRatio": round(float(_g("volume_ratio") or 0), 2),
+                "floatMv": float(_g("circ_mv") or 0),
+                "prevChg": round(float(_g("prev_pct_chg") or 0), 2),
+                "aucGroup": (auc or {}).get("group", ""),
+                "aucRank": (auc or {}).get("rank", 0),
+                "aucBurst": (auc or {}).get("burst", 0.0),
+                "aucAbnormal": (auc or {}).get("abnormal", 0.0),
+                "aucNet": (auc or {}).get("net", 0.0),
+            })
+        except (ValueError, TypeError):
+            continue
+    out.sort(key=lambda x: x["speed"], reverse=True)   # 异动榜默认按涨速降序
+    return out
+
+
+def fetch_meoz_jx_members(code):
+    """猫爪精选板块成分股(题材异动榜右栏): thememembers_jx 拿股票池 + screening 补行情。
+
+    每项: {code, name, price, change, turnover, amount, floatMv}
+    floatMv=自由流通市值(元, screening.free_float_mv, 全站口径铁律);
+    北交所(is_bse)过滤; 按涨幅降序。精选板块代码 801xxxk(带 k)。"""
+    code = str(code or "").strip()
+    if not code:
+        return []
+    # 1) 股票池(thememembers_jx: level=parent + theme_symbols, 不传 tag)
+    try:
+        data = meoz.call_cached("thememembers_jx",
+                                params={"level": "parent", "theme_symbols": code},
+                                ttl=_JX_MEMBER_TTL)
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("猫爪精选板块股票池抓取失败 code=%s err=%s", code, e)
+        _mark_source_error("meoz", e)
+        return []
+    dd = data.get("data") if isinstance(data, dict) else None
+    items = (dd or {}).get("items") or []
+    codes = []
+    for row in items:
+        if isinstance(row, (list, tuple)) and len(row) >= 2 and str(row[0]) == code:
+            codes = [str(s) for s in (row[1] or []) if s]
+            break
+    if not codes:
+        return []
+    codes = [c for c in codes if not scorer.is_bse(c)]         # 系统不需要北交所数据
+    if not codes:
+        return []
+    # 2) screening 分片拉行情(复用现有成员行情逻辑)
+    members_map = {}
+    try:
+        for i in range(0, len(codes), _MEOZ_SCREEN_BATCH):
+            chunk = codes[i:i + _MEOZ_SCREEN_BATCH]
+            d2 = meoz.call_cached(
+                "screening", params={"symbols": ",".join(chunk)}, ttl=_JX_MEMBER_TTL,
+                fields="symbol,name,close,pct_chg,amount,turnover_rate_f,free_float_mv")
+            members_map.update(meoz._sym_rows(d2))
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("猫爪精选板块成员行情抓取失败 code=%s err=%s", code, e)
+        return []
+    out = []
+    for c in codes:
+        r = members_map.get(c)
+        if not r:
+            continue
+        try:
+            out.append({
+                "code": c,
+                "name": str(r.get("name") or ""),
+                "price": float(r.get("close") or 0),
+                "change": round(float(r.get("pct_chg") or 0), 2),
+                "turnover": round(float(r.get("turnover_rate_f") or 0), 2),
+                "amount": float(r.get("amount") or 0),
+                "floatMv": float(r.get("free_float_mv") or 0),
+                "speed": 0.0,
+                "mainNet": 0.0,
+            })
+        except (ValueError, TypeError):
+            continue
+    out.sort(key=lambda x: x["change"], reverse=True)
     return out
 
 

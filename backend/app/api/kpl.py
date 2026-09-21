@@ -505,6 +505,35 @@ def api_kpl_board_stocks(request: Request, uid: int = Depends(get_uid), code: st
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0, "date": ""})
 
 
+@router.get("/api/kpl/em-concept-rank")
+def api_em_concept_rank(request: Request, uid: int = Depends(get_uid), type: str = ""):
+    """题材异动榜左栏(2026-09-21 主人: 先换左栏为猫爪精选板块):
+    主源=猫爪 themedaily_jx(level=parent 一级精选板块 267 个, 801xxxk), 失败降级东财概念榜(BKxxxx)。
+    type 参数保留兼容但已无意义(精选板块不分 gn/hy)。响应带 source 字段(meoz/em)便于前端观测。"""
+    d = sector_rotation.fetch_meoz_jx_rank()
+    source = "meoz"
+    if not d:
+        d = sector_rotation.fetch_em_concept_rank()
+        source = "em"
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0, "source": source})
+
+
+@router.get("/api/kpl/em-board-members")
+def api_em_board_members(request: Request, uid: int = Depends(get_uid), code: str = ""):
+    """题材异动榜右栏(2026-09-21 切猫爪精选板块): 主源=猫爪 thememembers_jx+screening(801xxxk 板块代码),
+    失败或东财体系代码(BKxxxx)时回退东财成分股。"""
+    if not code:
+        return jr({"ok": False, "msg": "缺少板块代码 code"}, 400)
+    code = code.strip()
+    if code.endswith("k"):
+        # 猫爪精选板块代码体系(801xxxk 带 k): thememembers_jx 拿股票池 + screening 补行情
+        d = sector_rotation.fetch_meoz_jx_members(code)
+        if d:
+            return jr({"ok": True, "list": d, "count": len(d), "source": "meoz"})
+    d = sector_rotation.fetch_em_board_members(code)
+    return jr({"ok": True, "list": d or [], "count": len(d) if d else 0, "source": "em"})
+
+
 @router.get("/api/kpl/hot-rank")
 def api_kpl_hot_rank(request: Request, uid: int = Depends(get_uid), source: str = "kpl", date: str = ""):
     """人气热榜; source: kpl/em/ths; date 空=实时, 指定日期回看历史(hot_rank_history)

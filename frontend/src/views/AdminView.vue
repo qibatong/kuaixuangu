@@ -7,7 +7,7 @@
 
     <!-- 403 提示 -->
     <div v-if="denied" class="admin-card" style="text-align:center;padding:40px;color:#ff9a9a;">
-      <i class="fa fa-lock" style="font-size:36px;"></i>
+      <i class="fa fa-lock" style="font-size:2.25rem;"></i>
       <p style="margin-top:12px;">无管理员权限，请联系管理员开通</p>
       <router-link to="/" class="tdx-export-btn nav-btn nav-history">返回主页</router-link>
     </div>
@@ -100,14 +100,14 @@
         </div>
         <div class="pager">
           <div class="pager-left">
-            <span style="color:#888;font-size:12px;">每页</span>
+            <span style="color:#888;font-size:0.75rem;">每页</span>
             <select v-model.number="pageSize" class="admin-input" style="width:70px;padding:5px 8px;" @change="changePageSize">
               <option :value="10">10</option>
               <option :value="20">20</option>
               <option :value="50">50</option>
               <option :value="100">100</option>
             </select>
-            <span style="color:#888;font-size:12px;">条</span>
+            <span style="color:#888;font-size:0.75rem;">条</span>
           </div>
           <div class="pager-right">
             <button class="page-btn" :disabled="page <= 1" @click="loadUsers(page - 1)">上一页</button>
@@ -120,7 +120,7 @@
       <!-- 重置密码弹层 -->
       <div v-if="pwdTarget" class="pwd-mask" @click.self="closePwdReset">
         <div class="pwd-pop">
-          <div class="pwd-title">🔑 重置密码：{{ pwdTarget.username }}<span style="color:#999;font-size:12px;margin-left:8px;">({{ pwdTarget.phone || pwdTarget.email || '-' }})</span></div>
+          <div class="pwd-title">🔑 重置密码：{{ pwdTarget.username }}<span style="color:#999;font-size:0.75rem;margin-left:8px;">({{ pwdTarget.phone || pwdTarget.email || '-' }})</span></div>
           <input v-model="pwdNew" type="text" class="admin-input" style="width:100%;box-sizing:border-box;" placeholder="输入新密码(至少6位)" @keyup.enter="doResetPwd" />
           <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
             <button class="mini-btn" @click="closePwdReset">取消</button>
@@ -166,11 +166,11 @@
           <!-- 创建成功结果展示 -->
           <div v-if="createResult" class="create-result">
             <div><b>{{ createResult.username }}</b> 创建成功!</div>
-            <div style="margin-top:6px;font-size:12px;color:#999;">
+            <div style="margin-top:6px;font-size:0.75rem;color:#999;">
               ID {{ createResult.uid }} · 到期 {{ fmtBjDay(createResult.expire_at) }} · 等级 {{ levelLabel(createResult.member_level) }}
             </div>
             <div style="margin-top:8px;padding:8px;background:rgba(255,200,80,0.15);border:1px solid #ffc850;border-radius:6px;color:#ffe0a0;">
-              初始密码: <b style="user-select:all;font-family: 'LXGW WenKai Mono', monospace;">{{ createResult.password }}</b>
+              初始密码: <b style="user-select:all;font-family: inherit;">{{ createResult.password }}</b>
               <button class="mini-btn" style="margin-left:8px;" @click="copyText(createResult.password)">复制</button>
             </div>
           </div>
@@ -181,7 +181,7 @@
       <div v-if="invitesTarget" class="pwd-mask" @click.self="closeInvites">
         <div class="pwd-pop" style="width:520px;">
           <div class="pwd-title">👥 邀请关系：{{ invitesTarget.username }}
-            <span style="color:#999;font-size:12px;margin-left:8px;">(ID {{ invitesTarget.id }})</span></div>
+            <span style="color:#999;font-size:0.75rem;margin-left:8px;">(ID {{ invitesTarget.id }})</span></div>
           <div class="invite-chain">
             <div class="chain-row">
               <span class="chain-label">被谁邀请</span>
@@ -221,7 +221,7 @@
       <div v-if="profileTarget" class="pwd-mask" @click.self="closeProfile">
         <div class="pwd-pop" style="width:560px;">
           <div class="pwd-title">📝 编辑资料：{{ profileTarget.username }}
-            <span style="color:#999;font-size:12px;margin-left:8px;">(ID {{ profileTarget.id }})</span></div>
+            <span style="color:#999;font-size:0.75rem;margin-left:8px;">(ID {{ profileTarget.id }})</span></div>
           <div class="profile-grid">
             <label class="profile-label">手机号
               <input v-model="profileForm.phone" type="text" maxlength="11" class="admin-input admin-input-lg" placeholder="11 位手机号" /></label>
@@ -257,7 +257,7 @@
             </div>
             <div class="pop-label" style="margin-top:12px;">自定义到期日(统一设为该日)</div>
             <div class="pop-row">
-              <input v-model="batchExpireDate" type="date" class="mini-date" style="flex:1;padding:8px 12px;font-size:14px;" :max="'2099-12-31'" />
+              <input v-model="batchExpireDate" type="date" class="mini-date" style="flex:1;padding:8px 12px;font-size:0.875rem;" :max="'2099-12-31'" />
               <button class="mini-btn batch-exp-btn" @click="batchSetDate">设为该日</button>
             </div>
             <div class="pop-row" style="margin-top:12px;">
@@ -317,7 +317,7 @@
         </div>
         <div v-if="factors[activeFactor] && factors[activeFactor].buckets" class="factor-box">
           <div class="factor-title">
-{{ factors[activeFactor].label }} <span style="color:#888;font-size:12px;">（{{ factors[activeFactor].unit }}）</span>
+{{ factors[activeFactor].label }} <span style="color:#888;font-size:0.75rem;">（{{ factors[activeFactor].unit }}）</span>
             <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
               默认分 <input v-model.number="factors[activeFactor].default" type="number" step="0.05" min="0" max="1" class="admin-input" style="width:70px;" />
             </span>
@@ -367,10 +367,10 @@
             评分门槛 <input v-model.number="adminDefaults.scoreFloor" type="number" min="50" max="100" class="admin-input" style="width:110px;" />
           </label>
           <!-- 2026-08-25 正逻辑: 勾上=只看这类票(不勾=剔除); tooltip 保留说明; 主人要求去掉"只看"二字 -->
-          <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size:13px;" title="勾选后只显示昨日涨停/连板股; 不勾选则剔除">
+          <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size:0.8125rem;" title="勾选后只显示昨日涨停/连板股; 不勾选则剔除">
             <input v-model="adminDefaults.limitUp" type="checkbox" /> 昨日涨停
           </label>
-          <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size:13px;" title="勾选后只显示 ST/停牌股; 不勾选则剔除">
+          <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size:0.8125rem;" title="勾选后只显示 ST/停牌股; 不勾选则剔除">
             <input v-model="adminDefaults.stSuspend" type="checkbox" /> ST/停牌
           </label>
           <button class="tdx-export-btn admin-save-btn" :disabled="savingDefaults" @click="saveDefaults(false)">
@@ -379,7 +379,7 @@
           <button class="tdx-export-btn admin-save-btn save-force-btn" :disabled="savingDefaultsForce" @click="saveDefaults(true)">
             <i class="fa fa-bolt"></i> {{ savingDefaultsForce ? '生效中...' : '保存并强制生效' }}
           </button>
-          <span v-if="defaultsMsg" :class="defaultsErr ? 'admin-msg-err' : 'admin-msg-ok'" style="font-size:12px;">{{ defaultsMsg }}</span>
+          <span v-if="defaultsMsg" :class="defaultsErr ? 'admin-msg-err' : 'admin-msg-ok'" style="font-size:0.75rem;">{{ defaultsMsg }}</span>
         </div>
       </div>
 
@@ -941,31 +941,31 @@ onMounted(() => {
 .inviter-tag {
   display: inline-block; padding: 2px 8px; border-radius: 10px;
   background: rgba(120, 160, 255, 0.15); color: var(--accent-text);
-  border: 1px solid rgba(120, 160, 255, 0.35); font-size: 12px; white-space: nowrap;
+  border: 1px solid rgba(120, 160, 255, 0.35); font-size: 0.75rem; white-space: nowrap;
 }
 body[data-bg="light"] .inviter-tag { color: #b83010; background: rgba(90, 130, 255, 0.1); border-color: rgba(90, 130, 255, 0.4); }
-.mono { font-family: "LXGW WenKai Mono", monospace; }
+.mono { font-family: inherit; }
 .invite-chain { display: flex; flex-direction: column; gap: 8px; padding: 8px 4px; }
-.chain-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.chain-row { display: flex; align-items: center; gap: 10px; font-size: 0.8125rem; }
 .chain-label { width: 72px; color: #999; flex-shrink: 0; }
 .chain-val { color: var(--text-main); }
 .invite-list-scroll { max-height: 300px; overflow-y: auto; margin-top: 6px; border: 1px solid var(--border-soft); border-radius: 8px; }
-.invite-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.invite-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
 .invite-table th { text-align: left; padding: 6px 10px; color: #999; border-bottom: 1px solid var(--border-soft); background: var(--bg-hover); position: sticky; top: 0; }
 .invite-table td { padding: 6px 10px; border-bottom: 1px solid var(--border-soft); }
 .invite-table tr:last-child td { border-bottom: none; }
 .admin-wrap { max-width: 1500px; margin: 0 auto; padding: 14px 16px; }
 .admin-head { display: flex; align-items: center; margin-bottom: 14px; }
 .admin-card { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
-.field-label { color: #bbb; font-size: 12px; }
-.admin-tip { color: #888; font-size: 12px; margin-left: 8px; }
+.field-label { color: #bbb; font-size: 0.75rem; }
+.admin-tip { color: #888; font-size: 0.75rem; margin-left: 8px; }
 .admin-save-btn {
   background: rgba(120,200,80,0.2);
   border: 1px solid #78c850;
   color: #c0e8a0;
   padding: 6px 14px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   cursor: pointer;
   transition: opacity 0.15s;
 }
@@ -976,18 +976,18 @@ body[data-bg="light"] .inviter-tag { color: #b83010; background: rgba(90, 130, 2
 .save-force-btn:hover:not(:disabled) { background: #c93838; border-color: #c93838; }
 .admin-msg-ok { color: #7ce8a0; }
 .admin-msg-err { color: #ff6a6a; }
-.weight-desc { color: #999; font-size: 12px; }
-.weight-total { color: var(--accent-text); font-size: 13px; }
+.weight-desc { color: #999; font-size: 0.75rem; }
+.weight-total { color: var(--accent-text); font-size: 0.8125rem; }
 .weight-warn { color: #ff6a6a; }
 .admin-warn { color: #ff6a6a; }
 .admin-ok-text { color: #7ce8a0; }
-.card-title { display: flex; align-items: center; font-size: 15px; color: #ffe0a0; margin-bottom: 12px; }
-.admin-input { background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: 6px; color: var(--text-main); padding: 6px 10px; font-size: 13px; }
+.card-title { display: flex; align-items: center; font-size: 0.9375rem; color: #ffe0a0; margin-bottom: 12px; }
+.admin-input { background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: 6px; color: var(--text-main); padding: 6px 10px; font-size: 0.8125rem; }
 .admin-input:focus { outline: none; border-color: #ffb400; }
 /* 2026-08-17: 弹窗内输入框放大(主人反馈: 设置资料/时间的框太小) */
-.admin-input-lg { padding: 9px 12px; font-size: 14px; border-radius: 7px; }
+.admin-input-lg { padding: 9px 12px; font-size: 0.875rem; border-radius: 7px; }
 .batch-expire-box { margin-top: 4px; }
-.batch-exp-btn { padding: 8px 16px; font-size: 13px; border-radius: 6px; }
+.batch-exp-btn { padding: 8px 16px; font-size: 0.8125rem; border-radius: 6px; }
 .batch-forever { background: rgba(255,90,90,0.15); color: #ff6a6a; border-color: rgba(255,90,90,0.5); }
 .admin-search-btn {
   background: rgba(var(--accent-rgb),0.15);
@@ -995,7 +995,7 @@ body[data-bg="light"] .inviter-tag { color: #b83010; background: rgba(90, 130, 2
   color: var(--accent-text);
   border-radius: 6px;
   padding: 6px 14px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   cursor: pointer;
 }
 /* 工具栏彩色按钮: 用 class 而非内联 style(内联会盖住 light 主题覆盖), 按主题加深 */
@@ -1032,7 +1032,7 @@ body[data-bg="light"] .btn-create {
   color: var(--text-secondary);
   border-radius: 8px;
   padding: 6px 14px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -1043,46 +1043,46 @@ body[data-bg="light"] .btn-create {
   color: #c8f0a8;
 }
 .table-scroll { overflow-x: auto; }
-.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
 .admin-table th, .admin-table td { border-bottom: 1px solid var(--border-soft); padding: 8px 10px; text-align: center; color: var(--text-secondary); }
 .admin-table th { color: var(--text-muted); font-weight: 500; }
-.admin-tag { color: #ffd700; border: 1px solid #ffd700; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
-.user-tag { color: var(--text-muted); border: 1px solid #666; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
+.admin-tag { color: #ffd700; border: 1px solid #ffd700; border-radius: 4px; padding: 1px 8px; font-size: 0.75rem; }
+.user-tag { color: var(--text-muted); border: 1px solid #666; border-radius: 4px; padding: 1px 8px; font-size: 0.75rem; }
 /* 角色徽标 (合并 is_admin + member_level 显示, 紧贴用户名) */
 .user-name-row { display: inline-flex; align-items: center; gap: 6px; }
-.role-badge { display: inline-block; border-radius: 4px; padding: 2px 10px; font-size: 11px; font-weight: 600; }
+.role-badge { display: inline-block; border-radius: 4px; padding: 2px 10px; font-size: 0.75rem; font-weight: 600; }
 .role-admin { color: var(--accent-text); border: 1px solid var(--accent-text); background: rgba(74,158,255,0.12); }
 .role-vip   { color: #ffb347; border: 1px solid #ffb347; background: rgba(255,179,71,0.15); }
 .role-paid  { color: #ff6a6a; border: 1px solid #ff6a6a; background: rgba(255,106,106,0.12); }
 .role-trial { color: var(--text-muted); border: 1px solid #666; }
 /* 备注/付款备注单元格 */
-.cell-note { display: block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 12px; }
-.cell-pay { display: block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent-text); font-size: 11px; margin-top: 2px; }
+.cell-note { display: block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 0.75rem; }
+.cell-pay { display: block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent-text); font-size: 0.75rem; margin-top: 2px; }
 /* ⋮ 操作下拉 (Teleport 到 body, 定位由内联 style position:fixed 控制) */
 .row-actions { display: inline-block; }
 .row-menu { z-index: 100000; min-width: 168px; max-width: 220px;
   background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 6px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.35); padding: 4px; }
-.row-menu-item { display: block; width: 100%; text-align: left; padding: 6px 8px; font-size: 13px;
+.row-menu-item { display: block; width: 100%; text-align: left; padding: 6px 8px; font-size: 0.8125rem;
   background: transparent; border: 0; color: var(--text-main); cursor: pointer; border-radius: 4px; }
 .row-menu-item:hover { background: rgba(var(--accent-rgb),0.12); }
 .row-menu-danger { color: #ff6a6a; }
 .row-menu-danger:hover { background: rgba(255,80,80,0.12); }
 .row-menu-expire { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-soft); }
-.expired-tag { color: #ff6a6a; border: 1px solid #ff5050; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
-.ok-tag { color: #7ce8a0; border: 1px solid #4caf70; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
+.expired-tag { color: #ff6a6a; border: 1px solid #ff5050; border-radius: 4px; padding: 1px 8px; font-size: 0.75rem; }
+.ok-tag { color: #7ce8a0; border: 1px solid #4caf70; border-radius: 4px; padding: 1px 8px; font-size: 0.75rem; }
 .expire-cell { position: relative; display: inline-block; }
 
 /* 会员等级 */
 .level-cell { display: inline-flex; align-items: center; gap: 6px; }
-.level-tag { border-radius: 4px; padding: 1px 8px; font-size: 12px; white-space: nowrap; }
+.level-tag { border-radius: 4px; padding: 1px 8px; font-size: 0.75rem; white-space: nowrap; }
 .level-0 { color: var(--text-muted); border: 1px solid #666; }
 .level-1 { color: #ff6a6a; border: 1px solid rgba(255, 90, 90, 0.55); }
 .level-2 { color: #ffd700; border: 1px solid #ffd700; }
 .level-select {
   background: var(--bg-input); color: var(--text-secondary);
   border: 1px solid var(--border-soft); border-radius: 4px;
-  font-size: 12px; padding: 3px 6px; cursor: pointer; min-width: 100px;
+  font-size: 0.75rem; padding: 3px 6px; cursor: pointer; min-width: 100px;
 }
 .expire-popover {
   position: absolute;
@@ -1096,10 +1096,10 @@ body[data-bg="light"] .btn-create {
   min-width: 220px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.6);
 }
-.pop-label { font-size: 11px; color: var(--text-muted); margin: 6px 0 4px; }
+.pop-label { font-size: 0.75rem; color: var(--text-muted); margin: 6px 0 4px; }
 .pop-label:first-child { margin-top: 0; }
 .pop-row { display: flex; gap: 4px; margin-bottom: 6px; align-items: center; flex-wrap: wrap; }
-.mini-btn { background: rgba(var(--accent-rgb),0.12); border: 1px solid var(--accent); color: var(--accent-text); border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.mini-btn { background: rgba(var(--accent-rgb),0.12); border: 1px solid var(--accent); color: var(--accent-text); border-radius: 4px; padding: 3px 10px; font-size: 0.75rem; cursor: pointer; }
 .mini-btn:hover { background: rgba(var(--accent-rgb),0.25); }
 .mini-btn.danger { background: rgba(255,80,80,0.12); border-color: #ff5050; color: #ff9a9a; }
 .mini-btn.danger:hover { background: rgba(255,80,80,0.25); }
@@ -1107,21 +1107,21 @@ body[data-bg="light"] .btn-create {
 .pwd-btn:hover { background: rgba(255,180,0,0.25); }
 .pwd-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .pwd-pop { background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 10px; padding: 18px 20px; min-width: 320px; box-shadow: 0 6px 24px rgba(0,0,0,0.35); }
-.pwd-title { font-size: 14px; color: #ffe0a0; margin-bottom: 12px; }
+.pwd-title { font-size: 0.875rem; color: #ffe0a0; margin-bottom: 12px; }
 /* 编辑资料弹窗: 2 列网格 */
 .profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
-.profile-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-muted); text-align: left; }
+.profile-label { display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: var(--text-muted); text-align: left; }
 .profile-label .admin-input { width: 100%; box-sizing: border-box; }
 .profile-label textarea.admin-input { resize: vertical; min-height: 36px; font-family: inherit; }
 .profile-label.profile-pay { color: var(--accent-text); }
-.profile-tip { font-size: 11px; color: #888; margin-top: 10px; text-align: left; }
+.profile-tip { font-size: 0.75rem; color: #888; margin-top: 10px; text-align: left; }
 /* 用户列表: 微信名/备注小字 */
-.user-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-sub { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-remark { color: #b8965a; }
 .user-pay { color: var(--accent-text); font-weight: 500; }
 /* 会员筛选 tab */
 .member-tabs { display: flex; flex-wrap: wrap; gap: 2px; background: rgba(255,255,255,0.04); padding: 2px; border-radius: 6px; }
-.member-tab { background: transparent; border: 0; color: var(--text-muted); padding: 4px 10px; font-size: 12px; cursor: pointer; border-radius: 4px; white-space: nowrap; }
+.member-tab { background: transparent; border: 0; color: var(--text-muted); padding: 4px 10px; font-size: 0.75rem; cursor: pointer; border-radius: 4px; white-space: nowrap; }
 .member-tab:hover { color: var(--text-main); }
 .member-tab.active { background: rgba(var(--accent-rgb),0.18); color: var(--accent-text); }
 /* 浅色主题: 会员 tab 选中态用深色(白底浅蓝字看不清) */
@@ -1148,17 +1148,17 @@ body[data-bg="light"] .member-tab.active { background: rgba(11,134,200,0.18); co
   .user-toolbar > .member-tabs { flex: 1 1 100%; }
   .user-toolbar > .member-tabs .member-tab { flex: 1 0 auto; text-align: center; padding: 5px 6px; }
   .user-toolbar > input.admin-input { flex: 1 1 auto; min-width: 120px; box-sizing: border-box; }
-  .user-toolbar > .admin-search-btn { padding: 6px 10px; font-size: 12px; }
+  .user-toolbar > .admin-search-btn { padding: 6px 10px; font-size: 0.75rem; }
   .user-toolbar > .btn-warn,
   .user-toolbar > .btn-create { flex: 1 1 45%; }
 }
 /* 创建结果展示 */
-.create-result { margin-top: 14px; padding: 12px; background: rgba(0,200,120,0.10); border: 1px solid rgba(0,200,120,0.35); border-radius: 6px; font-size: 13px; }
-.mini-date { background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 4px; color: var(--text-main); padding: 3px 6px; font-size: 12px; color-scheme: light; }
+.create-result { margin-top: 14px; padding: 12px; background: rgba(0,200,120,0.10); border: 1px solid rgba(0,200,120,0.35); border-radius: 6px; font-size: 0.8125rem; }
+.mini-date { background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 4px; color: var(--text-main); padding: 3px 6px; font-size: 0.75rem; color-scheme: light; }
 /* 2026-08-17: 设置期限面板日期框放大(主人反馈) */
-.row-menu-expire .mini-date { padding: 7px 10px; font-size: 14px; border-radius: 6px; width: 100%; box-sizing: border-box; }
+.row-menu-expire .mini-date { padding: 7px 10px; font-size: 0.875rem; border-radius: 6px; width: 100%; box-sizing: border-box; }
 .row-menu-expire .pop-row { gap: 6px; }
-.row-menu-expire .mini-btn { padding: 7px 12px; font-size: 13px; }
+.row-menu-expire .mini-btn { padding: 7px 12px; font-size: 0.8125rem; }
 .pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
 .pager-left { display: flex; align-items: center; gap: 6px; }
 .pager-right { display: flex; align-items: center; gap: 12px; }
@@ -1166,9 +1166,9 @@ body[data-bg="light"] .member-tab.active { background: rgba(11,134,200,0.18); co
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .weight-table input { color: #ffd700; }
 .factor-box { border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
-.factor-title { display: flex; align-items: center; color: #ffd700; font-size: 14px; margin-bottom: 8px; }
+.factor-title { display: flex; align-items: center; color: #ffd700; font-size: 0.875rem; margin-bottom: 8px; }
 .bucket-table input { color: var(--accent-text); }
-.add-btn { background: rgba(var(--accent-rgb),0.12); border: 1px dashed var(--accent); color: var(--accent-text); border-radius: 6px; padding: 3px 14px; cursor: pointer; font-size: 12px; }
+.add-btn { background: rgba(var(--accent-rgb),0.12); border: 1px dashed var(--accent); color: var(--accent-text); border-radius: 6px; padding: 3px 14px; cursor: pointer; font-size: 0.75rem; }
 .del-btn { background: rgba(255,80,80,0.15); border: 1px solid #ff5050; color: #ff9a9a; border-radius: 6px; padding: 2px 8px; cursor: pointer; }
 
 /* 浅色主题覆盖 */
@@ -1219,18 +1219,18 @@ body[data-bg="light"] .weight-warn { color: #b83010; }
   .admin-card { padding: 10px 8px; margin-bottom: 10px; }
   /* 头部紧凑: 返回按钮/标题 */
   .admin-head { gap: 6px; }
-  .admin-head h2 { font-size: 17px; }
+  .admin-head h2 { font-size: 1.0625rem; }
   /* 宽表格横向滚动(用户列表 11 列 / 权重表 / 打分明细表) */
   .table-scroll { -webkit-overflow-scrolling: touch; }
   .table-scroll .admin-table { min-width: 860px; }
   .weight-table { min-width: 640px; }
   .bucket-table { min-width: 560px; }
   /* 表格字号压缩 */
-  .admin-table th, .admin-table td { padding: 6px 6px; font-size: 12px; }
+  .admin-table th, .admin-table td { padding: 6px 6px; font-size: 0.75rem; }
   /* 输入框触控加大(手机点不中小输入框) */
-  .admin-input { min-height: 32px; padding: 6px 8px; font-size: 13px; }
+  .admin-input { min-height: 32px; padding: 6px 8px; font-size: 0.8125rem; }
   /* 因子 Tab 紧凑 */
-  .factor-tab { padding: 5px 10px; font-size: 12px; }
+  .factor-tab { padding: 5px 10px; font-size: 0.75rem; }
   /* 搜索栏/操作行换行 */
   .admin-card > div[style*="flex"] { flex-wrap: wrap; }
   /* 保存按钮触控加大 */

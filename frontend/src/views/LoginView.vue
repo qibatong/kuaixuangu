@@ -25,7 +25,7 @@
       <!-- 邮箱验证(新注册强制, 2026-08-17) -->
       <template v-else-if="mode === 'verify'">
         <div class="login-sub">📧 验证邮件已发送至 <b>{{ verifyEmailAddr || '你的邮箱' }}</b></div>
-        <div class="login-sub" style="font-size:12px;color:#889;">请查收并输入 6 位验证码完成验证，之后才能登录</div>
+        <div class="login-sub" style="font-size:0.75rem;color:#889;">请查收并输入 6 位验证码完成验证，之后才能登录</div>
         <input v-model="verifyCode" type="text" placeholder="6 位邮箱验证码" autocomplete="off" maxlength="6" inputmode="numeric" @keydown.enter="doVerify">
         <button class="login-btn" :disabled="busy" @click="doVerify">{{ busy ? '验证中...' : '完成验证' }}</button>
         <div class="login-err" :class="{error: errIsError}">{{ err }}</div>
@@ -359,7 +359,7 @@ onMounted(() => {
 .forgot-form .sms-btn {
   flex-shrink: 0;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: 0.75rem;
   white-space: nowrap;
   border: 1px solid var(--accent);
   border-radius: 6px;
@@ -377,7 +377,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   cursor: pointer;
   user-select: none;
@@ -392,7 +392,7 @@ onMounted(() => {
 .forgot-tab {
   flex: 1;
   padding: 7px 0;
-  font-size: 13px;
+  font-size: 0.8125rem;
   border: 1px solid var(--border, #3a3f4b);
   border-radius: 6px;
   background: transparent;
@@ -420,7 +420,7 @@ onMounted(() => {
   /* 高度与 input 完全一致: 全局 input = padding 11px 上下 + font-size 14px 行高 + border */
   /* 用 align-items:stretch + 自身不设 padding 上下, 由 flex 拉伸到 input 同高 */
   padding: 0 12px;
-  font-size: 12px;
+  font-size: 0.75rem;
   white-space: nowrap;
   border: 1px solid var(--accent);
   border-radius: 6px;

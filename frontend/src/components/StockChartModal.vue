@@ -505,13 +505,13 @@ onUnmounted(() => {
   background: var(--bg-panel-solid, #111827);
 }
 .chart-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.stock-name { font-size: 17px; font-weight: 700; color: var(--text-main, #f3f4f6); }
-.stock-code { font-size: 13px; color: var(--text-secondary, #9ca3af); font-family: "LXGW WenKai Mono", monospace; }
-.stock-pre-close { font-size: 12px; color: var(--text-muted, #6b7280); }
+.stock-name { font-size: 1.0625rem; font-weight: 700; color: var(--text-main, #f3f4f6); }
+.stock-code { font-size: 0.8125rem; color: var(--text-secondary, #9ca3af); font-family: inherit; }
+.stock-pre-close { font-size: 0.75rem; color: var(--text-muted, #6b7280); }
 .chart-actions { display: flex; gap: 6px; }
 .chart-btn-icon {
   width: 32px; height: 32px; border-radius: 6px; border: none; cursor: pointer;
-  background: transparent; color: var(--text-secondary, #d1d5db); font-size: 14px;
+  background: transparent; color: var(--text-secondary, #d1d5db); font-size: 0.875rem;
   transition: background 0.15s;
 }
 .chart-btn-icon:hover { background: rgba(255,255,255,0.08); }
@@ -523,7 +523,7 @@ onUnmounted(() => {
 }
 .chart-tab {
   padding: 7px 16px; border-radius: 6px 6px 0 0; border: none; cursor: pointer;
-  background: transparent; color: var(--text-secondary, #9ca3af); font-size: 13px;
+  background: transparent; color: var(--text-secondary, #9ca3af); font-size: 0.8125rem;
   font-weight: 500; transition: all 0.15s;
 }
 .chart-tab:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
@@ -539,10 +539,10 @@ onUnmounted(() => {
 .chart-canvas { width: 100%; height: 100%; }
 .chart-loading, .chart-empty {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  flex-direction: column; gap: 8px; color: var(--text-muted, #6b7280); font-size: 14px;
+  flex-direction: column; gap: 8px; color: var(--text-muted, #6b7280); font-size: 0.875rem;
 }
 .chart-loading i { color: #3b82f6; }
-.chart-empty i { font-size: 32px; opacity: 0.5; }
+.chart-empty i { font-size: 2rem; opacity: 0.5; }
 
 /* ===== 手机端适配 (<=768px): 全屏弹框, 边距压缩, 触控目标加大, ECharts 紧凑 ===== */
 @media (max-width: 768px) {
@@ -571,15 +571,15 @@ onUnmounted(() => {
     gap: 8px;
   }
   .chart-title { gap: 6px; align-items: center; }
-  .stock-name { font-size: 16px !important; }
-  .stock-code { font-size: 12px !important; }
-  .stock-pre-close { font-size: 11px; }
+  .stock-name { font-size: 1rem !important; }
+  .stock-code { font-size: 0.75rem !important; }
+  .stock-pre-close { font-size: 0.75rem; }
   .chart-btn-icon {
     min-width: 44px;
     min-height: 44px;
     width: 44px;
     height: 44px;
-    font-size: 17px;
+    font-size: 1.0625rem;
     border-radius: 10px;
   }
   /* 4 个周期 Tab: 手机上等宽一排, 可点击区加大 */
@@ -591,7 +591,7 @@ onUnmounted(() => {
     flex: 1 1 0;
     min-width: 0;
     padding: 8px 4px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     border-radius: 6px 6px 0 0;
   }
   /* 图表主体: 去掉 body padding, 让画布占满 */
@@ -606,11 +606,11 @@ onUnmounted(() => {
     padding: 6px 10px;
   }
   .chart-title { gap: 4px; }
-  .stock-name { font-size: 14px !important; }
+  .stock-name { font-size: 0.875rem !important; }
   .chart-tabs { padding: 2px 6px 0; }
-  .chart-tab { padding: 4px 4px; font-size: 12px; }
+  .chart-tab { padding: 4px 4px; font-size: 0.75rem; }
   .chart-btn-icon {
-    min-width: 36px; min-height: 36px; width: 36px; height: 36px; font-size: 15px;
+    min-width: 36px; min-height: 36px; width: 36px; height: 36px; font-size: 0.9375rem;
   }
 }
 </style>

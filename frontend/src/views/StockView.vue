@@ -239,7 +239,7 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   background: rgba(230, 180, 0, 0.10);
   color: var(--text-main);
-  font-size: 12.5px;
+  font-size: 0.7812rem;
   line-height: 1.5;
 }
 .pick-blocked-notice .fa { color: #e6b400; }
@@ -257,7 +257,7 @@ body[data-bg="light"] .pick-blocked-notice { color: #8a5500; }
   border-radius: 6px;
   background: rgba(230, 180, 0, 0.07);
   color: var(--text-main);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.5;
 }
 .freeze-notice .fa { color: #e6b400; }
@@ -283,7 +283,7 @@ body[data-bg="light"] .freeze-notice b { color: #8a5500; }
   border-radius: 12px;
   background: rgba(var(--accent-rgb), 0.08);
   color: var(--accent-text);
-  font-size: 12px;
+  font-size: 0.75rem;
   white-space: nowrap;
   cursor: default;
 }
@@ -301,8 +301,8 @@ body[data-bg="light"] .freeze-notice b { color: #8a5500; }
      不再因 right-group 是否存在而在「居中/靠右」之间漂移 (2026-09-01 反馈) */
   justify-content: flex-start;
 }
-.alert-rule.alert-rule-compact .rule-text { font-size: 12px; gap: 4px; flex: 0 1 auto; min-width: 0; }
-.alert-rule.alert-rule-compact .rule-text strong { font-size: 12px; }
+.alert-rule.alert-rule-compact .rule-text { font-size: 0.75rem; gap: 4px; flex: 0 1 auto; min-width: 0; }
+.alert-rule.alert-rule-compact .rule-text strong { font-size: 0.75rem; }
 .alert-rule.alert-rule-compact .right-group {
   gap: 6px;
   flex: 0 1 auto;
@@ -324,7 +324,7 @@ body[data-bg="light"] .freeze-notice b { color: #8a5500; }
   /* 2026-09-05 主人需求: 竞价/AI预测 tab 适当放大(3px 10px → 6px 16px, 12→13px),
      active 态同尺寸避免切换跳动 */
   padding: 6px 16px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   border-radius: 6px;
   gap: 4px;
   line-height: 1.2;
@@ -334,7 +334,7 @@ body[data-bg="light"] .freeze-notice b { color: #8a5500; }
 .mode-tab.mode-tab-compact:hover { transform: none; box-shadow: none; border-color: #ffb400; }
 .mode-tab.mode-tab-compact.active {
   padding: 6px 16px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 700;
   /* 2026-09-05 主人需求: tab 选中后变为红色。
      用 var(--accent) 自动适配双主题(深色 #ff5c5c / 浅色已重定义深红 #c62828,
@@ -348,17 +348,17 @@ body[data-bg="light"] .freeze-notice b { color: #8a5500; }
 .mode-tab.mode-tab-compact.active:after { display: none; }
 /* 浅色主题: 由 :root 重定义的深红 --accent 变量自动适配(白字 on 深红渐变可读),
    无需单独规则; 保留该选择器占位注释避免误以为遗漏 */
-.alert-rule.alert-rule-compact .tdx-export-btn { padding: 3px 8px; font-size: 11.5px; gap: 3px; border-radius: 4px; font-weight: 500; }
+.alert-rule.alert-rule-compact .tdx-export-btn { padding: 3px 8px; font-size: 0.75rem; gap: 3px; border-radius: 4px; font-weight: 500; }
 .alert-rule.alert-rule-compact .tdx-export-btn:hover { transform: none; box-shadow: 0 2px 6px rgba(var(--accent-rgb),0.25); }
 /* 左栏筛选面板紧凑 */
 .home-col-left .filter-custom { padding: 5px 9px; margin: 4px 0; gap: 3px; border-radius: 7px; }
 .home-col-left .filter-row-1 { gap: 5px; }
 .home-col-left .filter-custom label,
-.home-col-left .filter-row-2 .filter-cell { font-size: 11.5px; }
-.home-col-left .filter-row-2 input[type=number] { font-size: 11px; }
-.home-col-left .filter-apply { padding: 3px 8px; font-size: 11px; }
+.home-col-left .filter-row-2 .filter-cell { font-size: 0.75rem; }
+.home-col-left .filter-row-2 input[type=number] { font-size: 0.75rem; }
+.home-col-left .filter-apply { padding: 3px 8px; font-size: 0.75rem; }
 .home-col-left .filter-reset,
-.home-col-left .filter-lock { padding: 3px 7px; font-size: 11px; }
+.home-col-left .filter-lock { padding: 3px 7px; font-size: 0.75rem; }
 /* 左栏奖牌区 (2026-09-20 回滚三张卡布局; 字号由 MedalPanel scoped + main.css 统一控制,
    不再需要 :deep 覆盖子元素字号 —— 旧 40px/18px 大字覆盖是"字体不统一"的元凶, 保持删除) */
 .home-col-left .medal-section { padding: 5px; margin: 4px 0; gap: 8px; border-radius: 8px; }
@@ -368,10 +368,10 @@ body[data-bg="light"] .freeze-notice b { color: #8a5500; }
 @media (max-width: 768px) {
   .alert-rule.alert-rule-compact { padding: 4px 6px !important; margin: 2px 0 4px !important; gap: 4px !important; row-gap: 4px !important; flex-wrap: wrap !important; }
   .alert-rule.alert-rule-compact .rule-text,
-  .alert-rule.alert-rule-compact .rule-text strong { font-size: 11px !important; }
+  .alert-rule.alert-rule-compact .rule-text strong { font-size: 0.75rem !important; }
   .mode-tabs.mode-tabs-inline { gap: 3px !important; }
-  .mode-tab.mode-tab-compact { padding: 4px 9px !important; font-size: 11.5px !important; min-height: 26px; }
-  .alert-rule.alert-rule-compact .tdx-export-btn { padding: 4px 6px !important; font-size: 11px !important; min-height: 26px; }
+  .mode-tab.mode-tab-compact { padding: 4px 9px !important; font-size: 0.75rem !important; min-height: 26px; }
+  .alert-rule.alert-rule-compact .tdx-export-btn { padding: 4px 6px !important; font-size: 0.75rem !important; min-height: 26px; }
 }
 
 /* 浅色主题覆盖 */

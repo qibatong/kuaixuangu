@@ -78,26 +78,26 @@ function goBack() {
   box-shadow: 0 8px 32px rgba(var(--accent-rgb), 0.12);
 }
 .vip-icon {
-  font-size: 44px;
+  font-size: 2.75rem;
   color: var(--accent);
   margin-bottom: 10px;
 }
 .vip-title {
-  font-size: 20px;
+  font-size: 1.25rem;
   font-weight: 700;
   color: var(--text-main);
   margin-bottom: 12px;
 }
 .vip-desc {
-  font-size: 14px;
+  font-size: 0.875rem;
   color: var(--text-secondary);
   line-height: 1.7;
 }
 .vip-desc .warn { color: var(--accent-deep); font-weight: 700; }
-.vip-desc .highlight { color: var(--accent-deep); font-size: 18px; }
+.vip-desc .highlight { color: var(--accent-deep); font-size: 1.125rem; }
 .vip-tip {
   margin-top: 14px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--text-muted);
   background: rgba(var(--accent-rgb), 0.08);
   border-radius: 8px;
@@ -105,7 +105,7 @@ function goBack() {
 }
 .vip-wechat {
   margin-top: 4px;
-  font-size: 14px;
+  font-size: 0.875rem;
   color: var(--accent-deep);
 }
 .vip-wechat b { font-weight: 700; letter-spacing: 0.5px; }
@@ -116,7 +116,7 @@ function goBack() {
   border: none;
   border-radius: 8px;
   padding: 9px 22px;
-  font-size: 14px;
+  font-size: 0.875rem;
   cursor: pointer;
   transition: opacity 0.15s;
 }

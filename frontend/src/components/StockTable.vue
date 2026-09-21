@@ -167,11 +167,11 @@ function realCls(item) {
   text-align: center;
   vertical-align: middle;
   padding: 5px 2px !important;
-  font-size: 12px !important;
+  font-size: 0.75rem !important;
 }
 .stock-table-compact th {
   padding: 7px 2px !important;
-  font-size: 12px !important;
+  font-size: 0.75rem !important;
 }
 .stock-table-compact th.sortable {
   white-space: nowrap;
@@ -181,7 +181,7 @@ function realCls(item) {
   min-width: 0;
   white-space: normal;
   line-height: 1.3;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--text-secondary);
   padding: 4px 2px !important;
 }
@@ -195,7 +195,7 @@ function realCls(item) {
 }
 .stock-table-compact .pool-add-btn {
   padding: 1px 5px;
-  font-size: 11px;
+  font-size: 0.75rem;
   border-radius: 3px;
 }
 /* 2026-09-20 视觉减噪: 中性列(竞额/市值/评分/可信)灰字, 页面只保留涨跌红绿一个彩色语义 */
@@ -205,7 +205,8 @@ function realCls(item) {
   cursor: pointer;
   min-width: 0;
   min-height: 0;
-  height: 52px;
+  /* 2026-09-21 字号12px下限: badge 行高 13->17px, 单元格 52->56px 同步 */
+  height: 56px;
   text-align: center;
   padding: 4px 2px !important;
   display: flex;
@@ -224,12 +225,13 @@ function realCls(item) {
 .stock-info-cell .stock-name {
   font-weight: 600;
   color: var(--text-main);
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 /* 异动监管标签行: 始终占用固定高度(无标签也占位), 保证各列网格线对齐 */
 .yd-badge-row {
   order: 3;
-  height: 13px;
+  /* 2026-09-21 字号12px下限: badge 10->12px, 行高 13->17px 容纳(字12+padding2+border2) */
+  height: 17px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -237,7 +239,7 @@ function realCls(item) {
 }
 .yd-badge {
   display: inline-block;
-  font-size: 10px;
+  font-size: 0.75rem;
   line-height: 1;
   padding: 1px 5px;
   border-radius: 3px;
@@ -252,8 +254,8 @@ function realCls(item) {
   margin-top: 2px;
 }
 .stock-info-cell .stock-code {
-  font-family: "LXGW WenKai Mono", monospace;
-  font-size: 11px;
+  font-family: inherit;
+  font-size: 0.75rem;
   color: var(--text-muted);
   letter-spacing: 0.5px;
 }
@@ -307,7 +309,7 @@ body[data-bg="light"] th.sortable.active { color: #fff; }
   color: #c0e8a0;
   border-radius: 4px;
   padding: 2px 8px;
-  font-size: 12px;
+  font-size: 0.75rem;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -326,7 +328,7 @@ body[data-bg="light"] th.sortable.active { color: #fff; }
 .offline-tag {
   display: inline-block;
   margin-top: 3px;
-  font-size: 10px;
+  font-size: 0.75rem;
   line-height: 1.3;
   color: var(--text-muted);
   border: 1px dashed #777;
@@ -337,10 +339,10 @@ body[data-bg="light"] th.sortable.active { color: #fff; }
 /* 2026-09-20 性能优化: content-visibility 虚拟化渲染。
    数千行时浏览器自动跳过视口外行的布局/绘制, 滚动流畅度大幅提升。
    纯 CSS 方案(不引入虚拟滚动库), 不影响既有 sticky 表头、排序、点击图表等。
-   contain-intrinsic-size 用首列固定高度 52px 撑稳定滚动条(行高恒定, 无跳动)。 */
+   contain-intrinsic-size 用首列固定高度 56px 撑稳定滚动条(行高恒定, 无跳动)。 */
 .stock-table-compact tbody tr {
   content-visibility: auto;
-  contain-intrinsic-size: auto 52px;
+  contain-intrinsic-size: auto 56px;
 }
 /* 浅色主题覆盖: 表头红底白字(与全局统一) */
 body[data-bg="light"] th.sortable {  color: #fff;  }

@@ -22,6 +22,9 @@
       <router-link to="/market" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-radar"></i> 市场雷达
       </router-link>
+      <router-link to="/concept" exact-active-class="router-link-active" class="nav-item">
+        <i class="fa fa-fire"></i> 题材异动
+      </router-link>
       <router-link to="/ladder" exact-active-class="router-link-active" class="nav-item">
         <i class="fa fa-sitemap"></i> 涨停梯队
       </router-link>
@@ -86,7 +89,7 @@
               <button
                 v-for="f in FONTS" :key="f.key"
                 class="menu-font" :class="{ active: font === f.key }"
-                :style="{ fontSize: f.key === 'sm' ? '11px' : f.key === 'lg' ? '16px' : '13px' }"
+                :style="{ fontSize: f.key === 'sm' ? '12px' : f.key === 'lg' ? '16px' : '13px' }"
                 :title="f.label" @click="setFont(f.key)"
               >A</button>
             </div>
@@ -213,7 +216,7 @@ function logout() {
   display: block;
 }
 .nav-brand-name {
-  font-size: 18px; font-weight: 800;
+  font-size: 1.125rem; font-weight: 800;
   color: var(--accent); letter-spacing: 10px;
   line-height: 1.1;
   padding-left: 5px; /* 补偿 letter-spacing 末尾 10px 空白, 让"快选"视觉中点 = 几何中点 */
@@ -221,7 +224,7 @@ function logout() {
 }
 .nav-brand-text { display: flex; flex-direction: column; align-items: center; gap: 3px; line-height: 1.1; }
 .nav-brand-slogan {
-  font-size: 11px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   opacity: 0.85;
   white-space: nowrap;
@@ -236,7 +239,7 @@ function logout() {
   gap: 6px;
   padding: 7px 14px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--text-secondary);
   text-decoration: none;
   border: 1px solid transparent;
@@ -246,38 +249,40 @@ function logout() {
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .nav-item:hover { background: var(--bg-hover); color: var(--text-main); }
-/* 白色主题: 红色导航栏(A股红, 2026-08-17 主人: 股民都喜欢红), 内容白色系 */
+/* 白色主题: 克制导航栏(2026-09-21 主人要求去红渐变, 改白底细边;
+   品牌红仅保留在激活 tab 文字/边框作点缀, 不再大面积铺红) */
 body[data-bg="light"] .nav-bar {
-  background: linear-gradient(135deg, #e03a2f, #c62828);
-  border-color: rgba(190, 40, 30, 0.55);
+  background: #ffffff;
+  border-color: #d9dde5;
+  box-shadow: 0 1px 4px rgba(30, 40, 60, 0.06);
 }
-body[data-bg="light"] .nav-brand-name { color: #fff; }
-body[data-bg="light"] .nav-brand-slogan { color: rgba(255, 255, 255, 0.78); }
-body[data-bg="light"] .nav-brand { border-right-color: rgba(255, 255, 255, 0.28); }
+body[data-bg="light"] .nav-brand-name { color: #1a1d26; }
+body[data-bg="light"] .nav-brand-slogan { color: #8a8f9c; }
+body[data-bg="light"] .nav-brand { border-right-color: #e3e6ec; }
 body[data-bg="light"] .nav-item {
-  background: rgba(255, 255, 255, 0.14);
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.15);
+  background: #f2f4f8;
+  color: #3a3f4c;
+  border-color: #e0e3ea;
 }
-body[data-bg="light"] .nav-item:hover { background: rgba(255, 255, 255, 0.28); color: #fff; }
+body[data-bg="light"] .nav-item:hover { background: #e8ebf1; color: #1a1d26; }
 body[data-bg="light"] .nav-item.router-link-active {
   background: #fff;
   color: #c62828;
-  border-color: rgba(255, 255, 255, 0.6);
+  border-color: rgba(198, 40, 40, 0.45);
   font-weight: 700;
 }
 body[data-bg="light"] .user-name-btn {
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.25);
-  color: #fff;
+  background: #f2f4f8;
+  border-color: #e0e3ea;
+  color: #3a3f4c;
 }
-body[data-bg="light"] .user-name-btn:hover { background: rgba(255, 255, 255, 0.28); color: #fff; }
+body[data-bg="light"] .user-name-btn:hover { background: #e8ebf1; color: #1a1d26; }
 body[data-bg="light"] .mini-btn {
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.25);
-  color: #fff;
+  background: #f2f4f8;
+  border-color: #e0e3ea;
+  color: #3a3f4c;
 }
-body[data-bg="light"] .mini-btn:hover { background: rgba(255, 255, 255, 0.28); color: #fff; }
+body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
 .nav-item.router-link-active {
   background: rgba(255, 180, 0, 0.15);
   border-color: var(--accent);
@@ -292,7 +297,7 @@ body[data-bg="light"] .mini-btn:hover { background: rgba(255, 255, 255, 0.28); c
 .user-dropdown { position: relative; }
 .user-name-btn {
   display: inline-flex; align-items: center; gap: 5px;
-  font-size: 13px; color: var(--text-secondary);
+  font-size: 0.8125rem; color: var(--text-secondary);
   background: var(--bg-input); border: 1px solid var(--border-soft);
   border-radius: 6px; padding: 4px 10px; cursor: pointer;
   white-space: nowrap;
@@ -319,7 +324,7 @@ body[data-bg="light"] .mini-btn:hover { background: rgba(255, 255, 255, 0.28); c
 .menu-setting-row { display: flex; align-items: center; gap: 8px; }
 .menu-setting-label {
   display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12px; color: #b4b4b4; min-width: 56px; white-space: nowrap;
+  font-size: 0.75rem; color: #b4b4b4; min-width: 56px; white-space: nowrap;
 }
 .menu-setting-label i { width: 14px; text-align: center; }
 /* 导航栏主题快捷圆点(2026-08-18 主人要求移出下拉) */
@@ -329,7 +334,7 @@ body[data-bg="light"] .mini-btn:hover { background: rgba(255, 255, 255, 0.28); c
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
-body[data-bg="light"] .theme-quick { border-color: rgba(255, 255, 255, 0.28); background: rgba(255, 255, 255, 0.14); }
+body[data-bg="light"] .theme-quick { border-color: #e0e3ea; background: #f2f4f8; }
 .nav-theme-dot {
   width: 18px; height: 18px; border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.35); cursor: pointer; padding: 0;
@@ -338,7 +343,7 @@ body[data-bg="light"] .theme-quick { border-color: rgba(255, 255, 255, 0.28); ba
 .nav-theme-dot:hover { transform: scale(1.18); }
 .nav-theme-dot.active { border-color: #fff; box-shadow: 0 0 6px rgba(255, 255, 255, 0.85); }
 body[data-bg="light"] .nav-theme-dot { border-color: rgba(0, 0, 0, 0.3); }
-body[data-bg="light"] .nav-theme-dot.active { border-color: #c62828; box-shadow: 0 0 6px rgba(198, 40, 40, 0.4); }
+body[data-bg="light"] .nav-theme-dot.active { border-color: #1a1d26; box-shadow: 0 0 6px rgba(26, 29, 38, 0.3); }
 .menu-dot {
   width: 16px; height: 16px; border-radius: 50%;
   border: 2px solid #2a2a2a; cursor: pointer; padding: 0;
@@ -374,10 +379,10 @@ body[data-bg="light"] .nav-theme-dot.active { border-color: #c62828; box-shadow:
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .menu-fontfam .ff-label {
-  font-size: 15px; font-weight: 600; line-height: 1.1;
+  font-size: 0.9375rem; font-weight: 600; line-height: 1.1;
 }
 .menu-fontfam .ff-desc {
-  font-size: 11px; color: #949494; opacity: 0.92;
+  font-size: 0.75rem; color: #949494; opacity: 0.92;
   margin-left: auto;
 }
 .menu-sep { height: 1px; background: rgba(255, 255, 255, 0.1); margin: 4px 6px; }
@@ -386,7 +391,7 @@ body[data-bg="light"] .nav-theme-dot.active { border-color: #c62828; box-shadow:
   width: 100%; text-align: left;
   background: transparent; border: none;
   color: #eef2ff;
-  font-size: 13px; padding: 8px 12px;
+  font-size: 0.8125rem; padding: 8px 12px;
   border-radius: 6px; cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
@@ -429,7 +434,7 @@ body[data-bg="black"] .menu-fontfam { border-color: #2a2a2a; }
 .mini-btn {
   background: var(--bg-input); border: 1px solid var(--border-soft);
   color: var(--text-secondary); border-radius: 6px;
-  font-size: 12px; padding: 4px 10px; cursor: pointer;
+  font-size: 0.75rem; padding: 4px 10px; cursor: pointer;
   text-decoration: none; transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .mini-btn:hover { background: var(--bg-hover); color: var(--text-main); border-color: var(--accent); }
@@ -439,7 +444,7 @@ body[data-bg="black"] .menu-fontfam { border-color: #2a2a2a; }
 /* 会员等级标识 */
 .member-badge {
   display: inline-flex; align-items: center;
-  font-size: 11px; font-weight: 600;
+  font-size: 0.75rem; font-weight: 600;
   border-radius: 10px; padding: 1px 8px;
   white-space: nowrap;
 }
@@ -460,19 +465,19 @@ body[data-bg="light"] .renew-badge { color: #b05e00; border-color: #c07a10; }
   .nav-left { gap: 6px; width: 100%; }
   .nav-brand { gap: 5px; padding: 0 6px 0 2px; }
   .nav-logo { width: 26px; height: 26px; border-radius: 6px; }
-  .nav-brand-name { font-size: 14px; }
+  .nav-brand-name { font-size: 0.875rem; }
   .nav-brand-slogan { display: none; }
   /* 导航项自动换行(2026-08-18 主人要求: 不用向右滑动, 换行展示) */
   .nav-tabs { flex-wrap: wrap; overflow: visible; padding-bottom: 2px; width: 100%; }
-  .nav-item { padding: 5px 10px; font-size: 12px; gap: 4px; }
+  .nav-item { padding: 5px 10px; font-size: 0.75rem; gap: 4px; }
   /* 工具区自动换行(2026-08-18 主人要求: 不横滑, 放不下自动换行) */
   .nav-tools { gap: 6px; flex-wrap: wrap; overflow: visible; max-width: 100%; }
   .nav-tools::-webkit-scrollbar { display: none; }
   /* 手机上用户名按钮紧凑保留(点击弹下拉), 会员徽标省略文本 */
-  .user-name-btn { padding: 3px 8px; font-size: 12px; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+  .user-name-btn { padding: 3px 8px; font-size: 0.75rem; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
   .user-menu { min-width: 150px; top: calc(100% + 4px); }
-  .user-menu .menu-item { padding: 9px 12px; font-size: 13px; }
-  .mini-btn { padding: 4px 8px; font-size: 11px; white-space: nowrap; }
-  .member-badge { font-size: 10px; padding: 1px 6px; }
+  .user-menu .menu-item { padding: 9px 12px; font-size: 0.8125rem; }
+  .mini-btn { padding: 4px 8px; font-size: 0.75rem; white-space: nowrap; }
+  .member-badge { font-size: 0.75rem; padding: 1px 6px; }
 }
 </style>

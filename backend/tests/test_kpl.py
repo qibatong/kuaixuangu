@@ -365,11 +365,12 @@ def test_fetch_yest_broken(monkeypatch):
     assert "600683" not in codes  # 昨日仍涨停 → 连板中, 非断板
 
 
-def _mock_meoz(monkeypatch, kp=None, snap=None, ob=None, mv=None, sc=None):
+def _mock_meoz(monkeypatch, kp=None, snap=None, ob=None, mv=None, sc=None, ff=None):
     """为 fetch_bid_qiangcang 注入猫爪 mock。
-    kp/snap/ob/sc: {symbol: {字段}} 猫爪各源返回; mv: 市值字典(缺省由 kp 的 free_float_mv 推导)。
+    kp/snap/ob/sc: {symbol: {字段}} 猫爪各源返回; mv: 市值字典(缺省由 kp 的 free_float_mv 推导);
+    ff: fundflow_kp 竞价净额字典(2026-09-21 新增, 供 list20 兜底测试)。
     返回一个 dict 便于测试断言调用次数。"""
-    calls = {"kp": 0, "snap": [], "ob": 0, "mv": 0, "sc": 0}
+    calls = {"kp": 0, "snap": [], "ob": 0, "mv": 0, "sc": 0, "ff": 0}
 
     def _auc_qc_net(date_offset=None, date=None):
         calls["kp"] += 1
@@ -398,6 +399,10 @@ def _mock_meoz(monkeypatch, kp=None, snap=None, ob=None, mv=None, sc=None):
         calls["sc"] += 1
         return sc or {}
 
+    def _fundflow_map(symbols, date_offset=None, date=None):
+        calls["ff"] += 1
+        return ff or {}
+
     import app.services.kpl as _k
     from app.services import meoz_client as _m
     monkeypatch.setattr(_k, "meoz_client", _m, raising=False)
@@ -406,6 +411,7 @@ def _mock_meoz(monkeypatch, kp=None, snap=None, ob=None, mv=None, sc=None):
     monkeypatch.setattr(_m, "auc_open_bid", _auc_open_bid)
     monkeypatch.setattr(_m, "free_mv_map", _free_mv_map)
     monkeypatch.setattr(_m, "screening_map", _screening_map)
+    monkeypatch.setattr(_m, "fundflow_map", _fundflow_map)
     return calls
 
 
@@ -454,6 +460,47 @@ def test_fetch_bid_qiangcang(monkeypatch):
     assert mLast["2"]["qcDeltaLast"] == 0.5
     # 降序: 1(1.0) > 2(0.5)
     assert lLast[0]["code"] == "1"
+
+
+def test_fetch_bid_qiangcang_list20_fundflow_fallback(monkeypatch):
+    """list20 兜底(2026-09-21): 猫爪 auc_kp 竞价净额大面积缺失(过滤后0只) →
+    用 fundflow_kp.auction_main_net_amount 全市场自算净额层, qcDelta 口径与主源一致。"""
+    import time as _t
+    class FakeT:
+        tm_hour, tm_min, tm_wday = 9, 25, 3   # 竞价时段(9:25 定格)
+    monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
+    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+
+    # auc_kp 返回非空但净额全 0 → 过滤后 0 只, 触发兜底
+    kp = {
+        "1": {"name": "A", "auc_net_amount": 0, "free_float_mv": 5e9, "auc_amt": 5e7},
+        "2": {"name": "B", "auc_net_amount": 0, "free_float_mv": 4e9, "auc_amt": 3e7},
+    }
+    mv = {"1": 5e9, "2": 4e9, "600001": 3e9, "600002": 8e9, "600003": 1e8}
+    ff = {
+        "600001": {"name": "兜底甲", "auction_main_net_amount": 6e7},   # 6e7/3e9=2.0%
+        "600002": {"name": "兜底乙", "auction_main_net_amount": 1e8},   # 1e8/8e9=1.25%
+        "600003": {"name": "兜底丙", "auction_main_net_amount": 5e6},   # 市值<2亿 过滤
+        "600004": {"name": "兜底丁", "auction_main_net_amount": 2e7},   # 无市值 过滤
+    }
+    sc = {
+        "600001": {"name": "兜底甲", "auc_amt": 1e8, "auc_turnover": 2.5, "auc_pct_chg": 6.0},
+        "600002": {"name": "兜底乙", "auc_amt": 8e7, "auc_turnover": 1.8, "auc_pct_chg": 5.0},
+    }
+    calls = _mock_meoz(monkeypatch, kp=kp, mv=mv, sc=sc, ff=ff)
+    kpl.clear_cache()
+    d = kpl.fetch_bid_qiangcang()
+    l20 = d["list20"]
+    assert calls["ff"] == 1, calls   # 兜底确实触发了 fundflow
+    assert len(l20) == 2, l20
+    assert l20[0]["code"] == "600001" and l20[0]["qcDelta"] == 2.0
+    assert l20[1]["code"] == "600002" and l20[1]["qcDelta"] == 1.25
+    # screening 字段补齐
+    assert l20[0]["name"] == "兜底甲"
+    assert l20[0]["bidAmt"] == 1e8
+    assert l20[0]["bidChange"] == 6.0
+    assert l20[0]["bidTurnover"] == 2.5
+    assert l20[0]["floatMv"] == 3e9
 
 
 def test_fetch_bid_qiangcang_persist(monkeypatch):

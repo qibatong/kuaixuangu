@@ -100,6 +100,7 @@ scripts/_verify_aipick_defaults.py
 # ========== 临时调试/修复脚本(不入库) ==========
 scripts/_verify_*.py
 scripts/_diag_*.py
+scripts/_probe_*.py
 scripts/_trigger_*.py
 scripts/_sim_*.py
 scripts/_set_aipick_*.py
