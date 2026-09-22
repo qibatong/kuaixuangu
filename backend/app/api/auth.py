@@ -13,7 +13,7 @@ from fastapi import APIRouter, Body, Depends, Request
 
 from ..core import config, logger
 from ..db import database
-from ..services import security, sms_verify, users
+from ..services import activity, security, sms_verify, users
 from .deps import client_ip, get_uid, jr, qs
 
 log = logger.get_logger(__name__)
@@ -41,11 +41,19 @@ def _login_sync(request: Request, body: dict):
     ok = user is not None and security.verify_password(password, user.get("password_hash") or "")
     if not ok:
         log.warning("登录失败 login=%s ip=%s", login, client_ip(request))
+        # 2026-09-22 v4.11.35: 登录失败落库(撞库/忘记密码排查用; uid 未知记 0)
+        activity.record_login(uid=(user["id"] if user else 0), login_try=login,
+                              result="fail", ip=client_ip(request),
+                              ua=request.headers.get("User-Agent") or "")
         return jr({"ok": False, "msg": "用户名或密码错误"}, 401)
     # 单点登录: 密码校验通过后, 作废该用户所有旧 token, 强制只保留当前会话(防账号共享)
     revoked = security.revoke_user_tokens(user["id"])
     log.info("登录成功 uid=%s user=%s ip=%s remember=%s 已踢旧会话%d个",
              user["id"], user["username"], client_ip(request), remember, revoked)
+    # 2026-09-22 v4.11.35: 登录成功落库(登录记录的主体)
+    activity.record_login(uid=user["id"], login_try=login, result="success",
+                          ip=client_ip(request), ua=request.headers.get("User-Agent") or "",
+                          remember=remember)
     et = int(user.get("expire_at") or 0)
     token = security.issue_token(user["id"], remember)
     resp = jr({"ok": True, "token": token,
@@ -348,7 +356,29 @@ def api_reset_by_phone(request: Request, body: dict = Body(...)):
     security.revoke_user_tokens(user["id"])
     sms_verify.mark_consumed(phone, "forgot", ttl=config.SMS_VALID_MIN * 60)
     log.info("手机短信找回密码成功 uid=%s user=%s", user["id"], user["username"])
+    # 2026-09-22 v4.11.35: 重置密码落库(安全审计价值最高的一条 —— 账号可能被他人接管)
+    activity.record_login(uid=user["id"], login_try=phone, result="reset",
+                          ip=client_ip(request), ua=request.headers.get("User-Agent") or "")
     return jr({"ok": True, "msg": "密码已重置，请用新密码登录"})
+
+
+@router.post("/api/logout")
+def api_logout(request: Request, uid: int = Depends(get_uid)):
+    """主动退出登录(2026-09-22 v4.11.35 新增).
+
+    ★ 新增原因: 此前「退出」是**纯前端行为**(只清本地 token), 后端完全无感知 ——
+      所以登录记录里只有「登录」与「被顶出」, 缺「主动退出」这一半, 会话时长算不出来。
+    ★ 语义: 作废当前用户全部 token(与单点登录一致), 并落一条 logout 记录。
+      token 本身无效/过期时不进这里(get_uid 已 401), 所以不进记录是合理的。
+    """
+    try:
+        security.revoke_user_tokens(uid)
+    except Exception as e:
+        log.warning("退出登录作废 token 失败 uid=%s err=%s", uid, e)
+    activity.record_login(uid=uid, result="logout", ip=client_ip(request),
+                          ua=request.headers.get("User-Agent") or "")
+    log.info("主动退出登录 uid=%s ip=%s", uid, client_ip(request))
+    return jr({"ok": True, "msg": "已退出登录"})
 
 
 @router.post("/api/forgot/check")

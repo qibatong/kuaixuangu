@@ -98,6 +98,7 @@
 import { onMounted, onBeforeUnmount, ref, reactive, computed } from 'vue'
 import { usePolling } from '../composables/usePolling'
 import { kplZtEchelon, kplLadderDates, kplZtReason } from '../api/kpl'
+import { trackUsageOnce } from '../api/activity'
 import { useUserStore } from '../stores/user'
 import { bjDateTimeStr, isIntradayNow } from '../utils/time'
 
@@ -189,6 +190,8 @@ let echelonTimer = null
 onMounted(() => {
   bjTime.value = bjDateTimeStr()
   usePolling(() => { bjTime.value = bjDateTimeStr() }, 1000, { immediate: false })
+  // 2026-09-22 v4.11.35: 涨停梯队打开即算一次(Once 版, 组件内 30s 轮询不重复上报)
+  trackUsageOnce('ladder')
   load()
   loadImgDates()
   // 盘中 30s 刷新梯队(收盘/周末不轮询)

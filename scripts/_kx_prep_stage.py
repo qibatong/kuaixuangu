@@ -16,17 +16,25 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BE = os.path.join(ROOT, "backend")
 OUT = os.path.join(ROOT, "scripts", "deploy_tmp", "_kx_be")
 
-# 测试机行尾现状(2026-09-21 实测): 见下, 其余一律 LF
+# 测试机行尾现状(🔴 2026-09-22 用 _kx_eol.py 实测订正):
+#   CRLF = auth.py / deps.py / aipick.py / core/config.py / db/database.py / main.py /
+#          services/users.py / services/aipick_scheduler.py
+#   ⚠️ 上一版把 admin.py 列为 CRLF 是**错的** —— 现在实测是 LF(可能是 09-22 那次
+#      quota 卡片部署写成了 LF)。**用前务必重跑探测**(见文件末尾), 别照抄这张表。
 CRLF = {
     "app/api/auth.py",
     "app/api/deps.py",
     "app/api/aipick.py",
-    "app/api/admin.py",
     "app/core/config.py",
     "app/db/database.py",
     "app/main.py",
     "app/services/users.py",
+    "app/services/aipick_scheduler.py",
 }
+#
+# 探测命令(部署前必跑一次, 以实测为准):
+#   cd /root && /opt/bid-venv/bin/python _kx_eol.py /opt/kuaixuan/backend <rel1> <rel2> ...
+# 输出 `CRLF <rel> crlf=N` / `LF <rel>`; 把与我预期不符的行改到上面这个集合里。
 
 
 def normalize(data: bytes, eol: str) -> bytes:

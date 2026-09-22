@@ -585,6 +585,7 @@ def api_admin_defaults_put(request: Request, body: dict = Body(...), uid: int = 
 @router.get("/api/admin/dashboard")
 def api_admin_dashboard(request: Request, uid: int = Depends(get_admin)):
     """运营看板: 用户/会员/邀请/签到/风控 一屏聚合(北京时间口径)"""
+    from ..services import activity as act_svc
     from ..services import quota as quota_svc
 
     conn = _conn()
@@ -648,7 +649,9 @@ def api_admin_dashboard(request: Request, uid: int = Depends(get_admin)):
         "expiring_3d": exp3, "expiring_7d": exp7,
         "phone_claims": claims, "phone_claims_7d": claims_recent,
         "checkin_today": checkin_today,
-    }, "trend": trend, "quota": quota_svc.quota_stats()})
+    }, "trend": trend, "quota": quota_svc.quota_stats(),
+        # 2026-09-22 v4.11.35 看板 2 张新卡: 今日登录概况 + 今日功能使用 Top5
+        "activity": {"login": act_svc.login_stats(), "usage": act_svc.usage_rank(limit=5)}})
 
 
 @router.get("/api/admin/expiring")
@@ -1141,3 +1144,86 @@ def api_admin_extend_plus(request: Request, body: dict = Body(...),
     log.info("管理端一键续期 admin=%s days=%s 成功%d/%d", uid, days, ok_n, len(uids))
     return jr({"ok": True, "msg": "已为 %d/%d 个账号 +%d 天" % (ok_n, len(uids), days),
                "success": ok_n, "total": len(uids), "failed": failed})
+
+
+# ============================================================================
+# 用户行为记录: 登录记录 + 功能使用记录(2026-09-22, v4.11.35)
+# ----------------------------------------------------------------------------
+# 数据源见 services/activity.py。计数口径 = **用户主动操作一次 = 1 次**
+# (主人 2026-09-22 拍板), 由前端在动作回调里上报, 不是接口请求数。
+# 🔴 IP / UA / 设备属个人信息: **查某个具体用户的明细时必须写 admin_audit 留痕**
+#    (全局流水不写, 否则审计表会被翻页刷爆)。
+# ============================================================================
+
+@router.get("/api/admin/user-activity")
+def api_admin_user_activity(request: Request, uid: int = Depends(get_admin),
+                            target_uid: int = 0, days: int = 30):
+    """某用户的登录记录 + 功能使用记录(用户详情抽屉用)"""
+    from ..services import activity as act_svc
+
+    if not target_uid:
+        return jr({"ok": False, "msg": "缺少 target_uid"}, 400)
+    days = max(1, min(180, int(days or 30)))
+    u = users.find_user_by_id(target_uid)
+    if not u:
+        return jr({"ok": False, "msg": "用户不存在"}, 404)
+    # 🔴 查询留痕: 谁在什么时候看了谁的行为明细
+    users.audit(uid, "view_user_activity", target_uid, {"days": days}, client_ip(request))
+    log.info("管理端查看用户行为 admin=%s target=%s days=%s", uid, target_uid, days)
+    return jr({"ok": True,
+               "target": {"id": u["id"], "username": u["username"]},
+               "logins": act_svc.login_history(target_uid, days=days, limit=100),
+               "usage": act_svc.usage_summary(target_uid, days=days),
+               "result_labels": act_svc.LOGIN_RESULT_LABEL})
+
+
+@router.get("/api/admin/login-log")
+def api_admin_login_log(request: Request, uid: int = Depends(get_admin)):
+    """全站登录流水: ?days=&result=success|fail|reset|kicked|logout&kw=&limit=&offset="""
+    from ..services import activity as act_svc
+
+    q = qs(request)
+
+    def _int(key, default, lo, hi):
+        try:
+            return max(lo, min(hi, int((q.get(key) or [default])[0])))
+        except (TypeError, ValueError):
+            return default
+
+    return jr({"ok": True, "result_labels": act_svc.LOGIN_RESULT_LABEL,
+               **act_svc.global_login_log(
+                   days=_int("days", 30, 1, 365),
+                   result=(q.get("result") or [""])[0].strip(),
+                   kw=(q.get("kw") or [""])[0].strip(),
+                   limit=_int("limit", 50, 1, 200),
+                   offset=_int("offset", 0, 0, 1000000))})
+
+
+@router.get("/api/admin/usage-rank")
+def api_admin_usage_rank(request: Request, uid: int = Depends(get_admin)):
+    """某日功能使用排行: ?date=YYYY-MM-DD&feature=&limit="""
+    from ..services import activity as act_svc
+
+    q = qs(request)
+    try:
+        limit = max(1, min(100, int((q.get("limit") or [20])[0])))
+    except (TypeError, ValueError):
+        limit = 20
+    return jr({"ok": True, **act_svc.usage_rank(
+        date=(q.get("date") or [""])[0].strip() or None,
+        feature=(q.get("feature") or [""])[0].strip() or None, limit=limit),
+        "feature_labels": act_svc.FEATURES})
+
+
+@router.get("/api/admin/active-users")
+def api_admin_active_users(request: Request, uid: int = Depends(get_admin)):
+    """活跃趋势: ?days=30 → 按日去重用户数 / 操作次数 / 登录成功数"""
+    from ..services import activity as act_svc
+
+    q = qs(request)
+    try:
+        days = max(1, min(90, int((q.get("days") or [30])[0])))
+    except (TypeError, ValueError):
+        days = 30
+    return jr({"ok": True, **act_svc.active_trend(days=days),
+               "feature_labels": act_svc.FEATURES})

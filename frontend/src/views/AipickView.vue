@@ -118,6 +118,7 @@ import { useUserStore } from '../stores/user'
 import VipGate from '../components/VipGate.vue'
 import PoolHoverBtn from '../components/PoolHoverBtn.vue'
 import { aipickDates, aipickData, aipickRealtime } from '../api/aipick'
+import { trackUsage } from '../api/activity'
 
 // 2026-09-01: 嵌入首页左视图(替换盘中选股)时传入 embedded=true,
 // 收紧面板间距并为半宽布局启用表格横向滚动;
@@ -401,12 +402,16 @@ async function loadReport() {
   quotes.value = {}
   fetchedCodes.clear()
   stopRealtime()
+  // 2026-09-22 v4.11.35 行为记录: 打开 AI 预测页 / 切换日期 = 一次使用;
+  // 被配额拦下则进 blocked 计数(转化线索)。放在 finally 里以便拿到真实结果。
+  let blocked = false
   try {
     const r = await aipickData(selDate.value)
     data.value = r.data || { date: '', count: 0, top: [] }
   } catch (e) {
     if (e && (e.code === 'quota_exceeded' || e.status === 429)) {
       quotaExceeded.value = true
+      blocked = true
       quotaInfo.value = {
         feature: e.feature || 'aipick',
         feature_label: e.feature_label || 'AI 预测',
@@ -419,6 +424,7 @@ async function loadReport() {
   } finally {
     loading.value = false
     startRealtime()
+    trackUsage('aipick', blocked)
   }
 }
 

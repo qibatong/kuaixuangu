@@ -293,6 +293,7 @@ v-for="s in sourceOptions" :key="s.key"
 import { computed, onMounted, ref, reactive } from 'vue'
 import { usePolling } from '../composables/usePolling'
 import { kplBoardRank, kplBoardStocks, kplHotRank, kplLhb, kplLhbDetail, sectorRotation } from '../api/kpl'
+import { trackUsageOnce } from '../api/activity'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
 import { useSortable } from '../composables/useSortable'
@@ -484,6 +485,8 @@ function switchSource(src) {
 onMounted(() => {
   bjTime.value = bjTimeStr()
   usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
+  // 2026-09-22 v4.11.35: 市场雷达打开即算一次(Once 版, 组件内 60s 轮询不重复上报)
+  trackUsageOnce('market')
   loadBoard()
   loadHistory()
   loadHot()

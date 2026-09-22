@@ -1477,6 +1477,91 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.35 (09-22 仅测试机已上线, 生产待放行) 用户行为记录：管理员看得到「谁什么时候登录过」「谁用了哪些功能」—— 新增 login_log + usage_daily 两表 + 前端埋点上报 + 4 个后台查询端点 + 存量回溯脚本**
+  - **触发**：主人提出「管理员看不到用户的登录记录及功能使用记录，这个功能可以增加吗？如果可以你详细列出需要增加的功能，我同意后再开发」。
+    调研后给出方案（`docs/admin-user-activity-log-plan.md`，commit `06bc668`），主人拍板三点：
+    ① 计数口径 = **用户主动操作一次记一次**（原话「比如一个用户选股点击应用 1 次就记录 1 次」）；
+    ② **需要回溯**历史；③ journald 上限**不收**（保持 4G）。
+  - **现状（改造前，全部生产机实测）**：
+    - **登录记录基本没有**：`tokens` 表只有 `created_at`，**无 IP 无 UA**，且 token 过期被访问时直接 `DELETE`（历史会丢）；
+      `app.log` 全文件只有 **11 条**「登录成功」（10MB 即轮转）；**前端根本没有退出登录接口**（只清本地 token）。
+    - **功能使用只覆盖免费用户**：唯一记录是 `kv_cache` 的 `quota:{feature}:{uid}:{date}`（**TTL 25 小时**即删），
+      且 `consume()` 对**会员/管理员直接 return True 不落 key** ⇒ **付了钱、用得最多的人反而完全没记录**；
+      且只有 `picker/aipick/auction` 三个功能。
+    - **唯一能救命的来源**：journald 每行带 `uid`，08-17 至今 **316 万行 / 已占 3.9G**（默认上限 4G）。
+  - **关键设计决策（口径落地方式）**：计数**不能**放在后端接口上，必须**由前端在动作回调里上报**。
+    理由：口径是「点一次应用记一次」，而后端**无法区分这次请求是用户点的还是 30s 轮询**
+    （实测 09-21 单日 `/api/stocks` 8,174 次里绝大多数是轮询）；更关键的是 P3 本地筛选路径下
+    点「应用」**可能一个请求都不发**（用浏览器内缓存的快照筛选）⇒ 后端数请求必然错。
+    故新增 `POST /api/activity/track`（`api/activity.py`），uid/日期/时间**一律服务端决定**，
+    客户端只能上报 `feature`（白名单外静默忽略）与 `blocked` 标记。
+    - 🔴 **`bump_usage` 故意不做去重**（与配额那套 10s 去重相反）：口径就是「点一次记一次」，
+      去重会让「连点两次应用」只记 1 次。防误重放靠前端只在点击回调里调一次。
+  - **新增**：
+    - **两张表**（`db/database.py`，走 `init_db()` 幂等迁移，**不动任何现有表**）：
+      `login_log`（登录明细：uid/login_try/result/ip/ua/remember/created_at，实测 ≈20~100 行/天）与
+      `usage_daily`（**按「用户 × 北京日期 × 功能」聚合**，PK `(uid,date,feature)` + `count`/`blocked_count`/`first_ts`/`last_ts`）。
+      **为什么必须聚合不存明细**：单交易日鉴权请求 18,798 条，逐条存 ≈ **570 万行/年**，
+      现 SQLite 单库（512MB）扛不住；聚合后 ≈2,192 行/天、估算年增 60~80MB。
+    - `services/activity.py`（**新增**）：8 个功能键（`picker/aipick/auction/concept/history/ladder/market/member`）、
+      `record_login()` / `bump_usage()` / `upsert_absolute()`（回溯专用，取 `MAX` 保证重跑幂等）/
+      `login_history` / `usage_summary` / `global_login_log` / `usage_rank` / `active_trend` / `login_stats` / `purge`。
+      🔴 **写入路径整段 try/except 吞异常** —— 埋点在业务主链路上，不能因「记日志失败」把用户的选股请求搞成 500。
+    - **5 处埋点**：`auth.py::_login_sync` 成功/失败各一条、`api_reset_by_phone` 记 `reset`、
+      `deps.py::get_uid` 的 kicked 分支记 `kicked`（🔴 **必须去重**：被顶出的设备会持续轮询，
+      每个请求都撞 401，用 `store.setnx` 做 10 分钟窗口，一次顶出只留一条）、
+      **新增 `POST /api/logout`**（此前退出是纯前端行为，后端无感知 —— 登录记录里缺了「主动退出」这一半）。
+    - **4 个后台端点**（`api/admin.py`，全部 `get_admin` 鉴权）：`user-activity`（某用户登录+使用）、
+      `login-log`（全站流水，支持结果/关键字筛选）、`usage-rank`（某日按人排行）、`active-users`（活跃趋势）；
+      `dashboard` 增 `activity` 块（今日登录概况 + 使用 Top5）—— **旧字段一个没动**。
+      🔴 **查询留痕**：看某个具体用户的明细时写 `admin_audit(action='view_user_activity')`（IP/UA 属个人信息）。
+    - **前端**：`api/activity.js`（`trackUsage` / `trackUsageOnce`）+ 8 个功能入口埋点
+      （选股「应用/锁定/刷新」、AI 选股加载、竞价异动切 Tab、题材异动/涨停梯队/市场雷达打开即算、
+      历史回看切视图/查询、会员中心打开）+ `NavBar` 退出改调 `/api/logout`；
+      `UserDetailDrawer` 增**登录记录**与**功能使用**两块；`MemberAdminPanel` 看板增**今日登录**与
+      **今日功能使用**两张卡（🔴 明确标注「会员与管理员同样计数」，与只含免费用户的配额卡口径不同）。
+    - **存量回溯** `scripts/kx_activity_backfill.py`：逐北京日 `journalctl --since @<epoch>` 解析
+      （🔴 **用 `@epoch` 而非日期串** —— journalctl 的日期串按服务器本地时区解释，服务器是 UTC 而我们按北京日分桶，用字符串必错 8 小时），
+      写入 `usage_daily`（`upsert_absolute`，重跑幂等）与 `login_log`（按 `(uid,result,ts,ip)` 去重）。
+      🔴 **口径差异已在脚本头与界面上写明**：回溯出来的是「**接口请求次数**」，日志里没有 query string
+      ⇒ 无法区分 `/api/stocks` 是点「应用」还是轮询，所以**故意不映射 `/api/stocks`**（否则单日 8 千多条撑爆数字），
+      回溯值通常偏大，**与上线后的数字不可直接比较**。
+    - **保留期清理**挂 `aipick_scheduler` 每日 03:30（login_log 180 天 / usage_daily 730 天）——
+      与交易日无关，故不能挂在只跑交易日的 `_scheduler_loop` 里。
+  - **影响面**：后端 `db/database.py`、`services/activity.py`(新)、`api/activity.py`(新)、`api/deps.py`、
+    `api/auth.py`、`api/admin.py`、`api/main.py`、`services/aipick_scheduler.py`、`tests/test_activity_log.py`(新)、
+    `scripts/kx_activity_backfill.py`(新)；前端 `api/activity.js`(新)、`api/admin.js`、`api/auth.js`、
+    `components/FilterPanel.vue`、`components/NavBar.vue`、`components/UserDetailDrawer.vue`、
+    `components/MemberAdminPanel.vue`、`views/{StockView,ConceptView,LadderView,MarketView,HistoryView,MemberView,AuctionView,AipickView}.vue`；
+    文档 `docs/history.md`、`AGENTS.md §0.4`、`docs/admin-user-activity-log-plan.md`。
+  - **验证证据**：
+    - **本机后端全量 pytest：1229 passed / 4 skipped / 0 failed（退出码 0，256.8s）** —— 上一版基线 1202，+27 全部来自本次新增用例；
+    - **新增 `tests/test_activity_log.py`：28 passed**；含**变异测试**——把 `services/activity.py::bump_usage`
+      的 `INSERT OR IGNORE + UPDATE` 改回 UPSERT → `test_no_upsert_syntax` 立刻变红（测试机 SQLite 3.7.17 直接
+      `near "ON": syntax error`），以及把 `bj_date` 的 `+ 8*3600` 去掉 → 北京日界用例变红，还原即绿；
+    - **测试机端到端 `scripts/_kx_verify_v41135.py`：43 项全过**（含「被顶出」链路、`counted:true`）；
+    - 🔴 **真实浏览器 UI 验证 `scripts/_kx_verify_activity_ui.py`：0 FAIL（35 项）** —— 后台看板三张卡
+      （今日登录 / 功能使用 Top / 近 7 天活跃）+ 用户详情抽屉两块**全部渲染真实数据**，零 console error；
+    - 🔴 **埋点口径验证 `scripts/_kx_verify_track_ui.py`：0 FAIL（3 项）** —— 会员账号在真实浏览器里
+      **点「应用」3 次 → `usage_daily.count` 恰好 +3（blocked +0）**；再**静置 36s 跨过页面 30s 轮询周期，
+      计数停在 3 不再增长** ⇒ 证明「点一次记一次」成立且**埋点没被写进轮询**（这是主人拍板口径的正面证据）；
+    - 前端 `node --test src/utils/*.test.js` **58/58**；`vite build` 通过，产物入口 `index-yPEOLJ4y.js`。
+  - **上线后又抓出并修掉的 3 个自身缺陷（都是「代码写了但没生效」，靠真实浏览器验证才发现）**：
+    1. 🔴 **`MemberAdminPanel.vue` 里 `activityUsage` 从未声明**（只赋值过一次）⇒ 运行时 `ReferenceError`
+       被 `loadBoard` 的外层 `catch` **静默吞掉**，导致它**后面**的 `login-log` 请求**根本没发出**，
+       界面表现为「今日还没有登录记录」而非报错。**误判过一次**：页面内带 token 的 fetch 探针拿到 200+完整 rows，
+       一度以为是后端问题 —— 其实那条 200 是**探针自己发的**（探针在打印 `__reqs` 之前就执行了）。
+       **修法**：删除该死变量；并给外层 `catch` 加 `logFront('error', ...)`，让同类静默失败以后可观测。
+    2. **`loadActive()` 定义了却从未被调用** ⇒ `adminActiveUsers` 被 tree-shake 整块剔除，「近 7 天活跃」卡消失；
+    3. **模板绑 `sum7` 但脚本里叫 `activeSum7`** ⇒ 未定义变量。
+       ⇒ **教训**：`dist` 里 `grep` 必备字符串能发现「写了但没接进 UI」的死代码；
+       **未声明变量在 minify 后不会被改名**（`activityUsage` 保持原样）是定位此类 Bug 的可靠信号。
+  - **上线状态**：**仅测试机**（2026-09-22 20:34 上线；前端备份 `/opt/kuaixuan/dist_bak_20260922-203418`，
+    入口 `index-yPEOLJ4y.js` ← 旧 `index-A3K0yitv.js`；后端 09-22 01:11 已上）。**生产待主人放行**。
+  - **回滚**：纯新增（两张新表 + 新模块 + 新端点 + 前端埋点），`git revert` 单个 commit 即可；
+    新表可留（不影响任何现有查询），如需彻底回退：`DROP TABLE login_log; DROP TABLE usage_daily;`。
+  - **备忘**：`usage_daily` 与 `kv_cache` 的 `quota:*` **互补不可互相替代** ——
+    前者全用户/长期/8 功能（审计口径），后者仅免费用户/TTL 25h/3 功能（限流口径）。
 - **v4.11.34 (09-22 仅测试机已上线, 生产待放行) 运营看板「今日配额使用」卡片 —— 标题与内容不符 + 后端内部键名裸露到界面 + 用量 Top 榜其实从没实现**
   - **触发**：主人贴出运营中心 看板 Tab 第 4 张卡截图问「这个没看懂」。卡上是
     `checkin_today 0` / `bonus_granted_today 0` / `limits picker:3 aipick:1 auction:1` / `checkin_bonus_per_day 3`

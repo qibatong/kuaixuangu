@@ -166,6 +166,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { memberOverview, memberPlans, memberCheckin, doCheckin as apiCheckin, refreshInvite } from '../api/member'
+import { trackUsageOnce } from '../api/activity'
 import { showToast } from '../utils/toast'
 
 const loading = ref(true)
@@ -290,7 +291,13 @@ async function doRefreshCode() {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  // 2026-09-22 v4.11.35: 打开「我的会员」算一次使用(Once 版防止刷新重复上报)。
+  // ★ 这里**不**再单独给「签到」加一次计数 —— 签到本身已有 user_checkin 台账,
+  //   若页面打开+签到各记一次, 同一个动作会变成 2 次, 数字就不可比了。
+  trackUsageOnce('member')
+  load()
+})
 </script>
 
 <style scoped>

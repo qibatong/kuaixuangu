@@ -141,3 +141,29 @@ export function adminImportUsers(csv, defaultPassword = '') {
 export function adminUsersExportUrl() {
   return '/api/admin/users/export'
 }
+
+/* ============ 用户行为记录(2026-09-22 v4.11.35) ============ */
+
+// 某用户的登录记录 + 功能使用记录(用户详情抽屉)
+export function adminUserActivity(targetUid, days = 30) {
+  return request(`/api/admin/user-activity?target_uid=${targetUid}&days=${days}`)
+}
+
+// 全站登录流水: {days, result, kw, limit, offset}
+export function adminLoginLog(params = {}) {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') q.set(k, v) })
+  return request('/api/admin/login-log?' + q.toString())
+}
+
+// 某日功能使用排行: {date, feature, limit}
+export function adminUsageRank(params = {}) {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') q.set(k, v) })
+  return request('/api/admin/usage-rank?' + q.toString())
+}
+
+// 活跃趋势: 按日去重用户数 / 操作次数 / 登录成功数
+export function adminActiveUsers(days = 30) {
+  return request(`/api/admin/active-users?days=${days}`)
+}

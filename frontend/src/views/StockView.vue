@@ -96,6 +96,7 @@ import { useStocksStore } from '../stores/stocks'
 import { usePoolStore } from '../stores/pool'
 import { useUserStore } from '../stores/user'
 import { kplBidSeal } from '../api/kpl'
+import { trackUsage } from '../api/activity'
 import { showToast } from '../utils/toast'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
 import { copyText, downloadBlkFile } from '../utils/tdx'
@@ -188,12 +189,16 @@ function currentList() {
 // 2026-09-05: 原 reLock() 随右上角「锁定」按钮一并移除(下方 FilterPanel 已提供
 // 锁定/解锁, 且 store.reLockData() 保留供其使用), 此处不再需要包装函数。
 function refreshRealTime() {
+  // 2026-09-22 v4.11.35: 手动点「刷新」也是一次主动操作(有别于 30s 自动轮询)
+  trackUsage('picker')
   stocks.updateRealTimeOnly().catch(e => showToast('❌ 更新失败：' + e.message, 'error'))
 }
 // 左视图模式切换: auction(竞价, 数据流与 store 联动) / aipick(AI预测, AipickView 自加载)
 function switchTab(m) {
   if (leftTab.value === m) return
   leftTab.value = m
+  // 2026-09-22 v4.11.35: AI 预测的使用计数由 AipickView 自己在加载报表时上报,
+  // 这里**不要**再记一次(同一动作会双计)。
   if (m === 'auction' && !stocks.isDataCached) {
     stocks.fetchAndCache().catch(e => showToast('❌ ' + e.message, 'error'))
   }

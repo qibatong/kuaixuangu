@@ -104,6 +104,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { usePolling } from '../composables/usePolling'
 import { emConceptRank, emBoardMembers } from '../api/kpl'
+import { trackUsageOnce } from '../api/activity'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
 import { yi, signed } from '../utils/format'
@@ -181,6 +182,9 @@ async function selectBoard(b) {
 onMounted(() => {
   bjTime.value = bjTimeStr()
   usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
+  // 2026-09-22 v4.11.35: 题材异动是纯浏览页(没有"应用"类按钮) → 打开即算一次,
+  // 用 Once 版避免组件内 30s 轮询重复上报。
+  trackUsageOnce('concept')
   loadConcepts()
   // 分钟级异动榜: 板块榜 30s 刷新; 已选中板块的成分股同步刷新
   usePolling(() => {

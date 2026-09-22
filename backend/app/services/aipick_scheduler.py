@@ -166,6 +166,20 @@ def start_scheduler():
                 last = d
             time.sleep(300)
     threading.Thread(target=_daily_reset, daemon=True).start()
+    # 2026-09-22 v4.11.35: 用户行为记录(login_log / usage_daily)每日 03:30 清理过期数据。
+    # 与交易日无关, 所以不能挂在 _scheduler_loop 里(那个循环只在交易日跑任务)。
+    def _purge_activity():
+        while True:
+            try:
+                g = time.gmtime(time.time() + 8 * 3600)
+                if g.tm_hour == 3 and g.tm_min == 30:
+                    from . import activity
+                    activity.purge()
+                    time.sleep(70)   # 跨过这一分钟, 别在同一天里重复跑
+            except Exception as e:
+                log.error("行为记录清理异常 err=%s", e)
+            time.sleep(20)
+    threading.Thread(target=_purge_activity, daemon=True, name="activity_purge").start()
     t = threading.Thread(target=_scheduler_loop, daemon=True)
     t.start()
     log.info("AI 竞价选股调度已启动(9:25触发预测 / 9:27采集 / 15:05打标签 / 19:00训练)")

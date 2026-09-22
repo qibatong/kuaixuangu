@@ -196,6 +196,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { listBatches, queryHistory } from '../api/history'
+import { trackUsage } from '../api/activity'
 import { fetchPerformance } from '../api/stats'
 import { showToast } from '../utils/toast'
 import { linkToSoftware } from '../utils/tdx'
@@ -214,6 +215,8 @@ const viewMode = ref('batch')   // batch(按批次) / query(综合查询) / aipi
 function switchView(m) {
   if (viewMode.value === m) return
   viewMode.value = m
+  // 2026-09-22 v4.11.35: 用户主动切视图算一次使用(同一个 tab 重复点不算)
+  trackUsage('history')
   if (m === 'batch') loadBatches()
 }
 

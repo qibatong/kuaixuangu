@@ -188,6 +188,49 @@ def init_db():
     # 启动顺手清一次过期 token
     cur.execute("DELETE FROM tokens WHERE expire_ts < ?", (int(time.time()),))
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+    # ================= 用户行为记录(2026-09-22, v4.11.35) =================
+    # 需求: 管理员原先看不到「谁在什么时候登录过」「谁用了哪些功能」。
+    # 此前唯一的线索是系统日志(journald), 但那是文本、会轮转、后台查不了。
+    # 这两张表把「登录」与「功能使用」结构化下来。
+    #
+    # ① login_log —— 登录明细(每次登录一行, 含失败/重置/被顶出/主动退出)
+    #    量级实测 ≈ 20~100 行/天, 可长期保留(保留期 180 天, 见 services/activity.py)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS login_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            uid         INTEGER NOT NULL DEFAULT 0,
+            login_try   TEXT,
+            result      TEXT NOT NULL,
+            ip          TEXT,
+            ua          TEXT,
+            remember    INTEGER NOT NULL DEFAULT 0,
+            created_at  INTEGER NOT NULL
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_login_log_uid ON login_log(uid, created_at)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_login_log_created ON login_log(created_at)")
+    # ② usage_daily —— 功能使用**按「用户 × 北京日期 × 功能」聚合**(不存逐次明细)
+    #    ★ 为什么聚合: 全站单交易日鉴权请求实测 18,798 条(其中 90% 是 30s 轮询),
+    #      逐条落库 ≈ 570 万行/年, 现这个 SQLite 单库(512MB)扛不住。
+    #    ★ 计数口径(2026-09-22 主人拍板): **用户主动操作一次 = 1 次**
+    #      (如「选股点一次应用」记 1 次), 由前端在动作回调里显式上报,
+    #      不按接口请求数计 —— 所以 30s 轮询天然不计入。
+    #    count         放行/成功次数
+    #    blocked_count 被拦截次数(配额不足 429 / 门禁 403) —— 转化线索
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS usage_daily (
+            uid           INTEGER NOT NULL,
+            date          TEXT NOT NULL,
+            feature       TEXT NOT NULL,
+            count         INTEGER NOT NULL DEFAULT 0,
+            blocked_count INTEGER NOT NULL DEFAULT 0,
+            first_ts      INTEGER NOT NULL DEFAULT 0,
+            last_ts       INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (uid, date, feature)
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_usage_daily_date ON usage_daily(date)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_usage_daily_feature ON usage_daily(feature, date)")
     # 系统设置表(key-value, JSON 值): 评分权重等管理配置
     cur.execute("""
         CREATE TABLE IF NOT EXISTS settings (

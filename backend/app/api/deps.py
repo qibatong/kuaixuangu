@@ -36,6 +36,25 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def _record_kicked(uid, request):
+    """记录一次「账号被另一设备顶出」(2026-09-22 v4.11.35).
+
+    ★ 为什么要去重: 被顶出的设备会**持续重试**(前端在轮询, 每个请求都撞 401 kicked),
+      若每次都落库, 一次换设备能写出几十上百条重复记录。这里用 CacheStore 的 setnx
+      做个 10 分钟窗口, 让「一次顶出事件」只留一条记录。
+    ★ 失败一律吞掉: 埋点不能影响鉴权主路径。
+    """
+    try:
+        from ..services import activity
+        from ..services.cache_store import store
+        if not store.setnx("login:kicked:%s" % uid, 1, ttl=600):
+            return
+        activity.record_login(uid=uid, result="kicked", ip=client_ip(request),
+                              ua=request.headers.get("User-Agent") or "")
+    except Exception as e:
+        log.warning("被顶出记录失败 uid=%s err=%s", uid, e)
+
+
 def get_uid(request: Request) -> int:
     """鉴权依赖: query token 或 Authorization Bearer, 无效抛 401;
     账号已过期(且非管理员)抛 403"""
@@ -47,6 +66,7 @@ def get_uid(request: Request) -> int:
     if status == "revoked":
         # 被另一设备登录顶出: 明确告知(前端弹"账号已在另一设备登录")
         log.warning("账号被顶出访问 %s uid=%s ip=%s", request.url.path, uid, client_ip(request))
+        _record_kicked(uid, request)
         raise HTTPException(status_code=401, detail={"ok": False, "code": "kicked",
                                                      "msg": "账号已在另一设备登录，本设备已退出"})
     if status != "ok":

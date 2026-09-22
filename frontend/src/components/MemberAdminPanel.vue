@@ -53,6 +53,87 @@
           </table>
           <div v-else class="ma-empty">今日还没有免费用户消耗配额</div>
         </div>
+        <!-- 2026-09-22 v4.11.35: 今日登录(此前后台看不到任何登录记录) -->
+        <div class="ma-card" v-if="loginStat">
+          <div class="ma-card-title"><i class="fa fa-sign-in"></i> 今日登录（{{ loginStat.date }}）</div>
+          <div class="ma-kv">
+            <span class="ma-chip">登录成功 <b>{{ loginStat.success_users ?? 0 }}</b> 人 / <b>{{ loginStat.success ?? 0 }}</b> 次</span>
+            <span class="ma-chip">登录失败 <b>{{ loginStat.fail ?? 0 }}</b> 次</span>
+            <span class="ma-chip">被顶出 <b>{{ resultCount('kicked') }}</b> 次</span>
+            <span class="ma-chip">主动退出 <b>{{ resultCount('logout') }}</b> 次</span>
+            <span class="ma-chip">重置密码 <b>{{ resultCount('reset') }}</b> 次</span>
+          </div>
+          <table v-if="loginRecent.length" class="ma-table compact">
+            <thead><tr><th>时间</th><th>账号</th><th>结果</th><th>IP</th></tr></thead>
+            <tbody>
+              <tr v-for="(l, i) in loginRecent" :key="i">
+                <td>{{ l.time }}</td>
+                <td>{{ l.username }}</td>
+                <td>{{ l.result_label }}</td>
+                <td>{{ l.ip || '-' }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="ma-empty">今日还没有登录记录</div>
+          <div class="ma-hint">
+            只记录本次功能上线之后的登录；更早的登录系统日志里没有结构化留存。
+            「登录失败」在用户不存在时账号栏为空（只留尝试的账号名）。
+          </div>
+        </div>
+        <!-- 2026-09-22 v4.11.35: 功能使用(会员/管理员也一样计数; 可按日期+功能查历史) -->
+        <div class="ma-card" v-if="usageData">
+          <div class="ma-card-title"><i class="fa fa-hand-pointer-o"></i> 功能使用（按人 Top）</div>
+          <div class="ma-filter">
+            <label>日期 <input type="date" v-model="usageDate" @change="loadUsage" /></label>
+            <label>功能
+              <select v-model="usageFeature" @change="loadUsage">
+                <option value="">全部</option>
+                <option v-for="(n, f) in ACT_LABEL" :key="f" :value="f">{{ n }}</option>
+              </select>
+            </label>
+            <span class="ma-filter-note">统计日：{{ usageData.date }}</span>
+          </div>
+          <div class="ma-kv">
+            <span class="ma-chip">操作总次数 <b>{{ usageData.total ?? 0 }}</b></span>
+            <span class="ma-chip">使用人数 <b>{{ usageData.users ?? 0 }}</b> 人</span>
+            <span v-for="(n, f) in usageData.by_feature" :key="f" class="ma-chip">{{ actLabel(f) }} <b>{{ n }}</b></span>
+          </div>
+          <table v-if="usageRows.length" class="ma-table compact">
+            <thead><tr><th>#</th><th>用户名</th><th>身份</th><th>次数</th><th>拦截</th></tr></thead>
+            <tbody>
+              <tr v-for="(r, i) in usageRows" :key="i">
+                <td>{{ i + 1 }}</td>
+                <td>{{ r.username }}</td>
+                <td>{{ whoLabel(r) }}</td>
+                <td><b>{{ r.count }}</b></td>
+                <td>{{ r.blocked || 0 }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="ma-empty">该日还没有功能使用记录</div>
+          <div class="ma-hint">
+            口径：<b>用户主动操作一次记 1 次</b>（如选股点一次「应用」；30 秒自动轮询不计入）。
+            <b>会员与管理员同样计数</b> —— 这与上方「今日配额使用」卡不同，那张卡只含免费/试用用户。
+            可切日期查历史（功能上线前的记录由系统日志回溯而来，见「导入导出」口径说明）。
+          </div>
+        </div>
+        <!-- 2026-09-22 v4.11.35: 近 7 天活跃趋势(柱=操作次数, 数字=当日去重人数) -->
+        <div class="ma-card" v-if="activeTrend.length">
+          <div class="ma-card-title"><i class="fa fa-users"></i> 近 7 天活跃（操作次数 / 去重人数）</div>
+          <div class="ma-trend">
+            <div v-for="d in activeTrend" :key="d.date" class="ma-trend-col"
+                 :title="d.date + '：' + d.actions + ' 次操作 / ' + d.act_users + ' 人'">
+              <div class="ma-trend-bar" :style="{ height: actBarH(d.actions) + 'px' }" :class="{ zero: !d.actions }"></div>
+              <div class="ma-trend-num">{{ d.act_users }}</div>
+              <div class="ma-trend-day">{{ d.date.slice(5) }}</div>
+            </div>
+          </div>
+          <div class="ma-hint">
+            柱高 = 当日操作总次数；柱下数字 = 当日活跃人数（同一人多次操作只算 1 人）。
+            近 7 天合计 <b>{{ sum7.actions ?? 0 }}</b> 次操作、日均活跃 <b>{{ sum7.act_users_avg ?? 0 }}</b> 人；
+            登录成功合计 <b>{{ sum7.logins ?? 0 }}</b> 次。
+          </div>
+        </div>
         <button class="ma-btn ghost" @click="loadBoard"><i class="fa fa-refresh"></i> 刷新看板</button>
       </template>
     </template>
@@ -357,8 +438,10 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import {
   adminDashboard, adminExpiring, adminRisk, adminInviteRank, adminAudit, adminAuditActions,
   adminMemberConf, saveAdminMemberConf, adminImportUsers, adminExtendPlus, adminSmsUsage,
+  adminLoginLog, adminUsageRank, adminActiveUsers,
 } from '../api/admin'
 import { showToast } from '../utils/toast'
+import { logFront } from '../utils/logger'
 
 const emit = defineEmits(['open-detail'])
 
@@ -414,6 +497,47 @@ function featureLabel(k) { return FEATURE[k] || k }
 const quotaLimits = computed(() => (quotaStat.value && quotaStat.value.limits) || {})
 const quotaTop = computed(() => (quotaStat.value && quotaStat.value.usage_top) || [])
 
+/* 行为记录卡(2026-09-22 v4.11.35): 登录概况 + 功能使用 + 近 7 天活跃
+   数据来源 = dashboard 的 activity.login(登录概况) + login-log(最近 8 条流水)
+              + usage-rank(按日期/功能查, 可回溯历史) + active-users(近 7 天趋势) */
+const loginStat = ref(null)
+const loginRecent = ref([])
+const ACT_LABEL = { picker: '选股', aipick: 'AI 选股', auction: '竞价异动', concept: '题材异动',
+                    history: '历史回看', ladder: '涨停梯队', market: '市场雷达', member: '会员中心' }
+function actLabel(k) { return ACT_LABEL[k] || k }
+function resultCount(k) {
+  const by = (loginStat.value && loginStat.value.by_result) || {}
+  return (by[k] && by[k].count) || 0
+}
+function whoLabel(r) { return r.is_admin ? '管理员' : (r.member_level ? '会员' : '免费') }
+
+// 功能使用: 支持按「日期 + 功能」查(默认今天 / 全部)
+function bjToday() { return new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10) }
+const usageDate = ref(bjToday())
+const usageFeature = ref('')
+const usageData = ref(null)
+const usageRows = computed(() => (usageData.value && usageData.value.rows) || [])
+async function loadUsage() {
+  try {
+    usageData.value = await adminUsageRank({ date: usageDate.value, feature: usageFeature.value, limit: 20 })
+  } catch (e) { showToast('❌ 使用记录加载失败: ' + (e.message || ''), 'error') }
+}
+
+// 近 7 天活跃(去重人数 / 操作次数)
+const activeTrend = ref([])
+const sum7 = ref({})
+function actBarH(n) {
+  const m = Math.max(1, ...activeTrend.value.map((x) => x.actions || 0))
+  return Math.max(2, Math.round(((n || 0) / m) * 70))
+}
+async function loadActive() {
+  try {
+    const d = await adminActiveUsers(7)
+    activeTrend.value = d.days || []
+    sum7.value = d.sum7 || {}
+  } catch (e) { activeTrend.value = []; sum7.value = {} }
+}
+
 async function loadBoard() {
   loading.board = true
   try {
@@ -421,7 +545,23 @@ async function loadBoard() {
     stats.value = d.stats || {}
     trend.value = d.trend || []
     quotaStat.value = d.quota || null
-  } catch (e) { showToast('❌ 看板加载失败: ' + (e.message || ''), 'error') } finally { loading.board = false }
+    const act = d.activity || null
+    loginStat.value = (act && act.login) || null
+    // ⚠️ 这里不要碰未声明的变量: 2026-09-22 曾误写 activityUsage(未声明),
+    //    运行时 ReferenceError 被本函数外层 catch 静默吞掉, 导致下面的
+    //    login-log 请求**根本没发出**(卡上永远显示"今日还没有登录记录")。
+    //    功能使用卡的独立数据源是 usageData(由 loadUsage 填), 不在这里赋值。
+    // 最近登录流水: 失败不影响主看板(那两张卡会显示"无记录")
+    try {
+      const lg = await adminLoginLog({ days: 1, limit: 8 })
+      loginRecent.value = lg.rows || []
+    } catch (e) { loginRecent.value = [] }
+  } catch (e) {
+    // 2026-09-22: 这一层曾静默吞掉 ReferenceError(未声明变量), 导致后续请求不发、
+    // 界面表现为"没数据"而非"出错"。凡是走到这里都记一条前端日志, 便于定位。
+    logFront('error', '看板加载失败: ' + ((e && e.stack) || (e && e.message) || e))
+    showToast('❌ 看板加载失败: ' + (e.message || ''), 'error')
+  } finally { loading.board = false }
 }
 
 /* 到期预警 */
@@ -612,7 +752,7 @@ function switchTab(k) {
   else if (k === 'io' && !sms.value.raw_count) loadSms()
 }
 
-onMounted(() => { loadBoard() })
+onMounted(() => { loadBoard(); loadUsage(); loadActive() })
 </script>
 
 <style scoped>
@@ -656,6 +796,17 @@ onMounted(() => { loadBoard() })
 .ma-trend-day { font-size: 0.625rem; color: var(--text-muted); }
 
 .ma-kv { display: flex; gap: 8px; flex-wrap: wrap; }
+/* 2026-09-22 v4.11.35: 功能使用卡的日期/功能筛选条(手机端可换行, 不做横滑) */
+.ma-filter {
+  display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+  margin: 2px 0 8px; font-size: 0.75rem; color: var(--text-muted);
+}
+.ma-filter label { display: inline-flex; align-items: center; gap: 5px; }
+.ma-filter input[type="date"], .ma-filter select {
+  font-size: 0.75rem; padding: 3px 6px; border-radius: 6px;
+  border: 1px solid var(--border-soft); background: transparent; color: var(--text);
+}
+.ma-filter-note { margin-left: auto; }
 .ma-chip {
   font-size: 0.75rem; padding: 4px 10px; border-radius: 12px;
   background: var(--bg-input); color: var(--text-secondary);

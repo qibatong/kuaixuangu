@@ -414,6 +414,7 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import { usePolling } from '../composables/usePolling'
 import { kplBidSeal, kplBidNet, kplBidBoom, kplBidQiangcang, kplBroken, kplLhb, kplYestBroken, kplYestZt } from '../api/kpl'
 import { auctionOverview, bidSnapshot3points } from '../api/stats'
+import { trackUsage } from '../api/activity'
 import { linkToSoftware } from '../utils/tdx'
 import { isMemberOnlyTime, todayBj } from '../utils/time'
 import { showToast } from '../utils/toast'
@@ -602,6 +603,8 @@ function fmtMv(v) {
 // 切 Tab 时清掉排序(避免跨表残留的 key 干扰)
 function switchTab(t) {
   tab.value = t
+  // 2026-09-22 v4.11.35: 用户主动点竞价异动的 Tab 算一次使用(轮询走 ensureTabData, 不经此处)
+  trackUsage('auction')
   sealSort.clear(); s3Sort.clear(); qcSort.clear(); qcLastSort.clear(); yestZtSort.clear()
   yestBrokenSort.clear(); lhbSort.clear(); brokenSort.clear()
   // 2026-08-18 性能优化: 切 tab 按需加载该 tab 数据(首次进入才拉)
@@ -752,6 +755,8 @@ async function ensureTabData(t, { silent = false } = {}) {
 function handleQuota(e) {
   if (e && (e.code === 'quota_exceeded' || e.status === 429)) {
     quotaExceeded.value = true
+    // 2026-09-22 v4.11.35: 被配额拦下 → 记一次「拦截」(运营的转化线索)
+    trackUsage('auction', true)
     nextTick(() => {
       if (gateRef.value && gateRef.value.openQuota) {
         gateRef.value.openQuota({

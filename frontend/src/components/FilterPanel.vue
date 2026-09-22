@@ -41,7 +41,7 @@
                 :title="store.pickBlocked ? store.pickBlockedMsg : ''" @click="reset">重置</button>
         <button v-if="store.strategy === 'auction'" class="tdx-export-btn filter-lock" :class="{ locked: store.isFilterLocked }"
                 :disabled="store.pickBlocked" :title="store.pickBlocked ? store.pickBlockedMsg : ''"
-                @click="store.toggleFilterLock()">{{ store.isFilterLocked ? '解锁' : '锁定' }}</button>
+                @click="toggleLock">{{ store.isFilterLocked ? '解锁' : '锁定' }}</button>
         <!-- 2026-09-05: 刷新按钮从 StockView 顶部规则条移入本组(仅竞价模式; 9:30 后
              刷新实时行情, 9:30 前等同重新选股)。点击 emit 给父组件处理。
              样式与相邻的 重置/锁定 对齐(同 padding/字号, 见下方 .filter-refresh),
@@ -100,6 +100,7 @@
 <script setup>
 import { onBeforeUnmount, onMounted, reactive, computed } from 'vue'
 import { useStocksStore } from '../stores/stocks'
+import { trackUsage } from '../api/activity'
 import { showToast } from '../utils/toast'
 
 const store = useStocksStore()
@@ -218,13 +219,25 @@ function inputW(px) { return { width: `${px}px` } }
 async function apply() {
   try {
     await store.applyCustomFilter()
+    // 2026-09-22 v4.11.35 行为记录: 口径 = 用户主动操作一次记一次。
+    // 失败/被拦(配额 429、闸门禁用)也记, 但进 blocked 计数 —— 这是运营最关心的
+    // 「想用却用不了」的转化线索。放在 await 之后是为了拿到真实结果再判定。
+    trackUsage('picker', !!(store.pickBlocked || store.quotaExceeded))
   } catch (e) {
+    trackUsage('picker', true)
     // 2026-09-07 主人反馈「点应用没更新股池」: 原实现空吞异常(无 toast 无更新, 静默失败
     // 极难排查)—— 失败原因可见化(如会员/限流/后端异常), 便于定位
     showToast('❌ 应用失败：' + (e.message || '未知错误'), 'error')
   }
 }
 function reset() { store.resetFilterToDefault() }
+
+// 锁定/解锁: 只有「锁定」算一次使用(解锁是撤销动作, 不该计使用次数)
+function toggleLock() {
+  const wasLocked = store.isFilterLocked
+  store.toggleFilterLock()
+  if (!wasLocked) trackUsage('picker')
+}
 </script>
 
 <style scoped>

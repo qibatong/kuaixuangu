@@ -10,6 +10,12 @@ export function changePassword(old_password, new_password) {
   return request('/api/change-password', { method: 'POST', body: { old_password, new_password } })
 }
 
+// 主动退出登录(2026-09-22 v4.11.35 新增): 仅清本地 token 时后端无感知,
+// 登录记录里就缺「主动退出」这一半。失败不阻塞前端清理(退出一定要成功)。
+export function logoutApi() {
+  return request('/api/logout', { method: 'POST' }).catch(() => null)
+}
+
 /* ---------------- 注册(手机号 + 验证码, 2026-09-21 放开) ---------------- */
 
 // 注册开关与赠送天数

@@ -131,6 +131,7 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTheme, BGS, FONTS, FONT_FAMILIES } from '../composables/useTheme'
 import { useUserStore } from '../stores/user'
+import { logoutApi } from '../api/auth'
 import { showToast } from '../utils/toast'
 import ChangePwdModal from './ChangePwdModal.vue'
 import ProfileModal from './ProfileModal.vue'
@@ -195,9 +196,13 @@ onBeforeUnmount(() => {
 
 function logout() {
   if (!confirm('确定退出当前账号？')) return
-  user.clearSession()
-  showToast('已退出登录', 'success')
-  router.replace('/login')
+  // 2026-09-22 v4.11.35: 先通知后端作废 token 并落一条「主动退出」记录,
+  // 再清本地会话。后端失败不阻塞退出(本地清理是用户能感知的那一步)。
+  logoutApi().finally(() => {
+    user.clearSession()
+    showToast('已退出登录', 'success')
+    router.replace('/login')
+  })
 }
 </script>
 

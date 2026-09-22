@@ -1,0 +1,38 @@
+feat(activity) v4.11.35: 管理员可见「用户登录记录 + 功能使用记录」
+
+口径(主人 09-22 拍板): 用户主动操作一次记一次 -> 由前端在动作回调上报,
+后端不数接口请求(30s 轮询会让数字失去意义)。
+
+新增:
+- 两张表 login_log / usage_daily(按 用户x北京日期x功能 聚合)
+- services/activity.py: record_login / bump_usage / login_history /
+  usage_summary / usage_rank / active_trend / purge(每日 03:30 清理)
+- api/activity.py: POST /api/activity/track(feature 白名单, uid/日期/时间服务端决定)
+- 登录埋点覆盖 成功/失败/重置密码/被顶出/主动退出(新增 POST /api/logout)
+- api/admin.py 4 端点: user-activity / login-log / usage-rank / active-users
+  + dashboard 增 activity 块
+- 前端 8 处埋点(选股应用/AI选股/竞价/题材/梯队/雷达/历史/会员)
+  + 后台看板三卡(今日登录/功能使用Top/近7天活跃) + 用户详情抽屉两块
+- scripts/kx_activity_backfill.py 存量回溯(journald, 实测 30 天 184 行使用 + 281 条登录)
+
+修(上线后由真实浏览器验证抓出的 3 个「写了但没生效」缺陷):
+- MemberAdminPanel.vue 的 activityUsage 从未声明 -> 运行时 ReferenceError 被
+  loadBoard 外层 catch 静默吞掉, 导致其后的 login-log 请求根本没发出,
+  界面表现为「今日还没有登录记录」而非报错; 并给该 catch 加 logFront 使其可观测
+- loadActive() 定义了从未被调用 -> adminActiveUsers 被 tree-shake, 活跃卡消失
+- 模板绑 sum7 但脚本叫 activeSum7 -> 未定义变量
+
+兼容:
+- 测试机 SQLite 3.7.17 不支持 ON CONFLICT UPSERT -> 统一 INSERT OR IGNORE + UPDATE,
+  并附变异测试守卫(test_no_upsert_syntax), 改回 UPSERT 即变红
+
+验证:
+- 本机后端全量 pytest 1229 passed / 4 skipped / 0 failed
+- 测试机端到端 43 项全过
+- 真实浏览器 UI 验证 35 项 0 FAIL(看板三卡 + 抽屉两块均渲染真实数据, 零 console error)
+- 埋点口径验证 3 项 0 FAIL: 点「应用」3 次 -> count 恰好 +3; 静置 36s 跨过
+  30s 轮询周期计数不再增长(证明埋点没被写进轮询)
+- 前端单测 58/58; vite build 通过(入口 index-yPEOLJ4y.js)
+
+上线状态: 仅测试机(09-22 20:34, 前端备份 /opt/kuaixuan/dist_bak_20260922-203418);
+生产待主人放行。
