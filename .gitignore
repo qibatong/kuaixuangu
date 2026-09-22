@@ -150,3 +150,6 @@ scripts/_kx_*.png
 scripts/_append_admin.py
 scripts/_mk_*.py
 scripts/_clear_*.py
+
+# 回传截图/临时产物: base64 中转文件(2026-09-22 曾误入库)
+*.b64
