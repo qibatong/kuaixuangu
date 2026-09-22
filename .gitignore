@@ -153,3 +153,14 @@ scripts/_clear_*.py
 
 # 回传截图/临时产物: base64 中转文件(2026-09-22 曾误入库)
 *.b64
+
+# 前端部署中转包(2026-09-22)
+_dist_upload.tar.gz
+
+# 例外: 可复用的部署/核对工具(2026-09-22 起入库)
+# 背景: 沙箱曾误删 scripts/ 下 87 个文件, 未入库的运维脚本全部无法恢复(只能重写)
+# 只放行**通用工具**; 一次性探针/版本绑定的部署脚本仍按 scripts/_kx_*.py 忽略
+!scripts/_kx_put_lf.py
+!scripts/_kx_prod_drift.py
+!scripts/_kx_fe_deploy_prod.py
+!scripts/_kx_dist_md5.py

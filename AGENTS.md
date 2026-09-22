@@ -90,7 +90,7 @@ cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/p
 8. **Nginx 反代后 IP 一律用 `deps.client_ip()`**，**不要用 `request.client.host`**（恒为 `127.0.0.1`
    → 全站共用一个限流桶）。
 
-### 0.4 最近变更索引（T175 两台机器均已上线；**v4.11.34 / v4.11.35 / v4.11.36 均仅测试机，生产待放行**）
+### 0.4 最近变更索引（T175 两台机器均已上线；**v4.11.34 / v4.11.35 / v4.11.36 三版已于 09-22 21:35 一并放行生产**）
 
 > **📌 版本迭代记录规则（主人 2026-09-22 定，每次变更必做）**
 > 1. **一变更一号，号必须递增且唯一**：格式 `v4.11.<N>`；下一个号 = `docs/history.md` 与本表里
@@ -112,11 +112,13 @@ cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/p
 
 | 版本 | 日期 | 一句话 |
 |---|---|---|
-| **v4.11.36** | 09-22 | **存量回溯口径改回「只回溯登录」**（主人拍板）：首轮回溯把 journald 的**接口请求次数**写进了 `usage_daily`，与「点一次记一次」冲突 → 脚本改为**默认只回溯登录**（使用需显式 `--with-usage`），并**清掉 184 行回溯使用数据**（删前 CSV 备份；`login_log` 369 条登录回溯保留，口径无歧义）；同步订正 3 处已变错的界面文案；**顺带修掉时区缺陷** `_day_start_ts` 用 `time.mktime`（按本地时区解释）再 -8h ⇒ 服务器是 UTC+8 时统计窗口偏移 8 小时，**每天 16:00 后登录统计归零**（生产机实测同为 UTC+8，**赶在放行前修掉**），改为 `calendar.timegm`。**仅测试机**（09-22 21:00，前端入口 `index-BOiAzfbO.js`，后端备份 `/opt/kuaixuan/backups/activity_20260922-211000.py`） |
-| **v4.11.35** | 09-22 | **用户行为记录**（管理员此前完全看不到登录与功能使用）：新增 `login_log` + `usage_daily` 两表 + `POST /api/activity/track` 前端上报 + 4 个 admin 查询端点 + `scripts/kx_activity_backfill.py` 存量回溯。🔴 **计数口径 = 用户主动操作一次记一次**（主人拍板），故**由前端在动作回调上报、后端不数接口请求**（`bump_usage` **故意不去重**）；`usage_daily` **按「用户×北京日期×功能」聚合**（逐条存 = 570 万行/年）；**会员/管理员同样计数**（与配额相反）。**仅测试机**（09-22 20:34，前端入口 `index-yPEOLJ4y.js`，
-备份 `/opt/kuaixuan/dist_bak_20260922-203418`）；生产待放行。⚠️ 上线后又修掉 3 个「写了但没生效」缺陷，
-其中 `activityUsage` 未声明导致 `login-log` 请求根本不发（详见 `docs/history.md` v4.11.35） |
-| **v4.11.34** | 09-22 | 运营看板「今日配额使用」卡片：**标题与内容不符**（写「Top」却没有排行，4 项里 3 项是配置）+ **前端盲遍历 `v-for` 后端 dict ⇒ 内部英文键名裸露到界面**（`checkin_today 0` / `limits picker:3 …`）。修：`quota_stats()` 改**固定 9 字段** + 新增 `usage_top()`（用量事实源 = `kv_cache` 的 `quota:{feature}:{uid}:{date}`，🔴 **必须排除 `quota:bonus:*`(额度) 与 `quota:dedup:*`(去重标记)**）+ 前端改按字段名渲染的中文卡片。**仅测试机已上线，生产待放行** |
+| **v4.11.36** | 09-22 | **存量回溯口径改回「只回溯登录」**（主人拍板）：首轮回溯把 journald 的**接口请求次数**写进了 `usage_daily`，与「点一次记一次」冲突 → 脚本改为**默认只回溯登录**（使用需显式 `--with-usage`），并**清掉 184 行回溯使用数据**（删前 CSV 备份；`login_log` 369 条登录回溯保留，口径无歧义）；同步订正 3 处已变错的界面文案；**顺带修掉时区缺陷** `_day_start_ts` 用 `time.mktime`（按本地时区解释）再 -8h ⇒ 服务器是 UTC+8 时统计窗口偏移 8 小时，**每天 16:00 后登录统计归零**（生产机实测同为 UTC+8，**赶在放行前修掉**），改为 `calendar.timegm`。✅ **生产已放行**（09-22 21:35；生产 DB 一致性快照
+`/opt/kuaixuan/backups/kuaixuan_20260922-212600.db`，前端备份 `dist_bak_20260922-prod`） |
+| **v4.11.35** | 09-22 | **用户行为记录**（管理员此前完全看不到登录与功能使用）：新增 `login_log` + `usage_daily` 两表 + `POST /api/activity/track` 前端上报 + 4 个 admin 查询端点 + `scripts/kx_activity_backfill.py` 存量回溯。🔴 **计数口径 = 用户主动操作一次记一次**（主人拍板），故**由前端在动作回调上报、后端不数接口请求**（`bump_usage` **故意不去重**）；`usage_daily` **按「用户×北京日期×功能」聚合**（逐条存 = 570 万行/年）；**会员/管理员同样计数**（与配额相反）。✅ **生产已放行**（09-22 21:35，与 .34/.36 一并；
+部署清单由 `_kx_prod_drift.py` 三端漂移核得出：新增 2 + 改动 7，零孤儿）。⚠️ 上线后又修掉 3 个
+「写了但没生效」缺陷，其中 `activityUsage` 未声明导致 `login-log` 请求根本不发（详见 `docs/history.md`） |
+| **v4.11.34** | 09-22 | 运营看板「今日配额使用」卡片：**标题与内容不符**（写「Top」却没有排行，4 项里 3 项是配置）+ **前端盲遍历 `v-for` 后端 dict ⇒ 内部英文键名裸露到界面**（`checkin_today 0` / `limits picker:3 …`）。修：`quota_stats()` 改**固定 9 字段** + 新增 `usage_top()`（用量事实源 = `kv_cache` 的 `quota:{feature}:{uid}:{date}`，🔴 **必须排除 `quota:bonus:*`(额度) 与 `quota:dedup:*`(去重标记)**）+ 前端改按字段名渲染的中文卡片。
+✅ **生产已放行**（09-22 21:35） |
 | **T175** | 09-21 | **会员体系重构（阶段一+阶段二）**：手机号注册/5 天体验/每日配额/签到/运营中心 7 Tab；**修管理端全线 500**（`admin.py` 用 `get_conn()` 返回 tuple 却 `dict(r)`）；`sms.py`/`summary.py` IP 改 `client_ip()`；测试集对齐。**09-21 23:44 已上生产**（后端 15 文件 + 前端 dist + 188 名存量用户补发 5 天，见 `docs/history.md`） |
 | **v4.11.33** | 09-19 | `_ULIST_URL` 写死被封域名 → 改 `_ULIST_HOSTS` 双域名重试 ⇒ **补丁源从 `tencent_point` 恢复为 `eastmoney_realtime`**（且带 f630） |
 | **v4.11.32** | 09-19 | clist **越界页 `rc=102` 被当故障** → 每交易日 09:15:12 熔断到 09:29（**盖住整个竞价窗口**）；改为按 `total` 动态页数、只请求该请求的页 |

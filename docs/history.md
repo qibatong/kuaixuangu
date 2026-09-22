@@ -1530,8 +1530,21 @@
     - 🟡 **影响面实测**：生产机时区同样是 **UTC+8**（`date` 显示 CST，`tz_offset=28800`）
       ⇒ 若不修，v4.11.35 上生产后**每天 16:00 之后登录统计都会归零**。已赶在放行前修掉。
     - 前端 `node --test` **58/58**；`vite build` 通过，入口 `index-BOiAzfbO.js`。
-  - **上线状态**：**仅测试机**（2026-09-22 21:00；前端备份 `/opt/kuaixuan/dist_bak_20260922-210013`，
-    入口 `index-BOiAzfbO.js` ← 旧 `index-yPEOLJ4y.js`）。**生产待主人放行**。
+  - **上线状态**：✅ **生产已放行**（2026-09-22 21:35，与 v4.11.34 / v4.11.35 一并上线）；
+    此前 **仅测试机**（2026-09-22 21:00；测试机前端备份 `/opt/kuaixuan/dist_bak_20260922-210013`，
+    入口 `index-BOiAzfbO.js` ← 旧 `index-yPEOLJ4y.js`）。
+    - 生产备份：**DB 一致性快照** `/opt/kuaixuan/backups/kuaixuan_20260922-212600.db`（552MB，
+      `PRAGMA integrity_check = ok`，用 sqlite `backup()` API 在服务运行中取的一致性快照，非 `cp`）；
+      待改文件 `/opt/kuaixuan/backups/be_20260922-212600/`；前端 `/opt/kuaixuan/dist_bak_20260922-prod`
+      与换盘前 `/opt/kuaixuan/dist_bak_20260922-213550`。
+    - 生产验证：部署后 **14 项 0 FAIL**（两表建成、列齐全、4 个日期的 `_day_start_ts` 与
+      `datetime` 独立算法交叉验证一致、`bump_usage x3 → count=3`、非法 feature 被拒）；
+      端到端 **11 项 0 FAIL**（历史日 2026-09-18 查得到回溯登录 13 次、`active_trend` 7 天齐全、
+      今日统计与库一致）；存量回溯实跑入库 **1966 条登录**（最早 2026-08-23），`usage_daily` 保持 0 行
+      （按新口径不回溯使用）。
+    - 🔴 **生产换盘踩坑（已修并固化进脚本）**：前端 dist 用 tar 上传解包后目录是 **`drwxr-x---`(750)**，
+      而原目录是 `755` ⇒ nginx(用户 `nginx`) 进不去 ⇒ **整站 403**（换盘前是 200）。
+      修 `find ... -type d -exec chmod 755` + 文件 644 后恢复 200。已写进 `_kx_fe_deploy_prod.py` 的 apply 步骤。
   - **回滚**：`git revert` 单个 commit；数据侧如需恢复被删的 184 行，从上述 CSV 备份导入即可。
   - **备忘**：此后生产机跑回溯**直接用默认参数**（只回溯登录）；`--with-usage` 仅在明确接受
     「接口请求次数口径」时使用。
@@ -1614,13 +1627,19 @@
     3. **模板绑 `sum7` 但脚本里叫 `activeSum7`** ⇒ 未定义变量。
        ⇒ **教训**：`dist` 里 `grep` 必备字符串能发现「写了但没接进 UI」的死代码；
        **未声明变量在 minify 后不会被改名**（`activityUsage` 保持原样）是定位此类 Bug 的可靠信号。
-  - **上线状态**：**仅测试机**（2026-09-22 20:34 上线；前端备份 `/opt/kuaixuan/dist_bak_20260922-203418`，
-    入口 `index-yPEOLJ4y.js` ← 旧 `index-A3K0yitv.js`；后端 09-22 01:11 已上）。**生产待主人放行**。
+  - **上线状态**：✅ **生产已放行**（2026-09-22 21:35，与 v4.11.34 / v4.11.36 一并上线）；
+    此前 **仅测试机**（2026-09-22 20:34 上线；测试机前端备份 `/opt/kuaixuan/dist_bak_20260922-203418`，
+    入口 `index-yPEOLJ4y.js` ← 旧 `index-A3K0yitv.js`；后端 09-22 01:11 已上）。
+    - 生产部署清单由 `_kx_prod_drift.py` 三端漂移核对得出：**新增 2（`api/activity.py`、
+      `services/activity.py`）+ 改动 7（`api/admin.py`、`api/auth.py`、`api/deps.py`、
+      `db/database.py`、`main.py`、`services/aipick_scheduler.py`、`services/quota.py`），零孤儿**。
+    - 🔴 **上生产前的时区修复** `calendar.timegm`（见 v4.11.36）在生产机同样必要 ——
+      生产实测 `tz_offset=28800`（UTC+8）。若不修，每天北京时间 16:00 后登录统计归零。
   - **回滚**：纯新增（两张新表 + 新模块 + 新端点 + 前端埋点），`git revert` 单个 commit 即可；
     新表可留（不影响任何现有查询），如需彻底回退：`DROP TABLE login_log; DROP TABLE usage_daily;`。
   - **备忘**：`usage_daily` 与 `kv_cache` 的 `quota:*` **互补不可互相替代** ——
     前者全用户/长期/8 功能（审计口径），后者仅免费用户/TTL 25h/3 功能（限流口径）。
-- **v4.11.34 (09-22 仅测试机已上线, 生产待放行) 运营看板「今日配额使用」卡片 —— 标题与内容不符 + 后端内部键名裸露到界面 + 用量 Top 榜其实从没实现**
+- **v4.11.34 (09-22 生产已放行) 运营看板「今日配额使用」卡片 —— 标题与内容不符 + 后端内部键名裸露到界面 + 用量 Top 榜其实从没实现**
   - **触发**：主人贴出运营中心 看板 Tab 第 4 张卡截图问「这个没看懂」。卡上是
     `checkin_today 0` / `bonus_granted_today 0` / `limits picker:3 aipick:1 auction:1` / `checkin_bonus_per_day 3`
     —— **全是英文内部键名**；而标题写的是「今日配额使用（Top）」，**却没有任何排行**。
@@ -1665,7 +1684,10 @@
       同步齐了才跑 —— **旧数字是覆盖不全的产物，不是基线**。
   - **部署**：测试机已上（后端 `services/quota.py` 1 文件 + 前端换盘 `index-CBc1dpI0.js`）。
     备份：`/opt/kuaixuan/backend/app/services/quota.py.bak_20260922_000717`、
-    `/opt/kuaixuan/dist_bak_20260922-000911`。**生产一格未动，等主人指令。**
+    `/opt/kuaixuan/dist_bak_20260922-000911`。
+    ✅ **生产已放行**（2026-09-22 21:35，与 v4.11.35 / v4.11.36 一并上线）；
+    生产备份同 v4.11.36 条目所列（DB 快照 `kuaixuan_20260922-212600.db`、文件 `be_20260922-212600/`、
+    前端 `dist_bak_20260922-prod`）。
   - **回滚**：`git revert` 单 commit，外加恢复上面两个备份文件即可。
   - 📌 **编号说明**：本条目编号 **`v4.11.34`**（原写作「T175 补丁」，无版本号）—— 主人 09-22 定
     「后期每次变更按版本迭代记录」后，按 `AGENTS.md §0.4` 新规则回溯补号：取 `docs/history.md`
