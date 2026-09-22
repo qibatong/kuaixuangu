@@ -1,38 +1,37 @@
-feat(activity) v4.11.35: 管理员可见「用户登录记录 + 功能使用记录」
+fix(activity) v4.11.36: 存量回溯口径改回「只回溯登录」+ 修时区统计缺陷
 
-口径(主人 09-22 拍板): 用户主动操作一次记一次 -> 由前端在动作回调上报,
-后端不数接口请求(30s 轮询会让数字失去意义)。
+主人拍板: 「改回登录口径吧」。
 
-新增:
-- 两张表 login_log / usage_daily(按 用户x北京日期x功能 聚合)
-- services/activity.py: record_login / bump_usage / login_history /
-  usage_summary / usage_rank / active_trend / purge(每日 03:30 清理)
-- api/activity.py: POST /api/activity/track(feature 白名单, uid/日期/时间服务端决定)
-- 登录埋点覆盖 成功/失败/重置密码/被顶出/主动退出(新增 POST /api/logout)
-- api/admin.py 4 端点: user-activity / login-log / usage-rank / active-users
-  + dashboard 增 activity 块
-- 前端 8 处埋点(选股应用/AI选股/竞价/题材/梯队/雷达/历史/会员)
-  + 后台看板三卡(今日登录/功能使用Top/近7天活跃) + 用户详情抽屉两块
-- scripts/kx_activity_backfill.py 存量回溯(journald, 实测 30 天 184 行使用 + 281 条登录)
+1) 回溯默认只回溯登录
+   - 首轮回溯把 journald 的**接口请求次数**写进 usage_daily(184 行), 与主人拍板的
+     「用户主动操作一次记一次」冲突: 日志没有 query string, 分不清 /api/stocks
+     是用户点了「应用」还是 30s 轮询(单日 8 千多条里绝大多数是轮询) ⇒ 数字系统性偏大,
+     混在一张表里会被误读成「点了 N 次」。
+   - kx_activity_backfill.py: 功能使用改为 --with-usage 显式开启(打印口径警告),
+     默认只回溯登录(一次登录=一次, 口径无歧义); 新增 --no-logins 与参数冲突校验。
+   - 清掉首轮写进去的 184 行回溯使用数据: date < 2026-09-22 必是回溯写入(功能 09-22 才上线),
+     删前导出 CSV 备份 /opt/kuaixuan/backups/usage_daily_backfill_20260922-205504.csv;
+     login_log 的 369 条登录回溯保留。实跑二次验证幂等(新增 0 条)。
 
-修(上线后由真实浏览器验证抓出的 3 个「写了但没生效」缺陷):
-- MemberAdminPanel.vue 的 activityUsage 从未声明 -> 运行时 ReferenceError 被
-  loadBoard 外层 catch 静默吞掉, 导致其后的 login-log 请求根本没发出,
-  界面表现为「今日还没有登录记录」而非报错; 并给该 catch 加 logFront 使其可观测
-- loadActive() 定义了从未被调用 -> adminActiveUsers 被 tree-shake, 活跃卡消失
-- 模板绑 sum7 但脚本叫 activeSum7 -> 未定义变量
+2) 界面文案订正(口径改后原文案已变成错的)
+   - 登录卡 hint: 「只记录本次功能上线之后的登录」->「已回溯至 2026-08-22(回溯条目无 UA)」
+   - 使用卡: ->「使用记录自 2026-09-22 上线当天开始, 更早未回溯(口径不同)」
+   - UserDetailDrawer ud-note: 删掉「回溯写入属接口请求口径, 数字偏大」旧说明
 
-兼容:
-- 测试机 SQLite 3.7.17 不支持 ON CONFLICT UPSERT -> 统一 INSERT OR IGNORE + UPDATE,
-  并附变异测试守卫(test_no_upsert_syntax), 改回 UPSERT 即变红
+3) 修时区缺陷(真 Bug, 赶在上生产前)
+   - _day_start_ts 原用 time.mktime(按**本地时区**解释) 再 -8h; 测试机与生产机
+     时区都是 UTC+8(实测 tz_offset=28800) ⇒ 多减 8 小时, 「今日」窗口变成
+     [北京前日16:00, 北京当日16:00) ⇒ **每天 16:00 之后 login_stats 查不到当天登录**。
+     改为 calendar.timegm(显式按 UTC 解释), 任何时区机器恒定正确。
 
 验证:
-- 本机后端全量 pytest 1229 passed / 4 skipped / 0 failed
-- 测试机端到端 43 项全过
-- 真实浏览器 UI 验证 35 项 0 FAIL(看板三卡 + 抽屉两块均渲染真实数据, 零 console error)
-- 埋点口径验证 3 项 0 FAIL: 点「应用」3 次 -> count 恰好 +3; 静置 36s 跨过
-  30s 轮询周期计数不再增长(证明埋点没被写进轮询)
-- 前端单测 58/58; vite build 通过(入口 index-yPEOLJ4y.js)
+- 后端全量 pytest 1230 passed / 4 skipped / 0 failed(257.5s)
+- test_activity_log.py 单独跑 28 passed(修复前北京时间 21:04 是 assert 0>=1 红的)
+- 测试机时区校验 6 项 0 FAIL: _day_start_ts=1790006400(北京 09-22 00:00);
+  修复后 21:11 实测 login_stats success=32/users=18/fail=14
+- 回溯幂等: 30 天再跑一次新增 0 条(login_log 369->369, usage_daily 43->43)
+- 真实浏览器 UI 回归 37 项 0 FAIL(含 2 条新文案断言), 零 console error
+- 前端单测 58/58; vite build 入口 index-BOiAzfbO.js
 
-上线状态: 仅测试机(09-22 20:34, 前端备份 /opt/kuaixuan/dist_bak_20260922-203418);
-生产待主人放行。
+上线状态: 仅测试机(09-22 21:00; 前端备份 /opt/kuaixuan/dist_bak_20260922-210013,
+后端备份 /opt/kuaixuan/backups/activity_20260922-211000.py); 生产待主人放行。

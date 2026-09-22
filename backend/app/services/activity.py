@@ -20,6 +20,7 @@
     - quota:* 只有免费用户有、TTL 25 小时即删、只有 3 个功能 → 用途仅「限流」;
     - usage_daily 覆盖全部用户(含会员/管理员)、长期保留、8 个功能 → 用途「审计/运营」。
 """
+import calendar
 import time
 
 from ..core import config, logger
@@ -432,9 +433,17 @@ def active_trend(days=30):
 
 
 def _day_start_ts(date_str):
-    """北京日期 → 当日 00:00 的 UTC 时间戳"""
+    """北京日期(YYYY-MM-DD) → 当日 00:00(北京) 的 UTC 时间戳。
+
+    🔴 必须用 `calendar.timegm`(按 **UTC** 解释) 而不是 `time.mktime`(按**本地时区**解释):
+       本机是 UTC+8, `mktime` 已含 +8 偏移, 再 `-8*3600` 就**多减了 8 小时**
+       ⇒ 统计窗口变成 [前一日 08:00, 当日 08:00) UTC, 北京时间 **16:00 之后
+       `login_stats()` 就查不到当天记录**(2026-09-22 21:04 实测: `success=0`)。
+       生产/测试机时区是 UTC, 两者在线上等价, 但这样写**测试结果会随时区与时段漂移**,
+       属于典型的「只在本机某些时刻才红」的脆弱点。改 timegm 后任何时区机器都恒定正确。
+    """
     try:
-        return int(time.mktime(time.strptime(date_str, "%Y-%m-%d"))) - 8 * 3600
+        return int(calendar.timegm(time.strptime(date_str, "%Y-%m-%d"))) - 8 * 3600
     except Exception:
         return 0
 

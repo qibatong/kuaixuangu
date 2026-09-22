@@ -10,20 +10,25 @@
       ⚠️ journald 默认上限 4G, 已占 3.9G —— **一旦开始丢弃最老日志就回溯不了了**,
          所以这件事越早做越好(主人 2026-09-22 已确认「需要回溯」)。
 
-🔴 口径差异(必须知道, 否则会误判数字):
-    回溯出来的数字是「**接口请求次数**」, 而上线后记录的是「**用户主动操作次数**」。
-    日志里没有 query string, 所以无法区分 `/api/stocks` 是用户点了「应用」还是 30 秒轮询
-    ⇒ `TARGETS` 里**故意不含 /api/stocks**(否则单日 8 千多条轮询会把它撑爆)。
-    因此回溯值通常**偏大**(前端一次打开会打多个接口), 与上线后的数字不可直接比较。
-    后台界面已就此加了说明(见 UserDetailDrawer 的 ud-note)。
+🔴 口径差异(必须知道, 否则会误判数字) —— **默认只回溯登录**:
+    - **登录记录: 口径无歧义, 默认回溯**。一次登录就是一次登录, journald 里
+      `/api/login` 的成/败、被顶出、重置密码都有明确事件, 与线上实时记录同口径。
+    - **功能使用: 口径冲突, 默认不回溯**(主人 2026-09-22 拍板「改回登录口径」)。
+      日志里能数到的只是「**接口请求次数**」, 而主人拍板的口径是「**用户主动操作一次记一次**」;
+      日志没有 query string, 无法区分 `/api/stocks` 是用户点了「应用」还是 30 秒轮询
+      (实测单日 8 千多条里绝大多数是轮询) ⇒ 回溯值**系统性偏大**,
+      与上线后的数字**不可直接比较**, 放在同一张表里会被误读成「点了 N 次」。
+      若确有需要, 用 `--with-usage` 显式开启(界面会另行标注口径)。
 
 用法:
-    # 预演(只统计不写库)
+    # 预演(只统计不写库, 默认只回溯登录)
     /opt/kuaixuan-venv/bin/python kx_activity_backfill.py --days 30 --dry-run
     # 真写(回溯 30 天, 不含今天)
     /opt/kuaixuan-venv/bin/python kx_activity_backfill.py --days 30
     # 指定范围
     /opt/kuaixuan-venv/bin/python kx_activity_backfill.py --from 2026-08-20 --to 2026-09-21
+    # 连功能使用一起回溯(口径为接口请求次数, 与实时记录不可比)
+    /opt/kuaixuan-venv/bin/python kx_activity_backfill.py --days 30 --with-usage
 
 幂等: 写入取 MAX(count, 新值) 且按 (uid,date,feature) 聚合 ⇒ 同一批日志跑几遍都不会翻倍。
 """
@@ -212,10 +217,17 @@ def main():
     ap.add_argument("--from", dest="d_from", default="", help="起始北京日期 YYYY-MM-DD")
     ap.add_argument("--to", dest="d_to", default="", help="结束北京日期 YYYY-MM-DD(含)")
     ap.add_argument("--dry-run", action="store_true", help="只统计不写库")
-    ap.add_argument("--with-logins", action="store_true",
-                    help="同时回溯登录记录(默认也做; 加 --no-logins 可关)")
-    ap.add_argument("--no-logins", action="store_true", help="只回溯功能使用, 不回溯登录")
+    # 2026-09-22 主人拍板「改回登录口径」: 功能使用**默认不回溯**(接口请求次数口径,
+    # 与「主动操作一次记一次」冲突, 混在一张表里会被误读)。
+    ap.add_argument("--with-usage", action="store_true",
+                    help="连功能使用一起回溯(⚠️ 口径=接口请求次数, 与实时记录不可比)")
+    ap.add_argument("--no-logins", action="store_true", help="不回溯登录(配 --with-usage 只回溯使用)")
     args = ap.parse_args()
+    do_usage = bool(args.with_usage)
+    do_logins = not args.no_logins
+    if not do_usage and not do_logins:
+        ap.error("--no-logins 与「默认不回溯使用」同时成立 ⇒ 什么都不做; "
+                 "若要只回溯使用请加 --with-usage")
 
     today = _bj_date(int(time.time()))
     if args.d_from and args.d_to:
@@ -233,10 +245,14 @@ def main():
               - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
 
     print("=" * 68)
-    print("回溯范围: %s ~ %s   库: %s   模式: %s"
-          % (d0, d1, os.environ.get("BID_DB_PATH", "(app 默认)"),
-             "预演(不写库)" if args.dry_run else "写库"))
-    print("口径: 接口请求次数(非点击次数), 详见脚本头部说明")
+    print("回溯范围: %s ~ %s   库: %s" % (d0, d1, os.environ.get("BID_DB_PATH", "(app 默认)")))
+    print("模式: %s" % ("预演(不写库)" if args.dry_run else "写库"))
+    print("回溯内容: %s" % (" + ".join(
+        (["登录记录"] if do_logins else [])
+        + (["功能使用⚠️接口请求次数口径"] if do_usage else [])) or "(无)"))
+    if not do_usage:
+        print("口径: 只回溯登录(一次登录=一次, 与实时记录同口径); "
+              "功能使用不回溯 —— 日志只能数接口请求, 与「主动操作一次记一次」冲突。")
     print("=" * 68)
 
     cur = datetime.datetime.strptime(d0, "%Y-%m-%d")
@@ -246,15 +262,11 @@ def main():
     while cur <= end:
         ds = cur.strftime("%Y-%m-%d")
         rows, logins = scan_day(ds, verbose=True)
-        if rows:
-            if args.dry_run:
-                wrote = len(rows)
-            else:
-                wrote = activity.upsert_absolute(rows)
-        else:
-            wrote = 0
+        wrote = 0
+        if do_usage and rows:
+            wrote = len(rows) if args.dry_run else activity.upsert_absolute(rows)
         nlogin = 0
-        if logins and not args.no_logins:
+        if do_logins and logins:
             nlogin = write_logins(logins, dry_run=args.dry_run)
         total_rows += wrote
         total_logins += nlogin
@@ -264,9 +276,14 @@ def main():
         cur += datetime.timedelta(days=1)
 
     print("=" * 68)
-    print("完成: 使用 %d 行, 登录 %d 条, 耗时 %.1fs" % (total_rows, total_logins, time.time() - t_start))
-    if not args.no_logins:
-        print("提示: login_log 的历史记录**没有 UA**(日志里没打), 来源标记为系统日志回溯。")
+    print("完成: 登录 %d 条%s, 耗时 %.1fs"
+          % (total_logins,
+             (", 使用 %d 行(⚠️接口请求次数口径)" % total_rows) if do_usage else "",
+             time.time() - t_start))
+    if do_logins:
+        print("提示: login_log 的历史记录**没有 UA**(日志里没打), 与实时记录的差别仅此一项。")
+    if not do_usage:
+        print("提示: 功能使用未回溯(口径不同) —— 使用记录只从 2026-09-22 功能上线当天开始有数。")
     print("提示: 回溯只覆盖到 %s; 之后的数据由线上实时记录。" % d1)
 
 

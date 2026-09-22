@@ -90,7 +90,7 @@ cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/p
 8. **Nginx 反代后 IP 一律用 `deps.client_ip()`**，**不要用 `request.client.host`**（恒为 `127.0.0.1`
    → 全站共用一个限流桶）。
 
-### 0.4 最近变更索引（T175 两台机器均已上线；**v4.11.34 / v4.11.35 均仅测试机，生产待放行**）
+### 0.4 最近变更索引（T175 两台机器均已上线；**v4.11.34 / v4.11.35 / v4.11.36 均仅测试机，生产待放行**）
 
 > **📌 版本迭代记录规则（主人 2026-09-22 定，每次变更必做）**
 > 1. **一变更一号，号必须递增且唯一**：格式 `v4.11.<N>`；下一个号 = `docs/history.md` 与本表里
@@ -112,6 +112,7 @@ cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/p
 
 | 版本 | 日期 | 一句话 |
 |---|---|---|
+| **v4.11.36** | 09-22 | **存量回溯口径改回「只回溯登录」**（主人拍板）：首轮回溯把 journald 的**接口请求次数**写进了 `usage_daily`，与「点一次记一次」冲突 → 脚本改为**默认只回溯登录**（使用需显式 `--with-usage`），并**清掉 184 行回溯使用数据**（删前 CSV 备份；`login_log` 369 条登录回溯保留，口径无歧义）；同步订正 3 处已变错的界面文案；**顺带修掉时区缺陷** `_day_start_ts` 用 `time.mktime`（按本地时区解释）再 -8h ⇒ 服务器是 UTC+8 时统计窗口偏移 8 小时，**每天 16:00 后登录统计归零**（生产机实测同为 UTC+8，**赶在放行前修掉**），改为 `calendar.timegm`。**仅测试机**（09-22 21:00，前端入口 `index-BOiAzfbO.js`，后端备份 `/opt/kuaixuan/backups/activity_20260922-211000.py`） |
 | **v4.11.35** | 09-22 | **用户行为记录**（管理员此前完全看不到登录与功能使用）：新增 `login_log` + `usage_daily` 两表 + `POST /api/activity/track` 前端上报 + 4 个 admin 查询端点 + `scripts/kx_activity_backfill.py` 存量回溯。🔴 **计数口径 = 用户主动操作一次记一次**（主人拍板），故**由前端在动作回调上报、后端不数接口请求**（`bump_usage` **故意不去重**）；`usage_daily` **按「用户×北京日期×功能」聚合**（逐条存 = 570 万行/年）；**会员/管理员同样计数**（与配额相反）。**仅测试机**（09-22 20:34，前端入口 `index-yPEOLJ4y.js`，
 备份 `/opt/kuaixuan/dist_bak_20260922-203418`）；生产待放行。⚠️ 上线后又修掉 3 个「写了但没生效」缺陷，
 其中 `activityUsage` 未声明导致 `login-log` 请求根本不发（详见 `docs/history.md` v4.11.35） |
