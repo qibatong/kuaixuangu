@@ -11,8 +11,17 @@
 * v3(2026-09-20): 主人拍板: 删除加速度修正 + 低开 gate, 换竞价主力净额层。
 * v6(2026-09-20): **主人拍板: 加 AI 预测层**(aipick XGBoost 涨停概率, 见
   ai_predict.py) —— 三层 = 量比(0.45) + 净额(0.30) + AI(0.25)。
+* v7(2026-09-23): **主人拍板: 去掉净额档, 其 0.30 权重并入量比档** ——
+  实测(2026-09-23 全市场 5561 只, `_kx_probe_warn_layers.py`): 竞价主力净额
+  **连续 12 个交易日非零 0 只** ⇒ 该层恒 = ff_default 0.35 = **常数项 0.105**,
+  对排序零贡献、纯稀释量比。故 w_ff 置 0(等价移除), 合成简化为
+  **0.75×量比分档 + 0.25×AI档**(量比权重 45%→75%)。
+  🔴 连带影响: 盘中动态加分层(api/stocks `_apply_intraday_ff_bonus`)与净额档
+  同源(`score_one_live_ff`) ⇒ w_ff=0 后 warn_live ≡ warn_static, bonus 恒 0,
+  该功能**一并失效**(2026-09-23 实测: 原本 12 只被 +1~3 分, 归零后 Top5 边界
+  换 1 只)。要恢复盘中加分, 需把 w_ff 调回 0.30(或另立独立加成通道)。
 
-现状三层
+现状两层(净额层保留字段与分档表, 但权重 0 = 不参与合成)
 --------------------------------------------------------------------------------
 ① 竞价量比     —— **本地自算(今竞价额 ÷ 昨竞价额)**(snapshot_bid.bid_amt, 单位万元;
                   万元相除单位抵消, 等价于猫爪 auc_amt 元相除)。
@@ -20,16 +29,15 @@
                   回测/口径实证发现该字段不可靠(与真实竞昨量比 r≈0.19、max 691 倍),
                   screening.volume_ratio 又是盘中量比口径 → **回退纯自算**(2026-09-20)。
                   自算「今额/昨额」≈「今量/昨量」(r=0.9988), 口径可靠。
-② 竞价主力净额 —— **猫爪 fundflow_kp**(采集链路 9:25 定格时落 snapshot_bid.auc_main_net):
-                  净额 ÷ 自由流通市值 ×100 = 净额占比(%), 归一化后分档。
-                  覆盖实测(2026-09-18 全市场): 非零仅 32% —— 主力净额是"有大单才有值",
-                  0/缺失 = 无大单信号 → 该层走 default(中性 0.35), **不当惩罚**。
-                  净流出为负 → 低分档(0.30/0.20/0.10), 天然承担"出货识别"
-                  (v2 低开 gate 的保护语义由本层负值档位承接)。
-③ AI 预测概率  —— **aipick 模型内联推理**(ai_predict.ai_score_map): 全市场
+② AI 预测概率  —— **aipick 模型内联推理**(ai_predict.ai_score_map): 全市场
                   Top30 ∩ p≥0.80 三档(0.90/0.85/0.80 → 1.0/0.85/0.70)。
                   不在榜是**常态**(全市场仅 30 只) → 走 ai_default 0.35 中性,
                   不当惩罚也**不标 missing**(与 ff 层不同: 缺列才是故障)。
+(已移除) 竞价主力净额 —— 猫爪 fundflow_kp 落 snapshot_bid.auc_main_net ÷ 自由流通
+                  市值 ×100。**2026-09-23 权重置 0**: 竞价主力净额是"有大单才有值",
+                  且采集链路 9:25 定格早于猫爪生成(9:26 后才有) ⇒ 12 日全市场非零
+                  0 只, 该层实际从未生效。字段/分档表保留在 `BidStrength.ff_pct` 与
+                  `ff_buckets`, 仅作展示与日后恢复用。
 
 两个实测踩过的坑(不可回退)
 --------------------------------------------------------------------------------
@@ -217,14 +225,13 @@ def _cfgf(fac: dict, key: str, default: float) -> float:
 
 
 def score_one(st: Optional["BidStrength"], cfg: Optional[dict] = None) -> Optional[float]:
-    """三层子权重合成 → 0~1 分。返回 None = 三层全缺(调用方走 factor default)。
+    """子权重合成 → 0~1 分。返回 None = 所有层都缺(调用方走 factor default)。
 
-    合成(2026-09-20 v6): score = w_vol×量比分档 + w_ff×净额分档 + w_ai×AI档位
-      * 每层缺失只走各自 default(量比→0.22 / 净额→ff_default 0.35 / AI→ai_default
-        0.35), 独立降级;
+    合成(2026-09-23 v7, 净额档已移除): score = w_vol×量比分档 + w_ai×AI档位
+      * 每层缺失只走各自 default(量比→0.22 / AI→ai_default 0.35), 独立降级;
       * 子权重从配置读(w_vol_ratio/w_ff/w_ai), 自动归一化(防配置总和≠1);
-      * v2 的加速度修正与低开 gate 已按主人指令删除 —— "低开+放量=出货"的保护
-        语义由净额层负值档位承接(净流出 → 0.30/0.20/0.10);
+      * 🔴 w_ff 现为 0(2026-09-23 主人拍板去掉净额档, 权重并入量比) —— 净额项
+        即使有值也乘 0, 等价移除; 恢复只需把 w_ff 调回 0.30;
       * v6 AI 层: 不在榜(全市场仅 Top30)是常态 → ai_default 中性, 不当惩罚。
     """
     if st is None:
@@ -238,15 +245,15 @@ def score_one(st: Optional["BidStrength"], cfg: Optional[dict] = None) -> Option
 
 def score_one_live_ff(st: Optional["BidStrength"], ff_live: Optional[float],
                       cfg: Optional[dict] = None) -> Optional[float]:
-    """与 score_one 同一合成, 但净额层取 **max(竞价档, 盘中实时档)** —— 只加不减。
+    """与 score_one 同一合成, 净额层取 **max(竞价档, 盘中实时档)** —— 只加不减。
 
-    2026-09-20 主人拍板「开盘后主力持续净流入的加分」:
-      * 盘中实时净额(ff_live = 盘中主力净额 ÷ 自由流通市值 ×100)参与净额层打分,
-        档位高于竞价档 → 加分; 低于(盘中转流出) → 保持竞价档不减;
-      * 竞价无大单(ff=None → 竞价档=ff_default 中性 0.35)同样适用: 盘中大买可加分,
-        盘中流出保持中性不惩罚;
-      * ff_live 无效(None/分母缺失) → 与 score_one 等价(不加分)。
-    合成主体与 score_one 共享 _compose, 权重/档位/归一化零复刻(防口径漂移)。
+    2026-09-20 主人拍板「开盘后主力持续净流入的加分」。合成主体与 score_one
+    共享 _compose, 权重/档位/归一化零复刻(防口径漂移)。
+
+    🔴 **2026-09-23 起本函数与 score_one 等价**(净额档已移除, w_ff=0):
+    `warn_live − warn_static ≡ 0` ⇒ 调用方 api/stocks `_apply_intraday_ff_bonus`
+    的 bonus 恒为 0(该动态加分功能随之静默失效, 不报错、不影响名单可用性)。
+    恢复路径 = 把 `w_ff` 调回 0.30(配置写入即可, 无需改代码)。
     """
     if st is None:
         return None
@@ -259,17 +266,21 @@ def score_one_live_ff(st: Optional["BidStrength"], ff_live: Optional[float],
 
 def _compose(vol: Optional[float], ff: Optional[float], ai: Optional[float],
              fac: dict, ff_live: Optional[float] = None) -> Optional[float]:
-    """三层合成主体(score_one / score_one_live_ff 共享; 任何一方都不得再复制权重逻辑)。"""
+    """层合成主体(score_one / score_one_live_ff 共享; 任何一方都不得再复制权重逻辑)。
+
+    2026-09-23 v7: 净额档权重 w_ff 默认 0(已移除) ⇒ ff/ff_live 项乘 0 不参与,
+    但分支保留以便一键恢复(w_ff=0.30 即回到 v6 行为)。
+    """
     if vol is None and ff is None and ai is None:
-        return None                                  # 三层全缺 → 交给 default
+        return None                                  # 全层缺 → 交给 default
 
     # 子权重(自动归一)
-    w_vol = _cfgf(fac, "w_vol_ratio", 0.45)
-    w_ff = _cfgf(fac, "w_ff", 0.30)
+    w_vol = _cfgf(fac, "w_vol_ratio", 0.75)
+    w_ff = _cfgf(fac, "w_ff", 0.0)
     w_ai = _cfgf(fac, "w_ai", 0.25)
     tot = w_vol + w_ff + w_ai
     if tot <= 0:
-        w_vol, w_ff, w_ai = 0.45, 0.30, 0.25
+        w_vol, w_ff, w_ai = 0.75, 0.0, 0.25
     else:
         w_vol, w_ff, w_ai = w_vol / tot, w_ff / tot, w_ai / tot
 
@@ -280,7 +291,7 @@ def _compose(vol: Optional[float], ff: Optional[float], ai: Optional[float],
     else:
         vol_score = _bucket(fac.get("buckets"), vol, vol_default)
 
-    # 层② 竞价主力净额分档: 缺失/无信号 → ff_default(中性, 不惩罚)
+    # 层② 竞价主力净额分档: **2026-09-23 起 w_ff=0 不参与**(保留以求可回退)
     #   ff_live(盘中实时占比)传入时取 max(竞价档, 盘中档) —— 只加不减
     #   (2026-09-20 主人拍板「主力持续净流入的加分」; 盘中流出不倒扣)。
     ff_default = _cfgf(fac, "ff_default", 0.35)

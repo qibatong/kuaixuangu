@@ -43,7 +43,8 @@ def compute_score(row: QuoteRow, cfg: Optional[dict] = None,
 
     因子取值全部来自契约层(唯一权威来源), 缺失(None)一律走该因子 default 分。
     cfg: 评分配置(缺省自动取 scorer.get_scoring_cfg()), 便于测试注入。
-    strength: **竞价强度**(0~1, 由 services/bid_strength 三层合成, pipeline 注入)。
+    strength: **竞价强度**(0~1, 由 services/bid_strength 合成, pipeline 注入;
+        2026-09-23 v7 起为**两层** = 量比档 0.75 + AI 档 0.25, 净额档已移除)。
         提供时**替代** warn(f630 异动等级) 因子 —— f630 只有东财点查才给真实值,
         腾讯/快照行恒填 0, 东财一断就全员 default(实测 2026-09-08 批次#1585 全部
         39 只 warn=0, 天花板从 99.4 崩到 85.5)。None = 未启用, 退回 warn(对拍用)。
@@ -75,8 +76,8 @@ def compute_score(row: QuoteRow, cfg: Optional[dict] = None,
     # 老链路 bid_vol_ratio 恒 0.0(量比加成是死代码, 从未触发): 此处保留同行为,
     # 不加成。留字段位是为了对拍可见 —— 哪天接了真实竞量比再启用。
     if strength is not None:
-        # 竞价强度(三层合成, 对东财免疫) —— 已由 bid_strength.score_one 处理缺失,
-        # 返回 None(三层全缺)时这里才走 default
+        # 竞价强度(2026-09-23 v7 起为**两层合成**= 量比0.75 + AI0.25, 对东财免疫) ——
+        # 已由 bid_strength.score_one 处理缺失, 返回 None(各层全缺)时这里才走 default
         warn_score = strength
         warn_label: Any = "竞价强度"
     else:
@@ -130,7 +131,7 @@ def compute_score(row: QuoteRow, cfg: Optional[dict] = None,
 # ---------------------------------------------------------------- 粗筛排队分
 COARSE_RANK_FACTORS = ("bid", "activity", "market")
 """粗筛时点**拿得到**的三个因子。另两项在此刻不可得 ——
-   warn(竞价强度) 要等 services/bid_strength 三层合成(开盘啦+快照),
+   warn(竞价强度) 要等 services/bid_strength 合成(快照量比 + AI 预测; v7 两层),
    yesterday(昨日涨幅) 要等日K/补丁源。故粗排分对这两项取该因子的 default 分。"""
 
 

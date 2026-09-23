@@ -303,7 +303,7 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
             fctx.score_floor_exempt = True
 
     # 3.5) 竞价强度(替代失活的 f630 异动等级, 权重同为 w_warn=17%):
-    #      三层信号全部来自**快照表 + 开盘啦**, 对东财免疫 —— 东财点查断了照样有分。
+    #      信号全部来自**快照表 + 本地 AI 推理**, 对东财免疫 —— 东财点查断了照样有分。
     #      只对候选加载(全市场拉没必要); 加载失败 → strengths 为空 → 退回 warn 因子。
     #      物化路径跳过: 评分已含该因子, 且物化表的 warn_type 已是强度档位。
     strengths: Dict[str, float] = {}
@@ -418,8 +418,8 @@ def fill_yesterday(codes: Sequence[str],
 def _load_strength(codes: Sequence[str], ctx: PickContext) -> Dict[str, float]:
     """加载竞价强度(替代 f630 异动等级), 返回 {code: 0~1}。
 
-    三层信号(抢筹名单 / 竞价量比 / 加速度)全部来自快照表 + 开盘啦, **不依赖东财**
-    —— 东财点查断了照样有分, 不会再出现"全员 default → 天花板崩 14 分"。
+    信号(竞价量比 / AI 预测档位; 2026-09-23 v7 起两层)全部来自快照表 + 本地模型,
+    **不依赖东财** —— 东财点查断了照样有分, 不会再出现"全员 default → 天花板崩 14 分"。
     异常一律吞掉返回空 dict(调用方退回 warn 因子, 不阻塞选股)。
     """
     if ctx.strengths:                      # 调用方显式注入(测试/对拍)

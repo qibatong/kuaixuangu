@@ -173,7 +173,7 @@ def precompute_all(date: Optional[str] = None, *,
             log.warning("[预计算] %s", stat["error"])
             return stat
 
-        # 竞价强度(三层: 快照自算量比 + 开盘啦抢筹 + 加速度, 对东财免疫)
+        # 竞价强度(2026-09-23 v7 起两层: 快照自算量比 + AI 预测档位, 对东财免疫)
         st = strengths
         if st is None:
             try:
