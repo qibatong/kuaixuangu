@@ -570,12 +570,6 @@ def valuation_map(date_offset=None, date=None):
 _SCREENING_FIELDS = (
     "tradedate,symbol,name,close,pre_close,pct_chg,amount,turnover_rate_f,volume_ratio,"
     "free_float_mv,circ_mv,total_mv,type,limit_times,pre_limit_times,is_st,"
-    # ⚠️ 2026-09-24 查实: **auc_vol_ratio 不在 screening 官方字段清单**(openapi.json 的
-    #   screening 表 40 字段里只有 auc_pct_chg/auc_net_amount/auc_amt/auc_vol/auc_turnover)。
-    #   实测请求它**能返回**(2026-09-23 5568 行全带值) —— 即服务器支持但官方未收录。
-    #   🔴 仍**不放进本字段串**: 收益 = 0(同链路的 daily_auc 已提供该字段), 而风险 > 0
-    #   (screening 是「一次全市场调用」, 字段一旦被上游拒 = 422 = **猫爪主源全挂**)。
-    #   ⇒ 竞价量比一律取 daily_auc.auc_vol_ratio(见 daily_auc_amt)。
     "fd_amount,auc_pct_chg,auc_net_amount,auc_amt,auc_vol,auc_turnover,"
     "ztwme,fa_0915,fa_0920f,fa_0925l,theme_names_kpl,reason_main_kpl,"
     # 2026-09-20 新增: 昨日封单额 + 封昨比(官方原生, 免自算)。
@@ -601,10 +595,7 @@ def screening_map(date_offset=None, date=None):
         close/pre_close/pct_chg/amount/turnover_rate_f/volume_ratio  [5553/100%]
         auc_amt        竞价金额(元)        [5444/98%]
         auc_pct_chg    竞价涨幅(%)         [4818/87%]
-        auc_vol        竞价量(手)
         auc_turnover   真实竞价换手率(%)    [5440/98%]  ← ★ 官方成品, 免自算
-        ⚠️ auc_vol_ratio(**标准量比**)不在此接口请求 —— openapi 未收录, 见 _SCREENING_FIELDS 注释;
-           该字段一律取 daily_auc(见 daily_auc_amt / snapshot_bid.auc_vol_ratio)。
         auc_net_amount 竞价净额(元)        [全市场多为 0; auc_kp 才有值]
         fd_amount      封单额(元)          [仅盘口有效票]
         ztwme/fa_0915/fa_0920f/fa_0925l    委买额/封单额分时
@@ -638,12 +629,6 @@ def daily_auc_amt(trademin="0925", date_offset=None, date=None):
         本函数走 daily_auc(**有 name**)。snapshot_bid 落库要 name → 用本函数。
       ★ 竞价强度 bid_strength 依赖 snapshot_bid 的 bid_amt/bid_change 自算量比与加速度
         (见 services/bid_strength.py), 故本函数是 17% 权重因子的数据源头。
-      ★ 2026-09-24 (v4.11.39) 新增用途: `auc_vol_ratio`(**标准量比** =
-        竞价成交量 ÷ 近5日平均每分钟成交量, 官方成品) → snapshot_bid.auc_vol_ratio。
-        🔴 该字段**只走本接口**: screening 虽实测能返回同名值, 但不在其 openapi 字段清单内,
-           放进去是「零收益、主源 422 风险」, 故不请求(详见 _SCREENING_FIELDS 注释)。
-        数据质量实测(66 日 365,764 行): 非零率 98.4%; 反推 5 日日均量的日间比值中位
-        0.9911(93.9% 落 [0.8,1.25]) ⇒ 字段内部自洽。9:25 定格可得(分母是历史 5 日量)。
     """
     params = {"trademin": hhmm(trademin)}
     if date:

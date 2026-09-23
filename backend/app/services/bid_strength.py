@@ -23,16 +23,12 @@
 
 现状两层(净额层保留字段与分档表, 但权重 0 = 不参与合成)
 --------------------------------------------------------------------------------
-① 竞价量比     —— **标准口径: 竞价成交量 ÷ 近 5 日平均每分钟成交量**(2026-09-24 主人拍板换口径)。
-                  数据源 = 猫爪官方成品 `auc_vol_ratio`, 随 9:25 快照落
-                  `snapshot_bid.auc_vol_ratio`(采集侧 **daily_auc 唯一** —— screening 的
-                  openapi 字段清单无此字段, 不请求)。实测非零率 98.4%、由该字段反推的
-                  5 日日均量日间比值中位 0.9911(93.9% 落 [0.8,1.25]) ⇒ 字段自洽可信。
-                  ★ 旧口径(今 9:25 竞价额 ÷ 昨 9:25 竞价额)是「竞价额同环比」, 现仅作
-                  **降级回退**: 新列为 0 的历史行仍走它 —— 保证换口径当天名单不整体塌成
-                  default(历史快照无新列, 否则全员落到量比档 default 0.22)。
-                  为什么不用官方 `auc_to_pre_auc_vol_ratio`(竞昨量比): 该字段实测失真
-                  (与真实竞昨量比 r≈0.19、max 691 倍), 2026-09-20 已回退。
+① 竞价量比     —— **本地自算(今竞价额 ÷ 昨竞价额)**(snapshot_bid.bid_amt, 单位万元;
+                  万元相除单位抵消, 等价于猫爪 auc_amt 元相除)。
+                  2026-09-20 曾换源到猫爪 daily_auc.auc_to_pre_auc_vol_ratio 官方成品,
+                  回测/口径实证发现该字段不可靠(与真实竞昨量比 r≈0.19、max 691 倍),
+                  screening.volume_ratio 又是盘中量比口径 → **回退纯自算**(2026-09-20)。
+                  自算「今额/昨额」≈「今量/昨量」(r=0.9988), 口径可靠。
 ② AI 预测概率  —— **aipick 模型内联推理**(ai_predict.ai_score_map): 全市场
                   Top30 ∩ p≥0.80 三档(0.90/0.85/0.80 → 1.0/0.85/0.70)。
                   不在榜是**常态**(全市场仅 30 只) → 走 ai_default 0.35 中性,
@@ -45,8 +41,7 @@
 
 两个实测踩过的坑(不可回退)
 --------------------------------------------------------------------------------
-* 回退路径(自算「今额/昨额」)**必须**过滤昨日竞价额 < 100 万: 昨额 1 万 → 量比 302 倍,
-  严重失真。该过滤**仅对标准口径无值的历史行**生效(新口径直读官方成品, 无需门槛)。
+* 自算量比**必须**过滤昨日竞价额 < 100 万: 昨额 1 万 → 量比 302 倍, 严重失真。
 * 加速度层曾要求以 9_24 为基准(9:20 前挂单可撤) —— 该层已删, 9_24 快照仅剩
   竞价异动页「加速度」展示列在用(与评分无关, 勿混)。
 
@@ -71,8 +66,8 @@ MIN_YDAY_BID_AMT_WAN = 100.0
 class BidStrength:
     """单票竞价强度信号。所有字段 None = 该层数据不可用(不是 0)。"""
     code: str
-    # ① 竞价量比(标准口径: 竞价成交量 ÷ 近 5 日平均每分钟成交量)
-    bid_vol_ratio: Optional[float] = None  # 猫爪 auc_vol_ratio; 缺则回退「今额/昨额」
+    # ① 竞价量比(快照自算)
+    bid_vol_ratio: Optional[float] = None  # 今日9:25竞价额 / 昨日9:25竞价额(倍)
     # ② 竞价主力净额占自由流通市值(%; 猫爪 fundflow_kp, 采集链路落库)
     ff_pct: Optional[float] = None
     # ③ AI 预测档位分(aipick XGBoost, 全市场 Top30 ∩ p≥0.80 三档; None=不在榜=常态)
@@ -129,10 +124,7 @@ def _fill_snapshot(out: Dict[str, BidStrength], want, date: Optional[str]):
         # → 探测列存在性, 无则净额层整体判不可用(量比层照常, 独立降级)。
         cols = {r[1] for r in cur.execute("PRAGMA table_info(snapshot_bid)").fetchall()}
         has_ff = "auc_main_net" in cols and "free_mv" in cols
-        # 老库兼容同理: auc_vol_ratio 是 2026-09-24 新增列(未迁移的库 SELECT 会直接报错)
-        has_vr = "auc_vol_ratio" in cols
-        sel_extra = (", auc_main_net, free_mv" if has_ff else ", NULL, NULL") \
-            + (", auc_vol_ratio" if has_vr else ", NULL")
+        sel_extra = ", auc_main_net, free_mv" if has_ff else ", NULL, NULL"
 
         # 目标交易日: 未指定 → 最近有 9:25 快照的交易日(节假日/盘前自动回退)
         # 2026-09-09 修正: 传入了 date 但当天还没 9:25 快照(如 9/9 凌晨传 date='2026-09-09'),
@@ -153,18 +145,16 @@ def _fill_snapshot(out: Dict[str, BidStrength], want, date: Optional[str]):
 
         # 今日 9:25 定格: 竞价额(自算量比兜底) + 竞价主力净额/自由流通市值(净额层)
         #                       + 竞昨量比(官方成品, 优先)
-        for code, amt, auc_main_net, free_mv, vr in cur.execute(
+        for code, amt, auc_main_net, free_mv in cur.execute(
                 "SELECT code, bid_amt%s FROM snapshot_bid "
                 "WHERE date=? AND time_point='9_25'" % sel_extra, (date,)):
             code = str(code)
             if want is not None and code not in want:
                 continue
             st = BidStrength(code=code, _amt25=amt)
-            # 层① 竞价量比 = **标准口径**(竞价成交量 ÷ 近5日平均每分钟成交量; 2026-09-24):
-            #   直读猫爪官方成品列 auc_vol_ratio。无值(历史行/采集缺) → 留 None,
-            #   由下方「昨日 9:25 竞价额」自算做**降级回退**(旧口径), 保证不断层。
-            if vr and float(vr) > 0:
-                st.bid_vol_ratio = round(float(vr), 2)
+            # 层① 竞昨量比: **本地自算**(今 bid_amt ÷ 昨 bid_amt, 见下方昨日 9:25 兜底)。
+            #   官方成品(daily_auc.auc_to_pre_auc_vol_ratio)已实证不可靠(2026-09-20 回退),
+            #   故 bid_vol_ratio 只由自算产生, 不再读任何官方列。
             # 层② 净额占比(%): 0 = 竞价无大单(无信号) → None 走 default, 不当惩罚;
             #   分母必须用**自由流通市值**(与门槛/竞价换手同口径, 2026-09-20 铁律)。
             if auc_main_net and free_mv and float(free_mv) > 0:
@@ -175,15 +165,13 @@ def _fill_snapshot(out: Dict[str, BidStrength], want, date: Optional[str]):
                 st._free_mv = float(free_mv)          # noqa: SLF001
             out[code] = st
 
-        # 降级回退: 昨日 9:25 竞价额 → 自算「今额/昨额」(仅对标准口径无值的行)
+        # 昨日 9:25 竞价额 → 自算量比(唯一路径)
         if yday:
             for code, yamt in cur.execute(
                     "SELECT code, bid_amt FROM snapshot_bid "
                     "WHERE date=? AND time_point='9_25'", (yday,)):
                 st = out.get(str(code))
                 if st is None or yamt is None:
-                    continue
-                if st.bid_vol_ratio is not None:     # 已有标准口径值 → 不回退(防两种口径混用)
                     continue
                 if yamt < MIN_YDAY_BID_AMT_WAN:      # 昨额过小 → 量比失真, 判不可用
                     continue

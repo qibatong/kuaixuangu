@@ -276,12 +276,6 @@ def _merge_meoz(raw_all):
         amt = _f(s.get("auc_amt"))
         if amt is None:
             amt = _f(am.get("auc_amt"))
-        # 竞价量比(标准口径, 2026-09-24 新增): 竞价成交量 ÷ 近 5 日平均每分钟成交量。
-        #   🔴 唯一来源 = daily_auc.auc_vol_ratio(am) —— 不用 screening:
-        #      screening 的 openapi 字段清单里没有 auc_vol_ratio(实测能返回但官方未收录),
-        #      放进其字段串是「零收益、主源 422 全挂」的风险(见 meoz_client._SCREENING_FIELDS)。
-        #   无值 → 0.0, 落库为 0 = **不可用**(评分层按缺值走 default, 不当作"量比=0")。
-        vol_ratio = _f(am.get("auc_vol_ratio")) or 0.0
 
         # 昨日封单额 + 封昨比(仅 screening 提供, 官方原生; 无则 0/None)
         pre_fd = _f(s.get("pre_fd_amount"))
@@ -301,7 +295,6 @@ def _merge_meoz(raw_all):
                 "pre_fd_amount": pre_fd if pre_fd is not None else 0.0,            # 昨日封单额(元)
                 "fd_to_yesterday": fd_yday if fd_yday is not None else 0.0,        # 封昨比
                 "auc_turnover": _f(s.get("auc_turnover")) or 0.0,                 # 真实竞价换手率%(自由流通口径)
-                "auc_vol_ratio": vol_ratio,                                        # 竞价量比(标准口径: 竞价量÷近5日每分钟量)
                 "auc_main_net": auc_main_net,                                      # 竞价主力净额(元)
                 "board": str(s.get("theme_names_kpl") or fd.get("theme_names_kpl") or ""),
                 "warn_type": 0,             # f630 已失活
@@ -359,9 +352,6 @@ def _merge_meoz(raw_all):
             at = _f(s.get("auc_turnover"))
             if at and at > 0:
                 v["auc_turnover"] = at
-        # 竞价量比(标准口径 5 日每分钟量) → 缺则补, 只补不覆盖(同 auc_turnover 纪律)
-        if not (v.get("auc_vol_ratio") or 0) and vol_ratio:
-            v["auc_vol_ratio"] = vol_ratio
         # 竞价主力净额: 仅 fundflow_kp 有(东财/其余猫爪源均无) → 东财行无此键, 直接写。
         #   已有值(理论上不存在, 该键只由本函数写)则不覆盖 —— 同「只补缺」纪律。
         if not (v.get("auc_main_net") or 0) and auc_main_net:
@@ -749,14 +739,13 @@ def snapshot_at(time_point, force=False):
     try:
         conn = database.get_conn()
         conn.executemany(
-            "INSERT OR REPLACE INTO snapshot_bid (date, time_point, code, bid_change, bid_amt, name, bid_buy_amt, float_mv, free_mv, board, warn_type, pre_fd_amount, fd_to_yesterday, auc_turnover, auc_vol_ratio, auc_main_net, ts) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO snapshot_bid (date, time_point, code, bid_change, bid_amt, name, bid_buy_amt, float_mv, free_mv, board, warn_type, pre_fd_amount, fd_to_yesterday, auc_turnover, auc_main_net, ts) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [(date, time_point, code, v["bid_change"], v["bid_amt"], v.get("name", ""),
               v.get("bid_buy_amt", 0), v.get("float_mv", 0), v.get("free_mv", 0), v.get("board", ""),
               int(v.get("warn_type") or 0),
               v.get("pre_fd_amount", 0), v.get("fd_to_yesterday", 0),
               v.get("auc_turnover", 0),
-              v.get("auc_vol_ratio", 0),
               v.get("auc_main_net", 0),
               int(time.time()))
              for code, v in raw_all.items()])

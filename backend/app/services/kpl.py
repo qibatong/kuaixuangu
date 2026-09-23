@@ -256,21 +256,12 @@ def _boom_spot_map():
 def _boom_from_snap(snap_date, spot_map=None):
     """从某交易日 snapshot_bid 重建竞价爆量(量比榜)。2026-09-05 抽出, 供 实时加载器 与
     历史回看/非交易日重建 复用(历史 auction_daily_history 长期无 boom 落库 → 用快照重建)。
-    过滤口径与 fetch_bid_boom 一致: 竞价量比 > 阈值 且 竞价成交额 > 100万(万元=100) 且 竞价涨幅≥0.01%。
-
-    ★ 2026-09-24 (v4.11.39) 量比换口径: 优先读 snapshot_bid.auc_vol_ratio
-      (**竞价成交量 ÷ 近5日平均每分钟成交量**, 标准口径); 无值(历史行) → 回退旧口径
-      「今 9:25 竞价额 ÷ 昨 9:25 竞价额」。两者过滤阈值按各自分位等价: 5.01 / 2.0
-      (旧 2.0 在旧口径是 P65.6 分位, 新口径同分位 = 5.01, 见 `_kx_vol_bucket_map.py`)。
-
+    过滤口径与 fetch_bid_boom 一致: 竞价量比 > 2 且 竞价成交额 > 100万(万元=100) 且 竞价涨幅≥0.01%。
     返回 [{code,name,bidAmt,bidChange,bidRatioYest,bidTurnover,floatMv,board,yestBidAmt},...] 按量比降序;
     当日无快照/无昨日 → []。"""
     import sqlite3
     conn = sqlite3.connect(config.DB_FILE)
     try:
-        # 老库兼容: auc_vol_ratio 是 2026-09-24 新增列
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(snapshot_bid)").fetchall()}
-        vr_sel = ", auc_vol_ratio" if "auc_vol_ratio" in cols else ", NULL"
         # 当日最新时点: 字典序 9_15 < 9_20 < 9_24 < 9_25, MAX 即最新
         row = conn.execute(
             "SELECT MAX(time_point) FROM snapshot_bid WHERE date=? "
@@ -285,12 +276,12 @@ def _boom_from_snap(snap_date, spot_map=None):
         yest = str(row2[0]) if row2 and row2[0] else None
         if not yest:
             return []          # 无昨日数据
-        # 当日全市场: code -> (bid_amt万元, name, bid_change, 实际流通市值free_mv, board, 标准量比)
+        # 当日全市场: code -> (bid_amt万元, name, bid_change, 实际流通市值free_mv, board)
         today_map = {}
-        for code, amt, name, chg, fmv, board, vr in conn.execute(
-                "SELECT code, bid_amt, name, bid_change, COALESCE(NULLIF(free_mv,0), float_mv), board%s FROM snapshot_bid "
-                "WHERE date=? AND time_point=?" % vr_sel, (snap_date, cur_tp)):
-            today_map[code] = (amt or 0, name or "", chg or 0, fmv or 0, board or "", vr or 0)
+        for code, amt, name, chg, fmv, board in conn.execute(
+                "SELECT code, bid_amt, name, bid_change, COALESCE(NULLIF(free_mv,0), float_mv), board FROM snapshot_bid "
+                "WHERE date=? AND time_point=?", (snap_date, cur_tp)):
+            today_map[code] = (amt or 0, name or "", chg or 0, fmv or 0, board or "")
         # 昨日 9_25 竞价额(万元)
         ymap = {}
         for code, amt in conn.execute(
@@ -302,27 +293,21 @@ def _boom_from_snap(snap_date, spot_map=None):
     if spot_map is None:
         spot_map = _boom_spot_map()
     out = []
-    for code, (amt, name, chg, fmv, board, vr) in today_map.items():
+    for code, (amt, name, chg, fmv, board) in today_map.items():
         ya = ymap.get(code)
         if not ya or amt <= 100:      # 竞价成交额 ≤ 100万(万元=100) 或 昨日无竞价 → 跳过
             continue
         if chg < 0.01:                # 竞价涨幅 < 0.01%(基本零涨幅/未上涨) → 跳过
             continue
-        # 竞价量比: 标准口径优先(5 日每分钟量比), 无值回退旧口径「今额/昨额」
-        if vr and float(vr) > 0:
-            ratio = round(float(vr), 2)
-            if ratio <= 5.01:         # 新口径阈值(旧 2.0 的等分位点)
-                continue
-        else:
-            ratio = round(amt / ya, 2)
-            if ratio <= 2:
-                continue
+        ratio = round(amt / ya, 2)
+        if ratio <= 2:                # 竞价量比 ≤ 2 → 跳过
+            continue
         bid_turnover = round(amt * 10000 / fmv * 100, 4) if fmv else 0.0   # 竞价换手 = 竞价额/流通市值×100
         out.append({"code": code, "name": name,
                     "realChange": (spot_map.get(code) or {}).get("realChange", 0.0),   # 实时涨幅(东财全市场map, 全天有值)
                     "bidChange": chg,
                     "bidAmt": amt * 10000,            # 万元 → 元(前端口径)
-                    "bidRatioYest": ratio,            # 竞价量比(标准口径: 竞价量÷近5日每分钟量)
+                    "bidRatioYest": ratio,            # 竞价量比
                     "bidTurnover": bid_turnover,      # 竞价换手(%)
                     "floatMv": fmv, "board": board,
                     "yestBidAmt": ya * 10000})        # 昨日竞价额(元)
@@ -332,13 +317,11 @@ def _boom_from_snap(snap_date, spot_map=None):
 
 def fetch_bid_boom():
     """竞价爆量榜(2026-08-19 主人要求改版):
-    **按竞价量比排序(不限条数)** — 竞价量比 = **竞价成交量 ÷ 近5日平均每分钟成交量**
-    (2026-09-24 v4.11.39 换口径; 历史行无新列时回退「今日竞价额/昨日竞价额」)。
+    **按竞价量比排序(不限条数)** — 竞价量比 = 今日竞价额 / 昨日竞价额。
     全市场计算(不再只取 Type10 竞价额前 60): snapshot_bid 表
-      - 今日竞价量比: 当日最新时点的 auc_vol_ratio(标准口径)
-      - 昨日竞价额(仅回退路径用): 最近(严格小于当日)交易日的 9_25 快照
-    过滤(2026-08-19 23:10 主人要求, 阈值为旧口径): 竞价量比 > 2 且 竞价成交额 > 100万(万元=100)
-      —— 新口径等分位阈值见 _boom_from_snap(5.01)
+      - 今日竞价额: 当日最新时点(9_25 > 9_24 > 9_20 > 9_15)
+      - 昨日竞价额: 最近(严格小于当日)交易日的 9_25 快照
+    过滤(2026-08-19 23:10 主人要求): 竞价量比 > 2 且 竞价成交额 > 100万(万元=100)
     2026-09-05 非交易日(周末/节假日)/盘后今日无快照 → 自动回退最近交易日(与抢筹/bid-seal 一致)。
     返回 [{code,name,bidAmt(元),bidChange,bidRatioYest,floatMv,board}, ...] 按量比降序(全部)"""
     def loader():
@@ -2107,12 +2090,8 @@ def fill_bid_amt_from_snap(lst, date=None):
 
 
 def fill_bid_ratio_yest(lst, date=None):
-    """2026-08-18 主人要求(竞价爆量): 补昨日竞价成交额(yestBidAmt 元) + 竞价量比。
-
-    ★ 2026-09-24 (v4.11.39) 量比换口径: `bidRatioYest` 优先取
-      **竞价成交量 ÷ 近5日平均每分钟成交量**(snapshot_bid.auc_vol_ratio, 标准口径);
-      无值(历史行) → 回退旧口径「今日竞价成交额 / 昨日竞价成交额」。
-      昨日 = 最近(严格小于今日)交易日 9_25 快照(仅供回退路径与 yestBidAmt 用)。"""
+    """2026-08-18 主人要求(竞价爆量): 补昨日竞价成交额(yestBidAmt 元) + 竞价量比
+    (bidRatioYest = 今日竞价成交额/昨日竞价成交额); 昨日 = 最近(严格小于今日)交易日 9_25 快照"""
     if not lst:
         return lst
     try:
@@ -2123,42 +2102,28 @@ def fill_bid_ratio_yest(lst, date=None):
         cur = str(row[0]) if row and row[0] else today
         row2 = conn.execute("SELECT MAX(date) FROM snapshot_bid WHERE date < ?", (cur,)).fetchone()
         yest = str(row2[0]) if row2 and row2[0] else None
-        # 昨日竞价额: 即使无昨日也先取今日标准量比(两条链路独立)
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(snapshot_bid)").fetchall()}
-        vr_sel = ", auc_vol_ratio" if "auc_vol_ratio" in cols else ", NULL"
-        vmap = {}
-        for code, amt, vr in conn.execute(
-                "SELECT code, bid_amt%s FROM snapshot_bid WHERE date=? AND time_point='9_25'"
-                % vr_sel, (cur,)):
-            vmap[code] = (amt, vr or 0)
+        if not yest:
+            conn.close()
+            return lst
         ymap = {}
-        if yest:
-            for code, amt in conn.execute(
-                    "SELECT code, bid_amt FROM snapshot_bid WHERE date=? AND time_point='9_25'", (yest,)):
-                ymap[code] = amt
+        for code, amt in conn.execute(
+                "SELECT code, bid_amt FROM snapshot_bid WHERE date=? AND time_point='9_25'", (yest,)):
+            ymap[code] = amt
         conn.close()
         n = 0
         for it in lst:
             code = str(it.get("code") or "")
             ya = ymap.get(code)
-            if ya is not None:
-                it["yestBidAmt"] = ya * 10000              # 万元 → 元
-            hit = vmap.get(code)
-            vr = hit[1] if hit else 0
-            if vr and float(vr) > 0:
-                # 标准口径(竞价量 ÷ 近5日每分钟量) 优先
-                it["bidRatioYest"] = round(float(vr), 2)
-                n += 1
-                continue
             if ya is None:
                 continue
-            ya_yuan = ya * 10000
+            ya_yuan = ya * 10000                       # 万元 → 元
+            it["yestBidAmt"] = ya_yuan
             ta = it.get("bidAmt") or 0
-            if ta > 0 and ya_yuan > 0:                     # 回退: 今额/昨额
+            if ta > 0 and ya_yuan > 0:
                 it["bidRatioYest"] = round(ta / ya_yuan, 2)
                 n += 1
         if n:
-            log.info("竞价量比补齐 %d 只 (口径=标准5日量比, 快照日=%s 昨日=%s)", n, cur, yest or "-")
+            log.info("竞价量比补齐 %d 只 (昨日=%s)", n, yest)
     except Exception as e:
         log.warning("竞价量比补齐失败 date=%s err=%s", date or "-", e)
     return lst
