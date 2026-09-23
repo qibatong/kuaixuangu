@@ -150,13 +150,31 @@ def _apply_kpl_board(result, log_tag=""):
 # 快照候选池粗筛(2026-09-07 主人方案: 盘后 filter 不拉实时全市场, 直接用 9:25 定格快照表):
 # 与 picker.filter.apply_filters 同标准的"快照字段可判定"部分(市值/竞价额/涨幅/板块/ST/昨涨停),
 # 价格/停牌/概率等快照无字段的过滤留给点查行情后的 picker.filter.apply_filters(候选集小, 成本低)。
-_SNAP_CANDIDATE_MAX = 120    # 候选上限: 点查一批够覆盖, 防极端参数下 URL 过长
+_SNAP_CANDIDATE_MAX = 200    # 候选上限: 点查一批够覆盖, 防极端参数下 URL 过长
+# ★ 2026-09-23 主人指令: 120 → 200, 与 picker.filter.COARSE_MAX **必须同值同改**。
+#   依据同 filter.py 的实测: 松参数下平均 143.6 只/日、20 日里 13 日触顶 ⇒ 120 是
+#   真实瓶颈。两条链路(实时 /api/stocks 与盘后快照)任一单独改, 都会在触顶日产生
+#   「同一票两个入口判出不同名单」的双口径漂移(2026-09-18 事故)。
+#   ⚠️ 代价: 候选变多 ⇒ 点查批次的 URL 变长、请求数上升(这正是当初设 120 的原因),
+#   200 是「批次数 / URL 长度」与「不截断」之间的取舍结果。
 
 
-def _snapshot_candidate_codes(snap_rows, f, yzt_codes):
-    """按快照字段粗筛 9:25 全市场快照 → 候选 code 列表(按竞价额降序)。
+def _snapshot_candidate_codes(snap_rows, f, yzt_codes, cfg=None):
+    """按快照字段粗筛 9:25 全市场快照 → 候选 code 列表(按**粗排分降序**)。
     snap_rows: auction_snapshot.load_snapshot_full() 返回 {code: {...}}
-    yzt_codes: 昨日涨停/连板 code 集合(limitUp 未勾选时用于剔除, 替代快照缺的 concept)"""
+    yzt_codes: 昨日涨停/连板 code 集合(limitUp 未勾选时用于剔除, 替代快照缺的 concept)
+
+    ── 排队键(2026-09-23 主人拍板, 已实测) ──────────────────────────────
+    由「竞价额降序」改为「定格三因子粗排分降序」, 与 picker.filter.coarse_filter
+    **同一把尺子**(score.coarse_rank_score) —— 两条链路任一单独改键, 就会重演
+    2026-09-18「两个入口口径漂移 → 同一票在两处判出不同名单」的故障。
+    同分按 code 升序(与 score.score_rows 并列规则一致)。名额 2026-09-23 由 120 上调为
+    _SNAP_CANDIDATE_MAX=200(与 picker.filter.COARSE_MAX 同值, 见该常量注释)。
+    """
+    from ..services.picker.contract import QuoteRow
+    from ..services.picker.score import coarse_rank_score, coarse_rank_key
+    if cfg is None:
+        cfg = scorer.get_scoring_cfg()
     codes = []
     for code, v in snap_rows.items():
         name = v.get("name") or ""
@@ -188,9 +206,11 @@ def _snapshot_candidate_codes(snap_rows, f, yzt_codes):
         # 竞价额(9_25 定格, 万元; 与 day_bid_amt 同口径)
         if (v.get("bid_amt") or 0) < f["bidAmtFloor"]:
             continue
-        codes.append((code, v.get("bid_amt") or 0))
-    # 按竞价额降序, 限制候选量
-    codes.sort(key=lambda x: -x[1])
+        # 排队分: 走契约行构造, 保证「竞价换手率回退口径 / 市值口径」与
+        # picker 侧逐字相同(手写等价算式是漂移的温床)。
+        codes.append((code,
+                      coarse_rank_score(QuoteRow.from_snapshot(v), cfg)))
+    codes.sort(key=lambda x: coarse_rank_key(x[1], x[0]))
     return [c for c, _ in codes[:_SNAP_CANDIDATE_MAX]]
 
 
@@ -474,6 +494,81 @@ def _maybe_intraday_overlay(result):
         return result
 
 
+# ---- 连板高度标签(2026-09-23 主人拍板 P0: **只展示**, 不参与筛选/排序/评分/落库) ----
+# 口径 = 「买入前一日」该股的真实连板数: 0=前一日未涨停, 1=首板, 2=二板, ... 5=五板及以上。
+#
+# 数据源 `kpl.real_limit_days(上一交易日)`(东财 flash 涨停池 limit_up_days, 60s 缓存):
+# 语义唯一、与当日无关, 盘中恒定。
+#
+# 🔴 为什么不用组件里**已经有**的 `limitBoards`(开盘啦竞价榜 row[16])省一次请求:
+#    实测它 = 昨日连板 + (当日是否已封板 ? 1 : 0), 是**当前时点**连板数, 盘中随封板实时 +1。
+#    2026-09-23 拿 28 只对拍, 差值只有 0 / +1: 差 +1 的 7 只**全部在当日涨停池**且数值与
+#    当日连板数逐只相等, 差 0 的 9 只**全部不在**当日涨停池。
+#    ⇒ 直接拿它当"昨日连板高度"渲染, 9:30 后会对当日封板的票**多报 1 板**(前视形态)。
+#    若将来想省这次请求, 唯一合规做法是与名单**同一 9:25 时点**一起截取落库, 绝不盘中现读。
+#
+# 🔴 基准日取 `_freeze_fields().freezeDate`(该名单对应的**定格日**)的前一交易日, 不是"今天
+#    的前一交易日": 盘前/非交易日/回退最近交易日时, 页面给的是**上一交易日**的名单
+#    (见 StockView 的 freeze-notice), 标签必须跟着名单的日期走, 否则整列错一档。
+def _prev_trade_day_before(d):
+    """给定日期 YYYY-MM-DD 的**上一交易日**: snapshot_bid 里 < d 的最近一天(自动跳节假日);
+    查不到则按日历跳周末降级 —— 与 kpl._prev_trade_day 同源同策略, 只是可指定基准日。"""
+    if d:
+        try:
+            import sqlite3
+            from ..core import config
+            conn = sqlite3.connect(config.DB_FILE)
+            row = conn.execute(
+                "SELECT MAX(date) FROM snapshot_bid WHERE date < ?", (d,)).fetchone()
+            conn.close()
+            if row and row[0]:
+                return row[0]
+        except Exception as e:                                     # noqa: BLE001
+            log.warning("上一交易日查询失败(降级日历) 基准日=%s err=%s", d, e)
+    from datetime import datetime, timedelta
+    try:
+        cur = datetime.strptime(d, "%Y-%m-%d") - timedelta(days=1) if d else None
+    except Exception:                                              # noqa: BLE001
+        cur = None
+    if cur is None:
+        cur = datetime.now() - timedelta(days=1)
+    while cur.weekday() >= 5:      # 跳周末(法定节假日由 snapshot_bid 路径覆盖)
+        cur -= timedelta(days=1)
+    return cur.strftime("%Y-%m-%d")
+
+
+def _fill_lb(lst, ref_date=None):
+    """给名单行补 `lb`(买入前一日真实连板数, int, 0=前一日未涨停) 与 `lbDate`(该数据取自哪天涨停池)。
+
+    独立降级(与 _fill_main_net 同原则): 涨停池取不到 → 整列不打标 + WARNING 日志,
+    **绝不影响名单本身**(前端 `lb` 缺失即不渲染标签, 名单照常可复现)。
+
+    幂等: 同一天内 60s 缓存命中, 重复调用不会重复打网。
+    """
+    if not lst:
+        return
+    try:
+        if not ref_date:
+            ref_date = (_freeze_fields() or {}).get("freezeDate")
+        prev = kpl._prev_trade_day() if not ref_date else _prev_trade_day_before(ref_date)
+        m = kpl.real_limit_days(prev) or {}
+    except Exception as e:                                         # noqa: BLE001
+        log.warning("连板高度标签取数失败(名单照常返回, 标签留空) err=%s", e)
+        return
+    if not m:
+        log.info("连板高度标签: 上一交易日 %s 涨停池为空/不可用, 本次不打标(不影响名单)", prev)
+        return
+    hit = 0
+    for it in lst:
+        v = m.get(str(it.get("code") or ""))
+        it["lb"] = int(v or 0)
+        it["lbDate"] = prev
+        if v:
+            hit += 1
+    log.info("连板高度标签 %d/%d 只(名单定格日=%s → 取数日=%s)",
+             hit, len(lst), ref_date or "-", prev)
+
+
 def _fill_spot_fields(lst, fs):
     """用全市场实时行情覆盖名单的**展示字段**(现价/现涨/实体/量比/换手)。
 
@@ -488,6 +583,12 @@ def _fill_spot_fields(lst, fs):
     """
     if not lst:
         return lst
+    # 连板高度标签(2026-09-23 P0): 必须放在**行情拉取之前** —— 本函数在行情失败时有多个
+    # 提前 return, 放后面会漏标。它与行情源完全独立(取涨停池), 互不影响。
+    try:
+        _fill_lb(lst)
+    except Exception as e:                                         # noqa: BLE001
+        log.warning("连板高度标签填充异常(已忽略) err=%s", e)
     # 主力净额列(2026-09-20): 独立降级 —— 在行情拉取**之前**处理, 行情源挂了不影响它
     try:
         _fill_main_net(lst)
@@ -845,6 +946,13 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
     # 盘中净流入动态分(2026-09-20 主人拍板): 重算路径同样叠加 —— 只改**返回层**,
     # 落库批次与计算缓存保持 9:25 定格分(上面已完成)。返回新 list, 原 result 不动。
     result = _maybe_intraday_overlay(result)
+
+    # 连板高度标签(2026-09-23 P0): 与 _maybe_intraday_overlay 同哲学 —— **只加在返回层**,
+    # 落库批次与 refresh 计算缓存保持原样(lb 是展示字段, 不参与筛选/排序/评分/落库)。
+    try:
+        _fill_lb(result)
+    except Exception as e:                                         # noqa: BLE001
+        log.warning("连板高度标签填充异常(已忽略) err=%s", e)
 
     return jr({
         "ok": True,

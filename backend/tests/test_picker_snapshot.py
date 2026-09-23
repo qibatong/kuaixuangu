@@ -79,6 +79,23 @@ def test_snapshot_rows_units_match_filter_convention():
     assert r["auctionPrice"] == pytest.approx(10.0 * 1.03)
 
 
+def test_snapshot_rows_ship_coarse_rank_matching_backend_key():
+    """下发行的 coarseRank 必须等于后端同一函数的取值(2026-09-23 改键)。
+
+    前端本地筛选用它做候选截断(与后端 filter.coarse_filter 同一把尺子), 而评分
+    分档表与权重不下发前端 —— 所以这个标量一旦算错/算成别的口径, 本地名单就会
+    与后端名单分叉, 且**没有任何别的用例能发现**。
+    """
+    from app.services import scorer
+    from app.services.picker.score import coarse_rank_score
+
+    rows = _seed(1)
+    got = precompute.read_snapshot_rows(_DATE, min_rows=1)[0]
+    assert got["coarseRank"] is not None
+    assert got["coarseRank"] == pytest.approx(
+        coarse_rank_score(rows[_code(0)], scorer.get_scoring_cfg()), abs=1e-4)
+
+
 def test_snapshot_rows_keep_missing_as_none():
     """缺失字段保持 None(不得兜成 0) —— 0 是实测值, None 才是未知"""
     _seed(1, float_mv=None, bid_amt=None)

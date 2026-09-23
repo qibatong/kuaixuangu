@@ -56,9 +56,15 @@ async function refreshYidongCodes() {
 }
 
 // 返回股票所属异动监管标签; 不属于任何监管返回 ''
+// 🔴 2026-09-23 15:5x 主人要求: 「偏离较大」(热门股偏离值) **不再对外显示**。
+//    在**取用处**统一挡掉(而不是删 Label.HOT) —— Label.HOT 是 kplYidongHot() 返回值的
+//    语义锚点, 删了这条数据就变成"无主的裸字符串"; 且设成一个常量便于将来恢复。
+const HIDDEN_LABELS = ['偏离较大']
+
 function yidongTag(code) {
   if (code === null || code === undefined) return ''
-  return ydTagMap.value.get(String(code)) || ''
+  const t = ydTagMap.value.get(String(code)) || ''
+  return HIDDEN_LABELS.indexOf(t) >= 0 ? '' : t
 }
 
 // 返回标签的悬浮说明文案; 无标签返回 ''

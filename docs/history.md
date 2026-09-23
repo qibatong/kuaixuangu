@@ -1477,6 +1477,87 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.37 (09-23 仅测试机已上线) 粗筛排队键改「定格三因子粗排分」+ 候选名额 120→200 + 连板高度标签（只展示）+ 五项评分权重改为 25/25/35/10/5**
+  - **触发**：主人三条指令 —— ①「重新选股后，选出来的票太少」；②「120 只筛选放开到 200 只」；
+    ③「按照我说的权重调整（bid 25% / activity 25% / warn 35% / market 10% / yesterday 5%），
+    同时 120 只筛选放开到 200 只，部署到测试机进行测试」。
+  - **① 粗筛排队键：现象 → 根因 → 修复**
+    - **现象**：松参数（竞价额 ≥500 万）下候选经常顶满 120 名额，被砍掉的票里含「评分本该靠前」的。
+    - **根因**：原排队键是**竞价额降序**，与最终评分排名 **Spearman 仅 0.5214** —— 名额顶满时，
+      被截掉的恰好是「竞价额中等、评分靠前」那批；且竞价额相同时依赖输入顺序，**结果不可复现**。
+    - **修复**：两条链路（`picker.filter.coarse_filter` 与 `api/stocks._snapshot_candidate_codes`）
+      **同步**改按 `score.coarse_rank_score`（定格三因子粗排分：竞价涨幅 + 竞价换手率 + 自由流通市值）
+      **降序**取名额；同分按 `code` 升序（与 `score.score_rows` 并列规则一致）。实测新键与最终评分
+      排名 **Spearman 0.9631**，名额压到 50 时漏损 4→0，且**不增加任何网络请求**。
+      🔴 两条链路必须同一把尺子，否则重演 2026-09-18「同一票两个入口判出不同名单」的双口径漂移。
+  - **② 候选名额 120 → 200**（主人指令）
+    - **依据**：按当天实际参数回溯 20 个交易日，平均只通过 23.4 只、仅 1 天超过 120（**参数较严时不触顶**）；
+      但按当前松参数（竞价额 ≥500 万）回溯，平均 **143.6 只**、**13/20 天触顶** ⇒ 120 是真实瓶颈。
+    - **修复**：`picker/filter.COARSE_MAX = 200`（默认参数同步）、`api/stocks._SNAP_CANDIDATE_MAX = 200`、
+      前端 `utils/filters.js COARSE_MAX = 200` —— **三处必须同值同改**。
+    - **代价（如实记录）**：候选变多 ⇒ 点查批次 URL 变长、请求数上升（这正是当初设 120 的原因）；
+      200 是「批次数 / URL 长度」与「不截断」之间的取舍结果，**未做压测**。
+  - **③ 连板高度标签（2026-09-23 主人拍板 P0：只展示，不参与筛选/排序/评分/落库）**
+    - 后端 `stocks._fill_lb()` 取上一交易日涨停池给名单打标；前端新增 `utils/lb.js` + `utils/lbStats.js`
+      与 `StockTable.vue` / `StockView.vue` 渲染。
+    - 🔴 **前视形态防护**：**直接拿当日封板数据当「昨日连板高度」会在 9:30 后对当日封板的票多报 1 板**
+      ⇒ 取数日固定为**上一交易日**，且**在行情拉取之前**打标（`_fill_lb` 在行情失败时有多个返回分支，
+      位置放错会漏标）；打标失败只留空，不影响名单返回。
+  - **④ 五项评分权重调整（配置变更，非代码）** —— 测试机 `settings.scoring`
+    - `0.30/0.30/0.23/0.11/0.06` → **`0.25/0.25/0.35/0.10/0.05`**（bid / activity / warn / market / yesterday，和为 1.00）。
+    - `factors.warn` / `factors.activity` / `factors.market`(自由流通口径) / `factors.yesterday` / `conf_*`
+      **与目标值逐字一致，未改动**；`factors.bid` 的**负涨幅桶 `["-99","0.001",0.05]` 与 `bid_strength`
+      显式块均已存在，保留不动**（见下方「⚠️ 未采纳的第三处差异」）。
+    - **未走裸改 DB**：用应用自身 `settings.set()` 写入（`INSERT OR REPLACE` + JSON 序列化），
+      写入前先过 `admin._validate_scoring()`，再重启 `kuaixuan` + `kx-worker` 保证全进程生效。
+  - **影响面（改了哪些文件）**：
+    - 后端（6 个，**测试机已部署**）：`app/services/picker/filter.py`、`app/services/picker/score.py`、
+      `app/services/picker/precompute.py`、`app/services/picker/pipeline.py`、`app/api/stocks.py`、
+      `app/api/picker.py`（仅注释同步）。
+    - 后端测试（4 个，**不入部署**）：新增 `tests/test_coarse_rank_key_20260923.py`、
+      `tests/test_lb_label_20260923.py`；改 `tests/test_picker_pipeline.py`、`tests/test_picker_snapshot.py`。
+    - 前端（**测试机已部署**）：`utils/filters.js`（名额 200 + 排队键注释）、`utils/lb.js`（新）、
+      `utils/lbStats.js`（新）、`components/StockTable.vue`、`views/StockView.vue`、
+      `composables/useYidongMonitor.js`；测试 `utils/lb.test.js`（新）、`utils/pickFromSnapshot.test.js`（改）。
+  - **验证证据（要数字）**：
+    - **回归**：后端全量 pytest **1251 passed / 0 failed / 0 errors / 4 skipped（257.7s）**
+      （基线 1229 + 22 条新用例）；前端 `node --test src/utils/*.test.js` **75/75 pass**。
+    - **部署前全量 md5 核查**：本机与测试机 `app/**/*.py` **归一化行尾后逐文件比对，仅 6 个文件不同**
+      （无历史欠账）；上传后回读 md5 **逐字一致**。Stage1 备份 `backend_bak_deploy_20260923-190641`，
+      Stage2 重启后 `kuaixuan` / `kx-worker` 均 `active`、`curl /` = **200**。
+    - **常量核对（远端实读）**：`filter.COARSE_MAX = 200`、`stocks._SNAP_CANDIDATE_MAX = 200`、
+      `coarse_filter` 签名含 `limit=200`、`score.coarse_rank_score` / `coarse_rank_key` / `stocks._fill_lb` 均存在。
+    - **前端**：新入口 **`index-Bsi3Utuy.js`**，旧入口 `index-Fol5im23.js` → **404**；
+      **1035 files / 1031 assets**，权限 dir 755 / file 644；HTTP `/` 200、新入口 200。
+      **chunk 改名审计**：1031 个资产中 **1002 个同名同内容、29 个改名**；占位归一化后**只有 1 个 chunk
+      内容真的变化**（`stocks-*`，即名额常量所在模块）⇒ 其余改名纯属依赖链传递，非内容漂移。
+      产物断言：禁含 `const z=120` **命中 0 文件**；必备 `coarseRank`(1) / `连板`(7) 均命中。
+    - **配置核对（远端实读合并值）**：`w_bid 0.25 / w_activity 0.25 / w_warn 0.35 / w_market 0.10 / w_yesterday 0.05`，
+      `factors` 键 = `activity/bid/market/warn/yesterday`，`use_bid_strength` = 启用。
+      回滚文件 `/opt/kuaixuan/backups/settings_scoring_bak_20260923-194940.json`（本机副本 `_research/_deploy/scoring_rollback_20260923.json`）。
+    - **端到端（测试机真实 9:25 快照，非 mock）**：快照 **5561 行**（日 = 2026-09-23），门槛 = 线上 `default_filters`
+      （`bidGt4 / probLt70 / scoreFloor50 / floatMvFloor20 / bidAmtFloor1000`）。
+      **名额 120 → 候选 120 只（触顶）**；**名额 200 → 候选 139 只（不触顶）** ⇒ 放宽多出 **19 只候选**。
+      剔除低开票后**有效候选：120 档 58 只 → 200 档 61 只（+3）**。
+  - **⚠️ 未采纳的第三处差异（如实记录，防误读）**：本次另有参考文件 `_research/scoring_target_20260923.json`，
+    它与测试机现值还有 2 处不同 —— (a) 删掉 `factors.bid` 的负涨幅桶 `["-99","0.001",0.05]`
+    并把下界 `0.001` 改 `0.01`；(b) 显式写入 `factors.bid_strength` 块（与代码默认逐字相同，写入无行为差异）。
+    **本次只按主人明示的五项权重改，(a) 未采纳** —— 该负涨幅桶是 2026-09-09「中石科技 −8.01% 竞涨仍入选」
+    事故的修复（34% 权重只扣 3.4 分），删掉等于回退该修复。
+  - **🔎 顺带查实的一个既有口径差（本轮新发现，未改代码）**：同一天真实快照下，
+    `api/stocks._snapshot_candidate_codes` 出 **139** 只，而 `picker.filter.coarse_filter` 出 **61** 只。
+    逐条件复算定位到**差异 100% 来自一条**：`coarse_filter` 实现了「低开剔除」`bid_chg < f.get("bidLt", 0)`，
+    而快照链路**没实现**。因线上 `default_filters` **没有 `bidLt` 键**（缺省即 0），
+    快照链路放行的 **78 只低开票**会白占名额，随后又在精筛 `apply_filters`（有 bidLt）被剔掉
+    ⇒ **纯属名额浪费**，也是「120 档有效候选只有 58 只」的原因。**最终名单不受影响**（精筛会兜掉），
+    但放宽名额的收益被这部分吃掉了。此为**既有问题，非本次改动引入**，代码未动，留待主人裁定。
+  - **回滚点**：后端 `backend_bak_deploy_20260923-190641`；前端 `dist_bak_20260923-195315`；
+    配置 `/opt/kuaixuan/backups/settings_scoring_bak_20260923-194940.json`。上一版 commit = `1cfc29d`。
+  - **上线状态**：**仅测试机**（2026-09-23 19:47~19:53，后端 + 前端 + 配置全部生效）。
+    🔴 **生产 `121.196.230.80` 未部署**（须主人明确指令），生产权重仍为 `0.30/0.30/0.23/0.11/0.06`。
+  - **观测/待办**：① 明早 9:25 定格后核验名单条数与「是否触顶」；② 观测新排队键在触顶日的漏损；
+    ③ 上面那条 `bidLt` 双链路口径差（是否补进快照链路）等主人裁定。
+
 - **v4.11.36 (09-22 仅测试机已上线, 生产待放行) 存量回溯口径改回「只回溯登录」—— 首轮回溯把「接口请求次数」写进了使用记录, 与主人拍板的「点一次记一次」冲突, 已清库 + 界面文案同步订正**
   - **触发**：v4.11.35 交付后我报告了一个新发现——回溯脚本把 journald 里的请求次数折算成了
     「功能使用次数」写进 `usage_daily`（测试机 184 行），但日志里能数到的只是**接口请求次数**

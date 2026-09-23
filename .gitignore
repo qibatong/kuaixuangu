@@ -164,3 +164,14 @@ _dist_upload.tar.gz
 !scripts/_kx_prod_drift.py
 !scripts/_kx_fe_deploy_prod.py
 !scripts/_kx_dist_md5.py
+
+# 研究/回测工作区(2026-09-23): 含 128M 中间数据(快照 dump / 猫爪回溯行情 / 胜率回放产物),
+# 是**可重生成**的过程产物, 严禁入库(结论已写进 docs/history.md 与 skill)
+_research/
+
+# 前端 build 前移到仓库根的旧产物备份(safe-delete 护栏规避用), 审计完即删
+_dist_assets_old_*/
+_dist_prev_*/
+
+# pytest 结果文件(临时证据, 不入库)
+backend/_pytest_*.xml

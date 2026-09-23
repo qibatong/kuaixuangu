@@ -6,7 +6,9 @@
     <table v-else class="stock-table stock-table-compact">
       <colgroup>
         <col style="width:36px" />
-        <col style="width:88px" />
+        <!-- 2026-09-23: 名称列 88→106px —— 名称格内新增「连板高度」胶囊(最长「昨5板+」约 60px),
+             与「异动」橙标签并排时最宽约 99px, 需 ≥103px 才不裁切。 -->
+        <col style="width:106px" />
         <col style="width:46px" />
         <col style="width:46px" />
         <col style="width:50px" />
@@ -47,7 +49,17 @@
               </span>
             </div>
             <div class="stock-code-row"><span class="stock-code">{{ item.code }}</span></div>
-            <div v-if="yidongTag(item.code)" class="yd-badge-row"><span class="yd-badge" :title="yidongTagTitle(item.code)">{{ yidongTag(item.code) }}</span></div>
+            <!-- 连板高度标签(2026-09-23 P0) + 异动监管标签: 同一行**并排**, 不新增列
+                 (colgroup 与表头列数必须一致, 见上方 colgroup 注释)。
+                 本行**始终渲染**(无标签时留空占位) —— 行高恒定, 各列网格线才对齐。
+                 连板数口径 = 「买入前一日」(后端 _fill_lb 下发), 未知时不渲染而不是显示「新启动」。
+                 2026-09-23 15:5x 主人要求:
+                   ① 连板标签的悬停提示(同档历史统计/样本区间/免责)**整条取消** —— 不再有 title。
+                   ② 异动标签里「偏离较大」不再显示 —— 过滤在 useYidongMonitor.yidongTag() 里统一做。 -->
+            <div class="badge-row">
+              <span v-if="lbLabel(item.lb)" class="lb-tag" :class="lbClass(item.lb)">{{ lbLabel(item.lb) }}</span>
+              <span v-if="yidongTag(item.code)" class="yd-badge" :title="yidongTagTitle(item.code)">{{ yidongTag(item.code) }}</span>
+            </div>
           </td>
           <td :class="realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + pct(item._staleReal) + '）') : ''">{{ pct(item.realChange) }}</td>
           <td :class="chgCls(item.bidChange)" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'">{{ pct(item.bidChange) }}</td>
@@ -73,6 +85,9 @@
 import { ref, computed } from 'vue'
 import { linkToSoftware } from '../utils/tdx'
 import { fmtNum, pct } from '../utils/format'
+// 2026-09-23 P0 连板高度标签: 纯展示映射(档位/配色), 逻辑与统计常量在 utils/lb.js
+// 🔴 `lbTip` 已不再引入: 2026-09-23 15:5x 主人要求取消连板标签的悬停提示(函数仍留在 lb.js)。
+import { lbClass, lbLabel } from '../utils/lb'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
 import PoolHoverBtn from './PoolHoverBtn.vue'
 
@@ -225,8 +240,11 @@ function realCls(item) {
   cursor: pointer;
   min-width: 0;
   min-height: 0;
-  /* 2026-09-21 字号12px下限: badge 行高 13->17px, 单元格 52->56px 同步 */
-  height: 56px;
+  /* 2026-09-21 字号12px下限: badge 行高 13->17px, 单元格 52->56px 同步
+     2026-09-23 P0 连板高度标签: badge 行改为**始终渲染**, 内容高 = padding8 + 名称16.9
+       + 代码16.4 + badge行19 ≈ 60.3px → 56px 会裁掉胶囊上下边(原「异动」行只在有标签时
+       出现, 同样溢出只是不易察觉)。故单元格 56->64px, 并同步 contain-intrinsic-size。 */
+  height: 64px;
   text-align: center;
   padding: 4px 2px !important;
   display: flex;
@@ -259,16 +277,53 @@ function realCls(item) {
   font-size: 1.25rem;
   line-height: 1;
 }
-/* 异动监管标签行: 始终占用固定高度(无标签也占位), 保证各列网格线对齐 */
-.yd-badge-row {
+/* 名称格内的标签行: 「连板高度」胶囊 + 「异动监管」标签 **并排**。
+   2026-09-23: 由原 `.yd-badge-row`(仅异动) 扩成 `.badge-row` —— 整行**始终渲染**,
+   无标签时留空占位, 保证行高恒定、各列网格线对齐(即原注释声明的设计意图)。 */
+.badge-row {
   order: 3;
   /* 2026-09-21 字号12px下限: badge 10->12px, 行高 13->17px 容纳(字12+padding2+border2) */
   height: 17px;
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 3px;
   margin-top: 2px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
+/* 连板高度档位标签(2026-09-23 P0): 6 档红梯度, 沿用 A 股「红=强」惯例。
+   与「异动」橙(#ff9632)语义可分: 橙=风险告警, 红=强度。
+   ⚠️ 类名用 `lb-tag` 而非 `lb-badge`: AuctionView/MarketView/YidongView 各有一份**同名**
+      `.lb-badge`(「N板」橙标签, scoped), 同名 5 处会让改配色的人找错目标。
+   默认(深色主题)配色: */
+.lb-tag {
+  display: inline-block;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: help;
+}
+.lb-tag-lv0 { background: rgba(154, 154, 154, 0.16); border-color: rgba(154, 154, 154, 0.5); color: #c9c9c9; }
+.lb-tag-lv1 { background: rgba(133, 183, 235, 0.18); border-color: rgba(133, 183, 235, 0.62); color: #a9d1f7; }
+.lb-tag-lv2 { background: rgba(255, 92, 92, 0.18); border-color: rgba(255, 92, 92, 0.55); color: #ffbcbc; }
+.lb-tag-lv3 { background: rgba(255, 60, 60, 0.32); border-color: #ff5c5c; color: #ffe1e1; }
+.lb-tag-lv4 { background: #b3261e; border-color: #ff5c5c; color: #fff; }
+/* 5 板+ 用描边(不填色): 与 4 板的实心深红区分开 —— 两档历史差异很大(持有5日
+   +10.87% vs −6.17%), 视觉上必须能一眼分开 */
+.lb-tag-lv5 { background: transparent; border-color: #ff5c5c; color: #ff8a6f; }
+/* 浅色主题: 胶囊底色改浅、文字改深(白底可读), 梯度不变 */
+body[data-bg="light"] .lb-tag-lv0 { background: #f1efe8; border-color: #b4b2a9; color: #444441; }
+body[data-bg="light"] .lb-tag-lv1 { background: #e6f1fb; border-color: #85b7eb; color: #042c53; }
+body[data-bg="light"] .lb-tag-lv2 { background: #fadcdc; border-color: #e24b4a; color: #7a1616; }
+body[data-bg="light"] .lb-tag-lv3 { background: #f09595; border-color: #a32d2d; color: #501313; }
+body[data-bg="light"] .lb-tag-lv4 { background: #a32d2d; border-color: #791f1f; color: #fff; }
+body[data-bg="light"] .lb-tag-lv5 { background: transparent; border-color: #a32d2d; color: #a32d2d; }
 .yd-badge {
   display: inline-block;
   font-size: 0.75rem;
@@ -374,10 +429,10 @@ body[data-bg="light"] th.sortable.active { color: #fff; }
 /* 2026-09-20 性能优化: content-visibility 虚拟化渲染。
    数千行时浏览器自动跳过视口外行的布局/绘制, 滚动流畅度大幅提升。
    纯 CSS 方案(不引入虚拟滚动库), 不影响既有 sticky 表头、排序、点击图表等。
-   contain-intrinsic-size 用首列固定高度 56px 撑稳定滚动条(行高恒定, 无跳动)。 */
+   contain-intrinsic-size 用首列固定高度 64px 撑稳定滚动条(行高恒定, 无跳动)。 */
 .stock-table-compact tbody tr {
   content-visibility: auto;
-  contain-intrinsic-size: auto 56px;
+  contain-intrinsic-size: auto 64px;
 }
 /* 浅色主题覆盖: 表头红底白字(与全局统一) */
 body[data-bg="light"] th.sortable {  color: #fff;  }

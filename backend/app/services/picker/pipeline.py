@@ -6,7 +6,7 @@
 
     resolve_mode(现在什么模式)
       → 名单源(source_priority[0])      决定名单(定格快照 / 竞价窗口实时全市场)
-      → 粗筛 coarse_filter              全市场 → ~120 只候选(省日K/点查开销)
+      → 粗筛 coarse_filter              全市场 → ~200 只候选(省日K/点查开销)
       → 取数(昨日涨幅/补丁行情)          只针对候选
       → 评分 score_rows                 同 P2
       → 精筛 apply_filters              含 prob/conf 双低与价格上限

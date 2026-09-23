@@ -75,9 +75,16 @@ export function buildFilterParams(f) {
      tests/test_picker_snapshot.py 用同一份夹具)。
    ========================================================================== */
 
-export const COARSE_MAX = 120
-// 与后端 filter.COARSE_MAX 同值: 粗筛后按**竞价额降序**取前 120 只送去评分。
+export const COARSE_MAX = 200
+// 与后端 filter.COARSE_MAX / api/stocks._SNAP_CANDIDATE_MAX **三处必须同值**:
+// 粗筛后按**粗排分降序**取前 200 只送去评分。
 // 本地若不做这个截断, 放宽条件时本地名单会比后端多出一批"后端根本没来得及评分"的票。
+// ★ 2026-09-23 主人指令: 120 → 200(后端两处同改)。依据: 松参数下实测平均 143.6 只/日、
+//    20 日里 13 日触顶 ⇒ 120 是真实瓶颈。三处任一单独改, 触顶日就会出现
+//   「本地秒筛名单 ≠ 后端名单」的漂移。
+// ⚠️ 排队键 2026-09-23 由「竞价额降序」改为「coarseRank(定格三因子粗排分)降序」,
+//    与后端 picker.filter.coarse_filter **必须同一把尺子**; coarseRank 由后端算好
+//    随快照下发(评分分档表与权重不下发前端 —— 2026-08-31 主人要求评分构成保密)。
 
 // 市场归属(与后端 filter.in_markets 同口径): hs=沪主板60x+深主板00x | cyb=300/301
 // | kcb=688/689; 北交所一律排除。markets 为空 → 不限制。
@@ -167,8 +174,24 @@ export function pickFromSnapshot(snap, f) {
   for (const it of snap) {
     if (_coarseOk(it, f, mk)) cands.push(it)
   }
-  // 竞额降序取前 COARSE_MAX(与后端粗筛的截断位置一致), 再精筛
-  cands.sort((a, b) => (_num(b.bidAmt) || 0) - (_num(a.bidAmt) || 0))
+  // 粗筛排队键(2026-09-23 改): coarseRank = 后端算好的「定格三因子粗排分」
+  // (竞价涨幅 + 竞价换手率 + 自由流通市值, 与后端 score.coarse_rank_score 同值),
+  // 降序取前 COARSE_MAX。改键前是「竞价额降序」—— 与最终评分排名 Spearman 仅
+  // 0.5214, 名额顶满时被砍掉的恰是「竞价额中等、评分靠前」的票。
+  // 同分按 code 升序(与后端 score_rows 的并列规则一致, 保证结果与输入顺序无关)。
+  // 兜底: 老浏览器缓存/旧接口无 coarseRank 时退回竞价额降序(= 改键前的线上行为),
+  // 宁可沿用旧序, 也不要因缺字段把候选顺序打乱。
+  cands.sort((a, b) => {
+    const ra = _num(a.coarseRank)
+    const rb = _num(b.coarseRank)
+    if (ra !== null && rb !== null) {
+      if (rb !== ra) return rb - ra
+    } else {
+      const d = (_num(b.bidAmt) || 0) - (_num(a.bidAmt) || 0)
+      if (d !== 0) return d
+    }
+    return a.code < b.code ? -1 : a.code > b.code ? 1 : 0
+  })
   const kept = cands.slice(0, COARSE_MAX).filter((it) => _refineOk(it, f))
   const rows = kept.map(snapshotToRow)
   // 与后端 `res.items.sort(key=lambda x: (-probability, code))` 同序:

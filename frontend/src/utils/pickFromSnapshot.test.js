@@ -42,9 +42,9 @@ for (const c of FIX.cases) {
   })
 }
 
-test('粗筛截断: 竞额降序前 120 只之外不出现(与后端 COARSE_MAX 同)', () => {
+test('粗筛截断兜底: 无 coarseRank 时按竞价额降序取前 COARSE_MAX(老缓存/旧接口)', () => {
   const rows = []
-  for (let i = 0; i < 130; i++) {
+  for (let i = 0; i < 230; i++) {
     rows.push({
       code: String(600000 + i), name: '截断股', bidChange: 3.0,
       bidAmt: 5000 + i,          // 递增: i 越大竞额越高
@@ -58,7 +58,44 @@ test('粗筛截断: 竞额降序前 120 只之外不出现(与后端 COARSE_MAX 
   for (let i = 0; i < 10; i++) {
     assert.ok(!got.has(String(600000 + i)), '竞额最低的 10 只应被截断丢弃')
   }
-  assert.ok(got.has('600129'), '竞额最高的必须入选')
+  assert.ok(got.has('600229'), '竞额最高的必须入选')
+})
+
+test('粗筛排队键 = coarseRank 降序(2026-09-23 改键), 不再用竞价额降序', () => {
+  // 230 只票: coarseRank 递增, 而竞价额**递减** —— 两把尺子方向相反,
+  // 结果必须听 coarseRank 的, 否则本用例会保住竞价额最小的那批(旧行为)。
+  const rows = []
+  for (let i = 0; i < 230; i++) {
+    rows.push({
+      code: String(600000 + i), name: '排序股', bidChange: 3.0,
+      bidAmt: 5000 + (229 - i),      // 递减: i 越大竞额越低
+      floatMv: 55.0, prevClose: 10.0,
+      coarseRank: 50 + i,            // 递增: i 越大粗排分越高
+      probability: 90, confidence: 80, isSt: 0, isZt: 0
+    })
+  }
+  const out = pickFromSnapshot(rows, F)
+  assert.equal(out.length, COARSE_MAX)
+  const got = new Set(out.map((r) => r.code))
+  assert.ok(!got.has('600000'), 'coarseRank 最低的必须被截断(旧键会保留它)')
+  assert.ok(got.has('600229'), 'coarseRank 最高的必须入选')
+})
+
+test('粗筛排队键并列: 同 coarseRank 按 code 升序(与后端 score_rows 并列规则一致)', () => {
+  const rows = []
+  for (let i = 0; i < 230; i++) {
+    rows.push({
+      code: String(600000 + i), name: '并列股', bidChange: 3.0,
+      bidAmt: 5000, floatMv: 55.0, prevClose: 10.0,
+      coarseRank: 60,                 // 全员同分
+      probability: 90, confidence: 80, isSt: 0, isZt: 0
+    })
+  }
+  const out = pickFromSnapshot(rows, F)
+  const got = out.map((r) => r.code)
+  assert.equal(got.length, COARSE_MAX)
+  assert.equal(got[0], '600000')       // code 最小的先进
+  assert.ok(!got.includes('600229'))   // code 最大的被截断
 })
 
 test('snapshotToRow: 单位与字段名对齐 /api/stocks 的 item(流通=亿)', () => {

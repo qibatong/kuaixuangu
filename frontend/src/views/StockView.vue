@@ -66,7 +66,13 @@
               <div v-if="!stocks.isDataCached" class="stock-table-container">
                 <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
               </div>
-              <StockTable v-else :stocks="stocks.cachedStocks" strategy="auction" :bid-seal-map="bidSealMap" />
+              <!-- 2026-09-23 P0 口径条已按主人要求整条移除(15:4x): 名单上方的历史统计/口径说明
+                   不再显示。连板标签本身(StockTable 名称格)与自身悬停统计保留不变。
+                   注意: 这里必须保留 template v-else 包裹 —— 直接插在 v-if 与 v-else 之间
+                   会打断 v-if/v-else 链, 构建直接失败(见上方 freeze-notice 注释)。 -->
+              <template v-else>
+                <StockTable :stocks="stocks.cachedStocks" strategy="auction" :bid-seal-map="bidSealMap" />
+              </template>
             </template>
           </template>
         </template>
@@ -115,6 +121,8 @@ const { refreshYidongCodes } = useYidongMonitor()
 // 2026-09-01: 左视图模式切换 竞价 / AI预测(原"盘中"已被 AI预测替换)
 // 使用本地 leftTab 而非 stocks.strategy: 不触发盘中数据流(spot 已于 2026-09-09 下线)
 const leftTab = ref('auction')
+
+// 2026-09-23 P0 口径条文案已随提示条一并移除(lbNote/lbFoot 不再使用)
 
 // 窄屏切换: 选股 / 竞价异动
 const mobilePane = ref('stock')
@@ -284,6 +292,9 @@ body[data-bg="light"] .pick-blocked-notice { color: #8a5500; }
 .freeze-notice b { color: #e6b400; font-weight: 600; }
 body[data-bg="light"] .freeze-notice { color: #8a5500; }
 body[data-bg="light"] .freeze-notice b { color: #8a5500; }
+
+/* 2026-09-23 P0 口径条样式已移除(.lb-note / .lb-note-foot): 该提示条已按主人要求整条下线。
+   连板标签自身样式在 components/StockTable.vue(.lb-tag / .lb-tag-lv0..5), 不受影响。 */
 
 /* 奖牌(金银铜) + 自选股票池 在左栏内: 保留原有紧凑处理 */
 .medal-section {
