@@ -80,7 +80,9 @@
             <td :class="it.bidChange > 0 ? 'up' : 'down'">{{ signed(it.bidChange) }}%</td>
             <td v-if="tab === 'boom' || tab === 'net'" :class="it.bidAmt > 0 ? 'up' : 'dim'">{{ amtText(it.bidAmt) }}<span v-if="tab === 'boom' && it.yestBidAmt" class="yest-bid-amt" :title="'昨日竞价额 ' + amtText(it.yestBidAmt)">昨{{ amtText(it.yestBidAmt) }}</span></td>
             <td v-else :class="it.bidSealAmt > 0 ? 'up' : 'dim'">{{ yi(it.bidSealAmt) }}</td>
-            <td v-if="tab === 'boom'" :class="it.bidRatioYest ? (it.bidRatioYest >= 2 ? 'ratio-hot' : it.bidRatioYest >= 1.5 ? 'ratio-warm' : '') : 'dim'">{{ it.bidRatioYest ? it.bidRatioYest.toFixed(2) + 'x' : '-' }}</td>
+            <!-- 竞价量比 = 竞价成交量 ÷ 近5日平均每分钟成交量(2026-09-24 换口径);
+                 分级阈值同步等分位换算: 旧 2/1.5 → 新 5.01/3.73 -->
+            <td v-if="tab === 'boom'" :class="it.bidRatioYest ? (it.bidRatioYest >= 5.01 ? 'ratio-hot' : it.bidRatioYest >= 3.73 ? 'ratio-warm' : '') : 'dim'">{{ it.bidRatioYest ? it.bidRatioYest.toFixed(2) + 'x' : '-' }}</td>
             <td class="dim">{{ it.bidTurnover !== null && it.bidTurnover !== undefined ? it.bidTurnover.toFixed(2) + '%' : '-' }}</td>
             <td v-if="tab === 'net'" :class="it.bidNetAmt > 0 ? 'up' : it.bidNetAmt < 0 ? 'down' : 'dim'">{{ yi(it.bidNetAmt) }}</td>
             <td v-if="tab !== 'boom'"><span v-if="it.limitBoards > 0" class="lb-badge">{{ it.limitBoards }}板</span><span v-else class="dim">-</span></td>

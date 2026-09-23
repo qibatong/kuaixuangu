@@ -214,11 +214,12 @@ def test_fetch_bid_boom(monkeypatch):
             if "time_point=?" in q or "time_point='" in q:
                 # 今日 9_25 全市场行: (code, bid_amt万元, name, bid_change, float_mv, board)
                 if params and len(params) > 1 and params[1] == "9_25" and "date=?" in q:
+                    # 第 7 位 = auc_vol_ratio(标准口径); None → 回退旧口径「今额/昨额」
                     return FakeCursor([
-                        ("600001", 3000.0, "甲", 5.0, 4e9, "板块A"),   # 量比 3000/1000=3.0
-                        ("600002", 2000.0, "乙", 4.0, 5e9, "板块B"),   # 量比 2000/2000=1.0
-                        ("600003", 15000.0, "丙", 6.0, 6e9, "板块C"),  # 量比 15000/3000=5.0
-                        ("600004", 500.0, "丁", 3.0, 3e9, "板块D"),    # 竞价额<1000万 过滤
+                        ("600001", 3000.0, "甲", 5.0, 4e9, "板块A", None),   # 量比 3000/1000=3.0
+                        ("600002", 2000.0, "乙", 4.0, 5e9, "板块B", None),   # 量比 2000/2000=1.0
+                        ("600003", 15000.0, "丙", 6.0, 6e9, "板块C", None),  # 量比 15000/3000=5.0
+                        ("600004", 500.0, "丁", 3.0, 3e9, "板块D", None),    # 竞价额<1000万 过滤
                     ])
                 if params and len(params) == 1 and params[0] == "2026-08-12":  # SQL 内写死 9_25
                     return FakeCursor([
@@ -1028,7 +1029,11 @@ def _mock_boom_helpers(monkeypatch, todays, yests, today_date="2026-08-22"):
             if "SELECT MAX(date) FROM snapshot_bid WHERE date <" in q:
                 return FakeCursor([("2026-08-21",)])
             if "WHERE date=? AND time_point=?" in q:
-                return FakeCursor(todays)
+                # 行契约(2026-09-24 v4.11.39 起): (code, bid_amt, name, bid_change,
+                #   mv, board, auc_vol_ratio)。给 6 元组自动补第 7 位 None
+                #   (= 无标准口径值 → 走旧口径「今额/昨额」回退路径)
+                return FakeCursor([tuple(r) if len(r) >= 7 else tuple(r) + (None,) * (7 - len(r))
+                                   for r in todays])
             if "WHERE date=? AND time_point='9_25'" in q:
                 return FakeCursor(yests)
             return FakeCursor([])
@@ -1080,6 +1085,32 @@ def test_fetch_bid_boom_filter_edge_cases(monkeypatch):
     assert len(rows) == 1
     assert rows[0]["code"] == "600001"
     assert rows[0]["bidRatioYest"] == 3.0
+
+
+def test_fetch_bid_boom_std_vol_ratio_priority(monkeypatch):
+    """v4.11.39(2026-09-24) 量比换口径: 有 auc_vol_ratio(**竞价成交量 ÷ 近5日平均每分钟
+    成交量**, 标准口径) 时优先用它, 过滤阈值等分位换算为 5.01;
+    无值时回退旧口径「今额/昨额」, 阈值仍 2.0 —— 两条路径互不混用。"""
+    import app.services.kpl as kpl
+
+    todays = [
+        # 第 7 位 = 标准口径量比
+        ("600001", 3000.0, "甲", 5.0, 4e9, "板块A", 12.0),   # 标准 12.0 > 5.01 ✓
+        ("600002", 2000.0, "乙", 4.0, 5e9, "板块B", 2.0),    # 标准 2.0 ≤ 5.01 ✗
+        ("600003", 15000.0, "丙", 6.0, 6e9, "板块C", 6.5),   # 标准 6.5 > 5.01 ✓
+        ("600004", 15000.0, "丁", 8.0, 7e9, "板块D", 0),     # 标准无值 + 无昨日 → 回退也 ✗
+        ("600005", 3000.0, "戊", 7.0, 8e9, "板块E", 0),      # 标准无值 → 回退 3000/1000=3.0 > 2 ✓
+    ]
+    yests = [("600001", 1000.0), ("600002", 2000.0),
+             ("600003", 3000.0), ("600005", 1000.0)]
+
+    _mock_boom_helpers(monkeypatch, todays, yests)
+    rows = kpl.fetch_bid_boom()
+
+    got = {r["code"]: r["bidRatioYest"] for r in rows}
+    assert got == {"600001": 12.0, "600003": 6.5, "600005": 3.0}, got
+    # 仍按量比降序(含两种口径混合后的排序)
+    assert [r["code"] for r in rows] == ["600001", "600003", "600005"]
 
 
 def test_fetch_bid_boom_yest_no_data(monkeypatch):
