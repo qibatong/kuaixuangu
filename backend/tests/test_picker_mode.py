@@ -95,7 +95,10 @@ def test_realtime_patch_only_display_fields():
     assert intraday.source_priority[0] == "snapshot", "名单必须优先认定格快照"
     # 竞价窗口: 定格前无快照可用, 以实时为准
     # 竞价窗口无当日定格快照 → 名单只能来自实时全市场(点查源此时无候选 codes)
-    assert pm.POLICIES[pm.PickMode.AUCTION].source_priority[0] == "eastmoney_market"
+    # ★ 2026-09-24 换源 WP2: 主源换猫爪, 东财降为第二级(三级都算名单源)
+    assert pm.POLICIES[pm.PickMode.AUCTION].source_priority[0] == "meoz_market"
+    assert pm.POLICIES[pm.PickMode.AUCTION].list_source_count == 3, \
+        "竞价窗口三级名单源(猫爪→东财→腾讯): 少一级就少一条命"
     # 盘前: 实时源返回最近交易日收盘定格, 全天恒定, 补它可填现价/实体/异动列
     # 且不影响名单幂等(名单仍由 snapshot 决定)
     # 2026-09-09 主人反馈 9/9 0:37 盘前看昨收, 现涨/实体/异动/抢筹/奖牌区全空

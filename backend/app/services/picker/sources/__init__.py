@@ -18,6 +18,8 @@
   snapshot.py   9:25 定格快照 — 竞价字段的**权威来源**
   eastmoney.py  东财实时(点查/全市场)
   tencent.py    腾讯点查 / 腾讯全市场兜底
-  meoz.py       猫爪实时(点查/全市场) — 2026-09-24 换源 WP0 新增, 备而不用(切换见 换源 WP2)
+  meoz.py       猫爪实时(点查/全市场) — 2026-09-24 换源 WP0 新增 / **WP2 起为主源**
+                (4 个模式的补丁源 + AUCTION 的名单源); 东财降为次级, 由
+                settings.use_eastmoney 统一收口(WP6)
 """
 from .base import BaseSource, FetchContext, SourceResult, REGISTRY, get_source  # noqa: F401

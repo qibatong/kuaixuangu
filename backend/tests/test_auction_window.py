@@ -11,7 +11,7 @@
 本文件锁死三件事:
   1. 竞价窗口内 vol==0 **不得**判停牌(只看昨收); 窗口外行为不变
   2. 竞价窗口内腾讯行(无竞价专属字段)允许用 f615/f616 —— 此时现价即竞价虚拟价
-  3. 竞价窗口名单源是**序列**(东财失败 → 腾讯全市场), 不是单点
+  3. 竞价窗口名单源是**序列**(猫爪 → 东财 → 腾讯全市场), 不是单点
 """
 import datetime
 
@@ -140,7 +140,11 @@ def test_tencent_frozen_map_wins_over_realtime():
 
 # ==================== 3. 竞价窗口名单源是序列, 不是单点 ====================
 def test_auction_list_source_is_a_sequence(monkeypatch):
-    """东财全市场失败 → 自动切腾讯全市场(生产机东财被墙是常态)"""
+    """猫爪失败 → 东财失败 → 自动切腾讯全市场(生产机东财被墙是常态)
+
+    三级都要出现在 calls 里: 只注入 eastmoney/tencent 会让 `get_source("meoz_market")`
+    返回 None 而"跳过", 测不到真实优先级链。
+    """
     rows = {"600000": _q(vol=0.0, window=True)}
     calls = []
 
@@ -149,19 +153,22 @@ def test_auction_list_source_is_a_sequence(monkeypatch):
             calls.append(self.label)
             return super().fetch(ctx)
 
-    _install(monkeypatch, {"eastmoney_market": _Spy(fail=True,
+    _install(monkeypatch, {"meoz_market": _Spy(fail=True, label="meoz_market"),
+                           "eastmoney_market": _Spy(fail=True,
                                                     label="eastmoney_market"),
                            "tencent_market": _Spy(rows, label="tencent_market")})
     res = pipeline.run(dict(FULL), ctx=_ctx(), now=AUCTION_NOW)
     assert res.mode == "auction"
-    assert "eastmoney_market" in calls and "tencent_market" in calls
+    assert calls == ["meoz_market", "eastmoney_market", "tencent_market"], \
+        "名单源必须按 猫爪→东财→腾讯 的顺序依次尝试"
     assert res.sources[0] == "tencent_market"
     assert [i["code"] for i in res.items] == ["600000"]
 
 
 def test_auction_all_list_sources_fail_is_visible(monkeypatch):
-    """两个名单源都挂 → 不产出名单 + errors 明示(铁律2: 降级可见)"""
-    _install(monkeypatch, {"eastmoney_market": _FakeSource(fail=True,
+    """三个名单源都挂 → 不产出名单 + errors 明示(铁律2: 降级可见)"""
+    _install(monkeypatch, {"meoz_market": _FakeSource(fail=True, label="meoz_market"),
+                           "eastmoney_market": _FakeSource(fail=True,
                                                            label="eastmoney_market"),
                            "tencent_market": _FakeSource(fail=True,
                                                          label="tencent_market")})
@@ -171,11 +178,12 @@ def test_auction_all_list_sources_fail_is_visible(monkeypatch):
     assert res.degraded
 
 
-def test_auction_policy_declares_two_list_sources():
-    """AUCTION 的名单源数量=2(防改回单点)"""
+def test_auction_policy_declares_three_list_sources():
+    """AUCTION 的名单源数量=3 且顺序为 猫爪→东财→腾讯(防改回单点/防顺序被调乱)"""
     pol = pm.POLICIES[pm.PickMode.AUCTION]
-    assert pol.list_source_count == 2
-    assert pol.source_priority[:2] == ("eastmoney_market", "tencent_market")
+    assert pol.list_source_count == 3
+    assert pol.source_priority[:3] == ("meoz_market", "eastmoney_market",
+                                       "tencent_market")
 
 
 def test_non_auction_policies_keep_single_list_source():

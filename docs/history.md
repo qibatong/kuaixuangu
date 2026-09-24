@@ -1477,6 +1477,84 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.47 (09-24 仅测试机) 换源 WP2~WP6 一次落地：picker 源优先级 / 涨停池 / 昨额昨涨 / 图表首源全换猫爪 + 东财收口开关**
+  - **触发**：主人对上轮《快选-换源WP2-WP6-决策材料》的三选一拍板 —— 选 **`c`（立刻全做）**，并在生效时机追问中选
+    **「立即全部生效」**（不要"开关默认关、观察后再开"）。上轮作者的建议是「先冻结、观察 3 个交易日」，主人**知情并接受**。
+    ⇒ 本轮职责转为「把这次激进选择执行得足够安全」：每包都留可秒回退的开关（WP6），且**改前/改后名单 A/B 对照**必须做（见下）。
+  - **施工前先消除全部未知（本轮最高价值工作，全部为真跑实测，不是照施工图抄）**：
+    - `limit_pool`：不传 = 当日；传 `tradedate` **可取历史日**；`tradedate_offset` **必须 ≤ 0**（传 1/2 返 **422**）；
+      非交易日返 **`code=1002`**（⇒ `call()` 返 None，上层靠**空结果**推进、不能靠异常）；`type` 只有 `'u'`(涨停)/`'d'`(跌停)，
+      **`is_break` 恒 False**（炸板不留池，池 = 收盘时的涨跌停集合）；16 列。
+    - `daily`：`recentdays=N` ⇒ **每只 N 行、最新在前**；`tradedate` ⇒ 单日；`limit` 单独无效、**与 `recentdays` 同传被忽略**；
+      🔴 **批量 800 只 / 0.32s 无截断** —— 此前记录的「上限 20 只」是 `_sym_rows()` 按 symbol 建字典**把多日折叠成一行**造成的**假象**，不是接口限制；
+      `vol` = **手**、`amount` = **元**；🔴 **复权口径与东财 `fqt=1` / 腾讯 `qfq` 完全相同**（120/120 逐日收盘全等，区间跨除权）。
+    - `minute`：`symbol` **带交易所后缀**（`600519.SH`）—— 同一数据商两个接口 code 格式**不统一**；`trademin` 0930→1500 共 **241 根**
+      （**没有 1300 这根**）；`trademin` 是分钟戳、`time` 是分钟内成交时刻（画图用前者）；单只查询、**不支持批量**。
+    - `screening.volume_ratio` = **0/5572 = 0.0%** ⇒ 换 AUCTION 名单源会掉「量比」展示列（已核对**不参与评分/过滤**，故可接受）。
+    - 🔴 **修正既有记录**：`limit_pool_yes` 也自带 `auc_vol_ratio` ⇒ 竞价量比存在**第二个来源**（仅覆盖当日涨停票），
+      「唯一来源 `daily_auc`」不完整；⚠️ 上轮假说「`limit_pool_yes.auction_main_net_amount` 可作历史旁路」**实测证伪**（31 列里没有该字段）。
+    - 🔴 **WP5 的唯一正确性风险是复权口径，已前置验证**：猫爪 daily 与**现生产链**（腾讯 qfq）120/120 逐日收盘 100% 相等，
+      区间回看至 20260403 且跨除权 ⇒ 提为日K首源**不会**让除权票出现 K 线断层。**不验就提首源等于赌**。
+    - 另：`fetcher.fetch_zt_pool` **无任何调用者**（活链路是 `get_yesterday_zt_codes`）⇒ WP3 实际影响面小于施工图估计。
+  - **改动（6 源文件 + 改 4 测试文件 + 新增 3 测试文件；前端零改动）**：
+    - **WP2 源优先级**（`picker/mode.py`）：4 个非竞价模式 `source_priority` 统一为
+      `("snapshot","meoz_realtime","eastmoney_realtime","tencent_point")`（**猫爪补丁源优先于东财**）；
+      AUCTION 改 `("meoz_market","eastmoney_market","tencent_market")` 且 `list_source_count` **2 → 3**。
+      🔴 **只有 AUCTION 会动名单** —— 其余 4 模式 `list_source_count=1` ⇒ 名单永远是 `snapshot`(9:25 定格)，
+      换源**只改展示字段**（现价/现涨/换手/量比）。东财**保留为次级而非删除**：猫爪仍有 `warn_type`(f630)/`industry` 两处缺口，
+      且「生产机东财被墙」≠「测试机东财不可用」，删了就没退路。
+    - **全市场最小行数闸门**（`sources/meoz.py`，新常量 `_MEOZ_MARKET_MIN_ROWS = 1000`）：
+      全市场源 `requested=0` ⇒ `coverage` **恒 1.0**，而 `_fetch_list` 只看 `SourceResult.ok`(= error 空且 rows 非空)
+      ⇒ **半残数据会被静默当成有效名单源接管**（"换个源把名单缩水"）。行数 < 1000 判不可用、交下一级源；
+      并把「**空**」与「**半残**」的报错文案**分开**（排查时一眼分清"接口没返回"与"返回了但被截断/缓存半写"）。阈值取低是为了**只拦真异常**、不干预正常波动（A 股长期 5000+）。
+    - **WP3 涨停池**（`fetcher.py`）：`get_yesterday_zt_codes()` 主源改猫爪 `limit_pool`、**同日内**东财 `push2ex` 作备源
+      （「往前找最近交易日」的 **15 日窗口容错原样保留**）；`_meoz_zt_codes_date()` 返回**三分语义** ——
+      `None` = 猫爪不可用 ⇒ **该日**改问东财 / `set()` = 已查但无涨停 ⇒ **继续往前找** / 非空 set = 命中。
+      🔴 只取 `type=='u'`、**必须排掉 `'d'`**（否则"昨涨停"名单会混入跌停票）。`fetch_zt_pool()` 同改（主源猫爪 + 备源东财），
+      字段映射 `fd_amount`→`fund`(亿, `/1e8`) / `first_time`→`fb`(HHMMSS) / `limit_times`→`lb` / `open_times`→`zbc` / `pct_chg`→`zdp`。
+      🔴 **消费面（排障必读）**：昨涨停名单只在 `limitUp` 为**假值**时才装载（`api/stocks.py`: `zt_codes=_safe_zt_codes() if not f.get("limitUp") else None`），
+      线上全局默认 `limitUp=True` ⇒ **WP3 当前不改首页名单**。
+    - **WP4 昨额/昨涨**（`fetcher.py`）：新增**纯函数** `_yday_pair_from_daily()`（与 `_kline_amount_pair` 逐条同语义：
+      今日那根**盘中跳过 / 收盘后不跳**（否则"昨日涨幅"整整滞后一天，是 2026-09-08 修过的 bug）/ 自行按日期升序排、
+      **不依赖上游顺序** / `amount` 元 → `/1e4` **万元** / 官方 `pct_chg` 优先、缺则收盘价环比自算 / 不足 2 行 `pair[1] = None` /
+      空输入回 `(None, None)` 而非 `(0,0)`）；新增 `_yday_fill_from_meoz()` **批量**预填（`_YDAY_MEOZ_BATCH=500`、`_YDAY_MEOZ_DAYS=3`）——
+      原路径是**逐只**拉日K（预热 daemon 每批 200 只 / 4 线程），猫爪单请求可带 500 只，**这是配额现实不是优化偏好**（猫爪有并发信号量 limit=3 与 429 退避）；
+      未填到的仍走原「东财 → 腾讯」逐只路径，**语义不变**；熔断短路条件追加 `not _meoz_enabled()`。
+    - **WP5 图表**（`fetcher.py`）：`fetch_stock_chart_robust` 源链改 `["meoz","eastmoney","tencent"]`，
+      **首源成功即短路**（此前每次画图都白打两次网络；东财在测试机是**接口级时段性风控**，命中率约 5%）；
+      `_fetch_chart_from_meoz()`：分时均价 = `amount / (vol × 100)`（🔴 **猫爪 `vol` 是「手」**，漏乘 100 均价差 100 倍）、
+      日K `preClose` 由最后一根 `pct_chg` 反推（猫爪 daily 无独立 preClose 字段）、
+      **周K/月K 猫爪没有 ⇒ 回 `{}` 交原链条**（不自造半成品骗过 `_validate_chart_data`）。
+    - **WP6 东财收口开关**（`sources/base.py`）：新增 `settings.use_eastmoney`（**默认开**）+ `DisabledSource`。
+      🔴 为什么关停返回 `DisabledSource` 而**不是 `None`**：pipeline 拿到 `None` 会记「未知数据源标签」，
+      把"**配置关停**"误报成"**配置写错**"，违背铁律 2（降级必须可见）。`get_source()` **先把 `REGISTRY` 填满再判开关**
+      —— 否则关掉东财时 REGISTRY 缺项，会让"每个 POLICIES 标签都必须已注册"的守卫**误报成配置错误**。
+      关停的源**一次网络都不打**（不是"打了再报错"）。
+  - 🔴 **本轮自查抓到的真 bug（已修）**：开关解析原写成
+    `str(settings.get("use_eastmoney", 1) or 1) not in ("0","false","False")` —— **`0 or 1` → `1`**，
+    于是 `use_eastmoney=0` 若在库里是 **int**，开关**静默失效**（"配置写了但没生效"的经典形态，
+    且排查时看到的是"开关是开着的"，方向直接跑偏）。改为显式 `_flag_on()`：`None`/空 ⇒ 默认开；
+    `bool` 先判（bool 是 int 子类）；`int/float` ⇒ `!= 0`；字符串 ⇒ 去空白 + 小写后排除 `0/false/no/off`。
+  - 🧪 **测试**：新增 3 文件 **51 例**（`test_meoz_client_wp345.py` 11 / `test_fetcher_meoz_swap.py` 26 / `test_picker_eastmoney_switch.py` 14）
+    + 改 4 文件**净增 2 例** = **净增 53 例**。全量 **1407 collected / 0 failed / 0 errors / 4 skipped**（4m51s）——
+    计数对账 `1354 + 53 = 1407` **逐一对上**，**0 flaky**（本轮未命中既有时间敏感 flaky）。
+    🔴 **反向自证（必做且已做）**：`git worktree` 检出基线 `832bff4`，把新/改测试搬过去跑 ⇒ **52 failed / 50 passed**；
+    逐条核过「基线仍绿」的 5 条，**全是"行为未变"类守卫**（非东财源不受开关影响 / `REGISTRY` 完整 / 未知标签返 `None` / 开关开启时真源不变），
+    并把其中唯一一条**侥幸为绿**的用例改成**计数断言** —— `test_disabled_source_does_no_network` 原写"让 `ensure_cache` 抛异常"，
+    但 `BaseSource.run()` 会把异常**吞成 error** ⇒ 旧代码（真源打网络 → 抛 → 被吞 → 同样 `not ok`）**也照样绿**，
+    是一条**永远为真的空断言**；改为断言 `calls == []` 后才在基线上真红。
+    🔴 顺带修掉一处**测试自身被桩住还不自知**的陷阱：`conftest.py` 的 session 级桩把 `fetcher.get_yesterday_zt_codes`
+    整体换成 `lambda: None` ⇒ 对它做 source 顺序断言**全都失效且仍然是绿的**；按仓内既有 `_asnap._real_load_snapshot_full` 先例，
+    加了 `fetcher._real_get_yesterday_zt_codes` **真实实现入口**别名，用例显式取真实函数来断言。
+  - **影响面与回退**：🔴 **picker 链路无开关可回滚**（本仓铁律）—— 回滚只能 `git` 回版本；
+    WP6 的 `settings.use_eastmoney` 只能**摘掉东财**（不改源顺序、不回滚 WP2~WP5）。
+    会改变名单的只有两处：**AUCTION 竞价窗口的名单源**（该模式本就 `deterministic=False`）、
+    以及 WP4 让 `yesterday` 因子的取数链路变化（`w_yesterday` 线上 **0.05**，影响有限）。
+  - **未动**：`scorer` 评分体系与评分配置 DB、`w_ff`（仍 0）、`T_PICK_BLOCK_TO/T_PICK_OPEN`(09:26:30/09:26:31)、
+    定格采集链路（`auction_snapshot.py` 逐字节未改）、前端（**零改动**）、生产。
+  - **上线状态**：📌 **仅测试机（09-24 部署 `47.99.153.123`；生产未部署）**。
+  - **改前/改后名单 A/B（待补）**：本地库仅 `kv_cache` 无行情 ⇒ 只能在测试机做「**同 data + 同 now**」的 A/B
+    （部署前用旧代码 + 部署后用新代码各跑一次固定 `(date, now)` 的 picker），逐条 diff 并归因；另冻结测试机最近落库批次作参照。
 - **v4.11.46 (09-24 仅测试机) 筛选默认值四份归一份：系统批次口径与首页左视图真正对齐**
   - **触发**：主人拍板上一轮结尾的待办 —— 「`system_batch._system_filter()` 自带一份筛选默认值，
     缺 `scoreFloor`，导致系统批次/历史回看名单不受评分下限约束（同一时刻：系统口径 64 只 vs

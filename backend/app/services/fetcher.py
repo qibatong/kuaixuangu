@@ -43,6 +43,57 @@ def _http_get(req, timeout, context=None):
     """带 IP 轮询的 urlopen 包装(替换 fetcher 内所有 urllib.request.urlopen)。"""
     return _net.http_get(req, timeout=timeout, context=context)
 
+
+# ---------- 换源 WP3/WP4/WP5 共用小工具(2026-09-24) ----------
+def _meoz_enabled():
+    """猫爪源是否可用。
+
+    延迟导入: 猫爪客户端与 fetcher 之间不能有模块级互相 import
+    (meoz_client 只依赖 core + cache_store, 这里保持同一方向性)。
+    异常一律判**不可用** —— 本条链路的失败语义是"降级到东财/腾讯", 不是崩。
+    """
+    try:
+        from . import meoz_client
+        return bool(meoz_client.enabled())
+    except Exception:                                          # noqa: BLE001
+        return False
+
+
+def _num(v, default=0.0):
+    """宽松取数: 非有限数 / None / 空串 → default。
+
+    为什么不直接用 float(): 上游 JSON 里同一列可能是 int/float/字符串/None,
+    且实测出现过 NaN/Infinity —— 让它们进评分或落库是本仓历史事故源
+    (落库列 NOT NULL + 被 _safe_num 兜成 0 → "未知"被显示成"已知为 0")。
+    """
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return default
+    return f if math.isfinite(f) else default
+
+
+def _hhmm_digits(v):
+    """'0930' / '09:30' / 930 → '0930'; 无法解析返回 ''。"""
+    s = "".join(ch for ch in str(v or "") if ch.isdigit())
+    if not s:
+        return ""
+    return s.zfill(4)[:4]
+
+
+def _hhmm_colon(v):
+    """'0930' → '09:30'(图表 time 轴格式); 无法解析返回 ''。"""
+    s = _hhmm_digits(v)
+    return (s[:2] + ":" + s[2:]) if len(s) == 4 else ""
+
+
+def _hhmmss_int(v):
+    """'09:25:00' → 92500(HHMMSS 整数, 与东财 fbt 字段同口径); 缺值返回 0。"""
+    s = "".join(ch for ch in str(v or "") if ch.isdigit())
+    if len(s) < 5:
+        return 0
+    return int(s[:6])
+
 log = logger.get_logger(__name__)
 
 # ---------- 按市场范围(fs)分区的行情缓存 ----------
@@ -364,11 +415,60 @@ def _fetch_zt_pool_date(date_str):
     return codes
 
 
+def _meoz_zt_codes_date(date_str):
+    """猫爪指定交易日的**收盘涨停**代码集合(set)。
+
+    返回值三分语义(**调用方必须区分, 这是本函数存在的意义**):
+      * `None`  —— 猫爪不可用 / 调用失败(含非交易日返回的 code=1002) ⇒ **该日改走东财**
+      * `set()` —— 调用成功但该日没有涨停票 ⇒ **继续往前找交易日**
+      * 非空 set —— 命中
+
+    与东财 getTopicZTPool 的语义对齐(2026-09-24 实测):
+      * 猫爪限制 `tradedate` 显式传日期(offset 只接受 ≤0, 本函数不用 offset ——
+        与 daily_auc 的"串日"教训同款: 判「哪一天」必须显式指定);
+      * 池内 `type` 只有 'u'(涨停) / 'd'(跌停), 且 **is_break 恒 False**(炸板不留池)
+        ⇒ 只取 `type=='u'`, **必须排掉 'd'**, 否则"昨涨停"名单会混入跌停票。
+    """
+    if not _meoz_enabled():
+        return None
+    try:
+        from . import meoz_client
+        rows = meoz_client.limit_pool_map(date=date_str)
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("[猫爪] 涨停池拉取异常 date=%s err=%s", date_str, str(e)[:100])
+        return None
+    if not rows:
+        return None                     # 不可用 / 非交易日(code=1002) → 交东财判
+    return {str(c) for c, m in rows.items()
+            if str(c) and str(m.get("type") or "") == "u"}
+
+
+def _em_zt_codes_date(date_str):
+    """东财指定交易日涨停池代码集合; 网络异常 → 空 set(不抛)。
+
+    2026-09-24 换源 WP3 起**降为备源**: 只在猫爪不可用时才被调用。
+    """
+    try:
+        return _fetch_zt_pool_date(date_str)
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("昨涨停池拉取失败(备源东财) date=%s err=%s", date_str, str(e)[:100])
+        return set()
+
+
 def get_yesterday_zt_codes():
     """昨日涨停代码集合(权威名单); 失败/无可用交易日返回 None(调用方降级 f103 概念标签)。
     探测: 从昨天起往前最多 15 自然日(覆盖周末/长假), 取第一个返回**非空池**的交易日;
-    保护: 绝不探测今天(盘中 getTopicZTPool(date=今天) 返回的是"今日已涨停", 语义不符)。
-    缓存: 成功 600s / 失败 120s 冷却, 跨日自动重探测。"""
+    保护: 绝不探测今天(盘中取"今天"返回的是"今日已涨停", 语义不符)。
+    缓存: 成功 600s / 失败 120s 冷却, 跨日自动重探测。
+
+    ★ 2026-09-24 换源 WP3: 主源由东财 push2ex 换成**猫爪 limit_pool**; 东财保留为
+      同一日内的备源(猫爪不可用时逐日回退, 不是整轮放弃)。"往前找最近交易日"的
+      15 日窗口容错**原样保留** —— 周末/长假第一个非空池才是答案这一点没变。
+
+    ⚠️ 消费面提示(排障必读): 名单只在 `limitUp` 为**假值**时才会被装载
+      (api/stocks.py: `zt_codes=_safe_zt_codes() if not f.get("limitUp") else None`)。
+      线上全局默认 `limitUp=True`, 因此本函数当前**不参与**首页名单判定。
+    """
     now = time.time()
     if _ZT_CACHE["codes"] is not None and now - _ZT_CACHE["ts"] < _ZT_OK_TTL:
         return _ZT_CACHE["codes"]
@@ -379,11 +479,9 @@ def get_yesterday_zt_codes():
         ds = time.strftime("%Y%m%d", time.localtime(now - back * 86400))
         if ds >= today:
             continue                        # 防时区边缘误探今天
-        try:
-            codes = _fetch_zt_pool_date(ds)
-        except Exception as e:
-            log.warning("昨涨停池拉取失败 date=%s err=%s", ds, str(e)[:100])
-            continue
+        codes = _meoz_zt_codes_date(ds)     # None=猫爪不可用; set()=该日无涨停
+        if codes is None:
+            codes = _em_zt_codes_date(ds)   # 备源东财(同一天内回退)
         if codes:
             _ZT_CACHE.update({"codes": codes, "ts": now})
             log.info("昨涨停池 date=%s 涨停%d只", ds, len(codes))
@@ -1484,11 +1582,14 @@ def fetch_yesterday_amounts(codes, wait=False):
     all_codes = list(codes)
     pending = _yday_hydrate_from_db(all_codes, today, now)
     need = _collect_yday_need(pending, today, now)
-    if need and _check_circuit("eastmoney_kline") and _check_circuit("tencent_kline"):
+    if need and not _meoz_enabled() \
+            and _check_circuit("eastmoney_kline") and _check_circuit("tencent_kline"):
         # 2026-08-31 线上事故: 全源熔断时逐只短路打 WARNING → 36804 条日志风暴,
         # 日志 I/O 阻塞 worker 导致 /api/stocks 674s、health 超时。改为批级短路: 一条聚合日志 + 直接返回
         # 2026-09-10 二审: 短路条件 = 东财日K 与 腾讯K线 **均**熔断(腾讯为同语义备源)
-        log.warning("昨日成交额: 东财日K+腾讯K线均熔断中, 本批%d只短路(昨比置空)", len(need))
+        # 2026-09-24 换源 WP4: 再叠加「猫爪也不可用」 —— 猫爪已成主源, 它可用时
+        #   短路会把唯一的活路(批量预填)一起掐掉; 只有三级全不可用才是"真无源可拉"。
+        log.warning("昨日成交额: 猫爪/东财日K/腾讯K线均不可用, 本批%d只短路(昨比置空)", len(need))
         with _yesterday_lock:
             for c in need:              # 短路也写失败缓存, 避免下个请求重复判定
                 _yesterday_cache[c] = [today, None, now, None]
@@ -1656,12 +1757,114 @@ def _yday_background_fetch(need, today):
         _yday_batch_lock.release()
 
 
+# ---------- 昨比主源: 猫爪 daily 批量(2026-09-24 换源 WP4) ----------
+# 分片大小: 实测(2026-09-24 测试机) 800 只/次 0.32s **无截断**, 取 500 保守。
+# ⚠️ 曾有"上限 20 只"的误判 —— 那是 `_sym_rows()` 按 symbol 建字典把多日/多票折叠
+#    造成的假象, 不是接口限制。故 daily 的封装(daily_history_map)刻意**返回 list**。
+_YDAY_MEOZ_BATCH = 500
+# 多日回溯天数: 至少 2 个**已收盘**交易日(T 与 T-1)。取 3 是因为盘中要把"今日那根
+# 未收盘K线"跳过, 跳掉后仍需剩 2 根; 收盘后(≥15:05)不跳, 3 根里前 2 根即答案。
+_YDAY_MEOZ_DAYS = 3
+
+
+def _yday_pair_from_daily(rows, today, after_close=None):
+    """猫爪 daily 多日行 → ([T日万元, T-1日万元], T日涨跌幅%) —— 与 _kline_amount_pair 同语义。
+
+    **纯函数**(无网络/无全局状态), 边界由单测钉死 —— 本仓历史教训: 时间/口径类阈值
+    只写在注释里必然漂移, 必须能被断言。
+
+    语义要点(与东财日K路径逐条对齐):
+      * 今日那根在**盘中**必须跳过(未收盘, 额不完整); **收盘后不跳**(否则"昨日涨幅"
+        会整整滞后一天 —— 这是 2026-09-08 修过的语义 bug, 换源不得复发)。
+      * 行序: 上游实测**最新在前**, 本函数自行按日期升序排, 不依赖上游顺序。
+      * amount 单位实测 = **元** ⇒ /1e4 得万元(与 _kline_amount_pair 的万元口径一致)。
+      * 官方 pct_chg 为 None 时用**收盘价环比自算**(兜底口径跨源统一)。
+      * 不足 2 行时 pair[1]=None(与东财一致: 只有一根K线时 T-1 就是 None)。
+    """
+    if not rows:
+        return None, None
+    if after_close is None:
+        after_close = _after_close()
+    today_d = str(today or "").replace("-", "")
+    keep = []
+    for m in rows:
+        d = str((m or {}).get("tradedate") or "").replace("-", "")
+        if len(d) != 8 or not d.isdigit():
+            continue
+        if not after_close and d == today_d:
+            continue                       # 盘中: 今日未收盘 → 跳过
+        amt = _num(m.get("amount"), 0.0)
+        if amt <= 0:
+            continue
+        chg = m.get("pct_chg")
+        chg = None if chg in (None, "") else _num(chg, None)
+        close = _num(m.get("close"), 0.0) or None
+        keep.append((d, amt, chg, close))
+    if not keep:
+        return None, None
+    keep.sort(key=lambda x: x[0])          # 升序: 末位 = 最近已收盘交易日(T)
+    t = keep[-1]
+    t1 = keep[-2] if len(keep) >= 2 else None
+    pair = [t[1] / 10000.0, (t1[1] / 10000.0) if t1 else None]
+    chg_t = t[2]
+    if chg_t is None and t1 and t[3] and t1[3] and t1[3] > 0:
+        chg_t = round((t[3] - t1[3]) / t1[3] * 100, 2)
+    return pair, chg_t
+
+
+def _yday_fill_from_meoz(codes, today, now):
+    """用猫爪 daily **批量**预填昨日成交额/涨跌幅, 返回**仍未填到**的 code 列表。
+
+    为什么要批量而不是逐只: 原路径 `_fetch_yesterday_amount_one` 是**逐只**拉日K
+    (yday_prewarm 常驻预热 daemon 每批 200 只、4 线程) —— 换成猫爪后单次请求能带
+    500 只, 请求数从 N 降到 ceil(N/500)。这不是优化偏好, 是配额现实:
+    猫爪有并发信号量(limit=3)与 429 退避, 逐只打会把额度耗在"同一份数据"上。
+
+    未填到的(新股/停牌/上游缺该票)交给原 东财→腾讯 逐只路径兜底, **其语义不变**。
+    """
+    codes = [c for c in (codes or []) if c]
+    if not codes or not _meoz_enabled():
+        return list(codes)
+    from . import meoz_client
+    rest = []
+    got = 0
+    for i in range(0, len(codes), _YDAY_MEOZ_BATCH):
+        chunk = codes[i:i + _YDAY_MEOZ_BATCH]
+        try:
+            hist = meoz_client.daily_history_map(chunk, days=_YDAY_MEOZ_DAYS)
+        except Exception as e:                                 # noqa: BLE001
+            log.warning("[猫爪] 昨日成交额预填失败(%d只) err=%s", len(chunk), str(e)[:120])
+            hist = {}
+        for c in chunk:
+            pair, chg = _yday_pair_from_daily(hist.get(c), today)
+            if pair is None:
+                rest.append(c)
+                continue
+            with _yesterday_lock:
+                _yesterday_cache[c] = [today, pair, now, chg]
+            got += 1
+    if got:
+        log.info("[猫爪] 昨日成交额预填命中 %d/%d 只(批量, 免逐只请求)", got, len(codes))
+    return rest
+
+
 def _do_fetch_yesterday(need, today):
     """实际批量拉取(批锁内执行): 返回 (成功数, 失败数)
     2026-09-02 超时后 cancel 队列中未运行任务: 原实现超时后任务滞留线程池队列
-    (5000 只 4 线程 12s 只完成部分, 剩余全排队) → 后续抢筹/其他拉取排队等线程 → 全站卡顿"""
+    (5000 只 4 线程 12s 只完成部分, 剩余全排队) → 后续抢筹/其他拉取排队等线程 → 全站卡顿
+
+    2026-09-24 换源 WP4: 先走猫爪 daily **批量**预填(主源), 剩下的才进东财→腾讯逐只池。
+    成功计数把预填命中的也算上 —— 否则日志与"进池数量"会对不上。
+    """
     ok_cnt = 0
+    need = list(need or [])
+    if need:
+        rest = _yday_fill_from_meoz(need, today, time.time())
+        ok_cnt += len(need) - len(rest)
+        need = rest
     fail_cnt = len(need)
+    if not need:
+        return ok_cnt, fail_cnt
     # 2026-09-01: 改进程级常驻池(原 shutdown(wait=False) 后线程滞留后台跑网络超时,
     # 高并发下线程只增不减拖死生产)。超时未完成的任务留在池内排队, 不阻塞请求。
     ex = _EXECUTOR_YDAY
@@ -1700,16 +1903,47 @@ _zt_cache = {}
 _zt_lock = threading.Lock()
 
 
-def fetch_zt_pool(date=None):
-    """拉取东财涨停池(含封单额/封板时间/炸板次数/连板数), 带缓存。
-    date: YYYYMMDD, 默认今天(北京); 返回 {code: {fund, fb, lb, zbc, zdp}} 或 {}
-    失败返回空 dict(不影响选股主流程, 盘中封单因子降级为无数据)。
+def _fetch_zt_pool_meoz(date):
+    """猫爪涨停池 → 与东财同构的 {code: {fund, fb, lb, zbc, zdp}}(2026-09-24 换源 WP3)。
+
+    字段映射(实测 2026-09-24 limit_pool 16 列):
+      fd_amount(元)      → fund(亿)       东财 fund 也是"亿", 故 /1e8
+      first_time("09:25:00") → fb(HHMMSS) 东财 fbt 是整数 HHMMSS
+      limit_times        → lb(连板数)
+      open_times         → zbc(炸板次数)
+      pct_chg            → zdp(涨停涨幅%)
+    只取 `type=='u'`: 猫爪池含跌停('d'), 不排掉会把跌停票当涨停票。
     """
-    date = date or _bj_date_str().replace("-", "")
-    with _zt_lock:
-        ent = _zt_cache.get(date)
-        if ent and time.time() - ent["ts"] < config.ZT_CACHE_TTL:
-            return ent["raw"]
+    if not _meoz_enabled():
+        return {}
+    try:
+        from . import meoz_client
+        rows = meoz_client.limit_pool_map(date=date)
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("[猫爪] 涨停池拉取异常 date=%s err=%s", date, str(e)[:100])
+        return {}
+    out = {}
+    for code, m in (rows or {}).items():
+        c = str(code or "")
+        if not c or str(m.get("type") or "") != "u":
+            continue
+        out[c] = {
+            "fund": _num(m.get("fd_amount")) / 1e8,
+            "fb": _hhmmss_int(m.get("first_time")),
+            "lb": int(_num(m.get("limit_times"))),
+            "zbc": int(_num(m.get("open_times"))),
+            "zdp": _num(m.get("pct_chg")),
+        }
+    return out
+
+
+def _fetch_zt_pool_em(date):
+    """东财涨停池(push2ex getTopicZTPool) → 同构 dict; 失败返回 {}。
+
+    2026-09-24 换源 WP3 起**降为备源**(主源猫爪 limit_pool)。
+    注意本域名与 clist 的 push2 不同, 历史记录显示它"生产实测畅通";
+    保留它作备源是因为它不共享 push2 的封禁面。
+    """
     qs = urllib.parse.urlencode({
         "ut": config.EASTMONEY_ZT_UT, "dpt": "wz.ztzt",
         "Pageindex": 0, "pagesize": 1000, "sort": "fbt:asc", "date": date,
@@ -1736,14 +1970,35 @@ def fetch_zt_pool(date=None):
                 "zdp": float(p.get("zdp") or 0),           # 涨停涨幅(%)
             }
         _record("eastmoney_zt_pool", True, int((time.time() - t0) * 1000))
-        with _zt_lock:
-            _zt_cache[date] = {"raw": out, "ts": time.time()}
-        log.info("涨停池拉取成功 date=%s 涨停数%d", date, len(out))
         return out
     except Exception as e:
         _record("eastmoney_zt_pool", False)
-        log.warning("涨停池拉取失败 date=%s err=%s", date, e)
+        log.warning("涨停池拉取失败(备源东财) date=%s err=%s", date, e)
         return {}
+
+
+def fetch_zt_pool(date=None):
+    """拉取涨停池(含封单额/封板时间/炸板次数/连板数), 带缓存。
+    主源: 猫爪 limit_pool(2026-09-24 换源 WP3); 备源: 东财 push2ex。
+    date: YYYYMMDD, 默认今天(北京); 返回 {code: {fund, fb, lb, zbc, zdp}} 或 {}
+    失败返回空 dict(不影响选股主流程, 盘中封单因子降级为无数据)。
+    """
+    date = date or _bj_date_str().replace("-", "")
+    with _zt_lock:
+        ent = _zt_cache.get(date)
+        if ent and time.time() - ent["ts"] < config.ZT_CACHE_TTL:
+            return ent["raw"]
+    out = _fetch_zt_pool_meoz(date)
+    src = "meoz"
+    if not out:
+        out = _fetch_zt_pool_em(date)
+        src = "eastmoney"
+    if not out:
+        return {}                       # 全源失败: 不写缓存(与原实现一致, 下次立即重试)
+    with _zt_lock:
+        _zt_cache[date] = {"raw": out, "ts": time.time()}
+    log.info("涨停池拉取成功 date=%s 源=%s 涨停数%d", date, src, len(out))
+    return out
 
 
 # ==================== 个股图表数据(分时/K线) ====================
@@ -2360,9 +2615,105 @@ def _aggregate_kpl_daily_to_period(code, target_period):
     return {}
 
 
+def _meoz_pre_close(code):
+    """猫爪 screening 取该票**昨收**与名称 —— 分时图的 0% 基准线要用 preClose。
+
+    返回 (preClose, name); 取不到返回 (0.0, "") —— 与东财路径一致
+    (拿不到就是 0, 由前端决定怎么显示, 不编造)。
+    """
+    try:
+        from . import meoz_client
+        sm = meoz_client.screening_map(symbols=[code]) or {}
+        for _c, m in sm.items():
+            return _num(m.get("pre_close"), 0.0), str(m.get("name") or "")
+    except Exception:                                          # noqa: BLE001
+        pass
+    return 0.0, ""
+
+
+def _fetch_chart_from_meoz(code, period):
+    """猫爪图表源(2026-09-24 换源 WP5: **追加为首源**, 多源链保留)。
+
+    返回结构与 `fetch_stock_chart` 一致(直接喂 `_validate_chart_data` 与前端):
+      minute → {period, code, name, time[], price[], avg[], volume[], preClose}
+      day    → {period, code, name, time[], open[], close[], high[], low[],
+                volume[], amount[], preClose}
+    周K/月K 猫爪**没有** → 返回 {} 交给原链条(它本来就只有东财/腾讯/自聚合三条路)。
+
+    🔴 复权口径已对拍(2026-09-24 测试机真跑): 猫爪 daily 与现生产链(腾讯 qfq)在
+      120 根K线上**逐日收盘 100% 相等**, 区间回看至 20260403 且跨除权事件
+      ⇒ 同为**前复权**。因此把它提为日K首源**不会**让除权票出现K线断层
+      (这是本包唯一需要前置验证的正确性风险; 不验就提首源等于赌)。
+    """
+    if not _meoz_enabled():
+        return {}
+    from . import meoz_client
+    code = str(code or "")
+    if period == "minute":
+        rows = meoz_client.minute_rows(code)
+        if not rows:
+            return {}
+        times, prices, avgs, vols = [], [], [], []
+        for m in rows:
+            tm = _hhmm_colon(m.get("trademin"))
+            p = _num(m.get("close"), 0.0)
+            if not tm or p <= 0:
+                continue
+            v = _num(m.get("vol"), 0.0)
+            a = _num(m.get("amount"), 0.0)
+            times.append(tm)
+            prices.append(p)
+            vols.append(v)
+            # 分钟均价 = 该分钟成交额 / 成交量(股); vol 单位实测=手 ⇒ ×100
+            avgs.append(round(a / (v * 100.0), 3) if (v > 0 and a > 0) else None)
+        if not times:
+            return {}
+        pre_close, name = _meoz_pre_close(code)
+        return _trim_minute_to_now({
+            "period": "minute", "code": code, "name": name,
+            "time": times, "price": prices, "avg": avgs, "volume": vols,
+            "preClose": pre_close,
+        })
+    if period == "day":
+        hist = meoz_client.daily_history_map([code], days=120)
+        rows = hist.get(code) or []
+        if not rows:
+            return {}
+        rows.sort(key=lambda m: str(m.get("tradedate") or ""))   # 上游最新在前 → 升序
+        times, opens, closes, highs, lows, vols, amts = [], [], [], [], [], [], []
+        last_pct = None
+        for m in rows:
+            d = _norm_kline_date(m.get("tradedate"))
+            c = _num(m.get("close"), 0.0)
+            if not d or c <= 0:
+                continue
+            times.append(d)
+            opens.append(_num(m.get("open"), 0.0))
+            closes.append(c)
+            highs.append(_num(m.get("high"), 0.0))
+            lows.append(_num(m.get("low"), 0.0))
+            vols.append(_num(m.get("vol"), 0.0))
+            amts.append(_num(m.get("amount"), 0.0))
+            last_pct = None if m.get("pct_chg") in (None, "") else _num(m.get("pct_chg"), None)
+        if not times:
+            return {}
+        pre_close = 0.0
+        if last_pct is not None and (1 + last_pct / 100.0) > 0:
+            pre_close = round(closes[-1] / (1 + last_pct / 100.0), 3)
+        return {
+            "period": "day", "code": code,
+            "name": str((rows[-1] or {}).get("name") or ""),
+            "time": times, "open": opens, "close": closes,
+            "high": highs, "low": lows, "volume": vols, "amount": amts,
+            "preClose": pre_close,
+        }
+    return {}
+
+
 def fetch_stock_chart_robust(code, period="day"):
     """多源 chart 拉取 (替代原 fetch_stock_chart):
-    顺序: 东财(push2his) → 腾讯(同语义备源) → 自聚合(仅周/月K)
+    顺序: 猫爪(2026-09-24 换源 WP5 首源) → 东财(push2his) → 腾讯(同语义备源)
+          → 自聚合(仅周/月K)
     任一数据源成功即返回, 全部失败返回 {}"""
     if not code:
         return {}
@@ -2388,11 +2739,19 @@ def fetch_stock_chart_robust(code, period="day"):
     #     最终兜底(见函数末 _aggregate_kpl_daily_to_period)。
     # 2026-09-11: ths / kpl / tushare 三个分支的**函数实现已删除**——此前 sources 收窄为
     #   两源后, 这三个 elif 分支运行时永不执行(仅源码可达), 属死代码。
-    # 顺序: 东财(主, 内部 KLINE_HOSTS 多节点轮换) → 腾讯(同语义备源)。
-    sources = ["eastmoney", "tencent"]
+    # 顺序: 猫爪(主, 2026-09-24 换源 WP5) → 东财(内部 KLINE_HOSTS 多节点轮换) → 腾讯(同语义备源)。
+    sources = ["meoz", "eastmoney", "tencent"]
     for src in sources:
         try:
-            if src == "eastmoney":
+            if src == "meoz":
+                d = _fetch_chart_from_meoz(code, period)
+                if d and _validate_chart_data(d, period, source="meoz"):
+                    with _CHART_LOCK:
+                        _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
+                    log.info("chart[robust]源=meoz code=%s period=%s 耗时%.0fms",
+                             code, period, (time.time() - t0) * 1000)
+                    return _ensure_latest_period(d, code)
+            elif src == "eastmoney":
                 d = fetch_stock_chart(code, period)
                 if d and _validate_chart_data(d, period, source="eastmoney"):
                     with _CHART_LOCK:

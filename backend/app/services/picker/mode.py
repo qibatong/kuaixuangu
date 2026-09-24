@@ -106,9 +106,10 @@ class ModePolicy:
     """前 N 个 source_priority 为**名单源**(依次尝试, 第一个成功的为准);
     其余为**补丁源**(只补展示字段, 不改名单)。>1 = 该时段需多源容灾。
 
-    竞价窗口设 2(东财 → 腾讯全市场): 此前只有 source_priority[0] 是名单源,
-    tencent_market 排第二却只被当补丁源用 → 名单源实际单点; 生产机东财被墙时
-    全靠 ensure_cache 内部隐式切腾讯, 降级在日志里不可见(降级=False)。"""
+    竞价窗口设 **3**(2026-09-24 换源 WP2 起: 猫爪 → 东财 → 腾讯全市场):
+    此前只有 source_priority[0] 是名单源, tencent_market 排第二却只被当补丁源用
+    → 名单源实际单点; 生产机东财被墙时全靠 ensure_cache 内部隐式切腾讯,
+    降级在日志里不可见(降级=False)。"""
 
     @property
     def list_sources(self) -> Tuple[str, ...]:
@@ -119,6 +120,18 @@ class ModePolicy:
         return self.source_priority[max(1, self.list_source_count):]
 
 
+# ★ 数据源优先级 (2026-09-24 换源 WP2, 主人拍板「立即全部生效」)
+#   「去东财换猫爪」的 picker 侧落地。读法要点:
+#     · 只有 `list_source_count` 以内的前 N 个才是**名单源**, 其余是**补丁源**
+#       (只补展示字段, 不改名单) —— 所以「换源会不会动名单」必须先数这个数, 不看标签名。
+#     · 4 个模式(PREOPEN/LOCKED/INTRADAY/CLOSED)的 list_source_count=1 ⇒ 名单永远是
+#       `snapshot`(9:25 定格), 把补丁源换成猫爪**只改展示字段**(现价/现涨/换手/量比),
+#       不动名单。东财**保留为次级补丁源**而不是删掉: 猫爪点查失败时仍有兜底,
+#       且铁律2 要求降级链可见(东财是否可用由 `settings.use_eastmoney` 统一收口, 见 WP6)。
+#     · AUCTION 的名单源改为 meoz_market 优先 —— **这是本包唯一真会动名单的地方**,
+#       且只作用在竞价窗口(9:15~9:25); 该模式本就是 deterministic=False(名单随行情变)。
+#       保留东财为中间级(而非直接删): 猫爪 screening 在**竞价时段是否供水**至今未实测,
+#       有东财/腾讯两级在, 最坏情况等于回到改动前, 不会出现"换源换来空名单"。
 POLICIES = {
     # 2026-09-08 主人拍板(原始单文件版本 shunshi_fixed.html 的设计即如此:
     # "9:30前可重新选股 · 9:30后仅更新实时涨幅"):
@@ -128,7 +141,8 @@ POLICIES = {
     PickMode.PREOPEN: ModePolicy(
         mode=PickMode.PREOPEN,
         label="盘前定格",
-        source_priority=("snapshot", "eastmoney_realtime", "tencent_point"),
+        source_priority=("snapshot", "meoz_realtime", "eastmoney_realtime",
+                         "tencent_point"),
         deterministic=True,
         allow_lock=False,
         auction_window=False,
@@ -148,8 +162,13 @@ POLICIES = {
         # 此前 list_source_count 默认 1 → tencent_market 只被当补丁源用, 名单源实际
         # 单点; 生产机东财被墙(今日东财全市场失败 2357 次)时全靠 ensure_cache 内部
         # 隐式切腾讯, 降级在日志里不可见(降级=False), 排查只能靠猜。
-        source_priority=("eastmoney_market", "tencent_market"),
-        list_source_count=2,
+        # ★ 2026-09-24 换源 WP2: 主源换猫爪, 且**三级都算名单源**(2 → 3) ——
+        #   竞价窗口是唯一"必须实时全市场"的时段, 名单源多一级就多一条命:
+        #   猫爪(新主源) → 东财(测试机实测畅通 5561 行/0.57s) → 腾讯(长期兜底)。
+        #   meoz_market 内部另有**最小行数闸门**(见 sources/meoz.py), 防止猫爪返回
+        #   半残数据被当成有效名单源而静默接管。
+        source_priority=("meoz_market", "eastmoney_market", "tencent_market"),
+        list_source_count=3,
         deterministic=False,         # 竞价数据实时在变 — 唯一允许名单变化的模式
         allow_lock=False,
         auction_window=True,
@@ -168,7 +187,8 @@ POLICIES = {
         # 9:25 竞价已成交, 实时点查有现价 → 与 PREOPEN/INTRADAY/CLOSED 对齐补齐补丁源。
         # **不破坏幂等**: list_source_count 仍为 1 → 名单只由 snapshot 定;
         # 补丁只补展示字段(price/现涨/换手), 且价格门槛按定格竞价价判定, 不参与名单。
-        source_priority=("snapshot", "eastmoney_realtime", "tencent_point"),
+        source_priority=("snapshot", "meoz_realtime", "eastmoney_realtime",
+                         "tencent_point"),
         deterministic=True,
         allow_lock=True,
         auction_window=False,        # 竞价字段仍一律取 9:25 定格(补丁不得注入 f615/f616)
@@ -182,7 +202,8 @@ POLICIES = {
         # 名单只认 9:25 定格(幂等); 实时源**仅**用于补展示字段, 不得参与评分/排序/过滤
         # 名单=定格快照(幂等); 后面两级只做**展示字段补丁**(现价/涨幅/换手),
         # 不改变名单 — 补丁失败不影响名单(老链路点查失败会整批降级, 名单跟着变)
-        source_priority=("snapshot", "eastmoney_realtime", "tencent_point"),
+        source_priority=("snapshot", "meoz_realtime", "eastmoney_realtime",
+                         "tencent_point"),
         deterministic=True,
         allow_lock=False,
         auction_window=False,
@@ -199,7 +220,8 @@ POLICIES = {
         # 名单=定格快照; 后两级补**收盘价/收盘涨幅**(2026-09-08 P3 修正: 原设
         # realtime_patch=False 导致收盘后现价/现涨全为 None, 前端列全空 —
         # 收盘后实时源返回的就是收盘定格值, **不再变化**, 补它不破坏幂等)
-        source_priority=("snapshot", "eastmoney_realtime", "tencent_point"),
+        source_priority=("snapshot", "meoz_realtime", "eastmoney_realtime",
+                         "tencent_point"),
         deterministic=True,
         allow_lock=False,
         auction_window=False,

@@ -10,7 +10,10 @@
   3. **竞价闸门与东财一致**: 窗口外不得读 auc_*(否则"换源"会静默改变名单语义);
      定格 map 永远优先(9:25 定格是竞价字段的权威来源)。
   4. **点查只认请求集**: 上游多回代码必须丢弃(否则名单被意外扩集)。
-  5. **备而不用**: 换源 WP0 不改任何运行时行为 ⇒ POLICIES 里不得出现 meoz_* 标签。
+  5. **源顺序**(WP2 起): 非竞价模式补丁源猫爪在前、竞价窗口名单源猫爪在前;
+     东财保留为次级(换源不换掉兜底)。WP0 期间"备而不用"(断言不得引用)的旧不变量已作废。
+  6. **全市场行数闸门**(WP2 起): 行数不足一个数量级 ⇒ 视为不可用交下一级源。
+     理由: 全市场源 `requested`=0 ⇒ coverage 恒 1.0, 半残数据会被静默当成有效名单源接管。
 """
 import pytest
 
@@ -50,6 +53,21 @@ def _patch_screening(monkeypatch, smap):
     monkeypatch.setattr(MZ.meoz_client, "screening_map", fake)
     monkeypatch.setattr(MZ.meoz_client, "enabled", lambda: True)
     return calls
+
+
+def _market_map(n, seed=None):
+    """构造 n 行全市场 map(seed 先占位, 其余用唯一占位代码补齐)。
+
+    全市场源有行数闸门(`MZ._MEOZ_MARKET_MIN_ROWS`), 所以"能当名单源用"的用例
+    必须喂够行数 —— 否则测的就不是源本身而是闸门了。
+    """
+    m = dict(seed or {})
+    i = 0
+    while len(m) < n:
+        c = "%06d" % (900000 + i)
+        m[c] = {"symbol": c}
+        i += 1
+    return m
 
 
 # ==================== 1. 字段映射与单位 ====================
@@ -164,7 +182,7 @@ def test_meoz_source_reports_disabled(monkeypatch):
 
 # ==================== 4. 全市场源 ====================
 def test_meoz_market_source_ok_and_error(monkeypatch):
-    calls = _patch_screening(monkeypatch, {"000002": MZ_ROW})
+    calls = _patch_screening(monkeypatch, _market_map(1000, {"000002": MZ_ROW}))
     r = MZ.MeozMarketSource().run(_ctx(pm.PickMode.AUCTION, markets=["hs"]))
     assert r.ok and "000002" in r.rows
     assert r.rows["000002"].bid_change == -0.77, "竞价模式(auction_window)应读 auc_*"
@@ -174,16 +192,38 @@ def test_meoz_market_source_ok_and_error(monkeypatch):
     assert not r2.ok and "返回空" in (r2.error or "")
 
 
+def test_meoz_market_row_gate_blocks_halfbroken(monkeypatch):
+    """★闸门: 行数少一个数量级 ⇒ 报错交下一级源, 绝不"换个源把名单缩水"。
+
+    全市场源 `requested`=0 ⇒ coverage 恒 1.0, 而 `_fetch_list` 只看 ok(error 为空
+    且 rows 非空) ⇒ 没有闸门时**半残结果会被静默当成有效名单源接管**。
+    """
+    _patch_screening(monkeypatch, {"000002": MZ_ROW})
+    r = MZ.MeozMarketSource().run(_ctx(pm.PickMode.AUCTION, markets=["hs"]))
+    assert not r.ok and "行数异常" in (r.error or "")
+    assert r.degraded is True, "闸门拦截必须标降级(让 pipeline 知道是异常路径)"
+
+
+def test_meoz_market_row_gate_boundary(monkeypatch):
+    """边界: 恰好等于阈值放行, 少 1 只拦截(防阈值被写成 <= 或 > 的经典偏移)。"""
+    n = MZ._MEOZ_MARKET_MIN_ROWS
+    _patch_screening(monkeypatch, _market_map(n, {"000002": MZ_ROW}))
+    assert MZ.MeozMarketSource().run(_ctx(pm.PickMode.AUCTION)).ok
+    _patch_screening(monkeypatch, _market_map(n - 1, {"000002": MZ_ROW}))
+    assert not MZ.MeozMarketSource().run(_ctx(pm.PickMode.AUCTION)).ok
+
+
 def test_meoz_market_source_ignores_markets_param(monkeypatch):
     """猫爪 screening 无市场范围参数(永远全市场, 含北交所; 北交所由 filter 排除)。"""
-    calls = _patch_screening(monkeypatch, {"000002": MZ_ROW, "920001": {"symbol": "920001"}})
+    calls = _patch_screening(monkeypatch,
+                             _market_map(1000, {"000002": MZ_ROW, "920001": {"symbol": "920001"}}))
     MZ.MeozMarketSource().run(_ctx(pm.PickMode.AUCTION, markets=["cyb"]))
     assert "markets" not in calls["kwargs"], "不得把 markets 硬塞成上游参数"
 
 
 def test_meoz_market_outside_auction_window_has_no_bid(monkeypatch):
     """全市场源在非竞价模式(收盘回放)不得注入竞价值 —— 同东财全市场源约束。"""
-    _patch_screening(monkeypatch, {"000002": MZ_ROW})
+    _patch_screening(monkeypatch, _market_map(1000, {"000002": MZ_ROW}))
     r = MZ.MeozMarketSource().run(_ctx(pm.PickMode.CLOSED, markets=["hs"]))
     assert r.ok and r.rows["000002"].bid_change is None
 
@@ -197,12 +237,26 @@ def test_meoz_labels_registered():
         assert label in sb.REGISTRY
 
 
-def test_policies_still_do_not_use_meoz():
-    """★换源 WP0 的价值边界: 备而不用 —— 未引用即"零运行时行为变化"。
-    一旦 换源 WP2 切换优先级, 本用例会红, 提醒同步更新价值边界文档与名单 diff 验收。"""
-    used = {lbl for pol in pm.POLICIES.values() for lbl in pol.source_priority}
-    assert not (used & {"meoz_realtime", "meoz_market"}), \
-        "换源 WP0 期间 POLICIES 不得引用猫爪源(切换属 换源 WP2, 需独立提交 + 名单 diff)"
+def test_policies_now_use_meoz():
+    """★换源 WP2(2026-09-24) 已切换优先级 —— 猫爪是主源, 东财是次级。
+
+    本用例由 WP0 期间的 `test_policies_still_do_not_use_meoz`(断言"不得引用")**反转**而来:
+    WP0 的价值边界是"备而不用 ⇒ 零运行时行为变化"; WP2 起这条边界作废, 改为钉住新秩序:
+      ① 4 个非竞价模式的**补丁源**必须猫爪在前、东财在后(东财保留为兜底, 不是删掉);
+      ② 竞价窗口的**名单源**必须猫爪在前。
+    ⚠️ 断言的是"顺序"不是"是否出现" —— 只断言出现, 东财被重新排到第一位也照样绿。
+    """
+    for m in (pm.PickMode.PREOPEN, pm.PickMode.LOCKED,
+              pm.PickMode.INTRADAY, pm.PickMode.CLOSED):
+        sp = pm.POLICIES[m].source_priority
+        assert sp[0] == "snapshot", "%s 名单源必须是定格快照" % m.value
+        assert sp.index("meoz_realtime") < sp.index("eastmoney_realtime"), \
+            "%s 补丁源必须猫爪优先于东财" % m.value
+    auction = pm.POLICIES[pm.PickMode.AUCTION].source_priority
+    assert auction[0] == "meoz_market", "竞价窗口名单源必须猫爪优先"
+    assert "eastmoney_market" in auction, "东财必须保留为次级(换源不换掉兜底)"
+    assert auction.index("meoz_market") < auction.index("eastmoney_market") \
+        < auction.index("tencent_market"), "三级名单源顺序: 猫爪→东财→腾讯"
 
 
 def test_screening_map_passes_symbols_param(monkeypatch):

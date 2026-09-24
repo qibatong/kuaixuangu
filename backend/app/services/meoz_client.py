@@ -374,6 +374,10 @@ _AUC_SNAP_TTL = 30      # 时点快照缓存(秒): 竞价时段避免高频重�
 # 各接口缓存 TTL 登记表(2026-09-24 实测 grep 全量 ttl= 用法得出)。
 #   _AUC_SNAP_TTL(=30): auc_kp / fundflow_kp / daily_auc / daily_auc_detail
 #                       / daily_auc_fd / valuation / screening
+#                       + limit_pool / limit_pool_yes / daily / minute
+#                         (2026-09-24 换源 WP3/WP4/WP5 新增; 同样是「实时快照」性质 ——
+#                          外层调用方各自还有更长的缓存(图表 60s/120s、昨额按批),
+#                          这里统一取一档, **不再新造第二个 30**)
 #   字面量 30:          index_snapshot(:711) / emoindic(:812) ← 原先两个独立的 30, 此处归口
 # ★ 跨模块需要「错开缓存」时(典型: 补采轮询间隔)**请调 cache_ttl()**, 不要在调用方
 #   硬编码秒数 —— TTL 与轮询间隔的先后关系是本仓历史的静默失效点,
@@ -386,6 +390,10 @@ _TTL_BY_API = {
     "daily_auc_fd": _AUC_SNAP_TTL,
     "valuation": _AUC_SNAP_TTL,
     "screening": _AUC_SNAP_TTL,
+    "limit_pool": _AUC_SNAP_TTL,        # 换源 WP3: 涨停池
+    "limit_pool_yes": _AUC_SNAP_TTL,    # 换源 WP3: 涨停池(含昨日维度)
+    "daily": _AUC_SNAP_TTL,             # 换源 WP4/WP5: 日K(昨额/涨跌幅、日K图)
+    "minute": _AUC_SNAP_TTL,            # 换源 WP5: 分时
     "index_snapshot": 30,
     "emoindic": 30,
 }
@@ -751,6 +759,208 @@ def auc_fd_map(trademin="0925", date_offset=None, date=None):
                        fields="tradedate,symbol,name,auc_pct_chg,auc_amt,auc_turnover,"
                               "is_st,theme_names_kpl," + _AUC_FD_FIELDS)
     return _sym_rows(data)
+
+
+# =====================================================================
+# 换源 WP3/WP4/WP5 新增接口封装(2026-09-24)
+# =====================================================================
+# 与上面几张竞价表的分工: 这批接口服务的是 **picker/fetcher 的通用数据面**
+# (涨停池 / 日K / 分时), 不是集合竞价三张抢筹表。全部为**纯新增**, 切换调用方
+# 是各自 WP 包的事(改 fetcher 与 mode.POLICIES)。
+#
+# 🔴 字段白名单纪律(踩过): `fields` 传官方 openapi **未登记**的字段 → 直接 422,
+#    而且失败的是**整个调用**(实测 screening 加 pre_fd_break_amount 导致主源全挂)。
+#    下面每个白名单都取自本文件实测返回的列, **新增字段前先单字段试调确认 code==200**。
+
+# limit_pool 字段白名单(实测 2026-09-24 返回 16 列, 此处只取所需 —— 略去 limit_detail
+# (逐笔涨停时间线, 体量大且无消费方) 与 limit_type / pre_limit_times)。
+_LIMIT_POOL_FIELDS = ("symbol,name,tradedate,type,is_break,limit_times,open_times,"
+                      "fd_amount,first_time,last_time,pct_chg,close,amount")
+
+# daily 字段白名单(实测 10 列, 全部需要)
+_DAILY_FIELDS = "symbol,name,tradedate,open,high,low,close,pct_chg,vol,amount"
+
+# minute 字段白名单(实测 10 列)
+_MINUTE_FIELDS = "symbol,tradedate,trademin,time,open,high,low,close,vol,amount"
+
+
+def limit_pool_map(date=None, limit_type=None):
+    """涨停池 {symbol: {type, is_break, limit_times, open_times, fd_amount, ...}}。
+
+    源: limit_pool。实测(2026-09-24 测试机)语义:
+      * **不传 tradedate = 当日**; 传 `tradedate=YYYYMMDD` **可取历史交易日**
+        (实测 20260923 / 20260922 均正常返回该日池, 且 tradedate 字段与请求一致)。
+      * `tradedate_offset` **必须 ≤ 0**(传 1/2 返 422); 本函数只用显式 tradedate,
+        不用 offset —— 与 daily_auc 的「串日」教训同款: 判「哪一天」必须显式传日期。
+      * **非交易日返 code=1002「未找到涨跌停池数据」** → call() 返回 None
+        ⇒ 上层「往前找最近交易日」的循环要靠**空结果**推进, 不能靠异常。
+      * `type` 实测只有 **'u'(涨停) / 'd'(跌停)** 两种取值, 且 **is_break 恒 False**
+        (炸板不留在池里, 池是"收盘时的涨跌停集合") ⇒ 「昨日涨停」取 `type=='u'`,
+        与东财 getTopicZTPool(涨停池) 语义对齐; 跌停必须过滤掉, 否则昨涨停名单会混入跌停票。
+
+    Args:
+        date: 目标交易日 YYYY-MM-DD 或 YYYYMMDD; None = 当日。
+        limit_type: 可选 'u' / 'd' —— 仅作为**上游侧**过滤, 上层仍应自行判 type。
+
+    Returns:
+        {symbol: {字段: 值}}; 失败/非交易日/未启用返回空 dict。
+    """
+    params = {}
+    if date:
+        params["tradedate"] = str(date).replace("-", "")
+    if limit_type:
+        params["type"] = str(limit_type)
+    data = call_cached("limit_pool", params=params, ttl=_AUC_SNAP_TTL,
+                       fields=_LIMIT_POOL_FIELDS)
+    return _sym_rows(data)
+
+
+def limit_pool_yes_map(date=None):
+    """涨停池(含昨日维度) {symbol: {... pre_limit_times, pre_pct_chg, pre_fd_amount ...}}。
+
+    源: limit_pool_yes。实测 2026-09-24: 31 列, 当日 65 行; 相比 limit_pool 多出
+    `pre_*` 一族(昨日连板 / 昨日涨幅 / 昨日封单)与 `auc_vol_ratio`。
+    ★ 附注(与新认知有关): 本接口**也**返回 `auc_vol_ratio` —— 此前记录「竞价量比唯一
+      来源 daily_auc」并不完整, 这里存在**第二个来源**(仅覆盖当日涨停票)。
+    本函数当前**无生产调用方**(WP3 只用 limit_pool); 保留为已封装能力,
+    供后续"连板梯队/昨日涨停成因"场景复用。
+
+    Args:
+        date: 目标交易日 YYYY-MM-DD 或 YYYYMMDD; None = 当日。
+
+    Returns:
+        {symbol: {字段: 值}}; 失败/未启用返回空 dict。
+    """
+    params = {}
+    if date:
+        params["tradedate"] = str(date).replace("-", "")
+    data = call_cached("limit_pool_yes", params=params, ttl=_AUC_SNAP_TTL)
+    return _sym_rows(data)
+
+
+def daily_history_map(symbols, days=3, date=None, fresh=False):
+    """日K(**可多日**) {symbol: [行, ...]} —— **返回 list, 不是单行 dict**。
+
+    🔴 为什么必须是 list(2026-09-24 踩): 猫爪返回矩阵结构, `_sym_rows()` 按 symbol
+      建字典 —— 多日结果会被**折叠成最后一行**(静默丢数据)。本函数因此改为
+      「一行一个 dict、按 symbol 归组」, 不经过 `_sym_rows`。
+
+    实测语义(2026-09-24 测试机):
+      * `recentdays=N` → **每只 N 行, 最新在前**(含今日盘中那根 K 线, 若当日有数据)。
+      * `tradedate=YYYYMMDD` → 该日单行。
+      * `startdate/enddate` → 区间内逐日, 同样最新在前。
+      * `limit` 单独用无效(仍 1 行), 且**与 recentdays 同传时被忽略**。
+      * 批量: 实测 **800 只/次 0.32s 无截断**(曾误判上限 20 —— 那是 _sym_rows 折叠
+        造成的假象, 不是接口限制)。分片仍保守, 见 fetcher._YDAY_MEOZ_BATCH。
+      * 字段单位: `vol` = **手**, `amount` = **元**(实测 vol×100×close ≈ amount)。
+      * **复权口径**: 与东财 fqt=1 / 腾讯 qfq 同口径(实测 120/120 逐日收盘全等,
+        区间跨除权) ⇒ 可直接作日K首源, 不会让除权票出现断层。
+
+    Args:
+        symbols: 单个 / 逗号分隔 / 列表。
+        days: 取最近多少个交易日(仅多日模式; 传 date 时忽略)。
+        date: 显式指定单日交易日 YYYY-MM-DD/YYYYMMDD。
+        fresh: True 时绕过本地缓存直打上游(补采/回填场景)。
+
+    Returns:
+        {symbol: [ {tradedate, open, high, low, close, pct_chg, vol, amount, name}, ... ]};
+        失败/未启用返回空 dict。
+    """
+    syms = symbols
+    if isinstance(syms, (list, tuple, set)):
+        seq = [str(x) for x in syms]
+    else:
+        seq = str(syms or "").split(",")
+    # 入口也与 minute_rows 对称地剥掉交易所后缀: 上游 daily 只认纯 6 位,
+    # 调用方若传 '600519.SH' 会被上游整批拒(表现为"该票没数据", 极难排查)。
+    syms = ",".join(_strip_market_suffix(x.strip()) for x in seq if x.strip())
+    if not syms:
+        return {}
+    params = {"symbols": syms}
+    if date:
+        params["tradedate"] = str(date).replace("-", "")
+    else:
+        params["recentdays"] = int(days)
+    data = call_cached("daily", params=params, ttl=_AUC_SNAP_TTL, fields=_DAILY_FIELDS,
+                       fresh=fresh)
+    dd = (data or {}).get("data") or {}
+    cols = dd.get("fields") or []
+    items = dd.get("items") or []
+    if not cols or not isinstance(items, list):
+        return {}
+    out = {}
+    for row in items:
+        if not isinstance(row, (list, tuple)):
+            continue
+        m = {cols[i]: row[i] for i in range(min(len(cols), len(row)))}
+        sym = str(m.get("symbol") or "")
+        if not sym:
+            continue
+        out.setdefault(_strip_market_suffix(sym), []).append(m)
+    return out
+
+
+def minute_rows(symbol, date=None, trademin=None, fresh=False):
+    """单股分时 [行, ...] —— 时间升序, 全天 241 根。
+
+    源: minute。实测(2026-09-24 测试机):
+      * 不传 trademin → 全天 **241 根**(trademin 0930..1130 共 121 + 1301..1500 共 120;
+        注意**没有 1300 这根**)。
+      * `tradedate` 可指定历史交易日; `trademin=HHMM` 只取那一根。
+      * 🔴 返回的 `symbol` **带交易所后缀**(实测 `600519.SH`), 而 `daily` 返回的是
+        纯 6 位 —— **同一数据商两个接口 code 格式不统一**, 故本函数出口统一剥后缀。
+      * `trademin` = 该分钟戳("0930"), `time` = 该分钟内的成交时刻("09:25:02" /
+        "09:30:59")。画图用 trademin, 不要用 time(它是分钟内的瞬时时刻)。
+      * `vol` = 手, `amount` = 元。
+      * ⚠️ 单只查询, 不支持批量(传多只会被上游按第一个处理), 故仅用于个股图表。
+
+    Args:
+        symbol: 单个代码(可带后缀)。
+        date: 目标交易日 YYYY-MM-DD/YYYYMMDD; None = 最近交易日。
+        trademin: 只取某一分钟(HHMM, 如 "0930")。
+        fresh: True 时绕过本地缓存。
+
+    Returns:
+        [ {trademin, time, open, high, low, close, vol, amount}, ... ] 时间升序;
+        失败/未启用返回 []。
+    """
+    sym = _strip_market_suffix(str(symbol or ""))
+    if not sym:
+        return []
+    params = {"symbols": sym}
+    if date:
+        params["tradedate"] = str(date).replace("-", "")
+    if trademin:
+        params["trademin"] = hhmm(trademin)
+    data = call_cached("minute", params=params, ttl=_AUC_SNAP_TTL, fields=_MINUTE_FIELDS,
+                       fresh=fresh)
+    dd = (data or {}).get("data") or {}
+    cols = dd.get("fields") or []
+    items = dd.get("items") or []
+    if not cols or not isinstance(items, list):
+        return []
+    rows = []
+    for row in items:
+        if not isinstance(row, (list, tuple)):
+            continue
+        m = {cols[i]: row[i] for i in range(min(len(cols), len(row)))}
+        if str(m.get("trademin") or ""):
+            rows.append(m)
+    # 上游已是时间升序(实测 0930→1500); 这里显式排序, 不依赖上游顺序
+    rows.sort(key=lambda m: str(m.get("trademin") or ""))
+    return rows
+
+
+def _strip_market_suffix(sym: str) -> str:
+    """`600519.SH` / `600519.SZ` / `600519.BJ` → `600519`。
+
+    同一数据商两个接口 code 格式不一致(实测: minute 带后缀, daily 不带) ⇒
+    只在**出口**统一剥掉, 避免调用方各写一遍 split。
+    """
+    s = str(sym or "").strip()
+    if "." in s:
+        s = s.split(".", 1)[0]
+    return s
 
 
 def tick_fd(symbol, tradedate=None, trademin=None):

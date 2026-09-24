@@ -122,6 +122,10 @@ def mock_data_source(monkeypatch_session):
     # 2026-09-07 is_first_board 改造(昨涨停名单判据): scorer 会调 fetcher.get_yesterday_zt_codes()
     # 拉 push2ex 涨停池(真实网络)。测试一律桩成 None → 走 f103 概念降级路径(与旧行为一致,
     # 保证既有用例零回归); 专项测试(test_zt_pool_filter.py)单独 monkeypatch 验证名单路径。
+    # 2026-09-24: 与 _asnap._real_load_snapshot_full 同款 —— 桩住主链路的同时**保留真实
+    # 实现入口**: 「换源 WP3 主源命中就不该问东财 / 猫爪不可用才回退」这类用例必须打到
+    # 真实实现(验的是顺序与回退语义), 否则测的是桩、结论无效。别名只加属性、不改行为。
+    fetcher._real_get_yesterday_zt_codes = fetcher.get_yesterday_zt_codes
     monkeypatch_session.setattr(fetcher, "get_yesterday_zt_codes", lambda: None)
     # 2026-09-04 spotMap 预热线程: client fixture 的 TestClient(with)会触发 app startup
     # → start_spot_prewarm 起真线程。若在预热窗口(9:26-15:05)内跑测试, 线程会真拉腾讯全市场

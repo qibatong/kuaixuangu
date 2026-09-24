@@ -97,9 +97,66 @@ class BaseSource:
 # 新增数据源必须在此登记, 否则 pipeline 按优先级取源时会取不到(有测试兜底)。
 REGISTRY: Dict[str, str] = {}
 
+# 东财源标签前缀: 这些标签受 settings.use_eastmoney 统一收口(换源 WP6)。
+_EASTMONEY_PREFIX = "eastmoney"
+
+
+def _flag_on(v, default=True) -> bool:
+    """宽松布尔解析: settings 里的开关可能是 int / str / bool / None。
+
+    🔴 为什么不用 `v or default`(看起来等价, 实则不然): `0 or 1` → `1`
+    ⇒ **`use_eastmoney=0` 若在库里是 int, 开关会静默失效**("配置写了但没生效"的经典
+    形态, 且排查时看到的是"开关打开了", 方向直接跑偏)。故对 0/False 显式判定。
+    """
+    if v is None or v == "":
+        return default                      # 未配置 ⇒ 按默认(开)
+    if isinstance(v, bool):                 # 必须在 int 判断之前(bool 是 int 子类)
+        return v
+    if isinstance(v, (int, float)):
+        return v != 0
+    return str(v).strip().lower() not in ("0", "false", "no", "off")
+
+
+def eastmoney_enabled() -> bool:
+    """东财源是否可用 —— **唯一判定入口**(settings.use_eastmoney, 默认开)。
+
+    2026-09-24 换源 WP6「东财收口」: 猫爪成为主源后, 需要一条**不改代码、只改配置**
+    就能把东财从链路上摘掉的路径(而不是物理删代码 —— 猫爪仍有 2 个字段缺口
+    `warn_type` f630 / `industry`, 且生产机东财被墙不代表测试机也不可用, 删了就没退路)。
+
+    与 meoz_client.enabled() 同款语义: 读 settings, 异常时**保持开启**(收口开关不能
+    因为读库失败而意外瘫痪数据链)。
+    """
+    try:
+        from ... import settings                     # 延迟导入: 避免模块循环
+        return _flag_on(settings.get("use_eastmoney", 1))
+    except Exception:                                # noqa: BLE001
+        return True
+
+
+class DisabledSource(BaseSource):
+    """被 settings 关停的数据源: **显式失败**, 不做任何网络调用。
+
+    为什么不是直接返回 None: pipeline 拿到 None 会记「未知数据源标签」, 把"配置关停"
+    误报成"配置写错", 违背铁律2(降级必须可见)。这里给出明确原因, 日志与
+    PipelineResult.errors 里一眼能看出是开关关的。
+    """
+
+    def __init__(self, label: str):
+        self.label = label
+
+    def fetch(self, ctx: FetchContext) -> SourceResult:
+        return SourceResult(
+            label=self.label, error="东财源已关闭(settings.use_eastmoney=0)",
+            degraded=True, requested=len(ctx.codes or []))
+
 
 def get_source(label: str) -> Optional[BaseSource]:
-    """按标签取 adapter 实例; 未知标签返回 None(不抛, 由 pipeline 决定降级)"""
+    """按标签取 adapter 实例; 未知标签返回 None(不抛, 由 pipeline 决定降级)。
+
+    东财源受 `settings.use_eastmoney` 收口: 开关关闭时返回 DisabledSource(显式报错),
+    其余源不受影响。
+    """
     from . import eastmoney, meoz, snapshot, tencent     # 延迟导入: 避免模块循环
     table = {
         "snapshot": snapshot.SnapshotSource,
@@ -107,10 +164,17 @@ def get_source(label: str) -> Optional[BaseSource]:
         "eastmoney_market": eastmoney.EastmoneyMarketSource,
         "tencent_point": tencent.TencentPointSource,
         "tencent_market": tencent.TencentMarketSource,
-        # 2026-09-24 换源 WP0: 猫爪源(备而不用 —— 尚未被 mode.POLICIES 引用, 切换见 换源 WP2)
+        # 2026-09-24 换源 WP0 新增 / WP2 起被 mode.POLICIES 实际引用:
+        #   4 个模式作补丁源(meoz_realtime), AUCTION 作名单源(meoz_market)
         "meoz_realtime": meoz.MeozRealtimeSource,
         "meoz_market": meoz.MeozMarketSource,
     }
+    # 注册表先填满再判开关 —— 否则关掉东财时 REGISTRY 会缺项,
+    # 让"每个 POLICIES 标签都必须已注册"的守卫误报成配置错误。
     REGISTRY.update({k: v.__module__ + "." + v.__name__ for k, v in table.items()})
     cls = table.get(label)
-    return cls() if cls else None
+    if cls is None:
+        return None
+    if label.startswith(_EASTMONEY_PREFIX) and not eastmoney_enabled():
+        return DisabledSource(label)
+    return cls()

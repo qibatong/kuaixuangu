@@ -14,14 +14,22 @@
   4. 单位换算(vol/auc_vol 手→股)全在 `QuoteRow.from_meoz` 里做, 本层只做"取数 + 组装",
      与 eastmoney/tencent 适配层的分工一致(字段语义归契约层唯一裁定)。
 
-⚠️ 未接入 POLICIES: 本包只是"把猫爪能力装进适配器, 备而不用"。真正切换源优先级是
-   换源 WP2(mode.POLICIES), 那一步会改名单, 需单独提交 + 名单 diff。
+★ 2026-09-24 已接入(换源 WP2): 4 个非竞价模式的**补丁源**、AUCTION 的**名单源**。
+   readme 上面第 2 点(竞价语义保持与东财一致)随之生效 —— 换源不改竞价字段语义。
 """
 from typing import Dict, Optional
 
 from ... import meoz_client
 from ..contract import QuoteRow
 from .base import BaseSource, FetchContext, SourceResult
+
+# 全市场源的最小行数闸门(2026-09-24 换源 WP2 新增)。
+# 为什么需要: `_fetch_list` 只看 `SourceResult.ok`(= error 为空且 rows 非空), 而全市场源
+# 的 `requested` 是 0 → coverage 恒 1.0 ⇒ **半残数据会被静默当成有效名单源接管**。
+# A 股全市场长期 5000+ 只(实测猫爪 5572 / 东财 5561), 闸门取 1000 只: 只要上游返回
+# 一个数量级偏小的结果(接口降级/分页截断/缓存半写), 就判为不可用并交给下一级源,
+# 而不是"换个源把名单缩水"。阈值取这么低是为了**只拦真正的异常**, 不干预正常波动。
+_MEOZ_MARKET_MIN_ROWS = 1000
 
 
 def _rows_from_meoz(smap: Optional[Dict[str, dict]], ctx: FetchContext,
@@ -89,9 +97,20 @@ class MeozMarketSource(BaseSource):
             return SourceResult(error="猫爪源未启用(settings.use_meoz=0 或缺 apikey)",
                                 degraded=True, requested=len(ctx.codes or []))
         smap = meoz_client.screening_map()
+        if not smap:
+            # 先分「空」与「半残」: 两者都是失败, 但原因不同 —— 排查时一眼能分清
+            # "接口故障没返回" 与 "返回了但被截断/缓存半写"(后者才是本闸门要拦的形态)。
+            return SourceResult(error="猫爪全市场源返回空(接口故障)",
+                                degraded=True, requested=len(ctx.codes or []))
+        if len(smap) < _MEOZ_MARKET_MIN_ROWS:
+            # 半残结果不得接管名单: 明确报错 → _fetch_list 自动尝试下一级源
+            return SourceResult(
+                error="猫爪全市场源行数异常(%d < %d) — 视为不可用, 交由下一级源"
+                      % (len(smap), _MEOZ_MARKET_MIN_ROWS),
+                degraded=True, requested=len(ctx.codes or []))
         rows = _rows_from_meoz(smap, ctx, degraded=ctx.degraded)
         if not rows:
-            return SourceResult(error="猫爪全市场源返回空(接口故障)",
+            return SourceResult(error="猫爪全市场源映射后为空(全部代码缺失)",
                                 degraded=True, requested=len(ctx.codes or []))
         return SourceResult(rows=rows, degraded=ctx.degraded,
                             requested=len(ctx.codes or []))
