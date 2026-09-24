@@ -57,6 +57,13 @@ LASTSEC_END = 9 * 3600 + 25 * 60 + 3
 #   绝不能因登记表自身的小毛病导致服务起不来; 回退时打 ERROR 日志, 不静默。
 _MARKET_SIZE_MEDIAN = 5209      # 全市场只数中位数(2026-09 实测), 仅用于阈值换算
 
+# ★ 刻意**不**在热路径上设"screening 行数下限"阈值: 换源后猫爪是**主源但非唯一源**,
+#   合并纪律是"只补缺" ⇒ 上游返回得少只是"补得少", 东财第二级会把缺的票补回来,
+#   名单不会变瘦。反之, 加行数阈值会引入两类误判: ① 上游正常但当日标的确实少时整源被弃;
+#   ② 测试夹具(小样本)被判"半残"。行数充裕度是**验收/巡检指标**(施工图验收矩阵:
+#   全市场 ≥5000), 不是热路径判据。串日防护另有其法 —— 见 _screening_today 的
+#   tradedate 校验(串日返回的是**完整**上一日全市场, 行数完全正常, 阈值根本挡不住)。
+
 
 def netfill_interval() -> int:
     """补采轮询间隔(秒)。**显式依赖**猫爪 fundflow_kp 缓存 TTL —— 必须比它大,
@@ -133,20 +140,48 @@ def _bj_date():
     return "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
 
 
+# ---------------- 采集主源顺序(2026-09-24「去东财换猫爪」换源 WP1) ----------------
+#   True  = 猫爪 screening 为**第一主源**(全市场建行), 东财 clist 降为第二级(**只补缺, 不删**);
+#   False = 东财为第一主源(= 换源前的旧行为)。
+# ★ 单点可回退: 改这一个常量即可切回旧顺序(不必 git revert); 完整回滚仍 `git revert`。
+# ★ 只作用于 full=True(**时点快照**): full=False 是 9:24:45~9:25:03 的秒级采样, 必须每秒
+#   拿一份**新鲜**全市场 —— 猫爪 screening 是 30s 缓存的整市场拉取(_AUC_SNAP_TTL), 塞进去
+#   只会采到同一份数据(秒级序列退化成一条直线), 故维持东财单页, 该路径源不变。
+# ⚠️ 编号消歧: 本仓凡写「换源 WPn」均指《快选-去东财换猫爪-施工图》的工作包;
+#    与 v4.11.42 的 "WP1b/WP2a"(契约注册表 / 补采)是**两套独立编号**, 勿混。
+_MEOZ_PRIMARY = True
+
+
 def _fetch_market_map(full=False):
     """抓取全市场快照, 返回 {code: {bid_change, bid_amt, name, bid_buy_amt, float_mv}}
     过滤异常涨幅(±30% 外, A股涨跌停上限20%/新股44%, 非交易时段字段可能异常)
-    full=True : fetch_eastmoney_all 分页全市场(~5500只, 按代码f12排序, 时点快照用)
+    full=True : 时点快照(9:15/9:20/9:24/9:25)。主源见 _MEOZ_PRIMARY —— 猫爪 screening
+                (全市场 5553~5651 只)优先建行, 东财 clist 降为第二级只补缺。
     full=False: fetch_eastmoney 单页200只×3分区(按涨幅倒序=竞价最强前600, 秒级采样用,
                 9:24:45-9:25:03 共18秒窗口, 秒级采样窗口内无法全市场分页)
     并发(2026-08-19 起): 全市场 30 页 ThreadPoolExecutor 并发(实测 386ms/次, 2026-08-31),
           单页模式 3 分区并发 3×~1.5s → ~1.5s, 秒级采样 8 秒窗口可采 5-8 个点
-    三源冗余(2026-08-25): 东财全部失败时用开盘啦竞价委买/爆量榜兜底,
+    三源冗余(2026-08-25): 主源与第二级**全部失败**时用开盘啦竞价委买/爆量榜兜底,
           至少保存竞价异动关键股票(非全市场, 好过完全缺失)
+    合并纪律(**只补缺, 绝不覆盖**): 各源竞价额等价(≤1% 内 100%)但市值系统性差 ~1.25%,
+          覆盖会串数 —— "谁先谁后"只决定**两者都有值时谁的赢**, 不改变覆盖度上限,
+          故换主源不会让名单变瘦(缺的列由后一级/补采补上, 见 docs/history.md v4.11.44)。
     """
     _t0 = time.time()
     with _fetch_lock:
         raw_all = {}
+        em = {}
+        # ── ① 主源(2026-09-24 换源 WP1): 时点快照下猫爪 screening 先建行 ──
+        #   raw_all 为空 ⇒ _merge_meoz 的"只补缺"在此等价于"全量建行", 直接复用同一份
+        #   字段映射(不再写第二遍 —— 同口径两处维护必漏改一处, 是换源最典型的坑)。
+        if full and _MEOZ_PRIMARY:
+            try:
+                mz = _merge_meoz(raw_all)
+                log.info("[快照采集] 主源①猫爪 screening: 选股%d只 估值%d只 竞价%d只 封单%d只 "
+                         "→ 建行%d只(补量比%d)", mz["val_n"], mz["auc_n"], mz["fd_n"],
+                         mz["seal_n"], len(raw_all), mz["vr"])
+            except Exception as e:                              # noqa: BLE001
+                log.warning("[快照采集] 主源①猫爪失败 err=%s", str(e)[:120])
 
         def _grab(m):
             try:
@@ -168,7 +203,7 @@ def _fetch_market_map(full=False):
                     bc = scorer.get_bid_change(s)
                     if bc < -30 or bc > 30:    # 明显异常数据(非交易时段字段污染)
                         continue
-                    raw_all[code] = {
+                    em[code] = {
                         "bid_change": bc,
                         "bid_amt": scorer.get_bid_amt(s),
                         "name": str(s.get("f14") or ""),          # 名称
@@ -186,10 +221,19 @@ def _fetch_market_map(full=False):
                         # 0 = 无异动(与历史 f630=0 同义, 评分落 default); 异常/缺失一律 0。
                         "warn_type": int(scorer.parse_float(s.get("f630"))),
                     }
-        # 兜底链(2026-09-19 重排): 东财全失败时 —— ① 猫爪(全市场5553只, 首选)
+        # ── ② 第二级(旧顺序下则是主源): 东财 clist, **只补缺** ──
+        #   东财独有且必须保留的字段: f630(warn_type 异动等级) —— 该因子虽已由
+        #   bid_strength 替代而"失活", 但快照列仍在用, 保持与旧行为一致;
+        #   f10×f5(买一委托金额=涨停封单近似) —— 猫爪有 fd_amount 成品, 仅在猫爪缺时用。
+        if em:
+            st = _merge_em_rows(raw_all, em)
+            log.info("[快照采集] 东财(%s): 原始%d只 → 补票%d只 补值%d项 → 合计%d只",
+                     "第二级" if (full and _MEOZ_PRIMARY) else "主源",
+                     len(em), st["added"], st["filled"], len(raw_all))
+        # 兜底链(2026-09-19 重排): 主源与第二级**全失败**时 —— ① 猫爪(全市场5553只, 首选)
         #   ② 开盘啦竞价榜(仅活跃股, 二线)。猫爪能出全市场, 远比开盘啦的百来只强。
         if not raw_all:
-            log.warning("[快照采集] 东财全分区失败, 兜底链启动")
+            log.warning("[快照采集] 主源+第二级均失败, 兜底链启动")
             try:
                 mz = _merge_meoz(raw_all)
                 log.info("[快照采集] 兜底①猫爪成功: 选股%d只 估值%d只 竞价%d只 → %d只",
@@ -212,14 +256,16 @@ def _fetch_market_map(full=False):
                 log.warning("[快照采集] TickPlus 采集异常(已忽略) err=%s", e)
             if tp_map:
                 st = _merge_tickplus(raw_all, tp_map)
-                log.info("[快照采集] 双源合并 东财%d只 + TickPlus%d只 → 补票%d只 补值%d项 → 合计%d只",
+                log.info("[快照采集] 双源合并 主源+东财%d只 + TickPlus%d只 → 补票%d只 补值%d项 → 合计%d只",
                          n_em, len(tp_map), st["added"], st["filled"], len(raw_all))
-        # 猫爪主数源(P0, 2026-09-19): 东财外挂第二/第三源, 补齐 name/circ_mv/bid_amt/bid_change/封单额。
+        # 猫爪**补缺**(P0, 2026-09-19): 补齐 name/circ_mv/bid_amt/bid_change/封单额。
         #   目标 = **彻底摆脱东财**: 东财全挂时猫爪仍能产出全市场(5565只)完整快照。
         #   合并纪律同 _merge_tickplus「只补缺, 绝不覆盖」(两源口径不同, 覆盖会串数)。
         #   只在 full=True(时点全市场快照)时启用 —— 竞价额/市值是全市场级数据,
         #   秒级采样窗口(18秒)内拉两源会超时。
-        if full:
+        #   2026-09-24 换源 WP1: _MEOZ_PRIMARY=True 时猫爪已在①作为**主源**跑过, 此处跳过
+        #   (再跑一次语义等价但白费一次全市场拉取); 旧顺序下这里仍是补缺入口。
+        if full and not _MEOZ_PRIMARY:
             try:
                 mz = _merge_meoz(raw_all)
                 log.info("[快照采集] 猫爪合并 选股%d只 估值%d只 竞价%d只 封单%d只 → 补票%d只 "
@@ -246,8 +292,101 @@ def _fetch_market_map(full=False):
         return raw_all
 
 
+def _merge_em_rows(raw_all, em):
+    """把东财行并入已有结果(原地改 raw_all), 返回 {"added","filled"}。
+
+    合并纪律: **只补缺, 绝不覆盖**(与 _merge_meoz / _merge_tickplus 同一纪律) ——
+    换主源后东财的角色变成"第二级 + 补它独有的字段", 而各源口径不同(竞价额等价但
+    市值系统性差 ~1.25%), 覆盖会把同一时点变成两套数。
+
+    东财**独有**的字段(猫爪 screening 没有)在此补位:
+      * `warn_type`(f630 异动等级): 判据用 falsy 而非 `is None` —— 与 `bid_change`
+        同例: 0 在这里是"无异动/未知"双关值, 猫爪建行时统一写 0, 只有东财的非 0
+        f630 才带信息量。用 falsy 才能维持**换源前"warn_type 由东财提供"的行为**
+        (否则列会全是 0, 是"换源静默改变了落库内容"的隐形回归)。
+      * `bid_buy_amt`(f10 买一量×f5 买一价 = 涨停封单近似): 猫爪有 fd_amount 成品
+        且已建行时优先, 仅在缺/为 0 时用东财值。
+    """
+    added = filled = 0
+    for code, e in (em or {}).items():
+        v = raw_all.get(code)
+        if v is None:
+            raw_all[code] = dict(e)        # 主源没覆盖到的票 → 整行搬入(不丢票)
+            added += 1
+            continue
+        if not (v.get("name") or "").strip() and (e.get("name") or "").strip():
+            v["name"] = e["name"]
+            filled += 1
+        # 市值: 流通(float_mv)与自由流通(free_mv)分别补, 同 _merge_meoz 纪律
+        if not (v.get("float_mv") or 0) and (e.get("float_mv") or 0):
+            v["float_mv"] = e["float_mv"]
+            filled += 1
+        if not (v.get("free_mv") or 0) and (e.get("free_mv") or 0):
+            v["free_mv"] = e["free_mv"]
+            filled += 1
+        if not (v.get("bid_amt") or 0) and (e.get("bid_amt") or 0):
+            v["bid_amt"] = e["bid_amt"]
+            filled += 1
+        if not (v.get("bid_change") or 0) and (e.get("bid_change") or 0):
+            v["bid_change"] = e["bid_change"]
+            filled += 1
+        if not (v.get("bid_buy_amt") or 0) and (e.get("bid_buy_amt") or 0):
+            v["bid_buy_amt"] = e["bid_buy_amt"]
+            filled += 1
+        if not (v.get("board") or "").strip() and (e.get("board") or "").strip():
+            v["board"] = e["board"]
+            filled += 1
+        if not (v.get("warn_type") or 0) and (e.get("warn_type") or 0):
+            v["warn_type"] = e["warn_type"]
+            filled += 1
+    return {"added": added, "filled": filled}
+
+
+def _screening_today(want_compact):
+    """取**当日**猫爪 screening 全市场 map, 防串日。
+
+    want_compact: 当日 YYYYMMDD(如 "20260924")。
+
+    两级取法(2026-09-24 换源 WP1 新增):
+      ① 显式 `tradedate=当日` —— openapi 语义是"查该交易日", 该日无数据即返回空。
+         显式查询的**契约就是当日**, 故此处只做"字段缺失(上游没回 tradedate)放行"的
+         宽松校验。
+      ② 若①为空, 退回 `tradedate_offset=0`("最新交易日")再取一次, 但**严格校验**
+         tradedate == 当日 —— offset 查询在目标日尚未产出时会返回**上一交易日**那份
+         (与 daily_auc 同款串日陷阱, 2026-09-24 实测: 早盘 9:15 拿到昨日 9:25 的 5567 行),
+         故这条路径必须逐行验明正身, 不匹配一律丢弃。
+    两级都拿不到 → 返回 {}: 本枪猫爪不供水, 由第二级东财/补采兜住。**绝不返回串日数据**。
+
+    Args:
+        want_compact: 目标交易日, YYYYMMDD。
+
+    Returns:
+        {symbol: {字段: 值}}; 拿不到当日数据时为空 dict。
+    """
+    from . import meoz_client
+    want = str(want_compact or "").replace("-", "")
+    if not want:
+        return {}
+    m = {c: r for c, r in meoz_client.screening_map(date=want).items()
+         if str((r or {}).get("tradedate") or "").replace("-", "") in ("", want)}
+    if m:
+        return m
+    alt = {c: r for c, r in meoz_client.screening_map(date_offset=0).items()
+           if str((r or {}).get("tradedate") or "").replace("-", "") == want}
+    if alt:
+        log.info("[快照采集] 猫爪 screening tradedate=%s 显式查询无行, "
+                 "经 offset=0 并按 tradedate 严格校验后取到 %d 只", want, len(alt))
+    return alt
+
+
 def _merge_meoz(raw_all):
     """把猫爪(实时选股 + 竞价额 + 封单额)并入快照结果(原地改 raw_all), 返回统计字典。
+
+    ★ 两个角色, 同一份映射(2026-09-24 换源 WP1 起):
+      · **主源建行**: `_fetch_market_map` 在 full=True 且 `_MEOZ_PRIMARY` 时先调用本函数,
+        此时 raw_all 为空 ⇒ "只补缺"等价于"全量建行";
+      · **补缺**: 旧顺序下在末尾调用, 只补东财缺的字段。
+      两种角色共用同一份字段映射 —— 换主源若另写一遍映射, 必然出现"同口径两处维护、改一处漏一处"。
 
     2026-09-20 重构: 主源改为 **screening(实时选股)** —— 一个接口全市场 5553 只,
     同时给出 free_float_mv/circ_mv/name/auc_amt/auc_pct_chg, 免去四接口拼装。
@@ -291,8 +430,17 @@ def _merge_meoz(raw_all):
         return stats
 
     # ⓪ 主源: 实时选股 screening(全市场 5553 只, 含 free_float_mv)
+    #   ★ 2026-09-24 换源 WP1: 显式传**当日**(防串日)。
+    #     原先用 date_offset=0("最新交易日") —— 当日行尚未产出时它会返回**上一交易日**
+    #     那份, 于是 9:15/9:20/9:24 三枪会把昨日全市场当成今日写进定格(与 daily_auc
+    #     同类的串日陷阱, 2026-09-24 已对 daily_auc 修过, 此处一并收口)。
+    #     显式 tradedate 查询的语义是"该日无数据就返回空", 天然防串日。
+    #   ★ 行数健全性守卫: 即便上游语义变化, 宁可"本枪不补"也不串日 —— 快照缺值可由
+    #     第二级东财/补采回填, 而串日残值一旦落库就再也分不出真假(历史教训)。
+    _today = _bj_date()
+    _today_compact_sc = _today.replace("-", "")
     try:
-        sc_map = meoz_client.screening_map(date_offset=0)
+        sc_map = _screening_today(_today_compact_sc)
         stats["val_n"] = len(sc_map)
     except Exception as e:                                      # noqa: BLE001
         sc_map = {}
