@@ -422,7 +422,8 @@ export const useStocksStore = defineStore('stocks', {
       // force=true: 主动重锁(绕过当日幂等); 页面加载自动 lock 不带 force → 后端幂等直读
       // 2026-09-20 主人拍板「重新选股放开到10点」: 9:30-10:00 仅**主动点锁定**(force)
       // 才发 action=lock(后端重算+落库); 页面自动加载仍 refresh 直读 —— 防止打开页面
-      // 就触发落库+推送。10:00 后一律 refresh(后端恢复拒绝重选)。
+      // 就触发落库+推送。2026-09-24 上限再放宽到 **15:00(收盘)** 且**开放周末** ⇒
+      // 15:00 盘后一律 refresh(后端快照池条件不再命中, 恢复拒绝重选)。
       const action = (isBefore930() || (force && isBeforeRelockEnd())) ? 'lock' : 'refresh'
       let data
       try {
@@ -541,8 +542,9 @@ export const useStocksStore = defineStore('stocks', {
     },
     async reLockData() {
       // 2026-09-20 主人拍板「ai选股放开到10点 · 10点之前不再锁定」: 重新选股(锁定)
-      // 截止由 9:30 放宽到 10:00(isBeforeRelockEnd, 与后端快照池 lock 条件同口径)。
-      if (!isBeforeRelockEnd()) { showToast('❌ 10:00后禁止重新选股', 'error'); return }
+      // 截止由 9:30 放宽到 10:00; 2026-09-24 再放宽到 **15:00(收盘)** 并**开放周末**
+      // (isBeforeRelockEnd, 与后端 api/stocks 快照池 lock 条件同口径)。
+      if (!isBeforeRelockEnd()) { showToast('❌ 15:00后禁止重新选股', 'error'); return }
       // 2026-09-16 选股闸门(与"9:30后禁止重选"同为时段规则)
       // 2026-09-17: 改判 _pickGateOn()(开关关闭时即时放行)
       if (this._pickGateOn()) {

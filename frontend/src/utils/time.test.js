@@ -2,6 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { pad2, fmtDate, fmtTsDate, todayBj, fmtTsTime, fmtBjDay,
+         isBeforeRelockEnd,
          isPickBlockedTime, isPickGateOn, PICK_BLOCK_MSG_TIME, PICK_BLOCK_MSG_SNAP,
          PICK_BLOCK_FROM, PICK_BLOCK_TO,
          PICK_OPEN } from './time.js'
@@ -124,4 +125,29 @@ test('isPickGateOn: 与 isPickBlockedTime 的等价关系(开关为真时)', () 
     const t = bj(2026, 9, 17, hh, mm, ss)
     assert.equal(isPickGateOn(true, t), isPickBlockedTime(t))
   }
+})
+
+// ---- 2026-09-24 重新选股(锁定)截止: 10:00 → 15:00, 并开放周末 ----------------
+// 演进: 09-20 上限 9:30 → 10:00(工作日; 周末仍 false) → 09-24 上限再放到 15:00
+// **并去掉周末 false 分支**(主人同日拍板「周末也放开」)。
+// 与后端 `api/stocks` 快照池 lock 条件同口径 —— 后端 `scorer.bj_now()` 无工作日判断,
+// 周末一样走『最近交易日定格』回放, 若前端单方拦周末就会弹一个对不上的禁止文案。
+// 2026-09-24 = 周四。
+test('isBeforeRelockEnd: 15:00 前放行 / 15:00 整起拒绝(新上界)', () => {
+  assert.equal(isBeforeRelockEnd(bj(2026, 9, 24, 0, 0)), true)
+  assert.equal(isBeforeRelockEnd(bj(2026, 9, 24, 9, 14, 59)), true)
+  assert.equal(isBeforeRelockEnd(bj(2026, 9, 24, 9, 20)), true)      // 竞价段不在此拦(归 isPickGateOn)
+  assert.equal(isBeforeRelockEnd(bj(2026, 9, 24, 9, 30)), true)
+  assert.equal(isBeforeRelockEnd(bj(2026, 9, 24, 10, 0)), true)      // ★ 本次放宽点(旧口径 false)
+  assert.equal(isBeforeRelockEnd(bj(2026, 9, 24, 12, 0)), true)      // ★ 旧口径 false
+  assert.equal(isBeforeRelockEnd(bj(2026, 9, 24, 14, 59, 59)), true) // 上界前一秒
+  assert.equal(isBeforeRelockEnd(bj(2026, 9, 24, 15, 0, 0)), false)  // ★ 边界: 15:00 整(含)起拒绝
+  assert.equal(isBeforeRelockEnd(bj(2026, 9, 24, 15, 1)), false)
+  assert.equal(isBeforeRelockEnd(bj(2026, 9, 24, 23, 59)), false)
+})
+
+test('isBeforeRelockEnd: 周末开放(2026-09-24 主人拍板「周末也放开」)', () => {
+  assert.equal(isBeforeRelockEnd(bj(2026, 9, 19, 10, 0)), true)     // 周六(旧口径 false)
+  assert.equal(isBeforeRelockEnd(bj(2026, 9, 20, 13, 0)), true)     // 周日(旧口径 false)
+  assert.equal(isBeforeRelockEnd(bj(2026, 9, 19, 15, 30)), false)   // 周末同样受 15:00 上界约束
 })

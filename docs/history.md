@@ -1477,6 +1477,116 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.41 (09-24 本机未部署) 「锁定」闸门放开到收盘 15:00 并开放周末：10 点后仍可重新选股**
+  - **触发**：主人「1、10点以后也不要锁定了，2、9:30~10:00 另有『盘中主力净额动态分』窗口……
+    这项还在使用吗，使用的话也放开」→ 本版只办**第 1 项**（第 2 项另案处理）。
+  - **现象 → 根因**：交易日 10:00 后点「锁定」被拒。根因是**同一道闸门的上下限被写成前后端两处、各自硬编码**：
+    - 前端 `frontend/src/utils/time.js` `isBeforeRelockEnd()` = `工作日 && getHours() < 10`；
+      `stores/stocks.js` L545 `if (!isBeforeRelockEnd()) { showToast('❌ 10:00后禁止重新选股'); return }`
+      ⇒ **10:00 后连请求都不发**；L426 `action = (isBefore930() || (force && isBeforeRelockEnd())) ? 'lock' : 'refresh'`；
+    - 后端 `backend/app/api/stocks.py` 快照池条件 `(not before930 and hm < 10 * 60)` 不命中 ⇒ `raw=None`
+      ⇒ 落到 `fetcher.ensure_cache` 的「9:30 后禁止重新选股」**403**。
+    ⇒ **只改一侧无效**（只改后端：前端拦在 UI，改了个寂；只改前端：撞后端 403）——「多门槛串联」的典型形态。
+  - **修复（上限 10:00 → 15:00 收盘）**：
+    - `backend/app/api/stocks.py` L815：`hm < 10 * 60` → **`hm < 15 * 60`**（上方注释改写）；
+    - `frontend/src/utils/time.js`：**去掉「周末 return false」分支**、`getHours() < 10` → **`< 15`**，
+      并新增**可注入 Date 参数** `isBeforeRelockEnd(bj)`（与该文件 `isPickBlockedTime(bj)` 同风格，
+      为边界单测服务，**调用方零改动**）；注释写明「9:15-9:25:50 竞价段由 `isPickGateOn()` 拦、本函数不重复拦」；
+    - `frontend/src/stores/stocks.js` L545：文案「❌ 10:00后禁止重新选股」→「❌ 15:00后禁止重新选股」（含 L543-544 注释同步）。
+  - **🔴 为什么周末也放开（主人当日拍板）**：后端 `scorer.bj_now()` / `_bj_hm()` **无工作日判断**，
+    周末照样按 `before930`(`hm < 570`) + `hm` 判定并走「最近交易日定格」回放 ⇒ 前端单方拦周末会让
+    两端**行为不一致**，且周末点「锁定」会弹出一个对不上的「禁止重新选股」文案。故按「与后端同口径」放开。
+  - **明确未动**：`filter` / `refresh` 两条 action 的放行条件（含各自的 `not before930` 分支）、
+    选股闸门（`T_PICK_BLOCK` 09:15-09:25:50 / `T_PICK_OPEN` 09:25:51）、`pick_window_guard` 开关语义、
+    异动分与评分体系及评分配置 DB、**第 2 项**（`_INTRA_DYN_TO` 与 `w_ff`）、生产 `121.196.230.80`。
+  - **影响面**：`backend/app/api/stocks.py`、`frontend/src/utils/time.js`、`frontend/src/stores/stocks.js`、
+    `backend/tests/test_stocks.py`、`frontend/src/utils/time.test.js`。
+  - **验证证据（全部实跑，非源码外推）**：
+    - 后端表达式探针 `scripts/deploy_tmp/_kx_lock_gate_probe.py`：用 `ast` 抽出**真实源码**里的
+      `use_snapshot_pool` 表达式，与 `HEAD` 旧版**对拍**并注入真实口径 `before930 = hm < 570`
+      （见 `scorer.py:171`）→ **PASS**。变化点恰 **3 格**：`10:00 / 12:00 / 14:59` **拒绝 → 允许**；
+      `09:15 / 09:16 / 09:25 / 09:29` 与 `15:00 / 15:01 / 23:59` **仍拒绝**；
+      `00:00 / 09:14 / 09:30 / 09:45` 不变；`filter` + `refresh` **全时段与旧完全一致**（探针内置断言）。
+    - 后端 `pytest` 锁定路径子集（`test_stocks` / `test_auction_snap_pool_offhours` / `test_refresh_reuse` /
+      `test_filter_dedup` / `test_pick_window_guard` / `test_tencent_point_fallback`）**89 passed**（原 88 + 新增 1）。
+      新增 `test_lock_1000_to_1500_allowed`（注入 12:00 → **200** 且 `ok`）；
+      原 `test_lock_after_930_rejected` 注入点恰好是**新边界** `_bj_hm()=15*60`（上界为开区间）
+      ⇒ 行为未变、仍 403，但用例名/注释停留在「10:00」已过时 ⇒ 改名 `test_lock_after_1500_rejected` 并订正。
+    - 前端 `node --test src/utils/*.test.js` **77 passed**（原 75 + 新增 2 组：15:00 边界 / 周末开放）；
+      断言含 10:00、12:00、14:59:59 放行与 15:00:00 起拒绝，以及周六/周日放行但同样受 15:00 上界约束。
+  - **上线状态**：`本机未部署`（代码已改、两套单测已过；**未部署测试机、未 commit 之外的任何环境改动、未碰生产**）。
+
+- **v4.11.40 (09-24 仅测试机已部署, 未上生产) 竞价量比层①换标准口径：今9:25额÷昨9:25额 → 竞价成交量 ÷ 近 5 日平均每分钟成交量**
+  - **触发**：主人「只修改 异动分·顶层权重 0.30 层①的算法与数据源……修改成竞价成交量 ÷ 近 5 日平均每分钟成交量。
+    **其他的不要动**。」
+  - **现象 → 根因**：层①名为「竞价量比」，实算的是「今 9:25 竞价额 ÷ 昨 9:25 竞价额」——
+    这是**竞价额同环比**，借用了「量比」这个名字，与市场标准量比口径不是同一个指标。
+  - **口径来源（非自造）**：猫爪 openapi 原文（`meoz.cn/api/openapi/download`，免鉴权）字段
+    `auc_vol_ratio` 的定义 = 「**竞价成交量 ÷ 近 5 日平均每分钟成交量**」（示例值 2.18），
+    与主人给的口径**逐字一致** ⇒ 本次是「换成猫爪官方原生字段」，不是自己造算法。
+  - **修复（只动层①的取数链路，其余一律不碰）**：
+    - `db/database.py`：`snapshot_bid` 新增列 `auc_vol_ratio REAL NOT NULL DEFAULT 0`
+      （建表 + 老库 `ALTER TABLE` 迁移，带「列不存在才执行」守卫）；
+    - `services/auction_snapshot.py`：`_merge_meoz` 取 `daily_auc.auc_vol_ratio` → 新建行写入、
+      已有行「只补不覆盖」；`INSERT OR REPLACE` 列名 +1、占位符 **16 → 17**；
+    - `services/bid_strength.py`：`_fill_snapshot` 探测 `auc_vol_ratio` 列存在性，
+      **有值(>0) → `bid_vol_ratio` 直读该列（新口径）**；无值或老库无列 →
+      **降级回退**原「今额÷昨额」自算（保留昨额 <100 万过滤），并加守卫防两种口径混用。
+  - **🔴 数据源抉择（本版关键工程判断）**：该字段**只走 `daily_auc`，不碰 `screening`**。
+    `screening` 的 openapi 字段清单**未收录** `auc_vol_ratio`（实测服务器能返回，属**文档滞后**），
+    但收益 = 0（同链路的 `daily_auc` 字段串**本来就带着**该字段 ⇒ **零新增调用**），
+    风险 > 0（`screening` 是「一次调用拉全市场」，字段一旦被上游拒 = 422 = **猫爪主源全挂**，
+    与 09-20 `pre_fd_break_amount` 事故同型）⇒ **不加**。
+  - **明确不动（主人「其他的不要动」逐条落实）**：异动分顶层权重 `w_warn = 0.30`、
+    三层子权重 `0.75 / 0.00 / 0.25`、层①分档边界 `buckets`（3 / 2 / 1.5 / 1 / 0.6）、
+    缺数据分 `default = 0.22`、KPL「竞价爆量」页量比列（**仍走旧口径**）、
+    前端 `AuctionView.vue` 高亮阈值（`2 / 1.5`，该页仍是旧口径故继续适用）、
+    评分配置 DB（**本版不写任何配置**）、生产 `121.196.230.80`（**不碰**）。
+  - **影响面**：`backend/app/db/database.py`、`backend/app/services/auction_snapshot.py`、
+    `backend/app/services/bid_strength.py`、`backend/tests/test_bid_strength_snapshot.py`。
+    `git diff --stat` = **3 files changed, 54 insertions(+), 17 deletions(-)**（3 个实现文件）。
+  - **验证证据（全部本地实跑，非源码外推）**：
+    - `pytest tests/test_bid_strength_snapshot.py` **7 passed**
+      （4 旧自算用例 + 3 新用例：标准口径优先 / 列=0 时回退自算 / 老库无列不报错）；
+    - 相关套件：`test_bid_strength + test_bid_strength_switch + test_snapshot_kpl_unit`
+      **38 passed**（与回退后基线逐一致）；`test_kpl.py` **47 passed**、
+      `test_snapshot.py` **21 passed**、`test_picker_snapshot.py` **17 passed**、
+      `test_kpl_fetch.py` **21 passed**、`test_kpl_doc.py` **20 passed / 2 skipped**；
+    - 本地闭环（`scripts/deploy_tmp/_kx_v40_local_check.py`）：**新库 DDL 含新列**且可写可读
+      （写入 `2.34` 回读成功）；**老库 15 列 → ALTER → 16 列**、守卫可防重复执行；
+      `INSERT` **列 17 == 占位符 17 == 值元组 17** 三方一致；3 个实现文件 `py_compile` 通过。
+  - **🔴 已知后果（照指令不换算分档，须主人知悉）**：口径不同 ⇒ 值域右移（池内中位 **1.34 → 3.32**）。
+    分档边界不动 ⇒ 层①打分整体右移：**池内满分档(≥3) 22.8% → 54.5%**、最低档(<0.6) **22.8% → 0.1%**
+    ⇒ 层①从「六档有区分度」退化成「**过半候选拿满分**」（它占异动分 75%、再乘总分 30%）。
+    ⚠️ **一个未验证项**：该字段在 **9:25 定格那一刻**是否已有值 —— 盘后实测 09-23 非零率 **98.1%**，
+    与同日同批次的 `auc_amt` 同接口生成、理论同步可得，但**未在 9:25 实测过** ⇒ **部署后首个早盘必须核这一条**。
+  - **上线状态**：`仅测试机`。09-24 02:02:59 部署 `47.99.153.123:/opt/kuaixuan`（两服务重启后 `active`、
+    重启后日志 `Traceback 0`；唯一 ERROR 为既有 `serverchan` 推送 400，部署前后都在发生）；
+    **未写配置 / 未 commit / 生产 `121.196.230.80` 未部署**。
+  - **部署与测试证据（2026-09-24 02:00~02:12 · 测试机实跑）**：
+    - 行尾按**线上各文件实际**对齐（`database.py` / `bid_strength.py` = CRLF 不转；`auction_snapshot.py` **线上为 LF** 需转）；
+      暂存 → 上传 → 落盘 **三方 md5 逐字一致**（`e85dacd5ae1e` / `933aad5df0f0` / `f5b32291b9fc`）；
+      `py_compile` **3/3 OK**。备份：代码 `backend_bak_v41140_20260924-020055`、
+      DB `/opt/kuaixuan/backups/kuaixuan.db.bak_v41140_20260924_020246`（479,958,016 B）。
+    - **落盘后 / 重启前只读预检 14/14 通过**。含**合成库迁移分支验证**：按线上真实列定义去掉新列建 **19** 列
+      空表 → `init_db` 后补到 **20** 列、新行 `default 0`；线上库则**列数 20→20、行数 633,299→633,299、幂等**。
+      ⚠️ 该列**测试机早已存在**（v4.11.39 部署时由 `init_db` 建出；SQLite 3.7.17 无 `DROP COLUMN` ⇒
+      **代码回退不回收列**），正是回退时已记录的「保留空列、全 0、零功能影响」，**非本次新增**。
+    - **功能全链路 `_kx_fulltest.py` 21/21 通过**（猫爪可用 / `screening` 5555÷5555 / health `ok=2 fail=0` /
+      `_merge_meoz` 产出 5222 / INSERT 5222 行 / 选股管线含「自由流通优先 + 门槛用 `free_mv` + 竞价换手分母 = `free_mv`」）。
+    - **v4.11.40 专属 E2E 14/14 通过**：① 猫爪 `daily_auc` 返 **5568** 只，`auc_vol_ratio` 非零 **98.1%**；
+      ② `_merge_meoz` 产出 **5222** 只**全部带该键**、非零 **99.0%**；③ 算分侧**直读新口径**
+      （临时库种入 `3.14159` → `bid_vol_ratio = 3.14`），同批 `auc_vol_ratio = 0` 的票走**降级回退**得 `8.99`（未被覆盖）；
+      ④ 口径差异：新口径中位 **0.92** vs 旧口径中位 **0.49**、Spearman **ρ = 0.6259**、
+      **27.3%** 样本新旧比值 > 3× 或 < 1/3×（证明确已系统性换口径，非改名）。
+    - **本地全量回归 1249 passed / 1 failed / 4 skipped**；唯一失败 = 既有 flaky
+      `test_cache_store::TestSqliteCacheStore::test_ttl_expire`（单独重跑 **9 passed / 2 skipped**，
+      且该文件全文不含 `auc_vol_ratio` / `bid_strength` / `auction_snapshot` / `snapshot_bid` ⇒ 与本改动零交集）。
+    - **「未动」核验**：前端入口仍 `index-Bsi3Utuy.js`（前端未部署）；
+      `get_scoring_cfg(force=True)` 的 `factors.bid_strength` 仍 `w_vol_ratio 0.75 / w_ff 0.0 / w_ai 0.25`、
+      `buckets` 仍 `3 / 2 / 1.5 / 1 / 0.6`、`default 0.22` ⇒ **评分配置一字未改**；
+      `meoz_client._SCREENING_FIELDS` 实测**不含** `auc_vol_ratio`（数据源铁律仍被遵守）。
+
 - **v4.11.38 (09-23 仅测试机已上线) 竞价强度去掉「净额档」，其 0.30 权重并入量比档 ⇒ 两层 = 量比 0.75 + AI 0.25**
   - **触发**：主人「去掉净额档，净额档的数给到量比档，你修改后部署到测试机进行测试」。
   - **现象 → 根因**：`bid_strength` 三层合成（量比 0.45 + 净额 0.30 + AI 0.25）中，

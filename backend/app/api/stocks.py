@@ -808,11 +808,13 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         # 2026-09-20 主人拍板「重新选股放开到10点」: 交易日 9:30-10:00 的主动 lock
         # 也走快照池重算(名单源=9:25 定格快照, 评分=物化定格 → 与当日批次同参同名单,
         # 幂等不破坏), raw 非空即不会触达 ensure_cache 的「9:30 后禁止重新选股」拒绝;
-        # 10:00 后恢复原拒绝(快照池条件不再命中 → raw=None → ensure_cache 拒绝)。
+        # 2026-09-24 主人拍板「10 点以后也不要锁定」: lock 上限 10:00 → **15:00(收盘)**,
+        # 即交易日 9:30-15:00 的主动 lock 均走快照池(名单仍幂等); 15:00 盘后才恢复原拒绝
+        # (快照池条件不再命中 → raw=None → ensure_cache 拒绝)。
         use_snapshot_pool = strategy == "auction" and (
                 (action == "filter" and (not before930 or hm < 9 * 60 + 15))
                 or (action == "lock" and (hm < 9 * 60 + 15
-                                          or (not before930 and hm < 10 * 60)))
+                                          or (not before930 and hm < 15 * 60)))
                 or (action == "refresh" and not before930))
         if use_snapshot_pool:
             try:

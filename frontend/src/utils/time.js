@@ -9,14 +9,19 @@ export function isBefore930() {
   return bj.getHours() < 9 || (bj.getHours() === 9 && bj.getMinutes() < 30)
 }
 
-// 重新选股(锁定)截止: 工作日 10:00 前允许(2026-09-20 主人拍板「ai选股放开到10点,
-// 10点之前不再锁定」—— 与后端 api/stocks 快照池 lock 条件同口径)。
-// 周末照 false(回放定格, 无锁定语义)。
-export function isBeforeRelockEnd() {
-  const bj = bjNow()
-  const day = bj.getDay()
-  if (day === 0 || day === 6) return false
-  return bj.getHours() < 10
+// 重新选股(锁定)截止: **15:00(收盘)前允许**。演进:
+//   · 2026-09-20 主人拍板「ai选股放开到10点」→ 上限 9:30 放宽到 10:00(工作日);
+//   · 2026-09-24 主人拍板「10 点以后也不要锁定」→ 上限再放宽到 **15:00**;
+//     同日拍板「**周末也放开**」→ 去掉原「周末直接 false」分支。
+// 与后端 `api/stocks` 快照池 lock 条件同口径: 后端 `scorer.bj_now()` **无工作日判断**,
+// 周末/盘后一律走『最近交易日定格』回放 ⇒ 前端不再单独拦周末, 否则与后端行为不一致
+// (周末点「锁定」本可出名单, 却弹一个对不上的「禁止重新选股」)。15:00 盘后才拒绝。
+// 9:15-9:25:50 竞价段的拦截归 `isPickGateOn()`(它会给「竞价进行中」那个正确文案),
+// 故本函数**不重复拦竞价段**, 避免用错文案盖掉选股闸门。
+// @param {Date} [bj] 可注入"北京时间视图"的 Date(测试用), 默认取当前
+export function isBeforeRelockEnd(bj) {
+  const t = bj || bjNow()
+  return t.getHours() < 15
 }
 
 export function pad2(n) { return String(n).padStart(2, '0') }
