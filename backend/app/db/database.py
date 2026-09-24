@@ -367,6 +367,7 @@ def init_db():
             auc_turnover REAL NOT NULL DEFAULT 0,
             warn_type INTEGER NOT NULL DEFAULT 0,
             auc_main_net REAL NOT NULL DEFAULT 0,
+            auc_vol_ratio REAL NOT NULL DEFAULT 0,
             PRIMARY KEY (date, time_point, code)
         )
     """)
@@ -425,6 +426,19 @@ def init_db():
     #   默认 0(NOT NULL) —— 历史行/采集失败行 = 0 = 无信号。
     if "auc_main_net" not in bcols2:
         cur.execute("ALTER TABLE snapshot_bid ADD COLUMN auc_main_net REAL NOT NULL DEFAULT 0")
+    # 2026-09-24 (v4.11.40): 竞价量比(标准口径) —— 猫爪官方成品
+    #   auc_vol_ratio = **竞价成交量 ÷ 近 5 日平均每分钟成交量**(openapi 原文定义)。
+    #   背景: 主人拍板「量比指标改成 竞价成交量 ÷ 近5日平均每分钟成交量」。
+    #   旧口径(今 9:25 竞价额 ÷ 昨 9:25 竞价额)是「竞价额同环比」, 借用了「量比」这个名字;
+    #   本列落的是**市场标准量比**口径, 供评分层①与前端「竞价量比」列共用同一数据源。
+    #   数据源: **daily_auc 唯一**(openapi 官方收录该字段)。
+    #     🔴 screening 不请求该字段 —— openapi 的 screening 表无 auc_vol_ratio(实测能返回,
+    #       但官方未收录; 放进其字段串 = 一次全市场调用有 422 全挂风险, 而零收益)。
+    #   覆盖实测(66 日 365,764 行): 非零率 98.4%; 反推 5 日日均量日间比值中位
+    #   0.9911(93.9% 落 [0.8,1.25]) ⇒ 字段内部自洽可信。
+    #   默认 0(NOT NULL) —— 历史行无此数据 = 0 = 不可用(评分层按缺值走 default, 不当 0 处理)。
+    if "auc_vol_ratio" not in bcols2:
+        cur.execute("ALTER TABLE snapshot_bid ADD COLUMN auc_vol_ratio REAL NOT NULL DEFAULT 0")
     # ⚠️ 历史遗留列(2026-09-20): pre_fd_break_amount / pre_fd_break_times —— 曾误加,
     #   猫爪无此字段(传即 422)。现已无任何代码读写, 值恒为默认 0。
     #   本机 SQLite 3.7.17 **不支持 DROP COLUMN**(需 3.35+) → 保留不动, 不影响查询与业务。
