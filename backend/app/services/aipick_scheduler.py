@@ -45,10 +45,85 @@ _TASKS = [
 # 已执行标记(进程内), 防同一窗口重复
 _done_flags = {}
 
+# ---- 采集/预测的**定格就绪门**(2026-09-24, 与「定格推迟」配套) ----
+# 背景: `auction_snapshot` 推迟到「拿到猫爪数据再定格」后, 9_25 **落库时刻**从
+#   09:25:2x 移到 **09:25:5x~09:26:1x**(`_BID25_MIN_SEC=45` + 全市场拉取 ≈8~15s;
+#   重采截止 `_BID25_RETRY_UNTIL=09:27:30`)。
+# 🔴 而本模块 `aipick_collect` 的窗口起点是 **09:26:00**, 轮询间隔 20s ⇒ 首个轮询点落在
+#   09:26:00~09:26:19, **与落库时刻重叠 → 约五成概率抢跑**。抢跑代价(已读代码坐实):
+#   `collector.fetch_from_kuaixuan()` 读 `snapshot_bid` 得 0 行 → `return None` →
+#   静默回退 `fetch_market()`(猫爪自拉, **非**"权威采集同源") —— 且 `_run_task` 的
+#   `store.setnx` 已烧掉当日**唯一**那次 ⇒ 全天 AI 预测的输入集与设计不符, 且只在
+#   collector 的 stdout 留一行"回退猫爪自拉"。
+# ⇒ 故采集/预测在窗口内**先等当日 9_25 落库**。守卫只加在真正依赖定格的这两个任务上。
+#
+# 硬兜底: 到 `_AIPICK_READY_FALLBACK_HM`(9:29) 即使仍无定格也放行 —— 定格整点缺失是
+#   独立故障(已有 `_check_system_batch` 补跑+飞书告警链路), 不能让 AI 侧连带"当天彻底不跑"。
+_AIPICK_NEED_SNAPSHOT = ("aipick_collect", "aipick_predict")
+_AIPICK_READY_FALLBACK_HM = 9 * 60 + 29         # 09:29
+
 
 def _is_trade_day(g):
     """周一~周五"""
     return g.tm_wday < 5
+
+
+def _bid25_landed():
+    """当日 9_25 定格的**只读**落库探测。
+
+    单一入口(供本模块两处竞态守卫共用), 口径与选股闸门的快照维同源
+    (`auction_snapshot.has_today_snapshot`), 不引入第二套判据。
+    异常按**未落库**处理(保守): 宁可晚一轮, 不可抢跑。
+    """
+    try:
+        from . import auction_snapshot
+        return bool(auction_snapshot.has_today_snapshot())
+    except Exception as e:                                        # noqa: BLE001
+        log.warning("9_25 定格落库探测失败(按未落库处理) err=%s", e)
+        return False
+
+
+def _aipick_ready(name, hm):
+    """该任务当前是否具备开跑条件(当日 9_25 定格已落库)。
+
+    只对 `_AIPICK_NEED_SNAPSHOT` 里的任务设门 —— 它们的脚本从 `snapshot_bid` 的
+    9_25 行取数(见 `scripts/aipick/collector.py:fetch_from_kuaixuan`)。其余任务
+    (打标签 / 补生成 / 训练)不依赖当日定格, 一律放行。
+
+    ★ 判据只查**存在性**(`has_today_snapshot`), **不要求"量比已就绪"**: collector 的
+      SELECT 只取 `code,name,bid_change,bid_amt,float_mv`, 与 `auc_vol_ratio`/`auc_main_net`
+      无关 ⇒ 第一枪(可能还缺迟到列)落库就足够。要求过高会把 AI 侧无谓地推后。
+
+    Args:
+        name: `_TASKS` 里的任务名。
+        hm: 当日分钟数(hour*60+min)。
+    Returns:
+        True 可开跑; False 继续等下一轮(调用方 **不** 置 `_done_flags`, 故会重试)。
+    """
+    if name not in _AIPICK_NEED_SNAPSHOT:
+        return True
+    if hm >= _AIPICK_READY_FALLBACK_HM:          # 硬兜底, 见上方注释
+        return True
+    if _bid25_landed():
+        return True
+    log.info("aipick %s 等待当日 9_25 定格落库 (%02d:%02d)", name, hm // 60, hm % 60)
+    return False
+
+
+def _system_batch_check_due(hm):
+    """`_check_system_batch` 是否该执行(抽成纯判据便于断言, 同 `_netfill_due` 的做法)。
+
+    窗口 9:26-9:28; **9:27 起无条件执行** —— "整整一分钟都没有定格"正是本检查要告警的场景,
+    不能因为守卫而永不检查; 9:26 那一分钟则必须先等定格落库, 否则会误报飞书 + 拿空快照补跑批次。
+
+    Args:
+        hm: 当日分钟数(hour*60+min)。
+    Returns:
+        True 该执行检查。
+    """
+    if not (9 * 60 + 26 <= hm <= 9 * 60 + 28):
+        return False
+    return hm >= 9 * 60 + 27 or _bid25_landed()
 
 
 def _run_script(script, args=None):
@@ -96,12 +171,19 @@ def _scheduler_loop():
                 for name, start, end, scripts in _TASKS:
                     key = name + ":" + str(g.tm_mday)
                     if start <= hm <= end and _done_flags.get(key) is not True:
+                        # 定格就绪门(2026-09-24): 未放行时**不置** _done_flags ⇒ 下一轮(20s)重试。
+                        if not _aipick_ready(name, hm):
+                            continue
                         _done_flags[key] = True
                         log.info("aipick 任务触发: %s (%02d:%02d)", name, g.tm_hour, g.tm_min)
                         _run_task(name, scripts)
                 # 9:26:30-9:28 检查 system_batch 是否落库(2026-08-30 主人要求:
                 # 9_25 落库后 system_batch 应已自动存历史回看; 若缺失 → 补跑 + 飞书告警)
-                if 9 * 60 + 26 <= hm <= 9 * 60 + 28:
+                # ★ 2026-09-24: 同一条竞态 —— 本检查**每天只跑一次**(setnx), 而 9_25 落库已推到
+                #   09:25:5x~09:26:1x, 若抢在落库前检查 ⇒ 误报「今日系统自动选股批次未生成」并推飞书,
+                #   还会**拿着空快照去补跑批次**。故先等落库; 9:27 起无论有无定格都执行
+                #   —— "整整一分钟都没有定格"正是本检查要告警的场景, 不能因此永不检查。
+                if _system_batch_check_due(hm):
                     _done_flags.setdefault("system_batch_check:" + str(g.tm_mday), False)
                     if not _done_flags["system_batch_check:" + str(g.tm_mday)]:
                         _done_flags["system_batch_check:" + str(g.tm_mday)] = True

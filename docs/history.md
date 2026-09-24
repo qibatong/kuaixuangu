@@ -1477,6 +1477,103 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.43 (09-24 本机未部署) 9:25 定格推迟到「拿到猫爪数据再定格」+ 竞价量比接入异动因子（并修掉让定格重采静默失效一周的单位 bug）**
+  - **触发**：主人「不用等三个交易日，直接替换猫爪数据源，同时修改异动因子 今日竞价金额/昨日竞价金额，改为猫爪的
+    量比 竞价成交量 ÷ 近 5 日平均每分钟成交量」+「你这个定格时间推迟一下，拿到猫爪数据再定格」
+    （起因：主人观察到「竞价 N 只 在某些时点为 0（今天 9:25:48 就是），另一些时点有 5567 只」）。
+  - **现象 → 根因（均有实测证据，非推测）**：
+    - **P1'：`snapshot_bid.auc_vol_ratio` 恒 0**（2026-09-18~24 全库 4 时点复现；同表 `auc_turnover` 有 **5207 只**
+      非零 ⇒ 不是整体采集废）。根因 = **定格枪与上游产出擦肩**：定格落库 `09:25:22~49`，而猫爪
+      `daily_auc.auc_vol_ratio` **09:25:35~09:26:16 才产出**。🔴 更隐蔽的是 `bid_strength._fill_snapshot`
+      对 0/缺值**静默回退旧口径**「今 9:25 额 ÷ 昨 9:25 额」⇒ **v4.11.40「已换标准口径」实际从未生效**
+      （代码意图对了，数据没接上；因子照样出分，所以没人发现）。
+    - **串日（本轮新发现，比 P1' 更隐蔽）**：`meoz_client.daily_auc_amt(trademin="0925", date_offset=0)` 在
+      **目标日该分钟尚未产出**时返回「最近可用」那份 —— 实测 09-24 **09:15 拿到的是 09-23 的 9:25（5567 行）**。
+      ⇒ 「有 5567 行」**不能**当就绪判据，否则早盘每一枪都会把**昨日**量比写进**今日**定格。
+    - **猫爪 9:25 抖动**：09-24 `09:25:48` 实测 `meoz_client` 故障 8 秒 + 多条 `code=1002 未找到数据`，
+      恰好砸在定格那一枪（该枪 `daily_auc` 返回 **0 行**）。
+    - **🔴 顺带挖出的潜伏 bug（比上面三条更严重）**：`auction_snapshot._scheduler_loop` 里 9_25 的**重采保险丝
+      自 2026-09-19 起是死条件** —— `_retry_sec_today = _BID25_RETRY_UNTIL - 9*3600`（=1650，「9 点后秒数」）
+      被拿去和 `hm*60 + g.tm_sec`（**当日绝对秒**，9:25:45 → 33945）比较 ⇒ **恒 False** ⇒ 回滚重采**从未触发过**。
+      而那行注释写的却是「单位修正…这里统一为当日秒」—— **注释写反了，且没有任何断言能发现它**。
+    - **改动直接引入的交互（已同步消除）**：落库时刻由 09:25:2x 移到 09:25:5x~09:26:1x，而
+      `aipick_collect` 窗口起点是 **09:26:00**（20s 轮询 ⇒ 首个轮询点 09:26:00~09:26:19）⇒ **约五成概率抢跑**；
+      抢跑时 `scripts/aipick/collector.py:fetch_from_kuaixuan()` 读 `snapshot_bid` 得 0 行 → `return None`
+      → **静默回退** `fetch_market()`（猫爪自拉，**非**"权威采集同源"），且 `_run_task` 的 `store.setnx`
+      已烧掉当日**唯一**那次 ⇒ 全天 AI 预测输入集与设计不符。
+  - **修复（九项）**：
+    ① **窗口**：`TIME_POINTS["9_25"]` 末端 `9:26 → 9:27`（分钟**含端点** ⇒ 实际覆盖 9:25:00~9:27:59）；
+       `_BID25_MIN_SEC` **20 → 45**（首采落在 9:25:45+，把轮次让给就绪重采，不再白烧一轮全市场拉取）；
+       重采截止 `_BID25_RETRY_UNTIL` `09:26:00 → 09:27:30`，且改为**由契约推导**
+       （新增 `_ready_sec()` = `ready_after 09:25:35 + 115s`；推导失败回退硬编码并打 ERROR ——
+       选股链路只有一条、无开关可回滚，绝不让登记表的小毛病拖垮启动）。
+    ② **就绪判定** `meoz_bid_ready(date)`：**显式传 date + `fresh=True` 直打上游**，两条**同时**满足才算就绪 ——
+       `tradedate == 目标日`（防串日）+ 该日量比非零只数 ≥ `_VR_READY_MIN_N`
+       （`_VR_READY_MIN=0.90` × 全市场中位 5209 ≈ **4688**；实测 09-24 猫爪非零 5474/5567 = 98.3%）。
+       未就绪 → 删完成标记 + 窗口内下一轮重采（**不 DONE**），截止后接受当前值（宁可缺量比，不可整点缺失）。
+    ③ **单位口径收口**：新增纯函数 `_bid25_retry_open(hm, sec)` 作**唯一入口**（内部换算为当日绝对秒，
+       比较前**不得**再减 `9*3600`），并由边界断言钉死 —— 这条是「注释不会报错，断言会」的直接示范。
+    ④ **防串日**：`_merge_meoz` 在 ② 读入处按 `tradedate` **整批过滤**（`sc_map` **不加** —— screening 是实时源，
+       评估后确认无串日风险）；顺带把 `stats["fd_n"]` 从「上游原始行数」改为「**剔除串日后的可用行数**」
+       —— 旧值会让日志打出「竞价5567只」看着一切正常、实为昨日值（**正是本轮排查被误导数轮的原因**）。
+    ⑤ **量比落库**：`auc_vol_ratio` 由 `daily_auc.auc_vol_ratio` 落库（**唯一来源**；
+       🔴 **不碰 screening** —— 其 openapi 未收录该字段，收益 0 而风险 = 422 猫爪主源全挂），
+       新增 `stats["vr"]`（新建行与补缺行**同口径**计次）与合并日志「补量比%d」。
+    ⑥ **兜底补采** `refill_bid_vol_ratio(date)`：与 `refill_bid_main_net` **同通道同时刻**（09:26:10 起轮询），
+       只 `UPDATE ... WHERE auc_vol_ratio=0`（幂等、不覆盖非零）、**显式传 date + fresh**、串日跳过；
+       达标线 `nz_vr >= _VR_READY_MIN_N`。
+    ⑦ **aipick 就绪门**：新增 `aipick_scheduler._aipick_ready(name, hm)`；`aipick_collect`/`aipick_predict` 在窗口内
+       **先等 `has_today_snapshot()`**（未就绪则 `continue`、**不置** `_done_flags` ⇒ 20s 后重试）；
+       判据只查**存在性**（collector 的 SELECT 只取 `code,name,bid_change,bid_amt,float_mv`，与迟到列无关，
+       故不要求"量比已就绪"，否则会把 AI 侧无谓推后）；**9:29 硬兜底**（定格整点缺失是独立故障，已有
+       `_check_system_batch` 补跑 + 飞书告警，不让 AI 侧连带"当天彻底不跑"）。
+    ⑧ **契约订正**：`contracts/fields.py` 的 `auc_vol_ratio` 原**源 / 口径 / 就绪时刻三项全错** ⇒
+       `source: self.snapshot → meoz.daily_auc`、`ready_after: 09:25:20 → 09:25:35`、口径改为猫爪 openapi 原文、
+       新增 `probe(kind="non_zero_ratio", min=0.90)`、`status="degraded"`（**上线并实测非零前不标 ok**）。
+       该订正直接决定 ① 的推导值（订正前会推成 09:27:15）。
+    ⑨ **注释订正**：`api/stocks.py` 闸门注释仍是 v4.11.27 旧口径（写「09:15-9:25 放行」，与 v4.11.29 主人拍板
+       **相反**）—— 一并订正，并记明**推迟后快照维每天都会在放行点之后实际生效约 10~20 秒**。
+  - **影响面**：`backend/app/services/auction_snapshot.py`（主体，+284/-…）、
+    `backend/app/services/aipick_scheduler.py`（就绪门）、`backend/app/services/contracts/fields.py`（契约）、
+    `backend/app/services/meoz_client.py`（`daily_auc_amt` 增 `fresh=` 形参 + 串日语义 docstring）、
+    `backend/app/api/stocks.py`（**仅注释**）、`backend/tests/test_bid25_defer.py`（**新增**）、
+    `backend/tests/test_snapshot_meoz_source.py`（修夹具硬编码日期 + 加串日 A/B 用例）。
+  - **设计取舍（须知，主人可能要拍板）**：定格推迟后**用户侧放行时刻晚约 10~20 秒** ——
+    双闸门 `api/stocks.py:56` 保证「≥09:25:51 但当日 9_25 未落库」时**继续拦**（文案
+    「9:25 竞价定格尚未落库 · 稍后自动恢复」），**不会**回退昨日名单（那才是 9/16 事故的根因）。
+    残留小瑕疵：`_pick_blocked_until` 在快照维拦截时仍返回 `T_PICK_OPEN`(09:25:51) 字符串，
+    前端倒计时到点后会再撞一次拦截 —— **未改**（属前端提示体验）。
+  - **验证证据**：
+    - 运行时常量核对：`TIME_POINTS["9_25"]=(565,567)`、`_BID25_MIN_SEC=45`、
+      `_BID25_RETRY_UNTIL=09:27:30=34050`、`_VR_READY_MIN_N=4688`、`contracts.validate()==[]`、字段数仍 **8**；
+      `_bid25_retry_open` 边界：9:25:45/9:26:16/9:27:29 → **True**，9:27:30/9:27:59 → **False**。
+    - `test_bid25_defer.py` **24 passed**（分区：A 时间常量 6 / B 就绪判定 5 / C 补采 3 / D 源码级守卫 4 /
+      E aipick 就绪门 6 —— 含整批串日→未就绪、就绪阈值与 `probe.min` 一致性、补采「只写真非零 / 串日不回填 /
+      二次调用零副作用」、首采门槛分钟限定、重采走统一口径、落库幂等 upsert
+      （`INSERT OR REPLACE` + PK `(date,time_point,code)`））；
+      `test_snapshot_meoz_source.py` **10 passed**（含新增 ⑨ 防串日 A/B：同一份数据只改 `tradedate`，
+      当日→新增、跨日→丢弃且 `fd_n` 为 0）。
+    - 本地全量 pytest：**1302 passed / 4 skipped**（用例总数 1283 → **1308**，净增 **25** =
+      `test_bid25_defer` 24 + `test_snapshot_meoz_source` 防串日 A/B 1，**新增用例 100% 通过**）。
+      🔴 同一次全量里另有 **2~3 例既有 flaky 失败，与本次改动零关联** —— 四组全量对照（本机串行）：
+      ① 本树 → 3 failed（`test_rate_limit_20260904`×2 + `test_singleflight_20260904`×1）；
+      ② 本树、无并发干扰复跑 → 2 failed（`test_yesterday_cache`×2，**集合与①完全不同**）；
+      ③ **HEAD 基线 worktree(`a76e877`)** → 0 failed（1279 passed）；
+      ④ **HEAD 基线复跑 → 2 failed，且与①完全相同的两条 `test_rate_limit_20260904`**。
+      ⇒ **失败集合逐次漂移，且未改动的基线同样复现**，属既有 flaky，非本次引入。
+      根因已定位（两处，均在本次改动面外）：(a) **后台 `yday_prewarm` 预热 daemon**
+      （`app/main.py:101` startup 启动、进程级常驻）会并发调用被 monkeypatch 的取数函数 ——
+      `test_yesterday_cache` 的 `fake_fetch` 调用计数被从 **2** 抬到 **202 / 4761**（失败日志可证）；
+      (b) **限流是固定 60s 窗口**（`cache_store.incr`：`expire_at = 首次创建 + 60`，后续自增**不刷新** TTL），
+      而 `test_normal_user_rate_limit_triggers` 顺序做 **400 次** SQLite 往返后断言第 401 次被拒 ——
+      只要机器负载使这 400 次跨过 60s，计数即重置 ⇒ 必然失败。
+      旁证：这两组文件**单独跑全绿**（`test_rate_limit` + `test_singleflight` = **21 passed**），
+      且本次**未触碰** rate-limit 中间件 / kpl singleflight / yesterday-cache 任何一行代码。
+  - **未动**：`scorer` 评分体系与评分配置 DB、`w_ff`（仍 0）、`bid_strength` 的分档/回退逻辑、前端、生产。
+    ⚠️ **价值边界**：本次让 `auc_vol_ratio` **真正有值**，但 `bid_strength` 的层①权重与分档未动 ——
+    量比从"旧口径回退值"变成"标准口径真值"会改变因子得分分布，**上线后首个交易日必须复核实测分布**
+    （对照 v4.11.40 记录的池内中位 3.32 / 满分档 54.5% 是否变化）。
+  - **上线状态**：🚧 **本机未部署**（等主人指令，测试机 `47.99.153.123` / 生产 `121.196.230.80` 均未动）。
 - **v4.11.42 (09-24 仅测试机) 数据采集架构优化：字段契约注册表 + 竞价净额补采闭环 + 补采门控契约化 + 取数解耦 + 副作用幂等**
   - **触发**：主人「我需要优化快选股数据采集架构」→ 先出体检报告（7 项病灶、代码级证据）与施工图（WP0–WP3），
     主人「同意，改吧」后落地 **WP0① + WP1a + WP1b + WP2a + WP2b + WP2c**

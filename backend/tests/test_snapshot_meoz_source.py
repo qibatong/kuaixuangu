@@ -9,6 +9,8 @@
   ⑤ float_mv(流通) 与 free_mv(自由流通) 分列落值, 不互相顶替
   ⑥ screening 缺字段时 valuation/daily_auc/daily_auc_fd 三层后备
   ⑦ 昨日封单额(pre_fd_amount) + 封昨比(fd_to_yesterday) 落库
+  ⑧ 北交所(4/8/920)全链路排除
+  ⑨ daily_auc 防串日: tradedate ≠ 当日 → 整源丢弃(2026-09-24, 修 auc_vol_ratio 恒 0 的根因之一)
 """
 import pytest
 
@@ -24,37 +26,41 @@ def fake_meoz(monkeypatch):
     """
     from app.services import meoz_client
 
+    # 🔴 tradedate 必须与 _merge_meoz 的防串日校验(_bj_date)同源 —— 写死日期会让
+    #   "当日"夹具在第二天跑时被误判成串日残值, 整源丢弃(2026-09-24 踩过)。
+    td = A._bj_date().replace("-", "")
+
     # 主源: screening —— 600519 全字段齐; 000001 缺竞价额/涨幅(留给后备)
     scr = {
-        "600519": {"tradedate": "20260920", "symbol": "600519", "name": "贵州茅台",
+        "600519": {"tradedate": td, "symbol": "600519", "name": "贵州茅台",
                    "circ_mv": 1.5715e12, "free_float_mv": 7.1505e11,
                    "auc_pct_chg": -0.31, "auc_amt": 14312200,
                    "close": 1490.0, "free_float_mv_x": 0,
                    # 昨日封单额 + 封昨比(2026-09-20 新增)
                    "pre_fd_amount": 520000000, "fd_to_yesterday": 1.66},
-        "000001": {"tradedate": "20260920", "symbol": "000001", "name": "平安银行",
+        "000001": {"tradedate": td, "symbol": "000001", "name": "平安银行",
                    "circ_mv": 2.253e11, "free_float_mv": 9.5478e10,
                    "auc_pct_chg": None, "auc_amt": None, "close": 11.7,
                    "pre_fd_amount": 0, "fd_to_yesterday": None},
         # 无涨幅的新票 → 不应新增
-        "300999": {"tradedate": "20260920", "symbol": "300999", "name": "无涨幅票",
+        "300999": {"tradedate": td, "symbol": "300999", "name": "无涨幅票",
                    "circ_mv": 5e9, "free_float_mv": 2e9,
                    "auc_pct_chg": None, "auc_amt": 100000},
     }
     val = {
-        "000001": {"tradedate": "20260920", "symbol": "000001", "name": "平安银行",
+        "000001": {"tradedate": td, "symbol": "000001", "name": "平安银行",
                    "circ_mv": 2.253e11, "total_mv": 2.253e11},
     }
     auc = {
         # auc_amt 单位=元
-        "000001": {"tradedate": "20260920", "symbol": "000001", "name": "平安银行",
+        "000001": {"tradedate": td, "symbol": "000001", "name": "平安银行",
                    "auc_pct_chg": -0.17, "auc_amt": 4232832, "m_price": 11.5},
-        "300999": {"tradedate": "20260920", "symbol": "300999", "name": "无涨幅票",
+        "300999": {"tradedate": td, "symbol": "300999", "name": "无涨幅票",
                    "auc_pct_chg": None, "auc_amt": 100000, "m_price": 0},
     }
     # 9:25 涨停封单额(仅涨停竞价股有) + 题材
     fd = {
-        "600519": {"tradedate": "20260920", "symbol": "600519", "name": "贵州茅台",
+        "600519": {"tradedate": td, "symbol": "600519", "name": "贵州茅台",
                    "fa_0925": 312102400, "theme_names_kpl": "白酒,消费"},
     }
     monkeypatch.setattr(meoz_client, "enabled", lambda: True)
@@ -99,6 +105,54 @@ def test_meoz_standalone_when_eastmoney_down(fake_meoz):
     # ★ 昨日封单额 + 封昨比
     assert m["pre_fd_amount"] == 520000000
     assert m["fd_to_yesterday"] == 1.66
+
+
+def test_meoz_daily_auc_cross_day_guard(monkeypatch):
+    """⑨ 防串日(2026-09-24 新增): daily_auc 返回上一交易日 → 整源丢弃, 不得写进今日快照。
+
+    复刻实测场景 —— 早盘调 `daily_auc_amt(trademin="0925", date_offset=0)` 时, 目标日的
+    9:25 尚未产出, 上游返回"最近可用"那份(实测 09:15 拿到**前一交易日**的 9:25, 5567 行)。
+    不校验 tradedate 的话, 昨日竞价额/涨幅/量比会被写进今日定格。
+
+    A/B 对拍: 除 `daily_auc.tradedate` 外一切相同 —— 当日 → 后备生效(新增); 跨日 → 丢弃。
+    """
+    from app.services import meoz_client
+    td = A._bj_date().replace("-", "")
+
+    def _run(auc_tradedate):
+        """screening 故意不给竞价字段(逼迫走 daily_auc 后备); 只有 tradedate 变化。"""
+        monkeypatch.setattr(meoz_client, "enabled", lambda: True)
+        monkeypatch.setattr(meoz_client, "screening_map", lambda **k: {
+            "600519": {"tradedate": td, "symbol": "600519", "name": "贵州茅台",
+                       "circ_mv": 1.5715e12, "free_float_mv": 7.1505e11,
+                       "auc_pct_chg": None, "auc_amt": None},
+        })
+        monkeypatch.setattr(meoz_client, "valuation_map", lambda **k: {})
+        monkeypatch.setattr(meoz_client, "daily_auc_amt", lambda *a, **k: {
+            "600519": {"tradedate": auc_tradedate, "symbol": "600519", "name": "贵州茅台",
+                       "auc_pct_chg": 3.31, "auc_amt": 14312200, "auc_vol_ratio": 26.4},
+        })
+        monkeypatch.setattr(meoz_client, "auc_fd_map", lambda *a, **k: {})
+        raw = {}
+        return raw, A._merge_meoz(raw)
+
+    # A: tradedate = 当日 → 后备生效: 新增该票, 落竞价额/涨幅/**标准量比**
+    raw, st = _run(td)
+    assert set(raw) == {"600519"}
+    assert raw["600519"]["bid_change"] == 3.31              # 由 daily_auc 后备补出
+    assert abs(raw["600519"]["bid_amt"] - 1431.22) < 0.01   # 14312200 元 → 1431.22 万元
+    assert raw["600519"]["auc_vol_ratio"] == 26.4           # ★ 标准量比落库
+    assert raw["600519"]["_src"] == "meoz"
+    assert st["added"] == 1 and st["vr"] == 1
+    assert st["fd_n"] == 1                                  # 可用行数 = 1(目标日)
+
+    # B: tradedate = 上一交易日(串日残值) → 整源丢弃, 不可新增(否则昨日数据污染今日定格)
+    raw, st = _run("19990101")
+    assert raw == {}                                        # 无涨幅 → 不新增
+    assert st["added"] == 0 and st["vr"] == 0
+    # ★ fd_n 必须是**剔除串日后的可用行数**(不是上游原始行数) —— 旧实现把原始行数打进
+    #   "竞价%d只" 日志, 早盘显示 5567 只看着正常、实为昨日值, 排查时被误导数轮。
+    assert st["fd_n"] == 0
 
 
 def test_meoz_only_fills_missing_never_overwrites(fake_meoz):
@@ -170,9 +224,10 @@ def test_meoz_handles_disabled(monkeypatch):
     raw = {}
     st = A._merge_meoz(raw)
     # 2026-09-20: 新增第⑤源 fundflow_kp → stats 多 "ff" 键(竞价主力净额非零计数)
+    # 2026-09-24: 异动因子换标准量比 → stats 多 "vr" 键(竞价量比非零计数)
     assert st == {"val_n": 0, "auc_n": 0, "fd_n": 0, "seal_n": 0, "added": 0,
                   "name": 0, "mv": 0, "frmv": 0, "amt": 0, "chg": 0, "seal": 0,
-                  "prefd": 0, "ff": 0}
+                  "prefd": 0, "ff": 0, "vr": 0}
     assert raw == {}
 
 
@@ -222,18 +277,19 @@ def test_is_bse():
 def test_meoz_filters_bse(monkeypatch):
     """⑧ 北交所(4/8/920)全链路排除 —— screening 全市场含北交所, 不补进快照"""
     from app.services import meoz_client
+    td = A._bj_date().replace("-", "")
     scr = {
-        "600519": {"tradedate": "20260920", "symbol": "600519", "name": "贵州茅台",
+        "600519": {"tradedate": td, "symbol": "600519", "name": "贵州茅台",
                    "circ_mv": 1.5715e12, "free_float_mv": 7.1505e11,
                    "auc_pct_chg": -0.31, "auc_amt": 14312200},
         # 北交所三只(920 新段 + 8 老段 + 4 老三板), 均有涨幅 —— 若不过滤会被补进快照
-        "920267": {"tradedate": "20260920", "symbol": "920267", "name": "鑫汇科",
+        "920267": {"tradedate": td, "symbol": "920267", "name": "鑫汇科",
                    "circ_mv": 1e9, "free_float_mv": 5e8,
                    "auc_pct_chg": 5.2, "auc_amt": 3000000},
-        "830001": {"tradedate": "20260920", "symbol": "830001", "name": "北交所老段",
+        "830001": {"tradedate": td, "symbol": "830001", "name": "北交所老段",
                    "circ_mv": 1e9, "free_float_mv": 5e8,
                    "auc_pct_chg": 6.0, "auc_amt": 4000000},
-        "430001": {"tradedate": "20260920", "symbol": "430001", "name": "老三板",
+        "430001": {"tradedate": td, "symbol": "430001", "name": "老三板",
                    "circ_mv": 1e9, "free_float_mv": 5e8,
                    "auc_pct_chg": 7.0, "auc_amt": 5000000},
     }

@@ -661,7 +661,7 @@ def screening_map(date_offset=None, date=None):
     return _sym_rows(data)
 
 
-def daily_auc_amt(trademin="0925", date_offset=None, date=None):
+def daily_auc_amt(trademin="0925", date_offset=None, date=None, fresh=False):
     """竞价额/涨幅(含名称)字典 {symbol: {name, auc_pct_chg, auc_amt, m_price, auc_vol, ...}}。
 
     ★ snapshot_bid 换源主数源(2026-09-19):
@@ -669,17 +669,33 @@ def daily_auc_amt(trademin="0925", date_offset=None, date=None):
         name         → snapshot_bid.name
         auc_pct_chg  → snapshot_bid.bid_change(竞价涨幅 %)
         auc_amt      → snapshot_bid.bid_amt(竞价额, 元)
+        auc_vol_ratio→ snapshot_bid.auc_vol_ratio(竞价量比 = 竞价成交量÷近5日每分钟量)
       ★ 与 auc_snapshot() 的分工: 后者走 daily_auc_detail(有时点 time 但**无 name**);
         本函数走 daily_auc(**有 name**)。snapshot_bid 落库要 name → 用本函数。
       ★ 竞价强度 bid_strength 依赖 snapshot_bid 的 bid_amt/bid_change 自算量比与加速度
         (见 services/bid_strength.py), 故本函数是 17% 权重因子的数据源头。
+
+    ★ 串日语义(2026-09-24 实测, 必须知情): **不传 date / date_offset=0 时, 若目标交易日的
+      该分钟尚未产出, 上游会返回"最近可用"那份**(实测 09:15 取 trademin=0925 拿到的是
+      上一交易日的 9:25 数据, 5567 行) —— 早盘直接把当日定格写成昨日值。故:
+        - 定格链路必须用 `_merge_meoz` 的 **tradedate 防串日**过滤(已加);
+        - 「就绪判定」/补采必须**显式传 date**, 不能靠 date_offset=0 猜今天。
+
+    Args:
+        trademin: 竞价分钟(HHMM, 如 "0925")。
+        date_offset: 相对交易日偏移(0=今天; 仅在不知确切日期时用, 见上方串日语义)。
+        date: 目标交易日(YYYY-MM-DD 或 YYYYMMDD); 显式传它可**杜绝串日**。
+        fresh: True 时绕过本地缓存直打上游(补采/就绪探测专用)。
+
+    Returns:
+        {symbol: {字段: 值}}(含 tradedate, 供调用方校验是否为目标日)。
     """
     params = {"trademin": hhmm(trademin)}
     if date:
         params["tradedate"] = str(date).replace("-", "")
     elif date_offset is not None:
         params["tradedate_offset"] = date_offset
-    data = call_cached("daily_auc", params=params, ttl=_AUC_SNAP_TTL,
+    data = call_cached("daily_auc", params=params, ttl=_AUC_SNAP_TTL, fresh=fresh,
                        fields="tradedate,symbol,name,m_price,auc_pct_chg,open_bid_pct,auc_vol,"
                               "auc_amt,um_vol,auc_vol_ratio,auc_turnover,auc_to_pre_vol_pct")
     return _sym_rows(data)

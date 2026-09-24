@@ -23,15 +23,21 @@ FIELDS: tuple[FieldContract, ...] = (
     ),
     FieldContract(
         name="auc_vol_ratio",
-        source="self.snapshot",
+        source="meoz.daily_auc",
         source_field="auc_vol_ratio",
         unit="倍",
-        caliber="竞价量比 = 今日 9:25 竞价额 ÷ 昨日 9:25 竞价额（昨额<100 万判不可用）",
-        ready_after="09:25:20",
+        caliber="竞价量比 = 竞价成交量 ÷ 近 5 日平均每分钟成交量（猫爪 openapi 原文定义）",
+        ready_after="09:25:35",
         column="auc_vol_ratio",
-        consumers=("bid_strength.factors.bid_strength.w_vol_ratio",),
-        confusion="≠ f10（东财量比，全天口径）",
-        self_computable=True,
+        consumers=("bid_strength.bid_vol_ratio", "scorer.factors.bid_strength.w_vol_ratio"),
+        confusion=("≠ f10（东财量比，全天口径）；旧口径「今 9:25 额 ÷ 昨 9:25 额」已降为"
+                   "**历史行/本列缺值时的回退**（bid_strength._fill_snapshot），不是本列语义"),
+        status="degraded",
+        probe=ReadyProbe(
+            kind="non_zero_ratio", min=0.90, scope="all_market",
+            note="实测 2026-09-24 猫爪 daily_auc 非零 5474/5567(98.3%)；下限 90% 同时用作"
+                 "「拿到猫爪数据再定格」的就绪判定与 09:26 补采的达标线",
+        ),
     ),
     FieldContract(
         name="auc_turnover",
