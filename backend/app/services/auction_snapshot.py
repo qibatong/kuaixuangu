@@ -37,6 +37,66 @@ DEFAULT_POINT = "9_20"     # 加速度计算使用的时点
 LASTSEC_START = 9 * 3600 + 24 * 60 + 45
 LASTSEC_END = 9 * 3600 + 25 * 60 + 3
 
+# 竞价主力净额补采(2026-09-24 实测定位): 9:25 定格采集那枪(落库实测 09:25:22~49)
+# 早于上游生成(实测落地 09:25:35~09:26:16) ⇒ snapshot_bid.auc_main_net 定格行恒 0
+# (全库 8 个交易日 × 4 时点复现, 与"是否漏请求字段"无关 —— 请求链完整)。
+# 9:26:10 起独立轻量补采, 达标或硬上限即停。
+# ★ 只 UPDATE 单列 —— 绝不走 snapshot_at(它会连带重触发 aipick/system_batch,
+#   重复跑预测、重复写历史名单)。
+# ---- 补采窗口与阈值: 由字段契约推导(2026-09-24 WP1b), 与硬编码数值完全等价 ----
+#   起点 : contracts.fields.auc_main_net.ready_after(09:25:35) + margin 35s = 09:26:10
+#   阈值 : probe.min(0.19) × 全市场只数中位数(5209) ≈ 990 ≈ 旧 NETFILL_MIN_N(1000)
+#   ★ margin=35s 与下面的轮询间隔 35s 是**两个不同含义的数字**, 当前取值只是巧合相等。
+#
+#   契约推导失败时**回退硬编码**(而非让 import 失败) —— 选股链路只有一条、无开关可回滚,
+#   绝不能因登记表自身的小毛病导致服务起不来; 回退时打 ERROR 日志, 不静默。
+_MARKET_SIZE_MEDIAN = 5209      # 全市场只数中位数(2026-09 实测), 仅用于阈值换算
+
+
+def netfill_interval() -> int:
+    """补采轮询间隔(秒)。**显式依赖**猫爪 fundflow_kp 缓存 TTL —— 必须比它大,
+    否则每轮都命中上一轮自己写的缓存, 表现为"改了但没效果"。
+
+    2026-09-24(WP2a): 由硬编码 35 改为按 TTL 推导(30+5=35, 行为零变化),
+    并把该不变量写成 tests/test_netfill_interval.py —— 注释不会报错, 断言会。
+    WP2b 后补采走 fresh 直读, 本约束已非必需, 保留作双保险(上游调用次数护栏)。
+    """
+    try:
+        from . import meoz_client          # 惰性导入: 避免模块级循环引用
+        return max(5, int(meoz_client.cache_ttl("fundflow_kp")) + 5)
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("[净额补采] TTL 推导失败, 回退硬编码间隔 35 err=%s", e)
+        return 35
+
+
+def _contract_window(field_name, margin_sec, hard_end_sec):
+    """由字段契约推导补采窗口与达标阈值。
+
+    Args:
+        field_name: 契约字段名。
+        margin_sec: 就绪时刻之后的缓冲(等上游落库稳定)。
+        hard_end_sec: 硬停时刻(当日秒)。
+
+    Returns:
+        (起点秒, 终点秒, 达标只数); 达标只数 = probe.min × 全市场只数中位数。
+    """
+    from . import contracts
+    c = contracts.field(field_name)
+    h, m, s = (int(x) for x in c.ready_after.split(":"))
+    start = h * 3600 + m * 60 + s + margin_sec
+    min_n = int(round((c.probe.min if c.probe else 0.0) * _MARKET_SIZE_MEDIAN))
+    return start, hard_end_sec, min_n
+
+
+try:
+    NETFILL_START_SEC, NETFILL_END_SEC, NETFILL_MIN_N = _contract_window(
+        "auc_main_net", margin_sec=35, hard_end_sec=9 * 3600 + 29 * 60 + 50)
+except Exception as e:                                         # noqa: BLE001
+    log.error("[净额补采] 补采窗口契约推导失败, 回退硬编码(不影响采集) err=%s", e)
+    NETFILL_START_SEC = 9 * 3600 + 26 * 60 + 10     # 09:26:10 起采(此后上游已开始产出)
+    NETFILL_END_SEC = 9 * 3600 + 29 * 60 + 50       # 09:29:50 硬停(9:30 开盘买点前 10 秒)
+    NETFILL_MIN_N = 1000                            # 非零只数达标即停(盘后基线 30.1%)
+
 _fetch_lock = threading.Lock()       # 东财拉取串行化(时点快照 vs 秒级采样 双线程防并发限流)
 # 调度去重已外置 CacheStore(跨进程): setnx("sched:done:date:tp", ttl=1天) 等
 # 旧 _sched_lock/_sched_done/_sched_checked/_lastsec_done 移除(2026-08-16 Phase1)
@@ -782,6 +842,79 @@ def snapshot_at(time_point, force=False):
     return len(raw_all)
 
 
+def _netfill_due(nf_sec, wday, last_ts, now_ts, done):
+    """竞价净额补采是否该触发(纯函数, 便于单测时间边界)。
+
+    nf_sec: 北京当日秒(= hm*60 + 秒); wday: 0=周一; last_ts: 上次补采时刻;
+    now_ts: 当前时刻; done: 达标完成标记(置位后不再轮询)。
+    """
+    if wday >= 5:                                   # 非交易日
+        return False
+    if not (NETFILL_START_SEC <= nf_sec <= NETFILL_END_SEC):
+        return False
+    if done:
+        return False
+    return now_ts - last_ts >= netfill_interval()
+
+
+def refill_bid_main_net(date, point="9_25"):
+    """竞价主力净额补采: 只回填 snapshot_bid.auc_main_net 一列, 不重跑整表快照。
+
+    背景(2026-09-24 实测定位): 定格采集那枪落库于 09:25:22~49, 而上游该字段
+    09:25:35~09:26:16 才生成 ⇒ 定格行 auc_main_net 恒 0(全库 8 日 × 4 时点复现)。
+    上游一旦发布即为**竞价定格终值**(不随后续盘中变化), 故补采到即可回填。
+
+    ★ 与 snapshot_at 的分工: 本函数**只做列回填** —— 不触发 aipick / system_batch,
+      也不覆盖已有非零值(WHERE auc_main_net=0) ⇒ 幂等, 可安全重复调用。
+    返回 (上游非零只数, 实际回填行数, 定格行总数)。
+    """
+    from . import meoz_client
+
+    if not meoz_client.enabled():
+        return (0, 0, 0)
+
+    conn = database.get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT code FROM snapshot_bid WHERE date=? AND time_point=?",
+            (date, point)).fetchall()
+    finally:
+        conn.close()
+    codes = [str(r[0]) for r in rows]
+    if not codes:
+        return (0, 0, 0)
+
+    # 走 fundflow_map(内部 _FUNDFLOW_BATCH=2000 分片): 全市场单轮 ≈ 3 次上游调用。
+    # fresh=True(WP2b): 补采**直打上游**, 既不读也不写缓存 —— 与"间隔必须 > TTL"彻底解耦,
+    # 且不污染主链缓存(主链读的是同一个 meoz:fundflow_kp:* key)。
+    ff_map = meoz_client.fundflow_map(codes, date_offset=0, fresh=True)
+    if not ff_map:
+        return (0, 0, len(codes))
+
+    updates = []
+    nz = 0
+    for code in codes:
+        v = _f((ff_map.get(code) or {}).get("auction_main_net_amount"))
+        if v is None or v == 0:
+            continue                    # 无值 / 真 0(竞价无大单异动) → 不回填
+        nz += 1
+        updates.append((v, date, point, code))
+    if not updates:
+        return (0, 0, len(codes))
+
+    conn = database.get_conn()
+    try:
+        cur = conn.executemany(
+            "UPDATE snapshot_bid SET auc_main_net=? "
+            "WHERE date=? AND time_point=? AND code=? AND auc_main_net=0",
+            updates)
+        conn.commit()
+        n_upd = cur.rowcount or 0
+    finally:
+        conn.close()
+    return (nz, n_upd, len(codes))
+
+
 def check_seal_quality(date, time_point, force=False):
     """采集后数据质量自检: 校验 snapshot_bid 该时点封单数据是否合理
     规则:
@@ -1301,10 +1434,35 @@ def _has_snapshot(date, time_point):
         return False
 
 
+def _consume_once(date, tp, label, fn):
+    """副作用**一次性**执行: 成功才落 done 键, 失败回滚允许窗口内重试(2026-09-24 WP2c)。
+
+    ★ 与 2026-09-17 auto_apply 事故同源教训(C5 铁律): 守卫键**绝不能在成功之前被消费**,
+      否则一次失败就烧掉当日全部重试机会 —— 那天正是 setnx 先落键、_pick_result() 提前
+      return error, 导致 9:26-9:30 约 24 轮全被挡掉、当日系统批次永久缺失。
+
+    Args:
+        date: 交易日。
+        tp: 时点标识(如 9_25)。
+        label: 日志标签(aipick / sysbatch)。
+        fn: 无参副作用函数。
+    """
+    done_key = "snap:consumed:%s:%s:%s" % (date, tp, label)
+    if store.get(done_key):
+        log.info("[快照采集] %s 消费已完成过, 跳过(幂等) date=%s tp=%s", label, date, tp)
+        return
+    try:
+        fn()
+    except Exception as e:                                     # noqa: BLE001
+        log.error("[快照采集] %s 消费失败(窗口内可重试) err=%s", label, e)
+        return                                                 # ← 不落键, 允许重试
+    store.set(done_key, 1, ttl=86400)
+
+
 def _scheduler_loop():
     """后台调度: 工作日按时点窗口抓取一次, 每 10 秒轮询; 9:31 后盘点当日采集情况"""
     # 去重标记走 CacheStore: qc/weekend 各自 setnx 1 天
-    global _last_intraday_ts   # 分时快照时间戳(模块级), 否则函数内赋值会被视为局部变量 → UnboundLocalError
+    global _last_intraday_ts, _last_netfill_ts   # 模块级时间戳, 否则函数内赋值会被视为局部变量 → UnboundLocalError
     while True:
         try:
             g = time.gmtime(time.time() + 8 * 3600)
@@ -1390,16 +1548,20 @@ def _scheduler_loop():
                             # 2026-08-18 主人要求: 9_25 竞价快照落库后立即触发 AI 采集+预测
                             # (不等 9:27 轮询窗口, 数据到手就预测, 9:30 前出结果)
                             if tp == "9_25":
+                                # 2026-09-24 (WP2c): 两个副作用各自加"成功才落键"的幂等守卫 ——
+                                # 定格重跑不再重复跑预测、重复写历史名单。日志语义保持不变。
                                 try:
                                     from . import aipick_scheduler
-                                    aipick_scheduler.trigger_after_bid_snapshot()
+                                    _consume_once(date, tp, "aipick",
+                                                  aipick_scheduler.trigger_after_bid_snapshot)
                                 except Exception as e:
                                     log.error("aipick 采集/预测触发失败 err=%s", e)
                                 # 2026-08-30 主人需求: 9_25 落库后自动跑 system batch 存历史回看
                                 # (即使当天没点选股, 也能看到系统当时推荐的 top 30)
                                 try:
                                     from . import system_batch
-                                    system_batch.run_system_batch("9_25")
+                                    _consume_once(date, tp, "sysbatch",
+                                                  lambda: system_batch.run_system_batch("9_25"))
                                 except Exception as e:
                                     log.error("system_batch 触发失败 err=%s", e)
                         else:
@@ -1426,6 +1588,23 @@ def _scheduler_loop():
                     # 失败回滚: 窗口 9:24-9:30 内下一轮轮询重试(避免 KPL 瞬时故障导致抢筹 tab 当日无数据)
                     store.delete("sched:qc:" + date)
                     log.warning("竞价抢筹结果快照失败(窗口内将重试) err=%s", e)
+            # 竞价主力净额补采(2026-09-24 主人要求「9:26:10 起轮询, 取到为止」):
+            # 定格那枪(09:25:22~49)早于上游生成(09:25:35~09:26:16) ⇒ auc_main_net 恒 0。
+            # 09:26:10 起每 netfill_interval() 秒补一次, 上游非零只数达 NETFILL_MIN_N 即停;
+            # 09:29:50 硬上限 —— 约七成票竞价无大单, 净额是真 0, 没有上限会问到收盘。
+            if _netfill_due(hm * 60 + g.tm_sec, g.tm_wday, _last_netfill_ts,
+                            time.time(), store.get("sched:done:netfill_" + date)):
+                _last_netfill_ts = time.time()
+                try:
+                    nz, n_upd, n_all = refill_bid_main_net(date)
+                    log.info("[净额补采] date=%s %d:%02d:%02d 上游非零%d/%d 回填%d行",
+                             date, hm // 60, hm % 60, g.tm_sec, nz, n_all, n_upd)
+                    if nz >= NETFILL_MIN_N:
+                        store.setnx("sched:done:netfill_" + date, 1, ttl=86400)
+                        log.info("[净额补采] 达标(非零%d≥%d) 停止轮询 date=%s",
+                                 nz, NETFILL_MIN_N, date)
+                except Exception as e:
+                    log.warning("[净额补采] 失败(窗口内下一轮重试) err=%s", e)
             # 9:26-9:30 自动应用选股(2026-08-16 用户反馈): 用户打开应用但没点"应用"按钮,
             # 当天历史为空; 9:25 快照齐后给所有活跃用户跑一次自动应用(标记 auto_applied=True).
             # 后台守护线程执行(全市场评分一次+按用户过滤), 不阻塞本调度循环.
@@ -1672,6 +1851,7 @@ def _scheduler_loop():
 
 
 _last_intraday_ts = 0.0   # 上次分时快照时间戳(模块级, worker 启动时为 0 立即跑一次)
+_last_netfill_ts = 0.0    # 上次竞价净额补采时刻(模块级, 用于 netfill_interval() 节流)
 
 
 def start_scheduler():

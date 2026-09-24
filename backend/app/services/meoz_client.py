@@ -288,10 +288,14 @@ def call(apiname: str, params=None, fields=None, timeout: int = _TIMEOUT):
 
 
 # ---------------- 便捷封装(带缓存) ----------------
-def call_cached(apiname: str, params=None, fields=None, ttl=6, cache_key=None):
+def call_cached(apiname: str, params=None, fields=None, ttl=6, cache_key=None,
+                fresh: bool = False):
     """带缓存的调用。ttl 秒内同 key 直接读缓存, 避免竞价时段高频重复拉同一份数据。
 
     cache_key: 自定义缓存键; 缺省由 apiname+params 生成。
+    fresh: True 时**既不读也不写**缓存, 强制打上游。补采场景用它替代
+        "靠间隔 > TTL 绕开缓存"的脆弱做法 —— 轮询间隔与缓存 TTL 从此互不约束
+        (2026-09-24 WP2b; 该不变量原先只写在 auction_snapshot.py 的注释里)。
     """
     if cache_key is None:
         try:
@@ -299,11 +303,12 @@ def call_cached(apiname: str, params=None, fields=None, ttl=6, cache_key=None):
         except Exception:                                      # noqa: BLE001
             cache_key = apiname
     full = "meoz:" + cache_key
-    hit = store.get(full)
-    if hit is not None:
-        return hit
+    if not fresh:
+        hit = store.get(full)
+        if hit is not None:
+            return hit
     data = call(apiname, params=params, fields=fields)
-    if data is not None and ttl > 0:
+    if data is not None and ttl > 0 and not fresh:
         store.set(full, data, ttl)
     return data
 
@@ -366,6 +371,42 @@ def hhmm(value) -> str:
 
 _AUC_SNAP_TTL = 30      # 时点快照缓存(秒): 竞价时段避免高频重复拉同一分钟
 
+# 各接口缓存 TTL 登记表(2026-09-24 实测 grep 全量 ttl= 用法得出)。
+#   _AUC_SNAP_TTL(=30): auc_kp / fundflow_kp / daily_auc / daily_auc_detail
+#                       / daily_auc_fd / valuation / screening
+#   字面量 30:          index_snapshot(:711) / emoindic(:812) ← 原先两个独立的 30, 此处归口
+# ★ 跨模块需要「错开缓存」时(典型: 补采轮询间隔)**请调 cache_ttl()**, 不要在调用方
+#   硬编码秒数 —— TTL 与轮询间隔的先后关系是本仓历史的静默失效点,
+#   守卫断言见 tests/test_netfill_interval.py。
+_TTL_BY_API = {
+    "auc_kp": _AUC_SNAP_TTL,
+    "fundflow_kp": _AUC_SNAP_TTL,
+    "daily_auc": _AUC_SNAP_TTL,
+    "daily_auc_detail": _AUC_SNAP_TTL,
+    "daily_auc_fd": _AUC_SNAP_TTL,
+    "valuation": _AUC_SNAP_TTL,
+    "screening": _AUC_SNAP_TTL,
+    "index_snapshot": 30,
+    "emoindic": 30,
+}
+_DEFAULT_TTL = 6        # call_cached 的默认 ttl
+
+
+def cache_ttl(apiname: str) -> float:
+    """返回某接口的缓存 TTL(秒); 未登记接口回 _DEFAULT_TTL。
+
+    ★ 跨模块需要「错开缓存」时**请调用本函数**, 不要在调用方硬编码秒数 ——
+      TTL 与轮询间隔的先后关系是本仓历史的静默失效点,
+      守卫断言见 tests/test_netfill_interval.py。
+
+    Args:
+        apiname: 猫爪接口名。
+
+    Returns:
+        该接口 TTL(秒); 未登记接口回 _DEFAULT_TTL。
+    """
+    return float(_TTL_BY_API.get(apiname, _DEFAULT_TTL))
+
 
 def _sym_rows(data, key="symbol"):
     """把 items 矩阵响应转成 {symbol: {字段: 值}} 映射(cols 顺序对齐)。
@@ -418,7 +459,7 @@ def auc_qc_net(date_offset=None, date=None):
 _FUNDFLOW_BATCH = 2000
 
 
-def fundflow_map(symbols, date_offset=None, date=None):
+def fundflow_map(symbols, date_offset=None, date=None, fresh=False):
     """主力资金 fundflow_kp: {symbol: {main_net_amount, auction_main_net_amount, ...}}。
 
     六字段(实测 2026-09-20 code=200):
@@ -429,6 +470,8 @@ def fundflow_map(symbols, date_offset=None, date=None):
     0 = 竞价无大单异动; 盘中净额返回行内 100% 有值(收盘后=全天值)。
     ★ symbols 必传(逗号分隔批量, 实测 5904 只/次 OK); 分片 _FUNDFLOW_BATCH/次。
     ★ 单片失败仅记日志跳过(不整挂 —— 独立降级纪律, 缺片按"无信号"处理)。
+    fresh: True 时跳过缓存直打上游 —— 补采取数专用(见 call_cached 的 fresh 说明);
+           普通链路保持 False(默认), 行为与改动前一致。
     """
     syms = [str(s) for s in (symbols or []) if str(s or "").strip()]
     if not syms:
@@ -443,6 +486,7 @@ def fundflow_map(symbols, date_offset=None, date=None):
             params["tradedate_offset"] = date_offset
         try:
             data = call_cached("fundflow_kp", params=params, ttl=_AUC_SNAP_TTL,
+                               fresh=fresh,
                                fields="tradedate,symbol,name,"
                                       "main_net_amount,main_buy_amount,main_sell_amount,"
                                       "auction_main_net_amount,auction_main_buy_amount,"
