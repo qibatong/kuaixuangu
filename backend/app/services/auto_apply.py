@@ -24,7 +24,7 @@ import time
 
 from ..core import logger
 from ..services import auction_snapshot, fetcher, history, kpl, scorer, users
-from ..api import admin as admin_api   # 用 get_default_filters
+from . import filter_defaults           # 系统筛选标准(单一真相源)
 from .cache_store import store as _store
 log = logger.get_logger(__name__)
 
@@ -93,16 +93,20 @@ def _user_auto_applied_today(uid, bdate):
 def _get_system_filter():
     """系统统一筛选标准: 全局默认参数(管理后台可调), 不读用户偏好
     (2026-08-16 产品决策: 自动应用 = 系统筛选一次推给所有用户,
-    用户手动筛选时才按个人偏好单独进行)"""
-    f = admin_api.get_default_filters()
-    # 2026-09-08 P4 实测修复: 原为 ["SH", "SZ", "BJ"] 大写形态, 而
-    # scorer._in_markets 只认小写 hs/cyb/kcb(按代码前缀判定) → 沪深创科**全部**
-    # 返回 False → 9:26 自动应用**恒出 0 只**。
-    # 实锤: 2026-09-08 批次#1578(user=213, auto_applied=1) count=0; 同日系统批次
-    # #1577 用 SYSTEM_MARKETS 小写口径 → 正常 30 只。
-    # 北交所不在 UI 选项(与 market_fs 口径一致), 不纳入。
-    f.setdefault("markets", ["hs", "cyb", "kcb"])
-    return f
+    用户手动筛选时才按个人偏好单独进行)
+
+    2026-09-08 P4 实测修复(历史): 原为 ["SH","SZ","BJ"] 大写形态, 而
+    scorer._in_markets 只认小写 hs/cyb/kcb(按代码前缀判定) → 沪深创科**全部**
+    返回 False → 9:26 自动应用**恒出 0 只**。
+    实锤: 2026-09-08 批次#1578(user=213, auto_applied=1) count=0; 同日系统批次
+    #1577 用小写口径 → 正常 30 只。
+
+    ★ v4.11.46: 改调 filter_defaults.system_filters() —— 与 system_batch 共用
+      同一实现。此前本函数读 admin.get_default_filters()(含 scoreFloor, 随管理员
+      调整), 而 system_batch 读自己那份 9 键副本(缺 scoreFloor) ⇒ 两条锁仓链路
+      口径不同。现在两处同一份。
+    """
+    return filter_defaults.system_filters()
 
 
 def _is_user_active(uid):

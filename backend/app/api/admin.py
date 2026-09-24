@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from ..core import config, logger
-from ..services import scorer, settings, users
+from ..services import filter_defaults, scorer, settings, users
 from .deps import client_ip, get_uid, jr, qs
 
 log = logger.get_logger(__name__)
@@ -523,25 +523,22 @@ def _validate_scoring(new, strategy="auction"):
 # 前端加载顺序: 后端默认值 > 用户偏好 > 前端内置默认
 # 2026-08-25 语义改为正逻辑: limitUp/stSuspend = True → "只看这类票", False → "剔除这类票".
 #   默认 False 等价于旧默认(勾上=剔除ST/剔除昨涨停), 实际过滤结果一致但 UI 直觉正确.
-DEFAULT_FILTERS_DEFAULT = {
-    "stSuspend": False, "limitUp": False, "bidGt": 7.0,
-    "probLt": 50.0, "confLt": 50.0,
-    "floatMvFloor": 30.0, "floatMvGt": 1000.0, "priceGt": 300.0,
-    "bidAmtFloor": 1000.0,   # 诗人需求: 默认竞价金额下限 1000万(原3000)
-    "scoreFloor": 50.0,      # 2026-09-20 主人拍板: 评分低于 50 分的票不显示(全站默认)
-}
+# ★ v4.11.46(2026-09-24): 默认值本体已归口到 services/filter_defaults.py(单一真相源)。
+#   此处保留**同名别名**, 让既有引用(本文件下方 owner 校验、测试、文档)平滑过渡。
+#   🚫 新增/修改默认筛选参数**只改 filter_defaults.FILTER_DEFAULTS** —— 不要再复制一份到这里:
+#   本仓历史上正是"每个调用点各抄一份", 导致 system_batch 那份漏了 scoreFloor,
+#   系统批次口径悄悄跑到了 lock 的兜底 50(首页是 60), 同一时刻 64 只 vs 27 只。
+DEFAULT_FILTERS_DEFAULT = filter_defaults.FILTER_DEFAULTS
 
 
 def get_default_filters():
-    """读取全局默认筛选参数(不存在则返回内置默认)"""
-    cfg = settings.get("default_filters")
-    if isinstance(cfg, dict):
-        merged = dict(DEFAULT_FILTERS_DEFAULT)
-        for k, v in cfg.items():
-            if k in merged:
-                merged[k] = v
-        return merged
-    return dict(DEFAULT_FILTERS_DEFAULT)
+    """读取全局默认筛选参数(不存在则返回内置默认)
+
+    ★ v4.11.46: 转调 filter_defaults.resolved_defaults() —— 与 system_batch /
+      auto_apply 共用同一份合并逻辑与同一份键集白名单, 不再各自维护一份。
+      (返回新 dict, 调用方可自由修改)
+    """
+    return filter_defaults.resolved_defaults()
 
 
 @router.get("/api/admin/defaults")

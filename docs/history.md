@@ -1477,7 +1477,51 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
-- **v4.11.45 (09-24 本机未部署) 定格那一枪固定 09:26:30 + 选股闸门同步跟随**
+- **v4.11.46 (09-24 本机未部署) 筛选默认值四份归一份：系统批次口径与首页左视图真正对齐**
+  - **触发**：主人拍板上一轮结尾的待办 —— 「`system_batch._system_filter()` 自带一份筛选默认值，
+    缺 `scoreFloor`，导致系统批次/历史回看名单不受评分下限约束（同一时刻：系统口径 64 只 vs
+    首页口径 27 只），与它 docstring 声称的『与首页左视图完全一致』不符」→「修改吧」。
+  - **现象 → 根因**：本仓曾有 **四份**彼此独立的筛选默认值 ——
+    `api/admin.DEFAULT_FILTERS_DEFAULT`（10 键，真相源）、
+    `services/system_batch.DEFAULT_FILTERS_DEFAULT`（**9 键，缺 `scoreFloor`**）、
+    `services/picker/lock._FILTER_DEFAULTS`（10 键兜底）、`services/auto_apply`（直接读 admin）。
+    🔴 **测试机实测（09-24）**：`settings.default_filters` 的 `scoreFloor=60`、
+    `admin.get_default_filters()` = 60、`auto_apply._get_system_filter()` = 60，而
+    `system_batch._system_filter()` **无此键** → 经 `lock.to_picker_filters` 落定后**实际生效 50**
+    （`_FILTER_DEFAULTS` 硬编码兜底）⇒ 同一时刻同一份 9:25 快照，**系统批次 64 只 vs 首页 27 只**。
+    🔴 **根因不是数值抄错，而是合并逻辑的白名单**：`for k, v in cfg.items(): if k in merged` ——
+    `merged` 来自**本地副本**，settings 里的 `scoreFloor` 根本不进白名单、被**静默丢弃**；
+    只"补一个键"治不了本，下次 admin 加新参数会原样复现。
+    🔴 **原有测试为何没抓住**：`test_system_filter_keys_match_validate_filters` 把 raw 转 qs 再喂
+    `validate_filters`，而后者**对缺键有默认值（50）** ⇒ 输出上**完全看不出键是否存在**；
+    `test_system_filter_merges_admin_defaults` 只 monkeypatch 了副本里**已有**的键
+    （`floatMvGt`/`bidAmtFloor`）—— **正好绕过丢弃点**。一句话：**测了机制、没测缺失项**。
+  - **修复（改结构，不是补键）**：新增 `backend/app/services/filter_defaults.py` 作**唯一真相源**
+    —— `FILTER_DEFAULTS`（10 键）/ `SYSTEM_MARKETS` / `resolved_defaults()`（合并白名单**回归真相源键集**）/
+    `system_filters()`（+ 小写 `markets`）；四处改为引用**同一对象**：
+    ① `admin`：保留同名别名 `DEFAULT_FILTERS_DEFAULT = filter_defaults.FILTER_DEFAULTS`，
+    `get_default_filters()` 转调 `resolved_defaults()`；
+    ② `system_batch`：**删掉本地副本**，`_system_filter()` → `system_filters()`；
+    ③ `auto_apply`：`_get_system_filter()` → 同一函数（不再单独读 admin）；
+    ④ `picker/lock`：`_FILTER_DEFAULTS` 改 `from ..filter_defaults import FILTER_DEFAULTS`。
+    🔴 **import 方向经核对无循环**：真相源只依赖 `core.logger` + `services.settings`
+    （admin → filter_defaults → settings），这也是它**不能**反过来 import `api.admin` 的原因。
+  - **影响面**：`app/services/filter_defaults.py`(新增)、`app/api/admin.py`、`app/services/system_batch.py`、
+    `app/services/auto_apply.py`、`app/services/picker/lock.py`；
+    `tests/test_system_filter_parity.py`(新增 7 例)、`tests/test_system_batch_check.py`(2 例改造)。
+    **前端零改动**；`scorer` 评分体系、评分配置 DB、`w_ff`(仍 0) 零改动。
+  - **验证证据**：新增 7 例全绿；相关套件 **71 passed / 1 skipped**；
+    🔴 **反向自证**（`git stash` 只回退 `backend/app`、保留新测试）⇒ **7 failed / 6 passed** ——
+    每条核心断言都真能抓住旧 bug（不是空转）；本机全量 **1354 collected / 0 failed / 0 errors /
+    4 skipped**（4m18s，`EXIT=0`）—— 与上一版收集数 **1347** 之差 **+7**，**恰好等于本次净增用例数**，
+    且本轮 **0 flaky**。机理澄清：`lock.to_picker_filters` 的兜底是"调用方没给"的**极端**路径，
+    **不是**设计上的默认值来源 —— 本版让它退回本职（系统批次现在会**显式**传 `scoreFloor`）。
+  - 🔴 **行为影响（须知）**：修复后系统批次的 `scoreFloor` 从**固定 50 → 随管理员值**（线上 60）⇒
+    **系统批次名单会变瘦**，且此后**随管理员后台调整**（此前固定 50，不受任何后台配置影响）。
+    ⚠️ **存量数据不回算**：已落库历史批次的 `filters` JSON 里仍无 `scoreFloor` 键（回看页读库、
+    不重算名单），仅**未来**批次生效。
+  - **未动**：`scorer` / 评分配置 DB / `w_ff`(仍 0) / `lock` 的拒绝模式与市场别名归一 / 前端 / 生产。
+- **v4.11.45 (09-24 仅测试机) 定格那一枪固定 09:26:30 + 选股闸门同步跟随**
   - **触发**：主人「修改早上定格那一枪时间，调整为 9:26:30 秒。数据轮询获取」。
     施工前就两处**会改变线上可见行为**的歧义向主人确认，结论：① 定格 = **首采时刻固定在
     09:26:30**（不是"把重采截止提前到 09:26:30"）；② 闸门放行点**同步后移**到 09:26:31。

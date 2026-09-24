@@ -10,7 +10,7 @@ import threading
 import time
 
 from ..core import config, logger
-from . import history, kpl, settings
+from . import filter_defaults, history, kpl
 
 log = logger.get_logger(__name__)
 
@@ -25,32 +25,34 @@ SYSTEM_USER_ID = 0  # system batch 归属用户, 所有用户都能看到
 #    与首页左视图的 1000 亿/300 元大票池完全不同, 用户看到后误认为锁的是 AI 预测数据)
 # 修复: 复用管理员后台全局默认(admin.DEFAULT_FILTERS_DEFAULT + settings 表 default_filters),
 #       与首页左视图(前端同样读取该默认)完全一致; 键名与 validate_filters 对齐。
+#
+# ★ 2026-09-24 v4.11.46 二次修复(主人拍板) —— 上面那次"复用"只做到了一半:
+#   本文件当时**又自带了一份 9 键副本**(缺 scoreFloor), 且合并用 `if k in merged`
+#   白名单 → settings 表里的 scoreFloor(线上 60)**静默丢弃** → 实际吃的是
+#   picker/lock._FILTER_DEFAULTS 的硬编码兜底 **50**。
+#   实测(测试机 47.99.153.123): 同一时刻同一份 9:25 快照,
+#   **系统批次 64 只 vs 首页左视图 27 只** —— 与本文档声称的"完全一致"不符。
+#   (漏测原因: validate_filters 对缺键有默认值, 输出上看不出键是否存在, 只有跑库对拍才暴露。)
+#   本次改为直接复用 services/filter_defaults(单一真相源), 本文件**不再保留任何副本**。
+#   🚫 新增/修改默认筛选参数只改 filter_defaults.FILTER_DEFAULTS。
 # =====================================================================
-DEFAULT_FILTERS_DEFAULT = {
-    "stSuspend": False, "limitUp": False, "bidGt": 7.0,
-    "probLt": 50.0, "confLt": 50.0,
-    "floatMvFloor": 30.0, "floatMvGt": 1000.0, "priceGt": 300.0,
-    "bidAmtFloor": 1000.0,   # 与 admin.py 全局默认一致(默认竞价金额下限 1000万)
-}
 
-# 市场范围: 与首页左视图一致(沪深创科, 不读用户自定义 filter_prefs)
+# 市场范围(兼容别名): 真相源见 services/filter_defaults.SYSTEM_MARKETS。
 # 口径必须是**小写** hs/cyb/kcb — scorer._in_markets 按代码前缀匹配小写键,
 # 传大写 ["SH","SZ","BJ"] 会让沪深创科全部返回 False → 名单恒空。
-SYSTEM_MARKETS = ["hs", "cyb", "kcb"]
+SYSTEM_MARKETS = list(filter_defaults.SYSTEM_MARKETS)
 
 SYSTEM_TOP = 30          # 系统批次截取前 30(与 aipick 一致, 避免 batch_stocks 过大)
 
 
 def _system_filter():
-    """系统默认筛选条件 = 管理员全局默认(管理员后台可调, 首页左视图同样读取)"""
-    merged = dict(DEFAULT_FILTERS_DEFAULT)
-    cfg = settings.get("default_filters")
-    if isinstance(cfg, dict):
-        for k, v in cfg.items():
-            if k in merged:
-                merged[k] = v
-    merged["markets"] = SYSTEM_MARKETS
-    return merged
+    """系统默认筛选条件 = 全局默认(管理员后台可调, 首页左视图 / 9:26 自动应用同源)
+
+    ★ v4.11.46: 转调 filter_defaults.system_filters()。本函数此前自带一份 9 键副本
+      (缺 scoreFloor)并用白名单合并 ⇒ settings 的 scoreFloor 被丢弃、系统批次口径
+      悄悄落到 lock 的兜底 50。现在与 auto_apply._get_system_filter 共用同一实现。
+    """
+    return filter_defaults.system_filters()
 
 
 def run_system_batch(time_point="9_25", sync=False):

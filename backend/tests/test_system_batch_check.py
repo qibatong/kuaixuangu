@@ -63,24 +63,42 @@ def test_system_batch_check_setnx_dedup(monkeypatch, client):
 #  floatMvGt=100/priceGt=30 → 中小盘小票池≈aipick候选池, 用户误判"锁了AI预测数据")
 # =====================================================================
 def test_system_filter_keys_match_validate_filters():
-    """_system_filter 产出的键必须被 scorer.validate_filters 正确识别"""
+    """_system_filter 产出的键必须被 scorer.validate_filters 正确识别
+
+    ⚠️ 2026-09-24 v4.11.46 补: 本用例的断言值取自**全局默认**, 而非写死字面量 ——
+       原来写死 1000.0/300.0 只在"内置默认 == 线上默认"时成立; 线上管理员把
+       floatMvGt 调成 500 后就名不副实了。更要紧的是它当年**漏了 scoreFloor**:
+       validate_filters 对缺键有默认值(50), 所以"键是否存在"在输出上根本看不出来
+       —— 详见 tests/test_system_filter_parity.py 的模块 docstring。
+    """
+    from app.api import admin
     from app.services import scorer
+    dflt = admin.get_default_filters()
     f_raw = system_batch._system_filter()
     f = scorer.validate_filters({
         k: [str(v)]
         for k, v in f_raw.items() if k != "markets"})
     # 关键差异点: 必须与首页左视图(管理员全局默认)一致, 而非后端 validate_filters 默认
-    assert f["stSuspend"] is False, "必须剔除 ST(首页左视图语义: false=剔除)"
-    assert f["floatMvGt"] == 1000.0, "市值上限应为 1000 亿(首页左视图大票策略)"
-    assert f["priceGt"] == 300.0, "股价上限应为 300 元(首页左视图大票策略)"
-    assert f["bidAmtFloor"] == 1000.0, "竞价金额下限 1000 万(管理员全局默认)"
-    assert f["bidGt"] == 7.0
+    assert f["stSuspend"] is dflt["stSuspend"], "必须剔除 ST(首页左视图语义: false=剔除)"
+    assert f["floatMvGt"] == dflt["floatMvGt"], "市值上限须随全局默认(首页左视图大票策略)"
+    assert f["priceGt"] == dflt["priceGt"], "股价上限须随全局默认(首页左视图大票策略)"
+    assert f["bidAmtFloor"] == dflt["bidAmtFloor"], "竞价金额下限须随全局默认"
+    assert f["bidGt"] == dflt["bidGt"]
+    # ★ v4.11.46: scoreFloor 必须**显式存在**于系统口径(修复前缺此键 → 吃 lock 兜底 50)
+    assert "scoreFloor" in f_raw, "系统口径缺 scoreFloor 会导致门槛不受管理员控制"
+    assert f["scoreFloor"] == dflt["scoreFloor"]
     assert f["markets"] == ["hs", "cyb", "kcb"]
 
 
 def test_system_filter_merges_admin_defaults(monkeypatch):
-    """管理员后台修改 default_filters 后, system batch 自动跟随(与首页左视图同步)"""
-    monkeypatch.setattr(system_batch.settings, "get",
+    """管理员后台修改 default_filters 后, system batch 自动跟随(与首页左视图同步)
+
+    2026-09-24 v4.11.46: patch 目标从 system_batch.settings 改为
+    **filter_defaults.settings** —— 后者是唯一真相源; 前者已不再自己读 settings,
+    继续 patch 它会静默失效(测试照样"绿", 但什么都没测到)。
+    """
+    from app.services import filter_defaults
+    monkeypatch.setattr(filter_defaults.settings, "get",
                         lambda key, default=None: {"floatMvGt": 800.0, "bidAmtFloor": 2000.0}
                         if key == "default_filters" else default)
     f = system_batch._system_filter()

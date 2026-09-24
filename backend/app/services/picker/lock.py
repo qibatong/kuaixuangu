@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
 from ...core import logger
+from ..filter_defaults import FILTER_DEFAULTS as _FILTER_DEFAULTS
 from . import mode as pm
 from . import pipeline
 
@@ -38,14 +39,11 @@ _MARKET_ALIAS = {
 }
 _VALID_MARKETS = ("hs", "cyb", "kcb")
 
-# 缺失键的兜底(与 admin.DEFAULT_FILTERS_DEFAULT 同口径, 仅用于"调用方没给"的极端情况)
-_FILTER_DEFAULTS = {
-    "stSuspend": False, "limitUp": False,
-    "bidGt": 7.0, "probLt": 50.0, "confLt": 50.0,
-    "floatMvFloor": 30.0, "floatMvGt": 1000.0,
-    "priceGt": 300.0, "bidAmtFloor": 1000.0,
-    "scoreFloor": 50.0,     # 2026-09-20 主人拍板: 评分 < 50 不入选
-}
+# 缺失键的兜底(仅用于"调用方没给"的极端情况, 见 to_picker_filters)。
+# ★ v4.11.46: 本体已归口到 services/filter_defaults.FILTER_DEFAULTS(模块顶部 import),
+#   此处不再保留副本。历史教训 —— 本仓"同一个筛选参数各抄一份"催生过真实事故:
+#   system_batch 那份副本漏了 scoreFloor, 合并时静默丢弃线上的 60, 让系统批次
+#   悄悄吃到本文件的硬编码兜底 50(首页 60) ⇒ 同一时刻 64 只 vs 27 只。
 
 
 def norm_markets(markets: Any) -> List[str]:
