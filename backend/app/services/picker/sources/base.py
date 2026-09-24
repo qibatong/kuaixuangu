@@ -100,13 +100,16 @@ REGISTRY: Dict[str, str] = {}
 
 def get_source(label: str) -> Optional[BaseSource]:
     """按标签取 adapter 实例; 未知标签返回 None(不抛, 由 pipeline 决定降级)"""
-    from . import eastmoney, snapshot, tencent          # 延迟导入: 避免模块循环
+    from . import eastmoney, meoz, snapshot, tencent     # 延迟导入: 避免模块循环
     table = {
         "snapshot": snapshot.SnapshotSource,
         "eastmoney_realtime": eastmoney.EastmoneyRealtimeSource,
         "eastmoney_market": eastmoney.EastmoneyMarketSource,
         "tencent_point": tencent.TencentPointSource,
         "tencent_market": tencent.TencentMarketSource,
+        # 2026-09-24 换源 WP0: 猫爪源(备而不用 —— 尚未被 mode.POLICIES 引用, 切换见 换源 WP2)
+        "meoz_realtime": meoz.MeozRealtimeSource,
+        "meoz_market": meoz.MeozMarketSource,
     }
     REGISTRY.update({k: v.__module__ + "." + v.__name__ for k, v in table.items()})
     cls = table.get(label)

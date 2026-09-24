@@ -30,33 +30,41 @@ FIELD_AUTHORITY: Dict[str, str] = {
     "name": "股票名称: 东财 f14 / 快照 name / 腾讯 f[1]",
 
     # ---- 竞价字段: 权威 = 9:25 定格快照; 仅竞价窗口内可用实时 f615/f616 ----
-    "bid_change": "竞价涨幅%: ① 9:25 定格快照 bid_change ② 竞价窗口内 f615。"
+    "bid_change": "竞价涨幅%: ① 9:25 定格快照 bid_change ② 竞价窗口内 f615(东财) "
+                  "③ 竞价窗口内 猫爪 screening.auc_pct_chg。"
                   "**禁止**在非竞价窗口退回 f3(老逻辑隐式 fallback = 竞涨变现涨, 大跌票混入根因)",
-    "bid_amt": "竞价额(元): ① 9:25 定格快照 bid_amt ② 竞价窗口内 f616。"
+    "bid_amt": "竞价额(元): ① 9:25 定格快照 bid_amt ② 竞价窗口内 f616(东财) "
+               "③ 竞价窗口内 猫爪 screening.auc_amt(元, 不换算)。"
                "禁止用 f6(累计成交额)冒充 — 盘中 f6 是全天累计, 会算出 1000%+ 荒谬昨比",
-    "bid_vol": "竞价量(股): ① 定格快照 bid_vol ② 竞价窗口内 f617。"
+    "bid_vol": "竞价量(股): ① 定格快照 bid_vol ② 竞价窗口内 f617(东财) "
+               "③ 竞价窗口内 猫爪 screening.auc_vol(**手, 须 ×100**)。"
                "**窗口外恒 None** — 老链路窗口外用 f5(当日累计成交量)算'竞价换手', "
                "语义错误(盘中 f5 是全天累计, 会算出虚高换手), 契约层不允许该退化",
 
     # ---- 实时字段: 权威 = 实时行情源 ----
-    "price": "现价(元): 实时源 f2 / 腾讯 f[3]; 定格模式取昨收(prev_close)",
-    "prev_close": "昨收(元): 实时源 f18 / 腾讯 f[4]",
-    "open": "今开(元): 实时源 f17 / 腾讯 f[5]; 缺失时实体涨幅为 None(老逻辑填0导致实体列全0%)",
-    "real_change": "现涨幅%: 实时源 f3; 盘前未开盘时数据源本身无值 → None(不是 0)",
-    "vol": "成交量(股): 实时源 f5(手)×100 / 腾讯 f[36](手)×100",
-    "amount": "成交额(元): 实时源 f6 / 腾讯 f[37](万)×1e4",
-    "turnover": "换手率%: 实时源 f8 / 腾讯 f[38]",
-    "vol_ratio": "量比: 实时源 f10",
-    "warn_type": "异动等级: 实时源 f630(实测取值 0/1/2)",
+    "price": "现价(元): 实时源 f2 / 腾讯 f[3] / 猫爪 screening.close; 定格模式取昨收(prev_close)",
+    "prev_close": "昨收(元): 实时源 f18 / 腾讯 f[4] / 猫爪 screening.pre_close",
+    "open": "今开(元): 实时源 f17 / 腾讯 f[5] / 猫爪 screening.open; "
+            "缺失时实体涨幅为 None(老逻辑填0导致实体列全0%)",
+    "real_change": "现涨幅%: 实时源 f3 / 猫爪 screening.pct_chg; "
+                   "盘前未开盘时数据源本身无值 → None(不是 0)",
+    "vol": "成交量(股): 实时源 f5(手)×100 / 腾讯 f[36](手)×100 / 猫爪 screening.vol(手)×100",
+    "amount": "成交额(元): 实时源 f6 / 腾讯 f[37](万)×1e4 / 猫爪 screening.amount(元)",
+    "turnover": "换手率%: 实时源 f8 / 腾讯 f[38] / 猫爪 screening.turnover_rate_f(实际换手率)",
+    "vol_ratio": "量比: 实时源 f10 / 猫爪 screening.volume_ratio",
+    "warn_type": "异动等级: 实时源 f630(实测取值 0/1/2)。"
+                 "★ **猫爪无等价字段** → from_meoz 恒 None(缺失≠0, 见铁律1)",
 
     # ---- 半静态 ----
-    "float_mv": "流通市值(元): 实时源 f21 / 快照 float_mv。★ 2026-09-20 起**不再用于门槛判定**"
+    "float_mv": "流通市值(元): 实时源 f21 / 快照 float_mv / 猫爪 screening.circ_mv。"
+                "★ 2026-09-20 起**不再用于门槛判定**"
                 "(降级为 free_mv 缺失时的兜底 + 前端展示列); 门槛判据统一改 free_mv。",
     "free_mv": "自由流通市值(元): 实时源 f117 / 快照 free_mv / 猫爪 screening.free_float_mv。"
                "★ 2026-09-20 起**唯一市值口径** —— 门槛过滤(floatMvFloor/Gt)、竞价换手率、"
                "抢筹强度、market 评分因子全部用它; 缺失时回退 float_mv(见 QuoteRow.mv)。",
-    "industry": "行业: 东财 f100 / 开盘啦覆盖",
-    "concept": "概念: 东财 f103 / 开盘啦覆盖",
+    "industry": "行业: 东财 f100 / 开盘啦覆盖。★ **猫爪 screening 无独立行业字段** → "
+                "from_meoz 恒 None(需行业时走猫爪 theme/industry, 尚未接入)",
+    "concept": "概念: 东财 f103 / 开盘啦覆盖 / 猫爪 screening.theme_names_kpl(开盘啦题材)",
 
     # ---- 可疑口径(保持老行为, 待确认) ----
     "yesterday_change": "昨日涨幅%: 真实值 = T日(最近已收盘交易日)涨跌幅, 来自东财日K f58"
@@ -64,7 +72,7 @@ FIELD_AUTHORITY: Dict[str, str] = {
                         "2026-09-08 已修正: 老逻辑拿**当日 f3** 冒充昨日涨幅(语义错配)已废弃",
 
     # ---- 元信息 ----
-    "source": "本行数据来源标签(eastmoney/tencent/snapshot), 用于降级可见性",
+    "source": "本行数据来源标签(eastmoney/tencent/snapshot/meoz), 用于降级可见性",
     "degraded": "本行是否来自降级路径(True 时必须前端明示, 见铁律2)",
 }
 
@@ -324,6 +332,76 @@ class QuoteRow:
             row.bid_amt = _f(s.get("f616"))
         row.bid_vol = (day_bid_vol if day_bid_vol is not None
                        else (_f(s.get("f617")) if auction_window else None))
+        return row
+
+    @classmethod
+    def from_meoz(cls, s: Dict[str, Any], *, auction_window: bool = False,
+                  day_bid_change: Optional[float] = None,
+                  day_bid_amt_wan: Optional[float] = None,
+                  day_bid_vol: Optional[float] = None,
+                  yesterday_chg: Optional[float] = None,
+                  degraded: bool = False,
+                  period_auction: Optional[bool] = None) -> "QuoteRow":
+        """猫爪 screening(实时选股) 行 → QuoteRow。
+
+        与 from_eastmoney **同形**: 参数名/语义逐一对齐(定格 map 优先、竞价字段按
+        auction_window 决定是否可读实时值), 便于同一个 adapter 模板套两个源。
+
+        单位(🔴 2026-09-24 真跑定论, 5557 样本零越界):
+          * 猫爪金额族(auc_amt/amount/circ_mv/free_float_mv)一律**元** → 直接取;
+          * 猫爪 `vol` / `auc_vol` 是**手** → 契约 vol/bid_vol 是**股** ⇒ 必须 ×100。
+            验证式: `vol×100×close == amount`、`auc_vol×100×m_price == auc_amt`。
+            (原型 _research/meoz_adapter_verify.py 漏了这一步, 是**单位 bug**, 已修)
+
+        两个缺口(**缺口即 None, 绝不填 0** —— 铁律1):
+          * `warn_type`(东财 f630 异动等级): 猫爪无等价字段 → 恒 None
+            (该因子已由 bid_strength 自算替代, 见 scorer.py, 代价仅"兜底档失效")。
+          * `industry`(行业): 猫爪 screening 无独立行业字段 → 恒 None
+            (题材走 `concept` 的 theme_names_kpl; 需行业时另走猫爪 theme/industry)。
+
+        竞价字段口径说明: 猫爪 auc_* 是**官方竞价成品字段**(不像东财 f615 盘后会变
+        "-"), 语义上全天有效; 但本方法仍与东财**同闸门**(仅在 auction_window 内取),
+        理由是"何时可读行内实时竞价值"必须是**跨源同一条规则**, 否则换源会静默改变
+        名单语义(定格缺失时从"剔除"变成"纳入")。是否放宽为"全天可用"属 换源 WP2 的独立
+        决策, 需先用实测 9:25 实时产出时刻验证后再定。
+        """
+        vol_hand = _f(s.get("vol"))                     # 手
+        auc_vol_hand = _f(s.get("auc_vol"))             # 手
+        row = cls(
+            code=str(s.get("symbol") or ""),
+            name=str(s.get("name") or ""),
+            price=_f(s.get("close")),
+            prev_close=_f(s.get("pre_close")),
+            open=_f(s.get("open")),
+            real_change=_f(s.get("pct_chg")),
+            vol=None if vol_hand is None else vol_hand * 100,
+            amount=_f(s.get("amount")),
+            turnover=_f(s.get("turnover_rate_f")),
+            vol_ratio=_f(s.get("volume_ratio")),
+            warn_type=None,                             # 猫爪无 f630 等价字段(缺口)
+            float_mv=_f(s.get("circ_mv")),              # 流通市值(元)
+            free_mv=_f(s.get("free_float_mv")),         # 自由流通市值(元)
+            auc_turnover=_f(s.get("auc_turnover")),     # 真实竞价换手率(官方成品)
+            industry=None,                              # 猫爪 screening 无行业字段(缺口)
+            concept=s.get("theme_names_kpl") or None,   # 题材(开盘啦口径)
+            yesterday_change=yesterday_chg,
+            source="meoz",
+            degraded=degraded,
+            auction_window=(auction_window if period_auction is None
+                            else period_auction),
+        )
+        # 竞价字段: 定格值优先 → 竞价窗口内 auc_* → None(绝不退化 pct_chg)
+        if day_bid_change is not None:
+            row.bid_change = day_bid_change
+        elif auction_window:
+            row.bid_change = _f(s.get("auc_pct_chg"))
+        if day_bid_amt_wan is not None:
+            row.bid_amt = day_bid_amt_wan * 1e4      # 万元 → 元
+        elif auction_window:
+            row.bid_amt = _f(s.get("auc_amt"))       # 猫爪竞价额已是元
+        row.bid_vol = (day_bid_vol if day_bid_vol is not None
+                       else ((auc_vol_hand * 100)
+                             if (auction_window and auc_vol_hand is not None) else None))
         return row
 
     @classmethod

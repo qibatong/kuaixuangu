@@ -18,5 +18,6 @@
   snapshot.py   9:25 定格快照 — 竞价字段的**权威来源**
   eastmoney.py  东财实时(点查/全市场)
   tencent.py    腾讯点查 / 腾讯全市场兜底
+  meoz.py       猫爪实时(点查/全市场) — 2026-09-24 换源 WP0 新增, 备而不用(切换见 换源 WP2)
 """
 from .base import BaseSource, FetchContext, SourceResult, REGISTRY, get_source  # noqa: F401

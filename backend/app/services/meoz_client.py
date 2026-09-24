@@ -623,11 +623,25 @@ _SCREENING_FIELDS = (
     #       fd_amount(今日封单) / pre_fd_amount(昨日封单) / prev_fd_amount(前日封单)
     #       fd_to_turnover(封成比) / fd_to_yesterday(封昨比) / ztwme(涨停委买额)
     #     **新增字段前必须先查 openapi.json, 或单字段试调确认 code==200**。
-    "pre_fd_amount,fd_to_yesterday"
+    "pre_fd_amount,fd_to_yesterday,"
+    # 2026-09-24 WP0 新增: open(今开) / vol(成交量, **单位=手**)。picker 适配层
+    # (QuoteRow.from_meoz) 要落 open/vol 两列 —— 原先只在本清单外的点查里才取,
+    # 导致 meoz 源 open/vol 恒 None(与东财源能力不对等)。
+    #   🔴 两者均在 openapi.json 的 screening 字段表内(已核对 54 项清单), 传之安全。
+    #      单位实测定论(2026-09-24 真跑 5557 样本): vol×100×close == amount,
+    #      越界 0 例 ⇒ **vol 是手**, 契约 vol 是股, 适配层必须 ×100。
+    "open,vol"
 )
 
 
-def screening_map(date_offset=None, date=None):
+def screening_map(date_offset=None, date=None, symbols=None):
+    """实时选股字典 {symbol: {name, free_float_mv, circ_mv, auc_amt, ...}}。
+
+    symbols: 可选, 单个/逗号分隔/列表 —— 传则**点查**(只回这些代码), 不传=全市场。
+        🔴 点查模式的语义与全市场**同源同字段**(实测 2026-09-24: 传 symbols 回
+        指定行, 字段齐全), 故 picker 的点查源与全市场源共用本函数、共用 TTL。
+
+    """
     """实时选股(全市场)字典 {symbol: {name, free_float_mv, circ_mv, auc_amt, ...}}。
 
     ★ 2026-09-20 关键发现(主人指路"猫爪实时选股中，有这个数据"):
@@ -637,6 +651,7 @@ def screening_map(date_offset=None, date=None):
         total_mv       总市值(元)         [5553/100%]
         name           名称               [5553/100%]
         close/pre_close/pct_chg/amount/turnover_rate_f/volume_ratio  [5553/100%]
+        open/vol       今开(元)/成交量(**手**)[2026-09-24 WP0 新纳入本清单]
         auc_amt        竞价金额(元)        [5444/98%]
         auc_pct_chg    竞价涨幅(%)         [4818/87%]
         auc_turnover   真实竞价换手率(%)    [5440/98%]  ← ★ 官方成品, 免自算
@@ -656,6 +671,10 @@ def screening_map(date_offset=None, date=None):
         params["tradedate"] = str(date).replace("-", "")
     elif date_offset is not None:
         params["tradedate_offset"] = date_offset
+    if symbols:
+        # 点查: 列表 → 逗号分隔(openapi 两种形态都接受, 用逗号串最省事)
+        params["symbols"] = (",".join(str(x) for x in symbols)
+                             if isinstance(symbols, (list, tuple, set)) else str(symbols))
     data = call_cached("screening", params=params, ttl=_AUC_SNAP_TTL,
                        fields=_SCREENING_FIELDS)
     return _sym_rows(data)
