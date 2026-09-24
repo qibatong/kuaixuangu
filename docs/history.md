@@ -1477,6 +1477,57 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.42 (09-24 本机未部署) 数据采集架构优化：字段契约注册表 + 竞价净额补采闭环 + 补采门控契约化 + 取数解耦 + 副作用幂等**
+  - **触发**：主人「我需要优化快选股数据采集架构」→ 先出体检报告（7 项病灶、代码级证据）与施工图（WP0–WP3），
+    主人「同意，改吧」后落地 **WP0① + WP1a + WP1b + WP2a + WP2b + WP2c**
+    （WP2d 事件总线 / WP3 统一适配层**前置未满足，不做**）。
+  - **现象 → 根因（三处已造成实际损失，非理论风险）**：
+    - **P1**：竞价主力净额 `auc_main_net` **连续 12 个交易日全市场非零 0 只**。根因 = 采集枪与上游产出**擦肩而过**：
+      9:25 定格那枪落库 `09:25:22~49`，而上游 `fundflow_kp.auction_main_net_amount` **09:25:35~09:26:16 才生成**；
+      定格后既无「就绪门控」也无「补采」⇒ 列恒 0 ⇒ 因子作废、v4.11.38 被迫把 `w_ff` 归零（连带盘中动态净额层一并失效）。
+    - **P2**：`NETFILL_INTERVAL(35) > meoz_client._AUC_SNAP_TTL(30)` 这个**跨模块不变量只写在注释里** ——
+      任一侧被改都静默失效，外部观测为「改了但没效果」（补采每轮命中自己上一轮写的缓存）。
+    - **P3**：`snapshot_at` 落库成功后**无条件**触发 `aipick` 预测 + `system_batch` 写名单 ⇒ 任何重跑定格都会
+      重复跑预测、重复写历史名单（"想重采不敢重采"）。
+  - **修复（六个工作包，拆两个独立提交 —— 契约包与采集链路回滚代价不同）**：
+    - **① 字段契约注册表**（`feat(contracts)`，commit `a253c28`）：新增 `backend/app/services/contracts/`
+      （`schema.py` 数据结构 / `fields.py` 8 字段声明表 / `registry.py` 加载校验查询 / `probe.py` 只读探测+体检 /
+      `__init__.py`）。**纯新增，零改动存量主链逻辑**。设计上把方案初稿的 `fields.yaml` 改为**纯 Python 字面量** ——
+      本仓 `requirements.txt` 只有 4 个包，不为静态登记表引 PyYAML；且字面量可静态检查，拼错字段名当场可见。
+      契约校验放在**加载期**（`_index()` 抛 `ContractError`）⇒ 写错在 CI/启动即红，不留到盘中。
+      `api/health.py` 追加 `contracts` 段：同步 SQLite 探测走 `run_in_threadpool` + `asyncio.wait_for(3.0)` + 异常隔离
+      （保留 2026-09-10「health 不被慢选股堵在 anyio 池里 504」的原意，同时不让本地文件 COUNT 阻塞 event loop）。
+    - **② 竞价净额补采**（`feat(collect)`，commit `f2528b3`）：`refill_bid_main_net()` 只
+      `UPDATE snapshot_bid.auc_main_net` 一列、`WHERE auc_main_net=0`（幂等、不覆盖非零）；`_netfill_due()` 纯函数管边界
+      （周末 / 窗口 / 间隔 / 达标）；触发块接进 `_scheduler_loop`，**绝不走 `snapshot_at`**。
+      🔴 **价值边界（必须写死在验收里）**：`w_ff` 仍为 **0** ⇒ 回填**只攒数据、不进评分、不动名单**；
+      要让名单真正受影响需另把 `w_ff` 调回 0.30（改 `settings.scoring` 配置，非改代码），且应先攒够非零样本再校准分档。
+    - **③ 补采门控契约化**：`NETFILL_START_SEC/END_SEC/MIN_N` 由 `contracts.field("auc_main_net")` 的 `ready_after`
+      + `probe.min` 推导（`09:25:35 + 35s == 09:26:10`；`0.19 × 5209 ≈ 990 ≈` 旧 `NETFILL_MIN_N(1000)`）；
+      `try/except` **回退硬编码 + ERROR 日志** —— 选股链路只有一条、无开关可回滚，绝不让登记表的小毛病拖垮启动。
+    - **④ TTL 显式化**：`meoz_client._TTL_BY_API` + `cache_ttl()`（顺带归口 `index_snapshot`/`emoindic` 两个原本
+      独立的字面量 30）；`NETFILL_INTERVAL` 常量**退役** → `netfill_interval() = TTL + 5`。
+    - **⑤ 取数解耦**：`call_cached(fresh=True)` 既不读也不写缓存；`fundflow_map(fresh=)` 透传；补采传 `fresh=True`
+      ⇒ 轮询间隔与缓存 TTL 从此互不约束，且不污染主链读的同一个 `meoz:fundflow_kp:*` 键。
+    - **⑥ 副作用幂等**：新增 `_consume_once(date, tp, label, fn)` —— **成功才落 `snap:consumed:*` 键**，
+      失败 `return` 不落键（窗口内可重试）。与 2026-09-17 `auto_apply` 事故同源教训（守卫键绝不能在成功之前被消费）。
+    - **新增测试**：`tests/test_contracts.py`（10）、`tests/test_netfill_interval.py`（10）、
+      `tests/test_net_refill_0924.py`（8，同步改用 `netfill_interval()`）。
+  - **明确未动**：`scorer` 评分体系 / 评分配置 DB / `w_ff`（仍 0）/ `auction_snapshot.py:263` 的 `date_offset`
+    （改它会变更主链取数口径，"不传"与"传 0"上游是否等价**未实测** ⇒ 须先做 B1 对照实验、且单独提交）/
+    前端 / 生产 `121.196.230.80` / 测试机。
+  - **验证证据（全部实跑，非源码外推）**：
+    - 本地全量 pytest **1279 passed / 4 skipped / 0 failed**（本次新增 28 例；对比 v4.11.40 的 1249/1/4）。
+    - `test_contracts`：8 项负向用例（格式错 / status 非法 / consumers 空 / 列名非法标识符 / 列重复 / 名重复 /
+      degraded 无 confusion / 未知字段）+ `snapshot_bid` **反向孤儿列检查**（白名单按 `PRAGMA table_info` 实测订正 ——
+      方案初稿那份含 `id`/`chg_to_yesterday`/`yday_amount`/`yday_chg` 四个该表**并不存在**的列，
+      且漏了 `ts`/`fd_to_yesterday`/`pre_fd_break_*`）。
+    - `test_netfill_interval`：TTL 参数化跟随（6/10/30/40/120 五个值 ⇒ 间隔必为 TTL+5）+ 硬编码回归检测
+      + **WP1b 等价性锁**（`09:26:10` / `990≈1000`）。
+    - 语法自检 AST 全通过；新增/改动文件行尾按本仓现状归一 CRLF。
+  - **部署提示**：`app/services/auction_snapshot.py` 在**测试机是 LF、本地是 CRLF** ⇒ 必须用
+    `scripts/_kx_stage_match.py` 对齐线上行尾，禁止直接拷本地文件（否则整文件级伪 diff）。
+  - **回滚**：两个提交各自 `git revert` 即可；契约包是纯新增，删目录即回退（其余调用方为附加式接入）。
 - **v4.11.41 (09-24 本机未部署) 「锁定」闸门放开到收盘 15:00 并开放周末：10 点后仍可重新选股**
   - **触发**：主人「1、10点以后也不要锁定了，2、9:30~10:00 另有『盘中主力净额动态分』窗口……
     这项还在使用吗，使用的话也放开」→ 本版只办**第 1 项**（第 2 项另案处理）。
