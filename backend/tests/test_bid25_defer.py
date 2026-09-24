@@ -1,25 +1,34 @@
 # -*- coding: utf-8 -*-
-"""9:25 定格推迟到「拿到猫爪数据再定格」+ 竞价量比接入(2026-09-24 主人拍板)。
+"""9:25 定格推迟到「拿到猫爪数据再定格」+ 定格枪固定 09:26:30 + 竞价量比接入。
 
-背景(两条都是实测, 不是推测):
-  ① 猫爪竞价字段(daily_auc 的 auc_vol_ratio / fundflow_kp 的竞价净额)**09:25:35 起才产出**,
-     而旧定格枪打在 09:25:20~49 ⇒ auc_vol_ratio 恒 0(2026-09-18~24 全库 4 时点复现),
-     异动因子的量比层于是静默回退旧口径「今 9:25 额 ÷ 昨 9:25 额」。
+背景(三条都是实测, 不是推测):
+  ① 猫爪竞价字段(daily_auc 的 auc_vol_ratio / fundflow_kp 的竞价净额)**09:25:35 起才产出、
+     09:26:16 才出满**, 而旧定格枪打在 09:25:20~49 ⇒ auc_vol_ratio 恒 0
+     (2026-09-18~24 全库 4 时点复现), 异动因子的量比层于是静默回退旧口径
+     「今 9:25 额 ÷ 昨 9:25 额」(覆盖率仅 28%: 只有昨日竞价额 ≥100 万的票算得出)。
   ② 更隐蔽的**串日**: 不传 date(或 date_offset=0)时, 目标日该分钟尚未产出, 上游会返回
      "最近可用"那份 —— 2026-09-24 09:15 取 trademin=0925 拿到的是 **09-23** 的 9:25(5567 行)。
      若把"有 5567 行"当成就绪判据, 早盘每一枪都会把昨日量比写成今日定格。
+  ③ 2026-09-24 主人**二次拍板**: 定格那一枪**固定在 09:26:30**(`_BID25_FREEZE_SEC`),
+     9:25:00~9:26:29 全程静默不采 —— 该段猫爪竞价字段仍在产出, 采了必是空车,
+     还白烧一轮全市场拉取(8~15s)。09:26:30 起首采; 未就绪则由 10s 轮询重采兜到 09:27:30
+     —— 即主人要求的「数据轮询获取」。
 
 本文件覆盖:
-  A. 时间常量: 窗口/下限/重采截止(契约推导)与不变式;
+  A. 时间常量: 窗口 / 定格首采时刻 / 重采截止(契约推导)与不变式;
+     以及定格首采纯函数 `_bid25_before_freeze` 的秒级边界;
   B. 就绪判定 meoz_bid_ready: 串日必须判未就绪、当日非零达标才判就绪;
   C. 补采 refill_bid_vol_ratio: 只写真非零、绝不覆盖、串日不回填、幂等;
-  D. 源码级守卫: 定格首采门槛限定在 9:25 那一分钟(否则 9:26 重采窗口被切碎);
+  D. 源码级守卫: 定格首采门槛必须走 `_bid25_before_freeze` —— 历史的"分钟限定"写法
+     (`hm == 9*60+25 and sec < _BID25_MIN_SEC`)在 _BID25_MIN_SEC 涨到 90 后会让
+     9:26:00 就开采, 恰在定格时刻之前 30 秒; 且单位口径必须由纯函数单点把守;
      重采必须走 _bid25_retry_open(单位口径单一入口, 禁止内联减 9*3600 回流);
      落库必须是幂等 upsert(重采真的会触发, 写重行会被下游全盘放大);
-  E. 关联链路: aipick 采集/预测的**定格就绪门** —— 落库时刻(09:25:5x~09:26:1x)与
+  E. 关联链路: aipick 采集/预测的**定格就绪门** —— 落库时刻(09:26:3x~09:26:4x)与
      aipick 窗口起点(09:26:00)重叠, 不设门约五成概率抢跑, collector 会静默回退自拉。
 """
 import inspect
+import re
 import time
 
 from app.db import database
@@ -65,9 +74,38 @@ def test_bid25_window_covers_meoz_publish_lag():
     assert end >= 9 * 60 + 27, "9_25 窗口末端应 >= 9:27(留出猫爪就绪重采轮次)"
 
 
-def test_bid25_min_sec_raised_above_meoz_floor():
-    """首采下限 >= 45s: 09:25:20 首采必然扑空(猫爪 09:25:35 才产出), 白烧一轮全市场拉取。"""
-    assert A._BID25_MIN_SEC >= 45
+def test_bid25_freeze_point_is_092630():
+    """★ 定格首采时刻 = 09:26:30(2026-09-24 主人二次拍板)。
+
+    四条不变式(任一条破了都是"改了但没生效"或"空车采集"):
+      ① `_BID25_MIN_SEC` 必须 >= 90 —— 旧值 45(= 09:25:45)会在猫爪出满(09:26:16)之前开采;
+      ② `_BID25_FREEZE_SEC` 由 `_BID25_MIN_SEC` **唯一推导**, 不得在别处再写一份字面量;
+      ③ 定格时刻必须**早于**重采截止, 否则 `_bid25_retry_open` 没有重采空间(静默失效);
+      ④ 单位: 与 `_BID25_RETRY_UNTIL` 同为**当日绝对秒**(含 9*3600)。
+    """
+    assert A._BID25_MIN_SEC >= 90
+    assert A._BID25_FREEZE_SEC == 9 * 3600 + 25 * 60 + A._BID25_MIN_SEC
+    assert A._BID25_FREEZE_SEC == 9 * 3600 + 26 * 60 + 30      # 09:26:30 = 33990
+    assert A._BID25_FREEZE_SEC < A._BID25_RETRY_UNTIL          # 留出 10s 轮询重采空间
+    assert A._BID25_FREEZE_SEC > 9 * 3600, \
+        "定格时刻漏了 9*3600(口径退回'9 点后秒数'), 与 hm*60+sec 比较会恒 True"
+
+
+def test_bid25_before_freeze_boundaries():
+    """`_bid25_before_freeze` 秒级边界: 09:25:00~09:26:29 静默, 09:26:30 起可采。
+
+    ★ 全程用**当日绝对秒**(hm*60+sec)这一把尺子, 与实现同口径 —— 若一侧额外加减
+      9*3600, 断言会因量级差而恒真/恒假, 等于没测(本文件初版就踩过这个坑)。
+    """
+    assert A._bid25_before_freeze(9 * 60 + 25, 0) is True       # 9:25:00 静默段起
+    assert A._bid25_before_freeze(9 * 60 + 25, 45) is True      # 旧首采点(09:25:45): 已废, 仍静默
+    assert A._bid25_before_freeze(9 * 60 + 25, 59) is True      # 9:25 整分钟静默
+    assert A._bid25_before_freeze(9 * 60 + 26, 0) is True       # ★ 9:26:00 仍静默(旧写法会在此开采)
+    assert A._bid25_before_freeze(9 * 60 + 26, 16) is True      # 猫爪出满(09:26:16)仍静默
+    assert A._bid25_before_freeze(9 * 60 + 26, 29) is True      # 定格前一秒
+    assert A._bid25_before_freeze(9 * 60 + 26, 30) is False     # ★ 定格首采时刻(33990)
+    assert A._bid25_before_freeze(9 * 60 + 26, 31) is False
+    assert A._bid25_before_freeze(9 * 60 + 27, 59) is False     # 窗口末端
 
 
 def test_bid25_retry_until_derived_from_contract():
@@ -100,10 +138,15 @@ def test_bid25_retry_until_is_absolute_second():
 
 
 def test_bid25_retry_open_boundaries():
-    """_bid25_retry_open 边界: 9:25:45~9:27:29 可重采, 9:27:30 起接受当前值。"""
-    assert A._bid25_retry_open(9 * 60 + 25, 0) is True      # 首采下限前: 也须在"可重采"侧
-    assert A._bid25_retry_open(9 * 60 + 25, 45) is True     # 首采下限(33945)
+    """_bid25_retry_open 边界: 9:25:00~9:27:29 可重采, 9:27:30 起接受当前值。
+
+    ★ 本函数只判「是否还在重采时间窗内」, **不管现在到没到定格首采时刻**
+      (那是 `_bid25_before_freeze` 的职责) —— 所以 9:25 整分钟也返回 True。
+    """
+    assert A._bid25_retry_open(9 * 60 + 25, 0) is True      # 定格首采前: 也须在"可重采"侧
+    assert A._bid25_retry_open(9 * 60 + 25, 45) is True     # 旧首采点(33945)
     assert A._bid25_retry_open(9 * 60 + 26, 16) is True     # 猫爪产出上限附近(33976) ★ 等猫爪的意义
+    assert A._bid25_retry_open(9 * 60 + 26, 30) is True     # ★ 定格首采时刻(33990)
     assert A._bid25_retry_open(9 * 60 + 27, 29) is True     # 截止前一秒(34049)
     assert A._bid25_retry_open(9 * 60 + 27, 30) is False    # 截止当秒(34050)
     assert A._bid25_retry_open(9 * 60 + 27, 59) is False    # 窗口末端(34079)
@@ -203,15 +246,22 @@ def test_refill_vol_ratio_noop_when_disabled_or_no_rows(monkeypatch):
 
 
 # ------------------------------------------------------------------ D 源码级守卫
-def test_scheduler_bid25_gate_is_minute_scoped():
-    """定格首采门槛必须限定在 9:25 那一分钟。
+def test_scheduler_bid25_gate_is_freeze_scoped():
+    """定格首采门槛必须走 `_bid25_before_freeze`(定格时刻口径), 不得回流"分钟限定"写法。
 
-    窗口延到 9:27 后, 若仍是裸 `g.tm_sec < _BID25_MIN_SEC`, 则 9:26:00~9:26:44 与
-    9:27:00~9:27:44 会被一并跳过 —— 恰好把推迟定格换来的重采窗口切碎。
+    🔴 历史写法 `hm == 9*60+25 and g.tm_sec < _BID25_MIN_SEC` 在 `_BID25_MIN_SEC` 涨到
+      90(> 59)后**语义已错**: 9:25 整分钟仍全跳过 ✓, 但 **9:26:00 立刻进采集分支** ✗ ——
+      恰在定格时刻(09:26:30)之前 30 秒打一枪必然扑空的采集, 正是本次要消除的行为。
+      整点分钟判定根本无法表达「9:26:30」这个跨分钟时刻。
+    ★ 断言只看**代码**(先剥掉 `#` 注释再判) —— 否则为了讲清历史而引用旧写法的注释
+      会把断言弄红, 逼着后人删掉最有价值的解释。
     """
     src = inspect.getsource(A._scheduler_loop)
-    assert "hm == 9 * 60 + 25" in src, "9:25 首采门槛缺少分钟限定(会切碎 9:26/9:27 重采窗口)"
-    assert "_BID25_MIN_SEC" in src
+    code = "\n".join(re.sub(r"#.*$", "", ln) for ln in src.splitlines())
+    assert "_bid25_before_freeze" in code, "定格首采门槛未走统一口径函数"
+    assert "_BID25_MIN_SEC" not in code, \
+        "_BID25_MIN_SEC 已涨到 90(>59), 裸用会漏掉定格前的静默段(9:26:00 就开采)"
+    assert "hm == 9 * 60 + 25" not in code, "已废弃的'分钟限定'写法回流"
 
 
 def test_scheduler_retry_fuse_includes_meoz_readiness():

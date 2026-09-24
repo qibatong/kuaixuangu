@@ -465,7 +465,8 @@ def fundflow_map(symbols, date_offset=None, date=None, fresh=False):
     六字段(实测 2026-09-20 code=200):
       盘中三件套 main_net_amount / main_buy_amount / main_sell_amount  —— 盘中每分钟更新
       竞价三件套 auction_main_net_amount / auction_main_buy_amount / auction_main_sell_amount
-        —— **9:25 开始更新**, 竞价定格采集(9:25:5x)时已是当日值, 供 17% 异动分因子。
+        —— **9:25 开始更新、实测 09:25:35~09:26:16 才出满** ⇒ 定格枪固定在 09:26:30
+           (auction_snapshot._BID25_FREEZE_SEC), 采集时已是当日值, 供 17% 异动分因子。
     覆盖实测(2026-09-18 全市场): 竞价主力净额非零仅 32% —— 有大单才有值,
     0 = 竞价无大单异动; 盘中净额返回行内 100% 有值(收盘后=全天值)。
     ★ symbols 必传(逗号分隔批量, 实测 5904 只/次 OK); 分片 _FUNDFLOW_BATCH/次。

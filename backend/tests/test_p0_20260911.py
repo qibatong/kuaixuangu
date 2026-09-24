@@ -78,7 +78,7 @@ def _seed(tp, amts):
 
 def test_p01_bid25_min_sec_at_least_20():
     """采集时刻下限 ≥ 20 秒: 10s 轮询相位下, 原 10 秒下限会踩到 9:25:12(熔断日实测)"""
-    assert AS._BID25_MIN_SEC >= 20
+    assert AS._BID25_MIN_SEC >= 90
 
 
 def test_p01_same_prev_rate_all_equal():

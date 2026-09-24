@@ -129,7 +129,8 @@ MEOZ_LINES = (
     os.environ.get("MEOZ_LINE_SH", "http://sh.numcat.net:8866/api"),
 )
 # 竞价数据落库时刻(套餐表标注): 猫爪竞价数据 9:25:45 才更新。
-# 选股闸门(见 picker/mode.T_PICK_BLOCK_TO)必须 ≥ 此值 + 缓冲, 否则会取到上一交易日定格。
+# 选股闸门(见 picker/mode.T_PICK_BLOCK_TO, **现 09:26:30**)必须 ≥ 此值 + 缓冲, 否则会取到
+# 上一交易日定格 —— 「拿到猫爪数据再定格」正是把闸门与定格枪一起推到 09:26:30 的依据。
 MEOZ_AUC_READY = os.environ.get("MEOZ_AUC_READY", "092545")
 MEOZ_BID_TTL = int(os.environ.get("MEOZ_BID_TTL", "30"))       # 竞价数据缓存新鲜度(秒)
 MEOZ_AUC_TTL = int(os.environ.get("MEOZ_AUC_TTL", "6"))        # 竞价窗口内逐分钟数据缓存(秒)
