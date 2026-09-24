@@ -288,3 +288,32 @@ def test_fetch_chart_from_meoz_day_builds_preclose_from_last_pct(monkeypatch):
     d = F._fetch_chart_from_meoz("600519", "day")
     assert d["period"] == "day" and d["close"] == [11.0]
     assert d["preClose"] == pytest.approx(10.0), "11.0 / (1 + 10%) = 10.0"
+
+
+def test_meoz_day_k_requests_full_legacy_depth(monkeypatch):
+    """★日K 根数必须 ≥ 旧链**实际供数**深度(腾讯 count=200), 否则换首源 = 静默缩水。
+
+    旧链名义首源东财(`fetch_stock_chart`)只拉 120 根, 但东财 chart 存在接口级时段性
+    风控(常 502) ⇒ 线上长期实际由腾讯备源供数 200 根。v4.11.47 换首源时写死
+    `days=120`, 用户看到的日K 就从 ~200 根缩到 ~120 根(约 10 个月 → 约 6 个月) ——
+    这是**用户可见的静默退化**, 不是内部实现细节。
+
+    同时断言「常量」与「真实调用参数」: 只改常量不改调用点 / 只改调用点不吃常量,
+    两种半吊子改法都必须在 CI 变红。
+    """
+    seen = {}
+
+    def _fake(codes, **kw):
+        seen.update(kw)
+        return {codes[0]: [
+            {"symbol": codes[0], "name": "某股", "tradedate": "20260924", "open": 1.0,
+             "high": 1.0, "low": 1.0, "close": 1.0, "pct_chg": 0.0,
+             "vol": 1.0, "amount": 1.0}]}
+
+    monkeypatch.setattr(F, "_meoz_enabled", lambda: True)
+    monkeypatch.setattr(M, "daily_history_map", _fake)
+    F._fetch_chart_from_meoz("600519", "day")
+    assert F._MEOZ_DAY_K_BARS >= 200, (
+        "日K 深度不得低于旧链实际供数(腾讯 count=200): 120 会让用户可见的K线缩水 40%")
+    assert seen.get("days") == F._MEOZ_DAY_K_BARS, (
+        "调用点必须使用 _MEOZ_DAY_K_BARS, 不得另写字面量(改常量不生效 = 假修复)")

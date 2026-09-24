@@ -2008,6 +2008,15 @@ _CHART_CACHE = {}
 _CHART_LOCK = threading.Lock()
 _CHART_CACHE_TTL = 60     # 分时 60s 缓存, K线 1800s 缓存
 
+# 🔴 日K 根数 = 200 —— 与**旧链实际供数源**对齐, 不是拍脑袋 (v4.11.48)
+#   旧链 `fetch_stock_chart`(东财) 名义 120 根(`lmt`), 但东财 chart 存在接口级
+#   时段性风控(常 502) ⇒ 线上长期实际落的是备源腾讯 `count=200`。
+#   换首源(猫爪)后若写死 120, 用户看到的日K 会从 ~200 根缩到 ~120 根(约 10 个月
+#   → 约 6 个月) —— 这是**静默退化**, 换源验收(等价替换)直接判负。
+#   取 max(东财 120, 腾讯 200) = 200 ⇒ 对任何一种旧表现都不缩水。
+#   猫爪 daily 的 recentdays 实测 120/200/250/300 均足量返回(数据没问题)。
+_MEOZ_DAY_K_BARS = 200
+
 
 def fetch_stock_chart(code, period="day"):
     """获取个股图表数据
@@ -2641,9 +2650,11 @@ def _fetch_chart_from_meoz(code, period):
     周K/月K 猫爪**没有** → 返回 {} 交给原链条(它本来就只有东财/腾讯/自聚合三条路)。
 
     🔴 复权口径已对拍(2026-09-24 测试机真跑): 猫爪 daily 与现生产链(腾讯 qfq)在
-      120 根K线上**逐日收盘 100% 相等**, 区间回看至 20260403 且跨除权事件
-      ⇒ 同为**前复权**。因此把它提为日K首源**不会**让除权票出现K线断层
-      (这是本包唯一需要前置验证的正确性风险; 不验就提首源等于赌)。
+      重叠区间上**逐日收盘 100% 相等**, 且跨除权事件 ⇒ 同为**前复权**。因此把它提为
+      日K首源**不会**让除权票出现K线断层(这是本包唯一需要前置验证的正确性风险;
+      不验就提首源等于赌)。
+    🔴 深度口径: 拉取根数取 `_MEOZ_DAY_K_BARS`(=200), 与旧链实际供数源(腾讯 200)
+      对齐 —— 写死 120 会让日K 从 ~200 根缩到 ~120 根(见该常量处的说明)。
     """
     if not _meoz_enabled():
         return {}
@@ -2675,7 +2686,7 @@ def _fetch_chart_from_meoz(code, period):
             "preClose": pre_close,
         })
     if period == "day":
-        hist = meoz_client.daily_history_map([code], days=120)
+        hist = meoz_client.daily_history_map([code], days=_MEOZ_DAY_K_BARS)
         rows = hist.get(code) or []
         if not rows:
             return {}
