@@ -100,6 +100,34 @@ class TestSqliteCacheStore:
         cs.set("kpl:stock_plate:688062", v, ttl=300)
         assert cs.get("kpl:stock_plate:688062") == v
 
+    # ---------------- 过期行回收(2026-09-26 v4.11.53) ----------------
+    def test_purge_expired_removes_only_expired(self, cs):
+        """回收过期行 —— 读侧本来就取不到(`_alive` 判过期即返回 default), 故零行为影响
+
+        生产实测背景: kv_cache 3885 行里 3802 行(97.9%)早已过期仍在库, 最早的在 40 天前。
+        根因是 `get()` 判过期只返回 default、**从不删行**, 而 `clear_prefix()` 虽有实现
+        却**从来没有任何调度调用过它** ⇒ 表单调增长(日调度键 + kpl 逐股缓存 + 限流窗口)。
+        """
+        cs.set("alive", 1, ttl=3600)
+        cs.set("forever", 2)                 # ttl=0 ⇒ expire_at=0 ⇒ **永不过期**, 不得被清
+        cs.set("dead", 3, ttl=1)
+        time.sleep(1.2)
+        assert cs.purge_expired() == 1, "只删那 1 行过期的"
+        assert cs.get("alive") == 1
+        assert cs.get("forever") == 2, "永久键(expire_at=0)绝不能被清掉"
+        assert cs.get("dead") is None
+
+    def test_purge_expired_noop_when_none_expired(self, cs):
+        cs.set("a", 1, ttl=3600)
+        cs.set("b", 2)
+        assert cs.purge_expired() == 0
+
+    def test_purge_expired_idempotent(self, cs):
+        cs.set("dead", 3, ttl=1)
+        time.sleep(1.2)
+        assert cs.purge_expired() == 1
+        assert cs.purge_expired() == 0, "第二次已无行可删"
+
 
 @pytest.mark.skipif(RedisCacheStore is None, reason="redis-py 未安装")
 class TestRedisCacheStore:
@@ -115,6 +143,11 @@ class TestRedisCacheStore:
         st.incr("t:r", ttl=60)
         assert st.incr("t:r", ttl=60) == 2
         st.delete("t:r")
+
+    def test_purge_expired_noop(self):
+        """Redis 由服务端按 TTL 物理删除 ⇒ 无行可回收(返回 0 以统一调用方口径)"""
+        st = RedisCacheStore()
+        assert st.purge_expired() == 0
 
 
 def test_create_store_default_sqlite():

@@ -53,8 +53,20 @@ def _persist_to_db(codes, date):
     落库只发生在收盘刷新(stage=close): 此时今天的 K 线已定格, T 日 = 今天,
     tdate 语义明确。次日盘中读取即为"昨日", 收盘后再覆盖为"今天"(见 database 建表注释)。
     盘中预热(stage=open)不落库 —— 那时 T=前一交易日, 写进去会污染。
+
+    ★ 2026-09-26(生产 v4.11.53) 增加**第三道防线**: 落库 tdate 必须等于此刻应有的
+      T 日(`fetcher._yday_expected_tdate()`), 否则**拒绝写入**。
+      前两道防线分别在①拉取侧(三源收盘后强制确认拿到今日K线, 拿不到就返回 None)
+      与②读侧(`yday_db_get(expect_tdate=...)` 逐行比对); 此处再钉一次, 是为了防未来
+      有人把本函数挪到**非收盘路径**调用(例如"手动补落库"脚本) —— 那种调用会把非 T 日
+      的值冠上 T 日标签, 正是本次"数据冻结但标签每天前进"事故的成因。
     """
     tdate = date.replace("-", "")
+    expect = fetcher._yday_expected_tdate()
+    if expect and tdate != expect:
+        log.warning("昨日成交额收盘落库: 拒绝写入(tdate=%s ≠ 期望 T 日 %s, 疑非收盘路径调用)",
+                    tdate, expect)
+        return 0
     rows = []
     with fetcher._yesterday_lock:
         for c in codes:
@@ -111,7 +123,16 @@ def _prewarm_once(stage="open"):
         log.info("昨比预热完成 stage=%s date=%s 全市场%d只 昨涨命中=%d 耗时%.0fs",
                  stage, date, total, chg_ok, time.time() - t0)
         if stage == "close":
-            _persist_to_db(codes, date)
+            if not _persist_to_db(codes, date):
+                # ★ 2026-09-26(生产 v4.11.53): 一行都没落 ⇒ 几乎必然是**数据源尚未更新
+                #   今日日K**(拉取侧已把"收盘后拿不到今天那根"判成失败, 见
+                #   fetcher._kline_amount_pair)。此处必须返回 False, 让调度在收盘窗口
+                #   (15:10~15:25, 30s 一轮)内重试到源就绪为止 —— 若返回 True,
+                #   _fired[(date,"close")] 会被记成"已成功", 当天彻底不再补, 次日只能
+                #   冷启动全市场拉取(正是 2026-09-02 事故想要规避的场景)。
+                log.warning("昨比收盘落库 0 行 date=%s(源尚未更新今日K线?), 窗口内稍后重试",
+                            date)
+                return False
         return True
     except Exception as e:
         log.warning("昨比预热异常 err=%s(稍后重试)", e)

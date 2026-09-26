@@ -2141,6 +2141,16 @@ def _scheduler_loop():
                                 # 2026-08-17 修复: 抓取失败删 key 让收盘窗口内重试
                                 # (此前失败不删 key -> 当日永久缺失, 如 kpl doc42 当天数据 15:30 未就绪返回 1020)
                                 store.delete("sched:done:sector_%s_%s" % (src, date))
+                    # 收盘后回收 kv_cache 过期行(2026-09-26 v4.11.53)。
+                    # 为什么挂在这一段: ①本窗口已有 `_is_trade_day(g)` 守卫, 天然满足
+                    #   "只在交易日盘后跑一次"的频次要求; ②purge 是纯维护动作, 与
+                    #   market_brief / sector 同属"日终收尾", 语义一致; ③被删的行读侧
+                    #   本来就取不到(见 CacheStore.purge_expired) ⇒ 零行为影响。
+                    # 实测背景: 生产 kv_cache 3885 行里 3802 行早已过期仍在库, 最早 40 天前。
+                    if store.setnx("sched:done:kvpurge_" + date, 1, ttl=86400):
+                        n_purged = store.purge_expired()
+                        if n_purged:
+                            log.info("kv_cache 过期行回收 %d 行 date=%s", n_purged, date)
                 except Exception as e:
                     log.warning("板块轮动/两市概况 日终快照失败 err=%s", e, exc_info=True)
             # 15:50-15:55 板块轮动+人气热榜兜底补跑:

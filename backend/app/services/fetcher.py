@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as
 import concurrent.futures
 
 from ..core import config, logger
+from ..core import trade_calendar as _tc   # 2026-09-26: yday 期望 T 日需要交易日历(无循环: 只依赖 stdlib)
 from . import scorer   # 仅复用 parse_float / market_fs (无循环: scorer 不依赖 fetcher)
 from .cache_store import store   # 2026-09-04: 两市概况改跨进程缓存(无循环: cache_store 只依赖 core)
 from ..db import database as _database   # 2026-09-10: 昨日成交额落库/读库(无循环: database 只依赖 core)
@@ -94,6 +95,16 @@ def _hhmmss_int(v):
         return 0
     return int(s[:6])
 
+
+def _norm_d8(v):
+    """任意日期表示 → `YYYYMMDD`; 无法识别返回 `''`。
+
+    2026-09-26 新增: 东财日K的日期列是 `YYYY-MM-DD`, 猫爪的 `tradedate` 是 `YYYYMMDD`
+    —— 校验"这根K线到底属于哪天"时必须先归一, 否则字符串比较会因分隔符判决错误。
+    """
+    s = "".join(ch for ch in str(v or "") if ch.isdigit())
+    return s[:8] if len(s) >= 8 else ""
+
 log = logger.get_logger(__name__)
 
 # ---------- 按市场范围(fs)分区的行情缓存 ----------
@@ -106,13 +117,26 @@ _yesterday_cache = {}
 _yesterday_lock = threading.Lock()
 
 # ---------- 昨日成交额落库(2026-09-10: 收盘后写一次, 全天读库, 去掉多源兜底链) ----------
-# 说明见 database.init_db 中 yday_amount 建表注释: 按 code 覆盖写, 读时无需算"昨日是哪天"。
+# 说明见 database.init_db 中 yday_amount 建表注释: 按 code 覆盖写。
 # 兼容 CentOS 7 SQLite 3.7(不支持 ON CONFLICT) → 统一用 INSERT OR REPLACE。
+#
+# ★ 2026-09-26 修正一处**错误注释**(它的错误正是本次生产事故的源头):
+#   原文写「按 code 覆盖写, **读时无需算"昨日是哪天"**」—— 此判据不成立。
+#   行的 tdate 只有在"落库那一刻恰好等于正确的 T 日"时才可信, 而这一点**此前没有任何
+#   代码去校验**, 于是叠加出「数据冻结但标签每天前进」: 读侧拿到一行就当天已拉到、
+#   写侧又把同一批值原样回写并推进 tdate。现改为**读时按"期望 T 日"逐行比对**
+#   (见 _yday_expected_tdate / yday_db_get 的 expect_tdate 参数)。
 _YDAY_MAX_AGE_DAYS = 5   # tdate 距今超过 5 天(跨周末/长假)视为过期, 回落到实时源
 
 
 def _yday_tdate_fresh(tdate):
-    """tdate(YYYYMMDD) 是否足够新鲜(未被长假/停更拖成脏数据)"""
+    """tdate(YYYYMMDD) 是否足够新鲜(未被长假/停更拖成脏数据)
+
+    ⚠ 这只是**粗粒度兜底**(防"几个月前的行被当成有效"), 不是正确性判据 ——
+    真正决定"这行能不能用"的是 `_yday_expected_tdate()` 的逐行相等比对。
+    两年前这里只有本函数, 5 天窗口太宽: 09-14~09-24 的脏行 tdate 天天"新鲜",
+    却全是 09-10 的值。
+    """
     if not tdate or len(tdate) < 8:
         return False
     try:
@@ -121,6 +145,31 @@ def _yday_tdate_fresh(tdate):
         return False
     age = (time.time() - t) / 86400.0
     return -1.0 <= age <= _YDAY_MAX_AGE_DAYS
+
+
+def _yday_expected_tdate(now=None):
+    """`yday_amount` 表此刻应当指向的 T 日(`YYYYMMDD`); 算不出返回 `""`。
+
+    语义(与 `_after_close()` / `_kline_amount_pair` 的"T 日"口径严格一致):
+      * **交易日**且已过收盘缓冲(>=15:05) → T = **今天**(今天的日K已定格);
+      * 其余时刻(盘中/盘前/非交易日)      → T = **上一个交易日**(不含今天)。
+
+    ★ 为什么要它(2026-09-26, 生产 v4.11.53): 生产 `yday_amount` 自 2026-09-10 首次
+      落库后再没更新过 —— 09-14~09-24 共 9 个交易日, 每天 09:25 读到的都是同一批值
+      (与 09-10 收盘涨幅逐位相同率 99.6%), 而 tdate 标签每天照常前进。
+      根因是「读侧拿到行就认为今天已拉到」+「写侧原样回写只推进 tdate」形成闭环;
+      断开闭环的**唯一可靠判据**就是"行的 tdate 是否等于此刻应有的 T 日"。
+
+    为什么不用"当天 -1 天"粗算: 周末/长假会指错日期 —— 周六的"上一个交易日"是周五,
+    长假后第一天的是节前最后一天。故一律走 `core/trade_calendar`(单一事实来源)。
+    """
+    ts = time.time() if now is None else float(now)
+    g = time.gmtime(ts + 8 * 3600)
+    today = "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
+    if (g.tm_hour, g.tm_min) >= (15, 5) and _tc.is_trade_day(today):
+        return today.replace("-", "")
+    prev = _tc.prev_trade_date(today)
+    return prev.replace("-", "") if prev else ""
 
 
 def yday_db_put(rows):
@@ -150,8 +199,16 @@ def yday_db_put(rows):
                 pass
 
 
-def yday_db_get(codes):
-    """批量读昨日成交额: 返回 {code: (amount, prev_amount, chg)} (amount 为空或过期的不返回)"""
+def yday_db_get(codes, expect_tdate=None):
+    """批量读昨日成交额: 返回 {code: (amount, prev_amount, chg)} (amount 为空或 tdate 不可信的不返回)
+
+    expect_tdate: `YYYYMMDD` 或 None。
+      * **给出时(推荐, 生产调用路径一律走这条)**: 只返回 `tdate` 与它**逐位相等**的行
+        —— 这是"这行数据是不是此刻该有的那一份"的正确性判据, 缺了它就会把
+        陈年旧值当成"今天的昨日成交额"。
+      * None: 只做 `_yday_tdate_fresh` 的 5 天粗粒度兜底。仅供"不知道期望 T 日"的
+        场景(单测/离线工具)使用, **业务路径不要用**。
+    """
     if not codes:
         return {}
     out = {}
@@ -168,6 +225,8 @@ def yday_db_get(codes):
             for code, tdate, amount, prev_amount, chg in cur.fetchall():
                 if amount is None or not _yday_tdate_fresh(tdate):
                     continue
+                if expect_tdate and str(tdate or "")[:8] != str(expect_tdate):
+                    continue               # 不是此刻应有的 T 日 → 这行的值不可信, 当没有
                 out[code] = (amount, prev_amount, chg)
     except Exception as e:                                    # noqa: BLE001
         log.warning("昨日成交额读库失败 err=%s", e)
@@ -1403,6 +1462,13 @@ def _fetch_yesterday_amount_tencent(code, after_close=None):
                 close = None
             pairs.append((dstr, amt, close))
         if len(pairs) >= 2:
+            # ★ 2026-09-26 修复(生产 v4.11.53): 收盘后 T **必须确实是今天**。
+            #   与东财(_kline_amount_pair)/猫爪(_yday_pair_from_daily)同一条纪律 ——
+            #   腾讯是第三源, 但"源不同、纪律必须相同", 否则换源即复发。
+            #   注意此处**不记 _record(成功)**: 拿不到今天的行属"源尚未更新", 不是
+            #   源故障, 记失败会误伤熔断统计。
+            if after_close and pairs[-1][0] != today.replace("-", ""):
+                return None, None
             _record("tencent_kline", True, int((time.time() - t0) * 1000))
             # 2026-09-08: 顺带返回 T 日真实涨跌幅 —— 腾讯 qfqday 无涨跌幅列
             # (row[7] 是换手率), 用**收盘价环比自算**(实测 600127: 14.79/13.53 → 9.31%)。
@@ -1551,6 +1617,16 @@ def _kline_amount_pair(klines, close_idx=2, chg_idx=7, after_close=None):
             rows.append((dstr, amt, chg, close))
     if not rows:
         return None, None
+    # ★ 2026-09-26 修复(生产 v4.11.53): 收盘后 T **必须确实是今天**。
+    #   上面 is_today() 在 after_close=True 时无条件返回 False(= 不跳过今天), 这是为修
+    #   "收盘后昨日涨幅滞后一整天"的语义 bug, 但它隐含假设"今天那根一定拿得到"。
+    #   数据源当天还没更新日K时该假设不成立: rows[-1] 会是"昨天那根"却被当作 T 日返回
+    #   ⇒ 收盘落库把**旧值标成新 tdate** ⇒ 次日读库命中 ⇒ 数据永久冻结(本次生产事故)。
+    #   法定休市日更甚: 数据源永远不会有"今天"的行 ⇒ 每天都把上一交易日复制一份。
+    #   故宁可判定失败(返回 (None,None) ⇒ 本只不落库, 收盘窗口内稍后重试), 也绝不输出
+    #   **冠错日期**的数据 —— 「没有数据」永远好过「日期错的数据」。
+    if after_close and _norm_d8(rows[-1][0]) != _norm_d8(today):
+        return None, None
     # 最近已收盘 = 最后一行(按日期), 取它和它前一行
     t = rows[-1][1]
     t1 = rows[-2][1] if len(rows) >= 2 else None
@@ -1627,11 +1703,19 @@ def _yday_hydrate_from_db(codes, today, now):
     2026-09-10 新增: 昨日成交额为静态历史数据, 原实现每次选股实时逐只拉东财日K,
     既触发风控又是"多源兜底链"混乱的源头。改为收盘后落库 + 全天读库后, 稳态下
     本函数即可命中全部候选, 完全不发网络请求。
+
+    ★ 2026-09-26 关键修复(生产 v4.11.53): 读库必须带**期望 T 日**(见
+      `_yday_expected_tdate`)。此前无条件接受任意"5 天内"的行, 且把库值写成
+      `[today, pair, now, chg]` —— **等于向 _collect_yday_need 宣称"今天已经拉到了"**,
+      于是 need 恒为空 → 永不重拉; 而收盘落库又把同一批值原样回写、只推进 tdate →
+      **数据自首次落库起永久冻结、标签每天前进**(09-14~09-24 实测 9 个交易日)。
+      现在: 库里 tdate 与期望 T 日不符 ⇒ 视为没命中 ⇒ 正常进入实时拉取路径。
     """
     if not codes:
         return []
+    expect = _yday_expected_tdate(now)
     try:
-        dbmap = yday_db_get(codes)
+        dbmap = yday_db_get(codes, expect_tdate=expect)
     except Exception as e:                                    # noqa: BLE001
         log.warning("昨日成交额读库异常(回落实时源) err=%s", e)
         return list(codes)
@@ -1650,8 +1734,8 @@ def _yday_hydrate_from_db(codes, today, now):
                 continue          # 当日已有成功缓存(刚实时拉过), 不覆盖
             pair = [amount, prev_amount] if amount is not None else None
             _yesterday_cache[c] = [today, pair, now, chg]
-    log.info("昨日成交额读库命中 %d/%d 只(零网络), 剩余%d只走实时源",
-             len(dbmap), len(codes), len(rest))
+    log.info("昨日成交额读库命中 %d/%d 只(零网络, 期望tdate=%s), 剩余%d只走实时源",
+             len(dbmap), len(codes), expect or "-", len(rest))
     return rest
 
 
@@ -1804,6 +1888,12 @@ def _yday_pair_from_daily(rows, today, after_close=None):
         return None, None
     keep.sort(key=lambda x: x[0])          # 升序: 末位 = 最近已收盘交易日(T)
     t = keep[-1]
+    # ★ 2026-09-26 修复(生产 v4.11.53): 与 _kline_amount_pair 同一条纪律 ——
+    #   收盘后 T **必须确实是今天**, 否则宁可返回 (None,None) 也不拿"昨天那根"冒充今天。
+    #   猫爪 daily 已是昨日成交额的主源, 这条校验是本次"数据冻结"事故在换源后
+    #   仍会复发的唯一入口(旧实现里 `not after_close` 的跳过条件不对称地留了这个豁口)。
+    if after_close and t[0] != today_d:
+        return None, None
     t1 = keep[-2] if len(keep) >= 2 else None
     pair = [t[1] / 10000.0, (t1[1] / 10000.0) if t1 else None]
     chg_t = t[2]

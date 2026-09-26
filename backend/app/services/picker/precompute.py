@@ -63,12 +63,29 @@ def detail_enabled() -> bool:
 def load_yday_chg() -> Dict[str, float]:
     """全市场昨日涨幅 {code: %} — 来自 yday_amount 表(收盘批量落库, 零网络)。
 
-    实测覆盖 5550/5557(99.9%)。缺失返回空 dict(该因子走 default, 不阻塞)。
+    ★ 2026-09-26(生产 v4.11.53): **必须带「期望 T 日」过滤**。
+      此前无条件读全表 —— 而生产该表自 2026-09-10 首次落库起就被"冻结"了
+      (值一动不动、tdate 每天照常前进), 于是 09-14~09-24 共 9 个交易日的
+      "昨日涨幅"因子(权重 `settings.scoring.w_yesterday = 0.05`)吃的全是 9 天前的数据。
+      现在只认 `tdate` 等于此刻应有 T 日的行; 不匹配 ⇒ 返回空 ⇒ 因子走 default
+      —— 「宁缺勿错」, 与 picker/score.py 的缺失值语义一致。
+
+    实测覆盖 5550/5557(99.9%)。缺失返回空 dict(不阻塞)。
     """
     try:
+        from .. import fetcher                                # 延迟 import: 避免与 fetcher 顶层互引
+        expect = fetcher._yday_expected_tdate()
         conn = database.get_conn()
-        rows = conn.execute(
-            "SELECT code, chg FROM yday_amount WHERE chg IS NOT NULL").fetchall()
+        if expect:
+            rows = conn.execute(
+                "SELECT code, chg FROM yday_amount WHERE chg IS NOT NULL AND tdate=?",
+                (expect,)).fetchall()
+            if not rows:
+                log.warning("[预计算] 昨日涨幅: yday_amount 无 tdate=%s 的行"
+                            "(源未落库/数据陈旧) → 该因子走 default", expect)
+        else:
+            rows = conn.execute(                                # 日历算不出 T 日: 退化为旧行为
+                "SELECT code, chg FROM yday_amount WHERE chg IS NOT NULL").fetchall()
         conn.close()
         return {str(c): float(v) for c, v in rows
                 if c and v is not None}

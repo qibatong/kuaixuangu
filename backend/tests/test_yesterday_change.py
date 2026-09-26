@@ -50,9 +50,13 @@ def test_kline_pair_skips_today_row():
 
 
 def test_kline_pair_no_change_field():
-    """K 线行缺涨跌幅字段(兜底源) → chg=None(缺失即缺失, 不捏造)"""
+    """K 线行缺涨跌幅字段(兜底源) → chg=None(缺失即缺失, 不捏造)
+
+    after_close=False 显式指定: 本用例测"缺字段不捏造", 与收盘语义无关; 用默认值会
+    与真实时钟耦合(盘后落进"收盘后 T 必须=今天"的校验, 而此处是历史日期)。
+    """
     klines = ["2026-09-07,10.2,10.8,10.9,10.1,2000,21600000"]
-    pair, chg = fetcher._kline_amount_pair(klines)
+    pair, chg = fetcher._kline_amount_pair(klines, after_close=False)
     assert pair == [2160.0, None]
     assert chg is None
 

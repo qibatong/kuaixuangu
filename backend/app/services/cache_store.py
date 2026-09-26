@@ -55,6 +55,19 @@ class CacheStore:
     def clear_prefix(self, prefix):
         raise NotImplementedError
 
+    def purge_expired(self):
+        """回收**已过期**的条目, 返回删除行数(Redis 自带 TTL ⇒ 恒 0)。
+
+        2026-09-26 新增。为什么需要它: `get()` 判过期只**返回 default、从不删行** ——
+        生产 kv_cache 实测 3885 行里 3802 行(97.9%)早已过期仍在库, 最早的在 40 天前;
+        而 `clear_prefix()` 虽有实现却**从来没有任何调度调用过它**, 只能靠人工。
+        表因此单调增长(每日调度键 + kpl 逐股板块缓存 + 限流窗口 + 信号量槽)。
+
+        安全性: 被删的行**读侧本来就取不到**(`_alive` 判过期即返回 default) ⇒
+        **零行为影响**。唯一代价是一次批量 DELETE, 故只挂在每交易日收盘后的调度窗口。
+        """
+        return 0
+
     def incr(self, key, ttl=0):
         """固定窗口原子自增(限流/配额计数): 首次创建并设 TTL, 后续只 +1 不刷 TTL"""
         raise NotImplementedError
@@ -155,6 +168,23 @@ class SqliteCacheStore(CacheStore):
         except Exception:
             pass
 
+    def purge_expired(self):
+        """删除过期行(`expire_at > 0 AND expire_at <= now`), 返回删除行数。
+
+        ⚠ 只删 `expire_at > 0` 的: `0` 在本模块语义是"**永不过期**"
+          (见 `set()` —— `ttl=0` 即写 0), 不能用 `< now` 一概而论, 否则会把
+          永久键(`layout:` / `settings:` 类)一起清掉。
+        """
+        try:
+            now = int(time.time())
+            with _DB_LOCK, self._tx() as conn:
+                cur = conn.execute(
+                    "DELETE FROM kv_cache WHERE expire_at > 0 AND expire_at <= ?", (now,))
+                return cur.rowcount or 0
+        except Exception as e:
+            log.warning("cache purge_expired 失败 err=%s", e)
+            return 0
+
     def incr(self, key, ttl=0):
         try:
             now = int(time.time())
@@ -236,6 +266,10 @@ class RedisCacheStore(CacheStore):
                 self.r.delete(k)
         except Exception:
             pass
+
+    def purge_expired(self):
+        """Redis 的 TTL 到期即由服务端物理删除 ⇒ 无需回收(返回 0 以统一调用方口径)。"""
+        return 0
 
     def incr(self, key, ttl=0):
         try:

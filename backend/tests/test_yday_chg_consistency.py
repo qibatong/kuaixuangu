@@ -89,7 +89,10 @@ def test_tencent_qfqday_derives_change(monkeypatch):
 
     monkeypatch.setattr(fetcher, "_http_get",
                         lambda *a, **k: _Resp(json.dumps(payload).encode()))
-    pair, chg = fetcher._fetch_yesterday_amount_tencent("600127")
+    # after_close=False 显式指定: 本用例测"自算涨跌幅", 与收盘语义无关。若用默认值
+    # (按真实时钟判定) 则盘后跑会落进"收盘后 T 必须=今天"的校验, 而 payload 是历史
+    # 日期 ⇒ 必然返回 (None,None), 用例与真实时钟耦合(2026-09-26 加固)。
+    pair, chg = fetcher._fetch_yesterday_amount_tencent("600127", after_close=False)
     assert pair is not None and abs(pair[0] - 434781.26) < 1
     assert abs(chg - 9.31) < 0.05, "应自算 (14.79-13.53)/13.53=9.31%%, 实际 %s" % chg
 
@@ -141,7 +144,7 @@ def test_eastmoney_uses_official_change_column():
         "2020-01-01,10.00,10.00,10.10,9.90,1000,10000000.0,1.20",
         "2020-01-02,10.00,10.50,10.60,10.00,1200,12000000.0,5.00",
     ]
-    pair, chg = fetcher._kline_amount_pair(rows)
+    pair, chg = fetcher._kline_amount_pair(rows, after_close=False)
     assert pair is not None and abs(pair[0] - 1200.0) < 1
     assert chg == 5.00, "东财 f58 官方涨跌幅列应被优先采用"
 

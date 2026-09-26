@@ -43,7 +43,7 @@
 from __future__ import annotations
 
 import time
-from datetime import date as _date
+from datetime import date as _date, timedelta as _timedelta
 from typing import Optional, Union
 
 __all__ = [
@@ -55,6 +55,7 @@ __all__ = [
     "is_trade_day",
     "is_trade_day_now",
     "is_trade_day_of",
+    "prev_trade_date",
     "bj_date",
     "warn_if_uncovered",
 ]
@@ -193,6 +194,36 @@ def is_trade_day_of(g: time.struct_time) -> bool:
 def is_trade_day_now(now_ts: Optional[float] = None) -> bool:
     """当前北京时间是否交易日。"""
     return is_trade_day(bj_date(now_ts))
+
+
+def prev_trade_date(d: Union[str, _date, time.struct_time, None] = None, *,
+                    include_today: bool = False,
+                    max_back: int = 30) -> Optional[str]:
+    """`d`(默认今天)之前**最近一个交易日**, 返回 `YYYY-MM-DD`; 找不到返回 None。
+
+    include_today=True 时, 若 `d` 本身是交易日则返回 `d`。
+
+    用途(2026-09-26 新增): 给「昨日成交额(yday_amount)」这类**按 T 日语义取值**的
+    缓存/落库判据提供"上一个交易日"。此前各模块靠 `now - 1 天` 粗算, 遇到周末/长假
+    就指错日期 —— 而那正是 09-14~09-24「数据冻结但标签每天前进」事故的温床。
+
+    fail-open: 超出 `max_back` 天(异常输入/日历表缺口)返回 None, 由调用方自行兜底 ——
+    本模块不猜日期, 猜错会**误拦真实交易日**, 后果比弃权严重。
+    """
+    base = _norm(d) if d is not None else bj_date()
+    if not base:
+        return None
+    try:
+        cur = _date.fromisoformat(base)
+    except ValueError:
+        return None
+    if not include_today:
+        cur -= _timedelta(days=1)
+    for _ in range(max(1, int(max_back))):
+        if is_trade_day(cur):
+            return cur.isoformat()
+        cur -= _timedelta(days=1)
+    return None
 
 
 def warn_if_uncovered(d: Union[str, _date, time.struct_time, None] = None) -> None:
