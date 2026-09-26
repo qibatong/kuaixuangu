@@ -1872,7 +1872,7 @@
     前端 `node --test` **83 passed / 0 failed**；`import app.main` OK，
     `coarse_filter(rows, f, ctx=None, limit=200)`、`COARSE_MAX = _SNAP_CANDIDATE_MAX = 200`。
   - **上线状态**：**本机未部署**（生产须主人明确指令）。回滚点：本次改动前 commit `90c4e17`。
-- **v4.11.49 (09-26 仅测试机) 粗筛排队键改为「定格竞价涨幅降序」（当日涨幅榜前 200）**
+- **v4.11.49 (09-26 两机均已上线) 粗筛排队键改为「定格竞价涨幅降序」（当日涨幅榜前 200）**
   - **触发**：主人指令「按定格三因子粗排分降序，修改为当日涨幅榜前 200」。
   - **口径两问两答（落成决策，不是推测）**：
     - ① **排序字段 = 定格竞价涨幅 `bid_change`**，**不是**实时的 `real_change`(f3)。
@@ -1933,8 +1933,42 @@
     **前端先发或同批发 → 无影响**；**后端先发、前端后发 → 老前端读不到 `coarseRank` 会退回
     竞价额降序 ⇒ 触顶日与后端截断分叉**（前端新增的"解耦用例"只能保证新前端不受该字段影响，
     救不了还没更新的老前端）。故建议同批发布。
-  - **上线状态**：✅ **已发布测试机 47.99.153.123**（2026-09-26 17:52，前后端同批；生产**未动**）。
+    - 🔴 **事后复盘（2026-09-26 21:31）**：生产实际走了**最坏的那条路** —— 20:29 的
+      「26 文件全量对齐」把**后端**先发上去了，前端 dist 直到 21:31 才补，**分叉窗口约 1 小时**
+      （非交易时段，无实盘影响）。根因在**圈定"同批发布范围"的方法**：我是按 `backend/app/*.py`
+      的文件集合做的全量比对，**前端 dist 根本不在射程内**。
+      ⇒ **教训：同批约束会写在这一版的提交信息里 —— 发版前必须读它，不能只看后端目录。**
+  - **上线状态**：✅ **已发布测试机 47.99.153.123**（2026-09-26 17:52，前后端同批）；
+    ✅ **生产已补齐**（2026-09-26 21:31）—— 见下条。
     提交 `13f9ece` → 已推 `origin/feature/scoring-v7-meoz`。改动前 commit = 回滚点 `f456765`。
+  - **✅ 生产前端补发（2026-09-26 21:31，主人拍板）**：
+    - **背景**：生产在 20:29 的「26 文件全量对齐」中**后端已上 v4.11.49**（删 `coarseRank`、
+      改 `bid_change` 降序），但**前端 dist 未同批** —— 生产 `dist/index.html` 仍是 `70ca786a…`
+      （09-26 10:47 构建，`grep -rl coarseRank dist/assets` **命中 1 个文件**）
+      ⇒ **前后端分叉**，正是上条「部署顺序」预警的情形（老前端读不到 `coarseRank` ⇒ 退回竞价额
+      降序 ⇒ 触顶日与后端截断分叉）。
+    - **构建与可重现性（本轮最有价值的一步）**：本地从 git HEAD（`13f9ece` + `0fbf322` 的前端
+      回写）`vite build --outDir /tmp/kx_dist_build`，产物 `index.html md5 e4b8cc07…`
+      **与测试机线上 dist 逐文件一致**（`diff -rq` **零差异**；全量汇总 md5 双侧均 `64bb8eb4…`）
+      ⇒ **前端构建可重现**，测试机那份与新构建同源，不存在"两份产物"的风险。
+    - **包**：`kx_dist_v41149.tgz`（md5 `5fc1077b37d19095c63f729c75e0d5a9`，1037 文件，0 AppleDouble）。
+      ⚠️ macOS `tar` 会在包内写 `LIBARCHIVE.xattr.com.apple.provenance` 扩展头，Linux 解包时打印
+      `Ignoring unknown extended header keyword` —— **无害噪音**（区别于之前的 AppleDouble `._*` 真垃圾）。
+    - **七项校验（全过才切换；不通过则线上 dist 不动）**：① 文件数 **1037**；
+      ② `index.html md5 e4b8cc07…`；③ **7 个关键 chunk 逐个 md5 与本地构建一致**
+      （`index-ColiO7TT` / `StockChartModal-I4NXTu2T` / `HistoryView-1yzCbdi9` /
+      `MarketView-BEGWCyps` / `AipickReport-u0_E_1K6` / `LoginView-D8eOJPPs` / `LadderView-CHfcErLz`）；
+      ④ `coarseRank` 命中 **0**；⑤ `bidChange` 命中 **5**；⑥ 顶层 `index.html`+`favicon.ico`+
+      `favicon.png`+`logo.jpg` 齐备；⑦ assets 条目 **1033**。参考项：全量汇总 md5 = `64bb8eb4…`
+      （与本地基准一致）。
+    - **切换**：`mv dist → dist_bak_20260926-213111_v41149sync`（38M）→ `mv dist_new → dist`；
+      `nginx -t` ok + `nginx -s reload`（清 `open_file_cache`）。
+    - **发布后验收**：线上 `index.html md5 e4b8cc07…`、入口 chunk `assets/index-ColiO7TT.js`；
+      `https://127.0.0.1/`（Host `www.kuaixuangu.cn`）**200**、新入口 chunk **200**、
+      `http://127.0.0.1/` **301 → `https://www.kuaixuangu.cn/`**；`kuaixuan`/`kx-worker` 全 active。
+    - **⚠️ 静态资源由 nginx 提供（`root /opt/kuaixuan/dist`），后端 8010 不挂前端**
+      （`curl 127.0.0.1:8010/` → 404）⇒ **替换 dist 无需重启后端**，reload nginx 即可。
+    - **回滚**：`mv dist dist_failed_<ts> && mv dist_bak_20260926-213111_v41149sync dist && nginx -s reload`。
     - **发布前证据（三方同源证明）**：测试机 4 个后端文件的 md5（归一化行尾后）
       **与改动前基线 `f456765` 逐位相同** ⇒ 整文件替换零风险：
       `score.py 80ff3af4…` / `filter.py 32aff556…` / `precompute.py 0c1fc1cc…` / `stocks.py 9af7f27c…`。
