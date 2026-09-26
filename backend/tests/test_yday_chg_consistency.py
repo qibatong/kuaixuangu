@@ -214,12 +214,16 @@ def test_batch_consistency_can_be_disabled():
 
 
 # ---------------- ④ 收盘后语义: 今天已定格, 不得再跳过(2026-09-08) ----------------
-def test_after_close_today_is_counted():
+def test_after_close_today_is_counted(monkeypatch):
     """收盘后(≥15:05)今天的 K 线已定格 → T 必须取今天, 否则"昨日涨幅"滞后一整天
 
     此前无条件跳过今天 → 收盘后到午夜前, 用户看到的"昨日涨幅"实际是前天的。
+    ★ v4.11.55: 校验目标改 `_yday_expected_tdate()` 后, 本用例需显式声明"期望 T 日 = 今天"
+    (否则真实时钟落在周末/节假日时, 期望 T 日会是上一交易日, 用例与日历耦合)。
     """
     today = fetcher._bj_date_str()
+    monkeypatch.setattr(fetcher, "_yday_expected_tdate",
+                        lambda now=None: today.replace("-", ""))
     rows = [
         "%s,10.0,10.2,10.3,9.9,1000,10200000,3.55" % _d(-1),
         "%s,10.2,10.8,10.9,10.1,2000,21600000,5.88" % today,   # 今天(已收盘)

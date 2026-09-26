@@ -19,8 +19,10 @@
 
 **修复 = 四条判据**(逐条对应本文件的用例):
   A. `_yday_expected_tdate()` 定义"此刻应有的 T 日", 读库逐行比对(TestA);
-  B. 三源(东财 / 腾讯 / 猫爪)收盘后**必须确认拿到今天那根K线**, 否则返回 (None,None)
-     —— 从根上拒绝"拿昨天那根冒充今天"(TestB);
+  B. 三源(东财 / 腾讯 / 猫爪)收盘后**必须确认拿到"期望 T 日"那根K线**, 否则返回 (None,None)
+     —— 从根上拒绝"拿昨天那根冒充今天"(TestB)。★ v4.11.55 修正: 校验目标由**字面今天**
+     改为 `_yday_expected_tdate()`(非交易日盘后 = 上一交易日); 原实现下周末/节假日盘后
+     今天本就没有 K 线 ⇒ 三源恒返回 (None,None), "昨额昨涨"在长假期间取不到值;
   C. `_persist_to_db` 落库前再校验 tdate(第三道防线, 见 test_yday_amount_db);
   D. 收盘落库 0 行 → `_prewarm_once` 返回 False, 收盘窗口内重试(见 test_yday_amount_db)。
 """
@@ -101,7 +103,7 @@ _EM_ROW_TODAY = "2026-09-25,10.8,11.0,11.1,10.7,500,5500000,1.85"
 
 def test_eastmoney_close_requires_today(monkeypatch):
     """东财: 收盘后源只更新到昨天 → 必须 (None,None), 不得把 09-24 那根当 09-25 返回"""
-    monkeypatch.setattr(fetcher, "_bj_date_str", lambda: "2026-09-25")
+    monkeypatch.setattr(fetcher, "_yday_expected_tdate", lambda now=None: "20260925")
     assert fetcher._kline_amount_pair(_EM_ROWS_2D, after_close=True) == (None, None)
     pair, chg = fetcher._kline_amount_pair(_EM_ROWS_2D + [_EM_ROW_TODAY], after_close=True)
     assert pair == [550.0, 2160.0], "拿到今天那根后才正常返回(万元)"
@@ -116,8 +118,10 @@ def test_eastmoney_intraday_unaffected(monkeypatch):
     assert chg == 5.88
 
 
-def test_meoz_close_requires_today():
+def test_meoz_close_requires_today(monkeypatch):
     """猫爪(主源): 同上纪律 —— 这条是"换源后事故复发"的唯一入口, 必须钉死"""
+    monkeypatch.setattr(fetcher, "_yday_expected_tdate", lambda now=None: "20260925")
+
     def _row(d, amt, pct, close):
         return {"tradedate": d, "amount": amt, "pct_chg": pct, "close": close}
     rows = [_row("20260923", 1.02e7, 3.55, 10.2), _row("20260924", 2.16e7, 5.88, 10.8)]
@@ -142,7 +146,7 @@ def test_meoz_intraday_unaffected():
 
 def test_tencent_close_requires_today(monkeypatch):
     """腾讯(第三源): 同一条纪律 —— "源不同、纪律必须相同", 否则换源即复发"""
-    monkeypatch.setattr(fetcher, "_bj_date_str", lambda: "2026-09-25")
+    monkeypatch.setattr(fetcher, "_yday_expected_tdate", lambda now=None: "20260925")
 
     def _mk(dates):
         return {"data": {"sh600127": {"qfqday": [
@@ -172,6 +176,37 @@ def test_tencent_close_requires_today(monkeypatch):
     pair, _chg = fetcher._fetch_yesterday_amount_tencent("600127", after_close=True)
     # 腾讯 row[8] 口径 = **万元**(与东财 row[6] 的"元"不同, 这是历史踩坑点), 故原样返回
     assert pair == [100000.0, 100000.0]
+
+
+def test_close_accepts_prev_trade_date_on_non_trading_day(monkeypatch):
+    """★ v4.11.55 回归: **非交易日盘后** 期望 T 日 = 上一交易日(09-24), 三源必须放行
+
+    原实现用**字面今天**做校验 ⇒ 周六/节假日盘后今天本就没有 K 线 ⇒ 三源恒返回
+    (None,None), "昨额昨涨"在整个长假/周末取不到值(生产 2026-09-26 20:30 实测复现:
+    amount 全为 None)。修正 = 校验目标对齐 `_yday_expected_tdate()`。
+    """
+    monkeypatch.setattr(fetcher, "_yday_expected_tdate", lambda now=None: "20260924")
+    # 东财: 最后一根 = 09-24(恰为期望 T 日) → 放行
+    pair, chg = fetcher._kline_amount_pair(_EM_ROWS_2D, after_close=True)
+    assert pair == [2160.0, 1020.0]
+    assert chg == 5.88
+
+    # 猫爪
+    def _row(d, amt, pct, close):
+        return {"tradedate": d, "amount": amt, "pct_chg": pct, "close": close}
+
+    rows = [_row("20260923", 1.02e7, 3.55, 10.2), _row("20260924", 2.16e7, 5.88, 10.8)]
+    mpair, mchg = fetcher._yday_pair_from_daily(rows, today="2026-09-26", after_close=True)
+    assert mpair == [2160.0, 1020.0]
+    assert mchg == 5.88
+
+
+def test_close_fail_open_when_expect_unknown(monkeypatch):
+    """期望 T 日算不出(假日历回溯越界等) → 弃权放行, 不得把正常数据一并拦掉"""
+    monkeypatch.setattr(fetcher, "_yday_expected_tdate", lambda now=None: "")
+    pair, chg = fetcher._kline_amount_pair(_EM_ROWS_2D, after_close=True)
+    assert pair == [2160.0, 1020.0]
+    assert chg == 5.88
 
 
 # ======================= 交易日历: prev_trade_date(本次新增) =======================

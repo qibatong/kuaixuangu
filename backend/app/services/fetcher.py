@@ -1467,8 +1467,12 @@ def _fetch_yesterday_amount_tencent(code, after_close=None):
             #   腾讯是第三源, 但"源不同、纪律必须相同", 否则换源即复发。
             #   注意此处**不记 _record(成功)**: 拿不到今天的行属"源尚未更新", 不是
             #   源故障, 记失败会误伤熔断统计。
-            if after_close and pairs[-1][0] != today.replace("-", ""):
-                return None, None
+            #   2026-09-26 补丁(v4.11.55): 校验目标改 `_yday_expected_tdate()`
+            #   (非交易日盘后 = 上一交易日), 修掉"周末/节假日盘后恒失败"。
+            if after_close:
+                want = _yday_expected_tdate()
+                if want and pairs[-1][0] != want:
+                    return None, None
             _record("tencent_kline", True, int((time.time() - t0) * 1000))
             # 2026-09-08: 顺带返回 T 日真实涨跌幅 —— 腾讯 qfqday 无涨跌幅列
             # (row[7] 是换手率), 用**收盘价环比自算**(实测 600127: 14.79/13.53 → 9.31%)。
@@ -1625,8 +1629,14 @@ def _kline_amount_pair(klines, close_idx=2, chg_idx=7, after_close=None):
     #   法定休市日更甚: 数据源永远不会有"今天"的行 ⇒ 每天都把上一交易日复制一份。
     #   故宁可判定失败(返回 (None,None) ⇒ 本只不落库, 收盘窗口内稍后重试), 也绝不输出
     #   **冠错日期**的数据 —— 「没有数据」永远好过「日期错的数据」。
-    if after_close and _norm_d8(rows[-1][0]) != _norm_d8(today):
-        return None, None
+    #   2026-09-26 补丁(v4.11.55): 校验目标由**字面今天**改为 `_yday_expected_tdate()`
+    #   (非交易日盘后 = 上一交易日)。原实现用字面 today ⇒ **周末/节假日盘后恒失败**
+    #   (今天本就没有 K 线), 而该时刻要取的 T 日恰恰就是上一交易日。语义与本函数开头
+    #   "T = 最近已收盘交易日" 完全一致。
+    if after_close:
+        want = _yday_expected_tdate()
+        if want and _norm_d8(rows[-1][0]) != want:
+            return None, None
     # 最近已收盘 = 最后一行(按日期), 取它和它前一行
     t = rows[-1][1]
     t1 = rows[-2][1] if len(rows) >= 2 else None
@@ -1892,8 +1902,12 @@ def _yday_pair_from_daily(rows, today, after_close=None):
     #   收盘后 T **必须确实是今天**, 否则宁可返回 (None,None) 也不拿"昨天那根"冒充今天。
     #   猫爪 daily 已是昨日成交额的主源, 这条校验是本次"数据冻结"事故在换源后
     #   仍会复发的唯一入口(旧实现里 `not after_close` 的跳过条件不对称地留了这个豁口)。
-    if after_close and t[0] != today_d:
-        return None, None
+    #   2026-09-26 补丁(v4.11.55): 同 _kline_amount_pair —— 校验目标改 `_yday_expected_tdate()`,
+    #   否则**非交易日盘后**(周六/节假日)今天根本无 K 线, 会恒返回 (None,None)。
+    if after_close:
+        want = _yday_expected_tdate()
+        if want and t[0] != want:
+            return None, None
     t1 = keep[-2] if len(keep) >= 2 else None
     pair = [t[1] / 10000.0, (t1[1] / 10000.0) if t1 else None]
     chg_t = t[2]
