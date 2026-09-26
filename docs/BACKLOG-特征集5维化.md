@@ -2,7 +2,29 @@
 
 **决策日期**：2026-09-25
 **决策人**：用户（原话「需要竞价涨幅，不要昨日涨幅」）
-**状态**：✅ 源码已改（本地，**未上线**） · ⏳ 待发布 · 模型已产出（未部署）
+**状态**：✅ **已上线生产**（模型与 5 个 `FEATURES` 文件均已生效；见下方「状态订正」）
+
+---
+
+## 0. 状态订正（2026-09-26 21:5x · 取生产硬证据后）
+
+本行原文写「✅ 源码已改（本地，**未上线**） · ⏳ 待发布 · 模型已产出（未部署）」——
+**与生产实测相反**。实测证据（生产 `121.196.230.80`，全程只读）：
+
+| # | 证据 | 值 |
+|---|---|---|
+| 1 | `/opt/kuaixuan/aipick/models/model_meta_lgb.json` | `"features": ["bid_change","bid_amount","bid_turnover","circ_mv","price"]`、**`"n_features": 5`**、`trained_at = 2026-09-26 01:27:28`、`auc = 0.8109` |
+| 2 | 模型文件 `model_lgb.txt` / `model_xgb.json` | mtime 均 **2026-09-26 01:27**；同目录另有 `_deprecated/`（旧模型留档） |
+| 3 | 生产 `backend/app/services/ai_predict.py` 的 `FEATURES` | **5 维**（无 `yesterday_chg`），且文件头已写明「2026-09-25 起由 6 特征降为 5 特征」 |
+| 4 | 生产 `aipick/scripts/{train_model,train_lgbm,predict_daily,backtest}.py` | `FEATURES` **全为 5 维** |
+
+> ⚠️ **不要被 `grep yesterday_chg` 的命中数误导**：`ai_predict.py` 里仍有 3 处、
+> `scripts/*.py` 里各有 1~2 处 `yesterday_chg` —— 那些都是**注释与列示例**。
+> 该列**保留在采集/落库里、但已退出模型特征集**（见 §4 末尾「采集写入逻辑刻意不动」）。
+> 判定是否已 5 维化，**只看 `FEATURES` 列表与 `model_meta_lgb.json` 的 `n_features`**。
+
+📌 教训（与 `AGENTS.md` §0.1 同一类）：**文档里的状态行不是证据** ——
+引述前先取一条**生产侧实测**（`n_features` / 文件 mtime / `FEATURES` 原文）。
 
 ---
 
@@ -44,7 +66,7 @@
 复现：`lgbm-deploy/run_featset_cmp.py` → `output/lgblab/featset_{arm6,arm5,armD}.json`
 （`train_v2.py` 新增 `--drop-features`，`infer_0924.py` 同步新增）。
 
-## 4. 改动清单（本地已完成，共 7 处）
+## 4. 改动清单（共 7 处，**已上生产**）
 
 | # | 文件 | 位置 | 改动 |
 |---|---|---|---|
@@ -61,10 +83,15 @@
 > 而该列已不影响任何模型输出。若日后要"两分支统一为竞价涨幅"，必须改用 `auc_pct_chg`（竞价时点、无泄漏），
 > **不能**改用 `pct_chg`。
 
-## 5. 发布要求：**必须同批，不能分批**
+## 5. 发布要求：**必须同批，不能分批**（✅ 已按此批次执行）
 
 特征列表在生产里出现在 **5 个文件**，且**每天 18:59:30 后端调度器会自动重训并覆盖线上模型**
 （`backend/app/services/aipick_scheduler.py` → `train_model.py` + `train_lgbm.py`；9:27 跑 `predict_daily.py`）。
+
+> **实际执行结果**：线上模型 `trained_at = 2026-09-26 01:27:28`、`n_features = 5`，
+> 而生产 5 个 `FEATURES` 文件**同为新版**（见 §0）⇒ 批次 ①②③ 已闭合，
+> **不存在「5 维模型 + 6 维后端」的空窗**。运行期宽度断言（§6-4 建议项）也已落到
+> `ai_predict.py`：失配会打 **ERROR + 告警**，不再静默降级。
 
 **失败模式（已在本机实测复现）**：只改 aipick 脚本、不改后端 →
 当晚 18:59 产出 5 维模型 → 次日 9:27 后端 `ai_predict.py` 仍按 6 维喂 →
@@ -103,8 +130,16 @@
 
 ## 7. 关联文件
 
-* 训练/对拍：`lgbm-deploy/run_featset_cmp.py`、`train_v2.py --drop-features`
+> ⚠️ **路径归属**：`lgbm-deploy/` **不在本仓库内** —— 它是**与仓库同级**的实验目录
+> （`/Users/batong/WorkBuddy/2026-09-24-21-22-12/lgbm-deploy/`，未被 `.gitignore` 命中、
+> 也未入库）。在仓库里 checkout 后**找不到**下列文件，属正常；引用时请带全路径。
+
+* 训练/对拍：`lgbm-deploy/run_featset_cmp.py`、`lgbm-deploy/train_v2.py --drop-features`
 * 推理：`lgbm-deploy/infer_0924.py --drop-features yesterday_chg`
 * 结果页：`lgbm-deploy/output/infer0924/RESULT-特征集5维化-三臂验证.html`
 * 报告：`lgbm-deploy/REPORT-特征集5维化与0924结果.md`
-* 模型：`lgbm-deploy/models/model_lgb_hist5_l127.txt`（**未部署**）
+* 实验臂模型：`lgbm-deploy/models/model_lgb_hist5_l127.txt`（`l63`/`l7` 为同批容器长度的对照臂）
+* **线上模型（权威）**：`/opt/kuaixuan/aipick/models/model_lgb.txt` + `model_xgb.json`
+  （`n_features = 5`、`trained_at = 2026-09-26 01:27:28`，见 §0）。
+  ⚠️ 线上模型由生产脚本**另行重训**产出；与上面那个实验臂是否逐位相同**未做核对**，
+  不要据文件名推定"就是它"。

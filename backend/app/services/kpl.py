@@ -13,12 +13,92 @@ import time
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from typing import Optional
 
 from ..core import config, logger
 from ..core import net as _net
+from ..core import trade_calendar
 from .cache_store import store
 
 log = logger.get_logger(__name__)
+
+# ---------------------------------------------------------------- 两市概况"较昨日全天"基准
+_MB_CLOSE_SEC = 15 * 3600 + 30 * 60
+"""两市概况**收盘快照的落库时刻**(15:30)。
+
+与写入侧同值: `auction_snapshot._scheduler_loop` 的 `15:30 <= hm <= 15:35` 窗口。
+读取侧用它判定「`market_brief_last` 是否已被**今日收盘**覆盖」⇒ 两处**必须同值**,
+改一处必须改另一处。
+"""
+
+_warned_mb_date = None
+"""`market_brief_last` 出现非交易日日期时的「每日一次」告警去重(同 trade_calendar 的写法)。"""
+
+
+def _mb_is_trade_day(d) -> bool:
+    """`trade_calendar.is_trade_day` 的**不抛异常**包装。
+
+    库里存的日期串可能是任何形态(历史脏值), 而 `_date.fromisoformat` 对 "2026-99-99"
+    这类串会抛 ValueError —— 脏数据绝不该把调用方整体拖死(那会让 `last` 直接变 None,
+    前端"放量"整块消失)。不可判定时返回 True(保守放行, 不阻断既有行为)。
+    """
+    try:
+        return trade_calendar.is_trade_day(d)
+    except Exception:                                             # noqa: BLE001
+        return True
+
+
+def _mb_baseline_is_today(last: Optional[dict], now_ts: Optional[float] = None) -> bool:
+    """`market_brief_last` 是否**已被今日收盘覆盖**(⇒ 该改用 `prev` 作"较昨日全天"基准)。
+
+    `now_ts`: 时间注入(单测用; None = 当前时间)。
+
+    ★ 2026-09-26 (v4.11.57): 判据由「`last.date` == **字面今天**」改为**交易日历显式语义**。
+      原写法只在"写入侧恰好只于交易日 15:30 落库"这一前提下才成立 —— 属**靠巧合正确**:
+
+      ① 它用系统时钟的"今天", 与"今天是不是交易日"完全无关;
+      ② 写入侧此前没有"日期必须是今日"的**写前守卫**, 而行情源在收盘定格尚未生成时会返回
+         **上一交易日的复制行** —— 2026-09-25(中秋)正是这类残值被写成 settings 键
+         (`market_brief_*` 2 个 + `kv_cache` 42 个, 见 v4.11.53 复盘)。这种**非交易日**日期
+         与"今天"永不相等 ⇒ 脏值会被长期当作"上一交易日全天"喂给前端, 且**不会自愈**。
+
+      现在把语义写全: 「① 今日是交易日 ∧ ② 已过收盘快照时刻(15:30) ∧ ③ `last.date` 确为今日」。
+      三条缺一不可 —— 缺① 会误切 `prev`(非交易日并不存在"今日收盘");
+      缺② 会在收盘快照写入前就切走(此时 `last` 还是上一交易日, 切了等于跳过一天);
+      缺③ 会把陈旧值误当成今日收盘。
+    """
+    if not last:
+        return False
+    ld = last.get("date")
+    if not ld:
+        return False
+    ts = time.time() if now_ts is None else float(now_ts)
+    if str(ld) != trade_calendar.bj_date(ts):                     # ③ last 确为今日所写
+        return False
+    if not _mb_is_trade_day(trade_calendar.bj_date(ts)):          # ① 今日是交易日
+        return False
+    g = time.gmtime(ts + 8 * 3600)
+    hm_sec = g.tm_hour * 3600 + g.tm_min * 60 + g.tm_sec
+    return hm_sec >= _MB_CLOSE_SEC                                # ② 已过收盘快照时刻
+
+
+def _mb_warn_if_stale(last: Optional[dict]) -> None:
+    """`market_brief_last` 的日期**本身不是交易日** ⇒ 上游曾写下脏值。
+
+    只告警、**不就地篡改** —— 篡改会掩盖根因(真正的修法是写入侧的写前守卫)。
+    与铁律2「降级必须可见」一致: 这种值会让"较昨日全天"基准整块错位, 必须留痕。
+    每日一次, 避免每次请求刷屏(payload 本身有 TTL 缓存, 但 TTL 到期仍会重算)。
+    """
+    global _warned_mb_date
+    ld = (last or {}).get("date")
+    if not ld or _warned_mb_date == ld:
+        return
+    if _mb_is_trade_day(ld):
+        return
+    _warned_mb_date = ld
+    log.warning("market_brief_last 日期非交易日 date=%s(上游脏值?) → "
+                "「较昨日全天」基准可能错位, 请查写入侧写前守卫", ld)
+
 
 # 进程级共享线程池(2026-09-01 生产线程爆炸修复): 现涨K线兜底 原每次请求新建池 +
 # shutdown(wait=False) 后线程滞留后台跑网络超时, 高并发下线程只增不减拖死生产。
@@ -495,8 +575,11 @@ def build_market_brief_payload():
         if row and row[0]:
             last = json.loads(row[0])
         # 2026-09-07: 15:30 后 last 已被**今日收盘**覆盖 → 与今日自比恒 0,
-        # 此时改用 prev(上一交易日全天)作为"较昨日全天"基准
-        if last and last.get("date") == time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600)):
+        # 此时改用 prev(上一交易日全天)作为"较昨日全天"基准。
+        # ★ 2026-09-26 (v4.11.57): 判据统一收敛到 _mb_baseline_is_today()(交易日历语义),
+        #   不再写「last.date == 字面今天」那种**靠巧合成立**的比较 —— 理由见该函数 docstring。
+        _mb_warn_if_stale(last)
+        if _mb_baseline_is_today(last):
             prev = _settings_svc.get("market_brief_prev")
             if prev:
                 last = prev

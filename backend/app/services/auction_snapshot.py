@@ -992,6 +992,23 @@ def _is_trade_day(g):
     return tc.is_trade_day_of(g)
 
 
+def _brief_date_ok(brief, date) -> bool:
+    """两市概况收盘快照的**写前守卫**: brief 的日期必须**就是今日**(`date`)。
+
+    ★ 2026-09-26 (v4.11.57) 新增。为什么必要:
+      该快照只在交易日 15:30-15:35 落库, 而**行情源在"收盘定格尚未生成"时会返回
+      上一交易日的复制行** —— 2026-09-25(中秋 · 星期五)正是这类残值被写进
+      `snapshot_bid`(见 `_is_trade_day` 的复盘), 同类残值也污染过 settings。
+      若不校验直接落库, `market_brief_last` 会被写成**非今日**的日期; 而读侧
+      (`kpl._mb_baseline_is_today`)靠"last.date 是否等于今天"决定「较昨日全天」基准
+      ⇒ 拿到这种值后**永不相等**, 基准长期错位且**不会自愈**。
+
+    纪律与 v4.11.53「三源收盘确认」一致: **宁可不写, 也不写错日期的数据**。
+    返回 False 时调用方应**删掉当日 setnx 标记**以在 15:30-15:35 窗口内重试。
+    """
+    return bool(brief) and str(brief.get("date") or "") == str(date)
+
+
 def snapshot_at(time_point, force=False):
     """抓取并归档某时点全市场快照, 返回入库数量; 失败返回 0
     时点快照用全市场分页(fetch_eastmoney_all ~5500只), 非单页600只
@@ -2081,6 +2098,14 @@ def _scheduler_loop():
                         try:
                             from . import fetcher
                             brief = fetcher.fetch_market_brief(max_age=0)  # 强制刷新
+                            # ★ 2026-09-26 (v4.11.57) 写前守卫 —— brief 的日期**必须就是今日**。
+                            #   理由与"宁可拒写也不写错日期"的纪律见 _brief_date_ok 的 docstring。
+                            #   置 None ⇒ 复用下方 `else: store.delete(...)` 的"窗口内重试"。
+                            if brief and not _brief_date_ok(brief, date):
+                                log.warning("两市概况收盘快照日期非今日(取到 %s, 今日 %s)"
+                                            " → 拒绝落库, 15:30-15:35 窗口内重试",
+                                            brief.get("date"), date)
+                                brief = None
                             if brief:
                                 # 2026-09-19(主人指令, v4.11.31): 收盘定格的两市资金改取
                                 # 开盘啦 MarketSCLNKLine 日级历史(his 域名, Type=0) ——
