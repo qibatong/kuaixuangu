@@ -273,15 +273,22 @@ async function loadMulti() {
   finally { mulLoading.value = false }
 }
 
+// ⚠️ 2026-09-27 v4.11.59 修: 两处 usePolling 从 onMounted 回调搬到 setup 顶层 ——
+//    Vue 调用 mounted 回调时 currentInstance 为 null, usePolling 内的 onBeforeUnmount
+//    会静默注册失败 ⇒ 定时器与 visibilitychange 监听永不清理
+//    (离开 /yidong 后仍每 30s 打 4 个异动接口)。
+//    首拉由下面 onMounted 显式完成 ⇒ immediate:false, 顺带消掉首屏双请求。
+usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
+// 每30秒轮询刷新
+usePolling(() => { loadRealtime(); loadHot(); loadMonitor(); loadMulti() },
+           30000, { immediate: false })
+
 onMounted(() => {
   bjTime.value = bjTimeStr()
-  usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
   loadRealtime()
   loadHot()
   loadMonitor()
   loadMulti()
-  // 每30秒轮询刷新
-  usePolling(() => { loadRealtime(); loadHot(); loadMonitor(); loadMulti() }, 30000)
 })
 </script>
 

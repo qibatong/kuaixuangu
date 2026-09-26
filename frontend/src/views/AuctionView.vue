@@ -828,25 +828,32 @@ function onDateChange(e) {
 onMounted(() => {
   loadAll()
   refreshYidongCodes()
-  // 历史回看模式暂停实时刷新(每分钟拉历史无意义)
-  // 2026-08-18 性能优化: 轮询只刷新当前 tab(清标记重拉), 不再 10 接口全量
-  // 2026-08-24 主人要求: 盘中实时刷新间隔 60s → 30s(配合后端快照 TTL 降到 60s)
-  // 2026-09-05 P0: 轮询开启失败退避 — fn 返回成败, 连续失败时下一次间隔按 2^n 递增
-  // (30s → 60s → 120s … 上限 5min), 成功一次即重置。避免服务端抖动/限流时被前端
-  // 以固定 30s 持续打; 失败期间 ensureTabData 不清空 list, 页面保留上次成功数据。
-  polling = usePolling(async () => {
-    if (datePicker.value) return true      // 历史回看模式: 不轮询(每分钟拉历史无意义)
-    silentRefreshing.value = true
-    try {
-      loadedTabs.clear()
-      const ok = await ensureTabData(tab.value, { silent: true })
-      pollFailCount.value = ok ? 0 : (pollFailCount.value + 1)
-      return ok
-    } finally {
-      silentRefreshing.value = false
-    }
-  }, 30000, { backoff: true })
 })
+
+// ⚠️ 2026-09-27 v4.11.59 修: 轮询注册从 onMounted 回调整体搬到 setup 顶层。
+//    原因见 EmConceptPanel.vue 处的长注释 —— Vue 调用 mounted 回调时 currentInstance
+//    为 null, usePolling 的 onBeforeUnmount 会**静默注册失败**, 定时器与
+//    visibilitychange 监听永不清理(离开页面后仍按 30s 打 10 个竞价接口)。
+//    首拉已由上面 onMounted 的 loadAll() 完成, 且下方 fn 首跳会立刻重拉一次,
+//    故这里保留原行为不变(不额外加 immediate:false, 以免改变竞价时段的取数时机)。
+// 历史回看模式暂停实时刷新(每分钟拉历史无意义)
+// 2026-08-18 性能优化: 轮询只刷新当前 tab(清标记重拉), 不再 10 接口全量
+// 2026-08-24 主人要求: 盘中实时刷新间隔 60s → 30s(配合后端快照 TTL 降到 60s)
+// 2026-09-05 P0: 轮询开启失败退避 — fn 返回成败, 连续失败时下一次间隔按 2^n 递增
+// (30s → 60s → 120s … 上限 5min), 成功一次即重置。避免服务端抖动/限流时被前端
+// 以固定 30s 持续打; 失败期间 ensureTabData 不清空 list, 页面保留上次成功数据。
+polling = usePolling(async () => {
+  if (datePicker.value) return true      // 历史回看模式: 不轮询(每分钟拉历史无意义)
+  silentRefreshing.value = true
+  try {
+    loadedTabs.clear()
+    const ok = await ensureTabData(tab.value, { silent: true })
+    pollFailCount.value = ok ? 0 : (pollFailCount.value + 1)
+    return ok
+  } finally {
+    silentRefreshing.value = false
+  }
+}, 30000, { backoff: true })
 </script>
 
 <style scoped>

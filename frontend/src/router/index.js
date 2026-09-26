@@ -13,10 +13,12 @@ const router = createRouter({
   routes: [
     // ---------------- 竞价 ----------------
     { path: '/', name: 'stock', component: () => import('../views/StockView.vue'), meta: { group: 'auction', order: 0 } },
-    { path: '/auction', name: 'auction', component: () => import('../views/AuctionView.vue'), meta: { group: 'auction', order: 1 } },
-    { path: '/aipick', name: 'aipick', component: () => import('../views/AipickView.vue'), meta: { group: 'auction', order: 2 } },
+    // 2026-09-27 v4.11.59: 盘前资讯（猫爪 news + 开盘啦 doc95 头条/doc96 快讯/doc97 明天炒什么 + 大V复盘）
+    { path: '/news', name: 'news', component: () => import('../views/NewsView.vue'), meta: { group: 'auction', order: 1 } },
+    { path: '/auction', name: 'auction', component: () => import('../views/AuctionView.vue'), meta: { group: 'auction', order: 2 } },
+    { path: '/aipick', name: 'aipick', component: () => import('../views/AipickView.vue'), meta: { group: 'auction', order: 3 } },
     // 2026-09-25: 火眼(LightGBM) 平行链路独立页(与 /aipick 共用 AipickReport 组件, 只换 model)
-    { path: '/aipick-lgb', name: 'aipick-lgb', component: () => import('../views/AipickLgbView.vue'), meta: { group: 'auction', order: 3 } },
+    { path: '/aipick-lgb', name: 'aipick-lgb', component: () => import('../views/AipickLgbView.vue'), meta: { group: 'auction', order: 4 } },
 
     // ---------------- 盘中 ----------------
     // /market = 板块（页顶内嵌大盘温度 SentimentPanel + 数据源切换: 开盘啦强度榜 | 东财概念榜）
@@ -54,7 +56,7 @@ const TITLES = {
   stock: '选股', pool: '自选', history: '历史回看', market: '板块',
   concept: '题材异动', ladder: '涨停梯队', temper: '股性', yidong: '异动监管',
   bigv: '大V资讯', auction: '竞价异动', aipick: 'AI预测·金睛', admin: '管理后台',
-  'aipick-lgb': 'AI预测·火眼', lhb: '龙虎榜',
+  'aipick-lgb': 'AI预测·火眼', lhb: '龙虎榜', news: '盘前资讯',
   member: '我的会员',
 }
 router.afterEach((to) => {

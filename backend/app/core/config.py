@@ -113,6 +113,14 @@ KPL_HOSTS = {
     "his": "apphis.longhuvip.com",            # 板块强度(历史)+板块成分股
     "after": "apphwshhq.longhuvip.com",       # 板块强度(当天分时)+尾盘抢筹/竞价砸盘/竞价>2000万
     "lhb": "applhb.longhuvip.com",            # 龙虎榜
+    # 2026-09-27 v4.11.59 补: 资讯域名。此前缺失 ⇒ `_call("article", …)` 静默回落 default
+    #   (竞价域名 apphwhq), 实测返回**非 JSON** ⇒ json.loads 抛错被 _call 吞掉 → None。
+    #   ⇒ doc95 头条 / doc96 7x24快讯 写了几个月却一次都没取到过数（"写进文档 ≠ 能力存在"）。
+    "article": "apparticle.longhuvip.com",    # 资讯-头条(doc95)/新闻快讯(doc96)
+    # 2026-09-27 同批补: 自动生成段(2026-08-13 那 87 个 fetch_kpl_docXX)里 7 处写成
+    #   `_call("q", …)`, 而 "q" 从来不是合法键 ⇒ 同样静默回落 default。
+    #   其 docstring 标注的真实域名是 apphq.longhuvip.com(与 market 同域) ⇒ 补别名而非改 7 处。
+    "q": "apphq.longhuvip.com",               # 别名: 自动生成段用的 host_key
 }
 KPL_BID_TTL = int(os.environ.get("KPL_BID_TTL", "30"))        # 竞价委买额缓存新鲜度(秒)
 KPL_BID_ST = os.environ.get("KPL_BID_ST", "200")              # Type4 涨停委买额榜条数(200=涨停榜, 实测更大值是否生效)

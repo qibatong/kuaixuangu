@@ -12,6 +12,11 @@
  *   - 零后端改动、零新接口；
  *   - **路由路径一律不变**（16 条旧 URL 书签/分享不失效）；
  *   - 不做「按当前时间自动高亮分组」（二期）。
+ *
+ * ⚠️ 2026-09-27 v4.11.59 更新：上面第一条「零后端改动」**只在 v4.11.58 那一版成立**。
+ * 本版新增「盘前资讯」需要新数据源（猫爪 apiname=news + 开盘啦 doc95/96/97/99），
+ * 因此后端新增了 `services/news_feed.py` + `api/news.py` 三个接口。
+ * 第二条「路由路径不变」**继续成立**：只新增 `/news` 一条，旧路径一条未动。
  */
 
 /** 五个一级分组。entry = 点该分组时先落地的二级页。 */
@@ -23,6 +28,10 @@ export const NAV_GROUPS = [
     entry: '/',
     items: [
       { label: '选股名单', path: '/' },
+      // 2026-09-27 v4.11.59: 盘前资讯（猫爪 news + 开盘啦头条/快讯/明天炒什么 + 大V复盘）。
+      // 归「竞价」= 盘前时段：9:00 打开 App 的第一站。若要挪到「复盘」，
+      // **只改这一行**（三个导航组件都从这里读，不会各改一遍漏一处）。
+      { label: '盘前资讯', path: '/news' },
       // /auction 原本根本不在导航里，本次必须提到明面（工单第四节）
       { label: '竞价异动', path: '/auction' },
       // AI 预测·金睛 / 火眼是 VIP 付费功能，原先只嵌在首页左视图 tab 里，不能藏（工单第四节）
@@ -79,6 +88,7 @@ export const NAV_GROUPS = [
  */
 const NAME_TO_GROUP = {
   stock: 'auction', auction: 'auction', aipick: 'auction', 'aipick-lgb': 'auction',
+  news: 'auction',
   market: 'intraday', concept: 'intraday',
   ladder: 'review', history: 'review', temper: 'review', bigv: 'review',
   yidong: 'review', lhb: 'review',

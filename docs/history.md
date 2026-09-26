@@ -1477,6 +1477,39 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.59 (09-27 仅测试机) 盘前资讯页（猫爪 news + 开盘啦头条/快讯/明天炒什么 + 大V复盘）+ 修复开盘啦资讯域名缺失导致的"封装了但从来没取到过数" + 全站 8 个组件轮询注册位置错误（定时器永不清理）**
+  - **触发**：主人指令「龙虎榜、股性、历史回看都要放到复盘中，新增一个盘前资讯，接入猫爪和开盘啦资讯、大V复盘等」，并给出《快选产品优化 Roadmap》（桌面 `快选产品优化Roadmap.md`，含 P0 数据可靠性 / P1 核心闭环 / P1 性能 / P2 工程债四段）。
+  - **现象 → 根因**：
+    - **① 复盘三项（复核确认，非本版改动）**：主人点名的 龙虎榜 `/lhb`、股性 `/temper`、历史回看 `/history` **已全部在"复盘"组内** —— 这是 v4.11.58 就位的结果（复盘组共 6 页：涨停梯队/历史回看/股性/大V资讯/异动监管/龙虎榜）。本版用断言脚本**逐条复核并写进证据**，避免"以为改了其实没改"。
+    - **② 🔴 开盘啦资讯接口"封装了但从来没取到过数"**：`services/kpl.py` 早在 2026-08-13 就自动生成了 `fetch_kpl_doc95`（头条）/`doc96`（新闻快讯）/`doc97`（明天炒什么）/`doc98`/`doc99`（文章正文）五个资讯接口，但 **① 没有任何 API 路由接线；② `_call("article", …)` 用的 host_key `"article"` 从不在 `config.KPL_HOSTS` 里** ⇒ `_call` 的 `KPL_HOSTS.get(host_key, KPL_HOSTS["default"])` **静默回落**到 `default`(竞价域名 `apphwhq`)。实测该域名对这套参数**返回的不是 JSON** ⇒ `json.loads` 抛错、被 `_call` 的 `except` 吞掉返回 `None`。⇒ 也就是说：**代码在、文档在、索引里标着"未接入"，但没有任何人能看出"它其实是坏的"**（同型事故：2026-08-30 板块成分股也是 `_call` host 回落导致盘中一直返空）。
+    - **③ 同型第二处**：自动生成段（2026-08-13 那 87 个 `fetch_kpl_docXX`）里 **7 处写成 `_call("q", …)`**，而 `"q"` 同样不是合法键 ⇒ 一并静默回落。其 docstring 标注的真实域名是 `apphq.longhuvip.com`（与 `market` 同域）。
+    - **④ 猫爪侧无资讯能力**：`services/meoz_client.py` 只有行情/竞价/涨停池类方法，**没有任何资讯方法**，也没有 apiname 清单可查。⇒ 靠**带凭证试探**才确认存在 `apiname="news"`（返回 `{code,message,data:{view,count,fields[13],items[][]}}`，内容为第一财经等门户头条流；实测**只有 `limit` 生效**，`num/size/page/date/trademin/type` 全部被忽略 ⇒ 猫爪**没有"按日期取历史快讯"的能力**，历史累积必须自己落库）。
+    - **⑤ doc99 的时间字段类型与其他接口不同**：doc96/doc97/doc95 的 `Time`/`AddTime` 都是 **epoch 字符串**（`"1790434626"`），而 doc99 的 `Time` 是 **格式化日期字符串**（`"2026-09-23 18:46:06"`）。首版实现按 epoch 统一 `int()` ⇒ `ValueError: invalid literal for int() with base 10` ⇒ `/api/news/topic` **500**。⇒ **同一家接口、同名字段不代表同类型**。
+    - **⑥ 🔴 全站 8 个组件的轮询注册位置错误（本版最重的发现）**：`EmConceptPanel`/`AuctionView`/`LadderView`/`LhbView`/`MarketView`/`StockTemperView`/`YidongView` 都把 `usePolling(...)` 写在 **`onMounted` 回调体内**。而 Vue 3.5 的 `flushPostFlushCbs` 调用 mounted 回调时**没有 `setCurrentInstance`**（已从 `node_modules/@vue/runtime-core/dist/runtime-core.cjs.js` 源码确认）⇒ 回调内 `currentInstance` 为 `null` ⇒ `usePolling` 里的 `onBeforeUnmount` 与 `watch(active)` **静默注册失败**（生产构建连 warning 都没有）⇒ **定时器与 `visibilitychange` 监听永不清理**：用户离开页面后仍按原频率继续打接口 —— 而开盘啦是 **8 万次/日付费配额**。部分页面还叠加了「`usePolling` 默认 `immediate:true` 首跳 + `onMounted` 显式首拉」的**首屏双请求**。
+  - **修复**：
+    - **① 补 host（根因修复）**：`core/config.py` 的 `KPL_HOSTS` 增加 `"article": "apparticle.longhuvip.com"` 与 `"q": "apphq.longhuvip.com"`（后者作别名，避免去改自动生成段的 7 处调用）。
+    - **② `services/kpl.py` 具名封装**：`fetch_kpl_top_news`(doc95) / `fetch_kpl_news_flash`(doc96) / `fetch_kpl_topic_list`(doc97) / `fetch_kpl_topic_detail`(doc99)；新增 `_as_epoch()` **统一收口时间解析**（epoch 字符串与 `YYYY-MM-DD HH:MM:SS` 都吃，非法一律返 0），四处调用点全部改走它。
+    - **③ 新增聚合层 `services/news_feed.py`**：把猫爪 `news` 与开盘啦 doc96 归一化成同一结构（`{id,ts,time_label,date,source,title,summary,url,kind}`），**按去标点标题前 24 字去重**（两源都是财联社系，同一条会重复）、开盘啦在前（更实时）、时间倒序、`ts=0` 排末尾；`premarket()` 聚合 doc95 头条 + doc97 选题。缓存复用 `cached_singleflight`（快讯 60s / 盘前 10min）。★ **降级语义显式化**：任一上游失败**不返回 500**，而是 `ok=true + degraded=["meoz"/"kpl"] + 现有数据`，由前端显示「数据源暂缺」—— 明确**禁止用空数组冒充"今天没有资讯"**（这正是 9 月 `auc_vol_ratio` 恒 0 一周无人发现的同型诱因）。
+    - **④ 新增 `api/news.py` + `main.py` 挂载**：`GET /api/news/flash?limit=80`、`/api/news/premarket`、`/api/news/topic?id=`。三个接口**都包了 try/except**（开盘啦字段类型不由我们控制；首版正是这里缺兜底才 500）。
+    - **⑤ 埋点白名单扩键**：`services/activity.py` 的 `FEATURES` **8 键 → 9 键**，加 `"news": "盘前资讯"`（并写下纪律注释：新增页面必须同批加键，漏加只会 warning + `counted=false` 且**前端无感**）。
+    - **⑥ 前端**：新增 `api/news.js` + `views/NewsView.vue`（3 个 tab：7×24 快讯 / 盘前精选 / 大V复盘；tab 写进 URL query `?tab=` 支持前进后退分享；快讯时间线跨天插日期分隔条；头条富文本**过一遍保守清洗再 `v-html`** —— 去掉 script/style/iframe/on* 属性与 `javascript:` URL，不为一个字段引入 DOMPurify 依赖）；`router/index.js` 新增 `/news`（`meta.group='auction'`）；`useNavGroups.js` 竞价组插入「盘前资讯」（**单一数据源，只改这一行**）。★ **大V复盘 tab 复用现有 `/api/summary/history`**，不复制后端逻辑、不重复实现页面（另留 `/bigv` 完整入口）。
+    - **⑦ 轮询注册位置全站修正**：8 个组件的 `usePolling` 全部搬到 **setup 顶层**；首拉仍由 `onMounted` 显式负责，因此给原本 `immediate` 默认 true 的几处补上 `immediate:false`，**顺带消掉首屏双请求**。`AuctionView` 的 `polling` 变量与 `LadderView` 顶层已有的 `onBeforeUnmount` 语义保持不变。
+  - **影响面**：**新增 4 个文件** —— 后端 `services/news_feed.py`、`api/news.py`；前端 `api/news.js`、`views/NewsView.vue`。**改 12 个** —— 后端 `core/config.py`、`services/kpl.py`、`services/activity.py`、`main.py`；前端 `router/index.js`、`composables/useNavGroups.js`、`components/EmConceptPanel.vue`、`views/AuctionView.vue`、`LadderView.vue`、`LhbView.vue`、`MarketView.vue`、`StockTemperView.vue`、`YidongView.vue`。**路由路径除新增 `/news` 外一条未动**（17 → 18 条）。**未动任何 SQLite 表结构、未跑任何数据清理**。
+  - **验证证据**：
+    - `vite build` ✅ 通过（2.78s，产物含 `NewsView-DjDscluq.js` + `NewsView-D-HcxXmG.css`）。
+    - **静态一致性自检 39 项断言全绿**（`/tmp/check_v41159.mjs`）：旧 15 条路径一条不缺 + `/news` 新增 + 路由数 17 + 分组 14/14 二级页均为真实路由 + 5/5 entry 可达 + 分组顺序不变 + **主人点名的 龙虎榜/股性/历史回看 三项逐条断言** + 复盘恰 6 页 + 盘前资讯在竞价组 + 异动监管不在盘中 + 5 条兜底判定 + 后端 5 项接线 + 3 项产物检查。
+    - **全站轮询注册位置扫描**：修复前 8 个组件全部命中「onMounted 内注册 usePolling」；修复后 **0 命中**，且「用了 `usePolling` 但没 import」**0 命中**。
+    - **_as_epoch 回归 7 例全绿**，含关键交叉验证：doc99 的 `"2026-09-23 18:46:06"` → `1790160366`，**与 doc97 同一时刻的 epoch 逐位相等** ⇒ 独立证实 UTC+8 偏移算式正确。
+    - **测试机 `47.99.153.123` 端到端（带真实 session token，取自 DB 有效 `tokens` 行）**：`/api/news/flash?limit=20` → **200**，`total=20`、猫爪 60 / 开盘啦 3、`degraded=[]`；`/api/news/premarket` → **200**，头条 1 篇 + 选题 3 条；`/api/news/topic?id=2453` → **200**，正文 1119 字。**埋点对照实验**：`{"feature":"news"}` → `counted=true, label="盘前资讯"`；`{"feature":"lhb"}` → `counted=false`（证明白名单真的在生效，不是"看起来对"）。
+    - 后端未带 token 时三接口 **401（非 404）** ⇒ 路由确已注册。
+    - **18 条 URL 全 200**（含新增 `/news`）；`/assets/NewsView-*.js` → 200；`/news` 走 SPA 回退正常；`nginx -t` OK + reload；`kuaixuan` / `nginx` 均 active。
+    - 发布校验 **8 项全过**：AppleDouble `._*` = 0、文件总数 1042、入口 js/css 在位、NewsView(2) 与 LhbView(2) chunk 在而 ConceptView(0) 不在、图片图标引用齐全、无 0 字节 js/css、**现网静态资源 0 丢失**（对比上一版：现网独有 38 / 新包独有 41）。
+    - ⚠️ **本版两次被自己的校验脚本拦下**（拦下即中止、线上不动，正是"先影子后真机"的价值）：① 期望 `/api/health` 返 200，实际它**需要登录**故 401 —— 把"完全正常"判成失败；② 幂等路径下 `$TS` 未定义触发 `set -u` 崩溃。两处都已修正并把教训写进脚本注释。
+    - ⚠️ **打包布局踩坑**：首次 `tar -czf … dist`（在 `frontend/` 下）使包内条目变成 `dist/assets/…`，解到影子目录后 `index.html` 不在根 ⇒ 文件级差分全部错位、校验失败。改为 `tar -czf … -C frontend/dist .` 后条目为 `./assets/…`，与现网一致。
+    - ⚠️ **未做的验证（如实记录）**：**真实浏览器 / 真机渲染验证仍未完成**（本机无头 Chrome 起不来，同 v4.11.58），`/news` 页在**手机端（微信内置浏览器 / iPhone Safari / 安卓）的真机渲染 + 底部 tabbar 遮挡检查**须由主人或测试机侧补做。
+  - **上线状态**：**仅测试机**（后端 6 文件补丁 + 前端 dist 原子切换，`nginx reload`；生产 `121.196.230.80` **未部署**，等主人指令）。
+    **回滚点**：`_patch_bak_20260927-005545_v41159`（**最早那个**，装的才是 v4.11.58 原始文件；后一个 `…005801…` 含首轮草稿的 doc99 时间解析 bug，留档但**不可当回滚点**）+ `dist_bak_20260927-005911_v41159`。
+  - **Roadmap 对照（本版未开工，如实记录）**：`快选产品优化Roadmap.md` 的 P0-1 数据新鲜度看门狗告警、P0-2 上游熔断降级、P0-3 WAL 确认、P0-4 版本血缘、P1-5 今日盯盘、P1-6 昨日选股今日表现、P1-7 命中率看板、P1-8/9 性能、P2 工程债 —— **本版一件未做**（本版只完成了"盘前资讯"这一条指令 + 顺手修掉两个真实缺陷）。其中 **P0-2「禁止拿昨天数据冒充今天」与本版 `degraded` 语义同源**；P2-10「前端错误边界」与本版三接口 `try/except` + 页面重试按钮同源。
 - **v4.11.58 (09-27 仅测试机) 前端信息架构改造 —— 9 个平铺 tab 重组为 5 个一级分组（竞价/盘中/复盘/自选/我的）+ 手机端底部固定 tab 栏；板块页两源合一 + 龙虎榜拆出为复盘独立页**
   - **触发**：主人下达《快选前端信息架构改造工单》（桌面 `快选前端信息架构改造工单.md`）：把 9 个平铺顶部 tab 按**交易时段**重组成 5 个一级分组，手机端改底部 5 tab 栏；原则 **零后端改动、不改路由路径、纯前端路由分组 + 组件复用**。
   - **现象 → 根因**：

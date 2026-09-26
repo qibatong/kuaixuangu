@@ -433,15 +433,22 @@ function switchSource(s) {
   loadHistory()
 }
 
+// ⚠️ 2026-09-27 v4.11.59 修: 两处 usePolling 从 onMounted 回调搬到 setup 顶层 ——
+//    Vue 调用 mounted 回调时 currentInstance 为 null, usePolling 内的 onBeforeUnmount
+//    会静默注册失败 ⇒ 定时器与 visibilitychange 监听永不清理
+//    (用户离开 /market 后仍会一直按 60s 打「板块强度 + 人气榜」, 消耗开盘啦付费配额)。
+//    首拉仍由下面 onMounted 显式完成 ⇒ 此处 immediate:false, 顺带消掉原本
+//    「usePolling 默认 immediate 首跳 + onMounted 显式拉」造成的**首屏双请求**。
+usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
+usePolling(() => { loadBoard(); loadHot() }, 60000, { immediate: false })
+
 onMounted(() => {
   bjTime.value = bjTimeStr()
-  usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
   // 2026-09-22 v4.11.35: 市场雷达打开即算一次(Once 版, 组件内 60s 轮询不重复上报)
   trackUsageOnce('market')
   loadBoard()
   loadHistory()
   loadHot()
-  usePolling(() => { loadBoard(); loadHot() }, 60000)
 })
 </script>
 

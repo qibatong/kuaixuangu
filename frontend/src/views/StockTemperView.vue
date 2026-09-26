@@ -211,9 +211,13 @@ async function openDetail(it) {
   } catch (e) { /* 静默 */ } finally { detail.loading = false }
 }
 
+// ⚠️ 2026-09-27 v4.11.59 修: 时钟轮询从 onMounted 回调搬到 setup 顶层 ——
+//    Vue 调用 mounted 回调时 currentInstance 为 null, usePolling 内的 onBeforeUnmount
+//    会静默注册失败 ⇒ 1s 定时器永不清理(详见 EmConceptPanel.vue 的长注释)。
+usePolling(() => { bjTime.value = bjDateTimeStr() }, 1000, { immediate: false })
+
 onMounted(() => {
   bjTime.value = bjDateTimeStr()
-  usePolling(() => { bjTime.value = bjDateTimeStr() }, 1000, { immediate: false })
   load(true)
 })
 </script>

@@ -119,12 +119,16 @@ async function loadConcepts() {
 }
 
 onMounted(() => {
-  // 首次加载由 loadConcepts() 自己发起，轮询用 immediate:false 起步，
-  // 避免「onMounted 拉一次 + usePolling 立刻又拉一次」的首屏双请求。
+  // 首次加载由 loadConcepts() 自己发起
   loadConcepts()
-  // 分钟级异动榜: 30s 刷新
-  usePolling(loadConcepts, 30000, { immediate: false })
 })
+
+// 分钟级异动榜: 30s 刷新。
+// ⚠️ 2026-09-27 v4.11.59 修: 原本写在 onMounted 回调里 → Vue 调用 mounted 回调时
+//    currentInstance 为 null(见 runtime-core `flushPostFlushCbs` 无 setCurrentInstance)
+//    ⇒ usePolling 内的 onBeforeUnmount 静默注册失败 ⇒ 定时器永不清理。
+//    轮询注册一律放 setup 顶层; 首拉仍由上面 onMounted 负责 ⇒ immediate:false 防双请求。
+usePolling(loadConcepts, 30000, { immediate: false })
 </script>
 
 <style scoped>

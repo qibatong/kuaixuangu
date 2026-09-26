@@ -20,9 +20,13 @@ import { bjTimeStr } from '../utils/time'
 
 const bjTime = ref('--:--:--')
 
+// ⚠️ 2026-09-27 v4.11.59 修: 时钟轮询从 onMounted 回调搬到 setup 顶层 ——
+//    Vue 调用 mounted 回调时 currentInstance 为 null, usePolling 内的 onBeforeUnmount
+//    会静默注册失败 ⇒ 1s 定时器永不清理(详见 EmConceptPanel.vue 的长注释)。
+usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
+
 onMounted(() => {
   bjTime.value = bjTimeStr()
-  usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
   // ⚠️ 不做行为埋点: 后端 services/activity.FEATURES 是白名单(8 个键, 无 lhb),
   //    上报非白名单键只会打一条 warning 并 counted=false。工单要求零后端改动,
   //    所以这里**故意不上报**, 而不是硬塞一个别的键(那会把「涨停梯队」的计数带脏)。

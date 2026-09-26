@@ -1433,6 +1433,148 @@ def fetch_live_room():
     return lst if isinstance(lst, list) else []
 
 
+# ==================== 资讯（2026-09-27 v4.11.59 新增） ====================
+# 背景: 「盘前资讯」页需要开盘啦的资讯内容。此前 doc95/doc96 早已生成但 **从未接线**,
+#   且 host_key "article" 不在 config.KPL_HOSTS ⇒ `_call("article", …)` 静默回落
+#   default(apphwhq 竞价域名) ⇒ 实测该域名对该参数返回非 JSON ⇒ json.loads 抛错被
+#   _call 吞掉返回 None。⇒ 本批先把 host 补齐(见 core/config.py), 再在此处接线。
+#
+# 实测(2026-09-27 01:0x, 测试机 47.99.153.123 真实账号):
+#   doc95 头条     @apparticle  errcode=0  List[0].Detail[]  (每日 1 篇, 富 HTML)
+#   doc96 新闻快讯 @apparticle  errcode=0  List[]            (7x24 实时, 默认 3 条)
+#   doc97 明天炒什么@applhb      errcode=0  List[0].List[]    (盘后选题榜, 带 HotVal)
+#   doc99 文章内容 @applhb      errcode=0  传 ID 返回全文
+#   注: doc96 的 st / Order 参数实测**无效**(仍返回 3 条) ⇒ 快讯条数靠前端累积, 见 news_feed.py
+
+def _as_epoch(v):
+    """开盘啦的时间字段**格式不统一**, 统一转 epoch(北京时间), 非法一律返回 0。
+
+    ★ 2026-09-27 实测踩坑(值 = 一整个发布被拦下的一次真实崩溃):
+        doc96 快讯  Time = "1790434626"            —— epoch 字符串
+        doc97 选题  Time = "1790160366"            —— epoch 字符串
+        doc95 头条  AddTime = "1790230460"         —— epoch 字符串
+        doc99 正文  Time = "2026-09-23 18:46:06"   —— **格式化日期时间字符串**
+      原实现一律 `int(d.get("Time"))` ⇒ doc99 直接 `ValueError: invalid literal for
+      int() with base 10: '2026-09-23 18:46:06'` ⇒ /api/news/topic 500。
+      ⇒ 教训: **同一家的接口, 字段名相同不代表类型相同**; 跨接口复用解析代码前,
+        必须逐个接口核对真实返回(本次已逐个实测)。
+    """
+    if v is None:
+        return 0
+    s = str(v).strip()
+    if not s:
+        return 0
+    if s.isdigit():
+        try:
+            return int(s)
+        except Exception:                                   # noqa: BLE001
+            return 0
+    try:
+        import calendar
+        from datetime import datetime
+        dt = datetime.strptime(s[:19], "%Y-%m-%d %H:%M:%S")
+        return int(calendar.timegm(dt.timetuple())) - 8 * 3600
+    except Exception:                                       # noqa: BLE001
+        return 0
+
+
+def fetch_kpl_top_news():
+    """头条(doc95, apparticle host): 最新一天的头条文章
+    返回 [{cid, date, title, content_html, add_time}, ...]（通常 1 篇/天）"""
+    d = _call("article", {"a": "GetTopList", "c": "PCNewsFlash", "apiv": "w44"})
+    if not d:
+        return []
+    out = []
+    for day in (d.get("List") or []):
+        if not isinstance(day, dict):
+            continue
+        for it in (day.get("Detail") or []):
+            if not isinstance(it, dict):
+                continue
+            out.append({
+                "cid": str(it.get("CID") or it.get("ID") or ""),
+                "date": str(it.get("Date") or day.get("Date") or ""),
+                "title": str(it.get("Title") or "").strip(),
+                "content_html": str(it.get("Content") or ""),
+                "add_time": _as_epoch(it.get("AddTime")),
+            })
+    return out
+
+
+def fetch_kpl_news_flash():
+    """7x24 快讯(doc96, apparticle host): 财联社等实时快讯
+    返回 [{cid, ts, source, title, content, stocks}, ...] 按时间倒序"""
+    d = _call("article", {"a": "GetList", "c": "PCNewsFlash", "apiv": "w44"})
+    if not d:
+        return []
+    out = []
+    for it in (d.get("List") or []):
+        if not isinstance(it, dict):
+            continue
+        title = str(it.get("Title") or "").strip()
+        content = str(it.get("Content") or "").strip()
+        if not title and content:
+            # doc96 的 Title 经常为空, 正文首句【…】即标题；否则截断正文首 40 字
+            if content.startswith("【") and "】" in content:
+                title = content[1:content.index("】")]
+            else:
+                title = content[:40]
+        stocks = it.get("Stocks") or it.get("code") or []
+        out.append({
+            "cid": str(it.get("CID") or ""),
+            "ts": _as_epoch(it.get("Time")),
+            "source": str(it.get("Source") or "开盘啦").strip() or "开盘啦",
+            "title": title,
+            "content": content,
+            "stocks": stocks if isinstance(stocks, list) else [],
+        })
+    out.sort(key=lambda x: x["ts"], reverse=True)
+    return out
+
+
+def fetch_kpl_topic_list():
+    """明天炒什么-列表(doc97, applhb host): 盘后选题/热度榜
+    返回 {day, items:[{id, title, ts, hot_val, hot_tag, is_vote}, ...]}"""
+    d = _call("lhb", {"a": "InfoList", "c": "Topic", "apiv": "w44"})
+    if not d:
+        return {"day": "", "items": []}
+    days = [x for x in (d.get("List") or []) if isinstance(x, dict)]
+    if not days:
+        return {"day": "", "items": []}
+    head = days[0]
+    items = []
+    for it in (head.get("List") or []):
+        if not isinstance(it, dict):
+            continue
+        items.append({
+            "id": str(it.get("ID") or ""),
+            "title": str(it.get("Title") or "").strip(),
+            "ts": _as_epoch(it.get("Time")),
+            "hot_val": int(it.get("HotVal") or 0),
+            "hot_tag": int(it.get("HotTag") or 0),
+            "is_vote": str(it.get("IsVote") or ""),
+        })
+    return {"day": str(head.get("Day") or ""), "items": items}
+
+
+def fetch_kpl_topic_detail(topic_id):
+    """明天炒什么-文章内容(doc99, applhb host): 传 doc97 的 ID 取全文
+    返回 {title, content, source, ts, num, hot_val} 或 {}"""
+    if not topic_id:
+        return {}
+    d = _call("lhb", {"a": "InfoGet", "c": "Topic", "apiv": "w44", "ID": str(topic_id)})
+    if not d or not d.get("Title"):
+        return {}
+    return {
+        "title": str(d.get("Title") or ""),
+        "content": str(d.get("Content") or ""),
+        "source": str(d.get("Source") or ""),
+        "ts": _as_epoch(d.get("Time")),
+        "num": int(d.get("Num") or 0),
+        "hot_val": int(d.get("HotVal") or 0),
+    }
+
+
 def fetch_dadan_net(StockID, Time=None):
     """指定个股-大单净额分时(doc75): GetStockDaDanTrendIncremental
     返回 {dadanjinge: [[时间, 大单净额], ...], max, min, ...}"""
