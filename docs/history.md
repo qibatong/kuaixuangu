@@ -1477,6 +1477,32 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.58 (09-27 仅测试机) 前端信息架构改造 —— 9 个平铺 tab 重组为 5 个一级分组（竞价/盘中/复盘/自选/我的）+ 手机端底部固定 tab 栏；板块页两源合一 + 龙虎榜拆出为复盘独立页**
+  - **触发**：主人下达《快选前端信息架构改造工单》（桌面 `快选前端信息架构改造工单.md`）：把 9 个平铺顶部 tab 按**交易时段**重组成 5 个一级分组，手机端改底部 5 tab 栏；原则 **零后端改动、不改路由路径、纯前端路由分组 + 组件复用**。
+  - **现象 → 根因**：
+    - `NavBar.vue` 的导航是**一份写死的平铺 `<router-link>` 列表**（9 项 + 管理），**没有任何分组元数据**；`router/index.js` 的 16 条路由**全部没有 `meta`** ⇒ 前端没有任何"这一页属于哪个交易时段"的机器可读信息，想在别处（如底部 tab、二级 pill）复用同一套分组也**只能再抄一份**。
+    - **被藏功能**：`/auction`（竞价异动，10 个 tab 的主力页）与 `/aipick`·`/aipick-lgb`（AI 预测·金睛/火眼，**VIP 付费功能**）当时**根本不在导航里** —— 前两者只在首页左视图内嵌 tab 露出，`/auction` 只能靠手输地址。
+    - **重复页**：`/market`（开盘啦板块榜 + 龙虎榜）与 `/concept`（东财概念榜）是**同语义的两个板块页**，各有独立的"点板块看成分股"实现（一个是弹层、一个是右栏表）。
+    - **错组**：龙虎榜混在"盘中/市场雷达"里，而它 **17:00 后才有数据**，盘中打开永远是空表。
+    - **手机端**：顶部 9 个 tab 在 ≤768px 下靠**自动换行**展示，挤占纵向空间且没有"当前在哪一组"的概念。
+  - **修复（零后端改动 · 纯前端）**：
+    - **① 新增分组单一数据源** `frontend/src/composables/useNavGroups.js`：`NAV_GROUPS`（5 个一级分组：auction/intraday/review/pool/me，各带 `label`/`icon`/`entry`/`items`）+ `groupKeyOfRoute(route)`（**先读 `route.meta.group`，缺失时按 `route.name` 走内置映射兜底** —— 防止以后新增路由忘了写 meta 就掉出全部导航高亮）+ `groupByKey()`。NavBar / GroupNav / AppTabBar 三处**共用这一个对象**，不再各抄一份。
+    - **② 路由补 meta**：16 条用户路由全部补 `meta.group` + `meta.order`；`/lhb` **新增**（第 17 条，复盘组）；`/concept` **路径保留 + `redirect` 到 `{name:'market', query:{src:'em'}}`**（工单 三.4 方案 A，旧书签/外链不 404）。🔴 **16 条旧路径逐条比对改造前后完全一致**（`/`、`/login`、`/history`、`/market`、`/concept`、`/pool`、`/ladder`、`/yidong`、`/auction`、`/temper`、`/aipick`、`/aipick-lgb`、`/bigv`、`/member`、`/admin`、catch-all）。
+    - **③ NavBar 重组（PC）**：9 个平铺 `.nav-item` → 5 个一级分组入口（按当前路由所在组高亮）；组内二级页移交给新增的 `GroupNav.vue` pill 行（挂在 NavBar 之下，随当前组列出，只有 1 个二级页的组不渲染以免出现孤立 pill）。🔴 **手动 active 而非 router-link 自动 active**：`/` 作为"竞价"入口时，自动 `router-link-active` 是**前缀匹配**，会让"选股名单"在全站恒亮 ⇒ 用 `active-class=""` 关掉自动类，改为 `route.path === it.path` 精确比对。
+    - **④ 新增 `AppTabBar.vue`（手机端 ≤768px）**：`position: fixed; bottom: 0; z-index: 1000`，高 `56px + env(safe-area-inset-bottom)`（iPhone 全面屏安全区），`bg=var(--bg-panel-solid)` + 顶部 1px `var(--border-soft)` 分割线，5 个等宽 item（图标 18px 上 / 文字 10px 下），选中态 `var(--accent)` + `scale(1.1)` + 字重 600，点击反馈 `active: scale(0.92)`。**只在媒体查询内 `display:flex`**，桌面端天然不渲染。登录页 / 404 / `/admin` 不挂载（管理后台保持独立布局）。
+    - **⑤ 内容区留底**：`App.vue` 给 `.container.has-tabbar` 加 `padding-bottom: calc(64px + env(safe-area-inset-bottom))`（仅 ≤768px 且挂了 tabbar 时生效），否则滚到底最后一行（含免责声明页脚）会被固定 tabbar 盖住。🔴 该高度与 `AppTabBar.vue` 的 56px 常量**必须同步改**，两处都写了注释互相指向。
+    - **⑥ 盘中页 = 大盘温度 + 板块**：`SentimentPanel.vue` 抽成可复用组件后**直接放进 `/market` 页顶**（工单 三.3「不要新写」，指数带 + 涨跌家数/成交额全部复用现成接口 `/api/kpl/index-brief`）。
+    - **⑦ 板块页两源合一（工单 三.4 方案 A）**：`/market` 顶部加数据源切换「**开盘啦强度榜 | 东财概念榜**」，两个列表**共用同一个"点板块展开成分股"弹层**（弹层内按 `src` 分派 `kplBoardStocks` / `emBoardMembers`；字段缺失的列显示 `-` 是数据源固有差异）。数据源写入 URL query（`/market?src=em`），支持前进/后退与分享；`ConceptView.vue` 的左栏榜改造为 `components/EmConceptPanel.vue`（点行 `emit('select')` 交给父级弹层），**原 `views/ConceptView.vue` 删除**。
+    - **⑧ 龙虎榜拆出**：`kplLhb` / `kplLhbDetail` 及其明细弹层从 `MarketView` 抽成 `components/LhbPanel.vue`（自带日期回看 + 营业部明细），新增 `views/LhbView.vue` 薄外壳 + `/lhb` 路由，归入**复盘**组；`/market` 从此不再为龙虎榜白拉一次接口；`YidongView.vue` 仅改 `meta.group`（盘中 → 复盘，路径不变）。
+    - **不做（照工单）**：不改后端接口 / 不改 SQLite / 不动既有路由路径 / 不做"按当前时间自动高亮分组"（二期，含 `useTradingTime()` + 红点提示）。
+    - 🔴 **刻意不上报行为埋点**：新页 `/lhb` **不发** `POST /api/activity/track` —— 后端 `services/activity.FEATURES` 是**8 键白名单且无 `lhb`**，上报非白名单键只会打一条 warning 并 `counted=false`。零后端改动的前提下，**宁可不上报**，也不硬塞别的键（那会把"涨停梯队"的计数带脏）。副作用：`concept` 键随 `ConceptView` 退役而**成为孤儿键**（不清理，清理等于改后端）。
+  - **影响面**：**新增 6 个文件** —— `composables/useNavGroups.js`、`components/GroupNav.vue`、`components/AppTabBar.vue`、`components/LhbPanel.vue`、`components/EmConceptPanel.vue`、`views/LhbView.vue`；**改 4 个** —— `router/index.js`、`components/NavBar.vue`、`views/MarketView.vue`、`App.vue`；**删 1 个** —— `views/ConceptView.vue`。**未动 `backend/` 任何文件、未动任何 SQLite 表、未动任何 route path**。
+  - **验证证据**：
+    - `vite build` ✅ 通过（2.33s，产物含新增 `LhbView-*.js` chunk、**不再有 `ConceptView-*.js`**）。
+    - **导航分组一致性自检 7 组 / 26 项断言全绿**（纯 Node 脚本，直接 import `useNavGroups.js` 并与 `router/index.js` 源文本对拍）：① 旧 16 条路径**一条不缺**；② 每个分组 items 的 path 都是真实存在的路由（14/14）；③ 每个分组 entry 可达（5/5）；④ 10 条路由 → 分组的兜底判定正确；⑤ **异动监管 `/yidong` 不在"盘中"组、复盘组含全部 6 页**；⑥ 被藏功能（`/auction`、`/aipick`、`/aipick-lgb`）**均已进导航**；⑦ 一级分组恰为 5 个且顺序 = `auction,intraday,review,pool,me`。
+    - ⚠️ **未做的验证（如实记录）**：**真实浏览器 / 真机渲染验证未完成** —— 本机无头 Chrome（153.0.8010.50）在此环境起不来（`CVDisplayLinkCreateWithCGDisplay failed` + 沙箱限制），也无法在远端做设备验证。工单 §五 要求的「微信内置浏览器 + iPhone Safari + 安卓浏览器各过一遍、底部 tabbar 不被工具栏遮挡不抖动」**必须在测试机真机侧补做**（这是本版唯一的未闭环项，AGENTS §二.8「UI 大改需真实浏览器验证」尚未满足）。
+  - **上线状态**：**仅测试机**（前端 dist 单独发布，后端零改动；生产 `121.196.230.80` **未部署**，等主人指令）。
+
 - **v4.11.57 (09-26 **本机未部署** —— 仅提交推送，两机零写入；等主人指令) 两市概况「较昨日全天」基准的交易日语义化 —— 读侧判据显式化 + 写侧「日期必须是今日」守卫；5 维化文档状态订正**
   - **触发**：主人「做吧」（批准上轮汇报的三项挂起工作：① `market_brief` 收盘滚存的交易日守卫、② 5 维化过期文档订正、③ §7 余下两项 —— 物化表二选一、`pick_window_guard=0` 归属）。
   - **现象 → 根因（第 ① 项）**：`market_brief_last` / `market_brief_prev` 是「两市概况 · 较昨日全天」的基准键。写入侧 15:30 收盘快照落库前把旧 `last` 滚存为 `prev`；读侧若判定「`last` 已被今日收盘覆盖」就改用 `prev`（否则与今日自比恒 0，前端显示"放量 0"）。

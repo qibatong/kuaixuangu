@@ -1,26 +1,49 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '../stores/user'
 
+/**
+ * 2026-09-27 v4.11.58 前端信息架构改造（工单《快选前端信息架构改造工单》）:
+ *   9 个平铺顶部 tab → 5 个一级分组（竞价 / 盘中 / 复盘 / 自选 / 我的）。
+ *   - 每条用户路由补 meta.group + meta.order，供 NavBar / GroupNav / AppTabBar 统一渲染；
+ *   - ★ 原有 16 条路径一律不变（书签 / 分享外链不失效），只新增 /lhb 一条；
+ *   - 组定义唯一来源 = composables/useNavGroups.js。
+ */
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', name: 'stock', component: () => import('../views/StockView.vue') },
-    { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },
-    { path: '/history', name: 'history', component: () => import('../views/HistoryView.vue') },
-    { path: '/market', name: 'market', component: () => import('../views/MarketView.vue') },
-    { path: '/concept', name: 'concept', component: () => import('../views/ConceptView.vue') },
-    { path: '/pool', name: 'pool', component: () => import('../views/PoolView.vue') },
-    { path: '/ladder', name: 'ladder', component: () => import('../views/LadderView.vue') },
-    { path: '/yidong', name: 'yidong', component: () => import('../views/YidongView.vue') },
-    { path: '/auction', name: 'auction', component: () => import('../views/AuctionView.vue') },
-    { path: '/temper', name: 'temper', component: () => import('../views/StockTemperView.vue') },
-    { path: '/aipick', name: 'aipick', component: () => import('../views/AipickView.vue') },
+    // ---------------- 竞价 ----------------
+    { path: '/', name: 'stock', component: () => import('../views/StockView.vue'), meta: { group: 'auction', order: 0 } },
+    { path: '/auction', name: 'auction', component: () => import('../views/AuctionView.vue'), meta: { group: 'auction', order: 1 } },
+    { path: '/aipick', name: 'aipick', component: () => import('../views/AipickView.vue'), meta: { group: 'auction', order: 2 } },
     // 2026-09-25: 火眼(LightGBM) 平行链路独立页(与 /aipick 共用 AipickReport 组件, 只换 model)
-    { path: '/aipick-lgb', name: 'aipick-lgb', component: () => import('../views/AipickLgbView.vue') },
-    { path: '/bigv', name: 'bigv', component: () => import('../views/SummaryNewsView.vue') },
+    { path: '/aipick-lgb', name: 'aipick-lgb', component: () => import('../views/AipickLgbView.vue'), meta: { group: 'auction', order: 3 } },
+
+    // ---------------- 盘中 ----------------
+    // /market = 板块（页顶内嵌大盘温度 SentimentPanel + 数据源切换: 开盘啦强度榜 | 东财概念榜）
+    { path: '/market', name: 'market', component: () => import('../views/MarketView.vue'), meta: { group: 'intraday', order: 0 } },
+    // 2026-09-27: 题材异动已并入 /market 的「东财概念榜」数据源（工单 三.4 方案 A）。
+    // 路径保留 + 重定向，旧书签/外链不 404。
+    { path: '/concept', name: 'concept', redirect: (to) => ({ name: 'market', query: { ...to.query, src: 'em' } }) },
+
+    // ---------------- 复盘 ----------------
+    { path: '/ladder', name: 'ladder', component: () => import('../views/LadderView.vue'), meta: { group: 'review', order: 0 } },
+    { path: '/history', name: 'history', component: () => import('../views/HistoryView.vue'), meta: { group: 'review', order: 1 } },
+    { path: '/temper', name: 'temper', component: () => import('../views/StockTemperView.vue'), meta: { group: 'review', order: 2 } },
+    { path: '/bigv', name: 'bigv', component: () => import('../views/SummaryNewsView.vue'), meta: { group: 'review', order: 3 } },
+    { path: '/yidong', name: 'yidong', component: () => import('../views/YidongView.vue'), meta: { group: 'review', order: 4 } },
+    // 2026-09-27: 龙虎榜从市场雷达拆出成独立页（它 17 点后才有数据，盘中看是空的）
+    { path: '/lhb', name: 'lhb', component: () => import('../views/LhbView.vue'), meta: { group: 'review', order: 5 } },
+
+    // ---------------- 自选 ----------------
+    { path: '/pool', name: 'pool', component: () => import('../views/PoolView.vue'), meta: { group: 'pool', order: 0 } },
+
+    // ---------------- 我的 ----------------
+    { path: '/member', name: 'member', component: () => import('../views/MemberView.vue'), meta: { group: 'me', order: 0 } },
     // 2026-09-21 会员体系: 我的会员(等级/到期/配额/签到/邀请)
-    { path: '/member', name: 'member', component: () => import('../views/MemberView.vue') },
-    { path: '/admin', name: 'admin', component: () => import('../views/AdminView.vue'), meta: { admin: true } },
+    { path: '/admin', name: 'admin', component: () => import('../views/AdminView.vue'), meta: { admin: true, group: 'me', order: 1 } },
+
+    // ---------------- 不参与分组 ----------------
+    { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },
     // 2026-09-21: 由 redirect '/' 改为独立 404 视图, 避免未知路径静默落首页造成困惑
     { path: '/:pathMatch(.*)*', name: 'notFound', component: () => import('../views/NotFoundView.vue') }
   ]
@@ -28,10 +51,10 @@ const router = createRouter({
 
 // 2026-09-21: 路由级 <title>, 便于多标签区分/书签辨识/前进后退历史
 const TITLES = {
-  stock: '选股', pool: '自选', history: '历史回看', market: '市场雷达',
+  stock: '选股', pool: '自选', history: '历史回看', market: '板块',
   concept: '题材异动', ladder: '涨停梯队', temper: '股性', yidong: '异动监管',
   bigv: '大V资讯', auction: '竞价异动', aipick: 'AI预测·金睛', admin: '管理后台',
-  'aipick-lgb': 'AI预测·火眼',
+  'aipick-lgb': 'AI预测·火眼', lhb: '龙虎榜',
   member: '我的会员',
 }
 router.afterEach((to) => {

@@ -9,38 +9,24 @@
           <span class="nav-brand-slogan">一键筛选 · 高效复盘</span>
         </div>
       </router-link>
+      <!-- 2026-09-27 v4.11.58 信息架构改造(工单 三.2): 9 个平铺 tab → 5 个一级分组
+           （竞价 / 盘中 / 复盘 / 自选 / 我的）。组内二级页由 NavBar 下方的
+           GroupNav pill 行切换；手机端(≤768px)本块整体隐藏，改用底部 AppTabBar。
+           ★ 组定义唯一来源 = composables/useNavGroups.js，勿在此另抄一份。
+           ★ 手动 active：/ 作为「竞价」入口时，router-link 自动 active 会前缀匹配全站恒亮。 -->
       <div class="nav-tabs">
-      <router-link to="/" exact-active-class="router-link-active" class="nav-item">
-        <i class="fa fa-home"></i> 选股
-      </router-link>
-      <router-link to="/pool" exact-active-class="router-link-active" class="nav-item">
-        <i class="fa fa-database"></i> 自选
-      </router-link>
-      <router-link to="/history" exact-active-class="router-link-active" class="nav-item">
-        <i class="fa fa-history"></i> 历史回看
-      </router-link>
-      <router-link to="/market" exact-active-class="router-link-active" class="nav-item">
-        <i class="fa fa-radar"></i> 市场雷达
-      </router-link>
-      <router-link to="/concept" exact-active-class="router-link-active" class="nav-item">
-        <i class="fa fa-fire"></i> 题材异动
-      </router-link>
-      <router-link to="/ladder" exact-active-class="router-link-active" class="nav-item">
-        <i class="fa fa-sitemap"></i> 涨停梯队
-      </router-link>
-      <router-link to="/temper" exact-active-class="router-link-active" class="nav-item">
-        <i class="fa fa-fire"></i> 股性
-      </router-link>
-      <!-- 2026-09-01: AI预测已内嵌首页左视图 tab, 不再需要导航栏独立入口 -->
-      <router-link to="/yidong" exact-active-class="router-link-active" class="nav-item">
-        <i class="fa fa-bullhorn"></i> 异动监管
-      </router-link>
-      <router-link to="/bigv" exact-active-class="router-link-active" class="nav-item" title="大V资讯 · 飞书群消息总结">
-        <i class="fa fa-newspaper"></i> 大V资讯
-      </router-link>
-      <router-link v-if="user.isAdmin" to="/admin" exact-active-class="router-link-active" class="nav-item">
-        <i class="fa fa-shield"></i> 管理
-      </router-link>
+        <router-link
+          v-for="g in NAV_GROUPS"
+          :key="g.key"
+          :to="g.entry"
+          class="nav-item"
+          :class="{ active: activeGroup === g.key }"
+          active-class=""
+          exact-active-class=""
+          :title="g.items.map((i) => i.label).join(' · ')"
+        >
+          <i class="fa" :class="g.icon"></i> {{ g.label }}
+        </router-link>
       </div>
     </div>
 
@@ -127,17 +113,21 @@
 
 <script setup>
 // 全站导航栏: 左页面入口 tabs, 右主题/字号/账户工具(主题+字号从 hero 迁来)
-import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useTheme, BGS, FONTS, FONT_FAMILIES } from '../composables/useTheme'
 import { useUserStore } from '../stores/user'
+import { NAV_GROUPS, groupKeyOfRoute } from '../composables/useNavGroups'
 import { logoutApi } from '../api/auth'
 import { showToast } from '../utils/toast'
 import ChangePwdModal from './ChangePwdModal.vue'
 import ProfileModal from './ProfileModal.vue'
 
 const router = useRouter()
+const route = useRoute()
 const user = useUserStore()
+// 当前路由落在哪个一级分组（竞价 / 盘中 / 复盘 / 自选 / 我的）——顶部一级 tab 高亮依据
+const activeGroup = computed(() => groupKeyOfRoute(route))
 const { bg, font, fontFam, setBg, setFont, setFontFam } = useTheme()
 
 const changePwdModal = ref(null)
@@ -282,7 +272,7 @@ body[data-bg="light"] .nav-item {
   border-color: #e0e3ea;
 }
 body[data-bg="light"] .nav-item:hover { background: #e8ebf1; color: #1a1d26; }
-body[data-bg="light"] .nav-item.router-link-active {
+body[data-bg="light"] .nav-item.active {
   background: #fff;
   color: #c62828;
   border-color: rgba(198, 40, 40, 0.45);
@@ -300,7 +290,7 @@ body[data-bg="light"] .mini-btn {
   color: #3a3f4c;
 }
 body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
-.nav-item.router-link-active {
+.nav-item.active {
   background: rgba(255, 180, 0, 0.15);
   border-color: var(--accent);
   color: var(--accent);
@@ -486,9 +476,10 @@ body[data-bg="light"] .renew-badge { color: #b05e00; border-color: #c07a10; }
   .nav-logo { width: 26px; height: 26px; border-radius: 6px; }
   .nav-brand-name { font-size: 0.875rem; }
   .nav-brand-slogan { display: none; }
-  /* 导航项自动换行(2026-08-18 主人要求: 不用向右滑动, 换行展示) */
-  .nav-tabs { flex-wrap: wrap; overflow: visible; padding-bottom: 2px; width: 100%; }
-  .nav-item { padding: 5px 10px; font-size: 0.75rem; gap: 4px; }
+  /* 2026-09-27 v4.11.58 信息架构改造: 手机端**隐藏**顶部一级分组导航,
+     改由底部固定 AppTabBar(5 tab) 承担一级分组切换, 组内二级页用 GroupNav pill 横滑。
+     原先「9 个 tab 自动换行」的老行为不再需要。 */
+  .nav-tabs { display: none; }
   /* 工具区自动换行(2026-08-18 主人要求: 不横滑, 放不下自动换行) */
   .nav-tools { gap: 6px; flex-wrap: wrap; overflow: visible; max-width: 100%; }
   .nav-tools::-webkit-scrollbar { display: none; }

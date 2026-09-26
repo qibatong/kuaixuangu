@@ -1,6 +1,9 @@
 <template>
-  <div class="container">
+  <div class="container" :class="{ 'has-tabbar': showTabBar }">
     <NavBar />
+    <!-- 2026-09-27 v4.11.58 信息架构改造: 二级页 pill 行, 随当前一级分组列出该组二级页
+         （手机端同样显示 —— 底部 tab 只切一级分组, 组内切换靠这一行） -->
+    <GroupNav />
     <!-- 无障碍: 主内容区用语义地标 main 包裹, 读屏可跳转到主内容 -->
     <main class="app-main">
       <router-view />
@@ -17,13 +20,18 @@
     <footer class="app-footer">
       <div class="disclaimer">本平台仅提供软件工具使用权，不构成任何投资建议，股市有风险，投资需谨慎。</div>
     </footer>
+    <!-- 2026-09-27 v4.11.58: 手机端(≤768px) 底部固定 5 tab 栏; 登录页/404/管理后台不显示 -->
+    <AppTabBar v-if="showTabBar" />
   </div>
 </template>
 
 <script setup>
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import Watermark from './components/Watermark.vue'
 import NavBar from './components/NavBar.vue'
+import GroupNav from './components/GroupNav.vue'
+import AppTabBar from './components/AppTabBar.vue'
 // 图表弹窗按需异步加载: 其内部引用了 echarts(数百 KB), 若静态引入会把 echarts 打进首屏主 bundle。
 // defineAsyncComponent 让 echarts 相关代码拆成独立 chunk, 首次点开图表才下载。
 const StockChartModal = defineAsyncComponent(() => import('./components/StockChartModal.vue'))
@@ -33,6 +41,15 @@ import { useUserStore } from './stores/user'
 
 const { load: loadTheme } = useTheme()
 const userStore = useUserStore()
+const route = useRoute()
+
+// 2026-09-27 v4.11.58: 手机端底部 tab 栏的显示判定。
+// 登录页整屏、404 无归属、管理后台保持独立布局 —— 这三种都不挂 tabbar
+// （工单 七「只在手机端显示」+「/admin 不显示底部 tabbar」；≤768px 由 AppTabBar 自带媒体查询控制）。
+const showTabBar = computed(() => {
+  const n = route.name
+  return !!userStore.isLoggedIn && n !== 'login' && n !== 'notFound' && n !== 'admin'
+})
 
 // ============================================================
 // 全局股票图表弹窗: 由 uiBus.chartModal 驱动(全站任意表格点击股票单元格打开)
@@ -186,6 +203,16 @@ onBeforeUnmount(() => {
   min-width: 0 !important;
   margin: 0 auto;
   padding: 0 4px;
+}
+/* ============================================================================
+   2026-09-27 v4.11.58 信息架构改造: 底部固定 tab 栏的"内容区留底"
+   —— 不加这段, 手机端滚到底时最后一行(含免责声明页脚)会被 tabbar 盖住。
+   —— 高度必须与 components/AppTabBar.vue 的 56px 常量保持一致(改一处要改两处)。
+   —— 用 !important 覆盖 main.css 手机端块里的 `.container { padding: 0 2px }`。
+   —— 只在挂了 tabbar 时生效(登录/404/管理后台不加, 免得白留一块空白)。
+   ============================================================================ */
+@media (max-width: 768px) {
+  .container.has-tabbar { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important; }
 }
 /* 网页底部免责声明 (2026-09-21 对比度修正: 提级到 secondary 并去 opacity, 合规文字须最清晰) */
 .disclaimer {

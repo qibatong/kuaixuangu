@@ -1,70 +1,201 @@
 <template>
+  <!--
+    板块页（2026-09-27 v4.11.58 前端信息架构改造 · 工单 二/三.3/三.4）
+    —— 一级分组「盘中」的唯一落地面:
+         · 页顶 = 大盘温度（复用 components/SentimentPanel.vue，工单 三.3「不要新写」）
+         · 下方 = 板块，两个数据源可切换：「开盘啦强度榜 | 东财概念榜」
+    —— 工单 三.4 方案 A: /concept（原题材异动）并入这里作为第二个数据源，
+       路径保留 + 重定向到 /market?src=em，旧书签/外链不 404。
+    —— 两个数据源**共用同一个「点板块展开成分股」弹层**，弹层里按 src 选对应接口。
+    —— 龙虎榜已拆出为独立页 /lhb（复盘分组），本页不再为它白拉接口。
+  -->
   <div class="page-shell">
-    <h1 class="visually-hidden">市场雷达</h1>
+    <h1 class="visually-hidden">板块</h1>
+
+    <!-- 大盘温度: 指数带 + 涨跌家数/成交额（与首页同一组件，不新写图表） -->
+    <SentimentPanel />
+
     <div class="mrk-head">
-      <span class="mrk-title"><i class="fa fa-radar"></i> 市场雷达</span>
-      <span class="mrk-sub">板块强度排行 · 盘中人气热榜 · 龙虎榜</span>
+      <span class="mrk-title"><i class="fa fa-th-large"></i> 板块</span>
+      <span class="mrk-sub">板块强度排行 · 板块轮动 · 人气热榜 · 概念异动</span>
       <span class="mrk-time">{{ bjTime }}</span>
     </div>
 
-    <div class="mrk-tabs">
-      <button class="mrk-tab" :class="{ active: tab === 'board' }" @click="switchTab('board')">
-        <i class="fa fa-th-large"></i> 板块强度
-      </button>
-      <button class="mrk-tab" :class="{ active: tab === 'history' }" @click="switchTab('history')">
-        <i class="fa fa-history"></i> 板块轮动历史
-      </button>
-      <button class="mrk-tab" :class="{ active: tab === 'hot' }" @click="switchTab('hot')">
-        <i class="fa fa-fire"></i> 人气热榜
-      </button>
-      <button class="mrk-tab" :class="{ active: tab === 'lhb' }" @click="switchTab('lhb')">
-        <i class="fa fa-list-alt"></i> 龙虎榜
-      </button>
+    <!-- 数据源切换（工单 三.4 方案 A: 在 /market 页顶部加一个数据源切换 tab） -->
+    <div class="mrk-src" role="tablist" aria-label="板块数据源">
+      <button
+        class="mrk-src-btn" :class="{ active: src === 'kpl' }" role="tab"
+        :aria-selected="src === 'kpl'" @click="switchSrc('kpl')"
+      ><i class="fa fa-signal"></i> 开盘啦强度榜</button>
+      <button
+        class="mrk-src-btn" :class="{ active: src === 'em' }" role="tab"
+        :aria-selected="src === 'em'" @click="switchSrc('em')"
+      ><i class="fa fa-fire"></i> 东财概念榜</button>
     </div>
 
-    <!-- 板块强度 -->
-    <div v-if="tab === 'board'" class="mrk-panel">
-      <div class="rot-toolbar">
-        <span class="rot-tip"><i class="fa fa-info-circle"></i> 实时板块强度排行；选日期可回看历史</span>
-        <input v-model="datePicker" type="date" class="rot-date" @change="loadBoard">
-        <button class="rot-reset-btn" title="回到实时" @click="clearDate('board')"><i class="fa fa-bolt"></i></button>
-        <span v-if="boardDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ boardDataDate }}<template v-if="boardDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
+    <!-- ==================== 数据源 1: 开盘啦强度榜（原市场雷达） ==================== -->
+    <template v-if="src === 'kpl'">
+      <div class="mrk-tabs">
+        <button class="mrk-tab" :class="{ active: tab === 'board' }" @click="switchTab('board')">
+          <i class="fa fa-th-large"></i> 板块强度
+        </button>
+        <button class="mrk-tab" :class="{ active: tab === 'history' }" @click="switchTab('history')">
+          <i class="fa fa-history"></i> 板块轮动历史
+        </button>
+        <button class="mrk-tab" :class="{ active: tab === 'hot' }" @click="switchTab('hot')">
+          <i class="fa fa-fire"></i> 人气热榜
+        </button>
       </div>
-      <div v-if="boardLoading" class="loading-placeholder"><div class="spinner"></div><div>加载板块强度...</div></div>
-      <div v-else-if="!boardList.length" class="empty-state">暂无板块强度数据</div>
-      <table v-else class="stock-table">
-        <thead>
-          <tr>
-            <th>排名</th>
-            <th class="sortable" :class="{ active: boardSort.keyOf('name') }" @click="boardSort.onSort('name', 'string')">板块<span class="sort-ind">{{ boardSort.ind('name') }}</span></th>
-            <th class="sortable" :class="{ active: boardSort.keyOf('strength') }" @click="boardSort.onSort('strength')">强度<span class="sort-ind">{{ boardSort.ind('strength') }}</span></th>
-            <th class="sortable" :class="{ active: boardSort.keyOf('change') }" @click="boardSort.onSort('change')">涨幅%<span class="sort-ind">{{ boardSort.ind('change') }}</span></th>
-            <th class="sortable" :class="{ active: boardSort.keyOf('speed') }" @click="boardSort.onSort('speed')">涨速%<span class="sort-ind">{{ boardSort.ind('speed') }}</span></th>
-            <th class="sortable" :class="{ active: boardSort.keyOf('mainNet') }" @click="boardSort.onSort('mainNet')">主力净额(亿)<span class="sort-ind">{{ boardSort.ind('mainNet') }}</span></th>
-            <th class="sortable" :class="{ active: boardSort.keyOf('volRatio') }" @click="boardSort.onSort('volRatio')">量比<span class="sort-ind">{{ boardSort.ind('volRatio') }}</span></th>
-            <th class="sortable" :class="{ active: boardSort.keyOf('amount') }" @click="boardSort.onSort('amount')">成交额(亿)<span class="sort-ind">{{ boardSort.ind('amount') }}</span></th>
-            <th class="sortable" :class="{ active: boardSort.keyOf('totalMv') }" @click="boardSort.onSort('totalMv')">总市值(亿)<span class="sort-ind">{{ boardSort.ind('totalMv') }}</span></th>
-            <th class="sortable" :class="{ active: boardSort.keyOf('peNow') }" @click="boardSort.onSort('peNow')">今PE<span class="sort-ind">{{ boardSort.ind('peNow') }}</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(b, idx) in boardSort.sorted(boardList)" :key="b.boardCode" class="board-row" @click="openBoardStocks(b)">
-            <td class="rank-col">{{ idx + 1 }}</td>
-            <td class="name-col"><div class="name-main">{{ b.name }}</div><div class="board-code">{{ b.boardCode }}</div><span class="board-detail-hint"><i class="fa fa-chevron-circle-right"></i> 成分股</span></td>
-            <td class="strength">{{ Math.round(b.strength) }}</td>
-            <td :class="b.change > 0 ? 'up' : 'down'">{{ signed(b.change) }}%</td>
-            <td :class="b.speed > 0 ? 'up' : 'down'">{{ signed(b.speed) }}%</td>
-            <td :class="b.mainNet > 0 ? 'up' : b.mainNet < 0 ? 'down' : 'dim'">{{ yi(b.mainNet) }}</td>
-            <td>{{ b.volRatio.toFixed(2) }}</td>
-            <td>{{ yi(b.amount) }}</td>
-            <td>{{ yi(b.totalMv) }}</td>
-            <td class="dim">{{ b.peNow ? b.peNow.toFixed(1) : '-' }}</td>
-          </tr>
-        </tbody>
-      </table>
+
+      <!-- 板块强度 -->
+      <div v-if="tab === 'board'" class="mrk-panel">
+        <div class="rot-toolbar">
+          <span class="rot-tip"><i class="fa fa-info-circle"></i> 实时板块强度排行；选日期可回看历史</span>
+          <input v-model="datePicker" type="date" class="rot-date" @change="loadBoard">
+          <button class="rot-reset-btn" title="回到实时" @click="clearDate('board')"><i class="fa fa-bolt"></i></button>
+          <span v-if="boardDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ boardDataDate }}<template v-if="boardDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
+        </div>
+        <div v-if="boardLoading" class="loading-placeholder"><div class="spinner"></div><div>加载板块强度...</div></div>
+        <div v-else-if="!boardList.length" class="empty-state">暂无板块强度数据</div>
+        <table v-else class="stock-table">
+          <thead>
+            <tr>
+              <th>排名</th>
+              <th class="sortable" :class="{ active: boardSort.keyOf('name') }" @click="boardSort.onSort('name', 'string')">板块<span class="sort-ind">{{ boardSort.ind('name') }}</span></th>
+              <th class="sortable" :class="{ active: boardSort.keyOf('strength') }" @click="boardSort.onSort('strength')">强度<span class="sort-ind">{{ boardSort.ind('strength') }}</span></th>
+              <th class="sortable" :class="{ active: boardSort.keyOf('change') }" @click="boardSort.onSort('change')">涨幅%<span class="sort-ind">{{ boardSort.ind('change') }}</span></th>
+              <th class="sortable" :class="{ active: boardSort.keyOf('speed') }" @click="boardSort.onSort('speed')">涨速%<span class="sort-ind">{{ boardSort.ind('speed') }}</span></th>
+              <th class="sortable" :class="{ active: boardSort.keyOf('mainNet') }" @click="boardSort.onSort('mainNet')">主力净额(亿)<span class="sort-ind">{{ boardSort.ind('mainNet') }}</span></th>
+              <th class="sortable" :class="{ active: boardSort.keyOf('volRatio') }" @click="boardSort.onSort('volRatio')">量比<span class="sort-ind">{{ boardSort.ind('volRatio') }}</span></th>
+              <th class="sortable" :class="{ active: boardSort.keyOf('amount') }" @click="boardSort.onSort('amount')">成交额(亿)<span class="sort-ind">{{ boardSort.ind('amount') }}</span></th>
+              <th class="sortable" :class="{ active: boardSort.keyOf('totalMv') }" @click="boardSort.onSort('totalMv')">总市值(亿)<span class="sort-ind">{{ boardSort.ind('totalMv') }}</span></th>
+              <th class="sortable" :class="{ active: boardSort.keyOf('peNow') }" @click="boardSort.onSort('peNow')">今PE<span class="sort-ind">{{ boardSort.ind('peNow') }}</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(b, idx) in boardSort.sorted(boardList)" :key="b.boardCode" class="board-row" @click="openBoard(b)">
+              <td class="rank-col">{{ idx + 1 }}</td>
+              <td class="name-col"><div class="name-main">{{ b.name }}</div><div class="board-code">{{ b.boardCode }}</div><span class="board-detail-hint"><i class="fa fa-chevron-circle-right"></i> 成分股</span></td>
+              <td class="strength">{{ Math.round(b.strength) }}</td>
+              <td :class="b.change > 0 ? 'up' : b.change < 0 ? 'down' : 'dim'">{{ signed(b.change) }}%</td>
+              <td :class="b.speed > 0 ? 'up' : b.speed < 0 ? 'down' : 'dim'">{{ signed(b.speed) }}%</td>
+              <td :class="b.mainNet > 0 ? 'up' : b.mainNet < 0 ? 'down' : 'dim'">{{ yi(b.mainNet) }}</td>
+              <td>{{ b.volRatio.toFixed(2) }}</td>
+              <td>{{ yi(b.amount) }}</td>
+              <td>{{ yi(b.totalMv) }}</td>
+              <td class="dim">{{ b.peNow ? b.peNow.toFixed(1) : '-' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 板块轮动历史 -->
+      <div v-else-if="tab === 'history'" class="mrk-panel">
+        <div class="rot-toolbar">
+          <span class="rot-tip"><i class="fa fa-info-circle"></i> 工作日 15:30 后自动保存当日 Top10；近期数据积累后展示趋势</span>
+          <div class="rot-source">
+            <button
+              v-for="s in sourceOptions" :key="s.key"
+              :class="{ active: rotSource === s.key }"
+              class="rot-source-btn"
+              @click="switchSource(s.key)"
+            >
+              <i :class="s.icon"></i> {{ s.label }}
+            </button>
+          </div>
+          <select v-model.number="rotDays" class="rot-select" @change="loadHistory">
+            <option :value="10">近 10 日</option>
+            <option :value="20">近 20 日</option>
+            <option :value="30">近 30 日</option>
+            <option :value="50">近 50 日</option>
+          </select>
+          <button class="rot-reset-btn" title="刷新" aria-label="刷新" @click="loadHistory"><i class="fa fa-refresh"></i></button>
+        </div>
+        <div v-if="rotLoading" class="loading-placeholder"><div class="spinner"></div></div>
+        <div v-else-if="rotSourceFailed" class="empty-state src-fail">
+          <i class="fa fa-exclamation-triangle"></i> 数据源故障（源{{ rotSource === 'kpl' ? 1 : rotSource === 'em' ? 2 : 3 }}暂不可用），请切换其他源查看
+        </div>
+        <div v-else-if="!rot.dates.length" class="empty-state">
+          暂无历史数据(每日 15:30 后调度器抓取积累)
+        </div>
+        <template v-else>
+          <!-- 顶部表格: 行=排名, 列=日期 -->
+          <div class="rot-table-scroll">
+            <table class="rot-table">
+              <thead>
+                <tr>
+                  <th class="rot-rownum">排名</th>
+                  <th v-for="d in historyDates" :key="d" class="rot-date">{{ d.slice(5) }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="rank in 10" :key="rank">
+                  <td class="rot-rownum">{{ rank }}</td>
+                  <td v-for="d in historyDates" :key="d+rank" class="rot-cell">
+                    <template v-for="b in boardAt(d, rank)" :key="b.name">
+                      <div :class="['rot-board', 'rot-c-' + (colorMap[b.name] || 0)]">{{ b.name }}</div>
+                      <div class="rot-strength">{{ Math.round(b.strength) }}</div>
+                    </template>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- 强度趋势线 + 量能柱状 + 多窗口排名(独立组件) -->
+          <RotCharts :dates="rot.dates" :rot-map="rotMap" :windows="rot.windows" :common-names="rot.common_names" />
+        </template>
+      </div>
+
+      <!-- 人气热榜 -->
+      <div v-else class="mrk-panel">
+        <div class="rot-toolbar">
+          <span class="rot-tip"><i class="fa fa-info-circle"></i> 人气热榜；选日期可回看历史</span>
+          <div class="rot-source">
+            <button
+              v-for="s in sourceOptions" :key="s.key"
+              :class="{ active: hotSource === s.key }"
+              class="rot-source-btn"
+              @click="switchHotSource(s.key)"
+            >
+              <i :class="s.icon"></i> {{ s.label }}
+            </button>
+          </div>
+          <input v-model="datePicker" type="date" class="rot-date" @change="loadHot">
+          <button class="rot-reset-btn" title="回到实时" @click="clearDate('hot')"><i class="fa fa-bolt"></i></button>
+          <span v-if="hotDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ hotDataDate }}<template v-if="hotDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
+        </div>
+        <div v-if="hotLoading" class="loading-placeholder"><div class="spinner"></div><div>加载人气热榜...</div></div>
+        <div v-else-if="hotSourceFailed" class="empty-state src-fail">
+          <i class="fa fa-exclamation-triangle"></i> 数据源故障（源{{ hotSource === 'kpl' ? 1 : hotSource === 'em' ? 2 : 3 }}暂不可用），请切换其他源查看
+        </div>
+        <div v-else-if="!hotList.length" class="empty-state">暂无热榜数据</div>
+        <table v-else class="stock-table">
+          <thead>
+            <tr>
+              <th class="sortable" :class="{ active: hotSort.keyOf('rank') }" @click="hotSort.onSort('rank')">人气排名<span class="sort-ind">{{ hotSort.ind('rank') }}</span></th>
+              <th class="sortable" :class="{ active: hotSort.keyOf('code') }" @click="hotSort.onSort('code', 'string')">代码<span class="sort-ind">{{ hotSort.ind('code') }}</span></th>
+              <th class="sortable" :class="{ active: hotSort.keyOf('name') }" @click="hotSort.onSort('name', 'string')">名称<span class="sort-ind">{{ hotSort.ind('name') }}</span></th>
+              <th class="sortable" :class="{ active: hotSort.keyOf('change') }" @click="hotSort.onSort('change')">涨跌幅%<span class="sort-ind">{{ hotSort.ind('change') }}</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="h in hotSort.sorted(hotList)" :key="h.code">
+              <td class="rank-col">{{ h.rank }}</td>
+              <td class="code-click" @click="linkToSoftware(h.code)">{{ h.code }}</td>
+              <td><span class="pool-hover-wrap"><span>{{ h.name }}</span><PoolHoverBtn :item="h" /></span></td>
+              <td :class="h.change > 0 ? 'up' : h.change < 0 ? 'down' : 'dim'">{{ signed(h.change) }}%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
+
+    <!-- ==================== 数据源 2: 东财概念榜（原「题材异动」页） ==================== -->
+    <div v-else class="mrk-panel mrk-panel-em">
+      <EmConceptPanel @select="openBoard" />
     </div>
 
-    <!-- 板块成分股弹层(2026-08-17 主人需求: 板块强度点开看成分股) -->
+    <!-- 板块成分股弹层（2026-08-17 主人需求）：两个数据源共用同一弹层，按 src 选接口 -->
     <div v-if="stocksOpen" class="mrk-modal-mask" @click.self="closeBoardStocks">
       <div class="mrk-modal">
         <div class="mrk-modal-head">
@@ -105,194 +236,14 @@
         </div>
       </div>
     </div>
-
-    <!-- 板块轮动历史 -->
-    <div v-else-if="tab === 'history'" class="mrk-panel">
-      <div class="rot-toolbar">
-        <span class="rot-tip"><i class="fa fa-info-circle"></i> 工作日 15:30 后自动保存当日 Top10；近期数据积累后展示趋势</span>
-        <div class="rot-source">
-          <button
-v-for="s in sourceOptions" :key="s.key"
-                  :class="{ active: rotSource === s.key }"
-                  class="rot-source-btn"
-                  @click="switchSource(s.key)"
->
-            <i :class="s.icon"></i> {{ s.label }}
-          </button>
-        </div>
-        <select v-model.number="rotDays" class="rot-select" @change="loadHistory">
-          <option :value="10">近 10 日</option>
-          <option :value="20">近 20 日</option>
-          <option :value="30">近 30 日</option>
-          <option :value="50">近 50 日</option>
-        </select>
-        <button class="rot-reset-btn" title="刷新" aria-label="刷新" @click="loadHistory"><i class="fa fa-refresh"></i></button>
-      </div>
-      <div v-if="rotLoading" class="loading-placeholder"><div class="spinner"></div></div>
-      <div v-else-if="rotSourceFailed" class="empty-state src-fail">
-        <i class="fa fa-exclamation-triangle"></i> 数据源故障（源{{ rotSource === 'kpl' ? 1 : rotSource === 'em' ? 2 : 3 }}暂不可用），请切换其他源查看
-      </div>
-      <div v-else-if="!rot.dates.length" class="empty-state">
-        暂无历史数据(每日 15:30 后调度器抓取积累)
-      </div>
-      <template v-else>
-        <!-- 顶部表格: 行=排名, 列=日期 -->
-        <div class="rot-table-scroll">
-          <table class="rot-table">
-            <thead>
-              <tr>
-                <th class="rot-rownum">排名</th>
-                <th v-for="d in historyDates" :key="d" class="rot-date">{{ d.slice(5) }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="rank in 10" :key="rank">
-                <td class="rot-rownum">{{ rank }}</td>
-                <td v-for="d in historyDates" :key="d+rank" class="rot-cell">
-                  <template v-for="b in boardAt(d, rank)" :key="b.name">
-                    <div :class="['rot-board', 'rot-c-' + (colorMap[b.name] || 0)]">{{ b.name }}</div>
-                    <div class="rot-strength">{{ Math.round(b.strength) }}</div>
-                  </template>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <!-- 强度趋势线 + 量能柱状 + 多窗口排名(独立组件) -->
-        <RotCharts :dates="rot.dates" :rot-map="rotMap" :windows="rot.windows" :common-names="rot.common_names" />
-      </template>
-    </div>
-
-    <!-- 人气热榜 -->
-    <div v-else-if="tab === 'hot'" class="mrk-panel">
-      <div class="rot-toolbar">
-        <span class="rot-tip"><i class="fa fa-info-circle"></i> 人气热榜；选日期可回看历史</span>
-        <div class="rot-source">
-          <button
-v-for="s in sourceOptions" :key="s.key"
-                  :class="{ active: hotSource === s.key }"
-                  class="rot-source-btn"
-                  @click="switchHotSource(s.key)"
->
-            <i :class="s.icon"></i> {{ s.label }}
-          </button>
-        </div>
-        <input v-model="datePicker" type="date" class="rot-date" @change="loadHot">
-        <button class="rot-reset-btn" title="回到实时" @click="clearDate('hot')"><i class="fa fa-bolt"></i></button>
-        <span v-if="hotDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ hotDataDate }}<template v-if="hotDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
-      </div>
-      <div v-if="hotLoading" class="loading-placeholder"><div class="spinner"></div><div>加载人气热榜...</div></div>
-      <div v-else-if="hotSourceFailed" class="empty-state src-fail">
-        <i class="fa fa-exclamation-triangle"></i> 数据源故障（源{{ hotSource === 'kpl' ? 1 : hotSource === 'em' ? 2 : 3 }}暂不可用），请切换其他源查看
-      </div>
-      <div v-else-if="!hotList.length" class="empty-state">暂无热榜数据</div>
-      <table v-else class="stock-table">
-        <thead>
-          <tr>
-            <th class="sortable" :class="{ active: hotSort.keyOf('rank') }" @click="hotSort.onSort('rank')">人气排名<span class="sort-ind">{{ hotSort.ind('rank') }}</span></th>
-            <th class="sortable" :class="{ active: hotSort.keyOf('code') }" @click="hotSort.onSort('code', 'string')">代码<span class="sort-ind">{{ hotSort.ind('code') }}</span></th>
-            <th class="sortable" :class="{ active: hotSort.keyOf('name') }" @click="hotSort.onSort('name', 'string')">名称<span class="sort-ind">{{ hotSort.ind('name') }}</span></th>
-            <th class="sortable" :class="{ active: hotSort.keyOf('change') }" @click="hotSort.onSort('change')">涨跌幅%<span class="sort-ind">{{ hotSort.ind('change') }}</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="h in hotSort.sorted(hotList)" :key="h.code">
-            <td class="rank-col">{{ h.rank }}</td>
-            <td class="code-click" @click="linkToSoftware(h.code)">{{ h.code }}</td>
-            <td><span class="pool-hover-wrap"><span>{{ h.name }}</span><PoolHoverBtn :item="h" /></span></td>
-            <td :class="h.change > 0 ? 'up' : h.change < 0 ? 'down' : 'dim'">{{ signed(h.change) }}%</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <!-- 龙虎榜 -->
-    <div v-else class="mrk-panel">
-      <div class="rot-toolbar">
-        <span class="rot-tip"><i class="fa fa-info-circle"></i> 龙虎榜当日/历史；选日期可回看</span>
-        <input v-model="datePicker" type="date" class="rot-date" @change="loadLhb">
-        <button class="rot-reset-btn" title="回到实时" @click="clearDate('lhb')"><i class="fa fa-bolt"></i></button>
-        <span v-if="lhbDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ lhbDataDate }}<template v-if="lhbDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
-      </div>
-      <div v-if="lhbLoading" class="loading-placeholder"><div class="spinner"></div><div>加载龙虎榜...</div></div>
-      <div v-else-if="!lhbList.length" class="empty-state">暂无龙虎榜数据</div>
-      <table v-else class="stock-table">
-        <thead>
-          <tr>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('code') }" @click="lhbSort.onSort('code', 'string')">代码<span class="sort-ind">{{ lhbSort.ind('code') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('name') }" @click="lhbSort.onSort('name', 'string')">名称<span class="sort-ind">{{ lhbSort.ind('name') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('change') }" @click="lhbSort.onSort('change')">涨跌幅%<span class="sort-ind">{{ lhbSort.ind('change') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('limitBoards') }" @click="lhbSort.onSort('limitBoards')">连板<span class="sort-ind">{{ lhbSort.ind('limitBoards') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('buyIn') }" @click="lhbSort.onSort('buyIn')">买入(亿)<span class="sort-ind">{{ lhbSort.ind('buyIn') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('amount') }" @click="lhbSort.onSort('amount')">成交额(亿)<span class="sort-ind">{{ lhbSort.ind('amount') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('turnover') }" @click="lhbSort.onSort('turnover')">换手%<span class="sort-ind">{{ lhbSort.ind('turnover') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('amplitude') }" @click="lhbSort.onSort('amplitude')">振幅%<span class="sort-ind">{{ lhbSort.ind('amplitude') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('floatMv') }" @click="lhbSort.onSort('floatMv')">流通市值(亿)<span class="sort-ind">{{ lhbSort.ind('floatMv') }}</span></th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="l in lhbSort.sorted(lhbList)" :key="l.code">
-            <td class="code-click" @click="linkToSoftware(l.code)">{{ l.code }}</td>
-            <td class="name-col"><span class="pool-hover-wrap">{{ l.name }}<PoolHoverBtn :item="l" /></span></td>
-            <td :class="l.change > 0 ? 'up' : 'down'">{{ signed(l.change) }}%</td>
-            <td><span v-if="l.limitBoards > 0" class="lb-badge">{{ l.limitBoards }}板</span><span v-else class="dim">-</span></td>
-            <td :class="l.buyIn > 0 ? 'up' : l.buyIn < 0 ? 'down' : 'dim'">{{ yi(l.buyIn) }}</td>
-            <td>{{ yi(l.amount) }}</td>
-            <td>{{ l.turnover.toFixed(2) }}</td>
-            <td>{{ l.amplitude.toFixed(2) }}</td>
-            <td>{{ yi(l.floatMv) }}</td>
-            <td><button class="pool-add-btn" @click="viewLhbDetail(l)">明细</button></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <!-- 龙虎榜营业部明细弹窗 -->
-    <div v-if="lhbModal.show" class="modal-mask" @click.self="lhbModal.show = false">
-      <div class="reason-modal">
-        <div class="reason-head">
-          <span><i class="fa fa-list-alt" style="color:#ffb400;"></i> {{ lhbModal.detail.name }} {{ lhbModal.code }} · 龙虎榜营业部</span>
-          <button class="close-btn" @click="lhbModal.show = false"><i class="fa fa-close"></i></button>
-        </div>
-        <div v-if="lhbLoading" class="reason-loading">查询中...</div>
-        <template v-else>
-          <div v-if="lhbModal.detail.upReason" class="lhb-reason">涨停原因：{{ lhbModal.detail.upReason }}</div>
-          <div class="lhb-total">
-            <span>买入总计 <b class="up">{{ yi(lhbModal.detail.buyTotal) }}亿</b></span>
-            <span>卖出总计 <b class="down">{{ yi(lhbModal.detail.sellTotal) }}亿</b></span>
-            <span>换手 {{ (lhbModal.detail.turnover || 0).toFixed(2) }}%</span>
-          </div>
-          <div class="lhb-cols">
-            <div class="lhb-col">
-              <div class="lhb-col-title buy">买入营业部</div>
-              <div v-for="(b, i) in lhbModal.detail.buyList" :key="i" class="lhb-row">
-                <span class="lhb-idx">{{ i + 1 }}</span>
-                <span class="lhb-name">{{ b.name }}</span>
-                <span class="lhb-amt up">+{{ (b.buy / 1e8).toFixed(2) }}亿</span>
-              </div>
-              <div v-if="!lhbModal.detail.buyList.length" class="lhb-empty">无</div>
-            </div>
-            <div class="lhb-col">
-              <div class="lhb-col-title sell">卖出营业部</div>
-              <div v-for="(s, i) in lhbModal.detail.sellList" :key="i" class="lhb-row">
-                <span class="lhb-idx">{{ i + 1 }}</span>
-                <span class="lhb-name">{{ s.name }}</span>
-                <span class="lhb-amt down">-{{ (s.sell / 1e8).toFixed(2) }}亿</span>
-              </div>
-              <div v-if="!lhbModal.detail.sellList.length" class="lhb-empty">无</div>
-            </div>
-          </div>
-        </template>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, reactive } from 'vue'
+import { computed, onMounted, ref, reactive, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { usePolling } from '../composables/usePolling'
-import { kplBoardRank, kplBoardStocks, kplHotRank, kplLhb, kplLhbDetail, sectorRotation } from '../api/kpl'
+import { kplBoardRank, kplBoardStocks, kplHotRank, sectorRotation, emBoardMembers } from '../api/kpl'
 import { trackUsageOnce } from '../api/activity'
 import { linkToSoftware } from '../utils/tdx'
 import { bjTimeStr } from '../utils/time'
@@ -300,52 +251,56 @@ import { useSortable } from '../composables/useSortable'
 import { yi, signed } from '../utils/format'
 import RotCharts from '../components/RotCharts.vue'
 import PoolHoverBtn from '../components/PoolHoverBtn.vue'
+import SentimentPanel from '../components/SentimentPanel.vue'
+import EmConceptPanel from '../components/EmConceptPanel.vue'
+
+const route = useRoute()
+const router = useRouter()
+
+// ===================== 数据源切换（工单 三.4 方案 A） =====================
+// kpl = 开盘啦强度榜（原市场雷达三 tab）；em = 东财概念榜（原「题材异动」页）
+// /concept 路由重定向到 /market?src=em，因此 src 以 query 为唯一真源。
+const src = ref(route.query.src === 'em' ? 'em' : 'kpl')
+
+function switchSrc(s) {
+  if (s === src.value) return
+  src.value = s
+  // 写回 URL：既让 /concept→/market?src=em 这条链路自洽，也让切换后的地址可分享/可后退
+  router.replace({ name: 'market', query: s === 'em' ? { src: 'em' } : {} })
+}
+
+// 支持浏览器前进/后退：query 变了要跟着切（switchSrc 自己改 query 时这里是无操作）
+watch(() => route.query.src, (v) => {
+  const want = v === 'em' ? 'em' : 'kpl'
+  if (want !== src.value) src.value = want
+})
 
 const tab = ref('board')
 const boardList = ref([])
 const hotList = ref([])
 const hotSourceFailed = ref(false)
-const lhbList = ref([])
 const boardLoading = ref(true)
 const hotLoading = ref(true)
-const lhbLoading = ref(true)
 const hotSource = ref(localStorage.getItem('kuaixuan_hot_source') || 'kpl')
 const datePicker = ref('')
 const boardDataDate = ref('')
 const hotDataDate = ref('')
-const lhbDataDate = ref('')
 const bjTime = ref('--:--:--')
-
-const lhbModal = reactive({ show: false, code: '', detail: { name: '', buyList: [], sellList: [], buyTotal: 0, sellTotal: 0, upReason: '', turnover: 0 } })
 
 // 各表独立排序实例
 const boardSort = useSortable()
-// 板块成分股弹层(2026-08-17 主人需求)
+// 板块成分股弹层（两个数据源共用）
 const stocksOpen = ref(false)
 const stocksLoading = ref(false)
 const currentBoard = ref(null)
 const boardStocks = ref([])
 const stockSort = useSortable()
 const hotSort = useSortable()
-const lhbSort = useSortable()
 
 // 切 Tab 清排序
 function switchTab(t) {
   tab.value = t
-  boardSort.clear(); hotSort.clear(); lhbSort.clear()
-}
-
-async function viewLhbDetail(l) {
-  lhbModal.show = true
-  lhbModal.code = l.code
-  lhbModal.detail = { name: l.name, buyList: [], sellList: [], buyTotal: 0, sellTotal: 0, upReason: '', turnover: 0 }
-  lhbLoading.value = true
-  try {
-    const d = await kplLhbDetail(l.code)
-    if (d && d.detail) lhbModal.detail = d.detail
-  } catch (e) { /* 静默 */ } finally {
-    lhbLoading.value = false
-  }
+  boardSort.clear(); hotSort.clear()
 }
 
 async function loadBoard() {
@@ -358,14 +313,21 @@ async function loadBoard() {
   }
 }
 
-// 板块成分股弹层: 点击板块行打开
-async function openBoardStocks(b) {
+/**
+ * 打开成分股弹层。两个数据源共用同一个弹层，按 src 选对应接口：
+ *   kpl → /api/kpl/board-stocks（含主力净额/涨停标识）
+ *   em  → /api/kpl/em-board-members（只有现价/涨跌/换手/成交额/自由流通市值）
+ * 字段缺失的那几列在弹层里显示「-」，这是数据源本身的差异，不是 bug。
+ */
+async function openBoard(b) {
   currentBoard.value = b
   stocksOpen.value = true
   stocksLoading.value = true
   stockSort.clear()
   try {
-    const d = await kplBoardStocks(b.boardCode, datePicker.value)
+    const d = src.value === 'em'
+      ? await emBoardMembers(b.boardCode)
+      : await kplBoardStocks(b.boardCode, datePicker.value)
     boardStocks.value = d.list || []
   } catch (e) { boardStocks.value = [] } finally {
     stocksLoading.value = false
@@ -381,8 +343,7 @@ function closeBoardStocks() {
 function clearDate(which) {
   datePicker.value = ''
   if (which === 'board') { boardLoading.value = true; loadBoard() }
-  else if (which === 'hot') { hotLoading.value = true; loadHot() }
-  else { lhbLoading.value = true; loadLhb() }
+  else { hotLoading.value = true; loadHot() }
 }
 
 async function loadHot() {
@@ -397,22 +358,12 @@ async function loadHot() {
   }
 }
 
-function switchHotSource(src) {
-  if (src === hotSource.value) return
-  hotSource.value = src
-  localStorage.setItem('kuaixuan_hot_source', src)
+function switchHotSource(src2) {
+  if (src2 === hotSource.value) return
+  hotSource.value = src2
+  localStorage.setItem('kuaixuan_hot_source', src2)
   hotLoading.value = true
   loadHot()
-}
-
-async function loadLhb() {
-  try {
-    const d = await kplLhb(datePicker.value)
-    lhbList.value = d.list || []
-    lhbDataDate.value = d.date || ''
-  } catch (e) { /* 静默 */ } finally {
-    lhbLoading.value = false
-  }
 }
 
 // ===================== 板块轮动历史 =====================
@@ -475,10 +426,10 @@ async function loadHistory() {
   finally { rotLoading.value = false }
 }
 
-function switchSource(src) {
-  if (src === rotSource.value) return
-  rotSource.value = src
-  localStorage.setItem('kuaixuan_sector_source', src)
+function switchSource(s) {
+  if (s === rotSource.value) return
+  rotSource.value = s
+  localStorage.setItem('kuaixuan_sector_source', s)
   loadHistory()
 }
 
@@ -490,12 +441,26 @@ onMounted(() => {
   loadBoard()
   loadHistory()
   loadHot()
-  loadLhb()
-  usePolling(() => { loadBoard(); loadHot(); loadLhb() }, 60000)
+  usePolling(() => { loadBoard(); loadHot() }, 60000)
 })
 </script>
 
 <style scoped>
+/* ===================== 数据源切换（工单 三.4 方案 A） ===================== */
+.mrk-src { display: inline-flex; gap: 0; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-soft); margin-bottom: 12px; }
+.mrk-src-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg-input); color: var(--text-secondary); border: none;
+  padding: 8px 18px; font-size: 0.875rem; cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.mrk-src-btn:hover { background: var(--bg-card); color: var(--text-main); }
+.mrk-src-btn.active { background: rgba(255, 180, 0, 0.15); color: #ffd700; font-weight: 700; box-shadow: inset 0 -2px 0 var(--accent); }
+body[data-bg="light"] .mrk-src { border-color: #d0d0d0; }
+body[data-bg="light"] .mrk-src-btn { background: #f5f5f5; color: #555; }
+body[data-bg="light"] .mrk-src-btn:hover { background: #eaeaea; color: #1a1d26; }
+body[data-bg="light"] .mrk-src-btn.active { background: rgba(198, 40, 40, 0.10); color: #c62828; }
+
 /* 板块行点击态(2026-08-17 主人需求: 点板块看成分股) */
 .board-row { cursor: pointer; }
 .board-row:hover td { background: rgba(255, 180, 0, 0.06); }
@@ -545,7 +510,7 @@ body[data-bg="light"] .board-row:hover td { background: rgba(199, 145, 0, 0.08);
 .mrk-title { font-size: 1.25rem; font-weight: 700; color: #ffe0a0; }
 .mrk-title .fa { color: #ffb400; }
 .mrk-sub { color: var(--text-muted); font-size: 0.8125rem; }
-.mrk-time { margin-left: auto; color: #aaa; font-size: 0.875rem; font-family: inherit; }
+.mrk-time { margin-left: auto; color: var(--text-dim); font-size: 0.875rem; font-family: inherit; font-variant-numeric: tabular-nums; }
 .mrk-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
 .mrk-tab {
   padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border-soft);
@@ -554,6 +519,8 @@ body[data-bg="light"] .board-row:hover td { background: rgba(199, 145, 0, 0.08);
 .mrk-tab:hover { border-color: #ffb400; color: #ffe0a0; }
 .mrk-tab.active { background: rgba(255,180,0,0.15); border-color: #ffb400; color: #ffd700; font-weight: 600; }
 .mrk-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 14px; }
+/* 东财概念榜面板: 自带内边距, 外层不要再叠一层 padding */
+.mrk-panel-em { padding: 0; background: transparent; border: none; }
 .loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
 .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -563,24 +530,7 @@ body[data-bg="light"] .board-row:hover td { background: rgba(199, 145, 0, 0.08);
 .board-code { font-size: 0.75rem; color: var(--text-muted); }
 .strength { color: #ffb400; font-weight: 700; }
 .lb-badge { display: inline-block; color: #ff8a5c; border: 1px solid rgba(255,80,40,0.5); border-radius: 4px; padding: 0 5px; font-size: 0.75rem; background: rgba(255,80,40,0.12); }
-.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.reason-modal { background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 12px; width: 640px; max-width: 92vw; max-height: 76vh; overflow: auto; padding: 18px; }
-.reason-head { display: flex; align-items: center; justify-content: space-between; color: #ffe0a0; font-size: 1rem; margin-bottom: 14px; }
-.close-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1rem; }
-.close-btn:hover { color: #ff6a6a; }
-.reason-loading { color: var(--text-muted); padding: 20px; text-align: center; }
-.lhb-reason { color: #ffb400; font-size: 0.8125rem; margin-bottom: 10px; line-height: 1.5; }
-.lhb-total { display: flex; gap: 20px; color: #aaa; font-size: 0.8125rem; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border-soft); }
-.lhb-cols { display: flex; gap: 16px; }
-.lhb-col { flex: 1; }
-.lhb-col-title { font-size: 0.8125rem; margin-bottom: 8px; }
-.lhb-col-title.buy { color: #ff8a8a; }
-.lhb-col-title.sell { color: #8ae08a; }
-.lhb-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.04); }
-.lhb-idx { width: 16px; color: var(--text-muted); }
-.lhb-name { flex: 1; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lhb-amt { font-family: inherit; }
-.lhb-empty { color: #666; font-size: 0.75rem; padding: 8px 0; }
+.name-col { white-space: nowrap; }
 
 /* 浅色主题覆盖 */
 body[data-bg="light"] .page-back { color: #6b6b6b; }
@@ -593,24 +543,17 @@ body[data-bg="light"] .mrk-tab { color: #6b6b6b; border-color: var(--border-soft
 body[data-bg="light"] .mrk-tab:hover { color: #5a4a3a; border-color: #c79100; }
 body[data-bg="light"] .mrk-tab.active { color: #5a4a3a; background: rgba(255,180,0,0.15); border-color: #c79100; }
 body[data-bg="light"] .mrk-panel { background: rgba(255,255,255,0.85); border-color: var(--border-soft); }
+body[data-bg="light"] .mrk-panel-em { background: transparent; border-color: transparent; }
 body[data-bg="light"] .strength { color: #8a5500; }
 body[data-bg="light"] .lb-badge { color: #b83010; border-color: rgba(184,48,16,0.5); background: rgba(255,80,80,0.1); }
-body[data-bg="light"] .reason-head { color: #5a4a3a; }
-body[data-bg="light"] .close-btn:hover { color: #b83010; }
-body[data-bg="light"] .lhb-reason { color: #8a5500; }
-body[data-bg="light"] .lhb-col-title { color: #5a4a3a; }
-body[data-bg="light"] .lhb-col-title.buy { color: #b83010; }
-body[data-bg="light"] .lhb-name { color: #1a1d26; }
-body[data-bg="light"] .lhb-row { border-bottom-color: rgba(0,0,0,0.08); }
-body[data-bg="light"] .lhb-empty { color: #8a8a8a; }
 body[data-bg="light"] .board-code { color: #1a1d26; }
-body[data-bg="light"] .reason-modal { background: rgba(255,255,255,0.98); border-color: var(--border-soft); }
+
 /* ===================== 板块轮动历史视图 ===================== */
 .rot-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .rot-tip { color: var(--text-muted, #aaa); font-size: 0.75rem; flex: 1; min-width: 0; }
 
 /* 注: rot-date / rot-select / rot-reset-btn / rot-data-date 为全局通用样式,
-   定义在 src/styles/main.css(市场雷达 & 连板天梯共用) */
+   定义在 src/styles/main.css(板块页 & 连板天梯共用) */
 .rot-source { display: flex; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-soft, #444); }
 .rot-source-btn { background: var(--bg-input, #1a1a1a); color: var(--text-secondary, #aaa); border: none; padding: 5px 12px; font-size: 0.75rem; cursor: pointer; transition: background 0.15s; }
 .rot-source-btn:hover { background: var(--bg-card, #222); }
@@ -652,12 +595,15 @@ body[data-bg="light"] .rot-c-8 { background: #A82C6C; }
 /* 移动端适配(<=768px): 表格横滑 + Tab 横滑 + 布局紧凑 */
 @media (max-width: 768px) {
   .rot-charts { grid-template-columns: 1fr; }
-  /* 宽表格横向滚动(板块强度/人气热榜/龙虎榜) */
+  /* 数据源切换两个按钮等分铺满, 便于拇指点按 */
+  .mrk-src { display: flex; width: 100%; }
+  .mrk-src-btn { flex: 1 1 0; justify-content: center; padding: 9px 6px; font-size: 0.8125rem; }
+  /* 宽表格横向滚动(板块强度/人气热榜) */
   .mrk-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 10px 8px; }
   .mrk-panel .stock-table { min-width: 880px; }
   /* 历史轮动表横滑内容完整 */
   .rot-table-scroll .rot-table { min-width: 680px; }
-  /* Tab 横向滑动(4 个 tab 一排滑, 不换行占纵向空间) */
+  /* Tab 横向滑动(3 个 tab 一排滑, 不换行占纵向空间) */
   .mrk-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 4px; }
   .mrk-tabs::-webkit-scrollbar { display: none; }
   .mrk-tab { flex-shrink: 0; white-space: nowrap; padding: 7px 12px; font-size: 0.8125rem; }
@@ -669,10 +615,7 @@ body[data-bg="light"] .rot-c-8 { background: #A82C6C; }
   /* 表格字号压缩 */
   .mrk-panel .stock-table th { padding: 7px 4px; font-size: 0.75rem; }
   .mrk-panel .stock-table td { padding: 6px 4px; font-size: 0.75rem; }
-  /* 龙虎榜弹窗: 买卖盘双列改单列(手机宽不足, 双列挤) */
-  .lhb-cols { flex-direction: column; gap: 8px; }
-  /* 涨停原因弹窗近全屏 */
-  .reason-modal { width: 96vw; padding: 12px 10px; }
+  /* 成分股弹窗近全屏 */
+  .mrk-modal { max-height: 86vh; }
 }
-
 </style>
