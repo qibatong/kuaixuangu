@@ -6,6 +6,9 @@
       <span class="zt-title"><i class="fa fa-sitemap"></i> 涨停梯队</span>
       <span class="zt-sub">实时涨停梯队 · 晋级率 · 题材主线（盘中持续刷新）</span>
       <span class="zt-time">{{ bjTime }}</span>
+      <!-- 2026-09-27 v4.11.63《移动端清单》§二·4: 数据更新时刻(与左边那个"现在几点"的
+           时钟不是一回事 —— 它只在成功拉到梯队数据时才前进) -->
+      <DataStamp :at="dataAt" :ok="dataOk" :interval="autoOn ? 30 : 0" />
     </div>
 
     <!-- 顶部统计 -->
@@ -101,11 +104,18 @@ import { kplZtEchelon, kplLadderDates, kplZtReason } from '../api/kpl'
 import { trackUsageOnce } from '../api/activity'
 import { useUserStore } from '../stores/user'
 import { bjDateTimeStr, isIntradayNow } from '../utils/time'
+import { useDataStamp } from '../composables/useDataStamp'
+import DataStamp from '../components/DataStamp.vue'
 
 const user = useUserStore()
 
 const loading = ref(true)
 const bjTime = ref('--:--:--')
+// 清单 §二·4: 数据更新时刻 + "当前是否在自动刷新"（后者决定要不要显示「每 30s 自动刷新」）
+// ⚠️ 这里必须**分解赋值**：useDataStamp 返回的是普通对象，模板只会自动解包「顶层 ref」，
+//    写 `ds.at` 会把 ref 对象本身渲染出来（要写成 ds.at.value 才对）—— 分解后既干净又不会踩。
+const { at: dataAt, ok: dataOk, mark: markData } = useDataStamp()
+const autoOn = ref(false)
 const stat = ref({ ztCount: 0, maxLadder: 0, spaceDragon: '' })
 const promote = ref({})
 const ladders = ref([])
@@ -181,6 +191,7 @@ async function load() {
     if (d && d.promote) promote.value = d.promote
     ladders.value = (d && d.ladders) || []
     boards.value = (d && d.boards) || []
+    markData()          // ★ 只在成功路径推进「更新于」；失败不得推进（见 useDataStamp 注释）
   } catch (e) { /* 静默 */ } finally {
     loading.value = false
   }
@@ -190,9 +201,10 @@ let echelonTimer = null
 // ⚠️ 2026-09-27 v4.11.59 修: 时钟轮询从 onMounted 回调搬到 setup 顶层 ——
 //    Vue 调用 mounted 回调时 currentInstance 为 null, usePolling 内的 onBeforeUnmount
 //    会静默注册失败 ⇒ 1s 定时器永不清理(详见 EmConceptPanel.vue 的长注释)。
-usePolling(() => { bjTime.value = bjDateTimeStr() }, 1000, { immediate: false })
+usePolling(() => { bjTime.value = bjDateTimeStr(); autoOn.value = isIntradayNow() }, 1000, { immediate: false })
 onMounted(() => {
   bjTime.value = bjDateTimeStr()
+  autoOn.value = isIntradayNow()
   // 2026-09-22 v4.11.35: 涨停梯队打开即算一次(Once 版, 组件内 30s 轮询不重复上报)
   trackUsageOnce('ladder')
   load()

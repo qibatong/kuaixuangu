@@ -2,10 +2,30 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+<!-- 2026-09-27 v4.11.63 移动端 H5 客户端化（追加清单 §一）
+     · viewport-fit=cover：★ 关键。App.vue 的 fixViewportIfNeeded() 运行时会覆写成**同一份值**,
+       但要等 JS 执行 + 150ms/600ms 两次重跑 —— 首帧窗口期内 env(safe-area-inset-*) 全为 0,
+       底部 tabbar 会被 iOS 工具栏 / Home 横条压住（这就是主人上轮问的「是否被遮挡」）。
+       静态写上 ⇒ 首帧即正确; 且四处取值与 App.vue 第 159 行**逐字对齐**, 不存在"先错后对"的跳变。
+     · 有意 **不写** user-scalable=no / maximum-scale=1.0：本文件下方就有 WCAG 1.4.8 偏好尊重注释,
+       禁缩放是常见无障碍反模式; 且 App.vue 运行时强制 user-scalable=yes + maximum-scale=2.0,
+       静态写 no 会自相矛盾。★ 主人口径: 保留双指缩放, 只修遮挡。
+     · 有意 **不写** body{position:fixed}: main.css:306-309 记录过
+       「.page-shell 一旦成为滚动容器 → 首页竞价页 sticky tab 失效」的真实回归, 代价远大于收益。
+       「禁整页回弹」改用 overscroll-behavior(见 styles/main.css), 不碰文档滚动。 -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, maximum-scale=2.0, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <title>快选 · AI选股</title>
 <link rel="icon" type="image/png" href="/favicon.png">
+<!-- 「加到主屏幕」后全屏无地址栏 + 状态栏透明（内容顶到状态栏下, 由 body 的
+     env(safe-area-inset-top) 内边距让开）—— 验收项 1 靠这四条。 -->
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="快选">
+<meta name="application-name" content="快选">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#c62828">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
 </head>
 <body data-bg="dark">

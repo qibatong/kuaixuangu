@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Request
 from ..core import logger
 from ..services import (auction_snapshot, fetcher, history, kpl, notify, scorer,
                         meoz_client,
-                        settings, stats)
+                        settings, stats, stock_search)
 from ..services.cache_store import store as _cstore   # 2026-09-04: refresh 计算缓存
 from .deps import get_uid, jr, qs
 
@@ -626,6 +626,28 @@ def _fill_spot_fields(lst, fs):
         n += 1
     log.info("直读名单实时行情覆盖 %d/%d 只 fs=%s", n, len(lst), fs)
     return lst
+
+
+@router.get("/api/stocks/search")
+def api_stocks_search(request: Request, uid: int = Depends(get_uid)):
+    """全市场股票快速搜索：代码 / 中文名片段 / 拼音首字母（移动端「🔍 跳股」数据源）。
+
+    2026-09-27 v4.11.63 新增（《快选移动端追加清单》§三「补一个全局股票快速搜索/跳股」）。
+    清单原文写「仍是纯前端，零后端改动」，但实测本仓**没有任何全市场名录接口**
+    （`/api/stock-temper/rank?keyword=` 只在「股性」画像表内搜，覆盖不到全市场），
+    而拼音首字母要用 `str.encode('gbk')`（Python 内置, 前端没有）⇒ 这一项必须落到后端。
+    ★ 数据全部来自本地 SQLite（snapshot_bid 最新 9_25 定格, 全市场 5561 行）：
+      **零网络、零外部配额、零新增依赖、零建表**。算法口径与已知局限见
+      `services/stock_search.py` 模块头注释（含「流传的拼音边界表在 Y/Z 段是错的」）。
+    """
+    q = qs(request)
+    kw = (q.get("q") or [""])[0]
+    try:
+        limit = int((q.get("limit") or [20])[0])
+    except (TypeError, ValueError):
+        limit = 20
+    lst = stock_search.search(kw, limit)
+    return jr({"ok": True, "q": kw, "count": len(lst), "list": lst})
 
 
 @router.get("/api/stocks")

@@ -1,6 +1,7 @@
 /**
  * 渲染冒烟测试（SSR 版，无需浏览器）
  *   v4.11.60 建（导航三件套）；v4.11.62 扩到**盘中盯盘台六层组件**；同版再补 G8（盯盘台**本体**）。
+ *   v4.11.63 补 G9（全局股票搜索面板/入口 —— 《快选移动端追加清单》§三）。
  *
  * 为什么需要它：
  *   v4.11.58 的 `GroupNav.vue` 里有一行 `void NAV_GROUPS`，而该标识符**没有被 import**。
@@ -21,6 +22,10 @@
  *        ③ G8 盯盘台**本体** MarketView（六层编排 + 既有板块能力保留）——
  *           ⚠️ G1~G6 覆盖不到它：MarketView 自己模板里还有几十个自由变量
  *           （flashList/yestCount/pickRows/boardRows/hotBoard/updatedAt…），错拼同样是静默的。
+ *        ④ G9 全局股票搜索（《移动端清单》§三）—— 面板是**纯展示组件**，
+ *           所以能用夹具把 loading/empty/err/ok 四个态各自渲染出来。
+ *           ★ 重点断言「空结果」与「服务失败」文案**必须不同**：两者都长成空列表
+ *             就是本项目最忌讳的"静默"（yday_amount 冻结 9 日 / 名单退回昨日 同型）。
  *
  * 跑法（见 frontend/package.json 的 `test:nav`；`npm run verify` = lint + 本测试）：
  *   1) vite build --ssr _verify/nav.spec.js --outDir .navssr --emptyOutDir
@@ -48,6 +53,11 @@ import TodayPicksPanel from '../src/components/TodayPicksPanel.vue'
 import MarketBoardPanel from '../src/components/MarketBoardPanel.vue'
 import YidongFlow from '../src/components/YidongFlow.vue'
 import MarketView from '../src/views/MarketView.vue'
+// v4.11.63 全局股票搜索（《快选移动端追加清单》§三）
+import StockSearch from '../src/components/StockSearch.vue'
+import StockSearchPanel from '../src/components/StockSearchPanel.vue'
+// v4.11.63 数据更新时刻（《快选移动端追加清单》§二·4）
+import DataStamp from '../src/components/DataStamp.vue'
 import { summarizePicks } from '../src/utils/picks'
 import { mergeLimitCount, sortBoardsByLimit } from '../src/utils/boards'
 
@@ -100,6 +110,17 @@ const fails = []
 function ok(name, cond, extra) {
   if (cond) { PASS++; console.log(`  [PASS] ${name}`) }
   else { FAIL++; fails.push(name); console.log(`  [FAIL] ${name}${extra ? ' :: ' + extra : ''}`) }
+}
+
+/**
+ * 数「class 属性里含某类名的元素」个数。
+ * ⚠️ 不能用 `html.includes('class="ss-row')` 这种写法计数 —— Vue SSR 合并 `:class` 时
+ *    把**动态类排在静态类之前**：静态 `class="ss-row"` + 动态 `is-active` 会渲染成
+ *    `class="is-active ss-row"` ⇒ 按前缀计数必然漏掉高亮那一行（本测试第一版就是这样
+ *    把 3 行数成 2 行）。与 grep 计数同一条纪律：先看清真实输出形状再写判据。
+ */
+function countByClass(html, cls) {
+  return (html.match(new RegExp(`class="[^"]*\\b${cls}\\b[^"]*"`, 'g')) || []).length
 }
 
 /** 渲染指定路由下的导航三件套，返回 { html, errors } */
@@ -361,6 +382,107 @@ ok('保留强度表工具条（日期回看）', g8.html.includes('实时板块�
 ok('初始态 → 加载占位（不冒充有数据）', g8.html.includes('加载板块强度'))
 ok('MarketView 渲染结果不含 "undefined"', !g8.html.includes('undefined'))
 ok('MarketView 渲染结果不含 "NaN"', !g8.html.includes('NaN'))
+
+// ==================== G9. 全局股票搜索（v4.11.63 · 《移动端清单》§三「🔍 跳股」） ====================
+//   面板 StockSearchPanel 是**纯展示组件**（零状态零请求），所以四态能用夹具各渲一遍；
+//   入口 StockSearch 是容器（防抖/请求/键盘/定位），SSR 只验证"关闭态能渲染、不崩"。
+console.log('\n— G9. 股票搜索面板（五态互斥）与两处入口')
+
+const ssRows = [
+  { code: '605058', name: '澳弘电子', board: '沪主板', py: 'AHDZ' },
+  { code: '002466', name: '天齐锂业', board: '深主板', py: 'TQLY' },
+  { code: '300750', name: '宁德时代', board: '创业板', py: 'NDSD' },
+]
+const SS = (p) => renderComp(StockSearchPanel, { variant: 'nav', kw: '', rows: [], phase: 'idle', ...p })
+
+// ① ok 态
+const g9 = await SS({ kw: 'ah', rows: ssRows, phase: 'ok', activeIdx: 0 })
+ok('Panel 渲染无异常/无 Vue 警告', g9.errors.length === 0, g9.errors.join(' | '))
+ok('三条结果各一行', countByClass(g9.html, 'ss-row') === 3,
+  '实际 ' + countByClass(g9.html, 'ss-row'))
+ok('结果里代码/名称/板块/拼音首字母四要素齐备',
+  g9.html.includes('605058') && g9.html.includes('澳弘电子') && g9.html.includes('沪主板') && g9.html.includes('AHDZ'))
+ok('activeIdx=0 ⇒ 恰好一条高亮', (g9.html.match(/aria-selected="true"/g) || []).length === 1 &&
+  (g9.html.match(/aria-selected="false"/g) || []).length === 2)
+ok('底部透出条数', g9.html.includes('共 3 条'))
+ok('listbox/option 语义齐备', g9.html.includes('role="listbox"') && g9.html.includes('role="option"'))
+
+// ② 空结果 与 ③ 服务失败 —— ★ 两者必须一眼可分（本项目的头号缺陷类型就是"静默"）
+const g9e = await SS({ kw: '不存在票', rows: [], phase: 'empty' })
+const g9f = await SS({ kw: '600001', rows: [], phase: 'err', errMsg: '请求失败(500)' })
+ok('空结果：明说未找到 + 回显关键词', g9e.html.includes('未找到') && g9e.html.includes('不存在票'))
+ok('失败：明说服务不可用 + 带原因 + 给重试', g9f.html.includes('搜索服务暂不可用') &&
+  g9f.html.includes('请求失败(500)') && g9f.html.includes('重试'))
+ok('🔴 空结果与失败文案必须不同（不许都渲染成一个空列表）',
+  !g9e.html.includes('暂不可用') && !g9f.html.includes('未找到'))
+ok('失败态不含结果行', countByClass(g9f.html, 'ss-row') === 0)
+
+// ④ loading：首屏无结果时显示"搜索中"
+const g9l = await SS({ kw: '60', rows: [], phase: 'loading' })
+ok('首屏搜索中态明确', g9l.html.includes('搜索中'))
+
+// ④b loading 但已有旧结果 ⇒ 保留旧列表（否则每敲一个字列表就闪一下空）
+const g9l2 = await SS({ kw: '605', rows: ssRows, phase: 'loading', activeIdx: 0 })
+ok('已有结果时 loading 不盖掉旧列表', countByClass(g9l2.html, 'ss-row') === 3 &&
+  !g9l2.html.includes('搜索中'))
+
+// ⑤ idle：给三种用法示例（代码/名称/拼音首字母）
+const g9i = await SS({ kw: '   ', rows: [], phase: 'idle' })
+ok('未输入时给出三种用法示例', g9i.html.includes('拼音首字母') &&
+  g9i.html.includes('605058') && g9i.html.includes('ahdz'))
+ok('未输入时没有结果行', countByClass(g9i.html, 'ss-row') === 0)
+
+// ⑥ 变体差异：nav 的输入框长在导航栏里（面板不重复渲染）；tabbar 的面板自带输入框
+const g9t = await SS({ variant: 'tabbar', kw: '', rows: [], phase: 'idle' })
+ok('tabbar 变体：面板自带输入框', g9t.html.includes('ss-panel-search') &&
+  g9t.html.includes('type="search"') && g9t.html.includes('代码 / 名称 / 拼音首字母'))
+ok('nav 变体：面板不自带输入框（避免出现两个输入框）', !g9.html.includes('ss-panel-search'))
+
+// ⑦ 入口两处（容器组件，关闭态）
+const g9c = await renderComp(StockSearch, { variant: 'nav' })
+ok('桌面入口渲染无异常/无警告', g9c.errors.length === 0, g9c.errors.join(' | '))
+ok('桌面入口是内联输入框', g9c.html.includes('ss-inline-input') &&
+  g9c.html.includes('搜索代码 / 名称 / 拼音'))
+ok('关闭态不产出结果面板', !g9c.html.includes('ss-panel'))
+const g9d = await renderComp(StockSearch, { variant: 'tabbar' })
+ok('底部入口渲染无异常/无警告', g9d.errors.length === 0, g9d.errors.join(' | '))
+ok('底部入口是「搜索」按钮（不是路由项）', g9d.html.includes('ss-tab') && g9d.html.includes('搜索'))
+// 挂进 AppTabBar 后：多了第 7 格，但一级分组仍是 6（不占用 .tabbar-item）
+ok('AppTabBar 追加搜索格后一级分组仍为 6',
+  (b.html.match(/tabbar-item/g) || []).length === 6 && b.html.includes('ss-tab'),
+  'tabbar-item=' + (b.html.match(/tabbar-item/g) || []).length)
+// NavBar 里挂上了桌面入口
+ok('NavBar 内已挂搜索入口', b.html.includes('ss-inline-input'))
+
+// ⑧ 整体扫描：面板 HTML 不得出现 undefined / NaN
+console.log('\n— G9 附. 渲染结果扫描')
+for (const [n, r] of [['ok', g9], ['empty', g9e], ['err', g9f], ['loading', g9l], ['idle', g9i]]) {
+  ok(`搜索面板(${n}) 不含 "undefined"`, !r.html.includes('undefined'))
+  ok(`搜索面板(${n}) 不含 "NaN"`, !r.html.includes('NaN'))
+}
+
+// ==================== G10. 数据更新时刻（v4.11.63 · 《移动端清单》§二·4） ====================
+//   与页头那个每秒跳的时钟是两回事：本戳只在**成功取到数据**时前进。
+//   所以这里重点验三态（未更新过 / 已更新 / 当前无自动刷新）都不许说假话。
+console.log('\n— G10. DataStamp 数据更新时刻（三态）')
+
+const g10 = await renderComp(DataStamp, { at: '14:32:05', ok: true, interval: 30 })
+ok('DataStamp 渲染无异常/无警告', g10.errors.length === 0, g10.errors.join(' | '))
+ok('已更新 → 「更新于 HH:MM:SS」', g10.html.includes('更新于 14:32:05'))
+ok('在自动刷新 → 附带间隔说明', g10.html.includes('每 30s 自动刷新'))
+
+const g10b = await renderComp(DataStamp, { at: '', ok: false, interval: 30 })
+ok('尚未成功取到数据 → 明说等待，不编时间', g10b.html.includes('等待首次更新') && !g10b.html.includes('更新于'))
+ok('🔴 未更新过时绝不渲染 00:00:00 冒充已更新', !g10b.html.includes('00:00:00'))
+
+const g10c = await renderComp(DataStamp, { at: '20:05:00', ok: true, interval: 0 })
+ok('无自动刷新时（收盘 / 历史回看）不出现「自动刷新」字样',
+  g10c.html.includes('更新于 20:05:00') && !g10c.html.includes('自动刷新'))
+
+for (const [n, r] of [['已更新', g10], ['未更新', g10b], ['无轮询', g10c]]) {
+  ok(`DataStamp(${n}) 不含 "undefined"`, !r.html.includes('undefined'))
+  ok(`DataStamp(${n}) 不含 "NaN"`, !r.html.includes('NaN'))
+}
 
 console.log(`\n=== 结果：PASS=${PASS}  FAIL=${FAIL} ===`)
 if (FAIL) { console.log('失败项：\n  - ' + fails.join('\n  - ')); process.exit(1) }

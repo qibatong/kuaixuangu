@@ -1477,6 +1477,127 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.63 (09-27 仅测试机) 移动端追加清单批次 A —— 客户端化（加到主屏像 App）+ 微信体验三件 + 全局股票搜索/跳股 + 数据更新时刻**
+  - **触发**：主人给出两份新工单（《快选移动端追加清单》《快选异动停牌风险功能工单》），并在三选一里拍板 ——
+    **① A 先（移动端）→ B 后（异动停牌风险）**；② `/yidong` 按工单改 3 个 tab、现有 4 tab
+    （严重异动｜热门股偏离值｜重点监控｜多次异动）**整体替换**；③ viewport **保留双指缩放**、只修遮挡。
+    **生产未提及 ⇒ 不动。**
+  - **A1 客户端化**（清单 §一）：`index.html` 补静态元信息 —— `viewport-fit=cover`（★ 关键：
+    `App.vue:159` 的 `fixViewportIfNeeded()` 是**运行时**覆写**同一份值**，且要等 JS 执行 +
+    150ms/600ms 两次重跑 ⇒ **首帧窗口期内 `env(safe-area-inset-*)` 全为 0**，底部 tabbar 被
+    iOS 工具栏 / Home 横条压住 —— 正是主人上轮问的「是否被遮挡」；静态写上 ⇒ 首帧即正确）、
+    `apple-touch-icon`、`apple-mobile-web-app-capable`、`apple-mobile-web-app-status-bar-style=black-translucent`、
+    `apple-mobile-web-app-title=快选`、`manifest.json`、`theme-color=#c62828`；新建 `public/manifest.json`
+    （补 `start_url`/`scope`/`orientation`/`lang`/`description` + 192/512/180 三条 icons）；由
+    `logo.jpg`(1280²) 生成三张 png（`sips -s format png -z N N`），**实测 hasAlpha=no / space=RGB**
+    —— iOS 主屏图标必须不透明，否则加圆角时发黑。
+    **两个有意不写**（都写进 `index.html` 注释）：不写 `user-scalable=no` / `maximum-scale=1.0`
+    （WCAG 1.4.8 + 与 `App.vue` 运行时值自相矛盾；主人口径 = 保留缩放）；不写 `body{position:fixed}`
+    （`main.css:306-309` 记过真实回归：`.page-shell` 一旦成为滚动容器 ⇒ 首页竞价页 `.auc-tabs` sticky 失效）。
+  - **A2 全局样式三件**（清单 §二）：`html,body{overscroll-behavior:none}`（禁整页橡皮筋，且下拉不再触发
+    整页 reload 把状态清掉）+ `touch-action:manipulation`（去掉 iOS 双击缩放 300ms 延迟，**保留双指缩放**）；
+    全局 `tabular-nums`（此前只有少数组件各自写，其余表格数字比例字宽 ⇒ 60.20→100.05 整列左右抖）；
+    `@media(max-width:768px)` 内补 7 个漏网容器的横滑（`.table-scroll`/`.rot-table-scroll`/`.qc-table-scroll`/
+    `.mb-table-wrap`/`.ecp-table-scroll`/`.lhb-table-container`/`.broken-table-container`）。
+    ★ 横滑**刻意不写** `.stock-table-container` 与 `.home-col-*` —— `main.css:321-324` 记载这些容器
+    有意 `overflow:visible` 以保 sticky 表头，同特异性覆盖会顶掉它。
+  - **A3 全局股票搜索 / 跳股**（清单 §三，主人标「优先级高」）：**清单写「仍是纯前端、零后端改动」，
+    实测不成立** —— 本仓没有任何全市场名录接口（`/api/stock-temper/rank?keyword=` 只在股性画像表内搜），
+    且拼音首字母要 `str.encode('gbk')`（前端没有）⇒ 这项必须落到后端。
+    · 新增 `services/stock_search.py`（262 行，**零新增依赖**：stdlib + `..core.logger` + `..db.database`）。
+      **数据源 = 本地 SQLite 零网络**：主源 `snapshot_bid` 最新 `9_25` 定格（实测 **5561 行、name 100% 非空**），
+      回落 `stock_float_mv_daily`；10 分钟 TTL 进程内索引 + `threading.Lock`。
+    · 拼音首字母 = **GB2312 一级汉字（区 16~55）按拼音升序**这一性质反推边界（零字典表）。
+      🔴 **网上流传的那张 26 区间表在 Y/Z 段是错的**（记 `Y=-12347` / `Z=-12138`）⇒ 会把「银/行/业/药/伊/亚」
+      一大批 y 声母字误判成 Z（`平安银行 → PAZZ`）；本模块实测反推为 **`Y=-11847`(压) / `Z=-11055`(匝)**，
+      而 A–X 与流传版**完全一致**（反过来印证只有那两条错）。
+    · 二级汉字（区 56~87）按**部首**排序 ⇒ 边界法**天然不可判**，而锂/钴/钼/钛 正是 A 股名称高频字 ⇒
+      补 `_EXTRA` **111 字**，来源是**对真实 5561 个股票名统计「不可判字」频次**（111 种 / 239 次），
+      **不是凭空猜的字表**；名称可判率 95.8%（5330/5561）→ 100%。
+    · **判不出就返回 `''`（弃权），绝不猜一个字母凑数**；已知局限如实写在模块头（多音字只取一个读音，
+      `行` 判 X ⇒ `平安银行 = PAYX`），并把它写成**显式单测**而不是藏起来。
+    · 接口 `GET /api/stocks/search?q=&limit=`（`uid=Depends(get_uid)` 与全站一致）；排序优先级
+      「代码精确 0 > 代码前缀 1 > 代码包含 2 > 拼音前缀 2 > 名称前缀 3 > 名称包含 4 > 拼音包含 5」，
+      同分按 code 升序（**结果可复现**），`limit` 夹到 `[1,50]`。
+    · 前端拆两个组件（**纯展示 / 容器分离** —— 这样面板能被 SSR 冒烟测试用夹具直接渲染，
+      否则 `rows` 只能靠真请求填，模板里的自由变量错拼永远抓不到）：`StockSearchPanel.vue`
+      （零状态零请求）+ `StockSearch.vue`（防抖 300ms / 过期响应丢弃 `_seq` / ↑↓ 回车 / Esc /
+      点外部关闭 / Teleport 到 body）。⚠️ **Teleport 是必需的**：与 NavBar 用户菜单同款处理 ——
+      `fixed` 元素留在 `.nav-tools` / `.app-tabbar` 这类滚动容器里会被当容器内容裁剪（iOS Safari）。
+      点结果看详情走**既有通道** `uiBus.openStockChart(code, name)`（`App.vue` 持 `StockChartModal`，
+      分时/日K/周K/月K 齐备），**不新造详情页**，也不走 `linkToSoftware`（那是唤起通达信客户端）。
+    · **两处入口**（清单写「顶部导航**或**底部 tabbar 旁」）：NavBar 右侧桌面内联输入框（聚焦展开）；
+      **手机端额外加 AppTabBar 第 7 格「搜索」** —— 因为 `.nav-bar` **不是 sticky**，页面往下滚一屏
+      就够不着顶部输入框了，而「看盘中想直接看某只票」**恰恰发生在滚到表格中段时**。
+      ⚠️ 该格用 `.ss-root--tabbar` / `.ss-tab` 自己的类，**不占用 `.tabbar-item`** ⇒ 一级分组仍是 6 个
+      （`useNavGroups.js` 与冒烟测试的口径都不变）。
+    · 五态必须互斥且都说人话：`loading`（搜索中）/ `empty`（未找到 **+ 回显关键词**）/ `err`（服务不可用
+      **+ 原因 + 重试**）；**「空结果」与「服务失败」文案必须不同** —— 两者都长成空列表就是本项目
+      最忌讳的「静默」。
+  - **A4 数据更新时刻**（清单 §二·4）：新增 `composables/useDataStamp.js` + **纯展示** `components/DataStamp.vue`。
+    ★ **与页头那个 `{{ bjTime }}` 时钟是两回事**：时钟回答「现在几点」（每秒跳），本戳回答「这屏数据有多新」
+    （**只在成功拉到数据时前进**）—— 拿时钟顶替会让「10 分钟没更新成功」看起来和「刚刚更新过」一模一样。
+    **只在成功路径 `mark()`**：失败 / 降级 / 配额拦截一律**不得**推进（落后时间戳本身就是告警信号）。
+    三态都不许说假话：未成功过 → 「等待首次更新…」（**绝不渲染 00:00:00 冒充已更新**）；
+    无轮询（收盘 / 历史回看）→ 不显示「每 30s 自动刷新」。已接入 **首页 `/`（名单）/ `/auction` / `/ladder`**；
+    `/market` 与 `/news` 上一版已有；⚠️ **`/pool` 刻意不接** —— 它的数据来自本地 store（`usePoolStore`），
+    没有「取回时刻」这回事，硬编一个出来正是本项目最忌讳的静默造假。
+  - **影响面**：**前端 10 改 + 7 新增**（`index.html`/`main.css`/`api/stocks.js`/`NavBar`/`AppTabBar`/
+    `StockView`/`AuctionView`/`LadderView`/`_verify/nav.spec.js` + 新增 `manifest.json`、3 张 png、
+    `StockSearch.vue`/`StockSearchPanel.vue`/`DataStamp.vue`/`useDataStamp.js`）；
+    **后端 2 文件**（`api/stocks.py` 改 +24 行、`services/stock_search.py` 新增、`tests/test_stock_search.py` 新增）；
+    **SQLite 零变更**（不建表、不改 schema）；**路由路径零变更**；**不动 nginx 配置**。
+    ⇒ **依赖闭包已在测试机「真实文件集合」上核对**：`api/stocks.py` 与线上**逐行 diff = 恰好那 24 行**
+    （1 行 import + 23 行新路由），无夹带。
+  - **验证**：`npm run verify` 全绿 —— eslint **0 errors**、`test:nav` **`PASS=179 FAIL=0`**（v4.11.62 是 134 项）；
+    新增 **G9**（搜索面板五态 + 两处入口）/ **G10**（DataStamp 三态）。
+    后端 `tests/test_stock_search.py` **14/14 全绿**（含 `Y=-11847/Z=-11055` 回归守卫、多音字局限显式记录、
+    补充表「本该判不出」的守卫断言）+ 三个文件 `ast` 语法检查通过。
+    · 🟠 **测试里自己踩到并记录的三个坑**（都写进测试注释）：
+      ① 计数**不能**用 `html.includes('class="ss-row')` —— **Vue SSR 合并 `:class` 时把动态类排在静态类之前**
+      （渲染成 `class="is-active ss-row"`）⇒ 按前缀计数**必然漏掉高亮那一行**（第一版把 3 行数成 2 行）；
+      改用 `countByClass()`（按「class 属性里含某 token」计数）。
+      ② 模板里对 `useDataStamp()` 返回的**对象内嵌 ref** 必须写 `.value`（模板只自动解包**顶层** ref）
+      ⇒ 改成**分解赋值**（`const { at: dataAt, ok: dataOk, mark: markData } = useDataStamp()`），既干净又不踩。
+      ③ 断言「`index.html` 不含 `user-scalable=no`」**会被我自己写的注释文本命中**（注释里就有这串）
+      ⇒ 改成在属性内计数 `grep -oE 'content="[^"]*user-scalable=no'`。
+    · **基线反向对照**：clean `v4.11.62`（`git worktree` 独立检出，不碰工作区）重建得到入口
+      `index-CL9M9Lzz.js` / `index-x7y0tqza.css`，**与测试机线上文件名逐字一致**
+      ⇒ 证明「线上就是可重现的 v4.11.62」且**我的新构建只含我的改动**。
+    · **发布校验 63 项全过**（`_probe/fe63_deploy.sh`）：双包 md5 到货校验 → 前端影子
+      （`dist_new_v41163`，34 项）→ 后端影子（staging + md5 + `ast` + 「注入生效 / 线上为 0」**反向对照**）
+      → 双切换（各自带时间戳回滚点）→ 重启 → `nginx -t` + reload → 端到端。
+      **发布前本地空跑影子段（对解包产物）`FAIL=0`**。
+      🔴 **判据补强（A4 的落点在异步 chunk 里）**：`DataStamp` **不在入口 js**，Vite 单独拆出
+      `assets/useDataStamp-DYbWQVKg.js` + `useDataStamp-JF6nQLK2.css` ⇒ 只校入口 js 等于**根本没校验到 A4**；
+      已把这两个 chunk 的 md5 纳入判据（`4c5f8b2e…` / `8bc72c7c…`）。这与 v4.11.62 记的「三件齐」
+      （入口 js + chunk js + chunk css）是同一条纪律。
+      · **线上实测**：入口 js md5 `535cebe9f1d533ed9297700136a307cf` 与本地**逐位一致**；
+        `index.html` md5 `1440ae88…` 一致；15 条 URL 全 **200**；`/manifest.json`、`/apple-touch-icon.png`、
+        `/icon-192.png`、`/icon-512.png` 全 **200** 且 manifest md5 一致；
+        `nginx -t` OK + reload；`kuaixuan` / `kx-worker` / `nginx` 三服务 active。
+      · **A3 新接口三层证明**：① **路由层** —— `GET /api/stocks/search?q=ah` → **401**（需登录 ⇒ 路由已注册），
+        对照 `GET /api/stocks/search_does_not_exist` → **404**
+        （★ **先证 404 判据有效**，否则上一条「401=已注册」毫无意义）；经 nginx 亦 401。
+        ② **服务层真跑（直读线上 SQLite）**：名录 **5561 条**，`search('ahdz')→605058澳弘电子`、
+        `search('tqly')→002466天齐锂业`、`search('锂业')→3 条`、`search('茅台')→600519贵州茅台`。
+        ③ 字节层 —— 见上。
+  - **上线状态**：**仅测试机**（2026-09-27 03:36）；回滚点 `/opt/kuaixuan/dist_bak_20260927-033632_v41163`
+    + `/opt/kuaixuan/_patch_bak_20260927-033632_v41163`；**生产 `121.196.230.80` 未部署**（仍是 v4.11.55）。
+  - **未做（如实标注）**：⚠️ **真机渲染验证仍未闭环** —— SSR 冒烟只覆盖「能否渲染成 HTML」，**不覆盖**
+    CSS 布局 / 375px 底栏 7 格挤压 / `viewport-fit=cover` 的实际遮挡效果 / 微信内橡皮筋体感 /
+    搜索下拉在软键盘下的表现（本机无头 Chrome 起不来 `CVDisplayLinkCreateWithCGDisplay failed. CVReturn: -6670`）。
+    ⇒ 清单 §一验收 1/3/5 与 §二·1 属**真机项**；§一验收 6（全局能搜到股票并跳转）只到接口层与渲染层。
+    ⚠️ **清单 §四（微信分享卡片 JS-SDK、微信内引导加主屏浮层）为二期，本版未做。**
+    ⚠️ 顺带体检发现：测试机 `bid-selector.service` 处 **`activating (auto-restart)`** 状态
+    （`ExecStart=/usr/bin/python3 /opt/bid-selector/server.py`，`status=200/CHDIR` ⇒ WorkingDirectory 不存在），
+    是**早于本版的遗留单元**，本版未动它（如实报告，待主人指令）。
+  - **B 批次（《快选异动 / 停牌风险》）已在途中**：`/api/dev/*` + `dev_risk.py` 的**前置事实已全部实测**
+    （个股日K 200 根**前复权**、工单需要的 4 个指数 K 线全部可取、605058 样例三条与工单**逐位吻合**、
+    「逐日累加」口径被证实（3 日 25.86% vs 区间首尾相减 24.30%）、全市场 30 日矩阵用猫爪 `recentdays`
+    批量只约 **28 次调用**），**代码尚未落**（另需补工单漏掉的**北交所**阈值，并给死代码
+    `kpl.fetch_kpl_doc107` 自建缓存 —— 它无缓存、无配额保护，而开盘啦是 8 万次/日付费配额）。
+
 - **v4.11.62 (09-27 仅测试机) 盘中盯盘台 —— `/market` 由「两个空页面」重写为一个滚动盯屏（六层）+ 既有板块能力一件不丢 + 顺手做掉 3 个二期体验项**
   - **触发**：主人「**1开工**」= 开始执行《快选产品优化总工单》**批次二：盘中盯盘台（核心）**；
     「3可以」= 同意做真机渲染验证（AI 侧只承诺「做好准备 + 如实标注未闭环」）。**生产未提及 ⇒ 不动。**

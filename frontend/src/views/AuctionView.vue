@@ -20,6 +20,9 @@
       </span>
       <!-- 日期回看: 右侧对齐, 实时模式下日期框直接显示数据日期 -->
       <span class="auc-head-spacer"></span>
+      <!-- 2026-09-27 v4.11.63《移动端清单》§二·4: 数据更新时刻。
+           历史回看模式(选了日期)没有轮询 ⇒ interval 传 0，"每 30s 自动刷新"那句自动消失。 -->
+      <DataStamp :at="dataAt" :ok="dataOk" :interval="datePicker ? 0 : 30" />
       <input :value="datePicker || dataDate" type="date" class="rot-date" title="选择历史交易日" @change="onDateChange">
       <button class="rot-reset-btn" title="回到实时" @click="clearDate"><i class="fa fa-bolt"></i></button>
       <!-- 2026-09-05 P0: 手动刷新入口(用户主动触发, 不增加常态轮询负载) -->
@@ -424,6 +427,9 @@ import { useYidongMonitor } from '../composables/useYidongMonitor'
 import { yi, signed, amtText, fmtAvg, fmtT, wan } from '../utils/format'
 import VipGate from '../components/VipGate.vue'
 import PoolHoverBtn from '../components/PoolHoverBtn.vue'
+// 2026-09-27 v4.11.63《移动端清单》§二·4: 数据更新时刻（与页头时钟区分开）
+import DataStamp from '../components/DataStamp.vue'
+import { useDataStamp } from '../composables/useDataStamp'
 
 const user = useUserStore()
 // 配额用尽(2026-09-21): 接口返回 429 code=quota_exceeded 时置 true → 显示配额引导页
@@ -476,6 +482,10 @@ const yestBrokenList = ref([])
 const loading = ref(true)
 const qc20Mode = ref('chg')   // 左表口径: amt=竞额抢筹(开盘啦净额) / chg=涨幅抢筹(快照涨幅差) 默认涨幅抢筹
 const datePicker = ref('')    // 用户选的日期(空=实时)
+
+// 2026-09-27 v4.11.63《移动端清单》§二·4: 当前 Tab 的数据取回时刻。
+// ⚠️ 分解赋值：模板只自动解包顶层 ref，写 `ds.at` 会渲染出 ref 对象。
+const { at: dataAt, ok: dataOk, mark: markData } = useDataStamp()
 const dataDate = ref('')      // 后端实际返回的数据日期(可能被对齐)
 let autoFallback = false      // 已自动回退(避免清空后无限循环)
 
@@ -715,6 +725,7 @@ async function ensureTabData(t, { silent = false } = {}) {
         const r = await withTimeout(bidSnapshot3points(dt || todayBj()))
         s3List.value = (r && r.list) || []
         loadedTabs.add('s3')
+        markData()          // 只在成功路径推进（失败/降级/配额拦截一律不推进）
         return true
       } catch (e) { /* 静默; 保留上次 s3List */ return false } finally {
         tabLoading.delete('s3')
@@ -741,6 +752,7 @@ async function ensureTabData(t, { silent = false } = {}) {
       default: return true
     }
     loadedTabs.add(t)
+    markData()          // 只在成功路径推进（失败保留旧数据时，时间戳原地不动 = 告警）
     return true
   } catch (e) {
     // 单 tab 失败不影响其他; 各 list 保留上次成功值(不清空 → 页面不空白)

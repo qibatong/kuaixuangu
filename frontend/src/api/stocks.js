@@ -22,6 +22,16 @@ export function stockChart(code, period = 'day') {
   return request('/api/stock/chart', { query: { code, period } })
 }
 
+// 2026-09-27 v4.11.63 全市场股票快速搜索(《快选移动端追加清单》§三「🔍 跳股」)。
+// 输入：代码 / 中文名片段 / 拼音首字母，三种可混用。
+// 返回 { ok, q, count, list:[{ code, name, board, py }] }。
+// ★ 清单原文写「纯前端、零后端改动」，但实测本仓**没有任何全市场名录接口**，
+//   且拼音首字母要 GBK 编码器（前端没有）⇒ 该项落到后端 services/stock_search.py，
+//   数据全部来自本地 SQLite（snapshot_bid 最新 9_25 定格，零网络）。
+export function stocksSearch(q, limit = 20) {
+  return request('/api/stocks/search', { query: { q, limit } })
+}
+
 // 2026-09-05 B 方案(拆分独立行情接口): /api/stocks 不再下发全市场 spotMap,
 // 前端对"不在返回名单的锁定票"等少量 code 按需取实时价。codes 为 6 位代码数组。
 export function fetchQuotes(codes) {

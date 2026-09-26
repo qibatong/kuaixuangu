@@ -9,6 +9,13 @@
        选中态 var(--accent) + scale(1.1) + 字重 600，点击反馈 active:scale(0.92)。
     —— ⚠️ 高度常量改动时必须同步改 App.vue 的 .container.has-tabbar padding-bottom，
        否则最后一行会被 tabbar 挡住。
+
+    —— 2026-09-27 v4.11.63《快选移动端追加清单》§三：右侧追加**第 7 格「搜索」**
+       （组件 StockSearch，非路由项、不算一级分组）。
+       为什么不能只把入口放在 NavBar：**.nav-bar 不是 sticky**，页面往下滚一屏就够不着了，
+       而"看盘中想直接看某只票"恰恰发生在滚到表格中段的时候；这条 tabbar 是 fixed 的。
+       ⚠️ 它用 .ss-root--tabbar/.ss-tab 自己的类，**不占用 .tabbar-item** ——
+          一级分组数仍是 6（SSR 冒烟测试与 useNavGroups.js 的口径都不变）。
   -->
   <nav class="app-tabbar" aria-label="主导航">
     <router-link
@@ -24,6 +31,8 @@
       <i class="fa tabbar-icon" :class="g.icon"></i>
       <span class="tabbar-label">{{ g.label }}</span>
     </router-link>
+    <!-- 第 7 格：全局股票搜索（清单 §三「🔍 跳股」，优先级高） -->
+    <StockSearch variant="tabbar" />
   </nav>
 </template>
 
@@ -31,6 +40,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { NAV_GROUPS, groupKeyOfRoute } from '../composables/useNavGroups'
+import StockSearch from './StockSearch.vue'
 
 const route = useRoute()
 const groups = NAV_GROUPS
@@ -75,8 +85,9 @@ const activeKey = computed(() => groupKeyOfRoute(route))
   line-height: 1;
   font-weight: 500;
   white-space: nowrap;
-  /* 6 tab 时单格宽 = 屏宽/6（375px→62.5px、320px→53px），
-     "盘前资讯" 4 字 ×10px=40px 仍放得下；这里只是兜底，极端窄屏不撑破格子 */
+  /* v4.11.63 起为 7 格（6 个一级分组 + 1 格搜索）⇒ 单格宽 = 屏宽/7
+     （375px→53.6px、320px→45.7px）；"盘前资讯" 4 字 ×10px + 左右各 1px padding = 42px，
+     320px 窄屏仍放得下；这里只是兜底，极端窄屏不撑破格子 */
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -32,6 +32,10 @@
     </div>
 
     <div class="nav-tools">
+      <!-- 2026-09-27 v4.11.63《快选移动端追加清单》§三: 全局股票快速搜索(桌面入口)。
+           手机端(≤768px)本组件自我隐藏，改由底部 AppTabBar 第 7 格承担 ——
+           因为 .nav-bar 不 sticky，滚一屏就够不着这里了。 -->
+      <StockSearch variant="nav" />
       <!-- 主题快捷切换(2026-08-18 主人要求: 主题设置移出下拉菜单, 导航栏直接可见) -->
       <div class="theme-quick" title="切换主题">
         <button
@@ -123,6 +127,7 @@ import { logoutApi } from '../api/auth'
 import { showToast } from '../utils/toast'
 import ChangePwdModal from './ChangePwdModal.vue'
 import ProfileModal from './ProfileModal.vue'
+import StockSearch from './StockSearch.vue'
 
 const router = useRouter()
 const route = useRoute()

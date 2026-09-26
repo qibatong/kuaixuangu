@@ -1272,6 +1272,36 @@ body[data-bg="light"] select.rot-select:hover,
 body[data-bg="light"] select.rot-select:focus { border-color: #d97b00; box-shadow: 0 0 0 2px rgba(217, 123, 0, 0.1); }
 body[data-bg="light"] select.rot-select option { background: #fff; color: #333; }
 
+/* ============================================================================
+   2026-09-27 v4.11.63 移动端体验三件（《快选移动端追加清单》§二）
+   ============================================================================ */
+
+/* ---- 二·1 禁整页下拉回弹 ---------------------------------------------------
+   用户主要在微信内置浏览器里用；不设这条时整个文档会橡皮筋回弹，且下拉会触发
+   "刷新整页" —— 而股票页要的是「点按钮刷数据」，不是 reload 把状态清掉。
+
+   ★ 有意不采用清单里给的 `body{position:fixed; overflow:hidden}`：
+     main.css:306-309 记录过真实回归 —— 「.page-shell 全局被强制 overflow-x:hidden
+     → 按规范会自动成为滚动容器(overflow-y 变 auto)，从而使首页竞价页的
+     .auc-tabs sticky 失效」。要让 body 固定就必须把滚动搬到 .page-shell，
+     等于重新引入那个已修好的 bug。overscroll-behavior 不改滚动架构、零副作用。
+   ---- */
+html, body {
+  overscroll-behavior: none;
+  /* 顺带关掉 iOS 双击缩放带来的 300ms 点击延迟（保留双指缩放，见 index.html 注释） */
+  touch-action: manipulation;
+}
+
+/* ---- 二·2 数字等宽：盘中价格刷新时整列不左右抖 ------------------------------
+   之前只有少数组件各自写了 tabular-nums（SentimentPanel / MarketView / 六层组件…），
+   其余表格数字是比例字宽 ⇒ 60.20 → 100.05 会让整列左右跳。这里做全局兜底。
+   只影响数字的字形宽度，中文/英文名称不受影响。 ------------------------------ */
+table, td, th,
+.num, .price, .tabular, time, .time-digital, .live-time {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
 /* ===================== 移动端基础适配 (<=768px) ===================== */
 @media (max-width: 768px) {
   /* 页面留白压缩: 手机屏窄, 左右留 2px 即可 */
@@ -1298,6 +1328,19 @@ body[data-bg="light"] select.rot-select option { background: #fff; color: #333; 
   /* 全站表格容器: 紧凑内边距 + 横向滚动(-webkit- 惯性滑动) */
   .stock-table-container { padding: 4px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .stock-table { min-width: 880px; table-layout: auto !important; }
+  /* ---- 2026-09-27 v4.11.63 二·3 宽表格手机横滑：漏网点补齐 --------------------
+     主列表 .stock-table-container 早就有横滑（上一行 + L740），这里只补**其余页面**
+     的表格容器（AdminView / MarketView 轮动表 / AuctionView 抢筹双表 / MemberView /
+     EmConceptPanel / 龙虎榜 / 炸板表）。
+     ★ 刻意**不**写 .stock-table-container 与 .home-col-*：首页那套 sticky 表头依赖
+       `.home-col-left/.home-col-right` 内的 `overflow: visible`（见上方 L321-324 注释），
+       多写一条同特异性的规则会把它顶掉 → 表头不再粘住（那是已修好的回归）。
+       清单验收项 4「宽列表在手机上能横滑」即由此保证。 ---------------------------- */
+  .table-scroll, .rot-table-scroll, .qc-table-scroll, .mb-table-wrap,
+  .ecp-table-scroll, .lhb-table-container, .broken-table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
   /* 日期回看工具条: 紧凑 */
   .rot-toolbar { gap: 6px; }
   .rot-tip { font-size: 0.75rem; }

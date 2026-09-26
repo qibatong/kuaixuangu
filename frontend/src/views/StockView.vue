@@ -29,6 +29,11 @@
             <!-- 2026-09-25: 火眼(LightGBM) 平行链路(与 AI预测 同构, 只换模型); 手机端一并生效(本组 tab 在左栏内部) -->
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick_lgb' }" @click="switchTab('aipick_lgb')"><i class="fa fa-flask"></i> AI预测·火眼</button>
           </span>
+          <!-- 2026-09-27 v4.11.63《移动端清单》§二·4: 名单数据的更新时刻。
+               用 .right-group 挂到本行右侧（该 class 自带 margin-left:auto，且本行已
+               justify-content:flex-start ⇒ 它出现不会把左边那组 tab 挤到中间）。
+               ⚠️ 它讲的是**名单数据**的取回时刻，与页头那个每秒跳的时钟无关。 -->
+          <span class="right-group"><DataStamp :at="dataAt" :ok="dataOk" :interval="autoOn ? 30 : 0" /></span>
         </div>
 
         <!-- 筛选面板(仅竞价模式) -->
@@ -113,11 +118,18 @@ import { useYidongMonitor } from '../composables/useYidongMonitor'
 import { copyText, downloadBlkFile } from '../utils/tdx'
 // 2026-09-05: isBefore930 随「锁定」按钮移除后本视图不再使用, 从 import 中去掉
 import { bjDateTimeStr, isIntradayNow, isMemberOnlyTime } from '../utils/time'
+// 2026-09-27 v4.11.63《移动端清单》§二·4: 数据更新时刻（与页头时钟区分开）
+import DataStamp from '../components/DataStamp.vue'
+import { useDataStamp } from '../composables/useDataStamp'
 
 const stocks = useStocksStore()
 const pool = usePoolStore()
 const user = useUserStore()
 const bjTime = ref('--:--:--')
+// ⚠️ 分解赋值（模板只自动解包顶层 ref，写 ds.at 会把 ref 对象渲染出来）
+const { at: dataAt, ok: dataOk, mark: markData } = useDataStamp()
+// 当前是否处于「30s 自动刷新」窗口（盘中）。收盘/盘前为 false ⇒ 不显示「每 30s 自动刷新」
+const autoOn = ref(false)
 const bidSealMap = ref({})        // 竞价涨停委买额 map: code -> {limitBoards, bidSealAmt, bidNetAmt}
 // 配额引导页引用(2026-09-21): stocks.quotaExceeded 时把 detail 塞进 VipGate 配额模式
 const pickGateRef = ref(null)
@@ -172,12 +184,13 @@ async function init() {
   if (!stocks.pickBlocked) {
     try {
       await stocks.fetchAndCache()
+      markData()          // 名单落定 ⇒ 推进「更新于」（失败走 catch，时间戳原地不动）
     } catch (e) {
       showToast('❌ ' + e.message, 'error')
     }
   }
   // 启动定时器: 时钟 / 自动收录 / 过期检查
-  clockTimer = setInterval(() => { bjTime.value = bjDateTimeStr() }, 1000)
+  clockTimer = setInterval(() => { bjTime.value = bjDateTimeStr(); autoOn.value = isIntradayNow() }, 1000)
   autoAddTimer = setInterval(() => pool.autoAdd(currentList(), stocks.isDataCached), 20000)
   expiryTimer = setInterval(() => pool.checkExpiry(), 30000)
   pool.autoAdd(currentList(), stocks.isDataCached)
@@ -190,7 +203,7 @@ async function init() {
   realTimeTimer = setInterval(() => {
     if (!isIntradayNow()) return            // 盘前/收盘/周末: 不轮询, 现涨固定为当日收盘
     const safe = (p) => p.catch(() => {})  // 轮询失败静默, 不打断
-    safe(stocks.updateRealTimeOnly({ silent: true }))
+    safe(stocks.updateRealTimeOnly({ silent: true }).then(() => markData()))
   }, 30000)
 }
 
@@ -204,7 +217,8 @@ function currentList() {
 function refreshRealTime() {
   // 2026-09-22 v4.11.35: 手动点「刷新」也是一次主动操作(有别于 30s 自动轮询)
   trackUsage('picker')
-  stocks.updateRealTimeOnly().catch(e => showToast('❌ 更新失败：' + e.message, 'error'))
+  stocks.updateRealTimeOnly().then(() => markData())
+    .catch(e => showToast('❌ 更新失败：' + e.message, 'error'))
 }
 // 左视图模式切换: auction(竞价, 数据流与 store 联动) / aipick(AI预测) / aipick_lgb(LightGBM 版)
 // 后两者都是 AipickView·AipickLgbView 自加载, 与 store 数据流无关。
@@ -214,7 +228,7 @@ function switchTab(m) {
   // 2026-09-22 v4.11.35: AI 预测的使用计数由 AipickView 自己在加载报表时上报,
   // 这里**不要**再记一次(同一动作会双计)。
   if (m === 'auction' && !stocks.isDataCached) {
-    stocks.fetchAndCache().catch(e => showToast('❌ ' + e.message, 'error'))
+    stocks.fetchAndCache().then(() => markData()).catch(e => showToast('❌ ' + e.message, 'error'))
   }
 }
 function downloadAll() { downloadBlkFile(stocks.cachedStocks, 0) }
@@ -245,6 +259,7 @@ function setupStickyOffsets() {
 
 onMounted(() => {
   bjTime.value = bjDateTimeStr()
+  autoOn.value = isIntradayNow()
   init()
   loadBidSeal()
   refreshYidongCodes()   // 首页选股/竞价异动 标记异动监管股票
