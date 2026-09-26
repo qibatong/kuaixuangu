@@ -4,9 +4,16 @@
     —— 挂在 NavBar 下方，随当前路由所在的一级分组，横向列出该组二级页。
     —— 手机端同样显示：底部 tab 只切「一级分组」，组内二级页由这一行 pill 切换，
        二级切换**不改变底部 tab 的高亮**（底部高亮只认分组）。
-    —— 只有 1 个二级页的组（盘中 / 自选）不渲染，避免出现孤零零一个 pill。
+    —— 只有 1 个二级页的组（盘前资讯 / 盘中 / 自选）不渲染，避免出现孤零零一个 pill。
+    —— 组定义上标了 `hidePills: true` 的组也不渲染 —— 目前只有「竞价」组：
+       它那 4 个二级页在 / 页内部已各有一套 tab（选股|竞价异动 / AI选股|金睛|火眼），
+       pill 行是纯重复（2026-09-27 v4.11.61 主人实测反馈后去掉）。
   -->
-  <nav v-if="group && items.length > 1" class="group-nav" :aria-label="group.label + ' · 组内导航'">
+  <nav
+    v-if="group && items.length > 1 && !group.hidePills"
+    class="group-nav"
+    :aria-label="group.label + ' · 组内导航'"
+  >
     <span class="group-nav-label"><i class="fa" :class="group.icon"></i> {{ group.label }}</span>
     <router-link
       v-for="it in items"

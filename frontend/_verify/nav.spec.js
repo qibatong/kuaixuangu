@@ -47,7 +47,8 @@ const R = (path, name, group) => ({ path, name, component: Stub, meta: group ? {
 
 // 路由表必须与 src/router/index.js 的真实 path/name/meta.group 一致（不一致就会漏测到分组错位）
 const ROUTES = [
-  R('/', 'stock', 'auction'), R('/news', 'news', 'auction'), R('/auction', 'auction', 'auction'),
+  R('/news', 'news', 'news'),
+  R('/', 'stock', 'auction'), R('/auction', 'auction', 'auction'),
   R('/aipick', 'aipick', 'auction'), R('/aipick-lgb', 'aipick-lgb', 'auction'),
   R('/market', 'market', 'intraday'),
   R('/ladder', 'ladder', 'review'), R('/history', 'history', 'review'), R('/temper', 'temper', 'review'),
@@ -101,14 +102,28 @@ for (const href of ['/history', '/temper', '/bigv', '/yidong', '/lhb']) {
 ok('组内 6 项全在（pill 数=6）', (a.html.match(/group-nav-item/g) || []).length === 6,
    '实际 ' + (a.html.match(/group-nav-item/g) || []).length)
 
-// B. 盘前资讯必须在「竞价」组内
+// B. 「竞价」组**不渲染 pill 行**（v4.11.61 主人实测反馈后定稿：与 / 页内联 tab 重复）
 const b = await renderAt('/')
-console.log('\n— B. /（竞价组，盘前资讯）')
+console.log('\n— B. /（竞价组，无二级 pill 行）')
 ok('渲染无异常/无 Vue 警告', b.errors.length === 0, b.errors.join(' | '))
-ok('竞价组含「盘前资讯」', b.html.includes('盘前资讯'))
-ok('竞价组含链接 /news', b.html.includes('href="/news"'))
-ok('竞价组含「竞价异动」', b.html.includes('竞价异动'))
-ok('竞价组含两个 AI 预测入口', b.html.includes('/aipick') && b.html.includes('/aipick-lgb'))
+ok('竞价组不渲染 .group-nav（hidePills）', !b.html.includes('group-nav-item'),
+   '实际 pill 数 ' + (b.html.match(/group-nav-item/g) || []).length)
+ok('竞价组标签仍在（一级 nav / tabbar 里有「竞价」）', b.html.includes('竞价'))
+// 组内 4 条路由仍必须可达（只是不再由 pill 行承载，而是 / 页内联 tab）
+for (const href of ['/', '/auction', '/aipick', '/aipick-lgb']) {
+  ok(`竞价组 items 仍声明 ${href}`, NAV_GROUPS.find((g) => g.key === 'auction').items.some((i) => i.path === href))
+}
+
+// B2. 盘前资讯**已升为一级分组**（主人：和竞价、盘中放一行）
+const b2 = await renderAt('/news')
+console.log('\n— B2. /news（盘前资讯，一级分组）')
+ok('渲染无异常/无 Vue 警告', b2.errors.length === 0, b2.errors.join(' | '))
+ok('盘前资讯是一级分组（NAV_GROUPS 里有 key=news）', !!NAV_GROUPS.find((g) => g.key === 'news'))
+ok('一级分组里出现「盘前资讯」', b2.html.includes('盘前资讯'))
+ok('NavBar 有 /news 一级入口', b2.html.includes('href="/news"'))
+ok('盘前资讯不在「竞价」组内（已迁出）',
+   !NAV_GROUPS.find((g) => g.key === 'auction').items.some((i) => i.path === '/news'))
+ok('单页组不渲染 pill 行', !b2.html.includes('group-nav-item'))
 
 // C. 单页组不渲染 pill 行（设计约定）
 const c = await renderAt('/market')
@@ -116,14 +131,18 @@ console.log('\n— C. /market（盘中组只有 1 页 ⇒ 不渲染 pill 行）'
 ok('渲染无异常/无 Vue 警告', c.errors.length === 0, c.errors.join(' | '))
 ok('单页组不渲染 .group-nav', !c.html.includes('group-nav-item'))
 
-// D. 一级入口：NavBar 5 个 + 底部 tabbar 5 个，且都指向各组 entry
+// D. 一级入口：NavBar 6 个 + 底部 tabbar 6 个，且都指向各组 entry
 console.log('\n— D. 一级入口（NavBar / AppTabBar）')
 for (const g of NAV_GROUPS) {
   ok(`NavBar 有一级入口「${g.label}」`, b.html.includes(g.label))
   ok(`AppTabBar 有 tab「${g.label}」→ ${g.entry}`, b.html.includes(`href="${g.entry}"`))
 }
-ok('底部 tabbar 恰好 5 个 tab', (b.html.match(/tabbar-item/g) || []).length === 5,
+ok('一级分组恰好 6 个', NAV_GROUPS.length === 6, '实际 ' + NAV_GROUPS.length)
+ok('底部 tabbar 恰好 6 个 tab', (b.html.match(/tabbar-item/g) || []).length === 6,
    '实际 ' + (b.html.match(/tabbar-item/g) || []).length)
+ok('底部 tab 顺序 = 竞价 / 盘前资讯 / 盘中 / 复盘 / 自选 / 我的',
+   NAV_GROUPS.map((g) => g.label).join('/') === '竞价/盘前资讯/盘中/复盘/自选/我的',
+   '实际 ' + NAV_GROUPS.map((g) => g.label).join('/'))
 
 // E. 自由变量/未定义标识符的典型渲染痕迹
 console.log('\n— E. 未定义标识符痕迹扫描')

@@ -1477,6 +1477,52 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.61 (09-27 仅测试机) 盘前资讯升为一级分组（底部 tabbar 5→6）+ 「竞价」组去掉重复的二级 pill 行**
+  - **触发**：主人实测反馈（《快选产品优化总工单》+ 布局设计稿，两张截图）：
+    「**盘前资讯是和竞价、盘中、这些放一行**」（截图一：底部 5 tab 设计稿）
+    「**这一行不用保留，和下面的选股什么的重复了**」（截图二：`竞价 | 选股名单 盘前资讯 竞价异动 AI预测·金睛 AI预测·火眼` 那行 pill）。
+  - **现象 → 根因**：
+    - **① 盘前资讯层级错了**：v4.11.59 把 `/news` 挂在「竞价」组的 `items` 里当二级页，于是它只在
+      **组内 pill 行**出现，**底部 tabbar 没有它**。主人要的是它**与竞价/盘中同级**。
+    - **② 「竞价」组 pill 行与其页内 tab 完全重复**（截图二是铁证）：
+      `/` 页内部本来就有两套切换 —— 窄屏 `.home-mob-toggle`「**选股 | 竞价异动**」+ 左栏 `.mode-tabs`
+      「**AI选股 | AI预测·金睛 | AI预测·火眼**」（`StockView.vue:5-31`）。而 pill 行又列了一遍
+      「选股名单 / 盘前资讯 / 竞价异动 / AI预测·金睛 / AI预测·火眼」⇒ 实测截图里
+      **「竞价异动 / AI预测·金睛 / AI预测·火眼」各出现两次**。而且这 4 条二级路由的落点本来就是
+      `/` 页的两栏：`/auction` = 右栏内嵌块、`/aipick` = 左栏 mode-tab「金睛」、`/aipick-lgb` = 同「火眼」。
+  - **修复（纯前端，后端零改动）**：
+    - **① `composables/useNavGroups.js`**：新增一级分组 `{ key:'news', label:'盘前资讯', icon:'fa-newspaper-o',
+      entry:'/news' }`，位置**紧挨「竞价」之后**（不占首位 —— 底部第一个 tab 仍是 `/` 选股名单，
+      这是本 App 的主功能入口，不该让位）；从「竞价」组 `items` 中移除 `/news`。
+    - **② 同文件给「竞价」组加 `hidePills: true`**；`components/GroupNav.vue` 渲染条件加 `&& !group.hidePills`。
+      `items` **保留**（NavBar 用 `g.items` 拼 title 悬浮提示），被去掉的只是 pill **渲染**。
+    - **③ `router/index.js`**：`/news` 的 `meta.group` 由 `auction` 改为 `news`（`order:0`）；
+      竞价组 4 条路由 order 0~3 顺延。**路径一条未动**。
+    - **④ `components/AppTabBar.vue`**：注释 5 tab → 6 tab；`.tabbar-label` 加 `max-width/overflow/text-overflow`
+      兜底（6 格时单格宽 = 屏宽/6：375px→62.5px、320px→53px，"盘前资讯" 4 字 ×10px=40px 仍放得下）。
+  - **影响面**：纯前端。改 5 文件（`useNavGroups.js` / `GroupNav.vue` / `router/index.js` / `AppTabBar.vue` /
+    `NavBar.vue`（仅注释）/ `App.vue`（仅注释））+ 测试 `_verify/nav.spec.js`。**后端零改动、SQLite 零变更、路由路径零变更**。
+  - **验证证据**：
+    - **`npm run verify` = `lint + test:nav` 全绿：`PASS=63  FAIL=0`**（v4.11.60 时是 51 项，本次扩到 63 项：
+      新增「竞价组不渲染 group-nav」「盘前资讯是一级分组」「不在竞价组内」「一级分组恰好 6 个」
+      「底部 tab 恰好 6 个」「tab 顺序 = 竞价/盘前资讯/盘中/复盘/自选/我的」）。`eslint` **0 errors**。
+    - **★ 反向对照（证明闸门不是空跑，而且第一次注入是错的）**：先按 `hidePills: true` 全文替换 ⇒ **测试仍 63 PASS**
+      ⇒ 查出**替换命中的是文件头注释里的那处**（该串在注释与代码里各出现一次），注入本身无效；改用精确锚点
+      `\n    hidePills: true,` 重做 ⇒ 测试报
+      **`[FAIL] 竞价组不渲染 .group-nav（hidePills） :: 实际 pill 数 4`**（PASS=62 FAIL=1），还原后 63 全绿。
+      ⇒ 教训：**注入缺陷后如果测试不红，先怀疑注入是否真的生效**，不要先怀疑断言。
+    - **发布校验 20 项全过**（纯 dist 原子切换），其中本次判别断言（期望值**全部先在本地 dist 实测**，不猜）：
+      `hidePills:!0`=1 / `value.hidePills`=1 / `key:"news",label:"盘前资讯",icon:"fa-newspaper-o",entry:"/news"`=1 /
+      `group:"news"`=1 / `group:"auction"`=4 / `path:"/news"`=2 / **复盘 pill 行仍在**（`龙虎榜`=2、`group-nav`=3）/
+      `NAV_GROUPS` 自由变量=0（v4.11.60 老问题不回归）。
+    - **校验器自证**：发布前先本地空跑影子段（把 tarball 解到 `/tmp/dry61`、`DST` 指向它）⇒ **FAIL=0**，
+      即「校验器本身在已知必过的输入上不误报」。★ 这一步直接抓到 bash 坑：`$L」`（变量名后紧跟多字节字符）
+      在 **bash 3.2 + C.UTF-8** 下变成 `L\xe3: unbound variable`，改成 `${L}」` 修复。
+    - 线上取回的入口 js `md5=4150e23af776e6db76ac20e4e139553e` 与本地构建**逐位一致**
+      ⇒ 线上跑的就是被 `nav.spec.js` 渲染验证过的那份字节；15 条 URL 全 200；`nginx -t` OK + reload；两服务 active。
+  - **上线状态**：**仅测试机**（2026-09-27 01:46，纯 dist 原子切换）。
+    回滚点 `/opt/kuaixuan/dist_bak_20260927-014628_v41161`；**生产 `121.196.230.80` 未部署**（仍是 v4.11.55）。
+  - **未做**：真机/真浏览器渲染验证（SSR 冒烟只覆盖"组件能否渲染"，不覆盖 CSS 布局/6 tab 等宽挤压/底部 tabbar 遮挡）。
 - **v4.11.60 (09-27 仅测试机) 修「二级导航整块不渲染」—— `GroupNav.vue` 里 `NAV_GROUPS` 未 import 导致 setup 抛 ReferenceError（表现：复盘里只有连板天梯、盘前资讯找不到）+ 让空转了一整个项目的 eslint(no-undef) 闸门真正生效 + 修 AipickReport 空状态文案 ref 少 .value**
   - **触发**：主人实测反馈「**盘前资讯没有看到啊，在哪里？复盘里面只有一个连板天梯，其他的也看不到**」。
   - **现象 → 根因**：

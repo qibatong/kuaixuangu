@@ -2,7 +2,8 @@
   <div class="container" :class="{ 'has-tabbar': showTabBar }">
     <NavBar />
     <!-- 2026-09-27 v4.11.58 信息架构改造: 二级页 pill 行, 随当前一级分组列出该组二级页
-         （手机端同样显示 —— 底部 tab 只切一级分组, 组内切换靠这一行） -->
+         （手机端同样显示 —— 底部 tab 只切一级分组, 组内切换靠这一行;
+          v4.11.61 起「竞价」组标了 hidePills, 该组不渲染这一行） -->
     <GroupNav />
     <!-- 无障碍: 主内容区用语义地标 main 包裹, 读屏可跳转到主内容 -->
     <main class="app-main">
@@ -20,7 +21,7 @@
     <footer class="app-footer">
       <div class="disclaimer">本平台仅提供软件工具使用权，不构成任何投资建议，股市有风险，投资需谨慎。</div>
     </footer>
-    <!-- 2026-09-27 v4.11.58: 手机端(≤768px) 底部固定 5 tab 栏; 登录页/404/管理后台不显示 -->
+    <!-- 2026-09-27: 手机端(≤768px) 底部固定 tab 栏(v4.11.61 起 6 个一级 tab); 登录页/404/管理后台不显示 -->
     <AppTabBar v-if="showTabBar" />
   </div>
 </template>

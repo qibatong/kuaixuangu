@@ -9,9 +9,10 @@
           <span class="nav-brand-slogan">一键筛选 · 高效复盘</span>
         </div>
       </router-link>
-      <!-- 2026-09-27 v4.11.58 信息架构改造(工单 三.2): 9 个平铺 tab → 5 个一级分组
-           （竞价 / 盘中 / 复盘 / 自选 / 我的）。组内二级页由 NavBar 下方的
-           GroupNav pill 行切换；手机端(≤768px)本块整体隐藏，改用底部 AppTabBar。
+      <!-- 2026-09-27 v4.11.58 信息架构改造(工单 三.2): 9 个平铺 tab → 一级分组
+           （v4.11.61 起为 6 个：竞价 / 盘前资讯 / 盘中 / 复盘 / 自选 / 我的）。
+           组内二级页由 NavBar 下方的 GroupNav pill 行切换（标了 hidePills 的组没有);
+           手机端(≤768px)本块整体隐藏，改用底部 AppTabBar。
            ★ 组定义唯一来源 = composables/useNavGroups.js，勿在此另抄一份。
            ★ 手动 active：/ 作为「竞价」入口时，router-link 自动 active 会前缀匹配全站恒亮。 -->
       <div class="nav-tabs">
@@ -477,7 +478,7 @@ body[data-bg="light"] .renew-badge { color: #b05e00; border-color: #c07a10; }
   .nav-brand-name { font-size: 0.875rem; }
   .nav-brand-slogan { display: none; }
   /* 2026-09-27 v4.11.58 信息架构改造: 手机端**隐藏**顶部一级分组导航,
-     改由底部固定 AppTabBar(5 tab) 承担一级分组切换, 组内二级页用 GroupNav pill 横滑。
+     改由底部固定 AppTabBar(6 tab) 承担一级分组切换, 组内二级页用 GroupNav pill 横滑。
      原先「9 个 tab 自动换行」的老行为不再需要。 */
   .nav-tabs { display: none; }
   /* 工具区自动换行(2026-08-18 主人要求: 不横滑, 放不下自动换行) */

@@ -11,14 +11,16 @@ import { useUserStore } from '../stores/user'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    // ---------------- 盘前资讯（2026-09-27 v4.11.61: 由「竞价」组内二级页升为一级分组）----------------
+    // 数据源：猫爪 news + 开盘啦 doc95 头条 / doc96 快讯 / doc97 明天炒什么 + 大V复盘
+    { path: '/news', name: 'news', component: () => import('../views/NewsView.vue'), meta: { group: 'news', order: 0 } },
+
     // ---------------- 竞价 ----------------
     { path: '/', name: 'stock', component: () => import('../views/StockView.vue'), meta: { group: 'auction', order: 0 } },
-    // 2026-09-27 v4.11.59: 盘前资讯（猫爪 news + 开盘啦 doc95 头条/doc96 快讯/doc97 明天炒什么 + 大V复盘）
-    { path: '/news', name: 'news', component: () => import('../views/NewsView.vue'), meta: { group: 'auction', order: 1 } },
-    { path: '/auction', name: 'auction', component: () => import('../views/AuctionView.vue'), meta: { group: 'auction', order: 2 } },
-    { path: '/aipick', name: 'aipick', component: () => import('../views/AipickView.vue'), meta: { group: 'auction', order: 3 } },
+    { path: '/auction', name: 'auction', component: () => import('../views/AuctionView.vue'), meta: { group: 'auction', order: 1 } },
+    { path: '/aipick', name: 'aipick', component: () => import('../views/AipickView.vue'), meta: { group: 'auction', order: 2 } },
     // 2026-09-25: 火眼(LightGBM) 平行链路独立页(与 /aipick 共用 AipickReport 组件, 只换 model)
-    { path: '/aipick-lgb', name: 'aipick-lgb', component: () => import('../views/AipickLgbView.vue'), meta: { group: 'auction', order: 4 } },
+    { path: '/aipick-lgb', name: 'aipick-lgb', component: () => import('../views/AipickLgbView.vue'), meta: { group: 'auction', order: 3 } },
 
     // ---------------- 盘中 ----------------
     // /market = 板块（页顶内嵌大盘温度 SentimentPanel + 数据源切换: 开盘啦强度榜 | 东财概念榜）
