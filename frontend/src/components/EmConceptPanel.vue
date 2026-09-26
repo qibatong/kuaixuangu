@@ -1,11 +1,13 @@
 <template>
   <!--
-    东财概念榜面板（2026-09-27 v4.11.58）
-    —— 由原 views/ConceptView.vue 的「左栏精选板块」改造而成（工单 三.4 方案 A）。
-    —— 原页已并入 /market 作为第二个数据源，/concept 路由重定向到 /market?src=em，
-       所以这里只保留列表本身，点行 emit('select', board) 交给 MarketView 的共用弹层。
-    —— 数据源 = /api/kpl/em-concept-rank（后端猫爪失败时会自动降级东财概念榜，
-       response.source 字段标明实际来源）；成分股接口 = emBoardMembers，同样在父级弹层里调。
+    东财概念榜面板（2026-09-27 v4.11.58 建；v4.11.62 起**不再被 /market 引用**）
+    —— 原为 views/ConceptView.vue 的「左栏精选板块」改造而成。
+    —— 🔴 v4.11.62（盘中盯盘台·工单批次二）：东财概念榜已并入 /market 层⑤「题材榜」的
+       数据源切换（那里统一渲染 开盘啦榜 / 东财概念榜），本组件因此**退出页面引用**，
+       文件保留以备将来做独立入口。
+       ⇒ 若确无独立入口需求，可安全删除本文件（当前无任何 import 引用它）。
+    —— 数据源 = /api/kpl/em-concept-rank（后端猫爪失败时自动降级东财概念榜），
+       成分股接口 = emBoardMembers。
   -->
   <div class="ecp">
     <div class="ecp-head">

@@ -1,43 +1,90 @@
 <template>
   <!--
-    板块页（2026-09-27 v4.11.58 前端信息架构改造 · 工单 二/三.3/三.4）
-    —— 一级分组「盘中」的唯一落地面:
-         · 页顶 = 大盘温度（复用 components/SentimentPanel.vue，工单 三.3「不要新写」）
-         · 下方 = 板块，两个数据源可切换：「开盘啦强度榜 | 东财概念榜」
-    —— 工单 三.4 方案 A: /concept（原题材异动）并入这里作为第二个数据源，
-       路径保留 + 重定向到 /market?src=em，旧书签/外链不 404。
-    —— 两个数据源**共用同一个「点板块展开成分股」弹层**，弹层里按 src 选对应接口。
-    —— 龙虎榜已拆出为独立页 /lhb（复盘分组），本页不再为它白拉接口。
+    盘中盯盘台（2026-09-27 v4.11.62 · 工单 批次二）
+    —— 一级分组「盘中」的唯一落地面，做成**一个滚动盯屏**，从上到下：
+         0. 大盘温度（复用 components/SentimentPanel.vue，不新写）
+         ① 财经快讯滚动条   FlashTicker      ← /api/news/flash(60s)
+         ② 昨日涨停今日表现 YestZtPanel      ← /api/kpl/yest-zt + index-brief 的情绪值
+         ③ 最强资金 TOP     MoneyTopStrip    ← 复用板块榜(不额外发请求)
+         ④ 今日票战报       TodayPicksPanel  ← /api/history 当日批次 + /api/quotes 实时价
+         ⑤ 题材榜           MarketBoardPanel ← 板块榜 + 涨停梯队题材分组(合并原「市场雷达」+「题材异动」)
+         ⑥ 实时异动流       YidongFlow       ← /api/kpl/yidong-realtime
+    —— 原「板块」的全部既有能力**一件不丢**，收进下方「板块进阶数据」折叠区：
+         板块强度明细(11 列全字段 + 日期回看) / 板块轮动历史 / 人气热榜。
+    —— 🔴 请求纪律：
+         · 六层共用一个 60s tick（集中拉取），不各拉各的；
+         · **只在盘中轮询**（isIntradayNow）—— 旧版 60s 轮询不看时段，凌晨挂着也在打接口，
+           而开盘啦是 8 万次/日付费配额；
+         · 所有 usePolling 注册在 **setup 顶层**（写在 onMounted 回调里会因 currentInstance
+           为 null 而静默注册失败 → 定时器永不清理，v4.11.59 修过的坑）。
   -->
   <div class="page-shell">
-    <h1 class="visually-hidden">板块</h1>
+    <h1 class="visually-hidden">盘中盯盘台</h1>
 
     <!-- 大盘温度: 指数带 + 涨跌家数/成交额（与首页同一组件，不新写图表） -->
     <SentimentPanel />
 
-    <div class="mrk-head">
-      <span class="mrk-title"><i class="fa fa-th-large"></i> 板块</span>
-      <span class="mrk-sub">板块强度排行 · 板块轮动 · 人气热榜 · 概念异动</span>
-      <span class="mrk-time">{{ bjTime }}</span>
+    <div class="mk-bar">
+      <span class="mk-bar-title"><i class="fa fa-desktop"></i> 盘中盯盘台</span>
+      <span class="mk-bar-sub">快讯 · 昨涨停表现 · 最强资金 · 今日战报 · 题材榜 · 异动</span>
+      <button class="mk-refresh" :disabled="ticking" title="手动刷新" @click="tick()">
+        <i class="fa fa-refresh" :class="{ spin: ticking }"></i>
+      </button>
+      <span class="mk-updated">{{ updatedAt ? '更新于 ' + updatedAt : bjTime }}</span>
     </div>
 
-    <!-- 数据源切换（工单 三.4 方案 A: 在 /market 页顶部加一个数据源切换 tab） -->
-    <div class="mrk-src" role="tablist" aria-label="板块数据源">
-      <button
-        class="mrk-src-btn" :class="{ active: src === 'kpl' }" role="tab"
-        :aria-selected="src === 'kpl'" @click="switchSrc('kpl')"
-      ><i class="fa fa-signal"></i> 开盘啦强度榜</button>
-      <button
-        class="mrk-src-btn" :class="{ active: src === 'em' }" role="tab"
-        :aria-selected="src === 'em'" @click="switchSrc('em')"
-      ><i class="fa fa-fire"></i> 东财概念榜</button>
+    <div class="mk-stack">
+      <!-- ① 财经快讯滚动条 -->
+      <FlashTicker :items="flashList" :loading="flashLoading" :degraded="flashDegraded" />
+
+      <!-- ② 昨日涨停今日表现 -->
+      <YestZtPanel
+        :count="yestCount" :avg-open="yestAvgOpen" :avg-now="yestAvgNow"
+        :max-ladder="emoLadder" :broken-rate="emoBroken" :date="yestDate" :loading="yestLoading"
+      />
+
+      <!-- ③ 最强资金 TOP -->
+      <MoneyTopStrip
+        :boards="boardList" :loading="boardLoading" :failed="boardFailed"
+        :active-code="hotBoard.boardCode" :active-name="hotBoard.name"
+        @select="onMoneySelect"
+      />
+
+      <!-- ④ 今日票战报 -->
+      <TodayPicksPanel
+        :stocks="pickRows" :summary="pickSummary" :date="pickDate" :is-today="pickIsToday"
+        :loading="pickLoading" :failed="pickFailed" :empty-msg="pickEmptyMsg"
+      />
+
+      <!-- ⑤ 题材榜（合并原市场雷达 + 题材异动） -->
+      <MarketBoardPanel
+        :boards="boardRows" :src="src" :loading="boardLoading" :failed="boardFailed"
+        :fail-msg="boardFailMsg" :hot-name="hotBoard.name" :hot-code="hotBoard.boardCode"
+        @select="openBoard" @update:src="switchSrc"
+      />
+
+      <!-- ⑥ 实时异动流 -->
+      <YidongFlow
+        :items="yidongList" :loading="yidongLoading" :failed="yidongFailed"
+        :day="yidongDay" :time="yidongTime"
+      />
     </div>
 
-    <!-- ==================== 数据源 1: 开盘啦强度榜（原市场雷达） ==================== -->
-    <template v-if="src === 'kpl'">
+    <!-- ==================== 板块进阶数据（既有能力，一件不丢） ==================== -->
+    <details class="mk-more" open>
+      <summary class="mk-more-sum">
+        <i class="fa fa-caret-down"></i> 板块进阶数据 · 强度明细 / 轮动历史 / 人气热榜
+      </summary>
+
+      <div class="mrk-head">
+        <span class="mrk-title"><i class="fa fa-th-large"></i> 板块</span>
+        <span class="mrk-sub">强度明细 · 板块轮动 · 人气热榜</span>
+        <span class="mrk-time">{{ bjTime }}</span>
+      </div>
+
       <div class="mrk-tabs">
         <button class="mrk-tab" :class="{ active: tab === 'board' }" @click="switchTab('board')">
-          <i class="fa fa-th-large"></i> 板块强度
+          <i class="fa fa-th-large"></i> 板块强度明细
         </button>
         <button class="mrk-tab" :class="{ active: tab === 'history' }" @click="switchTab('history')">
           <i class="fa fa-history"></i> 板块轮动历史
@@ -47,7 +94,7 @@
         </button>
       </div>
 
-      <!-- 板块强度 -->
+      <!-- 板块强度明细（全字段；盯盘精简版见上方层⑤题材榜） -->
       <div v-if="tab === 'board'" class="mrk-panel">
         <div class="rot-toolbar">
           <span class="rot-tip"><i class="fa fa-info-circle"></i> 实时板块强度排行；选日期可回看历史</span>
@@ -55,7 +102,7 @@
           <button class="rot-reset-btn" title="回到实时" @click="clearDate('board')"><i class="fa fa-bolt"></i></button>
           <span v-if="boardDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ boardDataDate }}<template v-if="boardDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
         </div>
-        <div v-if="boardLoading" class="loading-placeholder"><div class="spinner"></div><div>加载板块强度...</div></div>
+        <div v-if="boardLoading && !boardList.length" class="loading-placeholder"><div class="spinner"></div><div>加载板块强度...</div></div>
         <div v-else-if="!boardList.length" class="empty-state">暂无板块强度数据</div>
         <table v-else class="stock-table">
           <thead>
@@ -119,7 +166,6 @@
           暂无历史数据(每日 15:30 后调度器抓取积累)
         </div>
         <template v-else>
-          <!-- 顶部表格: 行=排名, 列=日期 -->
           <div class="rot-table-scroll">
             <table class="rot-table">
               <thead>
@@ -141,7 +187,6 @@
               </tbody>
             </table>
           </div>
-          <!-- 强度趋势线 + 量能柱状 + 多窗口排名(独立组件) -->
           <RotCharts :dates="rot.dates" :rot-map="rotMap" :windows="rot.windows" :common-names="rot.common_names" />
         </template>
       </div>
@@ -164,7 +209,7 @@
           <button class="rot-reset-btn" title="回到实时" @click="clearDate('hot')"><i class="fa fa-bolt"></i></button>
           <span v-if="hotDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ hotDataDate }}<template v-if="hotDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
         </div>
-        <div v-if="hotLoading" class="loading-placeholder"><div class="spinner"></div><div>加载人气热榜...</div></div>
+        <div v-if="hotLoading && !hotList.length" class="loading-placeholder"><div class="spinner"></div><div>加载人气热榜...</div></div>
         <div v-else-if="hotSourceFailed" class="empty-state src-fail">
           <i class="fa fa-exclamation-triangle"></i> 数据源故障（源{{ hotSource === 'kpl' ? 1 : hotSource === 'em' ? 2 : 3 }}暂不可用），请切换其他源查看
         </div>
@@ -188,14 +233,9 @@
           </tbody>
         </table>
       </div>
-    </template>
+    </details>
 
-    <!-- ==================== 数据源 2: 东财概念榜（原「题材异动」页） ==================== -->
-    <div v-else class="mrk-panel mrk-panel-em">
-      <EmConceptPanel @select="openBoard" />
-    </div>
-
-    <!-- 板块成分股弹层（2026-08-17 主人需求）：两个数据源共用同一弹层，按 src 选接口 -->
+    <!-- 板块成分股弹层（层⑤与强度明细共用，按 src 选接口） -->
     <div v-if="stocksOpen" class="mrk-modal-mask" @click.self="closeBoardStocks">
       <div class="mrk-modal">
         <div class="mrk-modal-head">
@@ -240,25 +280,39 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, reactive, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, reactive, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePolling } from '../composables/usePolling'
-import { kplBoardRank, kplBoardStocks, kplHotRank, sectorRotation, emBoardMembers } from '../api/kpl'
+import {
+  kplBoardRank, kplBoardStocks, kplHotRank, sectorRotation, emBoardMembers,
+  emConceptRank, kplIndexBrief, kplYestZt, kplZtEchelon, kplYidongRealtime,
+} from '../api/kpl'
+import { newsFlash } from '../api/news'
+import { listBatches } from '../api/history'
+import { fetchQuotes } from '../api/stocks'
 import { trackUsageOnce } from '../api/activity'
 import { linkToSoftware } from '../utils/tdx'
-import { bjTimeStr } from '../utils/time'
+import { bjTimeStr, todayBj, isIntradayNow } from '../utils/time'
 import { useSortable } from '../composables/useSortable'
 import { yi, signed } from '../utils/format'
+import { mergeLimitCount } from '../utils/boards'
+import { summarizePicks, avgOf } from '../utils/picks'
+import { pickReportBatch } from '../utils/batches'
 import RotCharts from '../components/RotCharts.vue'
 import PoolHoverBtn from '../components/PoolHoverBtn.vue'
 import SentimentPanel from '../components/SentimentPanel.vue'
-import EmConceptPanel from '../components/EmConceptPanel.vue'
+import FlashTicker from '../components/FlashTicker.vue'
+import YestZtPanel from '../components/YestZtPanel.vue'
+import MoneyTopStrip from '../components/MoneyTopStrip.vue'
+import TodayPicksPanel from '../components/TodayPicksPanel.vue'
+import MarketBoardPanel from '../components/MarketBoardPanel.vue'
+import YidongFlow from '../components/YidongFlow.vue'
 
 const route = useRoute()
 const router = useRouter()
 
-// ===================== 数据源切换（工单 三.4 方案 A） =====================
-// kpl = 开盘啦强度榜（原市场雷达三 tab）；em = 东财概念榜（原「题材异动」页）
+// ===================== 数据源切换 =====================
+// kpl = 开盘啦强度榜(原市场雷达)；em = 东财概念榜(原「题材异动」页)
 // /concept 路由重定向到 /market?src=em，因此 src 以 query 为唯一真源。
 const src = ref(route.query.src === 'em' ? 'em' : 'kpl')
 
@@ -267,6 +321,7 @@ function switchSrc(s) {
   src.value = s
   // 写回 URL：既让 /concept→/market?src=em 这条链路自洽，也让切换后的地址可分享/可后退
   router.replace({ name: 'market', query: s === 'em' ? { src: 'em' } : {} })
+  if (s === 'em' && !conceptList.value.length) loadConcept()
 }
 
 // 支持浏览器前进/后退：query 变了要跟着切（switchSrc 自己改 query 时这里是无操作）
@@ -277,15 +332,18 @@ watch(() => route.query.src, (v) => {
 
 const tab = ref('board')
 const boardList = ref([])
+const conceptList = ref([])
 const hotList = ref([])
 const hotSourceFailed = ref(false)
 const boardLoading = ref(true)
+const boardFailed = ref(false)
 const hotLoading = ref(true)
 const hotSource = ref(localStorage.getItem('kuaixuan_hot_source') || 'kpl')
 const datePicker = ref('')
 const boardDataDate = ref('')
 const hotDataDate = ref('')
 const bjTime = ref('--:--:--')
+const updatedAt = ref('')
 
 // 各表独立排序实例
 const boardSort = useSortable()
@@ -308,9 +366,19 @@ async function loadBoard() {
     const d = await kplBoardRank(datePicker.value)
     boardList.value = d.list || []
     boardDataDate.value = d.date || ''
-  } catch (e) { /* 静默 */ } finally {
+    boardFailed.value = false
+  } catch (e) { boardFailed.value = true } finally {
     boardLoading.value = false
   }
+}
+
+/** 东财概念榜（层⑤ em 源的数据；每页只拉一次，之后靠 tick 里的 loadBoard 分支复用） */
+async function loadConcept() {
+  try {
+    const d = await emConceptRank()
+    conceptList.value = d.list || []
+    boardFailed.value = false
+  } catch (e) { boardFailed.value = true }
 }
 
 /**
@@ -379,8 +447,6 @@ const rotLoading = ref(false)
 const rotSourceFailed = ref(false)
 const rot = reactive({ dates: [], days: [], windows: [], common_names: [], source: 'kpl' })
 
-// 板块历史表格列顺序: 从右到左天数递增 → 改为从左往右最新一天(左侧最新, 用于表格);
-// 趋势/量能等图表仍用 rot.dates(时间左旧右新, 自然流向)
 const historyDates = computed(() => [...rot.dates].reverse())
 
 const rotMap = computed(() => {
@@ -390,8 +456,7 @@ const rotMap = computed(() => {
   }
   return m
 })
-// 出现 >= 2 次的板块按频次降序分配 8 色(红/橙/黄/靛蓝/天蓝/深蓝/紫/粉, 无绿系),
-// 同板块多日同色; 出现 < 2 次不配色(rot-c-0)
+// 出现 >= 2 次的板块按频次降序分配 8 色(红/橙/黄/靛蓝/天蓝/深蓝/紫/粉, 无绿系)
 const colorMap = computed(() => {
   const cnt = {}
   for (const day of rot.days) {
@@ -400,7 +465,7 @@ const colorMap = computed(() => {
     }
   }
   const ranks = Object.entries(cnt)
-    .filter(([_, c]) => c >= 2)
+    .filter(([, c]) => c >= 2)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
   const m = {}
   ranks.forEach(([name], i) => { m[name] = (i % 8) + 1 })
@@ -422,7 +487,7 @@ async function loadHistory() {
     rot.windows = (d && d.windows && d.windows.windows) || []
     rot.common_names = (d && d.windows && d.windows.common_names) || []
     rotSourceFailed.value = !!(d && d.source_failed)
-  } catch (e) { rotSourceFailed.value = false } /* 请求失败: 按无故障处理(旧值保留即可) */
+  } catch (e) { rotSourceFailed.value = false }
   finally { rotLoading.value = false }
 }
 
@@ -433,51 +498,250 @@ function switchSource(s) {
   loadHistory()
 }
 
-// ⚠️ 2026-09-27 v4.11.59 修: 两处 usePolling 从 onMounted 回调搬到 setup 顶层 ——
-//    Vue 调用 mounted 回调时 currentInstance 为 null, usePolling 内的 onBeforeUnmount
-//    会静默注册失败 ⇒ 定时器与 visibilitychange 监听永不清理
-//    (用户离开 /market 后仍会一直按 60s 打「板块强度 + 人气榜」, 消耗开盘啦付费配额)。
-//    首拉仍由下面 onMounted 显式完成 ⇒ 此处 immediate:false, 顺带消掉原本
-//    「usePolling 默认 immediate 首跳 + onMounted 显式拉」造成的**首屏双请求**。
+// ===================== 盯盘台六层 =====================
+const ticking = ref(false)
+
+// ① 快讯
+const flashList = ref([])
+const flashLoading = ref(true)
+const flashDegraded = ref([])
+async function loadFlash() {
+  try {
+    const d = await newsFlash(20)
+    flashList.value = d.list || []
+    flashDegraded.value = d.degraded || []
+  } catch (e) { /* 保留旧值; 首拉失败则由组件显示降级文案 */ } finally {
+    flashLoading.value = false
+  }
+}
+
+// ② 昨日涨停今日表现（平均高开/现溢价前端聚合; 连板高度/炸板率取情绪接口）
+const yestCount = ref(0)
+const yestAvgOpen = ref(null)
+const yestAvgNow = ref(null)
+const yestDate = ref('')
+const yestLoading = ref(true)
+const emoLadder = ref(null)
+const emoBroken = ref(null)
+async function loadYestZt() {
+  try {
+    const d = await kplYestZt()
+    const lst = d.list || []
+    yestCount.value = lst.length
+    yestDate.value = d.date || ''
+    yestAvgOpen.value = avgOf(lst.map(it => it.bidChange))
+    yestAvgNow.value = avgOf(lst.map(it => it.change))
+  } catch (e) { /* 非会员/源暂缺 → 保持 null, 组件显示 -- */ } finally {
+    yestLoading.value = false
+  }
+}
+async function loadEmo() {
+  try {
+    const d = await kplIndexBrief()
+    const e = d && d.emo
+    if (!e) return
+    if (e.l17 !== undefined && e.l17 !== null) emoLadder.value = Number(e.l17)
+    if (e.fp108 !== undefined && e.fp108 !== null) emoBroken.value = Number(e.fp108)
+  } catch (e) { /* 保留旧值 */ }
+}
+
+// ⑤ 涨停数（题材分组，与板块榜按名称归一化合并）
+const ztBoards = ref([])
+async function loadZtEchelon() {
+  try {
+    const d = await kplZtEchelon()
+    ztBoards.value = (d && d.boards) || []
+  } catch (e) { /* 匹配不上就显示 — */ }
+}
+const boardRows = computed(() => mergeLimitCount(
+  src.value === 'em' ? conceptList.value : boardList.value,
+  ztBoards.value,
+))
+const boardFailMsg = computed(() => (boardFailed.value
+  ? '数据源暂不可用，可切换另一个源查看'
+  : ''))
+
+// ③ 最强资金点卡 → 联动层⑤（工单二期体验 5）
+const hotBoard = ref({ name: '', boardCode: '' })
+function onMoneySelect(b) {
+  hotBoard.value = { name: (b && b.name) || '', boardCode: (b && b.boardCode) || '' }
+  nextTick(() => {
+    const el = document.querySelector('.mb-row.hot')
+    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  })
+}
+
+// ④ 今日票战报
+const pickRows = ref([])
+const pickDate = ref('')
+const pickIsToday = ref(false)
+const pickPending = ref(false)
+const pickLoading = ref(true)
+const pickFailed = ref(false)
+const pickSummary = computed(() => summarizePicks(pickRows.value))
+const pickEmptyMsg = computed(() => (pickPending.value
+  ? '今日名单尚未生成（9:25 定格落库后自动出现）'
+  : ''))
+async function loadPicks() {
+  try {
+    const d = await listBatches()
+    const { batch, isToday, pending } = pickReportBatch(d.batches || [], todayBj())
+    pickPending.value = pending
+    pickIsToday.value = isToday
+    if (!batch) { pickRows.value = []; pickDate.value = ''; pickFailed.value = false; return }
+    const detail = await listBatches(batch.id)
+    const rows = detail.stocks || []
+    pickDate.value = batch.batch_date || ''
+    let qmap = {}
+    const codes = rows.map(s => s.code).filter(Boolean)
+    if (codes.length) {
+      try {
+        const q = await fetchQuotes(codes)
+        qmap = (q && q.quotes) || {}
+      } catch (e) { qmap = {} }
+    }
+    pickRows.value = rows.map((s) => {
+      const q = qmap[s.code] || {}
+      const chg = (q.realChange !== undefined && q.realChange !== null) ? q.realChange
+        : (s.realChange !== undefined ? s.realChange : null)
+      return {
+        code: s.code,
+        name: s.name,
+        price: (q.price !== undefined && q.price !== null) ? q.price : (s.price ?? null),
+        change: chg,
+        // 数据源当前不提供当日最高涨幅 ⇒ 留 undefined，utils/picks 据此判「炸板不可知」
+        peakChange: undefined,
+      }
+    })
+    pickFailed.value = false
+  } catch (e) { pickFailed.value = true } finally {
+    pickLoading.value = false
+  }
+}
+
+// ⑥ 实时异动流
+const yidongList = ref([])
+const yidongLoading = ref(true)
+const yidongFailed = ref(false)
+const yidongDay = ref('')
+const yidongTime = ref('')
+async function loadYidong() {
+  try {
+    const d = await kplYidongRealtime()
+    const lst = (d.list || []).slice()
+      .sort((a, b) => (Number(b.deviation) || 0) - (Number(a.deviation) || 0))
+    yidongList.value = lst.slice(0, 60)
+    yidongDay.value = d.day || ''
+    yidongTime.value = d.time || ''
+    yidongFailed.value = false
+  } catch (e) { yidongFailed.value = true } finally {
+    yidongLoading.value = false
+  }
+}
+
+/**
+ * 六层统一 tick：一轮把六个上游集中拉完，只打一次「更新于」。
+ * ⚠️ datePicker 有值（用户在回看历史）时不刷新板块实时数据，避免手动选的日期被 tick 冲掉。
+ */
+async function tick() {
+  if (ticking.value) return
+  ticking.value = true
+  try {
+    const jobs = [
+      loadFlash(), loadYestZt(), loadEmo(), loadZtEchelon(), loadPicks(), loadYidong(),
+      src.value === 'em' ? loadConcept() : Promise.resolve(),
+    ]
+    if (!datePicker.value) jobs.push(loadBoard())
+    await Promise.allSettled(jobs)
+    updatedAt.value = bjTimeStr()
+  } finally {
+    ticking.value = false
+  }
+}
+
+// ⚠️ 2026-09-27 v4.11.59/62 修: usePolling 必须注册在 setup 顶层 ——
+//    Vue 调用 mounted 回调时 currentInstance 为 null, 写进 onMounted 里会静默注册失败
+//    ⇒ 定时器与 visibilitychange 监听永不清理。首拉由下面 onMounted 显式完成,
+//    故此处 immediate:false(顺带消掉「默认首跳 + onMounted 显式拉」的首屏双请求)。
 usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
-usePolling(() => { loadBoard(); loadHot() }, 60000, { immediate: false })
+// 🔴 只在盘中轮询: 旧版不看时段, 凌晨挂着也在打「板块强度 + 人气榜」(开盘啦 8 万次/日付费配额)
+usePolling(() => { if (isIntradayNow()) tick() }, 60000, { immediate: false })
 
 onMounted(() => {
   bjTime.value = bjTimeStr()
   // 2026-09-22 v4.11.35: 市场雷达打开即算一次(Once 版, 组件内 60s 轮询不重复上报)
   trackUsageOnce('market')
-  loadBoard()
+  tick()
   loadHistory()
   loadHot()
+  if (src.value === 'em') loadConcept()
 })
 </script>
 
 <style scoped>
-/* ===================== 数据源切换（工单 三.4 方案 A） ===================== */
-.mrk-src { display: inline-flex; gap: 0; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-soft); margin-bottom: 12px; }
-.mrk-src-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: var(--bg-input); color: var(--text-secondary); border: none;
-  padding: 8px 18px; font-size: 0.875rem; cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+/* ===================== 盯盘台骨架 ===================== */
+.mk-bar {
+  display: flex; align-items: center; gap: 8px;
+  margin: 10px 0 8px; flex-wrap: wrap;
 }
-.mrk-src-btn:hover { background: var(--bg-card); color: var(--text-main); }
-.mrk-src-btn.active { background: rgba(255, 180, 0, 0.15); color: #ffd700; font-weight: 700; box-shadow: inset 0 -2px 0 var(--accent); }
-body[data-bg="light"] .mrk-src { border-color: #d0d0d0; }
-body[data-bg="light"] .mrk-src-btn { background: #f5f5f5; color: #555; }
-body[data-bg="light"] .mrk-src-btn:hover { background: #eaeaea; color: #1a1d26; }
-body[data-bg="light"] .mrk-src-btn.active { background: rgba(198, 40, 40, 0.10); color: #c62828; }
+.mk-bar-title { color: #ffe0a0; font-size: 1rem; font-weight: 700; }
+.mk-bar-title .fa { color: #ffb400; }
+.mk-bar-sub { color: var(--text-muted); font-size: 0.75rem; }
+.mk-refresh {
+  margin-left: auto; background: transparent; border: 1px solid var(--border-soft);
+  color: var(--text-secondary); border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 0.75rem;
+}
+.mk-refresh:hover { border-color: var(--accent); color: var(--text-main); }
+.mk-refresh:disabled { opacity: 0.5; cursor: default; }
+.mk-updated { color: var(--text-dim); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.spin { animation: spin 0.8s linear infinite; display: inline-block; }
 
-/* 板块行点击态(2026-08-17 主人需求: 点板块看成分股) */
+/* 六层竖排，层间距 8px（工单「卡片间距 8px」） */
+.mk-stack { display: flex; flex-direction: column; gap: 8px; }
+
+/* ===================== 进阶区折叠 ===================== */
+.mk-more { margin-top: 14px; border-top: 1px solid var(--border-soft); padding-top: 10px; }
+.mk-more-sum {
+  cursor: pointer; color: var(--text-secondary); font-size: 0.8125rem;
+  padding: 4px 0; list-style: none; user-select: none;
+}
+.mk-more-sum::-webkit-details-marker { display: none; }
+.mk-more-sum .fa { color: var(--accent); margin-right: 4px; transition: transform 0.15s; }
+.mk-more[open] .mk-more-sum .fa-caret-down { transform: rotate(0deg); }
+.mk-more:not([open]) .mk-more-sum .fa-caret-down { transform: rotate(-90deg); }
+
+/* ===================== 板块（沿用既有样式） ===================== */
+.mrk-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.mrk-title { font-size: 1.25rem; font-weight: 700; color: #ffe0a0; }
+.mrk-title .fa { color: #ffb400; }
+.mrk-sub { color: var(--text-muted); font-size: 0.8125rem; }
+.mrk-time { margin-left: auto; color: var(--text-dim); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.mrk-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+.mrk-tab {
+  padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border-soft);
+  background: var(--bg-hover); color: var(--text-secondary); font-size: 0.875rem; cursor: pointer; transition: border-color 0.2s, color 0.2s;
+}
+.mrk-tab:hover { border-color: #ffb400; color: #ffe0a0; }
+.mrk-tab.active { background: rgba(255,180,0,0.15); border-color: #ffb400; color: #ffd700; font-weight: 600; }
+.mrk-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 14px; }
+.loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
+.spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
+.empty-state.src-fail { color: #ffb400; }
+.empty-state.src-fail i { margin-right: 6px; }
 .board-row { cursor: pointer; }
 .board-row:hover td { background: rgba(255, 180, 0, 0.06); }
-.board-click { cursor: pointer; }
-.board-click .name-main:hover { color: #ffb400; }
 .board-detail-hint {
   display: inline-flex; align-items: center; gap: 3px;
   font-size: 0.75rem; color: var(--accent); opacity: 0.85; margin-left: 6px;
   border: 1px solid rgba(var(--accent-rgb), 0.4); border-radius: 10px; padding: 0 6px;
 }
+.board-code { font-size: 0.75rem; color: var(--text-muted); }
+.strength { color: #ffb400; font-weight: 700; }
+.lb-badge { display: inline-block; color: #ff8a5c; border: 1px solid rgba(255,80,40,0.5); border-radius: 4px; padding: 0 5px; font-size: 0.75rem; background: rgba(255,80,40,0.12); }
+.name-col { white-space: nowrap; }
+
 /* 成分股弹层 */
 .mrk-modal-mask {
   position: fixed; inset: 0; z-index: 2000;
@@ -499,7 +763,7 @@ body[data-bg="light"] .mrk-src-btn.active { background: rgba(198, 40, 40, 0.10);
 }
 .mrk-modal-title { font-size: 1.0625rem; font-weight: 700; color: var(--text-main); }
 .mrk-modal-title .fa { color: var(--accent); }
-.mrk-modal-code { font-size: 0.8125rem; color: var(--text-muted); font-family: inherit; margin-left: 6px; }
+.mrk-modal-code { font-size: 0.8125rem; color: var(--text-muted); margin-left: 6px; }
 .mrk-modal-sub { font-size: 0.75rem; color: var(--text-muted); margin-left: 8px; }
 .mrk-modal-close {
   margin-left: auto; background: transparent; border: none;
@@ -508,67 +772,14 @@ body[data-bg="light"] .mrk-src-btn.active { background: rgba(198, 40, 40, 0.10);
 .mrk-modal-close:hover { color: var(--text-main); }
 .mrk-modal-body { overflow-y: auto; padding: 10px 14px 14px; }
 .mrk-modal-table { min-width: 640px; }
-body[data-bg="light"] .mrk-modal-title { color: #1a1d26; }
-body[data-bg="light"] .board-detail-hint { color: #a06a00; border-color: rgba(160, 106, 0, 0.4); }
-body[data-bg="light"] .board-row:hover td { background: rgba(199, 145, 0, 0.08); }
-.page-back { color: var(--text-muted); cursor: pointer; font-size: 0.8125rem; margin-bottom: 12px; display: inline-block; }
-.page-back:hover { color: #ffb400; }
-.mrk-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.mrk-title { font-size: 1.25rem; font-weight: 700; color: #ffe0a0; }
-.mrk-title .fa { color: #ffb400; }
-.mrk-sub { color: var(--text-muted); font-size: 0.8125rem; }
-.mrk-time { margin-left: auto; color: var(--text-dim); font-size: 0.875rem; font-family: inherit; font-variant-numeric: tabular-nums; }
-.mrk-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
-.mrk-tab {
-  padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border-soft);
-  background: var(--bg-hover); color: var(--text-secondary); font-size: 0.875rem; cursor: pointer; transition: border-color 0.2s, color 0.2s;
-}
-.mrk-tab:hover { border-color: #ffb400; color: #ffe0a0; }
-.mrk-tab.active { background: rgba(255,180,0,0.15); border-color: #ffb400; color: #ffd700; font-weight: 600; }
-.mrk-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 14px; }
-/* 东财概念榜面板: 自带内边距, 外层不要再叠一层 padding */
-.mrk-panel-em { padding: 0; background: transparent; border: none; }
-.loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
-.spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
-.empty-state.src-fail { color: #ffb400; } /* 数据源故障警示(琥珀色, A股无绿) */
-.empty-state.src-fail i { margin-right: 6px; }
-.board-code { font-size: 0.75rem; color: var(--text-muted); }
-.strength { color: #ffb400; font-weight: 700; }
-.lb-badge { display: inline-block; color: #ff8a5c; border: 1px solid rgba(255,80,40,0.5); border-radius: 4px; padding: 0 5px; font-size: 0.75rem; background: rgba(255,80,40,0.12); }
-.name-col { white-space: nowrap; }
 
-/* 浅色主题覆盖 */
-body[data-bg="light"] .page-back { color: #6b6b6b; }
-body[data-bg="light"] .page-back:hover { color: #c79100; }
-body[data-bg="light"] .mrk-title { color: #8a5500; }
-body[data-bg="light"] .mrk-title .fa { color: #c79100; }
-body[data-bg="light"] .mrk-sub { color: #6b6b6b; }
-body[data-bg="light"] .mrk-time { color: #6b6b6b; }
-body[data-bg="light"] .mrk-tab { color: #6b6b6b; border-color: var(--border-soft); background: rgba(255,255,255,0.6); }
-body[data-bg="light"] .mrk-tab:hover { color: #5a4a3a; border-color: #c79100; }
-body[data-bg="light"] .mrk-tab.active { color: #5a4a3a; background: rgba(255,180,0,0.15); border-color: #c79100; }
-body[data-bg="light"] .mrk-panel { background: rgba(255,255,255,0.85); border-color: var(--border-soft); }
-body[data-bg="light"] .mrk-panel-em { background: transparent; border-color: transparent; }
-body[data-bg="light"] .strength { color: #8a5500; }
-body[data-bg="light"] .lb-badge { color: #b83010; border-color: rgba(184,48,16,0.5); background: rgba(255,80,80,0.1); }
-body[data-bg="light"] .board-code { color: #1a1d26; }
-
-/* ===================== 板块轮动历史视图 ===================== */
+/* ===================== 板块轮动历史 ===================== */
 .rot-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .rot-tip { color: var(--text-muted, #aaa); font-size: 0.75rem; flex: 1; min-width: 0; }
-
-/* 注: rot-date / rot-select / rot-reset-btn / rot-data-date 为全局通用样式,
-   定义在 src/styles/main.css(板块页 & 连板天梯共用) */
 .rot-source { display: flex; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-soft, #444); }
 .rot-source-btn { background: var(--bg-input, #1a1a1a); color: var(--text-secondary, #aaa); border: none; padding: 5px 12px; font-size: 0.75rem; cursor: pointer; transition: background 0.15s; }
 .rot-source-btn:hover { background: var(--bg-card, #222); }
 .rot-source-btn.active { background: var(--accent-warm, #ffb400); color: #1a1a1a; font-weight: 600; }
-body[data-bg="light"] .rot-source { border-color: #d0d0d0; }
-body[data-bg="light"] .rot-source-btn { background: #f5f5f5; color: #555; }
-body[data-bg="light"] .rot-source-btn:hover { background: #eaeaea; }
-body[data-bg="light"] .rot-source-btn.active { background: #d97b00; color: #fff; }
 .rot-table-scroll { overflow-x: auto; border: 1px solid var(--border-soft); border-radius: 6px; }
 .rot-table { border-collapse: collapse; min-width: 100%; font-size: 0.75rem; }
 .rot-table th, .rot-table td { padding: 5px 8px; text-align: center; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
@@ -576,13 +787,51 @@ body[data-bg="light"] .rot-source-btn.active { background: #d97b00; color: #fff;
 .rot-rownum { color: var(--text-muted); font-size: 0.75rem; min-width: 40px; }
 .rot-date { color: var(--text-secondary); font-size: 0.75rem; min-width: 70px; }
 .rot-cell { min-width: 80px; padding: 3px 4px !important; vertical-align: middle; }
-/* 同名板块(出现 >= 2 次)按独立颜色高亮区分: 8 色循环, 暗/亮主题各一套 */
 .rot-board { font-size: 0.75rem; color: var(--text-main); border-radius: 4px; padding: 1px 6px; display: inline-block; }
-.rot-board.rot-c-0 { /* 仅出现 1 次: 不高亮 */ color: var(--text-main); background: transparent; }
+.rot-board.rot-c-0 { color: var(--text-main); background: transparent; }
 .rot-c-1 { color: #fff; background: #E24B4A; } .rot-c-2 { color: #fff; background: #F08C3F; }
 .rot-c-3 { color: #222; background: #E6BE2A; } .rot-c-4 { color: #fff; background: #5C6BC0; }
 .rot-c-5 { color: #fff; background: #38A6DF; } .rot-c-6 { color: #fff; background: #2851A8; }
 .rot-c-7 { color: #fff; background: #9A57C9; } .rot-c-8 { color: #fff; background: #D45B92; }
+.rot-strength { font-size: 0.75rem; color: var(--text-muted); margin-top: 1px; }
+
+/* 移动端适配(<=768px) */
+@media (max-width: 768px) {
+  .mk-bar-sub { display: none; }
+  .mk-more .mrk-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 10px 8px; }
+  .mk-more .mrk-panel .stock-table { min-width: 880px; }
+  .rot-table-scroll .rot-table { min-width: 680px; }
+  .mrk-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 4px; }
+  .mrk-tabs::-webkit-scrollbar { display: none; }
+  .mrk-tab { flex-shrink: 0; white-space: nowrap; padding: 7px 12px; font-size: 0.8125rem; }
+  .mrk-head { gap: 6px; }
+  .mrk-title { font-size: 1.0625rem; }
+  .mrk-sub { font-size: 0.75rem; width: 100%; }
+  .mrk-time { margin-left: 0; font-size: 0.75rem; }
+  .mk-more .mrk-panel .stock-table th { padding: 7px 4px; font-size: 0.75rem; }
+  .mk-more .mrk-panel .stock-table td { padding: 6px 4px; font-size: 0.75rem; }
+  .mrk-modal { max-height: 86vh; }
+}
+
+/* 浅色主题覆盖 */
+body[data-bg="light"] .mk-bar-title { color: #8a5500; }
+body[data-bg="light"] .mrk-title { color: #8a5500; }
+body[data-bg="light"] .mrk-title .fa { color: #c79100; }
+body[data-bg="light"] .mrk-sub, body[data-bg="light"] .mrk-time { color: #6b6b6b; }
+body[data-bg="light"] .mrk-tab { color: #6b6b6b; background: rgba(255,255,255,0.6); }
+body[data-bg="light"] .mrk-tab:hover { color: #5a4a3a; border-color: #c79100; }
+body[data-bg="light"] .mrk-tab.active { color: #5a4a3a; background: rgba(255,180,0,0.15); border-color: #c79100; }
+body[data-bg="light"] .mrk-panel { background: rgba(255,255,255,0.85); }
+body[data-bg="light"] .strength { color: #8a5500; }
+body[data-bg="light"] .lb-badge { color: #b83010; border-color: rgba(184,48,16,0.5); background: rgba(255,80,80,0.1); }
+body[data-bg="light"] .board-code { color: #1a1d26; }
+body[data-bg="light"] .board-detail-hint { color: #a06a00; border-color: rgba(160, 106, 0, 0.4); }
+body[data-bg="light"] .board-row:hover td { background: rgba(199, 145, 0, 0.08); }
+body[data-bg="light"] .mrk-modal-title { color: #1a1d26; }
+body[data-bg="light"] .rot-source { border-color: #d0d0d0; }
+body[data-bg="light"] .rot-source-btn { background: #f5f5f5; color: #555; }
+body[data-bg="light"] .rot-source-btn:hover { background: #eaeaea; }
+body[data-bg="light"] .rot-source-btn.active { background: #d97b00; color: #fff; }
 body[data-bg="light"] .rot-c-1 { background: #C32D2C; }
 body[data-bg="light"] .rot-c-2 { background: #D86A1B; }
 body[data-bg="light"] .rot-c-3 { color: #4a3a00; background: #F0CB3F; }
@@ -591,38 +840,4 @@ body[data-bg="light"] .rot-c-5 { background: #1E7FB5; }
 body[data-bg="light"] .rot-c-6 { background: #1D3F8C; }
 body[data-bg="light"] .rot-c-7 { background: #6B2B9A; }
 body[data-bg="light"] .rot-c-8 { background: #A82C6C; }
-.rot-strength { font-size: 0.75rem; color: var(--text-muted); margin-top: 1px; }
-.rot-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
-.rot-chart-block { background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px; }
-.rot-chart-title { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px; }
-.rot-svg { width: 100%; height: auto; }
-.rot-windows { margin-top: 16px; background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px; }
-.rot-window-legend { display: flex; gap: 16px; justify-content: center; margin-top: 6px; font-size: 0.75rem; }
-.rot-window-legend i { margin-right: 4px; }
-/* 移动端适配(<=768px): 表格横滑 + Tab 横滑 + 布局紧凑 */
-@media (max-width: 768px) {
-  .rot-charts { grid-template-columns: 1fr; }
-  /* 数据源切换两个按钮等分铺满, 便于拇指点按 */
-  .mrk-src { display: flex; width: 100%; }
-  .mrk-src-btn { flex: 1 1 0; justify-content: center; padding: 9px 6px; font-size: 0.8125rem; }
-  /* 宽表格横向滚动(板块强度/人气热榜) */
-  .mrk-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 10px 8px; }
-  .mrk-panel .stock-table { min-width: 880px; }
-  /* 历史轮动表横滑内容完整 */
-  .rot-table-scroll .rot-table { min-width: 680px; }
-  /* Tab 横向滑动(3 个 tab 一排滑, 不换行占纵向空间) */
-  .mrk-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 4px; }
-  .mrk-tabs::-webkit-scrollbar { display: none; }
-  .mrk-tab { flex-shrink: 0; white-space: nowrap; padding: 7px 12px; font-size: 0.8125rem; }
-  /* 头部紧凑 */
-  .mrk-head { gap: 6px; }
-  .mrk-title { font-size: 1.0625rem; }
-  .mrk-sub { font-size: 0.75rem; width: 100%; }
-  .mrk-time { margin-left: 0; font-size: 0.75rem; }
-  /* 表格字号压缩 */
-  .mrk-panel .stock-table th { padding: 7px 4px; font-size: 0.75rem; }
-  .mrk-panel .stock-table td { padding: 6px 4px; font-size: 0.75rem; }
-  /* 成分股弹窗近全屏 */
-  .mrk-modal { max-height: 86vh; }
-}
 </style>

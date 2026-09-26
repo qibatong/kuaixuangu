@@ -1477,6 +1477,85 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.62 (09-27 仅测试机) 盘中盯盘台 —— `/market` 由「两个空页面」重写为一个滚动盯屏（六层）+ 既有板块能力一件不丢 + 顺手做掉 3 个二期体验项**
+  - **触发**：主人「**1开工**」= 开始执行《快选产品优化总工单》**批次二：盘中盯盘台（核心）**；
+    「3可以」= 同意做真机渲染验证（AI 侧只承诺「做好准备 + 如实标注未闭环」）。**生产未提及 ⇒ 不动。**
+  - **工单要求**：「盘中不再是两个空页面，做成**一个滚动盯屏**，从上到下六层」，
+    并附全局尺寸（375px / 左右边距 12px / 圆角 10px / 层间距 8px / 涨 `#c62828` / 跌 `#2e7d32` / 数字 `tabular-nums`）。
+  - **六层落位（优先复用现成接口，零后端新接口）**：
+    | 层 | 组件 | 上游（**逐个真读过契约，不沿用文档结论**） |
+    |---|---|---|
+    | ① 快讯滚动条 | `FlashTicker.vue` | `/api/news/flash?limit=20`（后端 `degraded[]` 原样透出） |
+    | ② 昨日涨停今日表现 | `YestZtPanel.vue` | `/api/kpl/yest-zt` 聚合「平均高开=avg(bidChange)/现溢价=avg(change)」+ `/api/kpl/index-brief` 的 `emo.l17`(连板高度)/`emo.fp108`(炸板率) |
+    | ③ 最强资金 TOP | `MoneyTopStrip.vue` | 板块榜**本来就返回主力净额**，零新增请求 |
+    | ④ 今日票战报 | `TodayPicksPanel.vue` | `/api/history` 当日批次（`list_batches` 的 `freeze_ready/action/auto_applied`）+ `/api/quotes` 实时价 |
+    | ⑤ 题材榜 | `MarketBoardPanel.vue` | 板块榜 + `/api/kpl/zt-echelon` 的 `boards[].count`（**跨上游名称归一化模糊匹配**）；顶部切 开盘啦榜/东财概念榜 |
+    | ⑥ 实时异动流 | `YidongFlow.vue` | `/api/kpl/yidong-realtime` |
+  - **三条防静默纪律（本版落成代码，本项目头号缺陷类型的正面对策）**：
+    - **① 「null 不许渲染成 0」**：`utils/picks.js` 的 `avgOf([])` **返回 `null` 而不是 0** ⇒ 层②四指标渲染 `--`；
+      `MoneyTopStrip` 的 `mainNet === null` 板块**既不参与排序也不显示**（不用 0 顶替）；
+      `utils/boards.js` 的 `mergeLimitCount` 匹配不上返回 **`null`** ⇒ 层⑤涨停数显示 `—`。
+    - **② 「不可判就别判」（炸板）**：`/api/quotes` 的 `_build_quote_map` 只回
+      `realChange/entityChange/price/volRatio/turnover/name` —— **不含当日最高价** ⇒ 真实炸板（曾涨停且现已不在涨停价）
+      **判不出来**。故 `peakChange: undefined` ⇒ `brokenKnown=false` ⇒ 层④炸板显示 `—`，**不编数字**。
+      涨停幅度按板块区分：创业板/科创板 20%、北交所 30%、主板 ST 5%、其余 10%，容差 `LIMIT_SLACK=0.25`（涨停价四舍五入到分）。
+    - **③ 降级/回退必须显眼**：层④非当日名单必须标 `date + ' 名单（非今日）'`；
+      层⑥如实说明「该接口不返回时间戳」，故做成**按累计偏离值排序的异动流**，而不是假装成带时间的封板/炸板流水
+      （真时间线需另接分时明细源 ⇒ 二期，**本版不编造**）。
+  - **既有能力一件不丢（零回退）**：原 `/market` 的**板块强度 11 列全字段 + 日期回看**、**板块轮动历史 + `RotCharts`**、
+    **人气热榜**全部搬进 `<details class="mk-more" open>` 折叠区；`EmConceptPanel` 的角色由层⑤内部数据源切换承担
+    （组件文件保留并把注释改为「v4.11.62 起不再被 /market 引用，当前无任何 import，确无需求时可安全删除」）。
+  - **顺手做掉的 3 个二期体验项 + 1 个既有纪律问题**：
+    - 逐票状态自动排序（封板/炸板最前、翻绿最后）；整屏右上角「更新于 HH:MM:SS」（随 60s tick 刷新）；
+      点「最强资金」卡片**联动题材榜滚动高亮**（`.mb-row.hot` + `scrollIntoView`）。
+    - 🔴 **修掉旧版 60s 轮询不看时段**：旧 `/market` 凌晨挂着也在打「板块强度 + 人气榜」，
+      而**开盘啦是 8 万次/日付费配额** ⇒ 本版 `usePolling(() => { if (isIntradayNow()) tick() }, 60000, { immediate: false })`。
+      六层**共用一个 60s tick**（`Promise.allSettled` 集中拉取），不各拉各的。
+  - **影响面**：**纯前端，后端零改动、SQLite 零变更、路由路径零变更**。
+    新增 8 文件（6 组件 + `utils/picks.js` / `utils/boards.js` / `utils/batches.js` 及其 3 个单测）；
+    改 `views/MarketView.vue`（628 → 843 行，重写编排并保留既有能力）、`components/EmConceptPanel.vue`（仅注释）、
+    `_verify/nav.spec.js`（扩测）。
+  - **验证证据**：
+    - **`npm run verify` 全绿**：`eslint` **0 errors**（125 warnings 全是存量）；
+      `test:nav` **`PASS=134  FAIL=0`**（v4.11.61 是 63 项）；`node --test src/utils/*.test.js` **20/20**
+      （`picks` 8 / `boards` 6 / `batches` 6）。
+    - ★ **本版自查出一个真实覆盖缺口并补上（G8）**：原冒烟测试只渲染**六个子组件**，
+      **从未渲染 `MarketView.vue` 本体** —— 而它才是 628 行重写、模板自由变量最多的文件
+      （`flashList/yestCount/pickRows/boardRows/hotBoard/updatedAt…`），错拼同样对 build 与 eslint 完全静默。
+      补 G8（`renderComp(MarketView, {}, '/market')`，断言「零异常零 Vue 警告」+ 六层标题 + 折叠区 + 工具条 + 不含 `undefined/NaN`），
+      共 19 项。⇒ 需先补 `globalThis.document` 垫片：`usePolling` 在 **setup 顶层**就
+      `document.addEventListener('visibilitychange', …)`（这是「usePolling 必须注册在 setup 顶层」纪律的另一面）；
+      并因它留下自我重排的定时器，收尾必须显式 `process.exit()`。
+    - ★ **两次反向对照（证明断言不是空跑）**：
+      **① 组件级**：把 `MoneyTopStrip` 的过滤/排序换掉 ⇒ `PASS=113 FAIL=2`
+      （精确报出「`mainNet=null` 不参与 TOP」+「卡片数 = 有效板块数 2 :: 实际 3」），还原后 115 全绿。
+      **② 本体级（本轮新做）**：在 `MarketView.vue` 模板注入 `:items="flashListZZ"` ⇒
+      **`PASS=133 FAIL=1`，失败项正是「MarketView 渲染无异常/无 Vue 警告」**，还原后 134 全绿。
+      第一次注入还复现了老教训：**注入后测试不红，第一嫌疑是注入无效**（shell 引号把锚点吞了，脚本先断言「锚点命中」才替换）。
+    - **发布校验 67 项全过**（`_probe/fe62_deploy.sh`，纯 dist 原子切换）。判别断言期望值**全部先在本地 dist 实测**：
+      入口 `index-CL9M9Lzz.js` md5 `c323e8c3…` / index.html `fcce6f64…` /
+      **`★ MarketView chunk` `MarketView-q_PWA5Ge.js` md5 `efdd581e…`** /
+      **`★ MarketView css` `MarketView-CUCh4Rva.css` md5 `5f25ded3…`** ——
+      🔴 **本项目第一次把「异步 chunk 的 js + css」也纳入 md5 判据**：六层实体**不在入口 js 里**（Vite 按路由异步分包），
+      只看入口 js 等于**根本没校验到本次的新代码**。另含 v4.11.60/61 老问题不回归断言
+      （`NAV_GROUPS`=0、`hidePills:!0`=1）+ 既有能力保留断言（强度表 涨速%/今PE/总市值(亿)/量比/成交额(亿)/主力净额(亿)、三个 tab）。
+    - **校验器自证**：① 本地空跑影子段（`SHADOW=1`，与真机**跑同一份断言代码**）⇒ **FAIL=0**（67 项）；
+      ② **反向对照 A**：篡改包但 md5 期望值不改 ⇒ 到货校验拦下、中止、线上未动；
+      ③ **反向对照 B**：篡改包且 md5 也改对（模拟「包完整但内容错」）⇒ 精确报出
+      **`MarketView chunk md5` / `MarketView css md5` / `④ 标题 今日票战报` / `走马灯关键帧 ft-scroll` 共 4 条 FAIL** 并中止。
+    - **线上取回逐位一致**：入口 js `c323e8c3…`、**MarketView chunk `efdd581e…`**、**MarketView css `5f25ded3…`**
+      三者 md5 与本地**全等** ⇒ 线上跑的就是被渲染验证过的那份字节；15 条 URL 全 200；
+      `nginx -t` OK + reload；`nginx`/`kuaixuan` 两服务 active；六层依赖的 5 个接口 HTTP 层全部有响应（401=需登录）。
+    - **构建可重现性**：源码还原后**重建得到与已发布完全相同的四个指纹** ⇒ 本地 `dist` 与线上零分叉，无需重发。
+  - **上线状态**：**仅测试机**（2026-09-27 02:25，纯 dist 原子切换）。
+    回滚点 `/opt/kuaixuan/dist_bak_20260927-022542_v41162`；**生产 `121.196.230.80` 未部署**（仍是 v4.11.55 的老平铺导航）。
+  - **未做（如实标注，未闭环）**：
+    - ⚠️ **真机渲染验证仍未闭环**。SSR 冒烟只覆盖「组件/页面能否渲染成 HTML」，
+      **不覆盖 CSS 布局、触控、375px 下卡片是否挤压、底部 tabbar 是否被浏览器工具栏遮挡、六层滚动体感**
+      （本机无头 Chrome 起不来：`CVDisplayLinkCreateWithCGDisplay failed. CVReturn: -6670`）。
+      需主人在真机（微信内置浏览器 + iPhone Safari + 安卓）看一眼。
+    - 工单标注「小/中/大/超大单分层 + 5 日主力占比是 Level-2 数据，**本期不做**」—— 遵守，只做主力净额。
+    - 层⑥带时间戳的封板/炸板时间线（需另接分时明细源）；炸板判定（需当日最高价）；均属二期。
 - **v4.11.61 (09-27 仅测试机) 盘前资讯升为一级分组（底部 tabbar 5→6）+ 「竞价」组去掉重复的二级 pill 行**
   - **触发**：主人实测反馈（《快选产品优化总工单》+ 布局设计稿，两张截图）：
     「**盘前资讯是和竞价、盘中、这些放一行**」（截图一：底部 5 tab 设计稿）
