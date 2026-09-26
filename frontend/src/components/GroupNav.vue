@@ -44,8 +44,19 @@ function isActive(it) {
   return route.path === it.path
 }
 
-// NAV_GROUPS 由 NavBar / AppTabBar 共用；此处显式引用一次，避免打包器误判该文件未被使用
-void NAV_GROUPS
+/* 🔴 2026-09-27 v4.11.60 严重缺陷修复（导航整块不可用）:
+   本文件曾有一行 `void NAV_GROUPS`，注释写「避免打包器误判该文件未被使用」，
+   但该文件只 `import { groupKeyOfRoute, groupByKey }` —— **NAV_GROUPS 从未被导入**。
+   `<script setup>` 的顶层语句会被编译进 setup()，于是 setup 一执行就抛
+   `ReferenceError: NAV_GROUPS is not defined`：
+     · 构建完全成功（Rollup 对"未定义的自由变量"不报错，只当它是全局变量）；
+     · 生产构建连 warning 都没有；
+     · 结果 = **二级导航 pill 行永不渲染** ⇒ 桌面端只剩 5 个一级入口，
+       手机端点"复盘"只落到 entry /ladder，组内 5 个页面（含 /news 盘前资讯）全部不可达。
+   ⇒ ① 直接删掉那行（"模块被 tree-shake 掉"的担忧是多余的：本文件已从该模块导入了
+        两个函数，模块不可能被摇掉）；
+      ② 纪律：`<script setup>` 里出现的任何标识符必须先 import —— 见
+        `frontend/_verify/nav_ssr.js` 冒烟测试（会在部署前真渲染一遍导航）。 */
 </script>
 
 <style scoped>

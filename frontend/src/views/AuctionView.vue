@@ -70,7 +70,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(it, idx) in sealSort.sorted(sealList)" :key="it.code">
+          <tr v-for="it in sealSort.sorted(sealList)" :key="it.code">
             <td class="stock-info-cell" @click="linkToSoftware(it.code)">
             <div class="stock-code-row"><span class="stock-code">{{ it.code }}</span></div>
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ it.name }}</span><PoolHoverBtn :item="it" /></span></div>
@@ -120,7 +120,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(it, idx) in s3Sort.sorted(s3List, s3Val)" :key="it.code">
+          <tr v-for="it in s3Sort.sorted(s3List, s3Val)" :key="it.code">
             <td class="stock-info-cell" @click="linkToSoftware(it.code)">
             <div class="stock-code-row"><span class="stock-code">{{ it.code }}</span></div>
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ it.name || it.code }}</span><PoolHoverBtn :item="it" /></span></div>
@@ -169,7 +169,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(q, idx) in qcSort.sorted(qc20Mode === 'amt' ? qcList : qcChgList)" :key="'a' + q.code + qc20Mode">
+              <tr v-for="q in qcSort.sorted(qc20Mode === 'amt' ? qcList : qcChgList)" :key="'a' + q.code + qc20Mode">
                 <td class="stock-info-cell" @click="linkToSoftware(q.code)">
             <div class="stock-code-row"><span class="stock-code">{{ q.code }}</span></div>
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ q.name }}</span><PoolHoverBtn :item="q" /></span></div>
@@ -210,7 +210,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(q, idx) in qcLastSort.sorted(qcLastList)" :key="'b' + q.code">
+              <tr v-for="q in qcLastSort.sorted(qcLastList)" :key="'b' + q.code">
                 <td class="stock-info-cell" @click="linkToSoftware(q.code)">
             <div class="stock-code-row"><span class="stock-code">{{ q.code }}</span></div>
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ q.name }}</span><PoolHoverBtn :item="q" /></span></div>
@@ -251,7 +251,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(z, idx) in yestZtSort.sorted(yestZtList)" :key="z.code">
+          <tr v-for="z in yestZtSort.sorted(yestZtList)" :key="z.code">
             <td class="stock-info-cell" @click="linkToSoftware(z.code)">
             <div class="stock-code-row"><span class="stock-code">{{ z.code }}</span></div>
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ z.name }}</span><PoolHoverBtn :item="z" /></span>
@@ -287,7 +287,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(b2, idx) in yestBrokenSort.sorted(yestBrokenList)" :key="b2.code">
+          <tr v-for="b2 in yestBrokenSort.sorted(yestBrokenList)" :key="b2.code">
             <td class="stock-info-cell" @click="linkToSoftware(b2.code)">
             <div class="stock-code-row"><span class="stock-code">{{ b2.code }}</span></div>
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ b2.name }}</span><PoolHoverBtn :item="b2" /></span></div>

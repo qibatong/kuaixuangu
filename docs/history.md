@@ -1477,6 +1477,31 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.60 (09-27 仅测试机) 修「二级导航整块不渲染」—— `GroupNav.vue` 里 `NAV_GROUPS` 未 import 导致 setup 抛 ReferenceError（表现：复盘里只有连板天梯、盘前资讯找不到）+ 让空转了一整个项目的 eslint(no-undef) 闸门真正生效 + 修 AipickReport 空状态文案 ref 少 .value**
+  - **触发**：主人实测反馈「**盘前资讯没有看到啊，在哪里？复盘里面只有一个连板天梯，其他的也看不到**」。
+  - **现象 → 根因**：
+    - **① 根因（一行代码瘫痪全站导航）**：`components/GroupNav.vue` 末尾有一行 `void NAV_GROUPS`，注释写「避免打包器误判该文件未被使用」，但该文件只 `import { groupKeyOfRoute, groupByKey }` —— **`NAV_GROUPS` 从未出现在 import 列表里**。`<script setup>` 的顶层语句会被编译进 `setup()`，于是 setup 一执行就抛 `ReferenceError: NAV_GROUPS is not defined` ⇒ **二级导航 pill 行整块不渲染**。**铁证**：打包产物 `assets/index-CF5wmJRT.js`（修复前）里正是 `return NAV_GROUPS,(i,l)=>{…}`，且整个 bundle 中 `NAV_GROUPS` **只出现这 1 次**（NavBar / AppTabBar 走的是重命名后的局部绑定）⇒ 这 1 次就是那个自由变量。
+    - **② 表现为什么是"只有一个连板天梯"**：NavBar 与底部 tabbar 都只渲染**一级分组入口**（`竞价/盘中/复盘/自选/我的`），组内二级页全靠 pill 行切换。pill 行不渲染 ⇒ 点「复盘」只能落到 entry `/ladder`（涨停梯队），**组内另外 5 页（历史回看/股性/大V资讯/异动监管/龙虎榜）全部不可达**；「竞价」组同理，`/news`(盘前资讯)、`/auction`、两个 AI 预测入口都进不去。**桌面端 11 个二级页全部不可达，手机端一样。**
+    - **③ 为什么构建、自检、发布三重关卡全都没拦住**：`vite build` **成功且无 warning**（Rollup 对"未定义的自由变量"不报错，只当它是全局变量）；v4.11.59 的「静态一致性自检 39 项」校验的是**分组数据源**（`NAV_GROUPS` 数组内容 vs 路由表）**而不是组件能否渲染**；发布校验 8 项只校验字节与文件。⇒ **"数据对了"与"渲染得出来"是两件事**。
+    - **④ 🟠 闸门其实早就有，只是从未插电**：`frontend/.eslintrc.cjs:12` 就写着 `'no-undef': 'error'`，注释一字不差是「**关键: 阻止未定义引用(历史上 computed 未 import 导致白屏)**」—— 说明**同类事故以前发生过、并且已经写下了防范规则**；但 `eslint` / `eslint-plugin-vue` **从未写进 `devDependencies`**（package.json 的 devDeps 只有 `@vitejs/plugin-vue` 与 `vite`）⇒ 脚本 `npm run lint` 根本跑不起来，**这道规则空转了整个项目周期**。这是「写进文档 ≠ 能力存在」的第 5 次实例（前四次：tag 断档 46 版、`KPL_HOSTS` 缺键、`_miss_alert_decision` 之外的告警缺位、9 维/5 维文档状态行）。
+    - **⑤ 附带发现（装上 eslint 后立刻暴露的真 bug）**：`components/AipickReport.vue:248` 写的是 `computed(() => isLgb ? '火眼…' : '暂无…')`，而 `isLgb` 是**同文件 140 行的 computed** —— 在 **script 里必须 `.value`**（只有模板内才自动解包）⇒ 拿到的是 ref 对象、**恒为真** ⇒ **金睛（XGBoost）页的空状态文案会永远显示"火眼已于 2026-09-25 上线…"**。规则名 `vue/no-ref-as-operand`。
+  - **修复**：
+    - **① 删掉 `void NAV_GROUPS` 及其误导性注释**（"模块被 tree-shake 掉"的担忧本身是多余的：本文件已从同一模块导入了两个函数，模块不可能被摇掉），并在原位写下完整事故说明，防止后人再补一行同类语句。
+    - **② 新增「导航渲染冒烟测试」`frontend/_verify/nav.spec.js`（51 项断言）**：用 `vue/server-renderer` 在 Node 里**把 `NavBar` / `GroupNav` / `AppTabBar` 真的渲染成 HTML**（**不需要浏览器**，绕开本机无头 Chrome 起不来的限制），断言：主人点名的复盘三页（龙虎榜/股性/历史回看）确实在复盘组 pill 行里、盘前资讯在竞价组、复盘 pill 数=6、单页组(盘中/自选)不渲染 pill 行、底部恰好 5 tab 且各指向组 entry、渲染结果不含 `undefined`、**15 条路由逐一渲染零异常零 Vue 警告**。`app.config.errorHandler` / `warnHandler` 全量捕获 —— 因此它能拦住「setup 抛异常 / 模板引用不存在的变量 / 分组数据与路由不匹配」这一整类问题。
+    - **③ 让 eslint 闸门真正生效**：装入 `eslint@8.57.1` + `eslint-plugin-vue@9.33.0`（选 8.x 兼容既有 `.eslintrc.cjs` 旧配置格式；eslint 10 已移除 eslintrc 支持）。顺手把 9 个 error 清零：1 个真 bug（见 ⑤）+ 6 处 `v-for="(x, idx)"` 未用 `idx`（`AuctionView.vue`）+ 2 处空 `catch`（改由 `no-empty: ['error', { allowEmptyCatch: true }]` 放行 —— 那些空 catch 是"尽力而为"型兜底，本就有意为之）。
+    - **④ 新增可重复的发布前动作**：`npm run test:nav`（构建 SSR 冒烟包并执行）与 `npm run verify`（= `lint` + `test:nav`），`.navssr/` 产物目录进 `.gitignore`；`.eslintrc.cjs` 的 `ignorePatterns` 同步排除它。
+  - **影响面**：**纯前端**，后端零改动、零 SQLite 变更、**路由零变更**（仍 18 条）。**改 4**：`components/GroupNav.vue`（根因）、`components/AipickReport.vue`（真 bug）、`views/AuctionView.vue`（6 处未用 idx）、`.eslintrc.cjs`；**新增 1**：`_verify/nav.spec.js`；**配套**：`package.json`（+2 个 devDeps、+3 个脚本）、`.gitignore`（+`.navssr`）。修复前受影响的是**全站导航可达性**（桌面/手机各 11 个二级页不可达）。
+  - **验证证据**：
+    - ★★ **反向对照（证明这道闸门不是空跑）**：把缺陷**临时塞回** `GroupNav.vue` 重跑 ⇒ 测试逐字报出 `NAV_GROUPS is not defined` + `VUE_WARN: Component <Anonymous> is missing template or render function.` + `组内 6 项全在 :: 实际 0` + 15 条路由全部 FAIL —— **完整复现主人看到的现象**；移除该行后恢复 **51 PASS / 0 FAIL**。
+    - `npm run lint`：修复前 **9 errors** / 129 warnings → 修复后 **0 errors**（129 warnings 为存量风格项，不拦发布、逐步清理）。
+    - `npm run verify`（lint + 渲染冒烟）**全绿**。
+    - **发布校验 14 项全过**，含本次新增的判别断言：入口 js 内 `NAV_GROUPS` 出现次数**必须为 0**、`group-nav` 模板在、`盘前资讯`/`龙虎榜` 字面量在、`NewsView` chunk 在、AppleDouble=0、文件总数 1042、0 字节文件=0、**入口引用资源缺失 0**（引用 58 条）。
+    - ★ **线上取回的入口 js md5 `dab5143fe4e91d0781e1b8395088e841` 与本地构建产物逐位一致** ⇒ **线上跑的字节 = 被 `nav.spec.js` 渲染验证过的那份字节**（这条把"测过的"和"上线的"焊在一起）。
+    - 15 条 URL 全 **200**；`nginx -t` OK + reload；`nginx` / `kuaixuan` 均 active；`/api/health` HTTP 401（需登录，属正常）。
+    - ⚠️ **未做的验证（如实记录）**：真机/真浏览器渲染（微信内置浏览器 / iPhone Safari / 安卓）仍未做 —— 本版用 SSR 冒烟测试**覆盖了"组件能否渲染"**这一层，但**不覆盖 CSS 布局/触控/遮挡**（底部 tabbar 与地址栏、pill 行横滑手感），这部分仍须主人或测试机侧补看。
+  - **上线状态**：**仅测试机**（纯 dist 原子切换，`nginx reload`；生产 `121.196.230.80` **未部署**，等主人指令）。
+    **回滚点**：`/opt/kuaixuan/dist_bak_20260927-012653_v41160`。
+    **注意**：dist 是整目录替换 ⇒ **修复前的哈希文件已被删除、旧页面标签页内的懒加载会 404**；`index.html` 响应头为 `Cache-Control: no-store` ⇒ **普通刷新一次即可拿到新导航**。
 - **v4.11.59 (09-27 仅测试机) 盘前资讯页（猫爪 news + 开盘啦头条/快讯/明天炒什么 + 大V复盘）+ 修复开盘啦资讯域名缺失导致的"封装了但从来没取到过数" + 全站 8 个组件轮询注册位置错误（定时器永不清理）**
   - **触发**：主人指令「龙虎榜、股性、历史回看都要放到复盘中，新增一个盘前资讯，接入猫爪和开盘啦资讯、大V复盘等」，并给出《快选产品优化 Roadmap》（桌面 `快选产品优化Roadmap.md`，含 P0 数据可靠性 / P1 核心闭环 / P1 性能 / P2 工程债四段）。
   - **现象 → 根因**：

@@ -22,7 +22,11 @@ module.exports = {
     'vue/require-default-prop': 'off',
     'vue/require-prop-types': 'off',
     // 未使用变量: 警告(存量代码有, 逐步清理)
-    'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }]
+    'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+    // 2026-09-27 v4.11.60: 允许空 catch —— 项目里 `try{...}catch(e){}` 都是"尽力而为"型
+    // (localStorage 兜底 / 图表实例销毁), 空块是有意为之, 不该拦发布。
+    'no-empty': ['error', { allowEmptyCatch: true }]
   },
-  ignorePatterns: ['dist/', 'node_modules/', 'public/']
+  // 2026-09-27 v4.11.60: 冒烟测试产物目录(临时构建输出)不参与 lint
+  ignorePatterns: ['dist/', 'node_modules/', 'public/', '.navssr/']
 }

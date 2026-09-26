@@ -245,7 +245,12 @@ const hasData = computed(() => base.value.length > 0)
 //   详见 lgbm-deploy/DIAGNOSIS-bid_turnover.md)。⇒ 上线首日必然还没有报告。
 //   这里给一句明确解释, 免得被当成故障去排查空页面。
 // 2026-09-25 主人指令: 页面**不出现技术模型名**, 金睛=XGBoost / 火眼=LightGBM。
-const emptyHint = computed(() => isLgb
+// 2026-09-27 v4.11.60 修复: 此处原写 `() => isLgb ? ... : ...` —— isLgb 是 computed(第 140 行),
+// **在 script 里必须 .value**(模板里才自动解包)。少了 .value 则拿到的是 ref 对象、恒为真
+// ⇒ 金睛(XGBoost)页的空状态文案会永远显示成火眼那句。
+// 这个缺陷由「装上 eslint 后 no-undef/vue-no-ref-as-operand 生效」暴露(规则早写在 .eslintrc.cjs,
+// 但 eslint 从未装进 devDependencies ⇒ 闸门空转, 详见 docs/history.md v4.11.60)。
+const emptyHint = computed(() => isLgb.value
   ? '火眼已于 2026-09-25 上线，暂无历史报告；下个交易日起每日 9:25 自动生成'
   : '暂无预测报告，交易日 9:30 前自动生成')
 
