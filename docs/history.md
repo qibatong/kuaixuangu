@@ -1477,6 +1477,50 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.52 (09-26 本机未部署) 昨比预热调度接入交易日历 —— 消灭最后一处裸 `wday >= 5` 门禁**
+  - **触发**：主人对本轮《快选生产体检-根因定位报告-20260926》§7 第 2 条（`yday_prewarm.py:123`）
+    拍板「**改 yday_prewarm.py:123**」（在 §7 剩余 7 项中排第一）。
+  - **现象 → 根因**：`yday_prewarm._scheduler_tick()` 的门禁是裸 `wday >= 5`（**只判周末**）。
+    2026-09-25 中秋（**周五**，`tm_wday=4 < 5`）⇒ 假日**照常跑预热**：冷缓存下
+    `fetcher._yesterday_cache` 被「前一交易日」的昨比填满，而页面/评分口径认为那是「昨日」
+    ⇒ 与当天 09:15~09:26 的**幽灵名单同源**。其余 7 处同类门禁（`concept_refresh` /
+    `ladder_daily` / `stock_temper` / `wpqc_push` / `system_batch` / `aipick_scheduler` /
+    `auction_snapshot`）已于 **09-25** 修完上线，本文件 `mtime` 停在 **09-20**、
+    从未被那批补丁覆盖 ⇒ **是唯一残留**。
+  - **修复**：`from ..core import trade_calendar as tc`；
+    `if wday >= 5:` → **`if not tc.is_trade_day_of(g):`**（判据 = 周一~周五 **且** 非法定休市日，
+    休市表 = `core/trade_calendar.HOLIDAYS_2026`，上交所官方口径）。`g` 本来就是 `_bj()` 返回的
+    北京时间 `struct_time`，直接喂得进 `is_trade_day_of`。
+  - **影响面**：`backend/app/services/yday_prewarm.py`（**1 文件**，改 1 行 + 加 1 行 import +
+    6 行注释）+ `backend/tests/test_yday_prewarm.py`（重写：新增 `_bj_at()` + 3 个用例）。
+  - **★ 测试侧的必要修正（否则新守卫等于没测）**：原测试把 `_bj` 的 `g` mock 成 **`None`**
+    （`lambda: (None, 3, 9*60+6, "2026-09-03")`）。改走日历后 `is_trade_day_of(None)`
+    会 **fail-open**（`_norm(None)` → `None` → 「无法识别日期时保守放行」→ 返回 True），
+    ⇒ 周末用例 `test_tick_weekend_skips_new` **立即变红**，而其余用例则"看起来还在测门禁、
+    实际完全绕过"。故新增 `_bj_at(y, m, d, hm)` 用 `datetime` 造**真实 `struct_time`**
+    （含正确的 `tm_wday` / `tm_yday`），把全部走 `_scheduler_tick` 的用例改过来。
+    📌 一般化教训：**给「只带 `tm_wday` 的替身」或 `None` 喂日历判据，会静默 fail-open 成交易日**；
+    节假日门禁的测试**必须把日期塞进 `g`**。
+  - **验证证据（要数字）**：
+    - 定向：`tests/test_yday_prewarm.py` **13 passed**（原 10 例 + 新增 3 例）。
+    - **新旧守卫证伪矩阵**（逐日对拍，归一化到"是否放行"）：行为改变**恰好 3 行** ——
+      `2026-09-25` 中秋（周五，`wday=4`）、`2026-10-01` 国庆（周四，`wday=3`）、
+      `2026-10-02` 国庆（周五，`wday=4`）：旧 `wday>=5` **全部放行**，新日历**全部拦下**；
+      `2026-09-05` 周六两者都拦；`2026-09-03` / `2026-09-24` 普通周四两者都放 ⇒
+      **零副作用（不误伤真实交易日）**。
+    - **端到端**：`_scheduler_tick()` 在 `2026-09-25 09:05` 返 **`False`**、`_prewarm_once`
+      **一次都没被调用**；在 `2026-09-03 09:05` 返 **`True`** 且触发 1 次。
+    - 新增 3 例的**防回退设计**：`test_tick_holiday_skips_midautumn` 的日期**故意选周五** ——
+      一旦有人回退成裸 `wday >= 5`，该用例**必红**；`test_tick_holiday_skips_national_day`
+      钉住即将到来的国庆（10-01 周四）; `test_tick_normal_trading_day_still_fires`
+      是**反向对照**，防止守卫改过头把真实交易日也拦掉。
+    - 本机后端全量 **1409 passed / 4 skipped / 0 failed**（173.08s）；基线 1406 passed
+      + 4 skipped = **1410 collected**，本次净增 **3** 例 ⇒ **1413 collected，逐一对上**
+      （`1382+27=1409` 那次的第一遍跑有 27 个 `PermissionError: EEXIST`，定位为
+      **沙箱 shim 拦 pytest 在 `/private/var/folders/...` 建临时目录**、与本次改动零关联；
+      用 `--basetemp=./.pytest_tmp` 重跑即 **0 error**）。**前端零改动**（未动 `frontend/`）。
+  - **未动**：生产机、测试机、`.gitignore`、`core/trade_calendar.py` 本身（休市表不动）。
+  - **上线状态**：**本机未部署**（生产须主人明确指令）。
 - **v4.11.51 (09-26 本机未部署) 运维脚本归档 `ops/archive/` + 收编竞价额阈值体检工具**
   - **触发**：v4.11.50 血缘对齐时查出 **13 个**文件「生产机有、版本库里没有」，且
     `git add` 被 `.gitignore` **逐条点名**拒收。主人拍板：「**建 `ops/archive` 归档**」。

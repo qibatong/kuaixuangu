@@ -25,6 +25,7 @@ import threading
 import time
 
 from ..core import logger
+from ..core import trade_calendar as tc
 from . import fetcher, scorer
 
 log = logger.get_logger(__name__)
@@ -119,8 +120,15 @@ def _prewarm_once(stage="open"):
 
 def _scheduler_tick():
     """单次调度判定(抽成函数便于单测); 返回本次是否触发"""
-    g, wday, hm, date = _bj()
-    if wday >= 5:
+    g, _wday, hm, date = _bj()
+    # 2026-09-26 复盘: 原为裸 `_wday >= 5`(= 只判周末) —— **法定假日会照常预热**。
+    #   后果: 假日冷缓存下把"前一交易日"的昨比当成"昨日"灌进缓存, 与 09-25 中秋
+    #   "幽灵名单"同源(当日 09:15~09:26 的昨日涨幅全部指向更早的交易日)。
+    #   改走 core/trade_calendar(上交所官方休市表)。至此"只判周末"的门禁已清零 ——
+    #   另外 7 处(concept_refresh / ladder_daily / stock_temper / wpqc_push /
+    #   system_batch / aipick_scheduler / auction_snapshot)已于 09-25 修完上线,
+    #   本文件是**唯一残留**(mtime 停在 09-20, 从未被那批补丁覆盖)。
+    if not tc.is_trade_day_of(g):            # 周末 / 法定休市日跳过
         return False
     fired_open = _fired.get((date, "open"))
     fired_close = _fired.get((date, "close"))
