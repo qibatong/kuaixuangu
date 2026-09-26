@@ -20,6 +20,7 @@ import threading
 import time
 
 from ..core import logger
+from ..core import trade_calendar as tc
 from ..db import database
 from . import fetcher, kpl
 
@@ -581,12 +582,13 @@ def _scheduler_loop():
             g, hm = _bj()
             date = _bj_date(g)
             # 次日盘前补救(P1-b): 每天一次, 选 09:00-09:05 避开 9:15 竞价主流程
-            if g.tm_wday < 5 and RESCUE_START <= hm <= RESCUE_END and _rescued != date:
+            # 2026-09-25 复盘: `g.tm_wday < 5` → 交易日历(法定假日不空跑)
+            if tc.is_trade_day_of(g) and RESCUE_START <= hm <= RESCUE_END and _rescued != date:
                 _rescued = date
                 threading.Thread(target=_rescue_missing, daemon=True,
                                  name="stock-temper-rescue").start()
             # 盘后存档(P1-a): 成功后才置 _fired, 失败按退避在窗口内重试
-            if (g.tm_wday < 5 and abs(hm - BACKFILL_AT) <= WINDOW
+            if (tc.is_trade_day_of(g) and abs(hm - BACKFILL_AT) <= WINDOW
                     and _fired != date and not _running and time.time() >= _next_try):
                 _running = True
                 threading.Thread(target=_daily_task, args=(date,), daemon=True,

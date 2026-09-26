@@ -19,9 +19,11 @@ import xgboost as xgb
 MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output")
 
+# ★ 2026-09-25：移除 `yesterday_chg`（6 维 → 5 维），须与 train_model.py / predict_daily.py
+#   / train_lgbm.py / ai_predict.py 保持逐字一致，理由见 train_model.py 顶部注释。
 FEATURES = [
     "bid_change", "bid_amount", "bid_turnover",
-    "circ_mv", "yesterday_chg", "price",
+    "circ_mv", "price",
 ]
 
 

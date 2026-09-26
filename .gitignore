@@ -86,6 +86,12 @@ scripts/backfill_*.py
 scripts/fix_boom_turnover.py
 backend/scripts/backfill_*.py
 backend/scripts/recalc_boom_history.py
+# aipick 侧同理(2026-09-26 血缘对齐时补)。生产 /opt/kuaixuan/aipick/scripts 上还有一批
+# `_` 前缀一次性探针与一次性补数脚本；按本文件既定策略「探测/调试与一次性补数修复脚本
+# 不入库」处理 —— 只在本机留存副本以便恢复, 不纳入版本库。
+scripts/aipick/_*.py
+scripts/aipick/backfill_100.py
+scripts/aipick/backfill_labels.py
 frontend/echarts_diag.html
 
 # ========== 部署脚本(含服务器密码/密钥明文, 严禁入库) ==========

@@ -24,14 +24,17 @@
   (老代码 9:30 后仍按实时行情重算 → 同条件两次结果不同, 是"名单波动/大跌票混入"
    类事故反复出现的主因之一)
 
-交易日判定: 目前仅周末(与老逻辑一致)。节假日日历为已知缺口 — 老代码同样没有,
-这里预留 is_trading_day 的 holidays 参数, 后续接入交易日历不需改调用方。
+交易日判定: **2026-09-25 起接入真实交易日历**(`core/trade_calendar`, 上交所官方休市表)
+—— 非周末 **且非法定休市日** 才算交易日。`holidays=None` 用内置日历;
+显式传集合(含空集)则只按该集合判定 —— 传 `set()` 即退回"只判周末"的旧行为(测试用)。
 """
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Optional, Tuple
+
+from ...core import trade_calendar as _tc
 
 
 class PickMode(str, Enum):
@@ -274,12 +277,23 @@ def bj_secs(now=None) -> Tuple[int, int]:
 
 
 def is_trading_day(now=None, holidays: Optional[set] = None) -> bool:
-    """是否交易日。当前口径: 非周末即交易日(与老逻辑一致)。
-    holidays: 预留法定节假日集合({'2026-10-01', ...}), 传入后生效 — 后续接入
-    真实交易日历不需改调用方。now 可为 datetime / 时间戳 / None。"""
+    """是否交易日。
+
+    ★ 2026-09-25（中秋节幽灵报告复盘）起**默认接入真实交易日历**：
+      非周末 **且非法定休市日** 才算交易日。日历 = `core/trade_calendar`
+      （上交所官方休市表，上证公告〔2025〕45号）；未覆盖的年份 fail-open
+      （退化为"只判周末"）并打 ERROR 提醒补表，绝不误拦真实交易日。
+
+    holidays: None（默认 / 不传）→ 用**内置官方日历**；
+              传 set（含空集）→ 只按该集合判定
+              —— 传 `set()` 即关闭日历经、退回"只判周末"的改造前行为。
+    now 可为 datetime / 时间戳 / None。
+    """
     t = time.gmtime(_ts(now) + 8 * 3600)
     if t.tm_wday >= 5:
         return False
+    if holidays is None:
+        holidays = _tc.HOLIDAYS
     if holidays:
         day = "%04d-%02d-%02d" % (t.tm_year, t.tm_mon, t.tm_mday)
         if day in holidays:
@@ -298,7 +312,7 @@ def resolve_mode(now=None,
     """解析当前应选股模式(唯一入口 — 业务代码禁止再写时间判断)。
 
     now: datetime 或时间戳(测试注入), 默认当前时间。两种入参等价。
-    holidays: 预留节假日集合。
+    holidays: None(默认) = 内置官方交易日历; 传 set 则只按该集合判定(空集=只判周末)。
     """
     if not is_trading_day(now, holidays):
         return POLICIES[PickMode.CLOSED]

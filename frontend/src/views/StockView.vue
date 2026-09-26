@@ -24,8 +24,10 @@
              已有同功能锁定) ③ 「刷新」按钮下移至 FilterPanel 的 应用/重置/锁定 组 -->
         <div class="alert-rule alert-rule-compact">
           <span class="mode-tabs mode-tabs-inline">
-            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'auction' }" @click="switchTab('auction')"><i class="fa fa-sun-o"></i> AI竞价</button>
-            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick' }" @click="switchTab('aipick')"><i class="fa fa-android"></i> AI预测</button>
+            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'auction' }" @click="switchTab('auction')"><i class="fa fa-sun-o"></i> AI选股</button>
+            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick' }" @click="switchTab('aipick')"><i class="fa fa-android"></i> AI预测·金睛</button>
+            <!-- 2026-09-25: 火眼(LightGBM) 平行链路(与 AI预测 同构, 只换模型); 手机端一并生效(本组 tab 在左栏内部) -->
+            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick_lgb' }" @click="switchTab('aipick_lgb')"><i class="fa fa-flask"></i> AI预测·火眼</button>
           </span>
         </div>
 
@@ -53,12 +55,12 @@
               <span>当前为 <b>{{ stocks.freezeDate }}</b> 定格数据（上一交易日 / 回放），改条件可重选</span>
             </div>
             <!-- 会员门禁: 竞价选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
-            <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="竞价选股" />
+            <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="AI选股" />
             <!-- 配额门禁(2026-09-21 会员体系): 免费用户每日有限次数, 用尽后 VipGate 转配额引导模式 -->
             <VipGate
               v-else-if="stocks.quotaExceeded"
               ref="pickGateRef"
-              title="竞价选股"
+              title="AI选股"
             />
             <template v-else-if="user.isMember || !isMemberOnlyTime()">
               <!-- 5-1: 奖牌区已降级为 StockTable 行内徽标(前三行), 此处不再渲染三张重复卡片 -->
@@ -79,7 +81,9 @@
 
         <!-- AI预测(2026-09-01 替换原盘中选股; 自带 VIP 门禁/日期回看/规则过滤) -->
         <!-- 2026-09-01: AI预测内嵌左视图; 隐藏日期回看(回看入口在导航栏「历史回看」页) -->
-        <AipickView v-else :embedded="true" :show-date-picker="false" />
+        <AipickView v-else-if="leftTab === 'aipick'" :embedded="true" :show-date-picker="false" />
+        <!-- 2026-09-25: LightGBM 版(共用 AipickReport 组件, 只是 model='lgb' 取另一份产物) -->
+        <AipickLgbView v-else :embedded="true" :show-date-picker="false" />
       </div><!-- /.home-col-left -->
 
       <!-- 右栏: 竞价异动 -->
@@ -97,6 +101,7 @@ import SentimentPanel from '../components/SentimentPanel.vue'
 import StockTable from '../components/StockTable.vue'
 import AuctionView from './AuctionView.vue'
 import AipickView from './AipickView.vue'
+import AipickLgbView from './AipickLgbView.vue'
 import VipGate from '../components/VipGate.vue'
 import { useStocksStore } from '../stores/stocks'
 import { usePoolStore } from '../stores/pool'
@@ -201,7 +206,8 @@ function refreshRealTime() {
   trackUsage('picker')
   stocks.updateRealTimeOnly().catch(e => showToast('❌ 更新失败：' + e.message, 'error'))
 }
-// 左视图模式切换: auction(竞价, 数据流与 store 联动) / aipick(AI预测, AipickView 自加载)
+// 左视图模式切换: auction(竞价, 数据流与 store 联动) / aipick(AI预测) / aipick_lgb(LightGBM 版)
+// 后两者都是 AipickView·AipickLgbView 自加载, 与 store 数据流无关。
 function switchTab(m) {
   if (leftTab.value === m) return
   leftTab.value = m

@@ -22,6 +22,7 @@ import threading
 import time
 
 from ..core import logger
+from ..core import trade_calendar as tc
 from ..db import database
 from ..core import config
 from . import kpl, scorer
@@ -235,8 +236,8 @@ def run_refresh_round(force=False):
     g, hm = _bj_time_hm()
     date = _bj_date()
     if not force:
-        # 非工作日跳过
-        if g.tm_wday >= 5:
+        # 非工作日跳过(2026-09-25 复盘: 原为裸 `g.tm_wday >= 5`, 法定假日会照刷概念)
+        if not tc.is_trade_day_of(g):
             return "skip", f"周末/节假日 {date} 跳过"
         # 不在刷新时间点(允许±5分钟宽松窗口)
         if not any(abs(hm - t) <= 5 for t in REFRESH_TIMES):

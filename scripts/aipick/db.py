@@ -18,12 +18,14 @@ CREATE TABLE IF NOT EXISTS features (
     bid_change   REAL,               -- 竞价涨幅 %
     bid_amount   REAL,               -- 竞价金额(万元) f616
     bid_volume   REAL,               -- 竞价成交量(手) f617
-    bid_turnover REAL,               -- 竞价换手率 %
+    bid_turnover REAL,               -- 竞价换手率 %(auc_turnover·自由流通·4位小数 见 meoz_source 铁律1)
     warn_type    INTEGER,            -- 异动类型 f630
     -- 基础特征
     price      REAL,                 -- 最新价
-    circ_mv    REAL,                 -- 流通市值(亿元) f21
-    yesterday_chg REAL,              -- 昨日涨幅 %
+    circ_mv    REAL,                 -- 市值(亿元)=**自由流通市值**(2026-09-26 口径统一, 与线上 scorer 一致)
+                                     --   列名沿用 circ_mv 不改 schema；旧值为流通市值(f21)口径，已回填
+    yesterday_chg REAL,              -- ⚠️ 列名为历史遗留，**实为竞价涨幅**（实时）/ 前一交易日涨幅（历史回补）
+                                     --    2026-09-25 起**不参与模型特征**（与 bid_change 同信息）；仅留痕/展示用
     industry   TEXT,                 -- 行业
     concept    TEXT,                 -- 概念
     -- 标签（15:00 后回填）

@@ -9,6 +9,7 @@ import threading
 import time
 
 from ..core import logger
+from ..core import trade_calendar as tc
 from . import kpl, notify
 from .cache_store import store
 
@@ -64,7 +65,8 @@ def _scheduler_loop():
             g = time.gmtime(time.time() + 8 * 3600)
             hm = g.tm_hour * 60 + g.tm_min
             # 工作日 14:55-15:05 窗口, 抢筹数据 14:57 后才有
-            if g.tm_wday < 5 and _PUSH_START <= hm <= _PUSH_END and hm >= 14 * 60 + 57:
+            # 2026-09-25 复盘: `g.tm_wday < 5` → 交易日历(法定假日不再推飞书)
+            if tc.is_trade_day_of(g) and _PUSH_START <= hm <= _PUSH_END and hm >= 14 * 60 + 57:
                 push_once()
         except Exception as e:
             log.error("尾盘抢筹调度异常 err=%s", e)

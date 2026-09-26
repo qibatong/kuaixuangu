@@ -16,7 +16,7 @@ import json
 import os
 import re
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from ..core import config, logger
@@ -29,13 +29,36 @@ log = logger.get_logger(__name__)
 router = APIRouter()
 
 
-def _report_dates():
+# ===================== 双模型（2026-09-25）=====================
+# XGBoost 与 LightGBM 走**完全平行的两条链路**，产物目录隔离：
+#   xgb → config.AIPICK_OUTPUT_DIR      （/opt/kuaixuan/aipick/output）
+#   lgb → config.AIPICK_LGB_OUTPUT_DIR  （/opt/kuaixuan/aipick/output/lgb）
+# 接口一律 **默认 model=xgb** ⇒ 老页面/老调用不传参时行为与改造前完全一致，回归风险≈0。
+_MODEL_OK = ("xgb", "lgb")
+
+
+def _norm_model(v):
+    """模型名白名单归一：非法/未知值一律回退 xgb（绝不能因拼错参数就读到别的目录）。"""
+    s = str(v or "").strip().lower()
+    if s in ("lgb", "lgbm", "lightgbm"):
+        return "lgb"
+    if s not in _MODEL_OK:
+        return "xgb"
+    return s
+
+
+def _out_dir(model):
+    return config.AIPICK_LGB_OUTPUT_DIR if _norm_model(model) == "lgb" else config.AIPICK_OUTPUT_DIR
+
+
+def _report_dates(model="xgb"):
     """已生成预测报告 `predictions_YYYY-MM-DD.html` 的日期列表(降序)。
     以输出目录下 predictions_*.html 为准, 兼容 latest.html。"""
-    if not os.path.isdir(config.AIPICK_OUTPUT_DIR):
+    d = _out_dir(model)
+    if not os.path.isdir(d):
         return []
     dates = set()
-    for f in os.listdir(config.AIPICK_OUTPUT_DIR):
+    for f in os.listdir(d):
         m = re.match(r"^predictions_(\d{4}-\d{2}-\d{2})\.html$", f)
         if m:
             dates.add(m.group(1))
@@ -53,9 +76,9 @@ def _read_report(path):
         return None
 
 
-def _read_json_report(date):
+def _read_json_report(date, model="xgb"):
     """读取某日预测报告的 JSON 数据 `predictions_YYYY-MM-DD.json`, 缺失/损坏返回 None"""
-    path = os.path.join(config.AIPICK_OUTPUT_DIR, f"predictions_{date}.json")
+    path = os.path.join(_out_dir(model), f"predictions_{date}.json")
     if not os.path.isfile(path):
         return None
     try:
@@ -140,16 +163,17 @@ def _closes_from_json(raw):
 
 
 @router.get("/api/aipick/latest")
-def api_aipick_latest(request: Request, uid: int = Depends(require_vip_or_paid)):
+def api_aipick_latest(request: Request, model: str = Query("xgb", description="xgb | lgb"),
+                      uid: int = Depends(require_vip_or_paid)):
     """最新预测报告 HTML: 优先 latest.html, 缺失回退最近一个 predictions_.html"""
-    latest = os.path.join(config.AIPICK_OUTPUT_DIR, "latest.html")
+    od = _out_dir(model)
+    latest = os.path.join(od, "latest.html")
     html = _read_report(latest)
     if html is None:
-        for d in _report_dates():
-            html = _read_report(os.path.join(config.AIPICK_OUTPUT_DIR,
-                                             f"predictions_{d}.html"))
+        for d in _report_dates(model):
+            html = _read_report(os.path.join(od, f"predictions_{d}.html"))
             if html is not None:
-                log.info("aipick latest.html 缺失, 回退 %s", d)
+                log.info("aipick latest.html 缺失(model=%s), 回退 %s", _norm_model(model), d)
                 break
     if html is None:
         return jr({"ok": False, "msg": "暂无预测报告, 交易日 9:30 前自动生成"}, 404)
@@ -157,9 +181,10 @@ def api_aipick_latest(request: Request, uid: int = Depends(require_vip_or_paid))
 
 
 @router.get("/api/aipick/dates")
-def api_aipick_dates(request: Request, uid: int = Depends(require_vip_or_paid)):
+def api_aipick_dates(request: Request, model: str = Query("xgb", description="xgb | lgb"),
+                     uid: int = Depends(require_vip_or_paid)):
     """已有预测报告日期列表(降序), 供 App 内日期选择"""
-    return jr({"ok": True, "dates": _report_dates()})
+    return jr({"ok": True, "model": _norm_model(model), "dates": _report_dates(model)})
 
 
 @router.get("/api/aipick/realtime")
@@ -177,12 +202,12 @@ def api_aipick_realtime(request: Request, codes: str = "",
 
 
 @router.get("/api/aipick/detail/{p_date}")
-def api_aipick_detail(request: Request, p_date: str,
+def api_aipick_detail(request: Request, p_date: str, model: str = Query("xgb", description="xgb | lgb"),
                       uid: int = Depends(require_vip_or_paid)):
     """指定日期的预测报告 HTML(仅放行 predictions_ 命名, 防路径穿越)"""
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", p_date or ""):
         return jr({"ok": False, "msg": "日期格式有误"}, 400)
-    path = os.path.join(config.AIPICK_OUTPUT_DIR, f"predictions_{p_date}.html")
+    path = os.path.join(_out_dir(model), f"predictions_{p_date}.html")
     html = _read_report(path)
     if html is None:
         return jr({"ok": False, "msg": f"{p_date} 暂无预测报告"}, 404)
@@ -190,15 +215,18 @@ def api_aipick_detail(request: Request, p_date: str,
 
 
 @router.get("/api/aipick/data")
-def api_aipick_data(request: Request, uid: int = Depends(quota_guard("aipick"))):
+def api_aipick_data(request: Request, model: str = Query("xgb", description="xgb | lgb"),
+                    uid: int = Depends(quota_guard("aipick"))):
     """最新预测报告数据(JSON)。App 内直接原生渲染表格, 不再嵌套 iframe 老页面。
 
     门禁: 配额版(2026-09-21) —— 免费用户 1 次/日, 会员/管理员不限。
-    只对"取数据"这一步计数; dates/realtime 等辅助接口不计数(见各自端点)。"""
-    dates = _report_dates()
+    只对"取数据"这一步计数; dates/realtime 等辅助接口不计数(见各自端点)。
+    2026-09-25: 新增 model 维度, 但**配额键仍共用 `aipick`** —— 免费用户看 XGB 或 LGB
+    合计仍是一日 1 次, 不会因为多了个页面就把免费额度翻倍。"""
+    dates = _report_dates(model)
     if not dates:
         return jr({"ok": False, "msg": "暂无预测报告, 交易日 9:30 前自动生成"}, 404)
-    data = _read_json_report(dates[0])
+    data = _read_json_report(dates[0], model)
     if not data:
         return jr({"ok": False, "msg": "最新预测数据读取失败"}, 500)
     return jr({"ok": True, "data": data})
@@ -206,13 +234,14 @@ def api_aipick_data(request: Request, uid: int = Depends(quota_guard("aipick")))
 
 @router.get("/api/aipick/data/{p_date}")
 def api_aipick_data_date(request: Request, p_date: str,
+                         model: str = Query("xgb", description="xgb | lgb"),
                          uid: int = Depends(require_vip_or_paid)):
     """指定日期预测报告数据(JSON)。若为历史日期, 每行补充当日涨跌幅 day_change(当日涨幅)。
 
     门禁: 仍为 VIP/付费 —— 历史回看属增值能力, 免费用户只给当日 1 次。"""
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", p_date or ""):
         return jr({"ok": False, "msg": "日期格式有误"}, 400)
-    data = _read_json_report(p_date)
+    data = _read_json_report(p_date, model)
     if not data:
         return jr({"ok": False, "msg": f"{p_date} 暂无预测报告"}, 404)
     _attach_day_change(data, p_date)

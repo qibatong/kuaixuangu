@@ -15,6 +15,8 @@ const router = createRouter({
     { path: '/auction', name: 'auction', component: () => import('../views/AuctionView.vue') },
     { path: '/temper', name: 'temper', component: () => import('../views/StockTemperView.vue') },
     { path: '/aipick', name: 'aipick', component: () => import('../views/AipickView.vue') },
+    // 2026-09-25: 火眼(LightGBM) 平行链路独立页(与 /aipick 共用 AipickReport 组件, 只换 model)
+    { path: '/aipick-lgb', name: 'aipick-lgb', component: () => import('../views/AipickLgbView.vue') },
     { path: '/bigv', name: 'bigv', component: () => import('../views/SummaryNewsView.vue') },
     // 2026-09-21 会员体系: 我的会员(等级/到期/配额/签到/邀请)
     { path: '/member', name: 'member', component: () => import('../views/MemberView.vue') },
@@ -28,7 +30,8 @@ const router = createRouter({
 const TITLES = {
   stock: '选股', pool: '自选', history: '历史回看', market: '市场雷达',
   concept: '题材异动', ladder: '涨停梯队', temper: '股性', yidong: '异动监管',
-  bigv: '大V资讯', auction: '竞价异动', aipick: 'AI预测', admin: '管理后台',
+  bigv: '大V资讯', auction: '竞价异动', aipick: 'AI预测·金睛', admin: '管理后台',
+  'aipick-lgb': 'AI预测·火眼',
   member: '我的会员',
 }
 router.afterEach((to) => {

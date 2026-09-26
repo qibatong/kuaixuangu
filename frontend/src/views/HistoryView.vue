@@ -16,7 +16,11 @@
         </button>
         <button class="view-tab" :class="{ active: viewMode === 'aipick' }" @click="switchView('aipick')">
           <!-- 2026-09-05: fa-robot 为 FA5 图标, 项目用 FA4.7 不渲染(空白) → 换 fa-android -->
-          <i class="fa fa-android"></i> AI预测 <span class="view-tab-desc">按日期回看预测报告</span>
+          <i class="fa fa-android"></i> AI预测·金睛 <span class="view-tab-desc">按日期回看预测报告</span>
+        </button>
+        <!-- 2026-09-25: 火眼(LightGBM) 平行链路回看 -->
+        <button class="view-tab" :class="{ active: viewMode === 'aipick_lgb' }" @click="switchView('aipick_lgb')">
+          <i class="fa fa-flask"></i> AI预测·火眼 <span class="view-tab-desc">火眼模型预测回看</span>
         </button>
       </div>
 
@@ -186,8 +190,13 @@
       </div>
 
       <!-- ===== AI预测回看视图(2026-09-01): 嵌入 AipickView, 全宽展示 + 日期选择器回看历史报告 ===== -->
-      <div v-else class="aipick-view">
+      <div v-else-if="viewMode === 'aipick'" class="aipick-view">
         <AipickView />
+      </div>
+
+      <!-- ===== AI预测·LightGBM 回看(2026-09-25): 同一组件的另一模型视图, 日期回看口径一致 ===== -->
+      <div v-else class="aipick-view">
+        <AipickLgbView />
       </div>
     </div>
   </div>
@@ -205,6 +214,8 @@ import { useSortable } from '../composables/useSortable'
 import { signed, fmtNum, pct as chgPct } from '../utils/format'
 // 2026-09-01: AI预测回看 tab 直接嵌入组件(自带 VipGate 门禁 + 日期选择器 + 规则过滤)
 import AipickView from './AipickView.vue'
+// 2026-09-25: LightGBM 平行链路回看(共用 AipickReport, 只是 model='lgb')
+import AipickLgbView from './AipickLgbView.vue'
 
 const PAGE_SIZE = 100
 // 表格排序实例

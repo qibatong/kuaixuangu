@@ -14,7 +14,10 @@
 
 新实现：**猫爪 screening 逐日回溯**（tradedate 参数）——
   ✓ 实测可回溯至 2026-08 底（逐日 5546~5553 只，全市场覆盖）
-  ✓ 字段全部为**真实竞价口径**：auc_pct_chg / auc_amt / turnover_rate_f
+  ✓ 字段全部为**真实竞价口径**：auc_pct_chg / auc_amt / auc_turnover
+    ⚠️ 2026-09-25 修正：`bid_turnover` 必须取 `auc_turnover`（竞价换手率，竞价结束即定格）。
+       原取 `turnover_rate_f`（该日**累计**换手率）→ 回溯时拿到的是**全天值**，
+       与 9:25 线上的竞价值差 250~400 倍，且与标签同期构成**标签泄漏**。见 meoz_source 铁律 1。
   ✓ 与 collector.py 主路径**同一取数函数**（meoz_source），口径零偏差
   ✓ 标签由 pct_chg 阈值判定（主板 ≥9.8 / 创业板科创板 ≥19.8）
 
@@ -73,6 +76,7 @@ def backfill_one(trade_date, verbose=True):
     # 前一交易日涨幅（避免标签泄漏）
     pchg = MZ.prev_chg_map(trade_date)
 
+    # 市值 = **自由流通市值**（screening.free_float_mv，同源、零额外请求）—— 2026-09-26 主人指令
     feats = MZ.to_features(rows_map, trade_date, prev_chg_map=pchg)
     labels = MZ.to_labels(rows_map, trade_date)
     upsert_features(feats)

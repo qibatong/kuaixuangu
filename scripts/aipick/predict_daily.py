@@ -4,7 +4,8 @@ AI 竞价选股 - 每日预测 (增强版 2026-08-27)
 9:25-9:30 运行：拉取当日竞价快照 → 模型预测涨停概率 → 生成 HTML 预测报告。
 
 本版改动:
-  1) 过滤规则参数化(predict 可传 mv_min/mv_max/bid_amt_min/bid_chg_max), 默认与页面一致
+  1) 过滤规则参数化(predict 可传 mv_min/mv_max/bid_amt_min/bid_chg_max);
+     **2026-09-26 主人指令: 默认值中取消市值门槛**(市值仅作前端/App 自筛维度, 训练与预测侧均不设门槛)
   2) json 同时保存"过滤前全量候选集" all(含 ai_prob/circ_mv/bid_amount/bid_change/...),
      供 App 前端按用户自定义规则实时过滤并放宽/收紧; 默认规则的 top(≤30) 与 HTML 仍保持
   3) 新增 backfill(): 遍历历史上已生成的 predictions_*.json, 凡缺 all 的重新调用 predict(d)
@@ -16,7 +17,21 @@ AI 竞价选股 - 每日预测 (增强版 2026-08-27)
   · FEATURES 6 项必须与 train_model.py 逐字一致（否则预测崩）。
 
 输出：output/predictions_YYYY-MM-DD.html / .json（直接浏览器打开）
+
+2026-09-25 双模型改造（主人指令：LightGBM 上生产机 + 新建展示页）
+--------------------------------------------------------------------------------
+新增 --algo {xgb,lgbm} / --out-dir / --model-path / --date / --force，
+**默认值与改造前逐字一致**（algo=xgb、out-dir=../output）⇒ 既有调度任务行为零变化。
+
+🔴 两条必须遵守的语义（否则两模型互相踩）：
+  1) 产物目录必须隔离：LGB 走 ../output/lgb。本脚本"当日 json 已存在就不覆盖（只写
+     _rerun）"与"每次主输出都覆盖 latest.html"两条语义，会让共用目录的两个模型互相
+     判定"报告已存在"并互相覆盖首页报告。
+  2) 概率取值不能想当然：XGB 用 predict_proba(X)[:,1]；LightGBM 的 Booster.predict(X)
+     **本身已是正类概率**，再套 [:,1] 会取到错位/不存在的维度 —— 静默产出全错分数而
+     页面看着完全正常。统一走 _predict_proba()。
 """
+import argparse
 import json
 import re
 import os
@@ -29,17 +44,125 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from db import today  # noqa E402
 from collector import (fetch_from_kuaixuan, fetch_market,  # noqa E402
                        fetch_market_eastmoney, to_features)
+import trade_calendar as _tc  # noqa E402  交易日历桥接(事实来源 = backend/app/core/trade_calendar.py)
 import pandas as pd
 import numpy as np
-import xgboost as xgb
 
-MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")
-OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "models"))
+OUT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "output"))
 
-FEATURES = ["bid_change", "bid_amount", "bid_turnover", "circ_mv", "yesterday_chg", "price"]
+# 运行期配置（由 _configure() 落地；未传参时 = 改造前默认行为）
+ALGO = "xgb"          # xgb | lgbm
+MODEL_PATH = None     # None → 按 ALGO 推默认模型文件
 
-# 默认过滤规则(与页面文案一致)
-DEFAULT_MV_MIN, DEFAULT_MV_MAX = 30, 100
+# 各算法默认模型文件名（相对 MODEL_DIR）
+_DEFAULT_MODEL = {"xgb": "model_xgb.json", "lgbm": "model_lgb.txt"}
+# 各算法训练脚本名（仅用于报错提示）
+_TRAIN_SCRIPT = {"xgb": "train_model.py", "lgbm": "train_lgbm.py"}
+# 展示用模型名
+_MODEL_LABEL = {"xgb": "快选・金睛 XGBoost", "lgbm": "快选・金睛 LightGBM"}
+
+# ★ 2026-09-25：移除 `yesterday_chg`（6 维 → 5 维）。线上它实为**当日竞价涨幅**（9:25 撮合出开盘价，
+#   此刻唯一价格就是开盘价 ⇒ pct_chg ≡ 竞价涨幅 ≡ bid_change），与 `bid_change` 同信息；
+#   训练基座里那一列却是**前一交易日涨幅** ⇒ 同名两义，换基座即 train/serve skew。
+#   500 天样本外代价 −0.0015 池化AUC，详见 train_model.py 顶部注释 / docs/BACKLOG-特征集5维化.md。
+#   ⚠️ 必须与 backend/app/services/ai_predict.py 及模型文件**同批发布**。
+FEATURES = ["bid_change", "bid_amount", "bid_turnover", "circ_mv", "price"]
+
+
+def _normalize_algo(v):
+    """算法名归一；非法值回退 xgb（绝不因拼错参数就把产物写到别的目录）"""
+    s = str(v or "").strip().lower()
+    if s in ("lgbm", "lgb", "lightgbm"):
+        return "lgbm"
+    return "xgb"
+
+
+def _configure(args):
+    """把命令行参数落到模块级全局（predict/_gen_html/backfill 都读全局）"""
+    global ALGO, OUT_DIR, MODEL_PATH
+    ALGO = _normalize_algo(getattr(args, "algo", None))
+    od = getattr(args, "out_dir", None)
+    OUT_DIR = os.path.abspath(os.path.expanduser(od)) if od else \
+        os.path.normpath(os.path.join(SCRIPT_DIR, "..", "output"))
+    mp = getattr(args, "model_path", None)
+    MODEL_PATH = os.path.abspath(os.path.expanduser(mp)) if mp else None
+
+
+def _build_parser():
+    p = argparse.ArgumentParser(description="AI 竞价选股 - 每日预测（默认行为与旧版一致）")
+    p.add_argument("--algo", default="xgb", help="模型算法: xgb(默认) | lgbm")
+    p.add_argument("--out-dir", default=None,
+                   help="产物目录(默认 ../output; LightGBM 建议 ../output/lgb, 必须与 XGB 隔离)")
+    p.add_argument("--model-path", default=None, help="显式模型文件路径(默认按 algo 推)")
+    p.add_argument("--date", default=None, help="指定交易日 YYYY-MM-DD(默认今天)")
+    p.add_argument("--force", action="store_true",
+                   help="当日报告已存在时强制覆盖主文件(默认不覆盖, 只写 _rerun 对照版)")
+    return p
+
+
+def _load_model(algo, model_path):
+    """按算法加载模型对象。lightgbm 延迟导入：XGB 链路不需要装它。"""
+    if algo == "lgbm":
+        import lightgbm as lgb
+        return lgb.Booster(model_file=model_path)
+    import xgboost as xgb
+    m = xgb.XGBClassifier(use_label_encoder=False, verbosity=0)
+    m.load_model(model_path)
+    return m
+
+
+def _predict_proba(model, X, algo):
+    """★ 唯一的概率出口。见模块 docstring 第 2 条：两个算法的正类概率取法不同。"""
+    if algo == "lgbm":
+        # LightGBM Booster.predict 返回的是正类概率本身（不是两列矩阵）
+        return np.asarray(model.predict(X), dtype=float).reshape(-1)
+    return model.predict_proba(X)[:, 1]
+
+
+def _model_meta(algo, model_path):
+    """供前端展示"这是哪个模型 / 何时训练 / AUC 多少"的元信息（缺失字段为 None）。"""
+    meta = {"algo": algo, "model_file": os.path.basename(model_path),
+            "n_features": len(FEATURES), "trained_at": None, "auc": None}
+    try:
+        meta["model_mtime"] = datetime.fromtimestamp(
+            os.path.getmtime(model_path)).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        meta["model_mtime"] = None
+    try:
+        if algo == "lgbm":
+            mp = os.path.join(MODEL_DIR, "model_meta_lgb.json")
+            if os.path.isfile(mp):
+                with open(mp, "r", encoding="utf-8") as f:
+                    mj = json.load(f) or {}
+                meta["trained_at"] = mj.get("trained_at")
+                meta["auc"] = mj.get("auc")
+                meta["algo_version"] = mj.get("lightgbm_version")
+        else:
+            rp = os.path.join(OUT_DIR, "train_report.json")
+            if os.path.isfile(rp):
+                with open(rp, "r", encoding="utf-8") as f:
+                    rj = json.load(f) or {}
+                meta["trained_at"] = rj.get("trained_at")
+                meta["auc"] = rj.get("auc")
+    except Exception as e:
+        print(f"[meta] 模型元信息读取失败(忽略, 不影响预测): {e}")
+    if not meta.get("trained_at"):
+        meta["trained_at"] = meta.get("model_mtime")
+    return meta
+
+# 默认过滤规则
+# ★ 2026-09-26 主人指令: **取消 AI 层市值门槛**(原 30~100 亿)。
+#   理由三条:
+#     ① 市值只是**前端筛选维度** —— App 拿 `all`(过滤前全量候选)按用户自定义规则自筛,
+#        历史综合查询另有 mv_min/mv_max 输入框; AI 层再默认硬卡是多此一举。
+#     ② **训练侧本就不设门槛** —— db.load_features() 只按 `is_limit_up IS NOT NULL` 取样本,
+#        市值(circ_mv)在训练里是**特征列**、不是过滤条件 ⇒ 预测侧跟着对齐才对。
+#     ③ 2026-09-26 口径由流通市值 → **自由流通市值**后, 同一个数值 30~100 的语义整体漂移
+#        (实测等效区间已变成 16~56 亿), 继续硬卡只会误伤中大盘。
+#   ⇒ 默认 None = 不过滤; **显式传值仍生效**(保留参数化能力, 供前端/历史回放使用)。
+DEFAULT_MV_MIN, DEFAULT_MV_MAX = None, None
 DEFAULT_BID_AMT_MIN = 3000
 DEFAULT_BID_CHG_MAX = 7
 # 2026-08-31 主人指令: 竞价涨幅下限方案废弃, 改为剔除涨停率(ai_prob) < 50% 的候选(见过滤处)
@@ -87,13 +210,28 @@ def predict(trade_date=None, mv_min=DEFAULT_MV_MIN, mv_max=DEFAULT_MV_MAX,
       作为模型/参数对比参照，避免覆盖上午 9:30 竞价结束时的报告。"""
     os.makedirs(OUT_DIR, exist_ok=True)
     d = trade_date or today()
-    model_path = os.path.join(MODEL_DIR, "model_xgb.json")
-    if not os.path.exists(model_path):
-        print("⚠️ 模型不存在，请先运行 train_model.py")
+
+    # === 日期正门 (2026-09-25 第二轮复盘新增) ===
+    # 为什么下面的"数据侧护栏"不够:
+    #   删掉幽灵 snapshot_bid 行后, 取数链变成
+    #     `快选快照空 → 猫爪 screening 空 → **东财兜底**`,
+    #   而东财在休市日**仍返回上一交易日的陈旧价格**(price 非 0)
+    #   ⇒ `price>0` 占比护栏判不出来(实测 2026-09-25 占比≈100%, 仍产出 9 只假名单)。
+    #   backend 调度器的日历门禁只挡自动链路, 手动 `--date <休市日>` 重算仍会漏。
+    # ⇒ 预测前先过**日历正门**; 数据护栏保留为第二道防线。日历见 trade_calendar.py。
+    # force 只表示"覆盖已存在的报告", **不**表示"假装今天是交易日", 故此处不看 force。
+    if not _tc.is_trade_day(d):
+        print(f"⚠️ {d} 非交易日(周末/法定休市) → 跳过预测, 不写任何报告")
         return None
 
-    model = xgb.XGBClassifier(use_label_encoder=False, verbosity=0)
-    model.load_model(model_path)
+    model_path = MODEL_PATH or os.path.join(MODEL_DIR, _DEFAULT_MODEL[ALGO])
+    if not os.path.exists(model_path):
+        # 优雅降级（2026-09-25）：模型缺失时**不写半成品、不抛异常**，只提示并返回 None，
+        # 否则调度器日志会天天刷 ERROR（LGB 首次上线当晚才有模型，9:27 预测可能早于它）。
+        print(f"⚠️ {ALGO} 模型不存在，请先运行 {_TRAIN_SCRIPT[ALGO]}: {model_path} → 跳过本次预测")
+        return None
+
+    model = _load_model(ALGO, model_path)
 
     # 取数: 快选快照(权威同源) → 猫爪自拉(collector.fetch_market 已返回特征行) → 东财兜底
     stocks = fetch_from_kuaixuan(d) or fetch_market(d) or to_features(fetch_market_eastmoney(), d)
@@ -112,8 +250,38 @@ def predict(trade_date=None, mv_min=DEFAULT_MV_MIN, mv_max=DEFAULT_MV_MAX,
         print(f"⚠️ {d} 行情数据清洗后为空(关键特征全缺) → 跳过预测")
         return None
 
+    # === 非交易日护栏 · **第二道** (2026-09-25 主人反馈「页面数据不对」) ===
+    # 症状: 2026-09-25(中秋节, 休市) 仍生成了 predictions_2026-09-25.json ——
+    #   快选快照当天返回的是上一交易日的**复制行**(bid_change/bid_amount 与 09-24 逐位
+    #   相同), 而 price / bid_turnover 全为 0; 模型拿到 price=0 这种越界输入后概率被顶到
+    #   0.94~0.96, 页面默认(最新)报告显示「30 只、95% 涨停概率」的假名单。
+    # 为何现有空壳检测漏了: 它只看 `all.len < 5400`, 而幽灵行有 5561 只 → 判为正常。
+    # 根因: aipick_scheduler._is_trade_day() 只判「周一~周五」, **没有节假日日历**。
+    #
+    # ★ 分层(2026-09-25 第二轮校正):
+    #   第一道 = 文件开头的**日历正门**(`_tc.is_trade_day`)—— 权威、免维护、指哪打哪;
+    #   第二道 = 本段**数据侧护栏** —— 只看数据特征, 用于兜"日历漏配"和"快照残缺"。
+    #   ⚠️ 为什么数据护栏**不能单独当正门**: 休市日若快选与猫爪同时为空, 取数会落到
+    #      **东财兜底**, 而东财休市日返回的是上一交易日的陈旧价格(price 非 0) ⇒
+    #      本护栏的判据(price>0 占比)会**几乎 100% 通过**, 完全失效。
+    #      实测: 清掉幽灵行后 `--date 2026-09-25` 曾据此产出 9 只假名单。
+    # 判据口径: 真实交易日 price>0 占比 ≈93%(38 份报告实测最低 87.8%); 幽灵快照为 0%
+    #   ⇒ 阈值 50% / 5% 余量充足, 绝不误伤真实交易日(已用全部 38 份报告回归验证)。
+    # 硬拦: 价格大面积缺失 ⇒ 不是交易日(或快照未就绪) → 一个文件都不写。
+    # 软警: 仅竞价换手率全缺 ⇒ 疑似残缺快照(如 2026-08-10~12 只有 600 只的样本日),
+    #   按既有约定仍出报告, 但日志醒目提示, 便于事后识别可信度。
+    _price_ok = float((df["price"] > 0).mean())
+    _tov_ok = float((df["bid_turnover"] > 0).mean())
+    if _price_ok < 0.5:
+        print(f"⚠️ {d} price>0 占比仅 {_price_ok * 100:.1f}%(共 {len(df)} 行) → "
+              f"判定非交易日/快照未就绪, 跳过预测, 不写任何报告")
+        return None
+    if _tov_ok < 0.05:
+        print(f"⚠️ {d} 竞价换手率(bid_turnover)>0 占比仅 {_tov_ok * 100:.1f}% → "
+              f"疑似残缺快照, 报告的换手率维度不可信, 请人工确认后再对外使用")
+
     X = df[FEATURES].astype(float)
-    proba = model.predict_proba(X)[:, 1]
+    proba = _predict_proba(model, X, ALGO)
     df["ai_prob"] = np.round(proba, 4)
 
     # 开盘啦全量概念(供 App 展示: 默认前2 + 悬浮显示全部)
@@ -132,7 +300,13 @@ def predict(trade_date=None, mv_min=DEFAULT_MV_MIN, mv_max=DEFAULT_MV_MAX,
     all_rows = [_attach(r) for r in full.to_dict(orient="records")]
 
     # 按(可配置)规则过滤 → 默认结果 top(≤30) 与 HTML
-    df = df[(df["circ_mv"] >= mv_min) & (df["circ_mv"] <= mv_max)]
+    # ★ 2026-09-26 主人指令: 取消 AI 层市值门槛 —— 默认 mv_min/mv_max 均为 None ⇒ 此处不按市值筛。
+    #   市值维度交给前端(App 从 all 自筛 / 历史综合查询 mv_min·mv_max); 训练侧同样无门槛。
+    #   显式传值仍生效(保留参数化能力, 不破坏既有调用方)。
+    if mv_min is not None:
+        df = df[df["circ_mv"] >= mv_min]
+    if mv_max is not None:
+        df = df[df["circ_mv"] <= mv_max]
     df = df[(df["bid_amount"] >= bid_amt_min)]
     df = df[(df["bid_change"] <= bid_chg_max)]
     # 2026-08-31 主人指令: 取消竞价涨幅下限过滤, 改为剔除涨停率(ai_prob) < 50% 的候选
@@ -145,6 +319,9 @@ def predict(trade_date=None, mv_min=DEFAULT_MV_MIN, mv_max=DEFAULT_MV_MAX,
         "count": len(result_rows),
         "top": result_rows,
         "all": all_rows,
+        # 2026-09-25: 元信息供页面头部展示"这是哪个模型 / 何时训练 / AUC 多少"，
+        # 让用户一眼看出 LGB 页不是 XGB 页的重复。老前端读不到该字段也不会报错。
+        "meta": _model_meta(ALGO, model_path),
     }
     json_path = os.path.join(OUT_DIR, f"predictions_{d}.json")
 
@@ -249,8 +426,8 @@ td{{padding:8px 9px;border-bottom:1px solid #242a38}}
 .warn{{background:#3d2a10;border:1px solid #a07020;border-radius:10px;padding:14px 18px;font-size:12px;color:#e0b060;margin-bottom:16px;line-height:1.8}}
 </style></head><body>
 <div class="card"><h1>AI 竞价选股 · 涨停概率预测 <span class="tag">{d}</span></h1>
-<div class="sub">模型：快选・金睛 · 预测当日涨停概率 · 默认过滤（市值30-100亿 / 竞价金额≥3000万 / 竞价涨幅≤7%）· 供研究参考</div>
-<table><thead><tr><th>#</th><th>代码</th><th>名称</th><th>AI涨停概率</th><th>竞价涨幅</th><th>竞价金额</th><th>流通市值</th><th>换手率</th></tr></thead>
+<div class="sub">模型：{_MODEL_LABEL[ALGO]} · 预测当日涨停概率 · 默认过滤（竞价金额≥{DEFAULT_BID_AMT_MIN}万 / 竞价涨幅≤{DEFAULT_BID_CHG_MAX}% / 涨停率≥{MIN_PROB*100:.0f}%）· 市值不设门槛（由前端自筛）· 供研究参考</div>
+<table><thead><tr><th>#</th><th>代码</th><th>名称</th><th>AI涨停概率</th><th>竞价涨幅</th><th>竞价金额</th><th title="自由流通市值（2026-09-26 口径统一）">市值(亿)</th><th>换手率</th></tr></thead>
 <tbody>{rows}</tbody></table>
 </div>
 <div class="warn">⚠️ 免责声明：AI 预测基于历史统计规律，不构成投资建议。竞价打板风险极高，请严格控制仓位。模型每周自动重训练，数据积累越多预测越准。</div>
@@ -362,7 +539,13 @@ def backfill(days=30):
             print(f"[补生成] {d} 报告缺失, 用 9_25 快照补生成...", flush=True)
             try:
                 predict(d, force=True)
-                n_gen += 1
+                # 2026-09-25: predict 返回 None = 非交易日/数据无效(一个文件都没写)
+                #   → 不能计入"已补生成", 否则日志谎报成功、把非交易日掩盖过去。
+                if os.path.isfile(jp) and os.path.getsize(jp) > 0:
+                    n_gen += 1
+                else:
+                    print(f"  [跳过] {d}: 无有效数据(非交易日/快照缺失), 未生成报告", flush=True)
+                    n_fail += 1
             except Exception as e:
                 print(f"  ⚠️ {d} 补生成失败: {e}", flush=True)
                 n_fail += 1
@@ -386,7 +569,16 @@ def backfill(days=30):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "backfill":
-        backfill()
+    _argv = sys.argv[1:]
+    if _argv and _argv[0] == "backfill":
+        # 兼容旧调用 `predict_daily.py backfill 30`（位置参数），并支持
+        # `predict_daily.py backfill 30 --algo lgbm --out-dir ../output/lgb`。
+        _args, _rest = _build_parser().parse_known_args(_argv[1:])
+        _configure(_args)
+        backfill(int(_rest[0]) if _rest and str(_rest[0]).isdigit() else 30)
     else:
-        predict()
+        _a = _build_parser().parse_args(_argv)
+        _configure(_a)
+        if ALGO != "xgb" or OUT_DIR != os.path.normpath(os.path.join(SCRIPT_DIR, "..", "output")):
+            print(f"[配置] algo={ALGO} out_dir={OUT_DIR} force={_a.force}")
+        predict(trade_date=_a.date, force=_a.force)

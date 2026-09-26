@@ -10,6 +10,7 @@ import threading
 import time
 
 from ..core import logger
+from ..core import trade_calendar as tc
 from . import kpl, ladder_image
 
 log = logger.get_logger(__name__)
@@ -36,7 +37,8 @@ def run_daily(force=False):
     g, hm = _bj()
     date = _bj_date(g)
     if not force:
-        if g.tm_wday >= 5:
+        # 2026-09-25 复盘: 原为裸 `g.tm_wday >= 5`，法定假日会基于旧数据重出天梯图
+        if not tc.is_trade_day_of(g):
             return "skip", f"周末/节假日 {date} 跳过"
         if abs(hm - GEN_AT) > WINDOW:
             return "skip", f"非盘后时间窗 {g.tm_hour:02d}:{g.tm_min:02d} 跳过"
@@ -66,7 +68,7 @@ def _scheduler_loop():
         try:
             g, hm = _bj()
             date = _bj_date(g)
-            if g.tm_wday < 5 and abs(hm - GEN_AT) <= WINDOW and _fired != date:
+            if tc.is_trade_day_of(g) and abs(hm - GEN_AT) <= WINDOW and _fired != date:
                 threading.Thread(target=run_daily, args=(), daemon=True,
                                  name="ladder-daily").start()
                 _fired = date

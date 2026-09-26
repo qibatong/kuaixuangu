@@ -49,9 +49,17 @@ def test_weekend_always_closed():
 
 
 def test_holiday_hook_reserved():
-    """节假日日历预留: 传入即生效(当前老代码无此能力, 属已知缺口补全)"""
+    """节假日日历: 2026-09-25 起**默认接上交所官方休市表**; 显式传集合可覆盖判定。
+
+    变更前: 默认口径 = 只判周末, 2026-10-01(国庆) 会被当成 INTRADAY(记录在案的已知缺口)。
+    变更后: 不传 holidays 即走内置官方日历 ⇒ 2026-10-01 为法定休市 ⇒ CLOSED。
+    """
     hol = {"2026-10-01"}
-    assert pm.resolve_mode(ts(2026, 10, 1, 10, 0)).mode is pm.PickMode.INTRADAY
+    # 默认(不传 holidays) = 内置官方日历 ⇒ 国庆休市 ⇒ 闭市回放
+    assert pm.resolve_mode(ts(2026, 10, 1, 10, 0)).mode is pm.PickMode.CLOSED
+    # 显式传空集 = 关闭日历经, 退回"只判周末"的旧行为
+    assert pm.resolve_mode(ts(2026, 10, 1, 10, 0), holidays=set()).mode is pm.PickMode.INTRADAY
+    # 显式传入的集合照样生效
     assert pm.resolve_mode(ts(2026, 10, 1, 10, 0), holidays=hol).mode is pm.PickMode.CLOSED
 
 

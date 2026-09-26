@@ -10,6 +10,7 @@ import threading
 import time
 
 from ..core import config, logger
+from ..core import trade_calendar as tc
 from . import filter_defaults, history, kpl
 
 log = logger.get_logger(__name__)
@@ -83,8 +84,14 @@ def _do_run(time_point, now=None):
     """
     t0 = time.time() if now is None else float(now)
     g = time.gmtime(t0 + 8 * 3600)
-    if g.tm_wday >= 5:  # 周六日跳过
-        log.info("system_batch[%s] 非交易日跳过", time_point)
+    # 2026-09-25（中秋节）复盘: 原为裸 `g.tm_wday >= 5`，法定假日会照跑选股批次
+    #   → 假日「系统自动选股」名单由旧快照生成, 与 AI 侧同为幽灵数据。改走交易日历。
+    # ★ 保留说明(2026-09-26 归口改动时人工合并): 本次把默认筛选参数归口到
+    #   services/filter_defaults 时, 曾以测试机版本为底 —— 而测试机那版**删掉了本行守卫**
+    #   (`if g.tm_wday >= 5` = 只判周末), 若整文件照搬会重现 09-25 中秋幽灵名单事故。
+    #   故此处**保留生产侧的交易日历守卫**, 与 filter_defaults 归口改动合并。
+    if not tc.is_trade_day_of(g):  # 周末 / 法定休市日跳过
+        log.info("system_batch[%s] 非交易日(周%d)跳过", time_point, g.tm_wday)
         return
     # 检查今日是否已存(防重复, 同日同 user_id 同 time_point 只一条)
     today_str = "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)

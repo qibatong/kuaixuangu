@@ -1477,6 +1477,85 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.50 (09-26 本机未部署) 生产补丁反向回写本地仓 —— 血缘对齐**
+  - **触发**：主人指令「把生产现有补丁反向同步回本地仓并提交，把血缘对齐」。
+    来自《快选生产体检-根因定位报告-20260926》§3 的结论：生产 `auction_snapshot.py`
+    与本地 40 个历史版本**逐一比对，无一匹配** ⇒ 判定「**外科补丁态**」，
+    **下次整目录替换式发版会把这些手工补丁整批抹掉**。
+  - **取证方法（全程只读，生产零写入）**：
+    - 生产 `/opt/kuaixuan/backend` 整包取回（3447952 B，md5 `8f5121d80b1ee4fd30b08b2214931b62`，
+      回传后逐位校验），与本地 **HEAD**、**工作区** 做三方 md5 对拍（归一化行尾）。
+    - 生产 `backend/app` 共 75 个 `.py`：**57 个与工作区逐位相同**、18 个不同、
+      6 个是本地多出（`services/contracts/*` 5 个 + `picker/sources/meoz.py`）。
+    - **那 18 个「不同」逐个看完了：生产侧的独有行全是「旧版正文 / 旧注释」**，没有一条是
+      本地缺的功能性修复 —— `score.py`/`filter.py`/`precompute.py` 还是 v4.11.49 之前的
+      粗排分键（`coarse_rank_score` / 下发 `coarseRank`）、`mode.py` 名单源还是
+      `("eastmoney_market","tencent_market")`、`health.py` 没有 contracts 段、
+      `database.py` 的 `CREATE TABLE` 里还没有 `auc_vol_ratio` 列（只有迁就存量库的 ALTER）、
+      `auction_snapshot.py` 没有补采四件套 + `_ready_sec`、`picker/sources` 无 meoz…
+      ⇒ **结论：生产不含任何「本地缺失」的修复**（反直觉，但这就是取证结果）。
+    - 两个 `trade_calendar.py`（`backend/app/core/` 与 `scripts/aipick/`）md5 与生产**逐位相同**；
+      `scripts/aipick/` 的 **10 个同名文件 md5 与生产 10/10 全等**。
+  - **真正的断点 = 「生产在跑、git 里却没有」（全部未提交）**：
+    - 后端 12：`core/trade_calendar.py`（**未跟踪**）+ `api/aipick.py`、`core/config.py`、
+      `services/{ai_predict,aipick_scheduler,auction_snapshot,concept_refresh,ladder_daily,
+      stock_temper,wpqc_push,system_batch}.py`、`services/picker/mode.py`
+      —— 其中 `auction_snapshot.py` 的 `_is_trade_day` 与 `mode.py` 的交易日历接入
+      （`trade_calendar`）**在生产上都有**（生产 14 / 3 命中），而 **HEAD 是 0 命中**
+      ⇒ 确属「已上生产、未入 git」的补丁；
+    - **断点 B（连生产也没有的已批准修复，一并入库）**：`auction_snapshot.py` 把
+      **`float_mv` 主源改为 `valuation.circ_mv`**（`valuation_map(date=_today)`）——
+      **生产 0 命中、HEAD 0 命中、只有工作区有**。属「已批准但未上线」；
+      与本次同批入库，免得又留一个未提交的孤儿改动。
+    - aipick 10：`scripts/aipick/{backfill,backtest,collector,db,meoz_source,predict_daily,run,train_model}.py`
+      + `{trade_calendar,train_lgbm}.py`（后两个未跟踪）
+    - 前端 7：`views/{AipickView,AipickLgbView}.vue`（新）、`components/AipickReport.vue`
+      （由 `views/AipickView.vue` **改名**而来）、`router/index.js`、`views/{HistoryView,StockView}.vue`、
+      `api/aipick.js`
+    - 后端测试 1：`tests/test_picker_mode.py`（+10/-2，与 `mode.T_PICK_BLOCK_TO=09:26:30` 同步）
+  - **🔴 一处此前的误判，本次纠正**：那套 AI 选股 tab 改名（`AI选股 / AI预测·金睛 / AI预测·火眼`）
+    曾被当成「别主题的工作区改动」而刻意排除在提交外 —— **错了**。证据：生产 `dist`
+    （mtime **2026-09-26 10:47:53**、`index.html` md5 `70ca786a8c3e6c091d35361b7fd4e866`、1037 文件）
+    里**确实有** `AipickReport-*` / `AipickLgbView-*` / `AipickView-*` 三个 chunk
+    ⇒ 这套**早已上线生产**。同理 `ai_predict.py`/`aipick.py`/`config.py`/`aipick_scheduler.py`
+    与 `scripts/aipick/*`（含 `AIPICK_LGB_OUTPUT_DIR`、LightGBM 平行链路）**也都是生产在跑的版本**。
+    ⇒ 全部并入本次提交。
+  - **反向取回（生产有、连本地工作区也没有）**：
+    - `backend/scripts/{backfill_kpl_seal,recalc_boom_history}.py` —— 仓里**原本没有
+      `backend/scripts/` 这个目录**（生产有）。因为 `backend/` 属整目录替换范围 ⇒ **发版会丢**。
+    - `scripts/aipick/` **14 个生产独有脚本**：`backfill_100` / `backfill_labels` /
+      `build_trainset_v2` / `filter_search` / `train_v2`（真实工具链）+
+      9 个一次性探针（`_924check` / `_alltp` / `_audit_amt` / `_f` / `_kx_attach_concepts` /
+      `_kx_verify_payload` / `_probe_fetch` / `_probe_prod` / `_scan639`）。
+      ⚠️ **刻意保持原路径、原文件名落盘，不建子目录**：将来的同步方式若为
+      `rsync --delete`（生产上有 `scripts.bak_prodsync_20260921-145806` 这类痕迹，
+      说明发生过「整目录替换」），路径一致才不会被删。
+    - `services/system_batch.py` 的 **4 行「保留说明」注释**（生产有、工作区无）：
+      记录「把默认筛选参数归口到 `services/filter_defaults` 时曾以测试机版本为底，
+      而测试机那版**删掉了交易日历守卫**（`if g.tm_wday >= 5` = 只判周末），
+      若整文件照搬会重现 09-25 中秋幽灵名单事故 ⇒ 此处保留生产侧守卫」。
+      补上后该文件与生产 md5 **逐位相同**（`26c4ff09b6c45d12ab3efbe83f3e76ab`）。
+  - **超集自证**：`comm -23 <生产 .py 集合> <本地 .py 集合>` 在 `backend/` 与 `aipick/`
+    两处**均为空** ⇒ 生产每一个 `.py` 在仓里都有对应文件；16 个取回文件逐个 md5 对拍 **16/16 一致**。
+  - **顺带修正**（对拍时发现）：`api/picker.py` 的口径注释仍写着「粗排分降序取前 200」，
+    是 v4.11.49 **漏改的过期注释** ⇒ 改为「定格竞价涨幅降序取前 200」。
+  - **纪律边界（重要，别误读）**：本次是 **⊇ 对齐，不是 == 对齐**，且**没有回退本地任何一行**。
+    只做两件事：① 把「生产在跑而 git 没有」的未提交内容入库；② 把「生产有、工作区也没有」的
+    16 个文件 + 1 处 4 行注释取回。本地领先生产的代码（`picker/*` 的 v4.11.49、
+    `auction_snapshot` 的补采四件套、`meoz_client`/`fetcher`/`sources/*` 的猫爪换源、
+    `contracts/*` 契约包、`health` 的契约体检段…）**全部原样保留**，
+    只是从「未提交」变成「已提交」。
+  - **⚠️ 由此得出的硬结论**：**「拿本地 HEAD 整目录替换生产」不是无操作** —— 会把
+    **尚未经主人拍板发布到生产**的一大批改动一起带上线：猫爪换源（v4.11.43~v4.11.45 / WP0~WP6）、
+    `services/contracts/` 契约包、定格补采四件套 + `_ready_sec` 自适应、
+    `TIME_POINTS["9_25"]` 末端 9:26 → 9:27、v4.11.49 粗筛改键。
+    ⇒ **血缘对齐 ≠ 发布许可**；生产发版仍须独立评审。
+  - **未动**：生产机（无任何写操作）、测试机、`yday_prewarm.py:123` 的裸 `wday >= 5`
+    （属另项待办，生产与本地都还没改）。
+  - **验证**：后端全量 pytest **1406 passed / 4 skipped / 0 failed**（180.13s，与 v4.11.49 同基线）；
+    前端 `node --test` **83 passed / 0 failed**；`import app.main` OK，
+    `coarse_filter(rows, f, ctx=None, limit=200)`、`COARSE_MAX = _SNAP_CANDIDATE_MAX = 200`。
+  - **上线状态**：**本机未部署**（生产须主人明确指令）。回滚点：本次改动前 commit `90c4e17`。
 - **v4.11.49 (09-26 仅测试机) 粗筛排队键改为「定格竞价涨幅降序」（当日涨幅榜前 200）**
   - **触发**：主人指令「按定格三因子粗排分降序，修改为当日涨幅榜前 200」。
   - **口径两问两答（落成决策，不是推测）**：

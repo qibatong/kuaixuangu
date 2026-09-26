@@ -23,13 +23,23 @@ MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "mode
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output")
 
 # 特征列（与工具评分逻辑一致 + 基础特征）
+# ★ 2026-09-25 拍板：**移除 `yesterday_chg`**（6 维 → 5 维），见 docs/BACKLOG-特征集5维化.md
+#   原因：线上实时链路的 `yesterday_chg` 实为**当日竞价涨幅**（9:25 集合竞价已撮合出开盘价，
+#         此刻市场上唯一的价格就是开盘价 ⇒ 读到的 pct_chg ≡ 竞价涨幅），与 `bid_change` 同信息；
+#         而训练侧历史基座那一列只能是**前一交易日涨幅**（历史无法重建 9:25 时点的 pct_chg）
+#         ⇒ 同名不同义，换基座即 train/serve skew。
+#   实测（同基座/同协议/同容量，500 天样本外/TopN=5）：
+#     6 维 含真·昨日涨幅    池化AUC 0.7859
+#     5 维 删列             池化AUC 0.7844   ← 本文件采用
+#     6 维 该列=竞价涨幅    池化AUC 0.7843   ← 与 5 维等价 ⇒ 该列在竞价口径下是 bid_change 的复制列
+#   ⚠️ 模型与特征列表必须**同批发布**：只改这里不改 backend/app/services/ai_predict.py，
+#     该层会因特征宽度不符失败并 fail-open 静默降级（不报错、不告警）。
 FEATURES = [
     "bid_change",     # 竞价涨幅
     "bid_amount",     # 竞价金额(万元)
     "bid_turnover",   # 竞价换手率
-    "circ_mv",        # 流通市值(亿)
-    "yesterday_chg",  # 昨日涨幅
-    "price",          # 价格
+    "circ_mv",        # 市值(亿)=**自由流通市值**(2026-09-26 口径统一, 与线上 scorer 一致)
+    "price",          # 价格（9:25 竞价价）
 ]
 
 TARGET = "is_limit_up"  # 当日是否涨停

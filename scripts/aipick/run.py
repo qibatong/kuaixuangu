@@ -9,6 +9,11 @@ AI 竞价选股 - 一键运行入口
   python run.py predict   # 当日预测（9:25-9:30 用）
   python run.py collect   # 采集当日竞价快照
   python run.py label     # 收盘后打标签
+
+LightGBM 平行链路（2026-09-25 新增，产物隔离到 output/lgb）:
+  python run.py train_lgbm              # 训练 LightGBM
+  python run.py predict_lgbm            # 用 LightGBM 做当日预测
+  python run.py backfill_lgbm --days 30 # 用 LightGBM 补历史报告
 """
 import os
 import subprocess
@@ -44,6 +49,16 @@ def main():
         run(["collector.py"])
     elif cmd == "label":
         run(["collector.py", "--label"])
+    # ---- 2026-09-25 LightGBM 平行链路（产物走 ../output/lgb，与 XGB 隔离）----
+    elif cmd == "train_lgbm":
+        run(["train_lgbm.py"] + rest)
+    elif cmd == "predict_lgbm":
+        lgb_out = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "output", "lgb"))
+        run(["predict_daily.py", "--algo", "lgbm", "--out-dir", lgb_out] + rest)
+    elif cmd == "backfill_lgbm":
+        lgb_out = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "output", "lgb"))
+        run(["predict_daily.py", "backfill"] + (rest or ["30"]) +
+            ["--algo", "lgbm", "--out-dir", lgb_out])
     else:
         print(f"未知命令: {cmd}\n{__doc__}")
 

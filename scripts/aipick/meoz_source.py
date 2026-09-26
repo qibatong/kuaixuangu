@@ -18,17 +18,35 @@
   ─────────────────────────────────────────────────────────────────────
   bid_change      auc_pct_chg          已是 %          693 同 + 4516 近似(分位差)
   bid_amount      auc_amt              ÷ 1e4 → 万元    4567 同 + 591 近似 + 0 异
-  bid_turnover    turnover_rate_f      已是 %          ★ 自由流通口径(系统性 > f8)
+  bid_turnover    auc_turnover         已是 %          ★ 竞价换手率(自由流通口径, 9:25 定格)
   price           close                已是元          5209/5209 完全一致
   circ_mv         circ_mv              ÷ 1e8 → 亿      1657 同 + 3536 近似(浮点)
   yesterday_chg   pct_chg              已是 %          5189 同 + 20 近似
   is_limit_up     pct_chg              阈值判定         主板≥9.8 / 创科≥19.8
 
-🔴 铁律 1 —— `bid_turnover` 口径变更（主人已拍板）
-  东财 `f8`   = 换手率（流通股本口径）
-  猫爪 `turnover_rate_f` = **实际换手率（自由流通股本口径）**，名字里的 `_f` = free-float
-  实测系统性更大（平安银行 0.44→1.05、万科A 4.54→6.81）。
-  → 与本项目「所有流通市值改自由流通市值」的全局口径**一致**，故直接采用，不回算。
+🔴 铁律 1 —— `bid_turnover` = **竞价换手率**（自由流通口径），取 `auc_turnover`
+
+  【2026-09-25 重大修正】此前取 `turnover_rate_f`，是**选错字段**（不是口径偏好问题）：
+    · `turnover_rate_f` 的真实语义 = 该交易日**累计**换手率：
+        9:25 取 → 竞价累计值（≈0.006）
+        盘后 / 历史回溯取 → **全天值**（≈2.5）
+      **同一列混了两种时点语义**，且数值差 250~400 倍。
+    · 后果链：线上 9:25 报告(bid_turnover≈0.010) 与 backfill 回补报告(≈2.5) 量纲撕裂；
+      训练库 08-18~08-27 段被写入**全天值** —— 与标签 `is_limit_up` 同样是"当日全天"信息
+      → **标签泄漏**（实测 30 天对拍 AUC 虚高到 0.9385，而线上 9:25 根本拿不到该值）。
+
+  【正确字段】`auc_turnover` = **竞价换手率**
+    · `auc_` 前缀 = auction（竞价）口径，与 `auc_pct_chg`(竞价涨幅) / `auc_amt`(竞价金额) 同族，
+      **竞价一结束即定格**，latest 与历史回溯返回值完全一致（各日中位 0.009~0.013）。
+    · 硬验证：实测 `auc_turnover ≈ auc_amt / free_float_mv × 100`
+      （000001 平安银行 0.0215 vs 0.0216；000002 万科A 0.3150 vs 0.3259）
+      → 是**自由流通市值**口径的竞价换手率，与本项目全局口径一致。
+    · 实测 AUC（30 天滚动，LGB leaves7）：`auc_turnover` **0.7629**
+      > 前一交易日全天换手率 0.7461（+0.0169）> 且无泄漏。
+    · 与东财 `f8`（竞价时点语义）一致，也与快选系统 `kpl.py` 直接用 `auc_turnover`
+      作为 bidTurnover 的做法一致（两条链路终于对齐）。
+
+  ⚠️ 精度：量级为 1e-3~1e-2，故保留 **4 位小数**（旧的 round(...,2) 会把 0.0095 抹成 0.01）。
 
 🔴 铁律 2 —— `pct_chg` vs `auc_pct_chg` 语义必须分清
   东财旧代码把 `f3` 一个字段当两个语义用（bid_change 回退 + yesterday_chg），是口径混淆。
@@ -74,6 +92,10 @@ else:
 
 
 # screening 需要的全量字段（一次拉全，避免二次请求）
+#   ★★ 2026-09-26：`free_float_mv`(自由流通) 与 `circ_mv`(流通) **同时取回**——
+#      特征值取 **free_float_mv**（与线上 scorer 分档 / snapshot_bid.free_mv 同源），
+#      circ_mv 仅在自由流通缺失时兜底。两者实测差 1.5~2.4 倍(比值中位 0.63)，
+#      混用即"同名两义"的口径错配（原说明书 E-8 的真身）。
 SCREENING_FIELDS = (
     "tradedate,symbol,name,close,pre_close,pct_chg,turnover_rate_f,"
     "free_float_mv,circ_mv,auc_pct_chg,auc_amt,auc_turnover,is_st"
@@ -174,6 +196,40 @@ def fetch_market(trade_date=None, timeout=30, quiet=False):
     return rows
 
 
+def fetch_free_mv(trade_date=None, timeout=30, quiet=False):
+    """拉全市场**自由流通市值**（亿元）—— 与线上选股打分口径同源。
+
+    ★★ 2026-09-26 主人指令：「市值口径统一为**自由流通市值**，不是流通市值」。
+
+    为什么必须改（实测取证）：
+      · 线上 scorer 的市值分档**早已**是自由流通口径(scorer.py:92 主人 2026-09-20 指令)；
+      · 而 aipick 的 features / 训练基座仍用流通市值 ⇒ 模型学的市值与线上打分用的
+        **差 1.5~2.4 倍**（free/circ 比值中位 0.63、p10 0.34、p90 0.92）；
+      · 这是"同名两义"的口径错配，比 1~3% 的取样差异严重一个量级。
+
+    取数：猫爪 `screening.free_float_mv`（**与快照 `snapshot_bid.free_mv` 同一来源**）
+      返回: {symbol: 自由流通市值(亿元)}；失败/空返回 {}。
+      · 与 `build_trainset_v2.py` 的 VAL_KEEP=["free_mv"] 同口径（数值实测一致）。
+      · 单位: 猫爪是**元** → ÷1e8 得亿元（与 aipick 全链路一致）。
+      · 复用 `fetch_market` 的进程内缓存 ⇒ 通常零额外请求。
+    """
+    key = "free_mv:" + str(trade_date or "__latest__")
+    if key in _MKT_CACHE:
+        return _MKT_CACHE[key]
+    out = {}
+    try:
+        rows = fetch_market(trade_date, timeout=timeout, quiet=quiet)
+        for c, s in (rows or {}).items():
+            v = round(_f(s.get("free_float_mv")) / 1e8, 2)
+            if v > 0:
+                out[c] = v
+    except Exception as e:
+        if not quiet:
+            print(f"⚠️ 猫爪 screening 调用失败(tradedate={trade_date}): {type(e).__name__} {e}")
+    _MKT_CACHE[key] = out
+    return out
+
+
 def fetch_prev_trading_day(trade_date, max_tries=_PREV_MAX_TRIES):
     """找 trade_date 的**前一交易日**（返回 "YYYY-MM-DD"，找不到返回 None）。
 
@@ -196,19 +252,45 @@ def _in_range(v, lo, hi):
     return v is not None and lo <= v <= hi
 
 
-def to_features(rows, trade_date, prev_chg_map=None):
+def to_bid_turnover(s):
+    """取**竞价换手率**（%，自由流通口径）—— 铁律 1，见模块头部。
+
+    ° 主口径 `auc_turnover`（竞价结束即定格，时点稳定）
+    ° 兜底 1 自算 `auc_amt / free_float_mv × 100`（等价，实测吻合到小数点后 3~4 位）
+    ° 兜底 2 退化 `turnover_rate_f`（**量纲可能偏大**，仅在猫爪两项都缺时；调用方可据此告警）
+    返回 4 位小数；全缺返回 0.0。
+    """
+    v = _f(s.get("auc_turnover"), None)
+    if v is not None:
+        return round(v, 4)
+    amt = _f(s.get("auc_amt"), None)
+    ffm = _f(s.get("free_float_mv"), None)
+    if amt is not None and ffm:
+        return round(amt / ffm * 100, 4)
+    return round(_f(s.get("turnover_rate_f")), 4)
+
+
+def to_features(rows, trade_date, prev_chg_map=None, mv_map=None):
     """猫爪原始行映射 → aipick features 行（单位换算 + 语义映射 + 范围过滤）。
 
     rows: fetch_market() 的返回值 {symbol: {猫爪字段}}
     prev_chg_map: {symbol: 前一交易日收盘涨幅%} —— **用于 yesterday_chg，避免标签泄漏**。
                   为 None 时 yesterday_chg 置 0.0（宁可缺失，绝不用当日 pct_chg 造成泄漏）。
+    mv_map: {symbol: 市值(亿元)} —— **可选的显式覆盖**（默认 None = 不覆盖）。
+            ★★ 2026-09-26 主人指令：市值口径 = **自由流通市值**，不是流通市值。
+            取值优先级：mv_map > rows[code].free_float_mv > rows[code].circ_mv(兜底)。
+            正常路径下 rows 已带 free_float_mv ⇒ 无需显式传入，也无需二次请求。
     返回: list[dict]，字段与 db.upsert_features 对齐。
 
     ★ 范围过滤：任意关键字段超出合理范围 → **整行丢弃**（防脏值污染训练）。
     """
     prev_chg_map = prev_chg_map or {}
+    mv_map = mv_map or {}
     out = []
     n_dropped = 0
+    n_mv_map = 0
+    n_mv_ff = 0
+    n_mv_circ = 0
     for code, s in rows.items():
         auc_chg = _f(s.get("auc_pct_chg"), None) if s.get("auc_pct_chg") is not None else None
         pct = _f(s.get("pct_chg"), None) if s.get("pct_chg") is not None else None
@@ -231,6 +313,18 @@ def to_features(rows, trade_date, prev_chg_map=None):
 
         # yesterday_chg 取**前一交易日**收盘涨幅（竞价时点已知，无泄漏）
         ychg = prev_chg_map.get(code)
+        # 市值(亿元) = **自由流通市值**（2026-09-26 主人指令，与线上 scorer 口径一致）
+        #   优先级: 显式 mv_map > screening.free_float_mv(同源) > screening.circ_mv(兜底)
+        mv = mv_map.get(code)
+        if mv is not None and mv > 0:
+            n_mv_map += 1
+        else:
+            mv = round(_f(s.get("free_float_mv")) / 1e8, 2)
+            if mv > 0:
+                n_mv_ff += 1
+            else:
+                mv = round(_f(s.get("circ_mv")) / 1e8, 2)
+                n_mv_circ += 1
         out.append({
             "trade_date": trade_date,
             "code": code,
@@ -240,12 +334,12 @@ def to_features(rows, trade_date, prev_chg_map=None):
             # 竞价金额：auc_amt(元) → 万元
             "bid_amount": round(_f(s.get("auc_amt")) / 1e4, 1),
             "bid_volume": None,
-            # 竞价换手率：turnover_rate_f（实际换手率，自由流通口径，已是 %）
-            "bid_turnover": round(_f(s.get("turnover_rate_f")), 2),
+            # 竞价换手率：auc_turnover（竞价口径·自由流通·9:25 定格）—— 铁律 1
+            "bid_turnover": to_bid_turnover(s),
             "warn_type": 0,
             "price": round(_f(s.get("close")), 2),
-            # 流通市值：circ_mv(元) → 亿元
-            "circ_mv": round(_f(s.get("circ_mv")) / 1e8, 2),
+            # 市值(亿元, **自由流通口径**)：见上方取值说明（DB 列名沿用 circ_mv，不改 schema）
+            "circ_mv": mv,
             # 昨日涨幅：**前一交易日**收盘涨幅（无泄漏）；缺失置 0
             "yesterday_chg": round(_f(ychg), 2),
             "industry": "",
@@ -253,6 +347,7 @@ def to_features(rows, trade_date, prev_chg_map=None):
         })
     if n_dropped:
         print(f"  [范围过滤] {trade_date}: 丢弃脏值行 {n_dropped}")
+    print(f"  [市值] {trade_date}: 自由流通 {n_mv_ff} 只 / 显式覆盖 {n_mv_map} 只 / 流通兜底 {n_mv_circ} 只")
     return out
 
 

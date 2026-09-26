@@ -13,6 +13,7 @@ import threading
 import time
 
 from ..core import logger
+from ..core import trade_calendar as tc
 from ..db import database
 from . import fetcher, mv_cache, scorer, tickplus
 from .cache_store import store
@@ -391,9 +392,12 @@ def _merge_meoz(raw_all):
 
     2026-09-20 重构: 主源改为 **screening(实时选股)** —— 一个接口全市场 5553 只,
     同时给出 free_float_mv/circ_mv/name/auc_amt/auc_pct_chg, 免去四接口拼装。
+    ★★ 2026-09-26 修订: **float_mv 的主源改为 valuation.circ_mv**(主人拍板统一训练基座口径),
+      screening.circ_mv 降为兜底; 其余字段主源不变(仍是 screening)。
     字段映射(实测核实):
       screening.name          → name                     [5553只]
-      screening.circ_mv       → float_mv(流通市值, 元)    [5553只]
+      valuation.circ_mv       → float_mv(流通市值, 元)    ★2026-09-26 起**主源**
+      screening.circ_mv       → float_mv 兜底(valuation 当日缺时才用)
       screening.free_float_mv → free_mv(自由流通市值, 元)  [5553只] ★ 全市场唯一来源
       screening.auc_amt       → bid_amt(竞价额, 万元)     [5444只, 元 → 需 /1e4]
       screening.auc_pct_chg   → bid_change(竞价涨幅 %)     [4818只]
@@ -409,7 +413,7 @@ def _merge_meoz(raw_all):
       ★ 单位: 元, 不换算(与封单额同例; bid_amt 才需要 /1e4)。
 
     后备(主源字段偶缺时):
-      valuation.circ_mv / daily_auc.auc_amt / daily_auc.auc_pct_chg
+      screening.circ_mv / daily_auc.auc_amt / daily_auc.auc_pct_chg
       auc_kp.free_float_mv(138只) / daily_auc_fd.fa_0925(涨停封单)
 
     🔴 单位: 猫爪 auc_amt 是**元**; 本表 bid_amt 存**万元**(见 BID_AMT_MAX_WAN)。
@@ -447,9 +451,20 @@ def _merge_meoz(raw_all):
         sc_map = {}
         log.warning("[快照采集] 猫爪 screening 读取失败 err=%s", str(e)[:120])
 
-    # ① 后备估值: valuation(全市场市值 + 名称), screening 缺市值时兜底
+    # ① 估值: valuation(全市场市值 + 名称)。
+    #   ★★ 2026-09-26 主人拍板「circ_mv 统一到**训练基座口径**」→ float_mv 的
+    #     **主源改为 valuation.circ_mv**(原为 screening.circ_mv, valuation 仅兜底)。
+    #     依据: 训练基座 build_trainset_v2.py 的 VAL_KEEP=["circ_mv"] 读的正是
+    #     meoz-data/valuation-*.ndjson.gz 的 valuation.circ_mv ⇒ 线上必须同源,
+    #     否则"训练 6 维/推理 6 维自洽"之下仍存在**同名两义** skew(原说明书 E-8)。
+    #     实测两源差异(09-24 全市场): 相对差中位 1.4% / P95 5.3% / max 56.6%,
+    #     30~100 亿门槛边界翻转 71 只 —— 足以改变当天名单, 故必须收口。
+    #   ★ 同时把 valuation 改为**显式当日**(date=_today), 与 ⓪ 步 screening 同纪律:
+    #     原先 date_offset=0("最新交易日") 在当日行未产出时会返回**上一交易日**那份,
+    #     一旦 valuation 由"兜底"升为"主源", 这个串日陷阱就会直接污染全市场 float_mv。
+    #     date= 查询语义是"该日无数据即返回空" ⇒ 天然防串日, 空则自动回退 screening。
     try:
-        val_map = meoz_client.valuation_map(date_offset=0)
+        val_map = meoz_client.valuation_map(date=_today)
         stats["auc_n"] = len(val_map)
     except Exception as e:                                      # noqa: BLE001
         val_map = {}
@@ -545,7 +560,7 @@ def _merge_meoz(raw_all):
                 "bid_amt": (amt or 0.0) / 1e4,
                 "name": str(s.get("name") or am.get("name") or vm.get("name") or fd.get("name") or ""),
                 "bid_buy_amt": seal if seal is not None else 0,
-                "float_mv": _f(s.get("circ_mv")) or _f(vm.get("circ_mv")) or 0.0,   # 流通市值(元)
+                "float_mv": _f(vm.get("circ_mv")) or _f(s.get("circ_mv")) or 0.0,   # 流通市值(元) ★valuation优先(统一训练基座口径, 2026-09-26)
                 "free_mv": _f(s.get("free_float_mv")) or 0.0,                      # 自由流通市值(元)
                 "pre_fd_amount": pre_fd if pre_fd is not None else 0.0,            # 昨日封单额(元)
                 "fd_to_yesterday": fd_yday if fd_yday is not None else 0.0,        # 封昨比
@@ -570,7 +585,7 @@ def _merge_meoz(raw_all):
                 stats["name"] += 1
         # 市值: 流通市值(float_mv)与自由流通(free_mv)分别补
         if not (v.get("float_mv") or 0):
-            mv = _f(s.get("circ_mv")) or _f(vm.get("circ_mv"))
+            mv = _f(vm.get("circ_mv")) or _f(s.get("circ_mv"))   # ★valuation优先(统一训练基座口径, 2026-09-26)
             if mv and mv > 0:
                 v["float_mv"] = mv
                 stats["mv"] += 1
@@ -964,6 +979,19 @@ def _guard_bid_amt_missing(date, time_point, raw_all):
     return n_amt
 
 
+def _is_trade_day(g):
+    """是否交易日 = 周一~周五 **且非法定休市日**。g 为北京时间 struct_time。
+
+    ★ 2026-09-25（中秋节 · 星期五）复盘新增：
+      此前各处只用裸 `g.tm_wday < 5`，没有节假日日历 ⇒ 法定假日里
+      行情源返回的**上一交易日复制行**被写进 `snapshot_bid`
+      （`bid_change`/`bid_amt` 逐位相同，而猫爪补的 `price`/`bid_turnover` 全 0），
+      既污染快选 App 展示、又喂给 AI 选股产出 30 只假名单。
+      日历实现见 `app/core/trade_calendar.py`（上交所官方休市表，区间外 fail-open）。
+    """
+    return tc.is_trade_day_of(g)
+
+
 def snapshot_at(time_point, force=False):
     """抓取并归档某时点全市场快照, 返回入库数量; 失败返回 0
     时点快照用全市场分页(fetch_eastmoney_all ~5500只), 非单页600只
@@ -978,8 +1006,10 @@ def snapshot_at(time_point, force=False):
     # 调度循环 _scheduler_loop 已加 g.tm_wday<5 判断; 此处再加防御防外部调用
     if not force:
         g = time.gmtime(time.time() + 8 * 3600)
-        if g.tm_wday >= 5:
-            log.warning("[快照采集] 拒绝非交易日写入 tp=%s date=%s(周%d) 防御性跳过", time_point, date, g.tm_wday)
+        if not _is_trade_day(g):
+            log.warning("[快照采集] 拒绝非交易日写入 tp=%s date=%s(周%d%s) 防御性跳过",
+                        time_point, date, g.tm_wday,
+                        ", 法定休市" if tc.is_holiday(date) else "")
             return 0
     t0 = time.time()
     log.info("[快照采集] 开始 time=%s date=%s", time_point, date)
@@ -1154,13 +1184,17 @@ def meoz_bid_ready(date):
         return False
 
 
-def _netfill_due(nf_sec, wday, last_ts, now_ts, done):
+def _netfill_due(nf_sec, wday, last_ts, now_ts, done, date=None):
     """竞价净额补采是否该触发(纯函数, 便于单测时间边界)。
 
     nf_sec: 北京当日秒(= hm*60 + 秒); wday: 0=周一; last_ts: 上次补采时刻;
     now_ts: 当前时刻; done: 达标完成标记(置位后不再轮询)。
+    date:   北京日期 "YYYY-MM-DD"(**可选**)。传入后额外判**法定休市日**
+            (2026-09-25 中秋节复盘新增); 不传则只判周末, 与旧调用点/单测保持兼容。
     """
-    if wday >= 5:                                   # 非交易日
+    if wday >= 5:                                   # 非交易日(周末)
+        return False
+    if date is not None and tc.is_holiday(date):    # 非交易日(法定休市)
         return False
     if not (NETFILL_START_SEC <= nf_sec <= NETFILL_END_SEC):
         return False
@@ -1381,7 +1415,7 @@ def snapshot_lastsec_at(ts_sec):
     date = _bj_date()
     # 防御(2026-08-16): 非交易日拒绝写入
     g = time.gmtime(time.time() + 8 * 3600)
-    if g.tm_wday >= 5:
+    if not _is_trade_day(g):
         return 0
     raw_all = _fetch_market_map(full=False)
     if not raw_all:
@@ -1411,7 +1445,7 @@ def _lastsec_loop():
             g = time.gmtime(time.time() + 8 * 3600)
             date = _bj_date()
             ts_total = g.tm_hour * 3600 + g.tm_min * 60 + g.tm_sec
-            if g.tm_wday < 5 and LASTSEC_START <= ts_total <= LASTSEC_END:
+            if _is_trade_day(g) and LASTSEC_START <= ts_total <= LASTSEC_END:
                 # 秒级去重: 同一秒只采一次(接口耗时>1s时自然降频, 不会并发堆积)
                 if store.setnx("sched:lastsec:%s:%d" % (date, ts_total), 1, ttl=3600):
                     snapshot_lastsec_at(ts_total)
@@ -1844,12 +1878,26 @@ def _scheduler_loop():
             g = time.gmtime(time.time() + 8 * 3600)
             date = _bj_date()
             hm = g.tm_hour * 60 + g.tm_min
+            # ★ 2026-09-25（中秋节 · 星期五）复盘新增: 非交易日**整轮跳过**。
+            #   原判定只在下方 for 内做 `g.tm_wday >= 5`, 漏掉法定假日 ⇒ 2026-09-25
+            #   当天照常把「上一交易日复制行」写进 snapshot_bid(`price`/`bid_turnover` 全 0),
+            #   既污染快选 App 又喂出 AI 选股 30 只假名单。提到循环顶部可一次性覆盖
+            #   下面所有窗口任务(净额补采 / 分时快照 / 9:31 盘点 ...)。
+            if not _is_trade_day(g):
+                # 只在当天首次记录一次, 避免每 10 秒刷日志
+                if store.setnx("sched:weekend:" + date, 1, ttl=86400):
+                    log.info("[快照采集] 非交易日(周%d%s) date=%s 跳过采集",
+                             g.tm_wday, ", 法定休市" if tc.is_holiday(date) else "", date)
+                # ⚠️ `continue` 会跳过循环末尾的 time.sleep(10) ⇒ 必须在此补睡, 否则热转吃满 CPU
+                time.sleep(10)
+                continue
             for tp, (start, end) in TIME_POINTS.items():
                 key = "sched:done:%s:%s" % (date, tp)
                 if store.get(key):
                     continue
-                if g.tm_wday >= 5:
-                    # 周末/节假日: 只在 9:20 记录一次, 避免每分钟刷日志
+                if not _is_trade_day(g):
+                    # 顶部门禁已拦下非交易日, 此处为**冗余保险**(防未来重构把顶部门禁挪走);
+                    # 同样只在当天记一次日志, 避免每分钟刷屏
                     if store.setnx("sched:weekend:" + date, 1, ttl=86400):
                         log.info("[快照采集] 非交易日(周%d) date=%s 跳过采集", g.tm_wday, date)
                     continue
@@ -1965,7 +2013,7 @@ def _scheduler_loop():
             # 9:24:30-9:25:00 抢筹结果快照: 触发 fetch_bid_qiangcang 落库
             # (2026-08-17 修复: 9:26 触发太晚, 开盘啦 Type4 竞价净额 9:25 撮合后清零 → list20=0 落库失败,
             #  提前到最后一秒重采窗口, Type4 数据最接近定格且 bidNetAmt 有效)
-            if (g.tm_wday < 5 and 9 * 60 + 24 <= hm <= 9 * 60 + 30
+            if (_is_trade_day(g) and 9 * 60 + 24 <= hm <= 9 * 60 + 30
                     and store.setnx("sched:qc:" + date, 1, ttl=86400)):
                 try:
                     from . import kpl
@@ -1988,7 +2036,8 @@ def _scheduler_loop():
             #   09:26:10 起每 netfill_interval() 秒补一次, 两项都达标即停;
             #   09:29:50 硬上限 —— 约七成票竞价无大单, 净额是真 0, 没有上限会问到收盘。
             if _netfill_due(hm * 60 + g.tm_sec, g.tm_wday, _last_netfill_ts,
-                            time.time(), store.get("sched:done:netfill_" + date)):
+                            time.time(), store.get("sched:done:netfill_" + date),
+                            date=date):
                 _last_netfill_ts = time.time()
                 try:
                     nz, n_upd, n_all = refill_bid_main_net(date)
@@ -2016,7 +2065,7 @@ def _scheduler_loop():
             #   **当日系统统一批次永久缺失** → 用户刷新只能跨日回退到上一个交易日的名单。
             #   这是 2026-09-17「9:30 后出来的数据好像是昨天的」事故的放大部分。
             #   现在 = 「当日未成功(done 键) 且 不在 60s 节流窗口内」→ 无票可继续重试到成功。
-            if g.tm_wday < 5 and 9 * 60 + 26 <= hm <= 9 * 60 + 30:
+            if _is_trade_day(g) and 9 * 60 + 26 <= hm <= 9 * 60 + 30:
                 try:
                     from . import auto_apply
                     if auto_apply.should_trigger(date):
@@ -2024,7 +2073,7 @@ def _scheduler_loop():
                 except Exception as e:
                     log.warning("9:26 自动应用 调度失败(不影响抢筹落库) err=%s", e)
             # 15:30-15:35 板块轮动日终快照: 抓当日板块强度 Top10 落库(多数据源), 形成轮动数据基础
-            if g.tm_wday < 5 and 15 * 60 + 30 <= hm <= 15 * 60 + 35:
+            if _is_trade_day(g) and 15 * 60 + 30 <= hm <= 15 * 60 + 35:
                 try:
                     # 两市概况收盘快照(2026-08-16): 供次日"两市总量/较上一日"对比
                     # 收盘后 f6=全天成交额, stockCount=全市场股票数
@@ -2096,7 +2145,7 @@ def _scheduler_loop():
                     log.warning("板块轮动/两市概况 日终快照失败 err=%s", e, exc_info=True)
             # 15:50-15:55 板块轮动+人气热榜兜底补跑:
             # 查 DB 当日各源是否已入库, 缺则尝试补抓(避开开盘啦15:30瞬时未冻结/接口抖动)
-            if g.tm_wday < 5 and 15 * 60 + 50 <= hm <= 15 * 60 + 55:
+            if _is_trade_day(g) and 15 * 60 + 50 <= hm <= 15 * 60 + 55:
                 try:
                     from . import sector_rotation, hot_rank
                     from ..db import database
@@ -2134,7 +2183,7 @@ def _scheduler_loop():
                     log.warning("板块轮动兜底补跑异常 err=%s", e)
             # 人气热榜/连板梯队/竞价异动 15:30-15:35 日终快照(与板块轮动同一窗口并行)
             # 注: 龙虎榜**不在此窗口** —— 见下方 18:30-18:40 晚间窗口(P1-a)
-            if g.tm_wday < 5 and 15 * 60 + 30 <= hm <= 15 * 60 + 35:
+            if _is_trade_day(g) and 15 * 60 + 30 <= hm <= 15 * 60 + 35:
                 try:
                     # 人气热榜历史快照(三源): 供人气榜回看历史
                     from . import hot_rank
@@ -2166,7 +2215,7 @@ def _scheduler_loop():
             # 生产实证 lhb_history 仅 7 行(全靠一次性回补脚本填充), 每日调度从未成功。
             # 挪到晚间窗口, 并补失败回滚: 旧逻辑 setnx 占锁后判空不释放(对照同窗口
             # ladder 子块有 store.delete 回滚), 窗口内不会重试 → 一次空就当天废弃。
-            if g.tm_wday < 5 and 18 * 60 + 30 <= hm <= 18 * 60 + 40:
+            if _is_trade_day(g) and 18 * 60 + 30 <= hm <= 18 * 60 + 40:
                 try:
                     if store.setnx("sched:done:lhb_" + date, 1, ttl=86400):
                         from . import kpl
@@ -2185,7 +2234,7 @@ def _scheduler_loop():
                 except Exception as e:
                     log.warning("龙虎榜晚间快照失败 err=%s", e, exc_info=True)
             # 9:31-9:35 盘点当日采集: 缺失时点告警(排查关键, 数据过了点无法补)
-            if g.tm_wday < 5 and 9 * 60 + 31 <= hm <= 9 * 60 + 35 and store.setnx("sched:checked:" + date, 1, ttl=86400):
+            if _is_trade_day(g) and 9 * 60 + 31 <= hm <= 9 * 60 + 35 and store.setnx("sched:checked:" + date, 1, ttl=86400):
                 missing = []
                 for tp in TIME_POINTS:
                     if store.get("sched:done:%s:%s" % (date, tp)):
@@ -2234,7 +2283,7 @@ def _scheduler_loop():
             # 两市分时快照滚动存(2026-08-16): 交易时段每 5 分钟调用一次 fetch_market_brief,
             # 写入 settings market_brief_intraday_{date}, 供次日做"两市较昨日同时刻"对比
             # 累计成交额全天单调递增, 5min 粒度足够"同时刻对比"精度
-            if g.tm_wday < 5 and 9 * 60 + 30 <= hm <= 15 * 60:
+            if _is_trade_day(g) and 9 * 60 + 30 <= hm <= 15 * 60:
                 if time.time() - _last_intraday_ts >= 300:
                     try:
                         from . import fetcher

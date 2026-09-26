@@ -17,6 +17,7 @@ import threading
 import time
 
 from ..core import logger
+from ..core import trade_calendar as tc
 from ..services.cache_store import store
 
 log = logger.get_logger(__name__)
@@ -32,18 +33,72 @@ _TASKS = [
     # 9:26:30-9:29:30 采集 + 预测(2026-08-18 主人要求: 9:25 竞价结束后 2-3 分钟内出预测;
     # 预测约 10-20 秒, 9:27 采完立即用昨日模型预测当日涨停概率, 9:30 前可看)
     ("aipick_collect", 9 * 60 + 26, 9 * 60 + 30, [(os.path.join(AIPICK_DIR, "scripts", "collector.py"), [])]),
-    ("aipick_predict", 9 * 60 + 27, 9 * 60 + 31, [(os.path.join(AIPICK_DIR, "scripts", "predict_daily.py"), [])]),
+    # 2026-09-25 LightGBM 平行链路: 与 XGBoost **同任务名/同窗口**, 只是按顺序多跑一遍并写
+    #   独立目录 output/lgb。
+    #   🔴 刻意**不新建** `aipick_predict_lgb` 这类独立任务名 —— 上方的「等 9:25 定格落库」
+    #      守卫是按**任务名白名单**(`_AIPICK_NEED_SNAPSHOT`)放行的; 新建任务名就会绕过守卫,
+    #      让 LGB 预测在定格落库前抢跑 → 静默回退猫爪自拉(非权威同源), 且 `_run_task` 的
+    #      setnx 已烧掉当日唯一那次。挂进已有任务名则**自动继承**与 XGB 完全相同的时序语义。
+    #   `_run_script` 逐个执行且各自捕获异常/超时 ⇒ 前一个脚本失败不影响后一个(故障隔离)。
+    ("aipick_predict", 9 * 60 + 27, 9 * 60 + 31, [
+        (os.path.join(AIPICK_DIR, "scripts", "predict_daily.py"), []),
+        (os.path.join(AIPICK_DIR, "scripts", "predict_daily.py"),
+         ["--algo", "lgbm", "--out-dir", os.path.join(AIPICK_DIR, "output", "lgb")]),
+    ]),
     # 15:04:30-15:06:30 打标签(注意: 旧写法把 --label 当脚本路径, 参数从未生效, 2026-08-30 修复)
     ("aipick_label", 15 * 60 + 4, 15 * 60 + 7, [(os.path.join(AIPICK_DIR, "scripts", "collector.py"), ["--label"])]),
     # 15:07:30-15:13:30 补生成缺失报告(2026-08-30 主人反馈: 当天没跑 9:27 预测 → 历史回看缺失)
     # backfill 从快照库取最近 30 个交易日, 缺 predictions_{d}.json 就用 9_25 快照补生成, 保证复盘完整
-    ("aipick_backfill", 15 * 60 + 7, 15 * 60 + 14, [(os.path.join(AIPICK_DIR, "scripts", "predict_daily.py"), ["backfill", "30"])]),
+    # 🔴 2026-09-25: **刻意不给 LightGBM 挂 backfill**(主人决定「清空回补, 只留实时累积」)。
+    #    原因见 lgbm-deploy/DIAGNOSIS-bid_turnover.md: backfill 在盘后/历史回溯执行,
+    #    取数落到 `fetch_from_kuaixuan` 的猫爪补字段路径, 而 `bid_turnover` 被塞的是猫爪
+    #    `turnover_rate_f`——它是「截至目前」的全天换手率: 9:25 竞价时点 ≈0.006, 盘后 ≈2.5~2.9,
+    #    **相差 250~400 倍**。喂给模型后概率整体塌到 ~0.003, 页面只剩 0~3 只票(实测用未改动的
+    #    XGB 链路复现: 同一份 09-24 报告, 早盘 10 只 → 盘后重跑 3 只)。
+    #    XGB 历史报告当年就是这么被"污染"的(线上 08-17/08-24 报告 turnover=1.75 即盘后回补痕迹)。
+    #    ⇒ 若给 LGB 挂上 backfill, 每天盘后都会把错量纲报告重新灌回 output/lgb, 用户会误判
+    #      「LGB 比 XGB 差得多」。故 LGB 历史**只由 9:25 实时链路自然积累**。
+    #    代价: 实时任务某天没跑成 → 该日在 LGB 回看页永久缺失(不能靠 backfill 补)。
+    #    待 bid_turnover 口径修好后, 再评估是否补挂。
+    ("aipick_backfill", 15 * 60 + 7, 15 * 60 + 14, [
+        (os.path.join(AIPICK_DIR, "scripts", "predict_daily.py"), ["backfill", "30"]),
+    ]),
     # 18:59:30-19:01:30 只训练(预测已挪到 9:27 竞价后; 模型次日生效)
-    ("aipick_train", 18 * 60 + 59, 19 * 60 + 2, [(os.path.join(AIPICK_DIR, "scripts", "train_model.py"), [])]),
+    # 2026-09-25: LGB 训练同窗口串行(本模块单线程轮询, 两个训练不会并发抢 CPU);
+    #   产物 models/model_lgb.txt + models/model_meta_lgb.json + output/lgb/train_report.json,
+    #   **绝不写** output/train_report.json(该文件被 scripts/aipick/backtest.py 消费)。
+    ("aipick_train", 18 * 60 + 59, 19 * 60 + 2, [
+        (os.path.join(AIPICK_DIR, "scripts", "train_model.py"), []),
+        (os.path.join(AIPICK_DIR, "scripts", "train_lgbm.py"), []),
+    ]),
 ]
 
 # 已执行标记(进程内), 防同一窗口重复
 _done_flags = {}
+
+
+def _specs_of(name):
+    """按任务名取 `_TASKS` 里的脚本清单（**唯一事实来源**）。
+
+    🔴 为什么必须有（2026-09-25 LightGBM 平行链路踩坑）：
+      `trigger_after_bid_snapshot()` 是「9:25 定格落库后立即触发」的快路径，原先**写死了**
+      XGB 那一条脚本（`[(predict_daily.py, [])]`）。而 `_run_task()` 内部
+      `store.setnx("aipick:" + name + ":" + 日期)` 会烧掉**当日唯一那把锁** ⇒ 只要快路径
+      先跑（正常交易日它一定先跑），9:27 轮询窗口里的同名任务就会直接
+      「今日已执行过, 跳过」，**被写死的清单之外的脚本（LightGBM）永远不会执行**，
+      且只在日志留一行 INFO，不报错、不告警 —— 表现为「LGB 页面永远是空的」。
+      ⇒ 统一改为从 `_TASKS` 取清单，杜绝两处清单各自漂移。
+
+    Args:
+        name: `_TASKS` 里的任务名。
+    Returns:
+        该任务的 `[(脚本路径, [参数...]), ...]`；任务名不存在时返回 `[]`。
+    """
+    for n, _, _, specs in _TASKS:
+        if n == name:
+            return specs
+    return []
+
 
 # ---- 采集/预测的**定格就绪门**(2026-09-24, 与「定格推迟」配套) ----
 # 背景: `auction_snapshot` 推迟到「拿到猫爪数据再定格」后, 9_25 **落库时刻**从
@@ -64,8 +119,16 @@ _AIPICK_READY_FALLBACK_HM = 9 * 60 + 29         # 09:29
 
 
 def _is_trade_day(g):
-    """周一~周五"""
-    return g.tm_wday < 5
+    """是否交易日 = 周一~周五 **且非法定休市日**。
+
+    ★ 2026-09-25（中秋节 · 星期五）幽灵报告复盘新增：原实现只有 `g.tm_wday < 5`，
+      没有节假日日历 ⇒ 法定假日被当交易日，AI 链路照跑、产出 30 只假名单。
+      现改用 `core/trade_calendar`（上交所官方休市表）。
+      表过期时 fail-open 退化为「只判周几」并打 ERROR 提醒补表 —— 绝不误拦真实交易日。
+
+    g 必须是**北京时间** struct_time（调用方已做 +8h 处理）。
+    """
+    return tc.is_trade_day_of(g)
 
 
 def _bid25_landed():
@@ -225,11 +288,16 @@ def _check_system_batch():
 
 def trigger_after_bid_snapshot():
     """9:25 竞价快照落库后由 auction_snapshot 立即触发(2026-08-18 主人要求:
-    拿到竞价数据后立刻采集+预测, 不等 9:27 轮询窗口) — 后台线程执行, 不阻塞采集主循环"""
+    拿到竞价数据后立刻采集+预测, 不等 9:27 轮询窗口) — 后台线程执行, 不阻塞采集主循环
+
+    ★ 2026-09-25: 脚本清单**必须走 `_specs_of()`**。原实现写死 XGB 单条，会烧掉当日
+      `aipick_predict` 的唯一锁，导致 LightGBM 那条 spec 在 9:27 窗口被
+      「今日已执行过, 跳过」——见 `_specs_of()` 的说明。
+    """
     def _wrapped():
         try:
-            _run_task("aipick_collect", [(os.path.join(AIPICK_DIR, "scripts", "collector.py"), [])])
-            _run_task("aipick_predict", [(os.path.join(AIPICK_DIR, "scripts", "predict_daily.py"), [])])
+            _run_task("aipick_collect", _specs_of("aipick_collect"))
+            _run_task("aipick_predict", _specs_of("aipick_predict"))
         except Exception as e:
             log.error("aipick 立即采集/预测异常 err=%s", e)
     threading.Thread(target=_wrapped, daemon=True, name="aipick_snapshot_now").start()

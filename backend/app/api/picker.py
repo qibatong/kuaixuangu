@@ -17,7 +17,7 @@ GET /api/picker/snapshot —— 一次性下发当日**全市场预计算评分*
   3. **行数闸门**: 物化表不完整(< MIN_ROWS, 如 9/11 熔断日只落 132 行)→ 视为不可用,
      绝不发半张表(前端据此回退, 不会出现"半市场名单")。
   4. **同口径**: 本地筛选的过滤规则由前端 utils/filters.js.pickFromSnapshot 逐条复刻
-     picker.filter 的 coarse_filter + apply_filters(含"粗排分降序取前 200"截断),
+     picker.filter 的 coarse_filter + apply_filters(含"定格竞价涨幅降序取前 200"截断),
      两侧各有一份对拍测试。
 
 下发字段只含"筛选与展示必需的定格值", 不含任何因子权重/算法 —— 即接口暴露的是
