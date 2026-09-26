@@ -42,12 +42,19 @@ for (const c of FIX.cases) {
   })
 }
 
-test('粗筛截断兜底: 无 coarseRank 时按竞价额降序取前 COARSE_MAX(老缓存/旧接口)', () => {
+test('COARSE_MAX 仍为 200(与后端 filter.COARSE_MAX / stocks._SNAP_CANDIDATE_MAX 三处同值)', () => {
+  assert.equal(COARSE_MAX, 200)
+})
+
+test('粗筛排队键 = 定格竞价涨幅(bidChange)降序(2026-09-26 改键), 不再用 coarseRank/竞价额', () => {
+  // 230 只票: 涨幅随 i **递减**, 而竞价额随 i **递增** —— 两把尺子方向相反,
+  // 结果必须听涨幅的(旧「竞价额降序」会保住涨幅最小的那批 600229)。
   const rows = []
   for (let i = 0; i < 230; i++) {
     rows.push({
-      code: String(600000 + i), name: '截断股', bidChange: 3.0,
-      bidAmt: 5000 + i,          // 递增: i 越大竞额越高
+      code: String(600000 + i), name: '排序股',
+      bidChange: 6.0 - i * 0.02,     // 递减: i 越大涨幅越低(i=0 最高 6.00%)
+      bidAmt: 5000 + i,              // 递增: i 越大竞额越高
       floatMv: 55.0, prevClose: 10.0,
       probability: 90, confidence: 80, isSt: 0, isZt: 0
     })
@@ -55,39 +62,35 @@ test('粗筛截断兜底: 无 coarseRank 时按竞价额降序取前 COARSE_MAX(
   const out = pickFromSnapshot(rows, F)
   assert.equal(out.length, COARSE_MAX)
   const got = new Set(out.map((r) => r.code))
-  for (let i = 0; i < 10; i++) {
-    assert.ok(!got.has(String(600000 + i)), '竞额最低的 10 只应被截断丢弃')
-  }
-  assert.ok(got.has('600229'), '竞额最高的必须入选')
+  assert.ok(!got.has('600229'), '涨幅最低的必须被截断(旧竞价额键会保留它)')
+  assert.ok(got.has('600000'), '涨幅最高的必须入选')
 })
 
-test('粗筛排队键 = coarseRank 降序(2026-09-23 改键), 不再用竞价额降序', () => {
-  // 230 只票: coarseRank 递增, 而竞价额**递减** —— 两把尺子方向相反,
-  // 结果必须听 coarseRank 的, 否则本用例会保住竞价额最小的那批(旧行为)。
+test('粗筛排队键已与 coarseRank 解耦: 下发该旧字段也不得影响排序(2026-09-26)', () => {
+  // 后端已不再下发 coarseRank(见 precompute.read_snapshot_rows 注释)。万一老浏览器
+  // 缓存/中间态里还带着它, 也必须**忽略** —— 否则前端按 coarseRank、后端按涨幅,
+  // 两侧各一把尺子截断候选, 触顶日名单静默分叉。
   const rows = []
   for (let i = 0; i < 230; i++) {
     rows.push({
-      code: String(600000 + i), name: '排序股', bidChange: 3.0,
-      bidAmt: 5000 + (229 - i),      // 递减: i 越大竞额越低
-      floatMv: 55.0, prevClose: 10.0,
-      coarseRank: 50 + i,            // 递增: i 越大粗排分越高
+      code: String(600000 + i), name: '旧字段股',
+      bidChange: 6.0 - i * 0.02,     // 递减
+      bidAmt: 5000, floatMv: 55.0, prevClose: 10.0,
+      coarseRank: 50 + i,            // 递增 —— 与涨幅方向**相反**(听它就等于保住 600229)
       probability: 90, confidence: 80, isSt: 0, isZt: 0
     })
   }
-  const out = pickFromSnapshot(rows, F)
-  assert.equal(out.length, COARSE_MAX)
-  const got = new Set(out.map((r) => r.code))
-  assert.ok(!got.has('600000'), 'coarseRank 最低的必须被截断(旧键会保留它)')
-  assert.ok(got.has('600229'), 'coarseRank 最高的必须入选')
+  const got = new Set(pickFromSnapshot(rows, F).map((r) => r.code))
+  assert.ok(got.has('600000'), '必须听 bidChange(涨幅最高者入选)')
+  assert.ok(!got.has('600229'), '不得再听 coarseRank(旧键会保留它)')
 })
 
-test('粗筛排队键并列: 同 coarseRank 按 code 升序(与后端 score_rows 并列规则一致)', () => {
+test('粗筛排队键并列: 同涨幅按 code 升序(与后端 score_rows 并列规则一致)', () => {
   const rows = []
   for (let i = 0; i < 230; i++) {
     rows.push({
       code: String(600000 + i), name: '并列股', bidChange: 3.0,
       bidAmt: 5000, floatMv: 55.0, prevClose: 10.0,
-      coarseRank: 60,                 // 全员同分
       probability: 90, confidence: 80, isSt: 0, isZt: 0
     })
   }

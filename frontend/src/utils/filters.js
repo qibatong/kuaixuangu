@@ -77,14 +77,18 @@ export function buildFilterParams(f) {
 
 export const COARSE_MAX = 200
 // 与后端 filter.COARSE_MAX / api/stocks._SNAP_CANDIDATE_MAX **三处必须同值**:
-// 粗筛后按**粗排分降序**取前 200 只送去评分。
+// 粗筛后按**定格竞价涨幅降序**取前 200 只送去评分。
 // 本地若不做这个截断, 放宽条件时本地名单会比后端多出一批"后端根本没来得及评分"的票。
 // ★ 2026-09-23 主人指令: 120 → 200(后端两处同改)。依据: 松参数下实测平均 143.6 只/日、
 //    20 日里 13 日触顶 ⇒ 120 是真实瓶颈。三处任一单独改, 触顶日就会出现
 //   「本地秒筛名单 ≠ 后端名单」的漂移。
-// ⚠️ 排队键 2026-09-23 由「竞价额降序」改为「coarseRank(定格三因子粗排分)降序」,
-//    与后端 picker.filter.coarse_filter **必须同一把尺子**; coarseRank 由后端算好
-//    随快照下发(评分分档表与权重不下发前端 —— 2026-08-31 主人要求评分构成保密)。
+// ⚠️ 排队键沿革: 「竞价额降序」→ 2026-09-23「coarseRank(定格三因子粗排分)降序」
+//    → **2026-09-26「定格竞价涨幅(bidChange)降序」**(主人指令: 直接用"当日涨幅榜")。
+//    与后端 picker.filter.coarse_filter / api/stocks._snapshot_candidate_codes
+//    **必须同一把尺子**(含缺值位次与并列规则), 否则触顶日本地与后端名单分叉。
+//    🔴 2026-09-26 起**不再有 `coarseRank` 这个下发字段** —— 后端已删
+//       (见 precompute.read_snapshot_rows 的注释): 涨幅本就是 payload 里的 bidChange,
+//       前后端各按同一字段排序即可, 不必再维护一个"必须与后端逐位对齐的派生标量"。
 
 // 市场归属(与后端 filter.in_markets 同口径): hs=沪主板60x+深主板00x | cyb=300/301
 // | kcb=688/689; 北交所一律排除。markets 为空 → 不限制。
@@ -174,22 +178,23 @@ export function pickFromSnapshot(snap, f) {
   for (const it of snap) {
     if (_coarseOk(it, f, mk)) cands.push(it)
   }
-  // 粗筛排队键(2026-09-23 改): coarseRank = 后端算好的「定格三因子粗排分」
-  // (竞价涨幅 + 竞价换手率 + 自由流通市值, 与后端 score.coarse_rank_score 同值),
-  // 降序取前 COARSE_MAX。改键前是「竞价额降序」—— 与最终评分排名 Spearman 仅
-  // 0.5214, 名额顶满时被砍掉的恰是「竞价额中等、评分靠前」的票。
-  // 同分按 code 升序(与后端 score_rows 的并列规则一致, 保证结果与输入顺序无关)。
-  // 兜底: 老浏览器缓存/旧接口无 coarseRank 时退回竞价额降序(= 改键前的线上行为),
-  // 宁可沿用旧序, 也不要因缺字段把候选顺序打乱。
+  // 粗筛排队键(2026-09-26 改): **定格竞价涨幅(bidChange)降序** —— 直接用"当日涨幅榜"
+  // 这把市场公认的尺子。口径依据: 定格时点(9:25 撮合之后) C=O ⇒ 当日涨幅 ≡ 开盘涨幅
+  // ≡ 竞价涨幅, 三者同值; 而竞价涨幅的权威来源就是快照的 bidChange。
+  // 改键前(2026-09-23~09-26)用的是后端随行下发的「定格三因子粗排分」coarseRank ——
+  // 当时因该键要用评分分档表与权重、不宜下发前端, 才由后端算好一个标量; 换成涨幅后
+  // 这个标量已取消(见文件顶部 COARSE_MAX 注释), 前后端各按同名字段排序。
+  // 能走到这里的票**必定有 bidChange**(_coarseOk 已剔除缺失者); 缺值分支仅作防御,
+  // 位次与后端一致(COARSE_RANK_MISSING = 排最后), 不冒充"平开"。
+  // 同涨幅按 code 升序(与后端 score_rows 的并列规则一致, 保证结果与输入顺序无关)。
+  const _chg = (it) => {
+    const v = _num(it.bidChange)
+    return v === null ? -Infinity : v
+  }
   cands.sort((a, b) => {
-    const ra = _num(a.coarseRank)
-    const rb = _num(b.coarseRank)
-    if (ra !== null && rb !== null) {
-      if (rb !== ra) return rb - ra
-    } else {
-      const d = (_num(b.bidAmt) || 0) - (_num(a.bidAmt) || 0)
-      if (d !== 0) return d
-    }
+    const ca = _chg(a)
+    const cb = _chg(b)
+    if (ca !== cb) return cb > ca ? 1 : -1
     return a.code < b.code ? -1 : a.code > b.code ? 1 : 0
   })
   const kept = cands.slice(0, COARSE_MAX).filter((it) => _refineOk(it, f))

@@ -24,7 +24,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from .score import ScoredRow, coarse_rank_score, coarse_rank_key
+from .score import ScoredRow, coarse_rank_key
 
 
 # 市场范围判定(与 scorer._in_markets 同口径, 独立实现以免 picker→scorer 循环依赖)
@@ -209,8 +209,9 @@ COARSE_MAX = 200
 ⚠️ 2026-09-23 实测订正: 「120 只足以覆盖」只在**参数较严**时成立。
    按当天实际参数回溯 20 个交易日, 平均只通过 23.4 只、仅 1 天超过 120;
    但按当前这套松参数(竞价额≥500 万)回溯, 平均 143.6 只、**13/20 天触顶**。
-   即触顶与否几乎完全由参数宽严决定。因此**排队键必须贴近最终评分**(已改),
-   否则触顶日被砍掉的正是「竞价额中等、评分靠前」的票。
+   即触顶与否几乎完全由参数宽严决定 —— 触顶日**由排队键决定谁被砍掉**, 故它是本常量
+   唯一要紧的搭档: 2026-09-23 改「定格三因子粗排分」, 2026-09-26 改「定格竞价涨幅」
+   (见 coarse_filter 的排队键说明)。
 
 ★ 2026-09-23 主人指令: 名额 120 → **200**(与 stocks._SNAP_CANDIDATE_MAX 同值同改)。
    依据就是上面那段实测: 松参数下平均 143.6 只/日、20 日里 13 日触顶 ⇒ 120 是
@@ -224,9 +225,8 @@ COARSE_MAX = 200
 
 def coarse_filter(rows: Sequence[Any], f: Dict,
                   ctx: Optional[FilterContext] = None,
-                  limit: int = COARSE_MAX,
-                  cfg: Optional[dict] = None) -> List[str]:
-    """**评分前**的粗筛: 只用"定格数据即可判定"的门槛, 返回候选 code(按粗排分降序)。
+                  limit: int = COARSE_MAX) -> List[str]:
+    """**评分前**的粗筛: 只用"定格数据即可判定"的门槛, 返回候选 code(按定格涨幅降序)。
 
     rows: QuoteRow 或 ScoredRow 均可(粗筛不需要评分结果, 故可跳过全市场评分)。
 
@@ -237,21 +237,19 @@ def coarse_filter(rows: Sequence[Any], f: Dict,
     粗筛**不含**需要评分的门槛(prob/conf 双低)与需要实时价的门槛(priceGt) —
     那些留给 apply_filters; 因此粗筛只会"漏不掉"任何最终该入选的票。
     ⚠️ 上面这句只在**名额够用**时成立: 一旦触顶, 被截掉的票连评分机会都没有。
-       所以排队键本身必须尽量贴近最终评分 —— 见下。
+       所以"触顶时谁被砍掉"完全由排队键决定 —— 见下。
 
-    ── 排队键(2026-09-23 主人拍板, 已实测) ──────────────────────────────
-    由「**竞价额降序**」改为「**定格三因子粗排分降序**」(score.coarse_rank_score)。
-    理由(9/10 全市场评分样本): 竞价额排名与最终评分排名的 Spearman 仅 0.5214,
-    名额被顶满时被砍掉的恰好是「竞价额中等、评分靠前」的那批; 换成三因子粗分后
-    Spearman 0.9631、名额压到 50 时漏损 4→0, 且**不增加任何网络请求**。
-    **名额上限(limit/COARSE_MAX)**, 2026-09-23 由 120 上调为 **200**(见常量注释)。
-    同分按 code 升序, 与 score.score_rows 的并列规则一致 → 结果与输入顺序无关
-    (旧键在竞价额相同时依赖输入顺序, 不可复现)。
+    ── 排队键(2026-09-26 主人指令) ──────────────────────────────────────
+    由「**定格三因子粗排分降序**」(score.coarse_rank_score, 2026-09-23 上线)改为
+    「**定格竞价涨幅(bid_change)降序**」—— 即直接用"当日涨幅榜"这把市场公认的尺子。
+    口径依据: 定格时点(9:25 撮合之后) C=O ⇒ **当日涨幅 ≡ 开盘涨幅 ≡ 竞价涨幅**, 三者同值。
+    **名额上限(limit/COARSE_MAX)仍为 200**(2026-09-23 由 120 上调, 见常量注释)。
+    🔴 **本函数全部门槛一律未动** —— 排队键只决定"触顶时谁被砍掉", 不改变任何一只票的
+       入选资格(能进排序的票本就已经在门槛之内); 触顶与否仍由参数宽严决定。
+    同涨幅按 code 升序, 与 score.score_rows 的并列规则一致 → 结果与输入顺序无关
+    (更早的"竞价额降序"在同额时依赖输入顺序, 不可复现)。
     """
     ctx = ctx or FilterContext()
-    if cfg is None:
-        from .. import scorer                       # 延迟导入: 避免模块循环
-        cfg = scorer.get_scoring_cfg()
     markets = ctx.markets if ctx.markets is not None else f.get("markets")
     cand = []
     for it in rows:
@@ -297,7 +295,7 @@ def coarse_filter(rows: Sequence[Any], f: Dict,
         bid_amt_wan = None if r.bid_amt is None else r.bid_amt / 1e4
         if bid_amt_wan is None or bid_amt_wan < f["bidAmtFloor"]:
             continue
-        cand.append((r.code, coarse_rank_score(r, cfg)))
+        cand.append((r.code, r.bid_change))
     cand.sort(key=lambda x: coarse_rank_key(x[1], x[0]))
     return [c for c, _ in cand[:limit]]
 

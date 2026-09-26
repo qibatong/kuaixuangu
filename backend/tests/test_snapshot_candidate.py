@@ -72,14 +72,21 @@ def test_limit_up_includes_yzt():
     assert "600011" in codes
 
 
-def test_sort_by_bid_amt_desc():
+def test_sort_by_frozen_bid_change_desc():
+    """排队键 = **定格竞价涨幅降序**(2026-09-26 改键); 竞价额/市值/换手**不再参与排队**。
+
+    旧版本叫 `test_sort_by_bid_amt_desc`: 三只票涨幅相同、竞价额不同, 靠"竞价额越大 →
+    竞价换手越高 → 三因子粗排分越高"**碰巧**排出一致的顺序(名字对、机理不对)。改键后
+    涨幅相同 ⇒ 退化为按 code 升序, 竞价额彻底退出排序, 故本用例重写为直接锁新契约。
+    """
     rows = _mk_rows([
-        ("600001", "低额", 3.0, 3000, 50),
-        ("600002", "高额", 3.0, 9000, 50),
-        ("600003", "中额", 3.0, 6000, 50),
+        ("600001", "低额低涨幅", 1.0, 3000, 50),
+        ("600002", "高额低涨幅", 1.0, 9000, 50),   # 竞价额最大, 但涨幅不高 → 不得靠前
+        ("600003", "中额高涨幅", 6.0, 6000, 50),
     ])
     codes = _snapshot_candidate_codes(rows, _default_f(), set())
-    assert codes == ["600002", "600003", "600001"]
+    assert codes == ["600003", "600001", "600002"], \
+        "必须按定格涨幅降序; 同涨幅按 code 升序(与竞价额无关)"
 
 
 def test_candidate_max_cap():
@@ -100,7 +107,7 @@ def test_st_suspend_true_keeps_st():
 if __name__ == "__main__":
     test_basic_default_filter()
     test_limit_up_includes_yzt()
-    test_sort_by_bid_amt_desc()
+    test_sort_by_frozen_bid_change_desc()
     test_candidate_max_cap()
     test_st_suspend_true_keeps_st()
     print("all passed")

@@ -31,7 +31,7 @@ from ...core import logger
 from ...db import database
 from .. import settings
 from .contract import QuoteRow
-from .score import ScoreResult, score_rows, coarse_rank_score
+from .score import ScoreResult, score_rows
 
 log = logger.get_logger(__name__)
 
@@ -326,31 +326,16 @@ def read_snapshot_rows(date: Optional[str] = None, *,
                         date, len(data), gate)
         return []
     out: List[dict] = []
-    # ★ 2026-09-23: 下发 coarsRank —— 前端本地筛选的粗筛排队键。
-    #   前端必须与后端 picker.filter.coarse_filter 用**同一把尺子**截断候选(否则
-    #   「本地秒筛名单」与后端名单会不一致 → 锁定/历史/推送全线错位)。而该排队键
-    #   需要评分分档表与权重, **不宜下发到前端**(2026-08-31 主人要求评分构成保密),
-    #   故由后端算好一个标量随行下发 —— 前端只排序, 不重算公式, 公式也就无从漂移。
-    try:
-        from .. import scorer                                     # 延迟导入: 避免模块循环
-        _cfg = scorer.get_scoring_cfg()
-    except Exception as e:                                        # noqa: BLE001
-        log.warning("[预计算] 评分配置读取失败(粗排分置空, 前端退回竞价额键) err=%s", e)
-        _cfg = None
+    # ★ 2026-09-26: **不再随行下发 coarseRank**。
+    #   2026-09-23 曾下发后端算好的「定格三因子粗排分」标量, 起因是该排队键要用到评分
+    #   分档表与权重、**不宜下发前端**(2026-08-31 主人要求评分构成保密), 故只发一个标量。
+    #   2026-09-26 排队键改为「**定格竞价涨幅降序**」后, 该理由消失 —— 涨幅本身就是前端
+    #   已有的 `bidChange` 字段, 前端**直接按同一个字段排序**即可; 少一个必须与后端逐位
+    #   对齐的派生标量, 也就少一处"公式漂移"的温床(前端排序键说明见 utils/filters.js)。
     for (code, name, prob, conf, bchg, bamt, mv, prev, ap,
          is_st, is_zt, warn, ind, con, rank) in data:
         if not code:
             continue
-        coarse_rank = None
-        if _cfg is not None:
-            try:
-                coarse_rank = round(coarse_rank_score(QuoteRow(
-                    code=str(code), name=name or "", bid_change=bchg,
-                    bid_amt=bamt, float_mv=mv, prev_close=prev,
-                    warn_type=(lambda x: None if x is None else int(x))(warn),
-                ), _cfg), 4)
-            except Exception as e:                                # noqa: BLE001
-                log.warning("[预计算] 粗排分计算失败 code=%s err=%s", code, e)
         out.append({
             "code": str(code), "name": name or "",
             "probability": prob, "confidence": conf,
@@ -363,7 +348,6 @@ def read_snapshot_rows(date: Optional[str] = None, *,
             "isZt": 1 if is_zt else 0,               # 昨涨停/连板(limitUp 过滤用)
             "warnType": warn, "industry": ind, "concept": con,
             "rank": rank,
-            "coarseRank": coarse_rank,               # 粗筛排队分(前端排序键, 见上)
         })
     return out
 

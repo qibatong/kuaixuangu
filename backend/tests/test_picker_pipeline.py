@@ -150,25 +150,24 @@ def test_coarse_filter_does_not_need_score():
             _q("600004")]                      # 正常
     codes = pfilter.coarse_filter(rows, FULL, pfilter.FilterContext(zt_codes=set()))
     assert set(codes) == {"300003", "600004"}
-    # 两只票字段完全相同 → 粗筛排队分并列 → 按 code 升序(2026-09-23 改键后确定性)
+    # 两只票字段完全相同 → 定格涨幅并列 → 按 code 升序(排队键确定性, 2026-09-26 改键后沿用)
     assert codes == ["300003", "600004"]
 
 
 def test_coarse_filter_respects_limit():
-    """名额截断保留**粗排分最高**的前 limit 只。
+    """名额截断保留**定格涨幅最高**的前 limit 只(2026-09-26 改键: 排队只认涨幅)。
 
-    用受控竞价换手率(auc_turnover)让五只票落在五个不同的换手分档上 ——
-    竞价额一律相同, 故名次只由粗排分决定, 无并列:
-      0.01%→0.3 / 0.1%→0.5 / 0.3%→0.72 / 0.6%→0.88 / 1.0%→1.0
+    改键前本用例用受控竞价换手率(auc_turnover)让五只票落在五个换手分档上、竞价额相同
+    —— 那是「三因子粗排分」时代的名次来源。现在换手/市值/竞价额**一律不参与排队**,
+    五只票只由定格竞价涨幅区分; 同涨幅的并列由
+    test_coarse_filter_does_not_need_score 覆盖(按 code 升序)。
     """
     rows = []
-    for i, turn in enumerate((0.01, 0.1, 0.3, 0.6, 1.0)):
-        r = _q("6000%02d" % i, bid_amt=5.0e7)
-        r.auc_turnover = turn          # 注意: _q 的 turnover= 是"全天换手率"字段, 非本键所用
-        rows.append(r)
+    for i, chg in enumerate((0.5, 1.0, 2.5, 4.0, 6.0)):
+        rows.append(_q("6000%02d" % i, bid_change=chg, bid_amt=5.0e7))
     codes = pfilter.coarse_filter(rows, FULL,
                                   pfilter.FilterContext(zt_codes=set()), limit=3)
-    assert codes == ["600004", "600003", "600002"], "换手率越高越靠前(粗排分降序)"
+    assert codes == ["600004", "600003", "600002"], "涨幅越高越靠前(定格涨幅降序)"
 
 
 # ==================== 模式接线 ====================

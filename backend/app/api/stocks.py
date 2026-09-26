@@ -166,22 +166,23 @@ _SNAP_CANDIDATE_MAX = 200    # 候选上限: 点查一批够覆盖, 防极端参
 #   200 是「批次数 / URL 长度」与「不截断」之间的取舍结果。
 
 
-def _snapshot_candidate_codes(snap_rows, f, yzt_codes, cfg=None):
-    """按快照字段粗筛 9:25 全市场快照 → 候选 code 列表(按**粗排分降序**)。
+def _snapshot_candidate_codes(snap_rows, f, yzt_codes):
+    """按快照字段粗筛 9:25 全市场快照 → 候选 code 列表(按**定格竞价涨幅降序**)。
     snap_rows: auction_snapshot.load_snapshot_full() 返回 {code: {...}}
     yzt_codes: 昨日涨停/连板 code 集合(limitUp 未勾选时用于剔除, 替代快照缺的 concept)
 
-    ── 排队键(2026-09-23 主人拍板, 已实测) ──────────────────────────────
-    由「竞价额降序」改为「定格三因子粗排分降序」, 与 picker.filter.coarse_filter
-    **同一把尺子**(score.coarse_rank_score) —— 两条链路任一单独改键, 就会重演
+    ── 排队键(2026-09-26 主人指令) ──────────────────────────────────────
+    由「定格三因子粗排分降序」(score.coarse_rank_score, 2026-09-23 上线)改为
+    「**定格竞价涨幅(bid_change)降序**」, 与 picker.filter.coarse_filter
+    **同一把尺子**(共用 score.coarse_rank_key) —— 两条链路任一单独改键, 就会重演
     2026-09-18「两个入口口径漂移 → 同一票在两处判出不同名单」的故障。
-    同分按 code 升序(与 score.score_rows 并列规则一致)。名额 2026-09-23 由 120 上调为
+    口径依据: 定格时点(9:25 撮合之后) C=O ⇒ 当日涨幅 ≡ 开盘涨幅 ≡ 竞价涨幅, 三者同值。
+    同涨幅按 code 升序(与 score.score_rows 并列规则一致)。名额仍为
     _SNAP_CANDIDATE_MAX=200(与 picker.filter.COARSE_MAX 同值, 见该常量注释)。
+    🔴 本函数**全部门槛一律未动** —— 排队键只决定"触顶时谁被砍掉"。
     """
     from ..services.picker.contract import QuoteRow
-    from ..services.picker.score import coarse_rank_score, coarse_rank_key
-    if cfg is None:
-        cfg = scorer.get_scoring_cfg()
+    from ..services.picker.score import coarse_rank_key
     codes = []
     for code, v in snap_rows.items():
         name = v.get("name") or ""
@@ -213,10 +214,9 @@ def _snapshot_candidate_codes(snap_rows, f, yzt_codes, cfg=None):
         # 竞价额(9_25 定格, 万元; 与 day_bid_amt 同口径)
         if (v.get("bid_amt") or 0) < f["bidAmtFloor"]:
             continue
-        # 排队分: 走契约行构造, 保证「竞价换手率回退口径 / 市值口径」与
-        # picker 侧逐字相同(手写等价算式是漂移的温床)。
-        codes.append((code,
-                      coarse_rank_score(QuoteRow.from_snapshot(v), cfg)))
+        # 排队键取值: 仍**走契约行构造**再取 bid_change —— 与 picker 侧用的 r.bid_change
+        # 同源同清洗(契约 _f: 非法/空/'-'/NaN 一律 None, 绝不冒充 0); 手写等价算式是漂移的温床。
+        codes.append((code, QuoteRow.from_snapshot(v).bid_change))
     codes.sort(key=lambda x: coarse_rank_key(x[1], x[0]))
     return [c for c, _ in codes[:_SNAP_CANDIDATE_MAX]]
 

@@ -79,21 +79,20 @@ def test_snapshot_rows_units_match_filter_convention():
     assert r["auctionPrice"] == pytest.approx(10.0 * 1.03)
 
 
-def test_snapshot_rows_ship_coarse_rank_matching_backend_key():
-    """下发行的 coarseRank 必须等于后端同一函数的取值(2026-09-23 改键)。
+def test_snapshot_rows_no_longer_ship_coarse_rank():
+    """2026-09-26: 下发字段里**不再有** `coarseRank` —— 前端本地筛选直接按 bidChange 排序。
 
-    前端本地筛选用它做候选截断(与后端 filter.coarse_filter 同一把尺子), 而评分
-    分档表与权重不下发前端 —— 所以这个标量一旦算错/算成别的口径, 本地名单就会
-    与后端名单分叉, 且**没有任何别的用例能发现**。
+    2026-09-23 之所以下发这个标量, 是因为排队键 = 「定格三因子粗排分」(要用评分分档表
+    与权重, 不宜下发前端, 故只发算好的标量)。排队键改成「定格竞价涨幅」后该理由消失 ——
+    涨幅就是下面这行既有的 `bidChange`。
+    🔴 本用例是**反向防线**: 谁把 coarseRank 顺手加回来(例如又从后端算一个派生键),
+       而前端(已不读它)只认 bidChange ⇒ 两侧各按一把尺子截断候选, 触顶日名单静默分叉。
     """
-    from app.services import scorer
-    from app.services.picker.score import coarse_rank_score
-
     rows = _seed(1)
     got = precompute.read_snapshot_rows(_DATE, min_rows=1)[0]
-    assert got["coarseRank"] is not None
-    assert got["coarseRank"] == pytest.approx(
-        coarse_rank_score(rows[_code(0)], scorer.get_scoring_cfg()), abs=1e-4)
+    assert "coarseRank" not in got, "coarseRank 已于 2026-09-26 取消, 不得再下发"
+    # 排队键 = 既有字段 bidChange, 必须原样下发(前端按它降序截断候选)
+    assert got["bidChange"] == pytest.approx(rows[_code(0)].bid_change)
 
 
 def test_snapshot_rows_keep_missing_as_none():

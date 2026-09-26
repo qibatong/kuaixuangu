@@ -128,65 +128,42 @@ def compute_score(row: QuoteRow, cfg: Optional[dict] = None,
     )
 
 
-# ---------------------------------------------------------------- 粗筛排队分
-COARSE_RANK_FACTORS = ("bid", "activity", "market")
-"""粗筛时点**拿得到**的三个因子。另两项在此刻不可得 ——
-   warn(竞价强度) 要等 services/bid_strength 合成(快照量比 + AI 预测; v7 两层),
-   yesterday(昨日涨幅) 要等日K/补丁源。故粗排分对这两项取该因子的 default 分。"""
+# ---------------------------------------------------------------- 粗筛排队键
+COARSE_RANK_MISSING = float("inf")
+"""无竞价涨幅时的排队位: 排在**所有有效涨幅之后**(见 coarse_rank_key)。
+
+为什么缺失要排最后、不当 0: 0 = "平开"是**有效**涨幅, 混进 0 那一档等于把
+"没有竞价数据"冒充成"平开票"(契约铁律1: 缺失 = None, 永不填 0)。
+本分支只在 ctx.require_bid_change=False(竞价早期数据未全的兼容开关)时才可达;
+默认 require_bid_change=True ⇒ 无竞价涨幅的票在**门槛阶段**就被剔除, 进不到排序。
+"""
 
 
-def coarse_rank_score(row: QuoteRow, cfg: Optional[dict] = None) -> float:
-    """**粗筛排队分**(0~100): 只用「9:25 定格快照即可算出」的三个因子。
+def coarse_rank_key(bid_change: Optional[float], code: str) -> Tuple[float, str]:
+    """**粗筛排队键**(升序用): (定格竞价涨幅的降序位, code)。
 
-    算式 = compute_score 的 bid / activity / market 三项**同一批因子函数与权重**
-          + warn / yesterday 取该因子的 default 分, 最后 ×100。
+    ★ 2026-09-26 主人指令: 排队键由「**定格三因子粗排分**降序」(score.coarse_rank_score,
+    2026-09-23 v4.11.37 上线)改为「**定格竞价涨幅降序**」—— 即直接用"当日涨幅榜"
+    这把市场公认的尺子, 不再自造复合分。
 
-    ⚠️ 这不是最终评分, 也**不夹 clamp_prob**: 它是**排序键**, 一旦夹到边界就会把
-       多只票压成同一个值 → 退化成按 code 排队。当前配置下 warn/yesterday 都只有
-       default 分(0.18 / 0.1), 本分天花板约 81、地板约 15, 距 5/95 都很远, 不夹也不会越界。
-     ⚠️ 本分**只用于「排队取前 N」, 不参与任何门槛判定**
-       (门槛仍由 filter 用定格原值判), 所以它对 warn/yesterday 取 default 这件事
-       不会改变任何一只票的入选资格; 而且这两项对全部候选是**同一个常数**,
-       也不影响排序结果。详见 filter.coarse_filter 的排队键说明。
+      口径依据: 定格时点(9:25 撮合**之后**) C=O ⇒ **当日涨幅 ≡ 开盘涨幅 ≡ 竞价涨幅**,
+      三者同值; 而竞价涨幅的权威来源就是定格快照的 `bid_change`
+      (见 contract.FIELD_AUTHORITY["bid_change"])。
+      名额上限不变(filter.COARSE_MAX / stocks._SNAP_CANDIDATE_MAX = **200**),
+      **全部门槛一律不动**(板块 / ST / 昨涨停 / 竞涨上下限 / 自由流通市值 / 竞价额照旧)。
 
-    为什么要它(2026-09-23 主人拍板, 实测非推测):
-      原排队键是「竞价额降序」, 与最终评分排名的 Spearman 仅 0.5214 —— 竞价额大的票
-      未必分高。名额被顶满时, 竞价额中等而评分靠前的票会被挡在评分之外
-      (9/10 实测: 名额压到 50 时漏 4 只, 含评分 88、全池第 3 的南宁百货 600712,
-       其竞价额仅列第 73 位)。换成本分排队后 Spearman 0.9631、名额压到 50 时漏损 4→0,
-      且**不增加任何网络请求** —— 判门槛用的就是同样这几个字段。
+    同涨幅按 code 升序 —— 与 score_rows 的并列规则一致, 使结果与输入顺序**无关**
+    (2026-09-23 改键时立的纪律, 本次沿用: 更早的「竞价额降序」在同额时依赖输入顺序、
+    不可复现)。
+
+    ⚠️ 旧键 `coarse_rank_score`(0~100 复合分, 含 bid/activity/market 三因子)已**随本次
+       改动整体移除** —— 它只在"排队取前 N"里用过、**不参与任何门槛判定**, 故删除后
+       不改变任何一只票的入选资格, 只改**排队顺序**。若将来要恢复复合分, 请连带恢复
+       filter.py / stocks.py 两处调用点与对应用例。
     """
-    if cfg is None:
-        from .. import scorer                       # 延迟导入: 避免模块循环
-        cfg = scorer.get_scoring_cfg()
-
-    bid_change = row.bid_change
-    bid_turnover = row.bid_turnover                # 派生: 猫爪 auc_turnover 优先, 回退自算
-    # 市值口径与 compute_score **逐字相同**: mv_yi(自由流通优先) 且 0 与缺失同义
-    # (0 会落进 market 首桶拿满分 1.0, 即"市值未知"被翻译成"超小盘最优")。
-    circ_mv = row.mv_yi
-    if not circ_mv:
-        circ_mv = None
-
-    bid_score = (factor_default(cfg, "bid") if bid_change is None
-                 else factor_score(cfg, "bid", bid_change))
-    activity_score = (factor_default(cfg, "activity") if bid_turnover is None
-                      else factor_score(cfg, "activity", bid_turnover))
-    market_score = (factor_default(cfg, "market") if circ_mv is None
-                    else factor_score(cfg, "market", circ_mv))
-
-    base = (bid_score * cfg["w_bid"] + activity_score * cfg["w_activity"]
-            + factor_default(cfg, "warn") * cfg["w_warn"]
-            + market_score * cfg["w_market"]
-            + factor_default(cfg, "yesterday") * cfg["w_yesterday"])
-    return base * 100  # ★ 不夹 clamp_prob: 见上「排序键不得被夹出并列」
-
-
-def coarse_rank_key(score: float, code: str) -> Tuple[float, str]:
-    """粗筛排队键(降序用): (粗排分, code) —— 同分按 code 升序, 与
-    score_rows 的并列规则一致, 使结果与输入顺序**无关**(原「竞价额降序」在
-    同额时依赖输入顺序, 不可复现)。"""
-    return (-score, code)
+    if bid_change is None:
+        return (COARSE_RANK_MISSING, code)
+    return (-float(bid_change), code)
 
 
 # ---------------------------------------------------------------- 批量评分

@@ -1477,6 +1477,71 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.49 (09-26 本机未部署) 粗筛排队键改为「定格竞价涨幅降序」（当日涨幅榜前 200）**
+  - **触发**：主人指令「按定格三因子粗排分降序，修改为当日涨幅榜前 200」。
+  - **口径两问两答（落成决策，不是推测）**：
+    - ① **排序字段 = 定格竞价涨幅 `bid_change`**，**不是**实时的 `real_change`(f3)。
+      依据：定格时点（9:25 撮合**之后**）C=O ⇒ **当日涨幅 ≡ 开盘涨幅 ≡ 竞价涨幅**，三者同值；
+      更硬的理由是**快照链路根本拿不到实时涨幅** —— `snapshot_bid` 表无该列，
+      `QuoteRow.from_snapshot` 的 `real_change` 恒 None（它读的是 `v["change"]`，该键不存在）
+      ⇒ 若按 f3 排序，全链路排序键全为 None，候选池**退化成"按 code 排序"**（等于失效）。
+    - ② **作用范围 = 只换排队键**：门槛与名额上限（200）一律不动。
+      不做「先取全市场涨幅榜前 200 再套门槛」—— 门槛含「竞价涨幅 ≤ bidGt(默认 7%)」，
+      而全市场涨幅榜前 200 几乎全是大涨/涨停票，交集会极少（2026-09-07 正因此废弃过
+      `_fetch_market_with_fallback` 的 Top200 涨幅榜方案，实测默认条件只出 5 只）。
+  - **改动（后端 4 文件 + 前端 1 文件 + 4 个测试文件）**：
+    - `picker/score.py`：`coarse_rank_key(score, code)` → **`coarse_rank_key(bid_change, code)`**
+      = `(-涨幅, code)`；涨幅缺失 → `COARSE_RANK_MISSING = +inf` **排最后**
+      （**不得冒充 0.0**：0.0 = 平开是有效涨幅，与"没有数据"不是一回事 —— 契约铁律1）。
+      **删除** `coarse_rank_score()` 与 `COARSE_RANK_FACTORS`（0~100 复合分，含 bid/activity/market
+      三因子）—— 它**只在"排队取前 N"里用过、不参与任何门槛判定**，故删除**不改变任何一只票的
+      入选资格**，只改排队顺序。
+    - `picker/filter.py::coarse_filter()`：排队键 `coarse_rank_score(r, cfg)` → `r.bid_change`；
+      并**移除已无用的 `cfg` 形参**（留着会让人以为"传不同 cfg 能改排名"，正是本仓最忌讳的静默陷阱）。
+    - `api/stocks.py::_snapshot_candidate_codes()`：同样改键（仍走 `QuoteRow.from_snapshot(v).bid_change`
+      取**同源同清洗**的值，`_f` 会把非法/空/'-'/NaN 一律归 None），移除 `cfg` 形参。
+      🔴 两条链路（主链路 `coarse_filter` / 盘后快照链路）**必须同一把尺子**，否则重演
+      2026-09-18「两个入口判出两份名单」。
+    - `picker/precompute.py::read_snapshot_rows()`：**删除随行下发的 `coarseRank` 字段**及其
+      scorer 读取块。2026-09-23 下发该标量的理由是"复合键要用评分分档表与权重、不宜下发前端"
+      （2026-08-31 评分构成保密）；改「定格涨幅」后**该理由消失** —— 涨幅本就是同一份 payload 里
+      既有的 `bidChange`，前端**直接按同一字段排序**即可。少一个"必须与后端逐位对齐的派生标量"，
+      也就少一处公式漂移的温床。
+    - `frontend/src/utils/filters.js::pickFromSnapshot()`：`coarseRank` 降序（→缺字段兜底竞价额降序）
+      改为 **`bidChange` 降序**；同涨幅按 code 升序；缺值位次与后端一致（垫底）。
+      **不再保留竞价额兜底** —— `bidChange` 自 P3(2026-09-12) 起就在 payload 里，老浏览器缓存也有。
+  - **🔴 门槛逐条点名（全部未动）**：板块（hs/cyb/kcb、北交所一律排除）/ ST / 昨涨停 / 竞价涨幅
+    上下限（`bidLt`/`bidGt`）/ 自由流通市值（`floatMvFloor`/`floatMvGt`）/ 竞价额（`bidAmtFloor`）
+    全部照旧；名额上限 `filter.COARSE_MAX` / `stocks._SNAP_CANDIDATE_MAX` / 前端 `filters.js COARSE_MAX`
+    三处仍为 **200**。
+  - **行为差异（必须知道，别当成故障）**：触顶日（放宽参数使候选 > 200）被砍掉的那批**换人了** ——
+    旧键砍"涨幅不高但换手/市值好"的票，新键砍"涨幅榜 200 名之外"的票。量级参考 v4.11.37 的实测：
+    松参数下 20 日均 143.6 只、**13/20 天触顶**，即常态不触顶、差异只在极端放量日出现。
+  - **测试（本机隔离 venv，未连测试机）**：
+    - 后端全量 **1406 passed / 4 skipped / 0 failed（174.40s）**，与 v4.11.48 基线 **1404 + 4** 之差
+      **+2 == 净增用例数**（删 7 例 `test_coarse_rank_key_20260923.py` + 新增 9 例
+      `test_coarse_rank_chg_20260926.py`）；收集数 1410。
+    - 前端 `node --test`（9 个测试文件）**83 passed / 0 failed**。
+    - **改写 3 个"旧行为用例"**（改键后必然红，已逐条定性为**非回归**）：
+      ① `test_snapshot_candidate.py::test_sort_by_bid_amt_desc` —— 三只票涨幅相同、竞价额不同，
+      旧版靠"竞价额越大 → 竞价换手越高 → 三因子粗排分越高"**碰巧**排出竞价额降序（**名字对、机理不对**）
+      ⇒ 重写为 `test_sort_by_frozen_bid_change_desc`，并**顺带反证竞价额已退出排序**；
+      ② `test_picker_pipeline.py::test_coarse_filter_respects_limit` —— 旧版用受控 `auc_turnover`
+      制造五个换手分档 ⇒ 改为五个**涨幅**档；
+      ③ `test_picker_snapshot.py` 的 `coarseRank` 等值断言 ⇒ 改为**反向防线**"不得再下发 coarseRank"。
+    - 🔬 **变异测试（证明新用例真的能红，不是空跑）**：① 后端把键反向注回 `(0.0, code)`
+      ⇒ **8 例红**；② 前端把旧键（coarseRank 优先 → 竞价额兜底）注回 ⇒ **2 例红**。
+      两次均用 `diff -q` 校验还原**逐字节一致**后才继续。
+  - **未动**：`scorer` 评分体系与评分配置 DB、`apply_filters` 精筛、`w_ff`(仍 0)、
+    AI 预测链路、`mode.POLICIES`、生产机与测试机。
+  - **⚠️ 部署顺序（前后端同批，有方向性）**：后端删了 `coarseRank`、前端也不再读它。
+    **前端先发或同批发 → 无影响**；**后端先发、前端后发 → 老前端读不到 `coarseRank` 会退回
+    竞价额降序 ⇒ 触顶日与后端截断分叉**（前端新增的"解耦用例"只能保证新前端不受该字段影响，
+    救不了还没更新的老前端）。故建议同批发布。
+  - **上线状态**：**本机未部署**（测试通过后默认只推测试机 + commit/push；生产须主人明确指令）。
+    回滚点：本次改动前 commit `f456765`（只需回退
+    `backend/app/services/picker/{score,filter,precompute}.py` + `backend/app/api/stocks.py`
+    + `frontend/src/utils/filters.js` 与对应测试）。
 - **v4.11.48 (09-24 仅测试机) 日K 深度恢复 200 根 —— 换源 WP5 静默退化的修复**
   - **触发**：v4.11.47 上线测试机后自查发现「换源类改动的**参数口径**」漏检 —— 名单 A/B 全绿（64/29/29 零变化）、
     涨停池对拍 100%、字段级差异逐条解释得通，但**K线根数**没人比。主人已拍板过「立即全部生效」，
