@@ -1,292 +1,308 @@
-# 竞价抢筹「刷新慢」根因定位 + 客户端缓存评估
+# 竞价异动页「竞价抢筹」Tab 首次加载要等 5~9 秒 —— 真实浏览器实测定位
 
-- **日期**：2026-09-28（北京时间凌晨）
-- **对象**：`/auction` 竞价抢筹 tab（左表 = 9:20→9:25 竞额抢筹；右表 = 涨幅抢筹；下表 = 9:24→9:25 最后 1 秒段）
-- **触发**：主人 ——「看一下竞价抢筹页面数据刷新的很慢，有没有设置缓存，因为这个数据竞价后基本上
-  只更新实时涨幅就可以了，其他的数据是不动的，是不是可以在用户端进行缓存，你评估一下」
-- **结论口径**：全部数字为 **生产机 `121.196.230.80` 实测**（2026-09-28 01:20~01:35），非测试机推断。
+- **日期**：2026-09-28（北京时间凌晨，非交易时段）
+- **修订**：本文**取代**同日早前的同名初版。初版把主人反馈的"慢"误解为"现涨不刷新"，
+  方向错了；主人澄清「**是打开网页其他板块数据都出来了，他的数据需要5秒才出来，不是因为实时涨幅，
+  是整个页面**」后重新实测，结论如下。初版中仍然成立的旁证（5 层缓存清单、配额约束、盘中
+  `cache:300` 压制 30s 轮询）保留在 §6 / §7。
+- **全部数字为生产机 `121.196.230.80` + 本机真实 Chromium 实测**（2026-09-28 01:30~01:50），非推断。
 
 ---
 
 ## 0. 一句话结论
 
-1. **缓存是有的，而且分了 5 层**（浏览器 / 前端内存 / 后端结果 / 后端上游 / 东财行情），设计基本正确。
-2. **「慢」不是缓存缺失，而是「两级缓存同时失效时的冷取数尾巴」** —— 热路径只要 **66~84ms**，
-   冷取数要 **5.2s（有数据）~ 11.5s（极冷）**，生产日志 190 次抽样 **p50=191ms / p90=4644ms**。
-   根因是 **kpl 结果缓存 600s 与猫爪上游缓存 30s 严重错配**。
-3. **主人的判断方向对，但结论要反过来**：客户端**不该再加缓存，而该减**。
-   现在 `kplBidQiangcang` 已带 `cache: 300`（前端内存缓存 5 分钟），它与 30s 轮询**直接冲突** ——
-   主人想看的「实时涨幅」实际 **5 分钟才刷一次**。把这一行的 `300` 去掉，慢的问题在体感上立解。
+**现象属实，且能稳定复现**：竞价异动页打开后，其他 Tab（爆量/委买/净额/昨涨停/昨断板/昨上榜）
+**1 秒内全部出数据**，唯独「**竞价抢筹**」要等 **5.5~9 秒**，期间表格是空的。
+
+**根因**：该 Tab 的取数链路要打 **5 个猫爪上游接口**，其中 4 个是「**全市场 5000+ 行**」的大结果
+（`screening` 5557 行 / `free_mv_map` 5904 行 / `auc_snapshot` 5567 行 / `auc_open_bid` 5569 行），
+而这些上游结果的缓存 TTL **只有 30 秒**（`_AUC_SNAP_TTL`）。所以只要结果层缓存（回看 600s）一过期，
+上游必然也过期 ⇒ **每次重算都要付出全额冷取数成本 ≈ 5.5 秒**。
+
+**量化**：上游缓存热时重建结果层只要 **345 ms**；上游冷时要 **5.5~6.9 s** —— **差 16~20 倍**。
 
 ---
 
-## 1. 缓存全景（回答「有没有设置缓存」）
+## 1. 现象复现（真实浏览器，等价主人登录操作）
 
-| # | 层 | 位置 | 缓存内容 | TTL | 判定 |
-|---|---|---|---|---|---|
-| 1 | 浏览器 HTTP | 后端 `api/deps.py:15-17` `jr()` 设 `Cache-Control: no-store`；nginx `/api/` **无** `proxy_cache` | — | **禁用** | ✅ 正确（响应带 per-uid 副作用，绝不能被中间层缓存） |
-| 2 | **前端内存** | `frontend/src/api/request.js` `memCache`，由 `api/kpl.js` 传 `cache: 300` | 整包 JSON | **300s** | 🔴 **问题所在** |
-| 3 | 后端结果 | `services/kpl.py:3014` `_cached("bid_qiangcang[_YYYYMMDD]")` | 组装好的三表 | 回看 **600s** / 竞价中 **30s** / 实时非竞价 **300s** | ✅ 分层思路正确 |
-| 4 | 后端上游 | `services/meoz_client.py:291` `call_cached("meoz:<api>:<params>")` | 猫爪原始表 | **30s**（`_AUC_SNAP_TTL`，见 `meoz_client.py:372`） | ⚠️ 与第 3 层错配（见 §3） |
-| 5 | 东财行情 | `services/fetcher.py:1157` `_quote_map_cache`（**进程内**） | 全市场现价 | **60s**（`SPOT_CACHE_TTL`）+ 每 40s 预热 | ✅ 正确 |
+本机 Chromium + puppeteer 打开 `https://www.kuaixuangu.cn/auction`（注入会话等价登录），
+先清空生产 `kpl:` 结果层缓存制造冷态，然后逐个点 Tab 计时：
 
-静态资源另有两档（`/etc/nginx/conf.d/kuaixuan.conf`）：`location /`（index.html）`no-store`、
-`location /assets/`（带内容 hash）`public, max-age=31536000, immutable` —— 均正确。
+| Tab | 触发的接口 | 接口耗时 | 点击到数据就绪 |
+|---|---|---|---|
+| 竞价爆量 | `kpl/bid-boom?date=2026-09-24` | 136 ms | 666 ms |
+| **竞价抢筹** | `kpl/bid-qiangcang?date=2026-09-24` | **5559 ms** | **6190 ms** |
+| 竞价委买 | `kpl/bid-seal?date=2026-09-24` | 68 ms | 663 ms |
+| 竞价净额 | `kpl/bid-net?date=2026-09-24` | 119 ms | 666 ms |
+| 昨涨停 | `kpl/yest-zt?date=2026-09-24` | 170 ms | 665 ms |
+| 昨断板 | `kpl/yest-broken?date=2026-09-24` | 175 ms | 661 ms |
+| 昨上榜 | `kpl/lhb?date=2026-09-24` | 219 ms | 670 ms |
 
-> **顺带澄清**：主人问的「有没有设缓存」——**浏览器级缓存是刻意关掉的**（`no-store`），
-> 因为该响应含按用户计费的配额副作用；真正在起作用的是第 2 层（前端内存）与第 3/4 层（服务端）。
-> 所以「客户端缓存」不是"要不要加"的问题，**是"这一层已经存在、而且加多了"**。
+**逐秒采样**（另一次运行，同样先清缓存）：
+
+```
+[竞价委买 1.0s]  {"rows":97,  "active":"竞价委买"}     ← 1 秒就有 97 行
+[竞价抢筹  1s]   {"rows":2,   "active":"竞价抢筹"}     ┐
+[竞价抢筹  2s]   {"rows":2}                            │ 空表，一直在转
+[竞价抢筹  5s]   {"rows":2}                            │
+[竞价抢筹  8s]   {"rows":2}                            ┘
+[竞价抢筹  9s]   {"rows":101, "active":"竞价抢筹"}     ← 第 9 秒才出数据
+```
+
+截图证据（`scripts/deploy_tmp/_kx_be/`）：
+`shot_A_seal_1s.png`（竞价委买 1 秒已满屏）、`shot_B_qc_1s.png`（竞价抢筹 1 秒空表）、
+`shot_C_qc_done.png`（竞价抢筹数据到齐）。
+
+### 为什么这时候是"带 date"的？
+
+`AuctionView.vue:655-665`：非交易日打开页面 → `loadAll()` 拿 overview 后把 `datePicker`
+自动设为最近有数据的交易日（本次实测 = `2026-09-24`）并 toast 提示。
+⇒ 此后**每个 Tab 的请求都带 `?date=2026-09-24`**（回看模式）。
 
 ---
 
-## 2. 「慢」的实测画像
+## 2. 全冷横向对比：只有竞价抢筹断层
 
-### 2.1 生产机 HTTP 端到端（本机直连 8010，自签临时 token）
+清空 `kpl:` 结果层后，逐个接口全冷取数（生产机本机直连 8010）：
 
-| 场景 | 第 1 次（冷） | 第 2 次 | 第 3 次 | 第 4 次 | 第 5 次 |
-|---|---|---|---|---|---|
-| **无 `date`（实时，落最近交易日 09-24）** | **2089.0 ms** | 73.1 | 65.6 | 66.0 | 76.3 |
-| **`?date=2026-09-24`（回看，有数据）** | **5159.8 ms** | 71.3 | 83.9 | 66.9 | — |
-| `?date=2026-09-25`（回看，**空日**：中秋休市） | 602.9 ms | 9.0 | 8.6 | — | — |
-
-⇒ **热路径 66~84ms**（107 行数据、约 25KB JSON）；**冷取数 2.1s / 5.2s**。
-
-### 2.2 生产 nginx access.log（决定性旁证）
-
-```
-GET /api/kpl/bid-qiangcang?date=2026-09-24   rt=0.186 / 6.429 / 5.366 / 6.448 s
-GET /api/kpl/bid-qiangcang?                  rt=0.692 / 0.186 s
-```
-
-与 §2.1 精确吻合：**慢只出现在冷取数，且只在带 `date`（日历回看）时显著**。
-
-### 2.3 生产日志 190 次 loader 抽样（`抢筹[result]` 自带耗时）
-
-```
-n=190   min=1ms   p50=191ms   p90=4644ms   max=55290ms   avg=1699ms
-```
-
-⇒ **中位数 191ms 很快，但 p90 有 4.6s、最坏 55s**。主人感受到的「慢」**就是这条长尾**。
-（55s 那条大概率出现在竞价时段 `deep=True` 逐股查概念的路径上，本轮未复现。）
-
-### 2.4 冷取数成本分解（cProfile，kpl 结果缓存 + 猫爪上游缓存**同时清空**）
-
-| 分段 | 耗时 |
-|---|---|
-| 全冷总耗时（单次） | **11547.9 ms** |
-| `call_cached` 10 次累计 | 9.061 s |
-| └ `call` → `_post_one` → `net.http_get` **5 次**累计 | **7.328 s** ← **全部是猫爪上游网络** |
-| 只清 kpl 层、猫爪上游仍热 | **518.3 ms** |
-
-**逐个猫爪接口的冷耗时**（清上游缓存后单独测）：
-
-| 猫爪接口 | 冷耗时 | 返回行数 |
+| 接口（带 `?date=2026-09-24`） | 全冷耗时 | 返回行数 |
 |---|---|---|
-| `screening_map`（实时选股，全市场） | **2795.5 ms** | 5557 |
-| `free_mv_map`（自由流通市值，内部再走 screening） | **2188.1 ms** | 5904 |
-| `auc_open_bid("0925")`（daily_auc，全市场） | 1291.8 ms | 5569 |
-| `auc_snapshot("0925","before")`（daily_auc_detail） | 636.0 ms | 5567 |
-| `auc_qc_net`（auc_kp） | 130.1 ms | 128 |
+| `bid-seal` 竞价委买 | 11 ms | 97 |
+| `bid-boom` 竞价爆量 | 35 ms | 55 |
+| `bid-net` 竞价净额 | 64 ms | 49 |
+| **`bid-qiangcang` 竞价抢筹** | **6443 ms** | 6（左表主表行数少，另有 101 行分表） |
+| `yest-zt` 昨日涨停 | 124 ms | 51 |
+| `yest-broken` 昨断板 | 117 ms | 15 |
+| `lhb` 龙虎榜 | 207 ms | 63 |
+| `yidong-realtime / hot / monitor` | 157~169 ms | 13/15/4 |
 
-⇒ **冷尾巴 ≈ 5s 集中在两个"全市场扫描"接口**（`screening` + `free_mv_map`），
-而它们产出的数据**最终只用于展示各表前 100 只**。
-
-### 2.5 根因：两级 TTL 错配
-
-- 第 3 层（kpl 结果）**回看 600s / 实时非竞价 300s**
-- 第 4 层（猫爪上游）**统一 30s**
-
-⇒ 第 3 层一过期，第 4 层几乎**必然也早已过期** ⇒ **每次重算都付全额冷成本**。
-第 4 层的 30s 是为"竞价进行中需要实时感"设计的（`_AUC_SNAP_TTL` 注释即是此意），
-但**对历史回看日毫无意义** —— 历史日的数据不可变。
-
-> 缓解因素（事实，需如实记录）：`cached_singleflight` 让并发请求共享同一次加载，
-> 所以「同一个回看日，10 分钟内只有第一个人等 5s」，其余人拿缓存。这也解释了为什么
-> 主人感觉"时快时慢、有时要等好几秒"。
+⇒ **竞价抢筹比其他 Tab 慢 30~580 倍**，完全对得上主人的描述。
 
 ---
 
-## 3. 前端 300s 缓存：为什么它才是体感元凶
+## 3. 5.5 秒花在哪：冷热分层实测
 
-### 3.1 与 30s 轮询直接冲突
+在生产机直接调 service 层，把「结果层」与「猫爪上游层」分别清掉做对照：
+
+| 状态 | 耗时 |
+|---|---|
+| ① 两级都热（结果层命中） | **2 ms** |
+| ② **上游热 / 结果冷**（只清结果层，上游 30s 内仍有效） | **345 ms** |
+| ③ 全冷（两级都失效）—— **主人当前遇到的就是这一档** | **4570~6879 ms** |
+| ④ 结果层已重建（热） | 2 ms |
+
+`②=345ms` 与 `③≈5.5s` 的差距，就是「上游缓存有无」的全部代价。
+
+### cProfile（②状态，总 0.479s）热点
+
+```
+ncalls  cumtime  function
+     4    0.265  meoz_client.py:646 screening_map
+     3    0.234  meoz_client.py:543 free_mv_map
+    10    0.224  meoz_client.py:419 _sym_rows        ← 遍历 5000+ 行建索引
+    10    0.111  json/decoder.py:343 raw_decode      ← 从 SQLite 反序列化大结果
+```
+
+⇒ 即便上游全热，**光把 4 份 5000+ 行结果从缓存取回并建索引，也要 0.3~0.5 秒**。
+
+### 各猫爪上游接口冷/热单次耗时
+
+| 接口 | 冷 | 热 | 行数 |
+|---|---|---|---|
+| `screening_map` | 2008 ms | 47~51 ms | 5557 |
+| `auc_snapshot("0920","before")` | 1722 ms | 20 ms | 5567 |
+| `auc_open_bid("0925")` | 1549 ms | 29 ms | 5569 |
+| `free_mv_map`（内部再走 screening） | 1379 ms | 88 ms | 5904 |
+| `auc_qc_net` | 284 ms | 5 ms | 128 |
+
+---
+
+## 4. 根因：两级 TTL 错配（30s vs 600s）
+
+| 层 | 位置 | TTL |
+|---|---|---|
+| **kpl 结果层** | `services/kpl.py` `_cached("bid_qiangcang[_YYYYMMDD]")` | 回看 **600s** / 竞价中 30s / 实时非竞价 300s |
+| **猫爪上游层** | `services/meoz_client.py:372` `_AUC_SNAP_TTL = 30` | **30s**（统一） |
+
+- 结果层命中 → **2 ms**（10 分钟内再访问都是这个速度，所以主人会觉得"有时很快"）
+- 结果层过期 → 上游 30s 早已过期 → **全额冷取数 5.5s**
+- `cached_singleflight` 让并发者共享同一次加载 ⇒「同一回看日，只有第一个等 5 秒，其余拿缓存」，
+  这正是主人感受到的「**时快时慢**」。
+
+**上游 30s 的设计意图**是为"竞价进行中要有实时感"，这对**历史回看日毫无意义** —— 历史日数据不可变。
+
+---
+
+## 5. 修正：关于前端 `cache: 300`（**不是**本次问题的原因）
+
+初版把 `api/kpl.js` 的 `cache: 300` 当成"体感元凶"。**对本次现象这不成立**：
+`memCache` 是**首次请求之后**才写入的，而主人抱怨的是**首次打开就要等 5 秒** ——
+首次必然缓存未命中，与本行无关。
+
+它真正的问题是另一件事（**盘中模式**下把 30s 轮询压成 300s），详见 §6.3，与本次现象应分开处理。
+
+---
+
+## 6. 仍然成立的旁证（初版保留）
+
+### 6.1 缓存共 5 层，设计基本正确
+
+| # | 层 | 位置 | TTL |
+|---|---|---|---|
+| 1 | 浏览器 HTTP | `api/deps.py` `jr()` 一律 `Cache-Control: no-store`；nginx `/api/` 无 `proxy_cache` | 禁用（刻意） |
+| 2 | 前端内存 | `frontend/src/api/request.js` `memCache`（`kplBidQiangcang` 传 `cache: 300`） | 300s |
+| 3 | 后端结果 | `services/kpl.py` `_cached(...)` | 600 / 30 / 300s |
+| 4 | 后端上游 | `services/meoz_client.py` `call_cached` | **30s** ← 本次根因 |
+| 5 | 东财行情 | `services/fetcher.py` `_quote_map_cache`（进程内） | 60s + 40s 预热 |
+
+### 6.2 缓存后端是 SQLite，不是 Redis
+
+`config.CACHE_BACKEND = "sqlite"`（无 `redis` 模块）⇒ `cache_store.SqliteCacheStore`，
+**跨进程 JSON 序列化**。所以第 3 层每次取回都是**新对象**，
+`api/kpl.py` 每请求重跑 `_apply_change_for`（现涨）是**刻意且必须**的 —— 否则现涨不会刷新。
+
+### 6.3 盘中模式：`cache: 300` 确实会压住 30s 轮询
 
 ```js
-// frontend/src/views/AuctionView.vue:832-843
+// AuctionView.vue:832-843 —— 轮询 30s
 polling = usePolling(async () => {
-  if (datePicker.value) return true      // 历史回看模式: 不轮询
-  signalRefreshing.value = true
+  if (datePicker.value) return true      // 回看模式整拍跳过
   loadedTabs.clear()
-  const ok = await ensureTabData(tab.value, { silent: true })   // → kplBidQiangcang(dt)
-  ...
+  const ok = await ensureTabData(tab.value, { silent: true })
 }, 30000, { backoff: true })
 ```
 
-```js
-// frontend/src/api/kpl.js
-export function kplBidQiangcang(date = '') {
-  return request('/api/kpl/bid-qiangcang', { query: date ? { date } : {}, cache: 300 })
-}
-```
-
-- 页面**每 30s 轮询一次**；
-- 但 `cache: 300` 让 `request.js` 的 `memCache` **5 分钟内直接返回旧值，根本不发请求**；
-- ⇒ **实际刷新频率 = 每 5 分钟 1 次**，30s 轮询里 **9 次被客户端缓存吃掉**。
-
-这正好对上主人的原话：「**竞价后基本上只更新实时涨幅就可以了**」——
-而实时涨幅（`realChange`）现在的刷新周期恰恰是 **300s**，不是 30s。
-
-### 3.2 非交易日 / 盘后：轮询会被整拍跳过
-
-`AuctionView.vue:657-664`：非交易日 `loadAll` 会把 `datePicker` 自动设为最近交易日
-（并 toast「当前非交易时段，自动显示最近交易日…」）⇒ `AuctionView.vue:833` 的
-`if (datePicker.value) return true` **整拍 return**，一点请求都不发。
-
-⇒ 于是出现两种截然不同的体感：
-
-| 场景 | `datePicker` | 轮询 | 前端 300s 缓存影响 |
+| 场景 | `datePicker` | 轮询 | `cache:300` 影响 |
 |---|---|---|---|
-| **交易日盘中/盘后**（`days[0] == 今天`） | `''` | **开**（30s） | 🔴 **吃掉 9/10 次刷新** |
-| 非交易日 / 自动回退到历史日 | 最近交易日 | **关（整拍跳过）** | 无影响（不发请求） |
-| 用户手点日历回看 | 所选日 | 关（整拍跳过） | 无影响（每点一次发一次，300s 内重复点才命中） |
+| 交易日盘中（`days[0]==今天`） | `''` | 开（30s） | 🔴 实际刷新被压成 300s |
+| 非交易日 / 自动回退 | 最近交易日 | 关（整拍跳过） | 无（不发请求） |
+| 手动日历回看 | 所选日 | 关 | 无 |
 
-⇒ **真正的伤害只在"交易日"这一种场景**，但那是主人最常用的场景。
+⇒ 这是**独立于本次现象**的第二个问题，建议一并修（§7 建议 C）。
 
-### 3.3 服务端每次重算现涨是**刻意设计**，不要动
+### 6.4 硬约束：`quota_guard("auction")`
 
-`backend/app/api/kpl.py:733-790`：**每次请求**都跑
-
-- `apply_board_concept_db` + `_ensure_concepts`（非竞价时段，轻量）或 `apply_board_concept`
-  `deep=True`（竞价时段）
-- `_apply_change_for(l20/l20Chg/lLast, serve_date)` → 盘中调 `_update_spot_change`
-  （东财全市场现涨，走第 5 层 60s 缓存 + 40s 预热，**实测热 0ms、冷 886ms**）
-- `fill_bid_turnover_from_snap`
-
-这是**必须的** —— 否则「现涨」永远不会随日期/盘中变化。所以：
-**要刷新现涨，请求必须真的到达后端**；前端 300s 缓存把这条通路掐断了。
+- 会员 / 管理员：直接放行，不限次
+- **免费用户：1 次/日**（`QUOTA_AUCTION_DAILY`），`QUOTA_DEDUP_SECONDS=10`，超额 429
+⇒ **不能用"调短轮询"来掩盖慢**；但把 `cache: 300 → 0` 不会增加免费用户配额消耗
+（第 2 次请求本来就被 429 拦下）。
 
 ---
 
-## 4. 硬约束：配额（决定了"不能靠调短轮询来救"）
+## 7. 建议（按性价比排序）
+
+### A. 治本（推荐，5 处小改）：历史回看日给猫爪上游长 TTL
+
+**安全性已验证**：`call_cached` 的键 = `meoz:<api>:<json(params, sort_keys=True)>`，
+而回看路径传的是**绝对日期**：
 
 ```python
-# backend/app/api/kpl.py:734
-def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(quota_guard("auction")), date: str = "")
+# kpl.py:2704-2708
+_meoz_date = None
+_meoz_off = 0
+if date:
+    _meoz_date = str(date).replace("-", "")   # 绝对日 → 进缓存键（按日隔离）
+    _meoz_off = None
 ```
 
-`quota_guard("auction")`（`api/deps.py:99-128`）：
+```python
+# meoz_client.py —— 回看键形如 meoz:screening:{"tradedate": "20260924"}
+params = {}
+if date:
+    params["tradedate"] = str(date).replace("-", "")
+elif date_offset is not None:
+    params["tradedate_offset"] = date_offset   # 实时路径：相对键，跨日会窜 ⇒ 禁用长 TTL
+```
 
-- **会员 / 管理员：直接放行，不计数、不限次**
-- **免费用户：`QUOTA_AUCTION_DAILY = 1` 次/日**，`QUOTA_DEDUP_SECONDS = 10` 去重窗口；
-  超额返 **429**（`code=quota_exceeded`），前端弹"开通会员"引导
+⇒ 历史日键**天然按日隔离且值不可变**，长 TTL 无风险。
 
-⇒ 三条推论：
+```diff
+--- a/backend/app/services/meoz_client.py
++import datetime as _dt
++
++_HIST_TTL = int(os.environ.get("MEOZ_HIST_TTL", "3600"))   # 回看日上游缓存(秒)
++
++def _ttl_for(apiname: str, params) -> float:
++    """回看日(绝对 tradedate 且**非今天**)数据不可变 → 长 TTL, 避免与 kpl 结果层(600s)错配。
++    ⚠️ 必须排除"今天": 交易日盘中若前端带了今天的日期, 数据仍在变。"""
++    td = (params or {}).get("tradedate")
++    if td and str(td) != _dt.date.today().strftime("%Y%m%d"):
++        return max(float(_HIST_TTL), cache_ttl(apiname))
++    return cache_ttl(apiname)
+```
 
-1. **不能靠"把轮询间隔调短"来掩盖慢** —— 免费用户第 2 次就被 429 拦住（已是既成事实）。
-2. **把 `cache: 300` 去掉不会增加免费用户的配额消耗** —— 免费用户第 2 次请求本来就被 429 拒绝，
-   `ensureTabData` 返回 `false` → `usePolling` 退避（30s→60s→120s…上限 5min）。
-3. **对会员只是把热路径多打几次** —— 66~84ms/次、30s 一次 = 每小时 120 次，成本可忽略
-   （现涨走 60s 进程内缓存 + 40s 预热，几乎总是热的）。
+然后把 `screening_map` / `free_mv_map` / `auc_snapshot` / `auc_open_bid` / `auc_qc_net`
+五处 `ttl=_AUC_SNAP_TTL` 换成 `ttl=_ttl_for("<api>", params)`。
 
----
+**预期效果**：回看日「结果层即便过期」的重算 **5.5s → 0.35s**（§3 实测 345ms）；
+主人感受到的是"点开就有"。
 
-## 5. 建议
+### B. 补充：回看日结果层 TTL 600s → 1800s（数据不可变，纯收益）
 
-### 5.1 立即（1 行，风险极低，直接解决主人抱怨的"现涨不刷新"）
+同上，**必须排除"今天"**。
 
-按 `date` 分流 —— 历史回看数据不可变（300s 客户端缓存**是安全的**），实时必须走网络：
+### C. 顺带修（与本次现象独立）：修掉盘中 `cache: 300` 压轮询
 
 ```diff
 // frontend/src/api/kpl.js
  export function kplBidQiangcang(date = '') {
 -  return request('/api/kpl/bid-qiangcang', { query: date ? { date } : {}, cache: 300 })
-+  // 2026-09-28: 历史回看数据不可变 → 300s 客户端缓存安全;
-+  //             实时(无 date)必须让 30s 轮询真刷现涨 → 不缓存(否则 30s 轮询实际变成 300s)
++  // 回看日数据不可变 → 300s 客户端缓存安全；实时(无 date)必须让 30s 轮询真刷现涨
 +  return request('/api/kpl/bid-qiangcang', { query: date ? { date } : {}, cache: date ? 300 : 0 })
  }
 ```
 
-**预期效果**：交易日页面现涨刷新周期 **300s → 30s**；每次请求服务端耗时 66~84ms（热）。
-**风险**：免费用户配额行为不变（见 §4.2）；会员网络请求量 ×10，绝对值仍很小。
+### D. 保险：`withTimeout` 12s → 15s
 
-**配套检查**（`AuctionView.vue:643`）：
+`AuctionView.vue:643` 的 `withTimeout(p, ms=12000)` 超时**返回空列表**（不抛错）。
+全冷实测最坏 11.5s ⇒ 12s 会在临界点截断成"点了没数据"。
 
-```js
-function withTimeout(p, ms = 12000) { ... }
-```
+### E. 可选：收窄返回体
 
-冷取数实测最坏 **11.5s**，12s 的 `withTimeout` 会**在临界点上截断**成空列表
-（`withTimeout` 超时返回 `{list20: [], ...}`），表现为"点了没数据"。
-建议提到 **15000ms**，或对回看日单独放宽。
+`screening_map(symbols=...)` **已支持点查**（`meoz_client.py:646-689`）。
+⚠️ 例外：`list20` 的兜底 `_list20_fundflow_fallback`（`kpl.py:2592-2611`）需要**全市场**
+做「自由流通市值 ≥ 2 亿」候选筛选，那条路径不能收窄。
 
-### 5.2 中期（治本：消掉 5s 冷尾巴）
-
-**核心改法：历史回看日让猫爪上游按"日键"长 TTL。**
-安全性有据可查 —— `call_cached` 的键是 `meoz:<api>:<json(params, sort_keys=True)>`，
-而回看路径 `kpl.py:2704-2708` 传的是**绝对日期**：
-
-```python
-_meoz_date = None
-_meoz_off = 0
-if date:
-    _meoz_date = str(date).replace("-", "")   # 绝对日 → 进缓存键
-    _meoz_off = None
-```
-
-⇒ 历史日的上游缓存键**天然按日隔离**，且该日数据不可变 ⇒ 长 TTL 无风险。
-（⚠️ **实时路径不能用长 TTL**：那时 `_meoz_date=None / _meoz_off=0`，
-键里是 `tradedate_offset:0` 这种**相对键**，跨自然日会窜味。）
-
-```diff
-// backend/app/services/meoz_client.py
-+def _hist_ttl(apiname: str, date) -> float:
-+    """回看日(绝对日期键)数据不可变 → 与 kpl 结果层(600s)同寿甚至更长，避免两级 TTL 错配。"""
-+    return 3600 if date else cache_ttl(apiname)
-```
-
-并把 5 处 `ttl=_AUC_SNAP_TTL` 改为 `ttl=_hist_ttl("<api>", date)`：
-`screening_map` / `free_mv_map`(内部 `screening_map`) / `auc_snapshot` /
-`auc_open_bid` / `auc_qc_net`。
-
-**预期效果**：回看日「第 2 次之后即便 kpl 层过期」的重算从 **5.2s → ≈0.5s**（实测 518ms）。
-把 p90 从 4.6s 压到亚秒级。
-
-**可选增强 2：收窄返回体。** `screening_map(symbols=...)` **已支持点查**
-（`meoz_client.py:646-689`，注释实测「传 symbols 回指定行、字段齐全」）。
-各表只展示前 100 只 ⇒ 可只点查这批 code，把 5557 行的全市场扫描降为百行级。
-⚠️ **注意例外**：`list20` 的兜底路径 `_list20_fundflow_fallback`（`kpl.py:2592-2611`）
-需要**全市场**做「自由流通市值 ≥ 2 亿」的候选筛选，那条路径不能收窄。
-
-**可选增强 3**：kpl 结果层历史日 TTL 600s → 1800s（数据不可变，纯收益）。
-
-### 5.3 明确不建议做的事
+### 明确不建议
 
 | 不建议 | 原因 |
 |---|---|
-| 给 `/api/kpl/bid-qiangcang` 加 HTTP 缓存 / nginx `proxy_cache` | 响应含 per-uid 配额副作用；且第 1 层 `no-store` 是刻意设计 |
-| 调短前端轮询间隔（<30s）来"抢"现涨 | 免费用户配额 1 次/日（§4），会立刻 429；对会员也只是多打热路径 |
-| 拆"只取现涨"的独立接口后**复用 `auction` 配额** | 会把现涨轮询和主接口抢同一份额度；若要做，须走**独立且不计费的 feature 键**，与主接口解耦 |
-| 降低第 3 层（kpl 结果）TTL 来"提新鲜度" | 现涨本来就由 api 层每请求重算，与第 3 层 TTL 无关；降 TTL 只会放大冷尾巴 |
+| 给该接口加 HTTP / nginx `proxy_cache` | 响应含 per-uid 配额副作用；第 1 层 `no-store` 是刻意设计 |
+| 调短轮询间隔（<30s）抢现涨 | 免费用户 1 次/日，会立刻 429 |
+| 降低结果层 TTL 提新鲜度 | 现涨由 api 层每请求重算，与结果层 TTL 无关；降 TTL 只会放大冷尾巴 |
 
 ---
 
-## 6. 复现脚本（本轮新增，均在 `scripts/deploy_tmp/`）
+## 8. 顺带发现（建议另立工单，非本次范围）
 
-| 脚本 | 用途 | 副作用 |
-|---|---|---|
-| `_kx_qc_profile.py` | 测试机：loader / api 层各段计时 | 只读 |
-| `_kx_be/_kx_probe_qc_prod.py` | 生产：实时接口连打 5 次 + 回看日冷热 + 缓存键自证 | 只读 + 少量无害请求；自签 token 用后即删 |
-| `_kx_be/_kx_probe_qc_hist.py` | 生产：回看「有数据的历史日」冷/热（含删该日 kpl 缓存键） | 删 1 个历史日缓存键（可自愈） |
-| `_kx_be/_kx_prof_qc_cold.py` | 生产：cProfile 定位（kpl 层冷） | 只读 |
-| `_kx_be/_kx_prof_qc_cold2.py` | 生产：**真·全冷**（kpl + 猫爪上游都清）+ 各猫爪接口分项冷耗时 | 清猫爪缓存（30s 内自愈） |
-| `_kx_be/_kx_push_and_run.py` | 推脚本到生产并执行（一次调用内完成） | — |
+**无 `date`（盘中实时）路径下，部分接口没有有效结果缓存**：清空 `kpl:` 后
+`bid-boom` **15850 ms** / `yest-zt` **15380 ms** / `lhb` **7434 ms**；
+紧接着再打一遍（本应命中缓存）仍要 7225 / 11422 / 7576 ms。
+⇒ 这三个接口的实时路径**每次请求都在重算**，比竞价抢筹更值得排查（待确认其缓存键是否含变动量）。
 
 ---
 
-## 7. 待主人裁决
+## 9. 复现脚本（本轮全部只读 / 自愈）
 
-本报告**未改任何一行运行时代码**。需主人点头的两项：
+| 脚本（`scripts/deploy_tmp/`） | 用途 |
+|---|---|
+| `_kx_be/_kx_auction_tabs.js` | **真实浏览器**逐 Tab 计时（puppeteer + 本机 Chromium） |
+| `_kx_be/_kx_shot_qc.js` | 逐秒采样 + 用户视角截图 |
+| `_kx_be/_kx_cold_per_tab.py` | 生产：各 Tab 接口全冷/热横向对比 |
+| `_kx_be/_kx_qc_ttl_gain.py` | 生产：冷热分层收益量化 |
+| `_kx_be/_kx_prof_qc_hotup.py` | 生产：**上游热/结果冷**剖析（确认 345ms）+ meoz 缓存命中自证 |
+| `_kx_be/_kx_purge_kpl.py` | 清 `kpl:` 前缀（30~600s 内自愈；仅制造冷态用） |
+| `_kx_be/_kx_push_and_run.py` | 推脚本到生产并执行 |
 
-- **A（立即，1 行）**：`api/kpl.js` 的 `cache` 按 `date` 分流 + `withTimeout` 12000→15000。
-- **B（中期，治本）**：`meoz_client` 历史日上游长 TTL（5 处），p90 从 4.6s 压到亚秒级。
+> ⚠️ **踩坑（本轮新增）**：做「上游热」对照实验时，**不能用"再调一次接口"当预热** ——
+> 如果结果层当时还热，那次调用是直接命中结果层、**压根不会打上游**，上游缓存是空的，
+> 于是②会得到 5090ms 的**假结论**。必须先 `clear_prefix("kpl:")` + `meoz_client.clear_cache()`
+> 再预热，才能得到真实的 345ms。
 
-A 单独做即可解决"现涨不刷新"的体感；B 解决"第一次点回看要等 5 秒"。
+---
+
+## 10. 状态
+
+**本报告未改任何一行运行时代码。** 建议 A~E 待主人裁决后落地，
+届时按「同构替身真跑验证」（先在生产机以临时脚本验证 `_ttl_for` 的边界：
+`tradedate=今天` 必须回落到 30s、`tradedate=历史日` 才用长 TTL）再上线。
