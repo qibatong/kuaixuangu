@@ -4,8 +4,16 @@ frontend/dist/
 frontend/dist_v*/
 dist/
 dist_v*/
-# 本地 vite build 前把 dist 改名备份(绕开沙箱 safe-delete 守卫)—— 约 1000 文件/个, 严禁入库
+# 本地 vite build 前把 dist 改名备份(绕开沙箱 safe-delete 守卫)—— 约 1000 文件/个, 严禁入库。
+# 🔴 2026-09-27 事故: 原规则只写了 `dist_old_*/`, **匹配不到** `dist_oldsuspect_<TS>/`
+#    (名字里 `dist_old` 后面没有下划线) ⇒ 一次 `git add -A` 把 1050 个文件误入库(见 6504e31)。
+#    ⇒ 规则改为 `dist_old*/` 以覆盖任意变体, 并补上 `dist.bak_*` / `dist_bak_*` / `dist.old*`
+#      (这三个是服务器侧备份的命名, 本机若从远端拉回同样不得入库)。
+dist_old*/
 dist_old_*/
+dist.bak_*/
+dist_bak_*/
+dist.old*/
 build/
 build_v*/
 

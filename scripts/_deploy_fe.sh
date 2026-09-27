@@ -55,6 +55,22 @@ if [ "$STAGE" = "1" ]; then
   echo "暂存目录: $NEW"
 
   echo
+  echo "########## S1-1b 剔除 macOS AppleDouble 垃圾(._*) ##########"
+  # 🔴 2026-09-27 事故: 打包侧(macOS `tar` 未设 COPYFILE_DISABLE=1)会给**每个带扩展属性**的
+  #    文件补一条 `._*` AppleDouble 影子条目; 解包后线上 dist 一度混入 **1258 个 `._*`**
+  #    (真实文件仅 1296)。危害不止"脏":
+  #      ① 「文件数 / 资产数」断言被**无声抬高** —— 沿用旧期望值直接 FAIL,
+  #         改写成一个新数字则**断言永久失去判别力**(数字看着对, 垃圾照样进);
+  #      ② `._*` 与真实 chunk 名**不再匹配**, 换盘后跨越多次部署**持续累积**。
+  #    这里**就地剔除 + 硬断言 0** —— 不论上游用哪种打包方式都拦得住, 不要求对方记得设环境变量。
+  DOT=$(find "$NEW" -type f -name '._*' | wc -l)
+  if [ "$DOT" != "0" ]; then
+    echo "⚠️  暂存目录含 $DOT 个 ._* 垃圾(打包侧漏了 COPYFILE_DISABLE=1) —— 已就地剔除"
+    find "$NEW" -depth -name '._*' -exec rm -rf {} + 2>/dev/null || true
+  fi
+  chk "._* 残留" "$(find "$NEW" -name '._*' | wc -l)" "0"
+
+  echo
   echo "########## S1-2 规模断言 ##########"
   [ -n "$EXP_FILES" ]  && chk "文件数" "$(find "$NEW" -type f | wc -l)" "$EXP_FILES"
   [ -n "$EXP_ASSETS" ] && chk "assets 数" "$(ls -1 "$NEW/assets" | wc -l)" "$EXP_ASSETS"
