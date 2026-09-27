@@ -55,10 +55,20 @@
                  连板数口径 = 「买入前一日」(后端 _fill_lb 下发), 未知时不渲染而不是显示「新启动」。
                  2026-09-23 15:5x 主人要求:
                    ① 连板标签的悬停提示(同档历史统计/样本区间/免责)**整条取消** —— 不再有 title。
-                   ② 异动标签里「偏离较大」不再显示 —— 过滤在 useYidongMonitor.yidongTag() 里统一做。 -->
+                   ② 异动标签里「偏离较大」不再显示 —— 过滤在 useYidongMonitor.yidongTag() 里统一做。
+                 2026-09-27 v4.11.64 追加第三个徽章「异动风险」(红/黄): 与橙色「严重异动」语义**不同** ——
+                   · 橙色「严重异动」= 开盘啦/交易所**已经公布**的监管名单(useYidongMonitor)
+                   · 红/黄「异动风险」= 我们**按上交所 5.4.2 口径自算**的「会不会越线」(useDevWarn)
+                   两者互不覆盖, 故并排显示; 无标签时该 span 不渲染(行高由 .badge-row 恒定保证)。 -->
             <div class="badge-row">
               <span v-if="lbLabel(item.lb)" class="lb-tag" :class="lbClass(item.lb)">{{ lbLabel(item.lb) }}</span>
               <span v-if="yidongTag(item.code)" class="yd-badge" :title="yidongTagTitle(item.code)">{{ yidongTag(item.code) }}</span>
+              <span
+                v-if="devWarnLabel(item.code)"
+                class="dev-badge"
+                :class="'dev-badge-' + devWarn(item.code)"
+                :title="devWarnTitle(item.code)"
+              >{{ devWarnLabel(item.code) }}</span>
             </div>
           </td>
           <td :class="realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + pct(item._staleReal) + '）') : ''">{{ pct(item.realChange) }}</td>
@@ -89,9 +99,14 @@ import { fmtNum, pct } from '../utils/format'
 // 🔴 `lbTip` 已不再引入: 2026-09-23 15:5x 主人要求取消连板标签的悬停提示(函数仍留在 lb.js)。
 import { lbClass, lbLabel } from '../utils/lb'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
+// 2026-09-27 v4.11.64「异动风险」徽章（《快选异动停牌风险功能工单》§六：打通选股名单）
+// ★ 用 AutoLoad 版：它在 **onMounted** 里惰性拉取。不能放 setup 顶层 ——
+//   setup 在 SSR/单测里会执行、onMounted 不会，顶层拉取会在 Node 里发真实 fetch。
+import { useDevWarnAutoLoad } from '../composables/useDevWarn'
 import PoolHoverBtn from './PoolHoverBtn.vue'
 
 const { yidongTag, yidongTagTitle } = useYidongMonitor()
+const { devWarn, devWarnLabel, devWarnTitle } = useDevWarnAutoLoad()
 
 const props = defineProps({
   stocks: { type: Array, default: () => [] },
@@ -337,6 +352,25 @@ body[data-bg="light"] .lb-tag-lv5 { background: transparent; border-color: #a32d
   font-weight: 600;
   white-space: nowrap;
 }
+/* 2026-09-27 v4.11.64「异动风险」徽章：**描边式**（不是实心）——
+   与上面橙色实心的「严重异动」一眼可分；红色=今日已越线，黄色=明日涨停即越线/已临近。
+   三者并排时宽度预算：连板(2~3字) + 严重异动(4字) + 异动风险(4字) ≈ 110px，
+   超过窄屏名称列宽时由 .badge-row 的 overflow:hidden 裁掉尾部（不换行、不撑高）。 */
+.dev-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: help;
+}
+.dev-badge-red { background: rgba(255, 77, 79, 0.16); border-color: rgba(255, 77, 79, 0.6); color: #ff9a9a; }
+.dev-badge-yellow { background: rgba(255, 197, 61, 0.13); border-color: rgba(255, 197, 61, 0.55); color: #ffd666; }
+body[data-bg="light"] .dev-badge-red { background: #fde3e3; border-color: #d4380d; color: #8c1c00; }
+body[data-bg="light"] .dev-badge-yellow { background: #fff8e0; border-color: #c79100; color: #7a4d00; }
 .stock-info-cell .stock-code-row {
   order: 2;
   line-height: 1.2;

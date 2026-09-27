@@ -26,6 +26,14 @@
  *           所以能用夹具把 loading/empty/err/ok 四个态各自渲染出来。
  *           ★ 重点断言「空结果」与「服务失败」文案**必须不同**：两者都长成空列表
  *             就是本项目最忌讳的"静默"（yday_amount 冻结 9 日 / 名单退回昨日 同型）。
+ *        ⑤ G10 DataStamp 数据更新时刻三态（v4.11.63）。
+ *        ⑥ G11 异动/停牌风险（v4.11.64 · 工单批次三）：DevWarnList 四态 +
+ *           DevRiskDetail（算得出 / **算不出** / 未计算）+ `/yidong` 本体三 tab。
+ *           ★ 最要紧的一条：后端用 `ok:false + reason` 表达「算不出」（指数源不可用、
+ *             个股长期停牌…），前端**绝不能**渲染成一堆 0 —— 那就是把"不知道"画成"安全"，
+ *             与「yday_amount 冻结 9 个交易日」是同一类缺陷。
+ *        ⑦ G11 另押一条纪律：已删 tab（热门股偏离值 / 多次异动）不许留残留 ——
+ *           模板里的死代码不会报错，只会静默留在页面上。
  *
  * 跑法（见 frontend/package.json 的 `test:nav`；`npm run verify` = lint + 本测试）：
  *   1) vite build --ssr _verify/nav.spec.js --outDir .navssr --emptyOutDir
@@ -58,6 +66,10 @@ import StockSearch from '../src/components/StockSearch.vue'
 import StockSearchPanel from '../src/components/StockSearchPanel.vue'
 // v4.11.63 数据更新时刻（《快选移动端追加清单》§二·4）
 import DataStamp from '../src/components/DataStamp.vue'
+// v4.11.64 异动 / 停牌风险（《快选异动停牌风险功能工单》批次三）
+import DevWarnList from '../src/components/DevWarnList.vue'
+import DevRiskDetail from '../src/components/DevRiskDetail.vue'
+import YidongView from '../src/views/YidongView.vue'
 import { summarizePicks } from '../src/utils/picks'
 import { mergeLimitCount, sortBoardsByLimit } from '../src/utils/boards'
 
@@ -483,6 +495,146 @@ for (const [n, r] of [['已更新', g10], ['未更新', g10b], ['无轮询', g10
   ok(`DataStamp(${n}) 不含 "undefined"`, !r.html.includes('undefined'))
   ok(`DataStamp(${n}) 不含 "NaN"`, !r.html.includes('NaN'))
 }
+
+// ==================== G11. 异动 / 停牌风险（v4.11.64 · 工单批次三） ====================
+//   两个纯展示组件 + `/yidong` 本体。重点盯三件事：
+//     ① `ok:false`（后端刻意用它表达"算不出"）**不许**被渲染成一堆 0 —— 那就是"静默造假"；
+//     ② 「读取失败」与「今天没有风险」文案必须不同（本项目头号缺陷类型）；
+//     ③ 三 tab 改名后，「热门股偏离值 / 多次异动」两个已删 tab 不许残留。
+console.log('\n— G11. 异动风险名单 DevWarnList（四态）')
+
+const devRows = [
+  { code: '605058', name: '澳弘电子', board: '沪深主板', board_key: 'main_sh', price: 21.5,
+    today_dev: 1.24, d3: 25.86, d3_status: '触发', d10: 99.99, d10_status: '临近',
+    d30: 126.79, d30_status: '安全', next_trigger_pct: null, trigger_price: null,
+    rule: '', reachable: 0, warn_level: 'red', warn_msg: '已触发3日偏离值异动线' },
+  { code: '300750', name: '宁德时代', board: '创业板', board_key: 'gem', price: 188.2,
+    today_dev: 3.4, d3: 28.1, d3_status: '临近', d10: 61.2, d10_status: '安全',
+    d30: 90.5, d30_status: '安全', next_trigger_pct: 1.42, trigger_price: 190.87,
+    rule: '3日±30%', reachable: 1, warn_level: 'yellow', warn_msg: '明日涨 1.42% 即触发3日±30%' },
+]
+
+const g11 = await renderComp(DevWarnList, { rows: devRows, date: '2026-09-24' }, '/yidong')
+ok('DevWarnList 渲染无异常/无警告', g11.errors.length === 0, g11.errors.join(' | '))
+ok('汇总条给出结果日期（非交易日看到的是上一交易日，必须显式）', g11.html.includes('2026-09-24'))
+ok('红/黄计数分别统计', g11.html.includes('红级 1') && g11.html.includes('黄级 1'))
+ok('两级各渲染一行', countByClass(g11.html, 'dev-lv') === 2,
+  '实际 ' + countByClass(g11.html, 'dev-lv'))
+ok('级别徽章按 level 上色（红/黄各一）',
+  countByClass(g11.html, 'dev-lv-red') === 1 && countByClass(g11.html, 'dev-lv-yellow') === 1)
+ok('带出代码与名称', g11.html.includes('605058') && g11.html.includes('澳弘电子') &&
+  g11.html.includes('300750') && g11.html.includes('宁德时代'))
+ok('三条线的值/状态都渲染（触发→红、临近→黄）',
+  g11.html.includes('+25.86%') && g11.html.includes('+99.99%') && g11.html.includes('+126.79%'))
+ok('明日触发涨幅：可达者给出数值 + 规则', g11.html.includes('1.42%') && g11.html.includes('3日±30%'))
+ok('明日触发涨幅为空时渲染「—」而不是 0', g11.html.includes('—'))
+ok('🔴 渲染结果不含 "undefined"', !g11.html.includes('undefined'))
+ok('🔴 渲染结果不含 "NaN"', !g11.html.includes('NaN'))
+
+// ② 空：明说「没有风险」并解释名单生成时刻；③ 失败：明说读取失败 —— ★ 两者不许同文案
+const g11e = await renderComp(DevWarnList, { rows: [], date: '2026-09-24' }, '/yidong')
+ok('空名单：说明当前无触发/临近，并给出生成时刻解释',
+  g11e.html.includes('当前没有触发或临近'))
+const g11f = await renderComp(DevWarnList, { rows: [], failed: true, date: '' }, '/yidong')
+ok('失败态：明说「读取失败」并点明不是「今天没有风险」',
+  g11f.html.includes('读取失败') && g11f.html.includes('不是「今天没有风险」'))
+ok('🔴 失败与空名单文案必须不同（不许都渲染成一个空列表）',
+  !g11e.html.includes('读取失败') && !g11f.html.includes('当前没有触发或临近'))
+const g11l = await renderComp(DevWarnList, { rows: [], loading: true }, '/yidong')
+ok('加载态：给出「加载异动风险名单」', g11l.html.includes('加载异动风险名单'))
+
+console.log('\n— G11. 个股计算器 DevRiskDetail（算得出 / 算不出 / 未计算）')
+
+const devFixture = {
+  ok: true, code: '605058', name: '澳弘电子', board: '沪深主板', board_key: 'main_sh',
+  index: '000002', index_name: '上证A指', price: 21.5, date: '2026-09-24',
+  limit_up_pct: 10.0, today_dev: 1.24,
+  dev: {
+    d3: { value: 25.86, thresh: 20, status: '触发' },
+    d10: { value: 99.99, thresh: 100, status: '临近' },
+    d30: { value: 126.79, thresh: 200, status: '安全' },
+  },
+  detail: {
+    3: { value: 25.86, stock_pct: 27.1, idx_pct: 1.24, window: '2026-09-22→2026-09-24', base_date: '2026-09-19' },
+    10: { value: 99.99, stock_pct: 101.2, idx_pct: 1.21, window: '2026-09-11→2026-09-24', base_date: '2026-09-10' },
+    30: { value: 126.79, stock_pct: 130.0, idx_pct: 3.21, window: '2026-08-14→2026-09-24', base_date: '2026-08-13' },
+  },
+  window: { 3: '2026-09-22 → 2026-09-24（期初前 2026-09-19）', 10: '', 30: '' },
+  room: { next_trigger_pct: 8.84, trigger_price: 23.4, rule: '3日±20%', reachable: true,
+          limit_up_pct: 10, hit: [] },
+  project10: [
+    { day: 1, date: '2026-09-25', price: 23.65, dev3: 33.1, dev10: 33.1, dev30: 33.1, trigger: '3日±20%' },
+    { day: 2, date: '2026-09-28', price: 26.02, dev3: 46.4, dev10: 46.4, dev30: 46.4, trigger: '3日±20%' },
+  ],
+  warn: { level: 'red', msg: '已触发3日偏离值异动线' },
+}
+
+const g11d = await renderComp(DevRiskDetail, { data: devFixture, code: '605058' }, '/yidong')
+ok('DevRiskDetail 渲染无异常/无警告', g11d.errors.length === 0, g11d.errors.join(' | '))
+ok('表头带出名称/代码/板块/对应指数/涨停幅度',
+  g11d.html.includes('澳弘电子') && g11d.html.includes('605058') &&
+  g11d.html.includes('沪深主板') && g11d.html.includes('上证A指') && g11d.html.includes('000002'))
+ok('三条偏离线各渲染一张卡（3/10/30 日）',
+  countByClass(g11d.html, 'dd-card') === 3, '实际 ' + countByClass(g11d.html, 'dd-card'))
+ok('三条线状态用 ascii 类名上色（触发→dd-hit、临近→dd-near）',
+  countByClass(g11d.html, 'dd-hit') >= 1 && countByClass(g11d.html, 'dd-near') >= 1)
+ok('偏离值/阈值/个股区间/指数区间都给出',
+  g11d.html.includes('+25.86%') && g11d.html.includes('+27.10%') && g11d.html.includes('+1.24%'))
+ok('明日触发空间：8.84% + 触发价 23.40 + 规则', g11d.html.includes('8.84%') &&
+  g11d.html.includes('23.40') && g11d.html.includes('3日±20%'))
+ok('hit 为空且未越涨停 ⇒ 提示「明日单日不可能触发」',
+  g11d.html.includes('超过一个涨停幅度'))
+ok('十日投影表渲染 2 行', g11d.html.indexOf('dd-table') >= 0 &&
+  (g11d.html.match(/2026-09-25|2026-09-28/g) || []).length >= 2)
+ok('🔴 渲染结果不含 "undefined"', !g11d.html.includes('undefined'))
+ok('🔴 渲染结果不含 "NaN"', !g11d.html.includes('NaN'))
+
+// hit 非空 ⇒ 头部改成「明日涨停即触发」
+const g11h = await renderComp(DevRiskDetail, {
+  data: { ...devFixture, room: { ...devFixture.room, hit: ['3日±20%'] } }, code: '605058',
+}, '/yidong')
+ok('明日涨停即触发时点明「明日涨停即触发」', g11h.html.includes('明日涨停即触发'))
+
+// ★ 算不出：ok:false + reason —— 必须翻成人话，且**绝不能**渲染成一堆 0
+const g11x = await renderComp(DevRiskDetail, {
+  data: { ok: false, code: '899050', reason: 'index_unavailable', msg: '对应指数数据不足' },
+  code: '899050',
+}, '/yidong')
+ok('算不出时渲染 reason 的人话文案（弃权而非猜）', g11x.html.includes('指数数据取不到'))
+ok('🔴 算不出时**不得**渲染三条线（否则等于把"不知道"画成 0）',
+  countByClass(g11x.html, 'dd-card') === 0)
+ok('🔴 算不出时不含 "+0.00%"（不许用 0 冒充安全）', !g11x.html.includes('+0.00%'))
+
+const g11n = await renderComp(DevRiskDetail, { data: null, code: '' }, '/yidong')
+ok('未填代码时提示输入', g11n.html.includes('输入 6 位股票代码'))
+
+console.log('\n— G11. /yidong 本体（防模板自由变量错拼 —— 本测试抓到过两次同类事故）')
+const g11v = await renderComp(YidongView, {}, '/yidong')
+ok('YidongView 渲染无异常/无 Vue 警告', g11v.errors.length === 0, g11v.errors.join(' | '))
+for (const label of ['严重异动', '个股计算器', '重点监控']) {
+  ok(`三 tab 含「${label}」`, g11v.html.includes(label))
+}
+ok('恰有 3 个 tab', countByClass(g11v.html, 'yd-tab') === 3,
+  '实际 ' + countByClass(g11v.html, 'yd-tab'))
+ok('🔴 已删 tab 不留残留：「热门股偏离值」', !g11v.html.includes('热门股偏离值'))
+ok('🔴 已删 tab 不留残留：「多次异动」', !g11v.html.includes('多次异动'))
+ok('副标题已同步三 tab', g11v.html.includes('严重异动 · 个股计算器 · 重点监控'))
+ok('首屏落在「严重异动」：渲染的是名单区（.dev-bar/加载态），不是计算器',
+  g11v.html.includes('加载异动风险名单') && !g11v.html.includes('cal-input'))
+ok('🔴 本体渲染不含 "undefined"', !g11v.html.includes('undefined'))
+ok('🔴 本体渲染不含 "NaN"', !g11v.html.includes('NaN'))
+
+// 计算器分支必须**真的渲染一次**才谈得上被覆盖（它是纯 DOM 交互分支）
+const g11vc = await renderComp(YidongView, { initialTab: 'calc' }, '/yidong')
+ok('计算器 tab 渲染无异常/无 Vue 警告', g11vc.errors.length === 0, g11vc.errors.join(' | '))
+ok('计算器入口（6 位代码输入框 + 计算按钮）在场', g11vc.html.includes('cal-input') &&
+  g11vc.html.includes('输入 6 位股票代码') && g11vc.html.includes('cal-btn'))
+ok('未填代码时给提示而不是空白', g11vc.html.includes('输入 6 位股票代码开始计算'))
+ok('计算器分支不含 "undefined"', !g11vc.html.includes('undefined'))
+ok('计算器分支不含 "NaN"', !g11vc.html.includes('NaN'))
+const g11vm = await renderComp(YidongView, { initialTab: 'monitor' }, '/yidong')
+ok('重点监控 tab 渲染无异常/无警告', g11vm.errors.length === 0, g11vm.errors.join(' | '))
+ok('重点监控 tab 渲染的是监控表（加载态在场）', g11vm.html.includes('加载重点监控'))
 
 console.log(`\n=== 结果：PASS=${PASS}  FAIL=${FAIL} ===`)
 if (FAIL) { console.log('失败项：\n  - ' + fails.join('\n  - ')); process.exit(1) }

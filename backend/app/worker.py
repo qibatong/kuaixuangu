@@ -19,7 +19,8 @@ import time
 
 from .core import logger
 from .db import database
-from .services import auction_snapshot, wpqc_push, aipick_scheduler, concept_refresh, ladder_daily, stock_temper
+from .services import (auction_snapshot, wpqc_push, aipick_scheduler, concept_refresh,
+                       ladder_daily, stock_temper, dev_risk)
 
 log = logger.get_logger(__name__)
 
@@ -72,7 +73,9 @@ def main():
     ladder_daily.start_scheduler()     # 交易日 15:30 盘后生成连板天梯 PNG
     stock_temper.start_scheduler()     # 盘后落库涨停/炸板(股性数据源): 18:30 窗口 + 09:00 盘前补救
                                        # (2026-09-13 P1: 原 15:30 早于上游发布时刻, 该任务从未成功过)
-    log.info("快照采集 + 尾盘推送 + AI竞价选股调度 + 盘中概念刷新 + 连板天梯盘后生成 + 股性数据落库已启动")
+    dev_risk.start_scheduler()         # 异动/停牌风险: 交易日 15:45 全市场扫描 + 09:00 补救
+                                       # (2026-09-27 v4.11.64 新增; 结果写 dev_risk_daily)
+    log.info("快照采集 + 尾盘推送 + AI竞价选股调度 + 盘中概念刷新 + 连板天梯盘后生成 + 股性数据落库 + 异动风险扫描已启动")
     # 主线程阻塞消费队列
     consume_loop()
 

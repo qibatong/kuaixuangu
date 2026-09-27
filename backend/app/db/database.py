@@ -655,6 +655,54 @@ def init_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_temper_score ON stock_temper_profile(score DESC)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_temper_name ON stock_temper_profile(name)")
 
+    # ---------- 2026-09-27 v4.11.64: 异动/停牌风险（《快选异动停牌风险功能工单》）
+    # 指数日线缓存：交易所「收盘价格涨跌幅偏离值累计」要用「对应指数期初前收盘点数 /
+    # 期末收盘点数」，需要一个**按日可查的指数收盘序列**。指数只有 5 个（000002 上证A指 /
+    # 399107 深证A指 / 399102 创业板综指 / 000688 科创50 / 899050 北证50），日更落库后
+    # 引擎零网络读取。★ 指数**无复权问题**，直接存收盘点位即可。
+    # （实测：腾讯 kline 对其余 4 个指数各 320 根；北证50 腾讯只回 1 根 ⇒ 引擎按
+    #   「行数不足即视为失败」降级到新浪，见 services/dev_risk.py）
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS index_daily (
+            index_code TEXT NOT NULL,
+            date TEXT NOT NULL,
+            close REAL NOT NULL,
+            ts INTEGER NOT NULL,
+            PRIMARY KEY (index_code, date)
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_index_daily_date ON index_daily(date)")
+    # 异动风险盘后批量结果：一行 = 某交易日某只票的三条偏离线读数 + 明日触发空间 + 风险标签。
+    # 选股名单的 `dev_warn` 标签直接读本表（避免每次选股重算 5900 只）。
+    # base_dates 存三个窗口各自的「期初前收盘日」JSON —— 排查「窗口是哪几天」时是唯一线索，
+    # 不存就得重新拉网反推（本项目历史上多次因"结果可复现但不能解释"而返工）。
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS dev_risk_daily (
+            date TEXT NOT NULL,
+            code TEXT NOT NULL,
+            name TEXT,
+            board TEXT,
+            board_key TEXT,
+            price REAL,
+            today_dev REAL,
+            d3 REAL, d3_status TEXT,
+            d10 REAL, d10_status TEXT,
+            d30 REAL, d30_status TEXT,
+            next_trigger_pct REAL,
+            trigger_price REAL,
+            rule TEXT,
+            reachable INTEGER NOT NULL DEFAULT 0,
+            max_range TEXT,
+            warn_level TEXT,
+            warn_msg TEXT,
+            base_dates TEXT,
+            ts INTEGER NOT NULL,
+            PRIMARY KEY (date, code)
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_dev_risk_warn ON dev_risk_daily(date, warn_level)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_dev_risk_code ON dev_risk_daily(code)")
+
     # ---------- 2026-08-25: limitUp/stSuspend 语义反转(旧=true时剔除, 新=true时只看)
     # 迁移幂等: 用 settings 表 mig_filter_sem_flip_v2 标记, 标记已存在则跳过.
     # 迁移内容:
