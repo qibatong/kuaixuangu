@@ -78,18 +78,26 @@
         </template>
       </div>
 
-      <!-- 未来十日投影：假设个股天天涨停、指数持平 -->
+      <!-- ★ 未来十日推演（v4.11.71 起改为**实基倒推**）：
+           旧版是「假设个股天天涨停、指数持平」的**虚值**（与今日真实偏离无关，
+           同板块任何票都长得一样）。现版用**真实日涨幅链**（含除权免疫）做基轴：
+           每行回答「若想在第 k 天首次触发，需要从今天起日均涨多少」，
+           再由该幅度推出当天的 10/30 日偏离值。**不预测未来行情**，只做条件推演。 -->
       <div class="dd-proj">
         <div class="dd-proj-h">
-          未来十日投影
-          <span class="dd-proj-s">假设个股每日 +{{ fmtNum(data.limit_up_pct, 0, '%') }}、指数持平（工单 §五）</span>
+          未来十日推演
+          <span class="dd-proj-s">
+            自今日真实偏离倒推「该日触发需日均涨 X%」（指数按今日持平推演，历史段用真实指数）
+          </span>
         </div>
-        <div v-if="!projectRows.length" class="dd-proj-empty">投影算不出（交易日历缺口或数据不足）</div>
+        <div v-if="!projectRows.length" class="dd-proj-empty">
+          推演算不出 —— 交易日历缺口、个股日线不足（<b>需覆盖 30 日窗口 + 期初前收盘</b>）或缺真实涨跌幅
+        </div>
         <table v-else class="stock-table dd-table">
           <thead>
             <tr>
               <th>交易日</th>
-              <th>安全涨幅</th>
+              <th>需日均涨</th>
               <th>触发规则</th>
               <th>10日偏离</th>
               <th>30日偏离</th>
@@ -133,7 +141,7 @@
 
 <script setup>
 /**
- * 个股异动风险详情（`/yidong` tab 2「个股计算器」）—— **纯展示**，数据由父级注入。
+ * 个股异动风险详情（`/yidong` tab 2「异动计算器」）—— **纯展示**，数据由父级注入。
  *
  * `data` 的形状 = `GET /api/dev/risk` 的返回体（见 backend/app/api/dev.py）。
  * ★ 关键：`ok:false` 时**不能**渲染成一堆 0 —— 后端刻意用「ok:false + reason」表达
@@ -217,6 +225,8 @@ function cls(v) {
 //   后端 `left10` / `left30` 的语义 —— 0 = 该窗口当日已触发，N>0 = 还需 N 个交易日触发，
 //   null/undefined = 10 天投影内不会触发。**三者必须显示成不同文案**：
 //   若把 null 也渲染成「剩 0 日」，用户会误读成「今天就触发」，与事实相反。
+//   🔴 v4.11.71 起「能否触发」的判据是 **日均涨幅 ≤ 一个涨停**（可达成），
+//      不是「二分求解器返回了值」（后者会给出日均 +300% 这种人类做不到的答案）。
 function leftText(v) {
   if (v === null || v === undefined) return '10日内不触发'
   const n = Number(v)
@@ -230,6 +240,13 @@ function ztText(r) {
   if (!r || !r.zt_trigger) return '无越线'
   return String(r.trigger || '').replace(/\s*\/\s*/g, ' + ')
 }
+
+// ★ 「需日均涨」列的显示规则（v4.11.71 实基倒推）：
+//   后端 `safe_gain_pct` = 从今天起**日均**涨幅（%），可为负（今天已越线 ⇒ 当日就触发，0 也行）；
+//   `price` = 按该日均涨幅算出的当天收盘价。两者在 `hit` 为 false 时均为 null ——
+//   含义是「10 个交易日内即便天天涨停也触发不了」，此时必须显示「—」而**不是 0%**
+//   （显示 0% 会被读成「不涨就触发」，与事实相反）。
+//   注：旧版此列是「按涨停累计算的安全涨幅」，语义完全不同，勿复用到别处。
 </script>
 
 <style scoped>
@@ -282,8 +299,9 @@ function ztText(r) {
 .dd-room-w { color: var(--text-muted); font-size: 0.75rem; }
 
 .dd-proj-h { font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 8px; }
-.dd-proj-s { font-size: 0.6875rem; color: var(--text-muted); margin-left: 6px; }
-.dd-proj-empty { padding: 20px; text-align: center; color: var(--text-muted); font-size: 0.8125rem; }
+.dd-proj-s { font-size: 0.6875rem; color: var(--text-muted); margin-left: 6px; font-weight: 400; }
+.dd-proj-empty { padding: 20px; text-align: center; color: var(--text-muted); font-size: 0.8125rem; line-height: 1.7; }
+.dd-proj-empty b { color: var(--text-secondary); font-weight: 600; }
 .dd-table { width: 100%; table-layout: fixed; }
 .dd-table th, .dd-table td { vertical-align: middle !important; text-align: center !important; }
 

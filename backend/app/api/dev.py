@@ -31,7 +31,7 @@ _SCAN_KEY = "dev_risk:scan"
 
 @router.get("/api/dev/risk")
 def api_dev_risk(request: Request, uid: int = Depends(get_uid)):
-    """个股异动风险（个股计算器 tab）。
+    """个股异动风险（异动计算器 tab）。
 
     ★ 实时重算（读猫爪日K + 落库指数），不读结果表 —— 用户查任意一只票都要能出数，
     不能依赖它当天是否在盘后批量名单里。

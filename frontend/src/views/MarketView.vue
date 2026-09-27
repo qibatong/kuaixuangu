@@ -8,11 +8,13 @@
          ③ 最强资金 TOP     MoneyTopStrip    ← 复用板块榜(不额外发请求)
          ④ 今日票战报       TodayPicksPanel  ← /api/history 当日批次 + /api/quotes 实时价
          ⑤ 题材榜           MarketBoardPanel ← 板块榜 + 涨停梯队题材分组(合并原「市场雷达」+「题材异动」)
-         ⑥ 实时异动流       YidongFlow       ← /api/kpl/yidong-realtime
+    —— 🔴 2026-09-28：原「⑥ 实时异动流 YidongFlow」已**整层移除**（模板早搬到 `/yidong`，
+       这里只剩 `loadYidong()` 死代码 + 未使用 import，还每分钟白打一次付费接口）。
+       需要实时异动流请去 `/yidong`（置顶区，已修好取数）。
     —— 原「板块」的全部既有能力**一件不丢**，收进下方「板块进阶数据」折叠区：
          板块强度明细(11 列全字段 + 日期回看) / 板块轮动历史 / 人气热榜。
     —— 🔴 请求纪律：
-         · 六层共用一个 60s tick（集中拉取），不各拉各的；
+         · 五层共用一个 60s tick（集中拉取），不各拉各的；
          · **只在盘中轮询**（isIntradayNow）—— 旧版 60s 轮询不看时段，凌晨挂着也在打接口，
            而开盘啦是 8 万次/日付费配额；
          · 所有 usePolling 注册在 **setup 顶层**（写在 onMounted 回调里会因 currentInstance
@@ -135,7 +137,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { usePolling } from '../composables/usePolling'
 import {
   kplBoardRank, kplBoardStocks, kplHotRank, sectorRotation, emBoardMembers,
-  emConceptRank, kplIndexBrief, kplYestZt, kplZtEchelon, kplYidongRealtime,
+  emConceptRank, kplIndexBrief, kplYestZt, kplZtEchelon,
 } from '../api/kpl'
 import { newsFlash } from '../api/news'
 import { listBatches } from '../api/history'
@@ -157,7 +159,6 @@ import MoneyTopStrip from '../components/MoneyTopStrip.vue'
 import TodayPicksPanel from '../components/TodayPicksPanel.vue'
 import MarketBoardPanel from '../components/MarketBoardPanel.vue'
 import StockDetailPanel from '../components/StockDetailPanel.vue'
-import YidongFlow from '../components/YidongFlow.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -352,7 +353,7 @@ function switchSource(s) {
   loadHistory()
 }
 
-// ===================== 盯盘台六层 =====================
+// ===================== 盯盘台五层 =====================
 const ticking = ref(false)
 
 // ① 快讯
@@ -488,36 +489,23 @@ async function loadPicks() {
   }
 }
 
-// ⑥ 实时异动流
-const yidongList = ref([])
-const yidongLoading = ref(true)
-const yidongFailed = ref(false)
-const yidongDay = ref('')
-const yidongTime = ref('')
-async function loadYidong() {
-  try {
-    const d = await kplYidongRealtime()
-    const lst = (d.list || []).slice()
-      .sort((a, b) => (Number(b.deviation) || 0) - (Number(a.deviation) || 0))
-    yidongList.value = lst.slice(0, 60)
-    yidongDay.value = d.day || ''
-    yidongTime.value = d.time || ''
-    yidongFailed.value = false
-  } catch (e) { yidongFailed.value = true } finally {
-    yidongLoading.value = false
-  }
-}
+// ⑥ 实时异动流已搬到复盘页（`/yidong` 置顶）——
+// 🔴 2026-09-28 死代码清理：旧版这里**只删了模板**却留着 `yidongList` 状态、
+//    `loadYidong()` 函数与 30 秒轮询调用，且保留 `kplYidongRealtime` / `YidongFlow` 两个
+//    未使用的 import ⇒ 每分钟白打一次开盘啦接口（8 万次/日付费配额）且 ESLint no-unused 报警。
+//    已整块删除；需要异动流请去 `/yidong`。
 
 /**
- * 六层统一 tick：一轮把六个上游集中拉完，只打一次「更新于」。
+ * 五层统一 tick：一轮把上游集中拉完，只打一次「更新于」。
  * ⚠️ datePicker 有值（用户在回看历史）时不刷新板块实时数据，避免手动选的日期被 tick 冲掉。
+ * ★ 2026-09-28：原为「六层」（含 loadYidong），该层已整块移除（模板早删、代码是死代码）⇒ 改「五层」。
  */
 async function tick() {
   if (ticking.value) return
   ticking.value = true
   try {
     const jobs = [
-      loadFlash(), loadYestZt(), loadEmo(), loadZtEchelon(), loadPicks(), loadYidong(),
+      loadFlash(), loadYestZt(), loadEmo(), loadZtEchelon(), loadPicks(),
       src.value === 'em' ? loadConcept() : Promise.resolve(),
     ]
     if (!datePicker.value) jobs.push(loadBoard())
@@ -580,7 +568,7 @@ onBeforeUnmount(() => { if (staleTimer) clearInterval(staleTimer) })
 }
 .spin { animation: spin 0.8s linear infinite; display: inline-block; }
 
-/* 六层竖排，层间距 8px（工单「卡片间距 8px」） */
+/* 五层竖排，层间距 8px（工单「卡片间距 8px」） */
 .mk-stack { display: flex; flex-direction: column; gap: 8px; }
 
 /* ===================== 进阶区折叠 ===================== */

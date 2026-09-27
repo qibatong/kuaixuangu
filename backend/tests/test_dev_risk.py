@@ -226,105 +226,210 @@ def test_next_trigger_not_reachable(patched):
     assert room["hit"] == []
 
 
-# ---------------- 未来十日投影（滚动窗口） ----------------
+# ---------------- 未来十日推演（★ v4.11.71 起改为「实基倒推」） ----------------
+#
+# 旧实现假设「个股每日 +涨停、指数持平」逐日推演 ⇒ 10 行**全部**「已触发」，
+# 与今日真实偏离无关（同板块任何票长得一样）—— 主人 2026-09-28 定性为「虚值」。
+# 新实现：轴由 **srows 真实日涨幅连乘**得出（除权免疫），未来段才续 `(1+g)`；
+# 每行反解「第 k 天首次触发所需的最小日均涨幅 g」。
+# 🔴 全文最关键的一条：**能否触发 = g ≤ 一个涨停**，
+#    不是「二分求解器返回了非 None」（后者只说明 g ∈ [−99%, +300%]）。
 
-def test_project_rolling_window(patched):
-    """过去全平的票，明天起天天涨停：dev3 应 = 10.0 / 21.0 / 33.1（滚动窗口真算）。
+def test_project_day1_matches_next_trigger(patched):
+    """★ 退化自证：k=1 时推演解出的日均涨幅必须与 `room.next_trigger_pct` **数值全等**。
 
-    ★ 与工单伪代码（d30 += limit）无关 —— 这里窗口确实在滚动。
-    ★ v4.11.69+ 起：投影表的 `trigger` **不再计入 3 日线**（主人要求「去掉3日的触发规则」）
-      ⇒ 第 2 天 dev3=21% 虽已越 3 日线 ±20%，`trigger` 仍须是「不触发」（10/30 日线未越）。
-      但 `dev3` 字段本身**必须照算**（供别处与展示口径用），故下面仍逐日断言它的值。
+    原理：k=1 的窗口 [1−n … 1] 与今日真实窗口 [1−n … 0] 期初完全相同，
+      仅末点由「今日收盘」换成「第 1 日收盘」⇒ g 的闭式解与 `_next_trigger` 逐位同源。
+    这条同时钉死两件事：① 真实轴造对了（造错则 k=1 不可能对上闭式解）；
+      ② 推演表第 1 行不是「假设涨停」，而是「按实际倒推」。
+
+    ⚠️ 夹具必须选「第 1 天解 ≤ 一个涨停」的票：`_axis_g` 会把未来日涨幅**截断到 cap**
+      （真实市场单日不可能超过涨停）⇒ 若房间值 > cap，则 k=1 的解被截断，
+      与 `_next_trigger` 的**未截断**闭式解就不可比了（逐日 +3% 就是这种情况：
+      room 给 13.11% > 10%，而 need3[0] 因截断返回 None）。
     """
-    patched(idx=_idx(45), stock=_stock_from_pcts([0.0] * 45))
+    # 逐日 +5%：dev30 = 332% ⇒ 30 日线已触发；3 日线 15.76% 未越 20%
+    #   room 的「下一条」= 3 日线，需再涨 8.84%（≤ 10% 涨停 ⇒ reachable=True）
+    patched(idx=_idx(45), stock=_stock_from_pcts([5.0] * 45))
     res = dev_risk.compute("605058")
     p = res["project10"]
     assert len(p) == 10
-    assert p[0]["dev3"] == 10.0 and p[1]["dev3"] == 21.0 and p[2]["dev3"] == 33.1
-    assert p[0]["dev10"] == 10.0 and p[0]["dev30"] == 10.0
-    assert p[0]["trigger"] == "不触发"                     # 10% < 20%
-    # ★ dev3 已越线（21% > 20%），但 3 日线不进 trigger ⇒ 仍是「不触发」
-    assert p[1]["dev3"] == 21.0 and p[1]["trigger"] == "不触发"
-    assert "3日" not in p[1]["trigger"]
-    assert p[1]["price"] == round(res["price"] * 1.1 ** 2, 2)
+    assert res["room"]["rule"].startswith("3日")
+    assert res["room"]["reachable"] is True
+    assert abs(res["room"]["next_trigger_pct"] - 8.84) < 0.05, res["room"]
+    # ★ k=1 的 3 日线解 必须与 room 的次日触发空间**数值全等**（这就是「按实际倒推」的定义）
+    assert p[0]["need3"] is not None, p[0]
+    assert abs(p[0]["need3"] - res["room"]["next_trigger_pct"]) < 0.05, (p[0], res["room"])
+    # ★ 但 3 日线**不进** trigger ⇒ 该行仍报「不触发」（此刻触发的是 30 日线）
+    assert p[0]["trigger_rule"].startswith("30日"), p[0]
+    assert "3日" not in p[0]["trigger"] and "3日" not in p[0]["trigger_rule"]
+
+
+def test_project_real_base_not_limit_chain(patched):
+    """★ 反虚值核心：起点是**今日真实偏离**，不是「从头开始天天涨停」。
+
+    两组对照必须给出**不同的**推演结果 —— 旧版（假设天天涨停）下两组完全相同
+    （旧版把未来段完全当连板，与历史无关）：
+      A) 过去 45 日全平 ⇒ 今日 10 日偏离 = 0，主轴全 1.0，10 日线需 8 天连板
+      B) 最近 9 日 +10%/日、今日持平 ⇒ 今日 10 日偏离 = 1.1^9−1 = 135.79%（已触发）
+         ⇒ 主轴已抬升 2.3579 倍，10 日线**第 1 天就不需再涨**（safe_gain_pct = 0）
+    """
+    # A：全平 —— 起点 1.0
+    patched(idx=_idx(45), stock=_stock_from_pcts([0.0] * 45))
+    res_a = dev_risk.compute("605058")
+    pa = res_a["project10"]
+    assert all(r["left30"] is None for r in pa)            # 主板 30 日线：1.1^10−1=159% < 200%
+    assert pa[0]["left10"] == 7                            # 第 8 天（1.1^8−1=114.36%）才可达
+    assert pa[0]["safe_gain_pct"] is None                  # 第 1 天不触发 ⇒ 无「安全涨幅」
+    assert pa[0]["trigger_rule"] == "无"
+
+    # B：最近 9 日 +10%/日、第 10 日（今日）持平 ⇒ 今日 10 日偏离 = 1.1^9−1 = 135.79%
+    patched(stock=_stock_from_pcts([0.0] * 35 + [10.0] * 9 + [0.0]))
+    res_b = dev_risk.compute("605058")
+    pb = res_b["project10"]
+    assert res_b["dev"]["d10"]["status"] == "触发"          # 今日 10 日线已触发
+    assert res_b["dev"]["d10"]["value"] == 135.79
+    # ★ 真实起点 ⇒ 第 1 天「已触发」，安全涨幅为 0（无需再涨），目标价 = 现价
+    assert pb[0]["left10"] == 0
+    assert pb[0]["trigger_rule"].startswith("10日")
+    assert pb[0]["safe_gain_pct"] == 0.0
+    assert pb[0]["price"] == res_b["price"]
+    # ★ 与 A 组必须**显著不同** —— 这是「虚值」与「实算」的判别位
+    assert pa[0]["left10"] != pb[0]["left10"]              # 7 vs 0
+    assert pa[0]["trigger_rule"] != pb[0]["trigger_rule"]  # 「无」vs「10日+100%」
+    assert pa[0]["safe_gain_pct"] != pb[0]["safe_gain_pct"]  # None vs 0.0
 
 
 def test_project_excludes_3day_from_trigger(patched):
-    """★ v4.11.69+ 回归位：3 日线**只**从投影表的触发判定里剔除，`dev3` 仍照算。
+    """★ v4.11.69+ 回归位：3 日线**只**从推演表的触发判定里剔除，`need3` 仍照算。
 
-    反证（防「顺手把 dev3 也删了」或「又把它加回 trigger」）：
-      ① `dev3` 逐日仍必须是真实滚动值；
-      ② 即便 3 日线越线，`trigger` / `trigger_rule` / `zt_trigger` 也不得提到「3日」；
-      ③ 10 日线越线时 `trigger` 必须**照常**报出来（证明剔除只针对 3 日线，没有把整列打死）。
+    反证（防「顺手把 3 日线也算回去」或「整列打死」）：
+      ① `need3` 逐日仍必须有值（真实倒推量）；
+      ② 即便 3 日线可达，`trigger` / `trigger_rule` / `zt_trigger` 也不得提到「3日」；
+      ③ 10 日线可达时 `trigger` 必须**照常**报出来（证明剔除只针对 3 日线）。
     """
+    # 全平 + 主板：3 日线 ±20% 靠 2 个涨停可达、10 日线 +100% 靠 8 个涨停可达
     patched(idx=_idx(45), stock=_stock_from_pcts([0.0] * 45))
     p = dev_risk.compute("605058")["project10"]
-    # ① dev3 仍在、且是真实值
-    assert [r["dev3"] for r in p[:3]] == [10.0, 21.0, 33.1]
-    # ② 全程不得出现 3 日线标签
+    # ① need3 逐日仍必须有值；★ 第 1 天因「单日不可能涨 20%」而被截断 ⇒ None 是对的，
+    #    第 2 天起（2 个连板可达 21% > 20%）才有解。
+    #    🔴 这里刻意钉住「截断语义」：`_axis_g` 把未来日涨幅 clamp 到 cap ⇒ 3 日线 ±20%
+    #       在主板单日永远解不出 ⇒ need3[0] = None 是**正确**行为，
+    #       不能因为「看着像缺数据」就把它改成 20.0（那会假造一个做不到的涨幅）。
+    assert p[0]["need3"] is None, p[0]
+    assert all(r["need3"] is not None for r in p[1:]), [r["need3"] for r in p]
+    assert abs(p[1]["need3"] - 20.0) < 0.05, p[1]
+    # ② 全程不得出现 3 日线标签（即便 3 日线在第 2 天就可达 ⇒ 2 个连板越 20%）
     for r in p:
         assert "3日" not in r["trigger"], r
         assert "3日" not in r["trigger_rule"], r
-    # ③ 10 日线第 8 天触发（1.1^8−1 = 114.36% > 100%）⇒ trigger 必须报 10 日线
+    # ③ 10 日线第 8 天可达 ⇒ trigger 必须报 10 日线（剔除只针对 3 日线）
     assert "10日" in p[7]["trigger"]
     assert p[7]["trigger_rule"].startswith("10日")
     assert p[7]["zt_trigger"] is True
 
 
 def test_project_uses_board_limit(patched):
-    """创业板涨停 20%：一日即 20% ⇒ 3 日线（±30%）第二天越线；
-    ★ 但 3 日线越线**不影响** `trigger`（已剔除），价格仍按 20% 复利。"""
-    # 用创业板代码 + 对应指数（不存在则按夹具返回的同一份 idx）
+    """★ 判据 `g ≤ cap` 的 cap 必须取**该板块**涨停（创业板 20%，非硬编码 10%）。
+
+    全平 + 创业板 ⇒ 10 日线 +100% 反解：
+      1.2^k − 1 ≥ 1 ⇒ k = ln2/ln1.2 = 3.80 ⇒ **第 4 天可达**（1.2^4−1 = 107.36%）
+      前 3 天日涨都 > 20% ⇒ 逐日解出的 g 必须 > cap ⇒ 判「不可达」。
+    若 cap 被误取成 10%，第 4 天也到不了（1.1^4−1 = 46.4%）⇒ 本用例即红。
+    """
     patched(idx=_idx(45), stock=_stock_from_pcts([0.0] * 45))
     res = dev_risk.compute("300750")
     p = res["project10"]
     assert p[0]["limit_up_pct"] == 20.0
-    assert p[0]["dev3"] == 20.0
-    assert p[1]["dev3"] == 44.0                           # 1.2²−1 = 44%
-    assert "3日" not in p[1]["trigger"]                   # ★ 3 日线不再进 trigger
+    # ★ 第 1~3 天不可达、第 4 天可达 ⇒ left10(第1天) = 3
+    assert p[0]["left10"] == 3, p[0]
+    assert [r["left10"] for r in p[:3]] == [3, 2, 1], [r["left10"] for r in p[:3]]
+    assert p[3]["left10"] == 0 and p[3]["trigger_rule"].startswith("10日")
+    assert p[3]["zt_trigger"] is True
+    # 前 3 天：所需日涨 > 20% ⇒ 不可达（这正是 cap=20 生效的判别位）
+    assert p[0]["zt_trigger"] is False and p[2]["zt_trigger"] is False
+    # 30 日线 +200%：1.2^k−1 ≥ 2 ⇒ k = ln3/ln1.2 = 6.03 ⇒ 第 7 天可达 ⇒ left30(第1天) = 6
+    assert p[0]["left30"] == 6, p[0]
+    assert p[6]["left30"] == 0 and "30日" in p[6]["trigger"]
 
 
-def test_project_safe_gain_and_left_days(patched):
-    """★ v4.11.69 新增派生字段（主人参照「异动了么」版式要求）：
-    `safe_gain_pct` / `trigger_rule` / `left10` / `left30` / `zt_trigger` 必须自洽。
+def test_project_reachability_uses_cap_not_solver(patched):
+    """★ 可达性判据：`leftN` 必须是「**靠连板真能做到**」，不是「求解器返回了值」。
 
-    夹具：主板 + 过去全平 ⇒ 涨停 10%、3日线 ±20%、10日线 +100%、30日线 +200%。
-    三日线第 2 天越线（21% > 20%，**但已从 trigger 剔除**）；10日线 1.1^10−1 = 159.37% > 100%
-    ⇒ 第 8 天触发（1.1^7−1 = 94.87% < 100%，1.1^8−1 = 114.36% > 100%）；30日线 10 天内不足。
+    🔬 变异测试结论（2026-09-28 实测，务必理解，否则会误删守卫）：
+      · 真正扛住「不可达」的是 `_axis_g` 的 **clamp**（未来日涨幅截断到 cap）——
+        `_solve` 因截断而对「10 天内涨停都够不到」的线**直接返回 None**，
+        故 `leftN` 的两个判据（`g is not None` 与 `g <= cap`）在**当前夹具集**下**等价**。
+      · 单独把 `g <= cap` 删掉（改成 `g is not None`）**不会让任何用例变红**（已实测）。
+      ⇒ 因此本用例断言的是**机制**（截断 + 判据），而不是某一行的写法：
+        只要有人动了 clamp，`test_project_excludes_3day_from_trigger` 的
+        `need3[0] is None` 断言立刻会红（M1 变异实测：该用例红）。
+      ⇒ 判据本身保留为**纵深防御**：即便未来 clamp 被改成别的形式，
+        `g <= cap` 仍能把「数学上解得出、现实中做不到」的线挡住。
+
+    判别样本（主板，cap = 10%）：
+      · 全平 + 10 日线 +100%：第 1 天需单日 +100% > cap ⇒ 不可达；
+        k=8 时摊薄为 9.05% ≤ cap ⇒ 可达 ⇒ left10 必须是 **7**（不是 0、也不是 None）。
+      · 30 日线 +200%：1.1^10−1 = 159% < 200% ⇒ 全表 None（真不可达）。
     """
     patched(idx=_idx(45), stock=_stock_from_pcts([0.0] * 45))
     p = dev_risk.compute("605058")["project10"]
+    # ★ 第 1 天：10 日线需单日 +100%，远超涨停 ⇒ 必须判「不可达」
+    assert p[0]["left10"] == 7, p[0]
+    assert p[0]["trigger"] == "不触发" and p[0]["zt_trigger"] is False
+    assert p[0]["safe_gain_pct"] is None and p[0]["price"] is None
+    # 第 7 天（k=8）刚好可达
+    assert p[7]["left10"] == 0 and p[7]["trigger_rule"].startswith("10日")
+    # 30 日线：10 天涨停都不够 ⇒ 全表 None（真不可达，与上面「只是今天不行」必须区分）
+    assert all(r["left30"] is None for r in p), [r["left30"] for r in p]
 
-    # safe_gain_pct = 自今日收盘累计涨停涨幅，逐日复利（与 price 同源）
-    assert p[0]["safe_gain_pct"] == 10.0
-    assert p[1]["safe_gain_pct"] == 21.0
-    assert p[9]["safe_gain_pct"] == round((1.1 ** 10 - 1) * 100, 2)   # 159.37
 
-    # trigger_rule 只取第一条（不是 ` / ` 连接的全部）；★ 且首条**不会是 3 日线**（已剔除）
-    assert p[0]["trigger_rule"] == "无" and p[0]["zt_trigger"] is False
-    assert "3日" not in p[1]["trigger_rule"] and p[1]["zt_trigger"] is False
-    # 10 日线第 8 天越线 ⇒ 那时 trigger_rule 必须报 10 日线、zt_trigger 才为 True
-    assert p[7]["trigger_rule"].startswith("10日") and p[7]["zt_trigger"] is True
+def test_project_future_gain_is_capped_at_limit(patched):
+    """★ 钉住 **clamp 机制本身** —— 这是「连板」与「任意涨」的分界，也是可达性的真正守门人。
 
-    # left10 = 10日线首次触发偏移 − 已走天数 ⇒ 第 1 天为 7（第 8 天触发），其后递减
-    assert p[0]["left10"] == 7 and p[6]["left10"] == 1 and p[7]["left10"] == 0
-    assert p[8]["left10"] == 0                            # 已触发后保持 0（不回退）
-    assert all(r["left30"] is None for r in p)            # 30日线 10 天内不触发 ⇒ None
+    反证：若 `_axis_g` 不截断（允许未来日涨幅超过涨停，M1 变异），则：
+      ① 30 日线 +200% 在主板会被判「可达」（因为可以让某一天涨 300%）
+         ⇒ `left30` 不再是 None ⇒ 本用例红；
+      ② 且 `need3` 会在第 1 天就解出 20%（而真实单日最多 10%）
+         ⇒ `need3[0] is None` 不再成立 ⇒ 本用例红。
+    """
+    patched(idx=_idx(45), stock=_stock_from_pcts([0.0] * 45))
+    p = dev_risk.compute("605058")["project10"]
+    # ① 30 日线在 10 天内绝不可达（1.1^10−1 = 159.37% < 200%）—— 截断的直接后果
+    assert all(r["left30"] is None for r in p), [r["left30"] for r in p]
+    assert all(r["need30"] is None for r in p), [r["need30"] for r in p]
+    # ② 3 日线 ±20% > 单日涨停 10% ⇒ 第 1 天无解（不是「解出 20」）
+    assert p[0]["need3"] is None, p[0]
+    # ③ 第 2 天起必须解得出（两个连板 21% > 20%）；★ need3 是**累计**涨幅（自今日收盘起），
+    #    第 2 天恰好 = 20.0（对应日均 (1+0.0954)²−1 ≈ 20%，即日均 9.54% ≤ 涨停 10%）
+    assert p[1]["need3"] is not None, p[1]
+    assert abs(p[1]["need3"] - 20.0) < 0.05, p[1]
+    # ★ 反证 clamp：若日均能超过涨停，第 2 天的累计解会显著低于 20%（单日就能做到）
+    assert p[1]["need3"] >= 20.0 - 0.05, p[1]
+
+
 
 
 def test_project_left_days_none_when_never_triggers(patched):
     """反证：`left10` 只在「10 天内真的会触发」时才有值，否则必须是 None
     （不能默认成 0 —— 0 的语义是「今天已触发」，会误导用户）。
 
-    ★ 附带钉住：创业板第 2 天 dev3=44% 已越 3 日线（±30%），但 `trigger_rule` 仍须是「无」
-      —— 3 日线不进投影表的触发判定。"""
+    夹具：北交所（涨停 30%）+ 过去全平 ⇒ 30 日线 +? 需查阈值；
+      取 30 日线阈值（北交所 dev30_up）应在 10 天涨停内**够不到** ⇒ 必须 None。
+    """
     patched(idx=_idx(45), stock=_stock_from_pcts([0.0] * 45))
-    p = dev_risk.compute("300750")["project10"]           # 创业板 20%：3日线 ±30%
-    # 20% ⇒ 第2天 44% > 30%，第 1 天不触发 ⇒ left10(10日线+100%) 需 1.2^k−1 ≥ 1 ⇒ k=4
-    assert p[0]["left10"] == 3                            # 第 4 天触发（1.2^4−1 = 107.36%）
-    assert p[1]["dev3"] == 44.0                           # 3 日线仍照算
-    assert p[1]["trigger_rule"] == "无"                   # ★ 但不再进 trigger_rule
-    assert p[1]["zt_trigger"] is False
+    res = dev_risk.compute("920002")                       # 北交所
+    p = res["project10"]
+    assert p[0]["limit_up_pct"] == 30.0
+    # 30 日线阈值为 200%（北交所与主板同）：1.3^10−1 = 1274% 远超 ⇒ 10 天内可达
+    # ⇒ 用它反证「可达时不得为 None」；不可达情形改用更严的判据：
+    #   主板 30 日线 1.1^10−1 = 159% < 200% ⇒ 全表 None（见下）
+    patched(stock=_stock_from_pcts([0.0] * 45))
+    pm = dev_risk.compute("605058")["project10"]           # 主板 10%
+    assert all(r["left30"] is None for r in pm), [r["left30"] for r in pm]
+    # 且 left10 有值的那天，left30 必须仍是 None（两条线独立判定）
+    assert pm[9]["left10"] == 0 and pm[9]["left30"] is None
+
 
 
 # ---------------- 风险标签 ----------------

@@ -1477,6 +1477,98 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.71 (09-28) 未来十日「虚值」改实基倒推 + 个股计算器→异动计算器 + 实时异动流死接线修复（三合一）**
+  - **触发**：主人截图 + 原话三条 ——
+    「**个股计算器改为 异动计算器**」「**异动计算器下面未来10日的都是虚值，按照实际的计算**」
+    「**看一下实时异动流这个还在用吗，测试一下**」。
+  - **① 改名（B1）**：`YidongView.vue` tab 按钮 + 副标题 + 6 处注释、`DevRiskDetail.vue` 注释、
+    `api/dev.py` docstring，全部 `个股计算器` → `异动计算器`。
+  - **② 未来十日投影：从「情景假设」改为「实基倒推」（B2，本版主体）**
+    - **现象 → 根因**：旧实现假设「个股**每日 +涨停**、指数持平」逐日推演 ⇒ 第 2 天起就走完 3 日线、
+      长窗口也迅速越线，10 行**全部**「已触发」。
+      🔴 根因是**与今日真实行情完全脱钩** —— 同板块任何票渲染出来长得一样，
+      用户会把它读成「**预测**未来 10 天会触发」（主人截图即此误读）。
+    - **修复（`backend/app/services/dev_risk.py` 重写 `project_next_10_days`，552~701 行 ⇒ 551~828 行）**：
+      · 新增 `_real_axis(srows, idates, n)`：轴由 **srows 的真实日涨幅连乘**得出
+        （与 `_range_pct` 逐位同源 ⇒ 对除权免疫），下标约定 **今日 = 0 / 历史负 / 未来正**；
+        ⚠️ `tradedate` 必须 ISO 归一（`20260924` → `2026-09-24`），否则与 `idates` 恒不命中、
+        轴恒为空（本实现第一版即踩，表现为「个股日涨幅不足 n=5 得 0」）。
+      · 未来段才续 `(1+g)`，且 **clamp 到该板块涨停**（`min(g, cap)`）——
+        真实市场单日不可能超过涨停，**这一步是可达性的真正守门人**（见下）。
+        指数历史段用**真实**收盘序列，仅未来段按持平外推（唯一无信息时的中性假设）。
+      · 每行反解「**若想在第 k 天首次触发，需要从今天起日均涨多少**」——
+        逐日二分（`_GAIN_LO=-0.99` / `_GAIN_HI=3.0` / 80 次迭代），偏离值对 g 单调不减故必收敛。
+      · **退化自证**：k=1 时窗口期初与今日真实窗口完全相同 ⇒ g(k=1) 与 `_next_trigger()` 的
+        单日闭式解**数值全等**（新用例 `test_project_day1_matches_next_trigger` 钉死，实测 8.84 == 8.84）。
+      · 字段名全部沿用（前端逐字消费），**语义按下表重定义**：
+        `safe_gain_pct` = 自今日收盘起的**累计**安全涨幅%（复利 `(1+g)^k−1`，None = 该日不触发）；
+        `price` = 该日触发所需目标价；`trigger_rule` 仍**不含 3 日线**（v4.11.69 主人要求）；
+        `needN` = 该日触发该线所需累计涨幅%；`leftN` = 剩余交易日（None = 10 日内不触发）。
+    - **🔴 关键判据（本实现第一版就踩过的坑）**：能否触发 = **`g ≤ 一个涨停`**，
+      **不是**「二分求解器返回了非 None」——后者只说明 g 落在 `[−99%, +300%]` 内，
+      远松于涨停 ⇒ 会把不可达的线误报成可达。
+    - **前端（`DevRiskDetail.vue`）**：标题 `未来十日投影` → **`未来十日推演`**；
+      副标题 `假设个股每日 +X%、指数持平（工单 §五）`（虚值文案）→
+      **`自今日真实偏离倒推「该日触发需日均涨 X%」（指数按今日持平推演，历史段用真实指数）`**；
+      列头 `安全涨幅` → **`需日均涨`**；空态文案补明「需覆盖 30 日窗口 + 期初前收盘」。
+      `leftText()`/`ztText()` 语义注释同步。
+    - **影响面**：`backend/app/services/dev_risk.py`（主体重写）、`backend/app/api/dev.py`（仅 docstring）、
+      `backend/tests/test_dev_risk.py`（5 个旧口径用例改写 + 新增 1 个）、
+      `frontend/src/components/DevRiskDetail.vue`、`frontend/src/views/YidongView.vue`、
+      `frontend/src/views/MarketView.vue`、`frontend/_verify/nav.spec.js`、
+      `_research/fastcheck/v41169_render_check.js`。**后端接口形状零变更、路由零变更、SQLite 零变更。**
+    - **验证证据（后端）**：定向 `backend/tests/test_dev_risk.py` **23 passed**。
+      ★ **变异测试 3 组，全部被杀（非永真）**：
+      ① 轴不 clamp（`1.0+g`）⇒ **2 failed**；② 真实轴退化为全 1（即退回虚值起点）⇒ **2 failed**；
+      ③ `leftN` 不减已走天数 ⇒ **4 failed**。还原后 23 passed。
+      🔬 **一条重要的诚实结论**：`leftN` 的 `g ≤ cap` 判据与「g is not None」在**当前夹具集**下
+      **行为等价**（因为 clamp 已让 `_solve` 对不可达日直接返回 None）；
+      即**单独删掉 `g ≤ cap` 不会让任何用例变红**（已实测）。故新用例
+      `test_project_future_gain_is_capped_at_limit` 改为**钉机制（clamp）**而非钉某行写法，
+      并把 `g ≤ cap` 明确记为**纵深防御**。
+    - **验证证据（前端）**：
+      · `frontend/_verify/nav.spec.js`：**PASS=241 / FAIL=11**（改动前基线 **231 / 13**）
+        ⇒ 净 **+10 PASS / −2 FAIL**（两条「六层」断言按真实情况改写为「五层 + 反向钉死
+        第 ⑥ 层不得回归」并全部通过）。**剩余 11 条 FAIL 与本次改动无关**（均为改动前既存：
+        复盘组两个标签、MarketBoardPanel 列头/空态、MarketView 遗留「板块进阶数据」等三 tab）。
+      · 新增 **G13 段（5 项）**：钉死 `/yidong` 真渲染出实时异动流面板 + **YidongView 源码必须
+        `:items="flowList"` 且调 `kplYidongRealtime`** + **MarketView 源码剥离注释后不得残留
+        `kplYidongRealtime` / `YidongFlow`**。★ 变异实测（把 `:items="flowList"` 改成 `[]`）⇒
+        该断言**精确变红**，还原后全绿 ⇒ 判据非永真。
+        配套新增 `stripComments()` 助手 —— 因为实现里刻意留了「为什么移除」的说明注释，
+        直接 substring 会把**解释**误判成**残留**（本项目已多次踩「grep 命中自己的注释」）。
+      · `_research/fastcheck/v41169_render_check.js`（jsdom 确定性渲染）**21/21 passed**，
+        含 4 条新增反向断言（表头不得再有「安全涨幅」/ 不得再有「假设个股每日」/
+        不得再有「未来十日投影」/ 不可达时不得渲染成 `+0.00%`）。
+      · `vite build` 成功（`YidongView-CmkcL2jg.js` 21.41 kB / `MarketView-B99Qd6gd.js` 26.68 kB）；
+        `_verify/css_scroll_guard.js` ✓ 未发现「body + overscroll-behavior」组合。
+  - **③ 实时异动流（B3）**：
+    - **诊断（回答主人「还在用吗」）**：**两边都在用，但两边都坏** ——
+      `/api/kpl/yidong-realtime` 接口**是好的**（实测 13 条、`ok:True`），
+      而 `YidongView.vue` 里写成 `<YidongFlow />` —— **一个 props 都没传** ⇒ `items` 恒为默认 `[]`
+      ⇒ 置顶面板**永远显示「当前无触发异动的个股」**；
+      同时 `MarketView.vue` 里还留着**重名**的一份 `loadYidong()` + 30 秒轮询 + 未使用 import
+      （模板早已搬到 `/yidong`）⇒ 每分钟白打一次付费接口。
+    - **修复**：`YidongView.vue` 新增 `flowList/flowLoading/flowFailed/flowDay/flowTime` 五个状态
+      与独立三态 `loadFlow()`（与 `loadPub()` 同接口但**独立维护**，避免一处失败污染另一处；
+      按累计偏离值降序，与组件内默认一致），`reloadWarn()` 与 `onMounted` 均调用；
+      显式传 `:items/:loading/:failed/:day/:time`。
+      `MarketView.vue` **整层移除**第 ⑥ 层死代码（`loadYidong()` + 5 个状态 + 两个未使用 import
+      + `tick()` 里的调用 + 模板头注释），并把全文「六层」改为「五层」（含 CSS 注释与
+      `tick()` docstring）。
+    - **⚠️ 运行时验证未闭环（如实标注）**：本地 SSR 只能证明「组件在场 + props 传了」，
+      **不能**证明线上返 13 条时面板真渲染出 13 行 —— 需在测试机做端到端（见上线状态）。
+      这条与 v4.11.65 的教训同型：**埋点/接线类修复必须在真环境跑一次**。
+  - **上线状态**：本版为**本机完成 + 定向测试通过**；
+    测试机 `47.99.153.123` / 生产 `121.196.230.80` **均未部署**（待主人指令）。
+  - **待办（本版明确未做）**：
+    ① 测试机部署（后端 put + 三方 md5 + `py_compile` + `import app.main` + 双服务 active +
+       Traceback 0；前端 `_deploy_fe.sh` 两阶段原子换盘）；
+    ② 真环境端到端：`/api/dev/risk?code=601811`（看 `project10` 新语义）+ `/api/kpl/yidong-realtime`
+       （看面板真渲染出条目）；
+    ③ 全量 pytest 需在**测试机**跑（本机跑全量会 SIGTERM，见 AGENTS §0.2）；
+    ④ commit + push。
+
 - **v4.11.70 (09-27 仅测试机) 测试机 `tests/` 全量对齐 —— 清孤儿 / 补 11 个缺失 / 覆盖 19 个陈旧副本，并使全量首次无需 `--ignore` 全绿**
   - **触发**：主人指令「**部署到生产机，入库 上推，做一次全量对齐**」的第三项（全量对齐）。
   - **现象 → 根因 → 修复**：测试机 `backend/tests/` 与仓库长期脱节，且脱节方向与旧快照记载**相反**

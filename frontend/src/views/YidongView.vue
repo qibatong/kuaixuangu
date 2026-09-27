@@ -3,18 +3,33 @@
     <h1 class="visually-hidden">异动监管</h1>
     <div class="yd-head">
       <span class="yd-title"><i class="fa fa-bullhorn"></i> 异动监管</span>
-      <span class="yd-sub">严重异动 · 个股计算器 · 重点监控</span>
+      <span class="yd-sub">严重异动 · 异动计算器 · 重点监控</span>
       <span class="yd-time">{{ bjTime }}</span>
     </div>
 
-    <YidongFlow />
+    <!--
+      实时异动流（开盘啦 doc90 偏离值异动）。
+      🔴 2026-09-28 修：此前写成 `<YidongFlow />`（**一个 props 都没传**）⇒ `items` 恒为默认 `[]`
+         ⇒ 面板**永远显示「当前无触发异动的个股」**，而接口其实是好的（实测 13 条）。
+         现改为由本页拉 `/api/kpl/yidong-realtime` 并**显式传 items/day/time/loading/failed**。
+         ⚠️ 与 tabs 下方「交易所已公布异动（开盘啦）」是**同一个接口**，但展示目的不同：
+            这里 = 置顶的实时流（带搜索、按累计偏离值排序、可点开个股）；
+            那里 = 严重异动 tab 里的**折叠明细表**。本次只修前者能取到数，不合并两者。
+    -->
+    <YidongFlow
+      :items="flowList"
+      :loading="flowLoading"
+      :failed="flowFailed"
+      :day="flowDay"
+      :time="flowTime"
+    />
 
     <div class="yd-tabs">
       <button class="yd-tab" :class="{ active: tab === 'warn' }" @click="switchTab('warn')">
         <i class="fa fa-exclamation-triangle"></i> 严重异动
       </button>
       <button class="yd-tab" :class="{ active: tab === 'calc' }" @click="switchTab('calc')">
-        <i class="fa fa-calculator"></i> 个股计算器
+        <i class="fa fa-calculator"></i> 异动计算器
       </button>
       <button class="yd-tab" :class="{ active: tab === 'monitor' }" @click="switchTab('monitor')">
         <i class="fa fa-eye"></i> 重点监控
@@ -70,7 +85,7 @@
       </div>
     </div>
 
-    <!-- ② 个股计算器：任意代码实时算三条线 + 明日触发空间 + 十日投影 -->
+    <!-- ② 异动计算器：任意代码实时算三条线 + 明日触发空间 + 十日投影 -->
     <div v-else-if="tab === 'calc'" class="yd-panel">
       <div class="yd-toolbar">
         <span class="yd-tip"><i class="fa fa-info-circle"></i> 实时计算（不依赖盘后名单，任意代码可用）</span>
@@ -139,7 +154,7 @@ import YidongFlow from '../components/YidongFlow.vue'
  *
  *   ① 严重异动   我方按上交所 5.4.2 口径自算的「越线/将越线」名单（`/api/dev/tomorrow`）
  *                + 折叠保留开盘啦已公布异动（原 tab 内容，不丢数据）
- *   ② 个股计算器 任意代码实时算（`/api/dev/risk`）
+ *   ② 异动计算器 任意代码实时算（`/api/dev/risk`）
  *   ③ 重点监控   交易所当日重点监控（`/api/kpl/yidong-monitor`），保持原样
  *
  * ★ 已按主人拍板**删除**原「热门股偏离值」与「多次异动」两个 tab。
@@ -164,7 +179,7 @@ import DevRiskDetail from '../components/DevRiskDetail.vue'
 
 const props = defineProps({
   // 首屏落在哪个 tab（warn / calc / monitor）。
-  // ★ 存在的理由有二：① 让 SSR 冒烟测试能渲染「个股计算器」分支
+  // ★ 存在的理由有二：① 让 SSR 冒烟测试能渲染「异动计算器」分支
   //   （它是纯 DOM 交互分支，不渲染就完全测不到 —— 本项目两次模板事故都是这么漏的）；
   //   ② 将来从别处深链到「计算器」时可以直接传参，不必再解析 query。
   initialTab: { type: String, default: 'warn' },
@@ -184,7 +199,14 @@ const pubRows = ref([])
 const pubLoading = ref(true)
 const showPub = ref(false)
 
-// ---- ② 个股计算器 ----
+// ---- 置顶「实时异动流」（同一接口，展示目的不同；见模板注释）----
+const flowList = ref([])
+const flowLoading = ref(true)
+const flowFailed = ref(false)
+const flowDay = ref('')
+const flowTime = ref('')
+
+// ---- ② 异动计算器 ----
 const calcCode = ref('')
 const calcShown = ref('')        // 已提交计算的代码（与输入框解耦：输入框改了不立刻重算）
 const calcData = ref(null)
@@ -230,6 +252,7 @@ async function loadWarn() {
 function reloadWarn() {
   loadWarn()
   loadPub()
+  loadFlow()
 }
 
 async function loadPub() {
@@ -241,6 +264,26 @@ async function loadPub() {
     pubRows.value = []
   } finally {
     pubLoading.value = false
+  }
+}
+
+// 置顶实时异动流：与 loadPub 同一接口，但**独立**维护三态（否则一处失败会污染另一处）。
+// ★ 排序与 YidongFlow 组件内的默认一致（按累计偏离值降序），保证首屏与重排后一致。
+async function loadFlow() {
+  flowLoading.value = true
+  flowFailed.value = false
+  try {
+    const d = await kplYidongRealtime()
+    const lst = ((d && d.list) || []).slice()
+      .sort((a, b) => (Number(b.deviation) || 0) - (Number(a.deviation) || 0))
+    flowList.value = lst
+    flowDay.value = (d && d.day) || ''
+    flowTime.value = (d && d.time) || ''
+  } catch (e) {
+    flowList.value = []
+    flowFailed.value = true
+  } finally {
+    flowLoading.value = false
   }
 }
 
@@ -303,13 +346,14 @@ function clearCalc() {
 //   ⇒ 定时器与 visibilitychange 监听永不清理）。
 //   首拉由 onMounted 显式完成 ⇒ immediate:false，顺带消掉首屏双请求。
 usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
-// 名单类数据每 30 秒刷新；个股计算器**不轮询**（用户主动触发，避免覆盖他正在看的票）
+// 名单类数据每 30 秒刷新；异动计算器**不轮询**（用户主动触发，避免覆盖他正在看的票）
 usePolling(() => { loadWarn(); loadMonitor() }, 30000, { immediate: false })
 
 onMounted(() => {
   bjTime.value = bjTimeStr()
   loadWarn()
   loadPub()
+  loadFlow()
   loadMonitor()
   // 支持 /yidong?code=600519 直接带票进入（浏览器环境才有 location）
   try {
@@ -368,7 +412,7 @@ onMounted(() => {
 .yd-fold-b { margin-top: 8px; }
 .yd-fold-b .stock-table { width: 100%; }
 
-/* 个股计算器 */
+/* 异动计算器 */
 .cal-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
 .cal-input {
   width: 220px; padding: 8px 12px; border-radius: 8px;

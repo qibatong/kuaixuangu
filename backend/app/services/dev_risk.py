@@ -548,32 +548,106 @@ def _next_trade_days(last_date, k):
                 break
     return out
 
+def _real_axis(srows, idates, n):
+    """把 srows 的真实日涨幅连乘成「个股/期初前收盘」轴，下标 = 相对今日的偏移 d。
+
+    ★ 下标约定（全模块统一）：**今日 = 0**，历史日 = 负偏移，未来日 = 正偏移。
+      `out[d]` = 第 d 天收盘价 / **第 (1−n) 日**（= 该 n 日窗口期初日）的收盘价。
+      ⇒ 真实 n 日窗口的个股比就是 `out[0]`（期初在 −n，即 (1−n) 的前一日）。
+
+    返回 (out, im)：`im` = 下标 0 那一天相对「前一日」的比（= 1 + pct_chg[0]/100），
+    用于把任意 d 的比换算成「相对前一日」的比（未来段外推时要用）。
+
+    取不到足够历史时返回 ({}, 0.0) ⇒ 调用方整体弃权（绝不返回半截数据）。
+    """
+    # ★ 索引 key 统一成 ISO（与 idates 一致）—— srows 的 tradedate 是 `YYYYMMDD`，
+    #   而 idates 是 `YYYY-MM-DD`，两边直接对键会**恒不命中**（首次实测即踩）。
+    rows = {}
+    for r in srows or []:
+        d = str(r.get("tradedate") or "").strip()
+        if not d:
+            continue
+        if len(d) == 8 and d.isdigit():
+            d = d[:4] + "-" + d[4:6] + "-" + d[6:8]
+        try:
+            rows[d] = float(r.get("pct_chg") or 0) / 100.0
+        except (TypeError, ValueError):
+            continue
+    if not rows:
+        return {}, 0.0
+    # 只保留指数交易日历覆盖到的历史日（指数日历是真日历；个股停牌日天然缺席）
+    hist = [d for d in idates if d in rows]
+    if len(hist) < n + 1:
+        log.warning("[dev_risk] 个股日涨幅不足 n 需 %d 得 %d ⇒ 投影弃权", n + 1, len(hist))
+        return {}, 0.0
+    # 期初前收盘日 = 窗口首日的前一日 = 下标 −n；窗口首日 = 下标 (1−n)
+    # 轴先归一到「窗口首日收盘」= 1.0，最后统一换算成「相对期初前收盘」。
+    last = len(idates) - 1
+    w_start = last - (n - 1)                 # 下标 (1−n) 对应的 index
+    if w_start < 0 or idates[last] not in rows:
+        return {}, 0.0
+    im0 = 1.0 + rows[idates[last]]            # 今日相对前一日的比（供未来段外推用）
+    out = {0: 1.0}
+    v = 1.0
+    for off in range(1, n + 1):              # 向过去：下标 −1 … −n（连乘真实日涨幅的倒数）
+        i = last - off
+        if i < 0 or idates[i] not in rows:
+            break
+        v = v / (1.0 + rows[idates[i]])
+        out[-off] = v
+    if -n not in out:
+        log.warning("[dev_risk] 个股历史不足到 −%d ⇒ 投影弃权", n)
+        return {}, 0.0
+    # 换算到「相对期初前收盘（下标 −n）」：out[d] ← out[d] / out[−n]
+    # ⇒ out[−n] == 1.0，而真实 n 日窗口的个股比 = out[0] = 1/∏(1+r_{−n+1..0})
+    base = out[-n]
+    if not base:
+        return {}, 0.0
+    out = {k: v2 / base for k, v2 in out.items()}
+    return out, im0
+
+
+# 求根区间（**日涨幅**，非百分比）。上界 3.0（+300%）故意宽于任何涨停板：
+# 除权/极端组合下窗口内可能出现远超单日涨停的累计，区间不足会把「不可达」误当「不触发」。
+_GAIN_LO, _GAIN_HI = -0.99, 3.0
+_GAIN_ITER = 80                      # 区间宽 3.99，2^80 远超 double 有效位
+
 
 def project_next_10_days(code, spec=None, srows=None, idx_rows=None, close=None):
-    """「假设天天涨停，逐日模拟三条线」——**按滚动窗口真算**，不是简单累加。
+    """未来十日投影 —— **以今日真实行情为起点逐个交易日倒推**（不再假设天天涨停）。
 
-    ★ 与工单伪代码（`d30 += limit`）不同：窗口会滚动，最老一天会离开窗口，
-      指数与个股的「期初前收盘价」也会跟着前进。工单样例的 152.53→177.77→199.98
-      连它自己的伪代码都推不出来，故本实现以口径自洽为准。
-    未来日的价格假设：个股每日 +涨停幅度；指数按**持平**（= 工单「指数按 0 计」）。
+    ★ 2026-09-28 口径改写（主人：「异动计算器下面未来10日的都是虚值，按照实际的计算」）：
+      旧实现假设「个股**每日 +涨停**、指数持平」逐日推演 ⇒ 第 2 天起就走完 3 日线、
+      长窗口也迅速越线，10 行**全部**「已触发」——
+      那是**情景假设**，用户会读成「预测未来 10 天会触发」（主人截图即此误读）。
+      现改为**真实起点 + 反解**，每一行回答一个**具体且可验证**的问题：
 
-    ── 2026-09-27 v4.11.69：每行补齐「安全涨幅 / 剩余天数」两组派生字段 ──
-    主人要求投影表参照「异动了么」的版式：交易日 / 安全涨幅 / 触发规则 / 10日偏离 /
-    30日偏离 / 涨停，其中 10日、30日两列要**双行**（值 + 「剩 N 日」）。故在原有
-    `dev3/dev10/dev30/trigger` 之外新增下列字段（**纯派生，不改任何既有计算口径**）：
+        「若从今日收盘起，每个交易日都涨 g，第 k 日收盘时这条线会不会越线？
+          最小需要的 g 是多少？」
 
-      * `safe_gain_pct`  该日收盘价相对**今日收盘**的累计安全涨幅上限（%）——
-                         取三条未触发线中最先到达者所需的累计涨幅；全部都触发则 None。
-                         语义 = 「从今天起最多还能安心涨多少」。与 `room.next_trigger_pct`
-                         同源（同一条 `x = (1+(thr+i_prev)/100)/(1+s_prev/100)-1` 公式），
-                         只是把「距今日 +x%」换成「自今日累计」。
-      * `trigger_rule`   该日首次触发（若有）的规则名，如 `10日+100%`；无则 `"无"`。
-                         仅取**第一条**（不再像 `trigger` 那样用 ` / ` 连接全部命中）。
-      * `left10` / `left30`  10日 / 30日窗口距触发的**剩余交易日数**（0 = 当日已触发）；
-                         该日窗口不足或数据缺失时为 None（前端显示 `—`）。
-      * `zt_trigger`     该日若按涨停收盘，是否触发任一条线（bool）；
-                         与 `trigger != "不触发"` 等价，但**显式成字段**，便于前端
-                         校验「涨停触发 / 涨停不触发」的文案不靠字符串拼接判断。
+      该问题**不需要任何预测**（未来行情无法预知），它是**给定均匀涨幅假设下的反解**：
+        · g ≤ 一个涨停 ⇒ 该日**有真实可能**触发（列「涨停」显示「会触发」）；
+        · g > 一个涨停 ⇒ 该日**单日不可能**触发。
+      随 k 增大，窗口越长、越难越线 ⇒ g 随 k **单调不减**，全表不会一律「已触发」。
+
+    ★ 关键实现：轴由 **srows 的真实日涨幅连乘**得出（与 `_range_pct` 逐位同源，
+      故对除权天然免疫），未来段才续上 `(1+g)`。指数历史段用**真实**收盘序列
+      （不假设持平），仅未来段按持平外推（唯一无信息时的中性假设）。
+      触板截断：未来日按 `min(g, 涨停幅度)` 复利 —— **不再出现凭空的连板价**。
+
+    ★ 退化自证：k=1 时，窗口 [1−n … 1] 的期初与今日真实窗口 [1−n … 0] 完全相同，
+      仅末点由「今日收盘」换成「第 1 日收盘」⇒ g(k=1) 与 `_next_trigger()` 的单日
+      闭式解**数值全等**（回归用例 `test_project_day1_matches_next_trigger` 钉死）。
+
+    ⚠️ 兼容：字段名与旧版一致（前端 `DevRiskDetail.vue` 逐字消费），**语义按下表重定义**：
+        · `safe_gain_pct`  自今日收盘到该日为止的**累计安全涨幅上限**（= 首次触发所需累计涨幅%）
+                           ★ 用**复利**（(1+g)^k−1）而非简单累加；`None` = 该日不触发
+        · `price`          该日触发所需达到的**目标价**（None = 不触发）
+        · `trigger_rule`   该日首次触发的线（**不含 3 日线**，主人 2026-09-27 要求）
+        · `zt_trigger`     该日所需涨幅是否 ≤ 一个涨停（即「一个涨停内即触发」）
+        · `left10/left30`  距该线触发的**剩余交易日**（0 = 该日即触发；None = 10 日内不触发）
+        · `dev10/dev30`    该日收盘时的 10/30 日偏离值（按「该日所需涨幅」情景估值）
+        · `need10/need30`  该日触发 10/30 日线的最小所需**累计**涨幅%（None = 10 日内不可能）
     """
     spec = spec or spec_of(code)
     if not spec:
@@ -590,87 +664,166 @@ def project_next_10_days(code, spec=None, srows=None, idx_rows=None, close=None)
             close = float(srows[-1].get("close"))
         except (TypeError, ValueError):
             return []
+    if not close:
+        return []
     fut_days = _next_trade_days(last, 10)
     if not fut_days:
         log.warning("[dev_risk] 未来交易日算不出（日历缺口?） code=%s", code)
         return []
-    # 价格/点位字典：过去用真实值，未来用假设值
-    scl = {_to_iso(r.get("tradedate")): float(r["close"]) for r in srows
-           if r.get("close") not in (None, "")}
-    icl = dict(ic)
-    axis = idates + fut_days
-    for k, d in enumerate(fut_days, 1):
-        scl[d] = close * ((1 + spec["limit"] / 100.0) ** k)
-        icl[d] = ic[last]                             # 指数持平
 
-    # 三条线的 (窗口 n, 阈值, 标签) —— 同时供 dev 计算与「剩余天数」用
+    # 三条线（窗口 n, 阈值, 标签）。投影表的触发判定**剔除 3 日线**（v4.11.69 主人要求）。
     _rules = ((3, spec["dev3"], "3日±%g%%" % spec["dev3"]),
               (10, spec["dev10_up"], "10日+%g%%" % spec["dev10_up"]),
               (30, spec["dev30_up"], "30日+%g%%" % spec["dev30_up"]))
-
-    # ★ 投影表的「触发规则 / 涨停」列**不再计入 3 日线**（主人 2026-09-27 要求「去掉3日的触发规则」）。
-    #   理由：3 日线在「假设天天涨停」的极端投影里几乎第 1~2 天必越线，会把 10/30 日线
-    #   的信息完全盖住，用户从这一列读不到真正的长周期监管线。
-    #   ⚠️ 范围严格限定在**投影表**：`dev3` 字段仍照算并下发、`warn_of` 的风险分级（红/黄）
-    #      与上方「下一条触发」仍**照常用 3 日线** —— 只是这张表的这两列不再展示它。
     _hit_rules = tuple(r for r in _rules if r[0] != 3)
 
-    def _dev_at(w_end_i, n):
-        """第 w_end_i 个交易日轴点、n 日窗口的偏离值；算不出返回 None。"""
-        if w_end_i - n + 1 < 0:
-            return None
-        w = axis[max(0, w_end_i - n + 1): w_end_i + 1]
-        base = axis[w_end_i - n] if w_end_i - n >= 0 else None
-        if base is None or base not in scl or base not in icl or w[-1] not in icl:
-            return None
-        if scl.get(base, 0) <= 0 or icl.get(base, 0) <= 0:
-            return None
-        s_pct = (scl[w[-1]] / scl[base] - 1) * 100
-        i_pct = (icl[w[-1]] / icl[base] - 1) * 100
-        return round(s_pct - i_pct, 2)
+    # ---- 真实个股轴（各线所需历史长度不同 ⇒ 逐线造；归一化到「期初前收盘」----
+    axes = {}
+    for n, _thr, _lab in _rules:
+        ax, _im = _real_axis(srows, idates, n)
+        if not ax:
+            log.warning("[dev_risk] 真实个股轴造不出 n=%d code=%s ⇒ 整体弃权", n, code)
+            return []
+        axes[n] = ax
 
-    # 窗口从第 1 天起逐日推进；「剩余天数」= 从该窗口起点算第一个 dev>=thr 的偏移。
-    # 先算每条线在 10 天内的**首次触发偏移**（0 = 第 1 天即触发；None = 10 天内不触发）。
-    first_hit = {}
-    for n, thr, _lab in _rules:
-        off = None
+    # 指数轴：历史用真实收盘，未来按持平（= 今日值）。比值按下标对齐（轴不归一，
+    # 因为 `_dev_n_at` 只用到**比值** i1/i0，绝对值无所谓）。
+    idx_now = ic.get(last)
+    if not idx_now:
+        return []
+    last_i = len(idates) - 1
+    idx_ax = {}
+    for off in range(-(WINDOWS[-1] + 2), 1):
+        j = last_i + off
+        if 0 <= j < len(idates) and ic.get(idates[j]):
+            idx_ax[off] = ic[idates[j]]
+    for kk in range(1, len(fut_days) + 1):
+        idx_ax[kk] = idx_now
+
+    cap = spec["limit"] / 100.0
+
+    def _axis_g(ax, g, k):
+        """把真实轴续上未来段：`ax_g[k] = ax[0] × (1 + min(g, cap))^k`。
+
+        ★ 未来第 d 日个股涨幅 = min(g, 涨停幅度/100) —— 真实市场不可能连续涨停超过 cap。
+        ★ g < 0（下跌情景）**不截断**：本模型只模拟「涨到触发」，负 g 仅在「远未触发」
+          时用于求根，且区间下界 −99% 已足够宽。
+        """
+        step = 1.0 + (min(g, cap) if g > 0 else g)
+        if step <= 0:
+            return None
+        return ax[0] * (step ** k)
+
+    def _cum_of(g, k):
+        """该日所需的**累计**涨幅（比）：(1 + min(g, 涨停))^k − 1。"""
+        step = 1.0 + (min(g, cap) if g > 0 else g)
+        return step ** k - 1 if step > 0 else None
+
+    def _dev_n_at(n, k, g):
+        """n 日线在第 k 天收盘（未来每日 +g）时的偏离值%。"""
+        ax = axes[n]
+        d_start = k - n
+        a_start = ax.get(d_start)
+        if a_start is None:
+            # 期初落在未来区（k > n 时 d_start ≥ 1）：用 g 外推补上
+            if d_start >= 1:
+                a_start = _axis_g(ax, g, d_start)
+            else:
+                return None
+        a_end = _axis_g(ax, g, k) if k >= 1 else ax.get(k)
+        if a_start is None or a_end is None or not a_start:
+            return None
+        i0, i1 = idx_ax.get(d_start), idx_ax.get(k)
+        if not i0 or not i1:
+            return None
+        return (a_end / a_start) / (i1 / i0) * 100 - 100
+
+    def _solve(n):
+        """逐日解出「第 k 天首次越线所需的最小日涨幅 g」；不可达/已越线分别返回 None/0.0。"""
+        thr = dict((r[0], r[1]) for r in _rules)[n]
+        out = {}
         for k in range(1, len(fut_days) + 1):
-            dv = _dev_at(len(idates) - 1 + k, n)
-            if dv is not None and dv >= thr:
-                off = k
+            v0 = _dev_n_at(n, k, 0.0)              # g=0（未来持平）时的偏离值
+            if v0 is None:
+                out[k] = None
+                continue
+            if v0 >= thr:                          # 现在就已越线 ⇒ 该日「无需再涨」
+                out[k] = 0.0
+                continue
+            v_hi = _dev_n_at(n, k, _GAIN_HI)
+            if v_hi is None or v_hi < thr:         # 区间上界仍不够 ⇒ 10 日内不可能
+                out[k] = None
+                continue
+            lo, hi = _GAIN_LO, _GAIN_HI
+            for _ in range(_GAIN_ITER):            # 偏离值对 g 单调不减 ⇒ 二分收敛
+                mid = (lo + hi) / 2.0
+                vm = _dev_n_at(n, k, mid)
+                if vm is not None and vm >= thr:
+                    hi = mid
+                else:
+                    lo = mid
+            out[k] = hi
+        return out
+
+    need = {n: _solve(n) for n, _t, _l in _rules}
+
+    # ---- 逐日组装 ----
+    # ★ `leftN` 的「首次可达日」= 第一个满足 **g ≤ 一个涨停**（即靠连板真能做到）的 k。
+    #   🔴 判据必须是 `g <= cap`，**不能**用「`_solve` 返回了非 None」——后者只说明 g 落在
+    #      求根区间 [−99%, +300%] 内，远松于涨停 ⇒ 会把「56 天才能到、10 天内根本不可能」
+    #      误报成「剩 6 日」（本实现首版即踩，被 left30 独立复算抓出）。
+    first_hit = {}
+    for n in (10, 30):
+        off = None
+        for kk in range(1, len(fut_days) + 1):
+            g = need[n].get(kk)
+            if g is not None and g <= cap + 1e-9:
+                off = kk
                 break
         first_hit[n] = off
 
     rows = []
     for k, d in enumerate(fut_days, 1):
-        w_end_i = len(idates) - 1 + k
-        rec = {"day": k, "date": d, "limit_up_pct": spec["limit"],
-               "price": round(scl[d], 2)}
-        hit = []
-        for n, thr, label in _rules:
-            dv = _dev_at(w_end_i, n)
-            rec["dev%d" % n] = dv
-        # ★ 触发判定只走 _hit_rules（**不含 3 日线**）；dev3 仍照算并保留在 rec 里。
-        for _n, thr, label in _hit_rules:
-            dv = rec["dev%d" % _n]
-            if dv is not None and dv >= thr:
-                hit.append(label)
-        rec["trigger"] = " / ".join(hit) if hit else "不触发"
-        rec["trigger_rule"] = hit[0] if hit else "无"
-        rec["zt_trigger"] = bool(hit)
-        # 剩余交易日：该线首次触发的偏移 − 已走天数；未触发/10天内不触发 → None
-        # ★ 必须 clamp 到 ≥0：触发日之后 off−k 会转负（如 −1/−2），直接下发会渲染成
-        #   「剩 −1 日」。0 的语义 = 「当日已触发」，触发后保持 0（用例
-        #   test_project_safe_gain_and_left_days 抓的正是这条 —— 首版漏 clamp）。
+        rec = {"day": k, "date": d, "limit_up_pct": spec["limit"]}
+        # needN：该日触发该线所需的**累计**涨幅%（复利，自今日收盘起）；None = 求根区间外
         for n, _thr, _lab in _rules:
-            if n not in (10, 30):
+            g = need[n].get(k)
+            rec["need%d" % n] = (None if g is None else round(_cum_of(g, k) * 100, 2))
+        # 该日「触发的线」= 所需日涨幅 g **最小**、且 **g ≤ 一个涨停** 的那条（不含 3 日线）
+        # 🔴 判据统一为 `g <= cap`（「靠连板真能做到」），**不要**改用累计涨幅互比 ——
+        #    两者在 k>1 时会背离（累计口径会把「56 天才到」的线也算进来），首版即因此误报。
+        best = None
+        hit = []
+        for n, _thr, label in _hit_rules:
+            g = need[n].get(k)
+            if g is None:
                 continue
-            off = first_hit.get(n)
+            if best is None or g < best[0]:
+                best = (g, label)
+            if g <= cap + 1e-9:
+                hit.append((g, label))
+        hit.sort()
+        rec["trigger"] = " / ".join(lb for _g, lb in hit) if hit else "不触发"
+        rec["trigger_rule"] = hit[0][1] if hit else "无"
+        rec["zt_trigger"] = bool(hit)
+        # safe_gain_pct = 该日触发线的**累计安全涨幅上限**（= 最小所需日涨幅复利到该日）
+        # ★ 语义：从今日收盘起，涨到**这个幅度**就会首次触发该线 ⇒ 之前的涨幅都「安全」
+        # ★ 只在「一个涨停连板可做到」时给出；否则 None（该日不触发）
+        rec["safe_gain_pct"] = (None if best is None or best[0] > cap + 1e-9
+                                else round(_cum_of(best[0], k) * 100, 2))
+        # price = 该日触发所需的目标价（真实倒推价；不触发为 None）
+        rec["price"] = (round(close * (1 + _cum_of(best[0], k)), 2)
+                        if best is not None and best[0] <= cap + 1e-9 else None)
+        # devN = 该日收盘时的 10/30 日偏离值（按该日所需涨幅情景；不触发时按 k 个涨停情景估趋势）
+        for n in (10, 30):
+            g = need[n].get(k)
+            gg = cap if (g is None or g > cap) else g
+            v = _dev_n_at(n, k, gg)
+            rec["dev%d" % n] = None if v is None else round(v, 2)
+        # leftN = 距该线触发的剩余交易日（0 = 该日即触发；None = 10 日内不触发）
+        for n in (10, 30):
+            off = first_hit[n]
             rec["left%d" % n] = None if off is None else max(0, off - k)
-        # 安全涨幅：该日收盘价相对今日收盘的累计涨幅（%）——
-        # 与「今日还能安心涨多少」等价：第 k 日价 = close × (1+limit)^k，
-        # 故 safe_gain_pct = ((1+limit/100)^k − 1) × 100。
-        rec["safe_gain_pct"] = round(((1 + spec["limit"] / 100.0) ** k - 1) * 100, 2)
         rows.append(rec)
     return rows
 

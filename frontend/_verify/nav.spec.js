@@ -78,6 +78,12 @@ import YidongView from '../src/views/YidongView.vue'
 import MemberView from '../src/views/MemberView.vue'
 import { summarizePicks } from '../src/utils/picks'
 import { mergeLimitCount, sortBoardsByLimit } from '../src/utils/boards'
+// ★ v4.11.71：取**源码文本**做静态断言（`?raw` 由 vite 在构建期内联，SSR 下可用）。
+//   为什么需要它：有些接线（如「组件拿到 props」）在 SSR 空数据下渲染结果一样，
+//   只有读源码才能钉死「props 真传了 / 死代码真删了」。
+import YidongViewSrc from '../src/views/YidongView.vue?raw'
+import MarketViewSrc from '../src/views/MarketView.vue?raw'
+
 
 /* ---------- SSR 环境兜底：useTheme/NavBar 只在 onMounted 碰 DOM，但 store 初始化会读 localStorage ---------- */
 if (typeof globalThis.localStorage === 'undefined') {
@@ -139,6 +145,22 @@ function ok(name, cond, extra) {
  */
 function countByClass(html, cls) {
   return (html.match(new RegExp(`class="[^"]*\\b${cls}\\b[^"]*"`, 'g')) || []).length
+}
+
+/**
+ * 剥掉 JS / CSS / HTML 注释，只留**可执行代码**。
+ * 为什么需要：判「死代码是否清干净」时，实现里常刻意留下「为什么删」的说明注释，
+ *   注释里带着被删标识符的名字 ⇒ 直接 substring 会把**解释**误判成**残留**。
+ *   本项目已多次踩「grep 命中了自己的注释」（v4.11.62 的探针假失败、v4.11.61 的注入无效）。
+ * ⚠️ 朴素实现（会误伤字符串里的 `//`，如 `'https://…'`）—— 用于本测试已足够：
+ *   我们只关心几个**标识符**是否残留，误伤只会让判据更宽松，不会造成假红。
+ *   若将来要用它做更严的判据，须换成真正的分词器。
+ */
+function stripComments(src) {
+  return String(src)
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')      // /* … */ 与 <!-- … --> 的块注释（含 vue 模板注释）
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/(^|\s)\/\/[^\n]*/g, '$1')     // 行首/空白后的 // 行注释
 }
 
 /** 渲染指定路由下的导航三件套，返回 { html, errors } */
@@ -380,17 +402,20 @@ for (const [name, res] of [['FlashTicker', g1], ['YestZtPanel', g2], ['MoneyTopS
 //   （flashList/yestCount/pickRows/boardRows/hotBoard/updatedAt/...），
 //   **错拼同样不会被 build 与 eslint 发现**，只有真渲染才暴露 ⇒ 必须单独渲染它。
 //   props 为空、onMounted 不执行 ⇒ 六层拿到的都是空数据，正好顺带验证「空态不许造假」。
-console.log('\n— G8. MarketView 盯盘台本体（六层编排 + 既有能力一件不丢）')
+console.log('\n— G8. MarketView 盯盘台本体（五层编排 + 既有能力一件不丢）')
 const g8 = await renderComp(MarketView, {}, '/market')
 ok('MarketView 渲染无异常/无 Vue 警告', g8.errors.length === 0, g8.errors.join(' | '))
 ok('含页头 盘中盯盘台', g8.html.includes('盘中盯盘台'))
-ok('含六层栈容器 .mk-stack', g8.html.includes('mk-stack'))
+ok('含五层栈容器 .mk-stack', g8.html.includes('mk-stack'))
 ok('含刷新戳 .mk-updated', g8.html.includes('mk-updated'))
-// 六层：空数据态下六层**仍须各自渲染出标题**（某层若自由变量错拼，这层会整块消失）
-for (const t of ['快讯', '昨日涨停今日表现', '按主力净额排序', '今日票战报', '题材榜', '实时异动流']) {
-  ok(`六层标题「${t}」`, g8.html.includes(t))
+// 五层：空数据态下各层**仍须各自渲染出标题**（某层若自由变量错拼，这层会整块消失）
+for (const t of ['快讯', '昨日涨停今日表现', '按主力净额排序', '今日票战报', '题材榜']) {
+  ok(`五层标题「${t}」`, g8.html.includes(t))
 }
-ok('⑥ 副标题 按累计偏离值排序', g8.html.includes('按累计偏离值排序'))
+// ★ v4.11.71：原第 ⑥ 层「实时异动流」已从盯盘台**整层移除**（模板早搬到 /yidong）。
+//   这里反向钉死：不得再出现该层，也不得出现它的副标题（防「顺手搬回来」）。
+ok('🔴 盯盘台不再含第 ⑥ 层「实时异动流」（v4.11.71 整层移除）',
+  !g8.html.includes('实时异动流') && !g8.html.includes('按累计偏离值排序'))
 // 既有能力一件不丢（折叠区 + 三个 tab + 强度表工具条）
 ok('保留 板块进阶数据 折叠区', g8.html.includes('板块进阶数据'))
 for (const t of ['板块强度明细', '板块轮动历史', '人气热榜']) ok(`保留 tab「${t}」`, g8.html.includes(t))
@@ -549,7 +574,7 @@ ok('🔴 失败与空名单文案必须不同（不许都渲染成一个空列�
 const g11l = await renderComp(DevWarnList, { rows: [], loading: true }, '/yidong')
 ok('加载态：给出「加载异动风险名单」', g11l.html.includes('加载异动风险名单'))
 
-console.log('\n— G11. 个股计算器 DevRiskDetail（算得出 / 算不出 / 未计算）')
+console.log('\n— G11. 异动计算器 DevRiskDetail（算得出 / 算不出 / 未计算）')
 
 const devFixture = {
   ok: true, code: '605058', name: '澳弘电子', board: '沪深主板', board_key: 'main_sh',
@@ -568,9 +593,20 @@ const devFixture = {
   window: { 3: '2026-09-22 → 2026-09-24（期初前 2026-09-19）', 10: '', 30: '' },
   room: { next_trigger_pct: 8.84, trigger_price: 23.4, rule: '3日±20%', reachable: true,
           limit_up_pct: 10, hit: [] },
+  // ★ v4.11.71 起 project10 为**实基倒推**口径（不再是「假设天天涨停」的虚值）：
+  //   need10/need30 = 累计所需涨幅%（自今日收盘起，复利）；None = 10 日内不可能；
+  //   safe_gain_pct/price = 只在「靠连板真能做到」时才有值，否则 null。
   project10: [
-    { day: 1, date: '2026-09-25', price: 23.65, dev3: 33.1, dev10: 33.1, dev30: 33.1, trigger: '3日±20%' },
-    { day: 2, date: '2026-09-28', price: 26.02, dev3: 46.4, dev10: 46.4, dev30: 46.4, trigger: '3日±20%' },
+    { day: 1, date: '2026-09-25', limit_up_pct: 10.0,
+      need3: 8.84, need10: null, need30: null,
+      safe_gain_pct: null, price: null,
+      trigger: '不触发', trigger_rule: '无', zt_trigger: false,
+      dev10: 12.4, dev30: 18.9, left10: 4, left30: null },
+    { day: 2, date: '2026-09-28', limit_up_pct: 10.0,
+      need3: 14.29, need10: null, need30: null,
+      safe_gain_pct: null, price: null,
+      trigger: '不触发', trigger_rule: '无', zt_trigger: false,
+      dev10: 24.9, dev30: 40.2, left10: 3, left30: null },
   ],
   warn: { level: 'red', msg: '已触发3日偏离值异动线' },
 }
@@ -590,8 +626,16 @@ ok('明日触发空间：8.84% + 触发价 23.40 + 规则', g11d.html.includes('
   g11d.html.includes('23.40') && g11d.html.includes('3日±20%'))
 ok('hit 为空且未越涨停 ⇒ 提示「明日单日不可能触发」',
   g11d.html.includes('超过一个涨停幅度'))
-ok('十日投影表渲染 2 行', g11d.html.indexOf('dd-table') >= 0 &&
+ok('★ 未来十日推演表渲染 2 行（实基倒推口径）', g11d.html.indexOf('dd-table') >= 0 &&
   (g11d.html.match(/2026-09-25|2026-09-28/g) || []).length >= 2)
+ok('🔴 推演表头必须是「未来十日推演」，不得再出现「投影」/「假设个股每日」虚值文案',
+  g11d.html.includes('未来十日推演') &&
+  !g11d.html.includes('未来十日投影') &&
+  !g11d.html.includes('假设个股每日'))
+ok('🔴 列头改为「需日均涨」（不再是「安全涨幅」）',
+  g11d.html.includes('需日均涨') && !g11d.html.includes('>安全涨幅<'))
+ok('★ 不可达时 safe_gain_pct=null ⇒ 显示 —（不得显示 0%，会被读成「不涨就触发」）',
+  !/需日均涨[\s\S]{0,400}?\+0\.00%/.test(g11d.html))
 ok('🔴 渲染结果不含 "undefined"', !g11d.html.includes('undefined'))
 ok('🔴 渲染结果不含 "NaN"', !g11d.html.includes('NaN'))
 
@@ -617,18 +661,40 @@ ok('未填代码时提示输入', g11n.html.includes('输入 6 位股票代码')
 console.log('\n— G11. /yidong 本体（防模板自由变量错拼 —— 本测试抓到过两次同类事故）')
 const g11v = await renderComp(YidongView, {}, '/yidong')
 ok('YidongView 渲染无异常/无 Vue 警告', g11v.errors.length === 0, g11v.errors.join(' | '))
-for (const label of ['严重异动', '个股计算器', '重点监控']) {
+for (const label of ['严重异动', '异动计算器', '重点监控']) {
   ok(`三 tab 含「${label}」`, g11v.html.includes(label))
 }
 ok('恰有 3 个 tab', countByClass(g11v.html, 'yd-tab') === 3,
   '实际 ' + countByClass(g11v.html, 'yd-tab'))
 ok('🔴 已删 tab 不留残留：「热门股偏离值」', !g11v.html.includes('热门股偏离值'))
 ok('🔴 已删 tab 不留残留：「多次异动」', !g11v.html.includes('多次异动'))
-ok('副标题已同步三 tab', g11v.html.includes('严重异动 · 个股计算器 · 重点监控'))
+ok('🔴 旧名「个股计算器」已彻底改名（主人 2026-09-28 要求）',
+  !g11v.html.includes('个股计算器'))
+ok('副标题已同步三 tab', g11v.html.includes('严重异动 · 异动计算器 · 重点监控'))
 ok('首屏落在「严重异动」：渲染的是名单区（.dev-bar/加载态），不是计算器',
   g11v.html.includes('加载异动风险名单') && !g11v.html.includes('cal-input'))
 ok('🔴 本体渲染不含 "undefined"', !g11v.html.includes('undefined'))
 ok('🔴 本体渲染不含 "NaN"', !g11v.html.includes('NaN'))
+
+// ★ v4.11.71 B3：实时异动流面板（主人问「还在用吗，测试一下」）
+//   旧写法 `<YidongFlow />` **一个 prop 都没传** ⇒ 面板永远空（接口在服务端、UI 不接）
+//   ⇒ 这里必须钉住「YidongView 本体真的把 props 传下去了」。
+//   ⚠️ SSR 下 onMounted 不执行 ⇒ 拿不到加载态；但「面板在场 + 空态文案不造假」可以断言。
+console.log('\n— G13. /yidong 实时异动流面板（v4.11.71 修好取数接线）')
+ok('YidongView 首屏渲染出实时异动流面板（.yd-flow / .yf-*）',
+  g11v.html.includes('实时异动流') || g11v.html.includes('yf-') || g11v.html.includes('yd-flow'))
+ok('🔴 面板空态不许冒充有数据：要么给空态文案，要么保持加载态',
+  !/实时异动流[\s\S]{0,600}?<tr[^>]*>\s*<td[^>]*>\s*<\/td>/.test(g11v.html))
+ok('🔴 YidongView 源码必须给 YidongFlow 传 items（防退回「无 prop 空面板」）',
+  YidongViewSrc.includes(':items="flowList"'), '未找到 :items="flowList"')
+ok('🔴 YidongView 源码必须调 kplYidongRealtime（防取数被删）',
+  YidongViewSrc.includes('kplYidongRealtime'))
+ok('🔴 MarketView 源码不得再残留 kplYidongRealtime / YidongFlow（死代码已清）',
+  // ⚠️ 必须**剔除注释**再断言：实现里刻意留了「为什么移除」的说明注释（含这两个名字），
+  //    直接 substring 会把「解释」误判成「残留」——本项目已多次踩「grep 命中自己的注释」。
+  !stripComments(MarketViewSrc).includes('kplYidongRealtime') &&
+  !stripComments(MarketViewSrc).includes('YidongFlow'),
+  '剥离注释后仍命中')
 
 // 计算器分支必须**真的渲染一次**才谈得上被覆盖（它是纯 DOM 交互分支）
 const g11vc = await renderComp(YidongView, { initialTab: 'calc' }, '/yidong')
