@@ -479,11 +479,13 @@ meoz:daily:{"recentdays": 3, "symbols": "000504,..."}  TTL=已过期  ← 无 tr
 **① 单测（`backend/tests/test_perf_v41174.py`，12 例）**
 
 本轮两条新规则原先只有"生产实测 + 部署前的一次性脚本"（后者在 gitignore 的
-`scripts/deploy_tmp/` 下，**不入库**）⇒ 规则判定没有仓库级保护。已补齐：
+`scripts/deploy_tmp/` 下，**不入库**）⇒ 规则判定没有仓库级保护。已补齐（12 例 =
+`_hist_ttl_for` **6 例** + `fill_close_change_from_kline` **5 例** + 环境自检 1 例，
+以 `pytest --co` 实测计数为准）：
 
 | 组 | 覆盖 |
 |---|---|
-| `_hist_ttl_for`（8 例） | 回看日长 TTL（带横线 / int / 附 symbols）；**带横线写法的今天必须仍是原 TTL**；相对键 `tradedate_offset` 永不长 TTL；非法格式/未来日期回退；只抬升不压低；**经 `call_cached` 统一入口后落进缓存的实际 TTL**（`store.set` 计数替身取证） |
+| `_hist_ttl_for`（6 例） | 回看日长 TTL（带横线 / int / 附 symbols）；**带横线写法的今天必须仍是原 TTL**；相对键 `tradedate_offset` 永不长 TTL；非法格式/未来日期回退；只抬升不压低；**经 `call_cached` 统一入口后落进缓存的实际 TTL**（`store.set` 计数替身取证） |
 | `fill_close_change_from_kline`（5 例） | 盘前目标日==今天 ⇒ 返回 0 且**四个兜底源一次都没被打**、字段一字不动；09:14 短路 / 09:15 起不再短路；09:20 仍能用当天日K算收盘涨幅；**回看日即便同处盘前也不得被短路**；空输入 no-op |
 
 固定时钟一律走生产口径 `gmtime(time.time() + 8*3600)`（用 `tzinfo=+8h` 会差 8 小时，

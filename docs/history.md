@@ -3765,9 +3765,10 @@
     `_kx_prof_hist_qc.py`（历史回看路径分段计时）、`_kx_prof_endpoint_qc.py`（**端点级 monkeypatch 计时**）、
     `_kx_retest_prep.py`（签发/回收临时 token + 精准清键）、`_kx_auction_tabs2.js`（改后复测，Pass A/B）、
     `_kx_verify_intraday.py`（**盘中窗口验收**，09:15 边界两侧的前后对比）。
-  - **★ 仓库级单测 + 变异验证（本轮补的欠账）**：新增 `backend/tests/test_perf_v41174.py`（**12 用例**），
-    把两条新规则从"只有生产实测"提升为"有确定性单测"：
-    - `_hist_ttl_for` 8 例：回看日长 TTL（含 int / 带横线）、**带横线写法的今天必须仍是原 TTL**、
+  - **★ 仓库级单测 + 变异验证（本轮补的欠账）**：新增 `backend/tests/test_perf_v41174.py`
+    （**12 例** = `_hist_ttl_for` **6 例** + `fill_close_change_from_kline` **5 例** + 环境自检 1 例，
+    以 `pytest --co` 实测计数为准），把两条新规则从"只有生产实测"提升为"有确定性单测"：
+    - `_hist_ttl_for` 6 例：回看日长 TTL（含 int / 带横线）、**带横线写法的今天必须仍是原 TTL**、
       相对键 `tradedate_offset` 不长 TTL、非法格式 / 未来日期回退、只抬升不压低、
       以及**经 `call_cached` 统一入口后落进缓存的实际 TTL**（用 `store.set` 计数替身取证）；
     - `fill_close_change_from_kline` 5 例：盘前（02:00）目标日==今天 ⇒ 返回 0 且**四个兜底源一次都没被打**、
