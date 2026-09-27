@@ -256,6 +256,42 @@ def test_project_uses_board_limit(patched):
     assert "3日" in p[1]["trigger"]
 
 
+def test_project_safe_gain_and_left_days(patched):
+    """★ v4.11.69 新增派生字段（主人参照「异动了么」版式要求）：
+    `safe_gain_pct` / `trigger_rule` / `left10` / `left30` / `zt_trigger` 必须自洽。
+
+    夹具：主板 + 过去全平 ⇒ 涨停 10%、3日线 ±20%、10日线 +100%、30日线 +200%。
+    三日线第 2 天触发（21% > 20%）；10日线 1.1^10−1 = 159.37% > 100% ⇒ 第 8 天触发
+    （1.1^7−1 = 94.87% < 100%，1.1^8−1 = 114.36% > 100%）；30日线 10 天内不足。
+    """
+    patched(idx=_idx(45), stock=_stock_from_pcts([0.0] * 45))
+    p = dev_risk.compute("605058")["project10"]
+
+    # safe_gain_pct = 自今日收盘累计涨停涨幅，逐日复利（与 price 同源）
+    assert p[0]["safe_gain_pct"] == 10.0
+    assert p[1]["safe_gain_pct"] == 21.0
+    assert p[9]["safe_gain_pct"] == round((1.1 ** 10 - 1) * 100, 2)   # 159.37
+
+    # trigger_rule 只取第一条（不是 ` / ` 连接的全部）
+    assert p[0]["trigger_rule"] == "无" and p[0]["zt_trigger"] is False
+    assert "3日" in p[1]["trigger_rule"] and p[1]["zt_trigger"] is True
+
+    # left10 = 10日线首次触发偏移 − 已走天数 ⇒ 第 1 天为 7（第 8 天触发），其后递减
+    assert p[0]["left10"] == 7 and p[6]["left10"] == 1 and p[7]["left10"] == 0
+    assert p[8]["left10"] == 0                            # 已触发后保持 0（不回退）
+    assert all(r["left30"] is None for r in p)            # 30日线 10 天内不触发 ⇒ None
+
+
+def test_project_left_days_none_when_never_triggers(patched):
+    """反证：`left10` 只在「10 天内真的会触发」时才有值，否则必须是 None
+    （不能默认成 0 —— 0 的语义是「今天已触发」，会误导用户）。"""
+    patched(idx=_idx(45), stock=_stock_from_pcts([0.0] * 45))
+    p = dev_risk.compute("300750")["project10"]           # 创业板 20%：3日线 ±30%
+    # 20% ⇒ 第2天 44% > 30%，第 1 天不触发 ⇒ left10(10日线+100%) 需 1.2^k−1 ≥ 1 ⇒ k=4
+    assert p[0]["left10"] == 3                            # 第 4 天触发（1.2^4−1 = 107.36%）
+    assert p[1]["dev3"] == 44.0 and p[1]["trigger_rule"] != "无"
+
+
 # ---------------- 风险标签 ----------------
 
 def test_warn_levels(patched):

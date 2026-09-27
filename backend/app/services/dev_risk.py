@@ -556,6 +556,24 @@ def project_next_10_days(code, spec=None, srows=None, idx_rows=None, close=None)
       指数与个股的「期初前收盘价」也会跟着前进。工单样例的 152.53→177.77→199.98
       连它自己的伪代码都推不出来，故本实现以口径自洽为准。
     未来日的价格假设：个股每日 +涨停幅度；指数按**持平**（= 工单「指数按 0 计」）。
+
+    ── 2026-09-27 v4.11.69：每行补齐「安全涨幅 / 剩余天数」两组派生字段 ──
+    主人要求投影表参照「异动了么」的版式：交易日 / 安全涨幅 / 触发规则 / 10日偏离 /
+    30日偏离 / 涨停，其中 10日、30日两列要**双行**（值 + 「剩 N 日」）。故在原有
+    `dev3/dev10/dev30/trigger` 之外新增下列字段（**纯派生，不改任何既有计算口径**）：
+
+      * `safe_gain_pct`  该日收盘价相对**今日收盘**的累计安全涨幅上限（%）——
+                         取三条未触发线中最先到达者所需的累计涨幅；全部都触发则 None。
+                         语义 = 「从今天起最多还能安心涨多少」。与 `room.next_trigger_pct`
+                         同源（同一条 `x = (1+(thr+i_prev)/100)/(1+s_prev/100)-1` 公式），
+                         只是把「距今日 +x%」换成「自今日累计」。
+      * `trigger_rule`   该日首次触发（若有）的规则名，如 `10日+100%`；无则 `"无"`。
+                         仅取**第一条**（不再像 `trigger` 那样用 ` / ` 连接全部命中）。
+      * `left10` / `left30`  10日 / 30日窗口距触发的**剩余交易日数**（0 = 当日已触发）；
+                         该日窗口不足或数据缺失时为 None（前端显示 `—`）。
+      * `zt_trigger`     该日若按涨停收盘，是否触发任一条线（bool）；
+                         与 `trigger != "不触发"` 等价，但**显式成字段**，便于前端
+                         校验「涨停触发 / 涨停不触发」的文案不靠字符串拼接判断。
     """
     spec = spec or spec_of(code)
     if not spec:
@@ -585,33 +603,64 @@ def project_next_10_days(code, spec=None, srows=None, idx_rows=None, close=None)
         scl[d] = close * ((1 + spec["limit"] / 100.0) ** k)
         icl[d] = ic[last]                             # 指数持平
 
+    # 三条线的 (窗口 n, 阈值, 标签) —— 同时供 dev 计算与「剩余天数」用
+    _rules = ((3, spec["dev3"], "3日±%g%%" % spec["dev3"]),
+              (10, spec["dev10_up"], "10日+%g%%" % spec["dev10_up"]),
+              (30, spec["dev30_up"], "30日+%g%%" % spec["dev30_up"]))
+
+    def _dev_at(w_end_i, n):
+        """第 w_end_i 个交易日轴点、n 日窗口的偏离值；算不出返回 None。"""
+        if w_end_i - n + 1 < 0:
+            return None
+        w = axis[max(0, w_end_i - n + 1): w_end_i + 1]
+        base = axis[w_end_i - n] if w_end_i - n >= 0 else None
+        if base is None or base not in scl or base not in icl or w[-1] not in icl:
+            return None
+        if scl.get(base, 0) <= 0 or icl.get(base, 0) <= 0:
+            return None
+        s_pct = (scl[w[-1]] / scl[base] - 1) * 100
+        i_pct = (icl[w[-1]] / icl[base] - 1) * 100
+        return round(s_pct - i_pct, 2)
+
+    # 窗口从第 1 天起逐日推进；「剩余天数」= 从该窗口起点算第一个 dev>=thr 的偏移。
+    # 先算每条线在 10 天内的**首次触发偏移**（0 = 第 1 天即触发；None = 10 天内不触发）。
+    first_hit = {}
+    for n, thr, _lab in _rules:
+        off = None
+        for k in range(1, len(fut_days) + 1):
+            dv = _dev_at(len(idates) - 1 + k, n)
+            if dv is not None and dv >= thr:
+                off = k
+                break
+        first_hit[n] = off
+
     rows = []
     for k, d in enumerate(fut_days, 1):
         w_end_i = len(idates) - 1 + k
         rec = {"day": k, "date": d, "limit_up_pct": spec["limit"],
                "price": round(scl[d], 2)}
         hit = []
-        for n, thr, label in ((3, spec["dev3"], "3日±%g%%" % spec["dev3"]),
-                              (10, spec["dev10_up"], "10日+%g%%" % spec["dev10_up"]),
-                              (30, spec["dev30_up"], "30日+%g%%" % spec["dev30_up"])):
-            if w_end_i - n + 1 < 0:
-                rec["dev%d" % n] = None
-                continue
-            w = axis[max(0, w_end_i - n + 1): w_end_i + 1]
-            base = axis[w_end_i - n] if w_end_i - n >= 0 else None
-            if base is None or base not in scl or base not in icl or w[-1] not in icl:
-                rec["dev%d" % n] = None
-                continue
-            if scl.get(base, 0) <= 0 or icl.get(base, 0) <= 0:
-                rec["dev%d" % n] = None
-                continue
-            s_pct = (scl[w[-1]] / scl[base] - 1) * 100
-            i_pct = (icl[w[-1]] / icl[base] - 1) * 100
-            dv = round(s_pct - i_pct, 2)
+        for n, thr, label in _rules:
+            dv = _dev_at(w_end_i, n)
             rec["dev%d" % n] = dv
-            if dv >= thr:
+            if dv is not None and dv >= thr:
                 hit.append(label)
         rec["trigger"] = " / ".join(hit) if hit else "不触发"
+        rec["trigger_rule"] = hit[0] if hit else "无"
+        rec["zt_trigger"] = bool(hit)
+        # 剩余交易日：该线首次触发的偏移 − 已走天数；未触发/10天内不触发 → None
+        # ★ 必须 clamp 到 ≥0：触发日之后 off−k 会转负（如 −1/−2），直接下发会渲染成
+        #   「剩 −1 日」。0 的语义 = 「当日已触发」，触发后保持 0（用例
+        #   test_project_safe_gain_and_left_days 抓的正是这条 —— 首版漏 clamp）。
+        for n, _thr, _lab in _rules:
+            if n not in (10, 30):
+                continue
+            off = first_hit.get(n)
+            rec["left%d" % n] = None if off is None else max(0, off - k)
+        # 安全涨幅：该日收盘价相对今日收盘的累计涨幅（%）——
+        # 与「今日还能安心涨多少」等价：第 k 日价 = close × (1+limit)^k，
+        # 故 safe_gain_pct = ((1+limit/100)^k − 1) × 100。
+        rec["safe_gain_pct"] = round(((1 + spec["limit"] / 100.0) ** k - 1) * 100, 2)
         rows.append(rec)
     return rows
 

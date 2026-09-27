@@ -88,18 +88,41 @@
         <table v-else class="stock-table dd-table">
           <thead>
             <tr>
-              <th>交易日</th><th>假设价</th>
-              <th>3日偏离</th><th>10日偏离</th><th>30日偏离</th><th>触发</th>
+              <th>交易日</th>
+              <th>安全涨幅</th>
+              <th>触发规则</th>
+              <th>10日偏离</th>
+              <th>30日偏离</th>
+              <th>涨停</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="r in projectRows" :key="r.day">
-              <td>{{ r.date }}</td>
-              <td class="col-num">{{ fmtNum(r.price, 2) }}</td>
-              <td class="col-num" :class="cls(r.dev3)">{{ signedPct(r.dev3) }}</td>
-              <td class="col-num" :class="cls(r.dev10)">{{ signedPct(r.dev10) }}</td>
-              <td class="col-num" :class="cls(r.dev30)">{{ signedPct(r.dev30) }}</td>
-              <td class="dd-trigger" :class="r.trigger === '不触发' ? 'col-dim' : 'col-up'">{{ r.trigger }}</td>
+              <td class="dd-day">
+                <span class="dd-day-n">第{{ r.day }}天</span>
+                <span class="dd-day-d">{{ r.date }}</span>
+              </td>
+              <td class="dd-cell">
+                <span class="dd-v col-up">{{ signedPct(r.safe_gain_pct) }}</span>
+                <span class="dd-p">{{ fmtNum(r.price, 2) }}</span>
+              </td>
+              <td class="dd-cell dd-rule" :class="r.zt_trigger ? 'col-up' : 'col-dim'">
+                <span class="dd-v">{{ r.trigger_rule }}</span>
+                <span v-if="r.trigger !== r.trigger_rule && r.trigger !== '不触发'" class="dd-p dd-p-dim">{{ r.trigger }}</span>
+                <span v-else class="dd-p dd-p-dim">—</span>
+              </td>
+              <td class="dd-cell">
+                <span class="dd-v" :class="cls(r.dev10)">{{ signedPct(r.dev10) }}</span>
+                <span class="dd-p dd-p-dim">{{ leftText(r.left10) }}</span>
+              </td>
+              <td class="dd-cell">
+                <span class="dd-v" :class="cls(r.dev30)">{{ signedPct(r.dev30) }}</span>
+                <span class="dd-p dd-p-dim">{{ leftText(r.left30) }}</span>
+              </td>
+              <td class="dd-cell" :class="r.zt_trigger ? 'col-up' : 'col-dim'">
+                <span class="dd-v">{{ r.zt_trigger ? '会触发' : '不触发' }}</span>
+                <span class="dd-p dd-p-dim">{{ ztText(r) }}</span>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -189,6 +212,24 @@ function cls(v) {
   if (v === null || v === undefined) return 'col-dim'
   return Number(v) > 0 ? 'col-up' : 'col-dim'
 }
+
+// ★ 「剩余交易日」文案（v4.11.69 参照「异动了么」版式新增）：
+//   后端 `left10` / `left30` 的语义 —— 0 = 该窗口当日已触发，N>0 = 还需 N 个交易日触发，
+//   null/undefined = 10 天投影内不会触发。**三者必须显示成不同文案**：
+//   若把 null 也渲染成「剩 0 日」，用户会误读成「今天就触发」，与事实相反。
+function leftText(v) {
+  if (v === null || v === undefined) return '10日内不触发'
+  const n = Number(v)
+  if (Number.isNaN(n)) return '—'
+  if (n <= 0) return '已触发'
+  return '剩 ' + n + ' 日'
+}
+
+// 涨停列副行：该日涨停后哪些线会越线（无则明示「不触发」，不留空白）
+function ztText(r) {
+  if (!r || !r.zt_trigger) return '无越线'
+  return String(r.trigger || '').replace(/\s*\/\s*/g, ' + ')
+}
 </script>
 
 <style scoped>
@@ -243,9 +284,19 @@ function cls(v) {
 .dd-proj-h { font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 8px; }
 .dd-proj-s { font-size: 0.6875rem; color: var(--text-muted); margin-left: 6px; }
 .dd-proj-empty { padding: 20px; text-align: center; color: var(--text-muted); font-size: 0.8125rem; }
-.dd-table { width: 100%; }
+.dd-table { width: 100%; table-layout: fixed; }
 .dd-table th, .dd-table td { vertical-align: middle !important; text-align: center !important; }
-.dd-trigger { font-size: 0.75rem; white-space: normal; word-break: break-word; max-width: 180px; }
+
+/* ★ 双行单元格（v4.11.69 参照「异动了么」版式）：
+   上行 = 数值（大、着色），下行 = 单位/说明（小、灰）。两行高度固定，
+   避免不同行单元格高度不齐把表格拉成锯齿。 */
+.dd-cell { line-height: 1.35; }
+.dd-v { display: block; font-size: 0.8125rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.dd-p { display: block; font-size: 0.6875rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.dd-p-dim { opacity: 0.75; }
+.dd-day-n { display: block; font-size: 0.8125rem; color: var(--text-secondary); }
+.dd-day-d { display: block; font-size: 0.6875rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.dd-rule .dd-v { white-space: nowrap; }
 
 .col-num { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .col-up { color: #ff6b6b; font-weight: 600; }
