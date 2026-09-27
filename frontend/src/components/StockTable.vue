@@ -93,7 +93,6 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { linkToSoftware } from '../utils/tdx'
 import { fmtNum, pct } from '../utils/format'
 // 2026-09-23 P0 连板高度标签: 纯展示映射(档位/配色), 逻辑与统计常量在 utils/lb.js
 // 🔴 `lbTip` 已不再引入: 2026-09-23 15:5x 主人要求取消连板标签的悬停提示(函数仍留在 lb.js)。

@@ -22,8 +22,8 @@
       <div class="emo-card emo-card-mkt">
         <span class="idx-name">市场量能</span>
         <span class="emo-val mkt-amt">{{ fmtAmt(emo.am) }}</span>
-        <span class="idx-chg" v-if="emo.am_diff !== null && emo.am_diff !== undefined" :class="emo.am_diff < 0 ? 'mkt-shrink' : 'mkt-grow'">{{ emo.am_diff < 0 ? '缩量' : '放量' }} {{ fmtAmt(Math.abs(emo.am_diff)) }}</span>
-        <span class="idx-chg idx-flat" v-else>-</span>
+        <span v-if="emo.am_diff !== null && emo.am_diff !== undefined" class="idx-chg" :class="emo.am_diff < 0 ? 'mkt-shrink' : 'mkt-grow'">{{ emo.am_diff < 0 ? '缩量' : '放量' }} {{ fmtAmt(Math.abs(emo.am_diff)) }}</span>
+        <span v-else class="idx-chg idx-flat">-</span>
       </div>
       <div class="emo-card">
         <span class="idx-name">涨跌家数</span>

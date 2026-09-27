@@ -33,7 +33,7 @@
                用 .right-group 挂到本行右侧（该 class 自带 margin-left:auto，且本行已
                justify-content:flex-start ⇒ 它出现不会把左边那组 tab 挤到中间）。
                ⚠️ 它讲的是**名单数据**的取回时刻，与页头那个每秒跳的时钟无关。 -->
-          <span class="right-group"><DataStamp :at="dataAt" :ok="dataOk" :interval="autoOn ? 30 : 0" /></span>
+          <span class="right-group"><DataStamp :at="dataAt" :ok="dataOk" :interval="autoOn ? 30 : 0" :stale="dataStale" /></span>
         </div>
 
         <!-- 筛选面板(仅竞价模式) -->
@@ -93,7 +93,7 @@
 
       <!-- 右栏: 竞价异动 -->
       <div class="home-col home-col-right" :class="{ 'home-col-hidden': mobilePane !== 'auction' }">
-        <AuctionView/>
+        <AuctionView />
       </div>
     </div><!-- /.home-grid -->
   </div>
@@ -115,7 +115,6 @@ import { kplBidSeal } from '../api/kpl'
 import { trackUsage } from '../api/activity'
 import { showToast } from '../utils/toast'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
-import { copyText, downloadBlkFile } from '../utils/tdx'
 // 2026-09-05: isBefore930 随「锁定」按钮移除后本视图不再使用, 从 import 中去掉
 import { bjDateTimeStr, isIntradayNow, isMemberOnlyTime } from '../utils/time'
 // 2026-09-27 v4.11.63《移动端清单》§二·4: 数据更新时刻（与页头时钟区分开）
@@ -127,7 +126,7 @@ const pool = usePoolStore()
 const user = useUserStore()
 const bjTime = ref('--:--:--')
 // ⚠️ 分解赋值（模板只自动解包顶层 ref，写 ds.at 会把 ref 对象渲染出来）
-const { at: dataAt, ok: dataOk, mark: markData } = useDataStamp()
+const { at: dataAt, ok: dataOk, stale: dataStale, mark: markData } = useDataStamp()
 // 当前是否处于「30s 自动刷新」窗口（盘中）。收盘/盘前为 false ⇒ 不显示「每 30s 自动刷新」
 const autoOn = ref(false)
 const bidSealMap = ref({})        // 竞价涨停委买额 map: code -> {limitBoards, bidSealAmt, bidNetAmt}
@@ -231,12 +230,6 @@ function switchTab(m) {
     stocks.fetchAndCache().then(() => markData()).catch(e => showToast('❌ ' + e.message, 'error'))
   }
 }
-function downloadAll() { downloadBlkFile(stocks.cachedStocks, 0) }
-function copyCodes() {
-  if (!stocks.cachedStocks.length) { showToast('无数据', 'error'); return }
-  copyText(stocks.cachedStocks.map(s => s.code).join('\n'), `✅ 已复制 ${stocks.cachedStocks.length} 个代码，可粘贴到电脑端导入`)
-}
-
 // 2026-08-24: 首页表格固定表头 — 测量 sticky 元素(filter/tabs)高度写入 CSS 变量
 let _stickyResizeFn = null
 function setupStickyOffsets() {

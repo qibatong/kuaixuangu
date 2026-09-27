@@ -14,10 +14,10 @@
             <button class="rot-date-btn" title="选择日期回看往日总结">
               <i class="fa fa-calendar"></i> {{ selDate || '选择日期' }}
               <input
+                v-model="selDate"
                 type="date"
                 class="rot-date-hidden"
                 :max="maxDate"
-                v-model="selDate"
                 title="回看往日总结"
                 @change="onDateChange"
                 @click.stop

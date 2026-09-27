@@ -30,7 +30,10 @@
       <button class="mk-refresh" :disabled="ticking" title="手动刷新" @click="tick()">
         <i class="fa fa-refresh" :class="{ spin: ticking }"></i>
       </button>
-      <span class="mk-updated">{{ updatedAt ? '更新于 ' + updatedAt : bjTime }}</span>
+      <span class="mk-updated" :class="{ 'mk-stale': stale }">{{ updatedAt ? '更新于 ' + updatedAt : bjTime }}</span>
+      <span v-if="stale" class="mk-stale-tag" title="超过 5 分钟未成功刷新，数据可能停滞">
+        <i class="fa fa-exclamation-triangle"></i> 已超 5 分钟未更新
+      </span>
     </div>
 
     <div class="mk-stack">
@@ -280,7 +283,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref, reactive, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, reactive, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePolling } from '../composables/usePolling'
 import {
@@ -344,6 +347,9 @@ const boardDataDate = ref('')
 const hotDataDate = ref('')
 const bjTime = ref('--:--:--')
 const updatedAt = ref('')
+const updatedMs = ref(0)   // 最近一次成功 tick 的时刻(ms)，供数据新鲜度超时检测
+const stale = ref(false)   // 盘中超过 5 分钟未成功刷新 → 标灰 + 警告
+let staleTimer = null
 
 // 各表独立排序实例
 const boardSort = useSortable()
@@ -654,6 +660,8 @@ async function tick() {
     if (!datePicker.value) jobs.push(loadBoard())
     await Promise.allSettled(jobs)
     updatedAt.value = bjTimeStr()
+    updatedMs.value = Date.now()
+    stale.value = false
   } finally {
     ticking.value = false
   }
@@ -667,6 +675,11 @@ usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
 // 🔴 只在盘中轮询: 旧版不看时段, 凌晨挂着也在打「板块强度 + 人气榜」(开盘啦 8 万次/日付费配额)
 usePolling(() => { if (isIntradayNow()) tick() }, 60000, { immediate: false })
 
+// 数据新鲜度超时检测(2026-09-27 收尾, 总工单批次五 P0): 仅盘中(isIntradayNow)判定,
+// 超过 5 分钟未成功 tick → stale=true, 页头「更新于」标灰 + 警告
+function tickStale() {
+  stale.value = isIntradayNow() && updatedMs.value > 0 && (Date.now() - updatedMs.value) > 5 * 60 * 1000
+}
 onMounted(() => {
   bjTime.value = bjTimeStr()
   // 2026-09-22 v4.11.35: 市场雷达打开即算一次(Once 版, 组件内 60s 轮询不重复上报)
@@ -675,7 +688,10 @@ onMounted(() => {
   loadHistory()
   loadHot()
   if (src.value === 'em') loadConcept()
+  staleTimer = setInterval(tickStale, 30000)
+  tickStale()
 })
+onBeforeUnmount(() => { if (staleTimer) clearInterval(staleTimer) })
 </script>
 
 <style scoped>
@@ -694,6 +710,11 @@ onMounted(() => {
 .mk-refresh:hover { border-color: var(--accent); color: var(--text-main); }
 .mk-refresh:disabled { opacity: 0.5; cursor: default; }
 .mk-updated { color: var(--text-dim); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.mk-updated.mk-stale { opacity: 0.55; color: var(--text-muted); }
+.mk-stale-tag {
+  display: inline-flex; align-items: center; gap: 3px;
+  color: #ffb020; font-weight: 600; font-size: 0.75rem; white-space: nowrap;
+}
 .spin { animation: spin 0.8s linear infinite; display: inline-block; }
 
 /* 六层竖排，层间距 8px（工单「卡片间距 8px」） */

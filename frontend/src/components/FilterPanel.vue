@@ -16,8 +16,10 @@
             - 按钮吸右上角, 不单独换行
             - 每个 cell 恢复精确像素宽 (调用 inputW())
        内联 style 不依赖任何 CSS 文件缓存/specificity, 立刻生效. -->
-  <div v-if="store.filterReady" class="filter-custom" :class="{ 'filter-locked': store.isFilterLocked }"
-       :style="layoutStyle.root">
+  <div
+v-if="store.filterReady" class="filter-custom" :class="{ 'filter-locked': store.isFilterLocked }"
+       :style="layoutStyle.root"
+>
     <!-- 第一行: 筛选项 + 右侧按钮对齐 -->
     <div class="filter-row filter-row-1" :style="layoutStyle.row1">
       <!-- 2026-08-25 正逻辑(勾上=只看这类票), tooltip 保留帮助理解; 主人要求去掉"只看"二字 -->
@@ -33,23 +35,31 @@
       <!-- 2026-09-16 选股闸门: 交易日 9:00-9:26 全部动作按钮置灰(store.pickBlocked),
            title 显示具体原因; 输入框仍可编辑, 到点自动解禁后可直接点「应用」 -->
       <span class="filter-actions-top" :style="layoutStyle.actions">
-        <button class="tdx-export-btn filter-apply" style="background:var(--accent-deep);"
+        <button
+class="tdx-export-btn filter-apply" style="background:var(--accent-deep);"
                 :disabled="store.pickBlocked || (store.isFilterLocked && store.strategy === 'auction')"
-                :title="store.pickBlocked ? store.pickBlockedMsg : ''" @click="apply">应用</button>
-        <button class="tdx-export-btn filter-reset"
+                :title="store.pickBlocked ? store.pickBlockedMsg : ''" @click="apply"
+>应用</button>
+        <button
+class="tdx-export-btn filter-reset"
                 :disabled="store.pickBlocked || (store.isFilterLocked && store.strategy === 'auction')"
-                :title="store.pickBlocked ? store.pickBlockedMsg : ''" @click="reset">重置</button>
-        <button v-if="store.strategy === 'auction'" class="tdx-export-btn filter-lock" :class="{ locked: store.isFilterLocked }"
+                :title="store.pickBlocked ? store.pickBlockedMsg : ''" @click="reset"
+>重置</button>
+        <button
+v-if="store.strategy === 'auction'" class="tdx-export-btn filter-lock" :class="{ locked: store.isFilterLocked }"
                 :disabled="store.pickBlocked" :title="store.pickBlocked ? store.pickBlockedMsg : ''"
-                @click="toggleLock">{{ store.isFilterLocked ? '解锁' : '锁定' }}</button>
+                @click="toggleLock"
+>{{ store.isFilterLocked ? '解锁' : '锁定' }}</button>
         <!-- 2026-09-05: 刷新按钮从 StockView 顶部规则条移入本组(仅竞价模式; 9:30 后
              刷新实时行情, 9:30 前等同重新选股)。点击 emit 给父组件处理。
              样式与相邻的 重置/锁定 对齐(同 padding/字号, 见下方 .filter-refresh),
              且**不带图标** —— 左侧三个按钮均为纯文字, 带图标会导致宽度不一致。 -->
-        <button v-if="store.strategy === 'auction'" class="tdx-export-btn filter-refresh"
+        <button
+v-if="store.strategy === 'auction'" class="tdx-export-btn filter-refresh"
                 :disabled="store.pickBlocked"
                 :title="store.pickBlocked ? store.pickBlockedMsg : '刷新实时行情'"
-                @click="emit('refresh')">刷新</button>
+                @click="emit('refresh')"
+>刷新</button>
       </span>
     </div>
     <!-- 第二行: 数值输入框.
@@ -212,9 +222,6 @@ function inputStyle(px) {
     lineHeight: '1.3', textAlign: 'center', boxSizing: 'border-box',
   }
 }
-
-// 保留旧 API 以防外部 CSS 选择器里仍然有 inputW 相关引用 (目前无)
-function inputW(px) { return { width: `${px}px` } }
 
 async function apply() {
   try {

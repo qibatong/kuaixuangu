@@ -40,10 +40,10 @@
                   <i class="fa fa-calendar"></i> {{ selDate || latestDate || '选择日期' }}
                   <!-- 透明 input 覆盖整个按钮: 用户实际点到 input 本身触发原生日历, 兼顾桌面/iOS/Android, 不依赖 showPicker() -->
                   <input
+                    v-model="selDate"
                     type="date"
                     class="rot-date-hidden"
                     :max="maxDate"
-                    v-model="selDate"
                     title="回看历史预测报告"
                     @change="loadReport"
                     @click="onDateInputClick"
@@ -54,18 +54,18 @@
             </div>
             <div class="ap-rulebar">
               <span class="ap-rule-label">流通市值</span>
-              <input class="ap-rule-in" type="number" inputmode="decimal" step="10" v-model="mvMin" placeholder="30">
+              <input v-model="mvMin" class="ap-rule-in" type="number" inputmode="decimal" step="10" placeholder="30">
               <span class="ap-rule-sep">~</span>
-              <input class="ap-rule-in" type="number" inputmode="decimal" step="100" v-model="mvMax" placeholder="100">
+              <input v-model="mvMax" class="ap-rule-in" type="number" inputmode="decimal" step="100" placeholder="100">
               <span class="ap-rule-unit">亿</span>
               <span class="ap-rule-label">竞价金额≥</span>
-              <input class="ap-rule-in" type="number" inputmode="decimal" step="100" v-model="amtMin" placeholder="3000">
+              <input v-model="amtMin" class="ap-rule-in" type="number" inputmode="decimal" step="100" placeholder="3000">
               <span class="ap-rule-unit">万</span>
               <span class="ap-rule-label">竞价涨幅≤</span>
-              <input class="ap-rule-in" type="number" inputmode="numeric" v-model="chgMax" placeholder="7">
+              <input v-model="chgMax" class="ap-rule-in" type="number" inputmode="numeric" placeholder="7">
               <span class="ap-rule-unit">%</span>
               <span class="ap-rule-label">涨停率≥</span>
-              <input class="ap-rule-in" type="number" inputmode="numeric" v-model="probMin" placeholder="50">
+              <input v-model="probMin" class="ap-rule-in" type="number" inputmode="numeric" placeholder="50">
               <span class="ap-rule-unit">%</span>
               <span class="ap-rule-n">{{ shownCount }} 只</span>
               <button class="ap-rule-reset" title="恢复默认规则" @click="resetRule"><i class="fa fa-undo"></i></button>
@@ -80,15 +80,15 @@
             <table class="stock-table ap-stock-table">
               <thead>
                 <tr>
-                  <th @click="toggleSort('name')" :class="thCls('name')">名称</th>
-                  <th @click="toggleSort('ai_prob')" :class="thCls('ai_prob')">AI涨停概率</th>
-                  <th @click="toggleSort('bid_change')" :class="thCls('bid_change')">竞价涨幅</th>
-                  <th @click="toggleSort('bid_amount')" :class="thCls('bid_amount')">竞价金额</th>
-                  <th @click="toggleSort('circ_mv')" :class="thCls('circ_mv')">流通市值</th>
-                  <th @click="toggleSort('bid_turnover')" :class="thCls('bid_turnover')">换手率</th>
+                  <th :class="thCls('name')" @click="toggleSort('name')">名称</th>
+                  <th :class="thCls('ai_prob')" @click="toggleSort('ai_prob')">AI涨停概率</th>
+                  <th :class="thCls('bid_change')" @click="toggleSort('bid_change')">竞价涨幅</th>
+                  <th :class="thCls('bid_amount')" @click="toggleSort('bid_amount')">竞价金额</th>
+                  <th :class="thCls('circ_mv')" @click="toggleSort('circ_mv')">流通市值</th>
+                  <th :class="thCls('bid_turnover')" @click="toggleSort('bid_turnover')">换手率</th>
                   <th class="ap-th" title="开盘啦概念">概念</th>
-                  <th v-if="isLatest" @click="toggleSort('realtime')" :class="thCls('realtime')">实时涨幅</th>
-                  <th v-else @click="toggleSort('day_change')" :class="thCls('day_change')">当日涨幅</th>
+                  <th v-if="isLatest" :class="thCls('realtime')" @click="toggleSort('realtime')">实时涨幅</th>
+                  <th v-else :class="thCls('day_change')" @click="toggleSort('day_change')">当日涨幅</th>
                 </tr>
               </thead>
               <tbody>
@@ -119,7 +119,6 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useUserStore } from '../stores/user'
 import VipGate from '../components/VipGate.vue'
 import PoolHoverBtn from '../components/PoolHoverBtn.vue'
 import { aipickDates, aipickData, aipickRealtime } from '../api/aipick'
@@ -139,7 +138,6 @@ const props = defineProps({
 // 是否火眼(LightGBM) 链路(用于标题徽标/副标题)
 const isLgb = computed(() => props.model === 'lgb')
 
-const user = useUserStore()
 // 配额用尽(2026-09-21): 接口 429 code=quota_exceeded 时置位 → 配额引导页
 const quotaExceeded = ref(false)
 const quotaInfo = ref(null)
@@ -360,12 +358,6 @@ function saveRules() {
 
 // 任何规则变化都自动保存
 watch([mvMin, mvMax, amtMin, chgMax, probMin], saveRules)
-
-// 当前查看标签: 最新 vs 回看某天
-const viewDateLabel = computed(() => {
-  if (selDate.value) return `回看 ${selDate.value}`
-  return `最新 ${latestDate.value || '--'}`
-})
 
 // ===== 格式化 =====
 // 竞价金额: ≥1亿(10000万) 用"亿", 否则用"万"

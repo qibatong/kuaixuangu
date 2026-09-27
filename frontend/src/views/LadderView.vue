@@ -8,18 +8,18 @@
       <span class="zt-time">{{ bjTime }}</span>
       <!-- 2026-09-27 v4.11.63《移动端清单》§二·4: 数据更新时刻(与左边那个"现在几点"的
            时钟不是一回事 —— 它只在成功拉到梯队数据时才前进) -->
-      <DataStamp :at="dataAt" :ok="dataOk" :interval="autoOn ? 30 : 0" />
+      <DataStamp :at="dataAt" :ok="dataOk" :interval="autoOn ? 30 : 0" :stale="dataStale" />
     </div>
 
     <!-- 顶部统计 -->
-    <div class="zt-stat" v-if="stat.ztCount">
+    <div v-if="stat.ztCount" class="zt-stat">
       <span class="zt-stat-item">涨停 <b>{{ stat.ztCount }}</b> 家</span>
       <span class="zt-stat-item">最高 <b>{{ stat.maxLadder }}</b> 板</span>
       <span class="zt-stat-item">空间龙 <b>{{ stat.spaceDragon || '-' }}</b></span>
     </div>
 
     <!-- 晋级率 -->
-    <div class="zt-promote" v-if="promote.date">
+    <div v-if="promote.date" class="zt-promote">
       <span class="zt-promo-item">首板→2板 <b>{{ pct(promote.r1to2) }}</b></span>
       <span class="zt-promo-item">2→3板 <b>{{ pct(promote.r2to3) }}</b></span>
       <span class="zt-promo-item">3→4板 <b>{{ pct(promote.r3to4) }}</b></span>
@@ -28,10 +28,12 @@
     </div>
 
     <!-- 题材分区(2026-09-20 主人要求: 点击联动过滤下方梯队个股, 再点取消) -->
-    <div class="zt-boards" v-if="boards.length">
+    <div v-if="boards.length" class="zt-boards">
       <div class="zt-board" :class="{ active: !activeBoard }" @click="activeBoard = ''">全部</div>
-      <div v-for="b in boards" :key="b.name" class="zt-board"
-           :class="{ main: b.main, active: activeBoard === b.name }" @click="toggleBoard(b.name)">
+      <div
+v-for="b in boards" :key="b.name" class="zt-board"
+           :class="{ main: b.main, active: activeBoard === b.name }" @click="toggleBoard(b.name)"
+>
         <span class="zb-name">{{ b.name }}</span>
         <span class="zb-meta">{{ b.count }}家·{{ b.maxLadder }}板</span>
       </div>
@@ -55,14 +57,14 @@
               <span v-if="it.mainNet !== null && it.mainNet !== undefined" :class="it.mainNet >= 0 ? 'up' : 'down'">{{ it.mainNet >= 0 ? '主力吸筹' : '主力出货' }} {{ yi(Math.abs(it.mainNet)) }}亿</span>
               <span v-if="it.turnover">换手 {{ it.turnover.toFixed(2) }}%</span>
             </div>
-            <div class="zc-reason" v-if="it.reason">{{ it.reason }}</div>
+            <div v-if="it.reason" class="zc-reason">{{ it.reason }}</div>
           </div>
         </div>
       </div>
     </div>
 
     <!-- 盘后天梯图 -->
-    <div class="img-panel" v-if="imgDates.length">
+    <div v-if="imgDates.length" class="img-panel">
       <div class="img-head">
         <span class="img-title"><i class="fa fa-image"></i> 盘后涨停梯队图</span>
         <span class="img-sub">每日 15:30 自动生成</span>
@@ -74,7 +76,7 @@
           <a class="img-dl" :href="imgDownloadUrl" download>下载</a>
         </span>
       </div>
-      <div class="img-body" v-if="imgUrl">
+      <div v-if="imgUrl" class="img-body">
         <img :src="imgUrl" class="ladder-img" :alt="'涨停梯队 ' + imgDate" />
       </div>
     </div>
@@ -114,7 +116,7 @@ const bjTime = ref('--:--:--')
 // 清单 §二·4: 数据更新时刻 + "当前是否在自动刷新"（后者决定要不要显示「每 30s 自动刷新」）
 // ⚠️ 这里必须**分解赋值**：useDataStamp 返回的是普通对象，模板只会自动解包「顶层 ref」，
 //    写 `ds.at` 会把 ref 对象本身渲染出来（要写成 ds.at.value 才对）—— 分解后既干净又不会踩。
-const { at: dataAt, ok: dataOk, mark: markData } = useDataStamp()
+const { at: dataAt, ok: dataOk, stale: dataStale, mark: markData } = useDataStamp()
 const autoOn = ref(false)
 const stat = ref({ ztCount: 0, maxLadder: 0, spaceDragon: '' })
 const promote = ref({})

@@ -14,24 +14,30 @@
         <i class="fa fa-circle-o-notch fa-spin"></i>
       </span>
       <!-- 连续失败: 提示已保留旧数据并自动退避重试(不弹窗打扰) -->
-      <span v-else-if="pollFailCount > 0" class="auc-poll-warn"
-            title="刷新失败，已保留上次数据，稍后自动重试">
+      <span
+v-else-if="pollFailCount > 0" class="auc-poll-warn"
+            title="刷新失败，已保留上次数据，稍后自动重试"
+>
         <i class="fa fa-exclamation-triangle"></i> 稍后重试
       </span>
       <!-- 日期回看: 右侧对齐, 实时模式下日期框直接显示数据日期 -->
       <span class="auc-head-spacer"></span>
       <!-- 2026-09-27 v4.11.63《移动端清单》§二·4: 数据更新时刻。
            历史回看模式(选了日期)没有轮询 ⇒ interval 传 0，"每 30s 自动刷新"那句自动消失。 -->
-      <DataStamp :at="dataAt" :ok="dataOk" :interval="datePicker ? 0 : 30" />
+      <DataStamp :at="dataAt" :ok="dataOk" :interval="datePicker ? 0 : 30" :stale="dataStale" />
       <input :value="datePicker || dataDate" type="date" class="rot-date" title="选择历史交易日" @change="onDateChange">
       <button class="rot-reset-btn" title="回到实时" @click="clearDate"><i class="fa fa-bolt"></i></button>
       <!-- 2026-09-05 P0: 手动刷新入口(用户主动触发, 不增加常态轮询负载) -->
-      <button class="rot-reset-btn" title="刷新当前 Tab 数据" :disabled="silentRefreshing"
-              @click="refreshCurrentTab">
+      <button
+class="rot-reset-btn" title="刷新当前 Tab 数据" :disabled="silentRefreshing"
+              @click="refreshCurrentTab"
+>
         <i class="fa fa-refresh" :class="{ 'fa-spin': silentRefreshing }"></i>
       </button>
-      <button class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
-              :disabled="loading || silentRefreshing" @click="refreshAll">
+      <button
+class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
+              :disabled="loading || silentRefreshing" @click="refreshAll"
+>
         <i class="fa fa-repeat"></i>
       </button>
     </div>
@@ -59,7 +65,8 @@
       <!-- 竞价委买/爆量/净额 共用表 -->
       <table v-else-if="tab === 'seal' || tab === 'boom' || tab === 'net'" class="stock-table">
         <thead>
-          <tr><th class="sortable" :class="{ active: sealSort.keyOf('code') }" @click="sealSort.onSort('code', 'string')">名称<span class="sort-ind">{{ sealSort.ind('name') }}</span></th>
+          <tr>
+<th class="sortable" :class="{ active: sealSort.keyOf('code') }" @click="sealSort.onSort('code', 'string')">名称<span class="sort-ind">{{ sealSort.ind('name') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('realChange') }" @click="sealSort.onSort('realChange')">现涨<span class="sort-ind">{{ sealSort.ind('realChange') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('bidChange') }" @click="sealSort.onSort('bidChange')">竞涨<span class="sort-ind">{{ sealSort.ind('bidChange') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt') }" @click="sealSort.onSort(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt')">{{ tab === 'boom' || tab === 'net' ? '竞额' : '涨停委买额(亿)' }}<span class="sort-ind">{{ sealSort.ind(tab === 'boom' || tab === 'net' ? 'bidAmt' : 'bidSealAmt') }}</span></th>
@@ -69,8 +76,7 @@
             <th v-if="tab !== 'boom'" class="sortable" :class="{ active: sealSort.keyOf('limitBoards') }" @click="sealSort.onSort('limitBoards')">连板<span class="sort-ind">{{ sealSort.ind('limitBoards') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('floatMv') }" @click="sealSort.onSort('floatMv')">流通(亿)<span class="sort-ind">{{ sealSort.ind('floatMv') }}</span></th>
             <th class="sortable" :class="{ active: sealSort.keyOf('board') }" @click="sealSort.onSort('board', 'string')">概念<span class="sort-ind">{{ sealSort.ind('board') }}</span></th>
-            
-          </tr>
+</tr>
         </thead>
         <tbody>
           <tr v-for="it in sealSort.sorted(sealList)" :key="it.code">
@@ -89,8 +95,7 @@
             <td v-if="tab !== 'boom'"><span v-if="it.limitBoards > 0" class="lb-badge">{{ it.limitBoards }}板</span><span v-else class="dim">-</span></td>
             <td class="dim">{{ fmtMv(it.floatMv) }}</td>
             <td class="concept-cell dim" :title="it.board"><span v-if="it.board" class="concept-clamp">{{ conceptText(it.board) }}</span><span v-else class="dim">-</span></td>
-            
-          </tr>
+</tr>
         </tbody>
       </table>
 
@@ -119,8 +124,7 @@
             <th class="sortable" :class="{ active: s3Sort.keyOf('real_change') }" @click="s3Sort.onSort('real_change')">现涨<span class="sort-ind">{{ s3Sort.ind('real_change') }}</span></th>
             <th class="sortable" :class="{ active: s3Sort.keyOf('float_mv') }" @click="s3Sort.onSort('float_mv')">流通(亿)<span class="sort-ind">{{ s3Sort.ind('float_mv') }}</span></th>
             <th class="board-col sortable" :class="{ active: s3Sort.keyOf('board') }" @click="s3Sort.onSort('board', 'string')">概念<span class="sort-ind">{{ s3Sort.ind('board') }}</span></th>
-            
-          </tr>
+</tr>
         </thead>
         <tbody>
           <tr v-for="it in s3Sort.sorted(s3List, s3Val)" :key="it.code">
@@ -137,8 +141,7 @@
             <td class="real-chg-col" :class="realChgCls(it)">{{ realChg(it) }}</td>
             <td class="dim">{{ mvText(it) }}</td>
             <td class="concept-cell" :title="it.board"><span v-if="it.board" class="concept-clamp">{{ conceptText(it.board) }}</span><span v-else class="dim">-</span></td>
-            
-          </tr>
+</tr>
           <tr v-if="!s3List.length">
             <td colspan="9" class="snap-empty">该日期暂无封单榜单（可能：今日无涨停/数据采集中/非交易日）；下个交易日 9:15/9:20/9:25 采集后生效</td>
           </tr>
@@ -156,10 +159,11 @@
               <button :class="{ active: qc20Mode === 'amt' }" @click="qc20Mode = 'amt'">竞额抢筹</button>
             </span>
           </div>
-          <div class="qc-table-scroll" ref="qcScroll1">
+          <div ref="qcScroll1" class="qc-table-scroll">
           <table class="stock-table">
             <thead>
-              <tr><th class="sortable" :class="{ active: qcSort.keyOf('code') }" @click="qcSort.onSort('code', 'string')">名称<span class="sort-ind">{{ qcSort.ind('name') }}</span></th>
+              <tr>
+<th class="sortable" :class="{ active: qcSort.keyOf('code') }" @click="qcSort.onSort('code', 'string')">名称<span class="sort-ind">{{ qcSort.ind('name') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('realChange') }" @click="qcSort.onSort('realChange')">现涨<span class="sort-ind">{{ qcSort.ind('realChange') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('bidAmt') }" @click="qcSort.onSort('bidAmt')">竞额<span class="sort-ind">{{ qcSort.ind('bidAmt') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf(qc20Mode === 'amt' ? 'qcDelta' : 'qcDeltaChg') }" @click="qcSort.onSort(qc20Mode === 'amt' ? 'qcDelta' : 'qcDeltaChg')">抢筹幅度<span class="sort-ind">{{ qcSort.ind(qc20Mode === 'amt' ? 'qcDelta' : 'qcDeltaChg') }}</span></th>
@@ -168,8 +172,7 @@
                 <th class="sortable" :class="{ active: qcSort.keyOf('bidTurnover') }" @click="qcSort.onSort('bidTurnover')">竞换<span class="sort-ind">{{ qcSort.ind('bidTurnover') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('floatMv') }" @click="qcSort.onSort('floatMv')">流通(亿)<span class="sort-ind">{{ qcSort.ind('floatMv') }}</span></th>
                 <th class="sortable" :class="{ active: qcSort.keyOf('board') }" @click="qcSort.onSort('board', 'string')">概念<span class="sort-ind">{{ qcSort.ind('board') }}</span></th>
-                
-              </tr>
+</tr>
             </thead>
             <tbody>
               <tr v-for="q in qcSort.sorted(qc20Mode === 'amt' ? qcList : qcChgList)" :key="'a' + q.code + qc20Mode">
@@ -186,8 +189,7 @@
                 <td class="dim">{{ q.bidTurnover !== null && q.bidTurnover !== undefined ? q.bidTurnover.toFixed(2) + '%' : '-' }}</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
                 <td class="concept-cell dim qc-board" :title="q.board"><span v-if="q.board" class="concept-clamp">{{ conceptText(q.board) }}</span><span v-else class="dim">-</span></td>
-                
-              </tr>
+</tr>
               <tr v-if="(qc20Mode === 'amt' ? qcList : qcChgList).length === 0">
                 <td colspan="9" class="snap-empty">{{ qc20Mode === 'amt' ? '9:20-9:25 竞额抢筹数据 9:15-9:30 竞价时段可用' : '9:20-9:25 涨幅抢筹数据 9:20/9:25 快照采集后可用' }}</td>
               </tr>
@@ -197,10 +199,11 @@
         </div>
         <div class="qc-panel">
           <div class="qc-panel-title"><i class="fa fa-bolt"></i> 最后一秒竞价涨幅</div>
-          <div class="qc-table-scroll" ref="qcScroll2">
+          <div ref="qcScroll2" class="qc-table-scroll">
           <table class="stock-table">
             <thead>
-              <tr><th class="sortable" :class="{ active: qcLastSort.keyOf('code') }" @click="qcLastSort.onSort('code', 'string')">名称<span class="sort-ind">{{ qcLastSort.ind('name') }}</span></th>
+              <tr>
+<th class="sortable" :class="{ active: qcLastSort.keyOf('code') }" @click="qcLastSort.onSort('code', 'string')">名称<span class="sort-ind">{{ qcLastSort.ind('name') }}</span></th>
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('realChange') }" @click="qcLastSort.onSort('realChange')">现涨<span class="sort-ind">{{ qcLastSort.ind('realChange') }}</span></th>
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('bidAmt') }" @click="qcLastSort.onSort('bidAmt')">竞额<span class="sort-ind">{{ qcLastSort.ind('bidAmt') }}</span></th>
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('qcDeltaLast') }" @click="qcLastSort.onSort('qcDeltaLast')">抢筹幅度<span class="sort-ind">{{ qcLastSort.ind('qcDeltaLast') }}</span></th>
@@ -209,8 +212,7 @@
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('bidTurnover') }" @click="qcLastSort.onSort('bidTurnover')">竞换<span class="sort-ind">{{ qcLastSort.ind('bidTurnover') }}</span></th>
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('floatMv') }" @click="qcLastSort.onSort('floatMv')">流通(亿)<span class="sort-ind">{{ qcLastSort.ind('floatMv') }}</span></th>
                 <th class="sortable" :class="{ active: qcLastSort.keyOf('board') }" @click="qcLastSort.onSort('board', 'string')">概念<span class="sort-ind">{{ qcLastSort.ind('board') }}</span></th>
-                
-              </tr>
+</tr>
             </thead>
             <tbody>
               <tr v-for="q in qcLastSort.sorted(qcLastList)" :key="'b' + q.code">
@@ -227,8 +229,7 @@
                 <td class="dim">{{ q.bidTurnover !== null && q.bidTurnover !== undefined ? q.bidTurnover.toFixed(2) + '%' : '-' }}</td>
                 <td>{{ q.floatMv ? (q.floatMv / 1e8).toFixed(1) + '亿' : '-' }}</td>
                 <td class="concept-cell dim qc-board" :title="q.board"><span v-if="q.board" class="concept-clamp">{{ conceptText(q.board) }}</span><span v-else class="dim">-</span></td>
-                
-              </tr>
+</tr>
               <tr v-if="!qcLastList.length">
                 <td colspan="9" class="snap-empty">最后一秒数据 9:25 后可用（9:24 时点采集后）</td>
               </tr>
@@ -241,7 +242,8 @@
       <!-- 昨日涨停(今日竞价表现) -->
       <table v-else-if="tab === 'yestZt'" class="stock-table">
         <thead>
-          <tr><th class="sortable" :class="{ active: yestZtSort.keyOf('code') }" @click="yestZtSort.onSort('code', 'string')">名称<span class="sort-ind">{{ yestZtSort.ind('name') }}</span></th>
+          <tr>
+<th class="sortable" :class="{ active: yestZtSort.keyOf('code') }" @click="yestZtSort.onSort('code', 'string')">名称<span class="sort-ind">{{ yestZtSort.ind('name') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('limitUpDays') }" @click="yestZtSort.onSort('limitUpDays')">连板<span class="sort-ind">{{ yestZtSort.ind('limitUpDays') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('floatMv') }" @click="yestZtSort.onSort('floatMv')">流通(亿)<span class="sort-ind">{{ yestZtSort.ind('floatMv') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('change') }" @click="yestZtSort.onSort('change')">现涨<span class="sort-ind">{{ yestZtSort.ind('change') }}</span></th>
@@ -250,15 +252,16 @@
             <th class="sortable" :class="{ active: yestZtSort.keyOf('bidAmt') }" @click="yestZtSort.onSort('bidAmt')">竞额(亿)<span class="sort-ind">{{ yestZtSort.ind('bidAmt') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('reason') }" @click="yestZtSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ yestZtSort.ind('reason') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('board') }" @click="yestZtSort.onSort('board', 'string')">概念<span class="sort-ind">{{ yestZtSort.ind('board') }}</span></th>
-            
-          </tr>
+</tr>
         </thead>
         <tbody>
           <tr v-for="z in yestZtSort.sorted(yestZtList)" :key="z.code">
             <td class="stock-info-cell" @click="linkToSoftware(z.code)">
             <div class="stock-code-row"><span class="stock-code">{{ z.code }}</span></div>
-            <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ z.name }}</span><PoolHoverBtn :item="z" /></span>
-            <span v-if="z.stillLimit" class="lb-badge">连板</span></div>
+            <div class="stock-name-row">
+<span class="pool-hover-wrap"><span class="stock-name">{{ z.name }}</span><PoolHoverBtn :item="z" /></span>
+            <span v-if="z.stillLimit" class="lb-badge">连板</span>
+</div>
             <div v-if="yidongTag(z.code)" class="yd-badge-row"><span class="yd-badge" :title="yidongTagTitle(z.code)">{{ yidongTag(z.code) }}</span></div>
           </td>
             <td><span v-if="z.limitUpDays > 0" class="lb-badge">{{ z.limitUpDays }}板</span><span v-else class="dim">-</span></td>
@@ -269,15 +272,15 @@
             <td>{{ z.bidAmt ? amtText(z.bidAmt) : '-' }}</td>
             <td class="reason-cell" @click="showReason(z)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
             <td class="concept-cell dim" :title="z.board"><span v-if="z.board" class="concept-clamp">{{ conceptText(z.board) }}</span><span v-else class="dim">-</span></td>
-            
-          </tr>
+</tr>
         </tbody>
       </table>
 
       <!-- 昨断板(昨涨停今断) -->
       <table v-else-if="tab === 'yestBroken'" class="stock-table">
         <thead>
-          <tr><th class="sortable" :class="{ active: yestBrokenSort.keyOf('code') }" @click="yestBrokenSort.onSort('code', 'string')">名称<span class="sort-ind">{{ yestBrokenSort.ind('name') }}</span></th>
+          <tr>
+<th class="sortable" :class="{ active: yestBrokenSort.keyOf('code') }" @click="yestBrokenSort.onSort('code', 'string')">名称<span class="sort-ind">{{ yestBrokenSort.ind('name') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('yestChange') }" @click="yestBrokenSort.onSort('yestChange')">昨竞价<span class="sort-ind">{{ yestBrokenSort.ind('yestChange') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('change') }" @click="yestBrokenSort.onSort('change')">现涨<span class="sort-ind">{{ yestBrokenSort.ind('change') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('bidChange') }" @click="yestBrokenSort.onSort('bidChange')">竞涨<span class="sort-ind">{{ yestBrokenSort.ind('bidChange') }}</span></th>
@@ -286,8 +289,7 @@
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('floatMv') }" @click="yestBrokenSort.onSort('floatMv')">流通(亿)<span class="sort-ind">{{ yestBrokenSort.ind('floatMv') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('reason') }" @click="yestBrokenSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ yestBrokenSort.ind('reason') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('board') }" @click="yestBrokenSort.onSort('board', 'string')">概念<span class="sort-ind">{{ yestBrokenSort.ind('board') }}</span></th>
-            
-          </tr>
+</tr>
         </thead>
         <tbody>
           <tr v-for="b2 in yestBrokenSort.sorted(yestBrokenList)" :key="b2.code">
@@ -304,8 +306,7 @@
             <td class="dim">{{ fmtMv(b2.floatMv) }}</td>
             <td class="reason-cell" @click="showReason(b2)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
             <td class="concept-cell dim" :title="b2.board"><span v-if="b2.board" class="concept-clamp">{{ conceptText(b2.board) }}</span><span v-else class="dim">-</span></td>
-            
-          </tr>
+</tr>
         </tbody>
       </table>
 
@@ -322,8 +323,7 @@
             <th class="sortable" :class="{ active: lhbSort.keyOf('turnover') }" @click="lhbSort.onSort('turnover')">换手%<span class="sort-ind">{{ lhbSort.ind('turnover') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('reason') }" @click="lhbSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ lhbSort.ind('reason') }}</span></th>
             <th class="sortable" :class="{ active: lhbSort.keyOf('board') }" @click="lhbSort.onSort('board', 'string')">概念<span class="sort-ind">{{ lhbSort.ind('board') }}</span></th>
-            
-          </tr>
+</tr>
         </thead>
         <tbody>
           <tr v-for="l in lhbSort.sorted(lhbList)" :key="l.code">
@@ -340,8 +340,7 @@
             <td>{{ l.turnover.toFixed(2) }}</td>
             <td class="reason-cell" @click="showReason(l)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
             <td class="concept-cell dim" :title="l.board"><span v-if="l.board" class="concept-clamp">{{ conceptText(l.board) }}</span><span v-else class="dim">-</span></td>
-            
-          </tr>
+</tr>
         </tbody>
       </table>
 
@@ -359,8 +358,7 @@
             <th v-if="tab === 'brokenToday'" class="sortable" :class="{ active: brokenSort.keyOf('firstLimitUp') }" @click="brokenSort.onSort('firstLimitUp')">涨停时间<span class="sort-ind">{{ brokenSort.ind('firstLimitUp') }}</span></th>
             <th class="sortable" :class="{ active: brokenSort.keyOf('reason') }" @click="brokenSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ brokenSort.ind('reason') }}</span></th>
             <th class="sortable" :class="{ active: brokenSort.keyOf('board') }" @click="brokenSort.onSort('board', 'string')">概念<span class="sort-ind">{{ brokenSort.ind('board') }}</span></th>
-            
-          </tr>
+</tr>
         </thead>
         <tbody>
           <tr v-for="b in brokenSort.sorted(brokenList)" :key="b.code">
@@ -378,8 +376,7 @@
             <td v-if="tab === 'brokenToday'" class="dim">{{ fmtT(b.firstLimitUp) }}</td>
             <td class="reason-cell" @click="showReason(b)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
             <td class="concept-cell dim" :title="b.board"><span v-if="b.board" class="concept-clamp">{{ conceptText(b.board) }}</span><span v-else class="dim">-</span></td>
-            
-          </tr>
+</tr>
         </tbody>
       </table>
     </div>
@@ -407,8 +404,7 @@
         </div>
       </div>
     </div>
-
-    </template>
+</template>
   </div>
 </template>
 
@@ -419,19 +415,17 @@ import { kplBidSeal, kplBidNet, kplBidBoom, kplBidQiangcang, kplBroken, kplLhb, 
 import { auctionOverview, bidSnapshot3points } from '../api/stats'
 import { trackUsage } from '../api/activity'
 import { linkToSoftware } from '../utils/tdx'
-import { isMemberOnlyTime, todayBj } from '../utils/time'
+import { todayBj } from '../utils/time'
 import { showToast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
-import { useUserStore } from '../stores/user'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
-import { yi, signed, amtText, fmtAvg, fmtT, wan } from '../utils/format'
+import { yi, signed, amtText, fmtT } from '../utils/format'
 import VipGate from '../components/VipGate.vue'
 import PoolHoverBtn from '../components/PoolHoverBtn.vue'
 // 2026-09-27 v4.11.63《移动端清单》§二·4: 数据更新时刻（与页头时钟区分开）
 import DataStamp from '../components/DataStamp.vue'
 import { useDataStamp } from '../composables/useDataStamp'
 
-const user = useUserStore()
 // 配额用尽(2026-09-21): 接口返回 429 code=quota_exceeded 时置 true → 显示配额引导页
 const quotaExceeded = ref(false)
 const gateRef = ref(null)
@@ -485,7 +479,7 @@ const datePicker = ref('')    // 用户选的日期(空=实时)
 
 // 2026-09-27 v4.11.63《移动端清单》§二·4: 当前 Tab 的数据取回时刻。
 // ⚠️ 分解赋值：模板只自动解包顶层 ref，写 `ds.at` 会渲染出 ref 对象。
-const { at: dataAt, ok: dataOk, mark: markData } = useDataStamp()
+const { at: dataAt, ok: dataOk, stale: dataStale, mark: markData } = useDataStamp()
 const dataDate = ref('')      // 后端实际返回的数据日期(可能被对齐)
 let autoFallback = false      // 已自动回退(避免清空后无限循环)
 
@@ -590,12 +584,6 @@ function sealMode(it) {
 function mvText(it) {
   const p = it.points && (it.points['9_25'] || it.points['9_20'] || it.points['9_15'])
   return p && p.float_mv ? (p.float_mv / 1e8).toFixed(1) : '-'
-}
-// 概念只显示前 2 个(开盘啦板块可能 10+ 个, 与首页选股列表一致; 完整放 title hover)
-function shortConcept(b) {
-  if (!b) return '-'
-  const parts = String(b).split(/[、,，]/).map(s => s.trim()).filter(Boolean)
-  return parts.length <= 2 ? parts.join('、') : parts.slice(0, 2).join('、')
 }
 // 纯文本概念: 只显示前 2 个, 用换行符分隔(配合 white-space:pre-line 渲染)
 function conceptText(b) {
@@ -715,7 +703,7 @@ const tabLoading = new Set()
 
 // 返回值语义(2026-09-05 配合 usePolling 退避): true=成功/无需请求, false=请求失败
 // 失败时**不清空**已有 list → 页面保留上一次成功数据, 不出现空白
-async function ensureTabData(t, { silent = false } = {}) {
+async function ensureTabData(t) {
   const dt = datePicker.value
   if (t === 's3') {
     // 三时点榜随 loadAll 加载; 轮询时若已清标记则重新拉(实时刷新)

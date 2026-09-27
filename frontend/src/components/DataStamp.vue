@@ -8,11 +8,16 @@
        ③ 自动刷新   → 附「· 每 30s 自动刷新」只在 interval>0 时出现
           （收盘 / 历史回看模式没有轮询，父组件传 0 即可让这句消失 —— 不许写死。）
   -->
-  <span class="ds" :class="{ 'ds-ok': ok }" :title="title">
+  <span class="ds" :class="{ 'ds-ok': ok, 'ds-stale': interval > 0 && stale }" :title="title">
     <i class="fa fa-clock-o" aria-hidden="true"></i>
     <span v-if="ok" class="ds-at">更新于 {{ at }}</span>
     <span v-else class="ds-at">等待首次更新…</span>
     <span v-if="interval > 0" class="ds-hint">· 每 {{ interval }}s 自动刷新</span>
+    <!-- 2026-09-27《前端收尾·数据新鲜度》：实时轮询模式下超过 5 分钟未成功刷新
+         → stale=true：标灰(.ds-stale 整体变暗) + 明示"已超 5 分钟未更新" -->
+    <span v-if="interval > 0 && stale" class="ds-stale-tag" title="超过 5 分钟未成功刷新，数据可能停滞">
+      <i class="fa fa-exclamation-triangle" aria-hidden="true"></i> 已超 5 分钟未更新
+    </span>
   </span>
 </template>
 
@@ -24,6 +29,9 @@ const props = defineProps({
   ok: { type: Boolean, default: false },
   // 自动刷新间隔(秒)。0 = 当前不自动刷新(收盘/历史回看) ⇒ 不显示该提示。
   interval: { type: Number, default: 0 },
+  // 2026-09-27《前端收尾·数据新鲜度》：是否已超 5 分钟未成功刷新(由 useDataStamp 计算)。
+  // 仅 interval>0(实时轮询)时生效；历史回看/收盘不报警。
+  stale: { type: Boolean, default: false },
   // 悬浮说明：讲清"这戳是数据时刻，不是当前时间"
   hint: { type: String, default: '本页数据的取回时刻（与页头时钟不同：时钟走，它只在成功取到新数据时才走）' },
 })
@@ -49,4 +57,16 @@ const title = computed(() => {
 .ds i { opacity: 0.7; }
 .ds.ds-ok { color: var(--text-secondary); }
 .ds-hint { opacity: 0.75; }
+/* 2026-09-27《前端收尾·数据新鲜度》：数据停滞态 —— 整体标灰变暗 + 警告标签琥珀色 */
+.ds.ds-stale { opacity: 0.55; color: var(--text-muted); }
+.ds-stale-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #ffb020;
+  opacity: 1;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ds-stale-tag i { opacity: 1; }
 </style>

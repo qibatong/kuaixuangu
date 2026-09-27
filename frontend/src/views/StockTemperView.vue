@@ -19,7 +19,7 @@
           <option :value="30">≥30</option>
         </select>
       </label>
-      <input class="temper-search" v-model="keyword" placeholder="搜索代码/名称" @keyup.enter="reload()" />
+      <input v-model="keyword" class="temper-search" placeholder="搜索代码/名称" @keyup.enter="reload()" />
       <div class="temper-page">
         <button class="pg-btn" :disabled="page <= 1" @click="page--; load(false)"><i class="fa fa-chevron-left"></i></button>
         <span class="pg-info">{{ list.length ? ((page - 1) * size + 1) + '-' + ((page - 1) * size + list.length) : 0 }} / {{ total }}</span>
@@ -90,7 +90,7 @@
           </div>
 
           <div class="metric-grid">
-            <div class="metric" v-for="m in metrics" :key="m.key">
+            <div v-for="m in metrics" :key="m.key" class="metric">
               <div class="metric-label">{{ m.label }}</div>
               <div class="metric-val" :class="m.cls ? m.cls(detail[m.key]) : ''">{{ fmtV(m, detail[m.key]) }}</div>
               <div class="metric-sub">{{ m.sub }}</div>

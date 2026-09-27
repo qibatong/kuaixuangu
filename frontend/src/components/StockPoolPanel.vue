@@ -42,7 +42,6 @@ import { computed } from 'vue'
 import { usePoolStore } from '../stores/pool'
 import { useStocksStore } from '../stores/stocks'
 import { showToast } from '../utils/toast'
-import { linkToSoftware } from '../utils/tdx'
 import { bjNow, pad2 } from '../utils/time'
 
 const pool = usePoolStore()

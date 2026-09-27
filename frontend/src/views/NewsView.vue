@@ -274,7 +274,7 @@ const pmLoading = ref(false)
 const pmErr = ref('')
 const expandedTop = reactive({})
 
-async function loadPremarket(manual = false) {
+async function loadPremarket() {
   pmLoading.value = true
   try {
     pm.value = await newsPremarket()
@@ -326,7 +326,7 @@ const bigvLoading = ref(false)
 const bigvErr = ref('')
 const BIGV_DAYS = 5
 
-async function loadBigv(manual = false) {
+async function loadBigv() {
   bigvLoading.value = true
   try {
     const d = await summaryHistory()

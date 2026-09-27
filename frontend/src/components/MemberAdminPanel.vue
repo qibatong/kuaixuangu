@@ -27,7 +27,7 @@
             </div>
           </div>
         </div>
-        <div class="ma-card" v-if="quotaStat">
+        <div v-if="quotaStat" class="ma-card">
           <div class="ma-card-title"><i class="fa fa-tachometer"></i> 今日配额使用</div>
           <div class="ma-kv">
             <span class="ma-chip">今日用量 <b>{{ quotaStat.usage_total ?? 0 }}</b> 次</span>
@@ -54,7 +54,7 @@
           <div v-else class="ma-empty">今日还没有免费用户消耗配额</div>
         </div>
         <!-- 2026-09-22 v4.11.35: 今日登录(此前后台看不到任何登录记录) -->
-        <div class="ma-card" v-if="loginStat">
+        <div v-if="loginStat" class="ma-card">
           <div class="ma-card-title"><i class="fa fa-sign-in"></i> 今日登录（{{ loginStat.date }}）</div>
           <div class="ma-kv">
             <span class="ma-chip">登录成功 <b>{{ loginStat.success_users ?? 0 }}</b> 人 / <b>{{ loginStat.success ?? 0 }}</b> 次</span>
@@ -82,10 +82,10 @@
           </div>
         </div>
         <!-- 2026-09-22 v4.11.35: 功能使用(会员/管理员也一样计数; 可按日期+功能查历史) -->
-        <div class="ma-card" v-if="usageData">
+        <div v-if="usageData" class="ma-card">
           <div class="ma-card-title"><i class="fa fa-hand-pointer-o"></i> 功能使用（按人 Top）</div>
           <div class="ma-filter">
-            <label>日期 <input type="date" v-model="usageDate" @change="loadUsage" /></label>
+            <label>日期 <input v-model="usageDate" type="date" @change="loadUsage" /></label>
             <label>功能
               <select v-model="usageFeature" @change="loadUsage">
                 <option value="">全部</option>
@@ -120,11 +120,13 @@
           </div>
         </div>
         <!-- 2026-09-22 v4.11.35: 近 7 天活跃趋势(柱=操作次数, 数字=当日去重人数) -->
-        <div class="ma-card" v-if="activeTrend.length">
+        <div v-if="activeTrend.length" class="ma-card">
           <div class="ma-card-title"><i class="fa fa-users"></i> 近 7 天活跃（操作次数 / 去重人数）</div>
           <div class="ma-trend">
-            <div v-for="d in activeTrend" :key="d.date" class="ma-trend-col"
-                 :title="d.date + '：' + d.actions + ' 次操作 / ' + d.act_users + ' 人'">
+            <div
+v-for="d in activeTrend" :key="d.date" class="ma-trend-col"
+                 :title="d.date + '：' + d.actions + ' 次操作 / ' + d.act_users + ' 人'"
+>
               <div class="ma-trend-bar" :style="{ height: actBarH(d.actions) + 'px' }" :class="{ zero: !d.actions }"></div>
               <div class="ma-trend-num">{{ d.act_users }}</div>
               <div class="ma-trend-day">{{ d.date.slice(5) }}</div>
@@ -172,7 +174,7 @@
         </thead>
         <tbody>
           <tr v-for="r in expRows" :key="r.id" :class="{ danger: r.expired }">
-            <td class="ck"><input type="checkbox" :value="r.id" v-model="selectedExp"></td>
+            <td class="ck"><input v-model="selectedExp" type="checkbox" :value="r.id"></td>
             <td>{{ r.username }}</td>
             <td class="mono">{{ r.phone || '-' }}</td>
             <td>{{ r.wx_name || '-' }}</td>
@@ -373,8 +375,10 @@
         <div class="ma-hint">
           每行一条，格式：<code>用户名,手机号,天数[,邀请码]</code>；天数 <b>0 = 永久</b>；空行与 <code>#</code> 开头忽略；用户名或手机号已存在则跳过。
         </div>
-        <textarea v-model="importText" class="ma-textarea" rows="10"
-                  placeholder="张三,13800138000,365&#10;李四,13900139000,0&#10;王五,,90,ABC12345"></textarea>
+        <textarea
+v-model="importText" class="ma-textarea" rows="10"
+                  placeholder="张三,13800138000,365&#10;李四,13900139000,0&#10;王五,,90,ABC12345"
+></textarea>
         <label class="ma-inline">默认密码
           <input v-model="importPwd" class="ma-input" style="width:150px" placeholder="Kx123456">
         </label>
@@ -445,7 +449,7 @@ import {
 import { showToast } from '../utils/toast'
 import { logFront } from '../utils/logger'
 
-const emit = defineEmits(['open-detail'])
+defineEmits(['open-detail'])   // 仅声明事件; 模板内用 $emit 触发, 无需 script 引用
 
 const TABS = [
   { key: 'board', label: '运营看板', icon: 'fa-dashboard' },

@@ -9,10 +9,10 @@
             <span v-if="preClose" class="stock-pre-close">昨收: {{ preClose.toFixed(2) }}</span>
           </div>
           <div class="chart-actions">
-            <button class="chart-btn-icon" @click.stop="refresh" title="刷新当前周期">
+            <button class="chart-btn-icon" title="刷新当前周期" @click.stop="refresh">
               <i class="fa fa-refresh" :class="{ 'fa-spin': loading }"></i>
             </button>
-            <button class="chart-btn-icon chart-btn-close" @click.stop="close" title="关闭(ESC)">
+            <button class="chart-btn-icon chart-btn-close" title="关闭(ESC)" @click.stop="close">
               <i class="fa fa-times"></i>
             </button>
           </div>
@@ -23,7 +23,9 @@
             v-for="t in tabs" :key="t.key"
             class="chart-tab" :class="{ active: activeTab === t.key }"
             @click.stop="switchTab(t.key)"
-          >{{ t.label }}</button>
+          >
+{{ t.label }}
+</button>
         </div>
 
         <div class="chart-body">

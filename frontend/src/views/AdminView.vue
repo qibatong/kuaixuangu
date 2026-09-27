@@ -27,8 +27,12 @@
           <div class="user-toolbar">
             <!-- 会员筛选 tab -->
             <div class="member-tabs">
-              <button v-for="t in memberTabs" :key="t.key" class="member-tab"
-                      :class="{ active: memberTab === t.key }" @click="setMemberTab(t.key)">{{ t.label }}</button>
+              <button
+v-for="t in memberTabs" :key="t.key" class="member-tab"
+                      :class="{ active: memberTab === t.key }" @click="setMemberTab(t.key)"
+>
+{{ t.label }}
+</button>
             </div>
             <input v-model="keyword" class="admin-input" placeholder="搜用户名/手机/邮箱/微信名/备注" @keyup.enter="loadUsers(1)" />
             <button class="admin-search-btn" @click="loadUsers(1)"><i class="fa fa-search"></i> 搜索</button>
@@ -42,7 +46,7 @@
           <table class="admin-table">
             <thead>
               <tr>
-                <th style="width:30px;"><input type="checkbox" :checked="pageAllChecked" @change="togglePageAll" title="全选本页" /></th>
+                <th style="width:30px;"><input type="checkbox" :checked="pageAllChecked" title="全选本页" @change="togglePageAll" /></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('id') }" @click="userSort.onSort('id')">ID<span class="sort-ind">{{ userSort.ind('id') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('username') }" @click="userSort.onSort('username', 'string')">用户名<span class="sort-ind">{{ userSort.ind('username') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('wx_name') }" @click="userSort.onSort('wx_name', 'string')">微信名<span class="sort-ind">{{ userSort.ind('wx_name') }}</span></th>
@@ -85,7 +89,7 @@
                 <td>
                   <!-- 管理员固定, 普通用户/付费/VIP 可下拉修改 -->
                   <span v-if="u.is_admin" class="role-badge role-admin">管理员</span>
-                  <select v-else v-model.number="u._level" class="level-select" @change="setLevel(u)" title="修改会员等级">
+                  <select v-else v-model.number="u._level" class="level-select" title="修改会员等级" @change="setLevel(u)">
                     <option :value="0">免费试用</option>
                     <option :value="1">付费会员</option>
                     <option :value="2">VIP</option>
@@ -159,8 +163,10 @@
             <label class="profile-label">管理员备注
               <input v-model="createForm.remark" type="text" maxlength="200" class="admin-input" placeholder="仅管理端可见" /></label>
             <label class="profile-label profile-pay" style="grid-column:1 / -1;">付款备注 (月费用户必填)
-              <textarea v-model="createForm.pay_remark" maxlength="500" rows="2" class="admin-input"
-                        placeholder="例: 8-16 微信月付 300元; 下次续费 9-16"></textarea></label>
+              <textarea
+v-model="createForm.pay_remark" maxlength="500" rows="2" class="admin-input"
+                        placeholder="例: 8-16 微信月付 300元; 下次续费 9-16"
+></textarea></label>
           </div>
           <div class="profile-tip">带 * 的字段必填; 创建成功后会显示初始密码, 请告知用户</div>
           <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
@@ -184,8 +190,10 @@
       <!-- 邀请关系弹层(被谁邀请 + 邀请了谁, 含注册 IP 便于识别同 IP 刷号) -->
       <div v-if="invitesTarget" class="pwd-mask" @click.self="closeInvites">
         <div class="pwd-pop" style="width:520px;">
-          <div class="pwd-title">👥 邀请关系：{{ invitesTarget.username }}
-            <span style="color:#999;font-size:0.75rem;margin-left:8px;">(ID {{ invitesTarget.id }})</span></div>
+          <div class="pwd-title">
+👥 邀请关系：{{ invitesTarget.username }}
+            <span style="color:#999;font-size:0.75rem;margin-left:8px;">(ID {{ invitesTarget.id }})</span>
+</div>
           <div class="invite-chain">
             <div class="chain-row">
               <span class="chain-label">被谁邀请</span>
@@ -224,8 +232,10 @@
       <!-- 编辑资料弹层(管理员代设置手机/邮箱/微信名/备注/付款备注) -->
       <div v-if="profileTarget" class="pwd-mask" @click.self="closeProfile">
         <div class="pwd-pop" style="width:560px;">
-          <div class="pwd-title">📝 编辑资料：{{ profileTarget.username }}
-            <span style="color:#999;font-size:0.75rem;margin-left:8px;">(ID {{ profileTarget.id }})</span></div>
+          <div class="pwd-title">
+📝 编辑资料：{{ profileTarget.username }}
+            <span style="color:#999;font-size:0.75rem;margin-left:8px;">(ID {{ profileTarget.id }})</span>
+</div>
           <div class="profile-grid">
             <label class="profile-label">手机号
               <input v-model="profileForm.phone" type="text" maxlength="11" class="admin-input admin-input-lg" placeholder="11 位手机号" /></label>
@@ -236,8 +246,10 @@
             <label class="profile-label">管理员备注
               <input v-model="profileForm.remark" type="text" maxlength="200" class="admin-input admin-input-lg" placeholder="仅管理端可见" /></label>
             <label class="profile-label profile-pay" style="grid-column:1 / -1;">付款备注 (会员专属, 仅管理员可改)
-              <textarea v-model="profileForm.pay_remark" maxlength="500" rows="3" class="admin-input admin-input-lg"
-                        placeholder="例: 8-16微信月付300元; 到期 9-16 自动提醒续费"></textarea></label>
+              <textarea
+v-model="profileForm.pay_remark" maxlength="500" rows="3" class="admin-input admin-input-lg"
+                        placeholder="例: 8-16微信月付300元; 到期 9-16 自动提醒续费"
+></textarea></label>
           </div>
           <div class="profile-tip">留空表示不修改该字段；手机号/邮箱有格式+唯一性校验</div>
           <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
@@ -392,9 +404,11 @@
 
       <!-- ⋮ 操作下拉/期限面板 (teleport 到 body, fixed 定位跟随触发按钮; 短表格不溢出覆盖搜索栏) -->
       <Teleport to="body">
-        <div v-if="menuUid !== null && menuRect" class="row-menu"
+        <div
+v-if="menuUid !== null && menuRect" class="row-menu"
              :style="{ position:'fixed', top: menuRect.top+'px', left: menuRect.left+'px' }"
-             @click.stop>
+             @click.stop
+>
           <button class="row-menu-item" @click="menuAction(currentMenuUser, 'detail')">🔎 用户详情</button>
           <button class="row-menu-item" @click="menuAction(currentMenuUser, 'profile')">📝 编辑资料</button>
           <button class="row-menu-item" @click="menuAction(currentMenuUser, 'invites')">👥 邀请关系</button>

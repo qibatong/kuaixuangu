@@ -23,7 +23,9 @@
       :class="{ active: isActive(it) }"
       active-class=""
       exact-active-class=""
-    >{{ it.label }}</router-link>
+    >
+{{ it.label }}
+</router-link>
   </nav>
 </template>
 
