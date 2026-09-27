@@ -2,6 +2,7 @@ node_modules
 dist
 dist_new
 dist_v*
+_dist_stale*
 *.log
 .DS_Store
 __dist_bak
