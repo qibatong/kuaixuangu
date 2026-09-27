@@ -31,12 +31,12 @@ const router = createRouter({
 
     // ---------------- 复盘 ----------------
     { path: '/ladder', name: 'ladder', component: () => import('../views/LadderView.vue'), meta: { group: 'review', order: 0 } },
-    { path: '/history', name: 'history', component: () => import('../views/HistoryView.vue'), meta: { group: 'review', order: 1 } },
-    { path: '/temper', name: 'temper', component: () => import('../views/StockTemperView.vue'), meta: { group: 'review', order: 2 } },
+    { path: '/history', name: 'history', component: () => import('../views/HistoryView.vue'), meta: { group: 'review', order: 4 } },
+    { path: '/temper', name: 'temper', component: () => import('../views/StockTemperView.vue'), meta: { group: 'review', order: 5 } },
     { path: '/bigv', name: 'bigv', component: () => import('../views/SummaryNewsView.vue'), meta: { group: 'review', order: 3 } },
-    { path: '/yidong', name: 'yidong', component: () => import('../views/YidongView.vue'), meta: { group: 'review', order: 4 } },
+    { path: '/yidong', name: 'yidong', component: () => import('../views/YidongView.vue'), meta: { group: 'review', order: 2 } },
     // 2026-09-27: 龙虎榜从市场雷达拆出成独立页（它 17 点后才有数据，盘中看是空的）
-    { path: '/lhb', name: 'lhb', component: () => import('../views/LhbView.vue'), meta: { group: 'review', order: 5 } },
+    { path: '/lhb', name: 'lhb', component: () => import('../views/LhbView.vue'), meta: { group: 'review', order: 1 } },
 
     // ---------------- 自选 ----------------
     { path: '/pool', name: 'pool', component: () => import('../views/PoolView.vue'), meta: { group: 'pool', order: 0 } },

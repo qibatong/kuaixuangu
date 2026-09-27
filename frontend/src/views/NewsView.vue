@@ -4,7 +4,7 @@
 
     <div class="news-head">
       <span class="news-title"><i class="fa fa-newspaper-o"></i> 盘前资讯</span>
-      <span class="news-sub">猫爪 · 开盘啦 · 大V复盘</span>
+      
       <span class="news-time">{{ bjTime }}</span>
     </div>
 
