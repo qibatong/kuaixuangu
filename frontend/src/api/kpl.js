@@ -90,7 +90,7 @@ export function kplWpqc() {
 }
 
 export function kplBidQiangcang(date = '') {
-  return request('/api/kpl/bid-qiangcang', { query: date ? { date } : {} })
+  return request('/api/kpl/bid-qiangcang', { query: date ? { date } : {}, cache: 300 })
 }
 
 export function kplYestZt(date = '') {
