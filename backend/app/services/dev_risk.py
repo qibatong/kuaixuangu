@@ -608,6 +608,13 @@ def project_next_10_days(code, spec=None, srows=None, idx_rows=None, close=None)
               (10, spec["dev10_up"], "10日+%g%%" % spec["dev10_up"]),
               (30, spec["dev30_up"], "30日+%g%%" % spec["dev30_up"]))
 
+    # ★ 投影表的「触发规则 / 涨停」列**不再计入 3 日线**（主人 2026-09-27 要求「去掉3日的触发规则」）。
+    #   理由：3 日线在「假设天天涨停」的极端投影里几乎第 1~2 天必越线，会把 10/30 日线
+    #   的信息完全盖住，用户从这一列读不到真正的长周期监管线。
+    #   ⚠️ 范围严格限定在**投影表**：`dev3` 字段仍照算并下发、`warn_of` 的风险分级（红/黄）
+    #      与上方「下一条触发」仍**照常用 3 日线** —— 只是这张表的这两列不再展示它。
+    _hit_rules = tuple(r for r in _rules if r[0] != 3)
+
     def _dev_at(w_end_i, n):
         """第 w_end_i 个交易日轴点、n 日窗口的偏离值；算不出返回 None。"""
         if w_end_i - n + 1 < 0:
@@ -643,6 +650,9 @@ def project_next_10_days(code, spec=None, srows=None, idx_rows=None, close=None)
         for n, thr, label in _rules:
             dv = _dev_at(w_end_i, n)
             rec["dev%d" % n] = dv
+        # ★ 触发判定只走 _hit_rules（**不含 3 日线**）；dev3 仍照算并保留在 rec 里。
+        for _n, thr, label in _hit_rules:
+            dv = rec["dev%d" % _n]
             if dv is not None and dv >= thr:
                 hit.append(label)
         rec["trigger"] = " / ".join(hit) if hit else "不触发"

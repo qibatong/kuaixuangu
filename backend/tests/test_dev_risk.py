@@ -232,6 +232,9 @@ def test_project_rolling_window(patched):
     """过去全平的票，明天起天天涨停：dev3 应 = 10.0 / 21.0 / 33.1（滚动窗口真算）。
 
     ★ 与工单伪代码（d30 += limit）无关 —— 这里窗口确实在滚动。
+    ★ v4.11.69+ 起：投影表的 `trigger` **不再计入 3 日线**（主人要求「去掉3日的触发规则」）
+      ⇒ 第 2 天 dev3=21% 虽已越 3 日线 ±20%，`trigger` 仍须是「不触发」（10/30 日线未越）。
+      但 `dev3` 字段本身**必须照算**（供别处与展示口径用），故下面仍逐日断言它的值。
     """
     patched(idx=_idx(45), stock=_stock_from_pcts([0.0] * 45))
     res = dev_risk.compute("605058")
@@ -240,12 +243,37 @@ def test_project_rolling_window(patched):
     assert p[0]["dev3"] == 10.0 and p[1]["dev3"] == 21.0 and p[2]["dev3"] == 33.1
     assert p[0]["dev10"] == 10.0 and p[0]["dev30"] == 10.0
     assert p[0]["trigger"] == "不触发"                     # 10% < 20%
-    assert "3日" in p[1]["trigger"]                       # 21% > 20% ⇒ 触发
+    # ★ dev3 已越线（21% > 20%），但 3 日线不进 trigger ⇒ 仍是「不触发」
+    assert p[1]["dev3"] == 21.0 and p[1]["trigger"] == "不触发"
+    assert "3日" not in p[1]["trigger"]
     assert p[1]["price"] == round(res["price"] * 1.1 ** 2, 2)
 
 
+def test_project_excludes_3day_from_trigger(patched):
+    """★ v4.11.69+ 回归位：3 日线**只**从投影表的触发判定里剔除，`dev3` 仍照算。
+
+    反证（防「顺手把 dev3 也删了」或「又把它加回 trigger」）：
+      ① `dev3` 逐日仍必须是真实滚动值；
+      ② 即便 3 日线越线，`trigger` / `trigger_rule` / `zt_trigger` 也不得提到「3日」；
+      ③ 10 日线越线时 `trigger` 必须**照常**报出来（证明剔除只针对 3 日线，没有把整列打死）。
+    """
+    patched(idx=_idx(45), stock=_stock_from_pcts([0.0] * 45))
+    p = dev_risk.compute("605058")["project10"]
+    # ① dev3 仍在、且是真实值
+    assert [r["dev3"] for r in p[:3]] == [10.0, 21.0, 33.1]
+    # ② 全程不得出现 3 日线标签
+    for r in p:
+        assert "3日" not in r["trigger"], r
+        assert "3日" not in r["trigger_rule"], r
+    # ③ 10 日线第 8 天触发（1.1^8−1 = 114.36% > 100%）⇒ trigger 必须报 10 日线
+    assert "10日" in p[7]["trigger"]
+    assert p[7]["trigger_rule"].startswith("10日")
+    assert p[7]["zt_trigger"] is True
+
+
 def test_project_uses_board_limit(patched):
-    """创业板涨停 20%：一日即 20% ⇒ 3 日线（±30%）第二天才触发；价格按 20% 复利。"""
+    """创业板涨停 20%：一日即 20% ⇒ 3 日线（±30%）第二天越线；
+    ★ 但 3 日线越线**不影响** `trigger`（已剔除），价格仍按 20% 复利。"""
     # 用创业板代码 + 对应指数（不存在则按夹具返回的同一份 idx）
     patched(idx=_idx(45), stock=_stock_from_pcts([0.0] * 45))
     res = dev_risk.compute("300750")
@@ -253,7 +281,7 @@ def test_project_uses_board_limit(patched):
     assert p[0]["limit_up_pct"] == 20.0
     assert p[0]["dev3"] == 20.0
     assert p[1]["dev3"] == 44.0                           # 1.2²−1 = 44%
-    assert "3日" in p[1]["trigger"]
+    assert "3日" not in p[1]["trigger"]                   # ★ 3 日线不再进 trigger
 
 
 def test_project_safe_gain_and_left_days(patched):
@@ -261,8 +289,8 @@ def test_project_safe_gain_and_left_days(patched):
     `safe_gain_pct` / `trigger_rule` / `left10` / `left30` / `zt_trigger` 必须自洽。
 
     夹具：主板 + 过去全平 ⇒ 涨停 10%、3日线 ±20%、10日线 +100%、30日线 +200%。
-    三日线第 2 天触发（21% > 20%）；10日线 1.1^10−1 = 159.37% > 100% ⇒ 第 8 天触发
-    （1.1^7−1 = 94.87% < 100%，1.1^8−1 = 114.36% > 100%）；30日线 10 天内不足。
+    三日线第 2 天越线（21% > 20%，**但已从 trigger 剔除**）；10日线 1.1^10−1 = 159.37% > 100%
+    ⇒ 第 8 天触发（1.1^7−1 = 94.87% < 100%，1.1^8−1 = 114.36% > 100%）；30日线 10 天内不足。
     """
     patched(idx=_idx(45), stock=_stock_from_pcts([0.0] * 45))
     p = dev_risk.compute("605058")["project10"]
@@ -272,9 +300,11 @@ def test_project_safe_gain_and_left_days(patched):
     assert p[1]["safe_gain_pct"] == 21.0
     assert p[9]["safe_gain_pct"] == round((1.1 ** 10 - 1) * 100, 2)   # 159.37
 
-    # trigger_rule 只取第一条（不是 ` / ` 连接的全部）
+    # trigger_rule 只取第一条（不是 ` / ` 连接的全部）；★ 且首条**不会是 3 日线**（已剔除）
     assert p[0]["trigger_rule"] == "无" and p[0]["zt_trigger"] is False
-    assert "3日" in p[1]["trigger_rule"] and p[1]["zt_trigger"] is True
+    assert "3日" not in p[1]["trigger_rule"] and p[1]["zt_trigger"] is False
+    # 10 日线第 8 天越线 ⇒ 那时 trigger_rule 必须报 10 日线、zt_trigger 才为 True
+    assert p[7]["trigger_rule"].startswith("10日") and p[7]["zt_trigger"] is True
 
     # left10 = 10日线首次触发偏移 − 已走天数 ⇒ 第 1 天为 7（第 8 天触发），其后递减
     assert p[0]["left10"] == 7 and p[6]["left10"] == 1 and p[7]["left10"] == 0
@@ -284,12 +314,17 @@ def test_project_safe_gain_and_left_days(patched):
 
 def test_project_left_days_none_when_never_triggers(patched):
     """反证：`left10` 只在「10 天内真的会触发」时才有值，否则必须是 None
-    （不能默认成 0 —— 0 的语义是「今天已触发」，会误导用户）。"""
+    （不能默认成 0 —— 0 的语义是「今天已触发」，会误导用户）。
+
+    ★ 附带钉住：创业板第 2 天 dev3=44% 已越 3 日线（±30%），但 `trigger_rule` 仍须是「无」
+      —— 3 日线不进投影表的触发判定。"""
     patched(idx=_idx(45), stock=_stock_from_pcts([0.0] * 45))
     p = dev_risk.compute("300750")["project10"]           # 创业板 20%：3日线 ±30%
     # 20% ⇒ 第2天 44% > 30%，第 1 天不触发 ⇒ left10(10日线+100%) 需 1.2^k−1 ≥ 1 ⇒ k=4
     assert p[0]["left10"] == 3                            # 第 4 天触发（1.2^4−1 = 107.36%）
-    assert p[1]["dev3"] == 44.0 and p[1]["trigger_rule"] != "无"
+    assert p[1]["dev3"] == 44.0                           # 3 日线仍照算
+    assert p[1]["trigger_rule"] == "无"                   # ★ 但不再进 trigger_rule
+    assert p[1]["zt_trigger"] is False
 
 
 # ---------------- 风险标签 ----------------
