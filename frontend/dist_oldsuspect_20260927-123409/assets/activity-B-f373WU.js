@@ -1,0 +1,1 @@
+import{L as e}from"./index-emA0yUAV.js";const a=new Set;function o(t,n=!1){try{const c=e("/api/activity/track",{method:"POST",body:{feature:t,blocked:n}});c&&typeof c.catch=="function"&&c.catch(()=>{})}catch{}}function i(t){a.has(t)||(a.add(t),o(t))}export{o as a,i as t};

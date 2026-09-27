@@ -1,0 +1,1 @@
+import{L as e}from"./index-emA0yUAV.js";function n(){return e("/api/member/overview")}function m(){return e("/api/member/quota")}function i(){return e("/api/member/checkin")}function t(){return e("/api/member/checkin",{method:"POST"})}function a(){return e("/api/member/plans")}function o(){return e("/api/invite/refresh",{method:"POST"})}export{a,n as b,i as c,t as d,m,o as r};

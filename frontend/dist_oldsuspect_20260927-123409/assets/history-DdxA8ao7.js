@@ -1,0 +1,1 @@
+import{L as e}from"./index-emA0yUAV.js";function o(r,t=1,s=100){return e("/api/history/query",{query:{...r,page:t,pageSize:s}})}function u(r){return e("/api/history",{query:r?{batch:r}:{}})}export{u as l,o as q};

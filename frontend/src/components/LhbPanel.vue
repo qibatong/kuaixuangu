@@ -14,6 +14,10 @@
       </button>
     </div>
 
+    <!-- 资金流向图 -->
+    <LhbSankey v-if="curTab==='sankey'" :list="list" />
+
+    <template v-else>
     <div v-if="loading" class="loading-placeholder"><div class="spinner"></div><div>加载龙虎榜...</div></div>
     <div v-else-if="!filteredList.length" class="empty-state">暂无数据</div>
     <div v-else class="lhb-table-scroll">
@@ -102,6 +106,7 @@ import { linkToSoftware } from '../utils/tdx'
 import { useSortable } from '../composables/useSortable'
 import { yi, signed } from '../utils/format'
 import StockDetailPanel from './StockDetailPanel.vue'
+import LhbSankey from './LhbSankey.vue'
 
 const list = ref([])
 const loading = ref(true)
@@ -113,6 +118,7 @@ const curTab = ref('all')
 
 const tabs = [
   { key: 'all', label: '净买入排行' },
+      { key: 'sankey', label: '资金流向图' },
   { key: 'inst', label: '机构席位' },
   { key: 'hot', label: '知名游资' },
 ]
