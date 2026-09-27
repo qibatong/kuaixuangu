@@ -14,6 +14,13 @@
     `test_interval_not_daily_sum`      —— 三天各 +10% 必须得 33.10%（不是 30.00%）
     `test_immune_to_ex_dividend`       —— 送股导致收盘价腰斩、但官方涨跌幅为 0 时，区间必须为 0
     `test_warn_red_iff_triggered`      —— 红级**只能**由「已触发」产生（防 red 吞掉 yellow 的退化）
+
+★ 2026-09-28 增补（off-by-one 回归）：
+    `test_real_axis_matches_close_ratio` —— 真实价格轴必须逐位等于「真收盘价比」
+    `test_real_axis_window_ends_at_today` —— 窗口末点必须是**今日**
+  这两个用例存在的唯一理由：`_real_axis` 曾把窗口**整体左移一天**而长期无人发现，
+  因为**全部既有用例都喂恒定涨幅**，而窗口平移在恒定序列上数值完全不可见。
+  ⇒ 铁律：凡「窗口起点 / 数组下标」类逻辑，夹具必须用**逐日不同**的数据。
 """
 import datetime as dt
 
@@ -224,6 +231,68 @@ def test_next_trigger_not_reachable(patched):
     assert room["next_trigger_pct"] > res["limit_up_pct"]
     assert room["reachable"] is False
     assert room["hit"] == []
+
+
+# ---------------- 真实价格轴（★ 2026-09-28 off-by-one 回归） ----------------
+#
+# `_real_axis` 把个股真实日涨幅连乘成「相对期初前收盘」的轴，供未来十日推演使用。
+# 🔴 它曾把向过去的索引写成 `last - off`（应为 `last - off + 1`）：
+#    退掉的是**昨日**涨幅而非**今日** ⇒ 整个 n 日窗口**左移一天**。
+#    该 bug 长期未被发现，因为既有用例全部使用「每日恒定涨幅」——
+#    恒定序列上窗口平移一天**数值完全不可见**。
+#    ⇒ 铁律：凡「窗口起点 / 数组下标」类逻辑，夹具必须用**逐日不同**的数据。
+
+def _replay_closes(pcts, start=10.0):
+    """与 `_stock_from_pcts` 同口径、但不做两位小数舍入，供精确对拍。"""
+    out, c = [], start
+    for p in pcts:
+        c *= 1 + p / 100.0
+        out.append(c)
+    return out
+
+
+def test_real_axis_matches_close_ratio():
+    """★ off-by-one 回归：轴必须逐位等于「真收盘价比」，且夹具必须逐日不同。"""
+    pcts = [0.0, 1.5, -2.0, 3.7, -0.8, 2.2, 5.1, -1.3, 4.4, 0.6, -3.1, 2.9]
+    # 反空转守卫：夹具若恒定，本用例对「窗口平移」零鉴别力（这正是当初漏检的根因）
+    assert len(set(pcts[1:])) > 5, "夹具必须逐日不同，否则该回归用例形同虚设"
+    rows = _stock_from_pcts(pcts)
+    idates = _days(len(pcts))
+    closes = _replay_closes(pcts)
+    last = len(idates) - 1
+    for n in (3, 10):
+        out, im0 = dev_risk._real_axis(rows, idates, n)
+        assert out, "轴不应弃权（夹具长度足够 n+1）"
+        assert abs(out[-n] - 1.0) < 1e-12, "归一到期初前收盘 ⇒ out[−n] 必须恰为 1"
+        for d in range(0, -n - 1, -1):
+            want = closes[last + d] / closes[last - n]
+            assert abs(out[d] - want) < 1e-12, (
+                "offset %d: 轴=%.12f 真值=%.12f（左移一天会让整窗错位）"
+                % (d, out[d], want))
+        # im0 = 今日对前一日的比 ⇒ 必须是**今日**涨幅，不是昨日
+        assert abs(im0 - (1 + pcts[last] / 100.0)) < 1e-12, im0
+
+
+def test_real_axis_window_ends_at_today():
+    """★ 直钉窗口端点：out[0] 必须是「今日为末点」的 n 日涨幅，而不是「昨日为末点」。"""
+    pcts = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0]
+    rows = _stock_from_pcts(pcts)
+    idates = _days(len(pcts))
+    last = len(idates) - 1
+    n = 3
+
+    def prod(i, j):                       # 含端点连乘（按 pcts 下标直取）
+        v = 1.0
+        for k in range(i, j + 1):
+            v *= 1 + pcts[k] / 100.0
+        return v
+
+    out, _ = dev_risk._real_axis(rows, idates, n)
+    correct = prod(last - n + 1, last)    # [last−n+1 … last] 正确：末点=今日
+    shifted = prod(last - n, last - 1)    # [last−n   … last−1] 旧行为：末点=昨日
+    assert abs(correct - shifted) > 1e-3, "夹具无法区分两种窗口 ⇒ 用例无效"
+    assert abs(out[0] - correct) < 1e-12, (out[0], correct, shifted)
+    assert abs(out[0] - shifted) > 1e-3, "out[0] 仍等于左移一天的旧行为 ⇒ off-by-one 回归"
 
 
 # ---------------- 未来十日推演（★ v4.11.71 起改为「实基倒推」） ----------------
