@@ -34,6 +34,10 @@
  *             与「yday_amount 冻结 9 个交易日」是同一类缺陷。
  *        ⑦ G11 另押一条纪律：已删 tab（热门股偏离值 / 多次异动）不许留残留 ——
  *           模板里的死代码不会报错，只会静默留在页面上。
+ *        ⑧ G12 「我的」账户区块（v4.11.65 · 顶部 NavBar 的账户下拉整块迁入 MemberView）。
+ *           两种判据缺一不可：**迁入的必须在**（账户卡 / 个人信息 / 改密 / 退出 / 字号 / 字体）、
+ *           **迁走的必须不在**（顶部导航不许再有 .user-name-btn 与账户下拉项）——
+ *           UI 搬迁最容易只做一半：新家建好了，旧家没搬走。
  *
  * 跑法（见 frontend/package.json 的 `test:nav`；`npm run verify` = lint + 本测试）：
  *   1) vite build --ssr _verify/nav.spec.js --outDir .navssr --emptyOutDir
@@ -70,6 +74,8 @@ import DataStamp from '../src/components/DataStamp.vue'
 import DevWarnList from '../src/components/DevWarnList.vue'
 import DevRiskDetail from '../src/components/DevRiskDetail.vue'
 import YidongView from '../src/views/YidongView.vue'
+// v4.11.65 「我的」账户区块（由顶部 NavBar 迁入）
+import MemberView from '../src/views/MemberView.vue'
 import { summarizePicks } from '../src/utils/picks'
 import { mergeLimitCount, sortBoardsByLimit } from '../src/utils/boards'
 
@@ -635,6 +641,33 @@ ok('计算器分支不含 "NaN"', !g11vc.html.includes('NaN'))
 const g11vm = await renderComp(YidongView, { initialTab: 'monitor' }, '/yidong')
 ok('重点监控 tab 渲染无异常/无警告', g11vm.errors.length === 0, g11vm.errors.join(' | '))
 ok('重点监控 tab 渲染的是监控表（加载态在场）', g11vm.html.includes('加载重点监控'))
+
+console.log('\n— G12. 「我的」账户区块（v4.11.65 由顶部 NavBar 整块迁入）')
+const mv = await renderComp(MemberView, {}, '/member')
+ok('MemberView 渲染无异常/无 Vue 警告', mv.errors.length === 0, mv.errors.join(' | '))
+ok('账户卡片在场（.mb-acc-card）', countByClass(mv.html, 'mb-acc-card') === 1,
+  '实际 ' + countByClass(mv.html, 'mb-acc-card'))
+for (const t of ['账户', '个人信息', '修改密码', '退出登录', '字号', '字体']) {
+  ok(`账户卡片含「${t}」`, mv.html.includes(t))
+}
+ok('账户卡片渲染 3 档字号按钮', countByClass(mv.html, 'mb-set-btn') === 3,
+  '实际 ' + countByClass(mv.html, 'mb-set-btn'))
+ok('账户卡片渲染 3 个字体族选项', countByClass(mv.html, 'mb-fontfam') === 3,
+  '实际 ' + countByClass(mv.html, 'mb-fontfam'))
+ok('字体族三选都在（霞鹜等宽 / 思源黑体 / 思源宋体）',
+  ['霞鹜等宽', '思源黑体', '思源宋体'].every((s) => mv.html.includes(s)))
+// ★ 本卡片刻意放在 loading 判断之外 —— 会员接口慢/挂了也必须能改密、能退出登录
+ok('🔴 账户卡片在 loading 闸门之外（接口未返回时也已渲染）',
+  mv.html.includes('加载会员信息') && mv.html.includes('mb-acc-card'))
+ok('🔴 MemberView 渲染不含 "undefined"', !mv.html.includes('undefined'))
+ok('🔴 MemberView 渲染不含 "NaN"', !mv.html.includes('NaN'))
+
+// 顶部导航必须"瘦身"到位：用户名按钮 / 账户下拉项一律不许再出现（否则就是"从顶部移除"没做干净）
+const navMember = await renderAt('/member')
+ok('顶部导航不再有用户名按钮（.user-name-btn）', !navMember.html.includes('user-name-btn'))
+ok('顶部导航不再有账户下拉项（修改密码 / 退出登录）',
+  !navMember.html.includes('修改密码') && !navMember.html.includes('退出登录'))
+ok('顶部导航保留主题圆点（未误删）', navMember.html.includes('nav-theme-dot'))
 
 console.log(`\n=== 结果：PASS=${PASS}  FAIL=${FAIL} ===`)
 if (FAIL) { console.log('失败项：\n  - ' + fails.join('\n  - ')); process.exit(1) }

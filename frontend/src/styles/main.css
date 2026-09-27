@@ -1284,11 +1284,42 @@ body[data-bg="light"] select.rot-select option { background: #fff; color: #333; 
      main.css:306-309 记录过真实回归 —— 「.page-shell 全局被强制 overflow-x:hidden
      → 按规范会自动成为滚动容器(overflow-y 变 auto)，从而使首页竞价页的
      .auc-tabs sticky 失效」。要让 body 固定就必须把滚动搬到 .page-shell，
-     等于重新引入那个已修好的 bug。overscroll-behavior 不改滚动架构、零副作用。
+     等于重新引入那个已修好的 bug。
+
+   🔴🔴 2026-09-27 v4.11.65 事故修复（P0 · 全站每一页都滑不动）
+     上面这段原写成 `html, body { overscroll-behavior: none }`，结果
+     **桌面滚轮与手机触摸、任何页面都无法上下滚动**（主人 09-27 实测反馈
+     「页面更新完不能上下滑动了 / 电脑和微信都不行」）。
+
+     机制（一句话：**overscroll-behavior 写在 body 上会掐断整条滚动链**）：
+       1) 本应用在 ≤768px 对 `html, body, #app, .page-shell, .container` 全局强制
+          `overflow-x: hidden !important`（见本文件 L1321）。按 CSS Overflow 规范，
+          元素只要有一个轴不是 visible，**另一轴的计算值就会从 visible 变成 auto**
+          ⇒ `body` 因此也成了「滚动容器」。
+       2) 触摸/滚轮落在内层元素上时，浏览器沿祖先链找可滚的容器。`body` 是链上的
+          一环；它的 `overscroll-behavior: none` 让浏览器判定「到此不得向父级上链，
+          且不得产生回弹」，而 body 自身 `height:auto`、**没有纵向可滚距离**
+          ⇒ 手势在 body 这一环被吃掉，**根滚动容器 html/视口永远收不到滚动事件**。
+       3) 于是整页 scrollTop 恒 0。
+     这也是为什么它的「零副作用」判断是错的：overscroll-behavior 恰恰**依赖滚动架构**。
+
+     ★ 结论（钉死，勿再犯）：`overscroll-behavior` 只能写在**真正承担滚动的那个元素**上。
+       本应用 = 根元素 `html`（根元素的该值会按规范传播给视口 viewport）。
+       **绝不可写在 body 上**。
+
+     Chromium 消融实测（真实 dist + 注入 4000px 高元素确保确实溢出）：
+       基线（不动样式）        桌面滚轮 0→0 / 手机触摸 0→0     ★滑不动
+       只把 html 改回 auto     桌面滚轮 0→0 / 手机触摸 0→0     ★滑不动（html 不是元凶）
+       只把 body 改回 auto     桌面滚轮 0→1200 / 手机触摸 0→535 恢复（元凶唯一 = body 这条）
+     防复发闸门：`frontend/_verify/css_scroll_guard.js`（已接入 `npm run verify`），
+       断言源码与构建产物里都不存在「选择器含 body 且声明 overscroll-behavior」的规则。
    ---- */
+html {
+  overscroll-behavior: none;   /* ★ 只能写在这里（根元素），写 body 会掐断滚动链 */
+}
 html, body {
-  overscroll-behavior: none;
-  /* 顺带关掉 iOS 双击缩放带来的 300ms 点击延迟（保留双指缩放，见 index.html 注释） */
+  /* 顺带关掉 iOS 双击缩放带来的 300ms 点击延迟（保留双指缩放，见 index.html 注释）。
+     touch-action 不参与滚动链判定，写在 body 上无害（已由消融实验单独验证）。 */
   touch-action: manipulation;
 }
 

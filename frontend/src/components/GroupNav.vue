@@ -137,13 +137,19 @@ body[data-bg="light"] .group-nav-item.active {
     gap: 5px;
     padding: 5px 6px;
     margin: -6px 0 10px;
-    /* 二级 pill 多于一屏时横滑，不换行占纵向空间 */
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    /* 🔴 2026-09-27 v4.11.65 修复（主人反馈「异动要放到复盘板块中」的真正成因）:
+       本块原为 `flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none`
+       （注释写「二级 pill 多于一屏时横滑，不换行占纵向空间」）—— 实测这个折中是错的：
+         复盘组有 6 个二级页，390px 手机上 pill 行可见宽 380 / 内容宽 479
+         ⇒ 「异动监管」pill 实测落在屏幕坐标 341~413，**被屏幕右边缘裁掉**，
+           主人（微信端）扫一眼只看到「异动监…」，因此反馈「异动没有放进复盘」。
+       （Chromium 实测：桌面 1280px 下同一 pill 完整可见 ⇒ 只在手机上出问题。）
+       ⇒ 改为换行：6 个二级页一次全部露出。代价是约一行 pill 的纵向高度，
+         但「入口被裁掉 ⇒ 用户找不到页面」比多占 30px 严重得多。
+       影响面：只有复盘组会换行（其余组二级页 ≤2 个，一行放得下）。 */
+    flex-wrap: wrap;
+    overflow-x: visible;
   }
-  .group-nav::-webkit-scrollbar { display: none; }
   .group-nav-label { font-size: 0.6875rem; padding-right: 6px; }
   .group-nav-item { flex-shrink: 0; padding: 4px 11px; font-size: 0.75rem; }
 }

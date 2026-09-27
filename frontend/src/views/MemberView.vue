@@ -2,6 +2,63 @@
   <div class="page-shell member-page">
     <h1 class="visually-hidden">我的会员</h1>
 
+    <!-- 🔴 2026-09-27 v4.11.65 账户区块由顶部导航栏整块迁入这里
+         （主人：「3、首页的用户收进 我的 里面。」+ 澄清「是，从顶部移除、整块收进『我的』」）。
+         原 NavBar「用户名 ▾ 下拉菜单」里的能力逐一对应保留：
+           我的会员 = 本页自身 / 个人信息 / 修改密码 / 退出登录 / 字号 / 字体族。
+         顶部导航栏此后只保留：品牌 · 一级分组 · 全局搜索 · 主题圆点（+ 未登录时的登录/注册）。
+         ★ 刻意放在 `loading` 判断**之外**：本卡片的每一项（个人信息/改密/退出/字号/字体）
+           都不依赖会员接口。接口慢或挂了也必须能改密、能退出登录 ——
+           否则「会员接口异常」会连带把「退出登录」也锁死，那就成了一个自己把自己关在门里的缺陷。
+           附带好处：SSR 冒烟测试（_verify/nav.spec.js G12）无需接口即可覆盖本卡模板。 -->
+    <div class="mb-card mb-acc-card">
+      <div class="mb-card-head">
+        <span class="mb-card-title"><i class="fa fa-user-circle-o"></i> 账户</span>
+        <span class="mb-card-note">{{ user.username }}</span>
+      </div>
+      <div class="mb-acc-badges">
+        <span v-if="user.memberLevel === 2" class="member-badge vip-badge" title="VIP · 永久权限">VIP</span>
+        <span v-else-if="user.memberLevel === 1" class="member-badge paid-badge" title="付费会员">付费会员</span>
+        <span v-else-if="user.isAdmin" class="member-badge admin-badge" title="管理员">管理员</span>
+        <span v-else-if="user.memberDaysLeft >= 0" class="member-badge trial-badge" :title="'免费试用剩余 ' + user.memberDaysLeft + ' 天, 到期请联系管理员开通'">试用{{ user.memberDaysLeft }}天</span>
+        <span
+          v-if="!user.isAdmin && user.memberLevel !== 2 && user.memberDaysLeft >= 0 && user.memberDaysLeft <= 2"
+          class="member-badge renew-badge" title="请尽快续费, 联系管理员(微信号 poet-1986)"
+        >
+          <i class="fa fa-exclamation-circle"></i> 还剩{{ user.memberDaysLeft }}天续费
+        </span>
+      </div>
+      <div class="mb-acc-actions">
+        <button class="mb-mini-btn" @click="profileModal.open()"><i class="fa fa-id-card"></i> 个人信息</button>
+        <button class="mb-mini-btn" @click="changePwdModal.open()"><i class="fa fa-key"></i> 修改密码</button>
+        <button class="mb-mini-btn danger" @click="logout"><i class="fa fa-sign-out"></i> 退出登录</button>
+      </div>
+      <!-- 显示设置：原顶部下拉菜单里的「字号 / 字体族」（主题仍留在顶部导航栏圆点） -->
+      <div class="mb-setting-row">
+        <span class="mb-setting-label"><i class="fa fa-font"></i> 字号</span>
+        <button
+          v-for="f in FONTS" :key="f.key"
+          class="mb-set-btn" :class="{ active: font === f.key }"
+          :style="{ fontSize: f.key === 'sm' ? '12px' : f.key === 'lg' ? '16px' : '13px' }"
+          :title="f.label" :aria-label="'字号：' + f.label" @click="setFont(f.key)"
+        >
+          A
+        </button>
+      </div>
+      <div class="mb-setting-row">
+        <span class="mb-setting-label"><i class="fa fa-text-height"></i> 字体</span>
+        <button
+          v-for="ff in FONT_FAMILIES" :key="ff.key"
+          class="mb-fontfam" :class="{ active: fontFam === ff.key }"
+          :title="ff.desc" :aria-label="'字体：' + ff.label" @click="setFontFam(ff.key)"
+        >
+          <span class="ff-label" :style="{ fontFamily: ff.family }">{{ ff.label }}</span>
+          <span class="ff-desc">{{ ff.desc }}</span>
+        </button>
+      </div>
+      <div class="mb-acc-tip">背景主题（黑色 / 白色）仍在顶部导航栏右侧的圆点上切换。</div>
+    </div>
+
     <div v-if="loading" class="loading-placeholder"><div class="spinner"></div><div>加载会员信息...</div></div>
 
     <template v-else>
@@ -160,14 +217,39 @@
         </div>
       </div>
     </template>
+
+    <!-- 账户弹层（2026-09-27 v4.11.65 由 NavBar 迁来：顶部导航栏已无触发按钮，
+         这两个弹层现在只由本页的「个人信息 / 修改密码」按钮打开）。 -->
+    <ChangePwdModal ref="changePwdModal" />
+    <ProfileModal ref="profileModal" />
   </div>
 </template>
 
 <script setup>
+// 「我的」页（一级分组「我的」的入口，meta.group='me'）
+//   ★ 2026-09-27 v4.11.65：顶部导航栏的账户区块（用户名下拉：我的会员/个人信息/修改密码/
+//     退出登录/字号/字体族）整块迁入本页，见模板里的「账户」卡片。
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { memberOverview, memberPlans, memberCheckin, doCheckin as apiCheckin, refreshInvite } from '../api/member'
 import { trackUsageOnce } from '../api/activity'
+import { logoutApi } from '../api/auth'
+import { useUserStore } from '../stores/user'
+import { useTheme, FONTS, FONT_FAMILIES } from '../composables/useTheme'
 import { showToast } from '../utils/toast'
+import ChangePwdModal from '../components/ChangePwdModal.vue'
+import ProfileModal from '../components/ProfileModal.vue'
+
+const router = useRouter()
+const user = useUserStore()
+// 字号 / 字体族（原在顶部下拉菜单里；主题圆点仍留在顶部导航栏）
+const { font, fontFam, setFont, setFontFam } = useTheme()
+// 账户弹层（2026-09-27 v4.11.65 由 NavBar 迁来）
+const changePwdModal = ref(null)
+const profileModal = ref(null)
+
+// 权益对照表的展示默认值。★ 必须是一个可复用的常量，不能只在 ref 里写一次字面量 —— 见 load() 的合并注释。
+const PLANS_DEFAULT = { free: {}, member: {}, vip: {}, checkin_bonus: 3, invite_reward_days: 5, new_user_days: 5 }
 
 const loading = ref(true)
 const checkinBusy = ref(false)
@@ -175,7 +257,7 @@ const member = ref({})
 const quota = ref([])
 const checkin = ref({ done_today: false, reward: 3, streak: 0 })
 const invite = ref({ code: '', invited_count: 0, earned_days: 0, reward_days: 5, invitees: [] })
-const plans = ref({ free: {}, member: {}, vip: {}, checkin_bonus: 3, invite_reward_days: 5, new_user_days: 5 })
+const plans = ref({ ...PLANS_DEFAULT })
 const history = ref([])
 
 const username = computed(() => member.value.username || '')
@@ -214,7 +296,14 @@ async function load() {
   } finally {
     loading.value = false
   }
-  try { plans.value = await memberPlans() } catch { /* 用默认 */ }
+  // ★ 2026-09-27 v4.11.65：必须是「与默认值合并」而不是整体替换。
+  //   权益对照表模板直接读 plans.free.label / plans.member.picker / plans.vip.picker
+  //   （plans 初值里 free/member/vip 是 {}）。一旦接口返回的形状不完整（缺 free/vip），
+  //   整体替换会让模板抛 `Cannot read properties of undefined (reading 'label')`
+  //   ⇒ **整个「我的」页白屏**（连账户卡片都渲染不出来）。
+  //   该缺陷是 scripts/scroll_smoke.js（Chromium 真渲染探针）用"不完整桩响应"当场抓到的
+  //   —— SSR 冒烟测试（_verify/nav.spec.js）碰不到它，因为 SSR 不跑 onMounted 里的 load()。
+  try { plans.value = { ...PLANS_DEFAULT, ...((await memberPlans()) || {}) } } catch { /* 用默认 */ }
   try {
     const c = await memberCheckin()
     history.value = c.history || []
@@ -291,6 +380,18 @@ async function doRefreshCode() {
   }
 }
 
+// 退出登录（2026-09-27 v4.11.65 由 NavBar 迁来，逻辑与原来一致）
+function logout() {
+  if (!confirm('确定退出当前账号？')) return
+  // 2026-09-22 v4.11.35: 先通知后端作废 token 并落一条「主动退出」记录,
+  // 再清本地会话。后端失败不阻塞退出(本地清理是用户能感知的那一步)。
+  logoutApi().finally(() => {
+    user.clearSession()
+    showToast('已退出登录', 'success')
+    router.replace('/login')
+  })
+}
+
 onMounted(() => {
   // 2026-09-22 v4.11.35: 打开「我的会员」算一次使用(Once 版防止刷新重复上报)。
   // ★ 这里**不**再单独给「签到」加一次计数 —— 签到本身已有 user_checkin 台账,
@@ -339,6 +440,61 @@ onMounted(() => {
 }
 .mb-warn.strong { background: rgba(255, 106, 106, .1); border-color: rgba(255, 106, 106, .35); }
 .mb-warn b { color: var(--accent-deep); margin: 0 2px; }
+
+/* ===== 账户卡片（2026-09-27 v4.11.65 由顶部导航栏 NavBar 整块迁入） ===== */
+.mb-acc-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.mb-acc-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.mb-mini-btn.danger { border-color: rgba(255, 106, 106, .6); color: #ff6a6a; }
+.mb-setting-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.mb-setting-label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.75rem; color: var(--text-muted); min-width: 56px; white-space: nowrap;
+}
+.mb-setting-label i { width: 14px; text-align: center; }
+.mb-set-btn {
+  min-width: 24px; height: 24px; line-height: 1;
+  border: 1px solid var(--border-soft); border-radius: 12px;
+  background: transparent; color: var(--text-secondary);
+  font-weight: 600; cursor: pointer; padding: 0 6px;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.mb-set-btn:hover { border-color: var(--accent); }
+.mb-set-btn.active { border-color: var(--accent); background: var(--accent); color: #fff; }
+.mb-fontfam {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
+  border: 1px solid var(--border-soft); border-radius: 8px;
+  background: transparent; color: var(--text-secondary);
+  cursor: pointer; font-size: 0.8125rem;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.mb-fontfam:hover { border-color: var(--accent); }
+.mb-fontfam.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text-main);
+}
+.mb-fontfam .ff-label { font-weight: 600; }
+.mb-fontfam .ff-desc { font-size: 0.6875rem; color: var(--text-muted); }
+.mb-acc-tip { margin-top: 12px; font-size: 0.75rem; color: var(--text-muted); }
+
+/* 会员徽标（类名与迁出前一致，便于对照历史截图） */
+.member-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.75rem; font-weight: 600;
+  border-radius: 10px; padding: 1px 8px; white-space: nowrap;
+}
+.vip-badge { background: #ffd70022; color: #d4a017; border: 1px solid #ffd70088; }
+.paid-badge { background: rgba(255, 90, 90, 0.15); color: #ff6a6a; border: 1px solid rgba(255, 90, 90, 0.5); }
+.admin-badge { background: rgba(90, 160, 255, 0.15); color: var(--accent-text); border: 1px solid rgba(90, 160, 255, 0.5); }
+.trial-badge { background: rgba(255, 180, 0, 0.12); color: #ffd700; border: 1px solid rgba(255, 180, 0, 0.4); }
+.renew-badge {
+  background: rgba(255, 160, 40, 0.15); color: #ffa028;
+  border: 1px solid rgba(255, 160, 40, 0.55);
+  animation: renew-pulse 1.8s infinite;
+}
+@keyframes renew-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+body[data-bg="light"] .renew-badge { color: #b05e00; border-color: #c07a10; }
+body[data-bg="light"] .mb-fontfam { background: #f7f8fb; }
 
 /* 通用卡片 */
 .mb-card {

@@ -1477,6 +1477,116 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.65 (09-27 仅测试机) 修 P0「更新完不能上下滑动，电脑和微信都不行」+ 手机端「异动监管」入口被屏裁 + 顶部用户区块整块收进「我的」+ 两道防复发闸门（CSS 静态闸门 / Chromium 真浏览器冒烟）**
+  - **触发**：v4.11.64 上线测试机后主人实测反馈三条 ——
+    「**1、页面更新完不能上下滑动了，2、异动要放到复盘板块中。3、首页的用户收进 我的 里面。**」
+    澄清四条（原话）：范围「**整站每个页面都滑不动**」；方式「**电脑和微信都不行**」；
+    「异动」=「**「异动监管」页（/yidong）**」；「首页的用户」=「**是，从顶部移除、整块收进「我的」**」。
+    **生产未提及 ⇒ 不动**（仍 v4.11.55）。
+  - **★ ① P0 整站滑不动 —— 根因 = v4.11.63 把 `overscroll-behavior` 写在了 `body` 上**（「零副作用」判断反了）
+    **现象**：任何页面 `document.scrollingElement.scrollTop` 恒 0，桌面滚轮与手机触摸都不动。
+    **根因链（三步，缺一步都解释不通）**：
+    1. 本应用在 ≤768px 对 `html, body, #app, .page-shell, .container` 全局强制
+       `overflow-x: hidden !important`（`main.css:1321`）。按 CSS Overflow 规范，元素只要有一个轴
+       不是 `visible`，**另一轴的计算值就从 `visible` 变成 `auto`** ⇒ **`body` 也成了滚动容器**；
+    2. 手势/滚轮落在内层元素后，浏览器沿祖先链找可滚容器，`body` 是链上的一环；它的
+       `overscroll-behavior: none` 让浏览器判定「到此**不得向父级上链**、不得产生回弹」，
+       而 `body` 自身 `height:auto`、**没有纵向可滚距离** ⇒ 手势在 `body` 这一环被吃掉；
+    3. 根滚动容器 `html`/视口**永远收不到滚动事件** ⇒ 整页滑不动。
+    ⇒ **`overscroll-behavior` 只能写在真正承担滚动的那个元素上（本应用 = 根元素 `html`，其值按规范传播给视口）；
+      写在 `body` 上是误用。** v4.11.63 注释里"overscroll-behavior 不改滚动架构、零副作用"恰恰说反了 —— 它依赖滚动架构。
+    **★ Chromium 消融实测**（真实 dist + 页面注入 4000px 高元素确保确实溢出）：
+    | 变体 | 桌面 1280×900 滚轮 | 手机 390×844 触摸 |
+    |---|---|---|
+    | 基线（不动任何样式） | 0 → 0 ★滑不动 | 0 → 0 ★滑不动 |
+    | 只把 `html` 改回 `auto` | 0 → 0 ★滑不动（**html 不是元凶**） | 0 → 0 ★滑不动 |
+    | 只把 `body` 改回 `auto` | 0 → **1200** 恢复 | 0 → **535** 恢复 |
+    另行 A/B 四组（无 / 只 overscroll / 只 touch / 两者皆有，**最小简单页面**）全可滚 ⇒
+    `touch-action: manipulation` **本身与滚动无关** ⇒ **教训：不能只看单条 CSS，必须在真实应用结构下逐项消融**。
+    **修复**：`main.css` 的 `html, body { overscroll-behavior: none; touch-action: manipulation }`
+    → **`html { overscroll-behavior: none }`** + `html, body { touch-action: manipulation }`，
+    并在原位写下完整事故说明（机制推导 + 消融证据 + "为什么不能写在 body 上"）。
+  - **★ ② 手机端「异动监管」被裁 —— 它本来就在「复盘」组，问题是"一行放不下 6 个 pill、右侧被屏裁"**
+    **核对结论（先摆事实再动代码）**：`/yidong` **早已在复盘组** —— `router/index.js:37`
+    `meta:{group:'review',order:4}`；`useNavGroups.js` 复盘 `items` 含
+    `{ label:'异动监管', path:'/yidong' }`（注释「工单 三.5: 由「盘中」挪到「复盘」」；自 **v4.11.58** 起就如此）。
+    ⇒ **主人要的"位置"是对的，真正的问题是"看不见"**。
+    **实测（同一份 dist，390×844 与 1280×900 各测一遍）**：复盘二级 pill 行 6 项 =
+    涨停梯队 / 历史回看 / 股性 / 大V资讯 / 异动监管 / 龙虎榜；
+    · 手机：pill 行可见宽 **380** / 内容宽 **479**（`overflow-x:auto`）⇒「异动监管」落在屏幕坐标
+      **341~413，被右边缘裁掉**（主人微信端看到的只是"异动监…"）；
+    · 桌面：可见宽 = 内容宽 = **1266** ⇒ 同一 pill **完整可见** ⇒ 只在手机上出问题。
+    **修复**：`GroupNav.vue` 手机端 media query 由 `flex-wrap: nowrap + overflow-x: auto + scrollbar-width: none`
+    → **`flex-wrap: wrap; overflow-x: visible`**（6 个二级页一次全露）；**影响面只有复盘组**（其余组二级页 ≤2 个，一行放得下）。
+    ⇒ **教训：「渲染出来了」≠「用户看得见」。**
+  - **③ 顶部用户区块整块迁入「我的」**
+    `NavBar.vue`：删掉已登录的 `.user-tools`（用户名按钮 + `Teleport to body` 的下拉菜单：我的会员 /
+    个人信息 / 修改密码 / 退出登录 / 字号 / 字体族）与随之失效的约 130 行样式
+    （`.user-dropdown` / `.user-name-btn` / `.caret-up` / `.user-menu` / `.menu-*` / `.member-badge` / `.renew-badge`）
+    + 两个弹层挂载；**保留**主题圆点、全局搜索、**未登录时的登录 / 注册**
+    （★ 必须留：`/member` 有登录守卫，顶部再不给入口则未登录用户无处可登录）。
+    `MemberView.vue`：新增「账户」卡片承接 —— 用户名 + 会员徽标（VIP / 付费会员 / 管理员 / 试用N天 / 续费提醒）
+    + 个人信息 + 修改密码 + 退出登录 + 字号（3 档）+ 字体族（3 个）+ 两个弹层挂载。
+    ★ 该卡片刻意放在 **`loading` 闸门之外**：卡片每一项都不依赖会员接口，接口慢或挂了也必须能改密、能退出登录
+    （否则"会员接口异常"会连带把"退出登录"一起锁死 = 自己把自己关在门里的缺陷）；附带好处 = SSR 冒烟无需接口即可覆盖本卡模板。
+  - **④ 两道防复发闸门（本版新增，专治"编译通过 / 静态检查全绿，但用户不能用"）**
+    · `frontend/_verify/css_scroll_guard.js`（**新增，已接入 `npm run verify`**）：静态断言**源码与构建产物**里
+      都不存在「选择器把 `body` 当**类型选择器** 且 块内声明 `overscroll-behavior`」的规则。自写花括号配对的 CSS 扫描器
+      （正确支持 `@media` 嵌套，逐块报行号）。**正对照已实测**：植入 `html, body{…}` 与 `@media{ body{…} }` **必报**；
+      `.somebody` / `[data-body]` / `.plain` **不误报**；**首跑即拦下 `dist` 里那份 09:27 的旧 CSS**（源码侧当时已修、dist 未重建）。
+      ⚠️ 该文件必须是 **ESM** —— 仓库 `package.json` 有 `"type":"module"`，写成 `require` 会直接炸（首版即踩）。
+      ⚠️ 行号判据首版有偏差：块结束后紧跟的换行会让"前导串"非空 ⇒ 必须用 `!prelude.trim()` 判"尚未开始"，否则嵌套 `@media` 里的行号恒指上一行。
+    · `scripts/scroll_smoke.js`（**新增，可复跑的 Chromium 真浏览器探针**，自带 SPA 静态服务 + 假登录会话 +
+      按端点给**形状正确**的桩响应）：对 **手机 390×844 触摸 / 桌面 1280×900 滚轮** 各跑一遍 ——
+      页面真能滚 / `overscroll-behavior` 只写根元素（`html=none` 且 `body=auto`）/ 复盘 pill 全部完整可见 /
+      「我的」账户卡片在场且顶部已无用户名按钮 / **无页面级 JS 异常**。
+  - **影响面**：**纯前端 6 改 + 2 新增**（`src/styles/main.css`、`src/components/GroupNav.vue`、
+    `src/components/NavBar.vue`、`src/views/MemberView.vue`、`_verify/nav.spec.js`、`package.json`
+    + 新增 `_verify/css_scroll_guard.js`、`scripts/scroll_smoke.js`）；
+    **后端零改动、SQLite 零变更、路由路径零变更、nginx 配置零变更**。
+  - **验证证据（全部本机 + 目标机实测）**：
+    · `npm run verify` 全绿：eslint **0 errors**（120 warnings 全存量，本版顺手清掉自己新增的 4 条）；
+      闸门 **✓ 未发现「body + overscroll-behavior」组合**（源码 52 文件 / 2676 块 + dist 25 css / 2563 块）；
+      `test:nav` **`PASS=244 FAIL=0`**（v4.11.64 是 227，**新增 G12 共 17 项**：账户卡片在场 / 六项文案 /
+      3 档字号 / 3 个字体族 / 卡片在 loading 闸门之外 / **顶部导航不再有用户名按钮与账户下拉项** / 主题圆点未被误删）；
+    · `npm test`（utils）**98/98**；
+    · `scripts/scroll_smoke.js` **`PASS=30 FAIL=0`**（手机 + 桌面 ×「滚动 / 根元素 / 真渲染 / 无 JS 异常 / 复盘 pill 全可见 / 账户卡片 / 顶部已瘦身」）
+      —— **修复前同一份断言是 `FAIL=6`**；
+    · ★★ **浏览器探针当场抓到一个 SSR 看不见的真缺陷并已修**：`/api/member/plans` 返回形状不完整时，
+      `plans.value = await memberPlans()` 会把初值对象**整体覆盖** ⇒ 模板 `plans.free.label` 抛
+      `TypeError: Cannot read properties of undefined (reading 'label')` ⇒ **整个「我的」页白屏**
+      （连 `.page-shell` 都没渲染出来）；修 `plans.value = { ...PLANS_DEFAULT, ...((await memberPlans()) || {}) }`。
+      SSR 冒烟碰不到它（SSR 不跑 `onMounted` 里的 `load()`）⇒ **教训：桩写得不真实，等于把探针的判别力自己废掉**。
+      （这条正是"真浏览器 + 真网络桩"独有的判别力。）
+    · **测试机正对照**：换盘前线上 CSS 实测正是 `html,body{overscroll-behavior:none;touch-action:manipulation}`（= 带 bug 那版），
+      入口 `index-BbaQHs98.js`、dist 1050 文件 / 1042 assets；新产物 `index-DsMfkjJp.js`、1051 文件 / 1043 assets。
+  - **发布（`scripts/_deploy_fe.sh` 两阶段，纯 dist 原子切换；包 md5 到货校验 + 断言全部先在本地实测取值）**：
+    包 md5 `1cca6edd989738ce892967be7a1ac696`（35755880 字节，包内 1051 文件 / AppleDouble **0**）；
+    Stage1 断言全过（文件数 1051 / assets 1043 / 入口 hash / 旧入口不在 / **禁含 `html,body{overscroll-behavior` 命中 0** /
+    必备 `html{overscroll-behavior:none}`、`mb-acc-card`、`flex-wrap:wrap;overflow-x:visible` 三条全命中 / 权限 755·644）；
+    Stage2 原子 rename + `nginx -t` + reload；**线上四份产物 md5 与本地逐位一致**（`index.html`
+    `91a110ab…` / 入口 js `dfaab141…` / 入口 css `824a6628…` / `MemberView-BteOL3Z3.js` `75995c0e…`），
+    **且经 nginx 实际服务出去的字节 md5 亦逐位一致**（不是只看磁盘）；
+    服务出的 CSS 实测 = `html{overscroll-behavior:none}`、`body{…overscroll…}` 命中 **0**；
+    15 条路由全 **200**；三服务 active。
+    ★ **换盘前的一次"看起来很吓人"的差异已核清（不能想当然）**：Stage1 报「资产名差异 79 行」，
+    去掉哈希后归一化比对，**"只在线上有"的条目 = 0（一件没丢）**，**"只在暂存有"= 1 条 `auth.js`**；
+    原因 = `api/auth` 原本由 NavBar（入口 bundle）引用，NavBar 不再引用后 Vite 把它提成共享 chunk
+    （消费方 `ChangePwdModal` / `ProfileModal` / `MemberView` / `LoginView`），⇒ 相关 chunk 内容变、哈希随之变（~38 个），
+    **属正常产物重组，不是丢文件**。
+    ⚠️ 同一轮我自己的探针出现一次**假失败**：用正则从 `index.html` 抓引用来判"引用资源是否缺失"，把**注释文本里的
+    `styles/main.css`** 与外链 CDN 也抓了进去 ⇒ 报"缺失 2"。改成只看 `src=`/`href=` 属性并排除外链后 = **5 条全 OK**。
+    ⇒ **又一次「grep 命中了自己的注释」**（本项目第 N 次同类踩坑，判据必须锚在属性上）。
+  - **上线状态**：📌 **仅测试机**（**2026-09-27 10:31:33** 部署 `47.99.153.123`，纯 dist 原子切换 + `nginx -s reload`）；
+    回滚点 前端 **`/opt/kuaixuan/dist_bak_20260927-103133_v41165`**（1050 文件、入口 `index-BbaQHs98.js`，
+    其 CSS 正是带 bug 那版 —— 回滚会一并恢复"滑不动"缺陷，故非必要不回滚，优先前进修复）；
+    生产 `121.196.230.80` **未部署**（仍 v4.11.55）。
+  - **未做（如实标注）**：⚠️ **真机渲染验证仍未闭环** —— 本版新探针用 Chromium 覆盖了「滚动 / 布局可见性 / 页面级 JS 异常」，
+    这是本项目第一次把"滚动链"纳入判据，但**仍不等于微信 WKWebView / iOS Safari 真机**：
+    `overscroll-behavior` 对**下拉刷新/橡皮筋**的抑制效果（改到 `html` 后是否仍生效）属 **iOS 16+ 行为**，
+    无头 Chromium **测不出来**，须主人真机确认；`-webkit-overflow-scrolling: touch` 那 8 个横滑容器对纵向滚动的影响本轮未实测（已标为次要风险面）。
+
+
 - **v4.11.63 (09-27 仅测试机) 移动端追加清单批次 A —— 客户端化（加到主屏像 App）+ 微信体验三件 + 全局股票搜索/跳股 + 数据更新时刻**
   - **触发**：主人给出两份新工单（《快选移动端追加清单》《快选异动停牌风险功能工单》），并在三选一里拍板 ——
     **① A 先（移动端）→ B 后（异动停牌风险）**；② `/yidong` 按工单改 3 个 tab、现有 4 tab

@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test": "node --test src/utils/*.test.js",
     "test:nav": "vite build --ssr _verify/nav.spec.js --outDir .navssr --emptyOutDir && node .navssr/nav.spec.js",
-    "verify": "npm run lint && npm run test:nav",
+    "verify": "npm run lint && node _verify/css_scroll_guard.js && npm run test:nav",
     "lint": "eslint src --ext .js,.vue",
     "lint:fix": "eslint src --ext .js,.vue --fix",
     "format": "prettier --write \"src/**/*.{js,vue,css}\"",
