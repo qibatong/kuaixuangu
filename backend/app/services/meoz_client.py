@@ -309,7 +309,8 @@ def _hist_ttl_for(params, ttl) -> float:
       3. 与**今天**同日时用原 TTL —— 今天的竞价数据仍在变。
          ⚠️ 比较前必须先归一化: `2026-09-28`(带横线) 与 `20260928` 是同一个日子,
             漏掉归一化会把"带横线的今天"误判成历史日 ⇒ 盘中数据被缓存 1 小时。
-            (该边界有专门用例, 见 scripts/deploy_tmp/_kx_be/_kx_ttl_for_check.py)
+            (该边界有专门用例, 见 backend/tests/test_perf_v41174.py ——
+             含"撤销归一化 / 短路条件置 False / 丢掉今天守卫 / 边界放宽"四组变异验证)
     """
     td = (params or {}).get("tradedate")
     if not td:

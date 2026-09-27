@@ -4387,6 +4387,8 @@ def fill_close_change_from_kline(lst, date):
     #   ⇒ 盘前表现为"显示最新可得的定格值", 与 `_close_chg_persist_allowed()` 的
     #     「未收盘不落库」判据同源 ⇒ 零语义变更。
     #   注: 09:15 之后不短路 —— 那时日K可能已有今天那根, 保留原有实时覆盖行为。
+    #   覆盖用例见 backend/tests/test_perf_v41174.py（含 09:14/09:15 边界、回看日不得被短路、
+    #   以及"短路条件置 False / 丢掉 date==today_bj 守卫 / 边界放宽"四组变异验证）。
     if date == today_bj:
         _bjt = time.gmtime(time.time() + 8 * 3600)
         if (_bjt.tm_hour, _bjt.tm_min) < (9, 15):

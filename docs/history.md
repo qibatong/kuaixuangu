@@ -3763,7 +3763,30 @@
   - **文档 / 脚本**：`docs/diagnosis-20260928-auction-qiangcang-latency.md`（新增 §11 落地记录，
     §10 标注作废）；新增脚本 `_kx_be/_kx_fe_go.py`（前端部署封装，幂等）、
     `_kx_prof_hist_qc.py`（历史回看路径分段计时）、`_kx_prof_endpoint_qc.py`（**端点级 monkeypatch 计时**）、
-    `_kx_retest_prep.py`（签发/回收临时 token + 精准清键）、`_kx_auction_tabs2.js`（改后复测，Pass A/B）。
+    `_kx_retest_prep.py`（签发/回收临时 token + 精准清键）、`_kx_auction_tabs2.js`（改后复测，Pass A/B）、
+    `_kx_verify_intraday.py`（**盘中窗口验收**，09:15 边界两侧的前后对比）。
+  - **★ 仓库级单测 + 变异验证（本轮补的欠账）**：新增 `backend/tests/test_perf_v41174.py`（**12 用例**），
+    把两条新规则从"只有生产实测"提升为"有确定性单测"：
+    - `_hist_ttl_for` 8 例：回看日长 TTL（含 int / 带横线）、**带横线写法的今天必须仍是原 TTL**、
+      相对键 `tradedate_offset` 不长 TTL、非法格式 / 未来日期回退、只抬升不压低、
+      以及**经 `call_cached` 统一入口后落进缓存的实际 TTL**（用 `store.set` 计数替身取证）；
+    - `fill_close_change_from_kline` 5 例：盘前（02:00）目标日==今天 ⇒ 返回 0 且**四个兜底源一次都没被打**、
+      字段一字不动；09:14 短路 / 09:15 起不再短路；09:20 仍能用当天日K算出收盘涨幅；
+      **回看日即便同处盘前也不得被短路**；空输入 no-op。
+    - 🔬 **变异验证（4/4 如期变红，还原后复绿）**：① 撤销归一化（`digits < today` → `str(td) != today`）
+      → 2 failed；② 短路条件置 False → 2 failed；③ 丢掉 `date == today_bj` 守卫 → 1 failed；
+      ④ 边界放宽为 `< 09:20` → 1 failed。
+      ⇒ 证明这 12 例不是"看着绿"，而是**真的咬住了规则**（防假绿）。
+    - 两个源文件对已部署版本**只增加注释/文档串**（`git diff --stat` = 4 insertions/1 deletion 全为注释）
+      ⇒ **行为零变化，生产无需重新部署**。
+  - **★ 补 tag 断档**：仓内 tag 原只到 `v4.11.67`，`v4.11.68~73` 缺失 ⇒ 本轮按「tag 指向该版本最后一个
+    带版本号的提交」的既有口径回填 6 个 annotated tag（`11b73fc / c9fd824 / e1b28e5 / e46dce7 / e14c60a / 1800971`），
+    并已连同 `v4.11.74` 一起推送。
+  - **★ 盘中窗口验收（唯一未验证场景）**：本轮全部实测都在**盘前**，而两条新规则**都以 09:15 为界**
+    ⇒ 盘前测不到它们在盘中的分支。已建**一次性 automation**（09-28 09:16）跑
+    `_kx_verify_intraday.py`：验「盘前短路确已失效且 `_apply_change_for` < 3000ms」、
+    「meoz 相对键 / 今天的绝对日期键无长 TTL 残留」、「端点 < 2000ms」、以及日志 429/熔断/Traceback 全 0。
+    该脚本已在**强制模式**（`KX_FORCE_INTRADAY=1`）下空跑过一次全流程：**8/8 PASS**（B/C 段为真实执行）。
   - ⚠️ **踩坑（本轮新增）**：
     - 🔴 **「慢」必须分段计时定位，不能靠现象猜**。同一个"慢 15 秒"，盘前是「空窗白等」、
       盘中是「实时拉取」，**修法完全相反** —— 上一版报告方向错的根因就在这。
