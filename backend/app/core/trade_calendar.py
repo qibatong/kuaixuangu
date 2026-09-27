@@ -56,6 +56,7 @@ __all__ = [
     "is_trade_day_now",
     "is_trade_day_of",
     "prev_trade_date",
+    "latest_trade_in",
     "bj_date",
     "warn_if_uncovered",
 ]
@@ -223,6 +224,36 @@ def prev_trade_date(d: Union[str, _date, time.struct_time, None] = None, *,
         if is_trade_day(cur):
             return cur.isoformat()
         cur -= _timedelta(days=1)
+    return None
+
+
+def latest_trade_in(dates, day: Union[str, _date, time.struct_time, None] = None) -> Optional[str]:
+    """从候选日期序列里挑出 `<= day` 的**最近一个交易日**; 无合规候选返回 None。
+
+    ★ 用途(2026-09-27 v4.11.66): 各处「取表内 MAX(date) 当最近交易日」的**读侧**解析
+      此前没有任何交易日历过滤, 于是 2026-09-25(中秋 · 周五 · 法定休市)因当天傍晚前
+      还没装日历门禁而照常采集落下的**幽灵快照**被当成了"最近交易日" ⇒ 整站竞价数据
+      (竞价封单/委买/爆量/净额/抢筹 + 两市概况 + 选股定格) 被顶成休市日的静态值:
+      09-25 四个时点的 bid_change/bid_amt **各自都等于 09-24 的 9_25 定格值**,
+      两市概况三时点总成交额恒等(14,723,625,413)。这就是主人 09-27 反馈
+      「竞价异动板块的数据是不是有问题」的根因。
+
+    与 `prev_trade_date` 的分工: 后者是**纯日历推算**(不关心库里有没有数据), 本函数是
+    **在已存在的候选里挑** —— 用于"表里 MAX(date) 落在休市日"这一类场景, 只跳过非交易日,
+    绝不越过候选集去猜一个库里根本没有的日期。
+
+    fail-open: 候选为空 / 全不合规 → 返回 None, 由调用方**保留原值**(宁可显示原有数据,
+    也不主动留空 —— 留空会把"回退"变成"无数据", 后果更重)。
+    """
+    if not dates:
+        return None
+    limit = _norm(day) if day is not None else None
+    for d in dates:
+        s = _norm(d)
+        if not s or (limit and s > limit):
+            continue
+        if is_trade_day(s):
+            return s
     return None
 
 

@@ -7,6 +7,7 @@
 返回字段均为 App 数组格式(无字段名, 靠位置解析), 统一在此转换为 dict。
 """
 import json
+import sqlite3
 import ssl
 import threading
 import time
@@ -349,11 +350,10 @@ def _boom_from_snap(snap_date, spot_map=None):
         cur_tp = str(row[0]) if row and row[0] else None
         if not cur_tp:
             return []          # 该日暂无快照
-        # 昨日(最近小于 snap_date 的交易日) 9_25 竞价额
-        row2 = conn.execute(
-            "SELECT MAX(date) FROM snapshot_bid WHERE date < ? AND time_point='9_25'",
-            (snap_date,)).fetchone()
-        yest = str(row2[0]) if row2 and row2[0] else None
+        # 昨日(最近小于 snap_date 的**交易日**) 9_25 竞价额
+        # 2026-09-27 v4.11.66: 加交易日历过滤 —— 原裸 MAX(date) 会把休市日(09-25 中秋)的
+        # 幽灵行当成"昨日", 于是量比的分子分母都来自同一份静态值 ⇒ 量比恒 1.0。
+        yest = _latest_trade_snap_date(snap_date, strict=True)
         if not yest:
             return []          # 无昨日数据
         # 当日全市场: code -> (bid_amt万元, name, bid_change, 实际流通市值free_mv, board)
@@ -419,12 +419,13 @@ def fetch_bid_boom():
                     has_today = conn.execute(
                         "SELECT COUNT(*) FROM snapshot_bid WHERE date=? ", (today,)).fetchone()[0]
                     if not has_today:
-                        r0 = conn.execute(
-                            "SELECT MAX(date) FROM snapshot_bid WHERE date <= ? AND time_point='9_25'",
-                            (today,)).fetchone()
-                        if r0 and r0[0]:
-                            log.info("竞价爆量[回退] date=%s 今日无快照, 自动回退最近交易日 %s", today, r0[0])
-                            today = str(r0[0])
+                        # 2026-09-27 v4.11.66: 加交易日历过滤。原裸 MAX(date) 会"回退"到休市日
+                        # 幽灵快照(2026-09-25 中秋), 而幽灵日的竞价额恰是 09-24 的 9_25 复制值
+                        # ⇒ 「今日÷昨日」量比恒等于 1.0 ⇒ 被「量比>2」全量滤掉 ⇒ 整个 tab 变空。
+                        d0 = _latest_trade_snap_date(today)
+                        if d0:
+                            log.info("竞价爆量[回退] date=%s 今日无快照, 自动回退最近交易日 %s", today, d0)
+                            today = str(d0)
                 finally:
                     conn.close()
             except Exception as e:
@@ -766,10 +767,12 @@ def _promote_rate(ladders_today):
     try:
         dates = [r[0] for r in conn.execute(
             "SELECT DISTINCT date FROM ladder_history WHERE date < ? "
-            "ORDER BY date DESC LIMIT 1", (today,)).fetchall()]
+            "ORDER BY date DESC LIMIT 30", (today,)).fetchall()]
     finally:
         conn.close()
-    yest = dates[0] if dates else None
+    # 2026-09-27 v4.11.66: 加交易日历过滤 —— 原裸 `ORDER BY date DESC LIMIT 1` 会把休市日
+    # (2026-09-25 中秋)的幽灵行当"昨日"; 无合规候选时**保留原值**(fail-open, 不主动置空)
+    yest = trade_calendar.latest_trade_in(dates, today) or (dates[0] if dates else None)
 
     def _today_n(lu):
         return len(ladders_today.get(lu) or [])
@@ -1593,26 +1596,50 @@ def fetch_dadan_net(StockID, Time=None):
     }
 
 
-def _prev_trade_day():
-    """上一交易日: snapshot_bid 记录优先(自动跳过节假日); 失败降级为日历跳过周末"""
+def _latest_trade_snap_date(day=None, time_point="9_25", strict=False, limit=30):
+    """`snapshot_bid` 里最近的**交易日**快照日期(交易日历过滤, 2026-09-27 v4.11.66 新增)。
+
+    ★ 为什么需要: 本模块多处用裸 `SELECT MAX(date) FROM snapshot_bid ...` 表示"今日/昨日
+      交易日" —— 隐含假设「表里只可能有交易日行」。该假设被 2026-09-25(中秋 · 周五 ·
+      法定休市, 当天傍晚才补上日历门禁)照常采集落下的**幽灵快照**打破, 而且是连锁的:
+      ① 幽灵日的四个时点 bid_change/bid_amt 各自都等于 09-24 的 9_25 定格值
+         ⇒ 竞价爆量算「今日÷昨日」得**量比恒 1.0**, 被 `量比>2` 全量滤掉 ⇒ **tab 空**;
+      ② 幽灵日被当成"昨日" ⇒ 之后所有比值都拿静态值做分母;
+      ③ 幽灵日被当成"上一交易日" ⇒ 「昨涨停/昨断板/昨炸板」去问选股宝要休市日的数据 ⇒
+         **空表**; 同时「昨炸板」与「今炸板」塌到同一天, 两 tab 显示同一批股票。
+
+    `strict=True` → 严格早于 `day`(取"昨日"); False → 允许等于 `day`(取"最近有数据的交易日")。
+    查库异常 / 无合规候选 → None, 由调用方保留原值(绝不主动留空)。
+    """
+    base = day or time.strftime("%Y-%m-%d")
+    op = "<" if strict else "<="
     try:
-        import sqlite3
         conn = sqlite3.connect(config.DB_FILE)
-        today = time.strftime("%Y-%m-%d")
-        rows = conn.execute(
-            "SELECT DISTINCT date FROM snapshot_bid WHERE date < ? ORDER BY date DESC LIMIT 1",
-            (today,),
-        ).fetchall()
-        conn.close()
-        if rows:
-            return rows[0][0]
-    except Exception as e:
-        log.warning("上一交易日查询失败(降级日历) err=%s", e)
-    from datetime import datetime, timedelta
-    d = datetime.now() - timedelta(days=1)
-    while d.weekday() >= 5:  # 跳过周末(法定节假日由 snapshot_bid 路径覆盖)
-        d -= timedelta(days=1)
-    return d.strftime("%Y-%m-%d")
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT date FROM snapshot_bid WHERE date%s? AND time_point=? "
+                "ORDER BY date DESC LIMIT %d" % (op, int(limit)), (base, time_point)).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return None
+    return trade_calendar.latest_trade_in([r[0] for r in rows if r and r[0]], base)
+
+
+def _prev_trade_day():
+    """上一交易日: snapshot_bid 记录优先(自动跳过节假日); 失败降级为日历推算
+
+    ★ 2026-09-27 v4.11.66: 表内 `MAX(date)` 改为**交易日历过滤**。原实现隐含假设"表里只
+      可能有交易日行" —— 该假设被 2026-09-25(中秋·法定休市, 当天傍晚才补门禁)照采落下的
+      幽灵快照打破, 后果是**「昨炸板」与「今炸板」塌到同一天**(两 tab 显示同一批 11 只),
+      以及「昨涨停」去选股宝要休市日数据直接返空。
+      降级分支不再手写"跳周末"循环, 直接用 `trade_calendar.prev_trade_date()`
+      (含法定假日 + 区间外 fail-open)。
+    """
+    d = _latest_trade_snap_date(strict=True)
+    if d:
+        return d
+    return trade_calendar.prev_trade_date(time.strftime("%Y-%m-%d"))
 
 
 def fetch_broken_zt(day=None):
@@ -2125,18 +2152,10 @@ def fetch_yest_broken():
         if not day:
             return []
         # 昨日的前一交易日
-        prev2 = None
-        try:
-            import sqlite3
-            conn = sqlite3.connect(config.DB_FILE)
-            row = conn.execute(
-                "SELECT DISTINCT date FROM snapshot_bid WHERE date < ? ORDER BY date DESC LIMIT 1",
-                (day,)).fetchone()
-            conn.close()
-            if row:
-                prev2 = str(row[0])
-        except Exception:
-            pass
+        # 2026-09-27 v4.11.66: 原为裸 `SELECT DISTINCT date FROM snapshot_bid WHERE date < ?
+        # ORDER BY date DESC LIMIT 1` —— 无交易日历过滤 ⇒ 休市日(09-25 中秋)幽灵快照会被
+        # 当成"前一交易日", 进而去问选股宝要休市日的涨停池。改走统一解析(交易日过滤)。
+        prev2 = _latest_trade_snap_date(day, strict=True)
         if not prev2:
             log.warning("昨断板 无法定位前一日(day=%s), 返回空", day)
             return []
@@ -2323,10 +2342,10 @@ def fill_bid_ratio_yest(lst, date=None):
         import sqlite3
         conn = sqlite3.connect(config.DB_FILE)
         today = date or time.strftime("%Y-%m-%d")
-        row = conn.execute("SELECT MAX(date) FROM snapshot_bid WHERE date <= ?", (today,)).fetchone()
-        cur = str(row[0]) if row and row[0] else today
-        row2 = conn.execute("SELECT MAX(date) FROM snapshot_bid WHERE date < ?", (cur,)).fetchone()
-        yest = str(row2[0]) if row2 and row2[0] else None
+        # 2026-09-27 v4.11.66: 今日/昨日两处都加交易日历过滤(原裸 MAX(date) 会把休市日
+        # 幽灵行当成"今日"与"昨日" —— 09-25 的竞价额恰是 09-24 的 9_25 复制值 ⇒ 量比恒 1.0)
+        cur = _latest_trade_snap_date(today) or today
+        yest = _latest_trade_snap_date(cur, strict=True)
         if not yest:
             conn.close()
             return lst
@@ -2584,18 +2603,27 @@ def fetch_bid_qiangcang(date=None):
         # 有数据的交易日, 与 bid-seal/bid-boom 等 tab 盘后仍显示最近交易日保持一致
         if not date and not in_bid:
             try:
-                import sqlite3
+                # 2026-09-27 v4.11.66: 原 `SELECT MAX(date) FROM snapshot_bid WHERE date <= ?`
+                # 无交易日历过滤 ⇒ 周末/节假日会"回退"到休市日(09-25 中秋)的幽灵快照
+                # (该日四时点数值全等于 09-24 的 9_25 定格, 抢筹 tab 整屏静态假数据)。
+                # ⚠️ 判据保持原样 = "今天有**任一时点**快照"(不加 time_point 条件):
+                #    若收窄成"今天有 9_25 行", 则交易日 9_25 定格缺失时会被误判成"今天无数据"
+                #    而回落到昨天 —— 那是另一处语义变更, 不在本次范围。
                 conn = sqlite3.connect(config.DB_FILE)
-                has_today = conn.execute(
-                    "SELECT COUNT(*) FROM snapshot_bid WHERE date=?", (today,)).fetchone()[0]
-                if not has_today:
-                    row = conn.execute(
-                        "SELECT MAX(date) FROM snapshot_bid WHERE date <= ?", (today,)).fetchone()
-                    if row and row[0]:
-                        log.info("抢筹[回退] date=%s %s 今日无快照, 自动回退最近交易日 %s",
-                                 today, hhmm, row[0])
-                        today = str(row[0])
+                rows = conn.execute(
+                    "SELECT DISTINCT date FROM snapshot_bid WHERE date<=? "
+                    "ORDER BY date DESC LIMIT 30", (today,)).fetchall()
                 conn.close()
+                cands = [r[0] for r in rows if r and r[0]]
+                # 全不合规 → None ⇒ 保留原日期(与全局 fail-open 口径一致, 不硬塞一个可疑日)
+                d_new = trade_calendar.latest_trade_in(cands, today)
+                if d_new and d_new != today:
+                    log.info("抢筹[回退] date=%s %s 今日无快照, 自动回退最近交易日 %s",
+                             today, hhmm, d_new)
+                    today = d_new
+                elif not d_new:
+                    log.info("抢筹[回退] date=%s %s 今日无快照且无合规历史日, 保留原日期",
+                             today, hhmm)
             except Exception as e:
                 log.warning("抢筹 交易日回退判断失败(按今天处理) err=%s", e)
 
@@ -4102,11 +4130,23 @@ def _close_chg_persist_allowed(date):
     根因修复(2026-08-24): 盘中(未收盘)当日 K 线的 last close 是实时价,
     此时把"当日涨幅"当"当日收盘涨幅"写入会永久污染该日数据 —— 盘后/历史
     回看 fill_close_change_from_kline 先命中库表读到脏值, 导致现涨=竞涨/
-    现涨错误(用户反馈)。规则: date<今天 → 早已收盘, 允许; date==今天 →
+    现涨错误(用户反馈)。    规则: date<今天 → 早已收盘, 允许; date==今天 →
     仅北京时间已过 15:00(收盘)才允许; 其它 → 禁止。
+
+    ★ 2026-09-27 v4.11.66 补交易日门禁(**第一道**, 先于收盘判断):
+      原规则只有"是否已收盘"这一个维度, **完全没有交易日判断** ⇒
+        · `date < 今天` 一律放行 ⇒ 任何以"上一天/回退日"为 serve_date 的写路径都能把
+          休市日 K 线固化下来;
+        · `date == 今天 且 已过 15:00` 放行 ⇒ **周六/节假日 15:00 后**直接命中。
+      实测后果: 测试机 2026-09-26(周六) 在 `close_change_history` 落 57 行、09-05(周六)
+      落 47 行 —— 而该表的读侧是"按 date 精确命中"+ 多处"取最近日期"兜底 ⇒ 非交易日行
+      会被当"当日收盘涨幅"。非交易日本就没有收盘价, 写进去的是相邻交易日 K 线的重复值。
+      `is_trade_day` 对**覆盖范围外的年份** fail-open(见 trade_calendar), 不会误拦历史回填。
     """
     import time as _t
     if not date:
+        return False
+    if not trade_calendar.is_trade_day(date):      # ★ v4.11.66: 非交易日绝不落库
         return False
     today_bj = _t.strftime("%Y-%m-%d", _t.gmtime(_t.time() + 8 * 3600))
     if date < today_bj:

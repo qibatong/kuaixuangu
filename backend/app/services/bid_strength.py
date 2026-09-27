@@ -61,10 +61,38 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence
 
+from ..core import trade_calendar as _tc
+
 log = logging.getLogger(__name__)
 
 # 昨日竞价额下限(万元): 低于此值量比失真(昨额1万 → 量比302倍), 判为不可用
 MIN_YDAY_BID_AMT_WAN = 100.0
+
+
+def _latest_trade_snap_date(cur, before=None):
+    """`snapshot_bid` 里最近的**交易日** 9_25 快照日期(交易日历过滤)。
+
+    ★ 2026-09-27 v4.11.66: 本模块原用裸 `SELECT MAX(date) FROM snapshot_bid WHERE
+      time_point='9_25'` 表示"最近交易日"、`date < ?` 表示"昨日" —— 隐含假设「表里只可能
+      有交易日行」。该假设被 2026-09-25(中秋 · 周五 · 法定休市, 当天傍晚才补上日历门禁)
+      照常采集落下的幽灵快照打破 ⇒ 竞价强度/异动列建立在**休市日静态值**之上
+      (幽灵日四个时点的值都等于 09-24 的 9_25 定格值, 见 core/trade_calendar.py:latest_trade_in)。
+      与 `auction_snapshot.latest_trade_snap_date()` / `api.stats._latest_trade_snap_date()`
+      同源第三条闸门(同型问题第三处, 前三处: 竞价异动页、选股快照、本处)。
+
+    查库异常 / 无合规候选 → None(调用方保留原值)。
+    """
+    sql = "SELECT DISTINCT date FROM snapshot_bid WHERE time_point='9_25'"
+    params = []
+    if before:
+        sql += " AND date<?"
+        params.append(before)
+    sql += " ORDER BY date DESC LIMIT 30"
+    try:
+        rows = cur.execute(sql, tuple(params)).fetchall()
+    except Exception:
+        return None
+    return _tc.latest_trade_in([r[0] for r in rows if r and r[0]], before)
 
 
 @dataclass
@@ -141,15 +169,13 @@ def _fill_snapshot(out: Dict[str, BidStrength], want, date: Optional[str]):
         if not date or not cur.execute(
                 "SELECT 1 FROM snapshot_bid WHERE date=? AND time_point='9_25' LIMIT 1",
                 (date,)).fetchone():
-            row = cur.execute("SELECT MAX(date) FROM snapshot_bid "
-                              "WHERE time_point='9_25'").fetchone()
-            date = str(row[0]) if row and row[0] else None
+            # 2026-09-27 v4.11.66: 加交易日历过滤(原裸 MAX(date) 会把休市日幽灵快照当"最近交易日")
+            date = _latest_trade_snap_date(cur)
         if not date:
             return
         # 昨日(严格小于)用于算竞价量比
-        row = cur.execute("SELECT MAX(date) FROM snapshot_bid "
-                          "WHERE date < ? AND time_point='9_25'", (date,)).fetchone()
-        yday = str(row[0]) if row and row[0] else None
+        # 2026-09-27 v4.11.66: 同上加交易日历过滤
+        yday = _latest_trade_snap_date(cur, before=date)
 
         # 今日 9:25 定格: 竞价额(自算量比兜底) + 竞价主力净额/自由流通市值(净额层)
         #                       + 竞昨量比(官方成品, 优先)

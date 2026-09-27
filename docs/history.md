@@ -1477,6 +1477,107 @@
     上一版（含闸门）的回滚点仍是 commit `9d73c7b`。
   - **影响**：与 v4.11.21 **行为等价**（生产 `pick_window_guard` 本就是 0，无闸门），
     本版只是把「随时可能被误置 1 复活」的代码也退干净。
+- **v4.11.66 (09-27 仅测试机) 修「竞价异动数据异常」—— 2026-09-25 中秋休市日幽灵快照 + 「最近交易日」读侧缺交易日历门禁（11 张表清残留 / 6 文件加门禁 / 同批补写侧门禁）**
+  - **触发**：主人 —— 「**1、竞价异动板块的数据是不是有问题，你去看看**」。
+    **结论：是，且只在测试机**（生产 09-25 当晚已自愈，详见「影响面」）。
+  - **★ 现象 → 根因**
+    - **现象（测试机，09-27 周日实测）**：「竞价爆量」「昨涨停」**两个 tab 整块空**；
+      「竞价封单」三层排序**退化成三层同值**（15 条）；「昨断板」13 条；「今炸板」**≡**「昨炸板」（同一批 11 只）；
+      `auction-overview` 三个时点 `total_amt` **恒等 `14723625413`**（正常日递增 1.92B → 2.21B → 13.21B）。
+    - **根因**：**2026-09-25 是中秋节法定休市日（周五）**（`core/trade_calendar.py:86`
+      `"2026-09-25", # 周五`，引上交所公告〔2026〕22号；`HOLIDAYS_2026` 共 19 天）。
+      测试机当天的 `trade_calendar` 还是旧版（**正确日历 09-26 20:05 随 v4.11.55 才到位**）
+      ⇒ 采集器的交易日门禁**判该日为交易日** ⇒ 照常跑 4 枪快照 → 落下一批**幽灵数据**。
+      而**源端三路当天全是空的**（`daily_auc tradedate≠20260925`／`screening 竞价 0 只 封单 9 只`／
+      `TickPlus 0 条`）—— 系统自己**打了 `[数据质量] 竞价封单数据异常` 并推了飞书**，
+      **告警响了、数据照落**（无「数据质量不合格 ⇒ 拒写」闭环）。
+    - **幽灵性的四条硬证明**（逐位数学闭合，09-24 真值 vs 09-25 幽灵值）：
+      ① `same_chg = 5528/5561`、`same_amt = 5516/5561` —— 09-25 四时点各自都等于 09-24 的 **9_25 定格值**；
+      ② `amt_gt0 = 20840 = 5210×4`、`seal_gt0 = 520 = 130×4`、`chg_ne0 = 17776 = 4444×4`
+      （5210/130/4444 正是 09-24 单时点的非零数）；③ `auction-overview` 09-25 三时点 `total_amt` 恒等；
+      ④ `close_change_history` 09-26(周六) 的 57 行与 09-24 **同日同股 pct 逐位 100% 相同（57/57）** ——
+      同一种「非交易日拿相邻交易日数据贴当天标签」的写法，只是落在另一张表、另一个写侧函数。
+    - **读侧缺口（本版主因）**：全仓多处用**裸 `SELECT MAX(date) FROM <历史表>` / `ORDER BY date DESC LIMIT 1`**
+      表达「最近交易日」，**没有任何交易日历过滤** —— 隐含假设「表里只可能有交易日」。
+      09-25 幽灵行一落库，该假设即被打破 ⇒ **十个 tab 全被休市日静态值顶掉**。
+      「竞价爆量」尤其典型：`_boom_from_snap` 算「今日 ÷ 昨日」时**两端都取自 09-25 幽灵日**
+      ⇒ **量比恒 1.0** ⇒ 被「量比 > 2」全量滤掉 ⇒ **tab 变空**（不是没数据，是被自己的幽灵数据筛掉了）。
+  - **修复（主人拍板方案原话：「清残留 + 读侧加交易日门禁」）**
+    - **① 清残留**（测试机）：`sqlite3 .backup` 留副本（**WAL 库裸 `cp` 会漏 `-wal`**）→
+      `PRAGMA integrity_check` + **逐表 09-25 行数 源库 vs 副本 逐行比对**（不过则中止、零删除）→
+      单连接单事务删 10 张表；随后**扩大到「所有非交易日」全库扫描**，又扫出
+      `close_change_history` 09-26(六) 57 行 + 09-05(六) 47 行（同源缺陷）一并清掉。
+      副本 `/opt/kuaixuan/_ghost0925_bak_20260927-111502.db`（495 MB，`integrity_check=ok`）。
+      **不动**：`usage_daily`/`user_checkin`（计费/签到，周末本就该有）、
+      `stock_float_mv_daily` 09-12(六) 290 行（**市值缓存**，删行会永久减少部分票的市值来源，收益不抵风险 ⇒ 只报告）。
+    - **② 读侧门禁**：`core/trade_calendar.py` 新增 **`latest_trade_in(dates, day=None)`** ——
+      **在已有候选里挑**最近真交易日（→ `is_trade_day`），**不做纯日历推算**
+      （那样会挑到库里根本没数据的日期）；**fail-open：候选空/全不合规 → 返回 `None`，调用方保留原值**
+      （绝不主动留空 —— 留空把「回退」变成「无数据」更糟）。
+      6 个文件接入：`services/auction_snapshot.py`（新增 `latest_trade_snap_date()`，并让
+      `load_snapshot_full` / `_latest_snapshot_date` 走它 ⇒ `load_day_bid_amt|change` / `freeze_source_date` 自动获得门禁）、
+      `api/stats.py`（`_latest_trade_snap_date()`：`auction-overview` / `bid-snapshot-stock` /
+      `bid-snapshot-3points` / `seal-quality` 四处）、`api/kpl.py`（`_latest_trade_date_in()`：
+      `_read_auction_fast` 保持原 `date < today` 严格语义 / `_resolve_date`）、
+      `services/kpl.py`（`_latest_trade_snap_date()`：`_prev_trade_day` / `_boom_from_snap` /
+      `fill_bid_ratio_yest` / `fetch_bid_boom` + `_promote_rate`(ladder_history) / 昨断板 prev2 / 抢筹回退）、
+      `services/bid_strength.py`（第 3 处同型闸门）。
+      **`_prev_trade_day()` 顺手删掉手写「跳周末」循环** —— 它只跳周末、**不认法定休市**。
+    - **③ 写侧同源门禁（同批，必做）**：`services/kpl.py:_close_chg_persist_allowed()` 原先**只有
+      「是否已收盘」一个维度、完全没有交易日判断** ⇒ `date < 今天` 一律放行、`date == 今天 且过 15:00` 放行
+      ⇒ **周六/节假日 15:00 后直接命中**（就是 09-26 那 57 行的来源）。
+      补 `if not trade_calendar.is_trade_day(date): return False`。
+      ⚠️ 该缺陷**早在 v4.11.27 就写进 `history.md` 的「未修遗留（carried）」**，本版清偿。
+      **教训（第三次同型）：读侧比对 + 写侧确认必须成对落地，只做一边等于没做。**
+  - **影响面（两机对照 —— 结论：生产本来就是干净的）**
+    | | 生产 `121.196.230.80` | 测试机 `47.99.153.123` |
+    |---|---|---|
+    | 09-25 日志 | `18:49:42 非交易日(法定休市) date=2026-09-25 跳过采集` | 无门禁 ⇒ 照常采集 |
+    | 09-25 幽灵行 | **无**（日志中**无任何 delete/清理行** ⇒ 推断「没采」而非「采了又清」） | 有（一直顶到 09-27） |
+    | 处置 | 当晚已自愈 | **本版处理** |
+    **生产未部署、无需回滚**（仍 v4.11.55）。
+  - **★ 部署前顺带查明两件「文档/现象会骗人」的事（都已取证）**
+    - **测试机是混合版本态**：`services/kpl.py` md5 = `0dd1fb7a…`（= **v4.11.59/HEAD** 版）而
+      `auction_snapshot.py` = `08023e0e…`（= **v4.11.55** 版）⇒ **v4.11.57 只上了「一半」**：
+      读侧 `_mb_baseline_is_today()`（在 kpl.py，**在线**）+ 写侧 `_brief_date_ok()`（在 auction_snapshot.py，**不在线**）。
+      **本次发布恰好补齐**。⇒ 又一次证明「依赖闭包检查必须做在目标机真实文件集合上」。
+    - **测试机 `api/stats.py` md5 `eed18254…` 不来自任何历史提交** —— 逐字节比对后确认
+      就是 **v4.11.55 的内容 + CRLF 换行**（351 行全带 CR；`tr -d '\r'` 后 `diff` = **0**）
+      ⇒ **无隐藏热修，覆盖安全**。判「现网有没有私改」**必须逐字节比**，md5 不等 ≠ 内容不同。
+  - **验证证据**
+    - **本地全量回归**：`1500 passed, 3 skipped, 0 failed, 0 errors`（176s）。
+      ⚠️ 复现「27 errors」假失败时确认其根因是**沙箱批量删除守卫**
+      （`[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED]`，`scope=turn` 累计 >50）
+      拦下了 pytest 清理 `--basetemp`；**换一个从未使用过的 basetemp 即消失**，与被测代码无关。
+    - **测试机上线后验收**（只读探针 `_probe/p132_verify66b.sh` / `p133_verify66c.sh`，**18 OK**）：
+      · `bid-snapshot-3points?date=2026-09-25` → **`resolved=2026-09-24`**（直接传休市日是最强用例）；
+        同理 `date=09-26 / 09-27 → 09-24`；`date=09-23 → 09-23`（历史日不被误拉）；
+      · 三层排序 **layer1=8 / layer2=17 / layer3=15 条，`sort_amt` 与三时点 `bid_amt` 互不相同**
+        （修复前是三层同值 15 条）；
+      · `auction-overview` 的 `days` = `[09-24, 09-23, 09-22, 09-21]` —— **完全没有 09-25**；
+        四日 `9_25 / 9_15` 比值 **6.09 ~ 8.05**（正常），**无任何「9_15 = 9_20 = 9_25 恒等」**；
+      · 9 个 tab（委买/爆量/净额/抢筹/炸板今/炸板昨/昨涨停/昨断板/昨上榜）**date 全部不含 09-25**；
+        **`bid-boom` 157 行（原先整块空）**、**`yest-zt` 51 行（原先整块空）**、`bid-qiangcang` `list20=6/list20Chg=1/listLast=100`；
+      · 落盘 6 文件 md5 **三方比对全 OK**（暂存/期望/回读）；`py_compile` 6/6；
+        **目标机真实文件集合上的只读预检 `PREFLIGHT_OK`**（含 `is_trade_day('2026-09-25') is False` 等 13 条断言）；
+        两服务 `active`、日志 **Traceback 0**；清理后 `snapshot_bid` 09-25 = 0、`close_change_history` 09-25/26 = 0。
+    - **本地用例**：`tests/test_latest_trade_date_guard.py`（**新建 8 例**，硬编码日期 + 先钉日历基线，
+      含「休市日候选必跳」/「上界约束」/「全不合规 → None」/「写侧 `_close_chg_persist_allowed` 非交易日 False」）、
+      `tests/test_bid_day_fallback_offdays.py`（重写为**按日历推导**日期 + 新增「幽灵行必须跳过」回归例，6 例）、
+      `tests/test_kpl.py` 4 处桩**改打在函数边界**（内联 SQL 抽成函数后按 SQL 文本匹配的桩全失配）。
+  - **上线状态**：**仅测试机** `47.99.153.123`（`kuaixuan` + `kx-worker` 已重启并验证）。**生产未部署。**
+  - **回滚点**：测试机 `/opt/kuaixuan/backend_bak_v41166_20260927-112721`（6 文件）。
+  - **遗留 / 未闭合（本版不动，备查）**：
+    - 🔴 **「今炸板」≡「昨炸板」**：非交易日两支**同锚最近交易日**（`_read_auction_fast` 回退 + `_prev_trade_day()`
+      都落到 09-24）⇒ 两 tab 同内容。**该塌陷 v4.11.66 之前之后皆然**（当时同锚 09-25 幽灵日），
+      **非本版引入**；现显示的是**真值**而非幽灵。改法属「非交易日该如何定义『昨』」的口径决策 ⇒ 待主人定。
+    - 4 处 `MAX(date)` 读点**未加门禁**（当前安全：`snapshot_bid` 写侧有门禁 + 残留已清）：
+      `services/stock_search.py:162/170`、`services/dev_risk.py:853`、`services/meoz_client.py:587`、
+      `api/kpl.py:636`(`lhb_history`)。属同一类，列入后续批次。
+    - 跨轮遗留照旧：`auc_vol_ratio` 两机全库近 8 日全为 0（P0-1，**09-28 实盘才可判**）；
+      `-webkit-overflow-scrolling: touch` 8 个横滑容器未实测；真机 iOS 下拉刷新/橡皮筋未验证；
+      `pick_window_guard=0`（生产）；`_latest_snapshot_date` 的「同日降级优于跨日回退」；
+      物化表 `stock_score_daily` 二选一；`auction_snapshot.py:1890` 日志文案 off-by-one（`周4` 应为周五，P3）。
 - **v4.11.65 (09-27 仅测试机) 修 P0「更新完不能上下滑动，电脑和微信都不行」+ 手机端「异动监管」入口被屏裁 + 顶部用户区块整块收进「我的」+ 两道防复发闸门（CSS 静态闸门 / Chromium 真浏览器冒烟）**
   - **触发**：v4.11.64 上线测试机后主人实测反馈三条 ——
     「**1、页面更新完不能上下滑动了，2、异动要放到复盘板块中。3、首页的用户收进 我的 里面。**」

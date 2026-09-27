@@ -228,6 +228,7 @@ def test_fetch_bid_boom(monkeypatch):
             return FakeCursor([])
         def close(self): pass
     monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
+    monkeypatch.setattr(kpl, "_latest_trade_snap_date", lambda *a, **k: "2026-08-12")
     kpl.clear_cache()
     rows = kpl.fetch_bid_boom()
     # 量比>2 + 成交额>100万: 600003(5.0) > 600001(3.0); 600002(量比1.0≤2) 600004(无昨日) 过滤
@@ -1036,6 +1037,10 @@ def _mock_boom_helpers(monkeypatch, todays, yests, today_date="2026-08-22"):
 
     monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
     monkeypatch.setattr(fetcher_mod, "fetch_spot_quote_map", lambda *a, **k: {})
+    # ★ 2026-09-27 v4.11.66: 「昨日交易日」由内联 SQL 改为 `kpl._latest_trade_snap_date()`
+    #   (读侧加交易日历过滤), 桩因此改打在**函数边界**上 —— 比按 SQL 文本匹配稳定,
+    #   且本组用例断言的是量比计算逻辑, 不该与"日期怎么挑"的实现细节耦合。
+    monkeypatch.setattr(kpl, "_latest_trade_snap_date", lambda *a, **k: "2026-08-21")
     kpl.clear_cache()
 
 
@@ -1107,6 +1112,8 @@ def test_fetch_bid_boom_yest_no_data(monkeypatch):
 
     monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
     monkeypatch.setattr(fetcher_mod, "fetch_spot_quote_map", lambda *a, **k: {})
+    # v4.11.66: 「昨日交易日」已抽成 `kpl._latest_trade_snap_date()`, 返回 None = 无昨日
+    monkeypatch.setattr(kpl, "_latest_trade_snap_date", lambda *a, **k: None)
     kpl.clear_cache()
     rows = kpl.fetch_bid_boom()
     assert rows == []
@@ -1257,7 +1264,8 @@ def test_ensure_concepts_old_data_applies():
 
 
 def test_read_auction_fast_today_then_nearest(monkeypatch):
-    """_read_auction_fast: 优先今日; 今日无则 MAX(date); 两者皆空返回 []/today"""
+    """_read_auction_fast: 优先今日; 今日无则最近**交易日**(v4.11.66 起带交易日历过滤);
+    两者皆空返回 []/today"""
     from app.services import kpl as kpl_svc
     from app.api import kpl as kpl_api
 
@@ -1283,6 +1291,9 @@ def test_read_auction_fast_today_then_nearest(monkeypatch):
     class FakeCursor:
         def __init__(self, rows): self._r = rows
         def fetchone(self): return self._r.pop(0) if self._r else None
+        # v4.11.66: 回退查询由 `MAX(date)` 改为 `SELECT DISTINCT date ... ORDER BY date DESC`
+        # 再按交易日历挑 → 需要 fetchall(真 sqlite3 Cursor 两个都有)
+        def fetchall(self): return list(self._r)
         def close(self): pass
 
     class FakeConn:

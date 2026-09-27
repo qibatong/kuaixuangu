@@ -1514,6 +1514,42 @@ def _select_snap_rows(conn, use_date, time_point):
         return [tuple(r) + (None,) for r in rows]
 
 
+def latest_trade_snap_date(date=None, time_point="9_25", days=None):
+    """快照表里 `<= date` 的最近一个**交易日**快照日期(2026-09-27 v4.11.66 新增)。
+
+    ★ 为什么需要: 原实现各处都是裸的 `SELECT MAX(date) FROM snapshot_bid ...`, **没有任何
+      交易日历过滤** ⇒ 非交易日因"当天还没装日历门禁"而落下的**幽灵快照**会被当成"最近
+      交易日"。2026-09-25(中秋·周五·法定休市)就是这样: 当天 09:15/09:20/09:24/9_25 四枪
+      全部照采, 源端三路(daily_auc tradedate≠20260925、screening 竞价0只、TickPlus 0 条)
+      皆空, 系统自己打了 `[数据质量] 竞价封单数据异常` 也照落库 —— 于是 09-27(周日)整站
+      把 09-25 当"最近交易日", 竞价异动十个 tab 全被顶成休市日静态值(竞价爆量/昨涨停直接变空)。
+      生产机当晚 18:49 补了门禁并清掉了残留, 测试机只补了门禁、残留一直在 ⇒ 两机分叉。
+
+    做法: 回溯候选日期(降序) → `tc.latest_trade_in()` 取第一个交易日。
+    fail-open: 查库异常 / 无合规候选 → 返回原 `date`(与改造前一致, 绝不主动留空)。
+    """
+    date = date or _bj_date()
+    days = _FALLBACK_SNAP_DAYS if days is None else days
+    conn = None
+    try:
+        conn = database.get_conn()
+        rows = conn.execute(
+            "SELECT DISTINCT date FROM snapshot_bid "
+            "WHERE date<=? AND time_point=? AND date>=date('now', '-%d days', '+8 hours') "
+            "ORDER BY date DESC" % int(days),
+            (date, time_point)).fetchall()
+    except Exception:
+        return date
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:                                # noqa: BLE001
+                pass
+    picked = tc.latest_trade_in([r[0] for r in rows if r and r[0]], date)
+    return picked or date
+
+
 def load_snapshot_full(date=None, time_point="9_25"):
     """读某日某时点**全市场快照行**(盘后 filter 候选池用, 2026-09-07 主人要求:
     候选池=全市场且直接用已自动采集的快照表, 不再实时拉全市场 28 页)。
@@ -1522,16 +1558,12 @@ def load_snapshot_full(date=None, time_point="9_25"):
     当日该时点无快照(周末/休市/采集缺失)→ 自动回退**最近一个有快照的交易日**,
     保证休市/盘后浏览仍能按最近竞价结果筛股。"""
     date = date or _bj_date()
+    # 2026-09-27 v4.11.66: 原内联 `SELECT MAX(date)` 无交易日历过滤 → 休市日幽灵快照会被
+    # 当成"最近交易日"。统一走 latest_trade_snap_date()(见其 docstring 的事故说明)。
+    use_date = latest_trade_snap_date(date, time_point)
     conn = None
     try:
         conn = database.get_conn()
-        # 找最近的可用日期(含当天, 往前最多 15 个自然日; 交易日快照才有 9_25 行)
-        row = conn.execute(
-            "SELECT MAX(date) FROM snapshot_bid "
-            "WHERE date<=? AND time_point=? AND date>=" +
-            "date('now', '-15 days', '+8 hours')",
-            (date, time_point)).fetchone()
-        use_date = row[0] if row and row[0] else date
         rows = _select_snap_rows(conn, use_date, time_point)
     except Exception:
         return {}
@@ -1572,17 +1604,12 @@ def _latest_snapshot_date(date):
     """取应查快照日期: 当日已有 9_25 定格行(已过 9:25 采集) → 当日;
     当日无(凌晨 0:00-9:25 前/周末/节假日/当日采集缺失) → 表内最近一个 ≤date 且有 9_25 行
     的交易日(自动覆盖跨周末周一凌晨); 15 自然日内无任何 9_25 行(空库/长假超窗) → 原 date
-    (查询自然返回 {}, 保持现状兜底, 不把陈旧数据当最近交易日)。"""
-    try:
-        conn = database.get_conn()
-        row = conn.execute(
-            "SELECT MAX(date) FROM snapshot_bid WHERE date<=? AND time_point='9_25' "
-            "AND date>=date('now', '-%d days', '+8 hours')" % _FALLBACK_SNAP_DAYS,
-            (date,)).fetchone()
-        conn.close()
-    except Exception:
-        return date
-    return row[0] if row and row[0] else date
+    (查询自然返回 {}, 保持现状兜底, 不把陈旧数据当最近交易日)。
+
+    ★ 2026-09-27 v4.11.66: 改为委托 `latest_trade_snap_date()` —— 原实现只有 15 自然日窗口
+      而**没有交易日历过滤**, 休市日幽灵快照会被当成"最近交易日"(2026-09-25 中秋事故)。
+    """
+    return latest_trade_snap_date(date, "9_25", _FALLBACK_SNAP_DAYS)
 
 
 def has_today_snapshot(date=None) -> bool:

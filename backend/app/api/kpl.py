@@ -9,6 +9,7 @@ import time as _time
 from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
+from ..core import trade_calendar as tc
 from ..services import kpl, sector_rotation
 from .deps import get_uid, jr, quota_guard, require_vip_or_paid
 
@@ -119,6 +120,31 @@ def _ensure_concepts(lst, tag=""):
         log.warning("竞价异动概念补齐失败 tag=%s err=%s", tag, e)
 
 
+def _latest_trade_date_in(table, day, op="<="):
+    """表内满足 `date {op} day` 的最近一个**交易日**; 无合规候选返回 None。
+
+    ★ 2026-09-27 v4.11.66 新增。原各处直接用 `SELECT MAX(date) FROM <历史表> WHERE date<...`,
+      **没有任何交易日历过滤** ⇒ 休市日落下的幽灵行会被当成"最近交易日"。2026-09-25
+      (中秋·周五·法定休市)当天尚无语料门禁, 照常采集并落库了 7 个 tab ⇒ 09-27(周日)
+      竞价委买/爆量/净额/炸板/昨涨停等 tab 全被顶成休市日静态值(爆量、昨涨停直接变空)。
+      同源事故说明见 `core/trade_calendar.py:latest_trade_in()`。
+
+    查库异常 / 无合规候选 → None, 由调用方**保留原值**(绝不主动留空)。
+    """
+    try:
+        from ..db import database
+        conn = database.get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT date FROM %s WHERE date%s? "
+                "ORDER BY date DESC LIMIT 30" % (table, op), (day,)).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return None
+    return tc.latest_trade_in([r[0] for r in rows if r and r[0]], day)
+
+
 def _read_auction_fast(tab):
     """非竞价时段快速读取: 优先今日落库数据; 若无则回退最近交易日; 再无返回空。
     返回 (list, date_str) — 用于竞价异动类接口 (bid-seal/bid-boom/broken)。"""
@@ -131,15 +157,11 @@ def _read_auction_fast(tab):
     except Exception:
         pass
     # 今日无数据 → 找最近交易日
+    # 2026-09-27 v4.11.66: 由裸 MAX(date) 改为「交易日历过滤」(休市日幽灵行不得当选);
+    # 保持原 `date < today` 的严格语义 —— 今日该 tab 为空时不能回落到今日自己(那会返回空表)。
     try:
-        from ..db import database
-        conn = database.get_conn()
-        row = conn.execute(
-            "SELECT MAX(date) FROM auction_daily_history WHERE date < ?",
-            (today,)).fetchone()
-        conn.close()
-        if row and row[0]:
-            d = str(row[0])
+        d = _latest_trade_date_in("auction_daily_history", today, op="<")
+        if d:
             lst = kpl.query_auction_history(d, tab)
             if lst:
                 _apply_change_for(lst, d)
@@ -152,21 +174,16 @@ def _read_auction_fast(tab):
 def _resolve_date(date):
     """把用户选的日期对齐到最近交易日(返回对齐后的 'YYYY-MM-DD')
     原理: 周末/节假日/未开盘日没有落库数据, 查 daily_sector_top 中
-    <= 所选日期的最大日期即为最近交易日 —— 无需任何节假日日历, 天然准确
-    无任何历史时返回原日期"""
+    <= 所选日期的最大日期即为最近交易日
+    2026-09-27 v4.11.66: 改为**按交易日历过滤**后再取最近 —— 原"取表内 MAX(date)"的隐含假设
+    是"表里只可能有交易日"。2026-09-25(中秋·法定休市)当天因尚未装日历门禁而照常采集,
+    `daily_sector_top`/`auction_daily_history` 都被写进了休市日行 ⇒ 隐含假设被打破, 用户选
+    09-25 会"对齐"到 09-25 自己(幽灵静态值)而非真实的 09-24。
+    无任何历史时返回原日期。"""
     if not date:
         return ""
-    try:
-        from ..db import database
-        conn = database.get_conn()
-        row = conn.execute(
-            "SELECT MAX(date) FROM daily_sector_top WHERE date <= ?", (date,)).fetchone()
-        conn.close()
-        if row and row[0]:
-            return str(row[0])
-    except Exception:
-        pass
-    return date
+    d = _latest_trade_date_in("daily_sector_top", date)
+    return d or date
 
 
 @router.get("/api/kpl/sentiment")

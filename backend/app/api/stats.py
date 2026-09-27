@@ -7,6 +7,7 @@ import time as _time
 from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
+from ..core import trade_calendar as tc
 from ..services import auction_snapshot, kpl, scorer, stats
 from ..services.cache_store import store as _cstore
 from ..db import database
@@ -15,6 +16,41 @@ from .deps import get_uid, jr, qs
 log = logger.get_logger(__name__)
 
 router = APIRouter()
+
+
+def _latest_trade_snap_date(conn, date="", time_point="", days=0):
+    """`snapshot_bid` 里 `<= date` 的**最近一个交易日**快照日期(2026-09-27 v4.11.66 新增)。
+
+    ★ 为什么: 本文件此前 4 处都是裸的 `SELECT MAX(date) FROM snapshot_bid WHERE date <= ?`,
+      **没有任何交易日历过滤** ⇒ 休市日落下的幽灵快照会被当成"最近交易日"。2026-09-25
+      (中秋 · 周五 · 法定休市)当天因尚未装日历门禁而照常采集, 落了一整天的静态值
+      (四个时点的 bid_change/bid_amt 各自都等于 09-24 的 9_25 定格值) ⇒ 09-27(周日)
+      「竞价封单」三层排序退化成三层同值、两市概况三时点总成交额恒等于 14,723,625,413。
+      详见 `app/core/trade_calendar.py:latest_trade_in()` 与
+      `app/services/auction_snapshot.py:latest_trade_snap_date()` 的事故说明。
+
+    fail-open: 查库异常 / 无合规候选 → 返回原 `date`(或表内最大日期), 与改造前一致。
+    """
+    sql = "SELECT DISTINCT date FROM snapshot_bid WHERE 1=1"
+    params = []
+    if date:
+        sql += " AND date<=?"
+        params.append(date)
+    if time_point:
+        sql += " AND time_point=?"
+        params.append(time_point)
+    if date and days:
+        sql += " AND date>=date('now', '-%d days', '+8 hours')" % int(days)
+    sql += " ORDER BY date DESC LIMIT 30"
+    try:
+        rows = conn.execute(sql, tuple(params)).fetchall()
+    except Exception:
+        return date or ""
+    cands = [r[0] for r in rows if r and r[0]]
+    picked = tc.latest_trade_in(cands, date or None)
+    if picked:
+        return picked
+    return cands[0] if cands else (date or "")
 
 
 def _is_intraday_stats():
@@ -123,18 +159,20 @@ def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid), da
         try:
             if date:
                 # 对齐到最近交易日(与市场雷达一致: 周末/节假日回退)
-                try:
-                    row = conn.execute(
-                        "SELECT MAX(date) FROM snapshot_bid WHERE date <= ?", (date,)).fetchone()
-                    resolved = str(row[0]) if row and row[0] else date
-                except Exception:
-                    resolved = date
+                # 2026-09-27 v4.11.66: 加交易日历过滤(原为裸 MAX(date), 会把休市日幽灵快照
+                # 当"最近交易日" —— 09-25 中秋事故, 见 _latest_trade_snap_date docstring)
+                resolved = _latest_trade_snap_date(conn, date) or date
                 has = conn.execute(
                     "SELECT COUNT(*) FROM snapshot_bid WHERE date=?", (resolved,)).fetchone()[0]
                 dates = [resolved] if has else []
             else:
-                dates = [r[0] for r in conn.execute(
-                    "SELECT DISTINCT date FROM snapshot_bid ORDER BY date DESC LIMIT 4")]
+                # 2026-09-27 v4.11.66: "最近 4 个交易日"也必须跳过休市日的幽灵行
+                # (取够 16 个候选再筛, 覆盖任意长假; 原 LIMIT 4 会把 09-25 这样的
+                #  休市日当成一天显示出来, 且三时点数值完全相同)
+                rows_ = conn.execute(
+                    "SELECT DISTINCT date FROM snapshot_bid ORDER BY date DESC LIMIT 16"
+                ).fetchall()
+                dates = [r[0] for r in rows_ if r and r[0] and tc.is_trade_day(r[0])][:4]
             out = []
             for d in dates:
                 day = {"date": d, "points": {}, "yizi_count": None, "yizi_amt": None}
@@ -241,13 +279,10 @@ def api_stats_bid_snapshot_stock(request: Request, uid: int = Depends(get_uid)):
     if not date or not code:
         return jr({"ok": False, "msg": "date 与 code 必填"}, 400)
     # 周末/节假日自动对齐最近交易日(与多时点对比一致)
+    # 2026-09-27 v4.11.66: 加交易日历过滤(休市日幽灵快照不得当"最近交易日")
     conn = database.get_conn()
     try:
-        row = conn.execute(
-            "SELECT MAX(date) FROM snapshot_bid WHERE date <= ?", (date,)).fetchone()
-        resolved = str(row[0]) if row and row[0] else date
-    except Exception:
-        resolved = date
+        resolved = _latest_trade_snap_date(conn, date) or date
     finally:
         conn.close()
     d = auction_snapshot.query_stock_snapshot(resolved, code)
@@ -268,11 +303,9 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
         limit = 100
     conn = database.get_conn()
     try:
-        row = conn.execute(
-            "SELECT MAX(date) FROM snapshot_bid WHERE date <= ?", (date,)).fetchone()
-        resolved = str(row[0]) if row and row[0] else date
-    except Exception:
-        resolved = date
+        # 2026-09-27 v4.11.66: 加交易日历过滤 —— 原裸 MAX(date) 会让休市日(09-25 中秋)的
+        # 幽灵快照顶掉 09-24 真值, 「竞价封单」三层排序退化成三层同值。
+        resolved = _latest_trade_snap_date(conn, date) or date
     finally:
         conn.close()
     if resolved != date:
@@ -334,8 +367,8 @@ def api_stats_seal_quality(request: Request, uid: int = Depends(get_uid), date: 
     conn = database.get_conn()
     try:
         if not date:
-            row = conn.execute("SELECT MAX(date) FROM snapshot_bid").fetchone()
-            date = str(row[0]) if row and row[0] else ""
+            # 2026-09-27 v4.11.66: 加交易日历过滤(休市日幽灵快照不得当"最近交易日")
+            date = _latest_trade_snap_date(conn) or ""
     except Exception:
         pass
     finally:

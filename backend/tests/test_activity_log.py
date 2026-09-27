@@ -175,10 +175,14 @@ def test_usage_summary_matrix_and_feature_total(client, create_user_token):
     assert s["matrix"][0]["total"] == 3
 
 
-def test_feature_keys_cover_eight_entries():
-    """8 个功能键都在(与前端 router 页面对齐; 少一个后台就看不到那类使用)"""
+def test_feature_keys_cover_nine_entries():
+    """9 个功能键都在(与前端 router 页面对齐; 少一个后台就看不到那类使用)
+
+    2026-09-27 订正: 原断言停留在 8 键, 漏了 v4.11.59 新增的 `news`(盘前资讯) ——
+    用例因此长期为红而后台其实是对的(陈旧断言会把真回归淹掉)。
+    """
     assert set(act.FEATURES) == {"picker", "aipick", "auction", "concept",
-                                 "history", "ladder", "market", "member"}
+                                 "history", "ladder", "market", "member", "news"}
     assert all(act.FEATURES.values()), "中文名不能为空"
 
 
