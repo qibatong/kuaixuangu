@@ -243,6 +243,8 @@ def search(q, limit=20):
                 score = 3
             elif kw in nm:
                 score = 4
+            elif board and kw in _norm(board):
+                score = 6   # 概念标签命中, 排在名称后面
             elif py and kw_u in py:
                 score = 5
             else:

@@ -186,8 +186,8 @@ body[data-bg="light"] .ss-err { color: #b87220; }
   color: var(--accent); font-weight: 600; font-size: 0.8125rem;
 }
 .ss-name {
-  flex: 1 1 auto; min-width: 0;
-  font-size: 0.875rem;
+  flex: 0 0 auto; min-width: 0;
+  font-size: 0.875rem; font-weight: 600; color: var(--text-main);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ss-board {

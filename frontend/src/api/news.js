@@ -18,6 +18,10 @@ export function newsPremarket() {
 }
 
 /** 明天炒什么 正文 */
+export function guzhangFlash() {
+  return request('/api/news/guzhang')
+}
+
 export function newsTopicDetail(id) {
   return request('/api/news/topic', { query: { id } })
 }

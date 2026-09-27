@@ -40,17 +40,17 @@
       <!-- ① 财经快讯滚动条 -->
       <FlashTicker :items="flashList" :loading="flashLoading" :degraded="flashDegraded" />
 
-      <!-- ② 昨日涨停今日表现 -->
-      <YestZtPanel
-        :count="yestCount" :avg-open="yestAvgOpen" :avg-now="yestAvgNow"
-        :max-ladder="emoLadder" :broken-rate="emoBroken" :date="yestDate" :loading="yestLoading"
-      />
-
-      <!-- ③ 最强资金 TOP -->
+      <!-- ② 最强资金 TOP（移到快讯下） -->
       <MoneyTopStrip
         :boards="boardList" :loading="boardLoading" :failed="boardFailed"
         :active-code="hotBoard.boardCode" :active-name="hotBoard.name"
         @select="onMoneySelect"
+      />
+
+      <!-- ③ 昨日涨停今日表现 -->
+      <YestZtPanel
+        :count="yestCount" :avg-open="yestAvgOpen" :avg-now="yestAvgNow"
+        :max-ladder="emoLadder" :broken-rate="emoBroken" :date="yestDate" :loading="yestLoading"
       />
 
       <!-- ④ 今日票战报 -->
@@ -61,182 +61,29 @@
 
       <!-- ⑤ 题材榜（合并原市场雷达 + 题材异动） -->
       <MarketBoardPanel
+        ref="boardPanelRef"
         :boards="boardRows" :src="src" :loading="boardLoading" :failed="boardFailed"
-        :fail-msg="boardFailMsg" :hot-name="hotBoard.name" :hot-code="hotBoard.boardCode"
-        @select="openBoard" @update:src="switchSrc"
+        :fail-msg="boardFailMsg"
+        @update:src="switchSrc"
+        @stock-click="openStockDetail"
       />
 
-      <!-- ⑥ 实时异动流 -->
-      <YidongFlow
-        :items="yidongList" :loading="yidongLoading" :failed="yidongFailed"
-        :day="yidongDay" :time="yidongTime"
-      />
+      <!-- ⑥ 实时异动流已搬到复盘页 -->
     </div>
 
-    <!-- ==================== 板块进阶数据（既有能力，一件不丢） ==================== -->
-    <details class="mk-more" open>
-      <summary class="mk-more-sum">
-        <i class="fa fa-caret-down"></i> 板块进阶数据 · 强度明细 / 轮动历史 / 人气热榜
-      </summary>
-
-      <div class="mrk-head">
-        <span class="mrk-title"><i class="fa fa-th-large"></i> 板块</span>
-        <span class="mrk-sub">强度明细 · 板块轮动 · 人气热榜</span>
-        <span class="mrk-time">{{ bjTime }}</span>
+    <!-- 个股详情弹层（带评分） -->
+    <div v-if="detailCode" class="mrk-modal-mask" @click.self="detailCode=''">
+      <div class="mrk-modal" style="max-width: 560px;">
+        <div class="mrk-modal-head">
+          <div class="mrk-modal-title"><i class="fa fa-line-chart"></i> {{ detailName }} <span class="mrk-modal-code">{{ detailCode }}</span></div>
+          <button class="mrk-modal-close" @click="detailCode=''"><i class="fa fa-times"></i></button>
+        </div>
+        <StockDetailPanel :code="detailCode" :name="detailName" :quote="detailQuote" />
       </div>
+    </div>
 
-      <div class="mrk-tabs">
-        <button class="mrk-tab" :class="{ active: tab === 'board' }" @click="switchTab('board')">
-          <i class="fa fa-th-large"></i> 板块强度明细
-        </button>
-        <button class="mrk-tab" :class="{ active: tab === 'history' }" @click="switchTab('history')">
-          <i class="fa fa-history"></i> 板块轮动历史
-        </button>
-        <button class="mrk-tab" :class="{ active: tab === 'hot' }" @click="switchTab('hot')">
-          <i class="fa fa-fire"></i> 人气热榜
-        </button>
-      </div>
+    <!-- 板块进阶数据(强度明细/轮动/热榜)已搬到盘前与复盘 -->
 
-      <!-- 板块强度明细（全字段；盯盘精简版见上方层⑤题材榜） -->
-      <div v-if="tab === 'board'" class="mrk-panel">
-        <div class="rot-toolbar">
-          <span class="rot-tip"><i class="fa fa-info-circle"></i> 实时板块强度排行；选日期可回看历史</span>
-          <input v-model="datePicker" type="date" class="rot-date" @change="loadBoard">
-          <button class="rot-reset-btn" title="回到实时" @click="clearDate('board')"><i class="fa fa-bolt"></i></button>
-          <span v-if="boardDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ boardDataDate }}<template v-if="boardDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
-        </div>
-        <div v-if="boardLoading && !boardList.length" class="loading-placeholder"><div class="spinner"></div><div>加载板块强度...</div></div>
-        <div v-else-if="!boardList.length" class="empty-state">暂无板块强度数据</div>
-        <table v-else class="stock-table">
-          <thead>
-            <tr>
-              <th>排名</th>
-              <th class="sortable" :class="{ active: boardSort.keyOf('name') }" @click="boardSort.onSort('name', 'string')">板块<span class="sort-ind">{{ boardSort.ind('name') }}</span></th>
-              <th class="sortable" :class="{ active: boardSort.keyOf('strength') }" @click="boardSort.onSort('strength')">强度<span class="sort-ind">{{ boardSort.ind('strength') }}</span></th>
-              <th class="sortable" :class="{ active: boardSort.keyOf('change') }" @click="boardSort.onSort('change')">涨幅%<span class="sort-ind">{{ boardSort.ind('change') }}</span></th>
-              <th class="sortable" :class="{ active: boardSort.keyOf('speed') }" @click="boardSort.onSort('speed')">涨速%<span class="sort-ind">{{ boardSort.ind('speed') }}</span></th>
-              <th class="sortable" :class="{ active: boardSort.keyOf('mainNet') }" @click="boardSort.onSort('mainNet')">主力净额(亿)<span class="sort-ind">{{ boardSort.ind('mainNet') }}</span></th>
-              <th class="sortable" :class="{ active: boardSort.keyOf('volRatio') }" @click="boardSort.onSort('volRatio')">量比<span class="sort-ind">{{ boardSort.ind('volRatio') }}</span></th>
-              <th class="sortable" :class="{ active: boardSort.keyOf('amount') }" @click="boardSort.onSort('amount')">成交额(亿)<span class="sort-ind">{{ boardSort.ind('amount') }}</span></th>
-              <th class="sortable" :class="{ active: boardSort.keyOf('totalMv') }" @click="boardSort.onSort('totalMv')">总市值(亿)<span class="sort-ind">{{ boardSort.ind('totalMv') }}</span></th>
-              <th class="sortable" :class="{ active: boardSort.keyOf('peNow') }" @click="boardSort.onSort('peNow')">今PE<span class="sort-ind">{{ boardSort.ind('peNow') }}</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(b, idx) in boardSort.sorted(boardList)" :key="b.boardCode" class="board-row" @click="openBoard(b)">
-              <td class="rank-col">{{ idx + 1 }}</td>
-              <td class="name-col"><div class="name-main">{{ b.name }}</div><div class="board-code">{{ b.boardCode }}</div><span class="board-detail-hint"><i class="fa fa-chevron-circle-right"></i> 成分股</span></td>
-              <td class="strength">{{ Math.round(b.strength) }}</td>
-              <td :class="b.change > 0 ? 'up' : b.change < 0 ? 'down' : 'dim'">{{ signed(b.change) }}%</td>
-              <td :class="b.speed > 0 ? 'up' : b.speed < 0 ? 'down' : 'dim'">{{ signed(b.speed) }}%</td>
-              <td :class="b.mainNet > 0 ? 'up' : b.mainNet < 0 ? 'down' : 'dim'">{{ yi(b.mainNet) }}</td>
-              <td>{{ b.volRatio.toFixed(2) }}</td>
-              <td>{{ yi(b.amount) }}</td>
-              <td>{{ yi(b.totalMv) }}</td>
-              <td class="dim">{{ b.peNow ? b.peNow.toFixed(1) : '-' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- 板块轮动历史 -->
-      <div v-else-if="tab === 'history'" class="mrk-panel">
-        <div class="rot-toolbar">
-          <span class="rot-tip"><i class="fa fa-info-circle"></i> 工作日 15:30 后自动保存当日 Top10；近期数据积累后展示趋势</span>
-          <div class="rot-source">
-            <button
-              v-for="s in sourceOptions" :key="s.key"
-              :class="{ active: rotSource === s.key }"
-              class="rot-source-btn"
-              @click="switchSource(s.key)"
-            >
-              <i :class="s.icon"></i> {{ s.label }}
-            </button>
-          </div>
-          <select v-model.number="rotDays" class="rot-select" @change="loadHistory">
-            <option :value="10">近 10 日</option>
-            <option :value="20">近 20 日</option>
-            <option :value="30">近 30 日</option>
-            <option :value="50">近 50 日</option>
-          </select>
-          <button class="rot-reset-btn" title="刷新" aria-label="刷新" @click="loadHistory"><i class="fa fa-refresh"></i></button>
-        </div>
-        <div v-if="rotLoading" class="loading-placeholder"><div class="spinner"></div></div>
-        <div v-else-if="rotSourceFailed" class="empty-state src-fail">
-          <i class="fa fa-exclamation-triangle"></i> 数据源故障（源{{ rotSource === 'kpl' ? 1 : rotSource === 'em' ? 2 : 3 }}暂不可用），请切换其他源查看
-        </div>
-        <div v-else-if="!rot.dates.length" class="empty-state">
-          暂无历史数据(每日 15:30 后调度器抓取积累)
-        </div>
-        <template v-else>
-          <div class="rot-table-scroll">
-            <table class="rot-table">
-              <thead>
-                <tr>
-                  <th class="rot-rownum">排名</th>
-                  <th v-for="d in historyDates" :key="d" class="rot-date">{{ d.slice(5) }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="rank in 10" :key="rank">
-                  <td class="rot-rownum">{{ rank }}</td>
-                  <td v-for="d in historyDates" :key="d+rank" class="rot-cell">
-                    <template v-for="b in boardAt(d, rank)" :key="b.name">
-                      <div :class="['rot-board', 'rot-c-' + (colorMap[b.name] || 0)]">{{ b.name }}</div>
-                      <div class="rot-strength">{{ Math.round(b.strength) }}</div>
-                    </template>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <RotCharts :dates="rot.dates" :rot-map="rotMap" :windows="rot.windows" :common-names="rot.common_names" />
-        </template>
-      </div>
-
-      <!-- 人气热榜 -->
-      <div v-else class="mrk-panel">
-        <div class="rot-toolbar">
-          <span class="rot-tip"><i class="fa fa-info-circle"></i> 人气热榜；选日期可回看历史</span>
-          <div class="rot-source">
-            <button
-              v-for="s in sourceOptions" :key="s.key"
-              :class="{ active: hotSource === s.key }"
-              class="rot-source-btn"
-              @click="switchHotSource(s.key)"
-            >
-              <i :class="s.icon"></i> {{ s.label }}
-            </button>
-          </div>
-          <input v-model="datePicker" type="date" class="rot-date" @change="loadHot">
-          <button class="rot-reset-btn" title="回到实时" @click="clearDate('hot')"><i class="fa fa-bolt"></i></button>
-          <span v-if="hotDataDate && datePicker" class="rot-data-date"><i class="fa fa-calendar"></i> 数据日期 {{ hotDataDate }}<template v-if="hotDataDate !== datePicker">（{{ datePicker }} 非交易日，自动对齐）</template></span>
-        </div>
-        <div v-if="hotLoading && !hotList.length" class="loading-placeholder"><div class="spinner"></div><div>加载人气热榜...</div></div>
-        <div v-else-if="hotSourceFailed" class="empty-state src-fail">
-          <i class="fa fa-exclamation-triangle"></i> 数据源故障（源{{ hotSource === 'kpl' ? 1 : hotSource === 'em' ? 2 : 3 }}暂不可用），请切换其他源查看
-        </div>
-        <div v-else-if="!hotList.length" class="empty-state">暂无热榜数据</div>
-        <table v-else class="stock-table">
-          <thead>
-            <tr>
-              <th class="sortable" :class="{ active: hotSort.keyOf('rank') }" @click="hotSort.onSort('rank')">人气排名<span class="sort-ind">{{ hotSort.ind('rank') }}</span></th>
-              <th class="sortable" :class="{ active: hotSort.keyOf('code') }" @click="hotSort.onSort('code', 'string')">代码<span class="sort-ind">{{ hotSort.ind('code') }}</span></th>
-              <th class="sortable" :class="{ active: hotSort.keyOf('name') }" @click="hotSort.onSort('name', 'string')">名称<span class="sort-ind">{{ hotSort.ind('name') }}</span></th>
-              <th class="sortable" :class="{ active: hotSort.keyOf('change') }" @click="hotSort.onSort('change')">涨跌幅%<span class="sort-ind">{{ hotSort.ind('change') }}</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="h in hotSort.sorted(hotList)" :key="h.code">
-              <td class="rank-col">{{ h.rank }}</td>
-              <td class="code-click" @click="linkToSoftware(h.code)">{{ h.code }}</td>
-              <td><span class="pool-hover-wrap"><span>{{ h.name }}</span><PoolHoverBtn :item="h" /></span></td>
-              <td :class="h.change > 0 ? 'up' : h.change < 0 ? 'down' : 'dim'">{{ signed(h.change) }}%</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </details>
 
     <!-- 板块成分股弹层（层⑤与强度明细共用，按 src 选接口） -->
     <div v-if="stocksOpen" class="mrk-modal-mask" @click.self="closeBoardStocks">
@@ -309,6 +156,7 @@ import YestZtPanel from '../components/YestZtPanel.vue'
 import MoneyTopStrip from '../components/MoneyTopStrip.vue'
 import TodayPicksPanel from '../components/TodayPicksPanel.vue'
 import MarketBoardPanel from '../components/MarketBoardPanel.vue'
+import StockDetailPanel from '../components/StockDetailPanel.vue'
 import YidongFlow from '../components/YidongFlow.vue'
 
 const route = useRoute()
@@ -513,8 +361,9 @@ const flashLoading = ref(true)
 const flashDegraded = ref([])
 async function loadFlash() {
   try {
-    const d = await newsFlash(20)
-    flashList.value = d.list || []
+    const d = await newsFlash(40)
+    // 盘中快讯只接财联社电报(开盘啦 doc96 即财联社, kind=kpl)
+    flashList.value = (d.list || []).filter(x => x.kind === 'kpl').slice(0, 20)
     flashDegraded.value = d.degraded || []
   } catch (e) { /* 保留旧值; 首拉失败则由组件显示降级文案 */ } finally {
     flashLoading.value = false
@@ -569,8 +418,22 @@ const boardFailMsg = computed(() => (boardFailed.value
 
 // ③ 最强资金点卡 → 联动层⑤（工单二期体验 5）
 const hotBoard = ref({ name: '', boardCode: '' })
+const boardPanelRef = ref(null)
+const detailCode = ref('')
+const detailName = ref('')
+const detailQuote = ref(null)
+function openStockDetail(s) {
+  detailCode.value = s.code
+  detailName.value = s.name || ''
+  detailQuote.value = s
+}
 function onMoneySelect(b) {
   hotBoard.value = { name: (b && b.name) || '', boardCode: (b && b.boardCode) || '' }
+  // 联动：下面板块列表自动选中该板块
+  if (b && boardPanelRef.value && boardRows.value) {
+    const found = boardRows.value.find(x => (x.boardCode||x.code) === (b.boardCode||b.code) || x.name === b.name)
+    if (found) boardPanelRef.value.select(found)
+  }
   nextTick(() => {
     const el = document.querySelector('.mb-row.hot')
     if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' })

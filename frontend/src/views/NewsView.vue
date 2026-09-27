@@ -8,47 +8,28 @@
       <span class="news-time">{{ bjTime }}</span>
     </div>
 
-    <!-- 三个 tab -->
-    <div class="news-tabs">
-      <button
-        v-for="t in TABS"
-        :key="t.key"
-        class="news-tab"
-        :class="{ active: tab === t.key }"
-        @click="switchTab(t.key)"
-      >
-        <i class="fa" :class="t.icon"></i> {{ t.label }}
-        <span v-if="t.key === 'flash' && flashList.length" class="news-badge">{{ flashList.length }}</span>
-      </button>
-      <button class="news-refresh" :disabled="curLoading" title="手动刷新" @click="reloadCur(true)">
-        <i class="fa fa-refresh" :class="{ spin: curLoading }"></i>
-      </button>
-    </div>
+    <div class="nv-cols">
+    <!-- ① 热门个股 -->
+    <HotRankMulti />
 
-    <!-- 上游降级: 显式说明哪个源暂缺, 绝不用空列表假装「今天没资讯」 -->
-    <div v-if="degradedList.length" class="news-degraded">
-      <i class="fa fa-exclamation-triangle"></i>
-      数据源暂缺：{{ degradedList.join('、') }}。以下为其余来源的可用内容。
-    </div>
-
-    <!-- ================= 7x24 快讯 ================= -->
-    <template v-if="tab === 'flash'">
-      <div v-if="flashUpdated" class="news-meta">更新于 {{ flashUpdated }}</div>
-      <div v-if="flashLoading && !flashList.length" class="loading-placeholder">
-        <div class="spinner"></div>
-        <div>加载资讯中...</div>
+    <!-- ===== ② 7×24 快讯 ===== -->
+    <section class="nv-card">
+      <div class="nv-head">
+        <span class="nv-title"><i class="fa fa-bolt"></i> 7×24 快讯</span>
+        <span v-if="flashUpdated" class="nv-time">{{ flashUpdated }}</span>
+        <button class="news-refresh" :disabled="flashLoading" title="刷新" @click="loadFlash(true)">
+          <i class="fa fa-refresh" :class="{ spin: flashLoading }"></i>
+        </button>
       </div>
-      <div v-else-if="flashErr" class="empty-state">
-        {{ flashErr }}
-        <button class="news-retry" @click="reloadCur(true)">点我重试</button>
+      <div v-if="flashDegraded.length" class="news-degraded">
+        <i class="fa fa-exclamation-triangle"></i> 数据源暂缺：{{ flashDegraded.join('、') }}。以下为其余来源。
       </div>
+      <div v-if="flashLoading && !flashList.length" class="loading-placeholder"><div class="spinner"></div><div>加载资讯中...</div></div>
+      <div v-else-if="flashErr" class="empty-state">{{ flashErr }}<button class="news-retry" @click="loadFlash(true)">点我重试</button></div>
       <div v-else-if="!flashList.length" class="empty-state">暂无快讯</div>
-
       <div v-else class="nf-list">
         <template v-for="(it, i) in flashRows" :key="it.id || i">
-          <div v-if="it.showDay" class="nf-day">
-            <span class="nf-day-tag">{{ it.date || '--' }}</span>
-          </div>
+          <div v-if="it.showDay" class="nf-day"><span class="nf-day-tag">{{ it.date || '--' }}</span></div>
           <div class="nf-item">
             <div class="nf-line">
               <span class="nf-time">{{ it.time_label || '--:--' }}</span>
@@ -57,118 +38,56 @@
             </div>
             <div v-if="it.summary && it.summary !== it.title" class="nf-summary">{{ it.summary }}</div>
             <div class="nf-foot">
-              <a v-if="it.url" class="nf-link" :href="it.url" target="_blank" rel="noopener noreferrer">
-                查看原文 <i class="fa fa-external-link"></i>
-              </a>
-              <span v-if="it.stocks && it.stocks.length" class="nf-stocks">
-                相关：{{ stockNames(it.stocks) }}
-              </span>
+              <a v-if="it.url" class="nf-link" :href="it.url" target="_blank" rel="noopener noreferrer">查看原文 <i class="fa fa-external-link"></i></a>
+              <span v-if="it.stocks && it.stocks.length" class="nf-stocks">相关：{{ stockNames(it.stocks) }}</span>
             </div>
           </div>
         </template>
       </div>
-    </template>
+    </section>
 
-    <!-- ================= 盘前精选 ================= -->
-    <template v-else-if="tab === 'premarket'">
-      <div v-if="pmLoading && !pm" class="loading-placeholder">
-        <div class="spinner"></div>
-        <div>加载盘前精选...</div>
+    <!-- ===== ③ 盘前精选 ===== -->
+    <section class="nv-card">
+      <div class="nv-head">
+        <span class="nv-title"><i class="fa fa-star"></i> 盘前精选</span>
+        <button class="news-refresh" :disabled="pmLoading" title="刷新" @click="loadPremarket(true)">
+          <i class="fa fa-refresh" :class="{ spin: pmLoading }"></i>
+        </button>
       </div>
-      <div v-else-if="pmErr" class="empty-state">
-        {{ pmErr }}
-        <button class="news-retry" @click="loadPremarket(true)">点我重试</button>
-      </div>
+      <div v-if="pmLoading && !pm" class="loading-placeholder"><div class="spinner"></div><div>加载盘前精选...</div></div>
+      <div v-else-if="pmErr" class="empty-state">{{ pmErr }}</div>
       <template v-else-if="pm">
-        <!-- 开盘啦头条 -->
         <div class="pm-block">
-          <div class="pm-block-head">
-            <i class="fa fa-star"></i> 开盘啦头条
-            <span v-if="pm.top && pm.top.length" class="pm-block-sub">{{ pm.top[0].date }}</span>
-          </div>
+          <div class="pm-block-head"><i class="fa fa-star"></i> 开盘啦头条 <span v-if="pm.top && pm.top.length" class="pm-block-sub">{{ pm.top[0].date }}</span></div>
           <div v-if="!pm.top || !pm.top.length" class="pm-empty">暂无头条</div>
           <div v-for="t in pm.top" :key="t.cid" class="pm-top-item">
             <div class="pm-top-title">{{ t.title }}</div>
-            <div
-              class="pm-top-body"
-              :class="{ collapsed: !expandedTop[t.cid] }"
-              v-html="safeHtml(t.content_html)"
-            ></div>
-            <button class="pm-more" @click="toggleTop(t.cid)">
-              {{ expandedTop[t.cid] ? '收起' : '展开全文' }}
-              <i class="fa" :class="expandedTop[t.cid] ? 'fa-angle-up' : 'fa-angle-down'"></i>
-            </button>
+            <div class="pm-top-body" :class="{ collapsed: !expandedTop[t.cid] }" v-html="safeHtml(t.content_html)"></div>
+            <button class="pm-more" @click="toggleTop(t.cid)">{{ expandedTop[t.cid] ? '收起' : '展开全文' }} <i class="fa" :class="expandedTop[t.cid] ? 'fa-angle-up' : 'fa-angle-down'"></i></button>
           </div>
         </div>
-
-        <!-- 明天炒什么 -->
         <div class="pm-block">
-          <div class="pm-block-head">
-            <i class="fa fa-lightbulb-o"></i> 明天炒什么
-            <span v-if="pm.topics && pm.topics.day" class="pm-block-sub">选题日 {{ pm.topics.day }}</span>
-          </div>
+          <div class="pm-block-head"><i class="fa fa-lightbulb-o"></i> 明天炒什么 <span v-if="pm.topics && pm.topics.day" class="pm-block-sub">选题日 {{ pm.topics.day }}</span></div>
           <div v-if="!pm.topics || !pm.topics.items.length" class="pm-empty">暂无选题</div>
-          <div
-            v-for="it in (pm.topics ? pm.topics.items : [])"
-            :key="it.id"
-            class="pm-topic"
-            @click="openTopic(it)"
-          >
+          <div v-for="it in (pm.topics ? pm.topics.items : [])" :key="it.id" class="pm-topic" @click="openTopic(it)">
             <span class="pm-topic-title">{{ it.title }}</span>
             <span class="pm-topic-hot"><i class="fa fa-fire"></i> {{ fmtHot(it.hot_val) }}</span>
           </div>
         </div>
-
-        <!-- 大V复盘入口 -->
-        <div class="pm-block">
-          <div class="pm-block-head"><i class="fa fa-users"></i> 大V复盘</div>
-          <div class="pm-bigv-entry">
-            <span>飞书群消息总结 · 每日 凌晨盘后 / 早间 / 午间 / 收盘 四个时段</span>
-            <button class="pm-more" @click="switchTab('bigv')">在此查看</button>
-            <router-link class="pm-more" to="/bigv">去大V资讯页 <i class="fa fa-external-link"></i></router-link>
-          </div>
-        </div>
       </template>
-    </template>
+    </section>
 
-    <!-- ================= 大V复盘(复用现有 /api/summary/history) ================= -->
-    <template v-else>
-      <div v-if="bigvLoading && !bigvDays.length" class="loading-placeholder">
-        <div class="spinner"></div>
-        <div>加载大V复盘...</div>
+    <!-- ===== ④ 实时小作文(知识星球, 待接入) ===== -->
+    <section class="nv-card">
+      <div class="nv-head">
+        <span class="nv-title"><i class="fa fa-comments"></i> 实时小作文</span>
+        <span class="nv-tag">知识星球 · 待接入</span>
       </div>
-      <div v-else-if="bigvErr" class="empty-state">
-        {{ bigvErr }}
-        <button class="news-retry" @click="loadBigv(true)">点我重试</button>
-      </div>
-      <div v-else-if="!bigvDays.length" class="empty-state">
-        暂无总结，定时任务生成后将自动出现在这里
-      </div>
-      <template v-else>
-        <div class="news-meta">
-          仅展示最近 {{ bigvDays.length }} 天 ·
-          <router-link class="bigv-all" to="/bigv">完整历史去大V资讯页</router-link>
-        </div>
-        <div v-for="d in bigvDays" :key="d.date" class="bigv-day">
-          <div class="bigv-day-badge">{{ d.date }}</div>
-          <div class="bigv-slots">
-            <a
-              v-for="it in d.items"
-              :key="it.id"
-              class="bigv-slot"
-              :class="'slot-' + it.slot"
-              :href="it.url"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <span class="bigv-slot-tag">{{ it.label }}</span>
-              <span class="bigv-slot-title">{{ it.title }}</span>
-              <span class="bigv-slot-meta">{{ it.time }} · {{ it.pages }} 页</span>
-            </a>
-          </div>
-        </div>
-      </template>
-    </template>
+      <div class="nv-empty">知识星球盘中小作文实时更新暂未接入，接入后在此按时间流展示。</div>
+    </section>
+
+
+    </div><!-- /nv-cols -->
 
     <!-- 明天炒什么 正文弹层 -->
     <div v-if="topicOpen" class="modal-mask" @click.self="closeTopic">
@@ -206,8 +125,9 @@
 //    页面必须把 degraded 显示成「数据源暂缺」, 不能把空列表渲染成「今天没资讯」——
 //    这正是 9 月 auc_vol_ratio 恒 0 一周没人发现的那类事故的同型诱因。
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import HotRankMulti from '../components/HotRankMulti.vue'
 import { useRoute, useRouter } from 'vue-router'
-import { newsFlash, newsPremarket, newsTopicDetail } from '../api/news'
+import { guzhangFlash, newsPremarket, newsTopicDetail } from '../api/news'
 import { summaryHistory } from '../api/summary'
 import { trackUsageOnce } from '../api/activity'
 import { usePolling } from '../composables/usePolling'
@@ -256,8 +176,8 @@ const flashRows = computed(() => {
 async function loadFlash(silent = false) {
   if (!silent) flashLoading.value = true
   try {
-    const d = await newsFlash(80)
-    flashList.value = d.list || []
+    const d = await guzhangFlash()
+    flashList.value = (d.list || []).slice(0, 20)
     flashUpdated.value = d.updated || ''
     flashDegraded.value = d.degraded || []
     flashErr.value = ''
@@ -389,9 +309,10 @@ onMounted(() => {
   // 埋点: 打开即算一次 —— feature="news" 已加入后端 services/activity.FEATURES 白名单
   trackUsageOnce('news')
 
-  if (tab.value === 'flash') loadFlash()
-  else if (tab.value === 'premarket') loadPremarket()
-  else loadBigv()
+  // 五段垂直布局: 全部同时加载
+  loadFlash()
+  loadPremarket()
+  loadBigv()
 })
 
 // ⚠️ 轮询**必须在 setup 顶层注册**, 不能放进 onMounted 回调里:
@@ -594,4 +515,19 @@ body[data-bg="light"] .pm-more { color: #c03318; }
   .modal-box { max-height: 86vh; }
   .topic-content { font-size: 0.8125rem; }
 }
+
+/* ===== 五段垂直布局卡片 ===== */
+.nv-card { background: var(--card, #111826); border: 1px solid var(--border-soft, #1f2937); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+.nv-head { display: flex; align-items: center; margin-bottom: 12px; }
+.nv-title { font-size: 0.9375rem; font-weight: 700; color: var(--text-main, #f3f4f6); }
+.nv-title i { color: var(--accent, #ff7a5c); margin-right: 8px; }
+.nv-time { margin-left: 10px; font-size: 0.6875rem; color: var(--text-muted, #6b7280); }
+.nv-tag { margin-left: 10px; font-size: 0.6875rem; color: #b98aff; background: rgba(185,138,255,.1); padding: 2px 8px; border-radius: 4px; }
+.nv-more { margin-left: auto; font-size: 0.75rem; color: var(--text-muted, #6b7280); text-decoration: none; }
+.nv-head .news-refresh { margin-left: auto; }
+.nv-empty { padding: 20px; text-align: center; color: var(--text-muted, #6b7280); font-size: 0.8125rem; }
+.nv-cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: start; }
+.nv-cols > * { min-width: 0; margin-bottom: 0; }
+@media (max-width: 900px) { .nv-cols { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .nv-cols { grid-template-columns: 1fr; } }
 </style>

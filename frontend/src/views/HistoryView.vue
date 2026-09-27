@@ -1,6 +1,12 @@
 <template>
   <div class="page-shell">
     <h1 class="visually-hidden">历史回看</h1>
+
+    <!-- 盘中实时异动流(从盘中页搬来) -->
+    <YidongFlow />
+    <!-- 板块轮动历史(从盘中页搬来, 点击板块看成分股) -->
+    <SectorRotationPanel />
+
     <div class="history-panel">
       <div class="history-head">
         <span class="history-title"><i class="fa fa-history"></i> 历史选股记录</span>
@@ -204,6 +210,8 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import YidongFlow from '../components/YidongFlow.vue'
+import SectorRotationPanel from '../components/SectorRotationPanel.vue'
 import { listBatches, queryHistory } from '../api/history'
 import { trackUsage } from '../api/activity'
 import { fetchPerformance } from '../api/stats'

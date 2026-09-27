@@ -407,8 +407,12 @@ def fetch_bid_boom():
     def loader():
         import sqlite3
         g2 = time.gmtime(time.time() + 8 * 3600)
-        hm_in_bid = g2.tm_wday < 5 and (9 * 60 + 15) <= (g2.tm_hour * 60 + g2.tm_min) <= (9 * 60 + 30)
-        today = time.strftime("%Y-%m-%d")
+        # 2026-09-27 v4.11.67: 先取**定格基准日**(非交易日 = 最近交易日), 再判竞价时段。
+        # `fd == _bj_today()` 等价于"今天是交易日" ⇒ 法定休市日(如 09-25 中秋)的
+        # 9:15-9:30 **不再**被当成竞价时段(否则会对休市日算爆量 ⇒ 表空)。
+        fd = freeze_day()
+        hm_in_bid = (fd == _bj_today()) and (9 * 60 + 15) <= (g2.tm_hour * 60 + g2.tm_min) <= (9 * 60 + 30)
+        today = fd
         # 2026-09-05 修复"竞价爆量表格无数据": 非交易日(周末/节假日)/盘后今日无快照时,
         # 自动回退最近有快照的交易日 — 与 bid-seal/bid-net/抢筹 等 tab 盘后仍显示最近交易日一致
         # (竞价时段不回退, 避免 9:15-9:25 早段拿昨日冒充今日实时)
@@ -1596,6 +1600,48 @@ def fetch_dadan_net(StockID, Time=None):
     }
 
 
+def _bj_today():
+    """当前**北京时间**日期 `YYYY-MM-DD` —— 与 api 层 `_bj_now()` **同口径**。
+
+    ★ 必须用**显式 +8h** 的 `time.gmtime(time.time() + 8 * 3600)`(项目惯例, 见
+      `api/kpl._bj_now()` 的 docstring), **不能**用单参 `time.strftime("%Y-%m-%d")` 走本机本地时区。
+      2026-09-27 v4.11.67 我一度写成单参形式(理由是"两台服务器本来就是 UTC+8, 且能让某个
+      单参 `time.strftime` 替身的旧用例继续通过") —— 那是**让测试的桩形状倒逼生产代码**, 两个后果:
+      ① **潜在时区错位**: 本模块走本机时区、api 层走显式 +8h, 一旦服务器时区不是 UTC+8
+         (哪怕只是 systemd 里 `TZ=UTC`), 两边就会**差一天**, 且没有任何报错;
+      ② **与仓内既有测试的约定冲突**: 全仓控制"今天"的标准手法是把 `time.gmtime` 换成常量
+         (test_kpl/test_snapshot/test_concept_refresh 等 10+ 处) ⇒ 单参形式**根本接不住**这些桩。
+      正确做法是**改测试的桩位置**(打在 `kpl._bj_today` 这个函数边界上), 而不是改生产代码迁就它。
+    """
+    return time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600))
+
+
+def freeze_day(day=None):
+    """**定格基准日**: 交易日 → 该日; 非交易日(周末 / 法定休市) → 最近一个有快照的交易日。
+
+    ★ 为什么需要(2026-09-27 · 主人指令「**非交易日数据要定格才行**」):
+      竞价异动的每个 tab 都得先回答两个问题 ——"今天是哪天"、"昨天是哪天"。改造前全仓是
+      **裸取自然日**: 非交易日时"今天"= 周六/周日(库里根本没有这天的数据) ⇒ 各 tab 各自
+      "回退", 而且**回退深度不一致**, 同一屏上不同 tab 停在不同日子 —— 这就是"没定格":
+        - 「昨涨停」股票池锚到最近交易日(09-24)、行情字段却锚到周六(空) ⇒ 51 行只有 11 行有数;
+        - 「昨断板」同型 ⇒ 7 行只有 2 行有数;
+        - 「竞价爆量」概念列全空(直接读无 date 路径时)、量比的"昨日"锚位偏移;
+        - 最刺眼的是「昨」与「今」落在同一天 ⇒ 「今炸板」与「昨炸板」显示同一批 11 只。
+
+    ★ 口径: 非交易日整页等价于「把最近一个交易日的**收盘定格画面**冻结下来」——
+      「今日」= 定格基准日 FD、「昨日」= FD 的前一交易日、行情字段一律取 FD 的落库/收盘值
+      (不再调实时接口)。**交易日则 FD = 今天, 行为与改造前完全一致**(零回归面)。
+
+    ★ 与 `_latest_trade_snap_date` 的分工: 本函数先用**日历**判"是不是交易日", 只有非交易日
+      才去表里找最近交易日; 表里也找不到时降级为纯日历推算 `prev_trade_date`(fail-open,
+      **绝不返回空** —— 返回空会把"回退"变成"无数据", 比回退错更糟)。
+    """
+    base = day or _bj_today()
+    if trade_calendar.is_trade_day(base):
+        return base
+    return _latest_trade_snap_date(base) or trade_calendar.prev_trade_date(base) or base
+
+
 def _latest_trade_snap_date(day=None, time_point="9_25", strict=False, limit=30):
     """`snapshot_bid` 里最近的**交易日**快照日期(交易日历过滤, 2026-09-27 v4.11.66 新增)。
 
@@ -1626,8 +1672,8 @@ def _latest_trade_snap_date(day=None, time_point="9_25", strict=False, limit=30)
     return trade_calendar.latest_trade_in([r[0] for r in rows if r and r[0]], base)
 
 
-def _prev_trade_day():
-    """上一交易日: snapshot_bid 记录优先(自动跳过节假日); 失败降级为日历推算
+def _prev_trade_day(base=None):
+    """**定格基准日**的上一交易日: snapshot_bid 记录优先(自动跳过节假日); 失败降级为日历推算
 
     ★ 2026-09-27 v4.11.66: 表内 `MAX(date)` 改为**交易日历过滤**。原实现隐含假设"表里只
       可能有交易日行" —— 该假设被 2026-09-25(中秋·法定休市, 当天傍晚才补门禁)照采落下的
@@ -1635,11 +1681,16 @@ def _prev_trade_day():
       以及「昨涨停」去选股宝要休市日数据直接返空。
       降级分支不再手写"跳周末"循环, 直接用 `trade_calendar.prev_trade_date()`
       (含法定假日 + 区间外 fail-open)。
+
+    ★ 2026-09-27 v4.11.67: 参照系由**自然日**改为**定格基准日** `freeze_day()` ——
+      非交易日时"昨日"必须是「**最近交易日的前一交易日**」, 而不是最近交易日自己
+      (那正是「今炸板」≡「昨炸板」的直接成因)。交易日 `freeze_day()` = 今天 ⇒ 行为不变。
     """
-    d = _latest_trade_snap_date(strict=True)
+    fd = freeze_day(base)
+    d = _latest_trade_snap_date(fd, strict=True)
     if d:
         return d
-    return trade_calendar.prev_trade_date(time.strftime("%Y-%m-%d"))
+    return trade_calendar.prev_trade_date(fd)
 
 
 def fetch_broken_zt(day=None):
@@ -1675,8 +1726,20 @@ def fetch_broken_zt(day=None):
 
 
 # ==================== 昨日涨停(flash 涨停池 + 今日竞价表现) ====================
-def _seal_map():
-    """竞价委买榜 code → 完整行(概念/流通/换手/净额/连板), 用于字段补全"""
+def _seal_map(date=None):
+    """竞价委买榜 code → 完整行(概念/流通/换手/净额/连板), 用于字段补全
+
+    `date` 给定 → 读**该交易日的落库快照** `auction_daily_history[date]["seal"]`
+                   (定格/回看口径, 不调外网 —— 非交易日调开盘啦拿不到 09-24 的委买榜);
+    `date` 空   → 实时开盘啦 Type4(仅竞价时段有意义)。
+    ★ 2026-09-27 v4.11.67: 原只有无参版本(恒调实时), 非交易日调用会拿到"最近的残留"
+      (实测周日只回 11 行) ⇒ 「昨涨停」51 行里只有 11 行有行情字段。"""
+    if date:
+        try:
+            return {s["code"]: s for s in (query_auction_history(date, "seal") or [])}
+        except Exception as e:
+            log.warning("竞价委买快照读取失败 date=%s(降级为空) err=%s", date, e)
+            return {}
     try:
         return {s["code"]: s for s in (fetch_bid_seal() or [])}
     except Exception:
@@ -1685,10 +1748,13 @@ def _seal_map():
 
 def _snap25_map(date=None):
     """指定日 9_25 全市场快照 code → {bid_change, bid_amt, name, float_mv, free_mv, board}
-    (全市场5549只, 字段补全兜底); date 空=今天"""
-    import sqlite3
+    (全市场5549只, 字段补全兜底)
+
+    ★ 2026-09-27 v4.11.67: `date` 空的默认值由**裸自然日**改为**定格基准日** `freeze_day()`。
+      原实现周日 `date=None` ⇒ 查 2026-09-27(库里没有) ⇒ 返回 0 行 ⇒ 「昨涨停/昨断板」
+      的行情字段全靠 Type4 兜底 ⇒ 大量空白行。非交易日应定格在最近交易日(09-24, 5561 行)。"""
     if not date:
-        date = time.strftime("%Y-%m-%d")
+        date = freeze_day()
     out = {}
     try:
         conn = sqlite3.connect(config.DB_FILE)
@@ -2098,16 +2164,20 @@ def fetch_yest_zt():
     返回 [{code,name,yestChange,limitUpDays,stillLimit,change,bidChange,bidNetAmt,bidAmt,
            bidTurnover,floatMv,board}, ...]"""
     def loader():
-        day = _prev_trade_day()
+        fd = freeze_day()                    # 定格基准日 (= "今日")
+        day = _prev_trade_day()              # 上一交易日 (= "昨日涨停池" 发生的日子)
         if not day:
             return []
         # 主路: flash 昨日涨停池(日期语义直接正确: date=8/17 = 昨日涨停110只)
         lst = _flash_pool("limit_up_pool", day)
         if not lst:
             return []
-        today_codes = {x["code"] for x in _flash_pool("limit_up_pool")}
-        seal_map = _seal_map()
-        snap25 = _snap25_map()
+        # "今日是否仍涨停(连板)" 的"今日" = 定格基准日: 交易日 → 实时池(None);
+        # 非交易日 → 定格日 fd 的池(2026-09-27 v4.11.67, 原恒用 None ⇒ 周日拿到的是
+        # 最近交易日自己的池 ⇒ 与"昨日池"同日 ⇒ stillLimit 恒 True 自己比自己)
+        today_codes = {x["code"] for x in _flash_pool("limit_up_pool", None if fd == _bj_today() else fd)}
+        seal_map = _seal_map(fd)
+        snap25 = _snap25_map(fd)
         out = []
         for it in lst:
             code = it["code"]
@@ -2148,6 +2218,7 @@ def fetch_yest_broken():
     返回断板股票的今日竞价表现(从 snapshot_bid 9:25 全市场补)
     返回 [{code,name,yestChange,limitUpDays,change,bidChange,bidAmt,bidNetAmt,bidTurnover,floatMv,board}, ...]"""
     def loader():
+        fd = freeze_day()                    # 定格基准日 (= "今日")
         day = _prev_trade_day()              # 昨日(断板发生的日子)
         if not day:
             return []
@@ -2168,10 +2239,12 @@ def fetch_yest_broken():
                   if x["code"] not in yest_codes and (x.get("limitUpDays") or 0) >= 2]
         log.info("昨断板 前一日(%s)涨停=%d 昨日(%s)未涨停且≥2板=%d只",
                  prev2, len(prev2_pool), day, len(broken))
-        # 今日竞价快照(9_25 全市场)补: 涨幅/竞额/概念
-        snap = _snap25_map()
+        # 今日竞价快照(9_25 全市场)补: 涨幅/竞额/概念 —— "今日" = **定格基准日**
+        # (2026-09-27 v4.11.67: 原 `_snap25_map()` 默认裸自然日 ⇒ 非交易日查周日 = 0 行
+        #  ⇒ 7 行里只有 2 行有行情字段; 现取 FD(09-24) 的 9_25 定格快照)
+        snap = _snap25_map(fd)
         yest_snap = _snap25_map(day)   # 昨日(断板日)快照 → 断板日竞价涨幅
-        seal_map = _seal_map()
+        seal_map = _seal_map(fd)
         out = []
         for it in broken:
             code = it["code"]

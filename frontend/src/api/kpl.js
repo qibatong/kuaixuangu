@@ -27,7 +27,15 @@ export function kplBidBoom(date = '') {
 
 export function kplBroken(day = '', date = '') {
   // day: ''=今日 / 'yesterday'=上一交易日 / 'YYYY-MM-DD'=指定日; date: 历史回看
-  return request('/api/kpl/broken', { query: date ? { date } : (day ? { day } : {}) })
+  // ★ 2026-09-27 v4.11.67: 原来是**二选一**(`date ? {date} : (day ? {day} : {})`) ⇒ 只要带上 date
+  //   就把 day 丢掉, 后端只能按 date 取"当日炸板" ⇒ 非交易日(前端会自动把 datePicker 设成最近
+  //   交易日)下「今炸板」与「昨炸板」拿到**同一份数据**。二者语义不同, 都需要送达:
+  //   date = 看哪一天, day = 看哪一类(当日/昨日)。后端已支持 `date=D & day=yesterday`
+  //   =「D 这一天的昨炸板」。
+  const query = {}
+  if (date) query.date = date
+  if (day) query.day = day
+  return request('/api/kpl/broken', { query })
 }
 
 export function kplLadder(date = '') {

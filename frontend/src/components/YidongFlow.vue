@@ -11,6 +11,7 @@
     <div class="yf-head">
       <span class="yf-title"><i class="fa fa-bolt"></i> 实时异动流</span>
       <span class="yf-sub">按累计偏离值排序</span>
+      <input v-model="kw" class="yf-search" placeholder="搜索名称/代码…">
       <span v-if="day" class="yf-day">{{ day }}<template v-if="time"> · {{ time }}</template></span>
     </div>
 
@@ -22,7 +23,7 @@
 
     <div v-else class="yf-list">
       <div
-        v-for="(it, i) in list" :key="it.code || i"
+        v-for="(it, i) in filteredList" :key="it.code || i"
         class="yf-item" :class="{ on: it.triggered }"
         @click="go(it.code)"
       >
@@ -38,7 +39,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { linkToSoftware } from '../utils/tdx'
 import { signed } from '../utils/format'
 
@@ -50,8 +51,16 @@ const props = defineProps({
   time: { type: String, default: '' },
 })
 
-// 模板里统一叫 list（与其它盯盘台面板口径一致）
+const kw = ref('')
 const list = computed(() => props.items || [])
+const filteredList = computed(() => {
+  const q = kw.value.trim().toLowerCase()
+  if (!q) return list.value
+  return list.value.filter(it =>
+    (it.name || '').toLowerCase().includes(q) ||
+    (it.code || '').includes(q)
+  )
+})
 
 function dirCls(v) {
   if (v === null || v === undefined) return 'dim'
@@ -69,6 +78,8 @@ function go(code) { linkToSoftware(code) }
 .yf-title { color: var(--text-main); font-size: 0.8125rem; font-weight: 700; }
 .yf-title .fa { color: #ffb400; }
 .yf-sub { color: var(--text-muted); font-size: 0.6875rem; }
+.yf-search { background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: 6px; color: var(--text-main); padding: 3px 10px; font-size: 0.75rem; width: 130px; }
+.yf-search:focus { outline: none; border-color: var(--accent); }
 .yf-day { margin-left: auto; color: var(--text-muted); font-size: 0.6875rem; }
 .yf-empty { color: var(--text-muted); font-size: 0.75rem; padding: 8px 2px; }
 .yf-empty.warn { color: #ffb400; }

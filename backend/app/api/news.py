@@ -68,3 +68,42 @@ def api_news_topic(request: Request, id: str = "",
     if not d:
         return jr({"ok": False, "msg": "文章不存在或暂不可读"}, 404)
     return jr({"ok": True, **d})
+
+
+@router.get("/api/news/guzhang")
+def api_news_guzhang(request: Request, uid: int = Depends(get_uid)):
+    """鼓掌财经 7x24 聚合快讯: 抓 https://724.guzhang.com/app/ 解析, 只取前20条主条目。
+    该站是 SSR, 数据直接在 HTML .news-item 里; display:none / data-orphan-parent 是相似文章子项, 要排除。
+    """
+    import re
+    import urllib.request
+    try:
+        req = urllib.request.Request(
+            "https://724.guzhang.com/app/",
+            headers={"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15"})
+        html = urllib.request.urlopen(req, timeout=10).read().decode("utf-8", "ignore")
+    except Exception as e:  # noqa: BLE001
+        log.error("鼓掌财经抓取失败 uid=%s err=%s", uid, e)
+        return jr({"ok": True, "list": [], "total": 0, "degraded": ["guzhang"]})
+
+    items = []
+    for m in re.finditer(r'<div class="news-item"([^>]*)>(.*?)(?=<div class="news-item"|</section>)', html, re.S):
+        attrs, body = m.group(1), m.group(2)
+        if "display:none" in attrs or "data-orphan-parent" in attrs:
+            continue
+        t = re.search(r'data-time="([^"]+)"', body)
+        title = re.search(r'<div class="title">(.*?)</div>', body, re.S)
+        src = re.search(r'<div class="fl">-?([^<]+)</div>', body)
+        if not title:
+            continue
+        tstr = t.group(1) if t else ""
+        items.append({
+            "time": tstr,
+            "time_label": tstr[11:19] if tstr else "",
+            "title": re.sub(r"<[^>]+>", "", title.group(1)).strip(),
+            "source": (src.group(1).strip() if src else "鼓掌财经"),
+        })
+        if len(items) >= 20:
+            break
+    log.info("鼓掌财经 uid=%s 解析%d条", uid, len(items))
+    return jr({"ok": True, "list": items, "total": len(items)})

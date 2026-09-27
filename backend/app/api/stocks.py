@@ -6,6 +6,7 @@ strategy=auction  竞价选股(默认, 行为不变): lock 9:30 前唯一锁定,
 strategy=spot     盘中实时选股【2026-09-09 已下线, 前端无入口/后端零调用】: 随时 refresh, 评分=实时涨幅/量比/换手/封单强度..., 涨停留池接口
 """
 import time
+import re
 
 from fastapi import APIRouter, Depends, Request
 
@@ -1049,11 +1050,11 @@ def api_stock_chart(request: Request, uid: int = Depends(get_uid),
 #   * 历史战绩       → batch_stocks JOIN batches 按 code 查历史入选记录
 #   * 连板           → _fill_lb() 复用(买入前一交易日真实连板数)
 _FACTOR_LABELS = {
-    "bid": "竞价涨幅",
-    "activity": "竞价换手",
     "warn": "竞价强度",
-    "market": "自由流通市值",
-    "yesterday": "昨日涨幅",
+    "bid": "实体强度",
+    "activity": "资金认可",
+    "yesterday": "连板加分",
+    "market": "市值适配",
 }
 
 
@@ -1072,14 +1073,44 @@ def _query_stock_history(code, uid, limit=10):
                    MAX(s.concept) AS concept, MAX(s.industry) AS industry
             FROM batch_stocks s
             JOIN batches b ON b.id = s.batch_id
-            WHERE s.code = ? AND (b.user_id = ? OR (b.user_id = 0 AND b.auto_applied = 1))
+            WHERE s.code = ? AND b.user_id = 0 AND b.auto_applied = 1
             GROUP BY b.batch_date, b.action
             ORDER BY b.batch_date DESC, MAX(s.probability) DESC
             LIMIT ?
-            """, (code, uid, limit)).fetchall()
+            """, (code, limit)).fetchall()
         _cols = ["date", "action", "probability", "confidence",
                  "bidChange", "realChange", "entityChange", "bidAmt", "concept", "industry"]
         return [dict(zip(_cols, r)) for r in rows]
+    finally:
+        conn.close()
+
+
+def _topic_heat_map():
+    """统计最近一个交易日 batch_stocks 里每个题材名出现的股票数(题材热度)。
+    返回 {题材名: 次数}。concept 字段按 、,，/ 拆分。"""
+    from ..db import database
+    conn = database.get_conn()
+    try:
+        row = conn.execute(
+            "SELECT MAX(batch_date) FROM batches WHERE user_id = 0 AND auto_applied = 1"
+        ).fetchone()
+        target_date = row[0] if row else None
+        if not target_date:
+            return {}
+        rows = conn.execute(
+            """
+            SELECT s.concept FROM batch_stocks s
+            JOIN batches b ON b.id = s.batch_id
+            WHERE b.batch_date = ? AND (b.user_id = 0 AND b.auto_applied = 1)
+            """, (target_date,)).fetchall()
+        heat = {}
+        for r in rows:
+            c = r[0] or ""
+            for t in re.split(r'[、,，/]', c):
+                t = t.strip()
+                if t and 2 <= len(t) <= 12:
+                    heat[t] = heat.get(t, 0) + 1
+        return heat
     finally:
         conn.close()
 
@@ -1149,14 +1180,10 @@ def api_stock_detail(request: Request, uid: int = Depends(get_uid), code: str = 
             parts = []
             for key, label in _FACTOR_LABELS.items():
                 p = sr.parts.get(key) or {}
-                val = p.get("value")
-                if key == "warn":
-                    val = round(strength, 3) if strength is not None else None
+                # 只展示 0-100 分项评分, 不暴露实际值/权重(用户要求不写计算口径)
                 parts.append({
                     "key": key, "label": label,
-                    "value": val,
-                    "score": round(float(p.get("score") or 0), 2),
-                    "weight": round(float(p.get("weight") or 0), 3),
+                    "score": round(float(p.get("score") or 0) * 100),
                 })
             score = {"probability": sr.probability, "confidence": sr.confidence,
                      "parts": parts, "snapDate": v.get("_date")}
@@ -1186,8 +1213,48 @@ def api_stock_detail(request: Request, uid: int = Depends(get_uid), code: str = 
         log.warning("个股详情连板读取失败 code=%s err=%s", code, e)
 
     base = _detail_base(v, history_rows)
-    log.info("个股详情 uid=%s code=%s score=%s risk=%s history=%d", uid, code,
-             "Y" if score else "-", (risk or {}).get("warn_level") or "-", len(history_rows))
+
+    # 题材热度: 当日 batch 内各题材出现次数, 归一化为 0-100
+    topics, topicHeat = [], 50
+    try:
+        hm = _topic_heat_map()
+        board_str = (v.get("board") or base.get("board") or "")
+        for t in re.split(r'[、,，/]', board_str):
+            t = t.strip()
+            if t and 2 <= len(t) <= 12:
+                topics.append({"name": t, "heat": int(hm.get(t, 0))})
+        topics = topics[:6]
+        if topics:
+            topicHeat = min(100, round(sum(min(100, x["heat"] * 25) for x in topics) / len(topics)))
+    except Exception as e:                                   # noqa: BLE001
+        log.warning("题材热度统计失败 code=%s err=%s", code, e)
+
+    # 题材热度作为第6个评分项追加
+    if score:
+        score["parts"].append({"key": "topic", "label": "题材热度", "score": topicHeat})
+
+    # 入选理由: 数据驱动拼装(不堆术语)
+    reason_parts = []
+    try:
+        ba = float((v or {}).get("bid_amt") or 0)
+    except (TypeError, ValueError):
+        ba = 0.0
+    if ba >= 3000:
+        reason_parts.append("竞价放量抢筹")
+    elif ba >= 1000:
+        reason_parts.append("竞价温和放量")
+    if lb == 1:
+        reason_parts.append("首板换手充分")
+    elif lb > 1:
+        reason_parts.append(f"{lb}板接力")
+    top2 = " / ".join(x["name"] for x in topics[:2])
+    if top2:
+        reason_parts.append(f"题材与 {top2} 方向共振")
+    reason = "，".join(reason_parts) + "。" if reason_parts else ""
+
+    log.info("个股详情 uid=%s code=%s score=%s risk=%s history=%d topics=%d", uid, code,
+             "Y" if score else "-", (risk or {}).get("warn_level") or "-", len(history_rows), len(topics))
     return jr({"ok": True, "code": code, **base,
                "score": score, "risk": risk, "history": history_rows,
-               "lb": lb, "lbDate": lb_date})
+               "lb": lb, "lbDate": lb_date,
+               "topics": topics, "topicHeat": topicHeat, "reason": reason})

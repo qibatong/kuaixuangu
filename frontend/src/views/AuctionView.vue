@@ -735,7 +735,11 @@ async function ensureTabData(t) {
       case 'yestZt': r = await withTimeout(kplYestZt(dt)); yestZtList.value = (r && r.list) || []; break
       case 'yestBroken': r = await withTimeout(kplYestBroken(dt)); yestBrokenList.value = (r && r.list) || []; break
       case 'lhb': r = await withTimeout(kplLhb(dt)); lhbList.value = (r && r.list) || []; break
-      case 'brokenYest': r = await withTimeout(kplBroken(dt ? '' : 'yesterday', dt)); brokenYestList.value = (r && r.list) || []; break
+      // 2026-09-27 v4.11.67: 原来 `dt ? '' : 'yesterday'` —— 只要带上 date(非交易日自动回退 /
+      // 手动回看) 就丢掉 day=yesterday, 后端只能按 date 取"当日炸板" ⇒ 非交易日的
+      // 「昨炸板」与「今炸板」显示同一批股票(主人反馈的"没定格")。改为始终带 day=yesterday:
+      // 后端语义 = "date 这一天的昨炸板"(股票池=date 的前一交易日, 字段=date)。
+      case 'brokenYest': r = await withTimeout(kplBroken('yesterday', dt)); brokenYestList.value = (r && r.list) || []; break
       case 'brokenToday': r = await withTimeout(kplBroken('', dt)); brokenTodayList.value = (r && r.list) || []; break
       default: return true
     }

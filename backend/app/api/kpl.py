@@ -30,9 +30,13 @@ def _bj_now():
 
 
 def _is_auction_hours():
-    """当前北京时间是否在竞价时段 (9:15 ~ 9:30), 仅工作日(2026-08-24 修复: 此前用 UTC 判断致竞价时段误判)"""
+    """当前北京时间是否在竞价时段 (9:15 ~ 9:30), **仅交易日**
+    (2026-08-24 修复: 此前用 UTC 判断致竞价时段误判;
+     2026-09-27 v4.11.67: 门禁由"非周末"升级为**交易日历** —— 法定休市日如 2026-09-25
+     中秋(周五)此前会被当成交易日 ⇒ 非交易日照样走实时分支, 页面不定格。
+     主人指令:「**非交易日数据要定格才行**」)"""
     t = _bj_now()
-    if t.tm_wday >= 5:   # 周六=5, 周日=6
+    if not tc.is_trade_day_of(t):   # 含周末 + 法定休市日(先看 tm_wday, 兼容不完整替身)
         return False
     h, m = t.tm_hour, t.tm_min
     if h == 9 and 15 <= m <= 30:
@@ -41,11 +45,12 @@ def _is_auction_hours():
 
 
 def _is_intraday():
-    """当前北京时间是否盘中 (9:30 ~ 15:00), 仅工作日。
+    """当前北京时间是否盘中 (9:30 ~ 15:00), **仅交易日**。
     只有盘中现涨(change/realChange)才用实时接口刷新; 盘后/非交易一律用当日收盘固定值。
-    (2026-08-24 修复: 此前用 UTC 判断, 盘中/竞价时段全被误判为非盘中)"""
+    (2026-08-24 修复: 此前用 UTC 判断, 盘中/竞价时段全被误判为非盘中)
+    (2026-09-27 v4.11.67: 同上, 门禁升级为交易日历)"""
     t = _bj_now()
-    if t.tm_wday >= 5:
+    if not tc.is_trade_day_of(t):
         return False
     h, m = t.tm_hour, t.tm_min
     if h < 9 or h > 15:
@@ -147,8 +152,13 @@ def _latest_trade_date_in(table, day, op="<="):
 
 def _read_auction_fast(tab):
     """非竞价时段快速读取: 优先今日落库数据; 若无则回退最近交易日; 再无返回空。
-    返回 (list, date_str) — 用于竞价异动类接口 (bid-seal/bid-boom/broken)。"""
-    today = _time.strftime("%Y-%m-%d", _time.gmtime())
+    返回 (list, date_str) — 用于竞价异动类接口 (bid-seal/bid-boom/broken)。
+
+    2026-09-27 v4.11.67: "今日" 由**裸自然日**改为**定格基准日** `kpl.freeze_day()`
+    (非交易日 → 最近一个有快照的交易日)。这样非交易日第一跳就直接命中定格日数据 ——
+    改造前要先查周六/周日(必然为空)再回落到"最近交易日", 且回落出来的 serve_date
+    还要再被各调用方按自然日覆盖一遍, 是"半定格"的来源之一。"""
+    today = kpl.freeze_day()
     try:
         lst = kpl.query_auction_history(today, tab)
         if lst:
@@ -278,7 +288,7 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(quota_guard("auction")
             log.warning("竞价异动概念开盘啦覆盖失败 bid-seal err=%s", e)
         # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
         try:
-            _apply_change_for(d, _time.strftime("%Y-%m-%d", _time.gmtime()))
+            _apply_change_for(d, kpl.freeze_day())
         except Exception as e:
             log.warning("bid-seal 现涨覆盖失败 err=%s", e)
         return {"ok": True, "list": d, "count": len(d)}
@@ -325,7 +335,7 @@ def api_kpl_bid_boom(request: Request, uid: int = Depends(quota_guard("auction")
         return jr({"ok": True, "list": d, "count": len(d), "date": resolved, "requestedDate": date})
     # 现涨(realChange/change)口径: 盘中=实时涨幅; 盘后/非交易日=当日收盘涨幅固定值(不调实时接口)
     try:
-        _apply_change_for(d, _time.strftime("%Y-%m-%d", _time.gmtime()))
+        _apply_change_for(d, kpl.freeze_day())
     except Exception as e:
         log.warning("bid-boom 现涨覆盖失败 err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
@@ -369,7 +379,7 @@ def api_kpl_bid_net(request: Request, uid: int = Depends(quota_guard("auction"))
         log.warning("竞价净额换手/成交额/概念补齐失败 err=%s", e)
     # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
     try:
-        _apply_change_for(d, _time.strftime("%Y-%m-%d", _time.gmtime()))
+        _apply_change_for(d, kpl.freeze_day())
     except Exception as e:
         log.warning("bid-net 现涨覆盖失败 err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
@@ -379,9 +389,33 @@ def api_kpl_bid_net(request: Request, uid: int = Depends(quota_guard("auction"))
 def api_kpl_broken(request: Request, day: str = "", date: str = "",
                    uid: int = Depends(require_vip_or_paid)):
     """炸板(东财 flash, 无需Token): 默认今日; day=yesterday 上一交易日; day=YYYY-MM-DD 指定日;
-    date 参数统一回看历史(优先 date, 读 auction_daily_history broken_yest/broken_today)"""
+    date 参数统一回看历史(优先 date, 读 auction_daily_history broken_yest/broken_today)
+
+    ★ 2026-09-27 v4.11.67: 新增组合参数 `date=D & day=yesterday` = **"D 这一天的昨炸板"**
+      (股票池 = D 的前一交易日炸板; 字段 = D)。没有它时前端一给 date 就只能拿到"当日炸板",
+      于是非交易日的「今炸板」与「昨炸板」完全塌成同一份 —— 主人要求的"定格"没成立。"""
     if date:
         resolved = _resolve_date(date)
+        if day == "yesterday":
+            # 定格/回看模式下的「昨炸板」: 池 = resolved 的前一交易日, 字段 = resolved(定格日)
+            prev_pool = kpl._latest_trade_snap_date(resolved, strict=True)
+            lst_p = kpl.query_auction_history(prev_pool, "broken_today") if prev_pool else None
+            if lst_p:
+                # 竞价/流通字段与现涨都取**定格日 resolved** 的值
+                # (用户要看的是"这些昨日炸板的票, 在定格日收盘时的表现")
+                kpl._merge_broken_bid_snap(lst_p, bid_date=resolved)
+                kpl.fill_float_mv_from_snap(lst_p, resolved)
+                try:
+                    kpl.fill_close_change_from_kline(lst_p, resolved)
+                except Exception as e:
+                    log.warning("broken 昨炸板现涨(定格日收盘)覆盖失败 err=%s", e)
+                kpl.apply_board_concept_db(lst_p, log_tag="auc:broken[hist-yest]", field="board",
+                                           truncate=2, blank_if_missing=True, date=prev_pool)
+                return jr({"ok": True, "list": lst_p, "count": len(lst_p),
+                           "date": resolved, "requestedDate": date, "poolDate": prev_pool,
+                           "day": (lst_p[0].get("day") if lst_p else "")})
+            # 前一交易日的炸板未落库 → 退回"当日炸板"(宁可退化成今炸板, 也不返回空表)
+            log.warning("broken 昨炸板 date=%s 前一交易日(%s)无落库, 退回当日炸板", resolved, prev_pool)
         lst = kpl.query_auction_history(resolved, "broken_today")
         kpl._merge_broken_bid_snap(lst)   # 老快照无竞价字段 → 按 day 补全
         kpl.fill_float_mv_from_snap(lst, resolved)
@@ -399,7 +433,9 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
         # 2026-08-18 修复: 应读 prev 的 broken_today(当日炸板=昨日炸板);
         # 原读 broken_yest 是"当天存的昨日炸板" → 显示上上个交易日(8/17存8/14)
         prev = kpl._prev_trade_day()
-        today = _time.strftime("%Y-%m-%d", _time.gmtime())
+        # 2026-09-27 v4.11.67: "今日" 由裸自然日改为**定格基准日**。(`_prev_trade_day()` 也已
+        # 改为相对定格基准日 ⇒ 非交易日 prev 不再是"最近交易日自己", 而真的是它的前一交易日)
+        today = kpl.freeze_day()
         if prev:
             lst = kpl.query_auction_history(prev, "broken_today")
             if lst:
@@ -436,7 +472,7 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
     kpl.apply_board_concept_db(lst, log_tag="auc:broken[now]", field="board", truncate=2, blank_if_missing=True)
     # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
     try:
-        _apply_change_for(lst, _time.strftime("%Y-%m-%d", _time.gmtime()))
+        _apply_change_for(lst, kpl.freeze_day())
     except Exception as e:
         log.warning("broken 现涨覆盖失败 err=%s", e)
     return jr({"ok": True, "list": lst, "count": len(lst),
@@ -459,7 +495,7 @@ def api_kpl_ladder(request: Request, uid: int = Depends(get_uid), date: str = ""
     # "五板+"/5板。历史回看路径早已用 rebin_ladder(东财涨停池真实 limitUpDays)拆成
     # 1~8 档, **实时路径漏了这一步**。实测龙版传媒 real=6 → rebin 后正确落第 6 档。
     try:
-        d = kpl.rebin_ladder(d, _time.strftime("%Y-%m-%d"))
+        d = kpl.rebin_ladder(d, kpl.freeze_day())
     except Exception as e:
         log.warning("ladder 实时 rebin 失败(回退 5 档结构) err=%s", str(e)[:120])
     # 2026-08-18 修复: 开盘啦 DailyLimitPerformance 无涨幅字段 → 东财全市场实时行情 merge
@@ -481,7 +517,7 @@ def api_kpl_ladder(request: Request, uid: int = Depends(get_uid), date: str = ""
         log.info("ladder 实时涨幅 merge 完成 覆盖%d只", n)
     except Exception as e:
         log.warning("ladder 实时涨幅 merge 失败 err=%s", e)
-    d = kpl.rebin_ladder(d, _time.strftime("%Y-%m-%d"))
+    d = kpl.rebin_ladder(d, kpl.freeze_day())
     return jr({"ok": True, "ladder": d, "date": ""})
 
 
@@ -631,14 +667,12 @@ def api_kpl_lhb(request: Request, uid: int = Depends(require_vip_or_paid), date:
         if not lst:
             import json as _json
             from ..db import database
-            conn = database.get_conn()
-            row = conn.execute(
-                "SELECT MAX(date) FROM lhb_history WHERE date < ?",
-                (_time.strftime("%Y-%m-%d", _time.gmtime()),)).fetchone()
-            conn.close()
-            if row and row[0]:
+            # 2026-09-27 v4.11.67: 裸 `MAX(date)` 改为**交易日历过滤**(同批收口 #149 的一处)
+            # —— 原式隐含假设"lhb_history 里只可能有交易日行", 休市日残留会被当成"上一交易日"。
+            _d = _latest_trade_date_in("lhb_history", kpl.freeze_day(), op="<")
+            if _d:
                 conn = database.get_conn()
-                r2 = conn.execute("SELECT list FROM lhb_history WHERE date=?", (str(row[0]),)).fetchone()
+                r2 = conn.execute("SELECT list FROM lhb_history WHERE date=?", (_d,)).fetchone()
                 conn.close()
                 if r2 and r2[0]:
                     try:
@@ -646,7 +680,7 @@ def api_kpl_lhb(request: Request, uid: int = Depends(require_vip_or_paid), date:
                     except (ValueError, TypeError):
                         lst = []
                 if lst:
-                    d_str = str(row[0])
+                    d_str = _d
         kpl.fill_reason_from_pool(lst, d_str or None)
         kpl.fill_bid_change_from_snap(lst, d_str)
         kpl.fill_float_mv_from_snap(lst, d_str)
@@ -665,7 +699,7 @@ def api_kpl_lhb(request: Request, uid: int = Depends(require_vip_or_paid), date:
     kpl.apply_board_concept_db(lst, log_tag="auc:lhb[now]", field="board", truncate=2, blank_if_missing=True)
     # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
     try:
-        _apply_change_for(lst, _time.strftime("%Y-%m-%d", _time.gmtime()))
+        _apply_change_for(lst, kpl.freeze_day())
     except Exception as e:
         log.warning("lhb 现涨覆盖失败 err=%s", e)
     return jr({"ok": True, "list": lst, "count": len(lst), "date": ""})
@@ -734,7 +768,10 @@ def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(quota_guard("auct
     # - 盘中且展示"今天" → 东财实时(单次批量, _apply_change_for / _update_spot_change)
     # - 其余全部(历史回看 / 回退到上交易日 / 盘后今日 / 非交易日) → 该交易日收盘涨幅(固定, 不调实时)
     # serve_date 推导: 指定 date → date(可能是快照内部 date 或 resolved); 否则今天
-    today_str = _time.strftime("%Y-%m-%d", _time.gmtime())
+    # 2026-09-27 v4.11.67: "今天" 改取**定格基准日**(非交易日 → 最近交易日)。对下面
+    # `serve_date != today_str or not _is_auction_hours()` 的判据**结果等价**(交易日两者相同;
+    # 非交易日 `_is_auction_hours()` 已恒 False), 但语义从"自然日"统一到"定格日"。
+    today_str = kpl.freeze_day()
     serve_date = date or (d.get("date") if isinstance(d, dict) else "") or today_str
     # 三表各自独立填充现涨
     for ql, tag in ((l20, "qc20"), (l20Chg, "qc20Chg"), (lLast, "qcLast")):
@@ -776,7 +813,7 @@ def api_kpl_yest_zt(request: Request, uid: int = Depends(require_vip_or_paid), d
         log.warning("竞价异动概念开盘啦覆盖失败 yest-zt err=%s", e)
     # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
     try:
-        _apply_change_for(d, _time.strftime("%Y-%m-%d", _time.gmtime()))
+        _apply_change_for(d, kpl.freeze_day())
     except Exception as e:
         log.warning("yest-zt 现涨覆盖失败 err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})
@@ -805,7 +842,7 @@ def api_kpl_yest_broken(request: Request, uid: int = Depends(require_vip_or_paid
         log.warning("竞价异动概念开盘啦覆盖失败 yest-broken err=%s", e)
     # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
     try:
-        _apply_change_for(d, _time.strftime("%Y-%m-%d", _time.gmtime()))
+        _apply_change_for(d, kpl.freeze_day())
     except Exception as e:
         log.warning("yest-broken 现涨覆盖失败 err=%s", e)
     return jr({"ok": True, "list": d, "count": len(d)})

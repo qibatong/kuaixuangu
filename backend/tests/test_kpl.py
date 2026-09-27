@@ -308,17 +308,29 @@ def test_call_failure_returns_none(monkeypatch):
 
 
 # ---------- 昨日涨停 / 昨断板 / 竞价抢筹 ----------
+FD = "2026-08-12"        # 测试固定「定格基准日」—— 绝不依赖运行时钟(见 v4.11.67 教训)
+FD_PREV = "2026-08-11"   # 定格基准日的**前一交易日**("昨日涨停池"发生的日子)
+
+
 def _mk_flash_pool(monkeypatch, day_pool, today_codes):
-    """mock _flash_pool: 昨日池返回 day_pool, 今日池返回 today_codes 对应的简单行"""
+    """mock _flash_pool:
+       date == FD(定格基准日) → "今日仍涨停"池 → today_codes
+       其它(含 FD_PREV 与 None) → "昨日涨停"池 → day_pool
+
+    ★ 必须**按 FD 显式区分**, 不能用"date 是否为空"来区分今日/昨日:
+      v4.11.67 起 `fetch_yest_zt` 会把**定格基准日**传进来(不再恒传 None),
+      非交易日传的是最近交易日 ⇒ 用空值判据会随运行时钟漂移(周日跑必红)。
+    ★ FD_PREV 必须与 FD 不同, 否则"昨日池/今日池"两次调用会命中同一分支。"""
     def fake(pool_name, date=None):
-        if date:  # 昨日
-            return [{"code": x[0], "name": x[1], "change": x[2], "limitUpDays": x[3]}
-                    for x in day_pool]
-        return [{"code": c, "name": c, "change": 10.0, "limitUpDays": 1} for c in today_codes]
+        if date == FD:        # 今日(定格日)
+            return [{"code": c, "name": c, "change": 10.0, "limitUpDays": 1} for c in today_codes]
+        return [{"code": x[0], "name": x[1], "change": x[2], "limitUpDays": x[3]}
+                for x in day_pool]
     monkeypatch.setattr(kpl, "_flash_pool", fake)
     monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: [])
-    monkeypatch.setattr(kpl, "_prev_trade_day", lambda: "2026-08-12")
-    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+    monkeypatch.setattr(kpl, "_prev_trade_day", lambda *a, **k: FD_PREV)
+    monkeypatch.setattr(kpl, "freeze_day", lambda *a, **k: FD)
+    monkeypatch.setattr(kpl, "_seal_map", lambda *a, **k: {})
 
 
 def test_fetch_yest_zt(monkeypatch):
@@ -357,8 +369,9 @@ def test_fetch_yest_broken(monkeypatch):
         return []
     monkeypatch.setattr(kpl, "_flash_pool", fake_pool)
     monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: [])
-    monkeypatch.setattr(kpl, "_prev_trade_day", lambda: "2026-08-12")
-    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+    monkeypatch.setattr(kpl, "_prev_trade_day", lambda *a, **k: "2026-08-12")
+    monkeypatch.setattr(kpl, "freeze_day", lambda *a, **k: "2026-08-12")   # 定格基准日固定, 不依赖时钟
+    monkeypatch.setattr(kpl, "_seal_map", lambda *a, **k: {})
     kpl.clear_cache()
     rows = kpl.fetch_yest_broken()
     codes = [r["code"] for r in rows]
@@ -425,7 +438,7 @@ def test_fetch_bid_qiangcang(monkeypatch):
     class FakeT:
         tm_hour, tm_min, tm_wday = 9, 20, 3   # 竞价时段(9:20 周四)
     monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
-    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+    monkeypatch.setattr(kpl, "_seal_map", lambda *a, **k: {})
 
     # --- list20: auc_kp ---
     kp = {
@@ -470,7 +483,7 @@ def test_fetch_bid_qiangcang_list20_fundflow_fallback(monkeypatch):
     class FakeT:
         tm_hour, tm_min, tm_wday = 9, 25, 3   # 竞价时段(9:25 定格)
     monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
-    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+    monkeypatch.setattr(kpl, "_seal_map", lambda *a, **k: {})
 
     # auc_kp 返回非空但净额全 0 → 过滤后 0 只, 触发兜底
     kp = {
@@ -540,7 +553,7 @@ def test_fetch_bid_qiangcang_persist(monkeypatch):
     real_connect = sqlite3.connect
     real_gmtime = _t.gmtime
     monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
-    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+    monkeypatch.setattr(kpl, "_seal_map", lambda *a, **k: {})
     # 阶段1: 竞价时段(9:20) 猫爪有数据 → live 分支 → 落库
     _FIXED = [FakeT(9, 20)]
     monkeypatch.setattr(_t, "gmtime", fake_gmtime)
@@ -620,7 +633,7 @@ def test_fetch_bid_qiangcang_lastsec_fallback(monkeypatch):
         def close(self): pass
     real = sqlite3.connect
     monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
-    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+    monkeypatch.setattr(kpl, "_seal_map", lambda *a, **k: {})
     _mock_meoz(monkeypatch, kp={}, ob={}, mv={})   # 猫爪返回空 → 触发兜底
     kpl.clear_cache()
     d = kpl.fetch_bid_qiangcang()
@@ -649,7 +662,7 @@ def test_fetch_bid_qiangcang_list20chg(monkeypatch):
     class FakeT:
         tm_hour, tm_min, tm_wday = 9, 20, 3
     monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
-    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+    monkeypatch.setattr(kpl, "_seal_map", lambda *a, **k: {})
     snap = {
         ("0920", "before"): {
             "A": {"auc_pct_chg": 1.5}, "B": {"auc_pct_chg": 3.0},
@@ -684,7 +697,7 @@ def test_fetch_bid_qiangcang_list20chg_name_fallback(monkeypatch):
     class FakeT:
         tm_hour, tm_min, tm_wday = 9, 20, 3
     monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
-    monkeypatch.setattr(kpl, "_seal_map", lambda: {})
+    monkeypatch.setattr(kpl, "_seal_map", lambda *a, **k: {})
     snap = {
         ("0920", "before"): {"A": {"auc_pct_chg": 1.5}},
         ("0925", "after"): {"A": {"auc_pct_chg": 8.64, "auc_amt": 9.915e6}},   # 无 name
@@ -1008,12 +1021,20 @@ def test_yidong_vip_guard(client, second_user, monkeypatch):
 
 # ---------- D. boom 不限条数 + free_mv 回退 ----------
 
-def _mock_boom_helpers(monkeypatch, todays, yests, today_date="2026-08-22"):
-    """helper: mock sqlite3.connect + fetch_spot_quote_map + time.strftime"""
+def _mock_boom_helpers(monkeypatch, todays, yests, today_date="2026-08-21"):
+    """helper: mock sqlite3.connect + fetch_spot_quote_map + `kpl._bj_today`
+
+    ★ 2026-09-27 v4.11.67: 桩由 `time.strftime` 改打 **`kpl._bj_today` 函数边界** ——
+      生产代码已改为项目惯例的显式 `+8h` 形式(`time.strftime(fmt, time.gmtime(t+8h))`),
+      旧的**单参** `time.strftime` 替身接不住双参调用; 而且"用哪个字段表示今天"本就该
+      桩在函数边界上, 不该与 stdlib 调用形状耦合。
+      同理 `today_date` 由 2026-08-22(周六) 改为 2026-08-21(周五, 真交易日), 这样
+      `freeze_day()` 会原样返回它 —— 不依赖"表里有没有快照"这条无关路径。
+    """
     import app.services.kpl as kpl
     import app.services.fetcher as fetcher_mod
 
-    monkeypatch.setattr("time.strftime", lambda fmt: today_date)
+    monkeypatch.setattr(kpl, "_bj_today", lambda *a, **k: today_date)
 
     class FakeCursor:
         def __init__(self, rows): self.rows = list(rows)
@@ -1024,6 +1045,9 @@ def _mock_boom_helpers(monkeypatch, todays, yests, today_date="2026-08-22"):
     class FakeConn:
         def execute(self, sql, params=()):
             q = sql.strip()
+            if "SELECT COUNT(*)" in q:
+                # 「今日有快照」→ 不进回退分支(否则会靠 TypeError 被吞掉来"恰好"通过)
+                return FakeCursor([(1,)])
             if "SELECT MAX(time_point)" in q:
                 return FakeCursor([("9_25",)])
             if "SELECT MAX(date) FROM snapshot_bid WHERE date <" in q:
@@ -1092,7 +1116,7 @@ def test_fetch_bid_boom_yest_no_data(monkeypatch):
     import app.services.kpl as kpl
     import app.services.fetcher as fetcher_mod
 
-    monkeypatch.setattr("time.strftime", lambda fmt: "2026-08-22")
+    monkeypatch.setattr(kpl, "_bj_today", lambda *a, **k: "2026-08-22")
 
     class FakeCursor:
         def __init__(self, rows): self.rows = list(rows)

@@ -78,9 +78,7 @@
           v-model="calcCode"
           class="cal-input"
           type="text"
-          inputmode="numeric"
-          maxlength="6"
-          placeholder="输入 6 位股票代码，如 605058"
+          placeholder="输入代码 / 名称 / 拼音，如 605058 或 电科"
           aria-label="股票代码"
           @keydown.enter="doCalc"
         />
@@ -255,12 +253,25 @@ async function loadMonitor() {
 }
 
 async function doCalc() {
-  const c = String(calcCode.value || '').trim()
+  let c = String(calcCode.value || '').trim()
   if (!/^\d{6}$/.test(c)) {
-    calcShown.value = c
-    calcData.value = { ok: false, reason: 'bad_code', msg: '代码必须是 6 位数字' }
-    calcFailed.value = false
-    return
+    // 名称/拼音 → 先搜
+    try {
+      const d = await fetch('/api/stocks/search?q=' + encodeURIComponent(c) + '&limit=1').then(r=>r.json())
+      const hit = (d && d.list && d.list[0])
+      if (hit && hit.code) { c = hit.code }
+      else {
+        calcShown.value = c
+        calcData.value = { ok: false, reason: 'not_found', msg: '未找到匹配股票: ' + c }
+        calcFailed.value = false
+        return
+      }
+    } catch(e) {
+      calcShown.value = c
+      calcData.value = { ok: false, reason: 'search_fail', msg: '搜索失败: ' + c }
+      calcFailed.value = false
+      return
+    }
   }
   calcShown.value = c
   calcLoading.value = true
