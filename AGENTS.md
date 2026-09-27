@@ -162,6 +162,15 @@ cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/p
 >    （`tar xzf` + `cp -a`，**无 `._*` 检查**；对照 `_deploy_fe.sh`/旧版 `/tmp/kx_fe67b_deploy.sh` 都有该检查）
 >    在 45 分钟内连续部署 v30~v38 ⇒ **清理后 2 分钟即被重新带回**。
 >    **一次性清理挡不住持续部署 —— 断根只能在打包侧（或让发布走带闸门的 `_deploy_fe.sh`）。**
+>    ⚠️ **同源后果二（2026-09-27 傍晚实测）：历史 chunk 累积。** 临时脚本是 **`tar xzf` 解压进线上
+>    `dist`**（而不是整目录替换）⇒ **每次部署都留下上一版的文件**。实测当日 8 次构建后
+>    `dist/assets` 有 **310 个 js/css**，而**从 `index.html` 出发的引用图只可达 68 个**
+>    ⇒ **242 个（9.4MB）是永不加载的垃圾**（`index-*.js` 甚至出现 **7 个**，正常只该有 1 个；
+>    另有 22 个 `useSortable-*.js`、19 个 `tdx-*.js` … 每个模块各留 6~8 个历史版本）。
+>    危害与 `._*` 同型：① 文件数断言失去判别力；② 与 `_deploy_fe.sh` 的**原子整目录替换**口径背道而驰。
+>    ⇒ 纪律：**线上 `dist` 只允许整目录替换（走 `_deploy_fe.sh`），禁止 `tar xzf` 直接解压进 `/opt/kuaixuan/dist`**。
+>    清理工具 = **`scripts/dist_gc.sh report|apply`**（按 `index.html` 引用图判可达性，只把**不可达**的
+>    js/css **`mv`** 进 `_dist_garbage_<ts>/`，**可逆不删除**；含 `live set < 40` 自锁保护）。
 
 | 版本 | 日期 | 一句话 |
 |---|---|---|
