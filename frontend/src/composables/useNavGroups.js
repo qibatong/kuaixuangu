@@ -81,12 +81,12 @@ export const NAV_GROUPS = [
     icon: 'fa-table',
     entry: '/ladder',
     items: [
-      { label: '涨停梯队', path: '/ladder' },
+      { label: '连板梯队', path: '/ladder' },
+      { label: '龙虎榜', path: '/lhb' },
+      { label: '异动监管', path: '/yidong' },
+      { label: '大V复盘', path: '/bigv' },
       { label: '历史回看', path: '/history' },
       { label: '股性', path: '/temper' },
-      { label: '大V资讯', path: '/bigv' },
-      { label: '异动监管', path: '/yidong' }, // 工单 三.5: 由「盘中」挪到「复盘」
-      { label: '龙虎榜', path: '/lhb' },      // 工单 三.4: 从市场雷达拆出（17 点后才有数据）
     ],
   },
   {
