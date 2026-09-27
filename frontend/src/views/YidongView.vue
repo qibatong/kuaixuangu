@@ -1,461 +1,471 @@
 <template>
   <div class="page-shell">
-    <h1 class="visually-hidden">历史回看</h1>
+    <h1 class="visually-hidden">异动监管</h1>
+    <div class="yd-head">
+      <span class="yd-title"><i class="fa fa-bullhorn"></i> 异动监管</span>
+      <span class="yd-sub">严重异动 · 个股计算器 · 重点监控</span>
+      <span class="yd-time">{{ bjTime }}</span>
+    </div>
 
-    <!-- 板块轮动历史(从盘中页搬来, 点击板块看成分股) -->
-    <SectorRotationPanel />
+    <YidongFlow />
 
-    <div class="history-panel">
-      <div class="history-head">
-        <span class="history-title"><i class="fa fa-history"></i> 历史选股记录</span>
+    <div class="yd-tabs">
+      <button class="yd-tab" :class="{ active: tab === 'warn' }" @click="switchTab('warn')">
+        <i class="fa fa-exclamation-triangle"></i> 严重异动
+      </button>
+      <button class="yd-tab" :class="{ active: tab === 'calc' }" @click="switchTab('calc')">
+        <i class="fa fa-calculator"></i> 个股计算器
+      </button>
+      <button class="yd-tab" :class="{ active: tab === 'monitor' }" @click="switchTab('monitor')">
+        <i class="fa fa-eye"></i> 重点监控
+      </button>
+    </div>
+
+    <!-- ① 严重异动：我方按交易所口径算出的「明日/今日越线」名单（盘后 15:45 生成） -->
+    <div v-if="tab === 'warn'" class="yd-panel">
+      <div class="yd-toolbar">
+        <span class="yd-tip">
+          <i class="fa fa-info-circle"></i>
+          全市场 3/10/30 日涨跌幅偏离值（交易所口径：区间首尾相减）—— 红 = 今日已越线，黄 = 明日涨停即越线或已临近
+        </span>
+        <span v-if="devStatusText" class="yd-badge">{{ devStatusText }}</span>
+        <button class="rot-reset-btn" title="刷新" aria-label="刷新" @click="reloadWarn">
+          <i class="fa fa-refresh"></i>
+        </button>
       </div>
 
-      <!-- 视图切换 Tab: 按批次 / 综合查询 / AI预测回看 -->
-      <div class="view-tabs">
-        <button class="view-tab" :class="{ active: viewMode === 'batch' }" @click="switchView('batch')">
-          <i class="fa fa-folder-open-o"></i> 按批次 <span class="view-tab-desc">每次选股一组</span>
-        </button>
-        <button class="view-tab" :class="{ active: viewMode === 'query' }" @click="switchView('query')">
-          <i class="fa fa-search"></i> 综合查询 <span class="view-tab-desc">跨批次条件筛选</span>
-        </button>
-        <button class="view-tab" :class="{ active: viewMode === 'aipick' }" @click="switchView('aipick')">
-          <!-- 2026-09-05: fa-robot 为 FA5 图标, 项目用 FA4.7 不渲染(空白) → 换 fa-android -->
-          <i class="fa fa-android"></i> AI预测·金睛 <span class="view-tab-desc">按日期回看预测报告</span>
-        </button>
-        <!-- 2026-09-25: 火眼(LightGBM) 平行链路回看 -->
-        <button class="view-tab" :class="{ active: viewMode === 'aipick_lgb' }" @click="switchView('aipick_lgb')">
-          <i class="fa fa-flask"></i> AI预测·火眼 <span class="view-tab-desc">火眼模型预测回看</span>
-        </button>
-      </div>
+      <DevWarnList :rows="devRows" :loading="devLoading" :failed="devFailed" :date="devDate" />
 
-      <!-- ===== 按批次视图 ===== -->
-      <div v-if="viewMode === 'batch'" class="batch-view">
-        <div class="batch-tip">按选股批次分组展示：<b>每次选股操作（锁定/筛选）为一组</b>，点击批次可展开查看该批选出的股票明细</div>
-        <div v-if="batchesLoading" class="loading-placeholder"><div class="spinner"></div><div>正在加载批次...</div></div>
-        <div v-else-if="!batches.length" class="empty-state">暂无历史批次<br><span style="font-size:0.75rem">先在主页选股（锁定/筛选）后，这里就会按批次展示</span></div>
-        <div v-else class="batch-list">
-          <div v-for="b in batches" :key="b.id" class="batch-card" :class="{ expanded: expandedId === b.id }">
-            <div class="batch-head" @click="toggleBatch(b.id)">
-              <span class="batch-time">
-                <i class="fa fa-clock-o"></i> {{ b.batch_date }} {{ b.batch_time }}
-              </span>
-              <span class="batch-type" :class="b.action === 'lock' ? 'type-lock' : 'type-filter'">
-                {{ b.action === 'lock' ? '锁定选股' : '筛选重算' }}
-              </span>
-              <span v-if="b.auto_applied" class="batch-auto-tag" title="9:26 系统自动应用: 用户当天未主动点应用, 系统按用户偏好自动保存批次">⚙️ 自动</span>
-              <span class="batch-meta">
-                <span class="batch-market">{{ b.markets }}</span>
-                <span class="batch-count">{{ b.stock_count }}只</span>
-              </span>
-              <span class="batch-toggle"><i class="fa" :class="expandedId === b.id ? 'fa-chevron-up' : 'fa-chevron-down'"></i></span>
-            </div>
-            <div v-if="expandedId === b.id" class="batch-body">
-              <div v-if="batchDetailLoading" class="loading-placeholder" style="padding:10px;"><div class="spinner"></div><div>加载明细...</div></div>
-              <div v-else-if="!batchStocks.length" class="empty-state" style="padding:12px;">该批次无股票</div>
-              <div v-else style="overflow-x:auto;">
-                <table class="stock-table" style="min-width:1100px">
-                  <thead>
-                    <tr>
-                      <th>排名</th>
-                      <th class="sortable" :class="{ active: batchSort.keyOf('code') }" @click="batchSort.onSort('code', 'string')">代码<span class="sort-ind">{{ batchSort.ind('code') }}</span></th>
-                      <th class="sortable" :class="{ active: batchSort.keyOf('name') }" @click="batchSort.onSort('name', 'string')">名称<span class="sort-ind">{{ batchSort.ind('name') }}</span></th>
-                      <th class="sortable" :class="{ active: batchSort.keyOf('bid_change') }" @click="batchSort.onSort('bid_change')">竞价涨幅<span class="sort-ind">{{ batchSort.ind('bid_change') }}</span></th>
-                      <th class="sortable" :class="{ active: batchSort.keyOf('real_change') }" @click="batchSort.onSort('real_change')">实时涨幅<span class="sort-ind">{{ batchSort.ind('real_change') }}</span></th>
-                      <th class="sortable" :class="{ active: batchSort.keyOf('entity_change') }" @click="batchSort.onSort('entity_change')">实体涨幅<span class="sort-ind">{{ batchSort.ind('entity_change') }}</span></th>
-                      <th class="sortable" :class="{ active: batchSort.keyOf('bid_amt') }" @click="batchSort.onSort('bid_amt')">竞价金额(万)<span class="sort-ind">{{ batchSort.ind('bid_amt') }}</span></th>
-                      <th class="sortable" :class="{ active: batchSort.keyOf('bid_ratio') }" @click="batchSort.onSort('bid_ratio')">竞价/昨比<span class="sort-ind">{{ batchSort.ind('bid_ratio') }}</span></th>
-                      <th class="sortable" :class="{ active: batchSort.keyOf('circulation_mv') }" @click="batchSort.onSort('circulation_mv')">流通市值(亿)<span class="sort-ind">{{ batchSort.ind('circulation_mv') }}</span></th>
-                      <th class="sortable" :class="{ active: batchSort.keyOf('industry') }" @click="batchSort.onSort('industry', 'string')">行业<span class="sort-ind">{{ batchSort.ind('industry') }}</span></th>
-                      <th class="sortable" :class="{ active: batchSort.keyOf('probability') }" @click="batchSort.onSort('probability')">评分<span class="sort-ind">{{ batchSort.ind('probability') }}</span></th>
-                      <th class="sortable" :class="{ active: batchSort.keyOf('confidence') }" @click="batchSort.onSort('confidence')">可信度<span class="sort-ind">{{ batchSort.ind('confidence') }}</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="s in batchSort.sorted(batchStocks)" :key="s.code">
-                      <td>{{ s.rank }}</td>
-                      <td class="code-click" @click="linkToSoftware(s.code)">{{ s.code }}</td><td>{{ s.name }}</td>
-                      <td :class="chgCls(s.bid_change)">{{ chgPct(s.bid_change) }}</td>
-                      <td :class="chgCls(s.real_change)">{{ chgPct(s.real_change) }}</td>
-                      <td :class="chgCls(s.entity_change)">{{ chgPct(s.entity_change) }}</td>
-                      <td>{{ bidAmtText(s.bid_amt) }}</td>
-                      <td :class="ratioCls(s.bid_ratio)">{{ ratioText(s.bid_ratio) }}</td>
-                      <td>{{ fmtNum(s.circulation_mv, 1) }}</td>
-                      <td>{{ s.industry }}</td>
-                      <td class="score-cell">{{ fmtNum(s.probability, 0, '分') }}</td>
-                      <td>{{ fmtNum(s.confidence, 0, '%') }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+      <!-- 交易所已公布的异动（开盘啦，保留原「严重异动」数据源；折叠不抢主位） -->
+      <div class="yd-fold">
+        <button class="yd-fold-h" @click="showPub = !showPub">
+          <i class="fa" :class="showPub ? 'fa-caret-down' : 'fa-caret-right'"></i>
+          交易所已公布异动（开盘啦，共 {{ pubRows.length }} 只）
+        </button>
+        <div v-if="showPub" class="yd-fold-b">
+          <div v-if="pubLoading" class="loading-placeholder"><div class="spinner"></div><div>加载中…</div></div>
+          <div v-else-if="!pubRows.length" class="empty-state">暂无已公布异动数据</div>
+          <table v-else class="stock-table">
+            <thead>
+              <tr><th>名称</th><th>异动类型</th><th>偏离值</th><th>触发条件</th><th>是否触发</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in pubRows" :key="item.code">
+                <td class="stock-info-cell" @click="linkToSoftware(item.code)">
+                  <div class="stock-name-row"><span class="stock-name">{{ item.name }}</span></div>
+                  <div class="stock-code-row"><span class="stock-code">{{ item.code }}</span></div>
+                </td>
+                <td class="type-col">{{ item.type }}</td>
+                <td class="dev-col">
+                  <span v-if="item.deviation != null" class="dev-num">{{ fmtNum(item.deviation) }}%</span>
+                  <span v-if="item.days" class="dev-days">{{ item.days }}日</span>
+                  <span v-else-if="item.deviation == null">-</span>
+                </td>
+                <td class="trigger-col">{{ item.trigger }}</td>
+                <td><span class="trigger-status" :class="{ triggered: isTriggered(item.triggered) }">{{ item.triggered }}</span></td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
+    </div>
 
-      <!-- ===== 综合查询视图 ===== -->
-      <div v-else-if="viewMode === 'query'" class="history-query">
-        <!-- 战绩统计(可折叠) -->
-        <div v-if="stats" class="stats-panel">
-          <div class="stats-title" style="cursor:pointer;" @click="statsCollapsed = !statsCollapsed">
-            <i class="fa" :class="statsCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'"></i>
-            <i class="fa fa-line-chart"></i> 战绩统计
-            <span class="stats-range">{{ stats.range.from }} ~ {{ stats.range.to }}</span>
-            <span class="stats-toggle">{{ statsCollapsed ? '展开详情' : '收起详情' }}</span>
-          </div>
-          <div class="stats-cards">
-            <div class="stat-card"><div class="stat-num">{{ stats.overview.total }}</div><div class="stat-label">总入选(次)</div></div>
-            <div class="stat-card"><div class="stat-num" :class="rateCls(stats.overview.win_rate)">{{ pct(stats.overview.win_rate) }}</div><div class="stat-label">整体胜率</div></div>
-            <div class="stat-card medal-gold"><div class="stat-num" :class="rateCls(stats.top3.win_rate)">{{ pct(stats.top3.win_rate) }}</div><div class="stat-label">🥇前三强胜率</div></div>
-            <div class="stat-card"><div class="stat-num" :class="stats.overview.avg_real > 0 ? 'up' : stats.overview.avg_real < 0 ? 'down' : ''">{{ signed(stats.overview.avg_real) }}%</div><div class="stat-label">平均实时涨幅</div></div>
-            <div class="stat-card"><div class="stat-num" :class="stats.top3.avg_real > 0 ? 'up' : stats.top3.avg_real < 0 ? 'down' : ''">{{ signed(stats.top3.avg_real) }}%</div><div class="stat-label">前三强平均涨幅</div></div>
-          </div>
-          <template v-if="!statsCollapsed">
-            <div v-if="stats.by_score.length" class="stats-score">
-              <div class="stats-sub">评分有效性（评分越高胜率越高说明评分有效）</div>
-              <div class="score-bars">
-                <div v-for="g in stats.by_score" :key="g.range" class="score-bar" :title="`${g.range}分：${g.count}次，胜率${pct(g.win_rate)}，平均${signed(g.avg_real)}%`">
-                  <div class="score-bar-label">{{ g.range }}分</div>
-                  <div class="score-bar-track"><div class="score-bar-fill" :style="{ width: Math.max(3, g.win_rate * 100) + '%' }" :class="rateCls(g.win_rate)"></div></div>
-                  <div class="score-bar-val">{{ pct(g.win_rate) }} <span class="dim">({{ g.count }})</span></div>
-                </div>
-              </div>
-            </div>
-            <div v-if="stats.daily.length" class="stats-daily">
-              <div class="stats-sub">每日趋势（最近 {{ stats.daily.length }} 个有记录的交易日）</div>
-              <div class="daily-list">
-                <div v-for="d in stats.daily" :key="d.date" class="daily-row">
-                  <span class="daily-date">{{ d.date }}</span>
-                  <span class="daily-cnt">{{ d.count }}次</span>
-                  <span class="daily-rate" :class="rateCls(d.win_rate)">{{ pct(d.win_rate) }}</span>
-                  <span class="daily-real" :class="d.avg_real > 0 ? 'up' : d.avg_real < 0 ? 'down' : 'dim'">{{ signed(d.avg_real) }}%</span>
-                </div>
-              </div>
-            </div>
-            <div v-else class="stats-empty">当前日期范围暂无历史数据，先选几次股再回来看战绩</div>
-          </template>
-        </div>
-
-        <div class="query-form">
-          <label>日期 <input v-model="f.date_from" type="date"> ~ <input v-model="f.date_to" type="date"></label>
-          <label>竞价涨幅 <input v-model="f.bid_min" type="number" placeholder="不限"> ~ <input v-model="f.bid_max" type="number" placeholder="不限"> %</label>
-          <label>流通市值 <input v-model="f.mv_min" type="number" placeholder="不限"> ~ <input v-model="f.mv_max" type="number" placeholder="不限"> 亿</label>
-          <label>评分≥ <input v-model="f.prob_min" type="number" placeholder="不限"></label>
-          <label>可信度≥ <input v-model="f.conf_min" type="number" placeholder="不限"></label>
-          <select v-model="f.action"><option value="">全部类型</option><option value="lock">锁定选股</option><option value="filter">筛选重算</option></select>
-          <button class="tdx-export-btn query-submit-btn" style="background:var(--accent-deep);" @click="runQuery"><i class="fa fa-search"></i> 查询</button>
-        </div>
-        <div class="query-tip">打开时已自动查询当月记录；<b>同一天同一只股票评分相同自动去重</b>（只保留一条）；竞价涨幅、流通市值、评分、可信度等条件可留空，留空表示不限制</div>
-        <div class="query-result">
-          <div v-if="loading" class="loading-placeholder"><div class="spinner"></div><div>正在查询...</div></div>
-          <div v-else-if="!rows.length" class="empty-state">没有符合条件的记录<br><span style="font-size:0.75rem">可放宽日期范围或属性条件</span></div>
-          <template v-else>
-            <div class="query-summary">共 {{ total }} 条记录（同一天同评分自动去重）</div>
-            <div style="overflow-x:auto;">
-              <table class="stock-table" style="min-width:1180px">
-                <thead>
-                  <tr>
-                    <th class="sortable" :class="{ active: querySort.keyOf('batch_date') }" @click="querySort.onSort('batch_date', 'string')">日期<span class="sort-ind">{{ querySort.ind('batch_date') }}</span></th>
-                    <th class="sortable" :class="{ active: querySort.keyOf('batch_time') }" @click="querySort.onSort('batch_time', 'string')">时间<span class="sort-ind">{{ querySort.ind('batch_time') }}</span></th>
-                    <th class="sortable" :class="{ active: querySort.keyOf('action') }" @click="querySort.onSort('action', 'string')">类型<span class="sort-ind">{{ querySort.ind('action') }}</span></th>
-                    <th class="sortable" :class="{ active: querySort.keyOf('code') }" @click="querySort.onSort('code', 'string')">代码<span class="sort-ind">{{ querySort.ind('code') }}</span></th>
-                    <th class="sortable" :class="{ active: querySort.keyOf('name') }" @click="querySort.onSort('name', 'string')">名称<span class="sort-ind">{{ querySort.ind('name') }}</span></th>
-                    <th class="sortable" :class="{ active: querySort.keyOf('bid_change') }" @click="querySort.onSort('bid_change')">竞价涨幅<span class="sort-ind">{{ querySort.ind('bid_change') }}</span></th>
-                    <th class="sortable" :class="{ active: querySort.keyOf('real_change') }" @click="querySort.onSort('real_change')">实时涨幅<span class="sort-ind">{{ querySort.ind('real_change') }}</span></th>
-                    <th class="sortable" :class="{ active: querySort.keyOf('entity_change') }" @click="querySort.onSort('entity_change')">实体涨幅<span class="sort-ind">{{ querySort.ind('entity_change') }}</span></th>
-                    <th class="sortable" :class="{ active: querySort.keyOf('bid_amt') }" @click="querySort.onSort('bid_amt')">竞价金额(万)<span class="sort-ind">{{ querySort.ind('bid_amt') }}</span></th>
-                    <th class="sortable" :class="{ active: querySort.keyOf('bid_ratio') }" @click="querySort.onSort('bid_ratio')">竞价/昨比<span class="sort-ind">{{ querySort.ind('bid_ratio') }}</span></th>
-                    <th class="sortable" :class="{ active: querySort.keyOf('circulation_mv') }" @click="querySort.onSort('circulation_mv')">流通市值(亿)<span class="sort-ind">{{ querySort.ind('circulation_mv') }}</span></th>
-                    <th class="sortable" :class="{ active: querySort.keyOf('industry') }" @click="querySort.onSort('industry', 'string')">行业<span class="sort-ind">{{ querySort.ind('industry') }}</span></th>
-                    <th class="sortable" :class="{ active: querySort.keyOf('probability') }" @click="querySort.onSort('probability')">评分<span class="sort-ind">{{ querySort.ind('probability') }}</span></th>
-                    <th class="sortable" :class="{ active: querySort.keyOf('confidence') }" @click="querySort.onSort('confidence')">可信度<span class="sort-ind">{{ querySort.ind('confidence') }}</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(s, i) in querySort.sorted(rows)" :key="i">
-                    <td>{{ s.batch_date }}</td><td>{{ s.batch_time }}</td>
-                    <td>{{ s.action === 'lock' ? '锁定' : '筛选' }}</td>
-                    <td class="code-click" @click="linkToSoftware(s.code)">{{ s.code }}</td><td>{{ s.name }}</td>
-                    <td :class="chgCls(s.bid_change)">{{ chgPct(s.bid_change) }}</td>
-                    <td :class="realCls(s)">{{ chgPct(s.real_change) }}</td>
-                    <td :class="chgCls(s.entity_change)">{{ chgPct(s.entity_change) }}</td>
-                    <td>{{ bidAmtText(s.bid_amt) }}</td>
-                    <td :class="ratioCls(s.bid_ratio)">{{ ratioText(s.bid_ratio) }}</td>
-                    <td>{{ fmtNum(s.circulation_mv, 1) }}</td><td>{{ s.industry }}</td>
-                    <td class="score-cell">{{ fmtNum(s.probability, 0, '分') }}</td><td>{{ fmtNum(s.confidence, 0, '%') }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div v-if="rows.length < total" style="text-align:center;margin:12px 0;">
-              <button class="tdx-export-btn nav-btn nav-history" @click="loadMore"><i class="fa fa-plus-circle"></i> 加载更多（已显示 {{ rows.length }} / {{ total }} 条）</button>
-            </div>
-          </template>
-        </div>
+    <!-- ② 个股计算器：任意代码实时算三条线 + 明日触发空间 + 十日投影 -->
+    <div v-else-if="tab === 'calc'" class="yd-panel">
+      <div class="yd-toolbar">
+        <span class="yd-tip"><i class="fa fa-info-circle"></i> 实时计算（不依赖盘后名单，任意代码可用）</span>
       </div>
-
-      <!-- ===== AI预测回看视图(2026-09-01): 嵌入 AipickView, 全宽展示 + 日期选择器回看历史报告 ===== -->
-      <div v-else-if="viewMode === 'aipick'" class="aipick-view">
-        <AipickView />
+      <div class="cal-bar">
+        <input
+          v-model="calcCode"
+          class="cal-input"
+          type="text"
+          placeholder="输入代码 / 名称 / 拼音，如 605058 或 电科"
+          aria-label="股票代码"
+          @keydown.enter="doCalc"
+        />
+        <button class="cal-btn" :disabled="calcLoading" @click="doCalc">
+          <i class="fa fa-search"></i> {{ calcLoading ? '计算中…' : '计算' }}
+        </button>
+        <button v-if="calcCode" class="cal-btn cal-btn-ghost" @click="clearCalc">清空</button>
       </div>
+      <DevRiskDetail
+        :data="calcData"
+        :loading="calcLoading"
+        :failed="calcFailed"
+        :code="calcShown"
+      />
+    </div>
 
-      <!-- ===== AI预测·LightGBM 回看(2026-09-25): 同一组件的另一模型视图, 日期回看口径一致 ===== -->
-      <div v-else class="aipick-view">
-        <AipickLgbView />
+    <!-- ③ 重点监控：交易所当日重点监控名单（开盘啦），保持原样 -->
+    <div v-else class="yd-panel">
+      <div class="yd-toolbar">
+        <span class="yd-tip"><i class="fa fa-info-circle"></i> 当日重点监控股票列表</span>
+        <button class="rot-reset-btn" title="刷新" aria-label="刷新" @click="loadMonitor"><i class="fa fa-refresh"></i></button>
       </div>
+      <div v-if="monLoading" class="loading-placeholder"><div class="spinner"></div><div>加载重点监控...</div></div>
+      <div v-else-if="!monList.length" class="empty-state">暂无重点监控数据</div>
+      <table v-else class="stock-table">
+        <thead>
+          <tr>
+            <th>排名</th>
+            <th class="sortable merged-col" :class="{ active: monSort.keyOf('code') || monSort.keyOf('name') }" @click="monSort.onSort('code', 'string')">名称<span class="sort-ind">{{ monSort.ind('code') }}</span></th>
+            <th class="sortable" :class="{ active: monSort.keyOf('startDate') }" @click="monSort.onSort('startDate', 'string')">开始日期<span class="sort-ind">{{ monSort.ind('startDate') }}</span></th>
+            <th class="sortable" :class="{ active: monSort.keyOf('endDate') }" @click="monSort.onSort('endDate', 'string')">结束日期<span class="sort-ind">{{ monSort.ind('endDate') }}</span></th>
+            <th class="sortable" :class="{ active: monSort.keyOf('times') }" @click="monSort.onSort('times')">次数<span class="sort-ind">{{ monSort.ind('times') }}</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(item, idx) in monSort.sorted(monList)" :key="item.code">
+            <td class="rank-col">{{ idx + 1 }}</td>
+            <td class="stock-info-cell" @click="linkToSoftware(item.code)">
+              <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ item.name }}</span><PoolHoverBtn :item="item" /></span></div>
+              <div class="stock-code-row"><span class="stock-code">{{ item.code }}</span></div>
+            </td>
+            <td>{{ item.startDate }}</td>
+            <td>{{ item.endDate }}</td>
+            <td><span class="lb-badge">{{ item.times }}次</span></td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </div>
 </template>
 
 <script setup>
 import YidongFlow from '../components/YidongFlow.vue'
-import { onMounted, reactive, ref } from 'vue'
-import SectorRotationPanel from '../components/SectorRotationPanel.vue'
-import { listBatches, queryHistory } from '../api/history'
-import { trackUsage } from '../api/activity'
-import { fetchPerformance } from '../api/stats'
-import { showToast } from '../utils/toast'
-import { linkToSoftware } from '../utils/tdx'
-import { fmtDate } from '../utils/time'
+/**
+ * 异动监管 `/yidong` —— v4.11.64 按《快选异动停牌风险功能工单》改为**三 tab**：
+ *
+ *   ① 严重异动   我方按上交所 5.4.2 口径自算的「越线/将越线」名单（`/api/dev/tomorrow`）
+ *                + 折叠保留开盘啦已公布异动（原 tab 内容，不丢数据）
+ *   ② 个股计算器 任意代码实时算（`/api/dev/risk`）
+ *   ③ 重点监控   交易所当日重点监控（`/api/kpl/yidong-monitor`），保持原样
+ *
+ * ★ 已按主人拍板**删除**原「热门股偏离值」与「多次异动」两个 tab。
+ *
+ * 口径（★ 与工单正文相反，2026-09-27 主人拍板取交易所口径）：
+ *   偏离值 =（期末收盘/期初前收盘 − 1）×100% −（对应指数同区间 − 1）×100%
+ *   ——「区间首尾相减」，**不是**工单正文写的「逐日偏离值求和」。
+ *   3 天各涨停时区间法 = 33.10%，逐日累加 = 30.00%，两者结果不同。
+ */
+import { computed, onMounted, ref } from 'vue'
+import { usePolling } from '../composables/usePolling'
 import { useSortable } from '../composables/useSortable'
-import { signed, fmtNum, pct as chgPct } from '../utils/format'
-// 2026-09-01: AI预测回看 tab 直接嵌入组件(自带 VipGate 门禁 + 日期选择器 + 规则过滤)
-import AipickView from './AipickView.vue'
-// 2026-09-25: LightGBM 平行链路回看(共用 AipickReport, 只是 model='lgb')
-import AipickLgbView from './AipickLgbView.vue'
+import { kplYidongRealtime, kplYidongMonitor } from '../api/kpl'
+import { devRisk, devTomorrow } from '../api/dev'
+import { linkToSoftware } from '../utils/tdx'
+import { bjTimeStr } from '../utils/time'
+import { fmtNum } from '../utils/format'
+import PoolHoverBtn from '../components/PoolHoverBtn.vue'
+import DevWarnList from '../components/DevWarnList.vue'
+import DevRiskDetail from '../components/DevRiskDetail.vue'
 
-const PAGE_SIZE = 100
-// 表格排序实例
-const batchSort = useSortable()
-const querySort = useSortable()
-// ---------- 视图切换 ----------
-const viewMode = ref('batch')   // batch(按批次) / query(综合查询) / aipick(AI预测回看)
-function switchView(m) {
-  if (viewMode.value === m) return
-  viewMode.value = m
-  // 2026-09-22 v4.11.35: 用户主动切视图算一次使用(同一个 tab 重复点不算)
-  trackUsage('history')
-  if (m === 'batch') loadBatches()
-}
-
-// ---------- 按批次视图 ----------
-const batches = ref([])
-const batchesLoading = ref(false)
-const expandedId = ref(null)
-const batchStocks = ref([])
-const batchDetailLoading = ref(false)
-
-async function loadBatches() {
-  batchesLoading.value = true
-  try {
-    const d = await listBatches()
-    batches.value = d.batches || []
-  } catch (e) {
-    showToast('❌ ' + e.message, 'error')
-  } finally {
-    batchesLoading.value = false
-  }
-}
-
-async function toggleBatch(id) {
-  if (expandedId.value === id) {
-    expandedId.value = null
-    batchStocks.value = []
-    return
-  }
-  expandedId.value = id
-  batchStocks.value = []
-  batchDetailLoading.value = true
-  try {
-    const d = await listBatches(id)
-    batchStocks.value = d.stocks || []
-  } catch (e) {
-    showToast('❌ ' + e.message, 'error')
-  } finally {
-    batchDetailLoading.value = false
-  }
-}
-
-// ---------- 综合查询视图 ----------
-const f = reactive({
-  date_from: '',
-  date_to: '',
-  bid_min: '',
-  bid_max: '',
-  mv_min: '',
-  mv_max: '',
-  prob_min: '',
-  conf_min: '',
-  action: ''
+const props = defineProps({
+  // 首屏落在哪个 tab（warn / calc / monitor）。
+  // ★ 存在的理由有二：① 让 SSR 冒烟测试能渲染「个股计算器」分支
+  //   （它是纯 DOM 交互分支，不渲染就完全测不到 —— 本项目两次模板事故都是这么漏的）；
+  //   ② 将来从别处深链到「计算器」时可以直接传参，不必再解析 query。
+  initialTab: { type: String, default: 'warn' },
 })
-const rows = ref([])
-const total = ref(0)
-const loading = ref(false)
-const stats = ref(null)
-const statsCollapsed = ref(true)    // 评分/每日趋势默认收起(面板更紧凑)
-let page = 1
 
-function initDefaults() {
-  const now = new Date()
-  if (!f.date_from) f.date_from = fmtDate(new Date(now.getFullYear(), now.getMonth(), 1))
-  if (!f.date_to) f.date_to = fmtDate(now)
+const tab = ref(['warn', 'calc', 'monitor'].indexOf(props.initialTab) >= 0 ? props.initialTab : 'warn')
+const bjTime = ref('--:--:--')
+
+// ---- ① 严重异动（我方结果表）----
+const devRows = ref([])
+const devLoading = ref(true)
+const devFailed = ref(false)
+const devDate = ref('')
+
+// ---- ① 交易所已公布异动（开盘啦，折叠）----
+const pubRows = ref([])
+const pubLoading = ref(true)
+const showPub = ref(false)
+
+// ---- ② 个股计算器 ----
+const calcCode = ref('')
+const calcShown = ref('')        // 已提交计算的代码（与输入框解耦：输入框改了不立刻重算）
+const calcData = ref(null)
+const calcLoading = ref(false)
+const calcFailed = ref(false)
+
+// ---- ③ 重点监控 ----
+const monList = ref([])
+const monLoading = ref(true)
+const monSort = useSortable()
+
+const devStatusText = computed(() => {
+  if (devFailed.value) return '读取失败'
+  if (!devRows.value.length) return ''
+  return `共 ${devRows.value.length} 只`
+})
+
+function switchTab(t) {
+  tab.value = t
+  monSort.clear()
 }
 
-function cleanParams() {
-  const p = {}
-  Object.entries(f).forEach(([k, v]) => { if (String(v).trim() !== '') p[k] = v })
-  return p
+function isTriggered(status) {
+  return status && (status.includes('已触发') || status.includes('已停牌'))
 }
 
-async function runQuery() {
-  loading.value = true
-  page = 1
+async function loadWarn() {
+  devLoading.value = true
+  devFailed.value = false
   try {
-    const data = await queryHistory(cleanParams(), page, PAGE_SIZE)
-    rows.value = data.list || []
-    total.value = data.total || 0
+    const d = await devTomorrow()
+    devRows.value = (d && d.list) || []
+    devDate.value = (d && d.date) || ''
   } catch (e) {
-    rows.value = []
-    total.value = 0
-    showToast('❌ ' + e.message, 'error')
+    devRows.value = []
+    devDate.value = ''
+    devFailed.value = true
   } finally {
-    loading.value = false
+    devLoading.value = false
   }
-  loadStats()
 }
 
-async function loadStats() {
+function reloadWarn() {
+  loadWarn()
+  loadPub()
+}
+
+async function loadPub() {
+  pubLoading.value = true
   try {
-    stats.value = await fetchPerformance(cleanParams())
+    const d = await kplYidongRealtime()
+    pubRows.value = (d && d.list) || []
   } catch (e) {
-    stats.value = null
+    pubRows.value = []
+  } finally {
+    pubLoading.value = false
   }
 }
 
-function pct(v) {
-  if (v === null || v === undefined || isNaN(v)) return '—'
-  return (Number(v) * 100).toFixed(1) + '%'
-}
-function rateCls(v) { return v >= 0.5 ? 'up' : v >= 0.3 ? '' : 'down' }
-
-async function loadMore() {
-  page++
+async function loadMonitor() {
+  monLoading.value = true
   try {
-    const data = await queryHistory(cleanParams(), page, PAGE_SIZE)
-    rows.value = rows.value.concat(data.list || [])
+    const d = await kplYidongMonitor()
+    monList.value = (d && d.list) || []
   } catch (e) {
-    showToast('❌ ' + e.message, 'error')
+    monList.value = []
+  } finally {
+    monLoading.value = false
   }
 }
 
-function realCls(s) {
-  const r = s.real_change
-  if (r === null || r === undefined || isNaN(r)) return 'dim'      // P0-3: 未知不配色
-  const b = s.bid_change
-  if (b !== null && b !== undefined && !isNaN(b) && r < b) return 'real-green'
-  return r > 0 ? 'up' : 'down'
+async function doCalc() {
+  let c = String(calcCode.value || '').trim()
+  if (!/^\d{6}$/.test(c)) {
+    // 名称/拼音 → 先搜
+    try {
+      const d = await fetch('/api/stocks/search?q=' + encodeURIComponent(c) + '&limit=1').then(r=>r.json())
+      const hit = (d && d.list && d.list[0])
+      if (hit && hit.code) { c = hit.code }
+      else {
+        calcShown.value = c
+        calcData.value = { ok: false, reason: 'not_found', msg: '未找到匹配股票: ' + c }
+        calcFailed.value = false
+        return
+      }
+    } catch(e) {
+      calcShown.value = c
+      calcData.value = { ok: false, reason: 'search_fail', msg: '搜索失败: ' + c }
+      calcFailed.value = false
+      return
+    }
+  }
+  calcShown.value = c
+  calcLoading.value = true
+  calcFailed.value = false
+  try {
+    // ★ 后端算不出时返 200 + ok:false（带 reason），**不是**请求失败 —— 两者必须分开
+    calcData.value = await devRisk(c)
+  } catch (e) {
+    calcData.value = null
+    calcFailed.value = true
+  } finally {
+    calcLoading.value = false
+  }
 }
-// 涨跌配色(P0-3): 未知 → dim; 0 保持既有 down 口径
-function chgCls(v) {
-  if (v === null || v === undefined || isNaN(v)) return 'dim'
-  return v > 0 ? 'up' : 'down'
+
+function clearCalc() {
+  calcCode.value = ''
+  calcShown.value = ''
+  calcData.value = null
+  calcFailed.value = false
 }
-function bidAmtText(amt) {
-  if (amt === null || amt === undefined || isNaN(amt)) return '—'
-  return amt >= 10000 ? (amt / 10000).toFixed(2) + '亿' : Number(amt).toFixed(0)
-}
-function ratioCls(br) {
-  if (br === null || br === undefined || isNaN(br)) return 'dim'
-  return br >= 2 ? 'ratio-hot' : br >= 1 ? 'ratio-warm' : ''
-}
-function ratioText(br) {
-  if (br === null || br === undefined || isNaN(br)) return '—'
-  return br.toFixed(2) + '%'
-}
+
+// ⚠️ 与 v4.11.59 同一条纪律：usePolling 必须注册在 **setup 顶层**，
+//   不能在 onMounted 回调里（那时 currentInstance 为 null，onBeforeUnmount 静默失败
+//   ⇒ 定时器与 visibilitychange 监听永不清理）。
+//   首拉由 onMounted 显式完成 ⇒ immediate:false，顺带消掉首屏双请求。
+usePolling(() => { bjTime.value = bjTimeStr() }, 1000, { immediate: false })
+// 名单类数据每 30 秒刷新；个股计算器**不轮询**（用户主动触发，避免覆盖他正在看的票）
+usePolling(() => { loadWarn(); loadMonitor() }, 30000, { immediate: false })
 
 onMounted(() => {
-  initDefaults()
-  loadBatches()
-  runQuery()
+  bjTime.value = bjTimeStr()
+  loadWarn()
+  loadPub()
+  loadMonitor()
+  // 支持 /yidong?code=600519 直接带票进入（浏览器环境才有 location）
+  try {
+    const q = new URLSearchParams(window.location.search).get('code') || ''
+    if (/^\d{6}$/.test(q)) {
+      calcCode.value = q
+      tab.value = 'calc'
+      doCalc()
+    }
+  } catch (e) { /* 非浏览器环境忽略 */ }
 })
 </script>
 
 <style scoped>
-.view-tabs {
-  display: flex;
-  gap: 10px;
-  margin: 10px 0 12px;
+.yd-head {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;
 }
-.view-tab {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  background: var(--bg-hover);
-  border: 1px solid var(--border-soft);
-  color: var(--text-secondary);
-  border-radius: 8px;
-  padding: 8px 16px;
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: border-color 0.2s, color 0.2s;
-}
-.view-tab:hover { border-color: #ffb400; color: #ffe0a0; }
-.view-tab.active {
-  background: rgba(255,180,0,0.12);
-  border-color: #ffb400;
-  color: #ffd700;
-}
-.view-tab-desc { font-size: 0.75rem; color: var(--text-muted); }
-.view-tab.active .view-tab-desc { color: #c9a94a; }
+.yd-title { font-size: 1.25rem; font-weight: 700; color: #ffe0a0; }
+.yd-title .fa { color: #ffb400; }
+.yd-sub { color: var(--text-muted); font-size: 0.8125rem; }
+.yd-time { margin-left: auto; color: #aaa; font-size: 0.875rem; font-family: inherit; }
 
-.batch-view { margin-top: 4px; }
-.batch-tip {
-  background: rgba(255,180,0,0.06);
-  border: 1px solid rgba(255,180,0,0.25);
-  border-radius: 8px;
-  padding: 8px 12px;
-  color: #c9a94a;
-  font-size: 0.75rem;
-  margin-bottom: 12px;
+.yd-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+.yd-tab {
+  padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border-soft);
+  background: var(--bg-hover); color: var(--text-secondary); font-size: 0.875rem;
+  cursor: pointer; transition: border-color 0.2s, color 0.2s;
 }
-.batch-tip b { color: #ffd700; }
-.batch-list { display: flex; flex-direction: column; gap: 8px; }
-.batch-card {
-  background: var(--bg-hover);
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  overflow: hidden;
+.yd-tab:hover { border-color: #ffb400; color: #ffe0a0; }
+.yd-tab.active {
+  background: rgba(255, 180, 0, 0.15); border-color: #ffb400;
+  color: #ffd700; font-weight: 600;
 }
-.batch-card.expanded { border-color: rgba(255,180,0,0.4); }
-.batch-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  cursor: pointer;
-  flex-wrap: wrap;
+
+.yd-panel {
+  background: var(--bg-hover); border: 1px solid var(--border-soft);
+  border-radius: 10px; padding: 14px;
 }
-.batch-head:hover { background: var(--bg-hover); }
-.batch-time { color: #ffe0a0; font-size: 0.875rem; font-weight: 500; }
-.batch-type {
-  font-size: 0.75rem;
-  border-radius: 4px;
-  padding: 1px 8px;
+
+.yd-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.yd-tip { color: var(--text-muted); font-size: 0.75rem; flex: 1; min-width: 0; line-height: 1.5; }
+.yd-badge {
+  display: inline-block; padding: 2px 10px; border-radius: 12px;
+  background: rgba(255, 180, 0, 0.12); color: #ffb400;
+  font-size: 0.75rem; font-weight: 600;
 }
-.type-lock { color: var(--accent); border: 1px solid var(--accent-deep); background: rgba(var(--accent-rgb), 0.1); }
-.type-filter { color: var(--accent-text); border: 1px solid var(--accent); background: rgba(var(--accent-rgb),0.1); }
-.batch-auto-tag { font-size: 0.75rem; color: #aaa; border: 1px dashed #888; border-radius: 4px; padding: 1px 6px; margin-left: 6px; }
-.batch-meta { display: flex; gap: 10px; margin-left: auto; align-items: center; }
-.batch-market { color: var(--text-muted); font-size: 0.75rem; }
-.batch-count { color: #7ce8a0; font-size: 0.75rem; }
-.batch-toggle { color: var(--text-muted); font-size: 0.75rem; }
-.batch-body { border-top: 1px solid var(--border-soft); padding: 8px 10px; }
+
+/* 折叠区：交易所已公布异动 */
+.yd-fold { margin-top: 16px; border-top: 1px dashed var(--border-soft); padding-top: 10px; }
+.yd-fold-h {
+  background: none; border: none; padding: 4px 0; cursor: pointer;
+  color: var(--text-secondary); font-size: 0.8125rem;
+}
+.yd-fold-h:hover { color: #ffd700; }
+.yd-fold-h .fa { margin-right: 6px; color: #ffb400; }
+.yd-fold-b { margin-top: 8px; }
+.yd-fold-b .stock-table { width: 100%; }
+
+/* 个股计算器 */
+.cal-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+.cal-input {
+  width: 220px; padding: 8px 12px; border-radius: 8px;
+  border: 1px solid var(--border-soft); background: var(--bg-main, #1a1a1a);
+  color: var(--text-main); font-size: 0.875rem; font-family: inherit;
+  letter-spacing: 1px; outline: none;
+}
+.cal-input:focus { border-color: #ffb400; }
+.cal-input::placeholder { color: var(--text-muted); letter-spacing: 0; }
+.cal-btn {
+  padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 0.875rem;
+  border: 1px solid #ffb400; background: rgba(255, 180, 0, 0.15); color: #ffd700;
+  font-weight: 600;
+}
+.cal-btn:disabled { opacity: 0.6; cursor: default; }
+.cal-btn-ghost { background: none; border-color: var(--border-soft); color: var(--text-muted); font-weight: 400; }
+
+.desc-col { max-width: 300px; }
+.concept-col { max-width: 240px; color: #9cf; }
+.type-col { max-width: 200px; color: #ffd700; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+.trigger-col { max-width: 180px; color: #aaa; font-size: 0.75rem; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+.dev-col { text-align: right; white-space: nowrap; }
+.dev-col .dev-num { color: #ff4d4f; font-weight: 600; font-size: 0.8125rem; }
+.dev-col .dev-days { color: #999; font-size: 0.75rem; margin-left: 4px; }
+
+.trigger-status {
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 0.75rem; font-weight: 500;
+  color: #666; background: rgba(255, 255, 255, 0.05); white-space: nowrap;
+}
+.trigger-status.triggered { color: #ff4d4f; background: rgba(255, 77, 79, 0.15); border: 1px solid rgba(255, 77, 79, 0.4); }
+
+/* 表格单元格居中对齐 */
+.yd-panel .stock-table th,
+.yd-panel .stock-table td { vertical-align: middle !important; text-align: center !important; }
+
+/* 合并列: 代码+名称 上下排布
+   关键: td 必须是 table-cell + vertical-align:middle 才能自动撑满整行高度,
+        不能设 display:flex(flex 高度由自身内容决定, 不会跟随行高, 导致偏上) */
+.yd-panel .stock-table td.stock-info-cell {
+  cursor: pointer; min-width: 80px !important; padding: 6px 4px !important;
+  display: table-cell !important; vertical-align: middle !important; text-align: center !important;
+}
+.stock-info-cell .stock-name-row { display: block !important; line-height: 1.4 !important; text-align: center !important; }
+.stock-info-cell .stock-name { font-weight: 600 !important; color: var(--text-main); font-size: 0.8125rem !important; }
+.stock-info-cell .stock-code-row { display: block !important; line-height: 1.2 !important; text-align: center !important; margin-top: 2px !important; }
+.stock-info-cell .stock-code {
+  font-family: inherit; font-size: 0.75rem !important; color: var(--text-muted); letter-spacing: 0.5px !important;
+}
+.stock-info-cell:hover .stock-name,
+.stock-info-cell:hover .stock-code { color: var(--accent); }
+
+.loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
+.spinner {
+  width: 28px; height: 28px; border: 3px solid rgba(255, 180, 0, 0.3);
+  border-top-color: #ffb400; border-radius: 50%;
+  animation: spin 0.8s linear infinite; margin: 0 auto 10px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
+
+.lb-badge {
+  display: inline-block; color: #ff8a5c; border: 1px solid rgba(255, 80, 40, 0.5);
+  border-radius: 4px; padding: 0 5px; font-size: 0.75rem;
+  background: rgba(255, 80, 40, 0.12);
+}
 
 /* 浅色主题覆盖 */
-body[data-bg="light"] .view-tab:hover {  color: #5a4a3a; border-color: #b83010;  }
-body[data-bg="light"] .view-tab {  color: #5a4a3a; border-color: #d0d0d0; background: rgba(255,255,255,0.6);  }
-body[data-bg="light"] .view-tab.active .view-tab-desc {  color: #6a5a20;  }
-body[data-bg="light"] .batch-tip b {  color: #8a5500;  }
-body[data-bg="light"] .batch-time {  color: #5a4a3a;  }
-body[data-bg="light"] .type-lock {  color: #b83010; border-color: #b83010; background: rgba(255,80,80,0.12);  }
-body[data-bg="light"] .batch-type {  color: #1a1d26;  }
+body[data-bg="light"] .yd-title { color: #8a5500; }
+body[data-bg="light"] .yd-title .fa { color: #c79100; }
+body[data-bg="light"] .yd-sub { color: #6b6b6b; }
+body[data-bg="light"] .yd-time { color: #6b6b6b; }
+body[data-bg="light"] .yd-tab { color: #6b6b6b; border-color: var(--border-soft); background: rgba(255, 255, 255, 0.6); }
+body[data-bg="light"] .yd-tab:hover { color: #5a4a3a; border-color: #c79100; }
+body[data-bg="light"] .yd-tab.active { color: #5a4a3a; background: rgba(255, 180, 0, 0.15); border-color: #c79100; }
+body[data-bg="light"] .yd-panel { background: rgba(255, 255, 255, 0.85); border-color: var(--border-soft); }
+body[data-bg="light"] .lb-badge { color: #b83010; border-color: rgba(184, 48, 16, 0.5); background: rgba(255, 80, 80, 0.1); }
+body[data-bg="light"] .yd-fold-h { color: #5a4a3a; }
+body[data-bg="light"] .yd-fold-h:hover { color: #8a5500; }
+body[data-bg="light"] .cal-input { background: #fff; color: #3a2a00; }
+body[data-bg="light"] .cal-btn { color: #8a5500; background: #fff8e6; border-color: #c79100; }
+body[data-bg="light"] .cal-btn-ghost { background: none; color: #6b6b6b; border-color: var(--border-soft); }
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .yd-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 10px 8px; }
+  .yd-panel .stock-table { min-width: 680px; }
+  .yd-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 4px; }
+  .yd-tabs::-webkit-scrollbar { display: none; }
+  .yd-tab { flex-shrink: 0; white-space: nowrap; padding: 7px 12px; font-size: 0.8125rem; }
+  .yd-head { gap: 6px; }
+  .yd-title { font-size: 1.0625rem; }
+  .yd-sub { font-size: 0.75rem; width: 100%; }
+  .yd-time { margin-left: 0; font-size: 0.75rem; }
+  .yd-panel .stock-table th { padding: 7px 4px; font-size: 0.75rem; }
+  .yd-panel .stock-table td { padding: 6px 4px; font-size: 0.75rem; }
+  .desc-col { max-width: 180px; }
+  .cal-input { width: 100%; }
+  .cal-bar { gap: 6px; }
+}
 </style>
