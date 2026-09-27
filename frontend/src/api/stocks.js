@@ -22,6 +22,12 @@ export function stockChart(code, period = 'day') {
   return request('/api/stock/chart', { query: { code, period } })
 }
 
+// 2026-09-27: 个股详情(为什么选它) —— 评分构成拆解/题材/异动风险/历史战绩/连板。
+// 与 stockChart 互补: chart 只给分时/K线, detail 给决策信息。
+export function stockDetail(code) {
+  return request('/api/stock/detail', { query: { code } })
+}
+
 // 2026-09-27 v4.11.63 全市场股票快速搜索(《快选移动端追加清单》§三「🔍 跳股」)。
 // 输入：代码 / 中文名片段 / 拼音首字母，三种可混用。
 // 返回 { ok, q, count, list:[{ code, name, board, py }] }。

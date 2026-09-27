@@ -10,10 +10,13 @@ import time
 from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
-from ..services import (auction_snapshot, fetcher, history, kpl, notify, scorer,
+from ..services import (auction_snapshot, bid_strength, dev_risk, fetcher,
+                        history, kpl, notify, scorer,
                         meoz_client,
                         settings, stats, stock_search)
 from ..services.cache_store import store as _cstore   # 2026-09-04: refresh 计算缓存
+from ..services.picker.contract import QuoteRow
+from ..services.picker.score import compute_score
 from .deps import get_uid, jr, qs
 
 log = logger.get_logger(__name__)
@@ -1034,3 +1037,157 @@ def api_stock_chart(request: Request, uid: int = Depends(get_uid),
     if not data:
         return jr({"ok": False, "msg": "图表数据拉取失败(所有数据源均不可用)"}, 502)
     return jr({"ok": True, **data})
+
+
+# =====================================================================
+# 个股详情(为什么选它) 2026-09-27: 用户确认解除"评分构成保密"约束
+# ---------------------------------------------------------------------
+# 面板数据源(全部为真实数据, 无虚构):
+#   * 基础/竞价/概念  → auction_snapshot.load_snapshot_full() 最近交易日 9:25 定格快照
+#   * 评分五因子拆解  → score.compute_score 实时重算(parts: bid/activity/warn/market/yesterday)
+#   * 异动风险       → dev_risk.load_one() 最近一行(交易所偏离口径)
+#   * 历史战绩       → batch_stocks JOIN batches 按 code 查历史入选记录
+#   * 连板           → _fill_lb() 复用(买入前一交易日真实连板数)
+_FACTOR_LABELS = {
+    "bid": "竞价涨幅",
+    "activity": "竞价换手",
+    "warn": "竞价强度",
+    "market": "自由流通市值",
+    "yesterday": "昨日涨幅",
+}
+
+
+def _query_stock_history(code, uid, limit=10):
+    """某股的历史入选/筛选记录(按日期倒序)。返回 [{date, action, probability,
+    confidence, bidChange, realChange, entityChange, bidAmt, concept}]"""
+    from ..db import database
+    conn = database.get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT b.batch_date AS date, b.action AS action,
+                   MAX(s.probability) AS probability, MAX(s.confidence) AS confidence,
+                   MAX(s.bid_change) AS bidChange, MAX(s.real_change) AS realChange,
+                   MAX(s.entity_change) AS entityChange, MAX(s.bid_amt) AS bidAmt,
+                   MAX(s.concept) AS concept, MAX(s.industry) AS industry
+            FROM batch_stocks s
+            JOIN batches b ON b.id = s.batch_id
+            WHERE s.code = ? AND (b.user_id = ? OR (b.user_id = 0 AND b.auto_applied = 1))
+            GROUP BY b.batch_date, b.action
+            ORDER BY b.batch_date DESC, MAX(s.probability) DESC
+            LIMIT ?
+            """, (code, uid, limit)).fetchall()
+        _cols = ["date", "action", "probability", "confidence",
+                 "bidChange", "realChange", "entityChange", "bidAmt", "concept", "industry"]
+        return [dict(zip(_cols, r)) for r in rows]
+    finally:
+        conn.close()
+
+
+def _detail_base(v, history_rows):
+    """基础展示字段: 快照优先, 现价/现涨从最近历史记录兜底。"""
+    b = {
+        "name": (v or {}).get("name") or "",
+        "bidChange": None, "realChange": None, "entityChange": None,
+        "bidAmt": None, "freeCirculationMV": None, "circulationMV": None,
+        "board": (v or {}).get("board") or "", "warnType": None,
+    }
+    if v:
+        b["bidChange"] = v.get("bid_change")
+        b["bidAmt"] = None if v.get("bid_amt") is None else round(float(v.get("bid_amt")), 2)
+        b["freeCirculationMV"] = None if not v.get("free_mv") else round(float(v.get("free_mv")) / 1e8, 4)
+        b["circulationMV"] = None if not v.get("float_mv") else round(float(v.get("float_mv")) / 1e8, 4)
+        b["warnType"] = v.get("warn_type")
+    # 现价/现涨/实体/竞换手: 从最近历史入选记录兜底(快照不含这些)
+    for r in history_rows:
+        if r.get("realChange") is not None:
+            b["realChange"] = r.get("realChange")
+        if r.get("entityChange") is not None:
+            b["entityChange"] = r.get("entityChange")
+        if not b.get("name") and r.get("name"):
+            b["name"] = r.get("name")
+        if not b.get("board") and r.get("concept"):
+            b["board"] = r.get("concept")
+        if b.get("realChange") is not None:
+            break
+    return b
+
+
+@router.get("/api/stock/detail")
+def api_stock_detail(request: Request, uid: int = Depends(get_uid), code: str = ""):
+    """个股详情(为什么选它): 头部 + 评分五因子拆解 + 异动风险 + 历史战绩 + 连板。
+    2026-09-27 主人确认解除"评分构成保密", 下发真实因子分(score.compute_score.parts)。
+    休市/盘后浏览: 快照自动回退最近交易日 9:25 定格, 仍可展示最近可复现的评分构成。"""
+    code = (code or "").strip()
+    if not code or not code.isdigit() or len(code) != 6:
+        return jr({"ok": False, "msg": "参数错误"}, 400)
+
+    # 快照(最近交易日定格)
+    try:
+        snap = auction_snapshot.load_snapshot_full()
+    except Exception as e:                                   # noqa: BLE001
+        log.warning("个股详情快照读取失败 code=%s err=%s", code, e)
+        snap = {}
+    v = snap.get(code)
+
+    # 历史战绩
+    history_rows = []
+    try:
+        history_rows = _query_stock_history(code, uid)
+    except Exception as e:                                   # noqa: BLE001
+        log.warning("个股详情历史读取失败 code=%s err=%s", code, e)
+
+    # 评分五因子拆解(实时重算)
+    score = None
+    if v:
+        try:
+            row = QuoteRow.from_snapshot(v)
+            cfg = scorer.get_scoring_cfg()
+            strengths = bid_strength.load_scores([code]) or {}
+            strength = strengths.get(code)
+            sr = compute_score(row, cfg, strength)
+            parts = []
+            for key, label in _FACTOR_LABELS.items():
+                p = sr.parts.get(key) or {}
+                val = p.get("value")
+                if key == "warn":
+                    val = round(strength, 3) if strength is not None else None
+                parts.append({
+                    "key": key, "label": label,
+                    "value": val,
+                    "score": round(float(p.get("score") or 0), 2),
+                    "weight": round(float(p.get("weight") or 0), 3),
+                })
+            score = {"probability": sr.probability, "confidence": sr.confidence,
+                     "parts": parts, "snapDate": v.get("_date")}
+        except Exception as e:                               # noqa: BLE001
+            log.warning("个股详情评分重算失败 code=%s err=%s", code, e)
+
+    # 异动风险(最近一行)
+    risk = None
+    try:
+        r = dev_risk.load_one(code)
+        if r:
+            risk = {k: r.get(k) for k in (
+                "date", "warn_level", "warn_msg", "today_dev",
+                "d3", "d3_status", "d10", "d10_status", "d30", "d30_status",
+                "max_range", "next_trigger_pct", "trigger_price")}
+    except Exception as e:                                   # noqa: BLE001
+        log.warning("个股详情风险读取失败 code=%s err=%s", code, e)
+
+    # 连板高度(复用 _fill_lb, 独立降级)
+    lb, lb_date = 0, ""
+    try:
+        it = {"code": code}
+        _fill_lb([it])
+        lb = int(it.get("lb") or 0)
+        lb_date = it.get("lbDate") or ""
+    except Exception as e:                                   # noqa: BLE001
+        log.warning("个股详情连板读取失败 code=%s err=%s", code, e)
+
+    base = _detail_base(v, history_rows)
+    log.info("个股详情 uid=%s code=%s score=%s risk=%s history=%d", uid, code,
+             "Y" if score else "-", (risk or {}).get("warn_level") or "-", len(history_rows))
+    return jr({"ok": True, "code": code, **base,
+               "score": score, "risk": risk, "history": history_rows,
+               "lb": lb, "lbDate": lb_date})

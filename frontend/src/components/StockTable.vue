@@ -41,7 +41,7 @@
       <tbody>
         <tr v-for="(item, idx) in sortedStocks" :key="item.code">
           <td class="medal-cell"><span v-if="idx < 3" class="row-medal" :title="['金牌','银牌','铜牌'][idx]">{{ ['🥇','🥈','🥉'][idx] }}</span></td>
-          <td class="stock-info-cell" :data-stock-code="item.code" :data-stock-name="item.name" role="button" tabindex="0" :aria-label="'查看 ' + item.name + ' 分时图'" @click="emit('open-chart', item.code, item.name)" @keydown.enter.prevent="onCellKeydown($event, item)" @keydown.space.prevent="onCellKeydown($event, item)">
+          <td class="stock-info-cell" :data-stock-code="item.code" :data-stock-name="item.name" role="button" tabindex="0" :aria-label="'查看 ' + item.name + ' 分时图'" @click="openStockChart(item.code, item.name)" @keydown.enter.prevent="onCellKeydown($event, item)" @keydown.space.prevent="onCellKeydown($event, item)">
             <div class="stock-name-row">
               <span class="pool-hover-wrap">
                 <span class="stock-name">{{ item.name }}</span>
@@ -103,6 +103,7 @@ import { useYidongMonitor } from '../composables/useYidongMonitor'
 //   setup 在 SSR/单测里会执行、onMounted 不会，顶层拉取会在 Node 里发真实 fetch。
 import { useDevWarnAutoLoad } from '../composables/useDevWarn'
 import PoolHoverBtn from './PoolHoverBtn.vue'
+import { openStockChart } from '../composables/uiBus'
 
 const { yidongTag, yidongTagTitle } = useYidongMonitor()
 const { devWarn, devWarnLabel, devWarnTitle } = useDevWarnAutoLoad()
@@ -113,13 +114,13 @@ const props = defineProps({
   bidSealMap: { type: Object, default: () => ({}) }  // code -> {limitBoards, bidSealAmt, bidNetAmt}
 })
 
-const emit = defineEmits(['open-chart'])
+
 
 // 无障碍: 股票单元格键盘触发弹图(Enter/Space)。仅当焦点在单元格本身
 // (而非其内部的加自选等按钮)时触发, 避免内部按钮操作被误当成弹图。
 function onCellKeydown(e, item) {
   if (e.target !== e.currentTarget) return
-  emit('open-chart', item.code, item.name)
+  openStockChart(item.code, item.name)
 }
 
 // 排序状态: { key: 'bidChange', dir: 'asc' | 'desc' } 或 null

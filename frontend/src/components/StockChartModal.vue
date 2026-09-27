@@ -29,14 +29,20 @@
         </div>
 
         <div class="chart-body">
-          <!-- 画布容器必须常驻, 不能随 loading 被 v-if 卸载:
-               否则切 分时/日K/周K/月K 时容器摘掉再重建, 而 ECharts 实例仍绑在旧(已脱离)节点上,
-               导致各周期切出来都是空白(无 canvas 子节点)。loading/empty 改为绝对定位浮在画布上。 -->
-          <div ref="chartRef" class="chart-canvas"></div>
-          <div v-if="loading" class="chart-loading"><i class="fa fa-spinner fa-spin"></i> 加载中…</div>
-          <div v-else-if="!hasData" class="chart-empty">
-            <i class="fa fa-bar-chart"></i> {{ errorMsg || '暂无数据' }}
+          <!-- 个股详情(为什么选它): 默认 tab, 独立组件拉详情 -->
+          <div v-if="activeTab === 'detail'" class="chart-body-detail">
+            <StockDetailPanel :code="stockCode" :name="stockName" />
           </div>
+          <template v-else>
+            <!-- 画布容器必须常驻, 不能随 loading 被 v-if 卸载:
+                 否则切 分时/日K/周K/月K 时容器摘掉再重建, 而 ECharts 实例仍绑在旧(已脱离)节点上,
+                 导致各周期切出来都是空白(无 canvas 子节点)。loading/empty 改为绝对定位浮在画布上。 -->
+            <div ref="chartRef" class="chart-canvas"></div>
+            <div v-if="loading" class="chart-loading"><i class="fa fa-spinner fa-spin"></i> 加载中…</div>
+            <div v-else-if="!hasData" class="chart-empty">
+              <i class="fa fa-bar-chart"></i> {{ errorMsg || '暂无数据' }}
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -53,6 +59,7 @@ import {
   TitleComponent, MarkLineComponent, MarkAreaComponent
 } from 'echarts/components'
 import { stockChart } from '../api/stocks'
+import StockDetailPanel from './StockDetailPanel.vue'
 import { fmtNum, fmtVol, fmtVolShort } from '../utils/chart'
 import { isIntradayNow } from '../utils/time'
 
@@ -70,12 +77,13 @@ const props = defineProps({
 const emit = defineEmits(['update:visible', 'close'])
 
 const tabs = [
+  { key: 'detail', label: '个股' },
   { key: 'minute', label: '分时' },
   { key: 'day',    label: '日K' },
   { key: 'week',   label: '周K' },
   { key: 'month',  label: '月K' },
 ]
-const activeTab = ref('minute')
+const activeTab = ref('detail')
 const stockCode = computed(() => props.code || '')
 const stockName = ref(props.name || '')
 const preClose = ref(0)
@@ -130,6 +138,7 @@ function close() {
 }
 
 async function fetchData({ silent = false } = {}) {
+  if (activeTab.value === 'detail') return
   if (!stockCode.value) return
   if (!silent) loading.value = true
   errorMsg.value = ''
@@ -159,7 +168,9 @@ async function fetchData({ silent = false } = {}) {
 function switchTab(k) {
   if (activeTab.value === k) return
   activeTab.value = k
+  if (k === 'detail') return
   fetchData()
+  startPoll()
 }
 
 function refresh() {
@@ -447,9 +458,7 @@ function optionCandle(d) {
 watch(() => props.visible, (v) => {
   if (v) {
     stockName.value = props.name || ''
-    activeTab.value = 'minute'
-    fetchData()
-    startPoll()
+    activeTab.value = 'detail'
     document.addEventListener('keydown', onKey)
   } else {
     document.removeEventListener('keydown', onKey)
@@ -461,7 +470,7 @@ watch(() => props.visible, (v) => {
 })
 
 watch(() => props.code, () => {
-  if (props.visible) fetchData()
+  if (props.visible && activeTab.value !== 'detail') fetchData()
 })
 
 function onKey(e) {
@@ -539,6 +548,7 @@ onUnmounted(() => {
   background: var(--bg-panel-solid, #0b1220);
 }
 .chart-canvas { width: 100%; height: 100%; }
+.chart-body-detail { width: 100%; height: 100%; overflow: hidden; }
 .chart-loading, .chart-empty {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   flex-direction: column; gap: 8px; color: var(--text-muted, #6b7280); font-size: 0.875rem;
