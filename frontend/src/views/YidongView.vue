@@ -152,6 +152,7 @@ import YidongFlow from '../components/YidongFlow.vue'
 import { computed, onMounted, ref } from 'vue'
 import { usePolling } from '../composables/usePolling'
 import { useSortable } from '../composables/useSortable'
+import { request } from '../api/request'
 import { kplYidongRealtime, kplYidongMonitor } from '../api/kpl'
 import { devRisk, devTomorrow } from '../api/dev'
 import { linkToSoftware } from '../utils/tdx'
@@ -260,7 +261,7 @@ async function doCalc() {
   if (!/^\d{6}$/.test(c)) {
     // 名称/拼音 → 先搜
     try {
-      const d = await fetch('/api/stocks/search?q=' + encodeURIComponent(c) + '&limit=1').then(r=>r.json())
+      const d = await request('/api/stocks/search', { query: { q: c, limit: 1 } })
       const hit = (d && d.list && d.list[0])
       if (hit && hit.code) { c = hit.code }
       else {
