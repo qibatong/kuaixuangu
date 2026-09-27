@@ -2,15 +2,15 @@
 import { request } from './request'
 
 export function kplSentiment() {
-  return request('/api/kpl/sentiment')
+  return request('/api/kpl/sentiment', { cache: 60 })
 }
 
 export function kplMarketBrief() {
-  return request('/api/kpl/market-brief')
+  return request('/api/kpl/market-brief', { cache: 30 })
 }
 
 export function kplIndexBrief() {
-  return request('/api/kpl/index-brief')
+  return request('/api/kpl/index-brief', { cache: 30 })
 }
 
 export function kplBidSeal(date = '') {
@@ -43,7 +43,7 @@ export function kplLadder(date = '') {
 }
 
 export function kplZtEchelon() {
-  return request('/api/kpl/zt-echelon')
+  return request('/api/kpl/zt-echelon', { cache: 60 })
 }
 
 // 连板天梯盘后生成的日期列表(降序)
@@ -70,7 +70,7 @@ export function emBoardMembers(code) {
 
 
 export function kplHotRank(source = 'kpl', date = '') {
-  return request(`/api/kpl/hot-rank?source=${source}${date ? `&date=${date}` : ''}`)
+  return request(`/api/kpl/hot-rank?source=${source}${date ? `&date=${date}` : ''}`, { cache: 60 })
 }
 
 export function kplLhb(date = '') {

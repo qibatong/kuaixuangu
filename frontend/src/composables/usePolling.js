@@ -32,6 +32,7 @@ export function usePolling(fn, intervalMs,
 
   async function tick() {
     if (!active.value) return
+    if (document.hidden) { schedule(); return }
     let ok = true
     try {
       const r = fn()
