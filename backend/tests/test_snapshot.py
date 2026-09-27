@@ -95,7 +95,16 @@ def test_snapshot_filters_abnormal_change(client, monkeypatch):
 
 # ---------- 历史回放 ----------
 def test_query_snapshot_sorted(client, monkeypatch):
-    """query_snapshot 按竞价涨幅降序 + limit"""
+    """query_snapshot 按竞价涨幅降序 + limit
+
+    ⚠️ 断言只覆盖**本用例写入的 3 个代码**，不假设 `(今天, 9_25)` 只有这 3 行：
+    `snapshot_bid` 落库走 `INSERT OR REPLACE`、主键 `(date, time_point, code)`，
+    **不会清除同组下别的 code** —— 别的用例往同一 `(date, time_point)` 写过的合成行会被并进来。
+    历史误红（2026-09-28）：`_bj_date()` 由周日翻到周一后恰好与另一用例的污染日期重合，
+    原来的「整表精确相等」断言因此失败（实测恰多 2 行 `600002`/`600003`，**非真实采集** ——
+    真实采集一次是 5561 行、`limit=50` 会顶满）。本用例要验的是「降序 + limit」，
+    与「同组里有没有别的代码」无关，故改为按本用例代码取子序列断言。
+    """
     def fake_fetch(fs):
         a = dict(RAW); a["f12"] = "600001"; a["f615"] = 1.0
         b = dict(RAW); b.update({"f12": "000002", "f615": 6.0})
@@ -103,9 +112,12 @@ def test_query_snapshot_sorted(client, monkeypatch):
         return [a, b, c]
     monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", fake_fetch)
     auction_snapshot.snapshot_at("9_25", force=True)
-    rows = auction_snapshot.query_snapshot(auction_snapshot._bj_date(), "9_25", 50)
-    assert [r["code"] for r in rows] == ["000002", "300003", "600001"]   # 6.0 > 3.0 > 1.0
-    assert len(auction_snapshot.query_snapshot(auction_snapshot._bj_date(), "9_25", 2)) == 2
+    date = auction_snapshot._bj_date()
+    rows = auction_snapshot.query_snapshot(date, "9_25", 50)
+    mine = ("600001", "000002", "300003")
+    got = [r["code"] for r in rows if r["code"] in mine]
+    assert got == ["000002", "300003", "600001"]   # 6.0 > 3.0 > 1.0
+    assert len(auction_snapshot.query_snapshot(date, "9_25", 2)) == 2
 
 
 # ---------- 竞价排查日志 ----------
