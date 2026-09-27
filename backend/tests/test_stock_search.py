@@ -161,9 +161,19 @@ def test_search_by_chinese_name():
     with _FakeIndex():
         assert [x['code'] for x in ss.search('茅台')][0] == '600519'
         assert [x['code'] for x in ss.search('锂业')][0] == '002466'
-        # 只按「名称」匹配，**不掺 board/概念**（宁德时代板块是锂电但名字里没有「锂」）
-        assert {x['code'] for x in ss.search('锂')} == {'002466'}
-        assert ss.search('锂电') == [] or all('锂电' in x['name'] for x in ss.search('锂电'))
+        # ★ 2026-09-27 订正契约: `afc865e`(搜名称匹配) 起**支持按 board/概念命中**(score=6),
+        #   原断言「不掺 board/概念」是 `e6c5be9` 写用例时的旧契约, 那次提交后被有意放宽
+        #   ⇒ 搜「锂」现在会同时带出「宁德时代」(名字无「锂」, 但板块是「锂电」)。
+        #   本用例改为钉住**真正该守的语义**: 名称命中(score=3/4)必须**排在**概念命中(score=6)之前。
+        codes = [x['code'] for x in ss.search('锂')]
+        assert '002466' in codes, "名称含「锂」的必须命中"
+        assert '300750' in codes, "板块「锂电」的宁德时代也应命中(概念匹配是有意特性)"
+        assert codes.index('002466') < codes.index('300750'), \
+            "名称命中(002466 天齐锂业)必须排在概念命中(300750 宁德时代)之前"
+        # 概念词本身: 命中的票 board 都必须含「锂电」, 且不得混入无关票(如银行)
+        for x in ss.search('锂电'):
+            assert '锂电' in x['board'], "概念命中必须真的来自 board 字段"
+        assert '601398' not in [x['code'] for x in ss.search('锂电')]
 
 
 def test_search_ranking_code_before_pinyin():
