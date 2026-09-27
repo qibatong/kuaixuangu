@@ -90,7 +90,14 @@ export function kplWpqc() {
 }
 
 export function kplBidQiangcang(date = '') {
-  return request('/api/kpl/bid-qiangcang', { query: date ? { date } : {}, cache: 300 })
+  // 2026-09-28: 前端缓存按「是否回看」分流。
+  //   历史日期的竞价数据不可变 → 300s 安全; **实时路径必须真的到后端** ——
+  //   服务端每个请求都要重算"现涨"(_apply_change_for / _update_spot_change),
+  //   而 300s 的前端缓存会把 usePolling 的 30s 轮询整个吃掉(实刷频率退化成 300s),
+  //   表现就是"竞价只该刷新的实时涨幅反而不刷新"。
+  //   注: cache 置 0 不增加免费用户配额消耗(第 2 次本就被 quota_guard 挡成 429 →
+  //       前端自动退避), 会员侧只是多打热路径(实测 66~84ms/次)。
+  return request('/api/kpl/bid-qiangcang', { query: date ? { date } : {}, cache: date ? 300 : 0 })
 }
 
 export function kplYestZt(date = '') {

@@ -288,6 +288,39 @@ def call(apiname: str, params=None, fields=None, timeout: int = _TIMEOUT):
 
 
 # ---------------- 便捷封装(带缓存) ----------------
+_HIST_TTL = 3600        # 历史日上游数据的长 TTL(秒); 判定规则见 _hist_ttl_for
+
+
+def _hist_ttl_for(params, ttl) -> float:
+    """历史**绝对日期**的请求 → 长 TTL; 其余 → 原 ttl。
+
+    ★ 为什么需要(2026-09-28 生产实证):
+      回看日的数据**不可变**(那天的竞价早已结束), 但 call_cached 一律套用快照
+      TTL(_AUC_SNAP_TTL=30) ⇒ 结果层(600s)一过期, 上游层几乎必然也已过期 ⇒
+      每次重算都要重打那几个**全市场 5000+ 行**的猫爪接口
+      (screening 5557 / free_mv_map 5904 / auc_snapshot 5567 / auc_open_bid 5569)。
+      实测:「上游热 / 结果冷」重建仅 **345ms**, 而默认(上游也冷)**5.5~6.9s**, 差 16~20 倍。
+      主人报的「竞价抢筹 Tab 首次加载要等 5 秒」正源于此。
+
+    ★ 安全性只依赖三件事(逐条都是硬约束, 改动前请复核):
+      1. 键里是**绝对** `tradedate=20260924` → 按日隔离、该日值不可变 ⇒ 长 TTL 安全;
+      2. 实时路径传的是 `tradedate_offset=0`(**相对键**, 跨自然日复用同一键)
+         ⇒ 绝不能长 TTL。本函数只认 `tradedate`, 对 offset 天然不匹配;
+      3. 与**今天**同日时用原 TTL —— 今天的竞价数据仍在变。
+         ⚠️ 比较前必须先归一化: `2026-09-28`(带横线) 与 `20260928` 是同一个日子,
+            漏掉归一化会把"带横线的今天"误判成历史日 ⇒ 盘中数据被缓存 1 小时。
+            (该边界有专门用例, 见 scripts/deploy_tmp/_kx_be/_kx_ttl_for_check.py)
+    """
+    td = (params or {}).get("tradedate")
+    if not td:
+        return ttl
+    digits = "".join(ch for ch in str(td) if ch.isdigit())
+    if len(digits) != 8:                      # 非法/异常格式: 不动, 用原 TTL(安全侧)
+        return ttl
+    today = time.strftime("%Y%m%d", time.gmtime(time.time() + 8 * 3600))
+    return max(float(_HIST_TTL), float(ttl)) if digits < today else ttl
+
+
 def call_cached(apiname: str, params=None, fields=None, ttl=6, cache_key=None,
                 fresh: bool = False):
     """带缓存的调用。ttl 秒内同 key 直接读缓存, 避免竞价时段高频重复拉同一份数据。
@@ -302,6 +335,8 @@ def call_cached(apiname: str, params=None, fields=None, ttl=6, cache_key=None,
             cache_key = apiname + ":" + json.dumps(params or {}, sort_keys=True, ensure_ascii=False)
         except Exception:                                      # noqa: BLE001
             cache_key = apiname
+    # 2026-09-28: 历史绝对日期改用长 TTL —— 结果层过期时上游仍热, 重建从 5.5s 降到 ~0.35s
+    ttl = _hist_ttl_for(params, ttl)
     full = "meoz:" + cache_key
     if not fresh:
         hit = store.get(full)

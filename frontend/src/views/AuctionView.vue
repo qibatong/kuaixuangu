@@ -639,8 +639,10 @@ function showReason(it) {
   }
 }
 
-// 单个接口最多等 12s, 超时返回空对象(不让某个慢接口拖垮整页加载)
-function withTimeout(p, ms = 12000) {
+// 单个接口最多等 15s, 超时返回空对象(不让某个慢接口拖垮整页加载)
+// 2026-09-28: 12000 → 15000。冷取数最坏实测 11.5s(结果层 + 上游层同时失效),
+// 12s 会在临界点把结果截断成空列表(= 用户看到"点了没数据"), 留足余量。
+function withTimeout(p, ms = 15000) {
   return Promise.race([
     p,
     new Promise(res => setTimeout(() => res({ list: [], list20: [], list20Chg: [], listLast: [], days: [] }), ms))

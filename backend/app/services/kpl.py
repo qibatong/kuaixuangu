@@ -3008,10 +3008,18 @@ def fetch_bid_qiangcang(date=None):
                 "date": today}
     # 2026-09-20 缓存分层: 竞价定格后, 定格字段(涨幅/净额/抢筹强度/换手/昨比)不再变化 → 长缓存;
     # 现涨(realChange)与自由流通市值(floatMv)由 api 层每次轻量刷新(各自短缓存), 不随本缓存。
-    #   - 历史回看(date 非空): 600s(数据不可变)
+    #   - 历史回看(date 早于今天): 1800s(数据不可变) —— 2026-09-28 由 600s 提升
+    #   - 历史回看(正好是今天): 600s(今天的竞价数据仍在变, 不变)
     #   - 实时竞价(9:15-9:26): 30s(竞价进行中需实时感)
     #   - 实时非竞价(盘后/周末/盘中): 300s(读库定格快照, 不再每 30s 重读)
-    _ttl = 600 if date else (30 if in_bid else 300)
+    # ★ 为什么回看日要提到 1800s: 与上游的 `_hist_ttl_for` 长 TTL 配套 —— 结果层过期时
+    #   上游仍然热, 重建只需 ~0.345s(实测) 而非 5.5~6.9s; 拉长结果层只是减少重建次数。
+    if date:
+        _d8 = str(date).replace("-", "")
+        _today8 = time.strftime("%Y%m%d", time.gmtime(time.time() + 8 * 3600))
+        _ttl = 1800 if _d8 < _today8 else 600
+    else:
+        _ttl = 30 if in_bid else 300
     return _cached("bid_qiangcang" + (("_" + date.replace("-", "")) if date else ""), _ttl, loader)
 
 
@@ -4367,6 +4375,22 @@ def fill_close_change_from_kline(lst, date):
         _CLOSE_CHG_CACHE[date] = ent
     table = ent[1]
     today_bj = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600))
+    # ★ 2026-09-28 修复「盘前时段整页卡 15 秒」:
+    #   目标日 == 今天 且**今天尚未开盘**(北京 < 09:15) 时, 今天连一笔竞价都没有 ⇒
+    #   多源日K 里不可能有"今天那根"(下方 _one 判 `str(t)[:10] == date` 必然落空),
+    #   但整体超时要白等满 _FILL_TIMEOUT(15s), 而且把上百个请求并发打出上游。
+    #   生产实测(2026-09-28 02:00, freeze_day=今天): 「竞价爆量」157 只**无一命中**、
+    #   `_CLOSE_CHG_CACHE[今天]` 恒为 0 只; 日志「现涨K线兜底整体超时 15s, 放弃剩余 6 只」
+    #   并伴随大量「猫爪 429 限流 a=daily」⇒ 「竞价爆量」「昨涨停」「龙虎榜」三个 tab
+    #   各自的 15.0s 全部耗在这里(接口自身 loader 仅 2~646ms)。
+    #   短路只跳过"注定拿不到"的拉取, **不动任何字段**(现涨仍由快照/东财全市场 map 提供)
+    #   ⇒ 盘前表现为"显示最新可得的定格值", 与 `_close_chg_persist_allowed()` 的
+    #     「未收盘不落库」判据同源 ⇒ 零语义变更。
+    #   注: 09:15 之后不短路 —— 那时日K可能已有今天那根, 保留原有实时覆盖行为。
+    if date == today_bj:
+        _bjt = time.gmtime(time.time() + 8 * 3600)
+        if (_bjt.tm_hour, _bjt.tm_min) < (9, 15):
+            return 0
     # 收盘自愈(2026-08-24): 盘中旧代码把"竞价涨幅"误当"当日收盘涨幅"写入 close_change_history,
     # 导致收盘/历史回看时现涨=竞涨。针对"今天且已收盘"一次性强制重拉纠正脏值(去重, 之后走库/缓存)。
     force_resync = (date == today_bj and _close_chg_persist_allowed(date)
