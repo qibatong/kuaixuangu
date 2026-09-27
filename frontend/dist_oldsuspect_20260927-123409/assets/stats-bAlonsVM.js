@@ -1,1 +1,0 @@
-import{L as r}from"./index-emA0yUAV.js";function e(t={}){return r("/api/stats/performance",{query:t})}function s(t=""){return r("/api/stats/auction-overview",{query:t?{date:t}:{}})}function i(t,n=100){return r("/api/stats/bid-snapshot-3points",{query:{date:t,limit:n}})}export{s as a,i as b,e as f};

@@ -651,48 +651,31 @@ async function loadAll(fromUser = false) {
   const dt = datePicker.value
   loading.value = true
   try {
-    // 2026-08-18 性能优化: 不再 10 接口全量并行(KPL 信号量3限流+东财全市场拉取 → 冷缓存首屏 20s+)
-    // 首屏只加载 overview(非交易日检测/多时点面板) + 三时点榜(默认tab); 其余 tab 切到才按需加载(ensureTabData)
-    // 历史回看: 各 tab 带 date 读历史快照, 同样懒加载
-    const [ov, s3] = await Promise.all([
-      withTimeout(auctionOverview('')), withTimeout(bidSnapshot3points(dt || todayBj()))
-    ])
-    // 非交易时段(周末/节假日/盘前盘后)自动回退: 实时模式时, 若最近有 snapshot_bid 数据的
-    // 交易日不是今天 → 说明现在是非交易时段, 自动切到最近交易日回看(所有 tab 带 date 读历史快照)
-    // 2026-08-18 修复: 原判断"各 tab 全空"太苛刻(seal/boom 实时接口盘后残留昨数据导致不触发,
-    // 而 yest-broken/qc 等凌晨实时接口返回空) → 改为"最近交易日≠今天"直接回退
-    if (!dt && !autoFallback && ov.days && ov.days.length) {
+    // 2026-09-27 优化: 先拉 overview 判断是否需要回退, 避免周末重复拉两次 bidSnapshot
+    const ov = await withTimeout(auctionOverview(''))
+    let useDate = dt
+    if (!dt && ov.days && ov.days.length) {
       const lastTrading = ov.days[0].date
-      const isToday = lastTrading === todayBj()
-      if (lastTrading && !isToday) {
+      if (lastTrading && lastTrading !== todayBj()) {
         autoFallback = true
         datePicker.value = lastTrading
+        useDate = lastTrading
         showToast(`当前非交易时段，自动显示最近交易日 ${lastTrading} 的数据`, 'info')
-        loadAll(false)
-        return
       }
     }
     autoFallback = false
+    const s3 = await withTimeout(bidSnapshot3points(useDate || todayBj()))
     s3List.value = s3.list || []
-    // 2026-09-04 修复: Promise.all 已拉过三时点榜, 须标记已加载, 否则下方
-    // ensureTabData('s3') 又重拉一次(每次 loadAll 双请求); 30s 轮询清标记自愈不受影响
     loadedTabs.add('s3')
-    // 记录实际数据日期(后端可能对齐到最近交易日)
-    const d = (ov.days && ov.days.length ? ov.days[0].date : '') || dt || ''
-    dataDate.value = d || dt || ''
-    if (dt && fromUser) {
-      if (!dataDate.value || dataDate.value !== dt) {
-        // 对齐了或该日无历史: 提示
-        if (dataDate.value) {
-          showToast(`数据日期 ${dataDate.value}${dataDate.value !== dt ? '（非交易日自动对齐）' : ''}`, 'info')
-        } else {
-          showToast('该日期暂无历史数据（15:30 落库后可用）', 'warning')
-        }
+    const d = (ov.days && ov.days.length ? ov.days[0].date : '') || useDate || ''
+    dataDate.value = d || useDate || ''
+    if (useDate && fromUser) {
+      if (!dataDate.value || dataDate.value !== useDate) {
+        showToast(`数据日期 ${dataDate.value}${dataDate.value !== useDate ? '（非交易日自动对齐）' : ''}`, 'info')
       }
     }
-    // 默认 tab 数据也按需加载(三时点已加载; 其余首次进入页面切到才拉)
     await ensureTabData(tab.value, { silent: true })
-  } catch (e) { /* 静默 */ } finally {
+  } catch (e) { } finally {
     loading.value = false
   }
 }

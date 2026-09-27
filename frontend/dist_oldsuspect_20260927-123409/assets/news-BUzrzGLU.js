@@ -1,1 +1,0 @@
-import{L as n}from"./index-emA0yUAV.js";function a(e=80){return n("/api/news/flash",{query:{limit:e}})}function s(){return n("/api/news/premarket")}function t(e){return n("/api/news/topic",{query:{id:e}})}export{s as a,t as b,a as n};
