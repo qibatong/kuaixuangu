@@ -1180,12 +1180,25 @@ def fetch_yesterday_perf():
 #   写错源名会直接误导排障(按东财的风控口径去查, 得出错误结论)。
 #   另一坑: 该接口当日数据在 **15:50 之后才发布**(生产实证 8/27 当天 15:25/15:37/15:47
 #   三次抓取均「池为空」) → 采集窗口必须晚于该时刻, 见 stock_temper.BACKFILL_AT。
+#
+# 2026-09-28 新增缓存(`_flash_pool` 改为带缓存; 原实现见 `_flash_pool_raw`):
+#   生产实测:「龙虎榜」实时路径里 `fill_reason_from_pool` 单步 119ms —— 每请求都重拉一次
+#   今日涨停池, 而它**只用到 reason 一个字段**; 全站 16 处调用点绝大多数也在裸打选股宝。
+#   缓存策略:
+#     · 今日池 60s —— 与既有 `real_limit_days` 同口径(其注释: "梯队页每分钟轮询,
+#       避免每轮都打东财")。结合上一条"当日数据 15:50 后才发布": 盘中该池本就是未发布态,
+#       15:50 后即定型 ⇒ 60s 陈旧度对任何消费方都不构成语义变化。
+#     · 历史池 6h —— 历史数据不可变。
+#   ★ 「失败」与「有效空池」必须区分: 请求异常/结构异常 → `_flash_pool_raw` 返回 None
+#     → `_cached` 不缓存, 下次请求重试(仓内既有约定, 见本文件末尾注释); 而**有效空池**
+#     返回 [] 并照常缓存 60s —— 否则盘中"当日数据未发布"这一**合法**空结果会被每请求重打上游。
 _FLASH_BASE = "https://flash-api.xuangubao.cn/api/pool/detail?pool_name="
 
 
-def _flash_pool(pool_name, date=None):
-    """选股宝 flash 池通用请求: pool_name=limit_up_broken/limit_up_pool 等, date 可选(YYYY-MM-DD)
-    返回 [{code,name,change,limitUpDays,breakTimes,reason,...}, ...]; 失败返回 []"""
+def _flash_pool_raw(pool_name, date=None):
+    """选股宝 flash 池**原始请求(不缓存)**: pool_name=limit_up_broken/limit_up_pool 等,
+    date 可选(YYYY-MM-DD)。返回 [{code,name,change,limitUpDays,breakTimes,reason,...}, ...];
+    **失败/结构异常返回 None**(与"有效空池 []"区分, 由缓存层决定是否缓存)。"""
     url = _FLASH_BASE + pool_name + (("&date=" + date) if date else "")
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -1193,10 +1206,10 @@ def _flash_pool(pool_name, date=None):
             d = json.loads(r.read().decode("utf-8", "ignore"))
     except Exception as e:
         log.warning("flash 池请求失败 pool=%s date=%s err=%s", pool_name, date or "-", e)
-        return []
+        return None
     lst = d.get("data")
     if not isinstance(lst, list):
-        return []
+        return None
     out = []
     for it in lst:
         if not isinstance(it, dict):
@@ -1214,6 +1227,17 @@ def _flash_pool(pool_name, date=None):
             "day": date or time.strftime("%Y-%m-%d"),
         })
     return out
+
+
+def _flash_pool(pool_name, date=None):
+    """选股宝 flash 池(**带缓存, 一律走这里**): 今日池 60s / 历史池 6h; 失败返回 []
+
+    缓存策略与安全性论证见上方 2026-09-28 注释。返回值契约与改造前一致(失败/无数据 → []),
+    调用方无需改动; `real_limit_days` 自身那层 60s 缓存保留(重复命中无害)。
+    """
+    key = "flash_%s_%s" % (pool_name, date or "today")
+    ttl = 6 * 3600 if (date and date != _bj_today()) else 60
+    return _cached(key, ttl, lambda: _flash_pool_raw(pool_name, date)) or []
 
 
 def real_limit_days(date):
@@ -1771,16 +1795,48 @@ def _seal_map(date=None):
         return {}
 
 
+# 9_25 快照的**进程内**缓存: {date: (ts, map)}。刻意不走共享 kv_cache —— 见 _snap25_map 注释。
+_SNAP25_CACHE = {}
+_SNAP25_CACHE_MAX = 4          # 最多保留 4 个日期(每份约 1.7MB), 防长期运行累积
+_SNAP25_TTL_TODAY = 60         # 今日: 短 TTL, 9:25 采集/重采要及时反映
+_SNAP25_TTL_HIST = 6 * 3600    # 历史: 不可变
+
+
 def _snap25_map(date=None):
     """指定日 9_25 全市场快照 code → {bid_change, bid_amt, name, float_mv, free_mv, board}
     (全市场5549只, 字段补全兜底)
 
     ★ 2026-09-27 v4.11.67: `date` 空的默认值由**裸自然日**改为**定格基准日** `freeze_day()`。
       原实现周日 `date=None` ⇒ 查 2026-09-27(库里没有) ⇒ 返回 0 行 ⇒ 「昨涨停/昨断板」
-      的行情字段全靠 Type4 兜底 ⇒ 大量空白行。非交易日应定格在最近交易日(09-24, 5561 行)。"""
+      的行情字段全靠 Type4 兜底 ⇒ 大量空白行。非交易日应定格在最近交易日(09-24, 5561 行)。
+
+    ★ 2026-09-28 加**进程内**缓存: 原实现无缓存, 每次新建 sqlite 连接全表查 ~5500 行 ——
+      而「龙虎榜」一次请求就要连查三次(补竞价涨幅 / 流通市值 / 竞价换手), 实测合计 103ms;
+      全仓 11 处调用点、单点内多次调用都在重复查库(项目自己在 `_merge_broken_bid_snap`
+      已写过"按 day 分组查快照(避免重复查库)")。
+
+      ⚠️ 为何**不用共享 kv_cache**: 先按 `_flash_pool` 的做法改成了 `_cached`(共享缓存),
+         实测反而更慢 —— 该映射约 5561 条, 共享层 set/get 需 **49ms / 18ms**
+         (json 序列化 + 落库 + 读回), 本身就超过一次查询(~35ms):
+         「龙虎榜」第 1 次补全从 53ms 涨到 164ms, 后两次命中也要 26ms(与原来一次查询打平)。
+         ⇒ 这份体量的全市场映射放**进程内**(零序列化), 与 `fetcher._quote_map_cache`
+           对全市场行情 map 的既有选择一致。两个 worker 各存一份, 可接受。
+
+      缓存安全性: 本函数取用的 6 个字段在 `INSERT OR REPLACE` 之后**不再被 UPDATE** ——
+      全仓对 snapshot_bid 的更新只有 `auc_main_net` / `auc_vol_ratio` 两列(auction_snapshot.py),
+      均不在本函数字段内。今日 60s / 历史 6h；**空结果不缓存** —— 0 行查询本身极便宜,
+      且 9:25 采集落库后必须立刻可见(不能压 60s)。
+    """
     if not date:
         date = freeze_day()
+    key = str(date)
+    now = time.time()
+    ttl = _SNAP25_TTL_TODAY if key == _bj_today() else _SNAP25_TTL_HIST
+    ent = _SNAP25_CACHE.get(key)
+    if ent and ent[1] and now - ent[0] <= ttl:
+        return ent[1]
     out = {}
+    conn = None
     try:
         conn = sqlite3.connect(config.DB_FILE)
         for r in conn.execute(
@@ -1788,9 +1844,16 @@ def _snap25_map(date=None):
                 "WHERE date=? AND time_point='9_25'", (date,)):
             out[r[0]] = {"bid_change": r[1], "bid_amt": r[2], "name": r[3] or "",
                          "float_mv": r[4] or 0, "free_mv": r[5] or 0, "board": r[6] or ""}
-        conn.close()
     except Exception as e:
         log.warning("9_25快照查询失败 date=%s(降级) err=%s", date, e)
+        return {}                    # ★ 异常 → 降级且不缓存, 下次重试
+    finally:
+        if conn:
+            conn.close()
+    if out:                          # ★ 空结果不缓存(见 docstring)
+        _SNAP25_CACHE[key] = (now, out)
+        while len(_SNAP25_CACHE) > _SNAP25_CACHE_MAX:
+            _SNAP25_CACHE.pop(min(_SNAP25_CACHE, key=lambda x: _SNAP25_CACHE[x][0]), None)
     return out
 
 
