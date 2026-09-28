@@ -291,7 +291,13 @@ def api_aipick_auth_check(request: Request):
     u = users.find_user_by_id(uid)
     if not u:
         return JSONResponse({"ok": False, "code": "no_user", "msg": "用户不存在"}, status_code=401)
-    if u.get("is_admin") or int(u.get("member_level") or 0) >= 1:
+    # 2026-09-28: 补上「会员到期」判断。
+    # 原逻辑仅看 member_level >= 1, 而后台把会员标记为「已过期」时 member_level 仍为 1,
+    # 导致已过期会员继续通过本门禁（已用真实 token 复现: 过期用户返回 200）。
+    # 口径与前端 store 对齐: isAdmin 放行 / VIP(2) 视为永久放行 / 付费会员(1) 须未过期。
+    _lv = int(u.get("member_level") or 0)
+    _gate_ok = bool(u.get("is_admin")) or _lv == 2 or (_lv == 1 and not users.is_expired(uid))
+    if _gate_ok:
         return JSONResponse({"ok": True, "uid": uid}, status_code=200)
     return JSONResponse({"ok": False, "code": "vip_required",
                          "msg": "AI 预测仅限 VIP/付费会员，请升级后使用"}, status_code=403)
