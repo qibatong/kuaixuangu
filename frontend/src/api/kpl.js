@@ -46,6 +46,12 @@ export function kplZtEchelon() {
   return request('/api/kpl/zt-echelon', { cache: 60 })
 }
 
+// ★ 2026-09-28 新增「断板反包」：后端 kpl.fetch_fanbao_stocks() 早就存在（供盘后 PNG 天梯图用），
+//   但**没有任何 API 暴露** ⇒ 网页端一直看不到这块信息。现补一个只读端点。
+export function kplFanbao(date = '') {
+  return request(`/api/kpl/fanbao${date ? `?date=${date}` : ''}`)
+}
+
 // 连板天梯盘后生成的日期列表(降序)
 export function kplLadderDates() {
   return request('/api/ladder/dates')
@@ -79,6 +85,16 @@ export function kplLhb(date = '') {
 
 export function kplLhbDetail(code, date = '') {
   return request('/api/kpl/lhb-detail', { query: { code, date } })
+}
+
+// ★ 2026-09-28 新增：龙虎榜「机构/游资」标签。
+//   列表接口(doc100)的原始字段只有 11 个、**没有**机构/游资线索 ⇒ 后端只能按代码拉席位明细
+//   (doc101)汇总，故做成独立端点、由前端**按需**调用（切到那两个 tab 时才发一次），
+//   避免把 55 只逐个明细的开销压到龙虎榜首屏上。
+export function kplLhbTags(codes, date = '') {
+  const query = { codes: (codes || []).join(',') }
+  if (date) query.date = date
+  return request('/api/kpl/lhb-tags', { query })
 }
 
 export function kplZtReason(code) {

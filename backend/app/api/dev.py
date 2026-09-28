@@ -29,6 +29,48 @@ router = APIRouter()
 _SCAN_KEY = "dev_risk:scan"
 
 
+def _next_trade_date(d):
+    """`d`(YYYY-MM-DD) 的**下一个交易日**；算不出返回 None。
+
+    交易日历只有 `prev_trade_date`，故这里逐日前进探测（最长 15 天足够跨过春节长假）；
+    `trade_calendar.is_trade_day` 对区间外日期是 fail-open（视作交易日），与本项目既有降级一致。
+    """
+    if not d:
+        return None
+    from datetime import datetime, timedelta
+    try:
+        cur = datetime.strptime(str(d)[:10], "%Y-%m-%d").date()
+    except Exception:                                          # noqa: BLE001
+        return None
+    from ..core import trade_calendar
+    for _ in range(15):
+        cur += timedelta(days=1)
+        if trade_calendar.is_trade_day(cur):
+            return cur.strftime("%Y-%m-%d")
+    return None
+
+
+def _fill_lb_for(rows, result_date):
+    """给异动名单补「连板高度标签」（2026-09-28 主人要求：异动板块也要有「昨首板」）。
+
+    ★ 基准日 = 结果日的**下一个交易日** —— 本名单是**盘后为"明日"生成**的，故「买入前一日」
+      正是结果日自己（今天），与选股名单「买入前一日」的语义逐字对应。
+    ★ 复用竞价那份唯一权威实现 `stocks._fill_lb`（局部 import 防模块级循环依赖）；
+      取数失败/空池时它自己会留空 ⇒ 前端不渲染胶囊，**绝不影响名单**。
+    """
+    if not rows:
+        return
+    nxt = _next_trade_date(result_date)
+    if not nxt:
+        log.info("异动名单连板标签跳过：算不出结果日的下一交易日 date=%s", result_date)
+        return
+    try:
+        from .stocks import _fill_lb
+        _fill_lb(rows, ref_date=nxt)
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("异动名单连板标签填充失败(名单照常返回, 标签留空) err=%s", e)
+
+
 @router.get("/api/dev/risk")
 def api_dev_risk(request: Request, uid: int = Depends(get_uid)):
     """个股异动风险（异动计算器 tab）。
@@ -80,6 +122,7 @@ def api_dev_tomorrow(request: Request, uid: int = Depends(get_uid)):
         return (rank.get((r.get("warn_level") or "").strip(), 2), ntp)
 
     out.sort(key=_key)
+    _fill_lb_for(out, d.get("date"))
     return jr({"ok": True, "date": d.get("date"), "count": len(out),
                "scanned": len(rows), "list": out})
 

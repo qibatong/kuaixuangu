@@ -70,6 +70,7 @@
                  (colgroup 与表头列数必须一致, 见上方 colgroup 注释)。
                  本行**始终渲染**(无标签时留空占位) —— 行高恒定, 各列网格线才对齐。
                  连板数口径 = 「买入前一日」(后端 _fill_lb 下发), 未知时不渲染而不是显示「新启动」。
+    🔴 2026-09-28 主人拍板：0 档(前一日未涨停)也**不渲染** —— 见 utils/lb.js 的 lbLabel()。
                  2026-09-23 15:5x 主人要求:
                    ① 连板标签的悬停提示(同档历史统计/样本区间/免责)**整条取消** —— 不再有 title。
                    ② 异动标签里「偏离较大」不再显示 —— 过滤在 useYidongMonitor.yidongTag() 里统一做。
@@ -347,37 +348,10 @@ function realCls(item) {
   max-width: 100%;
   overflow: hidden;
 }
-/* 连板高度档位标签(2026-09-23 P0): 6 档红梯度, 沿用 A 股「红=强」惯例。
-   与「异动」橙(#ff9632)语义可分: 橙=风险告警, 红=强度。
-   ⚠️ 类名用 `lb-tag` 而非 `lb-badge`: AuctionView/MarketView/YidongView 各有一份**同名**
-      `.lb-badge`(「N板」橙标签, scoped), 同名 5 处会让改配色的人找错目标。
-   默认(深色主题)配色: */
-.lb-tag {
-  display: inline-block;
-  font-size: 0.75rem;
-  line-height: 1;
-  padding: 1px 4px;
-  border-radius: 3px;
-  border: 1px solid transparent;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: help;
-}
-.lb-tag-lv0 { background: rgba(154, 154, 154, 0.16); border-color: rgba(154, 154, 154, 0.5); color: #c9c9c9; }
-.lb-tag-lv1 { background: rgba(133, 183, 235, 0.18); border-color: rgba(133, 183, 235, 0.62); color: #a9d1f7; }
-.lb-tag-lv2 { background: rgba(255, 92, 92, 0.18); border-color: rgba(255, 92, 92, 0.55); color: #ffbcbc; }
-.lb-tag-lv3 { background: rgba(255, 60, 60, 0.32); border-color: #ff5c5c; color: #ffe1e1; }
-.lb-tag-lv4 { background: #b3261e; border-color: #ff5c5c; color: #fff; }
-/* 5 板+ 用描边(不填色): 与 4 板的实心深红区分开 —— 两档历史差异很大(持有5日
-   +10.87% vs −6.17%), 视觉上必须能一眼分开 */
-.lb-tag-lv5 { background: transparent; border-color: #ff5c5c; color: #ff8a6f; }
-/* 浅色主题: 胶囊底色改浅、文字改深(白底可读), 梯度不变 */
-body[data-bg="light"] .lb-tag-lv0 { background: #f1efe8; border-color: #b4b2a9; color: #444441; }
-body[data-bg="light"] .lb-tag-lv1 { background: #e6f1fb; border-color: #85b7eb; color: #042c53; }
-body[data-bg="light"] .lb-tag-lv2 { background: #fadcdc; border-color: #e24b4a; color: #7a1616; }
-body[data-bg="light"] .lb-tag-lv3 { background: #f09595; border-color: #a32d2d; color: #501313; }
-body[data-bg="light"] .lb-tag-lv4 { background: #a32d2d; border-color: #791f1f; color: #fff; }
-body[data-bg="light"] .lb-tag-lv5 { background: transparent; border-color: #a32d2d; color: #a32d2d; }
+/* 连板高度档位标签(.lb-tag / .lb-tag-lv1..5 及浅色主题)的配色**已提到全局**
+   `src/styles/main.css`（2026-09-28）—— 异动名单 `DevWarnList.vue` 也要渲染同一套标签，
+   留在本组件 scoped 里就得复制一份梯度，日后只改一处必然漂移。
+   类名唯一性(用 lb-tag 而非 lb-badge)的依据见全局那一节的注释。 */
 .yd-badge {
   display: inline-block;
   font-size: 0.75rem;

@@ -41,6 +41,11 @@ router = APIRouter()
 _REQUIRED_SPOT_FIELDS = ("real_change",)
 
 
+def _bj_date():
+    """今天(北京时间 YYYY-MM-DD) —— 服务器时区无关(显式 +8h), 与本文件 bj_now 同源口径。"""
+    return time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600))
+
+
 def _spot_rows_from_raw(raw, f, zt_map, yesterday_map, bid_chg_map=None, bid_amt_map=None):
     """东财/腾讯 diff 行 → list[(QuoteRow, zt_info)]。
 
@@ -180,6 +185,19 @@ def api_stocks_spot(request: Request, uid: int = Depends(get_uid)):
 
         lst = [_spot_payload(it.row, it.score, zt_map.get(it.row.code), f)
                for it in outcome.kept]
+
+        # 连板高度标签(2026-09-28 主人要求: 实时动态选股也要有「昨首板」)。
+        #   ★ 复用竞价那份 **唯一权威实现** `stocks._fill_lb`(局部 import 避免与 stocks.py 形成
+        #     模块级循环依赖); 口径(买入前一日真实连板数)与文案(utils/lb.js)因此天然一致。
+        #   ★ spot 没有"定格日"概念 ⇒ 显式传**今天**作基准日 ⇒ `_fill_lb` 取"今天之前的最近
+        #     交易日"= 买入前一日(非交易日/盘前调用同样得到最近交易日的连板数)。
+        #   ★ 独立降级: `_fill_lb` 内部已 try/except + 空池不打标 ⇒ 这里再兜一层,
+        #     保证**任何情况都不影响名单本身**(标签缺失时前端不渲染胶囊)。
+        try:
+            from .stocks import _fill_lb
+            _fill_lb(lst, ref_date=_bj_date())
+        except Exception as e:                             # noqa: BLE001
+            log.warning("spot 连板标签填充失败(名单照常返回, 标签留空) err=%s", e)
         log.info("spot 选股 uid=%s 全市场%d→入选%d 剔除=%s 耗时%.0fms",
                  uid, len(scored), len(lst), dict(outcome.stats),
                  (time.time() - t0) * 1000)

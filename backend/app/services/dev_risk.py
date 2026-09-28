@@ -55,6 +55,7 @@
 * **一切失败都返回 None 并记日志**：缺失的指数日、行数不足、上游全挂 —— 绝不返回 0 冒充「无偏离」。
   0 与「算不出」在本模块是两种不同的返回值。
 """
+import datetime as _dt
 import json
 import threading
 import time
@@ -112,6 +113,11 @@ IDX_KEEP_BARS = 120
 
 # 猫爪 daily 单请求总行数硬上限（实测值，超限即静默截断）
 _MEOZ_ROW_CAP = 6000
+# 二分缩批的**深度**上限（2026-09-28 新增）。5561 只全市场只需 ~7 层：
+#   每只 45 行 ⇒ 6000 行 ÷ 45 ≈ 133 只/片 ⇒ 5561 → … → ≤133 收敛得很快，16 层有两个数量级余量。
+_MEOZ_SPLIT_MAX_DEPTH = 16
+# 迭代次数的兜底（防病态循环）：正常只需 ≈ 2 × 叶子片数 ≈ 100 次。
+_MEOZ_SPLIT_MAX_ITERS = 4096
 
 # 指数内存缓存（避免每请求读库）
 _IDX_CACHE = {}
@@ -300,17 +306,31 @@ def _meoz_daily_adaptive(codes, days=FETCH_DAYS):
     返回 {code: [ {tradedate, close, pct_chg, name}, ... ]}（**已按日期升序**）。
     ★ 猫爪返回是「最新在前」，本函数统一反转成升序，调用方不必关心。
     ★ 检测到单次总行数触顶 6000 即**丢弃该批**并二分重取 —— 被截断的数据比没有数据更危险。
+
+    🔴 2026-09-28 修复（既有缺陷，影响面很大）：原实现用 `guard` 计**迭代次数**且 `> 64` 就
+      `break` 中止 —— 而覆盖全市场 5561 只需要「≈50 次二分 + ≈50 片 ≈ 100 次迭代」，
+      ⇒ **每次扫描都在第 64 次迭代整体中断**，`todo` 里剩下的片**从未发过请求**。
+      下游 `scan()` 把这些票记成 `reason='stock_unavailable'`（错误归因：像"没数据"，实为"没去取"），
+      `save_rows` 又不删当日旧行 ⇒ 旧规则（含 3 日线）的行被保留。
+      生产实测：`ok=2592 / total=5561` —— 名单实际只覆盖 46% 的票。
+      现改为**按深度**设限（这才是"层数过深"的本意）：单片的深度超限时**只跳过那一片**并报错，
+      不再整体中断；另留一个迭代兜底防病态循环。
     """
     out = {}
-    todo = [list(codes)]
-    guard = 0
+    todo = [(list(codes), 0)]
+    iters = 0
     while todo:
-        guard += 1
-        if guard > 64:
-            log.error("[dev_risk] 自适应缩批层数过深(>64) ⇒ 中止，已取 %d 只", len(out))
+        iters += 1
+        if iters > _MEOZ_SPLIT_MAX_ITERS:
+            log.error("[dev_risk] 自适应缩批迭代数异常(>%d) ⇒ 中止，已取 %d 只，剩余 %d 片未取",
+                      _MEOZ_SPLIT_MAX_ITERS, len(out), len(todo))
             break
-        chunk = todo.pop()
+        chunk, depth = todo.pop()
         if not chunk:
+            continue
+        if depth > _MEOZ_SPLIT_MAX_DEPTH:
+            log.error("[dev_risk] 自适应缩批深度过深(>%d) ⇒ 跳过该片 %d 只（%s…%s）",
+                      _MEOZ_SPLIT_MAX_DEPTH, len(chunk), chunk[0], chunk[-1])
             continue
         try:
             m = meoz_client.daily_history_map(chunk, days=days)
@@ -322,8 +342,8 @@ def _meoz_daily_adaptive(codes, days=FETCH_DAYS):
             mid = len(chunk) // 2
             log.warning("[dev_risk] 猫爪 daily 触顶 %d 行(请求 %d 只) → 二分重取 %d+%d",
                         nrows, len(chunk), mid, len(chunk) - mid)
-            todo.append(chunk[mid:])
-            todo.append(chunk[:mid])
+            todo.append((chunk[mid:], depth + 1))
+            todo.append((chunk[:mid], depth + 1))
             continue
         for code, rows in (m or {}).items():
             out[code] = sorted(rows, key=lambda r: str(r.get("tradedate") or ""))
@@ -343,42 +363,97 @@ def _to_iso(tradedate):
     return s[:4] + "-" + s[4:6] + "-" + s[6:8] if len(s) >= 8 else ""
 
 
+# ---------------- 新股前 5 个交易日（2026-09-28 新增）----------------
+# 规则依据（官方口径）：
+#   · 深交所《交易规则(2023 年修订)》3.3.15 —— 「股票首次公开发行上市后的前五个交易日
+#     不实行价格涨跌幅限制」；证监会《全面实行股票发行注册制答记者问》同口径
+#     （并明确「自新股上市第 6 个交易日起」日涨跌幅限制恢复：主板 10%、双创 20%）。
+#   · 严重异常波动（10 / 30 日累计偏离值）的计算口径同样明确**不纳入新股上市前 5 日**
+#     ⇒ 必须「第 6 个交易日起算」。
+# 修复前的实际后果（实测 301686「C中塑股份」）：9-22 上市、只有 4 根 K 线、4 天实际 **−46%**，
+#   却因 `_range_pct` 用指数窗口当交易日历、对个股窗口内**存在的** K 线连乘（上市前日期被当成
+#   「停牌 0%」）而算出 10 日 **+321.63%** / 30 日 **+328.52%** ⇒ **红牌误报**。
+_NEW_STOCK_FREE_DAYS = 5          # 前 5 个交易日无涨跌幅限制
+
+
+def _sixth_trade_day(list_date):
+    """上市日 → **第 6 个交易日**（= 起算日，YYYY-MM-DD）；算不出返回 None。
+
+    上市日计为第 1 个交易日，逐日前进数到第 6 个。日历区间外为 fail-open（只跳周末），
+    与本项目既有降级口径一致。返回 None ⇒ 调用方**不做**新股校验（保守回退到原行为）。
+    """
+    if not list_date:
+        return None
+    try:
+        cur = _dt.datetime.strptime(str(list_date)[:10], "%Y-%m-%d").date()
+    except Exception:                                          # noqa: BLE001
+        return None
+    n = 1
+    for _ in range(30):
+        cur += _dt.timedelta(days=1)
+        if not trade_calendar.is_trade_day(cur):
+            continue
+        n += 1
+        if n > _NEW_STOCK_FREE_DAYS:
+            return cur.strftime("%Y-%m-%d")
+    return None
+
+
+def _listing_date_of(code):
+    """该股上市日期（YYYY-MM-DD）；取不到返回 None（⇒ 不做新股校验）。"""
+    try:
+        from . import fetcher
+        return (fetcher.fetch_listing_dates() or {}).get(code)
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("[dev_risk] 上市日期查询失败(跳过新股校验) code=%s err=%s", code, e)
+        return None
+
+
 def _range_pct(stock_rows, idx_rows, n):
     """区间首尾相减的两个分量。
 
-    返回 (个股区间涨幅%, 指数区间涨幅%, 窗口首日, 期初前收盘日)；指数日缺失返回 None。
+    返回 (个股区间涨幅%, 指数区间涨幅%, 窗口首日, 期初前收盘日)；无法计算返回 None。
 
-    * 窗口 = 指数日期序列的**最后 n 个交易日**（指数每市场交易日都有行情 ⇒ 用它当交易日历）。
-    * 期初前收盘日 = 窗口首日的**前一交易日**。
-    * 个股区间涨幅 = 该股在窗口内各日官方涨跌幅连乘（免疫除权；停牌日天然缺席）。
-    * 若个股窗口内无任何行情（整段停牌）⇒ 返回 0.0 并在 detail 里标 suspended。
+    ★ 2026-09-28 改口径（交易所原文）：「偏离值按竞价交易日滚动计算，**不含停牌/无成交日**」
+      ⇒ **窗口 = 个股自己最近 n 个「有行情（且指数同日有点位）」的交易日**。
+      原实现把窗口钉成「指数的最后 n 个交易日」，再对个股落在窗口里的行连乘 ⇒ 停牌日
+      **占着名额却贡献 0%**，与分母（指数整段 n 日涨幅）口径不一致 ⇒ 停牌票会算出假偏离值。
+    * 期初前收盘日 = 窗口首日**之前**个股最后有行情的那一天（指数同日必须有点位，否则弃权）。
+    * 个股区间涨幅 = 窗口内各日官方涨跌幅连乘（免疫除权；停牌日已不在窗口内）。
+    * 个股连「n 个窗口日 + 1 个期初日」都凑不出（长期停牌 / 上市太短）⇒ 返回 None（弃权），
+      **不再**把"整段停牌"折算成 0% —— 那会与指数涨幅相减、产出看着像异动的假数字。
     """
-    idates = [d for d, _ in idx_rows]
-    if len(idates) < n + 1:
-        log.warning("[dev_risk] 指数根数不足 需 %d 得 %d ⇒ 弃权", n + 1, len(idates))
+    # 指数按「YYYYMMDD」建索引，便于与个股行的 tradedate（YYYYMMDD）对齐
+    idx_by_compact = dict((d.replace("-", ""), (d, c)) for d, c in idx_rows)
+    if len(idx_by_compact) < n + 1:
+        log.warning("[dev_risk] 指数根数不足 需 %d 得 %d ⇒ 弃权", n + 1, len(idx_by_compact))
         return None
-    ic = dict(idx_rows)
-    w = idates[-n:]
-    base = idates[-(n + 1)]
-    if base not in ic or w[-1] not in ic:
-        log.warning("[dev_risk] 指数日缺失 base=%s end=%s ⇒ 弃权", base, w[-1])
+    row_by_date = {}
+    for r in stock_rows:
+        t = str(r.get("tradedate") or "")
+        if t in idx_by_compact:
+            row_by_date[t] = r          # 同日多行以最后一行为准（上游每交易日仅一行）
+    sd = sorted(row_by_date)
+    if len(sd) < n + 1:
+        log.info("[dev_risk] 个股可交易日不足 需 %d 得 %d ⇒ 弃权（长期停牌/次新）", n + 1, len(sd))
         return None
-    i_pct = (ic[w[-1]] / ic[base] - 1) * 100 if ic[base] else None
-    if i_pct is None:
+    w = sd[-n:]
+    base_compact = sd[-(n + 1)]
+    i0 = idx_by_compact[base_compact][1]
+    i1 = idx_by_compact[w[-1]][1]
+    base = idx_by_compact[base_compact][0]
+    w_first = idx_by_compact[w[0]][0]
+    if not i0 or not i1:
+        log.warning("[dev_risk] 指数点位缺失 base=%s end=%s ⇒ 弃权", base, w[-1])
         return None
-    w0, w1 = w[0].replace("-", ""), w[-1].replace("-", "")
-    sub = [r for r in stock_rows if w0 <= str(r.get("tradedate") or "") <= w1]
+    i_pct = (i1 / i0 - 1) * 100
     g = 1.0
-    used = 0
-    for r in sub:
+    for t in w:
         try:
-            g *= (1 + float(r.get("pct_chg") or 0) / 100.0)
-            used += 1
+            g *= (1 + float(row_by_date[t].get("pct_chg") or 0) / 100.0)
         except (TypeError, ValueError):
             continue
-    if not used:
-        return (0.0 - i_pct, i_pct, w[0], base)   # 整段停牌：个股区间计 0（交易所同样无价可比）
-    return ((g - 1) * 100 - i_pct, i_pct, w[0], base)
+    return ((g - 1) * 100 - i_pct, i_pct, w_first, base)
 
 
 def _status(value, threshold):
@@ -420,6 +495,22 @@ def compute(code, name=None, days=FETCH_DAYS, srows=None, idx_rows=None):
         close = float(srows[-1].get("close"))
     except (TypeError, ValueError):
         close = None
+
+    # ★ 新股前 5 个交易日校验（2026-09-28）：三个窗口里最长的是 30 日 ⇒ 只要**指数的**30 日
+    #   窗口首日已 ≥ 起算日，个股自己的窗口（其交易日 ⊆ 指数交易日）也必然合规 ⇒ 判据偏保守；
+    #   不合规则整只弃权（与既有「任一窗口算不出即弃权」的口径一致）。
+    #   规则依据与修复前实测见 `_sixth_trade_day` 上方注释。
+    _ld = _listing_date_of(code)
+    _kick = _sixth_trade_day(_ld)
+    if _kick:
+        _idates = [d for d, _ in idx_rows]
+        if len(_idates) >= WINDOWS[-1] and _idates[-WINDOWS[-1]] < _kick:
+            log.info("[dev_risk] 新股未满 6 个交易日 ⇒ 弃权 code=%s 上市=%s 起算日=%s 30日窗口首日=%s",
+                     code, _ld, _kick, _idates[-WINDOWS[-1]])
+            return {"ok": False, "code": code, "reason": "new_stock",
+                    "msg": "上市未满 6 个交易日（前 5 个交易日不设涨跌幅限制，不纳入异动计算）"
+                           "—— 起算日 %s，当前 30 日窗口仍含上市初期" % _kick,
+                    "board": spec["name"], "index": spec["index"]}
 
     dev = {}
     win_txt = {}
@@ -487,6 +578,11 @@ def _next_trigger(spec, srows, idx_rows):
     ⇒    x = (1 + (thr + i(n−1))/100) / (1 + s(n−1)/100) − 1
 
     返回 {next_trigger_pct, trigger_price, rule, reachable(明日涨停能否触发), hit[]}
+
+    🔴 2026-09-28 主人拍板：「明日触发涨幅」**收窄到 10/30 两条线** —— 3 日线不再参与
+      「下一条」的挑选。原先 3 日线往往是最小值 ⇒ 该列（连同 `rule`/`hit`/`trigger_price`）
+      常由 3 日线决定，与「移除 3 日维度」自相矛盾。
+      注意：`d3` **数据本身仍照常计算与入库**，此处只改「挑哪条线」的范围。
     """
     if not srows:
         return None
@@ -495,7 +591,7 @@ def _next_trigger(spec, srows, idx_rows):
     except (TypeError, ValueError):
         return None
     cands = []
-    for n, thr in ((3, spec["dev3"]), (10, spec["dev10_up"]), (30, spec["dev30_up"])):
+    for n, thr in ((10, spec["dev10_up"]), (30, spec["dev30_up"])):
         cur = _range_pct(srows, idx_rows, n)
         if cur is None:
             continue
@@ -857,15 +953,24 @@ def warn_of(res):
         return None
     room = res.get("room") or {}
     dev = res.get("dev") or {}
-    names = {"d3": "3日", "d10": "10日", "d30": "30日"}
-    order = ("d3", "d10", "d30")
+    # 🔴 2026-09-28 主人拍板：风险分级**移除 3 日维度** —— 只按 10/30 两条线判定，
+    #   提示文案也不得出现「3日」。注意 d3 **数据本身仍照常计算与入库**（本次不动库表、
+    #   不动 room 的取值），只是不再参与分级与文案 ⇒ 全站「异动风险」红/黄徽章会随之变少，
+    #   属本次预期的连带影响（已确认）。
+    names = {"d10": "10日", "d30": "30日"}
+    order = ("d10", "d30")
     triggered = [k for k in order if (dev.get(k) or {}).get("status") == "触发"]
     near = [k for k in order if (dev.get(k) or {}).get("status") == "临近"]
     if triggered:
         return {"level": "red",
                 "msg": "已触发%s偏离值异动线，注意异常波动核查风险" % "、".join(names[k] for k in triggered)}
-    if room.get("hit"):
-        pct = room.get("next_trigger_pct")
+    # room.hit 是**各窗口的规则标签**（形如 "10日+100%"）。`_next_trigger` 自 2026-09-28 起
+    # 已只挑 10/30 两条线，此处再滤一道是**防御**（防将来有人把 3 日线加回挑选范围 ⇒ 文案泄漏）；
+    # 同时把要播报的涨幅换成**被保留那条线**的值，避免「说 10 日线、却念别的线的涨幅」。
+    hits = [h for h in (room.get("hit") or []) if "3日" not in h]
+    if hits:
+        cand = [c for c in (room.get("all") or []) if c.get("rule") in hits and c.get("pct") is not None]
+        pct = min((c["pct"] for c in cand), default=room.get("next_trigger_pct"))
         lim = res.get("limit_up_pct") or 10.0
         if pct is None:
             act = "明日再上涨"
@@ -873,7 +978,7 @@ def warn_of(res):
             act = "明日涨停"
         else:
             act = "明日涨 %.2f%%" % pct
-        msg = "%s即触发%s（异常波动核查）" % (act, "、".join(room["hit"]))
+        msg = "%s即触发%s（异常波动核查）" % (act, "、".join(hits))
         if near:
             msg += "；当前已临近"
         return {"level": "yellow", "msg": msg}
@@ -1080,6 +1185,37 @@ def universe():
     return {str(c): (n or "") for c, n in rows}, date
 
 
+def purge_unscanned(date, universe_codes, computed_codes):
+    """删掉 `date` 上「在 universe 内、但本次**没算出结果**」的行，返回删除行数。
+
+    只删当天、只删 universe 内的代码 ⇒ 不碰历史、不碰名单外的票。
+    分批 DELETE（每批 500 个占位符，远低于 SQLite 变量上限）。
+    """
+    if not date:
+        return 0
+    stale = [c for c in universe_codes if c not in computed_codes]
+    if not stale:
+        return 0
+    deleted = 0
+    conn = database.get_conn()
+    try:
+        for i in range(0, len(stale), 500):
+            batch = stale[i:i + 500]
+            q = ("DELETE FROM dev_risk_daily WHERE date=? AND code IN (%s)"
+                 % ",".join("?" * len(batch)))
+            cur = conn.execute(q, [date] + batch)
+            deleted += max(0, cur.rowcount or 0)
+        conn.commit()
+    except Exception as e:                                     # noqa: BLE001
+        log.error("[dev_risk] 清理未算出结果的行失败 date=%s err=%s", date, e)
+        return 0
+    finally:
+        conn.close()
+    log.info("[dev_risk] 已清理 %s 上未算出结果的行 %d 条（universe %d 只 / 算出 %d 只）",
+             date, deleted, len(universe_codes), len(computed_codes))
+    return deleted
+
+
 def run_scan_job(date=None):
     """跑一次全市场批处理并落库。返回 stat（ok/reason 都在里面，不抛异常）。"""
     t0 = time.time()
@@ -1097,6 +1233,13 @@ def run_scan_job(date=None):
         return {"ok": False, "reason": "no_rows", "stat": stat, "universe_date": uni_date}
     n = save_rows(rows)
     stat["saved"] = n
+    # ★ 2026-09-28 补：把「本次没算出结果」的行从**当天**名单里删掉。
+    #   `save_rows` 只做 INSERT OR REPLACE（不删），而本模块的既定口径是「算不出的票**不落库**」
+    #   ⇒ 某票从"能算"变成"弃权"（新股前 5 日、长期停牌…）时，它的旧行会继续留在当天名单里，
+    #   用**修复前的数字**继续误导用户。实测：301686 / 601091 / 688835 三条"新股红牌误报"
+    #   在重扫后依旧显示，就是这个原因（也是早先「86 条旧行」的同一根因）。
+    stat["purged"] = purge_unscanned(rows[0].get("date"), set(codes),
+                                     set(str(r.get("code")) for r in rows if r.get("code")))
     stat["universe_date"] = uni_date
     stat["date"] = rows[0].get("date")            # 实际结果日（= 上游日K 的最后一根日期）
     stat["elapsed_total"] = round(time.time() - t0, 2)

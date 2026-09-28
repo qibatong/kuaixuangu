@@ -1122,6 +1122,46 @@ def fetch_lhb(date=""):
     return _cached("lhb:" + (date or "today"), 120, loader)
 
 
+# 知名游资关键词（★ 2026-09-28 从前端 `LhbPanel.vue` 的 `HOT_KEYS` **搬到后端** —— 判定必须
+#   只有一份口径，否则前后端各一套必然漂移）。
+# 为什么不能只靠上游字段：明细行里虽有 `YouZiIcon`/`GroupID`，但实测**整批为 0/空**
+#   （上游只给自己收录的那批游资打标）⇒ 单用它会漏掉绝大多数知名游资席。
+#   ⚠️ 这份关键词表偏宽（含「宁波 / 温州 / 量化 / 深圳分公司」这类地名与泛称），属于"宁多勿漏"：
+#      「知名游资」tab 里出现的席位，请以名字自行判断成色。
+_HOT_KEYWORDS = ('章盟主', '方新侠', '炒股养家', '作手新一', '桑田路', '呼家楼', '上塘路', '柯桥',
+                 '解放北', '溧阳路', '江苏路', '益田路', '银河绍兴', '宁波', '台州', '温州',
+                 '深圳分公司', '上海分公司', '量化')
+
+
+def _seat_flags(x):
+    """席位行的机构/游资判定（★ 2026-09-28 上移到后端；前端原先靠关键词表猜）。
+
+    · 机构：席位名含「机构专用」—— 开盘啦的标准机构席位名（实测 ID=896、YouZiIcon=0）。
+    · 游资：上游 `YouZiIcon==1` 或 `GroupID` 非空（若上游标了就用它）**并集**关键词表兜底
+      （上游实测常整批不标，见 `_HOT_KEYWORDS` 注释）。
+    """
+    name = str((x or {}).get("Name") or "")
+    inst = "机构专用" in name
+    if inst:
+        return inst, False
+    hot = (int(_num(x.get("YouZiIcon")) or 0) == 1
+           or bool(str(x.get("GroupID") or "").strip())
+           or any(k in name for k in _HOT_KEYWORDS))
+    return inst, hot
+
+
+def _lhb_seats(lst):
+    """把上游席位列表转成 [{name,buy,sell,inst,hot}]（机构/游资标记由上游字段判定）。"""
+    out = []
+    for x in (lst or []):
+        if not isinstance(x, dict):
+            continue
+        inst, hot = _seat_flags(x)
+        out.append({"name": str(x.get("Name", "")), "buy": _f(x.get("Buy")),
+                    "sell": _f(x.get("Sell")), "inst": inst, "hot": hot})
+    return out
+
+
 def fetch_lhb_detail(code, date=""):
     """龙虎榜个股营业部明细: {name,time,change,limitBoards,buyTotal,sellTotal,upReason,
     buyList:[{name,buy,sell}], sellList:[{name,buy,sell}]}"""
@@ -1145,12 +1185,58 @@ def fetch_lhb_detail(code, date=""):
             "buyTotal": _f(item.get("BuyTotal")),
             "sellTotal": _f(item.get("SellTotal")),
             "upReason": str(item.get("UpReason", "") or ""),
-            "buyList": [{"name": str(x.get("Name", "")), "buy": _f(x.get("Buy")), "sell": _f(x.get("Sell"))}
-                        for x in (item.get("BuyList") or []) if isinstance(x, dict)],
-            "sellList": [{"name": str(x.get("Name", "")), "buy": _f(x.get("Buy")), "sell": _f(x.get("Sell"))}
-                         for x in (item.get("SellList") or []) if isinstance(x, dict)],
+            "buyList": _lhb_seats(item.get("BuyList")),
+            "sellList": _lhb_seats(item.get("SellList")),
         }
     return _cached("lhb_detail_" + str(code) + "_" + str(date), 300, loader)
+
+
+def fetch_lhb_tags(codes, date=""):
+    """龙虎榜「机构/游资」汇总: `{code: {inst, hot, instNet, hotNet}}`（金额单位: 元）。
+
+    ★ 2026-09-28 新增。为什么必须这么做：列表接口(doc100)的原始字段只有 11 个
+      （ID/Name/IncreaseAmount/D3/BuyIn/JoinNum/Turnover/CircPrice/Amplitude/TurnoverRatio/
+      Capitalization），**完全没有机构/游资线索** ⇒ 只能按代码取席位明细(doc101)再汇总。
+    ★ 为什么不并进 `/api/kpl/lhb`：55 只逐个取明细会把这页首屏拖慢数秒，而这两个标签
+      只在「机构席位 / 知名游资」两个 tab 里才用得到 ⇒ 做成独立端点由前端**按需**调用。
+    ★ 成本：明细自身有 300s 缓存；本函数再叠 10 分钟缓存（键含代码集合指纹）⇒ 同一批代码
+      10 分钟内只打一轮上游；并发度 6（`_call` 内部还有 KPL 信号量限流）。
+    """
+    codes = [str(c).strip() for c in (codes or []) if str(c).strip()]
+    if not codes:
+        return {}
+    import hashlib as _hashlib
+    from concurrent.futures import ThreadPoolExecutor
+    fp = _hashlib.md5(",".join(sorted(codes)).encode("utf-8")).hexdigest()[:10]
+
+    def loader():
+        out = {}
+
+        def one(code):
+            try:
+                d = fetch_lhb_detail(code, date) or {}
+            except Exception:                                  # noqa: BLE001
+                return None
+            inst = hot = False
+            inst_net = hot_net = 0.0
+            for x in (d.get("buyList") or []) + (d.get("sellList") or []):
+                net = float(x.get("buy") or 0) - float(x.get("sell") or 0)
+                if x.get("inst"):
+                    inst = True
+                    inst_net += net
+                if x.get("hot"):
+                    hot = True
+                    hot_net += net
+            return code, {"inst": inst, "hot": hot,
+                          "instNet": round(inst_net, 2), "hotNet": round(hot_net, 2)}
+
+        with ThreadPoolExecutor(max_workers=6, thread_name_prefix="lhb-tag") as ex:
+            for r in ex.map(one, codes):
+                if r:
+                    out[r[0]] = r[1]
+        return out
+
+    return _cached("lhb_tags:" + str(date or "today") + ":" + fp, 600, loader) or {}
 
 
 # ==================== 昨日涨停今表现(策略验证) ====================

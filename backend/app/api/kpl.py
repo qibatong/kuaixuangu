@@ -717,6 +717,34 @@ def api_kpl_lhb_detail(request: Request, code: str = "", date: str = "", uid: in
     return jr({"ok": True, "detail": d})
 
 
+@router.get("/api/kpl/lhb-tags")
+def api_kpl_lhb_tags(request: Request, codes: str = "", date: str = "",
+                     uid: int = Depends(require_vip_or_paid)):
+    """龙虎榜「机构/游资」标签（按需调用）：`codes` 逗号分隔，最多 200 只。
+
+    ★ 2026-09-28 新增，修「机构席位 / 知名游资 两个 tab 恒空」：
+      列表接口没有机构/游资字段（实测原始字段只有 11 个），只能按代码拉席位明细汇总；
+      为保证龙虎榜首屏不被拖慢，做成独立端点由前端在切到那两个 tab 时才调用。
+    """
+    cl = [c.strip() for c in (codes or "").split(",") if c.strip()][:200]
+    if not cl:
+        return jr({"ok": False, "msg": "缺少 codes"}, 400)
+    tags = kpl.fetch_lhb_tags(cl, date or "")
+    return jr({"ok": True, "date": date or "", "tags": tags, "count": len(tags)})
+
+
+@router.get("/api/kpl/fanbao")
+def api_kpl_fanbao(request: Request, date: str = "", uid: int = Depends(get_uid)):
+    """断板反包：昨日断板、今日重新起板，且近 5 个交易日有涨停史（不是新首板）。
+
+    ★ 2026-09-28 新增：`kpl.fetch_fanbao_stocks()` 早就存在（供盘后 PNG 天梯图使用），
+      但**没有任何 API 暴露** ⇒ 网页端一直看不见这块信息。
+    """
+    lst = kpl.fetch_fanbao_stocks(date or None) or []
+    return jr({"ok": True, "list": lst, "count": len(lst),
+               "date": (lst[0].get("day") if lst else (date or ""))})
+
+
 @router.get("/api/kpl/zt-reason")
 def api_kpl_zt_reason(request: Request, code: str = "", uid: int = Depends(require_vip_or_paid)):
     """个股涨停原因(当天/历史)"""

@@ -34,9 +34,14 @@ export function lbLevel(lb) {
 
 // 档位 → 胶囊文案; 未知 → ''(调用方据此不渲染, 而不是渲染成「新启动」——
 // 把「没取到」显示成「新启动」等于把故障伪装成结论)
+//
+// 🔴 2026-09-28 主人拍板：**0 档（买入前一日未涨停）也不渲染标签** —— 名单里绝大多数票都是
+//    这一档，「新启动」只会把版面搞脏、不提供信息。故 0 档与"未知"一样返回 ''。
+//    （`LB_LEVELS[0]` 的文案与 `LB_STATS` 的第 0 档**照旧保留** —— 它们是口径文案/统计数据的
+//      权威副本，`lbTip`/`lbStatOf` 仍按老口径工作；本次只改"要不要显示胶囊"。）
 export function lbLabel(lb) {
   const lvl = lbLevel(lb)
-  return lvl === null ? '' : LB_LEVELS[lvl]
+  return lvl === null || lvl === 0 ? '' : LB_LEVELS[lvl]
 }
 
 // 档位 → 配色类名(红梯度沿用 A 股「红=强」惯例; 与「异动」橙标签语义可分)

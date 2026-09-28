@@ -63,7 +63,7 @@ def _stock_from_pcts(pcts, start_close=10.0, end="2026-09-24"):
 @pytest.fixture
 def patched(monkeypatch):
     """把网络取数换成夹具：`patch(idx=..., stock=...)` 注入后调 compute。"""
-    state = {"idx": _idx(), "stock": _stock_from_pcts([0.0] * 45)}
+    state = {"idx": _idx(), "stock": _stock_from_pcts([0.0] * 45), "listing": None}
 
     def _index_series(code, force=False):
         return state["idx"]
@@ -73,12 +73,18 @@ def patched(monkeypatch):
 
     monkeypatch.setattr(dev_risk, "index_series", _index_series)
     monkeypatch.setattr(dev_risk, "stock_series", _stock_series)
+    # ★ 2026-09-28 新股校验用：默认返回 None（= 不做校验，保持各既有用例原行为）。
+    #   **必须**在这里挡掉 —— `_listing_date_of` 会走 `fetcher.fetch_listing_dates()`（东财网络），
+    #   而本文件的铁律是「全封闭，零网络」（见文件头）。要测新股路径就用 `patch(listing=...)` 注入。
+    monkeypatch.setattr(dev_risk, "_listing_date_of", lambda code: state["listing"])
 
-    def patch(idx=None, stock=None):
+    def patch(idx=None, stock=None, listing=None):
         if idx is not None:
             state["idx"] = idx
         if stock is not None:
             state["stock"] = stock
+        if listing is not None:
+            state["listing"] = listing
 
     patch.state = state
     return patch
@@ -201,30 +207,133 @@ def test_compute_refuses_on_missing_stock(patched):
     assert res["ok"] is False and res["reason"] == "stock_unavailable"
 
 
+# ---------------- 新股前 5 个交易日（2026-09-28）----------------
+# 规则：深交所《交易规则(2023修订)》3.3.15「上市后前五个交易日不实行价格涨跌幅限制」；
+#   证监会全面注册制答记者问同口径；严重异常波动(10/30 日偏离)计算**不纳入新股上市前 5 日**
+#   ⇒ 从第 6 个交易日起算。回归对象：301686「C中塑股份」（上市第 4 日、实际 −46%，
+#   修复前被算成 10 日 +321.63% ⇒ 红牌误报）。
+
+def test_sixth_trade_day_is_5_trading_days_after_listing():
+    """起算日 = 上市日之后**恰好 5 个交易日**（上市日算第 1 个）—— 用真交易日历校验性质。
+
+    刻意断言「性质」而不是硬编码某个日期：硬编码会把「中秋节/国庆」这类日历数据变更
+    变成假失败；而 (上市日, 起算日] 区间内恰好 5 个交易日 + 起算日本身是交易日，
+    才是这条规则的实质。
+    """
+    for ld in ("2026-09-22", "2026-08-03", "2025-12-30"):
+        k = dev_risk._sixth_trade_day(ld)
+        assert k, ld
+        assert dev_risk.trade_calendar.is_trade_day(dt.date.fromisoformat(k)), (ld, k)
+        n, cur = 0, dt.date.fromisoformat(ld)
+        end = dt.date.fromisoformat(k)
+        while cur < end:
+            cur += dt.timedelta(days=1)
+            if dev_risk.trade_calendar.is_trade_day(cur):
+                n += 1
+        assert n == 5, (ld, k, n)
+
+
+def test_sixth_trade_day_none_on_bad_input():
+    """拿不到上市日期 ⇒ 返回 None ⇒ 调用方**不做**新股校验（保守回退，不误伤任何票）。"""
+    for bad in (None, "", "——", "2026-13-99"):
+        assert dev_risk._sixth_trade_day(bad) is None, bad
+
+
+def test_new_stock_before_kickoff_is_refused(patched):
+    """上市第 3 日（窗口仍含前 5 日）⇒ 整只弃权，**绝不**输出失真偏离值。"""
+    patched(idx=_idx(45), stock=_stock_from_pcts([-8.0] * 3), listing="2026-09-21")
+    res = dev_risk.compute("605058")
+    assert res["ok"] is False and res["reason"] == "new_stock", res
+    assert "不纳入异动计算" in res["msg"]
+    # ★ 关键：不许像修复前那样照常给出 d10/d30（那正是红牌误报的来源）
+    assert "dev" not in res and "room" not in res, res
+
+
+# ---------------- 停牌/无成交日不占窗口名额（2026-09-28）----------------
+# 交易所原文：「偏离值按竞价交易日滚动计算，**不含停牌/无成交日**」。
+# 原实现把窗口钉成「指数的最后 n 个交易日」，个股落在窗口里的行连乘 ⇒ 停牌日占名额却贡献 0%。
+
+def test_suspended_days_do_not_take_window_slots(patched):
+    """个股自己的 30 个交易日才是窗口 ⇒ 停牌 3 天的票，窗口首日必须**往前提 3 天**。"""
+    idx = _idx(45)
+    ds = [d for d, _ in idx]
+    skip = set(ds[-28:-25])                    # 最近 30 个交易日里缺 3 天（模拟停牌）
+    rows, close = [], 10.0
+    for d in ds:
+        if d in skip:
+            continue
+        close *= 1.02
+        rows.append({"tradedate": d.replace("-", ""), "close": round(close, 2),
+                     "pct_chg": 2.0, "name": "停牌股"})
+    patched(idx=idx, stock=rows, listing="2020-01-02")
+    res = dev_risk.compute("605058")
+    assert res["ok"] is True, res
+    win = res["detail"][30]["window"]
+    sd = sorted(r["tradedate"] for r in rows)
+    exp = sd[-30]                              # 个股自己的第 30 个交易日
+    exp_iso = "%s-%s-%s" % (exp[:4], exp[4:6], exp[6:8])
+    assert win.startswith(exp_iso), (win, exp_iso)
+    # ★ 关键：它**不是**指数 30 日窗口的首日（旧口径）—— 证明停牌日确实没占名额
+    assert not win.startswith(idx[-30][0]), (win, idx[-30][0])
+
+
+def test_all_out_of_range_rows_are_refused(patched):
+    """个股在指数区间内没有任何行情（长期停牌）⇒ 弃权，**不得**折成 0% 产出假偏离值。"""
+    idx = _idx(45)
+    old = [{"tradedate": "2025-01-0%d" % i, "close": 10.0, "pct_chg": 0.0, "name": "停牌股"}
+           for i in range(1, 4)]
+    patched(idx=idx, stock=old, listing="2020-01-02")
+    res = dev_risk.compute("605058")
+    assert res["ok"] is False and res["reason"] == "window_incomplete", res
+
+
+def test_old_listing_unaffected(patched):
+    """老股（上市远早于窗口）不受影响 —— 校验不得误伤正常票。"""
+    patched(idx=_idx(45), stock=_stock_from_pcts([2.0] * 45), listing="2020-01-02")
+    assert dev_risk.compute("605058")["ok"] is True
+
+
+def test_new_stock_after_kickoff_computes(patched):
+    """上市已满 6 个交易日、且 30 日窗口整体落在起算日之后 ⇒ 照常计算（边界另一侧）。"""
+    idx = _idx(45)
+    first30 = idx[-30][0]                     # 30 日窗口的首个交易日（夹具里就是它决定合规性）
+    ld = "2026-08-01"
+    kick = dev_risk._sixth_trade_day(ld)
+    assert kick and kick <= first30, (ld, kick, first30)
+    patched(idx=idx, stock=_stock_from_pcts([2.0] * 45), listing=ld)
+    assert dev_risk.compute("605058")["ok"] is True
+
+
 # ---------------- 明日触发空间 ----------------
 
 def test_next_trigger_analytic(patched):
-    """逐日 +5% 的票（主板）：3 日线临近未触发，明日只需再涨 8.84% 就撞 3 日 20%。
+    """逐日 +7% 的票（主板）：30 日线已触发 ⇒ 取 10 日线，明日需再涨约 8.79%。
 
-    推导：x = (1 + 20/100) / (1 + s2/100) − 1，s2 = 1.05²−1 = 10.25%
-        ⇒ x = 1.20/1.1025 − 1 = 8.844%
-    10 日线：s9 = 1.05⁹−1 = 55.13% ⇒ x = 2.00/1.5513 − 1 = 28.92%（更远）
-    30 日线：1.05³⁰−1 = 332% > 200% ⇒ **已触发**，不参与「下一条」
+    推导（10 日线）：x = (1 + 100/100) / (1 + s9/100) − 1，s9 = 1.07⁹−1 = 83.85%
+        ⇒ x = 2.00/1.8385 − 1 = 8.79%（≤ 涨停 10% ⇒ reachable=True）
+    期间各线状态：d3 = 22.50% 已触发、d10 = 96.72% 临近、d30 = 661% 已触发。
+
+    🔴 2026-09-28 主人拍板：挑线范围**收窄到 10/30** ⇒ 3 日线不再产生「下一条」
+      （旧用例是逐日 +5%、room 取 3 日线的 8.84% —— 那个数字现在不该再出现在 room 里）。
     """
-    patched(idx=_idx(45), stock=_stock_from_pcts([5.0] * 45))
+    patched(idx=_idx(45), stock=_stock_from_pcts([7.0] * 45))
     res = dev_risk.compute("605058")
     assert res["dev"]["d30"]["status"] == "触发"
-    assert res["dev"]["d3"]["status"] == "临近"
+    assert res["dev"]["d3"]["status"] == "触发"
     room = res["room"]
-    assert room["rule"].startswith("3日"), room
-    assert abs(room["next_trigger_pct"] - 8.84) < 0.05, room
-    assert room["reachable"] is True                      # 8.84% <= 涨停 10%
+    assert room["rule"].startswith("10日"), room
+    assert "3日" not in room["rule"], room
+    assert abs(room["next_trigger_pct"] - 8.79) < 0.05, room
+    assert room["reachable"] is True                      # 8.79% <= 涨停 10%
     assert room["trigger_price"] == round(res["price"] * (1 + room["next_trigger_pct"] / 100), 2)
-    assert len(room["all"]) == 2                          # 只剩 3 日 / 10 日两条候选
+    assert len(room["all"]) == 1                          # 30 日线已触发 ⇒ 只剩 10 日线候选
 
 
 def test_next_trigger_not_reachable(patched):
-    """逐日 +2% 的票：3 日线远离，明日涨停也不够 —— reachable 必须为 False。"""
+    """逐日 +2% 的票：10/30 两条线都还很远，明日涨停也不够 —— reachable 必须为 False。
+
+    推导：10 日线 s9 = 19.51% ⇒ 需 67.3%；30 日线 s29 = 77.58% ⇒ 需 68.9% ⇒ 都 > 涨停 10%。
+    """
     patched(idx=_idx(45), stock=_stock_from_pcts([2.0] * 45))
     res = dev_risk.compute("605058")
     room = res["room"]
@@ -314,22 +423,23 @@ def test_project_day1_matches_next_trigger(patched):
 
     ⚠️ 夹具必须选「第 1 天解 ≤ 一个涨停」的票：`_axis_g` 会把未来日涨幅**截断到 cap**
       （真实市场单日不可能超过涨停）⇒ 若房间值 > cap，则 k=1 的解被截断，
-      与 `_next_trigger` 的**未截断**闭式解就不可比了（逐日 +3% 就是这种情况：
-      room 给 13.11% > 10%，而 need3[0] 因截断返回 None）。
+      与 `_next_trigger` 的**未截断**闭式解就不可比了。
+
+    🔴 2026-09-28：挑线范围收窄到 10/30 ⇒ 这里比的是 **need10**（原为 need3）。
     """
-    # 逐日 +5%：dev30 = 332% ⇒ 30 日线已触发；3 日线 15.76% 未越 20%
-    #   room 的「下一条」= 3 日线，需再涨 8.84%（≤ 10% 涨停 ⇒ reachable=True）
-    patched(idx=_idx(45), stock=_stock_from_pcts([5.0] * 45))
+    # 逐日 +7%：dev30 = 661% ⇒ 30 日线已触发；10 日线 96.72% 临近未触发
+    #   room 的「下一条」= 10 日线，需再涨 8.79%（≤ 10% 涨停 ⇒ reachable=True）
+    patched(idx=_idx(45), stock=_stock_from_pcts([7.0] * 45))
     res = dev_risk.compute("605058")
     p = res["project10"]
     assert len(p) == 10
-    assert res["room"]["rule"].startswith("3日")
+    assert res["room"]["rule"].startswith("10日")
     assert res["room"]["reachable"] is True
-    assert abs(res["room"]["next_trigger_pct"] - 8.84) < 0.05, res["room"]
-    # ★ k=1 的 3 日线解 必须与 room 的次日触发空间**数值全等**（这就是「按实际倒推」的定义）
-    assert p[0]["need3"] is not None, p[0]
-    assert abs(p[0]["need3"] - res["room"]["next_trigger_pct"]) < 0.05, (p[0], res["room"])
-    # ★ 但 3 日线**不进** trigger ⇒ 该行仍报「不触发」（此刻触发的是 30 日线）
+    assert abs(res["room"]["next_trigger_pct"] - 8.79) < 0.05, res["room"]
+    # ★ k=1 的 10 日线解 必须与 room 的次日触发空间**数值全等**（这就是「按实际倒推」的定义）
+    assert p[0]["need10"] is not None, p[0]
+    assert abs(p[0]["need10"] - res["room"]["next_trigger_pct"]) < 0.05, (p[0], res["room"])
+    # ★ 但 10 日线**不进** trigger（它此刻还没越线）⇒ 该行报的是已触发的 30 日线
     assert p[0]["trigger_rule"].startswith("30日"), p[0]
     assert "3日" not in p[0]["trigger"] and "3日" not in p[0]["trigger_rule"]
 
@@ -503,62 +613,95 @@ def test_project_left_days_none_when_never_triggers(patched):
 
 # ---------------- 风险标签 ----------------
 
+# 30 日线「临近」轮廓（分级用例专用）：**最后 30 个交易日**每日 +3.7% ⇒ d30 ≈ +197%
+# （阈值 +200%，差 5pp 内 ⇒ 临近）；而明日仅需约 +4.6% 即越线（≤ 涨停）⇒ 同时落进
+# 「明日即触发」的 hit 分支。
+# ⚠️ 顺序：pcts 是**由旧到新**，窗口取末尾 —— 先前误写成 `[3.7]*30 + [0.0]*15`，
+#    那样 30 日窗口只吃到 15 天 ⇒ d30 仅 +72%（实测被 test_warn_levels 抓出）。
+# ★ 用它替代原 d3 轮廓来覆盖 yellow 分支 —— 3 日维度已于 2026-09-28 移出分级。
+D30_NEAR_PCTS = [0.0] * 15 + [3.7] * 30
+
 def test_warn_levels(patched):
-    """★ red ⟺ 已触发；yellow ⟺ 未触发但将越线或已临近（两级都可达）。"""
-    # 已触发 ⇒ red
+    """★ red ⟺ 已触发；yellow ⟺ 未触发但将越线或已临近（两级都可达）。
+
+    🔴 2026-09-28 主人拍板：分级**移除 3 日维度** ⇒ d3 单独越线/临近**不再产生任何标签**。
+       故原基于 d3 的两条用例改为断言「无标签」（它们同时成为该规则的回归用例），
+       yellow 的「临近」分支改用 30 日线覆盖；d3 数据本身仍照常计算（断言照旧）。
+    """
+    # 已触发(30日) ⇒ red
     patched(idx=_idx(45), stock=_stock_from_pcts([5.0] * 45))
     res = dev_risk.compute("605058")
     assert res["dev"]["d30"]["status"] == "触发"
     assert res["warn"]["level"] == "red"
     assert "已触发" in res["warn"]["msg"]
-    # 未触发 + 已临近 + 明日涨停即触发 ⇒ yellow（★ 首版错判 red）
-    patched(stock=_stock_from_pcts([0.0] * 42 + [6.0, 6.0, 6.0]))
+    # ★ 30日 临近 + 明日涨停即触发 ⇒ yellow（★ 首版把这种情形错判 red）
+    patched(idx=_idx(45), stock=_stock_from_pcts(D30_NEAR_PCTS))
     res = dev_risk.compute("605058")
-    assert res["dev"]["d3"]["value"] == round((1.06 ** 3 - 1) * 100, 2)   # 19.12
-    assert res["dev"]["d3"]["status"] == "临近"
-    assert res["room"]["hit"], res["room"]
-    assert res["warn"]["level"] == "yellow"
+    assert res["dev"]["d30"]["status"] == "临近", res["dev"]["d30"]
+    assert res["warn"] is not None and res["warn"]["level"] == "yellow", res.get("warn")
     assert "即触发" in res["warn"]["msg"]
-    # 未触发 + 已临近，但一个涨停也不够 ⇒ 仍走「临近」分支的 yellow
-    # （这条是 yellow 唯一不被 hit 覆盖的情形：3 日窗口 = [+10%, +2.76%, +2.76%]
-    #   ⇒ d3 = 16.16% 临近；明日 d3 窗口只剩后 2 日(+5.60%)，需 +13.63% > 涨停 10%）
+    # ★ 仅 3日 触发 ⇒ 不再产生标签（d3 数据本身仍有值）
+    patched(stock=_stock_from_pcts([0.0] * 42 + [10.0, 10.0, 10.0]))
+    res = dev_risk.compute("605058")
+    assert res["dev"]["d3"]["status"] == "触发", res["dev"]["d3"]
+    assert res["warn"] is None, "3日 已不参与分级 ⇒ 单独越线不得产生标签"
+    # ★ 仅 3日 临近（且明日涨停即触发）⇒ 同样无标签
+    #   （原注释：3 日窗口 = [+10%,+2.76%,+2.76%] ⇒ d3=16.16% 临近；明日需 +13.63% > 涨停）
     patched(stock=_stock_from_pcts([0.0] * 42 + [10.0, 2.7634, 2.7634]))
     res = dev_risk.compute("605058")
     assert res["dev"]["d3"]["status"] == "临近", res["dev"]["d3"]
-    assert res["room"]["hit"] == [] and res["room"]["reachable"] is False, res["room"]
-    assert res["warn"]["level"] == "yellow"
-    assert "临近" in res["warn"]["msg"]
+    assert res["warn"] is None, "3日 临近不得产生标签"
     # 安全 ⇒ 无标签
     patched(stock=_stock_from_pcts([0.0] * 45))
     assert dev_risk.compute("605058")["warn"] is None
 
 
 def test_warn_red_iff_triggered(patched):
-    """★ 防退化不变量：red **只能**由「已触发」产生。
+    """★ 防退化不变量：red **只能**由「10/30 日任一条已触发」产生。
 
     首版把「明日涨停即触发」也算 red ⇒ 因「临近带所需涨幅必然 ≤ 一个涨停」，
     red 会吞掉整个临近带、yellow 成为**不可达分支**（`test_warn_levels` 抓到）。
-    本用例对一批轮廓逐一断言 `(level == 'red') == 任一窗口已触发`。
+    本用例对一批轮廓逐一断言 `(level == 'red') == (d10 或 d30 已触发)`。
+
+    🔴 2026-09-28：判据随「移除 3 日维度」收窄为 10/30 —— 仅 d3 触发的轮廓从此**不再**是 red。
     """
     profiles = [
         [5.0] * 45,                          # d30 触发
         [6.0] * 45,                          # d30 触发
         [2.0] * 45,                          # 全安全
         [0.0] * 45,                          # 全安全
-        [0.0] * 42 + [6.0, 6.0, 6.0],               # d3 临近（hit）
-        [0.0] * 42 + [5.0, 5.0, 5.0],               # d3 临近（hit）
-        [0.0] * 42 + [10.0, 2.7634, 2.7634],        # d3 临近（不 hit）
-        [0.0] * 42 + [10.0, 10.0, 10.0],            # d3 触发（33.1）
+        [0.0] * 42 + [6.0, 6.0, 6.0],               # 仅 d3 临近（不参与分级）
+        [0.0] * 42 + [5.0, 5.0, 5.0],               # 仅 d3 临近（不参与分级）
+        [0.0] * 42 + [10.0, 2.7634, 2.7634],        # 仅 d3 临近（不参与分级）
+        [0.0] * 42 + [10.0, 10.0, 10.0],            # 仅 d3 触发（不参与分级 ⇒ 不得为 red）
+        D30_NEAR_PCTS,                              # d30 临近
     ]
     for pcts in profiles:
-        patched(stock=_stock_from_pcts(pcts))
+        patched(idx=_idx(45), stock=_stock_from_pcts(pcts))
         res = dev_risk.compute("605058")
         dev = res["dev"]
-        trig = any((dev[k] or {}).get("status") == "触发" for k in ("d3", "d10", "d30"))
+        trig = any((dev[k] or {}).get("status") == "触发" for k in ("d10", "d30"))
         w = res.get("warn")
         assert (w is not None and w["level"] == "red") == trig, (pcts, w, dev)
         if w is not None:
             assert w["level"] in ("red", "yellow"), w
+
+
+def test_warn_msg_never_mentions_d3(patched):
+    """🔴 2026-09-28 主人要求移除 3 日维度 ⇒ **提示文案不得出现「3日」**。
+
+    覆盖三条产出路径：red（已触发）、yellow-hit（明日即触发）、yellow-near（临近）。
+    注意只挡文案，不挡 d3 数据本身（它仍照常计算与入库，本项目刻意不动库表结构）。
+    """
+    for pcts in ([5.0] * 45,                                # red: d30 触发
+                 D30_NEAR_PCTS,                             # yellow: d30 临近 + hit
+                 [0.0] * 42 + [10.0, 10.0, 10.0],           # 无标签: 仅 d3 触发
+                 [0.0] * 42 + [6.0, 6.0, 6.0],              # 无标签: 仅 d3 临近
+                 [0.0] * 45):                               # 无标签: 安全
+        patched(idx=_idx(45), stock=_stock_from_pcts(pcts))
+        w = dev_risk.compute("605058").get("warn")
+        if w:
+            assert "3日" not in w["msg"], (pcts, w)
 
 
 def test_row_shape_for_db(patched):

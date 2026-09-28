@@ -28,14 +28,22 @@ test('lbLevel: 0..4 原样, ≥5 归到 5 档', () => {
   assert.equal(lbLevel('3'), 3)    // 后端偶尔下发字符串
 })
 
-test('lbLevel: 未知一律 null —— 不能退化成 0(那是「新启动」)', () => {
+test('lbLevel: 未知一律 null —— 不能退化成 0(0 是「前一日未涨停」这个真实档位)', () => {
   for (const v of [null, undefined, '', NaN, 'abc', -1]) {
     assert.equal(lbLevel(v), null, 'lb=' + String(v) + ' 应为 null')
   }
 })
 
+test('🔴 0 档必须仍是一个**合法档位**(只是不显示) —— 否则统计与 lbStatOf 会错位', () => {
+  assert.equal(lbLevel(0), 0)
+  assert.equal(lbClass(0), 'lb-tag-lv0')          // 类名口径不变(反正不渲染)
+  assert.equal(lbStatOf(0).label, '新启动')        // 统计口径照旧
+  assert.deepEqual(countByLevel([{ lb: 0 }, { lb: 2 }]), { 0: 1, 2: 1 })
+})
+
 test('lbLabel / lbClass: 未知 → 空串(调用方据此不渲染)', () => {
-  assert.equal(lbLabel(0), '新启动')
+  // 🔴 2026-09-28 主人拍板：0 档（前一日未涨停）不再显示「新启动」胶囊
+  assert.equal(lbLabel(0), '', '0 档不得再渲染「新启动」标签')
   assert.equal(lbLabel(2), '昨2板')
   assert.equal(lbLabel(5), '昨5板+')
   assert.equal(lbLabel(null), '')

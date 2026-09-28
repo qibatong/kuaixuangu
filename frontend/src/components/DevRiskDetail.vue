@@ -12,12 +12,12 @@
 
     <div v-else-if="!code" class="dev-ph">
       <div class="dev-ph-t">输入 6 位股票代码开始计算</div>
-      <div class="dev-ph-s">按交易所口径（区间首尾相减）实时计算 3 / 10 / 30 日涨跌幅偏离值</div>
+      <div class="dev-ph-s">按交易所口径（区间首尾相减）实时计算 10 / 30 日涨跌幅偏离值</div>
     </div>
 
     <div v-else-if="!data" class="dev-ph">
       <div class="dev-ph-t">尚未计算</div>
-      <div class="dev-ph-s">点击「计算」查看 {{ code }} 的三条偏离线与明日触发空间</div>
+      <div class="dev-ph-s">点击「计算」查看 {{ code }} 的两条偏离线与明日触发空间</div>
     </div>
 
     <div v-else-if="!data.ok" class="dev-ph dev-ph-fail">
@@ -38,7 +38,7 @@
         <span class="dd-date">{{ data.date }}</span>
       </div>
 
-      <!-- 三条偏离线 -->
+      <!-- 两条偏离线（🔴 2026-09-28 主人拍板移除 3 日维度：原为三条，卡片由 WINDOWS 驱动） -->
       <div class="dd-lines">
         <div v-for="n in WINDOWS" :key="n" class="dd-card" :class="'dd-' + stClsOf(n)">
           <div class="dd-hd">
@@ -73,7 +73,7 @@
           <span class="dd-room-w">超过一个涨停幅度，明日单日不可能触发</span>
         </template>
         <template v-else>
-          <span class="dd-room-t"><i class="fa fa-check-circle"></i> 三条线均已触发</span>
+          <span class="dd-room-t"><i class="fa fa-check-circle"></i> 两条线均已触发</span>
           <span class="dd-room-r">无「下一条」可算</span>
         </template>
       </div>
@@ -164,6 +164,9 @@ const REASON = {
   index_unavailable: '对应指数数据取不到（指数源不可用），弃权而不猜',
   stock_unavailable: '该股日线取不到（可能长期停牌或代码不存在）',
   window_incomplete: '30 日窗口数据不完整，无法计算',
+  // 2026-09-28 新增：交易所口径「新股上市后前 5 个交易日不设涨跌幅限制」⇒ 异动从第 6 个
+  //   交易日起算；窗口仍含上市初期时整体弃权（不再输出失真偏离值，见 services/dev_risk.py）
+  new_stock: '新股上市未满 6 个交易日（前 5 个交易日不设涨跌幅限制，不纳入异动计算）',
 }
 
 const reasonText = computed(() => {
@@ -177,13 +180,20 @@ const hitList = computed(() => {
   return Array.isArray(r.hit) ? r.hit : []
 })
 
-// 三个观察窗口（交易所口径固定 3/10/30 个交易日）—— 提到模块常量，
-// 避免模板里写字面量数组每次渲染都新建。
-const WINDOWS = [3, 10, 30]
+// 两个观察窗口（10/30 个交易日）—— 提到模块常量，避免模板里写字面量数组每次渲染都新建。
+// 🔴 2026-09-28 主人拍板：**移除 3 日维度**（原为 [3, 10, 30]，三张卡）。后端仍会返回
+//    `dev.d3`/`detail[3]`（数据链路刻意不动），但本页不再展示这条线。
+const WINDOWS = [10, 30]
 
 function lineOf(n) {
   const d = (props.data && props.data.detail) || {}
-  return d[n] || {}
+  const l = d[n] || {}
+  // ★ 2026-09-28 修复（既有缺陷）：**阈值属于「规则」层** —— 后端把它放在 `dev.dN.thresh`，
+  //   而 `detail[n]` 只带区间细节（stock_pct / idx_pct / window / base_date）。
+  //   原实现只读 `detail[n].thresh` ⇒ 卡片上「/ 阈值」恒显示「—」、进度条恒 0%（barPct 读同一字段）。
+  //   这里把两处数据合并（与同文件 `statusOf()` 读 `dev.dN.status` 的做法保持一致）。
+  const rule = ((props.data && props.data.dev) || {})['d' + n] || {}
+  return Object.assign({}, l, { thresh: rule.thresh === undefined ? l.thresh : rule.thresh })
 }
 function statusOf(n) {
   const l = (props.data && props.data.dev) || {}
@@ -266,7 +276,7 @@ function ztText(r) {
 .dd-price b { color: #ffd700; }
 .dd-date { color: var(--text-muted); font-size: 0.75rem; }
 
-.dd-lines { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+.dd-lines { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 12px; }
 .dd-card {
   border: 1px solid var(--border-soft); border-radius: 8px; padding: 10px 12px;
   background: var(--bg-hover);

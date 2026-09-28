@@ -8,21 +8,12 @@
     </div>
 
     <!--
-      实时异动流（开盘啦 doc90 偏离值异动）。
-      🔴 2026-09-28 修：此前写成 `<YidongFlow />`（**一个 props 都没传**）⇒ `items` 恒为默认 `[]`
-         ⇒ 面板**永远显示「当前无触发异动的个股」**，而接口其实是好的（实测 13 条）。
-         现改为由本页拉 `/api/kpl/yidong-realtime` 并**显式传 items/day/time/loading/failed**。
-         ⚠️ 与 tabs 下方「交易所已公布异动（开盘啦）」是**同一个接口**，但展示目的不同：
-            这里 = 置顶的实时流（带搜索、按累计偏离值排序、可点开个股）；
-            那里 = 严重异动 tab 里的**折叠明细表**。本次只修前者能取到数，不合并两者。
+      🔴 2026-09-28 主人拍板：置顶的「⑥ 实时异动流」**整块移除**（组件 YidongFlow.vue 一并删除），
+        本页也不再请求 `/api/kpl/yidong-realtime` —— 页面从「异动监管」标题直接进入下方三个 tab。
+        ⚠️ 该接口**仍在用**：严重异动 tab 里「交易所已公布异动（开盘啦）」折叠表走同一个
+           `kplYidongRealtime`，那块**保留**（见下方 loadPub）⇒ 别把这个 api 函数当死代码删掉。
+        沿革：它原在盘中页（MarketView），2026-09-28 早先才搬到本页置顶并修好取数，当天又按主人要求去掉。
     -->
-    <YidongFlow
-      :items="flowList"
-      :loading="flowLoading"
-      :failed="flowFailed"
-      :day="flowDay"
-      :time="flowTime"
-    />
 
     <div class="yd-tabs">
       <button class="yd-tab" :class="{ active: tab === 'warn' }" @click="switchTab('warn')">
@@ -41,7 +32,7 @@
       <div class="yd-toolbar">
         <span class="yd-tip">
           <i class="fa fa-info-circle"></i>
-          全市场 3/10/30 日涨跌幅偏离值（交易所口径：区间首尾相减）—— 红 = 今日已越线，黄 = 明日涨停即越线或已临近
+          全市场 10/30 日涨跌幅偏离值（交易所口径：区间首尾相减）—— 红 = 今日已越线，黄 = 明日涨停即越线或已临近
         </span>
         <span v-if="devStatusText" class="yd-badge">{{ devStatusText }}</span>
         <button class="rot-reset-btn" title="刷新" aria-label="刷新" @click="reloadWarn">
@@ -148,7 +139,6 @@
 </template>
 
 <script setup>
-import YidongFlow from '../components/YidongFlow.vue'
 /**
  * 异动监管 `/yidong` —— v4.11.64 按《快选异动停牌风险功能工单》改为**三 tab**：
  *
@@ -199,13 +189,6 @@ const pubRows = ref([])
 const pubLoading = ref(true)
 const showPub = ref(false)
 
-// ---- 置顶「实时异动流」（同一接口，展示目的不同；见模板注释）----
-const flowList = ref([])
-const flowLoading = ref(true)
-const flowFailed = ref(false)
-const flowDay = ref('')
-const flowTime = ref('')
-
 // ---- ② 异动计算器 ----
 const calcCode = ref('')
 const calcShown = ref('')        // 已提交计算的代码（与输入框解耦：输入框改了不立刻重算）
@@ -252,7 +235,6 @@ async function loadWarn() {
 function reloadWarn() {
   loadWarn()
   loadPub()
-  loadFlow()
 }
 
 async function loadPub() {
@@ -264,26 +246,6 @@ async function loadPub() {
     pubRows.value = []
   } finally {
     pubLoading.value = false
-  }
-}
-
-// 置顶实时异动流：与 loadPub 同一接口，但**独立**维护三态（否则一处失败会污染另一处）。
-// ★ 排序与 YidongFlow 组件内的默认一致（按累计偏离值降序），保证首屏与重排后一致。
-async function loadFlow() {
-  flowLoading.value = true
-  flowFailed.value = false
-  try {
-    const d = await kplYidongRealtime()
-    const lst = ((d && d.list) || []).slice()
-      .sort((a, b) => (Number(b.deviation) || 0) - (Number(a.deviation) || 0))
-    flowList.value = lst
-    flowDay.value = (d && d.day) || ''
-    flowTime.value = (d && d.time) || ''
-  } catch (e) {
-    flowList.value = []
-    flowFailed.value = true
-  } finally {
-    flowLoading.value = false
   }
 }
 
@@ -353,7 +315,6 @@ onMounted(() => {
   bjTime.value = bjTimeStr()
   loadWarn()
   loadPub()
-  loadFlow()
   loadMonitor()
   // 支持 /yidong?code=600519 直接带票进入（浏览器环境才有 location）
   try {

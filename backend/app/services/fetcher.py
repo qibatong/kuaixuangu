@@ -21,6 +21,7 @@ from ..core import config, logger
 from ..core import trade_calendar as _tc   # 2026-09-26: yday 期望 T 日需要交易日历(无循环: 只依赖 stdlib)
 from . import scorer   # 仅复用 parse_float / market_fs (无循环: scorer 不依赖 fetcher)
 from .cache_store import store   # 2026-09-04: 两市概况改跨进程缓存(无循环: cache_store 只依赖 core)
+from .cache_store import cached_singleflight   # 2026-09-28: 上市日期(静态数据)缓存用
 from ..db import database as _database   # 2026-09-10: 昨日成交额落库/读库(无循环: database 只依赖 core)
 
 # 部分行情网关(走代理/自签名)证书校验失败, 仅关校验不关加密
@@ -574,7 +575,7 @@ class _ClistPage(list):
         self.total = int(total or 0)
 
 
-def _fetch_clist_page(fs, page, fid="f3"):
+def _fetch_clist_page(fs, page, fid="f3", fields=None):
     """拉取 clist 单页(200只)。
 
     返回 _ClistPage(见上)。**空列表 = 该页没有数据(翻过末页)**, 不是错误:
@@ -592,9 +593,11 @@ def _fetch_clist_page(fs, page, fid="f3"):
     → 确定性行为, 与请求频率、出口 IP 均无关(不是限流)。
     详见 docs/diagnosis-20260919-clist-paging-circuit-breaker.md
 
-    fid: "f3"=按涨幅排序(竞价模式取强票榜) / "f12"=按代码排序(全市场分页, 稳定不漏票)。"""
+    fid: "f3"=按涨幅排序(竞价模式取强票榜) / "f12"=按代码排序(全市场分页, 稳定不漏票)。
+    fields: 字段表, 默认 `config.FIELDS`(实时行情口径)。2026-09-28 起可传自定义字段表
+      (如只取 f12,f26 拉上市日期) —— 复用同一份 URL/分页/rc 处理, 不必为静态数据另写一遍。"""
     qs = urllib.parse.urlencode({
-        "fs": fs, "fltt": 2, "invt": 2, "fields": config.FIELDS,
+        "fs": fs, "fltt": 2, "invt": 2, "fields": fields or config.FIELDS,
         "fid": fid, "po": 1, "pn": page, "pz": _CLIST_PZ, "np": 1, "ut": config.EASTMONEY_UT,
     })
     req = urllib.request.Request(config.EASTMONEY_URL + "?" + qs, headers={
@@ -613,6 +616,50 @@ def _fetch_clist_page(fs, page, fid="f3"):
         # 翻过末页 / 空数据页: 正常"到底"语义, 返回空(旧实现此处抛异常 → 误熔断)
         return _ClistPage([], d.get("total"))
     raise RuntimeError("东方财富接口返回异常 rc=%s" % rc)
+
+
+# ---- 上市日期（2026-09-28 新增）----
+# 用途：dev_risk 落实交易所规则「新股上市后**前 5 个交易日不设涨跌幅限制**，异动从第 6 个
+#   交易日起算」—— 见 services/dev_risk.py 的 _sixth_trade_day()。本仓库原先**没有任何**
+#   上市日期数据源，故这里新增一条（东财 clist f26）。
+_LISTING_FIELDS = "f12,f26"      # f12=代码, f26=上市日期(YYYYMMDD)
+# 沪深主板 + 创业板 + 科创板 + 北交所（与 dev_risk 的板别划分对齐；北交所需带上）
+_LISTING_FS = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048"
+_LISTING_MAX_PAGES = 30          # 每页 200 ⇒ 30 页够 6000 只（与 SPOT 全市场分页同口径）
+
+
+def fetch_listing_dates():
+    """全市场 `code -> 上市日期 'YYYY-MM-DD'`（东财 clist f26；取不到日期的票不出现在结果里）。
+
+    ★ 上市日期是**静态**数据 ⇒ 12h 跨进程缓存（`cached_singleflight`，防并发击穿），
+      一天最多打 2 次、每次 ~28 页，成本可忽略。
+    ★ **不**计入 `eastmoney_clist` 熔断统计：那是「全市场实时行情」链路的健康指标，
+      把这条静态查询混进去会把行情熔断的门槛算歪。本函数失败即返回已取到的部分（通常 {}）。
+    ★ 失败语义：调用方（dev_risk）拿不到日期时**不做新股校验**（保守回退到原行为），
+      绝不因为这条辅助数据把正常票判成不可算。
+    """
+    def _load():
+        out = {}
+        for page in range(1, _LISTING_MAX_PAGES + 1):
+            try:
+                rows = _fetch_clist_page(_LISTING_FS, page, fid="f12", fields=_LISTING_FIELDS)
+            except Exception as e:                             # noqa: BLE001
+                log.warning("上市日期取数失败 page=%d err=%s（返回已取到的 %d 只）", page, e, len(out))
+                break
+            if not rows:
+                break
+            for r in rows:
+                code = str(r.get("f12") or "")
+                d = str(r.get("f26") or "")
+                if code and len(d) == 8 and d.isdigit():
+                    out[code] = "%s-%s-%s" % (d[:4], d[4:6], d[6:8])
+        return out
+
+    try:
+        return cached_singleflight(store, "listing_dates:v1", 12 * 3600, _load) or {}
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("上市日期读取失败（本次不做新股校验） err=%s", e)
+        return {}
 
 
 def fetch_eastmoney(fs):

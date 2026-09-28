@@ -32,7 +32,6 @@
           <th>板块</th>
           <th>现价</th>
           <th class="sortable" :class="{ active: sort.keyOf('today_dev') }" @click="sort.onSort('today_dev')">今日偏离<span class="sort-ind">{{ sort.ind('today_dev') }}</span></th>
-          <th class="sortable" :class="{ active: sort.keyOf('d3') }" @click="sort.onSort('d3')">3日<span class="sort-ind">{{ sort.ind('d3') }}</span></th>
           <th class="sortable" :class="{ active: sort.keyOf('d10') }" @click="sort.onSort('d10')">10日<span class="sort-ind">{{ sort.ind('d10') }}</span></th>
           <th class="sortable" :class="{ active: sort.keyOf('d30') }" @click="sort.onSort('d30')">30日<span class="sort-ind">{{ sort.ind('d30') }}</span></th>
           <th class="sortable" :class="{ active: sort.keyOf('next_trigger_pct') }" @click="sort.onSort('next_trigger_pct')">明日触发涨幅<span class="sort-ind">{{ sort.ind('next_trigger_pct') }}</span></th>
@@ -56,13 +55,17 @@
           >
             <div class="stock-name-row">
               <span class="pool-hover-wrap"><span class="stock-name">{{ it.name || '—' }}</span></span>
+              <!-- 连板高度标签（2026-09-28 主人要求：异动板块也要有「昨首板」）。
+                   口径/文案与选股名单**同一份**（utils/lb.js + 后端 stocks._fill_lb）；
+                   `lb` 缺失或为 0 档时 lbLabel 返回 '' ⇒ 整个胶囊不渲染（与选股名单一致）。
+                   `.lb-tag*` 配色在全局 styles/main.css（不在本组件 scoped）。 -->
+              <span v-if="lbLabel(it.lb)" class="lb-tag" :class="lbClass(it.lb)">{{ lbLabel(it.lb) }}</span>
             </div>
             <div class="stock-code-row"><span class="stock-code">{{ it.code }}</span></div>
           </td>
           <td class="col-board">{{ it.board || '—' }}</td>
           <td class="col-num">{{ money(it.price) }}</td>
           <td class="col-num" :class="chgCls(it.today_dev)">{{ signedPct(it.today_dev) }}</td>
-          <td class="col-num" :class="lvCls(it.d3_status)">{{ signedPct(it.d3) }}</td>
           <td class="col-num" :class="lvCls(it.d10_status)">{{ signedPct(it.d10) }}</td>
           <td class="col-num" :class="lvCls(it.d30_status)">{{ signedPct(it.d30) }}</td>
           <td class="col-num" :class="it.reachable ? 'col-up' : ''">
@@ -89,6 +92,7 @@
 import { computed } from 'vue'
 import { linkToSoftware } from '../utils/tdx'
 import { fmtNum } from '../utils/format'
+import { lbLabel, lbClass } from '../utils/lb'
 import { useSortable } from '../composables/useSortable'
 
 const props = defineProps({

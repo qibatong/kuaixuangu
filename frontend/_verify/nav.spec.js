@@ -63,7 +63,7 @@ import YestZtPanel from '../src/components/YestZtPanel.vue'
 import MoneyTopStrip from '../src/components/MoneyTopStrip.vue'
 import TodayPicksPanel from '../src/components/TodayPicksPanel.vue'
 import MarketBoardPanel from '../src/components/MarketBoardPanel.vue'
-import YidongFlow from '../src/components/YidongFlow.vue'
+// 🔴 2026-09-28 主人拍板：YidongFlow（实时异动流）整块移除、组件已删除 ⇒ 不再 import。
 import MarketView from '../src/views/MarketView.vue'
 // v4.11.63 全局股票搜索（《快选移动端追加清单》§三）
 import StockSearch from '../src/components/StockSearch.vue'
@@ -376,23 +376,14 @@ ok('sortBoardsByLimit: null 恒排最后', (() => {
 const g5e = await renderComp(MarketBoardPanel, { boards: [], src: 'kpl' })
 ok('空题材榜有明确文案', g5e.html.includes('暂无题材榜数据'))
 
-// G6 ⑥ 实时异动流
-const ydItems = [
-  { code: '600001', name: '异动甲', type: '严重异动', trigger: '10日累计偏离 100%', triggered: true, change: 9.9, deviation: 105.2, days: 10, target: 100 },
-]
-const g6 = await renderComp(YidongFlow, { items: ydItems, day: '2026-09-26', time: '14:30' })
-ok('YidongFlow 渲染无异常/无警告', g6.errors.length === 0, g6.errors.join(' | '))
-ok('含名称/类型/触发描述/偏离值', g6.html.includes('异动甲') && g6.html.includes('严重异动') &&
-  g6.html.includes('10日累计偏离 100%') && g6.html.includes('偏离 +105.20%'))
-const g6e = await renderComp(YidongFlow, { items: [] })
-ok('无异动 → 明确文案', g6e.html.includes('无触发异动'))
-const g6f = await renderComp(YidongFlow, { items: [], failed: true })
-ok('异动源失败 → 明说数据源暂缺（不空着让人以为是没异动）', g6f.html.includes('数据源暂缺'))
+// G6 ⑥ 实时异动流 —— 🔴 2026-09-28 主人拍板**整块移除**（组件 YidongFlow.vue 已删除 ⇒ 渲染不出来），
+//   故原「四态渲染 + 文案」断言整块删除；「不许再加回来」的反向守卫见 G13。
+const ydItems = []
 
 // G7 盯盘台不得在组件里注册轮询（轮询统一在 MarketView 的 tick 里）
 console.log('\n— G7. 六层渲染结果整体扫描')
 for (const [name, res] of [['FlashTicker', g1], ['YestZtPanel', g2], ['MoneyTopStrip', g3],
-  ['TodayPicksPanel', g4], ['MarketBoardPanel', g5], ['YidongFlow', g6]]) {
+  ['TodayPicksPanel', g4], ['MarketBoardPanel', g5]]) {
   ok(`${name} 渲染结果不含 "undefined"`, !res.html.includes('undefined'))
   ok(`${name} 渲染结果不含 "NaN"`, !res.html.includes('NaN'))
 }
@@ -534,15 +525,19 @@ for (const [n, r] of [['已更新', g10], ['未更新', g10b], ['无轮询', g10
 //     ③ 三 tab 改名后，「热门股偏离值 / 多次异动」两个已删 tab 不许残留。
 console.log('\n— G11. 异动风险名单 DevWarnList（四态）')
 
+// `lb` / `lbDate`（连板高度标签）：2026-09-28 起异动名单也下发与选股名单同一口径的标签。
+//   这里刻意一只 lb=1（渲染「昨首板」）、一只 lb=0（**不渲染**，连 lv0 类名都不该出现）。
 const devRows = [
   { code: '605058', name: '澳弘电子', board: '沪深主板', board_key: 'main_sh', price: 21.5,
     today_dev: 1.24, d3: 25.86, d3_status: '触发', d10: 99.99, d10_status: '临近',
     d30: 126.79, d30_status: '安全', next_trigger_pct: null, trigger_price: null,
-    rule: '', reachable: 0, warn_level: 'red', warn_msg: '已触发3日偏离值异动线' },
+    rule: '', reachable: 0, warn_level: 'red', warn_msg: '已触发10日偏离值异动线',
+    lb: 1, lbDate: '2026-09-23' },
   { code: '300750', name: '宁德时代', board: '创业板', board_key: 'gem', price: 188.2,
     today_dev: 3.4, d3: 28.1, d3_status: '临近', d10: 61.2, d10_status: '安全',
     d30: 90.5, d30_status: '安全', next_trigger_pct: 1.42, trigger_price: 190.87,
-    rule: '3日±30%', reachable: 1, warn_level: 'yellow', warn_msg: '明日涨 1.42% 即触发3日±30%' },
+    rule: '10日+100%', reachable: 1, warn_level: 'yellow', warn_msg: '明日涨 1.42% 即触发10日+100%',
+    lb: 0, lbDate: '2026-09-23' },
 ]
 
 const g11 = await renderComp(DevWarnList, { rows: devRows, date: '2026-09-24' }, '/yidong')
@@ -555,9 +550,15 @@ ok('级别徽章按 level 上色（红/黄各一）',
   countByClass(g11.html, 'dev-lv-red') === 1 && countByClass(g11.html, 'dev-lv-yellow') === 1)
 ok('带出代码与名称', g11.html.includes('605058') && g11.html.includes('澳弘电子') &&
   g11.html.includes('300750') && g11.html.includes('宁德时代'))
-ok('三条线的值/状态都渲染（触发→红、临近→黄）',
-  g11.html.includes('+25.86%') && g11.html.includes('+99.99%') && g11.html.includes('+126.79%'))
-ok('明日触发涨幅：可达者给出数值 + 规则', g11.html.includes('1.42%') && g11.html.includes('3日±30%'))
+ok('🔴 连板高度标签：lb=1 渲染「昨首板」（与选股名单同一套 .lb-tag）',
+  g11.html.includes('昨首板') && g11.html.includes('lb-tag-lv1'))
+ok('🔴 连板标签：lb=0 完全不渲染（不得出现 lv0 类名，更不得出现「新启动」）',
+  !g11.html.includes('lb-tag-lv0') && !g11.html.includes('新启动'))
+ok('两条线的值/状态都渲染（10/30；3日列已于 2026-09-28 移除）',
+  g11.html.includes('+99.99%') && g11.html.includes('+126.79%'))
+ok('🔴 3日 不得再出现在表头或单元格（夹具自带的 d3 值也不许渲染）',
+  !g11.html.includes('3日') && !g11.html.includes('+25.86%'))
+ok('明日触发涨幅：可达者给出数值 + 规则', g11.html.includes('1.42%') && g11.html.includes('10日+100%'))
 ok('明日触发涨幅为空时渲染「—」而不是 0', g11.html.includes('—'))
 ok('🔴 渲染结果不含 "undefined"', !g11.html.includes('undefined'))
 ok('🔴 渲染结果不含 "NaN"', !g11.html.includes('NaN'))
@@ -580,18 +581,21 @@ const devFixture = {
   ok: true, code: '605058', name: '澳弘电子', board: '沪深主板', board_key: 'main_sh',
   index: '000002', index_name: '上证A指', price: 21.5, date: '2026-09-24',
   limit_up_pct: 10.0, today_dev: 1.24,
+  // 🔴 2026-09-28：夹具改为 **10/30 两条线**（3 日维度已移除，但刻意**保留 d3/detail[3]** ——
+  //   后端数据链路不动、仍会返回，用它来验证「即使数据里有 3 日，计算器也不画出来了」）。
+  //   d10 触发 + d30 临近 ⇒ 两张卡正好覆盖 dd-hit / dd-near 两种 ascii 类名。
   dev: {
     d3: { value: 25.86, thresh: 20, status: '触发' },
-    d10: { value: 99.99, thresh: 100, status: '临近' },
-    d30: { value: 126.79, thresh: 200, status: '安全' },
+    d10: { value: 105.6, thresh: 100, status: '触发' },
+    d30: { value: 196.4, thresh: 200, status: '临近' },
   },
   detail: {
     3: { value: 25.86, stock_pct: 27.1, idx_pct: 1.24, window: '2026-09-22→2026-09-24', base_date: '2026-09-19' },
-    10: { value: 99.99, stock_pct: 101.2, idx_pct: 1.21, window: '2026-09-11→2026-09-24', base_date: '2026-09-10' },
-    30: { value: 126.79, stock_pct: 130.0, idx_pct: 3.21, window: '2026-08-14→2026-09-24', base_date: '2026-08-13' },
+    10: { value: 105.6, stock_pct: 106.8, idx_pct: 1.21, window: '2026-09-11→2026-09-24', base_date: '2026-09-10' },
+    30: { value: 196.4, stock_pct: 199.6, idx_pct: 3.21, window: '2026-08-14→2026-09-24', base_date: '2026-08-13' },
   },
   window: { 3: '2026-09-22 → 2026-09-24（期初前 2026-09-19）', 10: '', 30: '' },
-  room: { next_trigger_pct: 8.84, trigger_price: 23.4, rule: '3日±20%', reachable: true,
+  room: { next_trigger_pct: 8.84, trigger_price: 23.4, rule: '10日+100%', reachable: true,
           limit_up_pct: 10, hit: [] },
   // ★ v4.11.71 起 project10 为**实基倒推**口径（不再是「假设天天涨停」的虚值）：
   //   need10/need30 = 累计所需涨幅%（自今日收盘起，复利）；None = 10 日内不可能；
@@ -608,7 +612,7 @@ const devFixture = {
       trigger: '不触发', trigger_rule: '无', zt_trigger: false,
       dev10: 24.9, dev30: 40.2, left10: 3, left30: null },
   ],
-  warn: { level: 'red', msg: '已触发3日偏离值异动线' },
+  warn: { level: 'red', msg: '已触发10日偏离值异动线' },
 }
 
 const g11d = await renderComp(DevRiskDetail, { data: devFixture, code: '605058' }, '/yidong')
@@ -616,14 +620,24 @@ ok('DevRiskDetail 渲染无异常/无警告', g11d.errors.length === 0, g11d.err
 ok('表头带出名称/代码/板块/对应指数/涨停幅度',
   g11d.html.includes('澳弘电子') && g11d.html.includes('605058') &&
   g11d.html.includes('沪深主板') && g11d.html.includes('上证A指') && g11d.html.includes('000002'))
-ok('三条偏离线各渲染一张卡（3/10/30 日）',
-  countByClass(g11d.html, 'dd-card') === 3, '实际 ' + countByClass(g11d.html, 'dd-card'))
-ok('三条线状态用 ascii 类名上色（触发→dd-hit、临近→dd-near）',
+ok('两条偏离线各渲染一张卡（10/30 日；3 日维度已于 2026-09-28 移除）',
+  countByClass(g11d.html, 'dd-card') === 2, '实际 ' + countByClass(g11d.html, 'dd-card'))
+ok('🔴 计算器不得再渲染 3 日线（夹具自带 d3/detail[3] 也不许画出来）',
+  !g11d.html.includes('3 日偏离值') && !g11d.html.includes('三条偏离') &&
+  !g11d.html.includes('3日±') && !g11d.html.includes('+25.86%'))
+ok('两条线状态用 ascii 类名上色（触发→dd-hit、临近→dd-near）',
   countByClass(g11d.html, 'dd-hit') >= 1 && countByClass(g11d.html, 'dd-near') >= 1)
-ok('偏离值/阈值/个股区间/指数区间都给出',
-  g11d.html.includes('+25.86%') && g11d.html.includes('+27.10%') && g11d.html.includes('+1.24%'))
-ok('明日触发空间：8.84% + 触发价 23.40 + 规则', g11d.html.includes('8.84%') &&
-  g11d.html.includes('23.40') && g11d.html.includes('3日±20%'))
+// ★ 2026-09-28 修复了「阈值恒显示 —、进度条恒 0%」的既有缺陷（阈值在后端 `dev.dN.thresh`，
+//   组件原先只读 `detail[n].thresh`）。以下同时钉住「偏离值 / 阈值 / 区间」，防回退。
+ok('两条线各带偏离值/阈值/个股区间/指数区间',
+  g11d.html.includes('+105.60%') && g11d.html.includes('/ 阈值 100%') &&
+  g11d.html.includes('+106.80%') && g11d.html.includes('+1.21%') &&
+  g11d.html.includes('+196.40%') && g11d.html.includes('/ 阈值 200%') &&
+  g11d.html.includes('+199.60%') && g11d.html.includes('+3.21%'))
+ok('🔴 进度条按「偏离值/阈值」计算（阈值取不到时会退化成恒 0%）',
+  /width:100\.0%/.test(g11d.html) && /width:98\.2%/.test(g11d.html))
+ok('明日触发空间：8.84% + 触发价 23.40 + 规则（10/30 口径）', g11d.html.includes('8.84%') &&
+  g11d.html.includes('23.40') && g11d.html.includes('10日+100%'))
 ok('hit 为空且未越涨停 ⇒ 提示「明日单日不可能触发」',
   g11d.html.includes('超过一个涨停幅度'))
 ok('★ 未来十日推演表渲染 2 行（实基倒推口径）', g11d.html.indexOf('dd-table') >= 0 &&
@@ -641,7 +655,7 @@ ok('🔴 渲染结果不含 "NaN"', !g11d.html.includes('NaN'))
 
 // hit 非空 ⇒ 头部改成「明日涨停即触发」
 const g11h = await renderComp(DevRiskDetail, {
-  data: { ...devFixture, room: { ...devFixture.room, hit: ['3日±20%'] } }, code: '605058',
+  data: { ...devFixture, room: { ...devFixture.room, hit: ['10日+100%'] } }, code: '605058',
 }, '/yidong')
 ok('明日涨停即触发时点明「明日涨停即触发」', g11h.html.includes('明日涨停即触发'))
 
@@ -676,18 +690,18 @@ ok('首屏落在「严重异动」：渲染的是名单区（.dev-bar/加载态�
 ok('🔴 本体渲染不含 "undefined"', !g11v.html.includes('undefined'))
 ok('🔴 本体渲染不含 "NaN"', !g11v.html.includes('NaN'))
 
-// ★ v4.11.71 B3：实时异动流面板（主人问「还在用吗，测试一下」）
-//   旧写法 `<YidongFlow />` **一个 prop 都没传** ⇒ 面板永远空（接口在服务端、UI 不接）
-//   ⇒ 这里必须钉住「YidongView 本体真的把 props 传下去了」。
-//   ⚠️ SSR 下 onMounted 不执行 ⇒ 拿不到加载态；但「面板在场 + 空态文案不造假」可以断言。
-console.log('\n— G13. /yidong 实时异动流面板（v4.11.71 修好取数接线）')
-ok('YidongView 首屏渲染出实时异动流面板（.yd-flow / .yf-*）',
-  g11v.html.includes('实时异动流') || g11v.html.includes('yf-') || g11v.html.includes('yd-flow'))
-ok('🔴 面板空态不许冒充有数据：要么给空态文案，要么保持加载态',
-  !/实时异动流[\s\S]{0,600}?<tr[^>]*>\s*<td[^>]*>\s*<\/td>/.test(g11v.html))
-ok('🔴 YidongView 源码必须给 YidongFlow 传 items（防退回「无 prop 空面板」）',
-  YidongViewSrc.includes(':items="flowList"'), '未找到 :items="flowList"')
-ok('🔴 YidongView 源码必须调 kplYidongRealtime（防取数被删）',
+// 🔴 2026-09-28 主人拍板：`/yidong` 置顶的「实时异动流」**整块移除**（组件 YidongFlow.vue 已删除、
+//   取数一并删除）⇒ 原「必须渲染出面板 + 必须传 items」的接线断言，改为**反向守卫**：
+//   面板不许再出现、源码不许再残留 YidongFlow / flowList / loadFlow（防止将来误加回来）。
+console.log('\n— G13. /yidong 置顶实时异动流已移除（2026-09-28）')
+ok('🔴 YidongView 首屏不得再渲染实时异动流面板（.yd-flow / .yf-*）',
+  !g11v.html.includes('实时异动流') && !g11v.html.includes('yf-') && !g11v.html.includes('yd-flow'))
+ok('🔴 YidongView 源码不得再残留 YidongFlow / flowList / loadFlow（取数已删）',
+  !stripComments(YidongViewSrc).includes('YidongFlow') &&
+  !stripComments(YidongViewSrc).includes('flowList') &&
+  !stripComments(YidongViewSrc).includes('loadFlow'),
+  '剥离注释后仍命中')
+ok('🔴 严重异动里「交易所已公布异动」折叠表仍须调 kplYidongRealtime（同一接口的另一处在用，别误删）',
   YidongViewSrc.includes('kplYidongRealtime'))
 ok('🔴 MarketView 源码不得再残留 kplYidongRealtime / YidongFlow（死代码已清）',
   // ⚠️ 必须**剔除注释**再断言：实现里刻意留了「为什么移除」的说明注释（含这两个名字），

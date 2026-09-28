@@ -57,8 +57,41 @@ v-for="b in boards" :key="b.name" class="zt-board"
               <span v-if="it.mainNet !== null && it.mainNet !== undefined" :class="it.mainNet >= 0 ? 'up' : 'down'">{{ it.mainNet >= 0 ? '主力吸筹' : '主力出货' }} {{ yi(Math.abs(it.mainNet)) }}亿</span>
               <span v-if="it.turnover">换手 {{ it.turnover.toFixed(2) }}%</span>
             </div>
+            <!-- ★ 2026-09-28：接口本来就下发了这些字段（`_parse_ladder` 共 18 个），卡片此前只画了 7 个
+                 ⇒ 补上，零上游成本。单位统一走 yi()=亿元。
+                 ⚠️ 刻意**不显示** `ztCount` —— `ladder_image.py` 明确写过「连板数用 pid，不用 ztCount
+                    （不可靠）」；档位以 rebin 后的真实连板数为准（就是上方的「N板」）。 -->
+            <div class="zc-meta zc-meta2">
+              <span v-if="it.limitTime">首封 {{ hhmm(it.limitTime) }}</span>
+              <span v-if="it.maxSeal">最大封单 {{ yi(it.maxSeal) }}亿</span>
+              <span v-if="it.amplitude">振幅 {{ Number(it.amplitude).toFixed(1) }}%</span>
+              <span v-if="it.amount">成交 {{ yi(it.amount) }}亿</span>
+              <span v-if="it.floatMv">流通 {{ yi(it.floatMv) }}亿</span>
+              <!-- ⚠️ 上游 `mainSell` 是**负数**（实测：买 0.42 + 卖 −0.15 = 主力净额 0.27 ✓ 对得上）
+                   ⇒ 这里必须取绝对值，否则会显示成「卖-0.15亿」。 -->
+              <span v-if="it.mainBuy || it.mainSell" class="zc-mb">主力 买{{ yi(it.mainBuy || 0) }}/卖{{ yi(Math.abs(it.mainSell || 0)) }}亿</span>
+            </div>
             <div v-if="it.reason" class="zc-reason">{{ it.reason }}</div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 断板反包（★ 2026-09-28 新增）: 昨日断板、今日重新起板且近 5 个交易日有涨停史
+         （不是新首板）。后端 kpl.fetch_fanbao_stocks() 早就有，此前**只在盘后 PNG 图里**，
+         网页端一直看不到。仅在有数据时渲染，空态不占版面。 -->
+    <div v-if="fanbao.length" class="zt-tier fanbao-tier">
+      <div class="zt-tier-label fanbao-label">断板反包 <span class="zt-tier-count">{{ fanbao.length }}</span></div>
+      <div class="zt-tier-cards">
+        <div v-for="it in fanbao" :key="it.code" class="zt-card fanbao-card" @click="viewReason(it)">
+          <div class="zc-top">
+            <span class="zc-name">{{ it.name }}</span>
+            <span class="zc-code">{{ it.code }}</span>
+          </div>
+          <div class="zc-meta">
+            <span :class="Number(it.change) >= 0 ? 'up' : 'down'">{{ Number(it.change) >= 0 ? '+' : '' }}{{ it.change }}%</span>
+          </div>
+          <div v-if="it.reason" class="zc-reason">{{ it.reason }}</div>
         </div>
       </div>
     </div>
@@ -102,10 +135,10 @@ v-for="b in boards" :key="b.name" class="zt-board"
 <script setup>
 import { onMounted, onBeforeUnmount, ref, reactive, computed } from 'vue'
 import { usePolling } from '../composables/usePolling'
-import { kplZtEchelon, kplLadderDates, kplZtReason } from '../api/kpl'
+import { kplZtEchelon, kplLadderDates, kplZtReason, kplFanbao } from '../api/kpl'
 import { trackUsageOnce } from '../api/activity'
 import { useUserStore } from '../stores/user'
-import { bjDateTimeStr, isIntradayNow } from '../utils/time'
+import { bjDateTimeStr, isIntradayNow, fmtTsTime } from '../utils/time'
 import { useDataStamp } from '../composables/useDataStamp'
 import DataStamp from '../components/DataStamp.vue'
 
@@ -152,6 +185,12 @@ async function loadImgDates() {
 }
 
 function yi(v) { return (v / 1e8).toFixed(2) }
+// 首封时间：接口给的是 **epoch 秒**（见 backend/app/services/ladder_image.py 的口径注释），
+// 复用项目自带的 `fmtTsTime`（UTC+8 格式化，返回 'YYYY-MM-DD HH:MM'）⇒ 取后 5 位就是 HH:MM。
+function hhmm(ts) {
+  const s = fmtTsTime(ts)
+  return s && s.length >= 5 ? s.slice(-5) : '—'
+}
 function pct(v) { return (v === null || v === undefined) ? '--' : (v * 100).toFixed(0) + '%' }
 
 // 题材联动(2026-09-20 主人要求): 点击题材过滤下方梯队, 再点取消; 与后端分组同口径取首题材
@@ -186,6 +225,15 @@ async function viewReason(it) {
   }
 }
 
+// 断板反包（2026-09-28 新增）：独立接口，后端 30 分钟缓存 ⇒ 与梯队同频刷新也不会压上游。
+const fanbao = ref([])
+async function loadFanbao() {
+  try {
+    const d = await kplFanbao()
+    fanbao.value = (d && d.list) || []
+  } catch (e) { fanbao.value = [] }
+}
+
 async function load() {
   try {
     const d = await kplZtEchelon()
@@ -193,6 +241,7 @@ async function load() {
     if (d && d.promote) promote.value = d.promote
     ladders.value = (d && d.ladders) || []
     boards.value = (d && d.boards) || []
+    loadFanbao()
     markData()          // ★ 只在成功路径推进「更新于」；失败不得推进（见 useDataStamp 注释）
   } catch (e) { /* 静默 */ } finally {
     loading.value = false
@@ -219,6 +268,15 @@ onBeforeUnmount(() => { if (echelonTimer) clearInterval(echelonTimer) })
 
 <style scoped>
 .zt-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+/* 断板反包区(2026-09-28): 与梯队同构, 但用**青色**边框与「N板」的红梯度区分开
+   (红=连板强度, 青=形态反包) */
+.fanbao-tier { margin-top: 14px; }
+.fanbao-label { color: #4dd0c2; }
+.fanbao-card { border-left: 3px solid #4dd0c2; }
+/* 卡片第二行补充字段(2026-09-28)：首封时间/最大封单/振幅/成交/流通/主力买卖 ——
+   单行放不下会自然换行，字号比主行再小半级，避免把主信息(封单/主力净额/换手)淹掉 */
+.zc-meta2 { margin-top: 2px; opacity: 0.82; }
+.zc-meta2 .zc-mb { color: #c9a86a; }
 .zt-title { font-size: 1.25rem; font-weight: 700; color: #ffe0a0; }
 .zt-title .fa { color: #ffb400; }
 .zt-sub { color: var(--text-muted); font-size: 0.8125rem; }
