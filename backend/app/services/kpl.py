@@ -4778,14 +4778,29 @@ def start_kpl_prewarm():
 _KPL_REPLAY_PERIOD = 1200       # 秒; < 结果层 TTL(1800) 且整除上游 TTL(3600)
 _KPL_REPLAY_DAYS = 5            # 预热最近 N 个交易日
 _KPL_REPLAY_GAP = 1.2           # 两次调用之间的间隔(秒)
+_KPL_REPLAY_WINDOW = (8 * 60 + 30, 20 * 60)    # 服务窗口 08:30~20:00(北京时间, 两端含)
 _KPL_REPLAY_SKIP = (9 * 60 + 5, 9 * 60 + 40)   # 竞价时段跳过(上游此时最紧张)
 _kpl_replay_started = False     # 幂等: 重复 startup 不叠线程
+_kpl_replay_last_active = None  # 仅在"进入/退出窗口"各播报一次(逐轮打日志会刷屏)
 
 
 def kpl_replay_prewarm_active(now_ts):
-    """回看日预热窗口: 全天(历史数据不可变), 仅跳过竞价时段"""
+    """回看日预热窗口: 08:30~20:00 且非竞价时段(北京时间)
+
+    🔴 2026-09-28 主人拍板收敛（原为"全天可用, 仅跳竞价时段"）。生产实测依据:
+      收盘后 `20:58/21:18/21:38/21:58/22:18/22:38/22:58` 每 20 分钟仍在跑一轮(7 轮)，
+      而回看数据是**历史、不可变**的 —— 结果层 TTL 1800s、上游 TTL 3600s ⇒ 夜里无人
+      访问时，每轮预热出的"热"在**下一个用户到来前必然已过期** ⇒ 纯粹是重复打上游
+      (生产机已有猫爪 429 记录)。
+      ⇒ 收敛到**服务窗口 08:30~20:00**：
+        · 08:30 起先焐热 5 个回看日，恰好覆盖 09:00 起的首访高峰（4.8~7.4s 冷启动的收益保住）；
+        · 20:00 后停到次日 08:30 ⇒ 夜间零上游调用。
+      窗口内的竞价时段(09:05~09:40)仍照旧跳过。
+    """
     g = time.gmtime(now_ts + 8 * 3600)
     hm = g.tm_hour * 60 + g.tm_min
+    if hm < _KPL_REPLAY_WINDOW[0] or hm > _KPL_REPLAY_WINDOW[1]:
+        return False
     return not (_KPL_REPLAY_SKIP[0] <= hm <= _KPL_REPLAY_SKIP[1])
 
 
@@ -4825,9 +4840,21 @@ def _kpl_replay_prewarm_once():
 
 def _kpl_replay_prewarm_loop():
     """常驻后台循环: 与首屏预热同模式(每 web worker 一份 + setnx 跨进程抢锁)"""
+    global _kpl_replay_last_active
+    win = "%02d:%02d~%02d:%02d" % (_KPL_REPLAY_WINDOW[0] // 60, _KPL_REPLAY_WINDOW[0] % 60,
+                                   _KPL_REPLAY_WINDOW[1] // 60, _KPL_REPLAY_WINDOW[1] % 60)
     while True:
         try:
-            if kpl_replay_prewarm_active(time.time()):
+            active = kpl_replay_prewarm_active(time.time())
+            if active != _kpl_replay_last_active:
+                # 只在"进入/退出窗口"各播报一次 —— 循环每 20min 一轮, 逐轮打日志会刷屏;
+                # 但这一条必须留: 否则"夜里有没有停"从日志上就看不出来了(2026-09-28 教训)
+                if active:
+                    log.info("KPL回看预热进入服务窗口(%s), 恢复预热", win)
+                else:
+                    log.info("KPL回看预热已离开服务窗口(%s), 停歇期间不再打上游", win)
+                _kpl_replay_last_active = active
+            if active:
                 if store.setnx("kpl_replay_prewarm:turn", 1,
                                ttl=int(_KPL_REPLAY_PERIOD * 1.5)):
                     try:
