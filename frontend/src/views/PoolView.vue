@@ -36,7 +36,14 @@ const user = useUserStore()
 let autoAddTimer = null
 let expiryTimer = null
 
-// 2026-09-09 盘中实时(spot)已下线, 选股结果只有竞价一份
+// 2026-09-27 (v4.11.75): 自选池「只取竞价名单」是有意为之, 不是遗漏。
+// 盘中实时(spot)已于 v4.11.75 重新上线, 但它不适合进自选池:
+//   1) 收录时机对不上 —— autoAdd() 只认「9:30 前」(cachedStocks 是 9:26 定格的竞价名单);
+//      spot 无 9:26 闸门、盘中随时在变, 没有稳定的"收录时刻"。
+//   2) 字段结构对不上 —— 池内记录的是 bidChange(竞涨), 而 spot 只有 realChange(现涨),
+//      混入会让池子的字段语义分裂。
+//   3) 自选池是「盘前决策留痕」, spot 是「盘中临时看板」, 两者生命周期不同。
+// 故 spot 名单不进池; 用户如需从 spot 加自选可用行内「加自选」按钮(PoolHoverBtn)手动加。
 function currentList() {
   return stocks.cachedStocks
 }

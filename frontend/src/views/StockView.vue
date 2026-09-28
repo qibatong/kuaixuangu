@@ -18,13 +18,15 @@
 
       <!-- 左栏: 选股主流程 -->
       <div class="home-col home-col-left" :class="{ 'home-col-hidden': mobilePane !== 'stock' }">
-        <!-- 模式切换(内联): 竞价 / AI预测 (2026-09-01: 原"盘中"替换为 AI预测)
+        <!-- 模式切换(内联): 竞价 / 盘中实时 / AI预测 三组
              2026-09-05 主人需求: ① 去掉原顶部提示文案(竞价「9:30前可重新选股…」与
              AI预测「AI 竞价预测…」两行) ② 原右上角「锁定」按钮移除(下方 FilterPanel
-             已有同功能锁定) ③ 「刷新」按钮下移至 FilterPanel 的 应用/重置/锁定 组 -->
+             已有同功能锁定) ③ 「刷新」按钮下移至 FilterPanel 的 应用/重置/锁定 组
+             2026-09-28 v4.11.75: 新增「盘中实时」—— 后端 /api/stocks_spot 重建后接入 -->
         <div class="alert-rule alert-rule-compact">
           <span class="mode-tabs mode-tabs-inline">
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'auction' }" @click="switchTab('auction')"><i class="fa fa-sun-o"></i> AI选股</button>
+            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'spot' }" @click="switchTab('spot')"><i class="fa fa-bolt"></i> 盘中实时</button>
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick' }" @click="switchTab('aipick')"><i class="fa fa-android"></i> AI预测·金睛</button>
             <!-- 2026-09-25: 火眼(LightGBM) 平行链路(与 AI预测 同构, 只换模型); 手机端一并生效(本组 tab 在左栏内部) -->
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick_lgb' }" @click="switchTab('aipick_lgb')"><i class="fa fa-flask"></i> AI预测·火眼</button>
@@ -36,10 +38,10 @@
           <span class="right-group"><DataStamp :at="dataAt" :ok="dataOk" :interval="autoOn ? 30 : 0" :stale="dataStale" /></span>
         </div>
 
-        <!-- 筛选面板(仅竞价模式) -->
+        <!-- 筛选面板(竞价 / 盘中实时两种模式共用本组件, 组件内部按 store.strategy 分支渲染) -->
         <!-- 2026-09-05: 刷新按钮已下移到 FilterPanel(与 应用/重置/锁定 同组),
              这里监听其 emit 并执行本视图的刷新逻辑 -->
-        <div v-if="leftTab === 'auction'" class="home-filter"><FilterPanel @refresh="refreshRealTime" /></div>
+        <div v-if="leftTab === 'auction' || leftTab === 'spot'" class="home-filter"><FilterPanel @refresh="refreshRealTime" /></div>
 
         <template v-if="leftTab === 'auction'">
           <!-- 2026-09-16 选股闸门(主人拍板: 开盘日 9:00-9:26 不支持选股) -->
@@ -84,6 +86,34 @@
           </template>
         </template>
 
+        <!-- ===== 盘中实时(spot) — 2026-09-28 v4.11.75 =====
+             🔴 与竞价模式的四点结构差异(照抄竞价模板会出错):
+               ① **无 9:26 闸门**: 竞价那套"当日定格尚未产生"的理由对 spot 不成立,
+                  pickBlocked 提示块与置灰一律不适用(后端该端点也没有 pick_window_guard)。
+               ② **无定格标注条**: spot 永远是"此刻", 不存在"上一交易日定格"这回事。
+               ③ **无锁定**: spot 不落批次, 锁了也没有可回放的定格名单。
+               ④ 会员门禁**照旧**(盘中实时属付费能力, 口径与竞价一致)。 -->
+        <template v-else-if="leftTab === 'spot'">
+          <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="盘中实时" />
+          <template v-else-if="user.isMember || !isMemberOnlyTime()">
+            <div v-if="!stocks.spotCached" class="stock-table-container">
+              <div class="loading-placeholder">
+                <div v-if="stocks.spotLoading" class="spinner"></div>
+                <div v-else><i class="fa fa-bolt"></i> 点「应用」获取盘中实时名单</div>
+                <div v-if="stocks.spotLoading">正在扫描全市场实时行情…</div>
+              </div>
+            </div>
+            <template v-else>
+              <!-- 盘中数据的时效提示: spot 每次请求都是"此刻", 必须让用户知道数据有多新 -->
+              <div class="spot-notice">
+                <i class="fa fa-bolt"></i>
+                <span>盘中实时名单 · 共 <b>{{ stocks.spotStocks.length }}</b> 只 · 数据时刻 <b>{{ spotTimeStr }}</b>（每次「应用」重新扫描，无需等 9:26 定格）</span>
+              </div>
+              <StockTable :stocks="stocks.spotStocks" strategy="spot" />
+            </template>
+          </template>
+        </template>
+
         <!-- AI预测(2026-09-01 替换原盘中选股; 自带 VIP 门禁/日期回看/规则过滤) -->
         <!-- 2026-09-01: AI预测内嵌左视图; 隐藏日期回看(回看入口在导航栏「历史回看」页) -->
         <AipickView v-else-if="leftTab === 'aipick'" :embedded="true" :show-date-picker="false" />
@@ -100,7 +130,7 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FilterPanel from '../components/FilterPanel.vue'
 import SentimentPanel from '../components/SentimentPanel.vue'
 import StockTable from '../components/StockTable.vue'
@@ -134,9 +164,21 @@ const bidSealMap = ref({})        // 竞价涨停委买额 map: code -> {limitBo
 const pickGateRef = ref(null)
 const { refreshYidongCodes } = useYidongMonitor()
 
-// 2026-09-01: 左视图模式切换 竞价 / AI预测(原"盘中"已被 AI预测替换)
-// 使用本地 leftTab 而非 stocks.strategy: 不触发盘中数据流(spot 已于 2026-09-09 下线)
+// 2026-09-01: 左视图模式切换 竞价 / 盘中实时 / AI预测×2
+// 2026-09-28 v4.11.75: 'spot' 重新可用 —— 切换时会 store.setStrategy('spot'),
+//   让 FilterPanel 渲染盘中参数行、并把数据源切到 spotStocks(与竞价 cachedStocks 隔离)。
 const leftTab = ref('auction')
+
+// 盘中名单的数据时刻(秒 → HH:MM:SS, 北京时间)。spot 每次请求都是"此刻", 必须显式告知。
+const spotTimeStr = computed(() => {
+  if (!stocks.spotDataAt) return '--:--:--'
+  const d = new Date(stocks.spotDataAt * 1000)
+  const p = (n) => String(n).padStart(2, '0')
+  // toLocaleString('zh-CN', {timeZone:'Asia/Shanghai'}) 在部分 webview 上不稳,
+  // 直接用 UTC+8 偏移算(与 utils/time 的 bjDateTimeStr 同思路, 不依赖环境时区)。
+  const bj = new Date(d.getTime() + (d.getTimezoneOffset() * 60000) + 8 * 3600000)
+  return p(bj.getHours()) + ':' + p(bj.getMinutes()) + ':' + p(bj.getSeconds())
+})
 
 // 2026-09-23 P0 口径条文案已随提示条一并移除(lbNote/lbFoot 不再使用)
 
@@ -202,11 +244,21 @@ async function init() {
   realTimeTimer = setInterval(() => {
     if (!isIntradayNow()) return            // 盘前/收盘/周末: 不轮询, 现涨固定为当日收盘
     const safe = (p) => p.catch(() => {})  // 轮询失败静默, 不打断
-    safe(stocks.updateRealTimeOnly({ silent: true }).then(() => markData()))
+    // 2026-09-28 v4.11.75: 按当前模式分流 —— 竞价走 updateRealTimeOnly(只刷现涨, 不动名单);
+    // 盘中(spot)必须**整份重拉**: spot 的评分本身就依赖实时涨幅/量比/换手, 只换现涨
+    // 而不重算是错的(名单会停在上一刻的评分上)。两条链路互斥, 不会叠加。
+    if (leftTab.value === 'spot') {
+      if (stocks.spotCached) safe(stocks.fetchSpotList({ silent: true }).then(() => markData()))
+    } else if (leftTab.value === 'auction') {
+      safe(stocks.updateRealTimeOnly({ silent: true }).then(() => markData()))
+    }
   }, 30000)
 }
 
-// 当前模式的选股结果(左视图仅竞价模式, 恒为 cachedStocks)
+// 当前模式的选股结果 —— 恒为竞价名单 cachedStocks, 与左视图 tab 无关。
+// 2026-09-28 (v4.11.75): 左视图新增 spot tab 后仍有此行, 原因: autoAdd(自选池自动收录)
+// 只认竞价名单(池内字段是 bidChange, spot 只有 realChange)。spot 名单另有 spotStocks 字段,
+// 不进池。详情见 PoolView.vue / StockPoolPanel.vue 的同名注释。
 function currentList() {
   return stocks.cachedStocks
 }
@@ -219,15 +271,23 @@ function refreshRealTime() {
   stocks.updateRealTimeOnly().then(() => markData())
     .catch(e => showToast('❌ 更新失败：' + e.message, 'error'))
 }
-// 左视图模式切换: auction(竞价, 数据流与 store 联动) / aipick(AI预测) / aipick_lgb(LightGBM 版)
+// 左视图模式切换: auction(竞价) / spot(盘中实时) / aipick(AI预测) / aipick_lgb(LightGBM 版)
 // 后两者都是 AipickView·AipickLgbView 自加载, 与 store 数据流无关。
 function switchTab(m) {
   if (leftTab.value === m) return
   leftTab.value = m
+  // 2026-09-28 v4.11.75: 同步 store.strategy —— FilterPanel 按它决定渲染哪套参数行,
+  // 必须在这里切, 否则会出现"tab 在盘中、参数行却是竞价的"错位。
+  stocks.setStrategy(m === 'spot' ? 'spot' : 'auction')
   // 2026-09-22 v4.11.35: AI 预测的使用计数由 AipickView 自己在加载报表时上报,
   // 这里**不要**再记一次(同一动作会双计)。
   if (m === 'auction' && !stocks.isDataCached) {
     stocks.fetchAndCache().then(() => markData()).catch(e => showToast('❌ ' + e.message, 'error'))
+  }
+  // 盘中实时: 首次切过来自动拉一次(否则用户看到的是"点应用"空态, 多一步操作)。
+  // 失败静默 —— 面板仍在, 用户可手点「应用」重试; 弹错会打断刚切 tab 的动作。
+  if (m === 'spot' && !stocks.spotCached) {
+    stocks.fetchSpotList({ silent: true }).then(() => markData()).catch(() => {})
   }
 }
 // 2026-08-24: 首页表格固定表头 — 测量 sticky 元素(filter/tabs)高度写入 CSS 变量
@@ -306,6 +366,29 @@ body[data-bg="light"] .pick-blocked-notice { color: #8a5500; }
 .freeze-notice b { color: #e6b400; font-weight: 600; }
 body[data-bg="light"] .freeze-notice { color: #8a5500; }
 body[data-bg="light"] .freeze-notice b { color: #8a5500; }
+
+/* 2026-09-28 v4.11.75 盘中实时(spot)名单的时效提示条。
+   与上方 freeze-notice(黄=提醒"这不是当日数据")**语义不同**: 这条是蓝色信息系,
+   说明"这份数据很新" —— 两者不会同时出现(spot 无定格概念, 竞价无实时概念)。
+   用项目蓝色系(--accent 在浅色下是深红, 故这里显式用 info 蓝, 与涨跌红绿无关)。 */
+.spot-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(64, 148, 255, 0.38);
+  border-radius: 6px;
+  background: rgba(64, 148, 255, 0.08);
+  color: var(--text-main);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+.spot-notice .fa { color: #4094ff; }
+.spot-notice b { color: #4094ff; font-weight: 600; }
+body[data-bg="light"] .spot-notice { color: #1a4a8a; }
+body[data-bg="light"] .spot-notice .fa,
+body[data-bg="light"] .spot-notice b { color: #1a5fb4; }
 
 /* 2026-09-23 P0 口径条样式已移除(.lb-note / .lb-note-foot): 该提示条已按主人要求整条下线。
    连板标签自身样式在 components/StockTable.vue(.lb-tag / .lb-tag-lv0..5), 不受影响。 */

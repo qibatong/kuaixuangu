@@ -65,6 +65,115 @@ export function buildFilterParams(f) {
 
 
 /* ==========================================================================
+   盘中实时(spot)筛选参数 —— 2026-09-28 v4.11.75 重建 spot 能力
+
+   背景(务必理解，否则会误判这批参数是"死参数"):
+     这 6 个参数(chgFloor/chgGt/volRatioFloor/turnoverFloor/turnoverGt/spotExcludeZT)
+     自 2026-09-09 spot 下线(提交 4c56083)后就**没有任何消费点** —— 后端零消费、
+     前端 buildFilterParams **压根不传**。它们在 users.py 偏好白名单与 filters 契约里
+     被有意保留(注释: "删除收益 < 契约变更风险")，所以能存能回显，但选了不生效。
+
+     2026-09-28 后端重建 spot 三层后，这批参数在后端 `apply_spot_filters` 里真被消费了；
+     本文件负责**把前端设置真正传出去**(这是"静默失效"的最后一段断路)。
+
+   ⚠️ 与竞价参数的分工(不要混用):
+     · bidGt / bidLt / bidAmtFloor = **竞价**语义(定格竞价涨幅/竞价额) → spot 不适用
+       (spot 是盘中实时，没有"竞价额"这个概念; 后端 apply_spot_filters 也明确不消费它)
+     · chgFloor / chgGt = **实时涨幅**区间(r.real_change, 非 bid_change)
+     · turnoverFloor / turnoverGt = **换手率**区间(%)
+     · volRatioFloor = 量比下限
+     · spotExcludeZT = 剔除已封涨停的票(涨停池判定，非"昨日涨停")
+   ========================================================================== */
+
+// 盘中实时默认参数。取值依据 = 后端实测(2026-09-28 测试机 5561 只 → 133 只) +
+//   六因子评分表的满分区间(涨幅 1.5~6% / 量比≥2 / 换手 2~20%)。
+// 注意: 这里**不含** markets/stSuspend/limitUp/floatMv*/priceGt/probLt/confLt/scoreFloor，
+//   它们由 defaultFilterSettings 共用(spot 与竞价同口径，见后端 apply_spot_filters 复用共用门槛)。
+export const defaultSpotFilterSettings = {
+  // 实时涨幅区间(%) —— 后端判据: real_chg < chgFloor 剔除; chgGt>0 且 real_chg > chgGt 剔除。
+  // chgGt=0 表示**不限**(与 floatMvGt/priceGt 的 0=不限 约定一致)。
+  // 默认给 0/0 = 不限: 让用户先看到全貌，再自己收紧(后端实测全放宽 225 只 vs 默认 133 只)。
+  chgFloor: 0,
+  chgGt: 0,
+  // 量比下限: 0 = 不限。2 = "显著放量"(六因子评分表的满分档起点)。
+  volRatioFloor: 0,
+  // 换手率区间(%): 0/0 = 不限。后端 0 表示不限(下限时 turnover<0 不可能命中)。
+  turnoverFloor: 0,
+  turnoverGt: 0,
+  // 剔除已封涨停(默认 false = 不剔除; 勾选后请求涨停池判定)
+  spotExcludeZT: false
+}
+
+// 构建 spot 的 API query —— 在竞价参数基础上**换掉**竞价专属项、**补上**盘中专属项。
+//
+// 为什么不能用 buildFilterParams + 追加:
+//   它会把 bidGt/bidLt/bidAmtFloor 一并送出，而后端 apply_spot_filters **不消费**这三个
+//   —— 送了无害但会让读日志的人以为 spot 受竞价额约束(已知误导源)。此处显式剔除，
+//   让"前端传的"与"后端消费的"一一对应，可被 grep 核对。
+export function buildSpotFilterParams(f) {
+  return {
+    // ---- 共用门槛(与竞价同口径, 后端 apply_spot_filters 复用) ----
+    stSuspend: f.stSuspend ? '1' : '0',
+    limitUp: f.limitUp ? '1' : '0',
+    markets: (f.markets || []).join(','),
+    probLt: f.probLt,
+    confLt: f.confLt,
+    floatMvFloor: f.floatMvFloor,
+    floatMvGt: f.floatMvGt,
+    priceGt: f.priceGt,
+    scoreFloor: f.scoreFloor,
+    // ---- 盘中专属(6 个) ----
+    chgFloor: f.chgFloor ?? 0,
+    chgGt: f.chgGt ?? 0,
+    volRatioFloor: f.volRatioFloor ?? 0,
+    turnoverFloor: f.turnoverFloor ?? 0,
+    turnoverGt: f.turnoverGt ?? 0,
+    spotExcludeZT: f.spotExcludeZT ? '1' : '0'
+  }
+}
+
+// 盘中实时筛选纯函数 —— 与后端 picker/filter.py::apply_spot_filters **逐条同口径**。
+// 用途: 拿到后端 spot 名单后，改条件时的本地即时预筛(可选优化；当前 spot 走真网络请求，
+//   因为盘中"现涨/量比/换手"每次都在变，本地快照会立刻过期 —— 与竞价快照性质不同)。
+// ⚠️ 若将来接本地预筛，必须与后端对拍；此处先提供判据以固定口径、并给单测锚点。
+export function passSpotFilter(it, f) {
+  // 1) 实时涨幅区间 —— 缺失(无实时行情)→ 剔除(与后端 no_real_change 同口径)
+  const rc = _num(it.realChange)
+  if (rc === null) return false
+  if (rc < (f.chgFloor ?? 0)) return false
+  if ((f.chgGt ?? 0) > 0 && rc > f.chgGt) return false
+  // 2) 量比下限(缺失 → 剔除, 与后端 vol_ratio 同口径)
+  const vr = _num(it.volRatio)
+  const vrFloor = f.volRatioFloor ?? 0
+  if (vrFloor > 0 && (vr === null || vr < vrFloor)) return false
+  // 3) 换手区间(缺失 → 剔除, 与后端 turnover_floor 同口径)
+  const to = _num(it.turnover)
+  const toFloor = f.turnoverFloor ?? 0
+  if (toFloor > 0 && (to === null || to < toFloor)) return false
+  const toGt = f.turnoverGt ?? 0
+  if (toGt > 0 && (to === null || to > toGt)) return false
+  // 4) 剔涨停 —— 判据必须与后端 apply_spot_filters 的 `_spot_zt` 同源。
+  //    后端: _spot_zt = (涨停池该股 lb > 0), 而 lb 被写进评分结果的 limit_boards
+  //    (score_spot.py:183 `limit_boards=int((zt_info or {}).get("lb") or 0)`),
+  //    _spot_payload 再把 limit_boards 原样下发。
+  //    🔴 2026-09-28 修正: 原实现读 `it._spotZT`, 但后端**从未下发**该字段
+  //      (payload 无此键) ⇒ 本分支恒不成立 ⇒ 本地预筛会与后端名单不一致。
+  //      改用 limitBoards 派生, 与后端同源。
+  if (f.spotExcludeZT && (_num(it.limitBoards) ?? 0) > 0) return false
+  // 5) 共用门槛: 市值(自由流通) / 价格 / 评分
+  const mv = _num(it.circulationMV)
+  if (mv !== null && mv < f.floatMvFloor) return false
+  if (f.floatMvGt > 0 && mv !== null && mv > f.floatMvGt) return false
+  const price = _num(it.price)
+  if (f.priceGt > 0 && price !== null && price > f.priceGt) return false
+  if (f.scoreFloor > 0 && (_num(it.probability) ?? 0) < f.scoreFloor) return false
+  // 6) 市场归属
+  if (!inMarkets(it.code, f.markets || [])) return false
+  return true
+}
+
+
+/* ==========================================================================
    P3 本地筛选(2026-09-12): 用后端一次性下发的全市场预计算快照, 在浏览器里完成
    与后端 picker/filter.py **逐条同口径**的过滤 —— 改筛选条件秒出, 不再打后端。
 

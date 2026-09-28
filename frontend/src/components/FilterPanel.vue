@@ -23,13 +23,19 @@ v-if="store.filterReady" class="filter-custom" :class="{ 'filter-locked': store.
     <!-- 第一行: 筛选项 + 右侧按钮对齐 -->
     <div class="filter-row filter-row-1" :style="layoutStyle.row1">
       <!-- 2026-08-25 正逻辑(勾上=只看这类票), tooltip 保留帮助理解; 主人要求去掉"只看"二字 -->
-      <label style="white-space:nowrap;" title="勾选后只显示 ST / *ST / 停牌股; 不勾选则剔除"><input v-model="store.filterSettings.stSuspend" type="checkbox" :disabled="store.isFilterLocked"> ST/停牌</label>
+      <label style="white-space:nowrap;" title="勾选后只显示 ST / *ST / 停牌股; 不勾选则剔除"><input v-model="stSuspend" type="checkbox" :disabled="store.isFilterLocked"> ST/停牌</label>
       <span class="filter-divider" style="display:inline-block;">|</span>
       <label v-for="m in marketOptions" :key="m.value" style="white-space:nowrap;">
-        <input v-model="store.filterSettings.markets" type="checkbox" :value="m.value" :disabled="store.isFilterLocked"> {{ m.label }}
+        <input v-model="markets" type="checkbox" :value="m.value" :disabled="store.isFilterLocked"> {{ m.label }}
       </label>
       <span class="filter-divider" style="display:inline-block;">|</span>
-      <label style="white-space:nowrap;" title="勾选后把昨日涨停/连板股也包含进结果; 不勾选则剔除这类票"><input v-model="store.filterSettings.limitUp" type="checkbox" :disabled="store.isFilterLocked"> 昨涨停</label>
+      <label style="white-space:nowrap;" title="勾选后把昨日涨停/连板股也包含进结果; 不勾选则剔除这类票"><input v-model="limitUp" type="checkbox" :disabled="store.isFilterLocked"> 昨涨停</label>
+      <!-- 2026-09-28 v4.11.75 盘中实时专属: 剔除**已封涨停**(涨停池判定, 与"昨涨停"不同概念 ——
+           后者看的是昨日, 前者看的是此刻) -->
+      <template v-if="isSpot">
+        <span class="filter-divider" style="display:inline-block;">|</span>
+        <label style="white-space:nowrap;" title="剔除此刻已封涨停的票（涨停池判定，与「昨涨停」不是一回事）"><input v-model="spotExcludeZT" type="checkbox" :disabled="store.isFilterLocked"> 剔涨停</label>
+      </template>
 
       <!-- 按钮组: 桌面端吸右上角; 手机端紧凑靠右 -->
       <!-- 2026-09-16 选股闸门: 交易日 9:00-9:26 全部动作按钮置灰(store.pickBlocked),
@@ -37,12 +43,12 @@ v-if="store.filterReady" class="filter-custom" :class="{ 'filter-locked': store.
       <span class="filter-actions-top" :style="layoutStyle.actions">
         <button
 class="tdx-export-btn filter-apply" style="background:var(--accent-deep);"
-                :disabled="store.pickBlocked || (store.isFilterLocked && store.strategy === 'auction')"
+                :disabled="applyDisabled"
                 :title="store.pickBlocked ? store.pickBlockedMsg : ''" @click="apply"
 >应用</button>
         <button
 class="tdx-export-btn filter-reset"
-                :disabled="store.pickBlocked || (store.isFilterLocked && store.strategy === 'auction')"
+                :disabled="applyDisabled"
                 :title="store.pickBlocked ? store.pickBlockedMsg : ''" @click="reset"
 >重置</button>
         <button
@@ -67,15 +73,35 @@ v-if="store.strategy === 'auction'" class="tdx-export-btn filter-refresh"
          - 桌面端 (≥1100px): 一排 nowrap, space-between 两端对齐
          - 手机端 (≤768px): flex-wrap wrap, flex-start, 按内容宽度 flow 换行 -->
     <div class="filter-row filter-row-2">
-      <label class="filter-cell">
-        竞涨 ≤<input v-model.number="store.filterSettings.bidGt" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(22)">%
-      </label>
+      <!-- ===== 竞价专属: 竞涨 / 竞额 =====
+           2026-09-28 v4.11.75: spot 模式**不渲染**这两项 —— 盘中实时选股没有"竞价涨幅/
+           竞价额"这两个概念(后端 /api/stocks_spot 也不消费 bidGt/bidLt/bidAmtFloor)。
+           继续显示会让用户以为调它能影响盘中名单，实际无效。 -->
+      <template v-if="!isSpot">
+        <label class="filter-cell">
+          竞涨 ≤<input v-model.number="bidGt" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(22)">%
+        </label>
+      </template>
+      <!-- ===== 盘中实时专属: 实时涨幅区间 / 量比下限 / 换手区间 =====
+           口径 = 后端 picker/filter.py::apply_spot_filters（R. 见 utils/filters.js 的
+           buildSpotFilterParams 注释）。两端 0 = 不限（与市值/股价的 0=不限 约定一致）。 -->
+      <template v-else>
+        <label class="filter-cell" title="实时涨幅区间(%)：当前价相对昨收的涨幅；两端 0 = 不限">
+          <span class="mv-range-label">现涨</span><input v-model.number="chgFloor" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(26)"><span class="mv-range-op">~</span><input v-model.number="chgGt" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(26)">%
+        </label>
+        <label class="filter-cell" title="量比下限：0 = 不限；2 = 显著放量（评分满分档起点）">
+          量比 ≥<input v-model.number="volRatioFloor" type="number" min="0" max="50" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(26)">
+        </label>
+        <label class="filter-cell" title="换手率区间(%)：0 = 不限">
+          <span class="mv-range-label">换手</span><input v-model.number="turnoverFloor" type="number" min="0" max="100" step="1" :disabled="store.isFilterLocked" :style="inputStyle(26)"><span class="mv-range-op">~</span><input v-model.number="turnoverGt" type="number" min="0" max="100" step="1" :disabled="store.isFilterLocked" :style="inputStyle(26)">%
+        </label>
+      </template>
       <!-- 2026-09-14 主人拍板: 「涨停率」与「评分」筛的是同一个字段(probability), 属重复项 →
            合并为一项「分数」, 沿用原「评分」的**单阈值硬门槛**(2026-09-20 起默认 50, 最低 50), 绑定 scoreFloor。
            ⚠️ 保留说明: probLt/confLt 不再有 UI 入口, 但仍按默认值(50/50)传给后端,
              "分数<50 且 可信度<50"的双低判据在用户把分数调到 50 以下时会被主门槛覆盖(既有耦合, 未动)。 -->
       <label class="filter-cell">
-        分数 ≥<input v-model.number="store.filterSettings.scoreFloor" type="number" min="50" max="100" step="1" title="最低 50" :disabled="store.isFilterLocked" :style="inputStyle(32)">分
+        分数 ≥<input v-model.number="scoreFloor" type="number" min="50" max="100" step="1" title="最低 50" :disabled="store.isFilterLocked" :style="inputStyle(32)">分
       </label>
       <!-- 2026-09-14 主人需求: 原「流通 ≥」与「流通 ≤」两个独立格子**合并为区间一格**,
            显示为 `xx ≤ 自由流通 ≤ yy`。绑定字段不变(下限 floatMvFloor / 上限 floatMvGt),
@@ -83,19 +109,19 @@ v-if="store.strategy === 'auction'" class="tdx-export-btn filter-refresh"
            ★ 2026-09-20 主人拍板「所有的流通市值改为自由流通市值」: 门槛判据的**数据口径**
              已从流通市值改为自由流通市值(后端 QuoteRow.mv = free_mv 优先, 缺则 float_mv;
              明细见 picker/contract.py 的 FIELD_AUTHORITY「mv」条), 故文案同步改「自由流通」。
-             ⚠️ 符号必须是「≤」不能是「<」: filters.js 的判据是
+           ⚠️ 符号必须是「≤」不能是「<」: filters.js 的判据是
               `mv < floor → 剔除` / `mv > ceil → 剔除` (= 非严格),
               显示成严格不等号会让文案与真实行为不符。
            ⚠️ 两端 0 仍表示「不限」(下限: mv<0 不可能命中; 上限: `floatMvGt > 0` 才生效)。 -->
       <label class="filter-cell" title="自由流通市值区间(亿)，含边界值；两端 0=不限">
-        <span class="mv-range-label">自由流通</span><input v-model.number="store.filterSettings.floatMvFloor" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)"><span class="mv-range-op">~</span><input v-model.number="store.filterSettings.floatMvGt" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
+        <span class="mv-range-label">自由流通</span><input v-model.number="floatMvFloor" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)"><span class="mv-range-op">~</span><input v-model.number="floatMvGt" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
       </label>
       <label class="filter-cell">
-        股价 ≤<input v-model.number="store.filterSettings.priceGt" type="number" min="0" max="5000" step="10" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">元
+        股价 ≤<input v-model.number="priceGt" type="number" min="0" max="5000" step="10" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">元
       </label>
-      <label class="filter-cell">
+      <label v-if="!isSpot" class="filter-cell">
         <!-- 2026-09-21 主人反馈「对数字有遮挡」: 宽屏固定宽 42→56px, 4 位数(3500/10000)不裁边 -->
-        竞额 ≥<input v-model.number="store.filterSettings.bidAmtFloor" type="number" min="0" max="100000" step="500" :disabled="store.isFilterLocked" :style="inputStyle(56)">万
+        竞额 ≥<input v-model.number="bidAmtFloor" type="number" min="0" max="100000" step="500" :disabled="store.isFilterLocked" :style="inputStyle(56)">万
       </label>
       <!-- 2026-09-14: 原「评分 ≥」行已删除(与「分数」重复, 同一个 probability 字段) -->
     </div>
@@ -122,6 +148,80 @@ const marketOptions = [
   { value: 'cyb', label: '创业' },
   { value: 'kcb', label: '科创' }
 ]
+
+/* =========================================================
+   2026-09-28 v4.11.75 盘中实时(spot)支持
+   ---------------------------------------------------------
+   两套条件**(必须)**分开存: 竞价 filterSettings / 盘中 spotFilterSettings。
+   若共用一份, 用户调完盘中的"现涨区间"再切回竞价, 竞价就会莫名带上它
+   (后端 /api/stocks 不消费 chgGt ⇒ 表现为"设置静默无效" —— 正是本次要根除的病)。
+
+   ⚠️ 共用门槛(市值/价格/评分/市场)在 UI 上只出现一次(同一排输入框) ——
+   因为后端两套过滤本就复用同一批门槛(apply_spot_filters 直接复用竞价门槛判据)。
+   ⇒ 实现 = **共用键用 computed 双向代理**(读写都同步两份), 专属键直接绑各自对象。
+   ========================================================= */
+const isSpot = computed(() => store.strategy === 'spot')
+
+// 共用门槛: 用 computed 的 get/set 做双向代理 —— 读时取当前份, 写时两份同值。
+// 这样模板 v-model 照常工作, 且切换模式后门槛不会"跳变"。
+function _shared(key) {
+  return computed({
+    get() {
+      return (isSpot.value ? store.spotFilterSettings : store.filterSettings)[key]
+    },
+    set(val) {
+      store.filterSettings[key] = val
+      store.spotFilterSettings[key] = val
+    }
+  })
+}
+const stSuspend = _shared('stSuspend')
+const limitUp = _shared('limitUp')
+const floatMvFloor = _shared('floatMvFloor')
+const floatMvGt = _shared('floatMvGt')
+const priceGt = _shared('priceGt')
+const scoreFloor = _shared('scoreFloor')
+
+// markets 是数组(v-for 多选框), set 时需换新引用才能触发响应式
+const markets = computed({
+  get() {
+    return (isSpot.value ? store.spotFilterSettings : store.filterSettings).markets
+  },
+  set(val) {
+    const v = Array.isArray(val) ? val.slice() : []
+    store.filterSettings.markets = v.slice()
+    store.spotFilterSettings.markets = v.slice()
+  }
+})
+
+// 专属键: 直接透出当前模式那一份的字段(用 computed 只读 + set 直写, 避免对象整体替换)
+const bidGt = computed({
+  get: () => store.filterSettings.bidGt,
+  set: (v) => { store.filterSettings.bidGt = v }
+})
+const bidAmtFloor = computed({
+  get: () => store.filterSettings.bidAmtFloor,
+  set: (v) => { store.filterSettings.bidAmtFloor = v }
+})
+
+function _spotField(key) {
+  return computed({
+    get: () => store.spotFilterSettings[key],
+    set: (v) => { store.spotFilterSettings[key] = v }
+  })
+}
+const chgFloor = _spotField('chgFloor')
+const chgGt = _spotField('chgGt')
+const volRatioFloor = _spotField('volRatioFloor')
+const turnoverFloor = _spotField('turnoverFloor')
+const turnoverGt = _spotField('turnoverGt')
+const spotExcludeZT = _spotField('spotExcludeZT')
+
+// 按钮禁用: 竞价模式受 9:00-9:26 闸门; 盘中模式**不受闸门**(盘中随时可重选)。
+const applyDisabled = computed(() => {
+  if (isSpot.value) return false
+  return store.pickBlocked || (store.isFilterLocked && store.strategy === 'auction')
+})
 
 /* =========================================================
    响应式视口宽度 —— FilterPanel 布局根据当前 CSS 视口
@@ -224,6 +324,19 @@ function inputStyle(px) {
 }
 
 async function apply() {
+  // 2026-09-28 v4.11.75: 盘中实时(spot)走独立分支 —— 它没有"锁定"概念、
+  // 不受 9:26 闸门、不做本地快照预筛(实时字段每次都在变, 缓存会立刻过期)。
+  if (isSpot.value) {
+    try {
+      await store.fetchSpotList()
+      store.saveUserPrefs()          // 盘中 6 参数入账号偏好(后端白名单已含)
+      trackUsage('picker', false)
+    } catch (e) {
+      trackUsage('picker', true)
+      showToast('❌ 盘中选股失败：' + (e.message || '未知错误'), 'error')
+    }
+    return
+  }
   try {
     await store.applyCustomFilter()
     // 2026-09-22 v4.11.35 行为记录: 口径 = 用户主动操作一次记一次。
@@ -237,7 +350,11 @@ async function apply() {
     showToast('❌ 应用失败：' + (e.message || '未知错误'), 'error')
   }
 }
-function reset() { store.resetFilterToDefault() }
+function reset() {
+  // 盘中重置只复原 6 个盘中参数, **不动**竞价那份(否则用户切回竞价发现条件被改了)
+  if (isSpot.value) return store.resetSpotFilterToDefault()
+  return store.resetFilterToDefault()
+}
 
 // 锁定/解锁: 只有「锁定」算一次使用(解锁是撤销动作, 不该计使用次数)
 function toggleLock() {

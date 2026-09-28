@@ -81,7 +81,10 @@ const expiryText = computed(() => {
   return ` 锁定剩余 <strong>${h}小时${m}分</strong>`
 })
 
-// 当前选股结果(2026-09-09 盘中实时 spot 已下线, 只有竞价结果)
+// 当前选股结果 —— 恒取竞价名单(cachedStocks)。
+// 2026-09-27 (v4.11.75): spot 已重新上线, 但「加入当前前五/全部」按钮有意只认竞价结果:
+// 自选池记录 bidChange(竞涨), 而 spot 只有 realChange(现涨), 混入会让池内字段语义分裂;
+// 且竞价是 9:26 定格名单、适合留痕, spot 盘中随时在变。
 function currentList() {
   return stocksStore.cachedStocks
 }

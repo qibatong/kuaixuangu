@@ -1,7 +1,7 @@
 // 主选股数据 store: 缓存结果 / 筛选条件 / 锁定状态 / 账号级偏好
 import { defineStore } from 'pinia'
 import { fetchStocks, fetchQuotes, getDefaultFilters, getPrefs, savePrefs,
-         pingStocks } from '../api/stocks'
+         pingStocks, fetchStocksSpot, pingStocksSpot } from '../api/stocks'
 import { fetchPickerSnapshot } from '../api/picker'
 import { listBatches } from '../api/history'
 import { showToast } from '../utils/toast'
@@ -11,10 +11,12 @@ import { useUserStore } from './user'
 import { safeJsonGet, safeJsonSet, safeRemove } from '../utils/storage'
 import { logFront } from '../utils/logger'
 import { defaultFilterSettings, passLockedFilter, pickFromSnapshot,
-         buildFilterParams as _buildFilterParams } from '../utils/filters'
+         buildFilterParams as _buildFilterParams,
+         defaultSpotFilterSettings, buildSpotFilterParams as _buildSpotFilterParams,
+         passSpotFilter } from '../utils/filters'
 
 // 兼容导出(历史引用方): 默认筛选参数
-export { defaultFilterSettings }
+export { defaultFilterSettings, defaultSpotFilterSettings }
 
 /**
  * @typedef {Object} StockItem 选股名单条目(后端 /api/stocks 返回, 前端实时 merge 后的形状)。
@@ -59,10 +61,25 @@ export const useStocksStore = defineStore('stocks', {
     // 2026-08-18: 当前名单是否来自 9:26 系统统一批次(auto_applied)
     // 统一批次: 不过滤/不剔除, 所有用户看到同一份完整名单
     isAutoAppliedList: false,
-    // 选股策略: auction(竞价)。2026-09-09 盘中实时(spot)已下线, 前端无入口、后端零调用
+    // 选股策略: auction(竞价) / spot(盘中实时)。
+    // 2026-09-09 spot 曾随重构下线(整链零调用); 2026-09-28 v4.11.75 重建。
     strategy: 'auction',
     // 当前工作筛选条件
     filterSettings: { ...defaultFilterSettings },
+    // ---- 盘中实时(spot)独立状态: 2026-09-28 v4.11.75 ----
+    // 🔴 为什么必须有独立字段、不能复用 cachedStocks:
+    //   cachedStocks 承载的是**竞价定格名单**(9:25 落库/可锁定/可回放/进自选池/被推送)。
+    //   spot 是"此刻的答案" —— 不落批次、不锁定、不推送、下一次请求就变。
+    //   两者混用会让「顶栏冻结标注条 / 自选池自动收录 / 历史回看」全部语义错乱。
+    spotStocks: [],
+    spotCached: false,
+    spotLoading: false,
+    // 盘中筛选条件(与竞价 filterSettings 分开存, 互不覆盖)
+    spotFilterSettings: { ...defaultSpotFilterSettings },
+    // 盘中是否可用(探测端点; null=未探测)
+    spotAvailable: null,
+    // 盘中名单的数据时刻(秒级时间戳, 来自后端 dataTime)
+    spotDataAt: 0,
     // 全局默认筛选参数(管理员后台可调), 未自定义偏好的用户使用
     globalDefaults: null,
     // 盘中筛选条件
@@ -104,9 +121,71 @@ export const useStocksStore = defineStore('stocks', {
     },
 
     // ---- 策略切换(2026-09-09 命名消歧: setMode → setStrategy) ----
+    // 2026-09-28 v4.11.75: 放开 spot —— 后端已重建独立端点 /api/stocks_spot。
     setStrategy(m) {
-      if (m !== 'auction') return   // 2026-09-09: spot(盘中实时)已下线
+      if (m !== 'auction' && m !== 'spot') return
       this.strategy = m
+    },
+
+    // ---- 盘中实时(spot) ----
+    // 2026-09-28 v4.11.75 新增。与竞价链路**严格隔离**:
+    //   · 不落批次 / 不推送 / 不参与 9:26 定格 —— 后端该端点本身就不做这些。
+    //   · **不受 pick_window_guard 闸门限制** —— 盘中选股本就是"看当下",
+    //     9:00-9:26 那套"当日定格尚未产生"的理由对 spot 不成立。
+    //   · **不做本地快照预筛**(不像竞价 P3 的 pickFromSnapshot): 竞价用的是 9:25 定格、
+    //     全天恒定; spot 的现涨/量比/换手每次请求都在变, 本地缓存立刻过期 ⇒ 必须真打网络。
+    buildSpotFilterParams() {
+      return _buildSpotFilterParams(this.spotFilterSettings)
+    },
+
+    /** 探测盘中选股是否可用(不受交易时段限制)。失败 → 保持可重试(false)。 */
+    async loadSpotAvailable() {
+      try {
+        const d = await pingStocksSpot()
+        this.spotAvailable = !!(d && d.available)
+      } catch (e) {
+        this.spotAvailable = false
+      }
+      return this.spotAvailable
+    },
+
+    /**
+     * 拉取盘中实时名单。
+     * @param {boolean} [silent] true = 不弹成功 toast(30s 轮询用)
+     * @returns {Promise<number>} 名单条数
+     */
+    async fetchSpotList({ silent = false } = {}) {
+      this.spotLoading = true
+      try {
+        const data = await fetchStocksSpot('filter', this.buildSpotFilterParams())
+        if (!data || data.ok === false) {
+          // 后端如实报错(如行情取数失败) → 抛出交给调用方提示, 不静默吞
+          throw new Error((data && data.msg) || '盘中选股失败')
+        }
+        this.spotStocks = (data.list || []).slice()
+        this.spotCached = true
+        this.spotDataAt = data.dataTime || Math.floor(Date.now() / 1000)
+        this.spotAvailable = true
+        if (!silent) showToast('✅ 盘中实时选股完成（' + this.spotStocks.length + ' 只）', 'success')
+        return this.spotStocks.length
+      } finally {
+        this.spotLoading = false
+      }
+    },
+
+    /** 重置盘中筛选条件到默认(不改竞价的那份)。 */
+    async resetSpotFilterToDefault() {
+      this.spotFilterSettings = { ...defaultSpotFilterSettings }
+      return this.fetchSpotList()
+    },
+
+    /**
+     * 本地预筛(纯计算, 不发请求) —— 给 UI 做"预期条数"提示用。
+     * ⚠️ 只是乐观预估: 真名单以 fetchSpotList 的后端返回为准。
+     * 判据与后端 apply_spot_filters 同口径(见 utils/filters.passSpotFilter)。
+     */
+    previewSpotCount() {
+      return (this.spotStocks || []).filter((it) => passSpotFilter(it, this.spotFilterSettings)).length
     },
 
     // ---- 2026-09-16 选股闸门(9:00-9:26 不支持选股) ----
@@ -208,7 +287,14 @@ export const useStocksStore = defineStore('stocks', {
       } catch (e) { logFront('warn', '全局默认筛选加载失败, 用内置默认', e) }
     },
     saveUserPrefs() {
-      try { savePrefs(this.filterSettings).catch(() => {}) } catch (e) { /* ignore */ }
+      // 2026-09-28 v4.11.75: 竞价 + 盘中两套条件**合并后**存。
+      //   后端 users.py 的偏好白名单本就含这 6 个盘中参数(第 636~637 行),
+      //   但此前前端从未传过它们 ⇒ 白名单里的键永远是默认值。此处补上最后一段断路。
+      //   ⚠️ 合并顺序: 先竞价再盘中 —— 盘中那份含 6 个专属键, 会覆盖掉竞价里同名(没有)的;
+      //      共用门槛两边同值(initFilterFromStorage 已对齐), 谁覆盖都一样。
+      try {
+        savePrefs({ ...this.filterSettings, ...this.spotFilterSettings }).catch(() => {})
+      } catch (e) { /* ignore */ }
     },
 
     // ---- 锁定逻辑 (localStorage, key 与旧版一致) ----
@@ -266,6 +352,20 @@ export const useStocksStore = defineStore('stocks', {
         this.filterSettings = { ...base, ...this.userFilterPrefs }
       } else {
         this.filterSettings = { ...base }
+      }
+      // 2026-09-28 v4.11.75: 盘中(spot)条件**独立恢复**。
+      //   共用门槛(市值/价格/评分/市场)沿用上面那份竞价的结果 —— 后端两套过滤本就复用同一批
+      //   门槛, 用户不必在两处各调一次; 只有 6 个盘中专属参数取自己的偏好(缺则内置默认)。
+      //   ⚠️ 顺序必须在 filterSettings 定稿之后, 否则拿到的是初始 state 里的旧值。
+      const spotPrefs = this.userFilterPrefs || {}
+      const spotOnly = {}
+      for (const k of Object.keys(defaultSpotFilterSettings)) {
+        if (spotPrefs[k] !== undefined) spotOnly[k] = spotPrefs[k]
+      }
+      this.spotFilterSettings = {
+        ...this.filterSettings,          // 共用门槛(含 locked 用户被锁定的那套)
+        ...defaultSpotFilterSettings,    // 盘中专属默认
+        ...spotOnly                       // 盘中专属的账号偏好覆盖
       }
       // 2026-08-25: 偏好/默认已就位, 允许 FilterPanel 渲染最终勾选状态(避免先勾选后取消闪烁)
       this.filterReady = true

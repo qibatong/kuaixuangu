@@ -18,6 +18,31 @@ export function pingStocks() {
   return request('/api/stocks', { query: { action: 'ping', strategy: 'auction' } })
 }
 
+// 2026-09-28 v4.11.75: 盘中实时选股(spot) —— **独立端点** /api/stocks_spot。
+//
+// 为什么不走 fetchStocks(..., 'spot') 那个 strategy 参数:
+//   后端**有意**没把 spot 挂回 /api/stocks?strategy=spot —— 那个路由已长到 71K，
+//   内含 9:26 定格 / pick_window_guard / 当日幂等等**只对竞价成立**的逻辑，
+//   复用会要求每个分支重判"这逻辑对 spot 适用吗"，极易漏判。故后端新开了独立端点，
+//   前端也走独立函数，语义一一对应。
+//
+// 与竞价的关键差异(调这个接口前必须知道):
+//   · **无 9:26 闸门** —— 盘中随时可调。竞价那套 pickBlocked/9:00-9:26 置灰不适用
+//     (后端该端点也没有 pick_window_guard 判断)。
+//   · **不落批次、不推送、不参与定格** —— 每次都是当下重算，返回的只是"此刻的答案"。
+//   · 实时字段(realChange/volRatio/turnover)每次都在变 ⇒ 前端**不做本地快照预筛**
+//     (与竞价 P3 的 pickFromSnapshot 不同：竞价用的是 9:25 定格，全天恒定，可本地筛)。
+export function fetchStocksSpot(action, filterParams) {
+  return request('/api/stocks_spot', {
+    query: { action, ...filterParams }
+  })
+}
+
+// 盘中实时可用性探测(不受交易时段限制, 与竞价 ping 的语义区分开)。
+export function pingStocksSpot() {
+  return request('/api/stocks_spot', { query: { action: 'ping' } })
+}
+
 export function stockChart(code, period = 'day') {
   return request('/api/stock/chart', { query: { code, period } })
 }
