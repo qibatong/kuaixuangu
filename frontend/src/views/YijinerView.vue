@@ -27,7 +27,7 @@
           <div class="yj-title">
             <i class="fa fa-level-up yj-icon"></i>
             竞价一进二
-            <span v-if="meta.dataDate" class="yj-chip" title="实际取到的涨停池日期（休市日会自动往前找最近交易日）">首板日 {{ meta.dataDate }}</span>
+            <span v-if="meta.dataDate" class="yj-chip">首板日 {{ meta.dataDate }}</span>
             <span v-if="list.length" class="yj-chip yj-chip-accent">{{ list.length }} 只</span>
           </div>
           <button class="yj-refresh" :disabled="loading" @click="load">
@@ -35,13 +35,13 @@
           </button>
         </div>
 
-        <div class="yj-desc">
-          昨日<b>主板首板</b>（60/00，已剔除创业板/科创板/北交所与一字板）→ 今日竞价二连板潜力
-          <br>
-          <span class="yj-dim">评分 = 竞价涨幅 35 + 量能 30 + 封单质量 20 + 板块地位 15</span>
-          <span class="yj-dim">· 红线（竞价翻绿 / 量比&lt;0.3）封顶 45 分</span>
-        </div>
-
+        <!--
+          🔴 2026-09-28 主人拍板：去掉标题下的「口径说明」3 行（主板首板口径 / 评分公式 / 红线机制）
+             与全部 tooltip（首板日、名次奖杯、"点击查看分时/日K/周K/月K"、概念列）。
+             理由：这些提示词占版面且信息重复 —— 评分维度与红线在结果列里本就能看出。
+             ⚠️ 刻意保留：状态类文案（加载中 / 失败重试 / 空态）+ 免责声明（合规），
+             并保留首板日 chip 与「N 只」chip（它们是数据，不是说明）。
+        -->
         <div v-if="loading && !list.length" class="loading-placeholder">
           <div class="spinner"></div>
           <div>正在扫描昨日首板、拉取今日行情…</div>
@@ -79,14 +79,13 @@
               <tbody>
                 <tr v-for="(r, i) in list" :key="r.code">
                   <td class="yj-rank">
-                    <i v-if="i < 3" class="fa fa-trophy" :class="'yj-trophy-' + (i + 1)" :title="'第 ' + (i + 1) + ' 名'"></i>
+                    <i v-if="i < 3" class="fa fa-trophy" :class="'yj-trophy-' + (i + 1)"></i>
                     <span v-else>{{ i + 1 }}</span>
                   </td>
                   <td
                     class="name-col yj-name"
                     :data-stock-code="r.code"
                     :data-stock-name="r.name"
-                    title="点击查看分时/日K/周K/月K"
                   >
                     <div class="yj-name-main">{{ r.name }}<PoolHoverBtn :item="r" /></div>
                     <div class="yj-name-sub">{{ r.code }}</div>
@@ -100,7 +99,7 @@
                   <td class="yj-time">{{ fmtFbt(r.firstSealTime) }}</td>
                   <td :class="{ 'yj-warn': r.breakCount > 0 }">{{ r.breakCount }}次</td>
                   <td>{{ r.industry || '-' }}</td>
-                  <td class="yj-concept" :title="r.concept || '暂无概念'">{{ shortConcept(r.concept) }}</td>
+                  <td class="yj-concept">{{ shortConcept(r.concept) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -265,15 +264,7 @@ defineExpose({ load })
 .yj-refresh:hover:not(:disabled) { background: rgba(var(--accent-rgb), 0.22); }
 .yj-refresh:disabled { opacity: 0.6; cursor: default; }
 
-/* ---- 口径说明 ---- */
-.yj-desc {
-  font-size: 11.5px;
-  line-height: 1.6;
-  color: var(--text-secondary);
-  margin: 0 0 6px;
-}
-.yj-desc b { color: var(--accent-deep, var(--accent)); }
-.yj-dim { color: var(--text-muted); }
+/* ---- 口径说明（.yj-desc / .yj-dim）已于 2026-09-28 随"去掉提示词"一并删除 ---- */
 
 /* ---- 空态 / 错误态 ---- */
 .yj-empty {
@@ -317,7 +308,11 @@ defineExpose({ load })
 .yj-trophy-2 { color: #9aa0a6; }
 .yj-trophy-3 { color: #b5763a; }
 
-.yj-name { cursor: pointer; text-align: left; }
+/* 🔴 2026-09-28 主人拍板：名称/概念两列**内容改为居中**，与表头（全局 .stock-table 的
+   text-align:center）一致 —— 原先只有单元格被改成左对齐，表头仍居中，实测「名称」表头
+   在列中央而股票名在列左侧，错开约 80px（截图 deploy/yj-align-before.png）。
+   改法选择"内容向表头看齐"（而非表头向内容看齐），保持全表 12 列对齐方式统一。 */
+.yj-name { cursor: pointer; }
 .yj-name-main { font-weight: 600; color: var(--text-main); }
 .yj-name-sub { font-size: 10.5px; color: var(--text-muted); }
 
@@ -338,7 +333,7 @@ defineExpose({ load })
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--text-secondary);
-  text-align: left;
+  /* 同 .yj-name：内容向表头看齐（居中），不再单独左对齐 —— 见上方注释与 yj-align-before.png */
 }
 
 /* ---- 底部口径与统计 ---- */
@@ -351,7 +346,6 @@ defineExpose({ load })
 .yj-disclaimer { text-align: center; margin-top: 2px; }
 
 /* 嵌入首页左视图（半宽）时收紧 */
-.yj-embedded .yj-desc { font-size: 11px; }
 .yj-embedded .yj-title { font-size: 14px; }
 .yj-embedded .yj-concept { max-width: 110px; }
 
