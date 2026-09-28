@@ -124,6 +124,16 @@ def on_startup():
         _kpl.start_kpl_prewarm()
     except Exception as e:
         log.warning("KPL首屏预热启动失败(不影响主服务) err=%s", e)
+    # KPL 回看日预热(2026-09-28): 首屏预热只覆盖"盘中实时"那批 key, 不覆盖回看日
+    # (date=)。而回看日的「竞价抢筹」冷启动实测 4.8~7.4s(要打 4 个全市场 5000+ 行
+    # 的猫爪接口), 生产日活仅 ~8.7 人 ⇒ 回看日缓存几乎总是冷的 ⇒ 用户每次打开回看
+    # 日都要等。本线程把最近 N 个交易日的回看结果保持热(20min 一轮, 串行+间隔)。
+    # 同样必须挂 web 进程: 接口层 fetcher._quote_map_cache 是进程级的。
+    try:
+        from .services import kpl as _kpl_replay
+        _kpl_replay.start_kpl_replay_prewarm()
+    except Exception as e:
+        log.warning("KPL回看预热启动失败(不影响主服务) err=%s", e)
     # 会员权益配置回灌(2026-09-21): 后台改的会员配置存 settings 表, 重启后必须重新
     # 写回运行时 config, 否则新开进程又用回环境变量默认值 —— 表现就是"后台改了但重启就还原"
     try:

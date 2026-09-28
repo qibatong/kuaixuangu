@@ -4604,3 +4604,100 @@ def start_kpl_prewarm():
     t = threading.Thread(target=_kpl_prewarm_loop, daemon=True, name="kpl-prewarm")
     t.start()
     log.info("KPL首屏预热线程已启动(工作日9:15-15:05每%ss刷新一次)", _KPL_PREWARM_PERIOD)
+
+
+# ==================== KPL 回看日预热(2026-09-28) ====================
+# 背景(生产实测): 回看日(date=) 的「竞价抢筹」要打 4 个「全市场 5000+ 行」的猫爪接口。
+#   方案 A(v4.11.74) 已让历史日上游缓存保持 3600s, 但生产日活仅 ~8.7 人 ⇒ 某个回看日
+#   只要 1 小时无人访问, 上游就过期 ⇒ 首次访问全额冷取数 **4.8~7.4s**
+#   (2026-09-28 生产实测: 9/21 6288ms / 9/22 4821ms / 9/23 7404ms / 9/24 6152ms,
+#    而同一天再访问仅 139~429ms —— 缓存本身正常, 缺的是"保持热")。
+#   ⇒ 后台把最近 N 个交易日的回看结果保持热, 用户首次访问从秒级降到亚秒级。
+#
+# 只预热「竞价抢筹」一个接口: 同日实测同样带 date 的 bid-seal 152ms / bid-net 126ms /
+#   yest-broken 179ms / lhb 229ms 都便宜(走 auction_daily_history 读库), 只有
+#   bid-qiangcang 是秒级 —— 与既有首屏预热"只预热最贵的 key"同一取舍, 不浪费配额。
+#
+# 周期取 1200s(20min): 必须 < 结果层 TTL(1800s) 才能保证结果层永不冷;
+#   且 1200 整除 3600(上游 TTL) ⇒ 上游到期后最近一轮预热即补上, 冷窗口最小。
+#
+# ⚠️ 串行 + 间隔(_KPL_REPLAY_GAP): 文档 §10 教训 —— 一次清缓存后连打十余接口会触发
+#    上游 429 与 eastmoney_kline 熔断。本预热每轮最多 N 次调用, 每次间隔 1.2s。
+#
+# ⚠️ 必须挂 web 进程(main.py startup) 而非 kx-worker: 与首屏预热同理 —— 结果层/上游层
+#    虽在 kv_cache(跨进程), 但接口层还有 fetcher._quote_map_cache(进程级), worker 预热不到。
+_KPL_REPLAY_PERIOD = 1200       # 秒; < 结果层 TTL(1800) 且整除上游 TTL(3600)
+_KPL_REPLAY_DAYS = 5            # 预热最近 N 个交易日
+_KPL_REPLAY_GAP = 1.2           # 两次调用之间的间隔(秒)
+_KPL_REPLAY_SKIP = (9 * 60 + 5, 9 * 60 + 40)   # 竞价时段跳过(上游此时最紧张)
+_kpl_replay_started = False     # 幂等: 重复 startup 不叠线程
+
+
+def kpl_replay_prewarm_active(now_ts):
+    """回看日预热窗口: 全天(历史数据不可变), 仅跳过竞价时段"""
+    g = time.gmtime(now_ts + 8 * 3600)
+    hm = g.tm_hour * 60 + g.tm_min
+    return not (_KPL_REPLAY_SKIP[0] <= hm <= _KPL_REPLAY_SKIP[1])
+
+
+def _kpl_replay_dates(n=_KPL_REPLAY_DAYS):
+    """最近 n 个交易日(从昨天往前; 项目纪律: 判"哪一天"必须走交易日历)"""
+    out = []
+    day = trade_calendar.bj_date()
+    for _ in range(n):
+        try:
+            prev = trade_calendar.prev_trade_date(day)
+        except Exception:                                   # noqa: BLE001
+            break
+        if not prev or prev >= day:
+            break
+        out.append(prev)
+        day = prev
+    return out
+
+
+def _kpl_replay_prewarm_once():
+    """串行预热最近 n 个交易日的「竞价抢筹」回看结果(失败不抛, 下轮自愈)"""
+    dates = _kpl_replay_dates()
+    if not dates:
+        log.warning("KPL回看预热: 取不到交易日(跳过本轮)")
+        return
+    t0 = time.time()
+    ok = 0
+    for d in dates:
+        try:
+            if fetch_bid_qiangcang(d):
+                ok += 1
+        except Exception as e:                              # noqa: BLE001
+            log.warning("KPL回看预热 %s 异常 err=%s", d, str(e)[:100])
+        time.sleep(_KPL_REPLAY_GAP)
+    log.info("KPL回看预热完成 %d/%d 天 耗时%.1fs", ok, len(dates), time.time() - t0)
+
+
+def _kpl_replay_prewarm_loop():
+    """常驻后台循环: 与首屏预热同模式(每 web worker 一份 + setnx 跨进程抢锁)"""
+    while True:
+        try:
+            if kpl_replay_prewarm_active(time.time()):
+                if store.setnx("kpl_replay_prewarm:turn", 1,
+                               ttl=int(_KPL_REPLAY_PERIOD * 1.5)):
+                    try:
+                        _kpl_replay_prewarm_once()
+                    finally:
+                        store.delete("kpl_replay_prewarm:turn")
+        except Exception as e:                              # noqa: BLE001
+            log.warning("KPL回看预热循环异常 err=%s", str(e)[:100])
+        time.sleep(_KPL_REPLAY_PERIOD)
+
+
+def start_kpl_replay_prewarm():
+    """启动回看日预热线程(幂等): 最近 N 个交易日的竞价抢筹恒热, 首次访问亚秒级"""
+    global _kpl_replay_started
+    if _kpl_replay_started:
+        return
+    _kpl_replay_started = True
+    t = threading.Thread(target=_kpl_replay_prewarm_loop, daemon=True,
+                         name="kpl-replay-prewarm")
+    t.start()
+    log.info("KPL回看预热线程已启动(每%ds预热最近%d个交易日的竞价抢筹)",
+             _KPL_REPLAY_PERIOD, _KPL_REPLAY_DAYS)
