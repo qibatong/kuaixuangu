@@ -53,6 +53,15 @@ const TABLE_SRC = readFileSync(resolve(__dirname, '../src/components/StockTable.
 //   即便模板写死 'auction' 也会全绿)。只能静态核表达式。
 const VIEW_SRC = readFileSync(resolve(__dirname, '../src/views/StockView.vue'), 'utf8')
 const STORE_SRC = readFileSync(resolve(__dirname, '../src/stores/stocks.js'), 'utf8')
+// ★ 2026-09-28: FilterPanel.vue(选择框) 与 utils/filters.js(过滤纯函数) 源码 ——
+//   主人要求「去掉量比/换手选择框」后, 需锁死"UI 入口已撤、数据链路仍在"这对配套关系。
+const FILTER_SRC = readFileSync(resolve(__dirname, '../src/components/FilterPanel.vue'), 'utf8')
+const FILTERS_SRC = readFileSync(resolve(__dirname, '../src/utils/filters.js'), 'utf8')
+// ★ 2026-09-28: 站点级品牌文案(NavBar tooltip / router 文档标题)也随 tab 改名同步 ——
+//   它们和 tab 同属"用户可见的一级概念名", 改名后若漏改, 站点会自相矛盾
+//   (tab 叫「竞价选股」、浏览器标题却写「AI选股」)。故一并锁死。
+const NAVBAR_SRC = readFileSync(resolve(__dirname, '../src/components/NavBar.vue'), 'utf8')
+const ROUTER_SRC = readFileSync(resolve(__dirname, '../src/router/index.js'), 'utf8')
 
 const ROUTES = [{ path: '/', component: { template: '<div/>' } },
                 { path: '/stocks', component: { template: '<div/>' } }]
@@ -230,6 +239,98 @@ async function main() {
   // 批次策略区分(勘察风险3)
   ok('🔴 批次按 _strategy 区分, 旧批次兼容为 auction',
      /_strategy\s*\|\|\s*'auction'/.test(STORE_SRC) && /batchStrategy\s*\(x\)\s*===\s*wantStrategy/.test(STORE_SRC))
+
+  console.log('\n— S9. tab 文案改名 + 去掉量比/换手选择框（2026-09-28 主人要求 · ⚡ 静态核源码）')
+  // 主人要求原话: 「去掉量比和换手选择框, ai选股和盘中实时都去掉。
+  //               ai选股名称改为竞价选股, 盘中实时改为实时动态选股」
+  // ① tab 文案: 新名必须在场、旧名必须不在场(leftTab 取值不动)
+  ok('🔴 tab1 文案已改为「竞价选股」', VIEW_SRC.includes('竞价选股'))
+  ok('🔴 tab2 文案已改为「实时动态选股」', VIEW_SRC.includes('实时动态选股'))
+  ok('🔴 用户可见区不再出现旧名「AI选股」', !/> AI选股</.test(VIEW_SRC),
+     '正文 tab 按钮文案若仍写「AI选股」= 改名未生效')
+  ok('🔴 用户可见区不再出现旧名「盘中实时」', !/> 盘中实时</.test(VIEW_SRC),
+     '正文 tab 按钮文案若仍写「盘中实时」= 改名未生效')
+  // ② leftTab 取值必须一字未动(改名只改展示, 不能动驱动逻辑的键)
+  ok('🔴 leftTab 取值仍是 auction/spot(改名未误伤逻辑键)',
+     /switchTab\('auction'\)/.test(VIEW_SRC) && /switchTab\('spot'\)/.test(VIEW_SRC))
+  // ②b 站点级品牌文案(NavBar tooltip / router 文档标题)必须同步改名
+  //    判据锚定**真实属性/赋值行**: 只判"文件里有没有 AI选股"会被注释误伤(本轮已踩过),
+  //    故分别锚定 `title="快选 · ..."` 与 `document.title = ...` 两处赋值。
+  ok('🔴 NavBar 品牌 tooltip 已同步为「竞价选股」',
+     /title="快选\s*·\s*竞价选股"/.test(NAVBAR_SRC) && !/title="快选\s*·\s*AI选股"/.test(NAVBAR_SRC),
+     '站点 logo tooltip 若仍写 AI选股 = 品牌名未同步')
+  ok('🔴 路由文档标题后缀已同步为「竞价选股」',
+     /document\.title\s*=\s*`[^`]*竞价选股`/.test(ROUTER_SRC)
+     && !/document\.title\s*=\s*`[^`]*AI选股`/.test(ROUTER_SRC),
+     '浏览器标签标题若仍写 AI选股 = 品牌名未同步')
+  // ③ 量比/换手**选择框**必须从 FilterPanel 模板移除(注意: 「换手」表头列仍保留, 两者不同物)
+  // 🔴 关键 1: 必须切**整个 SFC 模板区**(首个 `<template>` → `<script>` 之前),
+  //    不能用非贪婪 `<template>[\s\S]*?</template>` —— FilterPanel 里有多个内层
+  //    `<template v-if>` 块, 非贪婪会在**第 38 行的首个内层 </template>** 处截断,
+  //    于是第 94 行附近(原量比/换手所在)根本不在扫描范围内 ⇒ 断言恒真 = 假绿。
+  //    (本仓第二次踩「非贪婪跨嵌套标签」; 变异 M4 把它抓了出来。)
+  // 🔴 关键 2: 判据不能只用裸词「量比 / 换手」—— 本轮**注释里就写了这两个词**
+  //    (说明"为何移除") ⇒ 用裸词判定会误伤自己的注释。必须锚定**真的输入控件**:
+  //      · v-model 绑定 volRatioFloor / turnoverFloor / turnoverGt 的 <input>
+  //      · 或标签文字与 <input> 同现(去掉注释后再判裸词)。
+  //    实现 = 先从模板区**剥掉 HTML 注释**, 再判裸词 + 判绑定。
+  const tplStart = FILTER_SRC.indexOf('<template>')
+  const tplEnd = FILTER_SRC.indexOf('<script')
+  const fpTplRaw = (tplStart >= 0 && tplEnd > tplStart)
+    ? FILTER_SRC.slice(tplStart, tplEnd) : ''
+  const fpTpl = fpTplRaw.replace(/<!--[\s\S]*?-->/g, '')   // 去注释后的"可渲染区"
+  // 自证: 切出的区域必须真的覆盖到既有输入框, 否则切错了又变假绿。
+  ok('🔴 [自证] 切出的模板区覆盖到既有输入框(防切错区域导致假绿)',
+     fpTpl.includes('现涨') && fpTpl.includes('分数') && fpTpl.includes('自由流通'),
+     '模板切片范围异常, 原始长度=' + fpTplRaw.length + ' 去注释后=' + fpTpl.length)
+  ok('🔴 FilterPanel 渲染区不再有「量比」选择框', !fpTpl.includes('量比'),
+     '量比选择框应已移除(它仍是评分因子, 只是不再有筛选入口)')
+  ok('🔴 FilterPanel 渲染区不再有「换手」选择框', !fpTpl.includes('换手'),
+     '换手选择框应已移除')
+  ok('🔴 FilterPanel 渲染区不再绑定 volRatioFloor/turnoverFloor/turnoverGt 到 input',
+     !/v-model[^>]*(volRatioFloor|turnoverFloor|turnoverGt)/.test(fpTpl))
+  // ④ 数据链路必须**保留**(与「撤 UI 入口」配套: 字段/默认值/传参一字未动)
+  //   🔴 判据必须锚定**真实代码行**, 且有**位置唯一性** —— 同一表达式在文件里出现多处时,
+  //      只测"文件里有没有 f.volRatioFloor ??", 删掉其中一处仍会绿(变异 M5b 抓到的假绿)。
+  //   ⇒ 必须先把 passSpotFilter / buildSpotFilterParams 的**函数体**切出来, 在各自体内判。
+  const fnBody = (name) => {
+    const i = FILTERS_SRC.indexOf('function ' + name)
+    if (i < 0) return ''
+    // 从函数头切到下一个顶层 function/export 之前(够用: 这两个函数各自独立)
+    const rest = FILTERS_SRC.slice(i)
+    const m = rest.slice(1).search(/\nexport function |\nfunction /)
+    return m >= 0 ? rest.slice(0, m + 1) : rest
+  }
+  const passBody = fnBody('passSpotFilter')
+  const buildBody = fnBody('buildSpotFilterParams')
+  ok('🔴 [自证] 切出了 passSpotFilter/buildSpotFilterParams 函数体(防切空导致假绿)',
+     passBody.includes('realChange') && buildBody.includes('spotExcludeZT'),
+     '函数体切片异常: passBody=' + passBody.length + ' buildBody=' + buildBody.length)
+  const hasDefaults = /volRatioFloor:\s*0/.test(FILTERS_SRC)
+    && /turnoverFloor:\s*0/.test(FILTERS_SRC) && /turnoverGt:\s*0/.test(FILTERS_SRC)
+  const hasOutbound = /volRatioFloor:\s*f\.volRatioFloor\s*\?\?\s*0/.test(buildBody)
+    && /turnoverFloor:\s*f\.turnoverFloor\s*\?\?\s*0/.test(buildBody)
+    && /turnoverGt:\s*f\.turnoverGt\s*\?\?\s*0/.test(buildBody)
+  const hasConsume = /f\.volRatioFloor\s*\?\?/.test(passBody)
+    && /f\.turnoverFloor\s*\?\?/.test(passBody)
+    && /f\.turnoverGt\s*\?\?/.test(passBody)
+  ok('🔴 量比/换手默认值仍在 utils/filters.js(默认 DefaultSpotFilter 三键齐)',
+     hasDefaults, '默认值被删 ⇒ 撤销 UI 入口变成了"连带停用筛选"')
+  ok('🔴 buildSpotFilterParams 仍下发量比/换手三键(后端仍收得到)',
+     hasOutbound, '传参链被删 ⇒ 后端 apply_spot_filters 收不到该条件')
+  ok('🔴 passSpotFilter 仍消费量比/换手(本地预筛口径未断)',
+     hasConsume, '本地过滤不再读 ⇒ 与后端口径脱钩')
+
+  // ⑤ ⚠️ 为什么这里**不做 SSR 渲染断言**: FilterPanel 的筛选行由
+  //    `v-if="store.filterReady"` 门控, 而 filterReady 在 onMounted 的**异步**偏好加载后
+  //    才置 true —— SSR 不跑 onMounted ⇒ 恒渲染"筛选加载中…"占位块 ⇒ 量比/换手/现涨
+  //    **一个都渲染不出来**。此时断言"没有量比"会**无条件成立**(假绿), 毫无区分度。
+  //    (实测: 即便 store.strategy 显式置 'spot', SSR HTML 里连「现涨」都不存在。)
+  //    ⇒ 结论: 这条改动**只能用静态源码断言**(已在上面 ③④ 完成, 并经 8/8 变异验证)。
+  //      留此说明是为了防止后人"好心"补一个恒绿的 SSR 断言。
+  ok('🔴 [说明] FilterPanel 筛选行 SSR 不可达(v-if 门控), 已改用静态核 + 变异验证',
+     /v-if="store\.filterReady"/.test(FILTER_SRC),
+     '若该门控被移除, 本说明失效 —— 那时应补真 SSR 断言')
 
   console.log(`\n=== 结果：PASS=${PASS}  FAIL=${FAIL} ===`)
   if (FAIL) { console.log('失败项：\n  - ' + fails.join('\n  - ')); process.exit(1) }

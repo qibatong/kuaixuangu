@@ -25,8 +25,10 @@
              2026-09-28 v4.11.75: 新增「盘中实时」—— 后端 /api/stocks_spot 重建后接入 -->
         <div class="alert-rule alert-rule-compact">
           <span class="mode-tabs mode-tabs-inline">
-            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'auction' }" @click="switchTab('auction')"><i class="fa fa-sun-o"></i> AI选股</button>
-            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'spot' }" @click="switchTab('spot')"><i class="fa fa-bolt"></i> 盘中实时</button>
+            <!-- ★ 2026-09-28 主人要求改 tab 文案: 「AI选股」→「竞价选股」、「盘中实时」→「实时动态选股」。
+                 只改**展示文案**, `leftTab` 取值('auction'/'spot')与所有分支判据一字不动。 -->
+            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'auction' }" @click="switchTab('auction')"><i class="fa fa-sun-o"></i> 竞价选股</button>
+            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'spot' }" @click="switchTab('spot')"><i class="fa fa-bolt"></i> 实时动态选股</button>
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick' }" @click="switchTab('aipick')"><i class="fa fa-android"></i> AI预测·金睛</button>
             <!-- 2026-09-25: 火眼(LightGBM) 平行链路(与 AI预测 同构, 只换模型); 手机端一并生效(本组 tab 在左栏内部) -->
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick_lgb' }" @click="switchTab('aipick_lgb')"><i class="fa fa-flask"></i> AI预测·火眼</button>
@@ -76,12 +78,12 @@
         </div>
 
         <!-- 会员门禁: 竞价选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
-        <VipGate v-if="leftTab === 'auction' && !user.isMember && isMemberOnlyTime()" title="AI选股" />
+        <VipGate v-if="leftTab === 'auction' && !user.isMember && isMemberOnlyTime()" title="竞价选股" />
         <!-- 配额门禁(2026-09-21 会员体系): 免费用户每日有限次数, 用尽后 VipGate 转配额引导模式 -->
         <VipGate
           v-else-if="leftTab === 'auction' && stocks.quotaExceeded"
           ref="pickGateRef"
-          title="AI选股"
+          title="竞价选股"
         />
 
         <template v-if="leftTab === 'auction' && (user.isMember || !isMemberOnlyTime()) && !stocks.pickBlocked && !stocks.quotaExceeded">
@@ -117,12 +119,12 @@
                ③ **无锁定**: spot 不落批次, 锁了也没有可回放的定格名单。
                ④ 会员门禁**照旧**(盘中实时属付费能力, 口径与竞价一致)。 -->
         <template v-else-if="leftTab === 'spot'">
-          <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="盘中实时" />
+          <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="实时动态选股" />
           <template v-else-if="user.isMember || !isMemberOnlyTime()">
             <div v-if="!stocks.spotCached" class="stock-table-container">
               <div class="loading-placeholder">
                 <div v-if="stocks.spotLoading" class="spinner"></div>
-                <div v-else><i class="fa fa-bolt"></i> 点「应用」获取盘中实时名单</div>
+                <div v-else><i class="fa fa-bolt"></i> 点「应用」获取实时动态选股名单</div>
                 <div v-if="stocks.spotLoading">正在扫描全市场实时行情…</div>
               </div>
             </div>
@@ -130,7 +132,7 @@
               <!-- 盘中数据的时效提示: spot 每次请求都是"此刻", 必须让用户知道数据有多新 -->
               <div class="spot-notice">
                 <i class="fa fa-bolt"></i>
-                <span>盘中实时名单 · 共 <b>{{ stocks.spotStocks.length }}</b> 只 · 数据时刻 <b>{{ spotTimeStr }}</b>（每次「应用」重新扫描，无需等 9:26 定格）</span>
+                <span>实时动态选股名单 · 共 <b>{{ stocks.spotStocks.length }}</b> 只 · 数据时刻 <b>{{ spotTimeStr }}</b>（每次「应用」重新扫描，无需等 9:26 定格）</span>
               </div>
               <StockTable :stocks="stocks.spotStocks" strategy="spot" />
             </template>

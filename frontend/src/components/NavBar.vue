@@ -2,7 +2,8 @@
   <!-- 全站顶部导航栏: 左品牌 logo+导航入口, 右主题/字号/账户工具 -->
   <nav class="nav-bar" aria-label="主导航">
     <div class="nav-left">
-      <router-link to="/" class="nav-brand" title="快选 · AI选股">
+      <!-- 2026-09-28: 品牌副标题随 tab 改名同步（AI选股 → 竞价选股），避免站点 tooltip 指向不存在的一级概念 -->
+      <router-link to="/" class="nav-brand" title="快选 · 竞价选股">
         <img src="/logo.jpg" class="nav-logo" alt="快选">
         <div class="nav-brand-text">
           <span class="nav-brand-name">快选</span>

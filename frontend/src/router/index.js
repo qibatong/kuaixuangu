@@ -64,7 +64,8 @@ const TITLES = {
 router.afterEach((to) => {
   if (to.name === 'login') { document.title = '登录 · 快选'; return }
   if (to.name === 'notFound') { document.title = '页面不存在 · 快选'; return }
-  document.title = `${TITLES[to.name] || '快选'} · 快选 AI选股`
+  // 2026-09-28: 站点后缀随 tab 改名同步（AI选股 → 竞价选股）
+  document.title = `${TITLES[to.name] || '快选'} · 快选 竞价选股`
 })
 
 // 路由守卫: 除 /login 外均需登录; 已登录访问 /login 跳回主页; /admin 需管理员

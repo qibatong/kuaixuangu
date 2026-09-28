@@ -161,7 +161,7 @@ export const useStocksStore = defineStore('stocks', {
     },
 
     /**
-     * 拉取盘中实时名单。
+     * 拉取实时动态选股名单。
      * @param {boolean} [silent] true = 不弹成功 toast(30s 轮询用)
      * @returns {Promise<number>} 名单条数
      */
@@ -177,7 +177,7 @@ export const useStocksStore = defineStore('stocks', {
         this.spotCached = true
         this.spotDataAt = data.dataTime || Math.floor(Date.now() / 1000)
         this.spotAvailable = true
-        if (!silent) showToast('✅ 盘中实时选股完成（' + this.spotStocks.length + ' 只）', 'success')
+        if (!silent) showToast('✅ 实时动态选股完成（' + this.spotStocks.length + ' 只）', 'success')
         return this.spotStocks.length
       } finally {
         this.spotLoading = false
@@ -607,7 +607,7 @@ export const useStocksStore = defineStore('stocks', {
         this.isDataCached = true          // 保留原语义: "本次取数已完成", 不表示这里存的是竞价名单
         this.before930 = data.before930
         this.realTimeRefreshUsed = false
-        showToast(`✅ 盘中实时名单已${action === 'lock' ? '锁定' : '更新'}（${this.spotStocks.length} 只）`, 'success')
+        showToast(`✅ 实时动态选股名单已${action === 'lock' ? '锁定' : '更新'}（${this.spotStocks.length} 只）`, 'success')
         return
       }
       if (action === 'lock') {
@@ -652,7 +652,7 @@ export const useStocksStore = defineStore('stocks', {
       //   实时涨幅/量比/换手, 只覆盖展示字段而不重算会得到"名单停在上一刻评分"的错误结果。
       //   ⇒ spot 直接整份重拉(走 applyCustomFilter 的 spot 分支, 与 tab2 同口径)。
       if (this.isSpotStrategy) {
-        if (!silent) showToast('正在刷新盘中实时名单…', 'success')
+        if (!silent) showToast('正在刷新实时动态选股名单…', 'success')
         await this.applyCustomFilter()
         return
       }

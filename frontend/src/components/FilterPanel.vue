@@ -82,18 +82,16 @@ v-if="store.strategy === 'auction'" class="tdx-export-btn filter-refresh"
           竞涨 ≤<input v-model.number="bidGt" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(22)">%
         </label>
       </template>
-      <!-- ===== 盘中实时专属: 实时涨幅区间 / 量比下限 / 换手区间 =====
+      <!-- ===== 盘中实时专属: 实时涨幅区间 =====
            口径 = 后端 picker/filter.py::apply_spot_filters（R. 见 utils/filters.js 的
-           buildSpotFilterParams 注释）。两端 0 = 不限（与市值/股价的 0=不限 约定一致）。 -->
+           buildSpotFilterParams 注释）。两端 0 = 不限（与市值/股价的 0=不限 约定一致）。
+           ★ 2026-09-28 主人要求: **去掉「量比」与「换手」两个选择框**（AI选股 + 盘中实时
+             两处都去）。只去 UI 入口 —— 字段、默认值、本地过滤(passSpotFilter)与后端传参
+             **全部保留不动**（与 2026-09-14「评分≥」同类处置：保留说明、无 UI 入口），
+             故两个筛选目标的默认值照常生效、对名单结果零影响。 -->
       <template v-else>
         <label class="filter-cell" title="实时涨幅区间(%)：当前价相对昨收的涨幅；两端 0 = 不限">
           <span class="mv-range-label">现涨</span><input v-model.number="chgFloor" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(26)"><span class="mv-range-op">~</span><input v-model.number="chgGt" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(26)">%
-        </label>
-        <label class="filter-cell" title="量比下限：0 = 不限；2 = 显著放量（评分满分档起点）">
-          量比 ≥<input v-model.number="volRatioFloor" type="number" min="0" max="50" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(26)">
-        </label>
-        <label class="filter-cell" title="换手率区间(%)：0 = 不限">
-          <span class="mv-range-label">换手</span><input v-model.number="turnoverFloor" type="number" min="0" max="100" step="1" :disabled="store.isFilterLocked" :style="inputStyle(26)"><span class="mv-range-op">~</span><input v-model.number="turnoverGt" type="number" min="0" max="100" step="1" :disabled="store.isFilterLocked" :style="inputStyle(26)">%
         </label>
       </template>
       <!-- 2026-09-14 主人拍板: 「涨停率」与「评分」筛的是同一个字段(probability), 属重复项 →
@@ -212,9 +210,11 @@ function _spotField(key) {
 }
 const chgFloor = _spotField('chgFloor')
 const chgGt = _spotField('chgGt')
-const volRatioFloor = _spotField('volRatioFloor')
-const turnoverFloor = _spotField('turnoverFloor')
-const turnoverGt = _spotField('turnoverGt')
+// ★ 2026-09-28 主人要求: 去掉「量比」「换手」两个**选择框**(AI选股 + 盘中实时两处都去)。
+//   ⇒ 这里同步删掉 volRatioFloor / turnoverFloor / turnoverGt 三个 computed(原本只服务
+//      那两个输入框)。**字段本身与默认值一字未动** —— 仍活在 store.spotFilterSettings、
+//      本地过滤(passSpotFilter)与后端传参(buildSpotFilterParams)里, 照常生效。
+//      (= 与 2026-09-14「评分≥」同类处置: 保留数据链路, 只撤 UI 入口。)
 const spotExcludeZT = _spotField('spotExcludeZT')
 
 // 按钮禁用: 竞价模式受 9:00-9:26 闸门; 盘中模式**不受闸门**(盘中随时可重选)。
