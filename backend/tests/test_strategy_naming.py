@@ -74,16 +74,65 @@ def test_invalid_strategy_rejected(client, first_user):
     assert "strategy" in r.json().get("msg", "")
 
 
-def test_spot_strategy_now_rejected(client, first_user):
-    """2026-09-09 盘中实时选股(spot)下线: 前端无入口/后端零调用 → 传 spot 显式 400。
+def test_spot_strategy_now_accepted(client, first_user):
+    """2026-09-28 v4.11.80: spot 重新放行 —— 传 spot 不再 400, 而是走 spot 引擎。
 
-    不静默退化成 auction —— 若旧书签还在传 spot, 宁可报错也不要给用户一份
-    他以为"盘中实时"、实际是竞价定格的名单。"""
+    历史沿革(必须完整保留, 否则下次会再"改回去"):
+      · 2026-09-09: spot 整体下线(前端无入口 + 后端显式 400), 理由是"避免旧书签
+        拿到他以为盘中实时、实际是竞价定格的名单"。
+      · 2026-09-28: 主人要求「AI竞价选股出数据就锁定」→ spot 引擎重建并接回
+        **锁定链路**, 故 400 必须撤掉。撤掉不违背 09-09 的初衷 —— 现在 spot 有
+        真引擎(compute_score_spot + apply_spot_filters), 给出的**真是**盘中实时名单。
+    开关: `spot_lock_enabled`(settings, 默认 1) —— 置 0 立即回到"仅 auction"
+      (那时本用例的 400 期望会重新成立, 属**有意**的开关行为, 故用例内先钉开关=1)。
+    """
+    from app.services import settings
+    settings.set("spot_lock_enabled", "1")          # 显式确保开关开(不依赖默认值)
     token, _, _ = first_user
-    for q in ("strategy=spot", "mode=spot"):
+    for q in ("strategy=spot", "mode=spot"):        # 新名 + 兼容旧名都要放行
         r = client.get("/api/stocks?action=refresh&%s" % q, headers=hdrs(token))
-        assert r.status_code == 400, q
-        assert not r.json().get("ok")
+        # 不再 400(200=正常出名单; 403=名单源不可用也是合法业务响应, 关键是**没被参数校验拒**)
+        assert r.status_code != 400, "%s 不得再被 400 拒绝: %s" % (q, r.text[:200])
+        d = r.json()
+        if d.get("ok"):
+            assert d.get("strategy") == "spot", "返回体 strategy 必须回显 spot: %s" % d.get("strategy")
+
+
+def test_spot_strategy_off_switch_rejects(client, first_user):
+    """开关 spot_lock_enabled=0 → spot 重新变 400(一键回滚止血通路, 必须可验证)。
+
+    这是 AGENTS「无开关可回滚」纪律在本功能上的兑现: spot 会落批次/写历史,
+    评分口径出 bug 时要能秒级止血, 而不是"改代码 + 重新部署"。
+    """
+    from app.services import settings
+    settings.set("spot_lock_enabled", "0")
+    try:
+        token, _, _ = first_user
+        for q in ("strategy=spot", "mode=spot"):
+            r = client.get("/api/stocks?action=refresh&%s" % q, headers=hdrs(token))
+            assert r.status_code == 400, q
+            assert not r.json().get("ok")
+        # auction 不受开关影响
+        r2 = client.get("/api/stocks?action=ping&strategy=auction", headers=hdrs(token))
+        assert r2.status_code == 200
+        assert r2.json().get("spotLockEnabled") is False, "ping 必须透出开关已关"
+    finally:
+        settings.set("spot_lock_enabled", "1")      # 复位, 免得污染同 session 的其它用例
+
+
+def test_ping_exposes_spot_lock_switch(client, first_user):
+    """ping 必须透出 spotLockEnabled —— 前端据此决定要不要渲染 spot 入口。
+
+    教训(2026-09-17): 前端置灰是**纯时间判断**、不看开关, 于是开关关了后端、
+    前端依旧置灰, 用户完全点不动。spot 同理必须把开关状态透给前端。
+    """
+    from app.services import settings
+    settings.set("spot_lock_enabled", "1")
+    token, _, _ = first_user
+    d = client.get("/api/stocks?action=ping", headers=hdrs(token)).json()
+    assert d.get("ok") is True
+    assert d.get("spotLockEnabled") is True
+    assert "pickGateEnabled" in d, "原有闸门状态字段不得被删"
 
 
 # ==================== 评分配置 ====================

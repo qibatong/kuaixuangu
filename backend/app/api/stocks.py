@@ -56,6 +56,28 @@ def _pick_window_guard_on() -> bool:
     return bool(v)
 
 
+# ---- spot(盘中实时)进入「锁定链路」的开关 v1(2026-09-28) ----
+# 背景: /api/stocks?strategy=spot 让**锁定这条链路**复用 spot 引擎(score_spot +
+#   apply_spot_filters), 从而「AI竞价选股 tab 出来的名单也能被锁定」。
+# 与 pick_window_guard 同一模式: 默认 1(功能已验收), 出问题后台置 0 即时回滚到
+#   「仅 auction」老行为 —— 无需改代码/重新部署; ping 会把状态透给前端。
+# 为何需要它: spot 走 lock 会**落批次/写历史**, 而 auction 的历史是既有用户的资产,
+#   一旦 spot 评分口径有 bug 需要一键止血, 不可能靠"改代码 + 重新部署"争分夺秒。
+SPOT_LOCK_SWITCH = "spot_lock_enabled"
+
+
+def _spot_lock_enabled() -> bool:
+    """spot 策略开关是否启用 —— **单一口径处**(400 分支与 ping 上报共用)。
+
+    与 _pick_window_guard_on 同范式: 显式解析假值形态(0 / "0" / "false" / "no" /
+    "off" / 空串), 避免 `bool("0") is True` 导致"关开关静默失效"。
+    """
+    v = settings.get(SPOT_LOCK_SWITCH, 1)
+    if isinstance(v, str):
+        return v.strip().lower() not in ("0", "false", "no", "off", "")
+    return bool(v)
+
+
 def _pick_blocked_reason(now=None):
     """返回拦截原因文案(未拦截返回 None)。now 可注入(测试/排查用)。"""
     from ..services.picker import mode as pmode
@@ -97,7 +119,8 @@ def _freeze_fields(now=None):
 
 
 def _run_new_pipeline(uid, action, f, *, yesterday_map, yesterday_chg_map,
-                      snapshot_map, bid_amt_map, bid_chg_map):
+                      snapshot_map, bid_amt_map, bid_chg_map,
+                      strategy="auction", spot_cfg=None):
     """跑新链路 picker.pipeline; 返回 (items, err) —— **二选一有值**。
 
     2026-09-09 起新链路是**唯一**选股链路: 此前"新链路不可用 → 静默回退老链路"
@@ -125,7 +148,9 @@ def _run_new_pipeline(uid, action, f, *, yesterday_map, yesterday_chg_map,
             snapshot_map=snapshot_map or {},
             require_bid_change=True,
         )
-        res = pipeline.run(f, ctx=ctx)
+        # ★ 2026-09-28: strategy 透传 —— spot 时 pipeline 走 spot 引擎
+        #   (compute_score_spot + apply_spot_filters), 并跳过依赖竞价定格的步骤。
+        res = pipeline.run(f, ctx=ctx, strategy=strategy, spot_cfg=spot_cfg)
     except Exception as e:                                     # noqa: BLE001
         log.error("选股链路异常 uid=%s action=%s err=%s", uid, action, e, exc_info=True)
         return None, "选股服务异常: %s" % e
@@ -661,15 +686,27 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
     # 2026-09-09 命名消歧(主人指示彻底改名): 策略参数 mode → strategy ——
     # 原 mode 与内部时段模式 PickMode(preopen/auction/locked/intraday/closed) 撞名,
     # 排查时极易误读(曾把回显的策略 mode=auction 当成"午休仍在竞价窗口")。
-    # 语义: strategy=选股策略(2026-09-09 起仅 auction 竞价因子表; spot 盘中已下线)。
     # 旧参数 mode 保留为兼容别名(线上缓存前端/书签仍在传), 下版本移除。
+    #
+    # ★ 2026-09-28 v4.11.80: strategy **重新支持 spot**(盘中实时)。
+    #   背景: 2026-09-09 spot 随 4c56083 整体下线(前端无入口+后端显式 400); 09-28 重建
+    #   spot 引擎后, 主人要求「AI选股出数据就锁定」= 让 **锁定这条链路**也能用 spot 算法。
+    #   与 /api/stocks_spot 的分工:
+    #     · /api/stocks_spot       —— 独立端点, **不落批次/不锁定**, 每次都是"此刻的答案"
+    #     · /api/stocks?strategy=spot —— **走本文件的 lock/落库/快照全套**, 名单能固定下来
+    #   两者共用同一套 spot 引擎(score_spot + apply_spot_filters), 只是工艺不同。
+    #   ⚠️ 开关: `spot_lock_enabled`(settings) —— 关掉即彻底禁用本端点接受 strategy=spot,
+    #      立即回到"仅 auction"的老行为(**无需改代码/重新部署**); 见 _spot_lock_enabled()。
     strategy = (q.get("strategy") or q.get("mode") or ["auction"])[0]
     force = (q.get("force") or ["0"])[0] in ("1", "true", "True")   # 主动重锁(绕过当日幂等)
     if action not in ("lock", "filter", "refresh", "ping"):
         log.warning("选股非法参数 action=%s uid=%s", action, uid)
         return jr({"ok": False, "msg": "非法参数"}, 400)
-    if strategy != "auction":
-        log.warning("选股非法参数 strategy=%s uid=%s(盘中实时选股已于 2026-09-09 下线)", strategy, uid)
+    if strategy not in ("auction", "spot"):
+        log.warning("选股非法参数 strategy=%s uid=%s", strategy, uid)
+        return jr({"ok": False, "msg": "非法参数 strategy(仅支持 auction/spot)"}, 400)
+    if strategy == "spot" and not _spot_lock_enabled():
+        log.warning("spot 策略已被开关禁用 strategy=%s uid=%s", strategy, uid)
         return jr({"ok": False, "msg": "非法参数 strategy(仅支持 auction)"}, 400)
     if action == "ping":
         _, _, before930 = scorer.bj_now()
@@ -677,14 +714,19 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
         #   于是 `pick_window_guard=0` 只关了后端, 前端依旧置灰且连自动加载都不发请求
         #   (9/17 该时段 0 请求的根因), 用户完全点不动。
         #   ping 在鉴权之后、闸门之前, 天然不受闸门影响, 适合做状态探测。
+        # ★ 2026-09-28: 同时透出 spotLockEnabled, 让前端知道该不该渲染 spot 相关入口。
         return jr({"ok": True, "before930": before930,
-                   "pickGateEnabled": _pick_window_guard_on()})
+                   "pickGateEnabled": _pick_window_guard_on(),
+                   "spotLockEnabled": _spot_lock_enabled()})
 
     # ---- 选股闸门 v3(2026-09-17 重做) ----
     # ping 在其之前 return(前端登录态/时段探测天然放行); 其余 action 一律过闸门。
     # ok=False + blocked=True 走 request.js 的既有错误透传(Object.assign(e, data)),
     # 前端据此显示"等待定格"提示而非"选股失败"。
-    if _pick_window_guard_on():
+    # ★ 2026-09-28: **spot 跳过本闸门** —— 闸门的理由是"当日 9:25 定格尚未落库,
+    #   此时出名单不可信", 而 spot 根本不依赖定格(看实时), 该理由对 spot 不成立。
+    #   与 /api/stocks_spot 的处理一致(那个端点也没有闸门判据)。
+    if strategy != "spot" and _pick_window_guard_on():
         block_msg = _pick_blocked_reason()
         if block_msg:
             log.info("选股闸门拦截 uid=%s action=%s msg=%s", uid, action, block_msg)
@@ -929,12 +971,15 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                                          yesterday_chg_map=yesterday_chg_map,
                                          snapshot_map=snapshot_map,
                                          bid_amt_map=bid_amt_map,
-                                         bid_chg_map=bid_chg_map)
+                                         bid_chg_map=bid_chg_map,
+                                         strategy=strategy)
         if perr:
             return jr({"ok": False, "msg": "选股数据不可用: %s" % perr,
-                       "strategy": "auction", "mode": "auction", "list": [], "count": 0})
+                       "strategy": strategy, "mode": strategy, "list": [], "count": 0})
         # 概念用开盘啦覆盖(落库前覆盖: 页面/历史批次/推送全部统一开盘啦概念)
-        _apply_kpl_board(result, "auction")
+        # spot 走板块概念覆盖会拉外网; spot 引擎已自带 board 字段, 故仅在 auction 时覆盖。
+        if strategy != "spot":
+            _apply_kpl_board(result, "auction")
     except Exception as e:
         log.error("选股处理失败 uid=%s action=%s strategy=%s err=%s", uid, action, strategy, e, exc_info=True)
         return jr({"ok": False, "msg": "服务端处理失败: %s" % e}, 500)
@@ -991,7 +1036,7 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
 
     return jr({
         "ok": True,
-        "strategy": "auction", "mode": "auction",
+        "strategy": strategy, "mode": strategy,
         "list": result,
         "count": len(result),
         "before930": before930,

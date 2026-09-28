@@ -164,8 +164,20 @@ def test_yday_pair_skips_today_intraday():
     assert chg == pytest.approx(11.11, abs=0.01), "涨幅同为 T-1 vs T-2"
 
 
-def test_yday_pair_keeps_today_after_close():
-    """★收盘后**不得**再跳今日 —— 否则"昨日涨幅"整整滞后一天(2026-09-08 修过的 bug)。"""
+def test_yday_pair_keeps_today_after_close(monkeypatch):
+    """★收盘后**不得**再跳今日 —— 否则"昨日涨幅"整整滞后一天(2026-09-08 修过的 bug)。
+
+    🔴 2026-09-28 修用例的**日期依赖缺陷**(与本日 spot 改动无关, 独立暴露):
+    用例写死 `today="20260924"`, 但 after_close 分支会拿 `_yday_expected_tdate()`
+    (解析"**真实**当前应取交易日")逐行比对 —— 一旦日历走过 09-24, 该函数返回
+    20260928 ≠ 20260924 ⇒ 恒返回 (None, None), 用例**必然假红**(实测 09-28 复现:
+    不打桩 pair=None, 打桩成 20260924 立刻 pair=[11000.0,10000.0] chg=10.0)。
+    修法: 把"预期交易日"一并打桩成用例写死的日期 —— 被测的是**口径**(收盘后不跳今日),
+    不是"今天是几号"; 沿用真实时钟只会制造随时间腐烂的假红。
+    另一条同类用例 test_yday_pair_skips_today_intraday 走 after_close=False,
+    不进该分支, 故无此问题。
+    """
+    monkeypatch.setattr(F, "_yday_expected_tdate", lambda: "20260924")
     rows = [_d("20260924", 11.0, 1.1e8), _d("20260923", 10.0, 1.0e8),
             _d("20260922", 9.0, 9.0e7)]
     pair, chg = F._yday_pair_from_daily(rows, today="20260924", after_close=True)

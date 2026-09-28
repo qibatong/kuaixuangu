@@ -124,6 +124,10 @@ scripts/_check_*.py
 scripts/_fix_*.py
 scripts/_verify_*.py
 scripts/_sync_aipick_*.py
+# 2026-09-28: 版本绑定的一次性部署/变异助手(含测试机密码明文; 通用工具另见 _kx_direct.py)
+scripts/_upload_*.py
+scripts/_mutate_*.py
+scripts/_deploy_v*.py
 scripts/_nginx_*.conf
 scripts/_nginx_aipick_*.conf
 scripts/probe_*.py

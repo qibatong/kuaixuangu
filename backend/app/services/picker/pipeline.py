@@ -206,17 +206,29 @@ def _fetch_patch(ctx: PickContext, policy: pm.ModePolicy,
 # ---------------------------------------------------------------- 主流程
 def run(filters: Dict, *, ctx: Optional[PickContext] = None,
         now=None, holidays: Optional[set] = None,
-        cfg: Optional[dict] = None) -> PipelineResult:
+        cfg: Optional[dict] = None, strategy: str = "auction",
+        spot_cfg: Optional[dict] = None) -> PipelineResult:
     """跑一次完整选股(唯一链路)。
 
     filters: scorer.validate_filters 的输出
     ctx:     外部事实(定格 map / 昨涨停名单 / 昨日涨幅...); None 时自动加载
     now:     时间注入(测试用); None = 当前时间
+    strategy: **选股策略(2026-09-28 新增)** —— 决定"用哪套评分/过滤":
+              · "auction"(默认) 竞价五因子: score_rows + apply_filters(行为与改造前逐字一致)
+              · "spot"          盘中六因子: compute_score_spot + apply_spot_filters
+              ⚠️ 只影响 **评分层与精筛层**(下面第 3.5/4 步), 其余各层(名单源/粗筛/
+                 昨日涨幅/补丁源/输出组装)**两条策略共用** —— 这正是把 spot 接进
+                 pipeline 而非复制一份的意义。
+    spot_cfg: spot 评分配置注入(测试用; None = 取 score_spot.get_spot_cfg())
+
+    🔴 auction 路径的**零改动保证**: strategy 默认 "auction", 且下面所有 spot 分支
+       都写成 `if strategy == "spot"`, 故老调用方(不传 strategy)行为逐字不变。
     """
     t0 = time.time()
     ctx = ctx or load_context()
     policy = pm.resolve_mode(now, holidays)
     res = PipelineResult(mode=policy.mode.value, mode_label=policy.label)
+    is_spot = (strategy == "spot")
 
     # 1) 名单源
     #    2026-09-12 P1-2: 开关开启且物化表有当日全市场评分时, 直接读物化表(一次 SELECT,
@@ -259,10 +271,22 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
         frozen = {}
 
     # 2) 粗筛 → 候选(省日K与点查; 只按定格可判定的字段, 不需要先评分)
+    #    ★ 2026-09-28: spot **不走粗筛**。理由有三:
+    #      ① 粗筛的排队键是"定格竞价涨幅"(coarse_filter 内 coarse_rank_key), 对 spot
+    #         无意义 —— spot 看实时涨幅, 没有定格概念;
+    #      ② 粗筛的不少门槛依赖竞价字段(bidGt/bidLt/bidAmtFloor/require_bid_change),
+    #         spot 名单里这些字段可能为 None, 硬套会把有效票误杀;
+    #      ③ 粗筛存在的理由是**省"逐只拉日K + 点查行情"的开销**(竞价要按 code 点查),
+    #         而 spot 用 ensure_spot_cache 一次性拿全市场实时行情, 无逐只点查开销 ⇒
+    #         全市场直接评分实测约 1.x 秒, 不需要粗筛换来的那点性能。
+    #      ⇒ spot 的候选 = 全市场(与 api/stocks_spot.py 的行为一致)。
     fctx = pfilter.FilterContext(
         markets=ctx.markets if ctx.markets is not None else filters.get("markets"),
         zt_codes=ctx.zt_codes, require_bid_change=ctx.require_bid_change)
-    codes = pfilter.coarse_filter(list(rows.values()), filters, fctx)
+    if is_spot:
+        codes = [r.code for r in rows.values()]
+    else:
+        codes = pfilter.coarse_filter(list(rows.values()), filters, fctx)
     res.n_candidate = len(codes)
     if not codes:
         res.stats["coarse_empty"] = 0
@@ -306,18 +330,48 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
     #      信号全部来自**快照表 + 本地 AI 推理**, 对东财免疫 —— 东财点查断了照样有分。
     #      只对候选加载(全市场拉没必要); 加载失败 → strengths 为空 → 退回 warn 因子。
     #      物化路径跳过: 评分已含该因子, 且物化表的 warn_type 已是强度档位。
+    #      🔴 spot 路径也跳过(2026-09-28): spot 六因子**不含**竞价强度因子, 加载它是
+    #         纯浪费(要读快照表 + 跑本地 AI 推理), 且结果不会被消费。
     strengths: Dict[str, float] = {}
-    if not use_mat:
+    if not use_mat and not is_spot:
         strengths = _load_strength(codes, ctx)
 
     # 4) 评分 + 精筛(只针对候选) → **名单在此定型**
-    if use_mat:
+    #    ★ 2026-09-28: 按 strategy 分派 —— 这是两条策略**唯一的实质分叉点**。
+    #      · auction: score_rows(五因子) + apply_filters
+    #      · spot:    compute_score_spot(六因子) + apply_spot_filters
+    #      两个 spot 函数与竞价侧**签名同构**(QuoteRow → ScoredRow / FilterOutcome),
+    #      故此处只需换函数、不必改上下文; 也正因同构, 才敢接进这条唯一链路。
+    if is_spot:
+        # spot 精筛前需给每行注入 `_spot_zt` 标记(涨停池有该 code 即视为已封板),
+        # 供 spotExcludeZT 判定 —— 与 api/stocks_spot.py 的注入逻辑同源。
+        # 标记来源: ctx.zt_codes(昨涨停名单)不含"今日封板"信息, 故只用 row 自身
+        # 已带的 warn_type/涨停池信息不可得时, 该门槛自然不生效(不误杀)。
+        from .score_spot import compute_score_spot, get_spot_cfg       # 延迟导入: 避免模块循环
+        _spot_cfg = spot_cfg or get_spot_cfg()
+        cand_rows = []
+        for c in codes:
+            if c not in rows:
+                continue
+            rr = rows[c]
+            _sc = compute_score_spot(rr, None, _spot_cfg)
+            cand_rows.append(ScoredRow(row=rr, score=_sc))
+        _sctx = pfilter.FilterContext(
+            markets=ctx.markets if ctx.markets is not None else filters.get("markets"),
+            zt_codes=ctx.zt_codes,
+            # spot 无 9:25 定格概念: 竞价涨幅缺失**不应剔除**(竞价侧默认 True)
+            require_bid_change=False,
+            # spot 用实时价判定价格门槛(盘中价格就是当下的, 无"定格"概念)
+            price_gate="realtime")
+        outcome = pfilter.apply_spot_filters(cand_rows, filters, _sctx)
+    elif use_mat:
         # 评分已由预计算算好, 此处只按 code 取回(零网络、毫秒级)
         cand_rows = [ScoredRow(row=rows[c], score=mat_scores[c])
                      for c in codes if c in rows and c in mat_scores]
+        outcome = pfilter.apply_filters(cand_rows, filters, fctx)
     else:
         cand_rows = score_rows([rows[c] for c in codes if c in rows], cfg, strengths)
-    outcome = pfilter.apply_filters(cand_rows, filters, fctx)
+        outcome = pfilter.apply_filters(cand_rows, filters, fctx)
     res.stats = dict(outcome.stats)
 
     # 5) 输出(老链路 item 同构 + 定格派生字段)
@@ -350,12 +404,25 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
             "degraded": res.degraded or bool(r.degraded),
             "source": r.source,
         })
+        if is_spot:
+            # ★ 2026-09-28 spot 字段适配: 补上 spot 专有字段(封成比/封单额/连板/开板),
+            #   供前端 spot 列与落库消费。这些字段在竞价 Result 里叫法不同, 故放在
+            #   分支内覆盖, **auction 路径一个字节都不动**。
+            #   注: `bidTurnover`/`bidVolRatio` 的 None 兜底已落在 ScoredRow.to_dict()
+            #   (那里用 getattr 兼容 SpotScoreResult 无该字段), 此处无需重复覆盖。
+            _sc = it.score
+            d.update({
+                "sealRatio": getattr(_sc, "seal_ratio", 0.0),
+                "sealFund": getattr(_sc, "seal_fund", 0.0),
+                "limitBoards": getattr(_sc, "limit_boards", 0),
+                "breakCount": getattr(_sc, "break_count", 0),
+            })
         res.items.append(d)
         res.rows[r.code] = r
     res.items.sort(key=lambda x: (-x.get("probability", 0), x.get("code", "")))
     res.elapsed_ms = int((time.time() - t0) * 1000)
-    log.info("选股 mode=%s 全市场=%d 候选=%d 入选=%d 源=%s 降级=%s 剔除=%s 耗时%dms",
-             policy.mode.value, res.n_universe, res.n_candidate, len(res.items),
+    log.info("选股 strategy=%s mode=%s 全市场=%d 候选=%d 入选=%d 源=%s 降级=%s 剔除=%s 耗时%dms",
+             strategy, policy.mode.value, res.n_universe, res.n_candidate, len(res.items),
              ",".join(res.sources), res.degraded, res.stats, res.elapsed_ms)
     return res
 

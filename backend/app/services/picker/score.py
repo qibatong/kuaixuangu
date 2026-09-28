@@ -208,7 +208,14 @@ class ScoredRow:
         return self.row.name
 
     def to_dict(self) -> Dict[str, Any]:
-        """前端字段(与老链路输出对齐, 含 province 等老字段位)"""
+        """前端字段(与老链路输出对齐, 含 province 等老字段位)
+
+        ★ 2026-09-28: `bidTurnover` / `bidVolRatio` 改用 getattr 兜底 None ——
+        spot 引擎的 SpotScoreResult **没有这两个字段**(竞换手/竞量比对 spot 不适用),
+        而 spot 已接进 pipeline 复用本 to_dict(); 硬取会 AttributeError
+        (v4.11.80 探针实测:`'SpotScoreResult' object has no attribute 'bid_turnover'`)。
+        auction 的 ScoreResult **恒有**这两个属性, 故 getattr 对老路径**行为逐字不变**。
+        """
         r = self.row
         return {
             "code": r.code,
@@ -218,8 +225,8 @@ class ScoredRow:
             "bidChange": r.bid_change,
             "realChange": r.real_change,
             "entityChange": r.entity_change,
-            "bidTurnover": self.score.bid_turnover,
-            "bidVolRatio": self.score.bid_vol_ratio,
+            "bidTurnover": getattr(self.score, "bid_turnover", None),
+            "bidVolRatio": getattr(self.score, "bid_vol_ratio", None),
             "speed": r.turnover,                       # 老链路 speed = f8 换手率
             "warnType": r.warn_type,
             # 市值展示口径(2026-09-20): 走统一 mv_yi(自由流通优先) —— 与门槛/评分同口径
