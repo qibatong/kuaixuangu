@@ -96,6 +96,29 @@ def require_vip_or_paid(request: Request) -> int:
                                                  "msg": "竞价异动仅限 VIP/付费会员，请升级后使用"})
 
 
+def vip_or_paid_gate(feature: str):
+    """可定制文案的 VIP/付费门禁工厂(2026-09-28, 供「竞价一进二」使用)。
+
+    判定与 `require_vip_or_paid` **完全一致**(管理员 / member_level>=1 放行; 免费试用 403),
+    唯一区别是提示文案带上功能名 —— 直接复用 `require_vip_or_paid` 会让「竞价一进二」的用户
+    看到"竞价异动仅限…"的错误提示。
+
+    ⚠️ 刻意**不改** `require_vip_or_paid` 自身(竞价异动等既有调用方依赖其文案与行为)。
+    用法: def api_xxx(uid: int = Depends(vip_or_paid_gate("竞价一进二")))
+    """
+    def _dep(request: Request) -> int:
+        uid = get_uid(request)
+        u = users.find_user_by_id(uid)
+        if u and (u.get("is_admin") or int(u.get("member_level") or 0) >= 1):
+            return uid
+        log.warning("%s 门禁拦截 uid=%s ip=%s member_level=%s",
+                    feature, uid, client_ip(request), (u or {}).get("member_level"))
+        raise HTTPException(status_code=403, detail={
+            "ok": False, "code": "vip_required",
+            "msg": "%s仅限 VIP/付费会员，请升级后使用" % feature})
+    return _dep
+
+
 def quota_guard(feature):
     """免费用户每日配额门禁工厂(2026-09-21, 方案 B).
     用法: def api_xxx(uid: int = Depends(quota_guard("picker")))

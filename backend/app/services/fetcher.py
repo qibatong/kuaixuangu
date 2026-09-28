@@ -1259,8 +1259,13 @@ def _fetch_ulist_batch(qs):
     raise RuntimeError("东财 ulist 点查失败(已试域名 %s): %s" % (",".join(hosts), err))
 
 
-def fetch_raw_by_codes(code_list):
+def fetch_raw_by_codes(code_list, extra_fields=None):
     """按 code 批量拉**完整行情 diff**(盘后 filter 快照候选补评分用, 2026-09-07):
+
+    `extra_fields`: 2026-09-28 新增(供 /api/yijiner 取 **f26 上市日期** —— 它不在全局
+    `config.FIELDS` 里)。**只允许追加**: 最终 fields 恒为
+    `config.FIELDS + "," + extra_fields`; 默认 `None` ⇒ 请求参数与改动前**逐字节一致**。
+    ⚠️ **绝不可用它替换 config.FIELDS**(见文末"漏字段"生产事故)。
     候选池先用 9:25 快照表初筛(免费), 命中几十只再这里点查, 替代"实时拉全市场 28 页"。
     返回与 fetch_eastmoney_all/clist **完全同构**的 diff 列表(fields=config.FIELDS, 与
     _fetch_clist_page 同用), 可直接喂 picker 契约层做完整评分; 逐批直拉东财
@@ -1275,12 +1280,14 @@ def fetch_raw_by_codes(code_list):
         return []
     out = []
     t0 = time.time()
+    # 整段复用 config.FIELDS, 仅允许在其后追加 extra_fields; 默认 None ⇒ 与改动前一致
+    fields = config.FIELDS + ("," + extra_fields if extra_fields else "")
     for i in range(0, len(code_list), _ULIST_BATCH):
         chunk = code_list[i:i + _ULIST_BATCH]
         secids = ",".join(_secid(c) for c in chunk)
         qs = urllib.parse.urlencode({
             "fltt": 2, "invt": 2,
-            "fields": config.FIELDS,     # 与全市场 clist 同构(必须整段复用, 勿手写子集!)
+            "fields": fields,            # 与全市场 clist 同构(必须整段复用, 勿手写子集!)
             "secids": secids, "ut": config.EASTMONEY_UT,
         })
         out.extend(_fetch_ulist_batch(qs))
