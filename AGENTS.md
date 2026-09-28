@@ -408,9 +408,10 @@ cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/p
 1. **代码改动一律先上测试环境验证**，不在本地起服务验证；验证通过才算完成一步。
 2. **生产环境必须等主人明确指令**才更新；测试通过后默认只推测试机 + commit/push。
 3. **提交约定**：测试机验证通过 → 自动 `git add` + commit（按逻辑分组，message 用中文如实描述）→ push。
-4. **push 规范**（Windows 浅克隆后遗症，详见下文）：不要依赖 `git branch -vv`/`git status -sb` 的提示判断是否同步——**以 `git ls-remote origin main` 与本地 HEAD 是否一致为准**；推送用显式 refspec：`git push origin HEAD:main`。
+4. **push 规范**（Windows 浅克隆后遗症，详见下文）：不要依赖 `git branch -vv`/`git status -sb` 的提示判断是否同步——**以 `git ls-remote origin <当前分支>` 与本地 HEAD 是否一致为准**；推送用显式 refspec：`git push origin HEAD:<当前分支>`（等价简写 `git push origin HEAD`）。取当前分支名：`git rev-parse --abbrev-ref HEAD`。
+   🔴 **不要把 `HEAD:main` 当默认写法**——`main` **不是**工作分支。截至 2026-09-28：`main` 停在 `769ad46`(09-19)，**落后当前工作分支 122 个提交**；照 `HEAD:main` 推会把整条功能分支灌进 main。当前工作分支是 `feature/scoring-v7-meoz`。
 5. **避免 rebase**：Windows 环境下 git rebase 曾反复损坏 `.git`（refs/pack 丢失）；一律 fetch 后快进 push。
-6. **改动前先同步远程**：`git fetch origin main`，确认不基于旧代码。
+6. **改动前先同步远程**：`git fetch origin`（对**当前分支**确认不基于旧代码；不要只 fetch `main`）。
 7. **commit 前清理临时脚本**（`.deploy_*.py` / `.shot*.py` / `.scan*.py` 等不入库；前端临时构建包同样清理）。
 8. **新增功能配套 pytest 全量绿才提交**；工程化/UI 大改需真实浏览器/全流程验证，不接受仅接口测试。
 9. **⛔ 协作红线**：每完成一项必须停下汇报、等主人明确指示，**不得自行扩大改动范围**；发现可优化点只提建议（含收益/风险/工作量），不动手。例外仅限主人已授权同一改动内的必要修正。
@@ -418,10 +419,13 @@ cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/p
 
 ## 三、Git 浅克隆后遗症（已知、不影响使用）
 
+> 本节里的 `main` 均为**示例分支名** —— 一律替换成"你当前的工作分支"（现为 `feature/scoring-v7-meoz`）。
+> 2026-09-28 复核：当前 `git status -sb` 显示 `## feature/scoring-v7-meoz...origin/feature/scoring-v7-meoz`，无 `[gone]` 现象。
+
 - `git status -sb` 显示 `## main...origin/main [gone]`、`git branch -vv` 显示 `[origin/main: gone]`：**元数据丢失的假象**，commit/push 都正常。
 - `git branch --set-upstream-to=origin/main` 会报 `not a valid branch point`——修不好，别浪费时间。
 - `git rev-parse HEAD~1` 报 unknown revision（浅克隆无 parent）。
-- 判断代码是否已同步：`git ls-remote origin main` 对比本地 `git rev-parse HEAD`。
+- 判断代码是否已同步：`git ls-remote origin <当前分支>` 对比本地 `git rev-parse HEAD`。
 - 仓库损坏恢复步骤（如 `fatal: bad object HEAD`）：
   1. `git fetch --depth 1 origin main`（避免全量慢速中断）
   2. `git update-ref refs/heads/main $(git rev-parse origin/main)`（失败用 `git ls-remote` 手动指）
