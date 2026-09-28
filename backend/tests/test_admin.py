@@ -359,12 +359,101 @@ def test_admin_scoring_invalid_mode(client, first_user):
 
 
 def test_admin_scoring_spot_offline(client, first_user):
-    """2026-09-09 盘中评分配置随 spot 一并下线: 传 spot 返回 400(不再有独立因子表)"""
+    """2026-09-28 v4.11.76: 盘中评分配置随 spot 重建**重新可调**。
+
+    ⚠️ 本用例原为「传 spot 返回 400」(2026-09-09 spot 下线时立的守卫)。
+    v4.11.75 重建 spot 后端、v4.11.76 接回管理端, 该守卫的**前提已不成立**
+    ⇒ 改为锁定新契约: spot 返回 200 且因子表是**盘中六因子**(与竞价五因子不同)。
+    保留用例名(而非删除)是为了留下"这里曾有一道下线守卫、后来被有意解除"的痕迹。
+    """
     token, _, _ = first_user
     r = client.get("/api/admin/scoring?strategy=spot", headers=hdrs(token))
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] and d["strategy"] == "spot"
+    # 盘中: 六因子, 含 chg/vol_ratio/turnover/seal, 不含竞价的 bid/activity/warn
+    wkeys = {k for k, _, _ in d["w_keys"]}
+    assert wkeys == {"w_chg", "w_vol_ratio", "w_turnover", "w_seal", "w_market", "w_yesterday"}
+    ckeys = {k for k, _, _ in d["conf_keys"]}
+    assert ckeys == {"conf_seal_high", "conf_vol_ratio", "conf_chg"}
+    # 因子明细键集 = 权重键去前缀
+    assert set(d["scoring"]["factors"].keys()) == {
+        "chg", "vol_ratio", "turnover", "seal", "market", "yesterday"}
+
+
+def test_admin_scoring_auction_unaffected_by_spot(client, first_user):
+    """两套配置**互相独立**: 读 spot 不影响竞价, 反之亦然。"""
+    token, _, _ = first_user
+    a = client.get("/api/admin/scoring?strategy=auction", headers=hdrs(token)).json()
+    s = client.get("/api/admin/scoring?strategy=spot", headers=hdrs(token)).json()
+    akeys = {k for k, _, _ in a["w_keys"]}
+    skeys = {k for k, _, _ in s["w_keys"]}
+    # 竞价五因子 / 盘中六因子 —— 键集不同, 若哪天变成一样说明两边被并成一套了。
+    # 差异: 盘中有 chg/vol_ratio/turnover/seal, 竞价有 bid/activity/warn。
+    assert akeys == {"w_bid", "w_activity", "w_warn", "w_market", "w_yesterday"}
+    assert skeys == {"w_chg", "w_vol_ratio", "w_turnover", "w_seal", "w_market", "w_yesterday"}
+    # 共有 2 个(w_market/w_yesterday); 盘中独有 4 个、竞价独有 3 个
+    assert len(skeys & akeys) == 2, "两套因子表的共有键数变了"
+    assert len(skeys - akeys) == 4 and len(akeys - skeys) == 3, "两套因子表的差异被人为抹平了"
+
+
+def test_admin_scoring_invalid_strategy(client, first_user):
+    """非法 strategy 400(auction/spot 之外一律拒); 空值回落到默认 auction。"""
+    token, _, _ = first_user
+    # 空串 → _strategy_of 回落到默认 'auction' ⇒ 200(与旧行为一致, 不能变成 400)
+    assert client.get("/api/admin/scoring?strategy=",
+                      headers=hdrs(token)).status_code == 200
+    # 明确非法 → 400
+    for bad in ("xxx", "intraday", "auction1"):
+        r = client.get(f"/api/admin/scoring?strategy={bad}", headers=hdrs(token))
+        assert r.status_code == 400, bad
+        r2 = client.put("/api/admin/scoring?strategy=" + bad,
+                        json={"scoring": VALID}, headers=hdrs(token))
+        assert r2.status_code == 400, bad
+    # 大小写/空白会被归一: " Auction " → auction ⇒ 200
+    assert client.get("/api/admin/scoring?strategy=%20Auction%20",
+                      headers=hdrs(token)).status_code == 200
+
+
+def test_admin_scoring_spot_put_writes_own_key(client, first_user):
+    """盘中保存写 settings["scoring_spot"], **不碰** settings["scoring"](防串表)。"""
+    token, _, _ = first_user
+    auction_before = dict(settings.get("scoring") or {})
+    spot_new = {
+        "w_chg": 0.30, "w_vol_ratio": 0.24, "w_turnover": 0.16,
+        "w_seal": 0.12, "w_market": 0.10, "w_yesterday": 0.08,
+        "conf_seal_high": 10, "conf_vol_ratio": 7, "conf_chg": 5,
+    }
+    try:
+        r = client.put("/api/admin/scoring?strategy=spot",
+                       json={"scoring": spot_new, "strategy": "spot"}, headers=hdrs(token))
+        assert r.status_code == 200, r.text
+        assert r.json()["ok"]
+        assert settings.get("scoring_spot")["w_chg"] == 0.30
+        # 🔴 关键: 竞价那份**一个字节都不能动**
+        assert dict(settings.get("scoring") or {}) == auction_before
+    finally:
+        settings.set("scoring_spot", {})
+        from app.services.picker import score_spot
+        score_spot.reload_spot_cfg()
+
+
+def test_admin_scoring_spot_put_rejects_auction_keys(client, first_user):
+    """盘中配置里混入竞价专属键(w_bid/w_activity/w_an) → 400, 不静默写坏。"""
+    token, _, _ = first_user
+    bad = {"w_bid": 0.30, "w_activity": 0.35, "w_warn": 0.15,
+           "w_market": 0.12, "w_yesterday": 0.08,
+           "conf_warn_high": 10, "conf_turnover": 8, "conf_bid": 7}
+    r = client.put("/api/admin/scoring?strategy=spot",
+                   json={"scoring": bad, "strategy": "spot"}, headers=hdrs(token))
     assert r.status_code == 400
-    r2 = client.put("/api/admin/scoring?mode=spot", json={"scoring": VALID}, headers=hdrs(token))
-    assert r2.status_code == 400
+    # 报错指向**盘中缺的键**(w_chg), 而不是竞价多出来的 w_bid ——
+    # 校验按"盘中应有键"逐个查, 第一个缺的就是 w_chg(键表顺序)。
+    # 🔴 关键语义: 竞价键**不被识别**, 所以绝不能写进去。
+    assert "w_chg" in r.json()["msg"]
+    assert "w_chg" not in bad, "夹具本身不该含 w_chg(否则测不到缺键路径)"
+    # 且未写入任何内容
+    assert "w_bid" not in (settings.get("scoring_spot") or {})
 
 
 # ---------- 全局默认筛选参数(defaults) ----------

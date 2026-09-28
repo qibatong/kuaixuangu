@@ -16,10 +16,14 @@
 计分口径: 六因子加权 = 实时涨幅 0.28 / 量比 0.26 / 换手率 0.18 /
 封单强度 0.14 / 自由流通市值 0.08 / 昨日涨幅 0.06; 置信度三项加成。
 与竞价的区别: 竞价看**9:25 定格**, 盘中看**实时**(real_change/vol_ratio/turnover)。
+
+2026-09-28 (v4.11.76): 权重表可由管理端覆盖(settings 表 "scoring_spot"),
+读取走本模块 get_spot_cfg(), 与竞价侧 scorer.get_scoring_cfg 同款合并/缓存范式。
 """
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
+from .. import settings
 from .contract import QuoteRow
 from .score_factors import factor_score, factor_default, js_round
 
@@ -77,14 +81,64 @@ DEFAULT_SCORING_SPOT: Dict[str, Any] = {
 }
 
 
-def get_spot_cfg() -> Dict[str, Any]:
-    """盘中评分配置。
+# ---------------------------------------------------------------- 配置读取
+# 2026-09-28 v4.11.76: 接回管理端可调配置(settings 表 key="scoring_spot")。
+#   原实现随 4c56083 删除; 现按 scorer.get_scoring_cfg 的**同款范式**并入:
+#   内存缓存 + 管理端保存后 reload 强制失效。
+_spot_cfg = None
 
-    ⚠️ 当前**只返回内置默认表** —— 管理端 settings 表 "scoring_spot" 的自定义
-    覆盖尚未接回(原实现有, 随 4c56083 删除)。若要恢复管理端可调, 需同步
-    改 admin.py 与 settings 读写, 属独立工作项。此处保持"默认表即可跑"的最小面。
+
+def get_spot_cfg(force: bool = False) -> Dict[str, Any]:
+    """盘中评分配置 = DEFAULT_SCORING_SPOT 与 settings("scoring_spot") 的合并。
+
+    2026-09-28 (v4.11.76): 接回管理端覆盖。合并策略与竞价侧
+    `scorer.get_scoring_cfg` **逐条同构**, 避免两套评分配置出现"改法不同"的二义:
+
+      · 数值键(w_* / conf_*): 白名单校验 + float 转型, 非法值**静默跳过**(沿用默认);
+      · factors: 逐层合并 —— 缺的因子/缺的键取默认, **不做整表替换**
+        (防止旧配置缺了新因子后整块丢失默认分档)。
+
+    ★ 为什么要内存缓存: compute_score_spot 每只票调一次, 一场盘中选股会调
+      几百次; 每次都读 SQLite 是纯浪费。管理端保存后调 `reload_spot_cfg()`
+      强制失效 —— 与竞价侧 reload_scoring_cfg 完全对称。
+
+    ★ 为什么是**独立缓存**而不是复用 scorer 的: 两者是不同因子表(竞价 5 因子 /
+      盘中 6 因子), 键名部分重合(w_market/w_yesterday)但语义分档不同
+      ⇒ 共用缓存必然串味。命名 _spot_cfg 与 _scoring_cfg 刻意区分。
     """
-    return dict(DEFAULT_SCORING_SPOT)
+    global _spot_cfg
+    if _spot_cfg is None or force:
+        cfg = settings.get("scoring_spot")
+        if isinstance(cfg, dict):
+            merged = dict(DEFAULT_SCORING_SPOT)
+            num_keys = ("w_chg", "w_vol_ratio", "w_turnover", "w_seal",
+                        "w_market", "w_yesterday",
+                        "conf_seal_high", "conf_vol_ratio", "conf_chg")
+            for k, v in cfg.items():
+                if k in num_keys:
+                    try:
+                        merged[k] = float(v)
+                    except (TypeError, ValueError):
+                        pass
+            # factors 逐层合并, 缺省因子/分档用默认(不整表替换)
+            if isinstance(cfg.get("factors"), dict):
+                fac = dict(DEFAULT_SCORING_SPOT["factors"])
+                for fk, fv in cfg["factors"].items():
+                    if fk in fac and isinstance(fv, dict):
+                        fac[fk] = dict(fac[fk], **fv)
+                merged["factors"] = fac
+            _spot_cfg = merged
+        else:
+            _spot_cfg = dict(DEFAULT_SCORING_SPOT)
+    return _spot_cfg
+
+
+def reload_spot_cfg() -> Dict[str, Any]:
+    """管理端更新盘中配置后强制刷新内存缓存, 返回新配置。
+    与 scorer.reload_scoring_cfg 对称, 由 admin PUT 调用。
+    """
+    get_spot_cfg(force=True)
+    return get_spot_cfg()
 
 
 @dataclass

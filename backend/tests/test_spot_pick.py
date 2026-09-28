@@ -16,11 +16,25 @@
 """
 import pytest
 
+from app.services import settings
+from app.services.picker import score_spot as ss
 from app.services.picker.contract import QuoteRow
 from app.services.picker.filter import apply_spot_filters, FilterContext
 from app.services.picker.score import ScoredRow
 from app.services.picker.score_spot import (DEFAULT_SCORING_SPOT,
                                             compute_score_spot, get_spot_cfg)
+
+
+@pytest.fixture(autouse=True)
+def _restore_spot_cfg():
+    """每个用例后清掉 settings 覆盖 + 清内存缓存, 避免污染其它用例。
+
+    🔴 必须**两边都清**: 只清 settings 不清 _spot_cfg, 下一个用例会拿到
+    本用例留在内存里的合并结果(缓存是模块级全局的), 表现为"看似无关的用例莫名红"。
+    """
+    yield
+    settings.set("scoring_spot", {})
+    ss.reload_spot_cfg()
 
 
 def _cfg():
@@ -224,3 +238,100 @@ def test_spot_filters_market_and_still_apply():
               free_mv=500e8, price=10.0)
     out3 = apply_spot_filters([_sr(r3)], _f(floatMvGt=100.0))
     assert out3.stats.get("mv_gt") == 1
+
+
+# ======================================================================
+# 管理端可调配置(2026-09-28 v4.11.76)
+# ======================================================================
+# 老实现(4c56083^)有管理端覆盖, 删除时一并丢了; 本轮接回。这组用例锁死三件事:
+#   ① 覆盖真的生效(读 + 评分两处)
+#   ② 合并是**逐键渗透**, 不是整表替换(缺的键保留默认)
+#   ③ 两套配置不串味(scoring vs scoring_spot)
+
+
+def test_spot_cfg_default_when_no_override():
+    """无覆盖 → 与内置默认表逐值一致。"""
+    settings.set("scoring_spot", {})
+    cfg = get_spot_cfg(force=True)
+    assert cfg["w_chg"] == DEFAULT_SCORING_SPOT["w_chg"]
+    assert cfg["w_vol_ratio"] == DEFAULT_SCORING_SPOT["w_vol_ratio"]
+    assert cfg["factors"]["chg"]["buckets"] == DEFAULT_SCORING_SPOT["factors"]["chg"]["buckets"]
+
+
+def test_spot_cfg_override_numeric_and_factor():
+    """数值键 + 因子分档均被覆盖; 未覆盖的键保留默认。"""
+    settings.set("scoring_spot", {
+        "w_chg": 0.50,                                  # 覆盖
+        "factors": {"chg": {"default": 0.9}},           # 覆盖因子默认分
+    })
+    cfg = get_spot_cfg(force=True)
+    assert cfg["w_chg"] == 0.50
+    assert cfg["factors"]["chg"]["default"] == 0.9
+    # 🔴 未覆盖的必须仍在: 逐键渗透, 不是整表替换
+    assert cfg["w_vol_ratio"] == DEFAULT_SCORING_SPOT["w_vol_ratio"]
+    assert cfg["factors"]["vol_ratio"]["default"] == DEFAULT_SCORING_SPOT["factors"]["vol_ratio"]["default"]
+    assert cfg["factors"]["chg"]["buckets"] == DEFAULT_SCORING_SPOT["factors"]["chg"]["buckets"]
+
+
+def test_spot_cfg_override_changes_score():
+    """覆盖真的影响评分 —— 不只是读接口回显。
+
+    构造一只量比票: 把 vol_ratio 权重抬到 1.0、其余归 0, 概率应≈该因子满分。
+    ⚠️ 市值字段用 free_mv(元), 不是 mv_yi —— 后者是契约上的**只读派生属性**
+      (contract.py:212, 由 free_mv/1e8 算出), 不能当构造参数传。
+    """
+    row = _row(code="600000", real_change=5.0, vol_ratio=3.0, turnover=5.0,
+               free_mv=50e8, yesterday_change=2.0)
+    base = compute_score_spot(row, None, get_spot_cfg(force=True)).probability
+
+    settings.set("scoring_spot", {
+        "w_chg": 0.0, "w_vol_ratio": 1.0, "w_turnover": 0.0,
+        "w_seal": 0.0, "w_market": 0.0, "w_yesterday": 0.0,
+        "conf_seal_high": 0, "conf_vol_ratio": 0, "conf_chg": 0,
+    })
+    cfg = get_spot_cfg(force=True)
+    got = compute_score_spot(row, None, cfg)
+    # 量比 3.0 落 ["2","99"] 桶 = 满分 1.0 ⇒ 概率 100 被钳到 95
+    assert got.probability == 95
+    assert got.probability != base
+    # 置信度: 基准 65 + 三项加成(全 0) = 65 —— 注意 vol_ratio>=2 时若 conf_vol_ratio
+    # 非 0 才加成, 此处配成 0 ⇒ 无加成 ⇒ 65(不是下限 55)。
+    assert got.confidence == 65
+
+
+def test_spot_cfg_illegal_values_ignored():
+    """非法值**静默跳过**(沿用默认), 不抛、不写坏配置。"""
+    settings.set("scoring_spot", {
+        "w_chg": "not-a-number",       # 非法
+        "conf_chg": None,              # 非法
+        "unknown_key": 1.0,            # 非白名单 → 忽略
+    })
+    cfg = get_spot_cfg(force=True)
+    assert cfg["w_chg"] == DEFAULT_SCORING_SPOT["w_chg"]
+    assert cfg["conf_chg"] == DEFAULT_SCORING_SPOT["conf_chg"]
+    assert "unknown_key" not in cfg
+
+
+def test_spot_cfg_cache_invalidated_by_reload():
+    """reload 后新值生效(缓存真的被清了, 不是一直在读旧内存)。"""
+    settings.set("scoring_spot", {"w_chg": 0.11})
+    assert get_spot_cfg(force=True)["w_chg"] == 0.11
+    settings.set("scoring_spot", {"w_chg": 0.22})
+    # 不 force → 仍是缓存里的 0.11
+    assert get_spot_cfg()["w_chg"] == 0.11
+    # reload 后才是 0.22
+    assert ss.reload_spot_cfg()["w_chg"] == 0.22
+
+
+def test_spot_and_auction_cfg_do_not_share_table():
+    """🔴 两套配置不串味: 写 scoring_spot **不影响** scorer 的 scoring。
+
+    这条是防"哪天有人图省事让两边共用一个 key / 一份缓存" —— 两张因子表键名
+    有重合(w_market/w_yesterday), 共用会把另一套的语义悄悄带过来。
+    """
+    from app.services import scorer
+    before = dict(scorer.get_scoring_cfg(force=True))
+    settings.set("scoring_spot", {"w_market": 0.99})
+    get_spot_cfg(force=True)
+    after = dict(scorer.get_scoring_cfg(force=True))
+    assert after == before, "写盘中配置把竞价配置带跑了"

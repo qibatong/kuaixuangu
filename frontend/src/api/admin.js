@@ -12,12 +12,16 @@ export function adminUserInvites(targetUid) {
   return request(`/api/admin/user-invites?target_uid=${targetUid}`)
 }
 
-export function adminScoring() {
-  return request('/api/admin/scoring')
+// 2026-09-28 v4.11.76: 评分配置分两套(strategy) ——
+//   auction 竞价(存 settings key="scoring") / spot 盘中实时(key="scoring_spot")。
+//   两者**因子表不同**(竞价五因子 / 盘中六因子), 后端按 strategy 返回各自的
+//   w_keys / conf_keys / factors ⇒ 前端一份组件渲染两套, 不必各写一个。
+export function adminScoring(strategy = 'auction') {
+  return request('/api/admin/scoring?strategy=' + encodeURIComponent(strategy))
 }
 
-export function saveScoring(scoring) {
-  return request('/api/admin/scoring', { method: 'PUT', body: { scoring } })
+export function saveScoring(scoring, strategy = 'auction') {
+  return request('/api/admin/scoring', { method: 'PUT', body: { scoring, strategy } })
 }
 
 export function getAdminDefaults() {

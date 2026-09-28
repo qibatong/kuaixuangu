@@ -288,11 +288,24 @@ v-model="profileForm.pay_remark" maxlength="500" rows="3" class="admin-input adm
         </div>
       </div>
 
-      <!-- 评分权重配置(竞价, 盘中已合并为同一套逻辑) -->
+      <!-- 评分权重配置: 竞价 / 盘中实时 两套因子表(2026-09-28 v4.11.76) -->
       <div class="admin-card">
         <div class="card-title">
-          <i class="fa fa-sliders"></i> 竞价评分·权重配置
+          <i class="fa fa-sliders"></i> {{ scoringStrategy === 'spot' ? '盘中实时评分·权重配置' : '竞价评分·权重配置' }}
           <span class="admin-tip">保存后立即生效（影响后续选股评分）</span>
+        </div>
+        <!-- 策略切换: 两套配置**互相独立**存储(竞价 settings.scoring / 盘中 settings.scoring_spot),
+             切页签只切视图, 不做任何写入; 未保存的改动会随切换丢失(有 dirty 提示)。
+             🔴 切换前若未保存, 这里会提示 —— 因子表不同, 直接切会看到"另一套"的表,
+                容易误以为改动丢了。 -->
+        <div class="factor-tabs" style="margin-bottom:10px;">
+          <button class="factor-tab" :class="{ active: scoringStrategy === 'auction' }"
+                  @click="switchScoringStrategy('auction')">竞价（9:25 定格）</button>
+          <button class="factor-tab" :class="{ active: scoringStrategy === 'spot' }"
+                  @click="switchScoringStrategy('spot')">盘中实时（现涨/量比/换手）</button>
+          <span v-if="scoringDirty" class="admin-tip" style="color:#e8a33d;margin-left:auto;">
+            <i class="fa fa-exclamation-triangle"></i> 有未保存的改动
+          </span>
         </div>
         <div class="table-scroll">
         <table class="admin-table weight-table">
@@ -300,7 +313,7 @@ v-model="profileForm.pay_remark" maxlength="500" rows="3" class="admin-input adm
           <tbody>
             <tr v-for="wk in wKeys" :key="wk[0]">
               <td>{{ wk[1] }}</td>
-              <td><input v-model.number="scoring[wk[0]]" type="number" step="0.01" min="0" max="1" class="admin-input" style="width:90px;" /></td>
+              <td><input v-model.number="scoring[wk[0]]" type="number" step="0.01" min="0" max="1" class="admin-input" style="width:90px;" @input="scoringDirty = true" /></td>
               <td class="weight-desc">{{ wk[2] }}</td>
             </tr>
             <tr>
@@ -309,7 +322,7 @@ v-model="profileForm.pay_remark" maxlength="500" rows="3" class="admin-input adm
             </tr>
             <tr v-for="ck in confKeys" :key="ck[0]">
               <td>置信度·{{ ck[1] }}</td>
-              <td><input v-model.number="scoring[ck[0]]" type="number" step="1" min="0" max="30" class="admin-input" style="width:90px;" /></td>
+              <td><input v-model.number="scoring[ck[0]]" type="number" step="1" min="0" max="30" class="admin-input" style="width:90px;" @input="scoringDirty = true" /></td>
               <td class="weight-desc">{{ ck[2] }}</td>
             </tr>
           </tbody>
@@ -325,7 +338,7 @@ v-model="profileForm.pay_remark" maxlength="500" rows="3" class="admin-input adm
 
       <!-- 打分明细配置(因子 Tab 切换) -->
       <div class="admin-card">
-        <div class="card-title"><i class="fa fa-table"></i> 竞价评分·打分明细 <span class="admin-tip">命中区间 [下限, 上限) 得对应分，未命中取默认分</span></div>
+        <div class="card-title"><i class="fa fa-table"></i> {{ scoringStrategy === 'spot' ? '盘中实时评分' : '竞价评分' }}·打分明细 <span class="admin-tip">命中区间 [下限, 上限) 得对应分，未命中取默认分</span></div>
         <div class="factor-tabs">
           <button v-for="fk in factorOrder" :key="fk" class="factor-tab" :class="{ active: activeFactor === fk }" @click="activeFactor = fk">
             {{ factors[fk] ? factors[fk].label : fk }}
@@ -853,9 +866,18 @@ async function doBatchExpire(payload, label) {
   }
 }
 
-const scoring = reactive({})        // 竞价评分配置(盘中已合并为同一套)
+const scoring = reactive({})        // 当前策略的评分配置(竞价/盘中各一套)
 const wKeys = ref([])
 const confKeys = ref([])
+// 2026-09-28 v4.11.76: 评分配置双策略 —— auction(竞价, settings.scoring)
+// / spot(盘中实时, settings.scoring_spot)。两套因子表**互相独立**:
+//   竞价 5 因子(bid/activity/warn/market/yesterday)
+//   盘中 6 因子(chg/vol_ratio/turnover/seal/market/yesterday)
+// 切页签 = 切视图 + 重拉数据; 不做任何写入, 也不"合并成一套"。
+const scoringStrategy = ref('auction')
+const scoringDirty = ref(false)     // 有未保存改动(切策略时提示, 防误以为丢了)
+// 打分明细当前激活的因子Tab。⚠️ 两策略因子集不同, 切策略时必须重置为
+// **该策略的首个因子**, 否则会停在竞价才有的 'bid' 上 → 面板显示"该因子暂未加载"。
 const activeFactor = ref('bid')     // 打分明细当前激活的因子Tab
 const saving = ref(false)
 const saveMsg = ref('')
@@ -869,8 +891,14 @@ const weightSum = computed(() => {
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 
-const factors = reactive({})        // 竞价打分明细
-const factorOrder = ['bid', 'activity', 'warn', 'market', 'yesterday']
+const factors = reactive({})        // 当前策略的打分明细
+// 因子 Tab 顺序按策略切换 —— 后端 w_keys 已按此顺序返回, 但打分明细 Tab 需要
+// 一个"遍历哪些因子"的稳定列表, 故此处显式登记(与 admin.py W_KEYS/SPOT_W_KEYS 对齐)。
+const FACTOR_ORDER = {
+  auction: ['bid', 'activity', 'warn', 'market', 'yesterday'],
+  spot: ['chg', 'vol_ratio', 'turnover', 'seal', 'market', 'yesterday']
+}
+const factorOrder = computed(() => FACTOR_ORDER[scoringStrategy.value] || FACTOR_ORDER.auction)
 const scoringLoaded = ref(false)
 
 async function extendUser(u, action) {
@@ -914,31 +942,60 @@ async function setLevel(u) {
   }
 }
 
-async function loadScoring() {
+/**
+ * 拉取指定策略的评分配置并铺进表单。
+ * 2026-09-28 v4.11.76: 加 strategy 参数 —— 后端按策略返回**各自的** w_keys/
+ * conf_keys/factors(竞价五因子 / 盘中六因子)。切换策略必须重拉, 不能复用上一次的。
+ */
+async function loadScoring(strategy = scoringStrategy.value) {
   try {
-    const d = await adminScoring()
+    const d = await adminScoring(strategy)
+    // 🔴 必须清空再 Assign: 两策略的数值键**部分不同**(竞价有 w_bid 无 w_chg;
+    //   盘中有 w_chg 无 w_bid), 若只 Object.assign 会残留上一套的键 ⇒ 保存时
+    //   把竞价的 w_bid 一起发给盘中配置(后端 _validate 会报"权重 w_bid 必须是数字")。
+    Object.keys(scoring).forEach((k) => { delete scoring[k] })
     Object.assign(scoring, d.scoring || {})
     wKeys.value = d.w_keys || []
     confKeys.value = d.conf_keys || []
+    // 打分明细同理: 先清空, 否则旧的因子块会残留在 factors 里被一并保存。
+    Object.keys(factors).forEach((k) => { delete factors[k] })
     const fac = (d.scoring && d.scoring.factors) || {}
-    factorOrder.forEach((fk) => {
+    factorOrder.value.forEach((fk) => {
       factors[fk] = fac[fk] || { label: fk, unit: '', buckets: [], default: 0.1 }
       // buckets 行转数组, 便于 v-model.number 双向绑定
       factors[fk].buckets = (factors[fk].buckets || []).map((b) => [Number(b[0]), Number(b[1]), Number(b[2])])
     })
+    // 激活 Tab 归位到**该策略的首个因子** —— 否则从竞价('bid')切到盘中会停在
+    // 'bid'(盘中无此因子) → 面板显示"该因子暂未加载", 看起来像数据没拉到。
+    activeFactor.value = factorOrder.value[0]
     scoringLoaded.value = true
+    scoringDirty.value = false
   } catch (e) {
     if (e.status === 403) denied.value = true
     else toast(e.message || '加载失败', 'error')
   }
 }
 
+/** 切换评分策略(竞价 ↔ 盘中)。有未保存改动时先确认, 避免改动静默丢失。 */
+async function switchScoringStrategy(s) {
+  if (s === scoringStrategy.value) return
+  if (scoringDirty.value) {
+    const ok = window.confirm('当前策略有未保存的改动，切换后将丢失。确定切换？')
+    if (!ok) return
+  }
+  scoringStrategy.value = s
+  saveMsg.value = ''
+  await loadScoring(s)
+}
+
 function addBucket(fk) {
   factors[fk].buckets.push([0, 1, 0.5])
+  scoringDirty.value = true
 }
 
 function delBucket(fk, idx) {
   factors[fk].buckets.splice(idx, 1)
+  scoringDirty.value = true
 }
 
 async function saveScoring() {
@@ -948,19 +1005,23 @@ async function saveScoring() {
     if (!k.startsWith('factors')) payload[k] = Number(scoring[k])
   })
   payload.factors = {}
-  factorOrder.forEach((fk) => {
+  factorOrder.value.forEach((fk) => {
     const f = factors[fk]
+    if (!f || !f.buckets) return
     payload.factors[fk] = {
       label: f.label, unit: f.unit, default: Number(f.default),
       buckets: f.buckets.map((b) => [String(b[0]), String(b[1]), Number(b[2])])
     }
   })
+  const strategy = scoringStrategy.value
   saving.value = true
   try {
-    const d = await apiSaveScoring(payload)
+    const d = await apiSaveScoring(payload, strategy)
     saveMsg.value = d.msg || '已保存'
     saveErr.value = false
-    toast('竞价权重与打分明细已保存并生效', 'success')
+    scoringDirty.value = false
+    const name = strategy === 'spot' ? '盘中实时' : '竞价'
+    toast(`${name}权重与打分明细已保存并生效`, 'success')
   } catch (e) {
     saveMsg.value = e.message || '保存失败'
     saveErr.value = true
@@ -971,7 +1032,7 @@ async function saveScoring() {
 
 onMounted(() => {
   loadUsers(1)
-  loadScoring()
+  loadScoring('auction')   // 显式: 首屏默认竞价页签(与 scoringStrategy 初值一致)
   loadDefaults()
 })
 </script>

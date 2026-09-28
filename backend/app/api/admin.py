@@ -4,8 +4,8 @@
 ==========================
 - GET  /api/admin/users          用户列表(分页) + 统计
 - POST /api/admin/users/expire   设置/续费账号到期时间
-- GET  /api/admin/scoring        当前评分权重
-- PUT  /api/admin/scoring        更新评分权重(保存后即时生效)
+- GET  /api/admin/scoring        当前评分权重(?strategy=auction|spot)
+- PUT  /api/admin/scoring        更新评分权重(保存后即时生效; 两策略各存一张表)
 """
 import re
 import sqlite3
@@ -16,6 +16,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from ..core import config, logger
 from ..services import filter_defaults, scorer, settings, users
+from ..services.picker import score_spot
 from .deps import client_ip, get_uid, jr, qs
 
 log = logger.get_logger(__name__)
@@ -47,6 +48,24 @@ CONF_KEYS = [
     ("conf_warn_high", "强异动", "异动等级>=4 时置信度加成"),
     ("conf_turnover", "高换手", "竞价换手>=0.4 时置信度加成"),
     ("conf_bid", "温和竞价", "竞价涨幅2%~6.5%时置信度加成"),
+]
+
+# 2026-09-28 (v4.11.76) 盘中实时(spot)评分配置的键表。
+# 🔴 与竞价键表**刻意分开**: 盘中是**六因子**表(比竞价多"量比", 少"异动"),
+#   且同名键的语义/分档也不同(w_market 竞价=流通市值分档, 盘中=自由流通市值分档)
+#   ⇒ 复用 W_KEYS 会让管理端 UI 显示错的因子名, 保存时又会因键不存在而静默丢配置。
+SPOT_W_KEYS = [
+    ("w_chg", "实时涨幅", "实时涨幅处于健康区间得分(3%~6%满分, 过高=追高风险)"),
+    ("w_vol_ratio", "量比", "量比放量确认得分(>=2 倍满分)"),
+    ("w_turnover", "换手率", "换手率活跃度得分(3%~15%满分)"),
+    ("w_seal", "封单强度", "涨停封成比得分(仅涨停股有效, 非涨停=0)"),
+    ("w_market", "流通市值", "自由流通市值越小分越高(小市值加分)"),
+    ("w_yesterday", "昨日涨幅", "昨日涨幅处于健康区间得分"),
+]
+SPOT_CONF_KEYS = [
+    ("conf_seal_high", "强封单", "封成比>=2% 时置信度加成"),
+    ("conf_vol_ratio", "显著放量", "量比>=2 时置信度加成"),
+    ("conf_chg", "健康涨幅", "实时涨幅 1.5%~6% 时置信度加成"),
 ]
 
 def get_admin(request: Request, uid: int = Depends(get_uid)):
@@ -430,46 +449,85 @@ def api_admin_user_reset_password(request: Request, body: dict = Body(...),
     return jr({"ok": True, "msg": "密码已重置", "uid": u["id"], "username": u["username"]})
 
 
+# ---------- 评分配置(双策略: auction 竞价 / spot 盘中实时) ----------
+# 2026-09-28 (v4.11.76): 盘中实时选股重建后, 其评分配置重新可调, 存 settings
+#   key="scoring_spot"; 竞价仍是 key="scoring"。两套**互相独立**, 由 strategy 参数选择。
+STRATEGIES = ("auction", "spot")
+
+
+def _strategy_of(request, body=None):
+    """从 query/body 解析 strategy, 兼容旧参数名 mode。
+
+    2026-09-09 命名消歧: 原 mode 与选股**时段模式** PickMode(preopen/auction/
+    locked/intraday/closed)撞名, 排查时极易误读。此处 mode 仅作兼容别名保留。
+    ⚠️ 2026-09-28: strategy=spot 曾在 09-09~09-28 期间被拒(功能下线);
+       v4.11.75 重建后**恢复接受**, 故此处不再硬编码只认 auction。
+    """
+    body = body or {}
+    raw = (body.get("strategy") or body.get("mode")
+           or (qs(request).get("strategy") or qs(request).get("mode") or [""])[0])
+    return str(raw or "auction").strip().lower()
+
+
 @router.get("/api/admin/scoring")
 def api_admin_scoring_get(request: Request, uid: int = Depends(get_admin)):
-    # 2026-09-09 命名消歧(与 /api/stocks 同步): 策略参数 mode → strategy ——
-    # 策略=用哪套因子表(2026-09-09 起仅 auction 竞价; spot 盘中已下线), 与内部时段 PickMode 是两回事;
-    # 旧参数 mode 保留为兼容别名(前端 dist 缓存/书签仍在传), 下版本移除。
-    strategy = (qs(request).get("strategy") or qs(request).get("mode") or ["auction"])[0]
-    if strategy != "auction":
-        return jr({"ok": False, "msg": "非法 strategy(盘中实时选股已下线)"}, 400)
-    cfg = scorer.get_scoring_cfg(strategy=strategy)
+    strategy = _strategy_of(request)
+    if strategy not in STRATEGIES:
+        return jr({"ok": False, "msg": "非法 strategy(仅支持 auction / spot)"}, 400)
+    if strategy == "spot":
+        cfg = score_spot.get_spot_cfg()
+        return jr({"ok": True, "strategy": "spot", "mode": "spot",
+                   "scoring": cfg, "w_keys": SPOT_W_KEYS, "conf_keys": SPOT_CONF_KEYS})
+    cfg = scorer.get_scoring_cfg(strategy="auction")
     return jr({"ok": True, "strategy": "auction", "mode": "auction",
                "scoring": cfg, "w_keys": W_KEYS, "conf_keys": CONF_KEYS})
 
 
 @router.put("/api/admin/scoring")
 def api_admin_scoring_put(request: Request, body: dict = Body(...), uid: int = Depends(get_admin)):
-    # 2026-09-09 命名消歧: mode → strategy(旧 mode 兼容; body 与 query 都认)
-    strategy = str(body.get("strategy") or body.get("mode")
-                   or (qs(request).get("strategy") or qs(request).get("mode") or ["auction"])[0]
-                   or "auction")
-    if strategy != "auction":
-        return jr({"ok": False, "msg": "非法 strategy(盘中实时选股已下线)"}, 400)
+    strategy = _strategy_of(request, body)
+    if strategy not in STRATEGIES:
+        return jr({"ok": False, "msg": "非法 strategy(仅支持 auction / spot)"}, 400)
     new = body.get("scoring")
     if not isinstance(new, dict) or not new:
         return jr({"ok": False, "msg": "缺少 scoring 配置"}, 400)
     err = _validate_scoring(new, strategy)
     if err:
         return jr({"ok": False, "msg": err}, 400)
+    if strategy == "spot":
+        # 🔴 key 必须是 "scoring_spot" —— 与竞价的 "scoring" 分表存,
+        #   写错会静默覆盖竞价权重(两张因子表键名有重合: w_market/w_yesterday)。
+        if not settings.set("scoring_spot", new):
+            return jr({"ok": False, "msg": "保存失败"}, 500)
+        score_spot.reload_spot_cfg()
+        log.info("管理端更新盘中评分权重 uid=%s scoring_spot=%s", uid, new)
+        return jr({"ok": True, "msg": "已保存并生效", "strategy": "spot", "mode": "spot",
+                   "scoring": score_spot.get_spot_cfg()})
     if not settings.set("scoring", new):
         return jr({"ok": False, "msg": "保存失败"}, 500)
     scorer.reload_scoring_cfg()
     log.info("管理端更新评分权重 uid=%s scoring=%s", uid, new)
-    return jr({"ok": True, "msg": "已保存并生效", "strategy": strategy, "mode": strategy,
-               "scoring": scorer.get_scoring_cfg(strategy=strategy)})
+    return jr({"ok": True, "msg": "已保存并生效", "strategy": "auction", "mode": "auction",
+               "scoring": scorer.get_scoring_cfg(strategy="auction")})
 
 
 def _validate_scoring(new, strategy="auction"):
-    """校验权重/置信度/打分明细(2026-09-09 spot 下线后只校验竞价因子表)"""
-    default_cfg = scorer.DEFAULT_SCORING
-    w_keys = W_KEYS
-    conf_keys = CONF_KEYS
+    """校验权重/置信度/打分明细。strategy 决定用哪张键表与哪份默认分档表。
+
+    2026-09-28 (v4.11.76): 去硬编码 —— 竞价与盘中各有一张因子表,
+      w_keys/conf_keys/default_cfg/factors 四处按 strategy 切换。
+      🔴 因子键校验必须用**对应策略**的 default["factors"]: 盘中因子集
+      (chg/vol_ratio/turnover/seal/market/yesterday) 与竞价
+      (bid/activity/warn/market/yesterday) 只有一个 market/yesterday 重合,
+      用错表会把合法配置判成"未知因子"。
+    """
+    if strategy == "spot":
+        default_cfg = score_spot.DEFAULT_SCORING_SPOT
+        w_keys, conf_keys = SPOT_W_KEYS, SPOT_CONF_KEYS
+    else:
+        default_cfg = scorer.DEFAULT_SCORING
+        w_keys, conf_keys = W_KEYS, CONF_KEYS
+    conf_max = 30   # 置信度加成上限(两策略同)
     w_sum = 0.0
     for k, _, _ in w_keys:
         try:
@@ -486,8 +544,8 @@ def _validate_scoring(new, strategy="auction"):
             v = float(new.get(k))
         except (TypeError, ValueError):
             return "置信度加成 %s 必须是数字" % k
-        if not (0 <= v <= 30):
-            return "置信度加成 %s 需在 0~30 之间" % k
+        if not (0 <= v <= conf_max):
+            return "置信度加成 %s 需在 0~%d 之间" % (k, conf_max)
     # 打分明细: 因子表, 每因子 buckets 为 [下限, 上限, 得分] 且 下限<上限, 得分 0~1
     factors = new.get("factors")
     if factors is not None:
