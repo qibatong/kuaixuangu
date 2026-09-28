@@ -2,6 +2,10 @@
 node_modules/
 frontend/dist/
 frontend/dist_v*/
+# 本地 vite build 的**差量同步工作台**(2026-09-28 v4.11.80 引入): 只装"本次要传服务器的那几个
+# chunk", 与 dist/ 同类(可重生成的过程产物, 约 1000 文件/次), 严禁入库。
+# 之所以另起名: 服务器 nginx root 是 dist/, 本机若在同名目录里做差量容易被"到底传了哪些文件"搞混。
+frontend/.kxdist/
 dist/
 dist_v*/
 # 本地 vite build 前把 dist 改名备份(绕开沙箱 safe-delete 守卫)—— 约 1000 文件/个, 严禁入库。
@@ -128,6 +132,10 @@ scripts/_sync_aipick_*.py
 scripts/_upload_*.py
 scripts/_mutate_*.py
 scripts/_deploy_v*.py
+# 2026-09-28 v4.11.80: 同批一次性探针(_up_ 上传 / _mut_ 变异 / _e2e_ 端到端), 同样含密码明文
+scripts/_up_*.py
+scripts/_mut_*.py
+scripts/_e2e_*.py
 scripts/_nginx_*.conf
 scripts/_nginx_aipick_*.conf
 scripts/probe_*.py

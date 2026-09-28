@@ -738,6 +738,9 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
     fs = scorer.market_fs(f["markets"])
     _, _, before930 = scorer.bj_now()
     t0 = time.time()
+    # ★ 2026-09-28 v4.11.80: 策略事实只算一次 —— 下面多处(名单源/昨日数据/概念覆盖)
+    #   都要按策略分派, 用局部变量避免每处重写 `strategy == "spot"` 造成口径漂移。
+    is_spot_query = (strategy == "spot")
 
     try:
         # ---- 竞价模式 ----
@@ -933,15 +936,33 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                 log.warning("快照候选池不可用(空库/异常)降级实时全市场 uid=%s err=%s",
                             uid, str(e)[:150])
                 raw = None
-        if raw is None:
+        # ★ 2026-09-28 v4.11.80 第三步: spot 走 `ensure_spot_cache`(**不受 9:30 限制**)。
+        #   🔴 这一步是死路, 不是优化: 原 `if raw is None: ensure_cache(action, ...)` 对
+        #     `action="lock"` 且 `not before930`(即 9:30 后主动锁定 —— 正是主人要的场景)
+        #     会直接返回 `"9:30 后禁止重新选股"` → HTTP 403, **spot 锁定永远发不出去**。
+        #     而 spot 的语义本就是"随时看当下", 那条 9:30 禁令(名单必须=9:25 定格)
+        #     对它不成立(与 `/api/stocks_spot` 无时段限制一致)。
+        #   注意: `use_snapshot_pool` 里 `strategy == "auction"` 已把 spot 排除 ⇒
+        #     spot 必然落到这里; 这里的 raw 只用于取昨日成交额/涨幅(供展示与昨日因子)
+        #     和一字涨停统计, pipeline 内部会**自己再取一次**实时全市场做名单源。
+        if is_spot_query:
+            raw, err = fetcher.ensure_spot_cache(action, fs, before930)
+        elif raw is None:
             raw, err = fetcher.ensure_cache(action, fs, before930)
+        else:
+            err = None
         if err:
             log.warning("选股被拒 uid=%s action=%s strategy=%s err=%s", uid, action, strategy, err)
             return jr({"ok": False, "msg": err}, 403)
         # 昨日成交额(并发拉日K, 当日缓存), 用于计算竞价/昨日成交占比
-        yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw])
-        # 2026-09-08 昨日涨幅真实化: 走同一份日K缓存(零额外请求), 供"昨日涨幅"因子评分
-        yesterday_chg_map = fetcher.fetch_yesterday_changes([s.get("f12") for s in raw])
+        # ★ 2026-09-28: spot 跳过 —— 候选=全市场(5561), 拉全市场日K 显著拖慢, 且
+        #   `_fetch_spot_universe` 已把实时字段取全; 与 /api/stocks_spot 口径一致。
+        if is_spot_query:
+            yesterday_map, yesterday_chg_map = {}, {}
+        else:
+            yesterday_map = fetcher.fetch_yesterday_amounts([s.get("f12") for s in raw])
+            # 2026-09-08 昨日涨幅真实化: 走同一份日K缓存(零额外请求), 供"昨日涨幅"因子评分
+            yesterday_chg_map = fetcher.fetch_yesterday_changes([s.get("f12") for s in raw])
         # 9:20 快照(用于 9:25 涨幅加速度); 非竞价时段读库无数据返回空 map
         snapshot_map = auction_snapshot.load_snapshot()
         # 2026-09-03 竞额定格 map(9_25 快照): 竞价/落库 bidAmt 以当日定格竞价额为准,
@@ -995,17 +1016,28 @@ def api_stocks(request: Request, uid: int = Depends(get_uid)):
                          uid, ",".join(f["markets"]), dup)
                 batch_id = dup
             else:
-                batch_id = history.save_batch(uid, action, result, f)
+                batch_id = history.save_batch(uid, action, result, f, strategy=strategy)
         else:
-            batch_id = history.save_batch(uid, action, result, f)
-        log.info("选股落库 uid=%s action=%s markets=%s 返回%d只 batch=%s 耗时%.0fms",
-                 uid, action, ",".join(f["markets"]), len(result), batch_id, (time.time() - t0) * 1000)
+            batch_id = history.save_batch(uid, action, result, f, strategy=strategy)
+        log.info("选股落库 uid=%s action=%s strategy=%s markets=%s 返回%d只 batch=%s 耗时%.0fms",
+                 uid, action, strategy, ",".join(f["markets"]), len(result), batch_id,
+                 (time.time() - t0) * 1000)
     else:
         log.info("选股刷新 uid=%s action=%s markets=%s 返回%d只 耗时%.0fms",
                  uid, action, ",".join(f["markets"]), len(result), (time.time() - t0) * 1000)
 
     # 竞价锁定选股成功后, 后台推送结果到微信/飞书(失败不影响选股主流程)
-    if action == "lock" and result:
+    # ★ 2026-09-28 v4.11.80 第三步: **spot 锁不推送、不计一字涨停统计** —— 两条都是
+    #   "竞价口径"的副作用, 硬套会污染:
+    #     · 推送文案是 `【快选 · 竞价选股】…竞价%+.2f%%…竞价额%.0f万`
+    #       (notify.build_message 硬编码), spot 名单没有竞价语义 ⇒ 推给用户是**错误信息**;
+    #       且 spot 本就可反复锁定(随时看当下) ⇒ 反复推同一批会刷屏渠道。
+    #     · `record_daily_yizi` 是**市场级**统计(写入 daily_yizi 表, 供情绪面板),
+    #       其权威样本是当日 9:25 竞价快照; 用 spot 的实时 raw 去写会**覆盖当日权威值**。
+    #   ⇒ 显式排除 spot(`is_spot_query`); 竞价路径逐字不变。
+    #   ⚠️ 这是**有意的范围限制**, 不是遗漏 —— 若日后要让 spot 锁也推送, 需另写
+    #      spot 版文案(现涨/量比/换手), 不能复用 build_message。
+    if action == "lock" and result and not is_spot_query:
         try:
             notify.push_result_async(result, f)
         except Exception as e:

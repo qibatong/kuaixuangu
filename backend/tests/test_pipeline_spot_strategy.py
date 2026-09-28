@@ -13,6 +13,12 @@
      且 bidTurnover 不得 AttributeError(SpotScoreResult 无该字段)
   E. **spot 用实时价判定价格门槛**(price_gate="realtime")
   F. **spot 不剔除竞价涨幅缺失的票**(require_bid_change=False)
+
+★ 2026-09-28 v4.11.80 第三步(重要): spot 的**名单源**已从 `_fetch_list`(snapshot 优先)
+  改为 `_fetch_spot_universe`(实时全市场)。本文件所有 spot 用例因此必须额外打
+  `_install_spot_universe` 桩 —— 不打就会**打真实网络**(实测 5561 只真票), 断言必红
+  且用例不可重复。名单源本身的正确性(必须是实时而非定格)在
+  tests/test_spot_lock_step3.py 的 A 组专测, 与本文件的"评分层分叉"关注点分开。
 """
 import datetime
 
@@ -88,6 +94,26 @@ def _install(monkeypatch, mapping):
     monkeypatch.setattr(pipeline, "get_source", lambda label: mapping.get(label))
 
 
+def _install_spot_universe(monkeypatch, rows):
+    """把 **spot 名单源**替换成注入的 QuoteRow 字典。
+
+    ★ 2026-09-28 v4.11.80 第三步: spot 的名单源已从 `_fetch_list`(snapshot 优先) 改为
+    `_fetch_spot_universe`(实时全市场, 走 `ensure_spot_cache`)。因此本文件里所有
+    `strategy="spot"` 的用例**必须改打这个桩** —— 否则它会去**打真实网络**(实测拉回
+    5561 只真票), 断言 `n_universe == 30` 必然红, 且用例依赖外网、不可重复。
+
+    ⚠️ 为什么打 `_fetch_spot_universe`(而不是 `fetcher.ensure_spot_cache`):
+      前者是 pipeline 内的**单一收口点**, 打它可一次覆盖"取数+组装+竞价字段回填"整段,
+      且不依赖 `QuoteRow.from_eastmoney` 的字段解析细节 —— 本文件的用例只关心
+      **评分层/精筛层分叉**(A~G 组), 不该被行情行解析的字段契约牵动。
+      名单源本身(必须是实时而非定格)由 tests/test_spot_lock_step3.py 的 A 组专测。
+    """
+    monkeypatch.setattr(pipeline, "_fetch_spot_universe",
+                        lambda filters: sb.SourceResult(label="spot_market",
+                                                       rows=dict(rows),
+                                                       requested=len(rows)))
+
+
 def _ctx(**kw):
     return pipeline.PickContext(date="2026-09-28", markets=["hs", "cyb", "kcb"],
                                 zt_codes=set(), **kw)
@@ -99,6 +125,9 @@ def _no_network(monkeypatch):
     from app.services import fetcher
     monkeypatch.setattr(fetcher, "fetch_yesterday_amounts", lambda codes: {})
     monkeypatch.setattr(fetcher, "fetch_yesterday_changes", lambda codes: {})
+    # 2026-09-28 v4.11.80 第三步: 兜底禁掉 spot 实时全市场 —— 任何**忘了打桩**的 spot 用例
+    #   都会拿到空源(确定性失败), 而不是**偷偷打外网**(静默变成"看起来过了")。
+    monkeypatch.setattr(fetcher, "ensure_spot_cache", lambda a, f, b: ([], "测试环境禁用真实行情"))
 
 
 # ==================== A. auction 零改动 ====================
@@ -140,6 +169,7 @@ def test_spot_skips_coarse_filter(monkeypatch):
     rows = _mixed_rows(30)
     _install(monkeypatch, {"snapshot": _FakeSource(rows),
                            "eastmoney_realtime": _FakePatch()})
+    _install_spot_universe(monkeypatch, rows)
     res = pipeline.run(dict(SPOT_F), ctx=_ctx(), now=NOW, strategy="spot")
     assert res.n_universe == 30
     assert res.n_candidate == 30, "spot 必须全市场进候选(不粗筛), 实际=%d" % res.n_candidate
@@ -168,6 +198,7 @@ def test_spot_does_not_load_bid_strength(monkeypatch):
     rows = {"600000": _q("600000")}
     _install(monkeypatch, {"snapshot": _FakeSource(rows),
                            "eastmoney_realtime": _FakePatch()})
+    _install_spot_universe(monkeypatch, rows)
     pipeline.run(dict(SPOT_F), ctx=_ctx(), now=NOW, strategy="spot")
     assert called["n"] == 0, "spot 不得加载竞价强度"
     # 对照组: auction 必须调
@@ -186,6 +217,7 @@ def test_spot_item_has_spot_fields_no_attribute_error(monkeypatch):
     rows = {"600000": _q("600000"), "600001": _q("600001")}
     _install(monkeypatch, {"snapshot": _FakeSource(rows),
                            "eastmoney_realtime": _FakePatch()})
+    _install_spot_universe(monkeypatch, rows)
     res = pipeline.run(dict(SPOT_F), ctx=_ctx(), now=NOW, strategy="spot")
     assert res.items, "spot 应产出名单"
     it = res.items[0]
@@ -214,17 +246,23 @@ def test_spot_price_gate_uses_realtime(monkeypatch):
 
     构造能让两者分道扬镳:
       · 定格竞价价 ≈ prev_close×(1+bid_change/100) = 10.0×1.10 = 11.0
-      · 实时价(补丁注入) = 5.0
+      · 实时价(行内 price) = 5.0
       · priceGt = 8.0 → 实时价 5.0 通过; 若误用竞价价 11.0 会被剔除。
     spot 侧 `apply_spot_filters` 第 11 条**硬取 r.price**(不读 ctx.price_gate),
     auction 侧 `apply_filters` 读 ctx.price_gate("auction") 用 auction_price。
+
+    ★ v4.11.80 第三步: spot **不再走 `_fetch_patch`**(实时字段在 `_fetch_spot_universe`
+      那一趟就拿全了) ⇒ 这里必须把"实时价"直接设在**注入的行**上(旧版靠 `_FakePatch`
+      注入 5.0 已失效)。auction 对照组的定格价仍由 `_q(price=11.0, prev=10.0)` 给出。
     """
     f = dict(SPOT_F)
     f["priceGt"] = 8.0
-    rows = {"600000": _q("600000", price=11.0, prev=10.0, bid_change=10.0)}
-    patch = _FakePatch(price=5.0)                     # 实时价 5.0(< 8.0)
-    _install(monkeypatch, {"snapshot": _FakeSource(rows),
-                           "eastmoney_realtime": patch})
+    # spot 行: 实时价 5.0(< 8.0 ⇒ 应通过); prev/竞涨只影响 auction 的定格价口径
+    spot_rows = {"600000": _q("600000", price=5.0, prev=10.0, bid_change=10.0)}
+    auction_rows = {"600000": _q("600000", price=11.0, prev=10.0, bid_change=10.0)}
+    _install(monkeypatch, {"snapshot": _FakeSource(auction_rows),
+                           "eastmoney_realtime": _FakePatch(price=11.0)})
+    _install_spot_universe(monkeypatch, spot_rows)
     res = pipeline.run(f, ctx=_ctx(), now=NOW, strategy="spot")
     assert len(res.items) == 1, (
         "spot 必须用实时价 5.0 过 priceGt=8.0(误用竞价价 11.0 才会被剔), 实际入选 %d" % len(res.items))
@@ -242,6 +280,7 @@ def test_spot_keeps_rows_without_bid_change(monkeypatch):
     rows = {"600000": _q("600000", bid_change=None)}
     _install(monkeypatch, {"snapshot": _FakeSource(rows),
                            "eastmoney_realtime": _FakePatch()})
+    _install_spot_universe(monkeypatch, rows)
     res = pipeline.run(dict(SPOT_F), ctx=_ctx(), now=NOW, strategy="spot")
     assert len(res.items) == 1, "spot 不得因竞价涨幅缺失而剔除(实际入选 %d)" % len(res.items)
     # 对照组: auction(require_bid_change=True) 会剔掉
@@ -255,6 +294,7 @@ def test_spot_is_idempotent(monkeypatch):
     rows = {("600%03d" % i): _q("600%03d" % i) for i in range(10)}
     _install(monkeypatch, {"snapshot": _FakeSource(rows),
                            "eastmoney_realtime": _FakePatch()})
+    _install_spot_universe(monkeypatch, rows)
     r1 = pipeline.run(dict(SPOT_F), ctx=_ctx(), now=NOW, strategy="spot")
     r2 = pipeline.run(dict(SPOT_F), ctx=_ctx(), now=NOW, strategy="spot")
     assert r1.items == r2.items

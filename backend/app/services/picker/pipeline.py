@@ -181,6 +181,63 @@ def _fetch_list(ctx: PickContext, policy: pm.ModePolicy,
     return last or SourceResult(label="?", error="无可用名单源", degraded=True)
 
 
+def _fetch_spot_universe(filters: Dict) -> SourceResult:
+    """spot 专用**名单源**: 实时全市场(不是 9:25 定格快照)。
+
+    与 `api/stocks_spot.py` 的口径**逐条对齐**(本仓 spot 的权威实现):
+      · 取数走 `fetcher.ensure_spot_cache` —— 全市场一次调用, **不受 9:30 限制**,
+        缓存 TTL 为 SPOT_CACHE_TTL(与竞价 30s 缓存分开);
+      · 每行用 `QuoteRow.from_eastmoney(auction_window=False)` 组装 —— 实时字段
+        (现价/现涨/换手/量比/市值)直接来自行情, 竞价字段**不取实时**;
+      · 竞价字段(bid_change/bid_amt)仍可读当日 9:25 定格**仅供展示**(竞涨/竞额两列),
+        失败一律降级为 None, **绝不阻塞**(它们不参与 spot 六因子评分)。
+
+    为什么不能用 `_fetch_list`(policy.source_priority): 那套源优先级里
+    `snapshot` 恒排第一, 对非竞价模式是**刻意的幂等设计**(名单=定格); 而 spot 的
+    语义恰恰相反 —— 名单必须=此刻的全市场。两者不可共用一个源。
+    """
+    from .. import fetcher as _fetcher
+    from .. import scorer as _scorer
+    fs = _scorer.market_fs(filters.get("markets"))
+    try:
+        raw, err = _fetcher.ensure_spot_cache("refresh", fs, False)
+    except Exception as e:                                        # noqa: BLE001
+        return SourceResult(label="spot_market",
+                            error="实时全市场拉取异常: %s" % str(e)[:150], degraded=True)
+    if err:
+        return SourceResult(label="spot_market", error=str(err), degraded=True)
+    if not raw:
+        return SourceResult(label="spot_market", error="实时全市场返回空", degraded=True)
+
+    # 竞价字段(仅展示用): 读当日 9:25 定格, 自带非交易时段回退最近交易日
+    bid_chg_map, bid_amt_map = {}, {}
+    try:
+        from .. import auction_snapshot
+        bid_chg_map = auction_snapshot.load_day_bid_change() or {}
+        bid_amt_map = auction_snapshot.load_day_bid_amt() or {}
+    except Exception as e:                                        # noqa: BLE001
+        log.warning("spot 名单源: 9_25 定格读取失败(竞涨/竞额降级为 null) err=%s",
+                    str(e)[:120])
+
+    rows: Dict[str, QuoteRow] = {}
+    for s in raw:
+        code = str(s.get("f12") or "")
+        if not code:
+            continue
+        try:
+            rows[code] = QuoteRow.from_eastmoney(
+                s, auction_window=False,
+                day_bid_change=bid_chg_map.get(code),
+                day_bid_amt_wan=bid_amt_map.get(code))
+        except Exception:                                         # noqa: BLE001
+            continue
+    if not rows:
+        return SourceResult(label="spot_market", error="实时全市场行全部解析失败",
+                            degraded=True)
+    log.info("spot 名单源: 实时全市场 %d 只(非快照池)", len(rows))
+    return SourceResult(label="spot_market", rows=rows, requested=len(rows))
+
+
 def _fetch_patch(ctx: PickContext, policy: pm.ModePolicy,
                  codes: Sequence[str], filters: Dict) -> Optional[SourceResult]:
     """补丁源: source_priority[list_source_count:], 逐个尝试, 第一个成功的即可。
@@ -235,7 +292,14 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
     #    无网络、天然幂等); 表缺失/行数不足 → 静默回退原路径, 接口永不报错。
     mat_rows, mat_scores = ({}, {})
     use_mat = False
-    if precompute.read_enabled():
+    # ★ 2026-09-28 v4.11.80 第三步: spot **禁用物化表**。
+    #   物化表是"当日 9:25 定格全市场评分"的预计算结果, 对 spot 有两处致命不符:
+    #     ① 评分是**竞价五因子**(物化时算好的), 不是 spot 六因子;
+    #     ② 字段是**定格值**(竞涨/竞价额), 而 spot 必须用实时现涨/量比/换手。
+    #   生产机 `precompute_write=1`(走物化表) ⇒ 若不禁用, 生产上 spot 会静默退化成
+    #   "换个名字的竞价选股"(且拿的是 9:25 的分数), 测试机因未开该开关**测不出来**。
+    #   ⇒ 显式以 is_spot 收口, 与"spot 名单源=实时全市场"保持一致。
+    if precompute.read_enabled() and not is_spot:
         try:
             mat_rows, mat_scores = precompute.read_materialized(ctx.date)
         except Exception as e:                                    # noqa: BLE001
@@ -254,6 +318,36 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
             c: (r.bid_change, r.bid_amt, r.bid_vol, r.mv, r.prev_close)
             for c, r in rows.items()}
         lr = None                                                 # 未走名单源
+    elif is_spot:
+        # ★ 2026-09-28 v4.11.80 第三步(🔴 关键修正): spot 的名单源必须是**实时全市场**,
+        #   **不能**沿用 policy.source_priority[0]='snapshot'(9:25 定格)。
+        #
+        #   实测缺陷(测试机真跑, 2026-09-28): `pipeline.run(strategy="spot")` 返回
+        #   `sources=['snapshot','meoz_realtime']` —— 名单源落在 snapshot(5561 行 9:25
+        #   定格), 之后 meoz_realtime 只是**按这 5561 个 code 点查**补展示字段。
+        #   后果分三条:
+        #     ① **名单域被冻结**: 9:25 无快照行的票(新股/快照缺失)盘中再强也进不来;
+        #        反之快照有行、盘中已停牌/退市的票仍可能进名单 —— 与"盘中实时选股"语义矛盾。
+        #     ② **点查部分失败即静默用定格值**: `_merge_rows` 缺值则保留快照值, 于是
+        #        该票的"现涨/量比/换手"其实是 9:25 的值, 却被打上 spot 标签参与六因子评分。
+        #     ③ **5561 只逐只点查**是重操作, 而实时全市场一次调用即可(见 /api/stocks_spot)。
+        #   而 `/api/stocks_spot` 的做法(本仓 spot 的权威口径)正是 `ensure_spot_cache`
+        #   + `from_eastmoney`: 一次拿全市场实时, 无点查、无定格参与。
+        #   ⇒ 此处对齐该口径, 使「锁定链路」与「盘中实时 tab」**同一套数据源**。
+        lr = _fetch_spot_universe(filters)
+        res.sources.append(lr.label)
+        if not lr.ok:
+            res.errors.append("名单源[%s]失败: %s" % (lr.label, lr.error or "无数据"))
+            res.degraded = True
+            res.elapsed_ms = int((time.time() - t0) * 1000)
+            log.warning("spot 选股失败 名单源无数据 mode=%s err=%s — %s",
+                        policy.mode.value, lr.error, policy.fail_message)
+            return res
+        rows = lr.rows
+        res.n_universe = len(rows)
+        if lr.degraded:
+            res.degraded = True
+        frozen = {}
     else:
         lr = _fetch_list(ctx, policy, filters)
         res.sources.append(lr.label)
@@ -295,13 +389,23 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
 
     # 2.5) 昨日成交额(竞/昨比展示用): **只对候选**拉日K(全市场拉 = 加载慢根因之一)
     #      昨日涨幅已由契约行承载(row.yesterday_change), 无需在此再拉。
-    if not ctx.yesterday_map:
+    #      ★ 2026-09-28: spot **跳过** —— spot 的候选=全市场(5561), 拉全市场日K 会显著
+    #        拖慢(且与 /api/stocks_spot 口径不一致: 那个端点根本不拉)。代价仅是
+    #        「昨日涨幅」因子(权重 0.06)走 default 档, 与盘中实时页表现一致。
+    if not ctx.yesterday_map and not is_spot:
         fill_yesterday(codes, ctx)
 
     # 3) 补丁源: 对**候选**补昨收/现价/市值等(补丁失败不阻塞, 只影响门槛与展示)
     #    注意: 补丁带来的**实时价不参与价格门槛** — 门槛由 filter 用定格竞价价
     #    (昨收×竞价涨幅, 全天恒定)判定, 故补丁在过滤前后都不改变名单。
-    pr = _fetch_patch(ctx, policy, codes, filters)
+    #    ★ 2026-09-28 v4.11.80: **spot 跳过补丁源**。spot 的名单源已经是实时全市场
+    #      (`_fetch_spot_universe`), 现价/现涨/量比/换手在那一趟就拿全了; 再跑一遍
+    #      "按 code 点查"补丁只会: ① 对 5561 只做一次昂贵点查; ② 结果同源同值, 纯浪费;
+    #      ③ `/api/stocks_spot`(spot 的权威口径)**也没有**这一步。跳过即对齐。
+    if is_spot:
+        pr = None
+    else:
+        pr = _fetch_patch(ctx, policy, codes, filters)
     if pr is not None:
         rows = _merge_rows(rows, pr.rows)
         if use_mat:
@@ -311,20 +415,25 @@ def run(filters: Dict, *, ctx: Optional[PickContext] = None,
         if pr.degraded:
             res.degraded = True
     else:
-        res.errors.append("补丁源不可用(价格门槛与实时展示字段将缺失)")
-        # 2026-09-11: 补丁源不可用必须置 degraded —— 此前只 append errors、degraded 仍是
-        #   False, 日志/接口显示「降级=False」而实际现价/现涨全缺, 排查被误导
-        #   (9/11 生产现涨全 0 事故: 日志 mode=locked 源=snapshot 降级=False,
-        #    看不出"根本没跑补丁源")。违背铁律2「降级必须可见」。
-        res.degraded = True
-        # 2026-09-11: 补丁源全失败 = 候选只有定格字段(换手/量比/异动/昨日涨幅全缺)
-        #   → 评分是"保守占位分"而非真实评分 → 评分下限(scoreFloor)必须豁免, 否则
-        #   "点查失败 → 快照行直出保名单"这条降级保命路径会被砍成空名单
-        #   (test_auction_snap_pool_offhours 暴露; 其余过滤项不受影响)。
-        # 2026-09-12: 物化路径**不适用** —— 评分来自预计算(全市场、字段已定),
-        #   不因补丁缺失而失真, 故不豁免(豁免会让低分票混进物化名单)。
-        if not use_mat:
-            fctx.score_floor_exempt = True
+        if is_spot:
+            # spot 的"补丁源不可用"是**刻意跳过**(见上), 不是降级 —— 数据已在名单源
+            # 那一趟取全 ⇒ 不得置 degraded, 更不得豁免 scoreFloor(那会让低分票混入)。
+            pass
+        else:
+            res.errors.append("补丁源不可用(价格门槛与实时展示字段将缺失)")
+            # 2026-09-11: 补丁源不可用必须置 degraded —— 此前只 append errors、degraded 仍是
+            #   False, 日志/接口显示「降级=False」而实际现价/现涨全缺, 排查被误导
+            #   (9/11 生产现涨全 0 事故: 日志 mode=locked 源=snapshot 降级=False,
+            #    看不出"根本没跑补丁源")。违背铁律2「降级必须可见」。
+            res.degraded = True
+            # 2026-09-11: 补丁源全失败 = 候选只有定格字段(换手/量比/异动/昨日涨幅全缺)
+            #   → 评分是"保守占位分"而非真实评分 → 评分下限(scoreFloor)必须豁免, 否则
+            #   "点查失败 → 快照行直出保名单"这条降级保命路径会被砍成空名单
+            #   (test_auction_snap_pool_offhours 暴露; 其余过滤项不受影响)。
+            # 2026-09-12: 物化路径**不适用** —— 评分来自预计算(全市场、字段已定),
+            #   不因补丁缺失而失真, 故不豁免(豁免会让低分票混进物化名单)。
+            if not use_mat:
+                fctx.score_floor_exempt = True
 
     # 3.5) 竞价强度(替代失活的 f630 异动等级, 权重同为 w_warn=17%):
     #      信号全部来自**快照表 + 本地 AI 推理**, 对东财免疫 —— 东财点查断了照样有分。

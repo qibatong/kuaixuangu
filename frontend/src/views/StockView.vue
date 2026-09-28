@@ -43,46 +43,69 @@
              这里监听其 emit 并执行本视图的刷新逻辑 -->
         <div v-if="leftTab === 'auction' || leftTab === 'spot'" class="home-filter"><FilterPanel @refresh="refreshRealTime" /></div>
 
-        <template v-if="leftTab === 'auction'">
-          <!-- 2026-09-16 选股闸门(主人拍板: 开盘日 9:00-9:26 不支持选股) -->
-          <!-- 优先于会员门禁: 该时段连会员也不可用(不是权限问题, 是当日定格尚未产生) -->
-          <div v-if="stocks.pickBlocked" class="pick-blocked-notice">
-            <i class="fa fa-clock-o"></i>
-            <span>{{ stocks.pickBlockedMsg }}</span>
+        <!-- ===== tab1「AI选股」— 2026-09-28 v4.11.80 第三步: **锁定语义 + spot 引擎** =====
+             🔴 主人需求原文:「ai竞价出来数据就锁定」—— tab1 保留**锁定**这个动作, 但锁的
+               内容是 **spot(盘中实时)引擎**算出来的名单(不再用 9:25 竞价定格那套)。
+             🔴 因此本分支的**数据源/列定义必须跟着 `stocks.strategy` 走**(不能用固定字面量):
+               · strategy=spot  → 读 stocks.spotStocks, StockTable strategy="spot"
+               · strategy=auction → 读 stocks.cachedStocks, StockTable strategy="auction"
+               写死任一者都会出现"表里是 spot 名单、列却是竞价列(竞涨/竞额全 —)"的错位。
+             ✅ 保留不动的**结构语义**(与 tab2 的区别所在):
+               ① pickBlocked 9:26 闸门提示块 —— 仍显示(后端 spot 路径不受闸门, 故不会真拦,
+                  但开关若被外部置 blocked 仍能提示; 且这是 tab1 的"锁定链路"身份标识)。
+               ② freeze-notice 定格标注条 —— 仍显示(锁定名单可能有 freezeDate)。
+               ③ 会员/配额门禁 —— 照旧。
+               ④ 「锁定」按钮(FilterPanel 内, 见 store.strategy 判据)。 -->
+
+        <!-- 2026-09-16 选股闸门(主人拍板: 开盘日 9:00-9:26 不支持选股) -->
+        <!-- 优先于会员门禁: 该时段连会员也不可用(不是权限问题, 是当日定格尚未产生) -->
+        <div v-if="leftTab === 'auction' && stocks.pickBlocked" class="pick-blocked-notice">
+          <i class="fa fa-clock-o"></i>
+          <span>{{ stocks.pickBlockedMsg }}</span>
+        </div>
+
+        <!-- 2026-09-18 (v4.11.29) 定格来源标注: 盘前/非交易日按设计出的是**上一交易日**
+             9:25 定格名单(PREOPEN/CLOSED), 必须让用户一眼看出"这不是当日名单"。
+             主人 9/18 反馈「刷出来是昨天的数据」就有这一类误解的成分。
+             ★ v4.11.80: 只在 **auction 策略**下出这条 —— spot 名单永远是"此刻",
+               不存在"上一交易日定格"(数据源不同, 见上方分支注释)。
+             必须与名单并存 → 用独立 v-if, 不接入下方 v-if/v-else 链。 -->
+        <div v-if="leftTab === 'auction' && !stocks.isSpotStrategy && stocks.isDataCached && !stocks.freezeIsToday" class="freeze-notice">
+          <i class="fa fa-history"></i>
+          <span>当前为 <b>{{ stocks.freezeDate }}</b> 定格数据（上一交易日 / 回放），改条件可重选</span>
+        </div>
+
+        <!-- 会员门禁: 竞价选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
+        <VipGate v-if="leftTab === 'auction' && !user.isMember && isMemberOnlyTime()" title="AI选股" />
+        <!-- 配额门禁(2026-09-21 会员体系): 免费用户每日有限次数, 用尽后 VipGate 转配额引导模式 -->
+        <VipGate
+          v-else-if="leftTab === 'auction' && stocks.quotaExceeded"
+          ref="pickGateRef"
+          title="AI选股"
+        />
+
+        <template v-if="leftTab === 'auction' && (user.isMember || !isMemberOnlyTime()) && !stocks.pickBlocked && !stocks.quotaExceeded">
+          <!-- 5-1: 奖牌区已降级为 StockTable 行内徽标(前三行), 此处不再渲染三张重复卡片 -->
+          <!-- 主表: 无数据时给加载态 -->
+          <div v-if="!stocks.isDataCached" class="stock-table-container">
+            <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
           </div>
+          <!-- 2026-09-23 P0 口径条已按主人要求整条移除(15:4x): 名单上方的历史统计/口径说明
+               不再显示。连板标签本身(StockTable 名称格)与自身悬停统计保留不变。 -->
           <template v-else>
-            <!-- 2026-09-18 (v4.11.29) 定格来源标注: 盘前/非交易日按设计出的是**上一交易日**
-                 9:25 定格名单(PREOPEN/CLOSED), 必须让用户一眼看出"这不是当日名单"。
-                 主人 9/18 反馈「刷出来是昨天的数据」就有这一类误解的成分。
-                 🔴 必须放在 v-else 分支**内部**: 放在 v-if 与 v-else 之间会打断
-                 v-if/v-else 链(Vue 编译期报 X_V_ELSE_NO_ADJACENT_IF, 构建直接失败),
-                 而且标注条要**与名单并存**, 不能用 v-else-if 顶掉名单。 -->
-            <div v-if="stocks.isDataCached && !stocks.freezeIsToday" class="freeze-notice">
-              <i class="fa fa-history"></i>
-              <span>当前为 <b>{{ stocks.freezeDate }}</b> 定格数据（上一交易日 / 回放），改条件可重选</span>
-            </div>
-            <!-- 会员门禁: 竞价选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
-            <VipGate v-if="!user.isMember && isMemberOnlyTime()" title="AI选股" />
-            <!-- 配额门禁(2026-09-21 会员体系): 免费用户每日有限次数, 用尽后 VipGate 转配额引导模式 -->
-            <VipGate
-              v-else-if="stocks.quotaExceeded"
-              ref="pickGateRef"
-              title="AI选股"
+            <!-- ★ 列定义/数据源按 strategy 分派: spot 读 spotStocks, auction 读 cachedStocks -->
+            <StockTable
+              v-if="stocks.isSpotStrategy"
+              :stocks="stocks.spotStocks"
+              strategy="spot"
+              :bid-seal-map="bidSealMap"
             />
-            <template v-else-if="user.isMember || !isMemberOnlyTime()">
-              <!-- 5-1: 奖牌区已降级为 StockTable 行内徽标(前三行), 此处不再渲染三张重复卡片 -->
-              <!-- 主表 -->
-              <div v-if="!stocks.isDataCached" class="stock-table-container">
-                <div class="loading-placeholder"><div class="spinner"></div><div>后台正在计算选股中...</div></div>
-              </div>
-              <!-- 2026-09-23 P0 口径条已按主人要求整条移除(15:4x): 名单上方的历史统计/口径说明
-                   不再显示。连板标签本身(StockTable 名称格)与自身悬停统计保留不变。
-                   注意: 这里必须保留 template v-else 包裹 —— 直接插在 v-if 与 v-else 之间
-                   会打断 v-if/v-else 链, 构建直接失败(见上方 freeze-notice 注释)。 -->
-              <template v-else>
-                <StockTable :stocks="stocks.cachedStocks" strategy="auction" :bid-seal-map="bidSealMap" />
-              </template>
-            </template>
+            <StockTable
+              v-else
+              :stocks="stocks.cachedStocks"
+              strategy="auction"
+              :bid-seal-map="bidSealMap"
+            />
           </template>
         </template>
 
@@ -167,6 +190,17 @@ const { refreshYidongCodes } = useYidongMonitor()
 // 2026-09-01: 左视图模式切换 竞价 / 盘中实时 / AI预测×2
 // 2026-09-28 v4.11.75: 'spot' 重新可用 —— 切换时会 store.setStrategy('spot'),
 //   让 FilterPanel 渲染盘中参数行、并把数据源切到 spotStocks(与竞价 cachedStocks 隔离)。
+// ★ 2026-09-28 v4.11.80 第三步: **tab1「AI选股」也改走 spot 引擎**(主人需求
+//   「AI竞价出来的数据就锁定」)—— 但**保留 tab1 的全套锁定语义**(定格标注条 / 9:26
+//   闸门 / 会员配额门禁 / merge 实时 / 进自选池)。
+//
+//   🔴 关键设计: **tab(leftTab) 与 策略(store.strategy) 是两个维度, 不再 1:1 绑定**。
+//     · tab1「AI选股」   ⇒ leftTab='auction'(渲染锁定那套) + strategy='spot'(用实时引擎)
+//     · tab2「盘中实时」 ⇒ leftTab='spot'(渲染实时那套)    + strategy='spot'
+//     两者**共用 spot 引擎**, 差别只在 UI 语义: tab1 出的是「锁定名单」(可落批次/可回放),
+//     tab2 出的是「此刻的答案」(不落批次/不锁定)。
+//   ⚠️ 为什么不让 tab1 直接切到 leftTab='spot': 那样会丢掉定格标注条/锁定按钮/闸门提示,
+//     而主人要的恰恰是「锁定」这个动作 —— 只是**锁的内容换成 spot 引擎算的名单**。
 const leftTab = ref('auction')
 
 // 盘中名单的数据时刻(秒 → HH:MM:SS, 北京时间)。spot 每次请求都是"此刻", 必须显式告知。
@@ -273,19 +307,29 @@ function refreshRealTime() {
 }
 // 左视图模式切换: auction(竞价) / spot(盘中实时) / aipick(AI预测) / aipick_lgb(LightGBM 版)
 // 后两者都是 AipickView·AipickLgbView 自加载, 与 store 数据流无关。
+//
+// ★ 2026-09-28 v4.11.80 第三步: **tab1 也走 spot 引擎** ⇒ tab → strategy 不再 1:1:
+//   · tab1('auction') → strategy='spot'   ← 本轮改点(原来映射 'auction')
+//   · tab2('spot')    → strategy='spot'
+//   · aipick 两个 → 保持 'auction'(它们不读 store.strategy, 只是别留下脏值给 FilterPanel)
+//   🔴 副作用提醒: 切到 aipick 时 store.strategy 仍是 'spot' —— FilterPanel 此刻已隐藏
+//     (v-if 只放 auction/spot), 不影响渲染; 切回来时 switchTab 会重设, 不会残留错配。
 function switchTab(m) {
   if (leftTab.value === m) return
   leftTab.value = m
-  // 2026-09-28 v4.11.75: 同步 store.strategy —— FilterPanel 按它决定渲染哪套参数行,
-  // 必须在这里切, 否则会出现"tab 在盘中、参数行却是竞价的"错位。
-  stocks.setStrategy(m === 'spot' ? 'spot' : 'auction')
+  // 2026-09-28 v4.11.80 第三步: tab1/tab2 都归 spot(见上方注释), aipick 归 auction。
+  stocks.setStrategy(m === 'aipick' || m === 'aipick_lgb' ? 'auction' : 'spot')
   // 2026-09-22 v4.11.35: AI 预测的使用计数由 AipickView 自己在加载报表时上报,
   // 这里**不要**再记一次(同一动作会双计)。
+  // 2026-09-28 v4.11.80: tab1 走 spot 后**首屏取数逻辑不变** —— fetchAndCache 内部按
+  //   this.strategy 分支(spot 写 spotStocks), 见 stores/stocks.js。
   if (m === 'auction' && !stocks.isDataCached) {
     stocks.fetchAndCache().then(() => markData()).catch(e => showToast('❌ ' + e.message, 'error'))
   }
-  // 盘中实时: 首次切过来自动拉一次(否则用户看到的是"点应用"空态, 多一步操作)。
+  // 盘中实时: 切过来自动拉一次(否则用户看到的是"点应用"空态, 多一步操作)。
   // 失败静默 —— 面板仍在, 用户可手点「应用」重试; 弹错会打断刚切 tab 的动作。
+  // ⚠️ tab1 与 tab2 现在共用 spotStocks: tab1 若已取到名单, tab2 切过来直接复用, 不重拉
+  //   (避免刚锁完又打一次网络); 名单时效由顶栏 DataStamp / spot-notice 显式告知。
   if (m === 'spot' && !stocks.spotCached) {
     stocks.fetchSpotList({ silent: true }).then(() => markData()).catch(() => {})
   }

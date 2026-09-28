@@ -32,6 +32,17 @@ export function pingStocks() {
 //   · **不落批次、不推送、不参与定格** —— 每次都是当下重算，返回的只是"此刻的答案"。
 //   · 实时字段(realChange/volRatio/turnover)每次都在变 ⇒ 前端**不做本地快照预筛**
 //     (与竞价 P3 的 pickFromSnapshot 不同：竞价用的是 9:25 定格，全天恒定，可本地筛)。
+//
+// ★ 2026-09-28 v4.11.80 更新(上面「后端有意没把 spot 挂回 /api/stocks」已**不再成立**):
+//   主人需求「AI竞价出来数据就锁定」= 让**锁定这条链路**也能用 spot 算法，于是后端已
+//   放行 `/api/stocks?strategy=spot`(开关 `spot_lock_enabled`，关掉即回到仅 auction)。
+//   两个入口由此分工明确、**并存不冲突**:
+//     · /api/stocks_spot           —— 「看当下」：不落批次/不锁定/不推送，这份文件本函数
+//     · /api/stocks?strategy=spot  —— 「要锁定」：走 lock/filter/落库/快照全套，由
+//                                      fetchStocks(action, params, 'spot', force) 调用
+//   两者共用同一套 spot 引擎(compute_score_spot + apply_spot_filters)，只是工艺不同。
+//   ⇒ 本函数(独立端点)继续由「盘中实时」tab 使用；「AI选股」tab 若走 spot 锁定，
+//     则改走 fetchStocks(..., 'spot')，**不要**把两者混成一个入口。
 export function fetchStocksSpot(action, filterParams) {
   return request('/api/stocks_spot', {
     query: { action, ...filterParams }

@@ -107,7 +107,7 @@ def _null_restore_enabled():
         return False
 
 
-def save_batch(user_id, action, result, f, auto_applied=False):
+def save_batch(user_id, action, result, f, auto_applied=False, strategy=None):
     """把一次选股结果存为一个历史批次(归属指定用户), 返回批次 id; 失败返回 None
     auto_applied=True 用于 9:26 系统自动应用 (区别用户主动 lock/filter)
 
@@ -116,6 +116,16 @@ def save_batch(user_id, action, result, f, auto_applied=False):
     会污染历史列表, 且此前被 refresh 当作"可复用批次"直读 → 页面刷新空白
     (uid=211 连续 64 次直读 0 只批次 1574)。读取侧虽已加 stock_count>0 过滤,
     写入侧仍会持续制造垃圾 → 源头拦截: 空结果直接返回 None, 不产生批次记录。
+
+    ★ 2026-09-28 v4.11.80 第三步: 新增 `strategy` 形参("auction"/"spot")。
+    背景: 两个 tab 都能 lock 之后, 前端 `loadLockedBatchFromServer()` 取"今天最近一次
+    lock"会**取错策略的批次**(勘察风险3) —— 写侧必须留下可判据。
+    落法: 存进 filters_json 的保留键 `_strategy`, 而 **`_canon_filter_fingerprint`
+    显式排除它** ⇒
+      · 旧批次(无该键)与新请求的指纹**仍然相等** → 幂等/直读/去重复用**零影响**;
+      · 新增列会动 schema(两机迁移), 而本键只落在既有 filters 列里 → 零迁移。
+    注: 也**不能**把 strategy 塞进 f 本体 —— 那会改变所有批次的指纹(含 auction),
+    使历史批次全部失配、当日幂等/直读全失效。
     """
     if not result:
         log.info("空名单不落库(不产生空批次) user_id=%s action=%s auto=%s",
@@ -125,7 +135,10 @@ def save_batch(user_id, action, result, f, auto_applied=False):
     g = time.gmtime(t + 8 * 3600)   # 北京时间
     bdate = "%04d-%02d-%02d" % (g.tm_year, g.tm_mon, g.tm_mday)
     btime = "%02d:%02d:%02d" % (g.tm_hour, g.tm_min, g.tm_sec)
-    filters_json = json.dumps({k: v for k, v in f.items() if k != "markets"}, ensure_ascii=False)
+    _f = {k: v for k, v in f.items() if k != "markets"}
+    if strategy:
+        _f["_strategy"] = strategy          # 策略标记(指纹排除; 旧批次无此键, 不影响匹配)
+    filters_json = json.dumps(_f, ensure_ascii=False)
     markets = ",".join(f["markets"])
     conn = None
     try:
@@ -170,8 +183,15 @@ def save_batch(user_id, action, result, f, auto_applied=False):
 
 
 def _canon_filter_fingerprint(f):
-    """规范化筛选参数指纹: 排除 markets, 键排序(兼容 dict 插入顺序差异)"""
-    return json.dumps({k: v for k, v in f.items() if k != "markets"},
+    """规范化筛选参数指纹: 排除 markets 与策略标记 _strategy, 键排序(兼容 dict 插入顺序差异)
+
+    ★ 2026-09-28 v4.11.80: 必须排除 `_strategy` —— 它是 save_batch 写进 filters_json 的
+    策略标记, **不是**筛选条件。若不排除, "同一套参数在不同策略下"会被判成两个指纹
+    (看起来更严谨), 但更严重的是: 新写入的批次带该键、**历史批次全都没有** ⇒ 所有
+    幂等/直读/去重(它们拿旧批次指纹与新请求比)会**全部失配** —— 当日 lock 不再幂等、
+    refresh 不再直读, 退化成每次都全市场重算。故排除它, 让新老批次指纹口径一致。
+    """
+    return json.dumps({k: v for k, v in f.items() if k not in ("markets", "_strategy")},
                       ensure_ascii=False, sort_keys=True)
 
 

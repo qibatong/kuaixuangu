@@ -115,9 +115,20 @@ export const useStocksStore = defineStore('stocks', {
     quotaInfo: null,
   }),
   actions: {
-    // ---- 筛选参数(盘中/竞价共用 filterSettings) ----
+    // ---- 筛选参数(磁盘上两套: 竞价 filterSettings / 盘中 spotFilterSettings) ----
+    // ★ 2026-09-28 v4.11.80 第三步: 新增**当前策略**透出 —— 锁定的「AI选股」tab 也走 spot
+    //   后, 全链路(引擎/参数/前端列)都必须跟着 `this.strategy` 走, 不能各写一处。
+    //   ⚠️ 语义辨析: 这里是"选股策略"(auction/spot), 与"左视图 tab" 是两个维度 ——
+    //     tab1「AI选股」与 tab2「盘中实时」都可以是 spot(见 StockView.switchTab)。
+    get isSpotStrategy() {
+      return this.strategy === 'spot'
+    },
     buildFilterParams() {
       return _buildFilterParams(this.filterSettings)
+    },
+    // 当前策略对应的筛选参数 —— 唯一分支点, 避免"传了 spot 参数却用竞价门槛"。
+    buildActiveFilterParams() {
+      return this.isSpotStrategy ? this.buildSpotFilterParams() : this.buildFilterParams()
     },
 
     // ---- 策略切换(2026-09-09 命名消歧: setMode → setStrategy) ----
@@ -486,9 +497,34 @@ export const useStocksStore = defineStore('stocks', {
       //   🔴 判据由后端 `freeze_ready` 给出(它才拿得到 snapshot_bid 的落库时刻) ——
       //   前端**不要**自己用 "09:25:36" 之类的固定时刻猜: 系统批次(#9_25)由落库事件
       //   触发, 实测只比落库晚 3 秒, 固定时刻会把它(合法名单)误杀。
-      const freezeReady = (x) => x.batch_date === today && x.freezeReady === true
+      // ★ 2026-09-28 v4.11.80 第三步: 字段名订正 `freezeReady` → `freeze_ready`。
+      //   🔴 这是**既有 bug**(早于本轮): `list_batches()` 返回的键是 **snake_case**
+      //     (实测字段表: action/auto_applied/batch_date/batch_time/filters/freeze_ready/
+      //      id/markets/stock_count/ts/user_id —— 后端**不做** camelCase 转换),
+      //     故 `x.freezeReady` 恒为 undefined ⇒ `freezeReady(x)` 恒 false ⇒ 本函数
+      //     **一直返回 []**, 前端悄悄回退本地快照(`loadBidSnapshot`)。
+      //     同一判据在 utils/batches.js:37 写的就是 `b.freeze_ready`(正确) —— 两处口径
+      //     此前不一致, 以正确的那处为准。
+      //   ⚠️ 保留 `x.freezeReady` 作为**兼容读法**: 万一将来后端改为 camelCase(或中间层
+      //     加了转换), 两种写法都能命中, 不会因一次字段名变更再次静默失效。
+      const freezeReady = (x) => x.batch_date === today &&
+        (x.freeze_ready === true || x.freezeReady === true)
+      // ★ 2026-09-28 v4.11.80 第三步(勘察风险3): **按策略区分批次**。
+      //   背景: 两个 tab 都能 lock 之后, 「今天最近一次手动 lock」可能属于另一套策略 ——
+      //   若 spot 名单被回显进竞价列表(或反之), 顶栏定格标注/列语义全错。
+      //   判据 = 批次 filters 里的 `_strategy` 标记(后端 save_batch 写入; 旧批次没有该键)。
+      //   🔴 兼容规则必须写死在这里: **旧批次(无标记)一律视为 auction** ——
+      //     该键是 v4.11.80 才引入的, 此前所有批次都是竞价产物; 若把"无标记"判成
+      //     "不匹配任意策略", 老用户的当日锁定名单会**再也回显不出来**(静默退化)。
+      const batchStrategy = (x) => {
+        try {
+          const fl = typeof x.filters === 'string' ? JSON.parse(x.filters || '{}') : (x.filters || {})
+          return fl._strategy || 'auction'
+        } catch (e) { return 'auction' }
+      }
+      const wantStrategy = this.strategy                       // 当前要取哪一套
       const userLock = batches.find((x) => x.action === 'lock' && !x.auto_applied &&
-        freezeReady(x))
+        freezeReady(x) && batchStrategy(x) === wantStrategy)
       const autoB = batches.find((x) => x.auto_applied && freezeReady(x))
       const isAuto = !userLock && !!autoB
       const b = userLock || autoB
@@ -525,9 +561,16 @@ export const useStocksStore = defineStore('stocks', {
       // 就触发落库+推送。2026-09-24 上限再放宽到 **15:00(收盘)** 且**开放周末** ⇒
       // 15:00 盘后一律 refresh(后端快照池条件不再命中, 恢复拒绝重选)。
       const action = (isBefore930() || (force && isBeforeRelockEnd())) ? 'lock' : 'refresh'
+      // ★ 2026-09-28 v4.11.80 第三步: strategy **不再写死 'auction'** —— 取当前策略。
+      //   「AI选股」tab 现在也走 spot(主人需求「AI竞价出来数据就锁定」) ⇒ 点锁定时
+      //   用 spot 引擎算名单并落批次, 之后 9:30 后照旧走 mergeSpotIntoLocked 不被洗掉。
+      //   ⚠️ 参数必须与 strategy 配套(buildActiveFilterParams): 传 spot 参数配竞价门槛
+      //     会让 chgGt/volRatioFloor 静默失效(后端 apply_filters 不消费它们)。
+      const strategy = this.strategy
       let data
       try {
-        data = await fetchStocks(action, this.buildFilterParams(), 'auction', force && action === 'lock')
+        data = await fetchStocks(action, this.buildActiveFilterParams(), strategy,
+                                 force && action === 'lock')
       } catch (e) {
         // 后端快照维拦截(≥9:26 但当日 9:25 定格尚未落库): 标记等待, 不算失败
         if (e && e.blocked) { this.markPickBlocked(e.msg || PICK_BLOCK_MSG_TIME); return }
@@ -550,6 +593,22 @@ export const useStocksStore = defineStore('stocks', {
       if (data.freezeDate) {
         this.freezeDate = data.freezeDate
         this.freezeIsToday = data.freezeIsToday !== false
+      }
+      // ★ 2026-09-28 v4.11.80 第三步: spot 名单**不回填 cachedStocks**。
+      //   原因(与 state 里 spotStocks 的隔离注释同源): cachedStocks 承载竞价定格名单,
+      //   是「顶栏冻结标注条 / 自选池自动收录 / 历史回看」的数据源; spot 名单混进去会让
+      //   这些语义全部错乱(spot 无 bidChange, 自选池字段对不上)。
+      //   ⇒ strategy=spot 时统一写 spotStocks/spotCached/spotDataAt 那一组字段。
+      if (strategy === 'spot') {
+        this.spotStocks = (data.list || []).slice()
+        this.spotCached = true
+        this.spotDataAt = data.dataTime || Math.floor(Date.now() / 1000)
+        this.spotAvailable = true
+        this.isDataCached = true          // 保留原语义: "本次取数已完成", 不表示这里存的是竞价名单
+        this.before930 = data.before930
+        this.realTimeRefreshUsed = false
+        showToast(`✅ 盘中实时名单已${action === 'lock' ? '锁定' : '更新'}（${this.spotStocks.length} 只）`, 'success')
+        return
       }
       if (action === 'lock') {
         this.saveBidSnapshot(data.list)          // 保存完整竞价锁定名单(含抢筹结论)
@@ -589,6 +648,14 @@ export const useStocksStore = defineStore('stocks', {
     async updateRealTimeOnly({ silent = false } = {}) {
       this.realTimeRefreshUsed = true
       if (!this.isDataCached) { await this.fetchAndCache(); return }
+      // ★ 2026-09-28 v4.11.80 第三步: spot 的"刷新"不是"只换现涨" —— spot 评分本身就吃
+      //   实时涨幅/量比/换手, 只覆盖展示字段而不重算会得到"名单停在上一刻评分"的错误结果。
+      //   ⇒ spot 直接整份重拉(走 applyCustomFilter 的 spot 分支, 与 tab2 同口径)。
+      if (this.isSpotStrategy) {
+        if (!silent) showToast('正在刷新盘中实时名单…', 'success')
+        await this.applyCustomFilter()
+        return
+      }
       const data = await fetchStocks('refresh', this.buildFilterParams())
       // 刷新实时涨幅: 基于当前列表更新实时字段, 不回到锁定名单
       // (改过筛选条件后点刷新, 应在当前新名单上更新, 而不是跳回早上 lock 的名单)
@@ -647,13 +714,20 @@ export const useStocksStore = defineStore('stocks', {
       if (!isBeforeRelockEnd()) { showToast('❌ 15:00后禁止重新选股', 'error'); return }
       // 2026-09-16 选股闸门(与"9:30后禁止重选"同为时段规则)
       // 2026-09-17: 改判 _pickGateOn()(开关关闭时即时放行)
-      if (this._pickGateOn()) {
+      // ★ 2026-09-28: spot 跳过闸门(看实时, 与 9:25 定格无关; 与后端同口径)
+      if (!this.isSpotStrategy && this._pickGateOn()) {
         this.markPickBlocked(PICK_BLOCK_MSG_TIME)
         showToast('⏳ ' + PICK_BLOCK_MSG_TIME, 'error')
         return
       }
       this.isDataCached = false
-      this.cachedStocks = []
+      // spot 名单存 spotStocks(见 fetchAndCache 分流注释), 清空时按策略清对应那份
+      if (this.isSpotStrategy) {
+        this.spotStocks = []
+        this.spotCached = false
+      } else {
+        this.cachedStocks = []
+      }
       this.realTimeRefreshUsed = false
       // force=true: 用户主动点「锁定」→ 绕过当日幂等, 强制重算并落新批次
       await this.fetchAndCache(true)
@@ -719,14 +793,21 @@ export const useStocksStore = defineStore('stocks', {
       }
       // 2026-09-16 选股闸门: 禁用时段不允许应用(按钮已置灰, 此处为兜底)
       // 2026-09-17: 改判 _pickGateOn()(开关关闭时即时放行)
-      if (this._pickGateOn()) {
+      // ★ 2026-09-28 v4.11.80 第三步: spot 策略**跳过闸门** —— 闸门理由是"当日 9:25
+      //   定格尚未落库", spot 看实时、不依赖定格, 该理由不成立(与后端 `strategy != spot`
+      //   跳闸门同口径)。FilterPanel.apply 的 spot 分支走 fetchSpotList, 这里是第二道入口
+      //   (重置按钮等), 必须一并放行, 否则会出现"参数行是盘中、点重置却被拦"。
+      const isSpot = this.isSpotStrategy
+      if (!isSpot && this._pickGateOn()) {
         this.markPickBlocked(PICK_BLOCK_MSG_TIME)
         showToast('⏳ ' + PICK_BLOCK_MSG_TIME, 'error')
         return
       }
       // 2026-09-12 P3: 快照在手 → **本地筛选**(改条件秒出, 零网络往返; 实时价另拉一次)。
       // 拿不到快照(未开启/物化表不可用/非 VIP) → 走原后端筛选路径, 行为与 P3 前一致。
-      if (await this.loadSnapshot()) {
+      // ⚠️ spot **不走本地快照**: 快照是 9:25 定格(全天恒定), 而 spot 的现涨/量比/换手
+      //   每次请求都在变, 本地筛会立刻过期(见 state 里 spotStocks 的注释)。
+      if (!isSpot && await this.loadSnapshot()) {
         const picked = pickFromSnapshot(this.snapshot, this.filterSettings)
         const list = await this._attachQuotes(picked)
         this.cachedStocks = list
@@ -735,7 +816,19 @@ export const useStocksStore = defineStore('stocks', {
         showToast('⚡ 本地筛选完成（' + list.length + ' 只）', 'success')
         return
       }
-      const data = await fetchStocks('filter', this.buildFilterParams())
+      const data = await fetchStocks('filter', this.buildActiveFilterParams(), this.strategy)
+      if (isSpot) {
+        // spot 结果进 spotStocks(与 fetchAndCache 同口径), 不碰竞价 cachedStocks
+        this.spotStocks = (data.list || []).slice()
+        this.spotCached = true
+        this.spotDataAt = data.dataTime || Math.floor(Date.now() / 1000)
+        this.spotAvailable = true
+        this.isDataCached = true
+        this.before930 = data.before930
+        this.saveUserPrefs()
+        showToast('✅ 盘中筛选条件已更新（' + this.spotStocks.length + ' 只）', 'success')
+        return
+      }
       // 筛选重算 = 按当前条件重新筛, 直接用后端新名单(不是锁定名单)
       // 锁定名单恒定仅用于"刷新实时涨幅", 不影响筛选重算(否则改条件永远同一批)
       // 2026-09-07: slice 一份新引用 + 立即赋值(双保险触发响应); 之前 nextTick 里赋值

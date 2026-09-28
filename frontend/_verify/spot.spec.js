@@ -46,6 +46,13 @@ import { defaultSpotFilterSettings, buildSpotFilterParams, passSpotFilter } from
 //   唯一能观测到的手段 = 直接核**模板里的 v-if 表达式**。故此处读源码做静态断言。
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const TABLE_SRC = readFileSync(resolve(__dirname, '../src/components/StockTable.vue'), 'utf8')
+// ★ v4.11.80 第三步: StockView.vue / stores/stocks.js 源码全文 —— 同理由。
+//   tab1「AI选股」改走 spot 引擎后, "哪个分支读 spotStocks / 哪个分支送 strategy=spot"
+//   这类**模板/条件分支**在 SSR 覆盖不到(tab 由 leftTab ref 驱动, SSR 里恒为初始值
+//   'auction' ⇒ 渲染的是 tab1 那支, 但 store 的 strategy 也是初始 'auction' ⇒
+//   即便模板写死 'auction' 也会全绿)。只能静态核表达式。
+const VIEW_SRC = readFileSync(resolve(__dirname, '../src/views/StockView.vue'), 'utf8')
+const STORE_SRC = readFileSync(resolve(__dirname, '../src/stores/stocks.js'), 'utf8')
 
 const ROUTES = [{ path: '/', component: { template: '<div/>' } },
                 { path: '/stocks', component: { template: '<div/>' } }]
@@ -181,6 +188,48 @@ async function main() {
   ok('不勾剔涨停时涨停股保留', passSpotFilter({ code: '600000', realChange: 3, limitBoards: 1 }, { ...F, spotExcludeZT: false }) === true)
   ok('🔴 用 realChange 而非 bidChange',
      passSpotFilter({ code: '600000', realChange: 99, bidChange: 3 }, { ...F, chgGt: 7 }) === false)
+
+  console.log('\n— S7. tab1「AI选股」走 spot 引擎（v4.11.80 第三步 · ⚡ 静态核源码）')
+  // 背景: 主人需求「AI竞价出来数据就锁定」—— tab1 保留锁定语义, 但引擎换成 spot。
+  // 可观察契约三件: ① StockView 里 tab1 分支的 StockTable 按 strategy 分派数据源
+  //   ② switchTab 把 tab1 映射到 'spot'  ③ 闸门/定格标注条只在 auction 策略下生效。
+  // SSR 覆盖不到(初始 strategy 恒 'auction'), 故静态核。
+  const hasSpotBranch = /stocks\.isSpotStrategy[\s\S]{0,400}?strategy="spot"/.test(VIEW_SRC)
+  ok('🔴 tab1 分支按 isSpotStrategy 分派到 spotStocks + strategy="spot"', hasSpotBranch,
+     '未在 StockView 模板中匹配到 isSpotStrategy→spotStocks/strategy="spot" 分派')
+  ok('🔴 tab1 分支仍保留 auction 侧的 cachedStocks/strategy="auction" 分派',
+     /strategy="auction"/.test(VIEW_SRC))
+  // switchTab 映射: aipick ≠ spot, 其余(auction/spot tab) = spot
+  const switchFn = (VIEW_SRC.match(/function switchTab[\s\S]*?\n\}/) || [''])[0]
+  ok('🔴 switchTab 把 tab1(AI选股) 映射为 spot',
+     /aipick[\s\S]{0,80}?\?\s*'auction'\s*:\s*'spot'/.test(switchFn),
+     '实际: ' + switchFn.replace(/\s+/g, ' ').slice(0, 200))
+  ok('🔴 switchTab 里 aipick 两 tab 显式归 auction(不留 spot 脏值)', /aipick_lgb/.test(switchFn))
+  // 定格标注条必须仅在 auction 策略下出现(spot 无"上一交易日定格"概念)
+  ok('🔴 freeze-notice 仅在 !isSpotStrategy 时出现',
+     /!stocks\.isSpotStrategy[\s\S]{0,120}?freeze-notice/.test(VIEW_SRC)
+     || /isSpotStrategy[\s\S]{0,200}?![\s\S]{0,40}?freeze-notice/.test(VIEW_SRC),
+     '冻结标注条若在 spot 态露出, 会让用户误以为实时名单是"上一交易日定格"')
+
+  console.log('\n— S8. store 侧策略契约（v4.11.80 第三步 · ⚡ 静态核源码）')
+  ok('🔴 store 导出 isSpotStrategy getter', /isSpotStrategy\s*\(\s*\)\s*\{\s*return\s+this\.strategy\s*===\s*\'spot\'/.test(STORE_SRC))
+  ok('🔴 buildActiveFilterParams 按策略分派参数', /buildActiveFilterParams\s*\(\s*\)[\s\S]{0,160}?isSpotStrategy[\s\S]{0,80}?buildSpotFilterParams/.test(STORE_SRC))
+  // fetchAndCache 必须把 strategy 透传给 API(否则后端永远按 auction 算)
+  ok('🔴 fetchAndCache 把 strategy 传给 fetchStocks',
+     /fetchStocks\(\s*action\s*,\s*this\.buildActiveFilterParams\(\)\s*,\s*strategy/.test(STORE_SRC))
+  ok('🔴 fetchAndCache 里 strategy 不再写死 auction', !/=\s*'auction'\s*\/\/.*strategy/.test(STORE_SRC) && /const strategy = this\.strategy/.test(STORE_SRC))
+  // spot 结果必须落 spotStocks, 不回填 cachedStocks
+  ok('🔴 fetchAndCache 的 spot 分支写 spotStocks 而非 cachedStocks',
+     /if\s*\(\s*strategy\s*===\s*'spot'\s*\)\s*\{[\s\S]{0,300}?this\.spotStocks\s*=/.test(STORE_SRC))
+  // freeze_ready 字段名订正(本轮修的既有 bug)
+  ok('🔴 loadLockedBatchFromServer 读 freeze_ready(snake, 后端真实字段名)',
+     /x\.freeze_ready\s*===\s*true/.test(STORE_SRC),
+     'x.freezeReady(camel) 恒 undefined ⇒ 该函数恒返回 [], 前端一直回退本地快照')
+  ok('🔴 freezeReady 判据保留 camel 兼容读法(后端若改口径不静默失效)',
+     /x\.freezeReady\s*===\s*true/.test(STORE_SRC))
+  // 批次策略区分(勘察风险3)
+  ok('🔴 批次按 _strategy 区分, 旧批次兼容为 auction',
+     /_strategy\s*\|\|\s*'auction'/.test(STORE_SRC) && /batchStrategy\s*\(x\)\s*===\s*wantStrategy/.test(STORE_SRC))
 
   console.log(`\n=== 结果：PASS=${PASS}  FAIL=${FAIL} ===`)
   if (FAIL) { console.log('失败项：\n  - ' + fails.join('\n  - ')); process.exit(1) }
