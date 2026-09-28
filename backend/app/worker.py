@@ -20,7 +20,7 @@ import time
 from .core import logger
 from .db import database
 from .services import (auction_snapshot, wpqc_push, aipick_scheduler, concept_refresh,
-                       ladder_daily, stock_temper, dev_risk)
+                       ladder_daily, stock_temper, dev_risk, close_change_daily)
 
 log = logger.get_logger(__name__)
 
@@ -75,7 +75,11 @@ def main():
                                        # (2026-09-13 P1: 原 15:30 早于上游发布时刻, 该任务从未成功过)
     dev_risk.start_scheduler()         # 异动/停牌风险: 交易日 15:45 全市场扫描 + 09:00 补救
                                        # (2026-09-27 v4.11.64 新增; 结果写 dev_risk_daily)
-    log.info("快照采集 + 尾盘推送 + AI竞价选股调度 + 盘中概念刷新 + 连板天梯盘后生成 + 股性数据落库 + 异动风险扫描已启动")
+    close_change_daily.start_scheduler()  # 收盘涨跌幅落库: 交易日 15:10 起自检, 用东财批量行情
+                                       # 把全市场当日收盘涨跌幅写满 close_change_history
+                                       # (2026-09-28 新增; 根因见模块 docstring —— 该表原先是
+                                       #  惰性填充, 导致 lhb 实时/历史回看每请求都要现场拉日K)
+    log.info("快照采集 + 尾盘推送 + AI竞价选股调度 + 盘中概念刷新 + 连板天梯盘后生成 + 股性数据落库 + 异动风险扫描 + 收盘涨跌幅落库已启动")
     # 主线程阻塞消费队列
     consume_loop()
 

@@ -70,7 +70,10 @@ def _apply_change_for(lst, serve_date):
     serve_date: 当前展示的交易日 'YYYY-MM-DD'(历史/回退=对应日, 今日=今日)。"""
     if not lst:
         return
-    today = _time.strftime("%Y-%m-%d", _time.gmtime())
+    # 2026-09-28 修复: 原用 UTC(`_time.gmtime()`)判"今天" —— 北京时间 00:00~08:00 时
+    # UTC 日期还是前一天 ⇒ `serve_date == today` 失效, 把"盘中看今日"误判成历史日,
+    # 于是拿不到实时现涨(改用当日收盘涨幅)。与本文件既有的 `_bj_now()` 统一。
+    today = _time.strftime("%Y-%m-%d", _bj_now())
     if _is_intraday() and serve_date == today:
         _update_spot_change(lst)
         return
