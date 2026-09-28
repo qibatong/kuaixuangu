@@ -26,7 +26,7 @@ import time
 from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
-from ..services import fetcher, scorer
+from ..services import auction_snapshot, fetcher, scorer
 from ..services.picker.contract import QuoteRow
 from ..services.picker.filter import apply_spot_filters, FilterContext
 from ..services.picker.score import ScoredRow
@@ -41,19 +41,42 @@ router = APIRouter()
 _REQUIRED_SPOT_FIELDS = ("real_change",)
 
 
-def _spot_rows_from_raw(raw, f, zt_map, yesterday_map):
-    """东财/腾讯 diff 行 → list[(QuoteRow, SpotScoreResult, zt_info)]。
+def _spot_rows_from_raw(raw, f, zt_map, yesterday_map, bid_chg_map=None, bid_amt_map=None):
+    """东财/腾讯 diff 行 → list[(QuoteRow, zt_info)]。
 
     单位与字段映射全走 contract.QuoteRow.from_eastmoney, 不在此重复口径。
+
+    🔴 2026-09-28 v4.11.78 修复「竞涨/竞额无数据」:
+      前端 spot 名单新增了「竞涨 / 竞额」两列, 但首版**值恒为 null** —— 根因是
+      `from_eastmoney(auction_window=False)` 的竞价字段取值有三条来源
+      (定格 map 优先 → 窗口内实时 f615/f616 → 否则 None), 而本函数**只传了
+      auction_window=False, 没传定格 map** ⇒ 前两条都不成立 ⇒ 恒 None。
+      (这正是「键下发了 ≠ 值有内容」——上轮只核了 key 存在, 没核 value。)
+
+      修法: 与竞价侧同源, 读当日 9:25 定格快照(snapshot_bid)——
+        · `load_day_bid_change()` → {code: 竞涨%}
+        · `load_day_bid_amt()`    → {code: 竞价额(万元)}
+      两者**自带非交易时段回退最近交易日**(主人 2026-09-08 定的口径), 故盘前/
+      周末/节假日调用也能拿到"最近一次竞价"的值, 不会又变回 null。
+
+      ⚠️ 参数是**标量**(`Optional[float]`), 不是 map —— 必须按 code 逐行取,
+         传 map 会 `TypeError: unsupported operand type(s) for *: 'dict' and 'float'`。
+      ⚠️ 单位: `load_day_bid_amt` 返回**万元**, 正好对应 `day_bid_amt_wan`(内部 ×1e4 转元);
+         上层 `_spot_payload` 再 /1e4 折回万元下发 → 前端 `bidAmtText` 按万元处理。
     """
+    bid_chg_map = bid_chg_map or {}
+    bid_amt_map = bid_amt_map or {}
     out = []
     for s in raw:
         code = str(s.get("f12") or "")
         if not code:
             continue
         try:
-            row = QuoteRow.from_eastmoney(s, auction_window=False,
-                                          yesterday_chg=(yesterday_map or {}).get(code))
+            row = QuoteRow.from_eastmoney(
+                s, auction_window=False,
+                day_bid_change=bid_chg_map.get(code),
+                day_bid_amt_wan=bid_amt_map.get(code),
+                yesterday_chg=(yesterday_map or {}).get(code))
         except Exception:                                  # noqa: BLE001
             continue
         zt = (zt_map or {}).get(code)
@@ -125,7 +148,18 @@ def api_stocks_spot(request: Request, uid: int = Depends(get_uid)):
             log.warning("spot 涨停池获取失败(封单因子降级) err=%s", str(e)[:120])
 
         # 3) 评分
-        pairs = _spot_rows_from_raw(raw, f, zt_map, None)
+        # 🔴 2026-09-28 v4.11.78: 读当日 9:25 定格(竞涨/竞额), 供前端「竞涨/竞额」两列展示。
+        #   失败一律降级为 {} ⇒ 那两列显示 "-"(与修复前一致), **绝不阻塞选股主流程**
+        #   (它们只是展示字段, 不参与 spot 六因子评分)。
+        bid_chg_map, bid_amt_map = {}, {}
+        try:
+            bid_chg_map = auction_snapshot.load_day_bid_change() or {}
+            bid_amt_map = auction_snapshot.load_day_bid_amt() or {}
+        except Exception as e:                             # noqa: BLE001
+            log.warning("spot 9_25 定格读取失败(竞涨/竞额降级为 -) err=%s", str(e)[:120])
+
+        pairs = _spot_rows_from_raw(raw, f, zt_map, None,
+                                    bid_chg_map=bid_chg_map, bid_amt_map=bid_amt_map)
         scored = []
         for row, zt in pairs:
             sc = compute_score_spot(row, zt)
