@@ -74,7 +74,11 @@ def test_should_trigger_blocked_without_snapshot(bdate, monkeypatch):
     monkeypatch.setattr(auto_apply.auction_snapshot, "has_today_snapshot",
                         lambda date: False)
     assert auto_apply.should_trigger(bdate) is False, "快照未落库必须不触发"
-    assert auto_apply.try_acquire(bdate) is True, "快照未就绪不应占用节流位"
+    # ★ 必须**非破坏性**地检查节流位: `try_acquire` 会真的占位(setnx),
+    #   用它来断言会把下一行要验证的"快照落库后下一轮立即可触发"自己堵死。
+    #   (2026-09-28 修正: 原写法 `assert try_acquire(...) is True` 自相矛盾 →
+    #    该断言之后的第 3 条必红, 使本用例自 v4.11.76 加入起从未通过。)
+    assert store.get(_TRY + bdate) is None, "快照未就绪不应占用节流位"
     # 快照落库(下一轮轮询) → 立即可以触发, 不用等 60s 节流
     monkeypatch.setattr(auto_apply.auction_snapshot, "has_today_snapshot",
                         lambda date: True)
