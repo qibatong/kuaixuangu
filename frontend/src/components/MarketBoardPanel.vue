@@ -79,6 +79,8 @@ import { computed, ref, watch } from 'vue'
 import { sortBoardsByLimit } from '../utils/boards'
 import { yi, signed } from '../utils/format'
 import { kplBoardStocks, emBoardMembers } from '../api/kpl'
+import { usePolling } from '../composables/usePolling'
+import { isIntradayNow } from '../utils/time'
 
 const props = defineProps({
   boards: { type: Array, default: () => [] },
@@ -86,6 +88,12 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   failed: { type: Boolean, default: false },
   failMsg: { type: String, default: '' },
+  /**
+   * 2026-09-28 v4.11.79: 回看的历史日期('' = 看实时)。
+   * 用父组件的 datePicker 语义 —— 有值时是**历史回看**, 右栏成分股**不能轮询**
+   * (历史数据不会变, 且不该让实时数据冲掉用户手动选的日期)。
+   */
+  date: { type: String, default: '' },
 })
 const emit = defineEmits(['update:src', 'stock-click'])
 
@@ -117,18 +125,54 @@ function select(b) {
   loadStocks(b)
 }
 
-async function loadStocks(b) {
-  stocks.value = []
-  stocksLoading.value = true
+/**
+ * 拉取板块成分股。
+ * @param b      板块对象
+ * @param silent 静默刷新(true 时不显示 loading 态、失败不清空旧列表)
+ *
+ * 🔴 2026-09-28 v4.11.79: 加 silent 分支供**轮询**用 ——
+ *   轮询若走非 silent 路径, 每 60s 会把右栏整表清空再重绘一次(stocks=[] + loading),
+ *   视觉上就是"闪一下", 非常难用。silent 时保留旧数据直到新数据到达。
+ */
+async function loadStocks(b, silent = false) {
+  if (!b) return
+  if (!silent) {
+    stocks.value = []
+    stocksLoading.value = true
+  }
   try {
     const code = b.boardCode || b.code
     const fn = props.src === 'em' ? emBoardMembers : kplBoardStocks
-    const d = await fn(code)
+    const d = await fn(code, props.date || '')
     stocks.value = (d && (d.list || d)) || []
-  } catch (e) { stocks.value = [] } finally { stocksLoading.value = false }
+  } catch (e) {
+    if (!silent) stocks.value = []      // 静默刷新失败: 保留旧数据, 不闪空
+  } finally {
+    if (!silent) stocksLoading.value = false
+  }
 }
 
 watch(rows, (r) => { if (r && r.length && !current.value) select(r[0]) }, { immediate: true })
+
+// 切数据源(kpl/em)时当前板块的成分股要按新源重拉 —— 原来靠父组件 switchSrc
+// 触发 boardRows 变化间接触发; 但 current 已存在时 watch(rows) 不再自动选,
+// 故这里显式补一条: src 变了就重拉当前板块。
+watch(() => props.src, () => { if (current.value) loadStocks(current.value) })
+
+// 🔴 2026-09-28 v4.11.79: 成分股轮询(此前**完全没有**, 右栏点开即"定格"不刷新)。
+//   三条件同时满足才轮询, 避免无谓打上游:
+//     ① current 存在(用户已选中某板块)
+//     ② 非历史回看(!props.date)
+//     ③ 盘中(isIntradayNow, 9:30-15:00 工作日)
+//   正常交易时段 60s 一次; 非盘中/历史模式自动停。
+//   ⚠️ 后端已给两个成分股接口加 30s TTL 缓存, 故这是"便宜"的轮询:
+//      多客户端不会线性放大上游请求(见 kpl.fetch_board_stocks 注释)。
+usePolling(() => {
+  if (!current.value) return
+  if (props.date) return
+  if (!isIntradayNow()) return
+  return loadStocks(current.value, true)
+}, 60000, { immediate: false })
 
 function link(s) { emit('stock-click', s) }
 

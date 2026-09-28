@@ -65,7 +65,7 @@
       <MarketBoardPanel
         ref="boardPanelRef"
         :boards="boardRows" :src="src" :loading="boardLoading" :failed="boardFailed"
-        :fail-msg="boardFailMsg"
+        :fail-msg="boardFailMsg" :date="datePicker"
         @update:src="switchSrc"
         @stock-click="openStockDetail"
       />
@@ -173,7 +173,11 @@ function switchSrc(s) {
   src.value = s
   // 写回 URL：既让 /concept→/market?src=em 这条链路自洽，也让切换后的地址可分享/可后退
   router.replace({ name: 'market', query: s === 'em' ? { src: 'em' } : {} })
-  if (s === 'em' && !conceptList.value.length) loadConcept()
+  // 🔴 2026-09-28 v4.11.79: 原为 `if (s === 'em' && !conceptList.value.length) loadConcept()`
+  //   —— 「已有缓存就不再拉」⇒ 从 kpl 切回 em 时看到的是**很久以前**那次拉的榜单
+  //   （板块强度/主力净额全是旧的），用户观感就是"东财这个 tab 是坏的"。
+  //   改为**每次切入都重拉**：左栏本就该跟着市场走；后端 30s TTL 缓存兜住上游压力。
+  if (s === 'em') loadConcept()
 }
 
 // 支持浏览器前进/后退：query 变了要跟着切（switchSrc 自己改 query 时这里是无操作）

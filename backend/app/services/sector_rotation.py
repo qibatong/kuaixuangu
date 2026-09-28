@@ -178,35 +178,48 @@ def fetch_em_board_members(code):
     """东财概念板块成分股(题材异动榜右栏): 按涨幅降序返回全部成分股。
 
     每项: {code, name, price, change, speed, turnover, amount, mainNet, totalMv, floatMv}
-    speed=个股 5 分钟涨速(f11); mainNet=主力净流入(元, f62); 市值 totalMv/floatMv(元)。"""
+    speed=个股 5 分钟涨速(f11); mainNet=主力净流入(元, f62); 市值 totalMv/floatMv(元)。
+
+    🔴 2026-09-28 v4.11.79 加缓存(此前**无缓存**):
+      前端给「板块题材」右栏加了 60s 轮询 ⇒ 每个客户端每次轮询都会真打东财
+      (pages=3 ⇒ 3 次 HTTP) × N 客户端, 且东财并非无成本(有反爬/限流风险)。
+      复用开仓啦侧同款 `kpl._cached`(跨进程共享 + single-flight 防击穿),
+      TTL 取 config.KPL_BOARD_STOCKS_TTL(默认 30s) —— 与左栏板块榜同频。
+      ⚠️ 缓存的是**成品结果**(已排序/已剔北交所), 不是原始 diff —— 这样命中时零加工。
+    """
     if not code:
         return []
-    out = []
-    try:
-        for it in _em_clist("b:" + str(code), _EM_MEMBER_FIELDS, fid="f3", pages=3):
-            c, name = it.get("f12"), it.get("f14")
-            if not c or not name:
-                continue
-            if scorer.is_bse(c):
-                continue    # 系统不需要北交所数据(全链路过滤, 题材异动榜成分股同样剔除)
-            chg = it.get("f3") or 0
-            out.append({
-                "code": c,
-                "name": name,
-                "price": float(it.get("f2") or 0),
-                "change": round(float(chg), 2),
-                "speed": round(float(it.get("f11") or 0), 2),
-                "turnover": round(float(it.get("f8") or 0), 2),
-                "amount": float(it.get("f6") or 0),
-                "mainNet": float(it.get("f62") or 0),
-                "totalMv": float(it.get("f20") or 0),
-                "floatMv": float(it.get("f21") or 0),
-            })
-    except Exception as e:
-        log.warning("东财板块成分股抓取失败 code=%s err=%s", code, e)
-        return []
-    out.sort(key=lambda x: x["change"], reverse=True)
-    return out
+
+    def loader():
+        out = []
+        try:
+            for it in _em_clist("b:" + str(code), _EM_MEMBER_FIELDS, fid="f3", pages=3):
+                c, name = it.get("f12"), it.get("f14")
+                if not c or not name:
+                    continue
+                if scorer.is_bse(c):
+                    continue    # 系统不需要北交所数据(全链路过滤, 题材异动榜成分股同样剔除)
+                chg = it.get("f3") or 0
+                out.append({
+                    "code": c,
+                    "name": name,
+                    "price": float(it.get("f2") or 0),
+                    "change": round(float(chg), 2),
+                    "speed": round(float(it.get("f11") or 0), 2),
+                    "turnover": round(float(it.get("f8") or 0), 2),
+                    "amount": float(it.get("f6") or 0),
+                    "mainNet": float(it.get("f62") or 0),
+                    "totalMv": float(it.get("f20") or 0),
+                    "floatMv": float(it.get("f21") or 0),
+                })
+        except Exception as e:
+            log.warning("东财板块成分股抓取失败 code=%s err=%s", code, e)
+            return []
+        out.sort(key=lambda x: x["change"], reverse=True)
+        return out
+
+    return kpl._cached("em_board_members_" + str(code),
+                       config.KPL_BOARD_STOCKS_TTL, loader)
 
 
 # =====================================================================

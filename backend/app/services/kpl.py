@@ -945,59 +945,84 @@ def fetch_board_stocks(plate_id, date=None, st=30):
     实时模式自动带上一交易日(当天未冻结前取最近交易日成分股, 消除空白).
     实测 30 条(按强度/涨幅排序); 返回 [{code, name, concept, price, change, turnover, amount,
     floatMv, mainNet, volRatio, limitTag, ladder, totalMv}, ...].
-    st: 返回条数上限(默认 30; 2026-08-18 加: 昨涨停/昨断板成分需全量, 传 500)"""
-    base = {
-        "Order": "1", "a": "ZhiShuStockList_W8", "st": str(st),
-        "c": "ZhiShuRanking", "PhoneOSNew": "1",
-        "IsZZ": "0", "Index": "0", "RStart": "0925", "REnd": "1500",
-        "Type": "5", "IsKZZType": "0",
-        "PlateID": str(plate_id), "TSZB": "0", "TSZB_Type": "0",
-    }
-    if not date:
-        # 盘中优先用实时接口(apphwshhq + w44, 不带Date)取当日数据;
-        # 实时接口被拒或空时回退历史接口(apphis + w41 + 上一交易日Date)
-        # 2026-08-30 修复: _call host_key "app" 不存在 → fallback default(apphwhq 竞价域名),
-        #   对板块成分股返回空导致盘中一直回退昨日; 实时 host 应为 "after"(apphwshhq)
-        params = dict(base, apiv="w44")
-        d = _call("after", params)
-        lst = d.get("list") if isinstance(d, dict) else None
-        if not isinstance(lst, list) or not lst:
-            date = _prev_trade_day()
+    st: 返回条数上限(默认 30; 2026-08-18 加: 昨涨停/昨断板成分需全量, 传 500)
+
+    🔴 2026-09-28 v4.11.79 加缓存(此前**无任何缓存**):
+      前端本轮给「板块题材」右栏成分股加了 60s 轮询 ⇒ 若不加缓存, 每个客户端
+      盘中约 330 次/日 × N 客户端, 会线性吃开盘啦 **8 万/日付费配额**。
+      按本仓既有 `_cached` 范式加 TTL(见 broken_zt 同款):
+        · 实时(st 未指定日期) → KPL_BOARD_STOCKS_TTL(默认 30s), 与 KPL_BOARD_TTL 对齐,
+          左右栏同频刷新, 不会"左边新右边旧"
+        · 历史(date 显式指定) → KPL_BOARD_STOCKS_HIST_TTL(默认 1800s) —— 历史数据
+          **永不变化**, 长 TTL 避免反复回读同一历史日
+      ⚠️ `is_hist` 必须在**进 live 分支前**从入参 date 判定 —— live 分支会把 date
+         改写成"上一交易日"(回退用), 之后再判会把实时请求误当历史、缓存半小时。
+      ⚠️ 缓存 key 必须含 st —— 同板块不同 st(30 看成分 / 500 看全量)是不同结果集,
+         不含 st 会让 500 的全量结果污染 30 的展示(或反之)。
+    """
+    is_hist = bool(date)
+    cache_key = ("board_stocks_" + str(plate_id)
+                 + "_" + str(st)
+                 + (("_" + str(date).replace("-", "")) if date else ""))
+    req_date = date        # 入参快照: live 分支会改写局部 date(回退用), 故此处先固化
+
+    def loader():
+        base = {
+            "Order": "1", "a": "ZhiShuStockList_W8", "st": str(st),
+            "c": "ZhiShuRanking", "PhoneOSNew": "1",
+            "IsZZ": "0", "Index": "0", "RStart": "0925", "REnd": "1500",
+            "Type": "5", "IsKZZType": "0",
+            "PlateID": str(plate_id), "TSZB": "0", "TSZB_Type": "0",
+        }
+        date = req_date
+        if not date:
+            # 盘中优先用实时接口(apphwshhq + w44, 不带Date)取当日数据;
+            # 实时接口被拒或空时回退历史接口(apphis + w41 + 上一交易日Date)
+            # 2026-08-30 修复: _call host_key "app" 不存在 → fallback default(apphwhq 竞价域名),
+            #   对板块成分股返回空导致盘中一直回退昨日; 实时 host 应为 "after"(apphwshhq)
+            params = dict(base, apiv="w44")
+            d = _call("after", params)
+            lst = d.get("list") if isinstance(d, dict) else None
+            if not isinstance(lst, list) or not lst:
+                date = _prev_trade_day()
+                params = dict(base, apiv="w41", Date=date)
+                d = _call("his", params)
+                lst = d.get("list") if isinstance(d, dict) else None
+        else:
             params = dict(base, apiv="w41", Date=date)
             d = _call("his", params)
             lst = d.get("list") if isinstance(d, dict) else None
-    else:
-        params = dict(base, apiv="w41", Date=date)
-        d = _call("his", params)
-        lst = d.get("list") if isinstance(d, dict) else None
-    if not isinstance(lst, list):
-        return []
-    out = []
-    for row in lst:
-        if not isinstance(row, list) or len(row) < 12:
-            continue
-        try:
-            out.append({
-                "code": str(row[0]),
-                "name": str(row[1]),
-                "concept": str(row[4] or ""),
-                # 字段对照(2026-08-17 东财交叉验证):
-                # [5]=最新价(元), [6]=涨跌幅%(20% 涨停板验证: 华民19.95/奥来德19.99/聚和20.01)
-                # [21]=量比(2.31=东财f10), [25]=换手率%(26.91=东财f8)
-                "price": _f(row[5]),          # 最新价(元)
-                "change": _f(row[6]),         # 涨跌幅(%)
-                "amount": _f(row[7]),         # 成交额(元)
-                "floatMv": _f(row[10]),       # 流通市值(元)
-                "mainNet": _f(row[11]),       # 主力净额(元)
-                "volRatio": _f(row[21]) if len(row) > 21 else 0,   # 量比
-                "limitTag": str(row[23] or "") if len(row) > 23 else "",   # 首板/连板标识
-                "ladder": str(row[24] or "") if len(row) > 24 else "",     # 龙一/龙二等梯队
-                "turnover": _f(row[25]) if len(row) > 25 else 0,          # 换手率(%)
-                "totalMv": _f(row[38]) if len(row) > 38 else 0,           # 总市值(元)
-            })
-        except (IndexError, ValueError, TypeError):
-            continue
-    return out
+        if not isinstance(lst, list):
+            return []
+        out = []
+        for row in lst:
+            if not isinstance(row, list) or len(row) < 12:
+                continue
+            try:
+                out.append({
+                    "code": str(row[0]),
+                    "name": str(row[1]),
+                    "concept": str(row[4] or ""),
+                    # 字段对照(2026-08-17 东财交叉验证):
+                    # [5]=最新价(元), [6]=涨跌幅%(20% 涨停板验证: 华民19.95/奥来德19.99/聚和20.01)
+                    # [21]=量比(2.31=东财f10), [25]=换手率%(26.91=东财f8)
+                    "price": _f(row[5]),          # 最新价(元)
+                    "change": _f(row[6]),         # 涨跌幅(%)
+                    "amount": _f(row[7]),         # 成交额(元)
+                    "floatMv": _f(row[10]),       # 流通市值(元)
+                    "mainNet": _f(row[11]),       # 主力净额(元)
+                    "volRatio": _f(row[21]) if len(row) > 21 else 0,   # 量比
+                    "limitTag": str(row[23] or "") if len(row) > 23 else "",   # 首板/连板标识
+                    "ladder": str(row[24] or "") if len(row) > 24 else "",     # 龙一/龙二等梯队
+                    "turnover": _f(row[25]) if len(row) > 25 else 0,          # 换手率(%)
+                    "totalMv": _f(row[38]) if len(row) > 38 else 0,           # 总市值(元)
+                })
+            except (IndexError, ValueError, TypeError):
+                continue
+        return out
+
+    ttl = config.KPL_BOARD_STOCKS_HIST_TTL if is_hist else config.KPL_BOARD_STOCKS_TTL
+    return _cached(cache_key, ttl, loader)
 
 
 # ==================== 尾盘竞价抢筹 ====================

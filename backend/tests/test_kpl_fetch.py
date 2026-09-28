@@ -221,3 +221,145 @@ def test_fetch_zt_reason_fallback_reason(monkeypatch):
                                                         "GNSM": "概念甲"}]})
     rows = kpl.fetch_zt_reason("600001")
     assert rows and rows[0]["reason"] == "概念甲"
+
+# ---------- 板块成分股缓存 (v4.11.79) ----------
+# 背景: 前端给「板块题材」右栏加了 60s 轮询 ⇒ 成分股接口此前**无缓存**,
+#   每个客户端每次轮询都真打上游(开盘啦付费 8 万/日配额)。本轮加 30s TTL。
+def _bs_row(code="600001", name="测A"):
+    row = [""] * 39
+    row[0] = code; row[1] = name; row[4] = "概念"; row[5] = 18.5
+    row[6] = 9.9; row[7] = 2.0e8; row[10] = 5.0e9; row[11] = 3.0e7
+    row[21] = 2.3; row[23] = "首板"; row[24] = "龙一"; row[25] = 26.9; row[38] = 8.0e9
+    return row
+
+
+def test_board_stocks_cache_hit_avoids_upstream(monkeypatch):
+    """🔴 命中缓存时**不得**再调上游 —— 这是省 8 万/日配额的核心。
+    用计数 _call 次数的 fake 证实: 第二次调用时 _call 次数不增加。"""
+    calls = {"n": 0}
+
+    def fake_call(host, params):
+        calls["n"] += 1
+        return {"list": [_bs_row()]}
+
+    monkeypatch.setattr(kpl, "_call", fake_call)
+    monkeypatch.setattr(kpl, "_prev_trade_day", lambda: "2026-08-20")
+
+    kpl.clear_cache()
+    r1 = kpl.fetch_board_stocks("801001")
+    assert r1 and r1[0]["code"] == "600001"
+    assert calls["n"] == 1, "首次应真调上游"
+
+    r2 = kpl.fetch_board_stocks("801001")
+    assert r2 and r2[0]["code"] == "600001"
+    assert calls["n"] == 1, "🔴 二次应命中缓存, 不得再调上游(否则轮询会线性吃配额)"
+
+
+def test_board_stocks_cache_key_isolated_by_st(monkeypatch):
+    """🔴 缓存 key 必须含 st —— 同板块 st=30(展示) 与 st=500(全量) 是**不同结果集**,
+    不含 st 会让 500 的结果污染 30 的展示(或反之)。"""
+    calls = {"st": []}
+
+    def fake_call(host, params):
+        calls["st"].append(params.get("st"))
+        return {"list": [_bs_row(code="600" + str(params.get("st")).zfill(3))]}
+
+    monkeypatch.setattr(kpl, "_call", fake_call)
+    monkeypatch.setattr(kpl, "_prev_trade_day", lambda: "2026-08-20")
+
+    kpl.clear_cache()
+    a = kpl.fetch_board_stocks("801001", st=30)
+    b = kpl.fetch_board_stocks("801001", st=500)
+    assert calls["st"] == ["30", "500"], "🔴 不同 st 必须各自 miss 并调上游"
+    assert a[0]["code"] != b[0]["code"], "🔴 不同 st 的结果不得互相串"
+
+
+def test_board_stocks_cache_key_isolated_by_plate(monkeypatch):
+    """不同板块不得互相命中缓存(按 plate_id 隔离)。"""
+    calls = {"n": 0}
+
+    def fake_call(host, params):
+        calls["n"] += 1
+        return {"list": [_bs_row(code=params.get("PlateID"))]}
+
+    monkeypatch.setattr(kpl, "_call", fake_call)
+    monkeypatch.setattr(kpl, "_prev_trade_day", lambda: "2026-08-20")
+
+    kpl.clear_cache()
+    a = kpl.fetch_board_stocks("801001")
+    b = kpl.fetch_board_stocks("801002")
+    assert calls["n"] == 2, "🔴 不同板块必须各自 miss"
+    assert a[0]["code"] == "801001" and b[0]["code"] == "801002"
+
+
+def test_board_stocks_hist_uses_long_ttl(monkeypatch):
+    """🔴 历史日走长 TTL(config.KPL_BOARD_STOCKS_HIST_TTL), 实时走短 TTL。
+    用「记录 store.set 时收到的 ttl」证实 —— 直接核语义, 不比时间。"""
+    seen = []
+    real_set = kpl.store.set
+
+    def spy_set(key, value, ttl=0):
+        seen.append((key, ttl))
+        return real_set(key, value, ttl)
+
+    monkeypatch.setattr(kpl.store, "set", spy_set)
+    monkeypatch.setattr(kpl, "_call", lambda host, params: {"list": [_bs_row()]})
+
+    kpl.clear_cache()
+    kpl.fetch_board_stocks("801001")                      # 实时
+    live_ttl = seen[-1][1]
+    kpl.clear_cache()
+    kpl.fetch_board_stocks("801001", date="2026-08-20")   # 历史
+    hist_ttl = seen[-1][1]
+
+    assert live_ttl == kpl.config.KPL_BOARD_STOCKS_TTL, f"实时 TTL 应为短 TTL, 实得 {live_ttl}"
+    assert hist_ttl == kpl.config.KPL_BOARD_STOCKS_HIST_TTL, f"历史 TTL 应为长 TTL, 实得 {hist_ttl}"
+    assert hist_ttl > live_ttl, "历史 TTL 必须比实时长(历史数据不变化)"
+
+
+def test_board_stocks_is_hist_decided_before_live_branch(monkeypatch):
+    """🔴 关键回归: is_hist 必须在**进 live 分支前**从入参 date 判定。
+    live 分支会把局部 date 改写成"上一交易日"(回退用) —— 若用改写后的 date 判 is_hist,
+    实时请求会被误当历史、缓存半小时(数据看起来"卡住不更新", 正是本轮要修的症状)。
+    证法: 实时请求「实时接口返回空 → 触发回退」这条路径, 仍须用**短 TTL**。"""
+    seen = []
+    real_set = kpl.store.set
+    monkeypatch.setattr(kpl.store, "set",
+                        lambda key, value, ttl=0: (seen.append((key, ttl)), real_set(key, value, ttl))[1])
+
+    # 实时接口返回空(模拟被拒) → 触发回退到 _prev_trade_day() 的历史分支
+    monkeypatch.setattr(kpl, "_call", lambda host, params: {"list": []})
+    monkeypatch.setattr(kpl, "_prev_trade_day", lambda: "2026-08-20")
+
+    kpl.clear_cache()
+    kpl.fetch_board_stocks("801001")
+    # 回退路径下 list 为空 ⇒ loader 返回 [] ⇒ 不写缓存(见 cached_singleflight 语义)
+    # 故这里改用「回退返回有效数据」的版本再跑一次
+    monkeypatch.setattr(kpl, "_call",
+                        lambda host, params: {"list": [_bs_row()]} if params.get("apiv") == "w41"
+                        else {"list": []})
+    kpl.clear_cache()
+    kpl.fetch_board_stocks("801001")
+    assert seen, "回退路径应当写了缓存"
+    ttl = seen[-1][1]
+    assert ttl == kpl.config.KPL_BOARD_STOCKS_TTL, (
+        f"🔴 实时请求即使走了回退分支, 也必须是**短 TTL**; 实得 {ttl} "
+        f"(说明 is_hist 是在 date 被改写后才判定的 —— 会把实时当历史缓存半小时)")
+
+
+def test_board_stocks_cache_key_has_hist_date(monkeypatch):
+    """历史请求的缓存 key 必须含日期 —— 否则回看 8/20 与回看 8/21 会串成同一份。"""
+    keys = []
+    real_set = kpl.store.set
+    monkeypatch.setattr(kpl.store, "set",
+                        lambda key, value, ttl=0: (keys.append(key), real_set(key, value, ttl))[1])
+    monkeypatch.setattr(kpl, "_call", lambda host, params: {"list": [_bs_row()]})
+
+    kpl.clear_cache()
+    kpl.fetch_board_stocks("801001", date="2026-08-20")
+    k1 = keys[-1]
+    kpl.clear_cache()
+    kpl.fetch_board_stocks("801001", date="2026-08-21")
+    k2 = keys[-1]
+    assert k1 != k2, "🔴 不同历史日的缓存 key 必须不同"
+    assert "20260820" in k1 and "20260821" in k2

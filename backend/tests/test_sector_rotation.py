@@ -32,6 +32,18 @@ def _raw_conn():
     return sqlite3.connect(os.environ["BID_DB_PATH"])
 
 
+@pytest.fixture(autouse=True)
+def _clear_kpl_cache():
+    """2026-09-28 v4.11.79 加: fetch_em_board_members 走 kpl._cached 后,
+    被测函数不再每次真调 loader ⇒ 若不清缓存, 用例会命中**上一次跑测试时**
+    写进 sqlite 的缓存值(跨进程持久), monkeypatch 的 _em_clist 根本不执行
+    ⇒ 「mock 了但没用」的假绿, 且随执行顺序时红时绿。
+    与 test_kpl_fetch.py 同款处理(那里也只清 kpl: 前缀)。"""
+    kpl.clear_cache()
+    yield
+    kpl.clear_cache()
+
+
 def test_record_today_top_saves_to_db(client, monkeypatch):
     """抓取当日板块 Top10 落库(默认 source=kpl)"""
     # mock kpl.fetch_board_rank 实时接口 + fetch_board_rank_by_date 历史接口,
@@ -492,3 +504,64 @@ def test_api_em_board_members_jx(client, first_user, monkeypatch):
                    headers={"Authorization": "Bearer " + token})
     d = r.json()
     assert d["source"] == "meoz" and d["list"][0]["name"] == "万科A"
+
+# ---------- 东财成分股缓存 (v4.11.79) ----------
+# 背景: 前端给「板块题材」右栏加 60s 轮询 ⇒ fetch_em_board_members 此前**无缓存**,
+#   每次轮询真打东财(pages=3 ⇒ 3 次 HTTP) × N 客户端。本轮复用 kpl._cached 加 30s TTL。
+def test_em_board_members_cache_hit_avoids_upstream(monkeypatch):
+    """🔴 命中缓存不得再调上游(轮询省流量的核心)。用计数证实。"""
+    calls = {"n": 0}
+
+    def fake_clist(fs, fields, **kw):
+        calls["n"] += 1
+        return list(EM_MEMBER_DIFF)
+
+    monkeypatch.setattr(sector_rotation, "_em_clist", fake_clist)
+    kpl.clear_cache()
+
+    a = sector_rotation.fetch_em_board_members("BK0816")
+    assert len(a) == 2 and calls["n"] == 1, "首次应真调上游"
+
+    b = sector_rotation.fetch_em_board_members("BK0816")
+    assert len(b) == 2 and calls["n"] == 1, "🔴 二次应命中缓存, 不得再调上游"
+
+
+def test_em_board_members_cache_key_isolated_by_code(monkeypatch):
+    """不同板块不得互相命中缓存。"""
+    calls = {"n": 0}
+
+    def fake_clist(fs, fields, **kw):
+        calls["n"] += 1
+        return list(EM_MEMBER_DIFF)
+
+    monkeypatch.setattr(sector_rotation, "_em_clist", fake_clist)
+    kpl.clear_cache()
+
+    sector_rotation.fetch_em_board_members("BK0816")
+    sector_rotation.fetch_em_board_members("BK1675")
+    assert calls["n"] == 2, "🔴 不同板块必须各自 miss"
+
+
+def test_em_board_members_cached_value_is_processed(monkeypatch):
+    """🔴 缓存的是**成品**(已排序/已剔北交所), 不是原始 diff。
+    证法: 命中缓存后返回的仍是"已加工"结果 —— 若缓存了原始 diff,
+    北交所票会重新出现 / 顺序会变。"""
+    monkeypatch.setattr(sector_rotation, "_em_clist",
+                        lambda fs, fields, **kw: list(EM_MEMBER_DIFF))
+    kpl.clear_cache()
+
+    first = sector_rotation.fetch_em_board_members("BK0816")
+    cached = sector_rotation.fetch_em_board_members("BK0816")
+    assert "920047" not in [s["code"] for s in cached], "缓存值仍须已剔北交所"
+    assert [s["code"] for s in cached] == [s["code"] for s in first], "缓存值次序须与首次一致"
+    assert cached[0]["code"] == "001216", "仍按涨幅降序(001216 在前)"
+
+
+def test_em_board_members_empty_code_no_cache_write(monkeypatch):
+    """空 code 直接返回空, 且**不写缓存**(避免用空结果污染后续同 code 请求)。"""
+    keys = []
+    real_set = kpl.store.set
+    monkeypatch.setattr(kpl.store, "set",
+                        lambda key, value, ttl=0: (keys.append(key), real_set(key, value, ttl))[1])
+    assert sector_rotation.fetch_em_board_members("") == []
+    assert not [k for k in keys if "em_board_members" in str(k)], "空 code 不应写成分股缓存"

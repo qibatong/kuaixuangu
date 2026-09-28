@@ -129,6 +129,15 @@ KPL_LADDER_TTL = int(os.environ.get("KPL_LADDER_TTL", "60"))  # 连板梯队缓�
 KPL_BOARD_TTL = int(os.environ.get("KPL_BOARD_TTL", "30"))    # 板块强度缓存新鲜度(秒)
 KPL_YIDONG_TTL = int(os.environ.get("KPL_YIDONG_TTL", "15"))  # 异动(偏离/重点监控/热门)缓存新鲜度(秒); 2026-09-04 加: 原无缓存每请求拉开盘啦 avg0.96s
 KPL_MARKET_SCLN_TTL = int(os.environ.get("KPL_MARKET_SCLN_TTL", "60"))  # 实时市场量能缓存(秒); 2026-09-13 加: 盘中量能 60s 新鲜度足够, 且防打爆 8 万/日配额
+# 2026-09-28 v4.11.79 加: 板块成分股缓存新鲜度(秒).
+#   背景: fetch_board_stocks 原**无缓存**, 每次点板块/每次轮询都真打开盘啦;
+#   前端本轮加轮询后, N 个客户端 × 盘中 ~330 次/客户端/日 会线性吃 8 万/日 配额。
+#   加 30s 缓存后: 无论多少客户端, 单个板块每 30s 最多 1 次上游 ⇒ 一个交易日的
+#   下游请求被压到 (240min×2) × 板块数 量级, 比"每客户端直打上游"省两个数量级。
+#   30s 与 KPL_BOARD_TTL(板块强度) 对齐 —— 左右栏同频刷新, 不会出现"左边新右边旧"。
+KPL_BOARD_STOCKS_TTL = int(os.environ.get("KPL_BOARD_STOCKS_TTL", "30"))
+# 历史日成分股缓存: 历史数据**永不变化**, 给长 TTL(30 分钟)避免反复回读同一历史日。
+KPL_BOARD_STOCKS_HIST_TTL = int(os.environ.get("KPL_BOARD_STOCKS_HIST_TTL", "1800"))
 
 # ---------- 猫爪(meoz.cn)数据源 ----------
 # 竞价数据新主源(2026-09-19 主人拍板全面替换开盘啦竞价依赖)。
