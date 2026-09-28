@@ -16,7 +16,8 @@ import time
 from fastapi import FastAPI, Request
 
 from .api import (activity, admin, aipick, auth, dev, health, history, invite, kpl, ladder,
-                  member, news, picker, prefs, sms, stats, stock_temper, stocks, summary)
+                  member, news, picker, prefs, sms, stats, stock_temper, stocks,
+                  stocks_spot, summary)
 from .api.deps import client_ip, jr
 from .core import logger as app_logger
 from .db import database
@@ -85,6 +86,7 @@ app.include_router(member.router)   # 2026-09-21: 会员中心(总览/配额/签
 app.include_router(activity.router)  # 2026-09-22: 用户行为上报(功能使用计数)
 app.include_router(news.router)      # 2026-09-27 v4.11.59: 盘前资讯(猫爪 news + 开盘啦 doc95/96/97/99)
 app.include_router(dev.router)       # 2026-09-27 v4.11.64: 异动/停牌风险(/api/dev/*)
+app.include_router(stocks_spot.router)  # 2026-09-28: 盘中实时选股(/api/stocks_spot)
 
 
 @app.on_event("startup")

@@ -300,6 +300,126 @@ def coarse_filter(rows: Sequence[Any], f: Dict,
     return [c for c, _ in cand[:limit]]
 
 
+def apply_spot_filters(rows: List[ScoredRow], f: Dict,
+                       ctx: Optional[FilterContext] = None) -> FilterOutcome:
+    """盘中实时(spot)过滤。2026-09-28 重建。
+
+    ⚠️ 本函数是 spot 策略的**专用**过滤层, 与竞价 apply_filters **分离** ——
+    两者门槛语义不同(spot 看**实时**涨幅/量比/换手; 竞价看**定格**竞价涨幅),
+    混用会静默改变名单。
+
+    与竞价 apply_filters 的差异(逐条):
+      1. **多消费 6 个盘中参数**(2026-09-09 spot 下线后它们零消费点,
+         即 v4.11.x 期间"前端能勾、选了不生效"的静默失效):
+         chgGt(实时涨幅上限) / chgFloor(下限) / volRatioFloor(量比下限) /
+         turnoverFloor(换手下限) / turnoverGt(换手上限) / spotExcludeZT(剔除已涨停)。
+      2. 涨幅判定用 **real_change(实时)** 而非 bid_change(定格竞价)。
+      3. 竞价额门槛(bidAmtFloor)**不参与** —— 盘中距 9:25 已远, 竞价额不是选股依据
+         (老实现同样不含此门槛)。
+
+    剔除顺序照老 apply_spot_filters(先便宜后昂贵), 便于对拍。
+    zt_codes 与涨停池: 老实现靠 it["limitBoards"] 判"是否已涨停"(涨停池 lb 字段);
+    本层从 row.warn_type 取不到该信息, 故 **spotExcludeZT 依赖调用方在过滤前
+    为行注入 `_spot_zt` 标记**(见 pipeline_spot); 未注入时该门槛不生效(不误杀)。
+    """
+    ctx = ctx or FilterContext()
+    out = FilterOutcome()
+    markets = ctx.markets if ctx.markets is not None else f.get("markets")
+
+    for it in rows:
+        r, sc = it.row, it.score
+        code, name = r.code, r.name
+
+        # 1) 市场范围
+        if not in_markets(code, markets):
+            out.bump("market")
+            continue
+
+        # 2) 昨涨停/连板(limitUp 语义同竞价: 勾选=包含, 不勾=剔除)
+        if not f.get("limitUp", True) and is_first_board(code, r.concept, ctx.zt_codes):
+            out.bump("first_board")
+            continue
+
+        # 3) ST / 停牌(盘中: 有成交量即非停牌)
+        if not f.get("stSuspend", True):
+            if is_st(name):
+                out.bump("st")
+                continue
+            susp = r.is_suspended
+            if susp is None and r.bid_amt and r.bid_amt > 0:
+                susp = False
+            if susp is None:
+                if ctx.drop_unknown_suspend:
+                    out.bump("suspend_unknown")
+                    continue
+            elif susp:
+                out.bump("suspend")
+                continue
+
+        # 4) spotExcludeZT: 剔除已涨停封板(买不进)。标记由调用方注入。
+        if f.get("spotExcludeZT") and getattr(r, "_spot_zt", False):
+            out.bump("spot_zt")
+            continue
+
+        # 5) 实时涨幅区间 [chgFloor, chgGt]
+        real_chg = r.real_change
+        if real_chg is None:
+            out.bump("no_real_change")
+            continue
+        if real_chg < f.get("chgFloor", 0):
+            out.bump("chg_floor")
+            continue
+        if f.get("chgGt", 0) > 0 and real_chg > f["chgGt"]:
+            out.bump("chg_gt")
+            continue
+
+        # 6) 量比下限
+        vr = r.vol_ratio
+        vr_floor = f.get("volRatioFloor", 0) or 0
+        if vr_floor > 0 and (vr is None or vr < vr_floor):
+            out.bump("vol_ratio")
+            continue
+
+        # 7) 换手率区间 [turnoverFloor, turnoverGt]
+        to = r.turnover
+        to_floor = f.get("turnoverFloor", 0) or 0
+        to_gt = f.get("turnoverGt", 0) or 0
+        if to_floor > 0 and (to is None or to < to_floor):
+            out.bump("turnover_floor")
+            continue
+        if to_gt > 0 and to is not None and to > to_gt:
+            out.bump("turnover_gt")
+            continue
+
+        # 8) 概率/置信度双低
+        if sc.probability < f["probLt"] and sc.confidence < f["confLt"]:
+            out.bump("prob_conf")
+            continue
+
+        # 9) 评分下限
+        if (not ctx.score_floor_exempt and f.get("scoreFloor", 0) > 0
+                and sc.probability < f["scoreFloor"]):
+            out.bump("score_floor")
+            continue
+
+        # 10) 市值区间(同竞价: mv_yi 自由流通优先)
+        mv = r.mv_yi
+        if mv is None or mv < f["floatMvFloor"]:
+            out.bump("mv_floor")
+            continue
+        if f["floatMvGt"] > 0 and mv > f["floatMvGt"]:
+            out.bump("mv_gt")
+            continue
+
+        # 11) 价格上限(spot 用**实时价** —— 盘中价格就是当下的, 不存在"定格"概念)
+        if f["priceGt"] > 0 and r.price is not None and r.price > f["priceGt"]:
+            out.bump("price_gt")
+            continue
+
+        out.kept.append(it)
+    return out
+
+
 def kept_codes(outcome: FilterOutcome) -> List[str]:
     return [it.code for it in outcome.kept]
 
