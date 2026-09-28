@@ -32,12 +32,18 @@
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick' }" @click="switchTab('aipick')"><i class="fa fa-android"></i> AI预测·金睛</button>
             <!-- 2026-09-25: 火眼(LightGBM) 平行链路(与 AI预测 同构, 只换模型); 手机端一并生效(本组 tab 在左栏内部) -->
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick_lgb' }" @click="switchTab('aipick_lgb')"><i class="fa fa-flask"></i> AI预测·火眼</button>
+            <!-- 2026-09-28: 竞价一进二（昨日主板首板 → 今日二连板潜力）。
+                 名单来自独立端点 /api/yijiner，**不读 stock store 的数据流**；
+                 门禁(严格 VIP)/取数/评分全部在 YijinerView 内部，与竞价那条链路互不影响。 -->
+            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'yijiner' }" @click="switchTab('yijiner')"><i class="fa fa-level-up"></i> 竞价一进二</button>
           </span>
           <!-- 2026-09-27 v4.11.63《移动端清单》§二·4: 名单数据的更新时刻。
                用 .right-group 挂到本行右侧（该 class 自带 margin-left:auto，且本行已
                justify-content:flex-start ⇒ 它出现不会把左边那组 tab 挤到中间）。
-               ⚠️ 它讲的是**名单数据**的取回时刻，与页头那个每秒跳的时钟无关。 -->
-          <span class="right-group"><DataStamp :at="dataAt" :ok="dataOk" :interval="autoOn ? 30 : 0" :stale="dataStale" /></span>
+               ⚠️ 它讲的是**名单数据**的取回时刻，与页头那个每秒跳的时钟无关。
+               2026-09-28: 竞价一进二 下隐藏 —— 它不读 store 数据流, 显示 store 的时间戳
+               会误导（时间戳不是这份名单的取回时刻）。 -->
+          <span v-if="leftTab !== 'yijiner'" class="right-group"><DataStamp :at="dataAt" :ok="dataOk" :interval="autoOn ? 30 : 0" :stale="dataStale" /></span>
         </div>
 
         <!-- 筛选面板(竞价 / 盘中实时两种模式共用本组件, 组件内部按 store.strategy 分支渲染) -->
@@ -143,7 +149,11 @@
         <!-- 2026-09-01: AI预测内嵌左视图; 隐藏日期回看(回看入口在导航栏「历史回看」页) -->
         <AipickView v-else-if="leftTab === 'aipick'" :embedded="true" :show-date-picker="false" />
         <!-- 2026-09-25: LightGBM 版(共用 AipickReport 组件, 只是 model='lgb' 取另一份产物) -->
-        <AipickLgbView v-else :embedded="true" :show-date-picker="false" />
+        <AipickLgbView v-else-if="leftTab === 'aipick_lgb'" :embedded="true" :show-date-picker="false" />
+        <!-- 2026-09-28: 竞价一进二（昨日主板首板 → 今日二连板潜力）。
+             严格 VIP 门禁(requiredLevel=1, 与竞价异动同强度)、取数、评分全在组件内部；
+             放在链尾作兜底分支（原 AipickLgbView 的 v-else 已改为显式 v-else-if）。 -->
+        <YijinerView v-else :embedded="true" />
       </div><!-- /.home-col-left -->
 
       <!-- 右栏: 竞价异动 -->
@@ -162,6 +172,7 @@ import StockTable from '../components/StockTable.vue'
 import AuctionView from './AuctionView.vue'
 import AipickView from './AipickView.vue'
 import AipickLgbView from './AipickLgbView.vue'
+import YijinerView from './YijinerView.vue'
 import VipGate from '../components/VipGate.vue'
 import { useStocksStore } from '../stores/stocks'
 import { usePoolStore } from '../stores/pool'
@@ -320,7 +331,10 @@ function switchTab(m) {
   if (leftTab.value === m) return
   leftTab.value = m
   // 2026-09-28 v4.11.80 第三步: tab1/tab2 都归 spot(见上方注释), aipick 归 auction。
-  stocks.setStrategy(m === 'aipick' || m === 'aipick_lgb' ? 'auction' : 'spot')
+  // 2026-09-28: 竞价一进二 也归 auction —— 它同样**不读 store.strategy**(名单来自
+  //   /api/yijiner, 自带门禁), 归 'auction' 只为不给 FilterPanel 留脏值(此时它已隐藏)。
+  //   ⚠️ 归 'spot' 会让 realTimeTimer 之外的 spot 分支产生"以为在盘中模式"的错配。
+  stocks.setStrategy(m === 'aipick' || m === 'aipick_lgb' || m === 'yijiner' ? 'auction' : 'spot')
   // 2026-09-22 v4.11.35: AI 预测的使用计数由 AipickView 自己在加载报表时上报,
   // 这里**不要**再记一次(同一动作会双计)。
   // 2026-09-28 v4.11.80: tab1 走 spot 后**首屏取数逻辑不变** —— fetchAndCache 内部按
