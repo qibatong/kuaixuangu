@@ -83,6 +83,25 @@ def netfill_interval() -> int:
         return 35
 
 
+def _netfill_turn_key(kind, date):
+    """补采「每轮一取」令牌的键(2026-09-29 P0-c2)。"""
+    return "netfill:turn:%s:%s" % (kind, date)
+
+
+def _netfill_turn_ttl() -> int:
+    """令牌存活时长 = 轮询间隔的 0.9 倍。
+
+    🔴 取值理由: 必须**短于**轮询间隔 —— 抢到令牌的进程若异常/卡住, 另一进程最坏只被
+    连带跳过**一轮**, 下一轮必定重新竞争(取 1.0 倍以上会出现"某进程永久接不到活")。
+    """
+    return max(5, int(netfill_interval() * 0.9))
+
+
+# 就绪判定的**判定结果**微缓存 TTL(秒)。见 meoz_bid_ready 的说明:
+# 必须 **< 快照轮询间隔(10s)** —— 否则"每轮都看得到新的上游真值"这一语义被破坏。
+_BIDREADY_TTL = 8
+
+
 def _contract_window(field_name, margin_sec, hard_end_sec):
     """由字段契约推导补采窗口与达标阈值。
 
@@ -1168,8 +1187,16 @@ def meoz_bid_ready(date):
          而当日 9:25 竞价尚未发生。缺这条, 早盘任何时刻都会判"就绪"并把昨日值写进今日定格。
       ② 该日 `auc_vol_ratio` 非零只数 ≥ `_VR_READY_MIN_N`(实测 98.3%, 下限取 90%)。
 
-    只读: 不改任何状态。异常/未启用一律放行(True) —— 猫爪没启用就不存在"等猫爪",
-    不能因为探测失败把定格永久卡死; 真正的保护是候选值本身(未就绪就不 DONE)。
+    只读: **不改任何业务状态**(只写一个 8s 的"判定结果"微缓存, 见下)。异常/未启用一律放行
+    (True) —— 猫爪没启用就不存在"等猫爪", 不能因为探测失败把定格永久卡死; 真正的保护是
+    候选值本身(未就绪就不 DONE)。
+
+    2026-09-29 (P0-c1「收窄 fresh」): 探测本身是全市场 fresh `daily_auc`(无缓存, 5567 行),
+    而它每轮快照(10s)被调一次、2 个 worker 各一次 ⇒ 一个定格窗口能打出 ~12 次全市场探测。
+    治法 = **只把"判定结果"缓存 8 秒**(`_BIDREADY_TTL` < 10s 轮询间隔 ⇒ 下一轮必然重新探测,
+    「每轮都看得到新的上游真值」语义不变), 同轮两个 worker 于是共享一次探测。
+    刻意**不**给 `daily_auc_amt` 加 TTL —— 那会把主链共用的 `meoz:daily_auc:*` 键写成短命
+    条目, 连累抢筹/竞价一进二(与 WP2b「不污染主链缓存」同一纪律)。
 
     Args:
         date: 目标交易日(YYYY-MM-DD 或 YYYYMMDD)。
@@ -1182,8 +1209,13 @@ def meoz_bid_ready(date):
         if not meoz_client.enabled():
             return True
         want = str(date or _bj_date()).replace("-", "")
+        ck = "bidready:" + want
+        hit = store.get(ck)
+        if hit in (0, 1):                      # 同轮内另一 worker 刚探过(8s 内) → 复用判定
+            return bool(hit)
         am = meoz_client.daily_auc_amt("0925", date=want, fresh=True)
         if not am:
+            store.set(ck, 0, ttl=_BIDREADY_TTL)
             return False
         n_same_day = nz = 0
         for r in am.values():
@@ -1194,8 +1226,12 @@ def meoz_bid_ready(date):
             if (r or {}).get("auc_vol_ratio") or 0:
                 nz += 1
         if n_same_day == 0:
-            return False                       # 一行都不是目标日 → 未就绪(防串日核心)
-        return nz >= _VR_READY_MIN_N
+            store.set(ck, 0, ttl=_BIDREADY_TTL)   # 一行都不是目标日 → 未就绪(防串日核心)
+            return False
+        verdict = nz >= _VR_READY_MIN_N
+        # 只缓存**判定结果**(不是行情): 8s 后必然重新探测 ⇒ 不牺牲"看得见上游真值"。
+        store.set(ck, 1 if verdict else 0, ttl=_BIDREADY_TTL)
+        return verdict
     except Exception as e:                                     # noqa: BLE001
         log.warning("[快照采集] 猫爪就绪判定失败(视为未就绪) date=%s err=%s", date, str(e)[:120])
         return False
@@ -1250,6 +1286,14 @@ def refill_bid_main_net(date, point="9_25"):
     # 走 fundflow_map(内部 _FUNDFLOW_BATCH=2000 分片): 全市场单轮 ≈ 3 次上游调用。
     # fresh=True(WP2b): 补采**直打上游**, 既不读也不写缓存 —— 与"间隔必须 > TTL"彻底解耦,
     # 且不污染主链缓存(主链读的是同一个 meoz:fundflow_kp:* key)。
+    # 🔴 2026-09-29 (P0-c2): 上面这条 WP2b 设计**保留不动**(仍不读写缓存、仍直打上游),
+    #   只补一层"**每轮只让一个进程取**"的跨进程令牌 —— 生产 2 worker 各有自己的
+    #   `_last_netfill_ts`, 于是同一轮两个进程各取一遍(净额 3 片 + 量比 1 次全市场),
+    #   而这两处取的**是同一份竞价定格终值**(幂等回填, 谁写都一样) ⇒ 重复纯属浪费上游。
+    #   抢不到 = 另一 worker 本轮已在取 ⇒ 本轮直接跳过(它在写库, 结果一致)。
+    if not store.setnx(_netfill_turn_key("net", date), 1, ttl=_netfill_turn_ttl()):
+        log.info("[竞价补采] 净额: 另一 worker 本轮已取, 跳过 date=%s", date)
+        return (0, 0, len(codes))
     ff_map = meoz_client.fundflow_map(codes, date_offset=0, fresh=True)
     if not ff_map:
         return (0, 0, len(codes))
@@ -1309,6 +1353,11 @@ def refill_bid_vol_ratio(date, point="9_25"):
         return (0, 0, 0)
 
     want = str(date).replace("-", "")
+    # 🔴 2026-09-29 (P0-c2): 与 refill_bid_main_net 同一理由 —— fresh 直打上游**保留**,
+    #   只加"每轮只让一个进程取"的跨进程令牌(独立键 `vr`, 不与净额互相阻塞)。
+    if not store.setnx(_netfill_turn_key("vr", date), 1, ttl=_netfill_turn_ttl()):
+        log.info("[竞价补采] 量比: 另一 worker 本轮已取, 跳过 date=%s", date)
+        return (0, 0, len(codes))
     am = meoz_client.daily_auc_amt("0925", date=want, fresh=True)
     if not am:
         return (0, 0, len(codes))

@@ -285,6 +285,29 @@ def vip_user(client, first_user):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_round_scoped_keys():
+    """每个用例前后清掉"轮次作用域"的跨进程键(2026-09-29 P0-c 新增)。
+    涉及: `netfill:turn:*`(补采"每轮一取"令牌) 与 `bidready:*`(就绪判定结果微缓存)。
+    理由: 这两个键是**跨进程 + date 作用域 + 秒级 TTL** —— 在生产里正是设计目标(两 worker
+    共享一轮), 但测试库是**整个 session 共用**的: 前一个用例刚取过令牌/刚探过就绪, 后一个
+    用例就会静默跳过取数, 表征为"单文件绿、全量跑红"的顺序耦合。用例内部要验"重复调用"
+    时, 请显式 `store.clear_prefix(...)` 自己进入下一轮(见 test_net_refill_0924)。
+    """
+    from app.services.cache_store import store as _cs
+    for _p in ("netfill:turn:", "bidready:"):
+        try:
+            _cs.clear_prefix(_p)
+        except Exception:                                      # noqa: BLE001
+            pass
+    yield
+    for _p in ("netfill:turn:", "bidready:"):
+        try:
+            _cs.clear_prefix(_p)
+        except Exception:                                      # noqa: BLE001
+            pass
+
+
+@pytest.fixture(autouse=True)
 def _isolate_fetcher_globals():
     """每个用例前后隔离 fetcher 的模块级全局状态(2026-09-10 新增)。
 

@@ -68,11 +68,19 @@ def test_snapshot_load_empty(client):
 
 
 def test_snapshot_fetch_fail_returns_0(client, monkeypatch):
-    """三分区全失败时返回 0"""
+    """三分区全失败时返回 0
+
+    🔴 2026-09-29 补严: 本用例原先只桩了东财/腾讯两个分区, 但主源之后还有**兜底链**
+      (① 猫爪 screening → ② 开盘啦竞价榜 `_fetch_kpl_fallback`), 后者能从预热行情缓存
+      /测试桩里拿到 1 只票 ⇒ "全失败"这个前提不成立, 断言 `== 0` 拿到 1 而失败。
+      实测: 这是**既有**的顺序耦合 —— 用改动前代码跑同一文件组合同样失败(单跑则通过,
+      因为那时 spot 缓存还是冷的)。这里显式关掉 ②, 让"三源全失败"真的成立。
+    """
     def boom(fs):
         raise RuntimeError("network down")
     monkeypatch.setattr(auction_snapshot.fetcher, "fetch_eastmoney_all", boom)
     monkeypatch.setattr(auction_snapshot.fetcher, "fetch_tencent_market", boom)
+    monkeypatch.setattr(auction_snapshot, "_fetch_kpl_fallback", lambda: [])
     assert auction_snapshot.snapshot_at("9_20", force=True) == 0
 
 

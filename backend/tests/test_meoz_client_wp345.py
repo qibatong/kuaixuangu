@@ -97,8 +97,12 @@ def test_daily_history_map_params_recentdays_vs_tradedate(monkeypatch):
     assert seen[0][1] == {"symbols": "600519", "recentdays": 3}
     assert seen[1][1] == {"symbols": "600519", "tradedate": "20260924"}, \
         "传 date 时不得再带 recentdays(同传会被上游忽略, 语义含糊)"
-    assert seen[2][1] == {"symbols": "600519,000001", "recentdays": 3}, \
-        "入口必须剥掉交易所后缀"
+    # 🔴 2026-09-28: symbols 现在**入口即排序**。缓存键 = apiname+fields+json(params)，
+    #   顺序不稳会让"同一批票"落到不同键 ⇒ 重复打上游（生产实测：竞价时段 429 的主源
+    #   正是 daily 的重复拉取，09:24→163 条 / 09:25→286 条）。故本断言同时钉两件事：
+    #   剥交易所后缀 + 排序。
+    assert seen[2][1] == {"symbols": "000001,600519", "recentdays": 3}, \
+        "入口必须剥掉交易所后缀，且必须排序（否则缓存键不稳 ⇒ 重复打上游）"
 
 
 def test_daily_history_map_empty_symbols_short_circuits(monkeypatch):

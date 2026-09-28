@@ -171,32 +171,35 @@ def test_success_within_cooldown_does_not_reset():
         assert h["fails_in_row"] >= 1, "冷却期内的成功不应清零退避计数"
 
 
-def test_short_circuit_requires_both_kline_sources_down(monkeypatch):
-    """2026-09-10 二审: 短路口径 = 东财日K **与** 腾讯K线**均**熔断。
+def test_yday_chain_tencent_then_eastmoney(monkeypatch):
+    """🔴 2026-09-29 口径：昨比 = 猫爪 daily(主，批量) → **腾讯(首选备源)** → **东财(末位兜底)**。
 
-    与"去兜底"并不矛盾: 被判为必须删除的是**会编造字段**的换源(全市场竞价 f615/f616
-    用现价假造); 腾讯日K是**同语义真实成交额(万元)**, 保留。故东财单独熔断时不再短路,
-    要走腾讯备源; 只有两源都熔断才整批短路置空(避免逐只打日志的日志风暴, 见 8/31 事故)。
-
-    原「东财熔断即短路」用例断言的行为已按上面的设计变更 → 本用例替换之。
+    为什么东财必须留：它带**官方 f58 涨跌幅**，而腾讯 qfqday 只能按前复权收盘价环比自算
+    （除权除息日会偏），且腾讯稳定缺 ~8 只；而"昨日涨幅"是评分因子(权重 6%) ⇒
+    属"会改逻辑计算"，主人明确"如果影响逻辑计算，还可以考虑使用东财"。
+    故东财**退出主链、只做末位**。本用例只钉**顺序与短路语义**（东财腿的 HTTP 细节不复制进测试）。
     """
-    monkeypatch.setattr(fetcher, "_host_blocked", lambda host: True)   # 东财全部域名快速失败
+    real_em = fetcher._yday_fallback_eastmoney      # 先留真实实现：下面 ③ 要单独验它的熔断短路
     monkeypatch.setattr(fetcher, "_fetch_yesterday_amount_tencent",
                         lambda code, after_close=None: ([100.0, 90.0], 1.5))
-    fetcher._record("eastmoney_kline", False)
-    assert fetcher._check_circuit("eastmoney_kline")
+    monkeypatch.setattr(fetcher, "_yday_fallback_eastmoney",
+                        lambda code: ([111.0, 99.0], 2.5))
     assert not fetcher._check_circuit("tencent_kline")
 
-    # 东财熔断但腾讯健康 → 走同语义备源(不得整只置空)
+    # ① 腾讯可用 → 正常取到（且不得动东财）
     res = fetcher._fetch_yesterday_amount_one("600519")
-    assert res == ([100.0, 90.0], 1.5), "东财熔断应切腾讯同语义备源, 实际 %s" % (res,)
+    assert res == ([100.0, 90.0], 1.5), "腾讯健康应正常取到, 实际 %s" % (res,)
 
-    # 腾讯K线也熔断(down_threshold=2) → 两源皆挂, 才短路置空
+    # ② 腾讯熔断(down_threshold=2) → 落到东财末位兜底
     fetcher._record("tencent_kline", False)
     fetcher._record("tencent_kline", False)
     assert fetcher._check_circuit("tencent_kline")
     res2 = fetcher._fetch_yesterday_amount_one("600519")
-    assert res2 == (None, None), "两源均熔断才应短路置空, 实际 %s" % (res2,)
+    assert res2 == ([111.0, 99.0], 2.5), "腾讯挂应走东财末位兜底, 实际 %s" % (res2,)
+
+    # ③ 东财腿自身也带熔断短路（直接调真实实现，不打网络）
+    monkeypatch.setattr(fetcher, "_check_circuit", lambda src: src == "eastmoney_kline")
+    assert real_em("600519") == (None, None), "东财熔断应直接返回空"
 
 
 def test_ensure_spot_cache_returns_stale_on_circuit(monkeypatch):

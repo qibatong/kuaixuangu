@@ -233,6 +233,12 @@ def test_refill_vol_ratio_idempotent(monkeypatch):
     _patch_meoz(monkeypatch, {"600001": {"tradedate": "20261117", "auc_vol_ratio": 1.1}})
     assert A.refill_bid_vol_ratio(D2, PT) == (1, 0, 1)
     assert _read_vr(D2, "600001") == 7.7
+    # 🔴 2026-09-29: 先进入"下一轮"再验重复调用 —— 补采新增了**每轮一取**的跨进程令牌
+    #   (`netfill:turn:vr:<date>`, TTL 31s < 轮询 35s): 本轮内第二次会被"另一 worker 正在取"
+    #   挡掉而返回 (0,0,1)。生产里两个 worker 共享一轮正是设计目标; 令牌按 TTL 自行过期,
+    #   清掉 == 时间推进到下一轮, 于是仍能验"已有非零值不被覆盖"。
+    from app.services.cache_store import store as _cs
+    _cs.clear_prefix("netfill:turn:")
     assert A.refill_bid_vol_ratio(D2, PT) == (1, 0, 1)
     assert _read_vr(D2, "600001") == 7.7
 

@@ -24,9 +24,16 @@ router = APIRouter()
 
 def _bj_now():
     """当前北京时间 struct_time (服务器走 UTC, 需 +8h 才是北京时间)。
-    项目惯例: 北京时间 = time.gmtime(time.time() + 8*3600)"""
-    import time as _t
-    return _t.gmtime(_t.time() + 8 * 3600)
+    项目惯例: 北京时间 = time.gmtime(time.time() + 8*3600)
+
+    🔴 2026-09-29 修(可测性缝隙, 生产行为零变化): 原实现在函数体里 `import time as _t`
+      —— 那会**绕开本模块的 `_time`**(全仓测试都用 `monkeypatch.setattr(api_kpl, "_time", 固定时钟)`
+      注入时刻)。后果: `tests/test_close_change_daily.py::test_apply_change_for_uses_beijing_today`
+      只有在**真实日期恰好等于夹具日期**那天才通过, 之后**永久变红**(实测 2026-09-29 起必红,
+      与本次 ①②③ 改动无关 —— 用改动前代码跑同样失败)。改用模块级 `_time` 后与本文件其它
+      时钟调用同一口径; 生产环境没人打桩 `_time`, 取到的是同一个真 time 模块。
+    """
+    return _time.gmtime(_time.time() + 8 * 3600)
 
 
 def _is_auction_hours():
@@ -228,8 +235,15 @@ def api_kpl_market_brief(request: Request, uid: int = Depends(get_uid)):
 @router.get("/api/kpl/index-brief")
 def api_kpl_index_brief(request: Request, uid: int = Depends(get_uid)):
     """A股核心指数实时快照 + 猫爪情绪周期(2026-09-20 首页指数带/情绪卡, 主人指令换猫爪数据)。
-    指数: 猫爪 index_snapshot(批量 8 指数); 情绪: 猫爪 emoindic_daily(最新交易日)。
-    服务端 30s 缓存(与盘中 30s 刷新节奏一致)。非交易时段返回最近交易日数据。"""
+    指数: 猫爪 index_snapshot(批量 8 指数); 情绪: 猫爪 emoindic(最新交易日)。
+    服务端 30s 缓存(与盘中 30s 刷新节奏一致)。非交易时段返回最近交易日数据。
+
+    🔴 2026-09-29 兜底(首页第一屏不能看猫爪脸色): 本接口原先**裸调**两个猫爪函数, 上游一旦
+    429/失败, 首屏指数带与情绪卡整块空。现在兜底下沉到 meoz_client:
+      * 指数 → 腾讯简版(实测两机 200) → 上次成功值(标 `src=stale`);
+      * 情绪 → 上次成功值(**仅当此刻仍然成立**: 盘中要求同一交易日, 见 `_emo_stale_ok`, 标 `stale=1`)。
+    两个标记得以保留在响应里, 前端/排查可据此区分"实时"与"降级"。
+    """
     from ..services import meoz_client
     rows = meoz_client.index_snapshot()
     emo = meoz_client.emo_daily()

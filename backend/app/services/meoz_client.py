@@ -153,16 +153,34 @@ class _AuthError(Exception):
     """认证失败(401/403): 不重试、不切线路, 直接暴露问题。"""
 
 
-def _retry_after_seconds(headers, attempt: int) -> float:
-    """429 退避时长: 优先取 Retry-After, 否则指数退避(1s, 2s, ...), 上限 8s。"""
-    if headers:
-        ra = headers.get("Retry-After")
-        if ra:
-            try:
-                return min(8.0, max(0.5, float(ra)))
-            except (TypeError, ValueError):
-                pass
-    return min(8.0, 1.0 * (2 ** attempt))
+_RETRY_AFTER_CAP = 30.0     # 官方 SKILL.md:116 —— "429 遵循 Retry-After, 单次等待最多 30 秒"
+_RETRY_AFTER_TOTAL = 30.0   # 单次 call() 的**累计**等待预算(同上口径; 防 3 次退避叠加成 60s)
+
+
+def _retry_after_seconds(retry_after, attempt: int) -> float:
+    """429 退避时长: 优先取上游 `Retry-After`, 否则指数退避(1s, 2s, ...), 上限 30s。
+
+    🔴 2026-09-28 修复(原先**违反官方规范**的 bug): 本函数原先只接受 headers **映射**,
+      而 `_post_one` 抛错时塞进去的是 `dict(e.headers or {})` **整个字典** ⇒ 429 分支里
+      `float(<dict>)` 抛 TypeError, 又被 `except (TypeError, ValueError)` 静默吞掉
+      ⇒ **上游的 Retry-After 从未生效**, 我们固定按 1s/2s 连打同一条线路继续敲。
+      这不只是"没兜底", 而是**主动放大限流** —— 生产实测: 竞价时段单分钟 429 达 163~286 条
+      (见 deploy/meoz-429-fallback-analysis-20260928.md)。
+
+    现在: ① `_post_one` 只保留 `Retry-After` 头的值; ② 本函数兼容"字符串/数字"与
+    "headers 映射"两种入参(向后兼容); ③ 上限由 8s 提到官方口径的 30s。
+    """
+    ra = None
+    if isinstance(retry_after, dict):                 # 兼容旧调用方: 直接传 headers 映射
+        ra = retry_after.get("Retry-After")
+    elif retry_after is not None:
+        ra = retry_after
+    if ra is not None and str(ra).strip() != "":
+        try:
+            return min(_RETRY_AFTER_CAP, max(0.5, float(str(ra).strip())))
+        except (TypeError, ValueError):
+            pass
+    return min(_RETRY_AFTER_CAP, 1.0 * (2 ** attempt))
 
 
 def _post_one(url: str, payload: dict, timeout: int):
@@ -184,7 +202,8 @@ def _post_one(url: str, payload: dict, timeout: int):
     except urllib.error.HTTPError as e:                        # 带状态码: 非网络层
         if e.code in (401, 403):
             raise _AuthError("HTTP %s" % e.code)
-        raise _HttpCodeError(e.code, dict(e.headers or {}))
+        # 只留 Retry-After 的值(整个 headers 字典会让下游 float() 抛错 ⇒ 退避失效)
+        raise _HttpCodeError(e.code, (e.headers or {}).get("Retry-After"))
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError):
         raise                                                  # 网络层: 由上层决定切线路
 
@@ -221,6 +240,7 @@ def call(apiname: str, params=None, fields=None, timeout: int = _TIMEOUT):
 
     try:
         idx = 0
+        waited = 0.0                    # 本次 call() 的累计 429 等待(见 _RETRY_AFTER_TOTAL)
         while idx < min(len(lines), _MAX_ATTEMPTS):
             url = lines[idx]
             attempt = 0
@@ -234,8 +254,17 @@ def call(apiname: str, params=None, fields=None, timeout: int = _TIMEOUT):
                     return None
                 except _HttpCodeError as e:
                     if e.code == 429 and attempt < 2:
-                        wait = _retry_after_seconds({"Retry-After": e.retry_after}, attempt)
-                        log.warning("猫爪 429 限流 a=%s 退避 %.1fs 后重试同线路", apiname, wait)
+                        wait = _retry_after_seconds(e.retry_after, attempt)
+                        if waited + wait > _RETRY_AFTER_TOTAL:   # 预算用尽 ⇒ 不再敲上游
+                            wait = max(0.0, _RETRY_AFTER_TOTAL - waited)
+                        if wait <= 0:
+                            _record(False)
+                            log.warning("猫爪 429 限流 a=%s 已用完 %.0fs 等待预算(官方口径), 放弃本次",
+                                        apiname, _RETRY_AFTER_TOTAL)
+                            return None
+                        waited += wait
+                        log.warning("猫爪 429 限流 a=%s 退避 %.1fs(遵循 Retry-After) 后重试同线路",
+                                    apiname, wait)
                         time.sleep(wait)
                         attempt += 1
                         continue
@@ -322,6 +351,32 @@ def _hist_ttl_for(params, ttl) -> float:
     return max(float(_HIST_TTL), float(ttl)) if digits < today else ttl
 
 
+def _bj_today8() -> str:
+    """北京时间今天 YYYYMMDD（与 _hist_ttl_for 内同一口径）。"""
+    return time.strftime("%Y%m%d", time.gmtime(time.time() + 8 * 3600))
+
+
+def _norm_symbols_param(symbols) -> str:
+    """把 symbols 归一成**排序后**的逗号串 —— "同一批票命中同一个缓存键"的前提。
+
+    ★ 为什么必须排序（2026-09-28 实测根因）:
+      缓存键 = apiname + json(params)（见 call_cached）。symbols 顺序不同则键逐字不同
+      ⇒ 同一批 5000+ 行的数据被**重复拉取**，把上游打成 429：
+      生产实测竞价时段 09:24→163 条、09:25→286 条 429，且两台机的 429 **全部**来自
+      这类重复的 `a=daily`（昨比 500 只/片 × 多调用方 × 顺序各异）。
+      排序只让"同一批票"落到同一个键；**子集**调用（如"名单前 100 只"）params 本就不同，
+      不受影响。
+
+    ★ 安全性: 上游按 symbols 批量返回，**行序无契约价值** —— 本模块出口一律用
+      `_sym_rows()` 转成 {symbol: row} 字典，顺序天然被抹掉。
+    """
+    if isinstance(symbols, (list, tuple, set)):
+        seq = [str(x).strip() for x in symbols]
+    else:
+        seq = [x.strip() for x in str(symbols or "").split(",")]
+    return ",".join(sorted(x for x in seq if x))
+
+
 def call_cached(apiname: str, params=None, fields=None, ttl=6, cache_key=None,
                 fresh: bool = False):
     """带缓存的调用。ttl 秒内同 key 直接读缓存, 避免竞价时段高频重复拉同一份数据。
@@ -333,7 +388,12 @@ def call_cached(apiname: str, params=None, fields=None, ttl=6, cache_key=None,
     """
     if cache_key is None:
         try:
-            cache_key = apiname + ":" + json.dumps(params or {}, sort_keys=True, ensure_ascii=False)
+            # 🔴 2026-09-28: **fields 必须进键**。原先只拼 apiname+params ⇒ 同一 apiname+params
+            #   但 fields 不同的调用会"串味"：先写缓存的那次字段集被后调用者读到（缺列），
+            #   例如题材榜只要 3 列、screening 要 54 列 ⇒ 属**正确性**问题，不只是浪费。
+            fld = fields if isinstance(fields, str) else ",".join(fields or [])
+            cache_key = "%s|%s:%s" % (apiname, fld,
+                                      json.dumps(params or {}, sort_keys=True, ensure_ascii=False))
         except Exception:                                      # noqa: BLE001
             cache_key = apiname
     # 2026-09-28: 历史绝对日期改用长 TTL —— 结果层过期时上游仍热, 重建从 5.5s 降到 ~0.35s
@@ -518,9 +578,12 @@ def fundflow_map(symbols, date_offset=None, date=None, fresh=False):
     fresh: True 时跳过缓存直打上游 —— 补采取数专用(见 call_cached 的 fresh 说明);
            普通链路保持 False(默认), 行为与改动前一致。
     """
-    syms = [str(s) for s in (symbols or []) if str(s or "").strip()]
+    syms = [str(s).strip() for s in (symbols or []) if str(s or "").strip()]
     if not syms:
         return {}
+    # 🔴 2026-09-28: 分片前排序 ⇒ 同一批票恒定落到同一个缓存键(理由见 _norm_symbols_param)。
+    #   原先调用方一处传 sorted(codes)、一处传未排序的候选序 ⇒ 同一份数据各打一遍上游。
+    syms.sort()
     out = {}
     for i in range(0, len(syms), _FUNDFLOW_BATCH):
         chunk = syms[i:i + _FUNDFLOW_BATCH]
@@ -711,15 +774,22 @@ def screening_map(date_offset=None, date=None, symbols=None):
       且**独有 free_float_mv 全市场**。snapshot_bid 采集首选本接口。
     ★ 历史日: 传 tradedate/startdate/enddate/recentdays/tradedate_offset, 支持回填。
     """
+    # 🔴 2026-09-28 归一: "全市场实时"有三种等价写法 —— `{}` / `{tradedate:今天}` /
+    #   `{tradedate_offset:0}`。键不同 ⇒ 同一份 5000+ 行数据被分别拉取（竞价时段实测
+    #   最多 4 份：auction_snapshot / picker.meoz / kpl 兜底 / free_mv_map）。
+    #   统一成**相对键 tradedate_offset=0**（历史绝对日仍走 tradedate，以享长 TTL）。
+    if date is None and date_offset is None:
+        date_offset = 0
+    elif date is not None and str(date).replace("-", "") == _bj_today8():
+        date, date_offset = None, 0
     params = {}
     if date:
         params["tradedate"] = str(date).replace("-", "")
     elif date_offset is not None:
         params["tradedate_offset"] = date_offset
     if symbols:
-        # 点查: 列表 → 逗号分隔(openapi 两种形态都接受, 用逗号串最省事)
-        params["symbols"] = (",".join(str(x) for x in symbols)
-                             if isinstance(symbols, (list, tuple, set)) else str(symbols))
+        # 点查: 列表 → 逗号分隔(**排序**) —— openapi 两种形态都接受，排序只为稳定缓存键
+        params["symbols"] = _norm_symbols_param(symbols)
     data = call_cached("screening", params=params, ttl=_AUC_SNAP_TTL,
                        fields=_SCREENING_FIELDS)
     return _sym_rows(data)
@@ -909,7 +979,9 @@ def daily_history_map(symbols, days=3, date=None, fresh=False):
         seq = str(syms or "").split(",")
     # 入口也与 minute_rows 对称地剥掉交易所后缀: 上游 daily 只认纯 6 位,
     # 调用方若传 '600519.SH' 会被上游整批拒(表现为"该票没数据", 极难排查)。
-    syms = ",".join(_strip_market_suffix(x.strip()) for x in seq if x.strip())
+    # 🔴 2026-09-28: 拼串前**排序** —— 昨比按 500 只分片，顺序不稳会让每一片的缓存键都不同；
+    #   生产实测竞价时段 429 的主源正是本接口(daily) 的重复拉取。理由见 _norm_symbols_param。
+    syms = ",".join(sorted(_strip_market_suffix(x.strip()) for x in seq if x.strip()))
     if not syms:
         return {}
     params = {"symbols": syms}
@@ -1025,36 +1097,142 @@ _INDEX_CODES = ("000001", "399001", "399006", "000016",
 _INDEX_NAMES = ("上证指数", "深证成指", "创业板指", "上证50",
                 "沪深300", "科创50", "中证1000", "中证2000")
 
+# ---- 指数兜底(2026-09-29): 猫爪挂掉时首页指数带不能整块空 ----
+# 🔴 源是**实测**挑出来的(2026-09-29 测试机 + 生产机同时验证), 不是随手选:
+#   * 腾讯 `qt.gtimg.cn` 简版(**就是它**): 两机 HTTP 200、一次请求拿全部指数、字段齐全
+#     (名称/点位/涨跌/涨跌幅), 且与腾讯自家K线**逐位一致**(上证 3823.62 = K线 9/28 收盘)。
+#   * 新浪 `hq.sinajs.cn`: **403** —— 该出口 IP 早已被新浪拉黑(core/net.py:18 有记录),
+#     且生产机现只剩 eth0 一个出口 ⇒ **不可用**, 别把兜底挂到这里。
+#   * 东财 `push2`/`ulist.np`: net.py:16 记「两出口均 HTTP 000(0.05s RST)」, 今日实测时通
+#     时不通 ⇒ 不作兜底源(东财只在 push2dycalc / push2ex 域可用)。
+_TX_INDEX_URL = "https://qt.gtimg.cn/q="
+_TX_INDEX_CODES = {
+    "000001": "s_sh000001", "399001": "s_sz399001", "399006": "s_sz399006",
+    "000016": "s_sh000016", "000300": "s_sh000300", "000688": "s_sh000688",
+    "000852": "s_sh000852",
+    # 932000(中证2000): 腾讯简版**不返回**这个代码(实测) ⇒ 该只仍只能靠猫爪/上次值。
+}
+_TX_INDEX_TTL = 5                       # 秒; 兜底结果的进程内微缓存(防首屏并发打爆腾讯)
+_tx_index_cache = {"ts": 0.0, "rows": {}}
+_INDEX_LAST_KEY = "index_brief:last"    # 上次成功值(跨进程), 供两级兜底都失败时用
+_INDEX_LAST_TTL = 86400                 # 秒
+
+
+def _fnum(v):
+    """宽松转 float: 失败返 None(指数/情绪兜底共用)。"""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _tx_index_rows():
+    """腾讯简版指数快照 -> {code: {name,px,preClose,chg,pctChg}}; 失败返 {}。
+
+    行格式(实测): ``v_s_sh000001="1~上证指数~000001~3823.62~-64.75~-1.67~452350675~80454370~~679205.78~ZS~";``
+    字段位: [1]名称 [2]代码 [3]最新点位 [4]涨跌点位 [5]涨跌幅% —— **昨收自算 [3]-[4]**
+    (实测 3823.62-(-64.75)=3888.37, 与腾讯K线里 9/24 收盘 3888.370 吻合, 故可信)。
+    编码是 **GBK**(不是 UTF-8) —— 不解码就得到乱码名。
+    """
+    now = time.time()
+    if _tx_index_cache["rows"] and now - _tx_index_cache["ts"] < _TX_INDEX_TTL:
+        return _tx_index_cache["rows"]
+    out = {}
+    try:
+        codes = [_TX_INDEX_CODES[c] for c in _INDEX_CODES if c in _TX_INDEX_CODES]
+        req = urllib.request.Request(_TX_INDEX_URL + ",".join(codes), headers={
+            "Referer": "https://gu.qq.com/",
+            "User-Agent": "Mozilla/5.0",
+        })
+        with _net.http_get(req, timeout=6) as r:
+            txt = r.read().decode("gbk", "ignore")
+        for line in txt.split(";"):
+            if '="' not in line:
+                continue
+            body = line.split('="', 1)[1].rstrip('"')
+            f = body.split("~")
+            if len(f) < 6:
+                continue
+            px = _fnum(f[3])
+            if px is None or not px:
+                continue                       # 点位缺失/为 0 → 视为该只没有
+            chg = _fnum(f[4])
+            out[f[2]] = {
+                "name": f[1] or "",
+                "px": px,
+                "preClose": round(px - chg, 2) if chg is not None else None,
+                "chg": chg,
+                "pctChg": _fnum(f[5]),
+            }
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("指数兜底(腾讯简版)失败 err=%s", str(e)[:120])
+        return _tx_index_cache["rows"] or {}     # 失败时返回上一次(可能为空), 不抛
+    _tx_index_cache["rows"] = out
+    _tx_index_cache["ts"] = now
+    return out
+
 
 def index_snapshot():
-    """A股核心指数实时快照 -> 有序 list[{code,name,px,preClose,chg,pctChg}]。
+    """A股核心指数实时快照 -> 有序 list[{code,name,px,preClose,chg,pctChg,src}]。
 
     源: 猫爪 index_snapshot(指数分钟行情快照)。params.symbols 逗号分隔、**不带市场后缀**;
         返回 symbol 带 .SH/.SZ 后缀 → 按 code 前缀回配到固定顺序。
     字段: name/close(最新点位)/pre_close(昨收)/change(涨跌点位)/pct_chg(涨跌幅%)。
+
+    2026-09-29 兜底(首页第一屏不能看猫爪脸色): 逐只填空, 顺序
+      **猫爪(src=meoz) → 腾讯简版(src=tencent) → 上次成功值(src=stale)**。
+    只对"确实缺的"那只做兜底 ⇒ 猫爪正常时结果与改动前**逐字段相同**(只多了 src 字段),
+    且成功值会落盘(`index_brief:last`, 24h)供下次救急 —— 三源全down 时首页仍有点位可看。
     """
     params = {"symbols": ",".join(_INDEX_CODES)}
     data = call_cached("index_snapshot", params=params, ttl=30,
                        fields="symbol,name,close,pre_close,change,pct_chg")
     rows = _sym_rows(data, key="symbol") or {}
 
-    def _f(v):
-        try:
-            return float(v)
-        except (TypeError, ValueError):
-            return None
-
     out = []
     for i, c in enumerate(_INDEX_CODES):
         r = rows.get(c) or rows.get(c + ".SH") or rows.get(c + ".SZ") or rows.get(c + ".CSI") or {}
+        px = _fnum(r.get("close"))
         out.append({
             "code": c,
             "name": r.get("name") or _INDEX_NAMES[i],
-            "px": _f(r.get("close")),
-            "preClose": _f(r.get("pre_close")),
-            "chg": _f(r.get("change")),
-            "pctChg": _f(r.get("pct_chg")),
+            "px": px,
+            "preClose": _fnum(r.get("pre_close")),
+            "chg": _fnum(r.get("change")),
+            "pctChg": _fnum(r.get("pct_chg")),
+            "src": "meoz" if px else None,
         })
+
+    # ① 二级兜底: 腾讯简版(只补缺口, 不覆盖猫爪的值)
+    if any(x["px"] is None for x in out):
+        tx = _tx_index_rows()
+        for x in out:
+            t = tx.get(x["code"]) if x["px"] is None else None
+            if t:
+                x.update({"name": t["name"] or x["name"], "px": t["px"],
+                          "preClose": t["preClose"], "chg": t["chg"],
+                          "pctChg": t["pctChg"], "src": "tencent"})
+
+    # ② 三级兜底: 上次成功值(标 src=stale, 让前端/排查一眼看出这是缓存不是实时)
+    last = store.get(_INDEX_LAST_KEY)
+    if any(x["px"] is None for x in out) and isinstance(last, dict) and last:
+        ts = last.get("_ts")
+        for x in out:
+            l = last.get(x["code"]) if x["px"] is None else None
+            if isinstance(l, dict) and l.get("px") is not None:
+                x.update({"px": l.get("px"), "preClose": l.get("preClose"),
+                          "chg": l.get("chg"), "pctChg": l.get("pctChg"),
+                          "src": "stale", "staleTs": ts})
+
+    # ③ 存本次成功值(与上次**合并** —— 部分缺时不要把好值冲掉); 全空则不写, 免得覆盖好缓存
+    if any(x["px"] is not None for x in out):
+        merged = dict(last) if isinstance(last, dict) else {}
+        for x in out:
+            if x["px"] is not None and x.get("src") != "stale":
+                merged[x["code"]] = {"px": x["px"], "preClose": x["preClose"],
+                                     "chg": x["chg"], "pctChg": x["pctChg"]}
+        merged["_ts"] = time.time()
+        store.set(_INDEX_LAST_KEY, merged, ttl=_INDEX_LAST_TTL)
     return out
 
 
@@ -1090,7 +1268,8 @@ def _emo_prev_amt(ymd: str, back: int = 10):
     code=1002「未找到情绪周期数据」。必须逐日回退直到拿到数据为止(周日 20260920 →
     回退到 20260918 周五才拿到 20931.53 亿)。回退上限 back 天, 覆盖国庆/春节长假。
 
-    走 call(不缓存), 由外层 call_cached(ttl=600) 统一缓存 —— 历史值不可变, 长 TTL 无风险。
+    历史日的 am 不可变 ⇒ 长 TTL 无风险(2026-09-29 起: 本函数**自己**走 call_cached(ttl=600),
+    不再依赖那个从来不存在的"外层缓存")。
     """
     if not ymd:
         return None
@@ -1102,7 +1281,14 @@ def _emo_prev_amt(ymd: str, back: int = 10):
     for i in range(1, back + 1):
         probe = (d - timedelta(days=i)).strftime("%Y%m%d")
         try:
-            r = call(apiname="emoindic", params={"tradedate": probe}, fields="tradedate,am")
+            # 🔴 2026-09-29: 由裸 `call()` 改为 `call_cached(ttl=600)` —— 本函数 docstring
+            #   一直宣称"由外层 call_cached(ttl=600) 统一缓存", 但**那个外层并不存在**
+            #   (唯一调用点是 emo_daily 里的裸调) ⇒ 每当 am_diff 需要兜底, 都要逐日回退
+            #   打上游、最多 10 次**完全不吃缓存**, 是首页情绪卡的 429 放大源之一。
+            #   历史日的 am 不可变 ⇒ 长 TTL 无风险(`_hist_ttl_for` 还会对历史 tradedate 再放宽)。
+            #   params 里带 tradedate ⇒ 键与主链 emoindic(无 params)**不是同一个**, 不污染主链。
+            r = call_cached("emoindic", params={"tradedate": probe}, ttl=600,
+                            fields="tradedate,am")
         except Exception:                                      # noqa: BLE001
             continue
         dd = (r or {}).get("data") or {}
@@ -1114,6 +1300,45 @@ def _emo_prev_amt(ymd: str, back: int = 10):
             if v is not None:
                 return v
     return None
+
+
+_EMO_LAST_KEY = "emo_brief:last"     # 上次成功的情绪周期(跨进程), 猫爪抖动时顶上
+_EMO_LAST_TTL = 86400                # 秒
+
+
+def _emo_stale_ok(stored_ts, stored_td, now_ts) -> bool:
+    """「上次成功的情绪值」此刻是否仍然成立(纯函数, 便于单测)。
+
+    🔴 情绪卡的 s2/s6(涨跌家数)是**盘中实时变化**的量, 不是静态历史数据 ⇒ 不能无脑拿它兜底
+      (会把 10 分钟前的家数当此刻的, 属误导)。规则:
+        * **盘中(工作日 09:15~15:05)**: 只接受**同一交易日**的存量值 —— 猫爪 8 秒抖动/单次
+          失败正是这个场景; 跨日一律拒绝(隔夜家数必然完全不同)。
+        * **非盘中**: 数据本来就静态(刚收盘/盘前/夜里都是同一份), 只要求 12 小时内即可。
+    """
+    td = "".join(ch for ch in str(stored_td or "") if ch.isdigit())[:8]
+    now_bj = time.gmtime(now_ts + 8 * 3600)
+    hm = now_bj.tm_hour * 60 + now_bj.tm_min
+    if now_bj.tm_wday < 5 and 9 * 60 + 15 <= hm <= 15 * 60 + 5:
+        return bool(td) and td == time.strftime("%Y%m%d", now_bj)
+    try:
+        return now_ts - float(stored_ts or 0) < 12 * 3600
+    except (TypeError, ValueError):
+        return False
+
+
+def _emo_stale():
+    """取上次成功的情绪值(标 `stale=1`); 不可用则返 {} ⇒ 前端照旧显示 '-'。"""
+    try:
+        last = store.get(_EMO_LAST_KEY)
+    except Exception:                                          # noqa: BLE001
+        return {}
+    if not isinstance(last, dict) or not last:
+        return {}
+    if not _emo_stale_ok(last.get("_ts"), last.get("tradedate"), time.time()):
+        return {}
+    out = {k: v for k, v in last.items() if k != "_ts"}
+    out["stale"] = 1
+    return out
 
 
 def emo_daily():
@@ -1129,6 +1354,11 @@ def emo_daily():
       ② am_diff 空 & am_pred 有 → 用 am_pred − 昨 am 自算, 并置 am_is_pred=1
       ③ 都缺 → am_diff 保持 None(前端显示 "-")
     增量口径统一为 **今 − 昨**, 与 am_diff 上游定义一致, 故可直接比较。
+
+    2026-09-29 兜底(首页情绪卡): 上述两步都拿不到数据时(猫爪抖动/单次失败), 用**上次成功值**
+    顶上并标 `stale=1`; 但仅当"该值此刻仍然成立"才用 —— 判定见 `_emo_stale_ok`
+    (盘中要求同一交易日, 非盘中要求 12 小时内)。不成立就返 `{}` ⇒ 前端照旧显示 '-',
+    **绝不拿隔夜家数冒充当日**(情绪卡在首页第一屏, 错值比空值危害大)。
     """
     try:
         import time as _t
@@ -1143,11 +1373,16 @@ def emo_daily():
         if items and isinstance(items[0], (list, tuple)):
             out = dict(zip(cols, items[0]))
         else:
-            return {}
+            return _emo_stale()      # 空 data → 上次成功值顶上(是否可用见 _emo_stale_ok)
     elif isinstance(dd, dict):
         out = dict(dd)
     else:
-        return {}
+        return _emo_stale()
+    if not out:
+        # 🔴 必须在这里拦: 猫爪失败/空返回时 `dd`={} 属 dict ⇒ 上面走了 `out = dict(dd)` = {}。
+        #   若不拦, ① 情绪卡不会用上次成功值兜底; ② 下面存本次成功值会把**空 dict** 写进
+        #   `emo_brief:last` ⇒ 把好缓存冲掉(一次抖动就再也兜不回来)。
+        return _emo_stale()
 
     # ---- 增量兜底(仅当日需要: 历史日 am_diff 上游已给) ----
     if out.get("am_diff") is None:
@@ -1173,5 +1408,11 @@ def emo_daily():
                         out["am_is_pred"] = 1      # 用预测终值算的, 前端可标注"预测"
             except Exception:                                  # noqa: BLE001
                 pass
+    try:
+        if out:      # 空 dict 绝不落盘(否则会把好缓存冲掉 —— 见上面的空返回拦截)
+            # 存本次成功值供 _emo_stale 顶上(_ts 供新鲜度判定, 读出时会剥掉)
+            store.set(_EMO_LAST_KEY, dict(out, _ts=time.time()), ttl=_EMO_LAST_TTL)
+    except Exception:                                          # noqa: BLE001
+        pass
     return out
 

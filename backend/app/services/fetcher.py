@@ -242,6 +242,17 @@ def yday_db_get(codes, expect_tdate=None):
 # (14s 内 5 次全量 5000 只), 失败缓存只挡串行挡不住并发。批锁: 同时只允许一个全量拉取,
 # 其余请求直接返回当前缓存(可能为空), 避免并发重复打爆数据源。
 _yday_batch_lock = threading.Lock()
+# 🔴 2026-09-29 (P0-c): 上面那把锁是**进程内**的 —— 生产 uvicorn `--workers 2` ⇒ 两个进程
+# 各持一把, 同时都认为"该我拉", 于是同一批 need(全市场 5561 只 ÷ 500/片 ≈ 12 片猫爪 `daily`)
+# **被两个进程各拉一遍**, 上游调用直接翻倍。竞价时段(09:15~09:25)请求最密集时最贵, 也是
+# 2026-09-28 实测 429(web 进程 / a=daily)的**剩余**来源之一(「分片顺序不稳 ⇒ 缓存打不中」
+# 那一半已由分片排序消除)。
+# 跨进程单飞令牌: 独立键名 —— 不与 `sem:meoz`(板块异动/竞价快照在用) 共用闸, 避免挤占槽位。
+_YDAY_SEM = "yday"          # 锁键 sem:yday:0
+_YDAY_SEM_TTL = 180         # 秒; 12 片全市场拉取的量级上限(进程崩溃也会自动过期, 不会死锁)
+_YDAY_SEM_TRY = 0.05        # 秒; 异步路径的"试一次"等待 —— 必须是**极小正数**:
+#                            `acquire_sem(timeout=0)` 因 `while now < deadline` 一次都不试,
+#                            会永远返回 None(等于永久关闭异步昨比)。
 
 # 域名熔断: 请求失败/被限流时冷却, 避免反复重试拖慢响应
 _broken_hosts = {}
@@ -1543,16 +1554,57 @@ def _fetch_yesterday_amount_tencent(code, after_close=None):
 def _fetch_yesterday_amount_one(code):
     """拉单只股票最近两交易日成交额(万元): 返回 (成交额对, T日涨跌幅%); 完全失败返回 (None, None)
 
-    2026-09-10 修订(二审): 原四级兜底链(东财→同花顺→腾讯→量脉)中的**同花顺/量脉已删除**,
-    保留 东财日K(主, 内部 KLINE_HOSTS 多域名轮询) → 腾讯 qfqday(备, 同语义真实成交额)。
-    判据: 会"编造字段"的换源必须删(全市场竞价 f615/f616 用现价假造), 同语义真实数据可留;
-    且东财 push2his 为接口级时段性风控(命中率约 5%), 单源会让收盘落库永久空转。
+    🔴 最终口径（2026-09-28 + 09-29 主人两轮拍板）：
+      链路 = 猫爪 daily（主，批量见 _yday_fill_from_meoz）→ **腾讯 qfqday（首选备源）**
+             → **东财 push2his（末位兜底）**。即：**东财已退出主链**，只在腾讯也拿不到时才走。
 
-    保留熔断短路: 东财日K熔断中时立即跳过, 不浪费 5s×多 host 超时
-    (5554 只全量会卡到 nginx 504); 但**跳过东财后仍要试同语义备源(腾讯)**,
-    否则东财风控期整批昨比恒空。"""
+      · 为什么腾讯排前面：qfqday 第 9 列 = **真实成交额(万元)**（2026-09-28 两台机实测
+        600519 → [348872.06, 386731.09]，与东财同量纲），且实测稳定、无风控。
+      · 为什么**仍然保留东财**（主人 09-29："如果影响逻辑计算，还可以考虑使用东财"）：
+        有两处**确实会改计算口径**的差异，只有东财能补 ——
+          ① **涨跌幅来源**：东财 `parts[7]` = **官方 f58 涨跌幅**；腾讯 qfqday 没有涨跌幅列，
+             只能用**前复权收盘价环比自算** ⇒ 平日等价，但**除权除息日会与官方值有偏差**。
+             而"昨日涨幅"是评分因子(权重 6%)，偏差会直接改分档。
+          ② **覆盖率**：腾讯稳定缺 ~8 只(0.14%)，东财可补。
+        代价可控：只在腾讯返回 None 后调用一次；东财自身熔断(down_threshold=1/冷却60s)与
+        域名冷却(_HOST_COOLDOWN=300s)会把后续调用短路，不会退化成"每次都打"。
+      历史：原四级链(东财→同花顺→腾讯→量脉) 在 2026-09-10 二审删到「东财+腾讯」；
+            09-28 曾把东财整体摘除；09-29 按"不得影响逻辑计算"复位为**末位兜底**。
+      · 保留"收盘后 T 必须确实是今天"的纪律（两个备源各自都有，见其注释）。
+    """
+    pair, chg = _yday_fallback_tencent(code)
+    if pair is not None:
+        return pair, chg
+    return _yday_fallback_eastmoney(code)
+
+
+def _yday_fallback_tencent(code):
+    """昨比首选备源: 腾讯 qfqday 第 9 列 = **真实成交额(万元)**, 份额为真, 非"编造值"。
+
+    2026-09-10 二审修订背景: 东财 push2his 是接口级时段性风控(实测 chart 命中率约 5%),
+    只留东财会让「收盘落库」永远填不上库 → 次日全天昨比仍为空, 落库机制空转。
+    腾讯是不可编造的真实 OHLC + 成交额, 与本轮被删除的"竞价字段 f615/f616 用现价假造"
+    性质不同(那是换源换数据, 这里是换源不换数据)。
+    腾讯也在熔断中时直接放弃(评分层容忍昨比缺失)。
+    """
+    if _check_circuit("tencent_kline"):
+        return None, None
+    try:
+        return _fetch_yesterday_amount_tencent(code)
+    except Exception:
+        return None, None
+
+
+def _yday_fallback_eastmoney(code):
+    """昨比**末位兜底**: 东财 push2his 日K —— 仅当腾讯也失败/缺票时才走（2026-09-29 复位）。
+
+    位置纪律：东财**不在主链**，只作为"会改计算口径"的补偿手段存在 ——
+    它提供**官方 f58 涨跌幅**（腾讯只能按前复权收盘价环比自算，除权日会偏），且覆盖更全。
+    性能纪律：熔断(eastmoney_kline, down_threshold=1/冷却60s) + 域名冷却(300s)
+    保证风控期不会反复重试、坏域名不拖慢整批；返回契约与腾讯腿完全一致。
+    """
     if _check_circuit("eastmoney_kline"):
-        return _yday_fallback_tencent(code)
+        return None, None
     qs = urllib.parse.urlencode({
         "secid": _secid(code), "fields1": "f1,f2,f3,f4,f5,f6",
         "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
@@ -1577,31 +1629,12 @@ def _fetch_yesterday_amount_one(code):
             if pair is None:
                 continue
             _record("eastmoney_kline", True, int((time.time() - t0) * 1000))
-            return pair, chg      # 2026-09-08: 顺带返回 T 日真实涨跌幅(f58)
+            return pair, chg      # 官方 f58 涨跌幅（不依赖复权价环比）
         except Exception:
             _mark_host_broken(host)
             continue
     _record("eastmoney_kline", False)
-    # 2026-09-10 二审修订: 东财拿不到时切**同语义备源**(腾讯 qfqday, 真实成交额万元)。
-    # 备源只有腾讯这一条(量脉与同花顺昨比源均已整体删除)。
-    return _yday_fallback_tencent(code)
-
-
-def _yday_fallback_tencent(code):
-    """昨比同语义备源: 腾讯 qfqday 第 9 列 = **真实成交额(万元)**, 份额为真, 非"编造值"。
-
-    2026-09-10 二审修订背景: 东财 push2his 是接口级时段性风控(实测 chart 命中率约 5%),
-    只留东财会让「收盘落库」永远填不上库 → 次日全天昨比仍为空, 落库机制空转。
-    腾讯是不可编造的真实 OHLC + 成交额, 与本轮被删除的"竞价字段 f615/f616 用现价假造"
-    性质不同(那是换源换数据, 这里是换源不换数据)。
-    腾讯也在熔断中时直接放弃(评分层容忍昨比缺失)。
-    """
-    if _check_circuit("tencent_kline"):
-        return None, None
-    try:
-        return _fetch_yesterday_amount_tencent(code)
-    except Exception:
-        return None, None
+    return None, None
 
 
 def _kline_amount_pair(klines, close_idx=2, chg_idx=7, after_close=None):
@@ -1723,13 +1756,14 @@ def fetch_yesterday_amounts(codes, wait=False):
     pending = _yday_hydrate_from_db(all_codes, today, now)
     need = _collect_yday_need(pending, today, now)
     if need and not _meoz_enabled() \
-            and _check_circuit("eastmoney_kline") and _check_circuit("tencent_kline"):
+            and _check_circuit("tencent_kline") and _check_circuit("eastmoney_kline"):
         # 2026-08-31 线上事故: 全源熔断时逐只短路打 WARNING → 36804 条日志风暴,
         # 日志 I/O 阻塞 worker 导致 /api/stocks 674s、health 超时。改为批级短路: 一条聚合日志 + 直接返回
         # 2026-09-10 二审: 短路条件 = 东财日K 与 腾讯K线 **均**熔断(腾讯为同语义备源)
         # 2026-09-24 换源 WP4: 再叠加「猫爪也不可用」 —— 猫爪已成主源, 它可用时
-        #   短路会把唯一的活路(批量预填)一起掐掉; 只有三级全不可用才是"真无源可拉"。
-        log.warning("昨日成交额: 猫爪/东财日K/腾讯K线均不可用, 本批%d只短路(昨比置空)", len(need))
+        #   短路会把唯一的活路(批量预填)一起掐掉; 只有全不可用才是"真无源可拉"。
+        # 🔴 2026-09-29: 东财复位为**末位兜底** ⇒ 短路条件 = 猫爪不可用 + 腾讯 + 东财 全挂。
+        log.warning("昨日成交额: 猫爪/腾讯K线/东财日K 均不可用, 本批%d只短路(昨比置空)", len(need))
         with _yesterday_lock:
             for c in need:              # 短路也写失败缓存, 避免下个请求重复判定
                 _yesterday_cache[c] = [today, None, now, None]
@@ -1737,6 +1771,9 @@ def fetch_yesterday_amounts(codes, wait=False):
     if need:
         if wait:
             # 同步路径(后台任务): 等待批锁, 前一个拉取完成后可能已填充缓存 → 重新判定
+            # P0-c: 再等**跨进程**令牌(timeout 20s)。另一 worker 拉完后缓存已填, 下面
+            #   _collect_yday_need 复查通常得到空 need2 ⇒ 重复拉取自然消失(不等也正确, 只是多拉一遍)。
+            tok = store.acquire_sem(_YDAY_SEM, limit=1, timeout=20, expire=_YDAY_SEM_TTL)
             _yday_batch_lock.acquire()
             try:
                 need2 = _collect_yday_need(codes, today, now)
@@ -1747,11 +1784,27 @@ def fetch_yesterday_amounts(codes, wait=False):
                                     len(need2), ok_cnt, fail_cnt)
             finally:
                 _yday_batch_lock.release()
+                if tok:
+                    store.release_lock(tok)
         else:
             # 异步路径(用户请求): 非阻塞拿锁, 拿到就后台拉; 拿不到说明已在拉, 直接返回缓存
             if _yday_batch_lock.acquire(blocking=False):
-                threading.Thread(target=_yday_background_fetch, args=(need, today),
-                                 daemon=True, name="yday-bg").start()
+                # P0-c: 进程内锁之后再拿**跨进程**令牌(几乎非阻塞) —— 拿不到 = 另一 worker
+                #   正在拉同一批 ⇒ 本轮直接返回现有缓存(与"拿不到进程内锁"同一语义,
+                #   请求永不因昨比卡顿; 昨比缺失本就被评分层容忍)。
+                # 🔴 这里**不能**传 timeout=0: `CacheStore.acquire_sem` 的循环是
+                #   `while time.time() < deadline:` —— timeout=0 时 deadline==now ⇒ 循环
+                #   体一次都不执行、**永远返回 None** ⇒ 异步路径会永久跳过昨比(实测被
+                #   tests/test_yesterday_cache 抓到)。必须给一个极小正数 = "试一次就够"。
+                tok = store.acquire_sem(_YDAY_SEM, limit=1,
+                                        timeout=_YDAY_SEM_TRY, expire=_YDAY_SEM_TTL)
+                if tok is None:
+                    _yday_batch_lock.release()
+                    log.info("昨比跨进程单飞: 另一 worker 在拉, 本轮跳过 需%d只(用现有缓存)",
+                             len(need))
+                else:
+                    threading.Thread(target=_yday_background_fetch, args=(need, today, tok),
+                                     daemon=True, name="yday-bg").start()
     out = {}
     with _yesterday_lock:
         for c in all_codes:
@@ -1891,8 +1944,13 @@ def _split_yday(res):
     return None, None
 
 
-def _yday_background_fetch(need, today):
-    """后台昨比拉取线程(异步路径)"""
+def _yday_background_fetch(need, today, tok=None):
+    """后台昨比拉取线程(异步路径)
+
+    tok: P0-c 跨进程单飞令牌(acquire_sem 返回的锁键名)。与进程内批锁**一起**在 finally 释放 ——
+    两把锁必须同生共死, 否则会出现"进程内锁已放、跨进程令牌仍被占"⇒ 另一个 worker 一直等到
+    令牌 TTL 过期才开始拉, 白白空转 _YDAY_SEM_TTL 秒。
+    """
     try:
         ok_cnt, fail_cnt = _do_fetch_yesterday(need, today)
         if fail_cnt:
@@ -1903,6 +1961,8 @@ def _yday_background_fetch(need, today):
         log.warning("昨比后台拉取异常 err=%s", e)
     finally:
         _yday_batch_lock.release()
+        if tok:
+            store.release_lock(tok)
 
 
 # ---------- 昨比主源: 猫爪 daily 批量(2026-09-24 换源 WP4) ----------
@@ -2186,6 +2246,11 @@ def fetch_stock_chart(code, period="day"):
                    volume: [...], amount: [...], preClose: float}
     }  失败返回 {}
     """
+    # 🔴 2026-09-28 主人拍板「日K 不用东财」：**本函数的 K 线腿已从链路摘除** ——
+    #   fetch_stock_chart_robust 的 sources 现为 ["meoz", "tencent"]，K 线路径已无生产调用方。
+    #   保留而非删除的理由：① `period=="minute"` 那一腿（_fetch_minute_trend，走东财 trends2）
+    #   仍被 robust 调用，两者同处一块；② 测试仍引用本函数名做"东财不再被调用"的守卫。
+    #   若将来要整体删除，请连同 _fetch_minute_trend 与其测试一并处理。
     if not code:
         return {}
     period = (period or "day").lower()
@@ -2908,8 +2973,15 @@ def fetch_stock_chart_robust(code, period="day"):
     #     最终兜底(见函数末 _aggregate_kpl_daily_to_period)。
     # 2026-09-11: ths / kpl / tushare 三个分支的**函数实现已删除**——此前 sources 收窄为
     #   两源后, 这三个 elif 分支运行时永不执行(仅源码可达), 属死代码。
-    # 顺序: 猫爪(主, 2026-09-24 换源 WP5) → 东财(内部 KLINE_HOSTS 多节点轮换) → 腾讯(同语义备源)。
-    sources = ["meoz", "eastmoney", "tencent"]
+    # 顺序: 猫爪(主, 2026-09-24 换源 WP5) → 腾讯(首选备源) → **东财(末位兜底)**。
+    # 🔴 2026-09-28/29 两轮拍板后的口径：**东财退出主链、仅作末位兜底** ——
+    #   · 主用腾讯：day/week/month 全支持（count 200/700/300），实测无风控；
+    #   · 仍保留东财末位：它带**官方 f58 涨跌幅**、覆盖更全（腾讯稳定缺 ~8 只），主人明确
+    #     "如果影响逻辑计算，还可以考虑使用东财"；东财自身有熔断 + 域名冷却，只在腾讯失败时
+    #     被调用一次，不会退回"每次都打"。
+    #   · 新浪日K/周K 实测可取但**无成交额**，故不接入（需要时再作第 4 源）。
+    #   · **分时图**（_fetch_minute_trend，走东财 trends2）不属"日K"，本次不动。
+    sources = ["meoz", "tencent", "eastmoney"]
     for src in sources:
         try:
             if src == "meoz":
@@ -2920,20 +2992,21 @@ def fetch_stock_chart_robust(code, period="day"):
                     log.info("chart[robust]源=meoz code=%s period=%s 耗时%.0fms",
                              code, period, (time.time() - t0) * 1000)
                     return _ensure_latest_period(d, code)
-            elif src == "eastmoney":
-                d = fetch_stock_chart(code, period)
-                if d and _validate_chart_data(d, period, source="eastmoney"):
-                    with _CHART_LOCK:
-                        _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
-                    log.info("chart[robust]源=eastmoney code=%s period=%s 耗时%.0fms",
-                             code, period, (time.time() - t0) * 1000)
-                    return _ensure_latest_period(d, code)
             elif src == "tencent":
                 d = _fetch_chart_from_tencent(code, period)
                 if d and _validate_chart_data(d, period, source="tencent"):
                     with _CHART_LOCK:
                         _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
                     log.info("chart[robust]源=tencent code=%s period=%s 耗时%.0fms",
+                             code, period, (time.time() - t0) * 1000)
+                    return _ensure_latest_period(d, code)
+            elif src == "eastmoney":
+                # 末位兜底（2026-09-29 复位）：只在腾讯失败后才走到；带官方涨跌幅、覆盖更全
+                d = fetch_stock_chart(code, period)
+                if d and _validate_chart_data(d, period, source="eastmoney"):
+                    with _CHART_LOCK:
+                        _CHART_CACHE[cache_key] = {"data": d, "ts": time.time()}
+                    log.info("chart[robust]源=eastmoney(末位兜底) code=%s period=%s 耗时%.0fms",
                              code, period, (time.time() - t0) * 1000)
                     return _ensure_latest_period(d, code)
         except Exception as e:

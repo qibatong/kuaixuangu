@@ -303,22 +303,48 @@ def test_fingerprint_key_order_insensitive():
     assert f1 == f2
 
 
-def test_strategy_marker_does_not_break_idempotency(_clean_batches):
+import time as _real_time                                        # noqa: E402
+
+
+class _Clock:
+    """冻结 `history.time.time()` 的替身(其余函数转发真 time 模块)。"""
+
+    def __init__(self, ts):
+        self._ts = ts
+
+    def time(self):
+        return self._ts
+
+    def __getattr__(self, name):
+        return getattr(_real_time, name)
+
+
+def _bj_today_0930():
+    """**今天 09:30:00**(本地=北京)的时间戳 —— 落在幂等门禁(09:25:00)之后。"""
+    lt = _real_time.localtime(_real_time.time())
+    return _real_time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 9, 30, 0, 0, 0, -1))
+
+
+def test_strategy_marker_does_not_break_idempotency(_clean_batches, monkeypatch):
     """端到端: 同一套参数 + 不同 strategy 标记, `find_today_lock_matching` 仍能命中。
 
     这直接证明"幂等不被 _strategy 破坏" —— 是 C 组指纹结论的**行为级**验证。
+
+    🔴 2026-09-29 修(**既有时间炸弹**, 与本次 ①②③ 改动无关 —— 用改动前代码跑同样红):
+      幂等门禁是 `batch_time >= 09:25:00`(当日定型口径), 而 `save_batch` 用的是
+      `history.time.time()` 的**真实当前时刻**落库; 原注释说的"注入 now_ts 就与钟点无关"
+      只覆盖了**查询侧** ⇒ 本用例在每天 09:25 之前跑必然落空(旧注释自己就写了这个风险,
+      只是没修)。现在把 history 的时钟冻结到当日 09:30, 落库/查询两侧同口径、与跑测时刻无关。
     """
-    import time
+    base = _bj_today_0930()
+    monkeypatch.setattr(history, "time", _Clock(base))
     f = {"markets": ["hs"], "bidGt": 0, "scoreFloor": 0}
-    # 先以 auction 落一个当日 lock 批次
+    # 先以 auction 落一个当日 lock 批次(时钟已冻结 ⇒ batch_time=09:30:00 过门禁)
     bid = history.save_batch(1, "lock", [_item()], dict(f), strategy="auction")
     assert bid is not None
-    # ⚠️ 幂等门禁是 `batch_time >= 09:25:00`(当日定型口径)。save_batch 用**当前时刻**落库,
-    #   若本用例在 09:25 前跑会天然落空 → 显式注入一个 9:25 之后的 now_ts, 让用例与钟点无关。
-    now = time.time()
-    hit = history.find_today_lock_matching(1, dict(f), now_ts=now)
+    hit = history.find_today_lock_matching(1, dict(f), now_ts=base)
     assert hit is not None, "🔴 _strategy 不得破坏当日 lock 幂等匹配"
     assert hit["id"] == bid
     # 反向守卫: 换成**真实不同**的参数 → 必须**不**命中(证明匹配不是在乱放行)
-    miss = history.find_today_lock_matching(1, {"markets": ["hs"], "bidGt": 9.9}, now_ts=now)
+    miss = history.find_today_lock_matching(1, {"markets": ["hs"], "bidGt": 9.9}, now_ts=base)
     assert miss is None, "不同筛选参数不得命中(否则幂等判据形同虚设)"

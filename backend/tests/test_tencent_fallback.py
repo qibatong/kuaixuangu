@@ -225,8 +225,12 @@ def test_fetch_market_brief_degrades_without_fallback(monkeypatch):
 
 # ---------- 2026-08-30 可观测性: 熔断短路日志 + 健康快照 ----------
 def test_yesterday_short_circuit_logs(caplog, monkeypatch):
-    """三源全熔断短路 → 单只函数快速返回 None 且不逐只打日志
-    (2026-08-31 修复: 原逐只 WARNING 造成 36804 条日志风暴拖死 worker, 改为批级短路聚合日志)"""
+    """无源可用时短路 → 单只函数快速返回 None 且不逐只打日志
+    (2026-08-31 修复: 原逐只 WARNING 造成 36804 条日志风暴拖死 worker, 改为批级短路聚合日志)
+
+    🔴 2026-09-28：东财日K 已从昨比链摘除 ⇒ 现在是「猫爪 daily(主)」+「腾讯 qfqday(唯一备源)」，
+       本用例打桩 `_check_circuit` 恒 True，等价于"主备皆不可用"，返回值契约不变。
+    """
     monkeypatch.setattr(fetcher, "_check_circuit", lambda src: True)
     import logging
     with caplog.at_level(logging.WARNING):

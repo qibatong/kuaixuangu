@@ -240,19 +240,36 @@ def test_chart_robust_meoz_first_short_circuits(monkeypatch):
     assert out["code"] == "600000" and out["preClose"] == 9.9
 
 
-def test_chart_robust_falls_back_to_eastmoney(monkeypatch):
+def test_chart_robust_falls_back_to_tencent_then_eastmoney(monkeypatch):
+    """🔴 2026-09-28/29 两轮拍板后的口径：图表链路 = 猫爪 → **腾讯(首选备源)** → **东财(末位兜底)**。
+
+    两个断言各钉一件事：
+      ① 腾讯成功时**不得再打东财**（性能纪律：东财 push2his 命中率约 5%、生产机 IP 被墙）；
+      ② 腾讯失败时才落到东财（保留它的**官方涨跌幅**与**更全覆盖** —— 见 fetcher 里的口径说明：
+         主人口径是"影响逻辑计算就可以用东财"）。
+    """
     calls = []
     monkeypatch.setattr(F, "_fetch_chart_from_meoz",
                         lambda c, p: (calls.append("meoz"), {})[1])
     monkeypatch.setattr(F, "fetch_stock_chart",
                         lambda c, p="day": (calls.append("em"), dict(MINUTE_OK))[1])
     monkeypatch.setattr(F, "_fetch_chart_from_tencent",
-                        lambda c, p="day": (calls.append("tx"), {})[1])
+                        lambda c, p="day": (calls.append("tx"), dict(MINUTE_OK))[1])
     monkeypatch.setattr(F, "_validate_chart_data", lambda d, p, source=None: True)
     monkeypatch.setattr(F, "_ensure_latest_period", lambda d, c: d)
     monkeypatch.setattr(F, "_CHART_CACHE", {})
+
+    # ① 腾讯可用 ⇒ ["meoz","tx"]，东财一次都没被调
     assert F.fetch_stock_chart_robust("600000", "minute")["code"] == "600000"
-    assert calls == ["meoz", "em"], "猫爪空 ⇒ 东财, 且不得再多打腾讯"
+    assert calls == ["meoz", "tx"], "腾讯可用时不得再打东财, 实际 %s" % (calls,)
+
+    # ② 腾讯失败 ⇒ 落东财末位兜底（先清缓存，否则会命中上一次的结果）
+    F._CHART_CACHE.clear()
+    calls.clear()
+    monkeypatch.setattr(F, "_fetch_chart_from_tencent",
+                        lambda c, p="day": (calls.append("tx"), {})[1])
+    assert F.fetch_stock_chart_robust("600000", "minute")["code"] == "600000"
+    assert calls == ["meoz", "tx", "em"], "腾讯空 ⇒ 东财末位兜底, 实际 %s" % (calls,)
 
 
 def test_chart_robust_all_sources_fail_returns_empty(monkeypatch):

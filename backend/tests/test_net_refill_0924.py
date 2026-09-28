@@ -117,6 +117,13 @@ def test_refill_is_idempotent(monkeypatch):
     assert (nz, n_upd, n_all) == (1, 0, 1)          # 上游有值, 但库里已有 → 不回填
     assert _read(D2, "600001") == 5.0e6
     # 再跑一次, 结果不变
+    # 🔴 2026-09-29: 必须显式进入"下一轮" —— 补采新增了**每轮一取**的跨进程令牌
+    #   (`netfill:turn:net:<date>`, TTL 31s < 轮询 35s), 本轮内第二次调用会被
+    #   "另一 worker 正在取"挡掉而返回 (0,0,n) —— 那是生产期望行为(重复取同一份幂等终值
+    #   纯属浪费上游), 但与"重复调用零副作用"这条断言的形态不同。令牌按 TTL 自行过期,
+    #   所以这里清掉 == 时间推进到下一轮。
+    from app.services.cache_store import store as _cs
+    _cs.clear_prefix("netfill:turn:")
     assert asnap.refill_bid_main_net(D2, PT) == (1, 0, 1)
     assert _read(D2, "600001") == 5.0e6
 
