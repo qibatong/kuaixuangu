@@ -18,6 +18,11 @@ dist_old_*/
 dist.bak_*/
 dist_bak_*/
 dist.old*/
+# 本地 vite build 用「独立 outDir」时的产物目录 —— 与 dist_old*/ 同类的过程产物(1000+ 文件/次)。
+# 2026-09-28 补: 现有规则(dist/dist_v/dist_old/dist.bak/dist_bak/dist.old)**都匹配不到**
+#   `dist_deploy_<TS>/`, 与 09-27 那次事故同一个漏洞类型(那次是 dist_oldsuspect_<TS>)。
+#   之所以用独立 outDir: vite build 前要清空 dist/, 会触发沙箱的批量删除守卫而构建失败。
+dist_deploy_*/
 build/
 build_v*/
 
