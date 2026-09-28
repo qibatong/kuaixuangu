@@ -1,31 +1,51 @@
 /**
- * 盘中实时(spot)前端渲染冒烟测试 —— v4.11.75
+ * 盘中实时(spot)前端渲染冒烟测试 —— v4.11.75 建立 / v4.11.77 改版
  * =====================================================================
- * 与 nav.spec.js 同骨架(SSR 真渲染 + 零异常断言), 专测本次 spot 前端接入。
+ * 与 nav.spec.js 同骨架(SSR 真渲染 + 零异常断言), 专测 spot 前端接入与列定义。
  *
  * 为什么必须做"真渲染"而不是只看 diff / 构建通过:
- *   spot 这轮改动里, StockTable 首次消费 `strategy` prop 来**换列**(竞涨/竞额 → 量比/换手),
- *   FilterPanel 按 isSpot **分支渲染**两套参数行。这类"模板里的条件分支/自由变量"
- *   vite build 与 eslint 都看不见 —— 本项目已两次因此放过事故(v4.11.58 的 NAV_GROUPS、
- *   v4.11.62 的 MarketBoardPanel 的 list/rows)。所以必须渲染出来、按真实 HTML 断言。
+ *   spot 这轮改动里, StockTable 消费 `strategy` prop 来**换列**, FilterPanel 按 isSpot
+ *   **分支渲染**两套参数行。这类"模板里的条件分支/自由变量"vite build 与 eslint 都看不见
+ *   —— 本项目已两次因此放过事故(v4.11.58 的 NAV_GROUPS、v4.11.62 的 MarketBoardPanel)。
+ *   所以必须渲染出来、按真实 HTML 断言。
  *
- * 断言的重点是**差异**, 不是"都有" ——
- *   · spot 必须有: 量比 / 换手 列; 现涨/量比/换手 参数行; 「剔涨停」; .spot-notice
- *   · spot 必须**没有**: 竞涨 / 竞额 列; 锁定按钮(spot 不落批次、无可锁之物)
- *   只断言"有"会让"两套一起渲染"这种最可能的错法(分支写错)安然通过。
+ * 断言的重点是**差异**, 不是"都有" —— 只断言"有"会让"两套一起渲染"这种最可能的错法
+ * (分支写错)安然通过。
+ *
+ * v4.11.77 列定义(主人指令: 去掉实体涨幅/量比/3日20%异动提示, 增加竞价涨幅/竞价金额):
+ *   · spot 必须有: 竞涨 / 竞额 / 换手 列; 「剔涨停」; .spot-notice
+ *   · spot 必须**没有**: 量比 / 实体 列; 名称格内红/黄「异动风险」徽章; 锁定按钮
+ *   · 竞价必须有: 竞涨 / 实体 / 竞额; 必须没有: 量比 / 换手 / spot 专属控件
+ *   ⚠️ 「竞涨/竞额」现在**两态都有**, 故不能再用它区分两态! 区分点改为
+ *      「实体(仅竞价)」vs「换手(仅 spot)」+ 「量比(两态都无)」。
  *
  * 跑法: vite build --ssr _verify/spot.spec.js --outDir .spotssr --emptyOutDir && node .spotssr/spot.spec.js
  *   ⚠️ 不能输出到 /tmp(Node 向上找不到 node_modules ⇒ Cannot find package 'vue')
  *   ⚠️ 不能写顶层 await(esbuild 报 "Top-level await is not available")
  *   ⚠️ 收尾必须 process.exit()(轮询会留 setTimeout, 事件循环不空)
+ *   ⚠️ 断言类名要用 countByClass, 不能用 html.includes('class="ss-row') ——
+ *      Vue SSR 合并 :class 时**动态类排在静态类之前**(实测 'class="active factor-tab"')
  */
 import { createSSRApp, h } from 'vue'
 import { createPinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { renderToString } from 'vue/server-renderer'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import StockTable from '../src/components/StockTable.vue'
 import FilterPanel from '../src/components/FilterPanel.vue'
 import { defaultSpotFilterSettings, buildSpotFilterParams, passSpotFilter } from '../src/utils/filters.js'
+
+// ★ v4.11.77 新增: StockTable.vue **源码全文**。
+//   为什么需要它 —— 「去掉 3 日 20% 异动提示」这条改动, 用 SSR 渲染**测不出来**:
+//   该徽章的数据源 useDevWarn 在 onMounted 里拉取, SSR 不跑 onMounted ⇒ warnMap 恒空
+//   ⇒ devWarnLabel() 恒返回 '' ⇒ 无论 v-if 写成什么, HTML 里都不会有徽章。
+//   (变异测试实测: 把 '!isSpot && devWarnLabel(...)' 改回 'devWarnLabel(...)',
+//    渲染断言 PASS=33 FAIL=0 **全绿** —— 典型假绿。)
+//   唯一能观测到的手段 = 直接核**模板里的 v-if 表达式**。故此处读源码做静态断言。
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const TABLE_SRC = readFileSync(resolve(__dirname, '../src/components/StockTable.vue'), 'utf8')
 
 const ROUTES = [{ path: '/', component: { template: '<div/>' } },
                 { path: '/stocks', component: { template: '<div/>' } }]
@@ -54,56 +74,89 @@ async function renderComp(component, props = {}, route = '/stocks') {
   return { html, errors }
 }
 
-// spot 名单夹具(字段名与后端 _spot_payload 对齐)
+// spot 名单夹具(字段名与后端 stocks_spot._spot_payload 对齐)
+// ★ v4.11.77: 补 bidChange/bidAmt —— 后端**本就下发**这两项(SpotPayload 第 83/84 行),
+//   之前只是前端不展示; 本次加列后夹具必须带上, 否则测不出"值真渲染出来了"。
 const SPOT_STOCKS = [
-  { code: '600000', name: '浦发银行', realChange: 3.56, volRatio: 9.03, turnover: 7.9,
+  { code: '600000', name: '浦发银行', realChange: 3.56, bidChange: 2.1, bidAmt: 8500,
+    volRatio: 9.03, turnover: 7.9, entityChange: 0.9,
     probability: 82, confidence: 79, limitBoards: 0, circulationMV: 50, price: 20, industry: '银行', concept: '-' },
-  { code: '300096', name: '易联众', realChange: 5.43, volRatio: 10.73, turnover: 3.5,
+  { code: '300096', name: '易联众', realChange: 5.43, bidChange: 4.8, bidAmt: 26000,
+    volRatio: 10.73, turnover: 3.5, entityChange: 2.2,
     probability: 78, confidence: 73, limitBoards: 2, circulationMV: 40, price: 15, industry: '软件', concept: 'AI' },
 ]
 // 竞价名单夹具(用于对照, 字段是竞价的)
 const BID_STOCKS = [
-  { code: '600000', name: '浦发银行', bidChange: 4.2, bidAmt: 8500, probability: 82, confidence: 79,
+  { code: '600000', name: '浦发银行', bidChange: 4.2, bidAmt: 8500, entityChange: 1.3,
+    probability: 82, confidence: 79,
     circulationMV: 50, price: 20, industry: '银行', concept: '-' },
 ]
 
 async function main() {
-  console.log('\n— S1. StockTable 在 spot 下换列（本次改动的核心可观察行为）')
+  console.log('\n— S1. StockTable 在 spot 下的列定义（本次改动的核心可观察行为）')
   const spot = await renderComp(StockTable, { stocks: SPOT_STOCKS, strategy: 'spot' })
   ok('StockTable(spot) 渲染无异常/无 Vue 警告', spot.errors.length === 0, spot.errors.join(' | '))
-  ok('spot 表头有「量比」', spot.html.includes('量比'))
+  // v4.11.77: spot 增加「竞涨 / 竞额」
+  ok('spot 表头有「竞涨」', spot.html.includes('竞涨'))
+  ok('spot 表头有「竞额」', spot.html.includes('竞额'))
   ok('spot 表头有「换手」', spot.html.includes('换手'))
-  ok('🔴 spot 表头**没有**「竞涨」', !spot.html.includes('竞涨'), '竞涨是竞价列, spot 下必须换掉')
-  ok('🔴 spot 表头**没有**「竞额」', !spot.html.includes('竞额'), '竞价额在盘中无意义')
-  ok('spot 渲染出数据行', countByClass(spot.html, 'col-volratio') >= 1
+  // v4.11.77: spot 去掉「实体」「量比」
+  ok('🔴 spot 表头**没有**「实体」', !spot.html.includes('实体'), '实体是竞价语义(开→收), spot 必须去掉')
+  ok('🔴 spot 表头**没有**「量比」', !spot.html.includes('量比'), '主人要求精简, 量比不再占列')
+  ok('spot 渲染出数据行', countByClass(spot.html, 'col-turnover') >= 1
      || (spot.html.match(/<tbody/g) || []).length >= 1)
-  ok('spot 值渲染量比 9.03', spot.html.includes('9.03'))
+  // v4.11.77: spot 值必须真渲染竞涨/竞额(不只是表头)
+  ok('🔴 spot 值渲染竞涨 2.10%', spot.html.includes('2.1'))
+  ok('🔴 spot 值渲染竞额 8500', spot.html.includes('8500'))
   ok('spot 值渲染换手 7.90%', spot.html.includes('7.9'))
   ok('🔴 spot 不含 "undefined"', !spot.html.includes('undefined'))
   ok('🔴 spot 不含 "NaN"', !spot.html.includes('NaN'))
 
-  console.log('\n— S2. 对照: 同一组件在竞价下仍是「竞涨 / 竞额」（防止换成"两边都 spot"）')
+  console.log('\n— S1b. 「3 日 20% 异动提示」必须 spot 态不渲染（⚡ 只能静态核源码，见文件头说明）')
+  // 渲染层测不到(SSR 不跑 onMounted ⇒ warnMap 恒空 ⇒ 徽章恒不出现),
+  // 故这里直接断言模板里的 v-if 表达式**含 !isSpot**。
+  // 🔴 反过来也要防「两态一起关掉」—— 竞价必须保留, 用"表达式里出现 !isSpot"这一个事实同时锁住两件事:
+  //    出现 !isSpot ⇒ spot 不显示 + 竞价显示(因为 !isSpot 在竞价态为 true)。
+  //    ⚠️ 但 `!false` 这种恒真写法也能骗过本条 —— 故同时断言该表达式**确实引用了 isSpot 变量**。
+  const devWarnVif = (TABLE_SRC.match(/v-if="([^"]*devWarnLabel[^"]*)"/) || [])[1] || ''
+  ok('🔴 异动徽章 v-if 表达式存在', !!devWarnVif, '未匹配到 v-if="...devWarnLabel..."')
+  ok('🔴 异动徽章 v-if **引用 isSpot**(证明按策略分叉)', /\bisSpot\b/.test(devWarnVif),
+     '实际: ' + devWarnVif)
+  ok('🔴 异动徽章在 spot 态被关掉(!isSpot 前置)', /!\s*isSpot\b/.test(devWarnVif) || /isSpot\s*===?\s*false/.test(devWarnVif),
+     '实际: ' + devWarnVif)
+  ok('🔴 异动徽章仍然依赖 devWarnLabel(竞价侧功能未被误删)', devWarnVif.includes('devWarnLabel'))
+  // 防"锚点漂移": devWarnLabel 在模板里**恰好 2 次**(v-if 条件 1 次 + 插值 1 次)。
+  // 若第三处消费点出现(如别处又渲染该徽章), 本条会红 —— 提示需同步复核本段假设。
+  const devWarnUses = (TABLE_SRC.match(/devWarnLabel\(/g) || []).length
+  ok('🔴 devWarnLabel 在模板中恰好 2 处(v-if 条件 + 插值)', devWarnUses === 2,
+     '实际出现 ' + devWarnUses + ' 次 —— 若新增消费点需同步复核本段断言')
+
+  console.log('\n— S2. 对照: 同一组件在竞价下「竞涨 / 实体 / 竞额」（防止换成"两边都 spot"）')
   const bid = await renderComp(StockTable, { stocks: BID_STOCKS, strategy: 'auction', bidSealMap: {} })
   ok('StockTable(auction) 渲染无异常', bid.errors.length === 0, bid.errors.join(' | '))
   ok('竞价表头有「竞涨」', bid.html.includes('竞涨'))
+  ok('竞价表头有「实体」(spot 已去掉)', bid.html.includes('实体'))
   ok('竞价表头有「竞额」', bid.html.includes('竞额'))
-  ok('🔴 竞价表头**没有**「量比」', !bid.html.includes('量比'), '若出现说明分支写反了')
-  ok('竞价表头**没有**「换手」', !bid.html.includes('换手'))
+  ok('🔴 竞价表头**没有**「量比」', !bid.html.includes('量比'), '量比两态都已移除')
+  ok('🔴 竞价表头**没有**「换手」', !bid.html.includes('换手'), '换手是 spot 专属(竞价无实时换手)')
 
   console.log('\n— S3. 非 spot 的一切取值都必须走竞价列（防"分支写反"）')
   // ⚠️ 本条最初只测「不传 prop」—— 变异测试证明它抓不到 `!== 'auction'` 这类写反:
   //    因为 prop 默认值就是 'auction', 不传时 `=== 'spot'` 与 `!== 'auction'` 结果相同 ⇒ 等价变异。
   //    真正有区分度的是**第三个取值**(typo / 新增策略)。故补测之。
+  // ★ v4.11.77: 区分点由「竞涨」改为「实体 / 换手」—— 竞涨两态都有, 不再有区分度。
   const noProp = await renderComp(StockTable, { stocks: BID_STOCKS })
-  ok('不传 strategy 时走竞价列(竞涨在场)', noProp.html.includes('竞涨'),
+  ok('不传 strategy 时走竞价列(实体在场 / 换手不在)', noProp.html.includes('实体') && !noProp.html.includes('换手'),
      '默认值若不是 auction, 所有老调用点会静默换列')
-  ok('不传 strategy 时不出现 spot 列', !noProp.html.includes('量比'))
+  ok('不传 strategy 时不出现 spot 专属「换手」', !noProp.html.includes('换手'))
 
   const typo = await renderComp(StockTable, { stocks: BID_STOCKS, strategy: 'spott' })
-  ok('🔴 strategy 取值非 spot(如 typo) 时仍走竞价列', typo.html.includes('竞涨') && !typo.html.includes('量比'),
+  ok('🔴 strategy 取值非 spot(如 typo) 时仍走竞价列',
+     typo.html.includes('实体') && !typo.html.includes('换手'),
      '必须是"严格等于 spot 才换列", 不能写成"不等于 auction 就换列"')
   const other = await renderComp(StockTable, { stocks: BID_STOCKS, strategy: 'aipick' })
-  ok('🔴 strategy=其他策略(aipick) 时仍走竞价列', other.html.includes('竞涨') && !other.html.includes('量比'))
+  ok('🔴 strategy=其他策略(aipick) 时仍走竞价列',
+     other.html.includes('实体') && !other.html.includes('换手'))
 
   console.log('\n— S4. FilterPanel 的 spot 参数行为')
   const fp = await renderComp(FilterPanel)

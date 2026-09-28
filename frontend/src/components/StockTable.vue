@@ -3,9 +3,14 @@
     <div v-if="!stocks.length" class="empty-state">暂无符合条件股票</div>
 
     <!-- 选股表(竞价/盘中共用同一套列; 对齐生产机紧凑布局: 固定列宽, 代码+名称合并)
-         2026-09-28 v4.11.75: strategy='spot' 时**换列** —— 竞价专属的「竞涨/竞额」
-         对盘中实时名单没有意义(spot 是此刻的答案, 不存在集合竞价那一瞬间),
-         改列显示「量比/换手」(spot 六因子里真正参与评分的两项)。
+         2026-09-28 v4.11.77: spot 列定义**第二次调整**(主人指令)——
+           · 去掉「实体涨幅」(entity_change: 开→收, 竞价语义) 与「量比」(vol_ratio)
+             及名称格内「3 日 20% 异动提示」徽章(useDevWarn, 盘后 15:45 扫出的**次日**
+             风险预告 —— 竞价是"盘前决策明天", 该徽章才有意义; 盘中名单是"此刻的答案")。
+           · 增加「竞价涨幅 / 竞价金额」—— 📌 这两项 spot 后端**本来就下发**
+             (stocks_spot.py `_spot_payload` 的 bidChange / bidAmt), 故为**纯前端列改造**。
+             竞价那一刻的量对盘中仍有参考价值(今日开盘有多强)。
+         最终 spot = 现涨 | 竞涨 | 竞额 | 换手; 竞价 = 现涨 | 竞涨 | 实体 | 竞额(**逐字不变**)。
          🔴 换列必须**同步改 colgroup**, 否则 fixed 布局下末列会吞掉剩余宽度(见下方注释)。 -->
     <table v-else class="stock-table stock-table-compact">
       <colgroup>
@@ -14,11 +19,12 @@
              与「异动」橙标签并排时最宽约 99px, 需 ≥103px 才不裁切。 -->
         <col style="width:106px" />
         <col style="width:46px" />
-        <!-- 2026-09-28: spot 模式此列是「量比」, 竞价模式是「竞涨」—— 宽度同为 46px -->
+        <!-- 2026-09-28: 第 4 列 spot/竞价同为「竞涨」(46px); 第 5 列**按策略分叉** ——
+             竞价是「实体」(涨跌幅, 3~4 字符 → 50px), spot 是「竞额」(如 12345万 → 需 64px)。 -->
         <col style="width:46px" />
-        <col style="width:50px" />
-        <!-- 2026-09-28: spot 模式此列是「换手」, 竞价模式是「竞额」—— 竞价额是 5 位数
-             (如 12345万), 换手最多 3 位小数, 故 spot 下收窄到 44px; 见下方 v-if/v-else -->
+        <!-- 2026-09-28: 第 5 列 spot=竞额(5 位数, 64px) / 竞价=实体(50px) —— 见上方注释 -->
+        <col :style="isSpot ? 'width:64px' : 'width:50px'" />
+        <!-- 2026-09-28: 第 6 列 spot=换手(如 12.34%, 44px) / 竞价=竞额(64px) -->
         <col :style="isSpot ? 'width:44px' : 'width:64px'" />
         <!-- 2026-09-20: 主力净额列(盘中追踪)。🔴 colgroup 必须与表头列数一致 ——
              fixed 布局下缺 col 的末列会吞掉全部剩余宽度(概念列曾因此独占 ~470px)。
@@ -34,12 +40,13 @@
           <th scope="col" class="col-medal" aria-label="排名"></th>
           <th scope="col" class="sortable merged-col col-name" :class="{ active: sortKey === 'code' || sortKey === 'name' }" :aria-sort="ariaSortFor('code')" tabindex="0" @click="onSort('code', 'string')" @keydown.enter.prevent="onSort('code', 'string')" @keydown.space.prevent="onSort('code', 'string')">名称<span class="sort-ind" aria-hidden="true">{{ sortInd('code') }}</span></th>
           <th scope="col" class="sortable num col-realchg" :class="{ active: sortKey === 'realChange' }" :aria-sort="ariaSortFor('realChange')" title="实时涨幅：当前价相对昨收的涨幅" tabindex="0" @click="onSort('realChange', 'number')" @keydown.enter.prevent="onSort('realChange', 'number')" @keydown.space.prevent="onSort('realChange', 'number')">现涨<span class="sort-ind" aria-hidden="true">{{ sortInd('realChange') }}</span></th>
-          <!-- 2026-09-28 v4.11.75: 「竞涨 / 竞额」仅竞价模式; spot 换成「量比 / 换手」 -->
-          <th v-if="!isSpot" scope="col" class="sortable num col-bidchg" :class="{ active: sortKey === 'bidChange' }" :aria-sort="ariaSortFor('bidChange')" title="竞价涨幅" tabindex="0" @click="onSort('bidChange', 'number')" @keydown.enter.prevent="onSort('bidChange', 'number')" @keydown.space.prevent="onSort('bidChange', 'number')">竞涨<span class="sort-ind" aria-hidden="true">{{ sortInd('bidChange') }}</span></th>
-          <th v-else scope="col" class="sortable num col-volratio" :class="{ active: sortKey === 'volRatio' }" :aria-sort="ariaSortFor('volRatio')" title="量比：当前成交量 / 过去5日同期均量；≥2 视为显著放量（spot 评分因子之一）" tabindex="0" @click="onSort('volRatio', 'number')" @keydown.enter.prevent="onSort('volRatio', 'number')" @keydown.space.prevent="onSort('volRatio', 'number')">量比<span class="sort-ind" aria-hidden="true">{{ sortInd('volRatio') }}</span></th>
-          <th scope="col" class="sortable num col-entchg" :class="{ active: sortKey === 'entityChange' }" :aria-sort="ariaSortFor('entityChange')" tabindex="0" @click="onSort('entityChange', 'number')" @keydown.enter.prevent="onSort('entityChange', 'number')" @keydown.space.prevent="onSort('entityChange', 'number')">实体<span class="sort-ind" aria-hidden="true">{{ sortInd('entityChange') }}</span></th>
-          <th v-if="!isSpot" scope="col" class="sortable num col-bidamt" :class="{ active: sortKey === 'bidAmt' }" :aria-sort="ariaSortFor('bidAmt')" title="集合竞价阶段撮合成交金额" tabindex="0" @click="onSort('bidAmt', 'number')" @keydown.enter.prevent="onSort('bidAmt', 'number')" @keydown.space.prevent="onSort('bidAmt', 'number')">竞额<span class="sort-ind" aria-hidden="true">{{ sortInd('bidAmt') }}</span></th>
-          <th v-else scope="col" class="sortable num col-turnover" :class="{ active: sortKey === 'turnover' }" :aria-sort="ariaSortFor('turnover')" title="换手率：成交量 / 自由流通股本（spot 评分因子之一）" tabindex="0" @click="onSort('turnover', 'number')" @keydown.enter.prevent="onSort('turnover', 'number')" @keydown.space.prevent="onSort('turnover', 'number')">换手<span class="sort-ind" aria-hidden="true">{{ sortInd('turnover') }}</span></th>
+          <!-- 2026-09-28 v4.11.77: 「竞涨 / 竞额」**两条策略共用**(spot 后端本就下发); spot 无「量比/实体」 -->
+          <th scope="col" class="sortable num col-bidchg" :class="{ active: sortKey === 'bidChange' }" :aria-sort="ariaSortFor('bidChange')" title="竞价涨幅" tabindex="0" @click="onSort('bidChange', 'number')" @keydown.enter.prevent="onSort('bidChange', 'number')" @keydown.space.prevent="onSort('bidChange', 'number')">竞涨<span class="sort-ind" aria-hidden="true">{{ sortInd('bidChange') }}</span></th>
+          <!-- 2026-09-28 v4.11.77: 「实体」**仅竞价**(开→收, 集合竞价语义); spot 去掉 -->
+          <th v-if="!isSpot" scope="col" class="sortable num col-entchg" :class="{ active: sortKey === 'entityChange' }" :aria-sort="ariaSortFor('entityChange')" tabindex="0" @click="onSort('entityChange', 'number')" @keydown.enter.prevent="onSort('entityChange', 'number')" @keydown.space.prevent="onSort('entityChange', 'number')">实体<span class="sort-ind" aria-hidden="true">{{ sortInd('entityChange') }}</span></th>
+          <th scope="col" class="sortable num col-bidamt" :class="{ active: sortKey === 'bidAmt' }" :aria-sort="ariaSortFor('bidAmt')" title="集合竞价阶段撮合成交金额" tabindex="0" @click="onSort('bidAmt', 'number')" @keydown.enter.prevent="onSort('bidAmt', 'number')" @keydown.space.prevent="onSort('bidAmt', 'number')">竞额<span class="sort-ind" aria-hidden="true">{{ sortInd('bidAmt') }}</span></th>
+          <!-- 2026-09-28 v4.11.77: 「换手」**仅 spot**(竞价无实时换手) -->
+          <th v-if="isSpot" scope="col" class="sortable num col-turnover" :class="{ active: sortKey === 'turnover' }" :aria-sort="ariaSortFor('turnover')" title="换手率：成交量 / 自由流通股本（spot 评分因子之一）" tabindex="0" @click="onSort('turnover', 'number')" @keydown.enter.prevent="onSort('turnover', 'number')" @keydown.space.prevent="onSort('turnover', 'number')">换手<span class="sort-ind" aria-hidden="true">{{ sortInd('turnover') }}</span></th>
           <th v-if="hasMainNet" scope="col" class="sortable num col-mainnet" :class="{ active: sortKey === 'mainNet' }" :aria-sort="ariaSortFor('mainNet')" title="盘中主力净额(亿): 主力买入-卖出, 猫爪 fundflow_kp, 盘中约5分钟刷新; 盘后/非交易时段显示 -" tabindex="0" @click="onSort('mainNet', 'number')" @keydown.enter.prevent="onSort('mainNet', 'number')" @keydown.space.prevent="onSort('mainNet', 'number')">主力净额<span class="sort-ind" aria-hidden="true">{{ sortInd('mainNet') }}</span></th>
           <!-- 2026-09-20: 列文案改「自由流通」—— 后端 circulationMV 已统一为自由流通口径 -->
           <th scope="col" class="sortable num col-mv" :class="{ active: sortKey === 'circulationMV' }" :aria-sort="ariaSortFor('circulationMV')" title="自由流通市值(亿), 与选股门槛同口径" tabindex="0" @click="onSort('circulationMV', 'number')" @keydown.enter.prevent="onSort('circulationMV', 'number')" @keydown.space.prevent="onSort('circulationMV', 'number')">自由流通<span class="sort-ind" aria-hidden="true">{{ sortInd('circulationMV') }}</span></th>
@@ -69,12 +76,19 @@
                  2026-09-27 v4.11.64 追加第三个徽章「异动风险」(红/黄): 与橙色「严重异动」语义**不同** ——
                    · 橙色「严重异动」= 开盘啦/交易所**已经公布**的监管名单(useYidongMonitor)
                    · 红/黄「异动风险」= 我们**按上交所 5.4.2 口径自算**的「会不会越线」(useDevWarn)
-                   两者互不覆盖, 故并排显示; 无标签时该 span 不渲染(行高由 .badge-row 恒定保证)。 -->
+                   两者互不覆盖, 故并排显示; 无标签时该 span 不渲染(行高由 .badge-row 恒定保证)。
+                 2026-09-28 v4.11.77 主人要求: **spot 态不渲染红/黄「异动风险」徽章** ——
+                   该徽章源自 /api/dev/tomorrow(盘后 15:45 扫全市场, 是**次日**越线预告),
+                   是"盘前决策明天"的信息; 盘中实时名单是"此刻的答案", 且 spot 无 9:26 定格、
+                   主人明确要精简该列。竞价态保留(逐字不变)。
+                   ⚠️ 因此 v4.11.76 起 spot 名单下 useDevWarn 的数据拉取对本表无消费方 —— 但
+                   useDevWarnAutoLoad 仍在 onMounted 拉一次(模块级单例, 异动/复盘页共用),
+                   不动它以免影响其它页面的首屏。 -->
             <div class="badge-row">
               <span v-if="lbLabel(item.lb)" class="lb-tag" :class="lbClass(item.lb)">{{ lbLabel(item.lb) }}</span>
               <span v-if="yidongTag(item.code)" class="yd-badge" :title="yidongTagTitle(item.code)">{{ yidongTag(item.code) }}</span>
               <span
-                v-if="devWarnLabel(item.code)"
+                v-if="!isSpot && devWarnLabel(item.code)"
                 class="dev-badge"
                 :class="'dev-badge-' + devWarn(item.code)"
                 :title="devWarnTitle(item.code)"
@@ -82,12 +96,14 @@
             </div>
           </td>
           <td :class="realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + pct(item._staleReal) + '）') : ''">{{ pct(item.realChange) }}</td>
-          <!-- 2026-09-28 v4.11.75: spot →「量比」列; 竞价 →「竞涨」列 -->
-          <td v-if="!isSpot" :class="chgCls(item.bidChange)" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'">{{ pct(item.bidChange) }}</td>
-          <td v-else :class="item.volRatio === null || item.volRatio === undefined ? 'dim' : ''" :title="item.volRatio === null || item.volRatio === undefined ? '无实时行情数据' : ('量比: ' + fmtNum(item.volRatio, 2))">{{ fmtNum(item.volRatio, 2) }}</td>
-          <td :class="item.entityChange === null || item.entityChange === undefined ? 'dim' : (item.entityChange > 0 ? 'up' : 'down')" :title="item.entityChange === null || item.entityChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + pct(item._staleEntity) + '）') : ''">{{ pct(item.entityChange) }}</td>
-          <td v-if="!isSpot" class="col-muted" :title="'集合竞价阶段撮合成交金额: ' + (item.bidAmt ? bidAmtText(item.bidAmt) : '-')">{{ item.bidAmt || item.bidAmt === 0 ? bidAmtText(item.bidAmt) : '-' }}</td>
-          <td v-else class="col-muted" :title="item.turnover === null || item.turnover === undefined ? '无实时行情数据' : ('换手率: ' + fmtNum(item.turnover, 2) + '%')">{{ item.turnover === null || item.turnover === undefined ? '-' : fmtNum(item.turnover, 2) + '%' }}</td>
+          <!-- 2026-09-28 v4.11.77: 「竞涨」两条策略共用(spot 后端本就下发 bidChange) -->
+          <td :class="chgCls(item.bidChange)" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'">{{ pct(item.bidChange) }}</td>
+          <!-- 2026-09-28 v4.11.77: 「实体」仅竞价(开→收, 集合竞价语义); spot 去掉 -->
+          <td v-if="!isSpot" :class="item.entityChange === null || item.entityChange === undefined ? 'dim' : (item.entityChange > 0 ? 'up' : 'down')" :title="item.entityChange === null || item.entityChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + pct(item._staleEntity) + '）') : ''">{{ pct(item.entityChange) }}</td>
+          <!-- 2026-09-28 v4.11.77: 「竞额」两条策略共用(spot 后端本就下发 bidAmt, 单位万元) -->
+          <td class="col-muted" :title="'集合竞价阶段撮合成交金额: ' + (item.bidAmt ? bidAmtText(item.bidAmt) : '-')">{{ item.bidAmt || item.bidAmt === 0 ? bidAmtText(item.bidAmt) : '-' }}</td>
+          <!-- 2026-09-28 v4.11.77: 「换手」仅 spot(竞价无实时换手) -->
+          <td v-if="isSpot" class="col-muted" :title="item.turnover === null || item.turnover === undefined ? '无实时行情数据' : ('换手率: ' + fmtNum(item.turnover, 2) + '%')">{{ item.turnover === null || item.turnover === undefined ? '-' : fmtNum(item.turnover, 2) + '%' }}</td>
           <td v-if="hasMainNet" :class="item.mainNet === null || item.mainNet === undefined ? 'dim' : (item.mainNet > 0 ? 'up' : 'down')" :title="item.mainNet === null || item.mainNet === undefined ? '盘中主力净额(亿): 非交易时段或数据未就绪' : ('盘中主力净额: ' + (item.mainNet > 0 ? '+' : '') + item.mainNet + '亿（约每5分钟刷新）')">{{ item.mainNet === null || item.mainNet === undefined ? '-' : (item.mainNet > 0 ? '+' : '') + item.mainNet.toFixed(3) }}</td>
           <td class="col-muted">{{ fmtNum(item.circulationMV, 1) }}</td>
           <td class="score-cell col-muted">{{ fmtNum(item.probability, 0, '分') }}</td>
@@ -127,10 +143,14 @@ const props = defineProps({
   bidSealMap: { type: Object, default: () => ({}) }  // code -> {limitBoards, bidSealAmt, bidNetAmt}
 })
 
-// 2026-09-28 v4.11.75: strategy='spot'(盘中实时) 时换列 ——
-//   「竞涨 / 竞额」→「量比 / 换手」。前者是集合竞价那一瞬间的量, 对"此刻"的盘中名单无意义;
-//   后者才是 spot 六因子里真正参与评分的两项。
-// ⚠️ 这个 prop 自 v4.x 就存在但一直没被消费(只是接收), 本次是**首次真正使用**。
+// 2026-09-28 v4.11.77: strategy='spot'(盘中实时) 的列差异, 共 **4 处**(全部用本变量判定) ——
+//   · 加「竞涨 / 竞额」: 后端 stocks_spot._spot_payload 本就下发 bidChange/bidAmt,
+//     无需后端改动; 竞价那一刻的量对盘中仍有参考价值(今日开盘有多强)。
+//   · 去「实体」: 开→收是**集合竞价语义**, 盘中不存在这个"开盘瞬间"。
+//   · 去「量比」: 主人要求精简(它仍是 spot 评分因子, 只是不再占一列展示)。
+//   · 去名称格内红/黄「异动风险」徽章: 见 badge-row 处注释(次日预告, 非"此刻")。
+// ⚠️ 竞价态(含不传 prop / 任意非 'spot' 取值)**必须逐字不变** —— 本文件其余部分
+//    仍被 AuctionView 之外的老调用点依赖, 判断一律用「严格 === 'spot'」, 不用 !== 'auction'。
 const isSpot = computed(() => props.strategy === 'spot')
 
 
