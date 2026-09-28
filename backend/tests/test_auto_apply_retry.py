@@ -50,6 +50,37 @@ def bdate():
     store.delete(_TRY + d)
 
 
+@pytest.fixture(autouse=True)
+def _snap_ready(monkeypatch):
+    """默认场景: 今日 9_25 定格已就绪 —— 让既有判据用例不受快照维影响。
+
+    v4.11.76 起 should_trigger 加**快照维守卫**(has_today_snapshot), 测试库无
+    当日 9_25 行会天然返回 False; 本 fixture 统一 mock 为 True(正常交易日 9:25
+    之后的真实状态), 快照缺席场景由 test_should_trigger_blocked_without_snapshot
+    单独覆盖。
+    """
+    monkeypatch.setattr(auto_apply.auction_snapshot, "has_today_snapshot",
+                        lambda date: True)
+
+
+def test_should_trigger_blocked_without_snapshot(bdate, monkeypatch):
+    """v4.11.76 回归: 今日 9_25 定格未落库 → 绝不触发, 且**不烧 60s 节流位**。
+
+    实证背景(2026-09-28): 9_25 定格 09:26:48 才落库, 旧判据(纯时钟+幂等)在
+    09:26:19/20 两轮触发 → pipeline 静默回退昨日快照 → 75 笔 auto 批次全是
+    昨日名单。修复后快照未就绪时 should_trigger=False; 且 try 键未被占,
+    快照落库后下一轮立即可触发(无需等节流过期)。
+    """
+    monkeypatch.setattr(auto_apply.auction_snapshot, "has_today_snapshot",
+                        lambda date: False)
+    assert auto_apply.should_trigger(bdate) is False, "快照未落库必须不触发"
+    assert auto_apply.try_acquire(bdate) is True, "快照未就绪不应占用节流位"
+    # 快照落库(下一轮轮询) → 立即可以触发, 不用等 60s 节流
+    monkeypatch.setattr(auto_apply.auction_snapshot, "has_today_snapshot",
+                        lambda date: True)
+    assert auto_apply.should_trigger(bdate) is True, "快照就绪后应立即可触发"
+
+
 def test_should_trigger_first_call_then_throttled(bdate):
     """首次可触发(并占住节流位); 节流窗口内再次调用被挡"""
     assert auto_apply.should_trigger(bdate) is True

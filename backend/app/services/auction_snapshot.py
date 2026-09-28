@@ -2109,7 +2109,8 @@ def _scheduler_loop():
             #   **当日系统统一批次永久缺失** → 用户刷新只能跨日回退到上一个交易日的名单。
             #   这是 2026-09-17「9:30 后出来的数据好像是昨天的」事故的放大部分。
             #   现在 = 「当日未成功(done 键) 且 不在 60s 节流窗口内」→ 无票可继续重试到成功。
-            if _is_trade_day(g) and 9 * 60 + 26 <= hm <= 9 * 60 + 30:
+            # 🔴 2026-09-28 (v4.11.76): 窗口加**快照维守卫** has_today_snapshot(date) —— 双保险防绕过判据重演
+            if _is_trade_day(g) and 9 * 60 + 26 <= hm <= 9 * 60 + 30 and has_today_snapshot(date):
                 try:
                     from . import auto_apply
                     if auto_apply.should_trigger(date):

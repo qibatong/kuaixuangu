@@ -61,10 +61,21 @@ def try_acquire(bdate):
 
 
 def should_trigger(bdate):
-    """9:26-9:30 调度分支的**唯一判据**: 未成功 且 不在节流窗口内。
+    """9:26-9:30 调度分支的**唯一判据**: 今日 9_25 定格已落库 且 未成功 且 不在节流窗口内。
 
     抽成函数是为了可测(见 tests/test_auto_apply_retry.py), 调用点只做时间窗判断。
+
+    🔴 2026-09-28 (v4.11.76 修复): 加**快照维守卫** —— 今日 9_25 定格未落库时
+       **绝不触发**。缺陷实证: 09-28 早盘 9_25 定格 09:26:48 才落库, 而调度窗口
+       09:26:00 就开 → 09:26:19/20 两轮在"今日无快照"状态下触发, pipeline
+       load_snapshot_full 静默回退昨日 09-24 快照 → 75 笔 auto_applied=1 批次
+       (每笔19只) 全是昨日名单 (与架构文档 §8 预警的 09:26:00~09:26:41 窗口吻合)。
+       守卫用 stocks.py 选股闸门同一把尺子 has_today_snapshot(SELECT 1...LIMIT 1,
+       亚毫秒), 且放在 try_acquire **之前** —— 快照未就绪时不烧 60s 节流位,
+       落库后下一轮(10s 轮询)立刻可触发。
     """
+    if not auction_snapshot.has_today_snapshot(bdate):
+        return False
     return (not already_done(bdate)) and try_acquire(bdate)
 
 
