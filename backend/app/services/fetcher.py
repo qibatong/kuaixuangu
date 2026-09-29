@@ -564,8 +564,16 @@ def get_yesterday_zt_codes():
 
 
 def _secid(code):
-    """沪市(6/9开头)用 1. 前缀, 深市/北交用 0. 前缀"""
-    return ("1." if code.startswith(("6", "9")) else "0.") + code
+    """证券 secid 前缀: 沪市(6xx/9xx, 含沪B 900xxx) → "1."；**北交所 → "0."**
+
+    🔴 2026-09-29 修(补北交所日K缓存时暴露): 原写 `startswith(("6","9"))` ⇒
+      **920 段首字符是 9**, 被当沪市拼成 `1.920779` ✗ ⇒ 东财对北交所永远返回空,
+      即"北交所纳入后日K依然拉不到"。北交所判断必须**先于**沪市。
+    """
+    c = str(code or "")
+    if c[:2] == "92" or c[:1] in ("4", "8"):
+        return "0." + c
+    return ("1." if c.startswith(("6", "9")) else "0.") + c
 
 
 _CLIST_PZ = 200        # clist 单页条数(全市场分页固定 200)
@@ -706,12 +714,17 @@ _TENCENT_CODES_TTL = 12 * 3600
 
 
 def _tencent_symbol(code):
-    """股票代码 → 腾讯符号: 沪(6/9)sh / 深(0/3)sz / 北(4/8)bj"""
-    if code.startswith(("6", "9")):
-        return "sh" + code
-    if code.startswith(("4", "8")):
-        return "bj" + code
-    return "sz" + code
+    """股票代码 → 腾讯符号: 沪(6/9, 含沪B 900xxx)sh / 深(0/3)sz / **北(4/8/920)bj**
+
+    🔴 2026-09-29: 补 920 段(原只判 4/8 ⇒ 920779 被拼成 sh920779 ✗ 取不到)。
+    本函数是腾讯符号的**唯一真相源**, 各调用点不许再内联 `prefix = "sh" if ...`。
+    """
+    c = str(code or "")
+    if c[:2] == "92" or c[:1] in ("4", "8"):
+        return "bj" + c
+    if c.startswith(("6", "9")):
+        return "sh" + c
+    return "sz" + c
 
 
 def _all_market_codes():
@@ -1615,8 +1628,7 @@ def _fetch_yesterday_amount_tencent(code, after_close=None):
     盘中跳过今天(未收盘)行, **收盘后(≥15:05)不跳过**(与东财/同花顺语义一致,
     见 _after_close) → 保证 T = 最近已收盘交易日, 收盘后即今天。
     """
-    prefix = "sh" if code.startswith(("6", "9")) else ("bj" if code.startswith(("4", "8")) else "sz")
-    secid = prefix + code
+    secid = _tencent_symbol(code)          # 唯一真相源(含 920 段; 2026-09-29)
     t0 = time.time()
     try:
         url = ("https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get?param="
@@ -2684,8 +2696,7 @@ def _fetch_chart_from_tencent(code, period="day"):
     """腾讯K线接口(web.ifzq.gtimg.cn): day/week/month + 分时 minute
     实时含当前周期; minute 走 _fetch_minute_from_tencent
     """
-    prefix = "sh" if code.startswith(("6", "9")) else "sz"
-    secid = prefix + code
+    secid = _tencent_symbol(code)          # 唯一真相源(含 920 段; 2026-09-29)
     if period == "minute":
         return _fetch_minute_from_tencent(secid, code)
     kp = {"day": "day", "week": "week", "month": "month"}.get(period)
@@ -2745,8 +2756,7 @@ def _fetch_quote_tencent(code):
     返回 {code, date:'YYYY-MM-DD', open,high,low,close,volume(手),amount(元),preclose} 失败返回 None
     """
     try:
-        prefix = "sh" if code.startswith(("6", "9")) else "sz"
-        url = "http://qt.gtimg.cn/q=%s%s" % (prefix, code)
+        url = "http://qt.gtimg.cn/q=%s" % _tencent_symbol(code)   # 含 920 段(2026-09-29)
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         })

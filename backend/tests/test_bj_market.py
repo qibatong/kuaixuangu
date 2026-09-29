@@ -100,3 +100,32 @@ def test_sector_rotation_still_excludes_bse():
     import inspect
     from app.services import sector_rotation as S
     assert "not scorer.is_bse(c)" in inspect.getsource(S)
+
+
+# ---------------- 行情取数的北交所 secid / 腾讯符号(2026-09-29 修) ----------------
+def test_secid_and_tencent_symbol_for_bse():
+    """🔴 920 段首字符是 9: 东财必须 0. / 腾讯必须 bj(此前被当沪市 1./sh ⇒ 永远取不到)。
+
+    北交所判断必须先于沪市(6/9)判断; 沪B 900xxx 仍属沪市。
+    """
+    from app.services import fetcher as F
+    assert F._secid("920779") == "0.920779"          # 武汉蓝电(北交所新段)
+    assert F._secid("830799") == "0.830799"          # 北交老段
+    assert F._secid("430047") == "0.430047"          # 老三板
+    assert F._secid("600519") == "1.600519"          # 沪主板
+    assert F._secid("900015") == "1.900015"          # 沪B(9 开头但非 92) 仍是沪市
+    assert F._secid("000002") == "0.000002"          # 深主板
+    assert F._tencent_symbol("920779") == "bj920779"
+    assert F._tencent_symbol("830799") == "bj830799"
+    assert F._tencent_symbol("430047") == "bj430047"
+    assert F._tencent_symbol("600519") == "sh600519"
+    assert F._tencent_symbol("900015") == "sh900015"
+    assert F._tencent_symbol("000002") == "sz000002"
+
+
+def test_tencent_prefix_has_single_truth_source():
+    """腾讯符号只允许走 _tencent_symbol —— 不许再内联 `prefix = "sh" if ...`"""
+    import inspect
+    from app.services import fetcher as F
+    src = inspect.getsource(F)
+    assert 'prefix = "sh" if code.startswith' not in src, "又有内联腾讯前缀判断(北交所会漏)"
