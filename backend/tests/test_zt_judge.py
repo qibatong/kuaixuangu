@@ -54,6 +54,40 @@ def test_price_judge_is_none_without_pre_close():
     assert asnap.is_zt_by_price("600825", 10.06, 0) is None
 
 
+def test_zt_price_half_cent_rounds_down():
+    """🔴 主人定标实例(2026-09-29): **武汉蓝电 920779 前收 21.85 → 收 28.40 是涨停**。
+
+    21.85 × 1.3 = **28.405 恰在半分位** ⇒ 交易所涨停价 = **28.40**(不是 28.41);
+    原"纯四舍五入"实现给 28.41 ⇒ 把真涨停判成非涨停(漏判)。
+    """
+    assert asnap.zt_price("920779", 21.85) == 28.40
+    assert asnap.is_zt_by_price("920779", 28.40, 21.85) is True
+    # 非半数仍走四舍五入 —— 不许把低价股的进位一起改坏
+    assert asnap.zt_price("000004", 0.26) == 0.29        # 0.286 → 0.29
+    assert asnap.is_zt_by_price("000004", 0.28, 0.26) is False
+    assert asnap.zt_price("000012", 3.64) == 4.00        # 4.004 → 4.00
+    assert asnap.zt_price("600825", 10.0) == 11.00       # 11.000 整
+    assert asnap.zt_price("300876", 10.0) == 12.00       # 创业板 20%
+    # 与 scorer 侧同口径(唯一真相源, 防止两套实现漂移)
+    from app.services import scorer
+    assert asnap.zt_price("920779", 21.85) == scorer.zt_price("920779", 21.85) == 28.40
+    for c, pc in (("920779", 21.85), ("000004", 0.26), ("000012", 3.64), ("600825", 10.0),
+                  ("300876", 10.0), ("688981", 33.33), ("830799", 7.77)):
+        assert asnap.zt_price(c, pc) == scorer.zt_price(c, pc), (c, pc)
+
+
+def test_zt_price_st_5pct_needs_name():
+    """ST 的 5% 必须把名称传进来(不传按 10% 算)。
+
+    🔴 2026-09-29 首版把 `is_yizi` 改成走 `zt_price` 时漏了 name ⇒ 直接把
+      `test_phase1.py::test_is_yizi_st_5pct` 打红(既有 ST 保护被打破), 此用例为钉子。
+    """
+    assert asnap.zt_price("600001", 10.0, "ST某某") == 10.50
+    assert asnap.zt_price("600001", 10.0) == 11.00                    # 不传 ⇒ 10%
+    assert asnap.is_zt_by_price("600001", 10.50, 10.0, name="ST某某") is True
+    assert asnap.is_zt_by_price("600001", 10.50, 10.0) is False
+
+
 # ---------- 兼容入口 ----------
 def test_compat_entry_keeps_old_threshold_when_no_pre_close():
     assert asnap._is_zt("600825", 10.06) is True

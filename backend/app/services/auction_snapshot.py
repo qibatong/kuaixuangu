@@ -2101,18 +2101,19 @@ def zt_limit_pct(code):
     return 0.10
 
 
-def zt_price(code, pre_close):
-    """涨停价(元, 交易所口径=四舍五入到分); pre_close 无效返回 None。"""
-    try:
-        pc = float(pre_close)
-    except (TypeError, ValueError):
-        return None
-    if pc <= 0:
-        return None
-    return round(pc * (1 + zt_limit_pct(code)), 2)
+def zt_price(code, pre_close, name=""):
+    """涨停价(元) —— **委托 `scorer.zt_price`**(唯一真相源, 避免两套实现漂移)。
+
+    🔴 2026-09-29 订正: 原实现 `round(pc*(1+pct), 2)` 是"纯四舍五入" ⇒ 在**恰半分位**的票上
+      把涨停价抬高一分开。定标实例(主人确认): 武汉蓝电 920779 前收 21.85 ⇒
+      21.85×1.3 = 28.405 恰在半分 ⇒ 交易所涨停价 = **28.40**, 而纯四舍五入给 28.41
+      ⇒ 收 28.40 被误判"非涨停"(漏判真涨停)。现改为"半数向下、其余四舍五入"。
+    ⚠️ ST 的 5% 需调用方传 `name`(不传按 10%)。
+    """
+    return scorer.zt_price(code, pre_close, name)
 
 
-def is_zt_by_price(code, close, pre_close, tol=0.001):
+def is_zt_by_price(code, close, pre_close, tol=0.001, name=""):
     """**四舍五入涨停价式**(推荐判据): `close >= round(pre_close*(1+涨停幅度), 2)`。
 
     ★ 2026-09-29 用生产数据回放对拍(近 120 日 × 4002 只 × 逐日):
@@ -2123,7 +2124,7 @@ def is_zt_by_price(code, close, pre_close, tol=0.001):
       · 本式判 9211 次, 两者兼顾(与"交易所涨停价"定义一致)。
     pre_close 缺失/无效 → 返回 None(调用方自行降级), 不猜。
     """
-    lm = zt_price(code, pre_close)
+    lm = zt_price(code, pre_close, name)
     try:
         c = float(close)
     except (TypeError, ValueError):
@@ -2133,7 +2134,7 @@ def is_zt_by_price(code, close, pre_close, tol=0.001):
     return c >= lm - tol
 
 
-def is_zt_by_change(code, bid_change, pre_close=None, tol=0.001):
+def is_zt_by_change(code, bid_change, pre_close=None, tol=0.001, name=""):
     """按"涨幅"判涨停: 有 pre_close 时用四舍五入涨停价式, 缺失时退回旧阈值式。
 
     退回式 = `bid_change >= 上限 − 0.1pp`(与历史行为一致, 不因缺 pre_close 而改变可用性,
@@ -2141,7 +2142,7 @@ def is_zt_by_change(code, bid_change, pre_close=None, tol=0.001):
     """
     if bid_change is None:
         return False
-    lm = zt_price(code, pre_close) if pre_close else None
+    lm = zt_price(code, pre_close, name) if pre_close else None
     if lm is not None:
         threshold = (lm / float(pre_close) - 1) * 100.0      # 由涨停价反推的最小涨幅
         return float(bid_change) >= threshold - tol

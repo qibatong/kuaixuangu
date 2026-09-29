@@ -277,6 +277,32 @@ def is_bse(code):
     return str(code or "").startswith(("4", "8", "920"))
 
 
+def zt_price(code, pre_close, name=""):
+    """涨停价(元): 前收 ×(1+涨停幅度), **四舍五入到分; 恰在半分位时向下取整**。
+
+    🔴 2026-09-29 主人实例定标: **武汉蓝电(920779) 前收 21.85 → 收 28.40 是涨停**。
+      21.85 × 1.3 = **28.405 恰在半分位** ⇒ 交易所口径取 **28.40**(不是 28.41) ⇒
+      原"纯四舍五入"实现把 28.40 判成非涨停(**漏判**真涨停)。
+      改为"半数向下、其余四舍五入"后: 本例 28.40 ✓; 同时**不破坏**低价股的非半数进位
+      (0.26 × 1.1 = 0.286 ⇒ 进到 0.29 ✓)。
+    与 `auction_snapshot.zt_price` 同口径(那边直接委托本函数, 避免两套实现漂移)。
+
+    ⚠️ **ST 的 5% 必须把名称传进来**(`name`): 不传就按 10% 算 —— 2026-09-29 首版漏了这个
+      参数, 直接把 `is_yizi` 的 ST 用例打红(`test_phase1.py::test_is_yizi_st_5pct`)。
+    """
+    try:
+        pc = float(pre_close)
+    except (TypeError, ValueError):
+        return None
+    if pc <= 0:
+        return None
+    cents = pc * (1 + limit_pct(code, name, pc)) * 100.0   # 单位: 分
+    fl = math.floor(cents + 1e-9)
+    if abs((cents - fl) - 0.5) <= 1e-6:                    # 恰在半分位 ⇒ 向下取整
+        return round(fl / 100.0, 2)
+    return round(math.floor(cents + 0.5 + 1e-9) / 100.0, 2)
+
+
 def limit_pct(code, name, pre_close):
     """涨停幅度: ST 5% / 创业板·科创板 20% / **北交所 30%** / 主板 10%。
 
@@ -297,13 +323,18 @@ def limit_pct(code, name, pre_close):
 
 
 def is_yizi(s):
-    """一字涨停: 开盘价 f17 直接封在涨停价(交易所四舍五入到分)"""
+    """一字涨停: 开盘价 f17 直接封在涨停价
+
+    🔴 2026-09-29: 涨停价改走 `zt_price`(**半数向下**) —— 原 `int(..*100+0.5)` 纯进位,
+      在"恰好半分位"的票(如 武汉蓝电 21.85→28.405)上会把涨停价抬高一分开 ⇒ 一字板漏判。
+    """
     f17 = parse_float(s.get("f17"))
     f18 = parse_float(s.get("f18"))
     if f17 <= 0 or f18 <= 0:
         return False
-    pct = limit_pct(s.get("f12", ""), s.get("f14", ""), f18)
-    limit_price = int(f18 * (1 + pct) * 100 + 0.5) / 100.0   # 四舍五入到分
+    limit_price = zt_price(s.get("f12", ""), f18, s.get("f14", ""))   # 必须传名称(ST 5%)
+    if limit_price is None:
+        return False
     return f17 >= limit_price - 0.005
 
 
