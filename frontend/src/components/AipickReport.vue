@@ -76,6 +76,9 @@
             </div>
           </div>
 
+          <!-- 2026-09-29: 窄屏可发现性 —— 8 列在 390px 仍需横滑, 而手机不显示滚动条,
+               用户看不出右边还有列(主人反馈"手机页面看不全")。仅窄屏显示, 桌面不占位。 -->
+          <div class="ap-swipe-hint"><i class="fa fa-arrows-h"></i> 左右滑动查看全部列</div>
           <div class="ap-table-scroll">
             <table class="stock-table ap-stock-table">
               <thead>
@@ -746,8 +749,15 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   color: var(--text-secondary);
   font-size: 0.75rem;
 }
-/* 桌面无额外包装, 直接继承父容器宽. 手机端启用为唯一横向滚动容器(见 @media) */
-.ap-table-scroll { }
+/* 唯一横向滚动容器(2026-09-29: 由"仅手机端启用"改为**全宽度启用**) ——
+   原实现只在 @media(max-width:768px) 里给 overflow-x:auto, 于是 769~900px 区间(横屏手机、
+   窄窗)没有任何兜底, 只能指望"8 列自然宽恰好能被压进容器"; 而桌面本来就该滚(表格比容器宽时
+   必须能滑)。这里直接设为容器级 overflow-x:auto —— 与下方 @media 内的同名规则一致, 桌面观感不变。 */
+.ap-table-scroll { overflow-x: auto; }
+
+/* 窄屏"可横滑"提示(仅手机显示, 桌面不占位; 见 @media 内 display:block) ——
+   手机不显示滚动条, 不提示用户不知道右边还有列(主人反馈"手机页面看不全")。 */
+.ap-swipe-hint { display: none; }
 .ap-note {
   color: var(--text-muted);
   font-size: 0.75rem;
@@ -849,25 +859,57 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
     margin: 0 -8px;
     padding: 0 8px 4px;
   }
+  /* 🔴 2026-09-29 修正(主人反馈"手机页面看不全"): 原 1006px 是**9 列时代**的遗留数字
+     (见上方 th:nth-child(9) 的"操作列"注释 —— 该列已不存在), 而本表实际只有 8 列,
+     8 列定宽合计仅 620px(84+96+60+78+70+58+110+64) ⇒ 多出的 386px 被均摊到 8 列,
+     手机要横滑约 2.3 屏(实际只需 1.4 屏), "看不全"被这个数字放大了近一倍。
+     现按**实际 8 列**收紧到 620px。
+     ⚠️ 单元格保留 nowrap ⇒ 内容真需要更宽时表格会自然变宽, **不会被压瘪**;
+        此处的 min-width 只是地板, 调小是安全操作。 */
   .ap-stock-table {
-    min-width: 1006px;    /* 9 列 + 徽章所需宽度(原950 + 操作列56), 防止字段换行或被压瘪 */
+    min-width: 620px;
     font-size: 0.75rem;
   }
   /* 嵌入态: 移动端仍按全宽表格处理(优先级高于 .ap-embedded .ap-stock-table 的桌面 696px) */
-  .ap-embedded .ap-stock-table { min-width: 1006px; }
+  .ap-embedded .ap-stock-table { min-width: 620px; }
   /* 2026-09-01 手机适配: 嵌入首页左视图时, 修正 .ap-embedded .ap-panel(padding:10px)
      特异性高于 .ap-panel 导致手机端 padding 不被收紧的问题, 横滑表格贴边对齐 */
   .ap-embedded .ap-panel { padding: 8px 4px; }
   .ap-embedded .ap-table-scroll { margin: 0 -4px; padding: 0 4px 4px; }
   .ap-stock-table thead th {
-    padding: 8px 6px;
+    padding: 6px 4px;
     font-size: 0.75rem;
   }
   .ap-stock-table tbody td {
-    padding: 8px 6px;
+    padding: 6px 4px;
     white-space: nowrap;
   }
   .ap-stock-table tbody tr { height: 44px; } /* 触控友好行高 */
+  /* 概念列: 手机没有 hover ⇒ 原实现"限宽110 单行省略 + title 悬浮看全部"在触屏上等于看不全
+     (标题提示是 2026-09-28 主人特意去掉 tooltip 之后的唯一出口, 等于没有出口)。
+     窄屏取消省略号、允许折行, 让概念完整可读。 */
+  .ap-stock-table .concept-col {
+    min-width: 92px;
+    max-width: 92px;
+    white-space: normal;
+    line-height: 1.3;
+    overflow-wrap: anywhere;   /* 2026-09-29: 不用 word-break:break-all —— 会把 MiniLED/CPO
+                                  这类英文概念从中间断开(易看错); 只在整词放不下时才断, 优先在「、」后断 */
+  }
+  /* 窄屏关闭 sticky 表头(与一进二 YijinerView.vue:293-303 记载的同款事故同因):
+     全局 main.css 给 .home-col-left .stock-table thead th 设了 position:sticky +
+     top:var(--sticky-thead-top), 该变量由首页 JS 按 .home-filter 高度写入 ——
+     AI 预测 tab **没有 .home-filter** ⇒ 变量沿用别的 tab 的旧值(实测 56px) ⇒ 表头压住第一行。
+     本表行数不多, sticky 收益为零 ⇒ 关掉换稳定布局; 多写 .ap-panel 一层保证权重不被反超。 */
+  .ap-panel .ap-table-scroll .ap-stock-table thead th { position: static; }
+  /* 窄屏可发现性提示 */
+  .ap-swipe-hint {
+    display: block;
+    margin: 0 0 4px;
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+    text-align: right;
+  }
 
   /* 手机端收紧徽章, 保留最小可识别宽度 */
   .score-badge {
