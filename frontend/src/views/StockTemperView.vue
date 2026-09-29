@@ -296,5 +296,9 @@ body[data-bg="light"] .code-click { color: #b05e00; }
   .temper-panel .stock-table { min-width: 1000px; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
   .temper-time { margin-left: 0; width: 100%; }
+  /* 🔴 2026-09-29 主人截图(股性手机端): 提示语被**竖排**。
+     根因同 main.css 的 .rot-tip —— `.temper-tip{flex:1;min-width:0}` 在窄屏被旁边的
+     下拉/搜索框挤到 ~1 个汉字宽, 中文逐字换行。窄屏让它**独占一行**。 */
+  .temper-tip { flex: 1 1 100%; }
 }
 </style>

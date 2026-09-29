@@ -1375,6 +1375,11 @@ table, td, th,
   /* 日期回看工具条: 紧凑 */
   .rot-toolbar { gap: 6px; }
   .rot-tip { font-size: 0.75rem; }
+  /* 🔴 2026-09-29 主人截图(龙虎榜手机端): 提示语被**竖排**了。
+     根因: `.rot-tip` 是 `flex:1; min-width:0` —— 手机端它和日期框/按钮挤在同一行时
+     被 `min-width:0` 允许压缩到 ~1 个汉字宽, 中文逐字换行 ⇒ 看着像竖排。
+     修法: 窄屏让提示语**独占一行**(flex-basis:100% ⇒ 与它同行的控件自动换到下一行)。 */
+  .rot-tip { flex: 1 1 100%; }
   /* 日期输入框手机可点击(触控目标) */
   input[type="date"].rot-date { min-height: 30px; }
   .seal-mode { font-size: 0.75rem; padding: 1px 5px; }
