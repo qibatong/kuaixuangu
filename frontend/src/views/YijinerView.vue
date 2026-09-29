@@ -73,9 +73,10 @@
         </div>
 
         <template v-else>
-          <!-- 2026-09-29 主人反馈"手机页面看不全": 手机不显示滚动条, 12 列在 390px 必然要横滑,
-               用户根本看不出"右边还有列"。加一行可滑提示(仅窄屏显示, 桌面不占位)。 -->
-          <div class="yj-swipe-hint"><i class="fa fa-arrows-h"></i> 左右滑动查看全部 12 列</div>
+          <!-- 2026-09-29 主人反馈"手机页面看不全": 手机不显示滚动条, 列多时在 390px 必然要横滑,
+               用户根本看不出"右边还有列"。加一行可滑提示(仅窄屏显示, 桌面不占位)。
+               🔴 列数随列增删改(去掉「行业」后为 11 列), 文案要与表头一致。 -->
+          <div class="yj-swipe-hint"><i class="fa fa-arrows-h"></i> 左右滑动查看全部 11 列</div>
           <div class="yj-scroll">
             <table class="stock-table yj-table">
               <thead>
@@ -101,8 +102,7 @@
                       @click="sort.onSort('firstSealTime')">昨封板<span class="sort-ind">{{ sort.ind('firstSealTime') }}</span></th>
                   <th class="sortable" :class="{ active: sort.keyOf('breakCount') }"
                       @click="sort.onSort('breakCount')">昨炸板<span class="sort-ind">{{ sort.ind('breakCount') }}</span></th>
-                  <th class="sortable" :class="{ active: sort.keyOf('industry') }"
-                      @click="sort.onSort('industry', 'string')">行业<span class="sort-ind">{{ sort.ind('industry') }}</span></th>
+                  <!-- ★ 2026-09-29 主人要求: 「行业」列下线(后端 industry 照旧下发, 只是不展示) -->
                   <th class="sortable" :class="{ active: sort.keyOf('concept') }"
                       @click="sort.onSort('concept', 'string')">概念<span class="sort-ind">{{ sort.ind('concept') }}</span></th>
                 </tr>
@@ -136,7 +136,6 @@
                   <td data-label="市值">{{ fmtMv(r.circulationMV) }}</td>
                   <td class="yj-time" data-label="昨封板">{{ fmtFbt(r.firstSealTime) }}</td>
                   <td :class="{ 'yj-warn': r.breakCount > 0 }" data-label="昨炸板">{{ r.breakCount }}次</td>
-                  <td data-label="行业">{{ r.industry || '-' }}</td>
                   <!-- 只显示主要的 2 个概念(按本名单共鸣频次挑), 全串仍在接口返回里 —— 见 utils/conceptMain.js -->
                   <td class="yj-concept" data-label="概念">{{ pickMainConcept(r.concept, conceptFreq) }}</td>
                 </tr>
@@ -536,8 +535,10 @@ body[data-bg="light"] .yj-chip { color: #5a4a3a; }
     font-size: 11px;
     font-weight: 400;
   }
-  /* 概念：独占一行且可折行（表格态被 118px 限宽 + 省略号截断, 卡片态要能看全） */
-  .yj-table tbody td:nth-child(12) {
+  /* 概念：独占一行且可折行（表格态被 118px 限宽 + 省略号截断, 卡片态要能看全）
+     🔴 2026-09-29: 原用 nth-child(12) —— 去掉「行业」列后概念变第 11 列, 序号会失配;
+       改为按类名选择(.yj-concept), 列增删不再需要改这里。 */
+  .yj-table tbody td.yj-concept {
     flex: 1 0 100%;
     max-width: none;
     min-width: 0;
