@@ -204,7 +204,11 @@ def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid), da
                 out.append(day)
         finally:
             conn.close()
-        return {"ok": True, "days": out}
+        # 🔴 2026-09-29 铁律「零值不得回退昨日」给前端用: 前端原本只凭"days[0].date != 今天"
+        #   就把整页切到上一交易日 ⇒ **交易日**盘前(今日快照还没落)会静默显示昨天的数据。
+        #   现额外返回 `today` + `todayTradeDay`, 前端据此只在**非交易日**才允许回退。
+        _tod = _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 8 * 3600))
+        return {"ok": True, "days": out, "today": _tod, "todayTradeDay": tc.is_trade_day(_tod)}
 
     from ..services.cache_store import cached_singleflight
     # 2026-09-04 二轮: date 空 TTL 30s→60s。原 30s 恰等于前端 30s 轮询周期 →

@@ -88,6 +88,8 @@ def test_overview_specified_date(client, first_user, monkeypatch):
     #   返回(旧断言正是那样做的), 应返回空 days。
     r = client.get("/api/stats/auction-overview?date=2026-08-21", headers=hdrs(token))
     assert r.json()["days"] == []
+    # 🔴 2026-09-29: 前端"是否允许回退到上一交易日"必须由**后端**给（前端不猜交易日历）
+    assert r.json().get("todayTradeDay") is not None and "today" in r.json()
     # 2026-08-22 是**周六**(非交易日) ⇒ 允许对齐到最近有数据的交易日 08-20
     r1 = client.get("/api/stats/auction-overview?date=2026-08-22", headers=hdrs(token))
     assert r1.json()["days"][0]["date"] == "2026-08-20"

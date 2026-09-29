@@ -96,6 +96,14 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
             <td class="dim">{{ fmtMv(it.floatMv) }}</td>
             <td class="concept-cell dim" :title="it.board"><span v-if="it.board" class="concept-clamp">{{ conceptText(it.board) }}</span><span v-else class="dim">-</span></td>
 </tr>
+          <!-- 2026-09-29: 空表必须说清"为什么空"，不许用别的榜单顶上 -->
+          <tr v-if="!sealList.length">
+            <td colspan="9" class="snap-empty">
+              {{ tab === 'boom' ? '今日竞价爆量榜暂无数据（9:15-9:30 竞价时段可用；开盘啦 09:25:30 后出数）'
+                 : tab === 'net' ? '今日竞价净额榜暂无数据（开盘啦约 09:25:30 产出；不为空时按"实际流通"口径计算抢筹强度）'
+                 : '今日竞价委买榜暂无数据（9:15-9:30 竞价时段可用）' }}
+            </td>
+          </tr>
         </tbody>
       </table>
 
@@ -345,6 +353,12 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
             <td class="reason-cell" @click="showReason(l)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
             <td class="concept-cell dim" :title="l.board"><span v-if="l.board" class="concept-clamp">{{ conceptText(l.board) }}</span><span v-else class="dim">-</span></td>
 </tr>
+          <!-- 2026-09-29: 龙虎榜收盘后才发布 —— 空窗期说清楚，且不拿昨日榜单顶上(铁律) -->
+          <tr v-if="!lhbList.length">
+            <td colspan="10" class="snap-empty">
+              当日龙虎榜暂无数据 —— <b>龙虎榜收盘后（约 15:30）才发布</b>；按"零值不回退昨日"口径，此处不显示上一交易日榜单
+            </td>
+          </tr>
         </tbody>
       </table>
 
@@ -527,12 +541,17 @@ async function refreshServeDate() {
   try {
     const ov = await withTimeout(auctionOverview(''))
     const last = (ov.days && ov.days.length && ov.days[0].date) || ''
-    const next = (last && last !== todayBj()) ? last : ''
+    // 🔴 2026-09-29 铁律「零值不得回退昨日」: **交易日**一律不回退 —— 今日快照还没落库时,
+    //   各 tab 就该显示"待定格/暂无数据"(后端也会返回当日), 不得拿昨天的数据顶上;
+    //   只有非交易日(周末/法定休市)才允许显示最近交易日。判据由后端给(ov.todayTradeDay),
+    //   前端**不自己猜**交易日历。
+    const next = (last && last !== todayBj() && ov.todayTradeDay === false) ? last : ''
     if (next === autoFallbackDate.value) return false
     const had = autoFallbackDate.value
     autoFallbackDate.value = next
     if (next && !had) {
-      showToast(`今日竞价快照尚未生成，暂显示最近交易日 ${next} 的数据`, 'info')
+      // 2026-09-29: 文案随语义改 —— 现在"回退"只发生在**非交易日**
+      showToast(`今日无交易（${todayBj()}），显示最近交易日 ${next} 的数据`, 'info')
     }
     return true
   } catch (e) {
@@ -678,11 +697,10 @@ function switchTab(t) {
 const sealList = computed(() => {
   if (tab.value === 'boom') return boomList.value
   if (tab.value === 'net') {
-    // 2026-08-18 主人要求: 竞价净额用开盘啦"竞价>1000万"接口(全市场), 空时回退封单列表
-    if (bidNetList.value && bidNetList.value.length) {
-      return [...bidNetList.value].sort((a, b) => (b.bidNetAmt || 0) - (a.bidNetAmt || 0))
-    }
-    return [...sealRaw.value].sort((a, b) => (b.bidNetAmt || 0) - (a.bidNetAmt || 0))
+    // 🔴 2026-09-29 铁律「零值不得回退昨日」的展示侧: 净额榜为空就**显示空**(表格给出"暂无/
+    //   待产出"说明)，不再回退渲染封单列表 —— 那会把"封单额"冒充成"净额"显示在同一列名下，
+    //   是最容易被误读的一类"凑数据"。
+    return [...(bidNetList.value || [])].sort((a, b) => (b.bidNetAmt || 0) - (a.bidNetAmt || 0))
   }
   return sealRaw.value
 })
@@ -723,11 +741,12 @@ async function loadAll(fromUser = false) {
     let useDate = dt
     if (!dt && ov.days && ov.days.length) {
       const lastTrading = ov.days[0].date
-      if (lastTrading && lastTrading !== todayBj()) {
+      // 🔴 2026-09-29 铁律: 只有**非交易日**才回退(见 autoFallbackDate 定义处与 refreshServeDate)
+      if (lastTrading && lastTrading !== todayBj() && ov.todayTradeDay === false) {
         // 只记在 autoFallbackDate, **绝不写 datePicker**(原因见其定义处)
         autoFallbackDate.value = lastTrading
         useDate = lastTrading
-        showToast(`今日竞价快照尚未生成，暂显示最近交易日 ${lastTrading} 的数据`, 'info')
+        showToast(`今日无交易（${todayBj()}），显示最近交易日 ${lastTrading} 的数据`, 'info')
       } else {
         autoFallbackDate.value = ''      // 今天已有快照 → 撤掉回退
       }
