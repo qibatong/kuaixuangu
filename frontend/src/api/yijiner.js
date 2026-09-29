@@ -9,6 +9,9 @@
 //    (与竞价异动那些带 cache 的只读接口不同 —— 它们是分钟级稳定的聚合数据。)
 import { request } from './request'
 
-export function fetchYijiner() {
-  return request('/api/yijiner')
+// 2026-09-29 主人: 回看日期直接点标题上的「今日/首板日」即可 ⇒ 端点支持 date
+//   · 空 = 今天(实时行情, 与网页版逐位一致)
+//   · 'YYYY-MM-DD' = 历史回看(该交易日 9:25 快照 + 日K 重建; 响应带 approx=true)
+export function fetchYijiner(date = '') {
+  return request('/api/yijiner', { query: date ? { date } : {} })
 }

@@ -27,9 +27,20 @@
           <div class="yj-title">
             <i class="fa fa-level-up yj-icon"></i>
             竞价一进二
-            <span v-if="meta.dataDate" class="yj-chip">首板日 {{ meta.dataDate }}</span>
+            <!-- 2026-09-29 主人: 回看日期不单独占一行 —— **点这里**选日期(今日/历史同一入口) -->
+            <button class="yj-chip yj-chip-date" :class="{ 'yj-chip-history': !!pickDate }"
+                    :title="pickDate ? '正在回看历史：点击可换日期' : '点击选择回看日期'"
+                    @click="openPicker">
+              {{ pickDate ? '回看' : '今日' }} {{ pickDate || meta.dataDate || '' }}
+              <i class="fa" :class="pickDate ? 'fa-history' : 'fa-caret-down'"></i>
+            </button>
+            <span v-if="pickDate" class="yj-chip yj-chip-back" title="回到今天" @click="backToday">回今天</span>
+            <span v-if="meta.approx" class="yj-chip yj-chip-approx"
+                  title="历史回看：f26 上市日期 / f100 行业不可重建 ⇒ 次新过滤不生效、板块排名退化为单组">近似口径</span>
             <span v-if="list.length" class="yj-chip yj-chip-accent">{{ list.length }} 只</span>
           </div>
+          <input ref="dateEl" v-model="pickDate" class="yj-date-hidden" type="date" :max="maxDate"
+                 @change="load">
           <button class="yj-refresh" :disabled="loading" @click="load">
             <i class="fa" :class="loading ? 'fa-spinner fa-spin' : 'fa-refresh'"></i> 刷新
           </button>
@@ -139,6 +150,7 @@ import { fetchYijiner } from '../api/yijiner'
 import { buildConceptFreq, pickMainConcept } from '../utils/conceptMain'
 import { useUserStore } from '../stores/user'
 import { showToast } from '../utils/toast'
+import { todayBj } from '../utils/time'      // 2026-09-29: 回看日期上限(不选未来)
 
 // 2026-09-28: 嵌入首页左视图时传 embedded=true（与 AipickView 同约定，收紧间距）
 defineProps({
@@ -147,6 +159,24 @@ defineProps({
 
 const user = useUserStore()
 const list = ref([])
+// 2026-09-29 主人要求: 回看日期不单独列窗口 —— 点标题上的「今日/首板日」chip 即可选
+const pickDate = ref('')              // 空 = 今天
+const maxDate = todayBj()             // 不允许选未来
+const dateEl = ref(null)
+
+function openPicker() {
+  const el = dateEl.value
+  if (!el) return
+  // Chrome 支持 showPicker(); 其余浏览器降级为 focus+click(原生控件仍会弹出)
+  if (typeof el.showPicker === 'function') {
+    try { el.showPicker(); return } catch (e) { /* 降级 */ }
+  }
+  el.focus(); el.click()
+}
+function backToday() {
+  pickDate.value = ''
+  load()
+}
 const meta = ref({})           // dataDate / stats / filters / elapsedMs
 const loading = ref(false)
 const errMsg = ref('')
@@ -210,10 +240,13 @@ async function load() {
   loading.value = true
   errMsg.value = ''
   try {
-    const d = await fetchYijiner()
+    const d = await fetchYijiner(pickDate.value || '')
     if (d && d.ok) {
       list.value = d.list || []
-      meta.value = { dataDate: d.dataDate, stats: d.stats, filters: d.filters, elapsedMs: d.elapsedMs }
+      meta.value = {
+        dataDate: d.dataDate, stats: d.stats, filters: d.filters, elapsedMs: d.elapsedMs,
+        approx: !!d.approx    // 2026-09-29: 历史回看口径近似(f26/f100 不可重建)
+      }
     } else {
       // 后端取数失败（涨停池/行情异常）→ 如实提示，不清空已有名单
       errMsg.value = (d && d.msg) || '取数失败'
@@ -256,6 +289,24 @@ defineExpose({ load })
   color: var(--text-main);
 }
 .yj-icon { color: var(--accent); }
+
+/* 2026-09-29 主人: 回看日期并入标题 chip —— 可点击、无独立输入行 */
+.yj-chip-date {
+  cursor: pointer;
+  background: none;
+  font-family: inherit;
+  line-height: 1.6;
+}
+.yj-chip-date:hover { border-color: var(--accent); color: var(--text-main); }
+.yj-chip-history { color: var(--accent); border-color: var(--accent); }
+.yj-chip-back { cursor: pointer; }
+.yj-chip-back:hover { color: var(--accent); border-color: var(--accent); }
+.yj-chip-approx { color: #e8b04b; border-color: rgba(232, 176, 75, .45); }
+/* 隐藏的原生日期控件(width/height=0 但可被 showPicker()/click() 唤出) */
+.yj-date-hidden {
+  width: 0; height: 0; padding: 0; border: 0; opacity: 0;
+  position: absolute; pointer-events: none;
+}
 .yj-chip {
   font-size: 11px;
   font-weight: 500;

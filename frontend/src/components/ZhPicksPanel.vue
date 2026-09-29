@@ -16,13 +16,20 @@
           <div class="zh-title">
             <i class="fa fa-star zh-icon"></i>
             竞价精选
-            <span v-if="date" class="zh-chip">{{ pickDate ? '数据日' : '今日' }} {{ date }}</span>
+            <!-- 2026-09-29 主人: 回看日期不单独占一行 —— **点这里**就能选日期(今日/历史同一入口) -->
+            <button class="zh-chip zh-chip-date" :class="{ 'zh-chip-history': !!pickDate }"
+                    :title="pickDate ? '正在回看历史：点击可换日期' : '点击选择回看日期'"
+                    @click="openPicker">
+              {{ pickDate ? '回看' : '今日' }} {{ date || maxDate }}
+              <i class="fa" :class="pickDate ? 'fa-history' : 'fa-caret-down'"></i>
+            </button>
+            <span v-if="pickDate" class="zh-chip zh-chip-back" title="回到今天" @click="backToday">回今天</span>
             <span v-if="list.length" class="zh-chip zh-chip-accent">{{ list.length }} 只</span>
           </div>
           <div class="zh-tools">
-            <input v-model="pickDate" class="zh-date" type="date" :max="maxDate"
-                   title="查看历史：选一个交易日" @change="load(true)">
-            <button v-if="pickDate" class="zh-btn" title="回到今天" @click="backToday">今天</button>
+            <!-- 隐藏的原生日期控件: 由上面的 chip 触发(不用 showPicker 的浏览器兜底点击) -->
+            <input ref="dateEl" v-model="pickDate" class="zh-date-hidden" type="date" :max="maxDate"
+                   @change="load(true)">
             <button class="zh-btn" :disabled="loading" title="刷新" @click="load(true)">
               <i class="fa fa-refresh" :class="{ spin: loading }"></i>
             </button>
@@ -79,8 +86,19 @@ const list = ref([])
 const date = ref('')          // 后端实际生效的数据日(可能因非交易日对齐)
 const pickDate = ref('')      // 用户选的历史日(空 = 今天)
 const maxDate = todayBj()
+const dateEl = ref(null)      // 隐藏的原生日期控件(由标题 chip 唤出)
 const loading = ref(false)
 const err = ref('')
+
+function openPicker() {
+  const el = dateEl.value
+  if (!el) return
+  // Chrome 支持 showPicker(); 其余浏览器降级为 focus+click(原生控件仍会弹出)
+  if (typeof el.showPicker === 'function') {
+    try { el.showPicker(); return } catch (e) { /* 降级 */ }
+  }
+  el.focus(); el.click()
+}
 
 // 涨跌配色(缺失/非法 → dim; 与全站 chgCls 同口径)
 function cls(v) {
@@ -151,14 +169,21 @@ onMounted(() => { if (user.isVipOrPaid) load() })
   cursor: pointer;
 }
 .zh-btn:disabled { opacity: .5; cursor: default; }
-.zh-date {
-  background: transparent;
-  border: 1px solid var(--border-soft, #3a3f4b);
-  color: var(--text-secondary);
-  border-radius: 6px;
-  padding: 1px 6px;
-  font-size: 12px;
-  color-scheme: dark;
+/* 2026-09-29 主人: 回看日期并入标题 chip —— 可点击、无独立输入行 */
+.zh-chip-date {
+  cursor: pointer;
+  background: none;
+  font-family: inherit;
+  line-height: 1.6;
+}
+.zh-chip-date:hover { border-color: var(--accent); color: var(--text-main); }
+.zh-chip-history { color: var(--accent); border-color: var(--accent); }
+.zh-chip-back { cursor: pointer; }
+.zh-chip-back:hover { color: var(--accent); border-color: var(--accent); }
+/* 隐藏的原生日期控件(width/height=0 但可被 showPicker()/click() 唤出) */
+.zh-date-hidden {
+  width: 0; height: 0; padding: 0; border: 0; opacity: 0;
+  position: absolute; pointer-events: none;
 }
 .zh-empty { padding: 22px 10px; text-align: center; color: var(--text-muted); }
 .zh-empty-hint { margin-top: 6px; font-size: 11.5px; opacity: .8; }

@@ -28,9 +28,11 @@
 """
 from __future__ import annotations
 
+import json
 import time
 
 from ..core import logger, trade_calendar
+from ..db import database
 from . import fetcher
 
 log = logger.get_logger(__name__)
@@ -314,16 +316,88 @@ def _pick_zt_date():
     return None, {}
 
 
-def run():
+def _hist_raw_rows(codes, date):
+    """历史回看: 用**该交易日的 9:25 快照 + 日K**重建东财行情行(f* 同构), 供打分/过滤复用。
+
+    与 9:25 实时**同源同义**的字段:
+      f12 code | f14 name | **f615 竞价涨幅(取该日 9_25 快照)** | f2 现价=当日收 | f18 昨收
+      f3 现涨=当日收盘涨幅 | f4 涨跌额=收−昨收 | f5 成交量(手, 该日 K 线)
+      f10 量比 = 该日量 ÷ 前 5 日均量 | f21 流通市值(元, 取该日快照 float_mv)
+    🔴 两处**不可重建**(故历史口径由路由标记 approx=True):
+      · f26 上市日期 → None ⇒ 次新过滤自然放行(代码里 `days is None` 不剔除)
+      · f100 行业 → "-" ⇒ 板块排名退化为单组(等价于按竞价涨幅排名)
+    """
+    conn = database.get_conn()
+    out = []
+    try:
+        for code in codes:
+            row = conn.execute(
+                "SELECT name, bid_change, bid_amt, float_mv FROM snapshot_bid "
+                "WHERE date=? AND time_point='9_25' AND code=?", (date, code)).fetchone()
+            if not row:
+                continue                                   # 该日无 9:25 快照 → 无从重建, 跳过
+            name, chg = row[0], _num(row[1], None)
+            amt_wan, fmv = _num(row[2], 0.0), _num(row[3], 0.0)
+            krow = conn.execute("SELECT day_data FROM stock_kline WHERE code=?", (code,)).fetchone()
+            if not krow or not krow[0]:
+                continue
+            try:
+                dd = json.loads(krow[0]) if isinstance(krow[0], str) else krow[0]
+                t = dd.get("time") or []
+                idx = None
+                for i, d in enumerate(t):
+                    if str(d) == date:
+                        idx = i
+                if idx is None or idx < 1:
+                    continue
+                closes = dd.get("close") or []
+                opens = dd.get("open") or []
+                vols = dd.get("volume") or []
+                close, prev = float(closes[idx]), float(closes[idx - 1])
+                # 🔴 f17(今开) 必须给: `get_entity_change` 是 (f2-f17)/f17, 缺 f17 时
+                #   代码按 o==0 直接返回 0.0 ⇒ 历史行实体涨幅会全变 0.00(实测踩到)。
+                open_ = float(opens[idx] or 0) if idx < len(opens) else 0.0
+                vol = float(vols[idx] or 0) if idx < len(vols) else 0.0
+                pv = [float(x or 0) for x in vols[max(0, idx - 5):idx]]
+            except (KeyError, IndexError, TypeError, ValueError):
+                continue
+            pv = [v for v in pv if v > 0]
+            vr = (vol / (sum(pv) / len(pv))) if (vol > 0 and pv) else 0.0
+            px = close * (1 + (chg or 0) / 100.0)          # 竞价价(换算竞价量用)
+            out.append({
+                "f12": code, "f14": name,
+                "f615": chg,                               # 竞价涨幅(该日 9:25)
+                "f2": round(close, 2), "f18": round(prev, 2), "f17": round(open_, 2),
+                "f3": round((close / prev - 1) * 100, 2) if prev > 0 else None,
+                "f4": round(close - prev, 2) if prev > 0 else None,
+                "f5": vol, "f10": round(vr, 2), "f21": fmv,
+                "f26": None, "f100": "-", "f103": "",
+            })
+    finally:
+        conn.close()
+    return out
+
+
+def run(date=None):
     """取数 + 打分 + 过滤 + 排序。返回 (payload_dict, error_msg)。
 
+    date: 空/None = **今天**(实时行情, 与网页版逐位一致);
+          'YYYY-MM-DD' = **历史回看**(该交易日的 9:25 快照 + 日K 重建, 见 `_hist_raw_rows`;
+          路由会在 payload 上标 `approx=True` —— f26/f100 两项不可重建)。
     不抛异常: 取数失败一律返回 (None, 原因), 由路由层转成 {ok:false}。
     """
     t0 = time.time()
+    hist = bool(date)
 
     # 1) 昨日(最近交易日)涨停池 —— 复用生产在用的涨停池链路
     try:
-        zt_date, zt_map = _pick_zt_date()
+        if hist:
+            # 历史回看: 股票池 = **该日的前一交易日**(不再"从今天往前找非空池")
+            prev = trade_calendar.prev_trade_date(date)
+            zt_date = prev
+            zt_map = fetcher.fetch_zt_pool(prev.replace("-", "")) if prev else {}
+        else:
+            zt_date, zt_map = _pick_zt_date()
     except Exception as e:                                  # noqa: BLE001
         log.warning("竞价一进二 涨停池获取失败 err=%s", str(e)[:160])
         return None, "涨停池获取失败: %s" % str(e)[:160]
@@ -350,9 +424,13 @@ def run():
                                       "oneWordDropped": one_word_dropped,
                                       "candidates": 0, "dropped": {}}, t0), None
 
-    # 3) 今日行情: 按候选点查(几十只, 不拉全市场) —— extra_fields 追加 f26(上市日期) 供次新过滤
+    # 3) 行情: 实时走东财按候选点查(几十只, 不拉全市场; extra_fields 追加 f26 供次新过滤);
+    #    🔴 历史回看走**该交易日快照+日K重建**(不查实时, 否则会把今天的行情贴到历史日)
     try:
-        raw_rows = fetcher.fetch_raw_by_codes(first_board, extra_fields="f26")
+        if hist:
+            raw_rows = _hist_raw_rows(first_board, date)
+        else:
+            raw_rows = fetcher.fetch_raw_by_codes(first_board, extra_fields="f26")
     except Exception as e:                                  # noqa: BLE001
         log.warning("竞价一进二 行情点查失败 codes=%d err=%s", len(first_board), str(e)[:160])
         return None, "行情获取失败: %s" % str(e)[:160]
