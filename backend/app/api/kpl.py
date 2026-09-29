@@ -271,6 +271,7 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(quota_guard("auction")
             resolved = _resolve_date(date)
             d = kpl.query_auction_history(resolved, "seal")
             kpl.fill_bid_turnover_from_snap(d, resolved)   # 2026-08-22: 历史快照竞换可能缺, 用当日快照补
+            kpl.fill_bid_net_from_snap(d, resolved)        # 2026-09-29: 09:24 快照净额全 0 → 补 9_25 官方值
             # 2026-08-24: 开盘啦 Type4 bidChange 与自采竞价涨幅不一致 → 历史竞涨以自采快照为准强制覆盖
             kpl.fill_bid_change_from_snap(d, resolved, override=True)
             kpl.fill_close_change_from_kline(d, resolved)  # 2026-08-22: 历史回看现涨=当日收盘涨跌幅
@@ -286,6 +287,7 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(quota_guard("auction")
             # 非竞价时段 → 从库快速读取 (当天优先, 历史回退)
             d, d_str = _read_auction_fast("seal")
             kpl.fill_bid_turnover_from_snap(d, d_str)   # 2026-08-22: 非交易日/历史回退补竞换
+            kpl.fill_bid_net_from_snap(d, d_str)        # 2026-09-29: 同因 —— 落库快照净额全 0
             # 2026-08-24: 竞涨以自采快照为准强制覆盖(开盘啦 bidChange 不可靠)
             kpl.fill_bid_change_from_snap(d, d_str, override=True)
             _ensure_concepts(d, tag="auc:bid-seal[fast]")
@@ -374,6 +376,7 @@ def api_kpl_bid_net(request: Request, uid: int = Depends(quota_guard("auction"))
         # 老快照未存竞换/竞额 → 用当日 9_25 快照补
         kpl.fill_bid_turnover_from_snap(d, resolved)
         kpl.fill_bid_amt_from_snap(d, resolved)
+        kpl.fill_bid_net_from_snap(d, resolved)        # 2026-09-29: 09:24 快照净额全 0 → 补 9_25 官方值
         kpl.fill_close_change_from_kline(d, resolved)  # 2026-08-22: 历史回看现涨=当日收盘涨跌幅
         kpl.apply_board_concept_db(d, log_tag="auc:bid-net[hist]", field="board", truncate=2, blank_if_missing=True, date=resolved)
         return jr({"ok": True, "list": d, "count": len(d), "date": resolved, "requestedDate": date})
@@ -387,6 +390,7 @@ def api_kpl_bid_net(request: Request, uid: int = Depends(quota_guard("auction"))
                 d_str = _prev
         kpl.fill_bid_turnover_from_snap(d, d_str)
         kpl.fill_bid_amt_from_snap(d, d_str)
+        kpl.fill_bid_net_from_snap(d, d_str)          # 2026-09-29: 同因 —— 落库快照净额全 0
         _apply_change_for(d, d_str)   # 现涨: 盘中=实时; 盘后/非交易=当日收盘固定值(不调实时)
         kpl.apply_board_concept_db(d, log_tag="auc:bid-net[fast]", field="board", truncate=2, blank_if_missing=True, date=d_str)
         return jr({"ok": True, "list": d, "count": len(d), "date": d_str})

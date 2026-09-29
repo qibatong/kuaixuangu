@@ -2595,6 +2595,50 @@ def fill_bid_amt_from_snap(lst, date=None):
     return lst
 
 
+def fill_bid_net_from_snap(lst, date=None):
+    """用 9_25 **自采快照**补竞价净额(bidNetAmt, 元); 已带(非 0)的不覆盖。
+
+    🔴 2026-09-29 主人反馈「竞价异动有些展示的数据和实时的数据不一致」的根因之一:
+      竞价异动的落库快照由 `save_auction_history(phase='bid')` 在 **09:24:2x** 采集
+      (设计如此: 再晚开盘啦 Type4 的竞价净额会被清零), 而那一刻开盘啦**还没产出竞净额**
+      (官方 ready_after=09:25:35) ⇒ 落库行里 `bidNetAmt` **全为 0**。
+      生产实测(2026-09-29): seal 行 72/72 全 0、bid_net 行 37/37 全 0;
+      而自采定格 `snapshot_bid.auc_main_net`(9_25, 口径 = 猫爪 fundflow_kp 官方成品, 单位元,
+      契约原文「竞价主力净额(特大单+大单), 9:25 定格后即为当日终值」) 当日 **1292 只有值**。
+      ⇒ 盘后/历史看「竞价净额」tab 一直是 0/空, 与实时(竞价时段接口直给)不一致。
+
+    ⚠️ 刻意**不走 `_snap25_map`**: 那个进程内缓存按设计不含 `auc_main_net`/`auc_vol_ratio`
+      (这两列会被 09:26:10~09:26:30 的补采 UPDATE, 缓存会把 0 固化 60s) ⇒ 这里按 code 定向查一次。
+    """
+    if not lst:
+        return lst
+    try:
+        import sqlite3
+        d = date or freeze_day()
+        codes = [str(it.get("code")) for it in lst if it.get("code") and not it.get("bidNetAmt")]
+        if not codes:
+            return lst
+        conn = sqlite3.connect(config.DB_FILE)
+        try:
+            sql = ("SELECT code, auc_main_net FROM snapshot_bid "
+                   "WHERE date=? AND time_point='9_25' AND code IN (%s)"
+                   % ",".join("?" * len(codes)))
+            m = {r[0]: r[1] for r in conn.execute(sql, [d] + codes)}
+        finally:
+            conn.close()
+        n = 0
+        for it in lst:
+            v = m.get(str(it.get("code")))
+            if v:
+                it["bidNetAmt"] = float(v)
+                n += 1
+        if n:
+            log.info("竞价净额补齐 %d 只 date=%s (源: snapshot_bid.auc_main_net 9_25)", n, d)
+    except Exception as e:
+        log.warning("竞价净额补齐失败 date=%s err=%s", date or "-", e)
+    return lst
+
+
 def fill_bid_ratio_yest(lst, date=None):
     """2026-08-18 主人要求(竞价爆量): 补昨日竞价成交额(yestBidAmt 元) + 竞价量比
     (bidRatioYest = 今日竞价成交额/昨日竞价成交额); 昨日 = 最近(严格小于今日)交易日 9_25 快照"""
