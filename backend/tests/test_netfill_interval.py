@@ -45,8 +45,10 @@ def test_window_derived_from_contract_is_equivalent():
     若契约里的 ready_after / probe.min 被改，这里立刻红 —— 提示补采窗口跟着变了。
     """
     assert auction_snapshot.NETFILL_START_SEC == 9 * 3600 + 26 * 60 + 10
-    # 🔴 2026-09-29 主人收紧: 硬上限 09:29:50 → **09:26:30(= 定格时刻)**
-    assert auction_snapshot.NETFILL_END_SEC == 9 * 3600 + 26 * 60 + 30
+    # 🔴 2026-09-29 主人两轮口径: 09:29:50 → 09:26:30(= 定格时刻) → **09:27:30(= 定格 + 60s)**
+    #    最后一跳的原因: 定格那一枪不再取净额(该列权重 0, 原占关键路径 13s), 改由补采在
+    #    定格后补(只补 0) ⇒ 窗口必须**跨过定格**, 否则净额永远补不上。
+    assert auction_snapshot.NETFILL_END_SEC == 9 * 3600 + 27 * 60 + 30
     assert abs(auction_snapshot.NETFILL_MIN_N - 1000) <= 10
 
 

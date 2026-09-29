@@ -152,8 +152,22 @@ def _ready_sec(field_name, margin_sec, fallback_sec):
         return fallback_sec
 
 
-# 🔴 硬上限(2026-09-29 主人拍板): **09:26:30 = 定格时刻** —— 补采/重采一律不得晚于定格。
-_NETFILL_HARD_END_SEC = 9 * 3600 + 26 * 60 + 30                 # 09:26:30(与 _BID25_FREEZE_SEC 同值)
+# 🔴 净额补采硬上限(2026-09-29 修订): **09:27:30 = 定格 + 60 秒**(原: 与定格同刻)。
+#   为什么放宽: 竞价净额(auc_main_net)当前**评分权重为 0**(见 bid_strength.py:40-44, 仅作展示),
+#   而它原先卡在定格那一枪的**关键路径**上 —— 2026-09-29 实测独占 13 秒(猫爪刚抖动恢复, 全市场
+#   3 片), 白白推迟了"定格落库 → aipick 采集/系统批次/自动应用"的启动。
+#   现在: 采集时**不取**净额(见 _FETCH_NET_IN_SNAPSHOT), 完全交给本补采通道(只补 0、幂等、
+#   跨进程单飞) —— 定格落库后仍有 ≈2 轮(约 09:26:45 / 09:27:20)把它补上。
+#   ★ 参与评分的列(竞价量比/涨幅/额/换手)**不受影响**: 仍要求"定格即终值"(量比另有自算兜底)。
+_NETFILL_HARD_END_SEC = 9 * 3600 + 27 * 60 + 30                 # 09:27:30 = 定格时刻 + 60s
+
+# 🔴 2026-09-29 (定格提速): 快照采集里是否取"竞价净额"。
+#   False(新默认): 不取 ⇒ 定格那一枪省下 fundflow_kp 全市场 3 片的时间(实测 3~13s);
+#                  该列由 refill_bid_main_net 在定格后补(只补 0, 见上面的窗口注释)。
+#   True : 回到旧行为(采集时就取, 卡在定格关键路径上)。
+#   为什么要留这个开关: 该列虽权重 0, 但前端有展示列; 若日后恢复其评分权重, 必须改回 True
+#   并重新评估定格耗时 —— 否则会出现"评分用了这个字段, 而它在定格时恒 0"的静默退化。
+_FETCH_NET_IN_SNAPSHOT = False
 # 竞价抢筹结果快照的"轮采(含失败重试)"上界: 同上, 不得晚于 09:26:30(原为 9:30)。
 _BID_QC_UNTIL_SEC = 9 * 3600 + 26 * 60 + 30                     # 09:26:30
 try:
@@ -542,14 +556,17 @@ def _merge_meoz(raw_all):
 
     # ⑤ 主力资金: fundflow_kp 全市场批量(竞价主力净额 auction_main_net_amount)。
     #   独立 try: 挂了不影响四源与主链路(独立降级), 调用方按"无信号"处理。
+    #   🔴 2026-09-29: 默认**不在这里取**(见 _FETCH_NET_IN_SNAPSHOT 的说明) —— 该列权重为 0,
+    #      原先是定格那一枪的耗时大户(实测 13s); 改由补采通道在定格后补(只补 0, 幂等)。
     ff_map = {}
-    try:
-        ff_map = meoz_client.fundflow_map(sorted(codes))
-        stats["ff"] = sum(1 for r in ff_map.values()
-                          if r.get("auction_main_net_amount") not in (None, 0, "", "-"))
-        log.info("[快照采集] 猫爪 fundflow_kp: %d只(竞价净额非零%d)", len(ff_map), stats["ff"])
-    except Exception as e:                                      # noqa: BLE001
-        log.warning("[快照采集] 猫爪 fundflow_kp 读取失败 err=%s", str(e)[:120])
+    if _FETCH_NET_IN_SNAPSHOT:
+        try:
+            ff_map = meoz_client.fundflow_map(sorted(codes))
+            stats["ff"] = sum(1 for r in ff_map.values()
+                              if r.get("auction_main_net_amount") not in (None, 0, "", "-"))
+            log.info("[快照采集] 猫爪 fundflow_kp: %d只(竞价净额非零%d)", len(ff_map), stats["ff"])
+        except Exception as e:                                  # noqa: BLE001
+            log.warning("[快照采集] 猫爪 fundflow_kp 读取失败 err=%s", str(e)[:120])
 
     for code in codes:
         code = str(code)
@@ -942,6 +959,29 @@ def _bid25_before_freeze(hm: int, sec: int) -> bool:
     # 🔴 两侧同为当日绝对秒: _BID25_FREEZE_SEC 含 9*3600, 此处**不得**再减/加 9*3600。
     return hm * 60 + sec < _BID25_FREEZE_SEC
 
+
+# ---- 定格"到点即采"(2026-09-29): 消除 10s 轮询相位带来的 0~10 秒白等 ----
+# 背景(2026-09-29 实测): 定格首采的判定发生在**调度循环**里, 而循环固定 10s 一轮 ⇒ 09:26:30
+#   到点后要等下一轮才动手(今天 09:26:37 才开始采 —— 白等 7 秒, 最终落库 09:26:53)。
+# 治法: 定格前后各 30 秒内把轮询间隔从 10s 收到 1s —— 不新增线程、不改任何判定口径, 只是
+#   "到点就走"。只收窄定格窗口而**不**全天加密, 是为了不给循环里的各项守卫(净额补采/自动应用/
+#   抢筹快照/分时快照)增加 10 倍的无谓调用频次。
+_SCHED_TICK_SEC = 10          # 常规调度粒度(与旧行为一致)
+_SCHED_TICK_FAST_SEC = 1      # 定格前后的加密粒度
+_SCHED_FAST_WIN = 30          # 定格前后各 30 秒进入加密区(±30s)
+
+
+def _sched_sleep_sec(now_sec, freeze_sec=None):
+    """下一次调度轮询该睡多久(纯函数, 便于单测)。
+
+    now_sec: 北京当日秒(hm*60+sec); freeze_sec: 定格首采时刻(默认 _BID25_FREEZE_SEC)。
+    定格前后 `_SCHED_FAST_WIN` 秒内返回 1 秒(到点即采), 其余返回 10 秒(常规粒度)。
+    """
+    fz = _BID25_FREEZE_SEC if freeze_sec is None else freeze_sec
+    if abs(int(now_sec) - int(fz)) <= _SCHED_FAST_WIN:
+        return _SCHED_TICK_FAST_SEC
+    return _SCHED_TICK_SEC
+
 # ---- 9:31 盘点质量阈值(2026-09-11 P0-2) ----
 _SNAP_MIN_ROWS = 3000           # 单时点行数下限: 正常 5500+, 熔断日实测 132 → 3000 足够安全
 _SNAP_MIN_AMT_RATE = 0.50       # 有竞价额占比下限, **仅对 9_15/9_25 生效**
@@ -1180,6 +1220,20 @@ def snapshot_at(time_point, force=False):
                 pass
     log.info("[快照采集] 完成 date=%s time=%s 数量%d 耗时%.0fms (封单覆盖%d只)",
              date, time_point, len(raw_all), (time.time() - t0) * 1000, n_seal)
+    # 🔴 2026-09-29: 9_25 定格落库后**立即**用自算量比补齐仍为 0 的行 —— 官方成品(猫爪
+    #   daily_auc.auc_vol_ratio)ready_after=09:25:35, 而"定格那一枪"可能早于它(旧口径
+    #   09:25:20~49; 且若把定格时刻提前回 09:25:20 更是必然)。
+    #   放在**落库之后、副作用触发之前** ⇒ 定格那一枪写下的行当场就是完整值, 下游
+    #   (评分/名单/AI 批次)读到的是完整量比, 不必等 09:26:30 那一轮补采。
+    #   纪律: 只补 0、绝不覆盖官方成品; 只对今日生效(不改历史行)。失败只告警, 不影响落库。
+    if time_point == "9_25":
+        try:
+            n_calc, n_upd, n_tot = refill_vol_ratio_self(date, time_point)
+            if n_upd:
+                log.info("[快照采集] 自算量比回填: 可算%d只 → 回填%d行 / 定格行%d",
+                         n_calc, n_upd, n_tot)
+        except Exception as e:                                 # noqa: BLE001
+            log.warning("[快照采集] 自算量比回填异常(不影响落库) err=%s", e)
     # 数据质量自检(2026-08-16): 采集后立即校验"封单是否只出现在涨停时点"等规则,
     # 异常推飞书告警, 不等用户发现(用户连续 3 次发现同类问题, 改为系统自动把关)
     try:
@@ -1272,6 +1326,159 @@ def _netfill_due(nf_sec, wday, last_ts, now_ts, done, date=None):
     if done:
         return False
     return now_ts - last_ts >= netfill_interval()
+
+
+# ---------------- 自算竞价量比(2026-09-29): 官方成品缺失时的第二级来源 ----------------
+# 口径(与猫爪 openapi 原文 / contracts.fields.auc_vol_ratio 一致):
+#     竞价量比 = 竞价成交量 ÷ 近 5 日平均每分钟成交量
+# 🔴 口径已用**官方成品反推**验证(只读对拍, 未改任何数据):
+#     2026-09-24 / 2026-09-28 两个交易日, 全市场各 3076 只可比 —— 自算分母 ÷ 官方隐含分母
+#     **中位 0.9959 / p10 0.9888 / p90 1.0032 / |偏差| 中位 0.47%** ⇒ 逐只口径一致;
+#     同时验证两处细节: ① 单位一致(daily.vol 与 auc_vol 同为「手」, 不需换算);
+#     ② 基准是 **241 分钟**(换 240 会偏到 0.9917, 更差)。
+# 为什么要有它: 官方字段 ready_after=09:25:35, 而"定格那一枪"更早(旧口径 09:25:20~49)
+#   ⇒ 历史上该列恒 0、评分量比层静默退化(v4.11.43/45 两次推迟定格就是为了等它)。
+_VR_BARS = 241                      # 全天分钟数: 9:30~11:30(121) + 13:00~15:00(120)
+_VR_WIN = 5                         # 「近 5 日」= 目标日之前最近 5 个交易日(**不含**目标日)
+_VR_DEN_KEY = "vr:den:%s"           # 分母缓存键(按目标日): 近 5 日窗口一天只变一次
+_VR_DEN_TTL = 3 * 3600
+_VR_DEN_CHUNK = 800                 # daily 分片(实测 800 只/次 0.32s 无截断)
+
+
+def _vr_den_map(codes, date):
+    """「近 5 日平均每分钟成交量(手)」字典 {code: den} —— 自算量比的**分母**。
+
+    * 数据源 `daily`(**历史日不可变**, 与昨比链路同一份数据) ⇒ 结果按日长缓存(TTL 3h),
+      一天只真出网一次(全市场 7 片, ≈2~3s);
+    * 不足 5 日的票(新股/长期停牌/日K缺行)**不返回** ⇒ 调用方跳过, 该票量比保持 0
+      = **不可用**(与 `snapshot_bid.auc_vol_ratio` 现有语义一致: 评分层按缺值走 default,
+      不会把 0 当成"量比=0"来惩罚)。
+    """
+    key = _VR_DEN_KEY % str(date).replace("-", "")
+    try:
+        hit = store.get(key)
+    except Exception:                                          # noqa: BLE001
+        hit = None
+    if isinstance(hit, dict) and hit:
+        return hit
+    from . import meoz_client
+    want = str(date).replace("-", "")
+    out = {}
+    for i in range(0, len(codes), _VR_DEN_CHUNK):
+        try:
+            d = meoz_client.daily_history_map(codes[i:i + _VR_DEN_CHUNK], days=_VR_WIN + 3) or {}
+        except Exception as e:                                 # noqa: BLE001
+            log.warning("[自算量比] 日K分片失败(%d只) err=%s", _VR_DEN_CHUNK, str(e)[:120])
+            continue
+        for code, rows in d.items():
+            rs = [r for r in (rows or [])
+                  if str((r or {}).get("tradedate") or "").replace("-", "") < want]
+            if len(rs) < _VR_WIN:
+                continue
+            rs.sort(key=lambda r: str((r or {}).get("tradedate") or ""))
+            vs = [_f((r or {}).get("vol")) for r in rs[-_VR_WIN:]]
+            if any(v is None for v in vs) or sum(vs) <= 0:
+                continue
+            out[code] = sum(vs) / (_VR_WIN * _VR_BARS)
+    if out:
+        try:
+            store.set(key, out, ttl=_VR_DEN_TTL)
+        except Exception:                                      # noqa: BLE001
+            pass
+    return out
+
+
+def _vr_num_map(codes, date):
+    """「竞价成交量(手)」字典 {code: vol} —— 自算量比的**分子**。
+
+    ① 官方 `daily_auc.auc_vol`(与量比同接口同口径)优先 —— 有就用它, 分子与官方完全同源;
+    ② 仅当**今日且仍在竞价窗口内(09:15~09:29:59)** 时, 用采集主源 `screening.vol` 顶上:
+       连续竞价尚未开始 ⇒ 当日累计量**就是**竞价成交量。
+       🔴 绝不对历史日用 screening —— 历史日的 vol 是**全天**量, 会放大几百倍。
+    防串日: 与 meoz_bid_ready 同判据 —— tradedate 与目标日不符的行直接丢弃。
+    """
+    from . import meoz_client
+    want = str(date).replace("-", "")
+    out = {}
+    try:
+        am = meoz_client.daily_auc_amt("0925", date=want) or {}
+    except Exception as e:                                     # noqa: BLE001
+        am = {}
+        log.warning("[自算量比] 取官方竞价量失败 err=%s", str(e)[:120])
+    for code in codes:
+        r = am.get(code) or {}
+        td = str(r.get("tradedate") or "").replace("-", "")
+        if td and td != want:
+            continue                                           # 串日残值 → 不用
+        v = _f(r.get("auc_vol"))
+        if v and v > 0:
+            out[code] = v
+    g = time.gmtime(time.time() + 8 * 3600)
+    hm = g.tm_hour * 60 + g.tm_min
+    # ★ 只有**真的还有缺口**才打 screening: 官方竞价量已全覆盖时这次全市场调用纯属浪费
+    #   (单测 test_num_prefers_official_auc_vol 就是钉这条 —— 抓过一次白打)。
+    if (want == time.strftime("%Y%m%d", g) and 9 * 60 + 15 <= hm < 9 * 60 + 30
+            and any(not out.get(c) for c in codes)):
+        try:
+            sc = meoz_client.screening_map() or {}
+        except Exception as e:                                 # noqa: BLE001
+            sc = {}
+            log.warning("[自算量比] 取 screening 竞价量失败 err=%s", str(e)[:120])
+        for code in codes:
+            if out.get(code):
+                continue
+            v = _f((sc.get(code) or {}).get("vol"))
+            if v and v > 0:
+                out[code] = v
+    return out
+
+
+def refill_vol_ratio_self(date, point="9_25"):
+    """用**自算**量比回填仍为 0 的行(第二级兜底, 2026-09-29 新增)。
+
+    纪律(比官方补采更保守):
+      * **只补 0**(`WHERE auc_vol_ratio=0`) ⇒ 绝不覆盖官方成品, 幂等可重入;
+      * **只对今日生效** ⇒ 不修改历史行(历史数据不可变是硬纪律);
+      * 分母/分子任一缺失的票跳过 ⇒ 保持 0 = 不可用。
+    返回 (可算只数, 实际回填行数, 定格行总数)。
+    """
+    today = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600))
+    if str(date) != today:
+        return (0, 0, 0)
+    conn = database.get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT code FROM snapshot_bid WHERE date=? AND time_point=? "
+            "AND (auc_vol_ratio IS NULL OR auc_vol_ratio=0)", (date, point)).fetchall()
+    finally:
+        conn.close()
+    codes = [str(r[0]) for r in rows]
+    if not codes:
+        return (0, 0, 0)
+    num = _vr_num_map(codes, date)
+    if not num:
+        return (0, 0, len(codes))
+    den = _vr_den_map(list(num.keys()), date)
+    if not den:
+        return (0, 0, len(codes))
+    upd = []
+    for code, n in num.items():
+        d = den.get(code)
+        if not d or d <= 0:
+            continue
+        upd.append((round(n / d, 4), date, point, code))
+    if not upd:
+        return (0, 0, len(codes))
+    conn = database.get_conn()
+    try:
+        cur = conn.executemany(
+            "UPDATE snapshot_bid SET auc_vol_ratio=? "
+            "WHERE date=? AND time_point=? AND code=? AND auc_vol_ratio=0", upd)
+        conn.commit()
+        n_upd = cur.rowcount or 0
+    finally:
+        conn.close()
+    return (len(upd), n_upd, len(codes))
 
 
 def refill_bid_main_net(date, point="9_25"):
@@ -2161,10 +2368,23 @@ def _scheduler_loop():
                     # 竞价量比走**同一通道**兜底(2026-09-24): 定格推迟后正常那枪已采到,
                     # 这里兜猫爪抖动(今日 9:25:48 实测 8 秒)与产出晚于定格截止两种残余。
                     nz_vr, n_upd_vr, _ = refill_bid_vol_ratio(date)
+                    # 🔴 2026-09-29: 第二级 —— 官方成品拿不到/仍缺的行, 用**自算**量比补上
+                    #   (只补 0、只今日; 见 refill_vol_ratio_self)。两条残余都覆盖:
+                    #   ① 猫爪抖动 ⇒ 本函数早退/am 为空 ② 官方只回填了一部分。
+                    #   ★ 刻意挂在**调用点**而不是 refill_bid_vol_ratio 内部: 单测直接调补采
+                    #     函数时不会意外发起真实网络调用(测试与生产行为解耦)。
+                    n_self = 0
+                    try:
+                        _c_self, n_self, _t_self = refill_vol_ratio_self(date)
+                    except Exception as e:                         # noqa: BLE001
+                        log.warning("[竞价补采] 量比自算回填异常 err=%s", str(e)[:120])
+                    if n_self:
+                        log.info("[竞价补采] 量比自算回填 %d 行(官方非零%d只) date=%s",
+                                 n_self, nz_vr, date)
                     log.info("[竞价补采] date=%s %d:%02d:%02d 净额非零%d/%d回填%d行 | "
-                             "量比非零%d回填%d行",
+                             "量比非零%d回填%d行(含自算%d)",
                              date, hm // 60, hm % 60, g.tm_sec, nz, n_all, n_upd,
-                             nz_vr, n_upd_vr)
+                             nz_vr, n_upd_vr + n_self, n_self)
                     if nz >= NETFILL_MIN_N and nz_vr >= _VR_READY_MIN_N:
                         store.setnx("sched:done:netfill_" + date, 1, ttl=86400)
                         log.info("[竞价补采] 达标(净额%d≥%d, 量比%d≥%d) 停止轮询 date=%s",
@@ -2432,7 +2652,7 @@ def _scheduler_loop():
                         log.warning("分时快照失败(下一轮重试) err=%s", e)
         except Exception as e:
             log.error("快照调度异常 err=%s", e)
-        time.sleep(10)
+        time.sleep(_sched_sleep_sec(hm * 60 + g.tm_sec))
 
 
 _last_intraday_ts = 0.0   # 上次分时快照时间戳(模块级, worker 启动时为 0 立即跑一次)

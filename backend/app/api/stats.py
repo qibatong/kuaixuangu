@@ -289,10 +289,32 @@ def api_stats_bid_snapshot_stock(request: Request, uid: int = Depends(get_uid)):
     return jr({"ok": True, "date": resolved, "code": code, "name": d["name"], "points": d["points"]})
 
 
+def _threepoints_meta(resolved):
+    """三时点榜响应里的「定格状态」元信息(纯逻辑, 便于单测)。
+
+    🔴 2026-09-29 (B2): 「9:25 定格是否已落库」**只能由后端给**, 前端只负责渲染 ——
+    前端若按 09:26:30 这类固定时刻自己猜, 就会重演 2026-09-16「两个用户拿到昨天名单」。
+      * `frozen`   : 用**现成**的 `auction_snapshot.has_today_snapshot()`(`SELECT 1 ...
+                     time_point='9_25' LIMIT 1`, 走主键、亚毫秒), 与选股闸门的"快照维"同源;
+                     注意判据按**实际服务的那个日期**(回退到历史交易日时应为已定格)。
+      * `freezeAt` : 由常量 `_BID25_FREEZE_SEC` **推导** —— 接口里不另写一份字面量时刻,
+                     否则定格时刻将来提前/推后时, 提示文案会静默说谎。
+      * `today`    : 北京时间今日(前端据此判断"是不是今天的表")。
+    """
+    fz = getattr(auction_snapshot, "_BID25_FREEZE_SEC", 9 * 3600 + 26 * 60 + 30)
+    return {
+        "frozen": bool(auction_snapshot.has_today_snapshot(resolved)),
+        "freezeAt": "%02d:%02d:%02d" % (fz // 3600, (fz % 3600) // 60, fz % 60),
+        "today": _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 8 * 3600)),
+    }
+
+
 @router.get("/api/stats/bid-snapshot-3points")
 def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)):
     """三时点封单榜(全市场): ?date=YYYY-MM-DD&limit=100
-    三层排序: ①9:25涨停(按9:25竞价额) ②9:20涨停9:25回落(按9:20) ③仅9:15涨停(按9:15)"""
+    三层排序: ①9:25涨停(按9:25竞价额) ②9:20涨停9:25回落(按9:20) ③仅9:15涨停(按9:15)
+    2026-09-29: 响应额外带 `frozen` / `freezeAt` / `today` —— 竞价时段(9:15~09:26:30)该表
+    只会有 9:15/9:20 两列, 前端据 `frozen=false` 把 9:25 列显示为「待定格」而不是空白。"""
     q = qs(request)
     date = (q.get("date") or [""])[0]
     if not date:
@@ -343,7 +365,9 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
                     it["board"] = "、".join(parts[:2])
         except Exception as e:
             log.warning("三时点榜概念归一失败 err=%s", e)
-        return {"ok": True, "date": resolved, "count": len(rows), "list": rows}
+        payload = {"ok": True, "date": resolved, "count": len(rows), "list": rows}
+        payload.update(_threepoints_meta(resolved))    # B2: frozen / freezeAt / today
+        return payload
 
     # 2026-09-04: 结果缓存防页面并发重复全量计算(loadAll 同页 bid-snapshot ×2 + 30s 轮询)
     # 竞价定格数据低频: 盘中现涨 3s 内一致, 历史回看数据不可变 → 历史 600s 缓存
