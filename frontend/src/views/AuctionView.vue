@@ -112,7 +112,7 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
       <table v-else-if="tab === 'zh'" class="stock-table">
         <thead>
           <tr>
-            <th>名称</th><th>板块</th><th>高开%</th><th>占昨量%</th><th>竞价额</th><th>昨额</th><th>涨停基因</th>
+            <th>名称</th><th>板块</th><th>高开%</th><th>占昨量%</th><th>竞价额</th><th>昨额(亿)</th><th>涨停基因</th>
           </tr>
         </thead>
         <tbody>
@@ -124,8 +124,9 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
             <td class="dim">{{ it.board }}</td>
             <td :class="it.bidChange > 0 ? 'up' : 'down'">{{ signed(it.bidChange) }}%</td>
             <td :class="it.volPct >= 8 ? 'ratio-hot' : it.volPct >= 5 ? 'ratio-warm' : 'dim'">{{ it.volPct }}%</td>
-            <td class="dim">{{ amtText(it.bidAmt) }}</td>
-            <td class="dim">{{ yi(it.ydayAmt) }}</td>
+            <!-- 🔴 后端 bidAmt/ydayAmt 单位是**万元**; yi/amtText 吃**元** ⇒ ×1e4(首版漏乘显示成 0万/0.00) -->
+            <td class="dim">{{ amtText((it.bidAmt || 0) * 1e4) }}</td>
+            <td class="dim">{{ yi((it.ydayAmt || 0) * 1e4) }}</td>
             <td><span class="lb-badge">{{ it.ztGene }}次</span></td>
           </tr>
           <tr v-if="!zhList.length">

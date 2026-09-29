@@ -36,6 +36,8 @@
                  名单来自独立端点 /api/yijiner，**不读 stock store 的数据流**；
                  门禁(严格 VIP)/取数/评分全部在 YijinerView 内部，与竞价那条链路互不影响。 -->
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'yijiner' }" @click="switchTab('yijiner')"><i class="fa fa-level-up"></i> 竞价一进二</button>
+            <!-- 2026-09-29 主人要求: 竞价精选放到「竞价一进二」右侧(面板=ZhPicksPanel, 数据 /api/stats/zh-picks) -->
+            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'zhpick' }" @click="switchTab('zhpick')"><i class="fa fa-star"></i> 竞价精选</button>
           </span>
           <!-- 2026-09-27 v4.11.63《移动端清单》§二·4: 名单数据的更新时刻。
                用 .right-group 挂到本行右侧（该 class 自带 margin-left:auto，且本行已
@@ -153,6 +155,9 @@
         <!-- 2026-09-28: 竞价一进二（昨日主板首板 → 今日二连板潜力）。
              严格 VIP 门禁(requiredLevel=1, 与竞价异动同强度)、取数、评分全在组件内部；
              放在链尾作兜底分支（原 AipickLgbView 的 v-else 已改为显式 v-else-if）。 -->
+        <YijinerView v-else-if="leftTab === 'yijiner'" :embedded="true" />
+        <!-- 2026-09-29: 竞价精选(主人要求放「竞价一进二」右侧); 兜底分支保持一进二 -->
+        <ZhPicksPanel v-else-if="leftTab === 'zhpick'" :embedded="true" />
         <YijinerView v-else :embedded="true" />
       </div><!-- /.home-col-left -->
 
@@ -173,6 +178,7 @@ import AuctionView from './AuctionView.vue'
 import AipickView from './AipickView.vue'
 import AipickLgbView from './AipickLgbView.vue'
 import YijinerView from './YijinerView.vue'
+import ZhPicksPanel from '../components/ZhPicksPanel.vue'
 import VipGate from '../components/VipGate.vue'
 import { useStocksStore } from '../stores/stocks'
 import { usePoolStore } from '../stores/pool'
@@ -334,7 +340,8 @@ function switchTab(m) {
   // 2026-09-28: 竞价一进二 也归 auction —— 它同样**不读 store.strategy**(名单来自
   //   /api/yijiner, 自带门禁), 归 'auction' 只为不给 FilterPanel 留脏值(此时它已隐藏)。
   //   ⚠️ 归 'spot' 会让 realTimeTimer 之外的 spot 分支产生"以为在盘中模式"的错配。
-  stocks.setStrategy(m === 'aipick' || m === 'aipick_lgb' || m === 'yijiner' ? 'auction' : 'spot')
+  // 2026-09-29: 竞价精选也归 auction(与一进二同理由: 不读 store 数据流, 不给 FilterPanel 留脏值)
+  stocks.setStrategy(m === 'aipick' || m === 'aipick_lgb' || m === 'yijiner' || m === 'zhpick' ? 'auction' : 'spot')
   // 2026-09-22 v4.11.35: AI 预测的使用计数由 AipickView 自己在加载报表时上报,
   // 这里**不要**再记一次(同一动作会双计)。
   // 2026-09-28 v4.11.80: tab1 走 spot 后**首屏取数逻辑不变** —— fetchAndCache 内部按
