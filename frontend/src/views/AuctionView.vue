@@ -1070,8 +1070,10 @@ polling = usePolling(async () => {
 .auc-panel .broken-today th:nth-of-type(8) { width: 72px; }  /* 概念 */
 .auc-panel .broken-today th:nth-of-type(9) { width: 168px; }  /* 涨停原因(改为列内展示 ⇒ 加宽) */
 .auc-panel .broken-today th:nth-of-type(10) { width: 46px; } /* 操作 */
-/* 昨涨停/昨断板表的「涨停原因」列: 这两张表原本没有定宽规则 ⇒ 补一条(不然长原因会把整行撑开) */
-.auc-panel .stock-table th.reason-th { width: 168px; }
+/* 昨涨停/昨断板表的「涨停原因」列: 这两张表原本没有定宽规则 ⇒ 补一条(不然长原因会把整行撑开)
+   ★ 2026-09-29 主人反馈"没有对齐": 表头默认居中、而单元格是左对齐文本 ⇒ 表头悬在文字中间上方。
+   文本列应与内容同一对齐(且共用同一左内边距), 故此处把表头也左对齐。 */
+.auc-panel .stock-table th.reason-th { width: 168px; text-align: left; padding-left: 10px; }
 /* 概念列已缩短 */
 .concept-cell { padding: 4px 2px !important; font-size: 0.75rem !important; }
 /* 抢筹徽章缩小 */
@@ -1240,12 +1242,13 @@ body[data-bg="light"] .modal-mask { background: rgba(0,0,0,0.45); }
 /* ---- 涨停原因列(★ 2026-09-29: 列内直接展示, 不再点「查看」弹窗; 2 行截断以保持"精简") ----
    🔴 截断必须放在**内层 span** 上: `-webkit-line-clamp` 需要 `display:-webkit-box`,
       直接加在 `<td>` 上会破坏表格布局(box 不是 table-cell)。 */
-.reason-cell { text-align: left; vertical-align: top; padding: 6px 8px !important; }
+.reason-cell { text-align: left; vertical-align: top; padding: 6px 10px !important; }
 .reason-clamp {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden; white-space: normal; word-break: break-word;
-  width: 160px; max-width: 160px; line-height: 1.35;
-  font-size: 0.75rem; color: var(--text-secondary); cursor: help;
+  /* ★ 2026-09-29: 不写死宽度 —— 原 160px 在 ~320px 的列里只占一半, 文字像一条窄条(主人反馈"没有对齐");
+     改为自动撑满单元格(display:-webkit-box 本身按块级排布), 列宽由 th.reason-th 决定。 */
+  line-height: 1.35; font-size: 0.75rem; color: var(--text-secondary); cursor: help;
 }
 body[data-bg="light"] .reason-clamp { color: #4a4a4a; }
 
@@ -1305,9 +1308,9 @@ body[data-bg="light"] .reason-clamp { color: #4a4a4a; }
   .s3-hint { font-size: 0.75rem; padding: 7px 10px; }
   /* 页面留白压缩 */
   .page-back { font-size: 0.75rem; margin-bottom: 8px; }
-  /* 涨停原因列: 缩小留白, 截断宽度同步收窄 */
-  .reason-cell { padding: 4px 6px; }
-  .reason-clamp { width: 96px; max-width: 96px; font-size: 0.75rem; }
+  /* 涨停原因列: 窄屏缩留白(宽度仍由列宽自动决定, 不再写死) */
+  .reason-cell { padding: 4px 6px !important; }
+  .reason-clamp { font-size: 0.75rem; }
   /* 合并代码+名称列: 手机缩小 name 字号 */
   .stock-info-cell { min-width: 68px; }
   .stock-info-cell .stock-name { font-size: 0.75rem !important; }
