@@ -2,6 +2,7 @@
 """
 战绩分析路由
 """
+import json
 import time as _time
 
 from fastapi import APIRouter, Depends, Request
@@ -321,6 +322,43 @@ def _threepoints_meta(resolved):
     }
 
 
+def _fill_change_from_kline(rows, date):
+    """历史日补齐: 现价=当日收; 实时涨幅=(收-前收)/前收×100; 实体涨幅=(收-开)/开×100。
+
+    口径与既有实现一致 —— 收盘涨跌幅同 `kpl.fill_close_change_from_kline`,
+    实体涨幅同 `yijiner.get_entity_change`(只是把"现价/今开"换成"当日收/当日开")。
+    找不到该日 K 线的票保持字段缺失(None), 前端显示 '—'(不填 0 冒充)。
+    """
+    conn = database.get_conn()
+    try:
+        for p in rows:
+            row = conn.execute("SELECT day_data FROM stock_kline WHERE code=?",
+                               (p.get("code"),)).fetchone()
+            if not row or not row[0]:
+                continue
+            try:
+                dd = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                t = dd.get("time") or []
+                idx = None
+                for i, d in enumerate(t):
+                    if str(d) == date:
+                        idx = i
+                if idx is None or idx < 1:
+                    continue
+                c = float(dd["close"][idx])
+                o = float(dd["open"][idx])
+                pc = float(dd["close"][idx - 1])
+            except (KeyError, IndexError, TypeError, ValueError):
+                continue
+            p["price"] = round(c, 2)
+            if pc > 0:
+                p["realChange"] = round((c / pc - 1) * 100, 2)
+            if o > 0:
+                p["entityChange"] = round((c / o - 1) * 100, 2)
+    finally:
+        conn.close()
+
+
 @router.get("/api/stats/zh-picks")
 def api_stats_zh_picks(request: Request, uid: int = Depends(get_uid), date: str = ""):
     """竞价精选(ZH 选股): 涨停基因(近120日≥1次) × 高开≥3% × 竞价放量占昨量 5~10%,
@@ -337,9 +375,14 @@ def api_stats_zh_picks(request: Request, uid: int = Depends(get_uid), date: str 
         conn.close()
     picks, stats_, meta = zh_sel.run(date=resolved)
 
-    # 现价/实时涨幅/实体涨幅: 东财按 code 点查(与首页选股 `_fill_spot_fields` 同源同口径)
+    # 现价/实时涨幅/实体涨幅:
+    #   · 当日 → 东财按 code 点查(与首页选股 `_fill_spot_fields` 同源同口径)
+    #   · 🔴 历史日 → **必须取该交易日的 K 线**(否则会把"今天的行情"贴到历史日, 与铁律同类)
+    _today = _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 8 * 3600))
     try:
-        if picks:
+        if picks and resolved < _today:
+            _fill_change_from_kline(picks, resolved)
+        elif picks:
             from ..services import fetcher                      # 局部导入(本文件其余处同做法)
             smap = fetcher.fetch_spot_quote_map_by_codes([p["code"] for p in picks]) or {}
             for p in picks:
