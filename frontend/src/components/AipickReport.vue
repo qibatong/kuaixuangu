@@ -82,16 +82,20 @@
           <div class="ap-table-scroll">
             <table class="stock-table ap-stock-table">
               <thead>
+                <!-- ★ 2026-09-29 主人拍板: 列精简为 7 列 ——
+                     名称 / AI涨停概率 / 竞价涨幅 / 实时涨幅(回看时=当日涨幅) / **实体涨幅** / 竞价金额 / 概念。
+                     去掉「流通市值」「换手率」两列(它们仍是**规则过滤**条件, 见上方规则条, 只是不再占列)。
+                     顺序按主人给的清单排(实时涨幅在实体涨幅之前)。 -->
                 <tr>
                   <th :class="thCls('name')" @click="toggleSort('name')">名称</th>
                   <th :class="thCls('ai_prob')" @click="toggleSort('ai_prob')">AI涨停概率</th>
                   <th :class="thCls('bid_change')" @click="toggleSort('bid_change')">竞价涨幅</th>
-                  <th :class="thCls('bid_amount')" @click="toggleSort('bid_amount')">竞价金额</th>
-                  <th :class="thCls('circ_mv')" @click="toggleSort('circ_mv')">流通市值</th>
-                  <th :class="thCls('bid_turnover')" @click="toggleSort('bid_turnover')">换手率</th>
-                  <th class="ap-th" title="开盘啦概念">概念</th>
                   <th v-if="isLatest" :class="thCls('realtime')" @click="toggleSort('realtime')">实时涨幅</th>
                   <th v-else :class="thCls('day_change')" @click="toggleSort('day_change')">当日涨幅</th>
+                  <th :class="thCls('entity')" @click="toggleSort('entity')"
+                      title="实体涨幅 = (实时价 − 今开) / 今开；回看历史时为该日 (收 − 开) / 开">实体涨幅</th>
+                  <th :class="thCls('bid_amount')" @click="toggleSort('bid_amount')">竞价金额</th>
+                  <th class="ap-th" title="开盘啦概念">概念</th>
                 </tr>
               </thead>
               <tbody>
@@ -102,12 +106,11 @@
                   </td>
                   <td><span class="score-badge" :class="probCls(r.ai_prob)">{{ (r.ai_prob * 100).toFixed(1) }}%</span></td>
                   <td :class="chgCls(r.bid_change)">{{ fmtChg(r.bid_change) }}</td>
-                  <td>{{ fmtAmt(r.bid_amount) }}</td>
-                  <td>{{ (r.circ_mv || 0).toFixed(1) }}亿</td>
-                  <td>{{ (r.bid_turnover || 0).toFixed(2) }}%</td>
-                  <td class="concept-col" :title="conceptFull(r) || '暂无概念'">{{ conceptText(r) }}</td>
                   <td v-if="isLatest" :class="chgCls(rt(r))">{{ rtText(r) }}</td>
                   <td v-else :class="chgCls(r.day_change)">{{ dayChgText(r) }}</td>
+                  <td :class="chgCls(entity(r))">{{ entityText(r) }}</td>
+                  <td>{{ fmtAmt(r.bid_amount) }}</td>
+                  <td class="concept-col" :title="conceptFull(r) || '暂无概念'">{{ conceptText(r) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -258,7 +261,8 @@ const emptyHint = computed(() => isLgb.value
 // ===== 列排序 =====
 const sortKey = ref('ai_prob')   // 当前排序列(默认概率降序)
 const sortDir = ref('desc')      // asc / desc
-const NUM_COLS = ['ai_prob', 'bid_change', 'bid_amount', 'circ_mv', 'bid_turnover', 'realtime', 'day_change']
+// 2026-09-29: 加 'entity'(实体涨幅) —— 数值列(空值恒排末尾), 与其余数值列同规则
+const NUM_COLS = ['ai_prob', 'bid_change', 'bid_amount', 'circ_mv', 'bid_turnover', 'realtime', 'day_change', 'entity']
 
 // 取某行某列的排序值; day_change/realtime 可能为 null(未拉到) → 视为最小排后
 function sortVal(r, k) {
@@ -272,6 +276,7 @@ function sortVal(r, k) {
     case 'bid_turnover': return Number(r.bid_turnover) || 0
     case 'day_change': return r.day_change == null ? null : Number(r.day_change)
     case 'realtime': { const q = quotes.value[r.code]; return (q && q.change != null) ? Number(q.change) : null }
+    case 'entity': return entity(r)
     default: return 0
   }
 }
@@ -392,6 +397,20 @@ function rt(row) {
 }
 function rtText(row) {
   const v = rt(row)
+  return v == null ? '--' : fmtChg(v)
+}
+
+// 实体涨幅 = (实时价 − 今开) / 今开 × 100
+//   · 最新报告: 后端点查实时行情时一并下发 entityChange(与实时涨幅同一个点查调用);
+//   · 回看历史: 后端按该交易日 K 线的 (收 − 开) / 开 算出 entity_change。
+// 两者都取不到 ⇒ '--'(绝不填 0 冒充, 与全站"未知显示—"的口径一致)。
+function entity(row) {
+  const q = quotes.value[row.code]
+  const v = (q && q.entityChange != null) ? q.entityChange : row.entity_change
+  return v == null ? null : Number(v)
+}
+function entityText(row) {
+  const v = entity(row)
   return v == null ? '--' : fmtChg(v)
 }
 
@@ -714,15 +733,16 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   position: sticky; top: 0; z-index: 2;
   background: var(--accent-deep2);
 }
-/* 2026-09-01 列宽收紧: 去掉序号/代码列(代码并入名称列下方), 8列定宽防表头换行 */
+/* 2026-09-29 主人拍板: 列精简为 **7 列** —— 名称/AI涨停概率/竞价涨幅/实时涨幅(回看=当日涨幅)/
+   实体涨幅/竞价金额/概念(去掉「流通市值」「换手率」两列, 但它们仍是上方规则条的过滤条件)。
+   🔴 定宽必须跟着列数一起改, 否则表头换行/列宽错位。 */
 .ap-stock-table th:nth-child(1) { width: 84px; }    /* 名称(含代码副行) */
 .ap-stock-table th:nth-child(2) { width: 96px; }    /* AI涨停概率 */
 .ap-stock-table th:nth-child(3) { width: 60px; }    /* 竞价涨幅 */
-.ap-stock-table th:nth-child(4) { width: 78px; }    /* 竞价金额 */
-.ap-stock-table th:nth-child(5) { width: 70px; }    /* 流通市值 */
-.ap-stock-table th:nth-child(6) { width: 58px; }    /* 换手率 */
+.ap-stock-table th:nth-child(4) { width: 64px; }    /* 实时涨幅 / 当日涨幅 */
+.ap-stock-table th:nth-child(5) { width: 64px; }    /* 实体涨幅 */
+.ap-stock-table th:nth-child(6) { width: 78px; }    /* 竞价金额 */
 .ap-stock-table th:nth-child(7) { width: 110px; }   /* 概念(限宽110, 单行省略) */
-.ap-stock-table th:nth-child(8) { width: 64px; }    /* 实时/当日涨幅 */
 .ap-stock-table th:nth-child(9) { width: 56px; }    /* 操作(＋自选, 对齐竞价选股) */
 /* 名称列: 上方名称 + 下方代码(参考竞价异动页 stock-info-cell) */
 .ap-stock-table .name-col { width: 84px; padding: 4px 2px; }

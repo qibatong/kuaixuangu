@@ -103,9 +103,29 @@ def _day_change_pct(closes, date):
     return round((cur - prev) / prev * 100, 2)
 
 
+def _entity_pct(opens, closes, date):
+    """由日K算 date 当日**实体涨幅** = (当日收 − 当日开) / 当日开 × 100（%）。
+
+    口径与 `services/yijiner.get_entity_change`（那边用东财 f2 现价 / f17 今开）一致,
+    这里用该交易日的 K 线开/收 —— 回看历史报告时"实体涨幅"就是**那一天**的。
+    定位交易日与 `_day_change_pct` 同法（≥date 的首根）。取不到 → None（前端显示 '--'）。"""
+    dates = sorted(closes)
+    if not dates:
+        return None
+    idx = next((i for i, d in enumerate(dates) if d >= date), None)
+    if idx is None:
+        return None
+    d = dates[idx]
+    o, c = opens.get(d), closes.get(d)
+    if not o or o <= 0 or c is None:
+        return None
+    return round((c - o) / o * 100, 2)
+
+
 def _attach_day_change(data, date):
-    """给报告 JSON 的每行 top（以及全量候选 all，若存在）附上 date 当日涨跌幅 day_change。
-    用于回看历史报告时展示"当日涨幅"。
+    """给报告 JSON 的每行 top（以及全量候选 all，若存在）附上该日的
+    当日涨跌幅 `day_change` 与**实体涨幅** `entity_change`。
+    用于回看历史报告时展示"当日涨幅 / 实体涨幅"。
 
     性能: 全量候选 all 可能数千只, 用**单个连接**批量读本地 stock_kline, 绝不发网络,
     避免为逐只看历史 K 线把接口拖死。缺缓存的置 None, 前端显示 '--'。"""
@@ -128,19 +148,22 @@ def _attach_day_change(data, date):
                 code = r.get("code")
                 if not code:
                     r["day_change"] = None
+                    r["entity_change"] = None
                     continue
-                closes = cache.get(code)
-                if closes is None:
-                    closes = {}
+                kline = cache.get(code)
+                if kline is None:
+                    kline = ({}, {})
                     try:
                         row = conn.execute(
                             "SELECT day_data FROM stock_kline WHERE code=?", (code,)).fetchone()
                         if row and row[0]:
-                            closes = _closes_from_json(row[0])
+                            kline = _ohlc_from_json(row[0])
                     except Exception:
                         pass
-                    cache[code] = closes
+                    cache[code] = kline
+                closes, opens = kline
                 r["day_change"] = _day_change_pct(closes, date)
+                r["entity_change"] = _entity_pct(opens, closes, date)
     finally:
         conn.close()
     return data
@@ -160,6 +183,26 @@ def _closes_from_json(raw):
     except Exception:
         pass
     return out
+
+
+def _ohlc_from_json(raw):
+    """从 stock_kline.day_data JSON 提取 (closes, opens) 两个 {date: value}。
+
+    2026-09-29 增: 「实体涨幅」需要**开**价, 原 `_closes_from_json` 只取收。两者共用一次
+    JSON 解析(候选可能数千只, 不能解析两遍)。"""
+    closes = _closes_from_json(raw)
+    opens = {}
+    try:
+        data = json.loads(raw)
+        times, op = data.get("time", []), data.get("open", [])
+        for i, d in enumerate(times):
+            try:
+                opens[str(d)] = float(op[i])
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return closes, opens
 
 
 @router.get("/api/aipick/latest")
@@ -190,15 +233,42 @@ def api_aipick_dates(request: Request, model: str = Query("xgb", description="xg
 @router.get("/api/aipick/realtime")
 def api_aipick_realtime(request: Request, codes: str = "",
                         uid: int = Depends(require_vip_or_paid)):
-    """实时行情(实时涨幅): 报告日期是历史快照(9:25竞价), 实时涨幅需动态取东财行情。
-    codes 形如 "600721,000017,..."(逗号/空格分隔), 一次最多 200 只。"""
+    """实时行情(实时涨幅 + **实体涨幅**): 报告日期是历史快照(9:25竞价), 这两项需动态取行情。
+    codes 形如 "600721,000017,..."(逗号/空格分隔), 一次最多 200 只。
+
+    ★ 2026-09-29: 实体涨幅 = (现价 − 今开) / 今开 × 100, 需要**现价与今开**;
+      原实现走 `hot_rank._fetch_em_quotes`(只请求 f12/f14/f3 ⇒ 只有涨跌幅) 拿不到,
+      故主路改用项目标准的**按代码点查** `fetcher.fetch_spot_quote_map_by_codes`
+      (返回 realChange/entityChange/price/... , 逐 code 缓存 60s, 不为几十只票拉全市场);
+      点查失败的少数再用旧路径兜底(至少保住实时涨幅, 实体涨幅置 None ⇒ 前端显示 '--')。"""
     codes = [c for c in re.split(r"[,，\s]+", codes or "") if re.fullmatch(r"\d{6}", c)]
     if not codes:
         return jr({"ok": False, "msg": "缺少股票代码"})
     codes = codes[:200]
-    secids = [("1." + c if c.startswith("6") else "0." + c) for c in codes]
-    quotes = hot_rank._fetch_em_quotes(secids)
-    return jr({"ok": True, "quotes": quotes})
+
+    out = {}
+    try:
+        m = fetcher.fetch_spot_quote_map_by_codes(codes) or {}
+        for c, q in m.items():
+            out[c] = {
+                "name": (q or {}).get("name") or "",
+                "change": (q or {}).get("realChange"),
+                "entityChange": (q or {}).get("entityChange"),
+            }
+    except Exception as e:                                  # noqa: BLE001
+        log.warning("aipick 实时行情点查失败(回退旧路径) err=%s", str(e)[:160])
+
+    missing = [c for c in codes if c not in out]
+    if missing:
+        try:
+            secids = [("1." + c if c.startswith("6") else "0." + c) for c in missing]
+            for c, q in (hot_rank._fetch_em_quotes(secids) or {}).items():
+                out[c] = {"name": (q or {}).get("name") or "",
+                          "change": (q or {}).get("change"), "entityChange": None}
+        except Exception as e:                              # noqa: BLE001
+            log.warning("aipick 实时行情兜底失败 err=%s", str(e)[:160])
+
+    return jr({"ok": True, "quotes": out})
 
 
 @router.get("/api/aipick/detail/{p_date}")
