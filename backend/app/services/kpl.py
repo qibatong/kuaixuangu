@@ -298,8 +298,10 @@ def bid_net_from_snap(date=None):
         if not tp:
             return []
         rows = conn.execute(
-            "SELECT code, name, bid_amt, bid_change, float_mv, board FROM snapshot_bid "
-            "WHERE date=? AND time_point=? AND bid_amt >= 1000 ORDER BY bid_amt DESC",
+            # 🔴 2026-09-29 口径统一: 流通列取**实际流通**(free_mv), float_mv 仅兜底
+            #   (与三时点榜 / fill_bid_turnover_from_snap / _boom_from_snap 一致)
+            "SELECT code, name, bid_amt, bid_change, COALESCE(NULLIF(free_mv,0), float_mv), board "
+            "FROM snapshot_bid WHERE date=? AND time_point=? AND bid_amt >= 1000 ORDER BY bid_amt DESC",
             (date, tp)).fetchall()
     finally:
         conn.close()
@@ -1979,7 +1981,9 @@ def _merge_broken_bid_snap(lst, bid_date=None):
             if s.get("bid_change") is not None:
                 it["bidChange"] = s["bid_change"]
             amt = s.get("bid_amt") or 0       # 万元
-            fmv = s.get("float_mv") or 0      # 元
+            # 🔴 2026-09-29 口径统一: 实际流通(free_mv)优先, float_mv 仅兜底 —— 原用 float_mv
+            #   (东财流通市值, ≈自由流通 2 倍), 导致「昨炸板」的流通/竞换与其它 tab 差 2 倍。
+            fmv = s.get("free_mv") or s.get("float_mv") or 0      # 元
             if fmv:
                 it["floatMv"] = fmv
             if amt:
@@ -2535,30 +2539,42 @@ def fill_bid_turnover_from_snap(lst, date=None):
             if not code:
                 continue
             s = snap.get(code)
-            if not s or not s.get("float_mv"):
+            # 🔴 2026-09-29 口径统一(主人 2026-08-19 定的"流通列=实际流通"):
+            #   本函数 docstring 写的就是「自由流通市值×100, 与开盘啦口径一致」, 但实现取的是
+            #   `s["float_mv"]`(东财**流通市值**, ≈自由流通 2 倍) ⇒ 同一只票的「竞换/流通(亿)」
+            #   与其它 tab(三时点榜、_boom_from_snap、fill_float_mv_from_snap)差 2 倍
+            #   (生产实测 2026-09-29: 600825 三时点 47.70 亿/0.89% vs 委买 98.32 亿/0.43%)。
+            #   现统一 free_mv(实际流通)优先、float_mv 仅在缺失时兜底。
+            _mv = s.get("free_mv") or s.get("float_mv") or 0
+            if not s or not _mv:
                 continue
-            # 单位: snapshot_bid.bid_amt 万元, float_mv 元 → bid_amt×10000 转元
+            # 单位: snapshot_bid.bid_amt 万元, 流通市值 元 → bid_amt×10000 转元
             # 精度4位: 大盘小额股(如58万/344亿≈0.0017%)不再被round到0
-            _bt_raw = (s.get("bid_amt") or 0) * 10000 / s["float_mv"] * 100
+            _bt_raw = (s.get("bid_amt") or 0) * 10000 / _mv * 100
             if _bt_raw <= 0:
                 continue
             bt = round(_bt_raw, 4)
             cur_fmv = it.get("floatMv") or 0
-            # 竞换缺失(空/0) → 必须用快照补(不因 float_mv 正常而跳过)
-            # (2026-08-24 修复: 此前 float_mv 正常(>=MIN_FMV)时直接 continue,
+            # 🔴 2026-09-29: 流通列**一律以自采快照的实际流通为准**(不再"仅缺失时补") ——
+            #   开盘啦各榜自带的那列口径不统一(实测 600241: 榜单 25.31 亿 vs 快照自由流通
+            #   13.36 亿, 差 1.9 倍), 导致同一票在「竞价爆量」与「竞价封单」两个 tab 差一倍。
+            #   这里统一覆盖成快照值, 与三时点榜 / 净额榜 / 炸板补全同源。
+            if _mv:
+                it["floatMv"] = _mv
+            # 竞换缺失(空/0) → 必须用快照补(不因流通市值正常而跳过)
+            # (2026-08-24 修复: 此前流通市值正常(>=MIN_FMV)时直接 continue,
             #  导致 seal/boom 等开盘啦接口项 bidTurnover 恒为0 而无法补填)
             if not it.get("bidTurnover"):
-                it["floatMv"] = s["float_mv"]
                 it["bidTurnover"] = bt
                 n += 1
                 continue
-            # float_mv 异常过小(<1000万) 字段错位 → 修复并重算
+            # 流通市值异常过小(<1000万) 字段错位 → 修复并重算
             if cur_fmv and cur_fmv < MIN_FMV:
-                it["floatMv"] = s["float_mv"]
+                it["floatMv"] = _mv
                 it["bidTurnover"] = bt
                 n_repair += 1
             elif _math.isfinite(it["bidTurnover"]) and it["bidTurnover"] > 100:
-                it["floatMv"] = s["float_mv"]
+                it["floatMv"] = _mv
                 it["bidTurnover"] = bt
                 n_repair += 1
         if n_repair:
@@ -4373,7 +4389,9 @@ def save_auction_history(date, phase="bid"):
             continue
         try:
             # 2026-08-22: 落库前补竞换/竞额, 否则历史回看/非交易日回退这两列空
-            if phase == "bid" and tab in ("seal", "bid_net"):
+            # 🔴 2026-09-29: boom 也纳入 —— 落库行的流通列此前是开盘啦榜单自带口径(与其它 tab
+            #   差近一倍), 统一用自采快照的实际流通覆盖。
+            if phase == "bid" and tab in ("seal", "bid_net", "boom"):
                 fill_bid_turnover_from_snap(lst, date)
                 if tab == "bid_net":
                     fill_bid_amt_from_snap(lst, date)

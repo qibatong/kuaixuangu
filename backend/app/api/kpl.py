@@ -363,6 +363,11 @@ def api_kpl_bid_boom(request: Request, uid: int = Depends(quota_guard("auction")
             kpl.apply_board_concept_db(d, log_tag="auc:bid-boom", field="board", truncate=2, blank_if_missing=True)
             # 2026-08-18 主人要求: 竞价爆量补 竞价量比(今/昨竞价额) + 昨日竞价额
             kpl.fill_bid_ratio_yest(d, None)
+            # 🔴 2026-09-29 口径统一: **实时路径也要补流通列** —— 开盘啦各榜自带那列口径不一
+            #   (实测 600241: 榜单 25.31 亿 vs 自采快照自由流通 13.36 亿, 差 1.9 倍) ⇒ 同一票
+            #   在「竞价爆量」与「竞价封单」两个 tab 差一倍。历史路径(line 359)本就有这一行,
+            #   实时路径此前漏了。
+            kpl.fill_bid_turnover_from_snap(d, None)
         except Exception as e:
             log.warning("竞价异动概念/量比补齐失败 bid-boom err=%s", e)
     # 统一过滤: 竞价涨幅 < 0.01%(含零/负涨幅) 不展示 — 同时覆盖实时与历史回看
