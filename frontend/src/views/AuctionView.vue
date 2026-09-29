@@ -56,7 +56,7 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
       <button class="auc-tab" :class="{ active: tab === 'yestZt' }" @click="switchTab('yestZt')">昨涨停</button>
       <button class="auc-tab" :class="{ active: tab === 'yestBroken' }" @click="switchTab('yestBroken')">昨断板</button>
       <button class="auc-tab" :class="{ active: tab === 'brokenYest' }" @click="switchTab('brokenYest')">昨炸板</button>
-      <button class="auc-tab" :class="{ active: tab === 'lhb' }" @click="switchTab('lhb')">昨上榜</button>
+      <!-- ★ 2026-09-29 主人要求: 去掉「昨上榜」板块(该板块另有独立页 /lhb, 见 views/LhbView.vue) -->
     </div>
 
     <div class="auc-panel">
@@ -262,7 +262,7 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
             <th class="sortable" :class="{ active: yestZtSort.keyOf('bidChange') }" @click="yestZtSort.onSort('bidChange')">竞涨<span class="sort-ind">{{ yestZtSort.ind('bidChange') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('bidTurnover') }" @click="yestZtSort.onSort('bidTurnover')">竞换<span class="sort-ind">{{ yestZtSort.ind('bidTurnover') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('bidAmt') }" @click="yestZtSort.onSort('bidAmt')">竞额(亿)<span class="sort-ind">{{ yestZtSort.ind('bidAmt') }}</span></th>
-            <th class="sortable" :class="{ active: yestZtSort.keyOf('reason') }" @click="yestZtSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ yestZtSort.ind('reason') }}</span></th>
+            <th class="sortable reason-th" :class="{ active: yestZtSort.keyOf('reason') }" @click="yestZtSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ yestZtSort.ind('reason') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('board') }" @click="yestZtSort.onSort('board', 'string')">概念<span class="sort-ind">{{ yestZtSort.ind('board') }}</span></th>
 </tr>
         </thead>
@@ -282,7 +282,7 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
             <td :class="z.bidChange > 0 ? 'up' : z.bidChange < 0 ? 'down' : 'dim'">{{ z.bidChange !== null && z.bidChange !== undefined ? signed(z.bidChange) + '%' : '-' }}</td>
             <td>{{ z.bidTurnover !== null && z.bidTurnover !== undefined ? z.bidTurnover.toFixed(2) + '%' : '-' }}</td>
             <td>{{ z.bidAmt ? amtText(z.bidAmt) : '-' }}</td>
-            <td class="reason-cell" @click="showReason(z)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
+            <td class="reason-cell" :title="reasonTitle(z)"><span class="reason-clamp">{{ reasonOf(z) || '-' }}</span></td>
             <td class="concept-cell dim" :title="z.board"><span v-if="z.board" class="concept-clamp">{{ conceptText(z.board) }}</span><span v-else class="dim">-</span></td>
 </tr>
         </tbody>
@@ -299,7 +299,7 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('bidAmt') }" @click="yestBrokenSort.onSort('bidAmt')">竞额(亿)<span class="sort-ind">{{ yestBrokenSort.ind('bidAmt') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('bidTurnover') }" @click="yestBrokenSort.onSort('bidTurnover')">竞换<span class="sort-ind">{{ yestBrokenSort.ind('bidTurnover') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('floatMv') }" @click="yestBrokenSort.onSort('floatMv')">流通(亿)<span class="sort-ind">{{ yestBrokenSort.ind('floatMv') }}</span></th>
-            <th class="sortable" :class="{ active: yestBrokenSort.keyOf('reason') }" @click="yestBrokenSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ yestBrokenSort.ind('reason') }}</span></th>
+            <th class="sortable reason-th" :class="{ active: yestBrokenSort.keyOf('reason') }" @click="yestBrokenSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ yestBrokenSort.ind('reason') }}</span></th>
             <th class="sortable" :class="{ active: yestBrokenSort.keyOf('board') }" @click="yestBrokenSort.onSort('board', 'string')">概念<span class="sort-ind">{{ yestBrokenSort.ind('board') }}</span></th>
 </tr>
         </thead>
@@ -316,51 +316,14 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
             <td>{{ b2.bidAmt ? amtText(b2.bidAmt) : '-' }}</td>
             <td>{{ b2.bidTurnover !== null && b2.bidTurnover !== undefined ? b2.bidTurnover.toFixed(2) + '%' : '-' }}</td>
             <td class="dim">{{ fmtMv(b2.floatMv) }}</td>
-            <td class="reason-cell" @click="showReason(b2)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
+            <td class="reason-cell" :title="reasonTitle(b2)"><span class="reason-clamp">{{ reasonOf(b2) || '-' }}</span></td>
             <td class="concept-cell dim" :title="b2.board"><span v-if="b2.board" class="concept-clamp">{{ conceptText(b2.board) }}</span><span v-else class="dim">-</span></td>
 </tr>
         </tbody>
       </table>
 
-      <!-- 昨上榜(龙虎榜) -->
-      <table v-else-if="tab === 'lhb'" class="stock-table lhb-table">
-        <thead>
-          <tr>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('code') }" @click="lhbSort.onSort('code', 'string')">名称<span class="sort-ind">{{ lhbSort.ind('name') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('change') }" @click="lhbSort.onSort('change')">现涨<span class="sort-ind">{{ lhbSort.ind('change') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('bidChange') }" @click="lhbSort.onSort('bidChange')">竞涨<span class="sort-ind">{{ lhbSort.ind('bidChange') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('bidTurnover') }" @click="lhbSort.onSort('bidTurnover')">竞换<span class="sort-ind">{{ lhbSort.ind('bidTurnover') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('buyIn') }" @click="lhbSort.onSort('buyIn')">买入(亿)<span class="sort-ind">{{ lhbSort.ind('buyIn') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('floatMv') }" @click="lhbSort.onSort('floatMv')">流通(亿)<span class="sort-ind">{{ lhbSort.ind('floatMv') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('turnover') }" @click="lhbSort.onSort('turnover')">换手%<span class="sort-ind">{{ lhbSort.ind('turnover') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('reason') }" @click="lhbSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ lhbSort.ind('reason') }}</span></th>
-            <th class="sortable" :class="{ active: lhbSort.keyOf('board') }" @click="lhbSort.onSort('board', 'string')">概念<span class="sort-ind">{{ lhbSort.ind('board') }}</span></th>
-</tr>
-        </thead>
-        <tbody>
-          <tr v-for="l in lhbSort.sorted(lhbList)" :key="l.code">
-            <td class="stock-info-cell" @click="linkToSoftware(l.code)">
-            <div class="stock-code-row"><span class="stock-code">{{ l.code }}</span></div>
-            <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ l.name }}</span><PoolHoverBtn :item="l" /></span></div>
-            <div v-if="yidongTag(l.code)" class="yd-badge-row"><span class="yd-badge" :title="yidongTagTitle(l.code)">{{ yidongTag(l.code) }}</span></div>
-          </td>
-            <td :class="l.change > 0 ? 'up' : 'down'">{{ signed(l.change) }}%</td>
-            <td :class="l.bidChange > 0 ? 'up' : l.bidChange < 0 ? 'down' : 'dim'">{{ l.bidChange !== null && l.bidChange !== undefined ? signed(l.bidChange) + '%' : '-' }}</td>
-            <td class="dim">{{ l.bidTurnover !== null && l.bidTurnover !== undefined ? l.bidTurnover.toFixed(2) + '%' : '-' }}</td>
-            <td :class="l.buyIn > 0 ? 'up' : 'dim'">{{ yi(l.buyIn) }}</td>
-            <td class="dim">{{ fmtMv(l.floatMv) }}</td>
-            <td>{{ l.turnover.toFixed(2) }}</td>
-            <td class="reason-cell" @click="showReason(l)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
-            <td class="concept-cell dim" :title="l.board"><span v-if="l.board" class="concept-clamp">{{ conceptText(l.board) }}</span><span v-else class="dim">-</span></td>
-</tr>
-          <!-- 2026-09-29: 龙虎榜收盘后才发布 —— 空窗期说清楚，且不拿昨日榜单顶上(铁律) -->
-          <tr v-if="!lhbList.length">
-            <td colspan="10" class="snap-empty">
-              当日龙虎榜暂无数据 —— <b>龙虎榜收盘后（约 15:30）才发布</b>；按"零值不回退昨日"口径，此处不显示上一交易日榜单
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <!-- ★ 2026-09-29 主人要求: 原「昨上榜(龙虎榜)」表已下线 —— 该数据另有独立页 /lhb
+           (views/LhbView.vue, 2026-09-27 拆出; 竞价时段本就为空, 收盘后才有数据)。 -->
 
       <!-- 炸板(昨/今) - 昨炸板:连板, 今炸板:炸板时间+涨停时间 -->
       <table v-else-if="tab === 'brokenYest' || tab === 'brokenToday'" class="stock-table broken-table" :class="tab === 'brokenToday' ? 'broken-today' : 'broken-yest'">
@@ -374,7 +337,7 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
             <th v-if="tab === 'brokenYest'" class="sortable" :class="{ active: brokenSort.keyOf('limitUpDays') }" @click="brokenSort.onSort('limitUpDays')">连板<span class="sort-ind">{{ brokenSort.ind('limitUpDays') }}</span></th>
             <th v-else-if="tab === 'brokenToday'" class="sortable" :class="{ active: brokenSort.keyOf('firstBreak') }" @click="brokenSort.onSort('firstBreak')">炸板时间<span class="sort-ind">{{ brokenSort.ind('firstBreak') }}</span></th>
             <th v-if="tab === 'brokenToday'" class="sortable" :class="{ active: brokenSort.keyOf('firstLimitUp') }" @click="brokenSort.onSort('firstLimitUp')">涨停时间<span class="sort-ind">{{ brokenSort.ind('firstLimitUp') }}</span></th>
-            <th class="sortable" :class="{ active: brokenSort.keyOf('reason') }" @click="brokenSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ brokenSort.ind('reason') }}</span></th>
+            <th class="sortable reason-th" :class="{ active: brokenSort.keyOf('reason') }" @click="brokenSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ brokenSort.ind('reason') }}</span></th>
             <th class="sortable" :class="{ active: brokenSort.keyOf('board') }" @click="brokenSort.onSort('board', 'string')">概念<span class="sort-ind">{{ brokenSort.ind('board') }}</span></th>
 </tr>
         </thead>
@@ -392,36 +355,15 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
             <td v-if="tab === 'brokenYest'"><span v-if="b.limitUpDays > 0" class="lb-badge">{{ b.limitUpDays }}板</span><span v-else class="dim">-</span></td>
             <td v-else-if="tab === 'brokenToday'" class="dim">{{ fmtT(b.firstBreak) }}</td>
             <td v-if="tab === 'brokenToday'" class="dim">{{ fmtT(b.firstLimitUp) }}</td>
-            <td class="reason-cell" @click="showReason(b)"><span class="reason-link"><i class="fa fa-fire"></i> 查看</span></td>
+            <td class="reason-cell" :title="reasonTitle(b)"><span class="reason-clamp">{{ reasonOf(b) || '-' }}</span></td>
             <td class="concept-cell dim" :title="b.board"><span v-if="b.board" class="concept-clamp">{{ conceptText(b.board) }}</span><span v-else class="dim">-</span></td>
 </tr>
         </tbody>
       </table>
     </div>
 
-    <!-- 涨停原因弹窗(点击表格"查看"链接) -->
-    <div v-if="reasonModal.show" class="modal-mask" @click.self="reasonModal.show = false">
-      <div class="reason-modal">
-        <div class="reason-head">
-          <span class="reason-title"><i class="fa fa-fire"></i> 涨停原因 <span v-if="reasonModal.name" class="dim small">· {{ reasonModal.name }} <span v-if="reasonModal.code" class="dim small">({{ reasonModal.code }})</span></span></span>
-          <span class="snap-close" @click="reasonModal.show = false">✕</span>
-        </div>
-        <div class="reason-body">
-          <div v-if="reasonModal.board" class="reason-board">
-            <span class="reason-label">概念题材</span>
-            <span class="reason-board-txt">{{ reasonModal.board }}</span>
-          </div>
-          <div class="reason-block reason-primary">
-            <div class="reason-label">核心原因</div>
-            <div class="reason-text">{{ reasonModal.text || '暂无涨停原因数据' }}</div>
-          </div>
-          <div v-if="reasonModal.extra" class="reason-block">
-            <div class="reason-label">补充说明</div>
-            <div class="reason-text">{{ reasonModal.extra }}</div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <!-- ★ 2026-09-29 主人要求: 涨停原因改为**列内直接展示**(不再弹窗) ⇒ 原 .reason-modal 弹窗已删除。
+         完整原因与「补充说明」改放单元格 title 悬停(见 reasonTitle())。 -->
 </template>
   </div>
 </template>
@@ -429,7 +371,8 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { usePolling } from '../composables/usePolling'
-import { kplBidSeal, kplBidNet, kplBidBoom, kplBidQiangcang, kplBroken, kplLhb, kplYestBroken, kplYestZt } from '../api/kpl'
+// 2026-09-29: 去掉 kplLhb —— 「昨上榜」板块已下线(龙虎榜另有独立页 /lhb)
+import { kplBidSeal, kplBidNet, kplBidBoom, kplBidQiangcang, kplBroken, kplYestBroken, kplYestZt } from '../api/kpl'
 import { auctionOverview, bidSnapshot3points } from '../api/stats'
 import { trackUsage } from '../api/activity'
 import { linkToSoftware } from '../utils/tdx'
@@ -452,7 +395,7 @@ const tab = ref('s3')   // 默认选中三时点封单
 const sealRaw = ref([])
 const bidNetList = ref([])   // 2026-08-18: 竞价净额专用(开盘啦 Type2 竞价>1000万), 空时回退封单列表
 const boomList = ref([])
-const lhbList = ref([])
+// 2026-09-29: lhbList 已随「昨上榜」板块一起下线
 const brokenYestList = ref([])
 const brokenTodayList = ref([])
 const s3List = ref([])        // 三时点封单榜(后端已按三层排序)
@@ -566,7 +509,7 @@ const qcSort = useSortable()
 const qcLastSort = useSortable()
 const yestZtSort = useSortable()
 const yestBrokenSort = useSortable()
-const lhbSort = useSortable()
+// 2026-09-29: lhbSort 已随「昨上榜」板块一起下线
 const brokenSort = useSortable()
 
 // ---- 三时点封单榜单元格(拆分涨幅/封单两列) ----
@@ -688,7 +631,7 @@ function switchTab(t) {
   // 2026-09-22 v4.11.35: 用户主动点竞价异动的 Tab 算一次使用(轮询走 ensureTabData, 不经此处)
   trackUsage('auction')
   sealSort.clear(); s3Sort.clear(); qcSort.clear(); qcLastSort.clear(); yestZtSort.clear()
-  yestBrokenSort.clear(); lhbSort.clear(); brokenSort.clear()
+  yestBrokenSort.clear(); brokenSort.clear()
   // 2026-08-18 性能优化: 切 tab 按需加载该 tab 数据(首次进入才拉)
   ensureTabData(t)
 }
@@ -708,18 +651,17 @@ const sealList = computed(() => {
 // 炸板: 昨/今 按 Tab 切换
 const brokenList = computed(() => (tab.value === 'brokenYest' ? brokenYestList.value : brokenTodayList.value))
 
-// ---- 涨停原因弹窗 ----
-const reasonModal = ref({ show: false, code: '', name: '', board: '', text: '', extra: '' })
-function showReason(it) {
-  if (!it) return
-  reasonModal.value = {
-    show: true,
-    code: it.code || '',
-    name: it.name || '',
-    board: it.board || '',
-    text: it.reason || it.reason_text || it.reasonText || '',
-    extra: it.reason_extra || it.extra || ''
-  }
+// ---- 涨停原因(列内直接展示) ----
+// ★ 2026-09-29 主人要求: 不再点「查看」弹窗, 直接在「涨停原因」列展示, 并**精简**为最多 2 行
+//   (CSS 截断, 见 .reason-clamp); 完整原因 + 补充说明放 title 悬停。
+//   原弹窗实现(reasonModal / showReason)已随之删除 —— 需要时从 git 历史取回。
+function reasonOf(it) {
+  return (it && (it.reason || it.reason_text || it.reasonText)) || ''
+}
+function reasonTitle(it) {
+  const t = reasonOf(it)
+  const ex = (it && (it.reason_extra || it.extra)) || ''
+  return (t || '暂无涨停原因数据') + (ex ? '\n补充：' + ex : '')
 }
 
 // 单个接口最多等 15s, 超时返回空对象(不让某个慢接口拖垮整页加载)
@@ -810,7 +752,7 @@ async function ensureTabData(t) {
         qcList.value = (r && r.list20) || []; qcChgList.value = (r && r.list20Chg) || []; qcLastList.value = (r && r.listLast) || []; break
       case 'yestZt': r = await withTimeout(kplYestZt(dt)); yestZtList.value = (r && r.list) || []; break
       case 'yestBroken': r = await withTimeout(kplYestBroken(dt)); yestBrokenList.value = (r && r.list) || []; break
-      case 'lhb': r = await withTimeout(kplLhb(dt)); lhbList.value = (r && r.list) || []; break
+      // 2026-09-29: 原 case 'lhb' 已随「昨上榜」板块下线(龙虎榜走独立页 /lhb)
       // 2026-09-27 v4.11.67: 原来 `dt ? '' : 'yesterday'` —— 只要带上 date(非交易日自动回退 /
       // 手动回看) 就丢掉 day=yesterday, 后端只能按 date 取"当日炸板" ⇒ 非交易日的
       // 「昨炸板」与「今炸板」显示同一批股票(主人反馈的"没定格")。改为始终带 day=yesterday:
@@ -1110,17 +1052,7 @@ polling = usePolling(async () => {
 /* 其他 tab 列宽微调 */
 .auc-panel .stock-table td:nth-of-type(1),
 .qc-panel .stock-table td:nth-of-type(1) { min-width: 0; }
-/* 昨上榜(龙虎榜)表 - 10 列精确宽度 */
-.auc-panel .lhb-table th:nth-of-type(1) { width: 88px; }  /* 名称 */
-.auc-panel .lhb-table th:nth-of-type(2) { width: 46px; }  /* 现涨 */
-.auc-panel .lhb-table th:nth-of-type(3) { width: 46px; }  /* 竞涨 */
-.auc-panel .lhb-table th:nth-of-type(4) { width: 46px; }  /* 竞换 */
-.auc-panel .lhb-table th:nth-of-type(5) { width: 60px; }  /* 买入(亿) */
-.auc-panel .lhb-table th:nth-of-type(6) { width: 52px; }  /* 流通(亿) */
-.auc-panel .lhb-table th:nth-of-type(7) { width: 44px; }  /* 换手% */
-.auc-panel .lhb-table th:nth-of-type(8) { width: 72px; }  /* 概念 */
-.auc-panel .lhb-table th:nth-of-type(9) { width: 66px; }  /* 涨停原因 */
-.auc-panel .lhb-table th:nth-of-type(10) { width: 46px; } /* 操作 */
+/* ★ 2026-09-29: 「昨上榜(龙虎榜)」表已下线 ⇒ 其 10 列宽度规则一并删除 */
 /* 炸板表 - 昨/今 双版本(昨9列, 今10列) */
 .auc-panel .broken-table th:nth-of-type(1) { width: 88px; }  /* 名称 */
 .auc-panel .broken-table th:nth-of-type(2) { width: 46px; }  /* 现涨 */
@@ -1130,14 +1062,16 @@ polling = usePolling(async () => {
 /* 昨炸板: 第6列=连板(窄), 第7-9列=概念/原因/操作 */
 .auc-panel .broken-yest th:nth-of-type(6) { width: 38px; }
 .auc-panel .broken-yest th:nth-of-type(7) { width: 72px; }  /* 概念 */
-.auc-panel .broken-yest th:nth-of-type(8) { width: 66px; }  /* 涨停原因 */
+.auc-panel .broken-yest th:nth-of-type(8) { width: 168px; }  /* 涨停原因(改为列内展示 ⇒ 加宽) */
 .auc-panel .broken-yest th:nth-of-type(9) { width: 46px; }  /* 操作 */
 /* 今炸板: 第6列=炸板时间, 第7列=涨停时间, 第8-10列=概念/原因/操作 */
 .auc-panel .broken-today th:nth-of-type(6) { width: 58px; }  /* 炸板时间 */
 .auc-panel .broken-today th:nth-of-type(7) { width: 58px; }  /* 涨停时间 */
 .auc-panel .broken-today th:nth-of-type(8) { width: 72px; }  /* 概念 */
-.auc-panel .broken-today th:nth-of-type(9) { width: 66px; }  /* 涨停原因 */
+.auc-panel .broken-today th:nth-of-type(9) { width: 168px; }  /* 涨停原因(改为列内展示 ⇒ 加宽) */
 .auc-panel .broken-today th:nth-of-type(10) { width: 46px; } /* 操作 */
+/* 昨涨停/昨断板表的「涨停原因」列: 这两张表原本没有定宽规则 ⇒ 补一条(不然长原因会把整行撑开) */
+.auc-panel .stock-table th.reason-th { width: 168px; }
 /* 概念列已缩短 */
 .concept-cell { padding: 4px 2px !important; font-size: 0.75rem !important; }
 /* 抢筹徽章缩小 */
@@ -1303,33 +1237,22 @@ body[data-bg="light"] .bk-hot { color: #b83010; }
 body[data-bg="light"] .snap-empty { color: #8a8a8a; }
 body[data-bg="light"] .modal-mask { background: rgba(0,0,0,0.45); }
 
-/* ---- 涨停原因列(点击链接) ---- */
-.reason-cell { cursor: pointer; text-align: center; font-size: 0.75rem; padding: 6px 10px; white-space: nowrap; }
-.reason-link { display: inline-flex; align-items: center; gap: 4px; color: #ffb400; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: rgba(255, 180, 0, 0.1); border: 1px solid rgba(255, 180, 0, 0.3); transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease; }
-.reason-link:hover { background: rgba(255, 180, 0, 0.2); color: #ffd270; border-color: rgba(255, 180, 0, 0.6); }
-.reason-link .fa { font-size: 0.75rem; }
-body[data-bg="light"] .reason-link { color: #b83010; background: rgba(184,48,16,0.08); border-color: rgba(184,48,16,0.3); }
-body[data-bg="light"] .reason-link:hover { color: #8a1a00; background: rgba(184,48,16,0.15); }
+/* ---- 涨停原因列(★ 2026-09-29: 列内直接展示, 不再点「查看」弹窗; 2 行截断以保持"精简") ----
+   🔴 截断必须放在**内层 span** 上: `-webkit-line-clamp` 需要 `display:-webkit-box`,
+      直接加在 `<td>` 上会破坏表格布局(box 不是 table-cell)。 */
+.reason-cell { text-align: left; vertical-align: top; padding: 6px 8px !important; }
+.reason-clamp {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; white-space: normal; word-break: break-word;
+  width: 160px; max-width: 160px; line-height: 1.35;
+  font-size: 0.75rem; color: var(--text-secondary); cursor: help;
+}
+body[data-bg="light"] .reason-clamp { color: #4a4a4a; }
 
 /* ---- 涨停原因弹窗 ---- */
-.reason-modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 12px; width: min(560px, 94vw); max-height: 80vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 12px 36px rgba(0,0,0,0.5); z-index: 1001; }
-.reason-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border-soft); background: linear-gradient(180deg, rgba(255,180,0,0.08), transparent); }
-.reason-title { font-size: 0.9375rem; font-weight: 700; color: #ffe0a0; display: flex; align-items: center; gap: 6px; }
-.reason-title .fa-fire { color: #ff7a3d; }
-.reason-title .small { font-size: 0.75rem; font-weight: 500; margin-left: 6px; }
-.reason-body { padding: 14px 16px; overflow-y: auto; flex: 1; }
-.reason-block, .reason-board { margin-bottom: 12px; }
-.reason-block:last-child { margin-bottom: 0; }
-.reason-label { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 600; letter-spacing: 0.5px; }
-.reason-primary .reason-label { color: #ffb400; }
-.reason-text { font-size: 0.875rem; line-height: 1.7; color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
-.reason-board-txt { display: inline-block; font-size: 0.8125rem; line-height: 1.6; color: var(--text-primary); white-space: pre-line; padding: 6px 10px; background: rgba(255,255,255,0.04); border-radius: 6px; border: 1px dashed var(--border-soft); }
-.reason-primary { padding: 10px 12px; background: rgba(255, 180, 0, 0.06); border: 1px solid rgba(255, 180, 0, 0.25); border-radius: 8px; }
-body[data-bg="light"] .reason-title { color: #5a4a3a; }
-body[data-bg="light"] .reason-title .fa-fire { color: #b83010; }
-body[data-bg="light"] .reason-primary { background: rgba(184,48,16,0.05); border-color: rgba(184,48,16,0.3); }
-body[data-bg="light"] .reason-primary .reason-label { color: #b83010; }
-body[data-bg="light"] .reason-board-txt { background: rgba(184,48,16,0.04); }
+/* ★ 2026-09-29: 涨停原因弹窗(.reason-modal/.reason-head/.reason-title/.reason-body/
+   .reason-block/.reason-label/.reason-text/.reason-board/.reason-primary)整套样式已删除 ——
+   原因改为表格列内直接展示(见上方 .reason-cell / .reason-clamp)。 */
 
 /* ===================== 移动端适配 (<=768px 手机/小平板) ===================== */
 /* 2026-08-20 右栏嵌入首页后: 右栏约占 50% 宽, 在 1100-1300px 区间右栏约 470-570px,
@@ -1382,14 +1305,9 @@ body[data-bg="light"] .reason-board-txt { background: rgba(184,48,16,0.04); }
   .s3-hint { font-size: 0.75rem; padding: 7px 10px; }
   /* 页面留白压缩 */
   .page-back { font-size: 0.75rem; margin-bottom: 8px; }
-  /* 涨停原因列: 缩小点按区 */
+  /* 涨停原因列: 缩小留白, 截断宽度同步收窄 */
   .reason-cell { padding: 4px 6px; }
-  .reason-link { padding: 2px 6px; font-size: 0.75rem; }
-  /* 涨停原因弹窗: 手机端更紧凑 */
-  .reason-modal { width: 94vw; max-height: 85vh; }
-  .reason-head { padding: 10px 12px; }
-  .reason-body { padding: 12px; }
-  .reason-text { font-size: 0.8125rem; }
+  .reason-clamp { width: 96px; max-width: 96px; font-size: 0.75rem; }
   /* 合并代码+名称列: 手机缩小 name 字号 */
   .stock-info-cell { min-width: 68px; }
   .stock-info-cell .stock-name { font-size: 0.75rem !important; }
@@ -1404,8 +1322,6 @@ body[data-bg="light"] .reason-board-txt { background: rgba(184,48,16,0.04); }
   }
   .auc-panel .stock-table th:nth-of-type(8),
   .auc-panel .stock-table td:nth-of-type(8),
-  .auc-panel .lhb-table th:nth-of-type(8),
-  .auc-panel .lhb-table td:nth-of-type(8),
   .auc-panel .broken-yest th:nth-of-type(7),
   .auc-panel .broken-yest td:nth-of-type(7),
   .auc-panel .broken-today th:nth-of-type(8),
