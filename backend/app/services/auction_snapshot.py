@@ -170,6 +170,28 @@ _NETFILL_HARD_END_SEC = 9 * 3600 + 27 * 60 + 30                 # 09:27:30 = 定
 _FETCH_NET_IN_SNAPSHOT = False
 # 竞价抢筹结果快照的"轮采(含失败重试)"上界: 同上, 不得晚于 09:26:30(原为 9:30)。
 _BID_QC_UNTIL_SEC = 9 * 3600 + 26 * 60 + 30                     # 09:26:30
+
+# 🔴 2026-09-29 (主人方案「两枪」): 竞价类 4 tab 落库的**第二枪**时刻。
+#   开盘啦竞价类接口(净额/委买额)在 **09:25:30** 即出数(主人提供) ⇒ 本枪取 09:25:35(+5s 余量),
+#   早于 09:26:30 定格, 且上游不同(开盘啦 vs 猫爪) ⇒ 互不抢配额。
+#   第一枪仍为 09:24(与抢筹同轮)保底: 万一第二枪那三路退化, 当天 tab 也不会空。
+_BID_HIST2_SEC = 9 * 3600 + 25 * 60 + 35                        # 09:25:35
+
+
+def _bid_hist_stats(kpl, date):
+    """「两枪」日志用: 逐 tab 的条数 + **净额非 0 数**。
+
+    "净额非 0 数"是本次改造的核心指标 —— 改造前落库行净额**恒 0**(09:24 采集时开盘啦还没
+    产出净额), 第二天看这条日志就能立刻判断第二枪是否真拿到了原生净额(免去另挂探针)。"""
+    out = []
+    for tab in ("seal", "boom", "bid_net", "qiangcang"):
+        try:
+            lst = kpl.query_auction_history(date, tab) or []
+            net = sum(1 for x in lst if (x or {}).get("bidNetAmt"))
+            out.append("%s=%d(净额非0 %d)" % (tab, len(lst), net))
+        except Exception:                                      # noqa: BLE001
+            out.append("%s=?" % tab)
+    return " ".join(out)
 try:
     NETFILL_START_SEC, NETFILL_END_SEC, NETFILL_MIN_N = _contract_window(
         "auc_main_net", margin_sec=35, hard_end_sec=_NETFILL_HARD_END_SEC)
@@ -256,9 +278,14 @@ def _fetch_market_map(full=False):
                         "bid_change": bc,
                         "bid_amt": scorer.get_bid_amt(s),
                         "name": str(s.get("f14") or ""),          # 名称
-                        # 竞价封单额(元) = f10 买一量(手) × f5 买一价 × 100(股/手)
-                        # 涨停时买一委托即封单; 非涨停时=买一委托金额(竞价强弱参考)
-                        "bid_buy_amt": scorer.parse_float(s.get("f10")) * scorer.parse_float(s.get("f5")) * 100,
+                        # 🔴 2026-09-29: 这里原写 `f10 × f5 × 100`(注释称"f10 买一量(手) × f5 买一价"),
+                        #   但东财 clist/ulist **不含五档**: 实测 f10 = **量比**(项目在 P0① 注释里
+                        #   已确认)、f5 = **成交量(手)** ⇒ 该式实为"量比×成交量×100", 量纲根本不是
+                        #   封单额(数值量级恰好像"买一委托额", 故长期未被发现; 生产实测 9:25 有
+                        #   109 只非涨停股因此挂上"封单")。
+                        #   按封单契约「非涨停股无封单, 置 0」置 0 —— 真实封单只由开盘啦委买榜
+                        #   (snapshot_at 的 overlay 段) 与猫爪 fd_amount/fa_0925(_merge_meoz) 提供。
+                        "bid_buy_amt": 0,
                         "float_mv": scorer.parse_float(s.get("f21")),             # 流通市值(元, 东财 f21)
                         "free_mv": scorer.parse_float(s.get("f117")),  # 自由流通市值(元): 只取东财 f117, 缺失留空让猫爪 free_float_mv 补(2026-09-20 修: 原用 f21 流通市值兜底, 导致 free_mv 存成流通市值, 自由流通口径失效)
                         "board": str(s.get("f103") or s.get("f100") or ""),       # 概念(f103优先, 行业f100兜底)
@@ -1163,9 +1190,19 @@ def snapshot_at(time_point, force=False):
                 # 这正是 9:15 列空白的另一半原因(与采集过早叠加)。
                 # 注: 上面"非涨停清零"只针对**东财 f10×f5 伪封单**(2026-08-16 防开板股
                 # 残留误导), 真实封单不受该约束。
-                if seal:
+                # 🔴 2026-09-29 补: 上面那条"真实封单不受约束"实际放过了**开盘啦委买榜尾部的
+                #   非涨停票** —— 生产实测当日 9:25 有 **109 只非涨停股挂着"封单"**
+                #   (契约原文: 「9:25 涨停封单额(非涨停股无封单, 置 0)」)。
+                #   现用**开盘啦自己的竞价涨幅**(s['bidChange']: 与该榜同源, 9:15 即有值,
+                #   不受东财早盘缺数影响)判涨停 ⇒ 是涨停才认作封单, 非涨停置 0;
+                #   开盘啦没给涨幅(None)时**保持原行为**(不敢凭缺值清零, 避免重犯 09-07 事故)。
+                _chg_kpl = s.get("bidChange")
+                _zt_kpl = _is_zt(code, _chg_kpl) if _chg_kpl is not None else None
+                if seal and _zt_kpl is not False:
                     v["bid_buy_amt"] = seal
                     n_seal += 1
+                elif seal and _zt_kpl is False:
+                    v["bid_buy_amt"] = 0
                 b = s.get("board") or ""
                 if b:
                     v["board"] = b     # 开盘啦概念覆盖东财
@@ -2344,14 +2381,43 @@ def _scheduler_loop():
                     n = len((d or {}).get("list20", []))
                     log.info("竞价抢筹结果快照已存 date=%s list20=%d只(9:24-9:25窗口, Type4有效)",
                              date, n)
-                    # 竞价类 tab 落库(2026-08-16 修复): seal/boom 是竞价实时接口,
-                    # 15:30 收盘后返回空 → 必须此时落库, 否则竞价委买/爆量/净额 tab 无历史
-                    kpl.save_auction_history(date, phase="bid")
                 except Exception as e:
                     # 失败回滚: 窗口 [9:24:00, 09:26:30] 内下一轮轮询重试
                     # (避免 KPL 瞬时故障导致抢筹 tab 当日无数据; 2026-09-29 起上界由 9:30 收到 09:26:30)
                     store.delete("sched:qc:" + date)
                     log.warning("竞价抢筹结果快照失败(窗口内将重试) err=%s", e)
+
+            # ===== 竞价类 4 tab 落库: 「两枪」(2026-09-29 主人方案) =====
+            #  为什么从抢筹块里**拆出来**: 这两件事的时间要求不同 ——
+            #    · 抢筹(Type4/Type5): 9:25 撮合后净额清零 ⇒ 必须 09:24 采(上面那块, 不动);
+            #    · seal/boom/bid_net 落库: 开盘啦 **09:25:30** 才产出竞价净额 ⇒ 越晚越准。
+            #      原实现被顺带绑在 09:24 那一块 ⇒ 落库行净额**恒 0**、委买额停在"9:24 的说法"
+            #      (实测 2026-09-29: seal/bid_net 09:24 落库行净额 0/0)。
+            #  两枪: 第一枪 09:24 保底(与抢筹同轮) + 第二枪 09:25:35 覆盖(INSERT OR REPLACE)
+            #        ⇒ 拿 9:25 撮合终值与原生净额。上界仍守 09:26:30(主人当日新口径)。
+            if _is_trade_day(g):
+                _sec = hm * 60 + g.tm_sec
+                _shot = 0
+                if (9 * 60 + 24 <= hm and _sec <= _BID_QC_UNTIL_SEC
+                        and store.setnx("sched:bidhist1:" + date, 1, ttl=86400)):
+                    _shot = 1
+                elif (_BID_HIST2_SEC <= _sec <= _BID_QC_UNTIL_SEC
+                        and store.setnx("sched:bidhist2:" + date, 1, ttl=86400)):
+                    _shot = 2
+                if _shot:
+                    _flag = ("sched:bidhist%d:" % _shot) + date
+                    try:
+                        from . import kpl as _kpl_hist
+                        # 两枪都必须拿"此刻"的开盘啦最新值 ⇒ 不吃上一枪的接口缓存
+                        _kpl_hist.clear_cache()
+                        _n_tab = _kpl_hist.save_auction_history(date, phase="bid")
+                        log.info("竞价异动快照[bid-shot%d] date=%s 落库%d个tab %s",
+                                 _shot, date, _n_tab, _bid_hist_stats(_kpl_hist, date))
+                        if not _n_tab:
+                            store.delete(_flag)        # 全空 → 窗口内下一轮重试
+                    except Exception as e:
+                        store.delete(_flag)
+                        log.warning("竞价异动快照[bid-shot%d] 失败(窗口内将重试) err=%s", _shot, e)
             # 竞价迟到字段补采(2026-09-24 主人要求「9:26:10 起轮询, 取到为止」):
             #   净额 auc_main_net(fundflow_kp) 与 量比 auc_vol_ratio(daily_auc) 同属"上游
             #   09:25:35~09:26:16 才产出"的迟到列。定格推迟后正常那枪已能采到, 本通道兜住

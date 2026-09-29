@@ -181,7 +181,17 @@ def _read_auction_fast(tab):
             return lst, today
     except Exception:
         pass
-    # 今日无数据 → 找最近交易日
+    # 🔴 2026-09-29 主人铁律「零值不得回退昨日」:
+    #   今天是**交易日**时, 该 tab 当日没数据就返回**空**(调用方按"暂无/待采集"展示),
+    #   绝不回退到上一交易日 —— 历史上前端/后端"零值即回退"多次让用户拿到昨天的名单。
+    #   只有**非交易日**(周末/法定休市)才允许走到下面的"最近交易日"对齐,
+    #   因为那时"最近交易日"才是用户想看的东西。
+    try:
+        if tc.is_trade_day(_time.strftime("%Y-%m-%d", _bj_now())):
+            return [], today
+    except Exception:                                          # noqa: BLE001
+        pass
+    # 今日无数据 → 找最近交易日(仅非交易日会走到这里)
     # 2026-09-27 v4.11.66: 由裸 MAX(date) 改为「交易日历过滤」(休市日幽灵行不得当选);
     # 保持原 `date < today` 的严格语义 —— 今日该 tab 为空时不能回落到今日自己(那会返回空表)。
     try:
@@ -390,13 +400,11 @@ def api_kpl_bid_net(request: Request, uid: int = Depends(quota_guard("auction"))
         kpl.apply_board_concept_db(d, log_tag="auc:bid-net[hist]", field="board", truncate=2, blank_if_missing=True, date=resolved)
         return jr({"ok": True, "list": d, "count": len(d), "date": resolved, "requestedDate": date})
     if not _is_auction_hours():
-        # 非竞价时段(含非交易日): 优先读库, 无则用 9_25 快照重建上一交易日竞价额>1000万
+        # 非竞价时段: 只读库。交易日当日为空 ⇒ 就让它空着(铁律); 非交易日由
+        # `_read_auction_fast` 内部对齐到最近交易日。
+        # 🔴 2026-09-29 移除原"无则用上一交易日 9_25 快照重建"分支 —— 那是把**昨天的票**
+        #   当今天的净额榜(与主角今日两次反馈的"数据是昨天的"同类)。
         d, d_str = _read_auction_fast("bid_net")
-        if not d:
-            _prev = kpl._prev_trade_day()
-            if _prev:
-                d = kpl.bid_net_from_snap(_prev)
-                d_str = _prev
         kpl.fill_bid_turnover_from_snap(d, d_str)
         kpl.fill_bid_amt_from_snap(d, d_str)
         kpl.fill_bid_net_from_snap(d, d_str)          # 2026-09-29: 同因 —— 落库快照净额全 0
@@ -449,8 +457,12 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
                 return jr({"ok": True, "list": lst_p, "count": len(lst_p),
                            "date": resolved, "requestedDate": date, "poolDate": prev_pool,
                            "day": (lst_p[0].get("day") if lst_p else "")})
-            # 前一交易日的炸板未落库 → 退回"当日炸板"(宁可退化成今炸板, 也不返回空表)
-            log.warning("broken 昨炸板 date=%s 前一交易日(%s)无落库, 退回当日炸板", resolved, prev_pool)
+            # 🔴 2026-09-29 主人铁律: 池日没落库 ⇒ 返回**空**并明确告知, 不再"退回当日炸板"
+            #   (原行为会把**今天**的炸板当"昨炸板"展示 —— 语义串位, 属"凑数据")。
+            log.warning("broken 昨炸板 date=%s 前一交易日(%s)无落库 ⇒ 返回空(不再退回当日炸板)",
+                        resolved, prev_pool)
+            return jr({"ok": True, "list": [], "count": 0, "date": resolved,
+                       "requestedDate": date, "poolDate": prev_pool, "missingPool": True})
         lst = kpl.query_auction_history(resolved, "broken_today")
         kpl._merge_broken_bid_snap(lst)   # 老快照无竞价字段 → 按 day 补全
         kpl.fill_float_mv_from_snap(lst, resolved)

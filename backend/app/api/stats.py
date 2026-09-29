@@ -166,7 +166,8 @@ def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid), da
                 # 对齐到最近交易日(与市场雷达一致: 周末/节假日回退)
                 # 2026-09-27 v4.11.66: 加交易日历过滤(原为裸 MAX(date), 会把休市日幽灵快照
                 # 当"最近交易日" —— 09-25 中秋事故, 见 _latest_trade_snap_date docstring)
-                resolved = _latest_trade_snap_date(conn, date) or date
+                # 🔴 2026-09-29 铁律: 交易日请求当日 ⇒ 不回退(见下方 3points 同款说明)
+                resolved = date if tc.is_trade_day(date) else (_latest_trade_snap_date(conn, date) or date)
                 has = conn.execute(
                     "SELECT COUNT(*) FROM snapshot_bid WHERE date=?", (resolved,)).fetchone()[0]
                 dates = [resolved] if has else []
@@ -285,9 +286,10 @@ def api_stats_bid_snapshot_stock(request: Request, uid: int = Depends(get_uid)):
         return jr({"ok": False, "msg": "date 与 code 必填"}, 400)
     # 周末/节假日自动对齐最近交易日(与多时点对比一致)
     # 2026-09-27 v4.11.66: 加交易日历过滤(休市日幽灵快照不得当"最近交易日")
+    # 🔴 2026-09-29 铁律: 交易日请求当日 ⇒ 不回退到更早快照日
     conn = database.get_conn()
     try:
-        resolved = _latest_trade_snap_date(conn, date) or date
+        resolved = date if tc.is_trade_day(date) else (_latest_trade_snap_date(conn, date) or date)
     finally:
         conn.close()
     d = auction_snapshot.query_stock_snapshot(resolved, code)
@@ -332,7 +334,9 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
     try:
         # 2026-09-27 v4.11.66: 加交易日历过滤 —— 原裸 MAX(date) 会让休市日(09-25 中秋)的
         # 幽灵快照顶掉 09-24 真值, 「竞价封单」三层排序退化成三层同值。
-        resolved = _latest_trade_snap_date(conn, date) or date
+        # 🔴 2026-09-29 铁律「零值不得回退昨日」: 交易日的请求**原样返回**, 当日快照没落库时
+        #   前端据 frozen=false 把 9:25 列标「待定格」; 只有非交易日才对齐到最近交易日快照。
+        resolved = date if tc.is_trade_day(date) else (_latest_trade_snap_date(conn, date) or date)
     finally:
         conn.close()
     if resolved != date:

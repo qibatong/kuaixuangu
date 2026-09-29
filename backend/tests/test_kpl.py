@@ -1347,6 +1347,19 @@ def test_read_auction_fast_today_then_nearest(monkeypatch):
         return []
 
     monkeypatch.setattr(kpl_svc, "query_auction_history", fake_query2)
+    # 🔴 2026-09-29 主人铁律「零值不得回退昨日」: Case 2 改为「**交易日**当日为空 ⇒ 返回空」,
+    #   原断言(回退到 08-19 并拿到 2 行)是旧行为, 已按铁律废弃。
+    #   注: 定格基准日必须显式钉成"今天"(否则 FakeConn 会把它喂成 08-19, 就测不到守卫了)。
+    monkeypatch.setattr(kpl_svc, "freeze_day", lambda: "2026-08-20")
+    lst, d = kpl_api._read_auction_fast("boom")
+    assert d == "2026-08-20", "交易日当日为空时必须返回当日(不得退到 08-19)"
+    assert lst == []
+    assert not any(k[0] == "2026-08-19" for k in called), "交易日不得去查更早日期"
+
+    # Case 2b: **非交易日**(周六 08-22)当日为空 ⇒ 仍允许对齐到最近交易日 08-19
+    monkeypatch.setattr(kpl_svc, "freeze_day", lambda: "2026-08-22")
+    g2 = _time.struct_time((2026, 8, 22, 2, 0, 0, 5, 234, 0))
+    monkeypatch.setattr(_time, "gmtime", lambda *a, **k: g2)
     lst, d = kpl_api._read_auction_fast("boom")
     assert d == "2026-08-19"
     assert len(lst) == 2
@@ -1357,6 +1370,11 @@ def test_read_auction_fast_today_then_nearest(monkeypatch):
 
     monkeypatch.setattr(database, "get_conn", bad_conn)
     monkeypatch.setattr(kpl_svc, "query_auction_history", lambda x, y: [])
+    # 定格基准日与 gmtime 都重新钉回 08-20(交易日) —— 否则本用例会继承 Case 2b 的"周六"现场,
+    # 断言日就不是 08-20 了(2026-09-29 复查时踩到)。
+    monkeypatch.setattr(kpl_svc, "freeze_day", lambda: "2026-08-20")
+    monkeypatch.setattr(_time, "gmtime",
+                        lambda *a, **k: _time.struct_time((2026, 8, 20, 2, 0, 0, 3, 232, 0)))
     lst, d = kpl_api._read_auction_fast("yest_zt")
     assert lst == []
     assert d == "2026-08-20"

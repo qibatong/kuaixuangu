@@ -80,13 +80,17 @@ def test_overview_latest_4_days(client, first_user, monkeypatch):
 
 
 def test_overview_specified_date(client, first_user, monkeypatch):
-    """指定 date 对齐最近交易日, 无数据日期返回空列表"""
+    """指定 date: **交易日不回退**(铁律), **非交易日**才对齐最近交易日; 无数据 → 空"""
     token, _, _ = first_user
     _seed_snapshot(monkeypatch)
-    # 2026-08-21 > 写入日 2026-08-20, 应回退到 2026-08-20(最近<=21的交易日)
+    # 🔴 2026-09-29 主人铁律「零值不得回退昨日」:
+    #   2026-08-21 是**交易日**(周五) ⇒ 即使库里的数据只写到 08-20, 也**不得**把 08-20 当 08-21
+    #   返回(旧断言正是那样做的), 应返回空 days。
     r = client.get("/api/stats/auction-overview?date=2026-08-21", headers=hdrs(token))
-    d = r.json()
-    assert d["days"][0]["date"] == "2026-08-20"
+    assert r.json()["days"] == []
+    # 2026-08-22 是**周六**(非交易日) ⇒ 允许对齐到最近有数据的交易日 08-20
+    r1 = client.get("/api/stats/auction-overview?date=2026-08-22", headers=hdrs(token))
+    assert r1.json()["days"][0]["date"] == "2026-08-20"
     # 无任何数据 → 空
     r2 = client.get("/api/stats/auction-overview?date=2000-01-01", headers=hdrs(token))
     assert r2.json()["days"] == []
