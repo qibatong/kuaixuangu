@@ -107,8 +107,64 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
         </tbody>
       </table>
 
-      <!-- 竞价封单榜(短线侠式三层排序: 9:25涨停 > 9:20涨停回落 > 9:15涨停回落) -->
+      <!-- 竞价封单: 连续5日(默认, 多列并排) + 单日三层榜 -->
       <template v-else-if="tab === 's3'">
+      <!-- 2026-09-30 主人: 顶部口径提示一并去掉(不再占用版面)。
+           口径仍记录在代码里: backend/app/services/bid_seal_daily.py 模块 docstring
+           (展示集合 = 9:15/9:20/9:25 任一时点涨停; 各列即该时点, 第二行是该时点封单额)。 -->
+
+
+      <!-- 连续多日(多列并排): 每列一个交易日, 列内 9:25 / 9:20 / 9:15 三列(当日多一列涨幅)。
+           列数不写死 —— 由 --msd-cols 取 dailyDays.length 传入(2026-09-30 由 5 日改 4 日) -->
+      <div v-if="s3Mode === 'multi'" class="msd-wrap">
+        <div v-if="dailyLoading && !dailyDays.length" class="loading-placeholder">
+          <div class="spinner"></div><div>加载中...</div>
+        </div>
+        <div v-else-if="!dailyDays.length" class="msd-empty-all">暂无连续封单数据（非交易日或上游不可用）</div>
+        <!-- --msd-cols 供 CSS 算列数与最小宽度 ⇒ 天数变了布局自动跟随, 不会与 DAILY_DAYS 脱钩 -->
+        <div v-else class="msd-grid" :style="{ '--msd-cols': dailyDays.length || DAILY_DAYS }">
+          <div v-for="day in dailyDays" :key="day.date" class="msd-col">
+            <div class="msd-head">
+              <div class="msd-date">{{ day.date }}</div>
+              <div class="msd-sum">
+                <span>一字:<b class="msd-num">{{ day.yizi }}</b>个</span>
+                <span class="msd-sep">|</span>
+                <span>封单:<b class="msd-num">{{ sealDailyText(day.sealTotal) }}</b></span>
+              </div>
+              <!-- 2026-09-30 主人明确: 去掉环比那行 —— 表头只保留 日期 / 一字+封单 两行(与模板一致) -->
+            </div>
+            <div class="msd-sub" :class="{ 'msd-nochg': !chgShown(day) }">
+              <!-- 每条记录只有 3 列(当日多一列涨幅), 列 = 时点本身(2026-09-30 主人明确映射):
+                    9:25 列 → 股票名称 + 该时点封单额
+                    9:20 列 → 概念     + 该时点封单额
+                    9:15 列 → 几板     + 该时点封单额 -->
+              <span class="msd-cell">9:25</span>
+              <span class="msd-cell">9:20</span>
+              <span class="msd-cell">9:15</span>
+              <!-- 涨幅列只在当日出现(历史列整列去掉, 省宽度) -->
+              <span v-if="chgShown(day)" class="msd-cell">涨幅</span>
+            </div>
+            <div class="msd-body">
+              <div v-for="it in day.rows" :key="it.code" class="msd-row"
+                   :class="{ 'msd-nochg': !chgShown(day) }" :title="layerTip(it.layer)">
+                <!-- 第 1 行: 名称(9:25列) / 概念(9:20列) / 板(9:15列) —— 各占时点列, 不额外增列 -->
+                <span class="msd-cell msd-name" @click="linkToSoftware(it.code)">{{ it.name || it.code }}</span>
+                <span class="msd-cell msd-concept" :title="it.board">{{ firstConcept(it.board) }}</span>
+                <span class="msd-cell msd-lb">{{ boardLabel(it.limitTimes) }}</span>
+                <span v-if="chgShown(day)" class="msd-cell msd-blank"></span>
+                <!-- 第 2 行: 三个时点的封单金额(正落在上方同名列下) + 涨幅 -->
+                <span class="msd-cell msd-p25">{{ sealDailyText(it.v9_25) }}</span>
+                <span class="msd-cell msd-p20">{{ sealDailyText(it.v9_20) }}</span>
+                <span class="msd-cell msd-p15">{{ sealDailyText(it.v9_15) }}</span>
+                <span v-if="chgShown(day)" class="msd-cell msd-chg" :class="chgCls(it)">{{ chgText(it) }}</span>
+              </div>
+              <div v-if="!day.rows.length" class="msd-empty">该交易日无涨停封单</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <template v-else>
       <div v-if="pending25" class="s3-hint s3-hint-soft">
         <i class="fa fa-info-circle"></i> 9:25 定格<b>尚未落库</b>（{{ pendingTip }}）；
         此刻 9:15 / 9:20 两列已是<b>今日</b>真实数据，到点会自动刷新出 9:25。
@@ -159,6 +215,7 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
           </tr>
         </tbody>
       </table>
+      </template>
       </template>
 
       <!-- 竞价抢筹(上下双表: 上 9:20-9:25 / 下 最后1秒 9:24-9:25, 对标短线侠) -->
@@ -373,14 +430,14 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import { usePolling } from '../composables/usePolling'
 // 2026-09-29: 去掉 kplLhb —— 「昨上榜」板块已下线(龙虎榜另有独立页 /lhb)
 import { kplBidSeal, kplBidNet, kplBidBoom, kplBidQiangcang, kplBroken, kplYestBroken, kplYestZt } from '../api/kpl'
-import { auctionOverview, bidSnapshot3points } from '../api/stats'
+import { auctionOverview, bidSnapshot3points, bidSealDaily } from '../api/stats'
 import { trackUsage } from '../api/activity'
 import { linkToSoftware } from '../utils/tdx'
 import { todayBj } from '../utils/time'
 import { showToast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
-import { yi, signed, amtText, fmtT } from '../utils/format'
+import { yi, signed, amtText, fmtT, sealDailyText } from '../utils/format'
 import VipGate from '../components/VipGate.vue'
 import PoolHoverBtn from '../components/PoolHoverBtn.vue'
 // 2026-09-27 v4.11.63《移动端清单》§二·4: 数据更新时刻（与页头时钟区分开）
@@ -399,6 +456,16 @@ const boomList = ref([])
 const brokenYestList = ref([])
 const brokenTodayList = ref([])
 const s3List = ref([])        // 三时点封单榜(后端已按三层排序)
+// 2026-09-29 主人拍板: 竞价封单页新增「连续多日」视图(N 列并排, 每列=一个交易日)。
+//   数据源与单日榜**不同**: 走猫爪 daily_auc_fd 分时封单(/api/stats/bid-seal-daily),
+//   历史交易日与今日同等可用; 单日榜读自采库(历史日 9:15/9:20 两列恒空)。
+// 🔴 2026-09-30 主人: 5 日 → **4 日**(页面紧凑化)。模式名随之由 'multi5' 改为 'multi' ——
+//   原名带天数, 天数一改就成假名; 列数现在**由 .msd-grid 的 --msd-cols 按实际天数自动取**,
+//   前后端都不再需要"天数"这个常量以外的第二份记录。
+const s3Mode = ref('multi')    // 'multi' 连续多日 | 'day' 单日三层榜
+const dailyDays = ref([])      // [{date, yizi, sealTotal, diff, diffPct, prevDate, rows[]}]
+const dailyLoading = ref(false)
+const DAILY_DAYS = 4           // 连续交易日数(上限受后端 MAX_DAYS=10 夹取)
 // 🔴 2026-09-29 (B2): 「9:25 定格是否已落库」由**后端**给(`/api/stats/bid-snapshot-3points`
 //   的 frozen/freezeAt, 判据 = auction_snapshot.has_today_snapshot(), 即选股闸门那把"快照维")。
 //   前端**禁止**用 09:26:30 这类固定时刻自己猜 —— 2026-09-16「两个用户拿到昨天名单」就是
@@ -619,6 +686,80 @@ function conceptText(b) {
   return parts.join('\n')
 }
 
+// ---- 连续多日封单视图(2026-09-29) ----
+// 封单额格式化见 utils/format.js 的 sealDailyText(纯函数, 已单测):
+//   ≥1亿 → "80.8亿"(整数亿去尾随 .0, 如 7.7e9 → "77亿"); 否则 → "9116万"; 0/空 → "-"
+
+/**
+ * 概念: **只取核心的第一个**, 展示在股票名称右侧(2026-09-30 主人明确)。
+ * 源串形如「并购重组,文化传媒」→ 取「并购重组」。
+ */
+function firstConcept(b) {
+  if (!b) return ''
+  return String(b).split(/[、,，]/).map(s => s.trim()).filter(Boolean)[0] || ''
+}
+
+/**
+ * 「涨幅」子列**只出现在当日那一列**; 历史列整列去掉(2026-09-30 主人明确: 省排版面积)。
+ *
+ * 判据 = 该列日期 == 北京今天 **且**该列已有数据:
+ *   · 竞价时段 / 盘后 → 今日列有数据 ⇒ 只有它带「涨幅」子列, 其余 4 列少一列、更省宽度 ✓
+ *   · 盘前(今日尚未采集) 或 用户选了历史末日 → 没有任何列带涨幅 ✓
+ *     (不做"占位显示 -", 否则会留一列全是 - 的空列, 正是主人要省掉的)
+ */
+function chgShown(day) {
+  if (!day) return false
+  return day.date === todayBj() && (day.rows || []).length > 0
+}
+
+function chgText(it) {
+  return (it.chg > 0 ? '+' : '') + Number(it.chg).toFixed(2) + '%'
+}
+
+function chgCls(it) {
+  if (it.chg > 0) return 'up'
+  return it.chg < 0 ? 'down' : 'dim'
+}
+
+/** 连板数 → 标签文案: 1 → 「首板」, N → 「N板」, 0/未知 → 不显示 */
+function boardLabel(n) {
+  const v = Number(n) || 0
+  if (!v) return ''
+  return v === 1 ? '首板' : v + '板'
+}
+
+/**
+ * 上榜原因(展示口径 = 9:15/9:20/9:25 任一时点涨停 —— 2026-09-30 主人明确规则)。
+ * 层1 9:25 涨停 / 层2 9:20 涨停后回落 / 层3 仅 9:15 涨停。
+ * 挂在行 title 上: 层2/层3 里有涨幅为负的炸板票, 不解释会被当成脏数据。
+ */
+function layerTip(layer) {
+  if (layer === 1) return '9:25 竞价涨停（计入「一字」与封单总额）'
+  if (layer === 2) return '9:20 竞价涨停、9:25 已回落（展示但不计入「一字」）'
+  if (layer === 3) return '仅 9:15 竞价涨停（展示但不计入「一字」）'
+  return ''
+}
+
+/**
+ * 拉取连续 N 日封单。失败**不清空**已有数据(与其余 tab 同一纪律: 宁可显示上一次成功数据)。
+ * 后端已按 历史日 1800s / 含当日 60s 缓存, 故此处在轮询里反复调也不会打爆上游配额。
+ */
+async function loadDailySeal(dt) {
+  dailyLoading.value = true
+  try {
+    const r = await withTimeout(bidSealDaily(dt || todayBj(), DAILY_DAYS))
+    dailyDays.value = (r && r.days) || []
+    return true
+  } catch (e) {
+    return false
+  } finally {
+    dailyLoading.value = false
+  }
+}
+
+// 2026-09-30 主人: 不再展示单日榜 ⇒ 切换入口与 setS3Mode 一并移除,
+//   s3Mode 固定为 'multi'(下方单日榜分支保留但不可达, 需彻底删除时另行处理)。
+
 // 流通市值(元) → "xx.x亿" (2026-08-17 竞价异动各 tab 统一流通列)
 function fmtMv(v) {
   if (!v) return '-'
@@ -723,6 +864,19 @@ async function ensureTabData(t) {
   //   全部 tab 整天都在请求昨天。
   const dt = servedDate()
   if (t === 's3') {
+    // 2026-09-29: 「连续多日」走另一接口(猫爪分时), 与单日榜**各自独立**加载 ——
+    //   不能共用 loadedTabs 标记(否则切模式后不刷新); 后端有缓存, 每次轮询拉都便宜。
+    if (s3Mode.value === 'multi') {
+      if (tabLoading.has('s3')) return true
+      tabLoading.add('s3')
+      try {
+        const ok = await loadDailySeal(dt)
+        if (ok) { loadedTabs.add('s3'); markData() }
+        return ok
+      } finally {
+        tabLoading.delete('s3')
+      }
+    }
     // 三时点榜随 loadAll 加载; 轮询时若已清标记则重新拉(实时刷新)
     if (!loadedTabs.has('s3')) {
       tabLoading.add('s3')
@@ -837,6 +991,7 @@ function clearDate() {
   dataDate.value = ''
   autoFallbackDate.value = ''
   loadedTabs.clear()   // 2026-08-18: 日期变化需重新加载各 tab
+  dailyDays.value = []  // 2026-09-29: 连续封单是"以某日为末的5日窗口", 换日期必须重取
   loadAll(true)
 }
 
@@ -844,6 +999,7 @@ function clearDate() {
 function onDateChange(e) {
   datePicker.value = e.target.value
   loadedTabs.clear()
+  dailyDays.value = []  // 同上: 换末日后旧的 5 日窗口整体失效
   loadAll(true)
 }
 
@@ -1123,6 +1279,155 @@ polling = usePolling(async () => {
 
 /* 三时点封单榜状态标签: 层1(9:25封死)=红金 / 层2(9:20回落)=橙 / 层3(9:15回落)=黄 */
 /* s3-tag 已随"状态"列一同移除 (2026-08-20) */
+
+/* === 连续多日竞价封单(2026-09-29): N 列并排, 每列一个交易日 ===
+   注: .msd-modebar / .msd-mode-switch / .msd-mode-tip 已随「单日榜入口 + 顶部口径提示」一并移除 */
+.msd-wrap { margin-bottom: 8px; overflow-x: auto; }
+/* 🔴 2026-09-30 主人: 「整个页面是个整体」⇒ N 个交易日并列成**一张连续表格**:
+   去掉原先每列独立卡片的边框/圆角/底色与列间隙, 只在日与日之间留一条分隔线。
+   同时「N 天必须排在一排」的约束不变 —— 窗口不够宽时**整块横向滚动**, 不降列、不换行。
+   🔴 2026-09-30 二次紧凑化(主人: 5 日 → 4 日 + 优化间距):
+     列数与最小宽度改为**由 --msd-cols 变量推导**(模板按 dailyDays.length 传入):
+       · 5 列时 min-width = 5 × 240px = 1200px(与旧值一致, 口径不变)
+       · 4 列时 = 4 × 240px = 960px
+     ⇒ 每列最小宽度恒为 240px(文字可用宽度不因减列而变窄 ⇒ **不会因减列而触发截断**),
+        但整块最窄宽度随列数等比缩小 ⇒ 4 列时少占 240px, 更容易整排放下、不出横向滚动条。
+     .msd-cell 左右内边距同时 6px → 4px(每格多让出 4px), 故 240px 比原来更宽松。
+     实测(真实编译 CSS + 等价 DOM, 视口 900/1100/1440 三档):
+       · 改动前: 最窄 1200px ⇒ 1100 视口就出横向滚动条; 且 4 个格被截断
+         (涨幅 `+10.06%` 溢出 4px、概念 `汽车零部件` 溢出 6px);
+       · 改动后: 最窄 960px ⇒ 1100 视口整排放下; 三档视口**截断格数均为 0**。 */
+.msd-grid {
+  --msd-cols: 4;              /* 缺省 4; 模板行内注入实际天数覆盖 */
+  --msd-col-min: 240px;       /* 每列最小宽度(= 旧 1200px / 5 列) */
+  display: grid;
+  grid-template-columns: repeat(var(--msd-cols), minmax(0, 1fr));
+  gap: 0;
+  min-width: calc(var(--msd-cols) * var(--msd-col-min));
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.msd-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.msd-col + .msd-col { border-left: 1px solid var(--border-soft); }
+.msd-head {
+  padding: 3px 4px 4px;          /* 原 4px 4px 5px: 表头下压 2px */
+  background: linear-gradient(180deg, #b3271f, #8e1f1f);
+  color: #fff;
+  text-align: center;
+}
+/* 2026-09-30 紧凑化: 日期 0.8→0.76rem, 摘要行 0.68→0.65rem 且去掉 1px 上边距
+   (表头整体从 3 行视高收到约 2 行半, 但仍在 0.65rem 下限之上 ⇒ 保持清晰可读) */
+.msd-date { font-size: 0.76rem; font-weight: 700; letter-spacing: 0.3px; }
+.msd-sum { margin-top: 0; font-size: 0.65rem; opacity: 0.95; white-space: nowrap; }
+.msd-num { font-weight: 700; }
+.msd-sep { opacity: 0.6; margin: 0 1px; }
+/* .msd-trend* 已随环比那行一并移除(2026-09-30 主人明确) */
+
+/* === 列 = 时点本身(2026-09-30 主人明确映射, 最紧凑的一种):
+       9:25 列 → 股票名称 + 9:25 封单额
+       9:20 列 → 概念     + 9:20 封单额
+       9:15 列 → 几板     + 9:15 封单额
+    每条记录只占 **3 列**(当日多一列涨幅) × 2 行 ⇒ 比"名称/概念/板 各自单独占列"窄得多。
+    表头与数据行共用同一套列模板 ⇒ 竖线上下同位置贯通。 === */
+.msd-sub,
+.msd-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: center;
+}
+/* 历史列没有涨幅 ⇒ 只 3 列 */
+.msd-sub.msd-nochg,
+.msd-row.msd-nochg { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.msd-cell {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: center;
+  /* 2026-09-30 对齐规范: 表头格与数据格**统一左右内边距**。
+     此前只有名称格有 padding-left:6px、其余为 0 ⇒ 同列内文字起点不一致。
+     box-sizing 已由全局样式设为 border-box ⇒ 不会撑破网格列。
+     2026-09-30 紧凑化: 6px → 4px(列间呼吸位收窄, 同时把每列文字可用宽度让回 4px)。 */
+  padding: 0 4px;
+}
+/* 竖分割线: 每列左缘一条, **首列除外**(否则会在卡片左边缘画线)。
+   表头与数据行两行都用同一组规则 ⇒ 线上下贯通。 */
+.msd-sub .msd-cell:not(:first-child),
+.msd-row .msd-cell:not(.msd-name):not(.msd-p25) {
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+}
+body[data-bg="light"] .msd-sub .msd-cell:not(:first-child),
+body[data-bg="light"] .msd-row .msd-cell:not(.msd-name):not(.msd-p25) { border-left-color: #dfe3ea; }
+.msd-sub .msd-cell:not(:first-child) { border-left-color: rgba(255, 255, 255, 0.28); }
+
+.msd-sub {
+  background: linear-gradient(90deg, #8e1f1f 0%, #c2441f 55%, #d9822b 100%);
+  color: #fff;
+  font-size: 0.64rem;           /* 原 0.66rem */
+  font-weight: 600;
+  padding: 1px 0;               /* 原 2px 0 */
+}
+/* 2026-09-30 主人明确: **全部居中对齐**(名称/概念/板/金额/涨幅/表头 一律居中)。
+   此前"名称左对齐 + 金额右对齐"的做法被否掉 ⇒ 这里不再有任何对齐覆盖,
+   统一走 .msd-cell 的 text-align: center。 */
+
+/* 🔴 2026-09-30 主人: 「每日独立的板块不需要单独滑动」⇒ 去掉每列自己的纵向滚动,
+   改成整页一起滚(列高由内容自然撑开, N 列因 grid stretch 保持等高, 短列下方留白)。 */
+.msd-body { overflow: visible; }
+.msd-row {
+  grid-template-rows: auto auto;
+  /* 2026-09-30 紧凑化(主人要求「优化布局间距」): 行内上下内边距 3px/4px → 2px/2px,
+     并显式压 line-height 至 1.3 —— 每行是**两行文字**(名称行 + 金额行),
+     行高从全局 1.5 降到 1.3 是"变矮"的主要来源; 字号仅 0.68 → 0.66rem
+     (仍高于 10px 可读下限), 不靠缩小文字换紧凑。
+     实测(真实编译 CSS + 等价 DOM, 见交付说明): 行高 40.6px → **32.4px(−20%)**。 */
+  padding: 2px 0;
+  line-height: 1.3;
+  border-bottom: 1px solid var(--border-soft);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.66rem;
+}
+.msd-row:last-child { border-bottom: none; }
+.msd-row:hover { background: rgba(255, 255, 255, 0.04); }
+body[data-bg="light"] .msd-row:hover { background: rgba(0, 0, 0, 0.03); }
+
+/* 第 1 行: 名称 / 概念 / 板 —— 分别落在 9:25 / 9:20 / 9:15 三列 */
+.msd-row .msd-name {
+  grid-area: 1 / 1;
+  cursor: pointer;                    /* 对齐/内边距统一由 .msd-cell 提供(居中 + 0 4px) */
+  color: var(--text-secondary); font-weight: 600;
+}
+/* 概念/板: 随主字号下移一档(0.66→0.64 / 0.64→0.62), 保持"次要信息更轻"的层级不变 */
+.msd-row .msd-concept { grid-area: 1 / 2; color: var(--text-muted); font-size: 0.64rem; }
+.msd-row .msd-lb { grid-area: 1 / 3; color: #ffb400; font-size: 0.62rem; }
+.msd-row .msd-blank { grid-area: 1 / 4; }
+/* 第 2 行: 各列的封单金额 + 涨幅 —— 同样居中; 数字仍靠 .msd-row 的 tabular-nums 对齐位数 */
+.msd-row .msd-p25 { grid-area: 2 / 1; color: #ff6a6a; font-weight: 600; }
+.msd-row .msd-p20 { grid-area: 2 / 2; color: var(--text-secondary); }
+/* 9:15 金额: 与**表头背景色呼应**(2026-09-30 主人要求)。
+   表头是 `linear-gradient(90deg, #8e1f1f, #c2441f 55%, #d9822b)`, 9:15 列正落在渐变右端
+   ⇒ **直接用该渐变右端的原色 #d9822b**, 呼应是"同色"而非"近似色"。
+   🔴 2026-09-30 调色: 初版取的是提亮版 #ffab3d, 主人反馈**太亮** —— 实测相对亮度 0.507,
+      在深色卡片上对比度 11.1:1, 几乎是纯色发光块、盖过了 9:25 主指标。
+      换回原色后亮度降到 0.309(对比 7.2:1), 仍远超正文 4.5:1 下限, 但不再刺眼。
+   浅色主题: #d9822b 在白底上仅 2.9:1, 故换等色系的加深版保可读性。 */
+.msd-row .msd-p15 { grid-area: 2 / 3; color: #d9822b; }
+body[data-bg="light"] .msd-row .msd-p15 { color: #b3641a; }
+.msd-row .msd-chg { grid-area: 2 / 4; font-weight: 600; }
+.msd-row .msd-chg.dim { color: var(--text-muted); font-weight: 400; }
+.msd-empty, .msd-empty-all {
+  padding: 8px 4px;               /* 原 10px 6px */
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.7rem;              /* 原 0.72rem */
+}
 
 /* === 三时点封单榜表格样式: 三色分组 + 概念列 + 拆列 === */
 .s3-hint {

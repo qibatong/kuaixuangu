@@ -1,7 +1,19 @@
 // 纯函数单测(node:test 零依赖 ESM 版, 运行: node --test src/utils/format.test.js)
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { yi, signed, amtText, fmtAvg, fmtT, wan, pct, fmtNum } from './format.js'
+import { yi, signed, amtText, fmtAvg, fmtT, wan, pct, fmtNum, sealDailyText } from './format.js'
+
+test('sealDailyText: 连续多日封单额(亿取1位并去尾随.0 / 万取整 / 0→-)', () => {
+  assert.equal(sealDailyText(8.094737011e9), '80.9亿')
+  assert.equal(sealDailyText(7.7e9), '77亿')          // 模板里的「77亿」: 7.7e9 不能显示成 77.0亿
+  assert.equal(sealDailyText(1.041e10), '104.1亿')
+  assert.equal(sealDailyText(91160000), '9116万')
+  assert.equal(sealDailyText(8230000), '823万')
+  assert.equal(sealDailyText(0), '-')
+  assert.equal(sealDailyText(null), '-')
+  assert.equal(sealDailyText(undefined), '-')
+  assert.equal(sealDailyText('abc'), '-')
+})
 
 test('yi: 元转亿(2位)', () => {
   assert.equal(yi(1e8), '1.00')

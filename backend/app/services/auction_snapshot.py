@@ -43,6 +43,19 @@ TIME_POINTS = {
 }
 DEFAULT_POINT = "9_20"     # 加速度计算使用的时点
 
+# 封单额**分时**字段映射(2026-09-29 主人拍板): 每个时点取**该时刻**的封单,
+# 不再四个时点统一取 fa_0925 —— 那样 9:15/9:20 列拿到的是尚未发生的 9:25 值 ⇒ 恒空。
+#   猫爪 daily_auc_fd 官方语义: fa_MMDD = 该时刻前最后一笔「匹配价=涨停价」的竞价金额(元)
+#   ⇒ 非涨停股恒无值, 天然满足契约「非涨停股无封单, 置 0」,
+#     无需再依赖东财 bid_change 判涨停(早盘东财竞价涨幅 70% 为 0, 据此判涨停必误杀真封单)。
+#   实测(2026-09-29 盘后只读探针): 涨停竞价池 80 只 ——
+#     fa_0915 非零 50 / fa_0920 32 / fa_0924 10 / fa_0925 11。
+_SEAL_FIELD_BY_POINT = {"9_15": "fa_0915", "9_20": "fa_0920",
+                        "9_24": "fa_0924", "9_25": "fa_0925"}
+# 同族兜底(同一接口/同源口径): 9:20 后首笔 / 9:25 后末笔; 仅在主字段为 0 时退而求其次。
+_SEAL_FALLBACK_BY_POINT = {"9_15": (), "9_20": ("fa_0920f",),
+                           "9_24": (), "9_25": ("fa_0925l", "fa_0920f")}
+
 # 最后一秒高频采样窗口: (9:24:45) ~ (9:25:03), 每秒一次(ts 记实际时刻)
 LASTSEC_START = 9 * 3600 + 24 * 60 + 45
 LASTSEC_END = 9 * 3600 + 25 * 60 + 3
@@ -223,7 +236,7 @@ def _bj_date():
 _MEOZ_PRIMARY = True
 
 
-def _fetch_market_map(full=False):
+def _fetch_market_map(full=False, time_point="9_25"):
     """抓取全市场快照, 返回 {code: {bid_change, bid_amt, name, bid_buy_amt, float_mv}}
     过滤异常涨幅(±30% 外, A股涨跌停上限20%/新股44%, 非交易时段字段可能异常)
     full=True : 时点快照(9:15/9:20/9:24/9:25)。主源见 _MEOZ_PRIMARY —— 猫爪 screening
@@ -247,7 +260,7 @@ def _fetch_market_map(full=False):
         #   字段映射(不再写第二遍 —— 同口径两处维护必漏改一处, 是换源最典型的坑)。
         if full and _MEOZ_PRIMARY:
             try:
-                mz = _merge_meoz(raw_all)
+                mz = _merge_meoz(raw_all, time_point)
                 log.info("[快照采集] 主源①猫爪 screening: 选股%d只 估值%d只 竞价%d只 封单%d只 "
                          "→ 建行%d只(补量比%d)", mz["val_n"], mz["auc_n"], mz["fd_n"],
                          mz["seal_n"], len(raw_all), mz["vr"])
@@ -313,7 +326,7 @@ def _fetch_market_map(full=False):
         if not raw_all:
             log.warning("[快照采集] 主源+第二级均失败, 兜底链启动")
             try:
-                mz = _merge_meoz(raw_all)
+                mz = _merge_meoz(raw_all, time_point)
                 log.info("[快照采集] 兜底①猫爪成功: 选股%d只 估值%d只 竞价%d只 → %d只",
                          mz["val_n"], mz["auc_n"], mz["fd_n"], len(raw_all))
             except Exception as e:                              # noqa: BLE001
@@ -345,7 +358,7 @@ def _fetch_market_map(full=False):
         #   (再跑一次语义等价但白费一次全市场拉取); 旧顺序下这里仍是补缺入口。
         if full and not _MEOZ_PRIMARY:
             try:
-                mz = _merge_meoz(raw_all)
+                mz = _merge_meoz(raw_all, time_point)
                 log.info("[快照采集] 猫爪合并 选股%d只 估值%d只 竞价%d只 封单%d只 → 补票%d只 "
                          "补名%d 补流通市值%d 补自由流通%d 补额%d 补涨幅%d 补封单%d 补昨日封单%d "
                          "补量比%d → 合计%d只",
@@ -451,8 +464,12 @@ def _screening_today(want_compact):
     return alt
 
 
-def _merge_meoz(raw_all):
+def _merge_meoz(raw_all, time_point="9_25"):
     """把猫爪(实时选股 + 竞价额 + 封单额)并入快照结果(原地改 raw_all), 返回统计字典。
+
+    time_point: **封单额按时点取字段**(2026-09-29 主人拍板, 见 _SEAL_FIELD_BY_POINT)
+      9_15→fa_0915 / 9_20→fa_0920 / 9_24→fa_0924 / 9_25→fa_0925。
+      缺省 "9_25" 仅为兼容既有单测; **生产调用点必须显式传**, 否则 9:15/9:20 会取错时点。
 
     ★ 两个角色, 同一份映射(2026-09-24 换源 WP1 起):
       · **主源建行**: `_fetch_market_map` 在 full=True 且 `_MEOZ_PRIMARY` 时先调用本函数,
@@ -562,8 +579,16 @@ def _merge_meoz(raw_all):
 
     # ③ 封单: 9:25 涨停封单额(daily_auc_fd.fa_0925, 涨停/一字竞价池)
     try:
-        fd_map = meoz_client.auc_fd_map(date_offset=0)
-        stats["seal_n"] = sum(1 for r in fd_map.values() if r.get("fa_0925") is not None)
+        _raw_fd = meoz_client.auc_fd_map(date_offset=0)
+        # 🔴 防串日(2026-09-29 补, 与上面 daily_auc 同一纪律): `date_offset=0` 在当日行
+        #   尚未产出时会返回**上一交易日**那份 ⇒ fa_0915 会是**昨日的 9:15 封单**,
+        #   写进今日 9_15 列是静默错数(与 2026-09-24 daily_auc 串日同一事故形态)。
+        #   宁可本枪不补(该列留 0), 也不把昨日值当今日值。
+        fd_map = {c: r for c, r in _raw_fd.items()
+                  if str((r or {}).get("tradedate") or "").replace("-", "")
+                  in ("", _today_compact)}
+        _seal_key = _SEAL_FIELD_BY_POINT.get(time_point, "fa_0925")
+        stats["seal_n"] = sum(1 for r in fd_map.values() if r.get(_seal_key) is not None)
     except Exception as e:                                      # noqa: BLE001
         fd_map = {}
         log.warning("[快照采集] 猫爪 daily_auc_fd 读取失败 err=%s", str(e)[:120])
@@ -602,8 +627,22 @@ def _merge_meoz(raw_all):
         # 竞价主力净额(元, 9:25 起更新): 无值/0 → 0(=无信号, 评分走 default)
         auc_main_net = _f(ff.get("auction_main_net_amount")) or 0.0
 
-        # 封单额: screening.fd_amount/fa_0925l 优先, daily_auc_fd.fa_0925 兜底(均元)
-        seal = _f(s.get("fd_amount")) or _f(s.get("fa_0925l")) or _f(fd.get("fa_0925"))
+        # 封单额: **按时点取该时刻的分时封单**(2026-09-29 主人拍板) ——
+        #   9_15→fa_0915 / 9_20→fa_0920 / 9_24→fa_0924 / 9_25→fa_0925(均元)。
+        #   🔴 旧写法 `fd_amount or fa_0925l or fa_0925` 是**四个时点共取 9:25 口径**:
+        #      ① 9:15/9:20 采集时 9:25 尚未发生 ⇒ 该列恒空(正是"9:15 应显示却空白"的成因);
+        #      ② fd_amount 与 fa_0925 **不是一个口径**(2026-09-29 只读探针实测新华传媒
+        #         fd_amount=18.53亿 vs fa_0925=ztwme=77.37亿, 差 4 倍) —— 把它放第一优先,
+        #         真封单字段永远轮不到。故封单主源改为**纯分时字段**, 不再掺 fd_amount。
+        seal = _f(fd.get(_seal_key))
+        if not seal:
+            for _fk in _SEAL_FALLBACK_BY_POINT.get(time_point, ()):
+                seal = _f(fd.get(_fk)) or _f(s.get(_fk))
+                if seal:
+                    break
+        if not seal and time_point == "9_15":
+            # screening 侧同名字段已在 _SCREENING_FIELDS 内 ⇒ **零额外配额**的同源兜底
+            seal = _f(s.get("fa_0915"))
         # 竞价涨幅: screening 优先, daily_auc 兜底
         chg = _f(s.get("auc_pct_chg"))
         if chg is None:
@@ -632,6 +671,8 @@ def _merge_meoz(raw_all):
                 "bid_amt": (amt or 0.0) / 1e4,
                 "name": str(s.get("name") or am.get("name") or vm.get("name") or fd.get("name") or ""),
                 "bid_buy_amt": seal if seal is not None else 0,
+                # 猫爪真封单标记: 供 snapshot_at 在"非涨停清零"后恢复(内部键, 不入库)
+                "_seal_meoz": seal if seal is not None else 0,
                 "float_mv": _f(vm.get("circ_mv")) or _f(s.get("circ_mv")) or 0.0,   # 流通市值(元) ★valuation优先(统一训练基座口径, 2026-09-26)
                 "free_mv": _f(s.get("free_float_mv")) or 0.0,                      # 自由流通市值(元)
                 "pre_fd_amount": pre_fd if pre_fd is not None else 0.0,            # 昨日封单额(元)
@@ -675,7 +716,9 @@ def _merge_meoz(raw_all):
                 v["bid_change"] = chg
                 stats["chg"] += 1
         # 封单额: 东财缺(0)且猫爪有 → 补(涨停票才有)
-        if not (v.get("bid_buy_amt") or 0) and seal:
+        if seal and v.get("_seal_meoz") is None:
+            v["_seal_meoz"] = seal
+        if seal and not (v.get("bid_buy_amt") or 0):
             v["bid_buy_amt"] = seal
             stats["seal"] += 1
         # 概念: 东财空且猫爪题材有 → 补(仅兜底, 不覆盖东财 f103)
@@ -1129,7 +1172,7 @@ def snapshot_at(time_point, force=False):
             return 0
     t0 = time.time()
     log.info("[快照采集] 开始 time=%s date=%s", time_point, date)
-    raw_all = _fetch_market_map(full=True)
+    raw_all = _fetch_market_map(full=True, time_point=time_point)
     if not raw_all:
         log.warning("[快照采集] 拉取为空 time=%s date=%s 耗时%.0fms (东财全市场接口无返回, 该时点数据缺失!)",
                     time_point, date, (time.time() - t0) * 1000)
@@ -1173,6 +1216,12 @@ def snapshot_at(time_point, force=False):
             # 若开板股不在 KPL 榜会保留该非零值 → 前端仍显示"封单"(用户反馈的同类问题)
             if not is_zt:
                 v["bid_buy_amt"] = 0
+            # 2026-09-29: 猫爪分时封单(fa_MMDD)是**真封单** —— 该字段只在该票
+            #   「匹配价=涨停价」时才有值 ⇒ 它本身就是涨停证据, 不依赖东财 bid_change。
+            #   而上面 is_zt 判据用的是东财涨幅(早盘 70% 为 0) ⇒ 会误杀 9:15/9:20 的真封单
+            #   (同 2026-09-07 事故形态)。故真封单在清零之后**恢复**。
+            if v.get("_seal_meoz"):
+                v["bid_buy_amt"] = v["_seal_meoz"]
             s = kpl_map.get(code)
             if s:
                 seal = s.get("bidSealAmt") or 0
@@ -1191,10 +1240,15 @@ def snapshot_at(time_point, force=False):
                 #   开盘啦没给涨幅(None)时**保持原行为**(不敢凭缺值清零, 避免重犯 09-07 事故)。
                 _chg_kpl = s.get("bidChange")
                 _zt_kpl = _is_zt(code, _chg_kpl) if _chg_kpl is not None else None
-                if seal and _zt_kpl is not False:
+                # 2026-09-29: 封单主源已是**猫爪分时字段**(9_15→fa_0915 / 9_20→fa_0920 /
+                #   9_25→fa_0925), 开盘啦降为**只补缺** —— 否则它会无条件覆盖刚刚按点取到的值,
+                #   本次改动等于没生效(9_15 列仍显示开盘啦 09:24 口径)。
+                if seal and _zt_kpl is not False and not (v.get("bid_buy_amt") or 0):
                     v["bid_buy_amt"] = seal
                     n_seal += 1
-                elif seal and _zt_kpl is False:
+                elif seal and _zt_kpl is False and not v.get("_seal_meoz"):
+                    # 猫爪真封单(fa_MMDD)本身就是涨停证据 ⇒ 不被开盘啦的"非涨停"判定清零;
+                    # 但该清零仍对**开盘啦自己的伪封单**生效(2026-09-29 实测 109 只非涨停股挂封单)。
                     v["bid_buy_amt"] = 0
                 b = s.get("board") or ""
                 if b:

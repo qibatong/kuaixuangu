@@ -95,7 +95,8 @@ class TestKplSealNotBlockedByBidChange:
 
         monkeypatch.setattr(A, "_bj_date", lambda: "2099-01-02")
         # 模拟行情 map: 该票竞价涨幅未生成(东财 9:15 常见)
-        monkeypatch.setattr(A, "_fetch_market_map", lambda full=False: {
+        # time_point: 2026-09-29 起 _fetch_market_map 需按时点取封单字段
+        monkeypatch.setattr(A, "_fetch_market_map", lambda full=False, time_point="9_25": {
             "600108": {"bid_change": bid_change, "bid_amt": 0.0, "name": "亚盛集团",
                        "bid_buy_amt": 0.0, "float_mv": 1e10, "free_mv": 1e10, "board": ""}})
         # 开盘啦委买榜返回真实封单 5 亿
@@ -135,7 +136,8 @@ class TestKplFillBidChangeAndAmt:
         from app.db import database
 
         monkeypatch.setattr(A, "_bj_date", lambda: "2099-01-02")
-        monkeypatch.setattr(A, "_fetch_market_map", lambda full=False: {"600108": dict(raw)})
+        monkeypatch.setattr(A, "_fetch_market_map",
+                            lambda full=False, time_point="9_25": {"600108": dict(raw)})
         monkeypatch.setattr(kpl, "fetch_bid_seal", lambda: [kpl_row])
         monkeypatch.setattr(kpl, "clear_cache", lambda: None)
         A.snapshot_at("9_15", force=True)

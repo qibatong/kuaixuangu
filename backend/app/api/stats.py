@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
 from ..core import trade_calendar as tc
-from ..services import auction_snapshot, kpl, scorer, stats
+from ..services import auction_snapshot, bid_seal_daily, kpl, scorer, stats
 from ..services.picker import zh as zh_sel
 from ..services.cache_store import store as _cstore
 from ..db import database
@@ -476,6 +476,46 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
     # 且现涨最坏延迟 15s 仍在"30s 轮询"原有延迟量级内, 体感无差别。
     payload = cached_singleflight(_cstore, ck, 15 if intraday else 600, _compute_rows)
     return jr(payload)
+
+
+@router.get("/api/stats/bid-seal-daily")
+def api_stats_bid_seal_daily(request: Request, uid: int = Depends(get_uid)):
+    """连续 N 日竞价封单(?end=YYYY-MM-DD&days=5&limit=200) —— 多列并排视图的数据源。
+
+    与 `/api/stats/bid-snapshot-3points` 的区别(两者**不是一回事**, 别混用):
+      · `bid-snapshot-3points` = 读**自采库** `snapshot_bid`, 覆盖全市场 + 三层排序,
+        但历史日的 9:15/9:20 列是旧代码产物(四时点共取 fa_0925) ⇒ 那两列恒空;
+      · 本接口 = 直取**猫爪 `daily_auc_fd` 分时封单**, 只含涨停股, 历史日与今日同等可用。
+
+    口径(2026-09-29 与模板四日逐位对拍确认):
+      · 只统计涨停股, 判据 = `is_zt_by_change`(分板块 10/20/30%);
+      · 封单总额 = Σ `fa_0925l`(9:25 后末笔) —— 104.1/113.8/109.9/106.6 亿, 四日全中;
+      · 「一字」= 该日展示集合只数(涨停且 9:25 有封单)。
+    响应 `days` 由近到远, 每日含 `diff`/`diffPct`/`prevDate`(与更早一个交易日比)。
+    """
+    q = qs(request)
+    end = (q.get("end") or q.get("date") or [""])[0]
+    try:
+        days = max(1, min(bid_seal_daily.MAX_DAYS, int((q.get("days") or [5])[0])))
+    except (TypeError, ValueError):
+        days = 5
+    try:
+        limit = max(5, min(500, int((q.get("limit") or [200])[0])))
+    except (TypeError, ValueError):
+        limit = 200
+
+    resolved = end or tc.bj_date()
+    # 缓存: 历史日数据不可变给长 TTL; 含当日的(可能仍在采集)给短 TTL
+    today = _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 8 * 3600))
+    dates = bid_seal_daily.last_trade_days(days, resolved)
+    live = bool(dates) and dates[0] >= today
+    ck = "bsealdaily:%s:%s:%s:%s" % ("live" if live else "hist", resolved, days, limit)
+
+    from ..services.cache_store import cached_singleflight
+    payload = cached_singleflight(_cstore, ck, 60 if live else 1800,
+                                 lambda: bid_seal_daily.build(days=days, end=resolved, limit=limit))
+    return jr({"ok": True, "end": (dates or [resolved])[0], "days": payload.get("days") or [],
+               "count": len(payload.get("days") or [])})
 
 
 @router.get("/api/stats/seal-quality")

@@ -58,7 +58,8 @@ def test_kpl_fallback_converts_yuan_to_wan(_kpl_seal):
 
 def test_snapshot_at_backfill_converts_yuan_to_wan(monkeypatch, _kpl_seal):
     """snapshot_at 补位路径: 行情源竞价额为 0(东财故障)时由开盘啦补, 单位必须换算"""
-    monkeypatch.setattr(asnap, "_fetch_market_map", lambda full=False: {
+    # time_point: 2026-09-29 起 _fetch_market_map 需按时点取封单字段
+    monkeypatch.setattr(asnap, "_fetch_market_map", lambda full=False, time_point="9_25": {
         "600000": {"bid_change": 0.0, "bid_amt": 0.0, "name": "浦发银行",
                    "bid_buy_amt": 0.0, "float_mv": 2.0e10, "free_mv": 2.0e10,
                    "board": ""},

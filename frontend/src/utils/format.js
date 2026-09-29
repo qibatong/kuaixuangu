@@ -19,6 +19,18 @@ export function amtText(v) {
   return v >= 1e8 ? (v / 1e8).toFixed(2) + '亿' : (v / 1e4).toFixed(0) + '万'
 }
 
+// sealDailyText: 连续多日封单视图专用 —— ≥1亿 显示「80.8亿」(整数亿去掉尾随 .0, 如 7.7e9→77亿),
+// 否则显示「9116万」(取整), 0/空 → '-'(与模板逐位对齐: 80.8亿 / 77亿 / 9116万 / -)
+export function sealDailyText(v) {
+  const n = Number(v) || 0
+  if (!n) return '-'
+  if (n >= 1e8) {
+    const s = (n / 1e8).toFixed(1)
+    return (s.endsWith('.0') ? s.slice(0, -2) : s) + '亿'
+  }
+  return Math.round(n / 1e4) + '万'
+}
+
 // fmtAvg: 涨跌幅(2位+%)带符号
 export function fmtAvg(v) {
   return v === null || v === undefined ? '-' : (v > 0 ? '+' : '') + v.toFixed(2) + '%'
