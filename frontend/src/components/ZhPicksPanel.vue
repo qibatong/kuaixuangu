@@ -47,7 +47,12 @@
           <div class="zh-empty-hint">9:25 定格后生成；入选 = 涨停基因(近120日≥1次) + 高开≥3% + 竞价放量占昨量 5~10%，非ST</div>
         </div>
 
-        <table v-else class="stock-table zh-table">
+        <template v-else>
+          <!-- ★ 2026-09-29 主人反馈「手机端没有自适应」: ≤768px 横滑(带可滑提示),
+               ≤430px 卡片化(零横滑) —— 与「竞价一进二」同一套做法。 -->
+          <div class="zh-swipe-hint"><i class="fa fa-arrows-h"></i> 左右滑动查看全部 6 列</div>
+          <div class="zh-scroll">
+        <table class="stock-table zh-table">
           <thead>
             <!-- 2026-09-29 主人: 表头可排序 —— 复用全站 useSortable(点击 无→降序→升序→无) -->
             <tr>
@@ -73,15 +78,17 @@
                 <div class="stock-code-row"><span class="stock-code">{{ it.code }}</span></div>
                 <div class="stock-name-row"><span class="stock-name">{{ it.name }}</span></div>
               </td>
-              <td :class="cls(it.bidChange)">{{ signed(it.bidChange) }}%</td>
-              <td :class="cls(it.realChange)">{{ signed(it.realChange) }}%</td>
-              <td :class="cls(it.entityChange)">{{ signed(it.entityChange) }}%</td>
+              <td :class="cls(it.bidChange)" data-label="竞价涨幅">{{ signed(it.bidChange) }}%</td>
+              <td :class="cls(it.realChange)" data-label="实时涨幅">{{ signed(it.realChange) }}%</td>
+              <td :class="cls(it.entityChange)" data-label="实体涨幅">{{ signed(it.entityChange) }}%</td>
               <!-- 🔴 后端 bidAmt 单位是**万元**; amtText 吃**元** ⇒ ×1e4 -->
-              <td :class="(it.bidAmt || 0) > 0 ? 'up' : 'dim'">{{ amtText((it.bidAmt || 0) * 1e4) }}</td>
-              <td class="concept-cell dim" :title="it.board"><span v-if="it.board" class="concept-clamp">{{ it.board }}</span><span v-else>-</span></td>
+              <td :class="(it.bidAmt || 0) > 0 ? 'up' : 'dim'" data-label="竞价金额">{{ amtText((it.bidAmt || 0) * 1e4) }}</td>
+              <td class="concept-cell dim" :title="it.board" data-label="概念"><span v-if="it.board" class="concept-clamp">{{ it.board }}</span><span v-else>-</span></td>
             </tr>
           </tbody>
         </table>
+          </div>
+        </template>
       </div>
     </template>
   </div>
@@ -237,9 +244,83 @@ onMounted(() => { if (user.isVipOrPaid) load() })
 body[data-bg="light"] .zh-chip { color: #5a4a3a; }
 body[data-bg="light"] .zh-empty { color: #6b6257; }
 
-/* 手机窄屏: 表格横向滚动(不藏列, 与全站范式一致) */
+/* ==================== 手机端自适应(★ 2026-09-29 主人反馈「手机端没有自适应」) ====================
+   🔴 原实现只在 ≤430px 给 **`.zh-table` 本身**加 `display:block; overflow-x:auto` ——
+      `display` 一改就不是表格了: 行列塌成块、列宽对不齐、数字列全串行(手机端看着就是"坏的")。
+      而且 CSS 里的横滑容器 `.zh-scroll` **根本没被模板用上**(表格是裸的)。
+   改为与「竞价一进二」同一套(见 YijinerView.vue 的 .yj-scroll/.yj-swipe-hint/卡片段):
+      ① ≤768px: 表格套横滑容器 + 一行"左右滑动"提示(手机不显示滚动条, 不提示用户不知道右边有列)
+      ② ≤430px: **卡片化** —— tr 变卡片、td 变卡片内字段, 字段名由 `<td data-label>` 用
+         `::before` 生成(纯 CSS, 不动接口/不动数据结构), 零横滑。
+   回滚: 删掉下面两段 @media 即回到"裸表格"原状。 */
+.zh-swipe-hint { display: none; }
+
+@media (max-width: 768px) {
+  .zh-swipe-hint {
+    display: flex; align-items: center; gap: 5px;
+    padding: 4px 8px; margin-bottom: 4px;
+    font-size: 11.5px; color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px dashed var(--border-soft, #3a3f4b); border-radius: 6px;
+  }
+  .zh-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .zh-table { min-width: 420px; font-size: 11.5px; }
+  .zh-table th, .zh-table td { padding: 6px 4px; }
+  /* 概念用 overflow-wrap 而非 word-break:break-all —— 后者会把 MiniLED/CPO/PCB 从中间断开 */
+  .zh-table td.concept-cell { max-width: 110px; white-space: normal; line-height: 1.3; overflow-wrap: anywhere; }
+}
+
 @media (max-width: 430px) {
-  .zh-table { display: block; overflow-x: auto; }
+  .zh-swipe-hint { display: none; }          /* 卡片态不需要横滑, 提示反而误导 */
+  .zh-scroll { overflow-x: visible; }
+  .zh-table { display: block; width: 100%; min-width: 0; font-size: 12px; }
+  .zh-table thead { display: none; }         /* 字段名改由 data-label 在卡内展示 */
+  .zh-table tbody { display: block; }
+  .zh-table tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 3px 8px;
+    padding: 7px 8px 8px;
+    margin: 0 0 6px;
+    border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    background: var(--bg-panel, rgba(18, 22, 35, 0.85));
+  }
+  .zh-table tbody td {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+    width: auto;
+    padding: 0;
+    border: 0;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  /* 第 1 行: 名称独占整行(名称+代码上下两行)
+     🔴 卡片态的 td 是 inline-flex ⇒ 名称格内「代码/名称」两个 div 会被并排;
+        这里显式改 block 才恢复上下两行。 */
+  .zh-table tbody td:nth-child(1) { display: block; flex: 1 0 100%; text-align: left; }
+  .zh-table tbody td:nth-child(1) .stock-code-row,
+  .zh-table tbody td:nth-child(1) .stock-name-row { display: block; }
+  .zh-table tbody td:nth-child(1) .stock-name { font-size: 13.5px; }
+  /* 其余字段: 灰色标签 + 值, 自动换行铺满卡片 */
+  .zh-table tbody td:nth-child(n + 2)::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 400;
+  }
+  /* 概念: 独占一行且可折行(表格态被限宽截断, 卡片态要看全) */
+  .zh-table tbody td.concept-cell {
+    flex: 1 0 100%;
+    max-width: none;
+    min-width: 0;
+    margin-top: 2px;
+    white-space: normal;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
   .zh-table thead th { position: static; }
 }
 </style>
