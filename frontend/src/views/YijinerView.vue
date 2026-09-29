@@ -58,6 +58,9 @@
         </div>
 
         <template v-else>
+          <!-- 2026-09-29 主人反馈"手机页面看不全": 手机不显示滚动条, 12 列在 390px 必然要横滑,
+               用户根本看不出"右边还有列"。加一行可滑提示(仅窄屏显示, 桌面不占位)。 -->
+          <div class="yj-swipe-hint"><i class="fa fa-arrows-h"></i> 左右滑动查看全部 12 列</div>
           <div class="yj-scroll">
             <table class="stock-table yj-table">
               <thead>
@@ -87,19 +90,26 @@
                     :data-stock-code="r.code"
                     :data-stock-name="r.name"
                   >
-                    <div class="yj-name-main">{{ r.name }}<PoolHoverBtn :item="r" /></div>
+                    <!-- 2026-09-29 主人拍板：去掉本页「＋自选」按钮(鸡肋)。
+                         注：本行原本**没有套 .pool-hover-wrap**，而该按钮的显隐规则是
+                         main.css 的 `.pool-hover-wrap .pool-hover-btn{visibility:hidden}` +
+                         `:hover{visible}` ⇒ 没有这层包裹 ⇒ 每行都**常驻**一个「＋自选」
+                         （手机上更没有 hover 概念，等于永久挂着）。要加自选请走首页/自选页。 -->
+                    <div class="yj-name-main">{{ r.name }}</div>
                     <div class="yj-name-sub">{{ r.code }}</div>
                   </td>
                   <td><span class="yj-score" :class="{ 'yj-score-low': r.redFlag }">{{ r.probability }}分</span></td>
-                  <td class="yj-dim-cell">{{ r.confidence }}%</td>
-                  <td :class="chgCls(r.bidChange)">{{ fmtPct(r.bidChange) }}</td>
-                  <td :class="chgCls(r.realChange)">{{ fmtPct(r.realChange) }}</td>
-                  <td :class="chgCls(r.entityChange)">{{ fmtPct(r.entityChange) }}</td>
-                  <td>{{ fmtMv(r.circulationMV) }}</td>
-                  <td class="yj-time">{{ fmtFbt(r.firstSealTime) }}</td>
-                  <td :class="{ 'yj-warn': r.breakCount > 0 }">{{ r.breakCount }}次</td>
-                  <td>{{ r.industry || '-' }}</td>
-                  <td class="yj-concept">{{ shortConcept(r.concept) }}</td>
+                  <!-- 👇 2026-09-29: data-label 只在 ≤430px 的**卡片模式**用(纯 CSS ::before 生成字段名),
+                       桌面/平板完全不用它; 标签用短词(市值/竞价/实时/实体)以适应卡片一行多格。 -->
+                  <td class="yj-dim-cell" data-label="可信">{{ r.confidence }}%</td>
+                  <td :class="chgCls(r.bidChange)" data-label="竞价">{{ fmtPct(r.bidChange) }}</td>
+                  <td :class="chgCls(r.realChange)" data-label="实时">{{ fmtPct(r.realChange) }}</td>
+                  <td :class="chgCls(r.entityChange)" data-label="实体">{{ fmtPct(r.entityChange) }}</td>
+                  <td data-label="市值">{{ fmtMv(r.circulationMV) }}</td>
+                  <td class="yj-time" data-label="昨封板">{{ fmtFbt(r.firstSealTime) }}</td>
+                  <td :class="{ 'yj-warn': r.breakCount > 0 }" data-label="昨炸板">{{ r.breakCount }}次</td>
+                  <td data-label="行业">{{ r.industry || '-' }}</td>
+                  <td class="yj-concept" data-label="概念">{{ shortConcept(r.concept) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -122,7 +132,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import VipGate from '../components/VipGate.vue'
-import PoolHoverBtn from '../components/PoolHoverBtn.vue'
+// 2026-09-29: 去掉「＋自选」按钮后不再需要 import PoolHoverBtn(该组件仍被首页/竞价异动等页使用)
 import { fetchYijiner } from '../api/yijiner'
 import { useUserStore } from '../stores/user'
 import { showToast } from '../utils/toast'
@@ -183,8 +193,10 @@ function fmtFbt(t) {
   return `${s.slice(0, 2)}:${s.slice(2, 4)}:${s.slice(4, 6)}`
 }
 function shortConcept(c) {
-  const s = String(c || '-')
-  return s.length > 16 ? s.slice(0, 16) + '…' : s
+  // 2026-09-29: 原实现在**数据层硬截 16 字**(>16 ? slice(0,16)+'…'), 手机上概念既显示不全、
+  // 横滑也补不回来(内容已经丢了) —— 主人反馈"手机页面看不全", 这是其中一处**真丢数据**的点。
+  // 现原样返回, 显示交给 CSS: 桌面单行省略(列宽 150px), 窄屏改为折行看全(见 <style> 内 @media)。
+  return String(c || '-')
 }
 
 async function load() {
@@ -353,4 +365,102 @@ defineExpose({ load })
 body[data-bg="light"] .yj-down { color: #1f7a45; }
 body[data-bg="light"] .yj-trophy-1 { color: #8a5500; }
 body[data-bg="light"] .yj-chip { color: #5a4a3a; }
+
+/* ============================================================
+   手机窄屏（2026-09-29 主人反馈："一进二手机页面看不全"）
+   原状: 本文件**没有任何断点** —— .yj-table 被钉在 min-width:1020px(12 列全 nowrap)
+        ⇒ 390px 屏只看得到前 3~4 列, 其余 8 列必须盲滑(手机不显示滚动条 ⇒ 体感=看不全)。
+   改法(照 AuctionView.vue:1322-1332 的既有范式: 不藏列、不卡片化, 与全站一致):
+     ① 收紧内边距/字号, 把 12 列的地板从 1020px 压到 880px(≤430px 再压到 820px);
+        ⚠️ 单元格全是 nowrap ⇒ 内容真需要更宽时表格会自然变宽, **不会被压瘪**,
+           这里的 min-width 只是"地板", 调小是安全操作;
+     ② 横滑容器补触摸惯性(-webkit-overflow-scrolling);
+     ③ 概念列在窄屏取消省略号、允许折行 —— 原来是"限宽省略 + JS 硬截 16 字",
+        触屏没有 hover, 概念在手机上永远读不全(信息在数据层就丢了, 横滑也救不回来);
+     ④ 顶部那行 .yj-swipe-hint 让"可以横滑"这件事可见。
+   ============================================================ */
+.yj-swipe-hint { display: none; }
+
+@media (max-width: 768px) {
+  .yj-swipe-hint {
+    display: block;
+    margin: 0 0 4px;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: right;
+  }
+  .yj-table { min-width: 880px; font-size: 11.5px; }
+  .yj-table th,
+  .yj-table td { padding: 6px 4px; }
+  .yj-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* 2026-09-29: 概念用 overflow-wrap 而非 word-break:break-all —— 后者会把 MiniLED/CPO/PCB
+     这类英文概念从中间断开(交易名词断字很容易看错), 前者只在整词放不下时才断, 且优先在「、」后断。 */
+  .yj-concept { max-width: 118px; white-space: normal; line-height: 1.3; overflow-wrap: anywhere; }
+  .yj-embedded .yj-concept { max-width: 100px; }
+}
+
+@media (max-width: 430px) {
+  /* ============================================================
+     🔴 2026-09-29 主人拍板：一进二**先试卡片化**（本页单独试，金睛/火眼暂不动）
+     背景: 12 列在 390px 屏上无论怎么收紧地板都要横滑 2 屏多，而手机不显示滚动条
+          ⇒ 用户常年"看不全"（当天日志/反馈都指向这一点）。
+     做法: ≤430px 把 `tr` 变卡片、`td` 变卡片内的字段，字段名由每个 `<td data-label>`
+          用 `::before` 生成 —— **纯 CSS，不动接口、不动数据结构**；
+          桌面/平板/横屏完全不受影响（断点外仍是表格）。
+     回滚: 注释/删掉本段 @media 即恢复原状（其余 ≤768px 规则保持不变）。
+     代价: 一屏约 8~9 张卡（表格约 14~18 行）—— 用"行数减半"换"字段全在一屏、零横滑"。
+     ============================================================ */
+  .yj-swipe-hint { display: none; }        /* 卡片不需要横滑, 提示反而误导 */
+  .yj-scroll { overflow-x: visible; }
+  .yj-table { display: block; width: 100%; min-width: 0; font-size: 12px; }
+  .yj-table thead { display: none; }       /* 字段名改由 data-label 在卡内展示 */
+  .yj-table tbody { display: block; }
+  .yj-table tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 3px 8px;
+    padding: 7px 8px 8px;
+    margin: 0 0 6px;
+    border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    background: var(--bg-panel, rgba(18, 22, 35, 0.85));
+  }
+  .yj-table tbody td {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+    width: auto;
+    padding: 0;
+    border: 0;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  /* 第 1 行：名次(🏆/序号) + 名称(撑满, 逼后面字段换行) + 综合评分(靠右, 与名称同一行) */
+  .yj-table tbody td:nth-child(1) { flex: 0 0 auto; }
+  .yj-table tbody td:nth-child(2) { flex: 1 1 auto; min-width: 0; text-align: left; }
+  .yj-table tbody td:nth-child(2) .yj-name-main { display: block; font-size: 13.5px; }
+  .yj-table tbody td:nth-child(2) .yj-name-sub { display: block; }
+  .yj-table tbody td:nth-child(3) { flex: 0 0 auto; margin-left: auto; }
+  /* 其余字段：灰标签 + 值, 自动换行铺满卡片（一行能放几个就放几个） */
+  .yj-table tbody td:nth-child(n + 4)::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 400;
+  }
+  /* 概念：独占一行且可折行（表格态被 118px 限宽 + 省略号截断, 卡片态要能看全） */
+  .yj-table tbody td:nth-child(12) {
+    flex: 1 0 100%;
+    max-width: none;
+    min-width: 0;
+    margin-top: 2px;
+    white-space: normal;
+    line-height: 1.35;
+    overflow-wrap: anywhere;   /* 同上: 保住 MiniLED/CPO 等英文概念不被拦腰断开 */
+  }
+  /* 与 2026-09-28 那段注释同因(本 tab 没有 .home-filter ⇒ sticky 变量沿用旧值会压首行);
+     卡片态 thead 已隐藏, 这里保留是为防以后有人在卡片上方又补表头时踩同一个坑。 */
+  .yj-panel .yj-table thead th { position: static; }
+}
 </style>
