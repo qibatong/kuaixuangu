@@ -11,8 +11,10 @@
      若把"有 5567 行"当成就绪判据, 早盘每一枪都会把昨日量比写成今日定格。
   ③ 2026-09-24 主人**二次拍板**: 定格那一枪**固定在 09:26:30**(`_BID25_FREEZE_SEC`),
      9:25:00~9:26:29 全程静默不采 —— 该段猫爪竞价字段仍在产出, 采了必是空车,
-     还白烧一轮全市场拉取(8~15s)。09:26:30 起首采; 未就绪则由 10s 轮询重采兜到 09:27:30
-     —— 即主人要求的「数据轮询获取」。
+     还白烧一轮全市场拉取(8~15s)。09:26:30 起首采。
+     🔴 2026-09-29 主人**再收紧**: 重采截止 / 净额·量比补采上限 / 抢筹轮采上界
+      **一律不得晚于 09:26:30** ⇒ 定格那一枪即终值(无回滚重采), 定格后不再改写竞价数据
+      (与下游 9:26 系统批次 / AI 预测的消费口径一致)。
 
 本文件覆盖:
   A. 时间常量: 窗口 / 定格首采时刻 / 重采截止(契约推导)与不变式;
@@ -75,18 +77,19 @@ def test_bid25_window_covers_meoz_publish_lag():
 
 
 def test_bid25_freeze_point_is_092630():
-    """★ 定格首采时刻 = 09:26:30(2026-09-24 主人二次拍板)。
+    """★ 定格首采时刻 = 09:26:30(2026-09-24 二次拍板; 2026-09-29 收紧为"这一枪即终值")。
 
     四条不变式(任一条破了都是"改了但没生效"或"空车采集"):
       ① `_BID25_MIN_SEC` 必须 >= 90 —— 旧值 45(= 09:25:45)会在猫爪出满(09:26:16)之前开采;
       ② `_BID25_FREEZE_SEC` 由 `_BID25_MIN_SEC` **唯一推导**, 不得在别处再写一份字面量;
-      ③ 定格时刻必须**早于**重采截止, 否则 `_bid25_retry_open` 没有重采空间(静默失效);
+      ③ **定格时刻 == 重采截止**(2026-09-29 新口径): 不再留重采空间 ⇒ 单枪定格、定格后不改数据;
+         若哪天又要放开重采, 这条会红, 提醒同步更新 `_BID25_RETRY_UNTIL` 与下游口径;
       ④ 单位: 与 `_BID25_RETRY_UNTIL` 同为**当日绝对秒**(含 9*3600)。
     """
     assert A._BID25_MIN_SEC >= 90
     assert A._BID25_FREEZE_SEC == 9 * 3600 + 25 * 60 + A._BID25_MIN_SEC
     assert A._BID25_FREEZE_SEC == 9 * 3600 + 26 * 60 + 30      # 09:26:30 = 33990
-    assert A._BID25_FREEZE_SEC < A._BID25_RETRY_UNTIL          # 留出 10s 轮询重采空间
+    assert A._BID25_FREEZE_SEC == A._BID25_RETRY_UNTIL         # ★ 单枪定格(无重采空间)
     assert A._BID25_FREEZE_SEC > 9 * 3600, \
         "定格时刻漏了 9*3600(口径退回'9 点后秒数'), 与 hm*60+sec 比较会恒 True"
 
@@ -118,7 +121,7 @@ def test_bid25_retry_until_derived_from_contract():
     c = contracts.field("auc_vol_ratio")
     h, m, s = (int(x) for x in c.ready_after.split(":"))
     ready_sec = h * 3600 + m * 60 + s                              # 09:25:35 = 33935
-    assert A._BID25_RETRY_UNTIL == ready_sec + 115                 # 09:27:30 = 34050
+    assert A._BID25_RETRY_UNTIL == ready_sec + 55                  # 09:26:30 = 33990(2026-09-29 收紧)
     _, end = A.TIME_POINTS["9_25"]
     win_end_sec = end * 60 + 59                                    # 9:27:59 = 34079
     # 不变式①: 截止必须 <= 窗口末端, 否则重采分支根本不会被触发(静默失效)
@@ -138,18 +141,38 @@ def test_bid25_retry_until_is_absolute_second():
 
 
 def test_bid25_retry_open_boundaries():
-    """_bid25_retry_open 边界: 9:25:00~9:27:29 可重采, 9:27:30 起接受当前值。
+    """_bid25_retry_open 边界(2026-09-29 收紧后): 9:25:00~9:26:29 可重采, **9:26:30 起接受当前值**。
 
     ★ 本函数只判「是否还在重采时间窗内」, **不管现在到没到定格首采时刻**
       (那是 `_bid25_before_freeze` 的职责) —— 所以 9:25 整分钟也返回 True。
+    ★ 收紧后 09:26:30 = 定格时刻 = 截止 ⇒ 实质上"定格即终值"(无重采轮次)。
     """
     assert A._bid25_retry_open(9 * 60 + 25, 0) is True      # 定格首采前: 也须在"可重采"侧
     assert A._bid25_retry_open(9 * 60 + 25, 45) is True     # 旧首采点(33945)
     assert A._bid25_retry_open(9 * 60 + 26, 16) is True     # 猫爪产出上限附近(33976) ★ 等猫爪的意义
-    assert A._bid25_retry_open(9 * 60 + 26, 30) is True     # ★ 定格首采时刻(33990)
-    assert A._bid25_retry_open(9 * 60 + 27, 29) is True     # 截止前一秒(34049)
-    assert A._bid25_retry_open(9 * 60 + 27, 30) is False    # 截止当秒(34050)
+    assert A._bid25_retry_open(9 * 60 + 26, 29) is True     # 定格前一秒(33989)
+    assert A._bid25_retry_open(9 * 60 + 26, 30) is False    # ★ 截止当秒 = 定格时刻(33990)
+    assert A._bid25_retry_open(9 * 60 + 27, 29) is False    # 旧截止(34049): 已不再接受重采
     assert A._bid25_retry_open(9 * 60 + 27, 59) is False    # 窗口末端(34079)
+
+
+def test_all_bid_collection_windows_capped_at_092630():
+    """★★ 2026-09-29 主人口径: 三处"竞价轮采/补采"**一律不得晚于 09:26:30(= 定格时刻)**。
+
+    被约束的三处(与生产对话逐条对应):
+      ① 竞价四时点快照(→ snapshot_bid) 的定稿/重采截止;
+      ② 竞价净额·量比补采的硬上限;
+      ③ 竞价抢筹结果快照的轮采(含失败重试)上界。
+    把它们放在同一条断言里, 是为了"以后放开任何一处都会立刻红" —— 而不是各自散落。
+    """
+    cap = 9 * 3600 + 26 * 60 + 30                    # 09:26:30
+    assert A._BID25_FREEZE_SEC == cap
+    assert A._BID25_RETRY_UNTIL <= cap
+    assert A.NETFILL_END_SEC <= cap
+    assert A._BID_QC_UNTIL_SEC <= cap
+    # 收窄不能误伤成"空窗": 起点必须仍早于上限, 且不早于上游就绪
+    assert A.NETFILL_START_SEC < A.NETFILL_END_SEC
+    assert A.NETFILL_START_SEC >= 9 * 3600 + 25 * 60 + 35        # ≥ 猫爪产出起点 09:25:35
 
 
 def test_vr_ready_threshold_matches_contract():

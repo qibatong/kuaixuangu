@@ -45,7 +45,8 @@ def test_window_derived_from_contract_is_equivalent():
     若契约里的 ready_after / probe.min 被改，这里立刻红 —— 提示补采窗口跟着变了。
     """
     assert auction_snapshot.NETFILL_START_SEC == 9 * 3600 + 26 * 60 + 10
-    assert auction_snapshot.NETFILL_END_SEC == 9 * 3600 + 29 * 60 + 50
+    # 🔴 2026-09-29 主人收紧: 硬上限 09:29:50 → **09:26:30(= 定格时刻)**
+    assert auction_snapshot.NETFILL_END_SEC == 9 * 3600 + 26 * 60 + 30
     assert abs(auction_snapshot.NETFILL_MIN_N - 1000) <= 10
 
 
