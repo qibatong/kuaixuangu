@@ -23,8 +23,8 @@
   错过时点、上游抖动都能自愈; 每日尝试次数封顶(_MAX_TRIES), 避免上游长期不可用时空转。
 
 边界(如实记录, 不夸大收益):
-  * 覆盖 market_fs(["hs","cyb","kcb"])(沪深+创业板+科创板), 与既有「收盘自愈」分支
-    同口径 —— **不含北交所**; 北交所个股仍走原有多源日K兜底, 行为不变。
+  * 覆盖全市场(沪深+创业板+科创板+**北交所**, 见 scorer.ALL_MARKETS), 与既有
+    「收盘自愈」分支同口径 —— 2026-09-29 北交所纳入前**不含北交所**, 那之后一致覆盖。
   * **只解决"当天起"的覆盖**: 历史日无法用行情快照回填(行情接口只给"当下"),
     历史日仍走原有惰性补齐 —— 单日回看几次后自然焐热。
   * 行情明显不完整(< MIN_CODES)时**不写库并重试**, 避免把上游抖动的残缺结果固化成当日数据
@@ -100,7 +100,7 @@ def save_day(date=None):
         log.info("收盘涨跌幅落库跳过(门禁未放行: 非交易日 或 今日未过15:00) date=%s", date)
         return 0
     try:
-        spot = fetcher.fetch_spot_quote_map(scorer.market_fs(["hs", "cyb", "kcb"]))
+        spot = fetcher.fetch_spot_quote_map(scorer.market_fs(list(scorer.ALL_MARKETS)))
     except Exception as e:
         log.warning("收盘涨跌幅落库: 全市场行情拉取异常 date=%s err=%s", date, e)
         return 0

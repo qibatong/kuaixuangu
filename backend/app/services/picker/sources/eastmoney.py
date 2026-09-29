@@ -67,7 +67,7 @@ class EastmoneyMarketSource(BaseSource):
 
     def fetch(self, ctx: FetchContext) -> SourceResult:
         from ... import scorer
-        fs = scorer.market_fs(ctx.markets or ["hs", "cyb", "kcb"])
+        fs = scorer.market_fs(ctx.markets or list(scorer.ALL_MARKETS))
         raw, err = fetcher.ensure_cache("filter", fs, True)
         if err or not raw:
             return SourceResult(error="东财全市场源失败: %s" % (err or "返回空"),

@@ -23,9 +23,15 @@ test('inMarkets: 主板/创业/科创/北交所 (与后端 filter.in_markets 同
   assert.equal(inMarkets('301001', all), true)
   assert.equal(inMarkets('688014', all), true)
   assert.equal(inMarkets('689001', all), true)
-  // 北交所一律排除(任何 markets 组合都不放行)
-  assert.equal(inMarkets('900015', all), false)
-  assert.equal(inMarkets('830001', all), false)
+  // 北交所 2026-09-29 起**纳入**(与后端同口径): 勾了 bj 才放行, 未勾选仍排除
+  assert.equal(inMarkets('920267', all), false)              // all = hs/cyb/kcb, 无 bj
+  assert.equal(inMarkets('920267', [...all, 'bj']), true)
+  assert.equal(inMarkets('830001', ['bj']), true)
+  assert.equal(inMarkets('430047', ['bj']), true)
+  assert.equal(inMarkets('871981', ['bj']), true)
+  // 沪B 900015 / 深B 200015 不属任何市场(不得被 4/8/920 误命中)
+  assert.equal(inMarkets('900015', [...all, 'bj']), false)
+  assert.equal(inMarkets('200015', [...all, 'bj']), false)
   // 市场范围限定
   assert.equal(inMarkets('300013', ['hs']), false)
   assert.equal(inMarkets('688014', ['hs', 'cyb']), false)

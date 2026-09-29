@@ -90,8 +90,12 @@ def test_collect_codes_aggregates_tabs(monkeypatch):
         _safe_unlink(db_path)
 
 
-def test_collect_codes_filters_bse(monkeypatch):
-    """_collect_codes: 北交所(4/8/920) 全链路排除"""
+def test_collect_codes_includes_bse(monkeypatch):
+    """_collect_codes: 北交所(4/8/920) **已纳入**
+
+    🔴 2026-09-29 主人拍板「北交所纳入」⇒ 原先的"全链路排除"撤销。
+    (本用例 2026-09-21 曾断言"三只全部被过滤", 现按新决策反向断言。)
+    """
     from app.services import concept_refresh
     from app.core import config
     orig_db = config.DB_FILE
@@ -118,8 +122,9 @@ def test_collect_codes_filters_bse(monkeypatch):
         conn.close()
 
         codes = concept_refresh._collect_codes("2026-08-20")
-        assert codes == {"600001"}       # 北交所三只全部被过滤
-        assert "920267" not in codes and "830001" not in codes and "430001" not in codes
+        # 2026-09-29 起: 四只全都在集合里(北交所不再被过滤)
+        assert codes == {"600001", "920267", "830001", "430001"}
+        assert "920267" in codes and "830001" in codes and "430001" in codes
     finally:
         config.DB_FILE = orig_db
         _safe_unlink(db_path)

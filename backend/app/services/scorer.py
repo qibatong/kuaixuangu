@@ -191,7 +191,11 @@ def in_auction_window():
 
 
 def market_fs(markets):
-    """根据市场范围生成东财 fs 参数"""
+    """根据市场范围生成东财 fs 参数
+
+    🔴 2026-09-29 主人拍板「北交所纳入」: 新增 bj 分支 = `m:0+t:81+s:2048`
+      (与 fetcher._LISTING_FS 里北交所那一段**同值**, 复用项目已验证的参数)。
+    """
     if not markets:
         return "m:1+t:2,m:0+t:6"
     parts = []
@@ -203,7 +207,15 @@ def market_fs(markets):
             parts.append("m:0+t:80")
         elif m == "kcb":
             parts.append("m:1+t:23")
+        elif m == "bj":
+            parts.append("m:0+t:81+s:2048")
     return ",".join(dict.fromkeys(parts))   # 去重且保持顺序
+
+
+# 全市场范围(唯一真相源在 services/filter_defaults.ALL_MARKETS) —— 供"全市场行情
+# 拉取/兜底/预热"调用点复用。2026-09-29 北交所纳入时, 仓库里同时存在 6 处
+# `["hs","cyb","kcb"]` 字面量副本, 漏改任何一处都会静默缺数。
+from .filter_defaults import ALL_MARKETS        # noqa: E402  (放在此处便于 market_fs 相邻阅读)
 
 
 # ---------- 行情字段提取 ----------
@@ -235,8 +247,11 @@ def _in_markets(code, markets):
     """市场范围过滤(2026-09-07 修复: 腾讯兜底无视 fs 按全市场拉取 → 后端若只依赖
     raw 范围做市场过滤会整体失效, 主/创/科勾选不起作用)。此处按代码前缀在**评分层**
     兜底, 任何数据源(东财/腾讯)都生效:
-      hs=沪主板60x + 深主板00x | cyb=300/301 | kcb=688/689
-    北交所(4/8/9开头)不在 UI 选项, 与东财 market_fs 口径一致(不返回)"""
+      hs=沪主板60x + 深主板00x | cyb=300/301 | kcb=688/689 | **bj=北交所 4/8/920**
+
+    🔴 2026-09-29 主人拍板「北交所纳入」: 新增 bj 分支(此前 4/8/920 一律 return False)。
+      注意口径边界: `900xxx`(沪B)/`200xxx`(深B) 不被 4/8/920 命中 ⇒ 仍排除(与 market_fs 一致)。
+    """
     if not markets:
         return True    # markets 未提供(旧调用方/测试直接构造) → 不限制市场
     code = str(code or "")
@@ -244,24 +259,40 @@ def _in_markets(code, markets):
         return "cyb" in markets
     if code.startswith(("688", "689")):
         return "kcb" in markets
+    if code.startswith(("4", "8", "920")):
+        return "bj" in markets
     if code.startswith(("600", "601", "603", "605", "000", "001", "002", "003", "301")):
         return "hs" in markets
-    return False    # 北交所等不在 UI 选项 → 一律排除
+    return False    # 其余(沪B 900xxx / 深B 200xxx 等)不属任何市场
 
 
 def is_bse(code):
-    """北交所判定(2026-09-21 主人拍板「系统不需要北交所数据」): 4/8/920 开头 = 北交所。
+    """北交所判定: 4/8/920 开头 = 北交所。
     4=老三板/北交所老段(43), 8=北交所(83/87/88), 920=北交所新段(2024 起切换)。
-    供采集层(auction_snapshot)与概念层(concept_refresh)全链路过滤复用。"""
+
+    ⚠️ 2026-09-29 主人拍板「**北交所纳入**」⇒ 本函数语义**只剩"识别北交所"**,
+      采集层(auction_snapshot)/概念层(concept_refresh)已**撤掉**原先的排除调用;
+      仍在使用的位置只剩 `sector_rotation`(题材/板块成分股视图, 本轮刻意不动)。
+    """
     return str(code or "").startswith(("4", "8", "920"))
 
 
 def limit_pct(code, name, pre_close):
-    """涨停幅度: ST 5% / 创业板·科创板 20% / 主板 10%"""
+    """涨停幅度: ST 5% / 创业板·科创板 20% / **北交所 30%** / 主板 10%。
+
+    🔴 2026-09-29 主人拍板「北交所纳入」+ 判据统一: 补 北交所(4/8/920) 30%,
+      并补 **689**(科创板 CDR, 同为 20%)
+      —— 此前 920 段落进主板 10%、689 落进主板 10%, 北交所/科创 CDR 的一字板与
+      涨停判定全错。口径与 `auction_snapshot.zt_limit_pct` **一致**; 因 import 方向
+      (scorer ← auction_snapshot, 不能反向 import)此处为等价实现, 两处改动需同步。
+    """
     if "ST" in (name or ""):
         return 0.05
-    if (code or "").startswith(("300", "301", "688")):
+    c = str(code or "")
+    if c.startswith(("300", "301", "688", "689")):
         return 0.20
+    if c.startswith(("4", "8", "920")):
+        return 0.30
     return 0.10
 
 
@@ -312,8 +343,9 @@ def _opt_float(q, key):
 
 
 def validate_filters(q):
-    raw_markets = (q.get("markets") or ["hs,cyb,kcb"])[0].split(",")
-    markets = [m for m in raw_markets if m in ("hs", "cyb", "kcb")] or ["hs", "cyb", "kcb"]
+    # 🔴 2026-09-29: 白名单与默认值同时纳入 bj(北交所纳入); 缺省不再是 hs,cyb,kcb
+    raw_markets = (q.get("markets") or ["hs,cyb,kcb,bj"])[0].split(",")
+    markets = [m for m in raw_markets if m in ("hs", "cyb", "kcb", "bj")] or ["hs", "cyb", "kcb", "bj"]
     return {
         "stSuspend": _truthy((q.get("stSuspend") or ["1"])[0]),
         "limitUp": _truthy((q.get("limitUp") or ["1"])[0]),

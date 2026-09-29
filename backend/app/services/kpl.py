@@ -338,7 +338,7 @@ def _boom_spot_map(codes=None):
             if m:
                 return m
             log.warning("竞价爆量 实时涨幅: 按code点查为空, 退回全市场 spot map(%d只)", len(codes))
-        _fs = _scorer.market_fs(["hs", "cyb", "kcb"])
+        _fs = _scorer.market_fs(list(_scorer.ALL_MARKETS))
         return _fetcher.fetch_spot_quote_map(_fs)
     except Exception as e:
         log.warning("竞价爆量 实时涨幅合并失败(降级0) err=%s", e)
@@ -4666,7 +4666,7 @@ def fill_close_change_from_kline(lst, date):
         if todo:
             try:
                 from ..services import fetcher as _fet, scorer as _sco
-                spot = _fet.fetch_spot_quote_map(_sco.market_fs(["hs", "cyb", "kcb"]))
+                spot = _fet.fetch_spot_quote_map(_sco.market_fs(list(_sco.ALL_MARKETS)))
                 got = 0
                 for it in todo:
                     q = spot.get(str(it["code"])) if spot else None

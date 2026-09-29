@@ -69,8 +69,9 @@ def test_no_hardcoded_spotmap_fs():
     for mod in (api_kpl, api_stats):
         src = inspect.getsource(mod)
         assert old not in src, f"{mod.__name__} 仍含硬编码 spotMap fs"
-    # 正向断言: 调用点已统一 market_fs(与预热线程同源函数, 缓存 key 必然一致)
-    assert "market_fs([\"hs\", \"cyb\", \"kcb\"])" in inspect.getsource(api_stats)
+    # 正向断言: 调用点已统一 market_fs + 全市场真相源(与预热线程同源函数, 缓存 key 必然一致)
+    # 2026-09-29 北交所纳入: 字面量 ["hs","cyb","kcb"] 换成 scorer.ALL_MARKETS
+    assert "market_fs(list(scorer.ALL_MARKETS))" in inspect.getsource(api_stats)
 
 
 def test_auction_overview_writes_cache(client, first_user):

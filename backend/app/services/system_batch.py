@@ -39,8 +39,8 @@ SYSTEM_USER_ID = 0  # system batch 归属用户, 所有用户都能看到
 # =====================================================================
 
 # 市场范围(兼容别名): 真相源见 services/filter_defaults.SYSTEM_MARKETS。
-# 口径必须是**小写** hs/cyb/kcb — scorer._in_markets 按代码前缀匹配小写键,
-# 传大写 ["SH","SZ","BJ"] 会让沪深创科全部返回 False → 名单恒空。
+# 口径必须是**小写** hs/cyb/kcb/bj(2026-09-29 起含北交所) — scorer._in_markets
+# 按代码前缀匹配小写键, 传大写 ["SH","SZ","BJ"] 会让沪深创科全部返回 False → 名单恒空。
 SYSTEM_MARKETS = list(filter_defaults.SYSTEM_MARKETS)
 
 SYSTEM_TOP = 30          # 系统批次截取前 30(与 aipick 一致, 避免 batch_stocks 过大)

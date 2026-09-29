@@ -97,7 +97,7 @@ def _prewarm_once(stage="open"):
     """
     g, wday, hm, date = _bj()
     try:
-        fs = scorer.market_fs(["hs", "cyb", "kcb"])
+        fs = scorer.market_fs(list(scorer.ALL_MARKETS))
         # 全市场行情 map(code -> quote)
         quote_map = fetcher.fetch_spot_quote_map(fs)
         codes = [c for c in quote_map.keys() if c]

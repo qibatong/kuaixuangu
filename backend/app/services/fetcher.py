@@ -1024,7 +1024,7 @@ def fetch_market_brief(max_age=300):
             _market_brief_cache.update({"ts": now, "data": cached})   # 同步进程内降级副本
             return cached
     try:
-        raw = _fetch_market_all_with_fallback(scorer.market_fs(["hs", "cyb", "kcb", "bj"]))
+        raw = _fetch_market_all_with_fallback(scorer.market_fs(list(scorer.ALL_MARKETS)))
     except Exception as e:
         log.warning("两市概况拉取失败 err=%s", e)
         # 降级顺序: 跨进程缓存(可能刚过期) → 进程内上次值
@@ -1296,7 +1296,7 @@ def fetch_spot_quotes_by_codes(code_list):
         snap = [ent["map"] for ent in _quote_map_cache.values() if ent.get("map")]
         cold = not _quote_map_cache
     if not snap and cold:
-        base = scorer.market_fs(["hs", "cyb", "kcb"])
+        base = scorer.market_fs(list(scorer.ALL_MARKETS))
         snap = [fetch_spot_quote_map(base)]
     out = {}
     for m in snap:
@@ -1542,8 +1542,8 @@ def spot_prewarm_active(now_ts):
 
 
 def _spot_prewarm_fs_set():
-    """预热 fs 集合: 默认全市场(hs+cyb+kcb) + 缓存中出现过的其它 fs(北交所等组合)"""
-    base = scorer.market_fs(["hs", "cyb", "kcb"])
+    """预热 fs 集合: 默认**全市场**(含北交所, 见 scorer.ALL_MARKETS) + 缓存中出现过的其它 fs"""
+    base = scorer.market_fs(list(scorer.ALL_MARKETS))
     return sorted(set(list(_quote_map_cache.keys())) | {base})
 
 

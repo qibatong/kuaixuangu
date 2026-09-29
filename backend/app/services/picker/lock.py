@@ -31,13 +31,14 @@ log = logger.get_logger(__name__)
 
 
 # ---------------------------------------------------------------- 参数归一化
-# 大写/别名形态 → picker 内部口径。BJ(北交所)一律排除(老口径也不选北交所)。
+# 大写/别名形态 → picker 内部口径。
+# 🔴 2026-09-29 主人拍板「北交所纳入」: BJ 由"一律折算成空(剔除)"改为 **折算成 bj**。
 _MARKET_ALIAS = {
     "SH": "hs", "SZ": "hs", "HS": "hs", "MAIN": "hs",
     "CYB": "cyb", "KCB": "kcb", "STAR": "kcb",
-    "BJ": "", "BJS": "", "BSE": "",
+    "BJ": "bj", "BJS": "bj", "BSE": "bj",
 }
-_VALID_MARKETS = ("hs", "cyb", "kcb")
+_VALID_MARKETS = ("hs", "cyb", "kcb", "bj")
 
 # 缺失键的兜底(仅用于"调用方没给"的极端情况, 见 to_picker_filters)。
 # ★ v4.11.46: 本体已归口到 services/filter_defaults.FILTER_DEFAULTS(模块顶部 import),
@@ -47,10 +48,10 @@ _VALID_MARKETS = ("hs", "cyb", "kcb")
 
 
 def norm_markets(markets: Any) -> List[str]:
-    """市场范围归一化 → ["hs","cyb","kcb"] 子集。
+    """市场范围归一化 → ["hs","cyb","kcb","bj"] 子集。
 
     兼容三种入参: None/空 → 全市场; 字符串 "hs,cyb"; 列表 ["SH","SZ","BJ"]。
-    大写别名与北交所都会被正确折算/剔除。
+    大写别名与北交所都会被正确折算(2026-09-29 起 BJ 折算成 bj, 不再剔除)。
     """
     if not markets:
         return list(_VALID_MARKETS)

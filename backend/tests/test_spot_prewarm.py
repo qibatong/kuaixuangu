@@ -67,19 +67,19 @@ class TestSpotPrewarmFs:
         monkeypatch.setattr(fetcher, "_quote_map_cache", {})
 
     def test_fs_includes_default_full_market(self, monkeypatch):
-        """无既有缓存时 → 预热集合含默认全市场(hs+cyb+kcb)"""
+        """无既有缓存时 → 预热集合含默认全市场(2026-09-29 起含北交所, 见 scorer.ALL_MARKETS)"""
         self._clear(monkeypatch)
         fs_set = fetcher._spot_prewarm_fs_set()
-        assert scorer.market_fs(["hs", "cyb", "kcb"]) in fs_set
+        assert scorer.market_fs(list(scorer.ALL_MARKETS)) in fs_set
         assert len(fs_set) == 1
 
     def test_fs_includes_existing_keys(self, monkeypatch):
-        """缓存已有北交所等组合 key → 预热集合一并覆盖"""
+        """缓存已有其它组合 key → 预热集合一并覆盖"""
         self._clear(monkeypatch)
         fetcher._quote_map_cache["m:0+t:81+m:1+t:23"] = {"raw": [], "ts": 0.0}
         fs_set = fetcher._spot_prewarm_fs_set()
         assert "m:0+t:81+m:1+t:23" in fs_set
-        assert scorer.market_fs(["hs", "cyb", "kcb"]) in fs_set
+        assert scorer.market_fs(list(scorer.ALL_MARKETS)) in fs_set
 
 
 class TestSpotPrewarmThread:

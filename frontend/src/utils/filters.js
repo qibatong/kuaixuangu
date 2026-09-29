@@ -30,7 +30,10 @@ export function passLockedFilter(it, rt, f) {
 //   等价于旧默认(剔除ST/剔除昨涨停) → 保持默认行为一致但 UI 直觉正确.
 export const defaultFilterSettings = {
   stSuspend: false,
-  markets: ['hs', 'cyb', 'kcb'],
+  // 🔴 2026-09-29 主人拍板「北交所纳入」: 默认加 bj(与后端
+  //   filter_defaults.SYSTEM_MARKETS / scorer.validate_filters 白名单同步,
+  //   前后端默认值有 parity 测试盯着 —— 只改一侧必红)。
+  markets: ['hs', 'cyb', 'kcb', 'bj'],
   limitUp: false,
   bidGt: 7,
   // 2026-09-12 P3: 竞价涨幅**下限**(后端 2026-09-09 已支持, 默认 0 = 竞价翻绿即剔)。
@@ -199,13 +202,16 @@ export const COARSE_MAX = 200
 //       (见 precompute.read_snapshot_rows 的注释): 涨幅本就是 payload 里的 bidChange,
 //       前后端各按同一字段排序即可, 不必再维护一个"必须与后端逐位对齐的派生标量"。
 
-// 市场归属(与后端 filter.in_markets 同口径): hs=沪主板60x+深主板00x | cyb=300/301
-// | kcb=688/689; 北交所一律排除。markets 为空 → 不限制。
+// 市场归属(与后端 scorer._in_markets / picker.filter.in_markets **同口径**):
+// hs=沪主板60x+深主板00x | cyb=300/301 | kcb=688/689 | bj=北交所 4/8/920。
+// 🔴 2026-09-29 主人拍板「北交所纳入」⇒ 新增 bj 分支(此前一律 false);
+//    900xxx(沪B)/200xxx(深B) 不被 4/8/920 命中 ⇒ 仍排除。markets 为空 → 不限制。
 export function inMarkets(code, markets) {
   if (!markets || !markets.length) return true
   const c = String(code || '')
   if (c.startsWith('300') || c.startsWith('301')) return markets.includes('cyb')
   if (c.startsWith('688') || c.startsWith('689')) return markets.includes('kcb')
+  if (/^(4|8|920)/.test(c)) return markets.includes('bj')
   if (/^(600|601|603|605|000|001|002|003)/.test(c)) return markets.includes('hs')
   return false
 }

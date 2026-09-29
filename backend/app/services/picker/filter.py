@@ -29,8 +29,12 @@ from .score import ScoredRow, coarse_rank_key
 
 # 市场范围判定(与 scorer._in_markets 同口径, 独立实现以免 picker→scorer 循环依赖)
 def in_markets(code: str, markets: Optional[List[str]]) -> bool:
-    """hs=沪主板60x + 深主板00x | cyb=300/301 | kcb=688/689; 北交所一律排除。
-    markets 为空/None → 不限制(老口径: 旧调用方不传 markets)"""
+    """hs=沪主板60x + 深主板00x | cyb=300/301 | kcb=688/689 | **bj=北交所 4/8/920**。
+    markets 为空/None → 不限制(老口径: 旧调用方不传 markets)
+
+    🔴 2026-09-29 主人拍板「北交所纳入」: 新增 bj 分支(此前 4/8/920 一律 False);
+      `900xxx`/`200xxx` 不被 4/8/920 命中 ⇒ 仍排除。
+    """
     if not markets:
         return True
     c = str(code or "")
@@ -38,6 +42,8 @@ def in_markets(code: str, markets: Optional[List[str]]) -> bool:
         return "cyb" in markets
     if c.startswith(("688", "689")):
         return "kcb" in markets
+    if c.startswith(("4", "8", "920")):
+        return "bj" in markets
     if c.startswith(("600", "601", "603", "605", "000", "001", "002", "003")):
         return "hs" in markets
     return False

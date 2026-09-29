@@ -24,12 +24,12 @@ _WEEKDAY_TS = datetime(2026, 9, 11, 9, 26,
 
 # ---------------------------------------------------------------- 参数归一化
 @pytest.mark.parametrize("raw,expect", [
-    (["SH", "SZ", "BJ"], ["hs"]),                 # 大写别名折算, 北交所剔除
+    (["SH", "SZ", "BJ"], ["hs", "bj"]),           # 大写别名折算; 2026-09-29 起北交所(bj)纳入
     (["hs", "cyb", "kcb"], ["hs", "cyb", "kcb"]),
     ("hs,cyb", ["hs", "cyb"]),                    # 逗号串
-    (None, ["hs", "cyb", "kcb"]),                 # 空 → 全市场
-    ([], ["hs", "cyb", "kcb"]),
-    (["BJS"], ["hs", "cyb", "kcb"]),              # 只有北交所 → 落回全市场(不能变空)
+    (None, ["hs", "cyb", "kcb", "bj"]),           # 空 → 全市场(含北交所)
+    ([], ["hs", "cyb", "kcb", "bj"]),
+    (["BJS"], ["bj"]),                            # 北交所别名是**合法值**(不再落回全市场)
 ])
 def test_norm_markets(raw, expect):
     assert plock.norm_markets(raw) == expect
@@ -54,7 +54,7 @@ def test_to_picker_filters_scalar_and_list_forms():
     assert b["stSuspend"] is True
 
     c = plock.to_picker_filters({})
-    assert c["markets"] == ["hs", "cyb", "kcb"]
+    assert c["markets"] == ["hs", "cyb", "kcb", "bj"]      # 2026-09-29 北交所纳入
     assert c["bidAmtFloor"] == 1000.0
 
 
@@ -145,7 +145,7 @@ def test_run_lock_passes_normalized_markets_to_pipeline(monkeypatch):
                             date="2026-09-08", markets=markets))
     f = {"bidGt": 7.0, "markets": ["SH", "SZ", "BJ"]}
     plock.run_lock(f, now=datetime(2026, 9, 8, 9, 26))
-    assert seen["filters"]["markets"] == ["hs"]
+    assert seen["filters"]["markets"] == ["hs", "bj"]      # BJ 现折算成 bj(2026-09-29 纳入)
 
 
 # ---------------------------------------------------------------- 落库字段

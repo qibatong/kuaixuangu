@@ -144,7 +144,7 @@ def test_system_scope_equals_frontpage_scope_key_by_key(monkeypatch):
 
     # 首页左视图: 前端把全局默认塞进 qs(值一律是 list[str])再走 validate_filters
     q = {k: [str(v)] for k, v in cfg.items()}
-    q["markets"] = ["hs,cyb,kcb"]
+    q["markets"] = ["hs,cyb,kcb,bj"]
     front = scorer.validate_filters(q)
 
     sysf = plock.to_picker_filters(system_batch._system_filter())
@@ -164,7 +164,7 @@ def test_score_floor_actually_applies_to_system_scope(monkeypatch):
     cfg = _patch_defaults(monkeypatch, **_LIVE)
 
     q = {k: [str(v)] for k, v in cfg.items()}
-    q["markets"] = ["hs,cyb,kcb"]
+    q["markets"] = ["hs,cyb,kcb,bj"]
     front_f = scorer.validate_filters(q)
     sys_f = plock.to_picker_filters(system_batch._system_filter())
 
@@ -187,7 +187,10 @@ def test_score_floor_actually_applies_to_system_scope(monkeypatch):
 
 
 def test_markets_stay_lowercase_in_system_scope(monkeypatch):
-    """系统市场范围必须是小写 hs/cyb/kcb(大写会让沪深创科全部返回 False → 名单恒空)"""
+    """系统市场范围必须是小写 hs/cyb/kcb/bj(大写会让沪深创科北交全部返回 False → 名单恒空)
+
+    2026-09-29 主人拍板「北交所纳入」⇒ 系统口径与前端默认同加 bj(parity 必须一致)。
+    """
     _patch_defaults(monkeypatch, **_LIVE)
-    assert system_batch._system_filter()["markets"] == ["hs", "cyb", "kcb"]
-    assert auto_apply._get_system_filter()["markets"] == ["hs", "cyb", "kcb"]
+    assert system_batch._system_filter()["markets"] == ["hs", "cyb", "kcb", "bj"]
+    assert auto_apply._get_system_filter()["markets"] == ["hs", "cyb", "kcb", "bj"]

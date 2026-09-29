@@ -88,7 +88,7 @@ def _apply_change_stats(lst, serve_date):
             codes = [str(it.get("code") or "") for it in lst if it.get("code")]
             spot = fetcher.fetch_spot_quote_map_by_codes(codes)
             if not spot:
-                spot = fetcher.fetch_spot_quote_map(scorer.market_fs(["hs", "cyb", "kcb"]))
+                spot = fetcher.fetch_spot_quote_map(scorer.market_fs(list(scorer.ALL_MARKETS)))
             n = 0
             for it in lst:
                 q = spot.get(str(it.get("code")))

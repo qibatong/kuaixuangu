@@ -105,7 +105,7 @@ def _update_spot_change(lst):
         codes = [str(it.get("code") or "") for it in lst if it.get("code")]
         spot_map = fetcher.fetch_spot_quote_map_by_codes(codes)
         if not spot_map:
-            spot_map = fetcher.fetch_spot_quote_map(scorer.market_fs(["hs", "cyb", "kcb"]))
+            spot_map = fetcher.fetch_spot_quote_map(scorer.market_fs(list(scorer.ALL_MARKETS)))
         if not spot_map:
             return 0
         n = 0
@@ -557,7 +557,7 @@ def api_kpl_ladder(request: Request, uid: int = Depends(get_uid), date: str = ""
         # 2026-09-04 修复: fs 统一走 market_fs(与 spotMap 预热线程缓存 key 一致), 原硬编码串
         # 顺序不同 → 每次 miss 缓存锁内拉全市场; 现命中预热缓存, ladder 涨幅 merge 秒回
         from ..services.scorer import market_fs
-        spot = fetcher.fetch_spot_quote_map(market_fs(["hs", "cyb", "kcb"]))
+        spot = fetcher.fetch_spot_quote_map(market_fs(list(scorer.ALL_MARKETS)))
         n = 0
         for pid in d:
             for it in (d[pid] or []):

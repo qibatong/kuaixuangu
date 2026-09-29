@@ -144,7 +144,8 @@ const emit = defineEmits(['refresh'])
 const marketOptions = [
   { value: 'hs', label: '主' },
   { value: 'cyb', label: '创业' },
-  { value: 'kcb', label: '科创' }
+  { value: 'kcb', label: '科创' },
+  { value: 'bj', label: '北交' }      // 2026-09-29 主人拍板「北交所纳入」
 ]
 
 /* =========================================================

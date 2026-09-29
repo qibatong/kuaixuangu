@@ -30,6 +30,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from ...core import logger
 from ...db import database
 from .. import settings
+from ..filter_defaults import ALL_MARKETS      # 全市场范围唯一真相源(含 bj)
 from .contract import QuoteRow
 from .score import ScoreResult, score_rows
 
@@ -41,10 +42,13 @@ WRITE_SWITCH = "precompute_write"    # 写: system_batch 是否执行预计算
 DETAIL_SWITCH = "precompute_detail"  # 是否落因子明细 JSON(排查/对拍用, 约 2MB/天)
 
 MIN_ROWS = 500
-"""物化成功的行数下限: 全市场约 5557 只, 低于 500 说明定格数据塌了(如 9/11 熔断日
-只落 132 行)。此时**宁可不落库**也不要写一张残缺表 —— 读路径会自动回退原路径。"""
+"""物化成功的行数下限: 全市场约 5557 只(2026-09-29 北交所纳入后约 5900), 低于 500
+说明定格数据塌了(如 9/11 熔断日只落 132 行)。此时**宁可不落库**也不要写一张残缺表
+—— 读路径会自动回退原路径。"""
 
-_MARKETS = ["hs", "cyb", "kcb"]
+# 🔴 2026-09-29 北交所纳入: 预计算的候选市场范围必须含 bj —— 否则物化表里永远没有
+#   北交所票, 而名单侧已放行(两边口径分叉)。真相源: filter_defaults.ALL_MARKETS。
+_MARKETS = list(ALL_MARKETS)
 
 
 def read_enabled() -> bool:

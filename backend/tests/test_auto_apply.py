@@ -26,27 +26,28 @@ def test_user_auto_applied_today(client, first_user):
 
 
 def test_get_system_filter_uses_defaults(monkeypatch):
-    """系统标准来自全局默认参数, 且补全 markets"""
+    """系统标准来自全局默认参数, 且补全 markets(2026-09-29 起含北交所 bj)"""
     f = auto_apply._get_system_filter()
     assert isinstance(f, dict)
     assert "markets" in f
-    assert f["markets"] == ["hs", "cyb", "kcb"]
+    assert f["markets"] == ["hs", "cyb", "kcb", "bj"]
 
 
 def test_system_filter_markets_must_be_lowercase():
-    """回归保护(2026-09-08 实测事故): markets 必须是**小写** hs/cyb/kcb。
+    """回归保护(2026-09-08 实测事故): markets 必须是**小写** hs/cyb/kcb/bj。
 
     曾为 ["SH","SZ","BJ"] 大写, 而 scorer._in_markets 按代码前缀匹配小写键 →
     沪深创科**全部**返回 False → 9:26 自动应用恒出 0 只(实测批次#1578 count=0,
     同日系统批次用小写口径正常出 30 只)。大小写一错, 整个自动应用功能静默失效。
+    (2026-09-29 北交所纳入后, 合法值集合加 bj —— 大写 "BJ" 同样必须被拒。)
     """
     from app.services import scorer
     f = auto_apply._get_system_filter()
     markets = f["markets"]
     for m in markets:
-        assert m in ("hs", "cyb", "kcb"), "markets 只能是小写口径: %r" % (markets,)
-    # 三个板各取一个真实代码, 必须全部通过市场过滤
-    for code in ("600127", "000759", "300454", "688111"):
+        assert m in ("hs", "cyb", "kcb", "bj"), "markets 只能是小写口径: %r" % (markets,)
+    # 四个板各取一个真实代码, 必须全部通过市场过滤(北交所 920 段 一起纳入)
+    for code in ("600127", "000759", "300454", "688111", "920267"):
         assert scorer._in_markets(code, markets), \
             "%s 被市场过滤掉 → 自动应用会出 0 只(markets=%r)" % (code, markets)
 

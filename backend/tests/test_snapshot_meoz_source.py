@@ -9,7 +9,7 @@
   ⑤ float_mv(流通) 与 free_mv(自由流通) 分列落值, 不互相顶替
   ⑥ screening 缺字段时 valuation/daily_auc/daily_auc_fd 三层后备
   ⑦ 昨日封单额(pre_fd_amount) + 封昨比(fd_to_yesterday) 落库
-  ⑧ 北交所(4/8/920)全链路排除
+  ⑧ 北交所(4/8/920) 已纳入(2026-09-29 主人拍板, 原全链路排除撤销)
   ⑨ daily_auc 防串日: tradedate ≠ 当日 → 整源丢弃(2026-09-24, 修 auc_vol_ratio 恒 0 的根因之一)
 """
 import pytest
@@ -274,8 +274,9 @@ def test_is_bse():
     assert scorer.is_bse(None) is False          # None
 
 
-def test_meoz_filters_bse(monkeypatch):
-    """⑧ 北交所(4/8/920)全链路排除 —— screening 全市场含北交所, 不补进快照"""
+def test_meoz_includes_bse(monkeypatch):
+    """⑧ 北交所(4/8/920) **已纳入**(2026-09-29 主人拍板) —— screening 里的北交所票
+    自此一并补进快照。(本用例 2026-09-21 曾断言"不补进快照", 现按新决策反向断言。)"""
     from app.services import meoz_client
     td = A._bj_date().replace("-", "")
     scr = {
@@ -300,8 +301,8 @@ def test_meoz_filters_bse(monkeypatch):
     monkeypatch.setattr(meoz_client, "auc_fd_map", lambda *a, **k: {})
     raw = {}
     st = A._merge_meoz(raw)
-    # 北交所三只全部被过滤, 仅保留主板 600519
-    assert set(raw) == {"600519"}
-    assert "920267" not in raw and "830001" not in raw and "430001" not in raw
+    # 2026-09-29 起: 北交所三只一并补进快照(与主板 600519 共存)
+    assert set(raw) == {"600519", "920267", "830001", "430001"}
+    assert "920267" in raw and "830001" in raw and "430001" in raw
     assert st["val_n"] == 4          # screening 返回 4 只(含北交所), 但过滤后才落
 

@@ -86,7 +86,7 @@ class TencentMarketSource(BaseSource):
 
     def fetch(self, ctx: FetchContext) -> SourceResult:
         from ... import scorer
-        fs = scorer.market_fs(ctx.markets or ["hs", "cyb", "kcb"])
+        fs = scorer.market_fs(ctx.markets or list(scorer.ALL_MARKETS))
         raw = fetcher.fetch_tencent_market(fs)
         rows = _rows_from_tencent(raw, ctx)
         if not rows:

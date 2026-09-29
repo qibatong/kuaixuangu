@@ -263,8 +263,10 @@ def _fetch_market_map(full=False):
                 log.warning("快照拉取失败 market=%s full=%s err=%s", m, full, e)
                 return m, None
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
-            for m, raw in ex.map(_grab, ("hs", "cyb", "kcb")):
+        # 🔴 2026-09-29 北交所纳入: 分市场拉取从 ("hs","cyb","kcb") 换成全市场真相源
+        #   (含 bj = 东财 m:0+t:81+s:2048), 否则名单里有北交所、行情却永远取不到。
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(scorer.ALL_MARKETS)) as ex:
+            for m, raw in ex.map(_grab, scorer.ALL_MARKETS):
                 if not raw:
                     continue
                 for s in raw:
@@ -352,16 +354,10 @@ def _fetch_market_map(full=False):
                          mz["seal"], mz["prefd"], mz["vr"], len(raw_all))
             except Exception as e:                              # noqa: BLE001
                 log.warning("[快照采集] 猫爪合并异常(已忽略) err=%s", e)
-        # 北交所(4/8/920)全链路排除 —— 2026-09-21 主人拍板: 系统不需要北交所数据。
-        # 东财 clist 本就只采 hs/cyb/kcb 不含北交所; 但兜底链(猫爪 screening/TickPlus/
-        # 开盘啦竞价榜)可能补入北交所, 此处统一过滤, 覆盖 full=True 时点快照与
-        # full=False 秒级采样两条路径。
-        if raw_all:
-            _n0 = len(raw_all)
-            raw_all = {c: v for c, v in raw_all.items() if not scorer.is_bse(c)}
-            _drop = _n0 - len(raw_all)
-            if _drop:
-                log.info("[快照采集] 过滤北交所 %d 只(剩余 %d)", _drop, len(raw_all))
+        # 🔴 2026-09-29 主人拍板「北交所纳入」: 原「北交所(4/8/920)全链路排除」
+        #   (2026-09-21 的相反决策)已**撤销** —— 猫爪 screening 本就含北交所 920 段
+        #   约 348 只, 自此一并进快照; 东财 clist 的 fs 由 scorer.market_fs 生成,
+        #   已加 bj = m:0+t:81+s:2048。覆盖 full=True 时点快照与 full=False 秒级采样两条路径。
         # 2026-08-31 可观测性: 采集阶段耗时单独记录(与落库耗时分离, 定位时点失真来源)
         log.info("[快照采集] 行情拉取完成 full=%s 数量%d 耗时%.0fms", full, len(raw_all),
                  (time.time() - _t0) * 1000)
@@ -576,10 +572,9 @@ def _merge_meoz(raw_all):
         return stats
 
     # 全量 code 集合 = 东财 ∪ 猫爪四源(猫爪可能带来东财没有的票)
-    # 北交所(4/8/920)全链路排除 —— 2026-09-21 主人拍板: 系统不需要北交所数据。
-    # 猫爪 screening 是全市场(含北交所 344 只), 若不在此过滤会把北交所补进快照。
-    codes = {c for c in set(raw_all) | set(sc_map) | set(val_map) | set(auc_map)
-             if not scorer.is_bse(c)}
+    # 🔴 2026-09-29 主人拍板「北交所纳入」: 撤销此前的 is_bse 过滤 ——
+    #   猫爪 screening 的北交所 920 段(生产实测约 348 只)从此一并进快照。
+    codes = set(raw_all) | set(sc_map) | set(val_map) | set(auc_map)
 
     # ⑤ 主力资金: fundflow_kp 全市场批量(竞价主力净额 auction_main_net_amount)。
     #   独立 try: 挂了不影响四源与主链路(独立降级), 调用方按"无信号"处理。

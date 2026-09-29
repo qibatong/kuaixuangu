@@ -87,7 +87,7 @@ def test_system_filter_keys_match_validate_filters():
     # ★ v4.11.46: scoreFloor 必须**显式存在**于系统口径(修复前缺此键 → 吃 lock 兜底 50)
     assert "scoreFloor" in f_raw, "系统口径缺 scoreFloor 会导致门槛不受管理员控制"
     assert f["scoreFloor"] == dflt["scoreFloor"]
-    assert f["markets"] == ["hs", "cyb", "kcb"]
+    assert f["markets"] == ["hs", "cyb", "kcb", "bj"]      # 2026-09-29 北交所纳入
 
 
 def test_system_filter_merges_admin_defaults(monkeypatch):

@@ -59,12 +59,19 @@ FILTER_DEFAULTS = {
 # ---------------------------------------------------------------------------
 # 系统选股的市场范围(与首页左视图一致; 不读用户自定义 filter_prefs)
 #
-# 🔴 口径必须是**小写** hs/cyb/kcb —— scorer._in_markets / picker.filter.in_markets
+# 🔴 口径必须是**小写** hs/cyb/kcb/bj —— scorer._in_markets / picker.filter.in_markets
 #    按代码前缀匹配小写键, 传大写 ["SH","SZ","BJ"] 会让沪深创科全部返回 False
 #    → 名单恒空(2026-09-08 P4 实测事故: 批次 #1578 count=0)。
-#    北交所不在 UI 选项(与 market_fs 口径一致), 不纳入。
+#    2026-09-29 主人拍板「**北交所纳入**」: 追加 bj(与前端 defaultFilterSettings
+#    和市场白名单同步; 前端默认值与系统口径必须一致, 有 parity 测试盯着)。
+#
+# ⚠️ ALL_MARKETS 是"**全市场**"(兜底/预热/全市场行情拉取)的唯一真相源 ——
+#    任何 `market_fs(["hs","cyb","kcb"])` 的字面量副本都是隐患: 2026-09-29 纳入
+#    北交所时, 仓库里同时存在 6 处副本(行情兜底/预热/预计算/两个 picker 源),
+#    漏改任何一处都会出现"名单里有北交所、行情却永远取不到"的静默缺数。
 # ---------------------------------------------------------------------------
-SYSTEM_MARKETS = ["hs", "cyb", "kcb"]
+ALL_MARKETS = ("hs", "cyb", "kcb", "bj")
+SYSTEM_MARKETS = list(ALL_MARKETS)
 
 
 def resolved_defaults() -> dict:
