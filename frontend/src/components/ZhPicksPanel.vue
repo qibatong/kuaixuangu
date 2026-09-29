@@ -17,19 +17,23 @@
             <i class="fa fa-star zh-icon"></i>
             竞价精选
             <!-- 2026-09-29 主人: 回看日期不单独占一行 —— **点这里**就能选日期(今日/历史同一入口) -->
-            <button class="zh-chip zh-chip-date" :class="{ 'zh-chip-history': !!pickDate }"
-                    :title="pickDate ? '正在回看历史：点击可换日期' : '点击选择回看日期'"
-                    @click="openPicker">
-              {{ pickDate ? '回看' : '今日' }} {{ date || maxDate }}
-              <i class="fa" :class="pickDate ? 'fa-history' : 'fa-caret-down'"></i>
-            </button>
+            <!-- 🔴 2026-09-29 主人实测: 日期控件放在 .zh-tools(右端) 时, .zh-head 是
+                 `display:flex + justify-content:space-between` ⇒ 绝对定位子元素按 flex 对齐规则
+                 被推到**末端**, 原生日历弹在最右侧。改为把隐藏控件**贴着 chip** 定位。 -->
+            <span class="zh-picker">
+              <button class="zh-chip zh-chip-date" :class="{ 'zh-chip-history': !!pickDate }"
+                      :title="pickDate ? '正在回看历史：点击可换日期' : '点击选择回看日期'"
+                      @click="openPicker">
+                {{ pickDate ? '回看' : '今日' }} {{ date || maxDate }}
+                <i class="fa" :class="pickDate ? 'fa-history' : 'fa-caret-down'"></i>
+              </button>
+              <input ref="dateEl" v-model="pickDate" class="zh-date-hidden" type="date" :max="maxDate"
+                     @change="load(true)">
+            </span>
             <span v-if="pickDate" class="zh-chip zh-chip-back" title="回到今天" @click="backToday">回今天</span>
             <span v-if="list.length" class="zh-chip zh-chip-accent">{{ list.length }} 只</span>
           </div>
           <div class="zh-tools">
-            <!-- 隐藏的原生日期控件: 由上面的 chip 触发(不用 showPicker 的浏览器兜底点击) -->
-            <input ref="dateEl" v-model="pickDate" class="zh-date-hidden" type="date" :max="maxDate"
-                   @change="load(true)">
             <button class="zh-btn" :disabled="loading" title="刷新" @click="load(true)">
               <i class="fa fa-refresh" :class="{ spin: loading }"></i>
             </button>
@@ -45,12 +49,24 @@
 
         <table v-else class="stock-table zh-table">
           <thead>
+            <!-- 2026-09-29 主人: 表头可排序 —— 复用全站 useSortable(点击 无→降序→升序→无) -->
             <tr>
-              <th>名称</th><th>竞价涨幅</th><th>实时涨幅</th><th>实体涨幅</th><th>竞价金额</th><th>概念</th>
+              <th class="sortable" :class="{ active: sort.keyOf('code') }"
+                  @click="sort.onSort('code', 'string')">名称<span class="sort-ind">{{ sort.ind('code') }}</span></th>
+              <th class="sortable" :class="{ active: sort.keyOf('bidChange') }"
+                  @click="sort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ sort.ind('bidChange') }}</span></th>
+              <th class="sortable" :class="{ active: sort.keyOf('realChange') }"
+                  @click="sort.onSort('realChange')">实时涨幅<span class="sort-ind">{{ sort.ind('realChange') }}</span></th>
+              <th class="sortable" :class="{ active: sort.keyOf('entityChange') }"
+                  @click="sort.onSort('entityChange')">实体涨幅<span class="sort-ind">{{ sort.ind('entityChange') }}</span></th>
+              <th class="sortable" :class="{ active: sort.keyOf('bidAmt') }"
+                  @click="sort.onSort('bidAmt')">竞价金额<span class="sort-ind">{{ sort.ind('bidAmt') }}</span></th>
+              <th class="sortable" :class="{ active: sort.keyOf('board') }"
+                  @click="sort.onSort('board', 'string')">概念<span class="sort-ind">{{ sort.ind('board') }}</span></th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="it in list" :key="it.code">
+            <tr v-for="it in shown" :key="it.code">
               <!-- 名称格 hover 给出策略口径(占昨量/涨停基因) —— 主人要的列只保留 5 个 -->
               <td class="stock-info-cell" @click="linkToSoftware(it.code)"
                   :title="'占昨量 ' + it.volPct + '%（入选区间 5~10%） · 涨停基因 ' + it.ztGene + ' 次（近120日） · ' + (it.market || '')">
@@ -72,7 +88,8 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useSortable } from '../composables/useSortable'
 import VipGate from './VipGate.vue'
 import { zhPicks } from '../api/stats'
 import { signed, amtText } from '../utils/format'
@@ -87,6 +104,10 @@ const date = ref('')          // 后端实际生效的数据日(可能因非交�
 const pickDate = ref('')      // 用户选的历史日(空 = 今天)
 const maxDate = todayBj()
 const dateEl = ref(null)      // 隐藏的原生日期控件(由标题 chip 唤出)
+const sort = useSortable()    // 2026-09-29 主人: 表头排序(全站同一交互)
+
+// 名称列按**代码**排序 —— 与全站「名称」合并列同范式(YidongView/MarketView 亦如此)
+const shown = computed(() => sort.sorted(list.value, (it, k) => (k === 'code' ? (it.code || '') : it[k])))
 const loading = ref(false)
 const err = ref('')
 
@@ -180,10 +201,13 @@ onMounted(() => { if (user.isVipOrPaid) load() })
 .zh-chip-history { color: var(--accent); border-color: var(--accent); }
 .zh-chip-back { cursor: pointer; }
 .zh-chip-back:hover { color: var(--accent); border-color: var(--accent); }
-/* 隐藏的原生日期控件(width/height=0 但可被 showPicker()/click() 唤出) */
+/* 隐藏的原生日期控件: 必须由 .zh-picker(贴着 chip)做定位上下文 ——
+   若留在 .zh-tools(右端), flex 容器里的绝对定位子元素会被推到末端 ⇒ 日历弹在最右侧 */
+.zh-picker { position: relative; display: inline-flex; }
 .zh-date-hidden {
-  width: 0; height: 0; padding: 0; border: 0; opacity: 0;
-  position: absolute; pointer-events: none;
+  position: absolute; left: 0; top: 100%;
+  width: 1px; height: 1px; padding: 0; border: 0; opacity: 0;
+  pointer-events: none;
 }
 .zh-empty { padding: 22px 10px; text-align: center; color: var(--text-muted); }
 .zh-empty-hint { margin-top: 6px; font-size: 11.5px; opacity: .8; }

@@ -28,19 +28,23 @@
             <i class="fa fa-level-up yj-icon"></i>
             竞价一进二
             <!-- 2026-09-29 主人: 回看日期不单独占一行 —— **点这里**选日期(今日/历史同一入口) -->
-            <button class="yj-chip yj-chip-date" :class="{ 'yj-chip-history': !!pickDate }"
-                    :title="pickDate ? '正在回看历史：点击可换日期' : '点击选择回看日期'"
-                    @click="openPicker">
-              {{ pickDate ? '回看' : '今日' }} {{ pickDate || meta.dataDate || '' }}
-              <i class="fa" :class="pickDate ? 'fa-history' : 'fa-caret-down'"></i>
-            </button>
+            <!-- 🔴 隐藏的日期控件必须**贴着 chip** 定位: 若作为 .yj-head(flex space-between)
+                 的直接子元素, 绝对定位会按 flex 对齐规则被推到**最右端** ⇒ 日历弹在右边。 -->
+            <span class="yj-picker">
+              <button class="yj-chip yj-chip-date" :class="{ 'yj-chip-history': !!pickDate }"
+                      :title="pickDate ? '正在回看历史：点击可换日期' : '点击选择回看日期'"
+                      @click="openPicker">
+                {{ pickDate ? '回看' : '今日' }} {{ pickDate || meta.dataDate || '' }}
+                <i class="fa" :class="pickDate ? 'fa-history' : 'fa-caret-down'"></i>
+              </button>
+              <input ref="dateEl" v-model="pickDate" class="yj-date-hidden" type="date" :max="maxDate"
+                     @change="load">
+            </span>
             <span v-if="pickDate" class="yj-chip yj-chip-back" title="回到今天" @click="backToday">回今天</span>
             <span v-if="meta.approx" class="yj-chip yj-chip-approx"
                   title="历史回看：f26 上市日期 / f100 行业不可重建 ⇒ 次新过滤不生效、板块排名退化为单组">近似口径</span>
             <span v-if="list.length" class="yj-chip yj-chip-accent">{{ list.length }} 只</span>
           </div>
-          <input ref="dateEl" v-model="pickDate" class="yj-date-hidden" type="date" :max="maxDate"
-                 @change="load">
           <button class="yj-refresh" :disabled="loading" @click="load">
             <i class="fa" :class="loading ? 'fa-spinner fa-spin' : 'fa-refresh'"></i> 刷新
           </button>
@@ -75,23 +79,36 @@
           <div class="yj-scroll">
             <table class="stock-table yj-table">
               <thead>
+                <!-- 2026-09-29 主人: 表头可排序 —— 复用全站 useSortable(点击 无→降序→升序→无);
+                     排名列是"当前顺序序号", 本身不可排 -->
                 <tr>
                   <th class="yj-th-rank">排名</th>
-                  <th>名称</th>
-                  <th>综合评分</th>
-                  <th>可信</th>
-                  <th>竞价涨幅</th>
-                  <th>实时涨幅</th>
-                  <th>实体涨幅</th>
-                  <th>流通市值</th>
-                  <th>昨封板</th>
-                  <th>昨炸板</th>
-                  <th>行业</th>
-                  <th>概念</th>
+                  <th class="sortable" :class="{ active: sort.keyOf('code') }"
+                      @click="sort.onSort('code', 'string')">名称<span class="sort-ind">{{ sort.ind('code') }}</span></th>
+                  <th class="sortable" :class="{ active: sort.keyOf('probability') }"
+                      @click="sort.onSort('probability')">综合评分<span class="sort-ind">{{ sort.ind('probability') }}</span></th>
+                  <th class="sortable" :class="{ active: sort.keyOf('confidence') }"
+                      @click="sort.onSort('confidence')">可信<span class="sort-ind">{{ sort.ind('confidence') }}</span></th>
+                  <th class="sortable" :class="{ active: sort.keyOf('bidChange') }"
+                      @click="sort.onSort('bidChange')">竞价涨幅<span class="sort-ind">{{ sort.ind('bidChange') }}</span></th>
+                  <th class="sortable" :class="{ active: sort.keyOf('realChange') }"
+                      @click="sort.onSort('realChange')">实时涨幅<span class="sort-ind">{{ sort.ind('realChange') }}</span></th>
+                  <th class="sortable" :class="{ active: sort.keyOf('entityChange') }"
+                      @click="sort.onSort('entityChange')">实体涨幅<span class="sort-ind">{{ sort.ind('entityChange') }}</span></th>
+                  <th class="sortable" :class="{ active: sort.keyOf('circulationMV') }"
+                      @click="sort.onSort('circulationMV')">流通市值<span class="sort-ind">{{ sort.ind('circulationMV') }}</span></th>
+                  <th class="sortable" :class="{ active: sort.keyOf('firstSealTime') }"
+                      @click="sort.onSort('firstSealTime')">昨封板<span class="sort-ind">{{ sort.ind('firstSealTime') }}</span></th>
+                  <th class="sortable" :class="{ active: sort.keyOf('breakCount') }"
+                      @click="sort.onSort('breakCount')">昨炸板<span class="sort-ind">{{ sort.ind('breakCount') }}</span></th>
+                  <th class="sortable" :class="{ active: sort.keyOf('industry') }"
+                      @click="sort.onSort('industry', 'string')">行业<span class="sort-ind">{{ sort.ind('industry') }}</span></th>
+                  <th class="sortable" :class="{ active: sort.keyOf('concept') }"
+                      @click="sort.onSort('concept', 'string')">概念<span class="sort-ind">{{ sort.ind('concept') }}</span></th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(r, i) in list" :key="r.code">
+                <tr v-for="(r, i) in shown" :key="r.code">
                   <td class="yj-rank">
                     <i v-if="i < 3" class="fa fa-trophy" :class="'yj-trophy-' + (i + 1)"></i>
                     <span v-else>{{ i + 1 }}</span>
@@ -151,6 +168,7 @@ import { buildConceptFreq, pickMainConcept } from '../utils/conceptMain'
 import { useUserStore } from '../stores/user'
 import { showToast } from '../utils/toast'
 import { todayBj } from '../utils/time'      // 2026-09-29: 回看日期上限(不选未来)
+import { useSortable } from '../composables/useSortable'   // 2026-09-29 主人: 表头可排序
 
 // 2026-09-28: 嵌入首页左视图时传 embedded=true（与 AipickView 同约定，收紧间距）
 defineProps({
@@ -163,6 +181,15 @@ const list = ref([])
 const pickDate = ref('')              // 空 = 今天
 const maxDate = todayBj()             // 不允许选未来
 const dateEl = ref(null)
+const sort = useSortable()    // 2026-09-29 主人: 表头排序(全站同一交互)
+
+// 名称列按**代码**排序(与全站「名称」合并列同范式);
+// 概念列按**表格里实际显示的那 2 个主概念**排序(否则按 f103 原始串排, 用户看不出规律)
+const shown = computed(() => sort.sorted(list.value, (it, k) => {
+  if (k === 'code') return it.code || ''
+  if (k === 'concept') return pickMainConcept(it.concept, conceptFreq.value)
+  return it[k]
+}))
 
 function openPicker() {
   const el = dateEl.value
@@ -302,10 +329,13 @@ defineExpose({ load })
 .yj-chip-back { cursor: pointer; }
 .yj-chip-back:hover { color: var(--accent); border-color: var(--accent); }
 .yj-chip-approx { color: #e8b04b; border-color: rgba(232, 176, 75, .45); }
-/* 隐藏的原生日期控件(width/height=0 但可被 showPicker()/click() 唤出) */
+/* 隐藏的原生日期控件: 必须由 .yj-picker(贴着 chip)做定位上下文 ——
+   若作为 .yj-head(flex space-between) 的直接子元素, 绝对定位会被推到最右端 ⇒ 日历弹在右边 */
+.yj-picker { position: relative; display: inline-flex; }
 .yj-date-hidden {
-  width: 0; height: 0; padding: 0; border: 0; opacity: 0;
-  position: absolute; pointer-events: none;
+  position: absolute; left: 0; top: 100%;
+  width: 1px; height: 1px; padding: 0; border: 0; opacity: 0;
+  pointer-events: none;
 }
 .yj-chip {
   font-size: 11px;
