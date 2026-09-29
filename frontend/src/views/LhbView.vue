@@ -3,7 +3,9 @@
     <h1 class="visually-hidden">龙虎榜</h1>
     <div class="lhb-head">
       <span class="lhb-title"><i class="fa fa-list-alt"></i> 龙虎榜</span>
-      <span class="lhb-sub">当日 / 历史龙虎榜 · 点「明细」看买卖营业部</span>
+      <!-- ★ 2026-09-29 主人拍板: 本页只留一张**层级树图**(个股 → 买卖营业部);
+           原「点明细看营业部」的弹窗已下线 ⇒ 副标题同步改成树图的读法。 -->
+      <span class="lhb-sub">个股 → 买卖营业部 · 滚轮缩放 / 拖拽平移 · 点个股可收起展开</span>
       <span class="lhb-time">{{ bjTime }}</span>
     </div>
     <LhbPanel />
