@@ -83,7 +83,12 @@ def _apply_change_stats(lst, serve_date):
             from app.services import fetcher
             # 2026-09-04 修复: 原硬编码 fs 顺序与预热线程 market_fs 生成的缓存 key 不一致
             # → 每次 miss spotMap 缓存 → 锁内同步拉全市场(1-2s); 统一走 market_fs 保证命中
-            spot = fetcher.fetch_spot_quote_map(scorer.market_fs(["hs", "cyb", "kcb"]))
+            # 2026-09-29 P0③: 三时点只有 ~51 只, 却原来拉全市场 5561 只(33 请求)。
+            # 先按代码点查(ulist, 每批60); 点查失败/为空才退回全市场 spot map。
+            codes = [str(it.get("code") or "") for it in lst if it.get("code")]
+            spot = fetcher.fetch_spot_quote_map_by_codes(codes)
+            if not spot:
+                spot = fetcher.fetch_spot_quote_map(scorer.market_fs(["hs", "cyb", "kcb"]))
             n = 0
             for it in lst:
                 q = spot.get(str(it.get("code")))

@@ -151,9 +151,14 @@ def _update_lists_with_board(date, code_to_board):
                             it["board"] = nb
                             changed += 1
                     if changed:
+                        # 🔴 2026-09-29: **不再改写 ts** —— ts 必须保持"该快照的原始采集时刻"。
+                        #   原实现把 ts 一起刷新 ⇒ 盘中每 30 分钟就把 seal/boom/bid_net 的
+                        #   "落库时刻"推后一次; 2026-09-29 排障时被它误导(一度以为"竞价异动历史
+                        #   10:29 才落库", 实际 09:24:21 就落库了、只是 ts 一直被改写)。
+                        #   本函数只补 board(概念)一列, 属展示口径, 不该动采集元信息。
                         conn.execute(
-                            "UPDATE auction_daily_history SET list=?, ts=? WHERE date=? AND tab=?",
-                            (json.dumps(lst, ensure_ascii=False), int(time.time()), date, tab))
+                            "UPDATE auction_daily_history SET list=? WHERE date=? AND tab=?",
+                            (json.dumps(lst, ensure_ascii=False), date, tab))
                         n_updated += changed
                 except Exception:
                     continue
@@ -177,9 +182,10 @@ def _update_lists_with_board(date, code_to_board):
                             it["board"] = nb
                             changed += 1
                     if changed:
+                        # 同上游 tab: 只改 board, 不改 ts(理由见上面竞价异动那段注释)
                         conn.execute(
-                            "UPDATE lhb_history SET list=?, ts=? WHERE date=?",
-                            (json.dumps(lst, ensure_ascii=False), int(time.time()), date))
+                            "UPDATE lhb_history SET list=? WHERE date=?",
+                            (json.dumps(lst, ensure_ascii=False), date))
                         n_updated += changed
                 except Exception:
                     pass

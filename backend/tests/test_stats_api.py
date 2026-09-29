@@ -190,7 +190,10 @@ def test_bid_snapshot_3points_ok(client, first_user, monkeypatch):
     token, _, _ = first_user
     _seed_snapshot(monkeypatch)
     # mock 东财实时行情
+    # 2026-09-29 P0③: 现涨优先走**按代码点查**(ulist) ⇒ 主桩打在点查上; 全市场桩保留(回退路径)
     from app.services import fetcher
+    monkeypatch.setattr(fetcher, "fetch_spot_quote_map_by_codes",
+                        lambda *a, **k: {"600001": {"realChange": 10.5}})
     monkeypatch.setattr(fetcher, "fetch_spot_quote_map",
                         lambda *a, **k: {"600001": {"realChange": 10.5}})
     # 2026-08-24: 现涨实时 merge 要求"盘中且 serve_date==今天" —

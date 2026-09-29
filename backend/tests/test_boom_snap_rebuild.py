@@ -170,7 +170,8 @@ def test_api_bid_boom_history_rebuilds_when_no_history_row(client, first_user, m
     # 模拟历史落库为空(历史上 boom 长期未落库)
     monkeypatch.setattr(kpl, "query_auction_history", lambda date, tab: [])
     monkeypatch.setattr(kpl, "fill_bid_turnover_from_snap", lambda d, date: d)
-    monkeypatch.setattr(kpl, "_boom_spot_map", lambda: {})
+    # 2026-09-29 P0③: _boom_spot_map 现接受"过滤后存活的代码"(按代码点查), 桩需带该参数
+    monkeypatch.setattr(kpl, "_boom_spot_map", lambda codes=None: {})
 
     r = client.get(f"/api/kpl/bid-boom?date={D_TODAY}",
                    headers={"Authorization": "Bearer " + first_user[0]})

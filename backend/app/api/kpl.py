@@ -100,7 +100,12 @@ def _update_spot_change(lst):
         return 0
     try:
         from ..services import fetcher, scorer
-        spot_map = fetcher.fetch_spot_quote_map(scorer.market_fs(["hs", "cyb", "kcb"]))
+        # 2026-09-29 P0③: 先按代码点查(ulist, 每批60) —— 原来为这几十~几百只拉全市场
+        # 5561 只(33 请求), 竞价窗口里最不该浪费; 点查失败才退回全市场 spot map(不降可用性)
+        codes = [str(it.get("code") or "") for it in lst if it.get("code")]
+        spot_map = fetcher.fetch_spot_quote_map_by_codes(codes)
+        if not spot_map:
+            spot_map = fetcher.fetch_spot_quote_map(scorer.market_fs(["hs", "cyb", "kcb"]))
         if not spot_map:
             return 0
         n = 0

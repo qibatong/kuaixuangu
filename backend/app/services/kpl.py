@@ -321,12 +321,21 @@ def bid_net_from_snap(date=None):
     return out
 
 
-def _boom_spot_map():
-    """竞价爆量 实时涨幅: 东财全市场行情 map 合并(独立缓存 SPOT_CACHE_TTL, 覆盖全部 6000 只)。
-    注意: 不能用 ensure_cache("filter") — 那只有涨幅前 200 只, 量比榜多数票不在其中 → 0"""
+def _boom_spot_map(codes=None):
+    """竞价爆量 实时涨幅合并。
+    注意: 不能用 ensure_cache("filter") — 那只有涨幅前 200 只, 量比榜多数票不在其中 → 0
+
+    🔴 2026-09-29 P0③: 传 codes 时**按代码点查**(东财 ulist, 每批 60) —— 原实现无论
+      多少只都拉全市场 5561 只(33 请求), 而调用方手里就有"过滤后存活的这批票"。
+      codes 为空/点查失败 → 退回全市场 spot map(旧行为保留, 不降可用性)。"""
     try:
         from . import fetcher as _fetcher
         from . import scorer as _scorer
+        if codes:
+            m = _fetcher.fetch_spot_quote_map_by_codes(list(codes))
+            if m:
+                return m
+            log.warning("竞价爆量 实时涨幅: 按code点查为空, 退回全市场 spot map(%d只)", len(codes))
         _fs = _scorer.market_fs(["hs", "cyb", "kcb"])
         return _fetcher.fetch_spot_quote_map(_fs)
     except Exception as e:
@@ -370,8 +379,6 @@ def _boom_from_snap(snap_date, spot_map=None):
             ymap[code] = amt or 0
     finally:
         conn.close()
-    if spot_map is None:
-        spot_map = _boom_spot_map()
     out = []
     for code, (amt, name, chg, fmv, board) in today_map.items():
         ya = ymap.get(code)
@@ -384,7 +391,7 @@ def _boom_from_snap(snap_date, spot_map=None):
             continue
         bid_turnover = round(amt * 10000 / fmv * 100, 4) if fmv else 0.0   # 竞价换手 = 竞价额/流通市值×100
         out.append({"code": code, "name": name,
-                    "realChange": (spot_map.get(code) or {}).get("realChange", 0.0),   # 实时涨幅(东财全市场map, 全天有值)
+                    "realChange": 0.0,                # 占位: 下面按**存活代码**点查后回填
                     "bidChange": chg,
                     "bidAmt": amt * 10000,            # 万元 → 元(前端口径)
                     "bidRatioYest": ratio,            # 竞价量比
@@ -392,6 +399,14 @@ def _boom_from_snap(snap_date, spot_map=None):
                     "floatMv": fmv, "board": board,
                     "yestBidAmt": ya * 10000})        # 昨日竞价额(元)
     out.sort(key=lambda x: x["bidRatioYest"], reverse=True)
+    # 🔴 2026-09-29 P0③: 现涨按**过滤后的存活代码**点查 —— 过滤只用快照字段(today_map/ymap),
+    #   与现涨无关, 故"先过滤、再取现涨"安全; 原实现为它们拉全市场 5561 只(33 请求)。
+    if spot_map is None:
+        _codes = [r["code"] for r in out]
+        spot_map = _boom_spot_map(_codes) if _codes else {}
+    for r in out:
+        # 实时涨幅(东财 map, 全天有值); 缺失保持 0.0(与改动前一致)
+        r["realChange"] = (spot_map.get(r["code"]) or {}).get("realChange", 0.0)
     return out
 
 

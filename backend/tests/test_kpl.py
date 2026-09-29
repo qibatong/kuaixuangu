@@ -1186,16 +1186,21 @@ def test_update_spot_change_empty_and_crash():
     assert kpl_api._update_spot_change(None) == 0
     assert kpl_api._update_spot_change([]) == 0
     from app.services import fetcher
+    o_by_codes = fetcher.fetch_spot_quote_map_by_codes
     original = fetcher.fetch_spot_quote_map
 
     def boom(*a, **k):
         raise RuntimeError("模拟东财接口挂了")
 
     try:
+        # 2026-09-29 P0③: 现涨改为**按代码点查**优先(点查失败才回退全市场) ⇒ 两个入口都要打挂,
+        # 才等价于"东财实时行情整体不可用"这个被测场景
+        fetcher.fetch_spot_quote_map_by_codes = boom
         fetcher.fetch_spot_quote_map = boom
         n = kpl_api._update_spot_change([{"code": "600001", "change": 0}])
         assert n == 0
     finally:
+        fetcher.fetch_spot_quote_map_by_codes = o_by_codes
         fetcher.fetch_spot_quote_map = original
 
 
@@ -1205,14 +1210,20 @@ def test_update_spot_change_override_change_fields():
     from app.services import fetcher
 
     original = fetcher.fetch_spot_quote_map
+    o_by_codes = fetcher.fetch_spot_quote_map_by_codes
+    seen = {}
 
-    def fake_spot_map(fs):
+    def fake_spot_map(codes=None, *a, **k):
+        # 2026-09-29 P0③: 现涨优先按代码点查(签名 (codes)); 顺带断言"取的就是这份名单"
+        if codes is not None:
+            seen["codes"] = list(codes)
         return {
             "600001": {"realChange": 5.55, "price": 18.0},
             "000002": {"realChange": -2.30},
         }
 
     try:
+        fetcher.fetch_spot_quote_map_by_codes = fake_spot_map
         fetcher.fetch_spot_quote_map = fake_spot_map
         lst = [
             {"code": "600001", "name": "测试甲", "change": 1.0, "realChange": 0,
@@ -1221,6 +1232,7 @@ def test_update_spot_change_override_change_fields():
             {"code": "300003", "name": "测试丙", "change": 0.5, "board": "芯片"},
         ]
         n = kpl_api._update_spot_change(lst)
+        assert seen.get("codes") == ["600001", "000002", "300003"], "应按名单点查(不再拉全市场)"
         assert n == 2
         assert lst[0]["change"] == 5.55
         assert lst[0]["realChange"] == 5.55
@@ -1229,6 +1241,7 @@ def test_update_spot_change_override_change_fields():
         assert lst[1]["change"] == -2.30
         assert lst[2]["change"] == 0.5
     finally:
+        fetcher.fetch_spot_quote_map_by_codes = o_by_codes
         fetcher.fetch_spot_quote_map = original
 
 

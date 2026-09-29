@@ -1221,9 +1221,10 @@ def fetch_spot_quote_map(fs):
         ent = _quote_map_cache.get(fs)
         if ent is None or now - ent["ts"] > config.SPOT_CACHE_TTL:
             try:
-                raw = _fetch_market_all_with_fallback(fs)
+                raw, reused = _spot_fetch_or_share(fs)
                 _quote_map_cache[fs] = {"raw": raw, "map": _build_quote_map(raw), "ts": now}
-                log.info("全市场行情map刷新 fs=%s 共%d只", fs, len(raw))
+                log.info("全市场行情map刷新 fs=%s 共%d只%s", fs, len(raw),
+                         "(复用另一进程, 未出网)" if reused else "")
             except Exception as e:
                 if ent is not None:
                     log.warning("全市场行情map拉取失败, 沿用旧缓存 fs=%s err=%s", fs, e)
@@ -1235,6 +1236,52 @@ def fetch_spot_quote_map(fs):
                 _quote_map_cache[fs] = ent
             log.info("全市场行情map命中 fs=%s 年龄%.0fs", fs, now - ent["ts"])
         return _quote_map_cache[fs]["map"]
+
+
+# ---------- 按代码点查实时行情 map（2026-09-29 P0③）----------
+# 背景: 竞价异动页现涨(51 只)/三时点现涨(51 只)/竞价爆量(几十~几百只)原来**各自**调
+#   `fetch_spot_quote_map` ⇒ 为这几十一几百只票拉**全市场 5561 只(33 个 HTTP 请求)**,
+#   而且都在**用户请求线程**里同步做。生产实测(2026-09-29): 09:14~09:29 竞价窗口内
+#   全市场拉取 8 次、`429|限流` 日志 241 条 —— 这段窗口同时要跑定格采集/净额量比补采/名单,
+#   是最不该被浪费的一段(主人口径: 竞价及时性 ＞ 其它)。
+# 现改为: 按代码点查东财 ulist(`fetch_raw_by_codes`: 每批 60、多域名顺序重试、**整段复用
+#   config.FIELDS 与 clist 完全同构**) ⇒ 51 只 = 1 个请求, 407 只 = 7 个请求;
+#   逐 code 缓存 `_CODE_QUOTE_TTL`(= SPOT_CACHE_TTL 口径, 前端 30s 轮询 ⇒ 高命中)。
+# 失败返回 {} ⇒ 调用方自行回退全市场 spot map(旧路径保留, 可用性不降低)。
+# 附带收益: ulist 路径不受 `fetch_eastmoney_all` 的 clist 熔断开关影响 ⇒ 东财 clist
+#   熔断窗口(如 09:15 那段)里现涨仍有独立来源。
+_CODE_QUOTE_TTL = 60
+_code_quote_cache = {}          # {code: (quote_entry, ts)}
+_code_quote_lock = threading.Lock()
+
+
+def fetch_spot_quote_map_by_codes(code_list):
+    """按代码点查实时行情: 返回 {code: {realChange, entityChange, price, volRatio, turnover, name}}。
+    只取需要的代码, 不再为几十只票拉全市场; 失败返回 {}(调用方回退全市场路径)。"""
+    if not code_list:
+        return {}
+    uniq = [c for c in dict.fromkeys(str(c) for c in code_list) if c]
+    now = time.time()
+    with _code_quote_lock:
+        need = [c for c in uniq
+                if c not in _code_quote_cache or now - _code_quote_cache[c][1] > _CODE_QUOTE_TTL]
+    if need:
+        try:
+            rows = fetch_raw_by_codes(need)
+        except Exception as e:                                  # noqa: BLE001
+            log.warning("按code点查实时行情失败(调用方回退全市场) %d只 err=%s",
+                        len(need), str(e)[:120])
+            rows = []
+        if rows:
+            built = _build_quote_map(rows)
+            got = time.time()
+            with _code_quote_lock:
+                for c, q in built.items():
+                    _code_quote_cache[c] = (q, got)
+            log.info("按code点查实时行情 共%d只(本次需%d) 返回%d只",
+                     len(uniq), len(need), len(built))
+    with _code_quote_lock:
+        return {c: _code_quote_cache[c][0] for c in uniq if c in _code_quote_cache}
 
 
 def fetch_spot_quotes_by_codes(code_list):
@@ -1407,15 +1454,91 @@ def fetch_tencent_by_codes(code_list):
 _SPOT_PREWARM_PERIOD = 40        # 秒; < SPOT_CACHE_TTL(60) 保证缓存常新鲜
 _spot_prewarm_started = False     # 幂等: uvicorn reload/重复 startup 不叠线程
 
+# 🔴 2026-09-29 (P0① 竞价窗口让路 + 跨进程共享一次出网)
+#   1) 窗口起点 09:26 → **09:28**: 09:26:30~09:26:38 是 9_25 定格采集、≈09:26:45/09:27:20 是
+#      净额/量比补采 —— spot 全市场(28 页)挤进来会与"定格/补采/名单"抢上游配额与 SQLite 写锁。
+#      改到 09:28 起仍保证 09:30 首个 refresh 命中缓存(40s 周期 ⇒ 09:28 / 09:28:40 / 09:29:20 三轮)。
+#   2) 共享 raw: 原实现"每个 web worker 各拉一份全市场"(生产 2 worker ⇒ 上游调用翻倍)。
+#      `_quote_map_cache` 是**进程级**的 ⇒ 不能简单"加锁只让一个进程拉"(另一进程缓存会凉、
+#      请求路径又要同步拉一次, 长尾回来)。故改为: 谁真出网就把**裁剪后的原始行情**发布到 kv
+#      (TTL 45s), 另一进程直接复用重建 map ⇒ 零上游、零外网, 两边缓存都热。
+#      裁剪字段 = 重建 map 所需(f2 价/f3 现涨/f8 换手/f10 量比/f12 代码/f14 名/f17 今开)。
+_SPOT_SHARE_TTL = 45
+_SPOT_SHARE_FIELDS = ("f12", "f14", "f2", "f3", "f8", "f10", "f17")
+
+
+def _spot_share_trim(raw):
+    """裁剪成重建 map 所需的最小字段集(全量 raw 有 20+ 字段, 原样进 kv 每 40s 要写几 MB)。"""
+    return [{k: (r or {}).get(k) for k in _SPOT_SHARE_FIELDS} for r in (raw or [])]
+
+
+def _spot_share_get(fs):
+    """复用**另一个 web worker** 刚拉的全市场原始行情; 无/过期返回 None。"""
+    try:
+        hit = store.get("spot:raw:" + fs)
+    except Exception:                                          # noqa: BLE001
+        return None
+    if isinstance(hit, dict) and hit.get("raw") \
+            and time.time() - (hit.get("ts") or 0) < _SPOT_SHARE_TTL:
+        return hit["raw"]
+    return None
+
+
+def _spot_share_put(fs, raw):
+    """把刚拉到的原始行情发布给另一个 worker(45s < 预热周期 40s + 缓存 TTL 60s)。"""
+    try:
+        store.set("spot:raw:" + fs, {"raw": _spot_share_trim(raw), "ts": time.time()},
+                  ttl=_SPOT_SHARE_TTL)
+    except Exception:                                          # noqa: BLE001
+        pass
+
+
+def _spot_lease_try(fs):
+    """尝试抢"本轮出网令牌"; 异常视为**直接出网**(共享只是优化, 不是依赖)。"""
+    try:
+        return bool(store.setnx("spot:lease:" + fs, 1, ttl=10))
+    except Exception:                                          # noqa: BLE001
+        return True
+
+
+def _spot_fetch_or_share(fs, wait_for_peer=False):
+    """取全市场原始行情: 优先复用另一进程刚拉的(kv 共享), 否则真出网并发布。
+
+    返回 (raw, reused): reused=True 表示本轮**未出网**, 用的是另一进程的成果。
+
+    🔴 2026-09-29 (P0① 第二轮): 加"本轮出网令牌"(setnx) —— 生产实测两个 web worker 同时
+    重启时相位对齐(11:28:10 两个进程同秒 start), 会**同一瞬间**判定"无共享"而各拉一份
+    (实测 3 轮里有 1 轮双出网)。现在: 抢到令牌的进程出网并发布; 没抢到的 —— 仅预热线程
+    (`wait_for_peer=True`)最多等 4s 读共享, 拿到就零出网; 等不到才自己拉(兜底, 不因令牌
+    丢失而不预热)。**请求路径不等待**(wait_for_peer=False): 它持着 `_quote_map_lock`,
+    在里面 sleep 会阻塞同进程其它请求。令牌 TTL 10s 自过期 ⇒ 持有者崩溃不会永久挡住对端。
+    """
+    raw = _spot_share_get(fs)
+    if raw is not None:
+        return raw, True
+    if not wait_for_peer or _spot_lease_try(fs):
+        raw = _fetch_market_all_with_fallback(fs)
+        _spot_share_put(fs, raw)
+        return raw, False
+    for _ in range(8):                       # 最多等 4s(东财全市场实测 0.6~4s)
+        time.sleep(0.5)
+        raw = _spot_share_get(fs)
+        if raw is not None:
+            return raw, True
+    raw = _fetch_market_all_with_fallback(fs)      # 兜底: 令牌持有者久未发布也不空转
+    _spot_share_put(fs, raw)
+    return raw, False
+
 
 def spot_prewarm_active(now_ts):
-    """是否处于 spotMap 预热窗口: 工作日北京时间 9:26-15:05。
-    9:26 起预热(错开 9:25 快照采集高峰), 保证 9:30 首个 refresh 直读即命中缓存。"""
+    """是否处于 spotMap 预热窗口: 工作日北京时间 **9:28**-15:05。
+    9:28 起预热: 避开 9_25 定格采集(09:26:30~38)与净额/量比补采(≈09:26:45/09:27:20),
+    又保证 9:30 首个 refresh 直读即命中缓存。"""
     g = time.gmtime(now_ts + 8 * 3600)
     if g.tm_wday >= 5:
         return False
     hm = g.tm_hour * 60 + g.tm_min
-    return 9 * 60 + 26 <= hm <= 15 * 60 + 5
+    return 9 * 60 + 28 <= hm <= 15 * 60 + 5
 
 
 def _spot_prewarm_fs_set():
@@ -1428,10 +1551,11 @@ def _spot_prewarm_once():
     """刷新一次全部预热 fs 的 spotMap 缓存; 单 fs 失败不影响其它/下轮自愈"""
     for fs in _spot_prewarm_fs_set():
         try:
-            raw = _fetch_market_all_with_fallback(fs)
+            raw, reused = _spot_fetch_or_share(fs, wait_for_peer=True)
             with _quote_map_lock:
                 _quote_map_cache[fs] = {"raw": raw, "map": _build_quote_map(raw), "ts": time.time()}
-            log.info("spotMap预热完成 fs=%s 共%d只", fs, len(raw))
+            log.info("spotMap预热完成 fs=%s 共%d只%s", fs, len(raw),
+                     "(复用另一进程, 未出网)" if reused else "")
         except Exception as e:
             log.warning("spotMap预热失败 fs=%s err=%s", fs, str(e)[:120])
 
@@ -1456,7 +1580,8 @@ def start_spot_prewarm():
     _spot_prewarm_started = True
     t = threading.Thread(target=_spot_prewarm_loop, daemon=True, name="spot-prewarm")
     t.start()
-    log.info("spotMap预热线程已启动(工作日9:26-15:05每%ss刷新一次)", _SPOT_PREWARM_PERIOD)
+    log.info("spotMap预热线程已启动(工作日9:28-15:05每%ss刷新一次, 跨进程共享一次出网)",
+             _SPOT_PREWARM_PERIOD)
 
 
 def _parse_float(v):
