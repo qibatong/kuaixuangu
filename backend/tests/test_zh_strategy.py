@@ -158,7 +158,7 @@ def test_select_basic_and_sort_desc():
     w900 = round(zh.bid_volume_lots(900.0, 5.0, 10.5) / 100000 * 100, 2)
     assert [p["code"] for p in picks] == ["600112", "600111"]
     assert picks[0]["volPct"] == w900 == 8.16 and picks[0]["ztGene"] == 1
-    assert picks[0]["board"] == "主板" and picks[0]["ydayAmt"] == 1e4
+    assert picks[0]["market"] == "主板" and picks[0]["ydayAmt"] == 1e4
     assert st["drop_chg"] == 1 and st["drop_name"] == 1 and st["kept"] == 2
 
 
@@ -227,7 +227,7 @@ def test_select_pads_short_numeric_code():
     rows = [{"code": 678, "name": "襄阳轴承", "bid_change": 5.0, "bid_amt": 600.0}]
     picks, st = zh.select(rows, lambda c: _gene_kl(), today="2026-09-29")
     assert [p["code"] for p in picks] == ["000678"]
-    assert picks[0]["board"] == "主板"
+    assert picks[0]["market"] == "主板"
 
 
 # ---------------- 参数真相源 ----------------

@@ -34,22 +34,23 @@
         <table v-else class="stock-table zh-table">
           <thead>
             <tr>
-              <th>名称</th><th>板块</th><th>高开%</th><th>占昨量%</th><th>竞价额</th><th>昨额(亿)</th><th>涨停基因</th>
+              <th>名称</th><th>竞价涨幅</th><th>实时涨幅</th><th>实体涨幅</th><th>竞价金额</th><th>概念</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="it in list" :key="it.code">
-              <td class="stock-info-cell" @click="linkToSoftware(it.code)">
+              <!-- 名称单元格 hover 给出策略口径(占昨量/涨停基因) —— 主人要的列只保留 5 个 -->
+              <td class="stock-info-cell" @click="linkToSoftware(it.code)"
+                  :title="'占昨量 ' + it.volPct + '%（入选区间 5~10%） · 涨停基因 ' + it.ztGene + ' 次（近120日） · ' + (it.market || '')">
                 <div class="stock-code-row"><span class="stock-code">{{ it.code }}</span></div>
                 <div class="stock-name-row"><span class="stock-name">{{ it.name }}</span></div>
               </td>
-              <td class="dim">{{ it.board }}</td>
-              <td :class="it.bidChange > 0 ? 'up' : 'down'">{{ signed(it.bidChange) }}%</td>
-              <td :class="it.volPct >= 8 ? 'ratio-hot' : it.volPct >= 5 ? 'ratio-warm' : 'dim'">{{ it.volPct }}%</td>
-              <!-- 🔴 后端 bidAmt/ydayAmt 单位是**万元**; yi/amtText 吃**元** ⇒ ×1e4(首版漏乘显示成 0万/0.00) -->
-              <td class="dim">{{ amtText((it.bidAmt || 0) * 1e4) }}</td>
-              <td class="dim">{{ yi((it.ydayAmt || 0) * 1e4) }}</td>
-              <td><span class="lb-badge">{{ it.ztGene }}次</span></td>
+              <td :class="cls(it.bidChange)">{{ signed(it.bidChange) }}%</td>
+              <td :class="cls(it.realChange)">{{ signed(it.realChange) }}%</td>
+              <td :class="cls(it.entityChange)">{{ signed(it.entityChange) }}%</td>
+              <!-- 🔴 后端 bidAmt 单位是**万元**; amtText 吃**元** ⇒ ×1e4 -->
+              <td :class="(it.bidAmt || 0) > 0 ? 'up' : 'dim'">{{ amtText((it.bidAmt || 0) * 1e4) }}</td>
+              <td class="concept-cell dim" :title="it.board"><span v-if="it.board" class="concept-clamp">{{ it.board }}</span><span v-else>-</span></td>
             </tr>
           </tbody>
         </table>
@@ -62,9 +63,15 @@
 import { onMounted, ref } from 'vue'
 import VipGate from './VipGate.vue'
 import { zhPicks } from '../api/stats'
-import { yi, signed, amtText } from '../utils/format'
+import { signed, amtText } from '../utils/format'
 import { linkToSoftware } from '../utils/tdx'
 import { useUserStore } from '../stores/user'
+
+// 涨跌配色(缺失/非法 → dim; 与全站 chgCls 同口径)
+function cls(v) {
+  if (v === null || v === undefined || v === '' || isNaN(v)) return 'dim'
+  return v > 0 ? 'up' : v < 0 ? 'down' : 'dim'
+}
 
 const props = defineProps({ embedded: { type: Boolean, default: false } })
 const user = useUserStore()

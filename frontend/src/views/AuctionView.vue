@@ -45,7 +45,6 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
     <!-- Tab 切换: 一排横排 -->
     <div class="auc-tabs">
       <button class="auc-tab" :class="{ active: tab === 's3' }" title="全市场竞价封单榜: 9:25涨停→9:20涨停回落→9:15涨停回落 三层排序" @click="switchTab('s3')">竞价封单</button>
-      <button class="auc-tab" :class="{ active: tab === 'zh' }" title="竞价精选: 涨停基因(近120日) × 高开≥3% × 竞价放量占昨量 5~10%" @click="switchTab('zh')">竞价精选</button>
       <button class="auc-tab" :class="{ active: tab === 'boom' }" @click="switchTab('boom')">竞价爆量</button>
       <button class="auc-tab" :class="{ active: tab === 'qc' }" title="9:15-9:30 竞价抢筹(异动板块大单)" @click="switchTab('qc')">竞价抢筹</button>
       <button class="auc-tab" :class="{ active: tab === 'seal' }" @click="switchTab('seal')">竞价委买</button>
@@ -104,33 +103,6 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
                  : tab === 'net' ? '今日竞价净额榜暂无数据（开盘啦约 09:25:30 产出；不为空时按"实际流通"口径计算抢筹强度）'
                  : '今日竞价委买榜暂无数据（9:15-9:30 竞价时段可用）' }}
             </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <!-- 竞价精选(ZH 选股): 涨停基因 × 高开≥3% × 竞价放量占昨量 5~10% -->
-      <table v-else-if="tab === 'zh'" class="stock-table">
-        <thead>
-          <tr>
-            <th>名称</th><th>板块</th><th>高开%</th><th>占昨量%</th><th>竞价额</th><th>昨额(亿)</th><th>涨停基因</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="it in zhList" :key="it.code">
-            <td class="stock-info-cell" @click="linkToSoftware(it.code)">
-              <div class="stock-code-row"><span class="stock-code">{{ it.code }}</span></div>
-              <div class="stock-name-row"><span class="stock-name">{{ it.name }}</span></div>
-            </td>
-            <td class="dim">{{ it.board }}</td>
-            <td :class="it.bidChange > 0 ? 'up' : 'down'">{{ signed(it.bidChange) }}%</td>
-            <td :class="it.volPct >= 8 ? 'ratio-hot' : it.volPct >= 5 ? 'ratio-warm' : 'dim'">{{ it.volPct }}%</td>
-            <!-- 🔴 后端 bidAmt/ydayAmt 单位是**万元**; yi/amtText 吃**元** ⇒ ×1e4(首版漏乘显示成 0万/0.00) -->
-            <td class="dim">{{ amtText((it.bidAmt || 0) * 1e4) }}</td>
-            <td class="dim">{{ yi((it.ydayAmt || 0) * 1e4) }}</td>
-            <td><span class="lb-badge">{{ it.ztGene }}次</span></td>
-          </tr>
-          <tr v-if="!zhList.length">
-            <td colspan="7" class="snap-empty">今日竞价精选暂无数据（9:25 定格后生成；入选需 涨停基因 + 高开≥3% + 竞价放量占昨量 5~10%）</td>
           </tr>
         </tbody>
       </table>
@@ -458,7 +430,7 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { usePolling } from '../composables/usePolling'
 import { kplBidSeal, kplBidNet, kplBidBoom, kplBidQiangcang, kplBroken, kplLhb, kplYestBroken, kplYestZt } from '../api/kpl'
-import { auctionOverview, bidSnapshot3points, zhPicks } from '../api/stats'
+import { auctionOverview, bidSnapshot3points } from '../api/stats'
 import { trackUsage } from '../api/activity'
 import { linkToSoftware } from '../utils/tdx'
 import { todayBj } from '../utils/time'
@@ -480,7 +452,6 @@ const tab = ref('s3')   // 默认选中三时点封单
 const sealRaw = ref([])
 const bidNetList = ref([])   // 2026-08-18: 竞价净额专用(开盘啦 Type2 竞价>1000万), 空时回退封单列表
 const boomList = ref([])
-const zhList = ref([])   // 2026-09-29 竞价精选(ZH): 涨停基因×高开≥3%×占昨量5~10%
 const lhbList = ref([])
 const brokenYestList = ref([])
 const brokenTodayList = ref([])
@@ -835,7 +806,6 @@ async function ensureTabData(t) {
       case 'seal': r = await withTimeout(kplBidSeal(dt)); sealRaw.value = (r && r.list) || []; break
       case 'boom': r = await withTimeout(kplBidBoom(dt)); boomList.value = (r && r.list) || []; break
       case 'net': r = await withTimeout(kplBidNet(dt)); bidNetList.value = (r && r.list) || []; break
-      case 'zh': r = await withTimeout(zhPicks(dt)); zhList.value = (r && r.list) || []; break
       case 'qc': r = await withTimeout(kplBidQiangcang(dt));
         qcList.value = (r && r.list20) || []; qcChgList.value = (r && r.list20Chg) || []; qcLastList.value = (r && r.listLast) || []; break
       case 'yestZt': r = await withTimeout(kplYestZt(dt)); yestZtList.value = (r && r.list) || []; break

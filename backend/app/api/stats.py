@@ -336,6 +336,27 @@ def api_stats_zh_picks(request: Request, uid: int = Depends(get_uid), date: str 
     finally:
         conn.close()
     picks, stats_, meta = zh_sel.run(date=resolved)
+
+    # 现价/实时涨幅/实体涨幅: 东财按 code 点查(与首页选股 `_fill_spot_fields` 同源同口径)
+    try:
+        if picks:
+            from ..services import fetcher                      # 局部导入(本文件其余处同做法)
+            smap = fetcher.fetch_spot_quote_map_by_codes([p["code"] for p in picks]) or {}
+            for p in picks:
+                rt = smap.get(p["code"]) or {}
+                for k in ("price", "realChange", "entityChange"):     # 实体涨幅=(现价-今开)/今开
+                    if rt.get(k) is not None:
+                        p[k] = rt[k]
+    except Exception as e:                                       # noqa: BLE001 - 补齐失败不影响名单
+        log.warning("竞价精选 现价/实时/实体涨幅补齐失败 err=%s", e)
+
+    # 概念: 与竞价异动各 tab 同源(开盘啦概念库, 取前 2 个), 填到 board 字段
+    try:
+        kpl.apply_board_concept_db(picks, log_tag="stats:zh-picks", field="board",
+                                   truncate=2, blank_if_missing=True)
+    except Exception as e:                                       # noqa: BLE001
+        log.warning("竞价精选 概念补齐失败 err=%s", e)
+
     return jr({"ok": True, "date": resolved, "count": len(picks),
                "list": picks, "stats": stats_, "cfg": meta.get("cfg", {})})
 

@@ -256,7 +256,9 @@ def select(rows: List[Dict], kline_of: Callable[[str], Any],
         picks.append({
             "code": code,
             "name": name,
-            "board": board_of(code),
+            # ⚠️ 用 market 表示**板块**(主板/创业/科创/北交), 把 `board` 留给**概念**
+            #    —— 与全站约定一致(各 tab 的概念列都读 it.board, 由 apply_board_concept_db 填)
+            "market": board_of(code),
             "bidChange": round(chg, 2),
             "volPct": round(vp, 2),
             "volMode": mode,
