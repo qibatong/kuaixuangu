@@ -53,6 +53,14 @@ FILTER_DEFAULTS = {
     "floatMvFloor": 30.0, "floatMvGt": 1000.0, "priceGt": 300.0,
     "bidAmtFloor": 1000.0,   # 诗人需求: 默认竞价金额下限 1000万(原3000)
     "scoreFloor": 50.0,      # 2026-09-20 主人拍板: 评分低于 50 分的票不显示(全站默认)
+    # ---- ZH 竞价选股策略(2026-09-29, 见 services/picker/zh.py)----
+    # 竞价类参数, 只被 ZH 策略消费; 放在这里是为了"管理员可调 + 单一真相源"
+    # (与 bidLt 同一模式: 系统口径去掉 markets 后必须与全局默认完全一致, 有 parity 测试盯着)
+    "zhBidGt": 3.0,          # 高开下限(%)
+    "zhVolPctFloor": 5.0,    # 竞价放量占昨量下限(%) —— 主人实测原区间偏窄, 可放宽到 3
+    "zhVolPctGt": 10.0,      # 占昨量上限(%) —— 可放宽到 15
+    "zhZtGeneDays": 120,     # 涨停基因回看交易日数
+    "zhZtGeneMin": 1,        # 窗口内最少涨停次数
 }
 
 

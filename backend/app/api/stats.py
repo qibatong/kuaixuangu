@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Request
 from ..core import logger
 from ..core import trade_calendar as tc
 from ..services import auction_snapshot, kpl, scorer, stats
+from ..services.picker import zh as zh_sel
 from ..services.cache_store import store as _cstore
 from ..db import database
 from .deps import get_uid, jr, qs
@@ -318,6 +319,25 @@ def _threepoints_meta(resolved):
         "freezeAt": "%02d:%02d:%02d" % (fz // 3600, (fz % 3600) // 60, fz % 60),
         "today": _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 8 * 3600)),
     }
+
+
+@router.get("/api/stats/zh-picks")
+def api_stats_zh_picks(request: Request, uid: int = Depends(get_uid), date: str = ""):
+    """竞价精选(ZH 选股): 涨停基因(近120日≥1次) × 高开≥3% × 竞价放量占昨量 5~10%,
+    非ST, 板块自适应涨停幅度。2026-09-29 新策略, 实现见 `services/picker/zh.py`。
+
+    🔴 铁律「零值不得回退昨日」: **交易日**一律按当日原样返回 —— 当日 9_25 快照未落库时
+      返回空列表(不回退上一交易日); 只有**非交易日**才对齐最近交易日快照(与三时点榜一致)。
+    """
+    date = date or _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 8 * 3600))
+    conn = database.get_conn()
+    try:
+        resolved = date if tc.is_trade_day(date) else (_latest_trade_snap_date(conn, date) or date)
+    finally:
+        conn.close()
+    picks, stats_, meta = zh_sel.run(date=resolved)
+    return jr({"ok": True, "date": resolved, "count": len(picks),
+               "list": picks, "stats": stats_, "cfg": meta.get("cfg", {})})
 
 
 @router.get("/api/stats/bid-snapshot-3points")

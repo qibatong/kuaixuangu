@@ -22,3 +22,8 @@ export function bidSnapshotStock(date, code) {
 export function bidSnapshot3points(date, limit = 100) {
   return request('/api/stats/bid-snapshot-3points', { query: { date, limit } })
 }
+
+// 竞价精选(ZH 选股): 涨停基因 × 高开≥3% × 竞价放量占昨量 5~10%
+export function zhPicks(date = '') {
+  return request('/api/stats/zh-picks', { query: date ? { date } : {} })
+}
