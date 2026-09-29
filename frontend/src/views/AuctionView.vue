@@ -101,6 +101,10 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
 
       <!-- 竞价封单榜(短线侠式三层排序: 9:25涨停 > 9:20涨停回落 > 9:15涨停回落) -->
       <template v-else-if="tab === 's3'">
+      <div v-if="pending25" class="s3-hint s3-hint-soft">
+        <i class="fa fa-info-circle"></i> 9:25 定格<b>尚未落库</b>（{{ pendingTip }}）；
+        此刻 9:15 / 9:20 两列已是<b>今日</b>真实数据，到点会自动刷新出 9:25。
+      </div>
       <div v-if="sealMissing" class="s3-hint">
         <i class="fa fa-info-circle"></i> 该日期<b>封单额与竞价额均未采集</b>（历史委托数据不提供，无法回填），
         下个交易日 9:15 / 9:20 / 9:25 自动采集后生效。涨幅/概念/流通市值不受影响。
@@ -116,7 +120,7 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
         <thead>
           <tr>
             <th class="sortable" :class="{ active: s3Sort.keyOf('code') }" @click="s3Sort.onSort('code', 'string')">名称<span class="sort-ind">{{ s3Sort.ind('name') }}</span></th>
-            <th class="tp-th tp-th-25 sortable" :class="{ active: s3Sort.keyOf('seal25') }" @click="s3Sort.onSort('seal25')">9:25<span class="sort-ind">{{ s3Sort.ind('seal25') }}</span></th>
+            <th class="tp-th tp-th-25 sortable" :class="{ active: s3Sort.keyOf('seal25'), 'th-pending': pending25 }" :title="pending25 ? pendingTip : ''" @click="s3Sort.onSort('seal25')">9:25<span v-if="pending25" class="tp-pending">待定格</span><span class="sort-ind">{{ s3Sort.ind('seal25') }}</span></th>
             <th class="tp-th tp-th-20 sortable" :class="{ active: s3Sort.keyOf('seal20') }" @click="s3Sort.onSort('seal20')">9:20<span class="sort-ind">{{ s3Sort.ind('seal20') }}</span></th>
             <th class="tp-th tp-th-15 sortable" :class="{ active: s3Sort.keyOf('seal15') }" @click="s3Sort.onSort('seal15')">9:15<span class="sort-ind">{{ s3Sort.ind('seal15') }}</span></th>
             <th class="tp-th tp-th-25 sortable" :class="{ active: s3Sort.keyOf('bidChg25') }" @click="s3Sort.onSort('bidChg25')">竞涨<span class="sort-ind">{{ s3Sort.ind('bidChg25') }}</span></th>
@@ -133,10 +137,10 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ it.name || it.code }}</span><PoolHoverBtn :item="it" /></span></div>
             <div v-if="yidongTag(it.code)" class="yd-badge-row"><span class="yd-badge" :title="yidongTagTitle(it.code)">{{ yidongTag(it.code) }}</span></div>
           </td>
-            <td class="seal-col seal-col-25">{{ tpSeal(it, '9_25') }}</td>
+            <td class="seal-col seal-col-25" :class="{ 'cell-pending': pending25 }">{{ tpSeal25(it) }}</td>
             <td class="seal-col seal-col-20">{{ tpSeal(it, '9_20') }}</td>
             <td class="seal-col seal-col-15">{{ tpSeal(it, '9_15') }}</td>
-            <td class="tp-th-25 chg-col" :class="tpChgCls(it, '9_25')">{{ tpChg(it, '9_25') }}</td>
+            <td class="tp-th-25 chg-col" :class="[tpChgCls(it, '9_25'), { 'cell-pending': pending25 }]">{{ tpChg25(it) }}</td>
             <td class="dim">{{ it.bidTurnover !== null && it.bidTurnover !== undefined ? it.bidTurnover.toFixed(2) + '%' : '-' }}</td>
             <td class="real-chg-col" :class="realChgCls(it)">{{ realChg(it) }}</td>
             <td class="dim">{{ mvText(it) }}</td>
@@ -438,6 +442,21 @@ const lhbList = ref([])
 const brokenYestList = ref([])
 const brokenTodayList = ref([])
 const s3List = ref([])        // 三时点封单榜(后端已按三层排序)
+// 🔴 2026-09-29 (B2): 「9:25 定格是否已落库」由**后端**给(`/api/stats/bid-snapshot-3points`
+//   的 frozen/freezeAt, 判据 = auction_snapshot.has_today_snapshot(), 即选股闸门那把"快照维")。
+//   前端**禁止**用 09:26:30 这类固定时刻自己猜 —— 2026-09-16「两个用户拿到昨天名单」就是
+//   前端按固定时刻猜定格造成的。默认 true(不显示占位) 以免首屏闪烁。
+const frozen = ref(true)
+const freezeAt = ref('')
+const pending25 = computed(() => !frozen.value)
+const pendingTip = computed(() =>
+  '9:25 定格尚未落库' + (freezeAt.value ? '（预计 ' + freezeAt.value + '，等猫爪竞价字段出满）' : ''))
+
+/** 吸收后端给的"定格状态"; 缺字段按已定格处理(与旧版后端兼容, 不显示占位) */
+function setFrozen(r) {
+  frozen.value = !(r && r.frozen === false)
+  freezeAt.value = (r && r.freezeAt) || ''
+}
 
 // 封单数据缺失提示: 榜有数据但所有 bid_buy_amt/bid_amt 都为 0(完全无数据)
 const sealMissing = computed(() => {
@@ -481,7 +500,45 @@ const datePicker = ref('')    // 用户选的日期(空=实时)
 // ⚠️ 分解赋值：模板只自动解包顶层 ref，写 `ds.at` 会渲染出 ref 对象。
 const { at: dataAt, ok: dataOk, stale: dataStale, mark: markData } = useDataStamp()
 const dataDate = ref('')      // 后端实际返回的数据日期(可能被对齐)
-let autoFallback = false      // 已自动回退(避免清空后无限循环)
+// 🔴 2026-09-29 修: 自动回退**只写这里, 绝不写 datePicker**。
+//   原实现(`autoFallback = true; datePicker.value = lastTrading`)把"实时模式"永久降级成
+//   "历史回看模式", 一连串后果（09-29 早盘现场实锤）:
+//     ① 所有子 tab(封单/爆量/净额/抢筹/昨涨停/昨断板/龙虎榜/炸板/三时点榜)整天都在请求
+//        **上一交易日** —— 今日 9_20 行 09:20:06 就落库了, 却根本没被请求过;
+//     ② 顶部轮询判据 `if (datePicker.value) return true` 把实时刷新一并关掉 ⇒ 页面再也不会
+//        自动出新数据, 用户只能手动重进页面 ⇒ 表现为「9:20/9:25 数据要等竞价结束才看到」;
+//     ③ 顶部日期框被写上昨天, 用户看到的"数据日期"也失真。
+//   现在: 实时模式恒用今天, 后端按已落库时点逐点给数(9_15 09:15:19 / 9_20 09:20:06 /
+//   9_25 09:26:53); 9_25 未落库时该列自然为空。
+const autoFallbackDate = ref('')   // 今日尚无快照时临时借用的最近交易日(仅本会话, 不写 datePicker)
+
+/** 本次请求应使用的数据日期: 用户显式选择 > 自动回退日 > 今天 */
+function servedDate() {
+  return datePicker.value || autoFallbackDate.value || todayBj()
+}
+
+/**
+ * 重判「今天是否已有任意时点快照」, 维护 autoFallbackDate。
+ * 返回 true = 服务日期变了(调用方需重新加载)。
+ * 竞价时段的**自愈**就靠它: 今日首行(9_15)落库后, 下一轮轮询即切回今天。
+ */
+async function refreshServeDate() {
+  if (datePicker.value) return false          // 用户显式选日(历史回看): 不干预
+  try {
+    const ov = await withTimeout(auctionOverview(''))
+    const last = (ov.days && ov.days.length && ov.days[0].date) || ''
+    const next = (last && last !== todayBj()) ? last : ''
+    if (next === autoFallbackDate.value) return false
+    const had = autoFallbackDate.value
+    autoFallbackDate.value = next
+    if (next && !had) {
+      showToast(`今日竞价快照尚未生成，暂显示最近交易日 ${next} 的数据`, 'info')
+    }
+    return true
+  } catch (e) {
+    return false                              // 失败静默: 保留原状态
+  }
+}
 
 // 各表独立排序实例
 const sealSort = useSortable()
@@ -534,6 +591,14 @@ function tpSeal(it, tp) {
   const v = s.v
   const txt = v >= 1e8 ? (v / 1e8).toFixed(2) + ' 亿' : (v / 1e4).toFixed(0) + ' 万'
   return s.isBidAmt ? '竞 ' + txt : txt
+}
+// 🔴 2026-09-29 (B2): 9:25 定格尚未落库时, 整列显示「待定格」(与"该票没值"的「-」区分开)。
+//   判据是后端的 frozen —— 不猜时刻; 已定格/FROZEN 时行为与改动前逐字相同。
+function tpSeal25(it) {
+  return pending25.value ? '待定格' : tpSeal(it, '9_25')
+}
+function tpChg25(it) {
+  return pending25.value ? '' : tpChg(it, '9_25')
 }
 
 // 竞价封单表排序取值: 按列 key 返回原始数值(null/undefined 自动排末尾)
@@ -659,15 +724,17 @@ async function loadAll(fromUser = false) {
     if (!dt && ov.days && ov.days.length) {
       const lastTrading = ov.days[0].date
       if (lastTrading && lastTrading !== todayBj()) {
-        autoFallback = true
-        datePicker.value = lastTrading
+        // 只记在 autoFallbackDate, **绝不写 datePicker**(原因见其定义处)
+        autoFallbackDate.value = lastTrading
         useDate = lastTrading
-        showToast(`当前非交易时段，自动显示最近交易日 ${lastTrading} 的数据`, 'info')
+        showToast(`今日竞价快照尚未生成，暂显示最近交易日 ${lastTrading} 的数据`, 'info')
+      } else {
+        autoFallbackDate.value = ''      // 今天已有快照 → 撤掉回退
       }
     }
-    autoFallback = false
     const s3 = await withTimeout(bidSnapshot3points(useDate || todayBj()))
     s3List.value = s3.list || []
+    setFrozen(s3)
     loadedTabs.add('s3')
     const d = (ov.days && ov.days.length ? ov.days[0].date : '') || useDate || ''
     dataDate.value = d || useDate || ''
@@ -689,7 +756,11 @@ const tabLoading = new Set()
 // 返回值语义(2026-09-05 配合 usePolling 退避): true=成功/无需请求, false=请求失败
 // 失败时**不清空**已有 list → 页面保留上一次成功数据, 不出现空白
 async function ensureTabData(t) {
-  const dt = datePicker.value
+  // 🔴 2026-09-29: 统一走 servedDate()(用户选定 > 自动回退日 > 今天) —— **所有子 tab**
+  //   (封单/爆量/净额/抢筹/昨涨停/昨断板/龙虎榜/今炸板/昨炸板/三时点榜)共用这一行,
+  //   所以这一处修好即全体修好; 原实现取 datePicker.value ⇒ 盘前回退被写进去后,
+  //   全部 tab 整天都在请求昨天。
+  const dt = servedDate()
   if (t === 's3') {
     // 三时点榜随 loadAll 加载; 轮询时若已清标记则重新拉(实时刷新)
     if (!loadedTabs.has('s3')) {
@@ -697,6 +768,7 @@ async function ensureTabData(t) {
       try {
         const r = await withTimeout(bidSnapshot3points(dt || todayBj()))
         s3List.value = (r && r.list) || []
+        setFrozen(r)
         loadedTabs.add('s3')
         markData()          // 只在成功路径推进（失败/降级/配额拦截一律不推进）
         return true
@@ -802,7 +874,7 @@ async function refreshAll() {
 function clearDate() {
   datePicker.value = ''
   dataDate.value = ''
-  autoFallback = false
+  autoFallbackDate.value = ''
   loadedTabs.clear()   // 2026-08-18: 日期变化需重新加载各 tab
   loadAll(true)
 }
@@ -832,7 +904,11 @@ onMounted(() => {
 // (30s → 60s → 120s … 上限 5min), 成功一次即重置。避免服务端抖动/限流时被前端
 // 以固定 30s 持续打; 失败期间 ensureTabData 不清空 list, 页面保留上次成功数据。
 polling = usePolling(async () => {
-  if (datePicker.value) return true      // 历史回看模式: 不轮询(每分钟拉历史无意义)
+  // 历史回看模式(**用户显式选了日期**)不轮询; 自动回退态不在此列 —— 它必须继续轮询,
+  // 否则今日快照落库后页面不会自愈(2026-09-29 修: 原实现把回退写进 datePicker, 连轮询一起关了)。
+  if (datePicker.value) return true
+  // 自动回退态: 每轮重判「今天是否已有快照」, 今日 9_15 落库(≈09:15:19)后立刻切回今天
+  if (autoFallbackDate.value) await refreshServeDate()
   silentRefreshing.value = true
   try {
     loadedTabs.clear()
@@ -865,6 +941,15 @@ polling = usePolling(async () => {
   display: inline-flex; align-items: center;
   opacity: .9;
 }
+/* 2026-09-29 (B2): 9:25 定格未落库时的占位样式(灰色斜体, 与真值的红黄区分开) */
+.tp-pending {
+  display: inline-block; margin-left: 4px; padding: 0 4px;
+  border-radius: 3px; font-size: 0.6875rem; font-weight: 400;
+  color: var(--text-muted, #889); background: rgba(136, 153, 170, .15);
+  vertical-align: middle;
+}
+.th-pending { color: var(--text-muted, #889); }
+.s3-table td.cell-pending { color: var(--text-muted, #889); font-style: italic; }
 /* 连续失败提示: 用橙黄警示(避开绿色 —— A 股语境绿=跌) */
 .auc-poll-warn {
   color: #ff9d3c; font-size: 0.75rem; line-height: 1;
