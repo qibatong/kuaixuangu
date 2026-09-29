@@ -109,7 +109,8 @@
                   <td class="yj-time" data-label="昨封板">{{ fmtFbt(r.firstSealTime) }}</td>
                   <td :class="{ 'yj-warn': r.breakCount > 0 }" data-label="昨炸板">{{ r.breakCount }}次</td>
                   <td data-label="行业">{{ r.industry || '-' }}</td>
-                  <td class="yj-concept" data-label="概念">{{ shortConcept(r.concept) }}</td>
+                  <!-- 只显示主要的 2 个概念(按本名单共鸣频次挑), 全串仍在接口返回里 —— 见 utils/conceptMain.js -->
+                  <td class="yj-concept" data-label="概念">{{ pickMainConcept(r.concept, conceptFreq) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -134,6 +135,8 @@ import { computed, onMounted, ref } from 'vue'
 import VipGate from '../components/VipGate.vue'
 // 2026-09-29: 去掉「＋自选」按钮后不再需要 import PoolHoverBtn(该组件仍被首页/竞价异动等页使用)
 import { fetchYijiner } from '../api/yijiner'
+// 2026-09-29: 「主要概念」挑选抽到 utils（纯函数, 可单测; 将来金睛/火眼若要同样口径可直接复用）
+import { buildConceptFreq, pickMainConcept } from '../utils/conceptMain'
 import { useUserStore } from '../stores/user'
 import { showToast } from '../utils/toast'
 
@@ -192,12 +195,15 @@ function fmtFbt(t) {
   const s = String(Math.trunc(n)).padStart(6, '0')
   return `${s.slice(0, 2)}:${s.slice(2, 4)}:${s.slice(4, 6)}`
 }
-function shortConcept(c) {
-  // 2026-09-29: 原实现在**数据层硬截 16 字**(>16 ? slice(0,16)+'…'), 手机上概念既显示不全、
-  // 横滑也补不回来(内容已经丢了) —— 主人反馈"手机页面看不全", 这是其中一处**真丢数据**的点。
-  // 现原样返回, 显示交给 CSS: 桌面单行省略(列宽 150px), 窄屏改为折行看全(见 <style> 内 @media)。
-  return String(c || '-')
-}
+/* 2026-09-29 主人：「一进二显示的概念有点多，只显示主要的就可以」
+   · 概念列只显示**主要的 2 个**（对齐全仓既有口径 N=2：concept_refresh.TRUNCATE_N=2 /
+     kpl.apply_board_concept_db(truncate=2) / 金睛火眼 conceptText=slice(0,2)）；
+   · 「哪 2 个」按**本名单内的概念共鸣频次**排序（当日板块效应天然体现在同批票的概念重叠上），
+     而不是东财 f103 的原始顺序 —— 后者无语义，直接取前 2 个可能挑到冷门概念；
+   · 以「整条概念」为单位，不做字符串截断（不会把 MiniLED 切成 Mini）；
+   · 概念全串仍在接口返回里，只是不再全量渲染。
+   实现见 utils/conceptMain.js（纯函数，已单测）。 */
+const conceptFreq = computed(() => buildConceptFreq(list.value))
 
 async function load() {
   if (!user.isVipOrPaid) return        // 前端预判，省一次必然 403 的请求
