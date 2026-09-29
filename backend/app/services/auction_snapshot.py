@@ -1167,14 +1167,12 @@ def snapshot_at(time_point, force=False):
                 if not (v.get("bid_amt") or 0) and (s0.get("bidAmt") or 0):
                     v["bid_amt"] = (s0.get("bidAmt") or 0) / 1e4
                     n_fill += 1
-            # 该时点是否涨停(与 _is_zt 一致): 决定封单额是否有效
+            # 该时点是否涨停(统一走 is_zt_by_change = 唯一真相源): 决定封单额是否有效
+            # 🔴 2026-09-29: 原内联式 `code[:2] in ("30","68")` / `code[:1] in ("8","4")`
+            #   把 **920 段(北交所新号段)漏进主板 10%** ⇒ 北交所 30% 涨停股会被判"非涨停"
+            #   而封单被清零。现统一到 zt_limit_pct(300/301/688/689 → 20%, 920/8/4 → 30%)。
             bc = v.get("bid_change") or 0
-            if code[:2] in ("30", "68"):
-                is_zt = bc >= 19.9
-            elif code[:1] in ("8", "4"):
-                is_zt = bc >= 29.9
-            else:
-                is_zt = bc >= 9.9
+            is_zt = is_zt_by_change(code, bc)
             # 核心修复(2026-08-16): 非涨停时点封单强制 0!
             # _fetch_market_map 给所有股票都算了东财 f10×f5×100(买一委托金额),
             # 若开板股不在 KPL 榜会保留该非零值 → 前端仍显示"封单"(用户反馈的同类问题)
@@ -1686,12 +1684,8 @@ def check_seal_quality(date, time_point, force=False):
     for code, bc, buy, mv, amt in rows:
         if bc is None:
             continue
-        if code[:2] in ("30", "68"):
-            is_zt = bc >= 19.9
-        elif code[:1] in ("8", "4"):
-            is_zt = bc >= 29.9
-        else:
-            is_zt = bc >= 9.9
+        # 2026-09-29: 与 snapshot_at / 三时点分层统一到同一判据(含 920 段北交所 30%)
+        is_zt = is_zt_by_change(code, bc)
         buy = buy or 0
         if is_zt:
             n_zt += 1
@@ -2097,16 +2091,71 @@ def query_stock_snapshot(date, code):
     return {"name": name, "points": points}
 
 
-def _is_zt(code, bid_change):
-    """竞价涨停判断(按板块涨停幅度, 涨幅达到阈值视为涨停):
-    创业/科创(30/68) 20%, 北交所(8/4) 30%, 主板 10%"""
+def zt_limit_pct(code):
+    """涨停幅度(小数, 唯一真相源): 创业板/科创板 0.20, 北交所 0.30, 主板 0.10。
+
+    🔴 2026-09-29: 原三处内联判据都写 `code[:2] in ("30","68")` / `code[:1] in ("8","4")`
+      ⇒ **920 段(北交所新号段)首字符是 9, 会被判成主板 10%** ✗ —— 北交所涨停股
+      (30%) 会被当非涨停 ⇒ 封单被清零、三时点分层判错。此处一次判死, 全部调用方共用。
+    """
+    s = str(code or "").zfill(6)
+    if s[:3] in ("300", "301", "688", "689"):
+        return 0.20
+    if s[:3] == "920" or s[:1] in ("8", "4"):
+        return 0.30
+    return 0.10
+
+
+def zt_price(code, pre_close):
+    """涨停价(元, 交易所口径=四舍五入到分); pre_close 无效返回 None。"""
+    try:
+        pc = float(pre_close)
+    except (TypeError, ValueError):
+        return None
+    if pc <= 0:
+        return None
+    return round(pc * (1 + zt_limit_pct(code)), 2)
+
+
+def is_zt_by_price(code, close, pre_close, tol=0.001):
+    """**四舍五入涨停价式**(推荐判据): `close >= round(pre_close*(1+涨停幅度), 2)`。
+
+    ★ 2026-09-29 用生产数据回放对拍(近 120 日 × 4002 只 × 逐日):
+      · 主人原式 `pre_close*(1+p) − close < 0.01` 判 9239 次, 比本式**多判 28 次** ——
+        低价股假阳性: `000004 昨收0.26 → 收0.28 = +7.69%` 被当成涨停(1 分钱 ≈ 4%) ✗
+      · 旧阈值式(涨幅 ≥ 上限−0.1pp) 判 9111 次, **漏判 198 次(≈2.1%)** ——
+        涨停价四舍五入后涨幅可能不足上限: `000012 昨收3.64 → 收4.00 = +9.89%` 是真涨停 ✗
+      · 本式判 9211 次, 两者兼顾(与"交易所涨停价"定义一致)。
+    pre_close 缺失/无效 → 返回 None(调用方自行降级), 不猜。
+    """
+    lm = zt_price(code, pre_close)
+    try:
+        c = float(close)
+    except (TypeError, ValueError):
+        return None
+    if lm is None or c <= 0:
+        return None
+    return c >= lm - tol
+
+
+def is_zt_by_change(code, bid_change, pre_close=None, tol=0.001):
+    """按"涨幅"判涨停: 有 pre_close 时用四舍五入涨停价式, 缺失时退回旧阈值式。
+
+    退回式 = `bid_change >= 上限 − 0.1pp`(与历史行为一致, 不因缺 pre_close 而改变可用性,
+    但已知会漏判约 2% 的"四舍五入型涨停")。
+    """
     if bid_change is None:
         return False
-    if code[:2] in ("30", "68"):
-        return bid_change >= 19.9
-    if code[:1] in ("8", "4"):
-        return bid_change >= 29.9
-    return bid_change >= 9.9
+    lm = zt_price(code, pre_close) if pre_close else None
+    if lm is not None:
+        threshold = (lm / float(pre_close) - 1) * 100.0      # 由涨停价反推的最小涨幅
+        return float(bid_change) >= threshold - tol
+    return float(bid_change) >= zt_limit_pct(code) * 100 - 0.1
+
+
+def _is_zt(code, bid_change, pre_close=None):
+    """(兼容入口, 签名向后兼容) 竞价涨停判断 —— 见 `is_zt_by_change`。"""
+    return is_zt_by_change(code, bid_change, pre_close)
 
 
 # 榜单分层: 1=9:25 涨停(封死) / 2=9:20 涨停(9:25 回落) / 3=仅 9:15 涨停(9:20/9:25 回落)
