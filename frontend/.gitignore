@@ -12,3 +12,5 @@ __*
 .spotssr
 .admssr
 .boardssr
+# test:concept 的 SSR 产物(与 .navssr/.spotssr/.admssr/.boardssr 同类)
+.cmspec/
