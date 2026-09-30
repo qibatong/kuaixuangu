@@ -51,23 +51,12 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, shallowRef } from 'vue'
-import * as echarts from 'echarts/core'
-import { CanvasRenderer } from 'echarts/renderers'
-import { LineChart, BarChart, CandlestickChart } from 'echarts/charts'
-import {
-  GridComponent, TooltipComponent, DataZoomComponent, LegendComponent,
-  TitleComponent, MarkLineComponent, MarkAreaComponent
-} from 'echarts/components'
+// 2026-09-30 v4.11.83 (P2-2): echarts 注册收口到 utils/echarts.js(全仓共用一份, 见该文件注释)
+import echarts from '../utils/echarts'
 import { stockChart } from '../api/stocks'
 import StockDetailPanel from './StockDetailPanel.vue'
 import { fmtNum, fmtVol, fmtVolShort } from '../utils/chart'
 import { isIntradayNow } from '../utils/time'
-
-echarts.use([
-  CanvasRenderer, LineChart, BarChart, CandlestickChart,
-  GridComponent, TooltipComponent, DataZoomComponent, LegendComponent,
-  TitleComponent, MarkLineComponent, MarkAreaComponent
-])
 
 const props = defineProps({
   visible: { type: Boolean, default: false },

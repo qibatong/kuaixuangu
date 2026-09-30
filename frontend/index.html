@@ -26,7 +26,14 @@
 <meta name="application-name" content="快选">
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#c62828">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+<!-- 2026-09-30 v4.11.83 (P1-5): Font Awesome 4.7.0 原为 head 里的**同步外链** ⇒ render-blocking
+     (首屏必须等 CDN 返回才开始渲染)。改为 `media=print` + `onload` 切回 all 的**非阻塞**加载,
+     并补 preconnect(提前建连)。图标会稍后补上(可接受), 但不再卡首屏。
+     ⚠️ 要彻底去掉 CDN 依赖(断网/内网/被墙不再变方框), 需把 fa woff2(≈30KB) 放进 frontend/public/fonts/
+     并改用本地 @font-face —— 本机无外网取不到该字体文件, 待主人提供后一行接上(见 docs 计划文档)。 -->
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css"></noscript>
 </head>
 <body data-bg="dark">
 <script>

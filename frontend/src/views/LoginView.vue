@@ -81,7 +81,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   login as apiLogin,
@@ -300,6 +300,15 @@ async function doResetByPhone() {
     busy.value = false
   }
 }
+
+// 2026-09-30 v4.11.83 (P1-7 修复生命周期泄漏): 本文件是全站**唯一**没有清理定时器的组件 ——
+//   登录成功跳走(或被路由替换)后, 验证码倒计时 setInterval 与邀请成功 setTimeout 仍在跑。
+//   其余 9 处手写定时器(如 StockView.vue:422-429)都有清理, 这里补齐并作为后续范例:
+//   **新增 setInterval/setTimeout 必须在本文件或 usePolling 里成对清理**。
+onBeforeUnmount(() => {
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+  if (inviteTimer) { clearTimeout(inviteTimer); inviteTimer = null }
+})
 
 onMounted(() => {
   loadRegConfig()

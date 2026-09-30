@@ -76,6 +76,13 @@ function ok(name, cond, extra) {
 const countByClass = (html, cls) =>
   (html.match(new RegExp(`class="[^"]*\\b${cls}\\b[^"]*"`, 'g')) || []).length
 
+// 2026-09-30 v4.11.83: 文本类断言必须先剥掉**标签属性值**再判。
+//   本轮真踩: 「可信」表头新增了解释性 `title="…竞价强度 / 换手 / 竞价涨幅…"`,
+//   于是 `bid.html.includes('换手')` 把**属性里的解释词**当成了"竞价表头有换手列"
+//   ⇒ 4 条「竞价表头没有换手」断言集体误红(而可见文本根本没变)。
+//   与 §S9 已记录的「裸词被自己的注释误伤」同一类: 判据要落在**可见文本**上。
+const textOnly = (html) => String(html).replace(/\s[a-zA-Z_:@.-]+="[^"]*"/g, '')
+
 async function renderComp(component, props = {}, route = '/stocks') {
   const router = createRouter({ history: createMemoryHistory(), routes: ROUTES })
   const errors = []
@@ -113,12 +120,13 @@ async function main() {
   const spot = await renderComp(StockTable, { stocks: SPOT_STOCKS, strategy: 'spot' })
   ok('StockTable(spot) 渲染无异常/无 Vue 警告', spot.errors.length === 0, spot.errors.join(' | '))
   // v4.11.77: spot 增加「竞涨 / 竞额」
-  ok('spot 表头有「竞涨」', spot.html.includes('竞涨'))
-  ok('spot 表头有「竞额」', spot.html.includes('竞额'))
-  ok('spot 表头有「换手」', spot.html.includes('换手'))
+  const spotText = textOnly(spot.html)      // 见 textOnly 注释: 只判可见文本, 不判属性值
+  ok('spot 表头有「竞涨」', spotText.includes('竞涨'))
+  ok('spot 表头有「竞额」', spotText.includes('竞额'))
+  ok('spot 表头有「换手」', spotText.includes('换手'))
   // v4.11.77: spot 去掉「实体」「量比」
-  ok('🔴 spot 表头**没有**「实体」', !spot.html.includes('实体'), '实体是竞价语义(开→收), spot 必须去掉')
-  ok('🔴 spot 表头**没有**「量比」', !spot.html.includes('量比'), '主人要求精简, 量比不再占列')
+  ok('🔴 spot 表头**没有**「实体」', !spotText.includes('实体'), '实体是竞价语义(开→收), spot 必须去掉')
+  ok('🔴 spot 表头**没有**「量比」', !spotText.includes('量比'), '主人要求精简, 量比不再占列')
   ok('spot 渲染出数据行', countByClass(spot.html, 'col-turnover') >= 1
      || (spot.html.match(/<tbody/g) || []).length >= 1)
   // v4.11.77: spot 值必须真渲染竞涨/竞额(不只是表头)
@@ -150,11 +158,12 @@ async function main() {
   console.log('\n— S2. 对照: 同一组件在竞价下「竞涨 / 实体 / 竞额」（防止换成"两边都 spot"）')
   const bid = await renderComp(StockTable, { stocks: BID_STOCKS, strategy: 'auction', bidSealMap: {} })
   ok('StockTable(auction) 渲染无异常', bid.errors.length === 0, bid.errors.join(' | '))
-  ok('竞价表头有「竞涨」', bid.html.includes('竞涨'))
-  ok('竞价表头有「实体」(spot 已去掉)', bid.html.includes('实体'))
-  ok('竞价表头有「竞额」', bid.html.includes('竞额'))
-  ok('🔴 竞价表头**没有**「量比」', !bid.html.includes('量比'), '量比两态都已移除')
-  ok('🔴 竞价表头**没有**「换手」', !bid.html.includes('换手'), '换手是 spot 专属(竞价无实时换手)')
+  const bidText = textOnly(bid.html)        // 见 textOnly 注释(解释性 title 会含"换手/实体"等词)
+  ok('竞价表头有「竞涨」', bidText.includes('竞涨'))
+  ok('竞价表头有「实体」(spot 已去掉)', bidText.includes('实体'))
+  ok('竞价表头有「竞额」', bidText.includes('竞额'))
+  ok('🔴 竞价表头**没有**「量比」', !bidText.includes('量比'), '量比两态都已移除')
+  ok('🔴 竞价表头**没有**「换手」', !bidText.includes('换手'), '换手是 spot 专属(竞价无实时换手)')
 
   console.log('\n— S3. 非 spot 的一切取值都必须走竞价列（防"分支写反"）')
   // ⚠️ 本条最初只测「不传 prop」—— 变异测试证明它抓不到 `!== 'auction'` 这类写反:
@@ -162,17 +171,20 @@ async function main() {
   //    真正有区分度的是**第三个取值**(typo / 新增策略)。故补测之。
   // ★ v4.11.77: 区分点由「竞涨」改为「实体 / 换手」—— 竞涨两态都有, 不再有区分度。
   const noProp = await renderComp(StockTable, { stocks: BID_STOCKS })
-  ok('不传 strategy 时走竞价列(实体在场 / 换手不在)', noProp.html.includes('实体') && !noProp.html.includes('换手'),
+  const noPropText = textOnly(noProp.html)
+  ok('不传 strategy 时走竞价列(实体在场 / 换手不在)', noPropText.includes('实体') && !noPropText.includes('换手'),
      '默认值若不是 auction, 所有老调用点会静默换列')
-  ok('不传 strategy 时不出现 spot 专属「换手」', !noProp.html.includes('换手'))
+  ok('不传 strategy 时不出现 spot 专属「换手」', !noPropText.includes('换手'))
 
   const typo = await renderComp(StockTable, { stocks: BID_STOCKS, strategy: 'spott' })
+  const typoText = textOnly(typo.html)
   ok('🔴 strategy 取值非 spot(如 typo) 时仍走竞价列',
-     typo.html.includes('实体') && !typo.html.includes('换手'),
+     typoText.includes('实体') && !typoText.includes('换手'),
      '必须是"严格等于 spot 才换列", 不能写成"不等于 auction 就换列"')
   const other = await renderComp(StockTable, { stocks: BID_STOCKS, strategy: 'aipick' })
+  const otherText = textOnly(other.html)
   ok('🔴 strategy=其他策略(aipick) 时仍走竞价列',
-     other.html.includes('实体') && !other.html.includes('换手'))
+     otherText.includes('实体') && !otherText.includes('换手'))
 
   console.log('\n— S4. FilterPanel 的 spot 参数行为')
   const fp = await renderComp(FilterPanel)

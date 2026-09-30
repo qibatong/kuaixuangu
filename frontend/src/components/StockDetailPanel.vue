@@ -96,7 +96,8 @@ v-if="risk && risk.warn_level" class="sd-tag"
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { stockDetail, stockChart, fetchQuotes } from '../api/stocks'
-import * as echarts from 'echarts'
+// 2026-09-30 v4.11.83 (P2-2): 由全量 import 'echarts' 改为按需注册收口(见 utils/echarts.js)
+import echarts from '../utils/echarts'
 
 const props = defineProps({
   code: { type: String, default: '' },

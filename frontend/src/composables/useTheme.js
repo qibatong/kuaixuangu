@@ -49,13 +49,16 @@ const fontFam = ref('sans')       // 默认思源黑体 (2026-08-23 主人 A/B �
 // 用户首屏下载数百个 @font-face + 对应 woff(两字体合计约 22MB)。这里改为首次切换时
 // 才动态 import, Vite 会把它们拆成独立 chunk, 默认用户零开销。
 const _FONT_CSS = {
+  // 2026-09-30 v4.11.83 (P2-3 部分采纳): 可选字体只保留 **regular** 一个字重。
+  //   理由(与体检报告建议不同, 这里修正): 这两个字体的 woff2 本来就是**懒加载**(选了才下载),
+  //   对用户首屏零开销 ⇒ 整族删掉等于拿功能换部署体积, 不划算。但它们各自 196 个 unicode 子集、
+  //   粗体变体再翻一倍(serif 6.7MB→3.3MB、lxgw 9.4MB→4.7MB), 而这些**构造产物**每次部署都要传/占盘。
+  //   只留 regular: 部署体积 −8MB, 且粗体由浏览器**合成**(对装饰性可选字体完全够用), 功能不丢。
   lxgw: [
     () => import('lxgw-wenkai-webfont/lxgwwenkaimono-regular.css'),
-    () => import('lxgw-wenkai-webfont/lxgwwenkaimono-bold.css'),
   ],
   serif: [
     () => import('@fontsource/noto-serif-sc/400.css'),
-    () => import('@fontsource/noto-serif-sc/700.css'),
   ],
 }
 const _fontLoaded = {}

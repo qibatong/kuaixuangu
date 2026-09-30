@@ -59,7 +59,8 @@
 //    因此左栏「席位榜」的买/卖/只数 = **这 N 只票范围内**的聚合(不是全市场席位活跃度,
 //    那需要另一份数据源)。界面上如实标注。
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import * as echarts from 'echarts'
+// 2026-09-30 v4.11.83 (P2-2): 由全量 import 'echarts' 改为按需注册收口(见 utils/echarts.js)
+import echarts from '../utils/echarts'
 import { kplLhb, kplLhbDetail } from '../api/kpl'
 
 const TOP_N = 30          // 拉明细的个股数（净买入前 N 只）

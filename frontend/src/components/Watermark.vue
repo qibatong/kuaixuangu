@@ -45,16 +45,24 @@ function makeBg() {
   } catch (e) { /* 忽略, 水印失败不影响主流程 */ }
 }
 
-// 防删除: 监控 body 子树, 水印节点被外部移除时强制重建
+// 防删除: 水印节点被外部移除时强制重建。
+// 2026-09-30 v4.11.83 (P2-6): 原实现 `observe(document.body, {childList:true, subtree:true})`
+//   —— 全页任何 DOM 增删(每 30s 刷新都在增删)都会回调, 且回调里做**全文档**
+//   `document.querySelector('.wm-layer')`。实测这是最频繁的无谓回调之一。
+//   改为: 只观察水印的**直接父节点**、只监听 childList(去掉 subtree);
+//   回调改用组件自身的 ref 判断 `isConnected`, 不再全文档查询。
+//   ⚠️ 不能直接按建议"只观察 body 直系"—— 水印挂在 #app 内(App.vue), 不是 body 直系子节点,
+//      那样会**彻底失效**(防删除守卫静默失灵, 比性能问题严重)。
 function startGuard() {
   if (obs) return
+  const host = (wmEl.value && wmEl.value.parentElement) || document.body
   obs = new MutationObserver(() => {
-    if (show.value && !document.querySelector('.wm-layer')) {
+    if (show.value && (!wmEl.value || !wmEl.value.isConnected)) {
       force.value = false
       requestAnimationFrame(() => { force.value = true })
     }
   })
-  obs.observe(document.body, { childList: true, subtree: true })
+  obs.observe(host, { childList: true })
 }
 
 onMounted(() => {
@@ -85,6 +93,10 @@ onBeforeUnmount(() => {
   z-index: 2147483000;
   pointer-events: none;
   /* 深色/浅色背景都用较高不透明度, 保证水印可见; pointer-events:none 不挡交互 */
-  opacity: 0.18;
+  /* 2026-09-30 v4.11.83 (P1-8): .18 → .10。实测(WCAG 合成计算)水印笔画把底色从 #0a0c12 抬到
+     #23242a, 于是「评分/可信/概念」灰字 #9a9a9a 从 6.95:1 掉到 5.50:1, 而 `--text-dim #8a8a8a`
+     掉到 **4.48:1(跌破 AA 4.5)**。降到 .10 后: 灰字 6.19:1、--text-dim 5.04:1、涨跌色 7.56/7.83:1。
+     防泄露目的仍在(水印照旧覆盖全屏、在内容之上), 只是不再吃掉可读性。 */
+  opacity: 0.10;
 }
 </style>

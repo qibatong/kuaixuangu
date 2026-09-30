@@ -4,7 +4,8 @@
 
 <script setup>
 import { onMounted, ref, watch } from 'vue'
-import * as echarts from 'echarts'
+// 2026-09-30 v4.11.83 (P2-2): 由全量 import 'echarts' 改为按需注册收口(见 utils/echarts.js)
+import echarts from '../utils/echarts'
 import { kplLhbDetail } from '../api/kpl'
 
 const props = defineProps({ list: { type: Array, default: () => [] } })

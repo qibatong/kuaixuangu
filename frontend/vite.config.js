@@ -13,7 +13,18 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
-    sourcemap: false
+    sourcemap: false,
+    // 2026-09-30 v4.11.83 (P2-2): echarts(+zrender 依赖) 单独成块。
+    //   ① 名字稳定 ⇒ 该块内容变了才换 hash, 与业务代码互不牵连(缓存复用);
+    //   ② 配合 src/utils/echarts.js 的按需注册, 该块从 1.13MB 降到只含
+    //      line/bar/candlestick/sankey/tree + 7 个组件的体量。
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/echarts') || id.includes('node_modules/zrender')) return 'echarts'
+        }
+      }
+    }
   },
   server: {
     port: 5173,
