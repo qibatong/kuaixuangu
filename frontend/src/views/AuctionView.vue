@@ -1371,6 +1371,22 @@ polling = usePolling(async () => {
   min-width: 0;
 }
 .msd-col + .msd-col { border-left: 1px solid var(--border-soft); }
+
+/* 2026-09-30 v4.11.84 (P2-8): ≤430 小屏改「**每日一卡**」纵向排列。
+   此前 `.msd-grid` 的 `min-width = 4 × 240px = 960px` ⇒ 390 屏上必然横向滚动，
+   一屏只看得到半个交易日，还得左右滑着比对 —— 与"多日对比"的本意相反。
+   改单列后：**一张卡 = 一个交易日**（卡内 9:25/9:20/9:15 三列仍横排，卡宽 = 屏宽，无需横滑），
+   上下滑动看历史；列与列之间由「左边框」换成「上边框」分隔。 */
+@media (max-width: 430px) {
+  .msd-grid {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;                                   /* 关键: 解除 960px 最窄宽 ⇒ 不再强制横滑 */
+  }
+  .msd-col + .msd-col {
+    border-left: none;
+    border-top: 1px solid var(--border-soft);
+  }
+}
 .msd-head {
   padding: 3px 4px 4px;          /* 原 4px 4px 5px: 表头下压 2px */
   background: linear-gradient(180deg, #b3271f, #8e1f1f);

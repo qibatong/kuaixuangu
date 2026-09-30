@@ -218,8 +218,10 @@ function move(d) {
   const cur = activeIdx.value
   activeIdx.value = ((cur < 0 ? (d > 0 ? -1 : 0) : cur) + d + n) % n
   nextTick(() => {
-    const el = panelRef.value && panelRef.value.$el
-    const row = el && el.querySelector('.ss-row.is-active')
+    // 2026-09-30 v4.11.84 (P2-5): 不再用「面板内全局 querySelector('.ss-row.is-active')」——
+    //   面板复用/页面上另有高亮行时会定位到别的元素。改为按 activeIdx 取子组件暴露的行节点。
+    const els = (panelRef.value && panelRef.value.rowEls) || []
+    const row = els[activeIdx.value]
     // 面板内的 ul 才是滚动容器，block:'nearest' 只滚它，不动整页
     if (row && row.scrollIntoView) row.scrollIntoView({ block: 'nearest' })
   })

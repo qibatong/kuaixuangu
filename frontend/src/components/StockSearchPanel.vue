@@ -54,6 +54,7 @@
     <ul v-else-if="rows.length" class="ss-list" role="listbox" aria-label="搜索结果">
       <li v-for="(r, i) in rows" :key="r.code">
         <button
+          :ref="(el) => setRowEl(el, i)"
           class="ss-row"
           :class="{ 'is-active': i === activeIdx }"
           type="button"
@@ -97,7 +98,14 @@ defineEmits(['pick', 'retry', 'close', 'input'])
 // 供容器在手机端点开面板后自动聚焦（键盘弹出即可直接输入）
 const inputEl = ref(null)
 function focus() { inputEl.value && inputEl.value.focus() }
-defineExpose({ focus })
+// 2026-09-30 v4.11.84 (P2-5): 暴露行元素(按索引), 供父组件键盘上下键时 scrollIntoView。
+//   原先父组件用 `panel 内 querySelector('.ss-row.is-active')` **全局查询**定位高亮行 ——
+//   面板复用时(或页面上存在别的高亮行)会定位到别人的元素。改成按 activeIdx 取本组件的节点。
+const rowEls = ref([])
+function setRowEl(el, i) {
+  if (el) rowEls.value[i] = el
+}
+defineExpose({ focus, rowEls, setRowEl })
 </script>
 
 <style scoped>
