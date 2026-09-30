@@ -163,6 +163,18 @@ def api_stocks_spot(request: Request, uid: int = Depends(get_uid)):
         except Exception as e:                             # noqa: BLE001
             log.warning("spot 9_25 定格读取失败(竞涨/竞额降级为 -) err=%s", str(e)[:120])
 
+        # ★ 2026-10-01 竞价链路 P2-6(清单 3.2): 透出「竞涨/竞额」两列所用定格的**来源日**。
+        #   用途: 非交易时段/盘前会按设计**回退上一交易日**定格(铁律"零值不回退昨日"只管交易日),
+        #   而用户从名单本身分辨不出这一点 —— 反复出现"刷出来是不是昨天的数据"这类误读。
+        #   🔴 与 load_day_bid_change/amt **同源口径**(三者都走 _latest_snapshot_date),
+        #     故标注的日期与实际取到的值**不可能不一致**(不另算一套判据)。
+        #   当日已有 9_25 行 ⇒ 等于今天, 前端不显示标注(正常盘中零干扰)。
+        bid_date = ""
+        try:
+            bid_date = auction_snapshot.freeze_source_date() or ""
+        except Exception as e:                             # noqa: BLE001
+            log.warning("spot 定格来源日读取失败(仅影响标注) err=%s", str(e)[:120])
+
         pairs = _spot_rows_from_raw(raw, f, zt_map, None,
                                     bid_chg_map=bid_chg_map, bid_amt_map=bid_amt_map)
         scored = []
@@ -206,6 +218,7 @@ def api_stocks_spot(request: Request, uid: int = Depends(get_uid)):
             "list": lst, "count": len(lst),
             "before930": before930,
             "dataTime": int(time.time()),
+            "bidDate": bid_date,          # 「竞涨/竞额」两列定格来源日(YYYY-MM-DD); "" = 未知
             "degraded": False,
             "stats": dict(outcome.stats),
         })

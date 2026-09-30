@@ -55,3 +55,75 @@ def test_weight_of_the_change_is_bounded():
     夜间(20:00~08:30) 12.5 小时必须全 False ⇒ 每天最多约 11.5 小时内按 20min 一轮。"""
     for hh in list(range(0, 9)) + list(range(21, 24)):
         assert kpl.kpl_replay_prewarm_active(_ts_cst(2026, 9, 28, hh, 15)) is False, hh
+
+
+# ============================================================================
+# 2026-10-01 竞价链路 P2-7（清单 1.5）: 预热范围**可配**
+#   动机: 主人想回看"更早的历史日", 而原先固定 5 天 ⇒ 更早的日期首次访问冷取数 4.8~7.4s。
+#   风险面: 每天 = 4 个全市场猫爪接口 + 1.2s, 无上限会吃配额/拉长每轮 ⇒ 必须夹取。
+# ============================================================================
+from app.services import settings as _settings   # noqa: E402
+
+_DAYS_KEY = kpl.KPL_REPLAY_DAYS_KEY
+
+
+def _set_days(v):
+    _settings.set(_DAYS_KEY, v)
+
+
+def test_replay_days_default_is_five():
+    """默认 5(与旧行为完全一致 —— 不配就是原样, 避免"改了配置才发现出网翻倍")"""
+    _set_days(kpl._KPL_REPLAY_DAYS)
+    assert kpl.kpl_replay_days() == 5
+    assert kpl._KPL_REPLAY_DAYS == 5
+
+
+def test_replay_days_configurable():
+    """可放大: 主人要回看更早的历史日时, 改 settings 即可(无需重启)"""
+    try:
+        _set_days(10)
+        assert kpl.kpl_replay_days() == 10
+        _set_days(20)
+        assert kpl.kpl_replay_days() == 20
+    finally:
+        _set_days(kpl._KPL_REPLAY_DAYS)
+
+
+def test_replay_days_is_clamped_on_both_ends():
+    """夹取(照本仓既有范式 max(1, min(MAX, n))): 0/负数→1, 超大→20, 非数字→默认 5
+
+    🔴 这条是**安全阀**: 配錯的值绝不能把上游出网量放大到失控。
+    """
+    cases = ((0, 1), (-3, 1), (1, 1), (999, kpl._KPL_REPLAY_DAYS_MAX),
+             (21, kpl._KPL_REPLAY_DAYS_MAX), ("abc", 5), (None, 5), (3.9, 3))
+    try:
+        for bad, want in cases:
+            _set_days(bad)
+            assert kpl.kpl_replay_days() == want, "输入 %r 应为 %d, 实际 %d" % (
+                bad, want, kpl.kpl_replay_days())
+    finally:
+        _set_days(kpl._KPL_REPLAY_DAYS)
+
+
+def test_replay_dates_uses_settings_and_is_descending_unique():
+    """`_kpl_replay_dates()` 缺省走 settings; 返回**降序且不重复**的真实交易日"""
+    try:
+        _set_days(3)
+        ds = kpl._kpl_replay_dates()
+        assert len(ds) == 3, ds
+        assert ds == sorted(ds, reverse=True), ds
+        assert len(set(ds)) == 3, ds
+        # 显式传参仍优先(供测试/调试), 不读 settings
+        assert len(kpl._kpl_replay_dates(2)) == 2
+    finally:
+        _set_days(kpl._KPL_REPLAY_DAYS)
+
+
+def test_cost_bound_of_max_days():
+    """把"收益/代价"钉成断言: 即使配到上限, 出网量也远低于猫爪日配额(80000)
+
+    每轮 ≈ 天数 × 4 次调用(猫爪 auc_kp/daily_auc_detail/daily_auc/screening),
+    每天 24h/20min = 72 轮。
+    """
+    rounds_per_day = 24 * 3600 // kpl._KPL_REPLAY_PERIOD
+    assert kpl._KPL_REPLAY_DAYS_MAX * 4 * rounds_per_day < 80000

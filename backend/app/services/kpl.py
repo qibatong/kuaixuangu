@@ -542,7 +542,9 @@ def fetch_market_breadth():
 #       预热线程(_kpl_prewarm_once)每 12s 兜底刷新, 消除冷窗口。
 # 注: 预热周期(12s) < TTL(30s) 时, 重算只跑第 1)3) 步 — 第 2) 步命中
 #     fetch_market_brief 的 300s 跨进程缓存, 不会每 12s 拉全市场。
-MARKET_BRIEF_TTL = 30
+# ★ 2026-10-01 P2-6(清单 3.3): 30 → 60 对齐前端轮询(MarketView.tick 60s, 仅盘中)。
+#   原 30 < 60 ⇒ 每次 tick 都重算整段 payload(缓存 100% 未命中), 抬到 60 后同频。
+MARKET_BRIEF_TTL = 60
 _MB_PAYLOAD_KEY = "market_brief_payload"
 
 
@@ -975,7 +977,7 @@ def fetch_board_stocks(plate_id, date=None, st=30):
       前端本轮给「板块题材」右栏成分股加了 60s 轮询 ⇒ 若不加缓存, 每个客户端
       盘中约 330 次/日 × N 客户端, 会线性吃开盘啦 **8 万/日付费配额**。
       按本仓既有 `_cached` 范式加 TTL(见 broken_zt 同款):
-        · 实时(st 未指定日期) → KPL_BOARD_STOCKS_TTL(默认 30s), 与 KPL_BOARD_TTL 对齐,
+        · 实时(st 未指定日期) → KPL_BOARD_STOCKS_TTL(默认 60s), 与 KPL_BOARD_TTL 对齐,
           左右栏同频刷新, 不会"左边新右边旧"
         · 历史(date 显式指定) → KPL_BOARD_STOCKS_HIST_TTL(默认 1800s) —— 历史数据
           **永不变化**, 长 TTL 避免反复回读同一历史日
@@ -3962,7 +3964,8 @@ def fetch_kpl_doc90(**extra):
         base = {"a": "GetPianLiZhi_Index", "c": "StockBidYiDong", "apiv": "w44"}
         base.update(extra)
         return _call("default", base)
-    # 2026-09-04: 无参(页面轮询)走共享缓存 KPL_YIDONG_TTL(15s); 原无缓存每请求真拉开盘啦(avg0.96s)
+    # 2026-09-04: 无参(页面轮询)走共享缓存; 原无缓存每请求真拉开盘啦(avg0.96s)
+    # 2026-10-01 P2-6: TTL 15s → 30s(对齐 YidongView 30s 轮询 + 降低预热循环的重建频次)
     if extra:
         return _load()
     return _cached("yidong_doc90", config.KPL_YIDONG_TTL, _load)
@@ -4822,7 +4825,9 @@ def fill_close_change_from_kline(lst, date):
 #       KPL sem(limit=3) 排队 → 首屏 1.7-2.0s(生产 nginx maxRt 锁死 1.71s)
 # 修复: 交易日 9:15-15:05 后台线程每 12s 预拉首屏 key 写缓存(single-flight 已保证
 #       同刻只 1 个 loader), 用户请求路径 100% 命中缓存(<50ms) 不再打外网
-_KPL_PREWARM_PERIOD = 12        # 秒; < KPL_YIDONG_TTL(15) 保证常新鲜
+# 注: 2026-10-01 KPL_YIDONG_TTL 15→30(P2-6 对齐前端 30s 轮询)后, 本周期**仍 < TTL**
+#     ⇒ 缓存始终是热的(用户任何时刻来都是命中), 且上游重建频次降到每 ~36s 一次。
+_KPL_PREWARM_PERIOD = 12        # 秒; < KPL_YIDONG_TTL(30) 保证常新鲜
 _kpl_prewarm_started = False    # 幂等: 重复 startup 不叠线程
 
 
@@ -4916,8 +4921,16 @@ def start_kpl_prewarm():
 # ⚠️ 必须挂 web 进程(main.py startup) 而非 kx-worker: 与首屏预热同理 —— 结果层/上游层
 #    虽在 kv_cache(跨进程), 但接口层还有 fetcher._quote_map_cache(进程级), worker 预热不到。
 _KPL_REPLAY_PERIOD = 1200       # 秒; < 结果层 TTL(1800) 且整除上游 TTL(3600)
-_KPL_REPLAY_DAYS = 5            # 预热最近 N 个交易日
+_KPL_REPLAY_DAYS = 5            # 预热最近 N 个交易日的**默认值**(可被 settings 覆盖)
 _KPL_REPLAY_GAP = 1.2           # 两次调用之间的间隔(秒)
+# ★ 2026-10-01 竞价链路 P2-7(清单 1.5): 预热范围改**可配**。
+#   动机: 主人想回看"接入猫爪以前/更早"的历史日, 而原先固定只焐最近 5 个交易日 ⇒ 更早的日期
+#   首次访问要冷取数 4.8~7.4s(实测), 观感是"回看很慢"。现在 settings 里配 kpl_replay_days 即可放大。
+#   🔴 必须夹上限: 每天 = 4 个全市场猫爪接口 + 1.2s 间隔(见下方 _KPL_REPLAY_GAP 注释),
+#      无上限放大 = 直接吃配额(猫爪日配额 80000) 且拉长每轮耗时。
+#      每轮成本 ≈ 天数 × 4 次调用; 20 天档 ≈ 80 次/轮 × 72 轮/天 ≈ 5760 次/天(安全)。
+KPL_REPLAY_DAYS_KEY = "kpl_replay_days"
+_KPL_REPLAY_DAYS_MAX = 20
 _KPL_REPLAY_WINDOW = (8 * 60 + 30, 20 * 60)    # 服务窗口 08:30~20:00(北京时间, 两端含)
 _KPL_REPLAY_SKIP = (9 * 60 + 5, 9 * 60 + 40)   # 竞价时段跳过(上游此时最紧张)
 _kpl_replay_started = False     # 幂等: 重复 startup 不叠线程
@@ -4944,8 +4957,28 @@ def kpl_replay_prewarm_active(now_ts):
     return not (_KPL_REPLAY_SKIP[0] <= hm <= _KPL_REPLAY_SKIP[1])
 
 
-def _kpl_replay_dates(n=_KPL_REPLAY_DAYS):
-    """最近 n 个交易日(从昨天往前; 项目纪律: 判"哪一天"必须走交易日历)"""
+def kpl_replay_days():
+    """预热天数(可配): settings[`kpl_replay_days`] → 夹取 [1, 20]; 读不到/非法 ⇒ 默认 5。
+
+    夹取范式照本仓既有先例(bid_seal_daily.MAX_DAYS / api/stats.py 的 days 夹取):
+    `max(1, min(MAX, int(v or DEFAULT)))` —— 配 0/负数/超大/非数字 都不会把出网量放大到失控。
+    单独抽成函数是为了**可断言**(测试直接打这个函数, 不必跑线程)。
+    """
+    try:
+        from . import settings as _settings_svc
+        raw = _settings_svc.get(KPL_REPLAY_DAYS_KEY, _KPL_REPLAY_DAYS)
+        n = int(raw)
+    except Exception:                                       # noqa: BLE001
+        return _KPL_REPLAY_DAYS
+    return max(1, min(_KPL_REPLAY_DAYS_MAX, n))
+
+
+def _kpl_replay_dates(n=None):
+    """最近 n 个交易日(从昨天往前; 项目纪律: 判"哪一天"必须走交易日历)
+
+    n 缺省 ⇒ 取 `kpl_replay_days()`(settings 可配 + 夹取)。
+    """
+    n = kpl_replay_days() if n is None else n
     out = []
     day = trade_calendar.bj_date()
     for _ in range(n):
@@ -5016,4 +5049,4 @@ def start_kpl_replay_prewarm():
                          name="kpl-replay-prewarm")
     t.start()
     log.info("KPL回看预热线程已启动(每%ds预热最近%d个交易日的竞价抢筹)",
-             _KPL_REPLAY_PERIOD, _KPL_REPLAY_DAYS)
+             _KPL_REPLAY_PERIOD, kpl_replay_days())

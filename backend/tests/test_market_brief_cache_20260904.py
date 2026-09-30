@@ -64,9 +64,14 @@ def test_market_brief_payload_only_computed_once(monkeypatch):
     assert a == b and a["market"]["stockCount"] == 5556
 
 
-def test_market_brief_payload_ttl_is_30s():
-    """缓存新鲜度 30s(数据低频: 分时涨跌家数 / 两市成交额)"""
-    assert kpl.MARKET_BRIEF_TTL == 30
+def test_market_brief_payload_ttl_matches_polling():
+    """缓存新鲜度 **60s**(2026-10-01 P2-6 由 30 → 60)
+
+    原判据不变(数据低频: 分时涨跌家数 / 两市成交额, 本就无需高频重算), 只是把 TTL 抬到与
+    **前端轮询同频**(`MarketView.tick()` = 60s, 仅盘中): 原 30 < 60 ⇒ 每次轮询都必然穿透
+    重算, 那句"缓存 30s"形同虚设。用户可见新鲜度不变(额外陈旧量 ≤ 1 个轮询周期)。
+    """
+    assert kpl.MARKET_BRIEF_TTL == 60
 
 
 def test_market_brief_api_ok_and_fields(client, first_user, monkeypatch):

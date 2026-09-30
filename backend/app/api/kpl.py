@@ -248,7 +248,8 @@ def api_kpl_market_brief(request: Request, uid: int = Depends(get_uid)):
     前端据此展示 '两市总量 + 较昨日同时' 与 '涨跌家数分布'
     2026-09-04 缓存: 生产实测(uid=49, 14:40-14:50) 冷请求 1174ms 为首屏最慢接口,
     且此前完全无结果缓存。聚合逻辑已下沉到 services/kpl.py
-    build_market_brief_payload, 整段结果走跨进程缓存 30s + single-flight 防击穿
+    build_market_brief_payload, 整段结果走跨进程缓存 60s(2026-10-01 P2-6 对齐前端 60s 轮询)
+    + single-flight 防击穿
     → 命中 <50ms; 预热线程每 12s 兜底刷新消除冷窗口"""
     payload = kpl.fetch_market_brief_payload()
     if not payload:      # loader 异常兜底: 直接算一次(不写缓存), 保证接口不返空

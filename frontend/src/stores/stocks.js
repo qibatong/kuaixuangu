@@ -80,6 +80,18 @@ export const useStocksStore = defineStore('stocks', {
     spotAvailable: null,
     // 盘中名单的数据时刻(秒级时间戳, 来自后端 dataTime)
     spotDataAt: 0,
+    // ★ 2026-10-01 竞价链路 P2-6(清单 3.2): 「竞涨/竞额」两列所用定格的**来源日**(YYYY-MM-DD, 后端 bidDate)。
+    //   非交易时段/盘前按设计**回退上一交易日**定格(铁律"零值不回退昨日"只管交易日),
+    //   用户从名单本身分辨不出 ⇒ 前端据此标注"竞涨/竞额定格 MM-DD", 免得被误读成"今天的名单"。
+    spotBidDate: '',
+
+    /** 「竞涨/竞额」定格来源日: **只在后端真的下发该字段时才更新**。
+     *  两个 spot 入口(/api/stocks_spot 与 /api/stocks?strategy=spot)读的是同一份定格 loader
+     *  (_latest_snapshot_date), 来源日是**数据本身的属性**而非某个接口的属性 ⇒
+     *  "缺字段就保留上次已知值"比"清空"更准确(清空会让标注时有时无)。 */
+    syncSpotBidDate(data) {
+      if (data && data.bidDate !== undefined) this.spotBidDate = data.bidDate || ''
+    },
     // 全局默认筛选参数(管理员后台可调), 未自定义偏好的用户使用
     globalDefaults: null,
     // 盘中筛选条件
@@ -184,6 +196,7 @@ export const useStocksStore = defineStore('stocks', {
         this.spotStocks = (data.list || []).slice()
         this.spotCached = true
         this.spotDataAt = data.dataTime || Math.floor(Date.now() / 1000)
+        this.syncSpotBidDate(data)
         this.spotAvailable = true
         if (!silent) showToast('✅ 实时动态选股完成（' + this.spotStocks.length + ' 只）', 'success')
         return this.spotStocks.length
@@ -625,6 +638,7 @@ export const useStocksStore = defineStore('stocks', {
         this.spotStocks = (data.list || []).slice()
         this.spotCached = true
         this.spotDataAt = data.dataTime || Math.floor(Date.now() / 1000)
+        this.syncSpotBidDate(data)
         this.spotAvailable = true
         this.isDataCached = true          // 保留原语义: "本次取数已完成", 不表示这里存的是竞价名单
         this.before930 = data.before930
@@ -844,6 +858,7 @@ export const useStocksStore = defineStore('stocks', {
         this.spotStocks = (data.list || []).slice()
         this.spotCached = true
         this.spotDataAt = data.dataTime || Math.floor(Date.now() / 1000)
+        this.syncSpotBidDate(data)
         this.spotAvailable = true
         this.isDataCached = true
         this.before930 = data.before930

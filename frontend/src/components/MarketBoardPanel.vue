@@ -165,7 +165,7 @@ watch(() => props.src, () => { if (current.value) loadStocks(current.value) })
 //     ② 非历史回看(!props.date)
 //     ③ 盘中(isIntradayNow, 9:30-15:00 工作日)
 //   正常交易时段 60s 一次; 非盘中/历史模式自动停。
-//   ⚠️ 后端已给两个成分股接口加 30s TTL 缓存, 故这是"便宜"的轮询:
+//   ⚠️ 后端已给两个成分股接口加 60s TTL 缓存(2026-10-01 由 30 → 60, 与本组件 60s 轮询同频), 故这是"便宜"的轮询:
 //      多客户端不会线性放大上游请求(见 kpl.fetch_board_stocks 注释)。
 usePolling(() => {
   if (!current.value) return

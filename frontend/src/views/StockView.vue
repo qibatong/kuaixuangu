@@ -143,7 +143,7 @@
               <!-- 盘中数据的时效提示: spot 每次请求都是"此刻", 必须让用户知道数据有多新 -->
               <div class="spot-notice">
                 <i class="fa fa-bolt"></i>
-                <span>实时动态选股名单 · 共 <b>{{ stocks.spotStocks.length }}</b> 只 · 数据时刻 <b>{{ spotTimeStr }}</b>（每次「应用」重新扫描，无需等 9:26 定格）</span>
+                <span>实时动态选股名单 · 共 <b>{{ stocks.spotStocks.length }}</b> 只 · 数据时刻 <b>{{ spotTimeStr }}</b><template v-if="spotBidLabel"> · 竞涨/竞额定格 <b>{{ spotBidLabel }}</b></template>（每次「应用」重新扫描，无需等 9:26 定格）</span>
               </div>
               <StockTable :stocks="stocks.spotStocks" strategy="spot" />
             </template>
@@ -191,7 +191,7 @@ import { trackUsage } from '../api/activity'
 import { showToast } from '../utils/toast'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
 // 2026-09-05: isBefore930 随「锁定」按钮移除后本视图不再使用, 从 import 中去掉
-import { bjDateTimeStr, isIntradayNow, isMemberOnlyTime } from '../utils/time'
+import { bjDateTimeStr, isIntradayNow, isMemberOnlyTime, todayBj } from '../utils/time'
 // 2026-09-30: tab→引擎 映射收敛为**唯一纯函数**(可单测, 见 utils/strategy.test.js)。
 //   此前映射直接内联在本文件里(白名单式, 漏掉 'auction' 自己) ⇒ 见下方 switchTab 的说明。
 import { strategyForTab } from '../utils/strategy'
@@ -233,6 +233,15 @@ const { refreshYidongCodes } = useYidongMonitor()
 const leftTab = ref('auction')
 
 // 盘中名单的数据时刻(秒 → HH:MM:SS, 北京时间)。spot 每次请求都是"此刻", 必须显式告知。
+// 2026-10-01 P2-6(清单 3.2): 「竞涨/竞额」两列的**定格来源日**(后端 bidDate)。
+//   **只在不是今天**时才显示 —— 正常盘中(当日已有 9_25 行)不显示, 零干扰;
+//   盘前/非交易时段按设计回退上一交易日定格时才提示, 解决"页面是不是昨天的"这类误读。
+const spotBidLabel = computed(() => {
+  const d = stocks.spotBidDate
+  if (!d || d === todayBj()) return ''
+  return String(d).slice(5)          // YYYY-MM-DD → MM-DD
+})
+
 const spotTimeStr = computed(() => {
   if (!stocks.spotDataAt) return '--:--:--'
   const d = new Date(stocks.spotDataAt * 1000)

@@ -123,19 +123,32 @@ KPL_HOSTS = {
     "q": "apphq.longhuvip.com",               # 别名: 自动生成段用的 host_key
 }
 KPL_BID_TTL = int(os.environ.get("KPL_BID_TTL", "30"))        # 竞价委买额缓存新鲜度(秒)
+
+# ★ 2026-10-01 竞价链路 P2-6(清单 3.3): **轮询间隔与缓存 TTL 对齐**
+#   判据(实测·静态核对): 只有"**前端轮询间隔 > 后端 TTL**"才是真浪费 —— 那种情况下每次
+#   轮询都必然穿透到上游(缓存 100% 未命中)。反之(TTL > 间隔)只是拿到同一份缓存, 廉价。
+#   本次把三处"必然穿透"的 TTL 抬到与前端轮询同频 ⇒ 上游调用近乎减半, 而**用户可见新鲜度不变**
+#   (原本也只能看到轮询那一刻的数据, 额外陈旧量 ≤ 一个轮询周期)。
+#   竞价窗口(09:15~09:28)因此腾出的配额正是清单 §〇 要的"给最贵的一段让路"。
 KPL_BID_ST = os.environ.get("KPL_BID_ST", "200")              # Type4 涨停委买额榜条数(200=涨停榜, 实测更大值是否生效)
 KPL_SENTI_TTL = int(os.environ.get("KPL_SENTI_TTL", "60"))    # 情绪值缓存新鲜度(秒)
 KPL_LADDER_TTL = int(os.environ.get("KPL_LADDER_TTL", "60"))  # 连板梯队缓存新鲜度(秒)
-KPL_BOARD_TTL = int(os.environ.get("KPL_BOARD_TTL", "30"))    # 板块强度缓存新鲜度(秒)
-KPL_YIDONG_TTL = int(os.environ.get("KPL_YIDONG_TTL", "15"))  # 异动(偏离/重点监控/热门)缓存新鲜度(秒); 2026-09-04 加: 原无缓存每请求拉开盘啦 avg0.96s
+#   板块强度: 消费方 = MarketView 的 tick()(60s, 仅盘中) + MarketBoardPanel(60s)
+#   ⇒ 30s 是错配(每次轮询必穿透), 抬到 60s 与轮询同频。
+KPL_BOARD_TTL = int(os.environ.get("KPL_BOARD_TTL", "60"))    # 板块强度缓存新鲜度(秒)
+#   异动(偏离/重点监控/热门): 消费方 = YidongView(30s) + 预热循环(_KPL_PREWARM_PERIOD=12s)
+#   15s 的隐患: 预热循环每 12s 打一次 ⇒ 命中率低、重建频繁(实测: 15s 档每 ~24s 就重建一次)。
+#   抬到 30s 后重建降到每 ~36s 一次(-33% 上游), 且**仍与前端 30s 轮询同频**, 观感无变化。
+KPL_YIDONG_TTL = int(os.environ.get("KPL_YIDONG_TTL", "30"))  # 异动(偏离/重点监控/热门)缓存新鲜度(秒); 2026-09-04 加: 原无缓存每请求拉开盘啦 avg0.96s
 KPL_MARKET_SCLN_TTL = int(os.environ.get("KPL_MARKET_SCLN_TTL", "60"))  # 实时市场量能缓存(秒); 2026-09-13 加: 盘中量能 60s 新鲜度足够, 且防打爆 8 万/日配额
 # 2026-09-28 v4.11.79 加: 板块成分股缓存新鲜度(秒).
 #   背景: fetch_board_stocks 原**无缓存**, 每次点板块/每次轮询都真打开盘啦;
 #   前端本轮加轮询后, N 个客户端 × 盘中 ~330 次/客户端/日 会线性吃 8 万/日 配额。
 #   加 30s 缓存后: 无论多少客户端, 单个板块每 30s 最多 1 次上游 ⇒ 一个交易日的
 #   下游请求被压到 (240min×2) × 板块数 量级, 比"每客户端直打上游"省两个数量级。
-#   30s 与 KPL_BOARD_TTL(板块强度) 对齐 —— 左右栏同频刷新, 不会出现"左边新右边旧"。
-KPL_BOARD_STOCKS_TTL = int(os.environ.get("KPL_BOARD_STOCKS_TTL", "30"))
+#   与 KPL_BOARD_TTL(板块强度) **同步抬到 60s** —— 左右栏同频刷新, 不会出现"左边新右边旧"。
+#   (原 30s: 面板本身 60s 轮询 ⇒ 每次都穿透, 注释里"这是便宜的轮询"当时并不成立)
+KPL_BOARD_STOCKS_TTL = int(os.environ.get("KPL_BOARD_STOCKS_TTL", "60"))
 # 历史日成分股缓存: 历史数据**永不变化**, 给长 TTL(30 分钟)避免反复回读同一历史日。
 KPL_BOARD_STOCKS_HIST_TTL = int(os.environ.get("KPL_BOARD_STOCKS_HIST_TTL", "1800"))
 

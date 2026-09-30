@@ -472,3 +472,49 @@ def test_spot_route_wires_snapshot_maps_into_payload(client, first_user):
     assert by["002852"]["bidChange"] == pytest.approx(1.11), \
         "竞涨串票(取了别的票的值)"
     assert by["002852"]["bidAmt"] == pytest.approx(129.08)
+
+
+def test_spot_payload_exposes_bid_source_date(client, first_user, monkeypatch):
+    """★ 2026-10-01 竞价链路 P2-6(清单 3.2): 响应必须下发 `bidDate` = 「竞涨/竞额」定格**来源日**
+
+    为什么要透出: 非交易时段/盘前按设计**回退上一交易日**定格(铁律"零值不回退昨日"只管交易日),
+    用户从名单本身分辨不出这一天差 ⇒ 前端据此常驻标注"竞涨/竞额定格 MM-DD"
+    (当日已有 9_25 行时 = 今天, 前端不显示标注, 零干扰)。
+
+    本条钉两件事:
+      ① `bidDate` 确实透到响应体, 且取自 `auction_snapshot.freeze_source_date()`
+         (与两个定格 loader **同源**, 故标注的日期与实际取到的值不可能不一致);
+      ② 🔴 **best-effort**: 来源日读失败只丢标注,**绝不阻塞选股**(名单照常返回)。
+    """
+    from app.services import auction_snapshot as aus
+    import app.services.fetcher as fetcher_mod
+    token, _, _ = first_user
+
+    raw = [{"f12": "600000", "f14": "浦发银行", "f2": 20.0, "f3": 5.0, "f18": 19.05,
+            "f8": 5.0, "f10": 2.0, "f117": 50e8, "f100": "银行"}]
+    monkeypatch.setattr(fetcher_mod, "ensure_spot_cache", lambda a, fs, b: (raw, None))
+    monkeypatch.setattr(fetcher_mod, "fetch_zt_pool", lambda: {})
+    monkeypatch.setattr(aus, "load_day_bid_change", lambda date=None: {"600000": 2.1})
+    monkeypatch.setattr(aus, "load_day_bid_amt", lambda date=None: {"600000": 8500.0})
+
+    # ① 正常路径
+    monkeypatch.setattr(aus, "freeze_source_date", lambda date=None: "2026-09-30")
+    r = client.get("/api/stocks_spot?action=filter&chgFloor=-11&chgGt=11",
+                   headers={"Authorization": "Bearer " + token})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d.get("ok") is True, d
+    assert d.get("bidDate") == "2026-09-30", "bidDate 未透出或取错: %r" % d.get("bidDate")
+    assert d.get("list"), "透出来源日不应影响名单"
+
+    # ② 来源日读失败 ⇒ 只丢标注(空串), 名单与 ok 照常
+    def _boom(date=None):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(aus, "freeze_source_date", _boom)
+    r2 = client.get("/api/stocks_spot?action=filter&chgFloor=-11&chgGt=11",
+                    headers={"Authorization": "Bearer " + token})
+    assert r2.status_code == 200, r2.text
+    d2 = r2.json()
+    assert d2.get("ok") is True and d2.get("bidDate") == "" and d2.get("list"), \
+        "来源日读失败必须降级为\"无标注\", 不能影响选股: %s" % d2

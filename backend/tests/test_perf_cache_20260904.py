@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """2026-09-04 性能缓存回归(主人反馈首页加载慢深查后修复):
 1. yidong 三接口 fetch_kpl_doc90/doc108/doc109/pianli_hot 原无缓存, 每请求真拉开盘啦
-   外网(nginx 实测 avg urt 0.96s) → 无参场景走 _cached(KPL_YIDONG_TTL 15s)
+   外网(nginx 实测 avg urt 0.96s) → 无参场景走 _cached(KPL_YIDONG_TTL 30s,
+   2026-10-01 P2-6 由 15 抬到 30 以对齐 YidongView 的 30s 轮询)
 2. stats/kpl api 曾硬编码 spotMap fs "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", 与预热线程
    market_fs(["hs","cyb","kcb"]) 顺序不同 = 缓存 key 不同 → 每次 miss 锁内拉全市场 1-2s
    → 统一 market_fs 生成, 断言源码不再含硬编码串

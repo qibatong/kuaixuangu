@@ -184,7 +184,8 @@ def fetch_em_board_members(code):
       前端给「板块题材」右栏加了 60s 轮询 ⇒ 每个客户端每次轮询都会真打东财
       (pages=3 ⇒ 3 次 HTTP) × N 客户端, 且东财并非无成本(有反爬/限流风险)。
       复用开仓啦侧同款 `kpl._cached`(跨进程共享 + single-flight 防击穿),
-      TTL 取 config.KPL_BOARD_STOCKS_TTL(默认 30s) —— 与左栏板块榜同频。
+      TTL 取 config.KPL_BOARD_STOCKS_TTL(默认 60s) —— 与左栏板块榜同频
+      (2026-10-01 P2-6: 由 30 抬到 60, 因为消费方 MarketBoardPanel 是 60s 轮询)。
       ⚠️ 缓存的是**成品结果**(已排序/已剔北交所), 不是原始 diff —— 这样命中时零加工。
     """
     if not code:
