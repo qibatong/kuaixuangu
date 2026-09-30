@@ -63,27 +63,30 @@
              ✅ 保留不动的**结构语义**(与 tab2 的区别所在):
                ① pickBlocked 9:26 闸门提示块 —— 仍显示(后端 spot 路径不受闸门, 故不会真拦,
                   但开关若被外部置 blocked 仍能提示; 且这是 tab1 的"锁定链路"身份标识)。
-               ② freeze-notice 定格标注条 —— 仍显示(锁定名单可能有 freezeDate)。
+               ② freeze-notice 定格标注条 —— **2026-09-30 主人指令已删除**(见下方模板注释)。
                ③ 会员/配额门禁 —— 照旧。
                ④ 「锁定」按钮(FilterPanel 内, 见 store.strategy 判据)。 -->
 
-        <!-- 2026-09-16 选股闸门(主人拍板: 开盘日 9:00-9:26 不支持选股) -->
+        <!-- 2026-09-16 选股闸门(主人拍板: 开盘日竞价时段不支持选股)。
+             🔴 2026-09-30 口径修正: 实际拦截段 = 09:15:00 ~ 09:26:30(utils/time.js
+             PICK_BLOCK_FROM/TO), **不是 9:00**。9:00 是 serve_date 的逻辑交易日起点
+             (09:00 起当日没数据也不许退上一交易日), 它不拦选股, 只决定看哪一天。 -->
         <!-- 优先于会员门禁: 该时段连会员也不可用(不是权限问题, 是当日定格尚未产生) -->
         <div v-if="leftTab === 'auction' && stocks.pickBlocked" class="pick-blocked-notice">
           <i class="fa fa-clock-o"></i>
           <span>{{ stocks.pickBlockedMsg }}</span>
         </div>
 
-        <!-- 2026-09-18 (v4.11.29) 定格来源标注: 盘前/非交易日按设计出的是**上一交易日**
-             9:25 定格名单(PREOPEN/CLOSED), 必须让用户一眼看出"这不是当日名单"。
-             主人 9/18 反馈「刷出来是昨天的数据」就有这一类误解的成分。
-             ★ v4.11.80: 只在 **auction 策略**下出这条 —— spot 名单永远是"此刻",
-               不存在"上一交易日定格"(数据源不同, 见上方分支注释)。
-             必须与名单并存 → 用独立 v-if, 不接入下方 v-if/v-else 链。 -->
-        <div v-if="leftTab === 'auction' && !stocks.isSpotStrategy && stocks.isDataCached && !stocks.freezeIsToday" class="freeze-notice">
-          <i class="fa fa-history"></i>
-          <span>当前为 <b>{{ stocks.freezeDate }}</b> 定格数据（上一交易日 / 回放），改条件可重选</span>
-        </div>
+        <!-- 2026-09-30 主人指令: **删除「定格来源标注条」**。原内容 = "当前为 X 定格数据
+             （上一交易日 / 回放），改条件可重选"; 原意是防止把上一交易日名单当成当日名单
+             (该条 2026-09-18 引入, 起因是主人 9/18 反馈「刷出来是昨天的数据」)。
+             🔴 主人 2026-09-30 **已知悉该背景, 仍决定去掉** ⇒ 页面现不再有任何
+                "这份名单不是今天" 的提示: 深夜 / 盘前打开会直接看到上一交易日的票。
+             ℹ️ 要恢复的话: 后端 /api/stocks **仍下发** freezeDate / freezeIsToday,
+                store 里这两个字段也**保留未删**(见 stores/stocks.js), 照原样加回即可。
+             ⚠️ 下方 .spot-notice 与它语义不同(那条说明"数据很新"), 未受影响。
+             ⚠️ 动本文件块注释时注意: 注释正文里**不能出现块注释结束符那三个字符**, 也不能
+                只替换注释**前半** —— 2026-09-30 曾因此把注释后半漏成裸文本渲染到页面上。 -->
 
         <!-- 会员门禁: 竞价选股 仅在工作日 9:15-15:00 要求会员; 其他时段放开 -->
         <VipGate v-if="leftTab === 'auction' && !user.isMember && isMemberOnlyTime()" title="竞价选股" />
@@ -189,6 +192,9 @@ import { showToast } from '../utils/toast'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
 // 2026-09-05: isBefore930 随「锁定」按钮移除后本视图不再使用, 从 import 中去掉
 import { bjDateTimeStr, isIntradayNow, isMemberOnlyTime } from '../utils/time'
+// 2026-09-30: tab→引擎 映射收敛为**唯一纯函数**(可单测, 见 utils/strategy.test.js)。
+//   此前映射直接内联在本文件里(白名单式, 漏掉 'auction' 自己) ⇒ 见下方 switchTab 的说明。
+import { strategyForTab } from '../utils/strategy'
 // 2026-09-27 v4.11.63《移动端清单》§二·4: 数据更新时刻（与页头时钟区分开）
 import DataStamp from '../components/DataStamp.vue'
 import { useDataStamp } from '../composables/useDataStamp'
@@ -209,17 +215,21 @@ const { refreshYidongCodes } = useYidongMonitor()
 // 2026-09-01: 左视图模式切换 竞价 / 盘中实时 / AI预测×2
 // 2026-09-28 v4.11.75: 'spot' 重新可用 —— 切换时会 store.setStrategy('spot'),
 //   让 FilterPanel 渲染盘中参数行、并把数据源切到 spotStocks(与竞价 cachedStocks 隔离)。
-// ★ 2026-09-28 v4.11.80 第三步: **tab1「AI选股」也改走 spot 引擎**(主人需求
-//   「AI竞价出来的数据就锁定」)—— 但**保留 tab1 的全套锁定语义**(定格标注条 / 9:26
+// ★ 2026-09-28 v4.11.80 第三步: 曾让 tab1「AI选股」也改走 spot 引擎(需求
+//   「AI竞价出来的数据就锁定」)—— 保留 tab1 的全套锁定语义(定格标注条 / 9:26
 //   闸门 / 会员配额门禁 / merge 实时 / 进自选池)。
 //
-//   🔴 关键设计: **tab(leftTab) 与 策略(store.strategy) 是两个维度, 不再 1:1 绑定**。
-//     · tab1「AI选股」   ⇒ leftTab='auction'(渲染锁定那套) + strategy='spot'(用实时引擎)
-//     · tab2「盘中实时」 ⇒ leftTab='spot'(渲染实时那套)    + strategy='spot'
-//     两者**共用 spot 引擎**, 差别只在 UI 语义: tab1 出的是「锁定名单」(可落批次/可回放),
-//     tab2 出的是「此刻的答案」(不落批次/不锁定)。
+//   🔴 2026-09-30 主人拍板(方案 A): **回退第三步的"引擎"部分** —— tab1 重归竞价引擎。
+//     · 为什么不影响原需求: 「出来数据就锁定」属**锁定动作**; 回退只换"算名单的引擎",
+//       tab1 的全套锁定语义(落批次/可回放/闸门/配额/自选池)**一字未动**。
+//     · 回退动因: tab 已改名「竞价选股」而引擎是 spot ⇒ 名实不符; 更要紧的是, 它把竞价
+//       口径下**真正生效**的门槛(竞额下限 bidAmtFloor —— 单放宽它 1 只→67 只)藏进了
+//       spot 面板 ⇒ 主人"看不到任何条件却几乎不出数据"。
+//     · 现状: tab1 ⇒ leftTab='auction' + strategy='auction'; tab2 ⇒ leftTab='spot'
+//       + strategy='spot'。**映射唯一真相源 = utils/strategy.js::strategyForTab()**。
+//     · tab2「实时动态选股」不受影响: 它的值 'spot' 与旧写法兜底值同名(歪打正着)。
 //   ⚠️ 为什么不让 tab1 直接切到 leftTab='spot': 那样会丢掉定格标注条/锁定按钮/闸门提示,
-//     而主人要的恰恰是「锁定」这个动作 —— 只是**锁的内容换成 spot 引擎算的名单**。
+//     而主人要的恰恰是「锁定」这个动作。
 const leftTab = ref('auction')
 
 // 盘中名单的数据时刻(秒 → HH:MM:SS, 北京时间)。spot 每次请求都是"此刻", 必须显式告知。
@@ -270,8 +280,13 @@ async function init() {
   // 初始化筛选状态(本地锁定 > 账号偏好 > 全局默认 > 内置默认)
   await Promise.all([stocks.loadUserPrefs(), stocks.loadGlobalDefaults()])
   stocks.initFilterFromStorage()
-  // 2026-09-16 选股闸门: 交易日 9:00-9:26 不发请求(该时段只能得到非当日定格的名单:
-  // 9:00-9:15 上交易日 / 9:15-9:25 竞价在变 / 9:25-9:26 当日定格尚未落库)。
+  // 2026-09-16 选股闸门: 交易日 **09:15:00~09:26:30** 不发请求(该时段只能得到非当日定格的名单:
+  // 09:15-09:25 竞价在变 / 09:25-09:26:30 当日定格尚未落库)。
+  // 🔴 2026-09-30 口径修正: 原写"9:00-9:26 不发请求"与常量不符 —— 实际只挡 09:15:00~09:26:30;
+  //   **09:00~09:15 会发请求**, 但按 serve_date 新规矩后端不回退 ⇒ 当日尚无数据 ⇒ 空名单。
+  //   ⚠️ 该时段用户只会看到表里一句「暂无符合条件股票」, 无任何解释 —— 原先还有 freeze-notice
+  //      定格标注条做兜底, 但它**已于 2026-09-30 按主人指令删除** ⇒ 这条缺口现在更明显了。
+  //   原"9:00-9:15 上交易日"一句已彻底失效: 09:00 起不再拿上一交易日冒充当天。
   // 2026-09-17: force=true 首屏必探后端开关(pick_window_guard=0 → 不置灰、正常拉数据)
   await stocks.refreshPickGate(true)
   // 首次拉数据(禁用时段由闸门提示块代替, 到点由 pickGateTimer 自动选股)
@@ -324,35 +339,54 @@ function refreshRealTime() {
   stocks.updateRealTimeOnly().then(() => markData())
     .catch(e => showToast('❌ 更新失败：' + e.message, 'error'))
 }
-// 左视图模式切换: auction(竞价) / spot(盘中实时) / aipick(AI预测) / aipick_lgb(LightGBM 版)
-// 后两者都是 AipickView·AipickLgbView 自加载, 与 store 数据流无关。
+// 左视图模式切换: auction(竞价选股) / spot(实时动态选股) / aipick(AI预测) /
+// aipick_lgb(LightGBM) / yijiner(竞价一进二) / zhpick(竞价精选)。
+// 后四个的名单由各自视图/端点自加载, 与 store 数据流无关 ⇒ 只需一个**中性**的
+// strategy 值, 重点是别给 FilterPanel 留脏值。
 //
-// ★ 2026-09-28 v4.11.80 第三步: **tab1 也走 spot 引擎** ⇒ tab → strategy 不再 1:1:
-//   · tab1('auction') → strategy='spot'   ← 本轮改点(原来映射 'auction')
-//   · tab2('spot')    → strategy='spot'
-//   · aipick 两个 → 保持 'auction'(它们不读 store.strategy, 只是别留下脏值给 FilterPanel)
-//   🔴 副作用提醒: 切到 aipick 时 store.strategy 仍是 'spot' —— FilterPanel 此刻已隐藏
-//     (v-if 只放 auction/spot), 不影响渲染; 切回来时 switchTab 会重设, 不会残留错配。
+// ★ tab → strategy 映射的**唯一真相源** = `utils/strategy.js::strategyForTab()`
+//   (2026-09-30 收敛; 单测见 utils/strategy.test.js) —— 此处**不再内联映射**。
+//   · tab1('auction') → 'auction'  ← **2026-09-30 修回**
+//   · tab2('spot')    → 'spot'
+//   · 其余四个        → 'auction'(中性值)
+//   🔴 沿革: 9/28 第三步曾让 tab1 也走 spot 引擎(需求「AI竞价出来的数据就锁定」),
+//     但白名单写法**漏掉了 'auction' 自己** ⇒ 点「竞价选股」拿到 'spot' ⇒ 面板隐藏
+//     「竞涨/竞额」、取数走实时分支(生产实测仅 1~3 只)。9/30 主人拍板回退映射的 tab1
+//     部分(方案 A) —— **锁定那套 UI 与语义一字未动, 只换回算名单的引擎**。
+//     详见 switchTab 内注释与 utils/strategy.js 的文件头。
 function switchTab(m) {
   if (leftTab.value === m) return
   leftTab.value = m
-  // 2026-09-28 v4.11.80 第三步: tab1/tab2 都归 spot(见上方注释), aipick 归 auction。
-  // 2026-09-28: 竞价一进二 也归 auction —— 它同样**不读 store.strategy**(名单来自
-  //   /api/yijiner, 自带门禁), 归 'auction' 只为不给 FilterPanel 留脏值(此时它已隐藏)。
-  //   ⚠️ 归 'spot' 会让 realTimeTimer 之外的 spot 分支产生"以为在盘中模式"的错配。
-  // 2026-09-29: 竞价精选也归 auction(与一进二同理由: 不读 store 数据流, 不给 FilterPanel 留脏值)
-  stocks.setStrategy(m === 'aipick' || m === 'aipick_lgb' || m === 'yijiner' || m === 'zhpick' ? 'auction' : 'spot')
+  // 🔴 2026-09-30 主人拍板(方案 A): 映射**收敛为 `strategyForTab()`**(utils/strategy.js)。
+  //   旧写法是**白名单式**内联在这里：
+  //     m === 'aipick' || m === 'aipick_lgb' || m === 'yijiner' || m === 'zhpick'
+  //       ? 'auction' : 'spot'
+  //   它**漏掉了 `'auction'` 自己** ⇒ 点「竞价选股」落进"其余"桶 ⇒ strategy='spot'
+  //   ⇒ ① FilterPanel 走 spot 分支 ⇒ **「竞涨」「竞额」被 v-if="!isSpot" 隐藏**；
+  //     ② 表格改读 spotStocks；③ 取数走 /api/stocks?strategy=spot(生产实测仅 1~3 只)。
+  //   生产实证(uid=6, 2026-09-30 11:2x): 「竞价选股」只出 1 只；而竞价口径下**真正卡住
+  //   结果**的门槛是「竞额下限」(bidAmtFloor，单放宽它 1 只→67 只) —— 它恰好被这个
+  //   错配藏进了 spot 面板 ⇒ 主人"看不到任何条件却几乎不出数据"。
+  //   ⚠️ 最阴的一点: tab2 的值 `'spot'` 与旧兜底值**同名** ⇒ 它歪打正着、完全正常，
+  //     于是故障只落在 tab1 身上，看起来像"tab1 特有的怪问题"。
+  //   ⇒ 现改为「只有 'spot'（实时动态选股）走 spot 引擎，其余一律 auction」，
+  //     tab 名 / 引擎 / 面板三者重新一致。aipick 那组的既有处置(归 auction 防脏值)不变。
+  //   ⚠️ 若要恢复 9/28 口径(让 tab1 用实时引擎), 改 `strategyForTab` 一处即可 ——
+  //     但**必须同时解决"面板隐藏竞价字段"**，否则会重现本次事故。
+  stocks.setStrategy(strategyForTab(m))
   // 2026-09-22 v4.11.35: AI 预测的使用计数由 AipickView 自己在加载报表时上报,
   // 这里**不要**再记一次(同一动作会双计)。
-  // 2026-09-28 v4.11.80: tab1 走 spot 后**首屏取数逻辑不变** —— fetchAndCache 内部按
-  //   this.strategy 分支(spot 写 spotStocks), 见 stores/stocks.js。
+  // fetchAndCache 内部按 `this.strategy` 分支写入: auction → cachedStocks / spot → spotStocks
+  //   (见 stores/stocks.js)。2026-09-30 起 tab1 的 strategy 回到 'auction'
+  //   ⇒ 首屏落 cachedStocks(9/28-9/30 期间它曾落 spotStocks)。
   if (m === 'auction' && !stocks.isDataCached) {
     stocks.fetchAndCache().then(() => markData()).catch(e => showToast('❌ ' + e.message, 'error'))
   }
   // 盘中实时: 切过来自动拉一次(否则用户看到的是"点应用"空态, 多一步操作)。
   // 失败静默 —— 面板仍在, 用户可手点「应用」重试; 弹错会打断刚切 tab 的动作。
-  // ⚠️ tab1 与 tab2 现在共用 spotStocks: tab1 若已取到名单, tab2 切过来直接复用, 不重拉
-  //   (避免刚锁完又打一次网络); 名单时效由顶栏 DataStamp / spot-notice 显式告知。
+  // ⚠️ 2026-09-30 起 tab1(cachedStocks) 与 tab2(spotStocks) **各自独立**, 不再共用名单
+  //   (9/28-9/30 期间两者共用 spotStocks)。这里各有命中守卫(!isDataCached / !spotCached)
+  //   ⇒ 切回来时已缓存就不重打网络; 名单时效由顶栏 DataStamp / spot-notice 显式告知。
   if (m === 'spot' && !stocks.spotCached) {
     stocks.fetchSpotList({ silent: true }).then(() => markData()).catch(() => {})
   }
@@ -396,7 +430,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* 2026-09-16 选股闸门提示块(交易日 9:00-9:26): 替代主表位置, 说明为何暂时看不到名单。
+/* 2026-09-16 选股闸门提示块(交易日 09:15:00~09:26:30): 替代主表位置, 说明为何暂时看不到名单。
    配色用黄色提示系(项目五色内), 与涨跌红绿语义无关。 */
 .pick-blocked-notice {
   display: flex;
@@ -414,29 +448,13 @@ onBeforeUnmount(() => {
 .pick-blocked-notice .fa { color: #e6b400; }
 body[data-bg="light"] .pick-blocked-notice { color: #8a5500; }
 
-/* 2026-09-18 (v4.11.29) 定格来源标注条(上一交易日 / 回放): 黄色提示系(项目五色内),
-   与涨跌红绿语义无关。语义比"拦截"轻 —— 数据可用, 只是不是当日的。 */
-.freeze-notice {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 4px 0;
-  padding: 8px 12px;
-  border: 1px solid rgba(230, 180, 0, 0.38);
-  border-radius: 6px;
-  background: rgba(230, 180, 0, 0.07);
-  color: var(--text-main);
-  font-size: 0.75rem;
-  line-height: 1.5;
-}
-.freeze-notice .fa { color: #e6b400; }
-.freeze-notice b { color: #e6b400; font-weight: 600; }
-body[data-bg="light"] .freeze-notice { color: #8a5500; }
-body[data-bg="light"] .freeze-notice b { color: #8a5500; }
+/* 2026-09-30 主人指令: 定格来源标注条(原 .freeze-notice, 黄色提示系)已删除, 样式一并移除。
+   原语义: 黄 = 提醒"这不是当日数据"(上一交易日 / 回放), 与涨跌红绿无关。 */
 
 /* 2026-09-28 v4.11.75 盘中实时(spot)名单的时效提示条。
-   与上方 freeze-notice(黄=提醒"这不是当日数据")**语义不同**: 这条是蓝色信息系,
-   说明"这份数据很新" —— 两者不会同时出现(spot 无定格概念, 竞价无实时概念)。
+   与原有的 freeze-notice(黄=提醒"这不是当日数据", **2026-09-30 已按主人指令删除**)
+   **语义不同**: 这条是蓝色信息系, 说明"这份数据很新" —— 两者不会同时出现
+   (spot 无定格概念, 竞价无实时概念)。
    用项目蓝色系(--accent 在浅色下是深红, 故这里显式用 info 蓝, 与涨跌红绿无关)。 */
 .spot-notice {
   display: flex;

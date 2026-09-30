@@ -1,5 +1,6 @@
 // 选股相关 API
 import { request } from './request'
+import { useUserStore } from '../stores/user'
 
 // 2026-09-09 命名消歧: 策略参数 mode → strategy(与后端同步)。
 // 语义: 选股策略(auction=竞价因子表 / spot=盘中实时因子表), 与内部时段 PickMode 无关。
@@ -27,7 +28,7 @@ export function pingStocks() {
 //   前端也走独立函数，语义一一对应。
 //
 // 与竞价的关键差异(调这个接口前必须知道):
-//   · **无 9:26 闸门** —— 盘中随时可调。竞价那套 pickBlocked/9:00-9:26 置灰不适用
+//   · **无 9:26 闸门** —— 盘中随时可调。竞价那套 pickBlocked/09:15:00~09:26:30 置灰不适用
 //     (后端该端点也没有 pick_window_guard 判断)。
 //   · **不落批次、不推送、不参与定格** —— 每次都是当下重算，返回的只是"此刻的答案"。
 //   · 实时字段(realChange/volRatio/turnover)每次都在变 ⇒ 前端**不做本地快照预筛**
@@ -91,6 +92,10 @@ let _prefsInflight = null
 const PREFS_TTL = 30 * 1000
 
 export function getPrefs() {
+  // 2026-09-30 v4.11.83 实机体检修复: 未登录时不发请求 —— 登录页首屏 App.useTheme.load() 会先触发本函数,
+  //   而 /api/prefs 需鉴权 ⇒ 实机抓包固定报一次 401(控制台一条 error, 对用户无意义)。
+  //   返回空对象即可(主题/偏好有本地兜底 kuaixuan_bg, 登录后 saveSession 会再拉一次)。
+  if (!useUserStore().isLoggedIn) return Promise.resolve({})
   const now = Date.now()
   if (_prefsCache && now - _prefsTs < PREFS_TTL) {
     return Promise.resolve(_prefsCache)

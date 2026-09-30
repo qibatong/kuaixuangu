@@ -71,9 +71,11 @@
               <button class="ap-rule-reset" title="恢复默认规则" @click="resetRule"><i class="fa fa-undo"></i></button>
               <span class="ap-rule-tip">留空表示不限；回车即时过滤</span>
             </div>
-            <div class="ap-report-sub">
-              模型：快选・{{ isLgb ? '火眼' : '金睛' }} · 预测当日涨停概率 · 规则可自定义后实时过滤 · 仅供研究参考<template v-if="trainedShort || aucText"><span class="ap-meta"><template v-if="trainedShort"> · 训练 {{ trainedShort }}</template><template v-if="trainedShort && aucText"> / </template><template v-if="aucText">AUC {{ aucText }}</template></span></template>
-            </div>
+            <!-- 🔴 2026-09-30 主人: 「只保留模型的名字, 其他的都去掉」(两个 AI 预测模型一致)。
+                 原副标题 = 模型：快选・X · 预测当日涨停概率 · 规则可自定义后实时过滤 ·
+                            仅供研究参考 · 训练 …/AUC …
+                 ⇒ 只留模型名。金睛/火眼**共用本组件** ⇒ 改这一处, 两个 tab 同时生效。 -->
+            <div class="ap-report-sub">模型：快选・{{ isLgb ? '火眼' : '金睛' }}</div>
           </div>
 
           <!-- 2026-09-29: 窄屏可发现性 —— 8 列在 390px 仍需横滑, 而手机不显示滚动条,
@@ -156,19 +158,9 @@ const quotes = ref({})            // 实时行情: code -> {change}
 const loading = ref(false)
 const empty = ref(false)
 
-// 模型元信息(来自报告 payload.meta: algo / trained_at / auc / n_features)
-// 老报告没有该字段 → 空对象, 模板里全部走 v-if 保护, 不报错。
-const modelMeta = computed(() => data.value.meta || {})
-// 训练时间短展示: "2026-09-25 19:00" → "09-25 19:00"
-const trainedShort = computed(() => {
-  const t = String(modelMeta.value.trained_at || '')
-  const m = t.match(/^\d{4}-(\d{2}-\d{2})[ T](\d{2}:\d{2})/)
-  return m ? `${m[1]} ${m[2]}` : ''
-})
-const aucText = computed(() => {
-  const a = Number(modelMeta.value.auc)
-  return Number.isFinite(a) && a > 0 ? a.toFixed(4) : ''
-})
+// 2026-09-30 主人「只保留模型的名字」: 原先这里还有 modelMeta / trainedShort / aucText
+//   三个计算属性 —— 它们**仅供副标题里的「训练 …/AUC …」**使用, 随该文案一并移除(避免死代码)。
+//   注: 报告 payload.meta(trained_at / auc / n_features) 后端照旧下发, 只是前端不再展示。
 
 // 日期选择上限(今天, 本地时区); 避免选到未来日期
 function todayStr() {
@@ -622,8 +614,7 @@ onUnmounted(stopRealtime)
   border-color: var(--accent-border);
   color: var(--accent-deep);
 }
-/* 训练时间 / AUC 元信息(来自报告 payload.meta, 老报告无此字段则不渲染) */
-.ap-meta { color: var(--text-muted); font-size: 0.75rem; }
+/* 2026-09-30 主人精简副标题: .ap-meta(训练时间/AUC 元信息) 已随其一并删除 */
 .ap-toolbar {
   display: inline-flex; align-items: center; gap: 10px;
 }

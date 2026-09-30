@@ -42,9 +42,14 @@
 
         <div v-if="err" class="zh-empty"><i class="fa fa-exclamation-circle"></i> {{ err }}</div>
         <div v-else-if="loading && !list.length" class="zh-empty">加载中...</div>
+        <!-- 🔴 2026-09-30 主人「清理提示」: 原此处还有一行入选标准说明 ——
+             "9:25 定格后生成；入选 = 涨停基因(近120日≥1次) + 高开≥3% + 竞价放量占昨量 5~10%，非ST"
+             ⇒ 已删除(连同 .zh-empty-hint 样式)。
+             ⚠️ 保留"今日竞价精选暂无数据"这一句: 它是**空态标识**、不是提示, 且删掉整块会在
+                页面上留一片纯空白(违反主人最初要求的"不因删除提示而出现空白或错位")。
+                要连这句一并删, 说一声即可。 -->
         <div v-else-if="!list.length" class="zh-empty">
           <i class="fa fa-filter"></i> {{ pickDate ? (date + ' 无入选标的') : '今日竞价精选暂无数据' }}
-          <div class="zh-empty-hint">9:25 定格后生成；入选 = 涨停基因(近120日≥1次) + 高开≥3% + 竞价放量占昨量 5~10%，非ST</div>
         </div>
 
         <template v-else>
@@ -217,7 +222,7 @@ onMounted(() => { if (user.isVipOrPaid) load() })
   pointer-events: none;
 }
 .zh-empty { padding: 22px 10px; text-align: center; color: var(--text-muted); }
-.zh-empty-hint { margin-top: 6px; font-size: 11.5px; opacity: .8; }
+/* 2026-09-30 主人清理提示: .zh-empty-hint 已随其说明文案一并删除 */
 
 /* ---- 表格 ---- */
 .zh-scroll { overflow-x: auto; }

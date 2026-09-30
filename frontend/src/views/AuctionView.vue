@@ -25,7 +25,9 @@ v-else-if="pollFailCount > 0" class="auc-poll-warn"
       <!-- 2026-09-27 v4.11.63《移动端清单》§二·4: 数据更新时刻。
            历史回看模式(选了日期)没有轮询 ⇒ interval 传 0，"每 30s 自动刷新"那句自动消失。 -->
       <DataStamp :at="dataAt" :ok="dataOk" :interval="datePicker ? 0 : 30" :stale="dataStale" />
-      <input :value="datePicker || dataDate" type="date" class="rot-date" title="选择历史交易日" @change="onDateChange">
+      <!-- 🔴 2026-09-30: 显示值 = **实际请求的日期**(displayDate), 不再显示"库里最新有数据的一天"
+           —— 原实现 `datePicker || dataDate` 会在盘前出现"框里 09-29、实际查 09-30"的误导。 -->
+      <input :value="displayDate" type="date" class="rot-date" title="选择历史交易日（留空=实时）" @change="onDateChange">
       <button class="rot-reset-btn" title="回到实时" @click="clearDate"><i class="fa fa-bolt"></i></button>
       <!-- 2026-09-05 P0: 手动刷新入口(用户主动触发, 不增加常态轮询负载) -->
       <button
@@ -145,8 +147,13 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
               <span v-if="chgShown(day)" class="msd-cell">涨幅</span>
             </div>
             <div class="msd-body">
-              <div v-for="it in day.rows" :key="it.code" class="msd-row"
-                   :class="{ 'msd-nochg': !chgShown(day) }" :title="layerTip(it.layer)">
+              <div
+                v-for="it in msdRows(day.rows)"
+                :key="it.code"
+                class="msd-row"
+                :class="{ 'msd-nochg': !chgShown(day) }"
+                :title="layerTip(it.layer)"
+              >
                 <!-- 第 1 行: 名称(9:25列) / 概念(9:20列) / 板(9:15列) —— 各占时点列, 不额外增列 -->
                 <span class="msd-cell msd-name" @click="linkToSoftware(it.code)">{{ it.name || it.code }}</span>
                 <span class="msd-cell msd-concept" :title="it.board">{{ firstConcept(it.board) }}</span>
@@ -159,6 +166,10 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
                 <span v-if="chgShown(day)" class="msd-cell msd-chg" :class="chgCls(it)">{{ chgText(it) }}</span>
               </div>
               <div v-if="!day.rows.length" class="msd-empty">该交易日无涨停封单</div>
+              <!-- 2026-09-30 v4.11.83 实机体检修复: 截断提示(与 HistoryView「已显示 N / total」同一惯例) -->
+              <div v-else-if="day.rows.length > MAX_ROWS_MSD" class="msd-more">
+                仅显示前 {{ MAX_ROWS_MSD }} / {{ day.rows.length }} 只
+              </div>
             </div>
           </div>
         </div>
@@ -342,6 +353,10 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
             <td class="reason-cell" :title="reasonTitle(z)"><span class="reason-clamp">{{ reasonOf(z) || '-' }}</span></td>
             <td class="concept-cell dim" :title="z.board"><span v-if="z.board" class="concept-clamp">{{ conceptText(z.board) }}</span><span v-else class="dim">-</span></td>
 </tr>
+          <!-- 2026-09-30: 空表必须说清"为什么空"(原来纯空白, 用户看不出是没数据还是坏了) -->
+          <tr v-if="!yestZtList.length">
+            <td colspan="9" class="snap-empty">{{ emptyHint() }}</td>
+          </tr>
         </tbody>
       </table>
 
@@ -376,6 +391,9 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
             <td class="reason-cell" :title="reasonTitle(b2)"><span class="reason-clamp">{{ reasonOf(b2) || '-' }}</span></td>
             <td class="concept-cell dim" :title="b2.board"><span v-if="b2.board" class="concept-clamp">{{ conceptText(b2.board) }}</span><span v-else class="dim">-</span></td>
 </tr>
+          <tr v-if="!yestBrokenList.length">
+            <td colspan="9" class="snap-empty">{{ emptyHint() }}</td>
+          </tr>
         </tbody>
       </table>
 
@@ -415,6 +433,10 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
             <td class="reason-cell" :title="reasonTitle(b)"><span class="reason-clamp">{{ reasonOf(b) || '-' }}</span></td>
             <td class="concept-cell dim" :title="b.board"><span v-if="b.board" class="concept-clamp">{{ conceptText(b.board) }}</span><span v-else class="dim">-</span></td>
 </tr>
+          <!-- 今炸板多一列(涨停时间) ⇒ colspan 10 / 9 -->
+          <tr v-if="!brokenList.length">
+            <td :colspan="tab === 'brokenToday' ? 10 : 9" class="snap-empty">{{ emptyHint() }}</td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -466,6 +488,11 @@ const s3Mode = ref('multi')    // 'multi' 连续多日 | 'day' 单日三层榜
 const dailyDays = ref([])      // [{date, yizi, sealTotal, diff, diffPct, prevDate, rows[]}]
 const dailyLoading = ref(false)
 const DAILY_DAYS = 4           // 连续交易日数(上限受后端 MAX_DAYS=10 夹取)
+// 2026-09-30 v4.11.83 实机体检修复: 多日对比表此前**无行数上限**(实机实测单次 308 行 / 2053 个单元格
+//   常驻, 每票 4 日 × 8 格 = 32 个 span) —— 与 AipickReport.MAX_ROWS=150、HistoryView「加载更多」
+//   同一惯例, 这里限 300 行/日并列(只截**渲染**, 不改后端取数与排序)。
+const MAX_ROWS_MSD = 300
+function msdRows(rows) { return (rows || []).slice(0, MAX_ROWS_MSD) }
 // 🔴 2026-09-29 (B2): 「9:25 定格是否已落库」由**后端**给(`/api/stats/bid-snapshot-3points`
 //   的 frozen/freezeAt, 判据 = auction_snapshot.has_today_snapshot(), 即选股闸门那把"快照维")。
 //   前端**禁止**用 09:26:30 这类固定时刻自己猜 —— 2026-09-16「两个用户拿到昨天名单」就是
@@ -524,49 +551,79 @@ const datePicker = ref('')    // 用户选的日期(空=实时)
 // ⚠️ 分解赋值：模板只自动解包顶层 ref，写 `ds.at` 会渲染出 ref 对象。
 const { at: dataAt, ok: dataOk, stale: dataStale, mark: markData } = useDataStamp()
 const dataDate = ref('')      // 后端实际返回的数据日期(可能被对齐)
-// 🔴 2026-09-29 修: 自动回退**只写这里, 绝不写 datePicker**。
-//   原实现(`autoFallback = true; datePicker.value = lastTrading`)把"实时模式"永久降级成
-//   "历史回看模式", 一连串后果（09-29 早盘现场实锤）:
-//     ① 所有子 tab(封单/爆量/净额/抢筹/昨涨停/昨断板/龙虎榜/炸板/三时点榜)整天都在请求
-//        **上一交易日** —— 今日 9_20 行 09:20:06 就落库了, 却根本没被请求过;
-//     ② 顶部轮询判据 `if (datePicker.value) return true` 把实时刷新一并关掉 ⇒ 页面再也不会
-//        自动出新数据, 用户只能手动重进页面 ⇒ 表现为「9:20/9:25 数据要等竞价结束才看到」;
-//     ③ 顶部日期框被写上昨天, 用户看到的"数据日期"也失真。
-//   现在: 实时模式恒用今天, 后端按已落库时点逐点给数(9_15 09:15:19 / 9_20 09:20:06 /
-//   9_25 09:26:53); 9_25 未落库时该列自然为空。
-const autoFallbackDate = ref('')   // 今日尚无快照时临时借用的最近交易日(仅本会话, 不写 datePicker)
+// 🔴 2026-09-30 主人「数据日期规矩」: **日期决定权收归后端**(唯一真相源)。
+//   规矩: 交易日 **09:00 前** → 上一交易日; **09:00 起** → 当天(当天没数据就**空**, 绝不回退);
+//         非交易日 → 最近一个有数据的交易日。后端 `auction-overview` 下发 serveDate/serveMode。
+//   ★ 为什么必须收归后端: 原先前端拿 `ov.todayTradeDay` **自己拼回退** —— 于是"日期框显示
+//     dataDate(库里最新有数据的一天)、实际请求 servedDate(今天)"变成两套口径, 盘前必然打架。
+//     2026-09-30 凌晨实测(主人截图): 框里写 2026/09/29、实际查 2026/09/30、页面全空 —— 就是这个。
+//   ★ 另: 回退**绝不写 datePicker**(否则把"实时模式"永久降级成"历史回看模式", 轮询一起被关,
+//     2026-09-29 早盘现场实锤过), 只写下面这个由后端下发的 serveDate。
+const serveDate = ref('')     // 后端下发的"该请求哪一天"
+const serveMode = ref('')     // explicit | prev | today | offday(供文案/诊断)
+const serveResolved = ref(false)   // 是否已从后端拿到过 serveDate(旧后端兼容用)
 
-/** 本次请求应使用的数据日期: 用户显式选择 > 自动回退日 > 今天 */
+/** 本次请求应使用的数据日期: 用户显式选择 > 后端下发 > 今天 */
 function servedDate() {
-  return datePicker.value || autoFallbackDate.value || todayBj()
+  return datePicker.value || serveDate.value || todayBj()
+}
+
+/** 日期框显示值 —— **必须等于实际请求的日期**, 否则又会出现"框里 A、实际查 B"的误导。 */
+const displayDate = computed(() => datePicker.value || serveDate.value || dataDate.value)
+
+/**
+ * 吸收后端下发的服务日期。返回 true = 服务日期**变了**(调用方需重新加载)。
+ * 旧后端(无 serveDate 字段)⇒ 保持原状、不猜(不倒退成前端自算日期的老路)。
+ */
+function applyServeDate(ov) {
+  const next = String((ov && ov.serveDate) || '')
+  if (!next) return false
+  const mode = String((ov && ov.serveMode) || '')
+  const first = !serveResolved.value
+  const changed = next !== serveDate.value
+  serveResolved.value = true
+  serveMode.value = mode
+  serveDate.value = next
+  if (!changed) return false
+  if (!first) {
+    // 只在**切换那一刻**提示; 首次进页面不弹(否则每次打开都弹一次)
+    if (mode === 'prev') {
+      showToast(`开盘前（09:00 前）显示上一交易日 ${next} 的数据`, 'info')
+    } else if (mode === 'offday') {
+      showToast(`今日无交易（${todayBj()}），显示最近交易日 ${next} 的数据`, 'info')
+    }
+  }
+  return true
 }
 
 /**
- * 重判「今天是否已有任意时点快照」, 维护 autoFallbackDate。
+ * 轮询时重取后端服务日期 —— 09:00 / 09:15 这些**分界点**上页面要自动切过去。
  * 返回 true = 服务日期变了(调用方需重新加载)。
- * 竞价时段的**自愈**就靠它: 今日首行(9_15)落库后, 下一轮轮询即切回今天。
  */
 async function refreshServeDate() {
   if (datePicker.value) return false          // 用户显式选日(历史回看): 不干预
   try {
     const ov = await withTimeout(auctionOverview(''))
-    const last = (ov.days && ov.days.length && ov.days[0].date) || ''
-    // 🔴 2026-09-29 铁律「零值不得回退昨日」: **交易日**一律不回退 —— 今日快照还没落库时,
-    //   各 tab 就该显示"待定格/暂无数据"(后端也会返回当日), 不得拿昨天的数据顶上;
-    //   只有非交易日(周末/法定休市)才允许显示最近交易日。判据由后端给(ov.todayTradeDay),
-    //   前端**不自己猜**交易日历。
-    const next = (last && last !== todayBj() && ov.todayTradeDay === false) ? last : ''
-    if (next === autoFallbackDate.value) return false
-    const had = autoFallbackDate.value
-    autoFallbackDate.value = next
-    if (next && !had) {
-      // 2026-09-29: 文案随语义改 —— 现在"回退"只发生在**非交易日**
-      showToast(`今日无交易（${todayBj()}），显示最近交易日 ${next} 的数据`, 'info')
-    }
-    return true
+    return applyServeDate(ov)
   } catch (e) {
     return false                              // 失败静默: 保留原状态
   }
+}
+
+/**
+ * 空表提示 —— 说清"为什么空"。
+ * 🔴 2026-09-30 主人「数据日期规矩」的展示侧: 交易日 **09:00 起**拿不到当天数据时,
+ *   按铁律**不回退**上一交易日 ⇒ 页面必然是空的(09:00~09:15 更是天天如此)。
+ *   不写清原因, 用户只会看到"一张空表 + 一个写着昨天日期的框"(正是主人截图那张)。
+ */
+function emptyHint() {
+  const md = serveMode.value
+  if (md === 'today') {
+    return `今日（${todayBj()}）暂无数据：当天数据尚未产出；按规矩不使用上一交易日的数据，稍后自动刷新`
+  }
+  if (md === 'prev') return `上一交易日（${servedDate()}）暂无该数据`
+  if (md === 'offday') return `最近交易日（${servedDate()}）暂无该数据`
+  return `该日期（${servedDate() || todayBj()}）暂无数据`
 }
 
 // 各表独立排序实例
@@ -822,17 +879,11 @@ async function loadAll(fromUser = false) {
     // 2026-09-27 优化: 先拉 overview 判断是否需要回退, 避免周末重复拉两次 bidSnapshot
     const ov = await withTimeout(auctionOverview(''))
     let useDate = dt
-    if (!dt && ov.days && ov.days.length) {
-      const lastTrading = ov.days[0].date
-      // 🔴 2026-09-29 铁律: 只有**非交易日**才回退(见 autoFallbackDate 定义处与 refreshServeDate)
-      if (lastTrading && lastTrading !== todayBj() && ov.todayTradeDay === false) {
-        // 只记在 autoFallbackDate, **绝不写 datePicker**(原因见其定义处)
-        autoFallbackDate.value = lastTrading
-        useDate = lastTrading
-        showToast(`今日无交易（${todayBj()}），显示最近交易日 ${lastTrading} 的数据`, 'info')
-      } else {
-        autoFallbackDate.value = ''      // 今天已有快照 → 撤掉回退
-      }
+    if (!dt) {
+      // 实时模式: 用**后端下发**的服务日期(唯一真相源) —— 前端不再自算回退。
+      // (原实现是"前端拿 ov.todayTradeDay 自己判", 与日期框显示两套口径, 见 serveDate 定义处)
+      applyServeDate(ov)
+      useDate = serveDate.value
     }
     const s3 = await withTimeout(bidSnapshot3points(useDate || todayBj()))
     s3List.value = s3.list || []
@@ -989,7 +1040,10 @@ async function refreshAll() {
 function clearDate() {
   datePicker.value = ''
   dataDate.value = ''
-  autoFallbackDate.value = ''
+  // 2026-09-30: 回实时模式 ⇒ 清掉后端下发的服务日期, 让下一轮 applyServeDate 重新取;
+  //   同时重置"首次"标记, 避免切回实时时又弹一次提示。
+  serveDate.value = ''
+  serveResolved.value = false
   loadedTabs.clear()   // 2026-08-18: 日期变化需重新加载各 tab
   dailyDays.value = []  // 2026-09-29: 连续封单是"以某日为末的5日窗口", 换日期必须重取
   loadAll(true)
@@ -1021,11 +1075,13 @@ onMounted(() => {
 // (30s → 60s → 120s … 上限 5min), 成功一次即重置。避免服务端抖动/限流时被前端
 // 以固定 30s 持续打; 失败期间 ensureTabData 不清空 list, 页面保留上次成功数据。
 polling = usePolling(async () => {
-  // 历史回看模式(**用户显式选了日期**)不轮询; 自动回退态不在此列 —— 它必须继续轮询,
+  // 历史回看模式(**用户显式选了日期**)不轮询; 实时模式必须继续轮询,
   // 否则今日快照落库后页面不会自愈(2026-09-29 修: 原实现把回退写进 datePicker, 连轮询一起关了)。
   if (datePicker.value) return true
-  // 自动回退态: 每轮重判「今天是否已有快照」, 今日 9_15 落库(≈09:15:19)后立刻切回今天
-  if (autoFallbackDate.value) await refreshServeDate()
+  // 2026-09-30: 每轮重取**后端下发**的服务日期 —— 09:00 / 09:15 这类分界点要自动切换,
+  //   同时天然覆盖"今日快照落库后自愈"(serveDate 由后端算, 前端不再自己判条件)。
+  //   overview 侧有 60s 缓存, 每 30s 打一次很廉价。
+  await refreshServeDate()
   silentRefreshing.value = true
   try {
     loadedTabs.clear()
@@ -1397,6 +1453,20 @@ body[data-bg="light"] .msd-row .msd-cell:not(.msd-name):not(.msd-p25) { border-l
 .msd-row:last-child { border-bottom: none; }
 .msd-row:hover { background: rgba(255, 255, 255, 0.04); }
 body[data-bg="light"] .msd-row:hover { background: rgba(0, 0, 0, 0.03); }
+/* 2026-09-30 v4.11.83 性能修复(实机实测): 每行 content-visibility:auto —— 视口外的行由浏览器跳过
+   布局/绘制(此前 .msd-body 是 overflow:visible 整页滚, 数百行全部参与布局)。
+   contain-intrinsic-size 用实测行高 32px 稳定滚动条, 避免滚动时跳动。 */
+.msd-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 32px;
+}
+/* 截断提示(仅当该日行数超过 MAX_ROWS_MSD 时出现) */
+.msd-more {
+  padding: 4px 0 2px;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-align: center;
+}
 
 /* 第 1 行: 名称 / 概念 / 板 —— 分别落在 9:25 / 9:20 / 9:15 三列 */
 .msd-row .msd-name {

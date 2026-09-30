@@ -143,14 +143,12 @@
             </table>
           </div>
 
-          <div class="yj-note">
-            <template v-if="meta.stats">
-              昨日涨停池 {{ meta.stats.poolTotal }} 只 → 主板首板 {{ meta.stats.firstBoard }} 只（剔一字板 {{ meta.stats.oneWordDropped }}）→ 候选 {{ meta.stats.candidates }} 只 → 入选 {{ meta.stats.kept }} 只
-              <template v-if="droppedText"> · 剔除：{{ droppedText }}</template>
-            </template>
-            <span v-if="meta.elapsedMs"> · 耗时 {{ meta.elapsedMs }}ms</span>
-            <div class="yj-disclaimer">数据仅供研究参考，不构成任何投资建议</div>
-          </div>
+          <!-- 🔴 2026-09-30 主人「清理提示」: 原此处为「底部口径与统计」条 ——
+               上一行"昨日涨停池 N 只 → 主板首板 … → 候选 … → 入选 … · 剔除：… · 耗时 …ms"(剔除口径),
+               下一行"数据仅供研究参考，不构成任何投资建议"(免责声明)。两行均按主人指令删除,
+               连同 .yj-note / .yj-disclaimer 样式, 以及**仅供前者使用**的 droppedText / DROP_LABELS。
+               ⚠️ 合规说明: 免责声明在**全站页脚**另有常驻一份(App.vue 的 .disclaimer, 每页可见),
+                 故此处删掉不损失合规覆盖。 -->
         </template>
       </div>
     </template>
@@ -208,20 +206,10 @@ const loading = ref(false)
 const errMsg = ref('')
 const needVip = ref(false)     // 后端 403 兜底（如会员刚过期）
 
-// 剔除原因中文化（与后端 _passes_filters 的 key 一一对应）
-const DROP_LABELS = {
-  not_main_board: '非主板',
-  st_or_suspend: 'ST/停牌',
-  new_stock: '次新',
-  bid_range: '竞价涨幅越界',
-  mv_range: '市值越界',
-  price_range: '股价越界',
-}
-
-const droppedText = computed(() => {
-  const d = (meta.value.stats || {}).dropped || {}
-  return Object.entries(d).map(([k, v]) => `${DROP_LABELS[k] || k} ${v}`).join('、')
-})
+// 2026-09-30 主人「清理提示」: 原此处有 DROP_LABELS(剔除原因中文化, 与后端 _passes_filters
+//   的 key 一一对应) + droppedText 计算属性 —— 两者**仅供已被删除的底部统计条使用**
+//   ⇒ 一并移除, 避免留下死代码。
+//   注: meta.stats.dropped 后端照旧返回, 只是前端不再展示。
 
 const statsHint = computed(() => {
   const s = meta.value.stats
@@ -434,14 +422,7 @@ defineExpose({ load })
   /* 同 .yj-name：内容向表头看齐（居中），不再单独左对齐 —— 见上方注释与 yj-align-before.png */
 }
 
-/* ---- 底部口径与统计 ---- */
-.yj-note {
-  margin-top: 6px;
-  font-size: 11px;
-  line-height: 1.7;
-  color: var(--text-muted);
-}
-.yj-disclaimer { text-align: center; margin-top: 2px; }
+/* 2026-09-30 主人清理提示: .yj-note(底部口径与统计) / .yj-disclaimer 已连同其文案一并删除 */
 
 /* 嵌入首页左视图（半宽）时收紧 */
 .yj-embedded .yj-title { font-size: 14px; }

@@ -369,6 +369,30 @@ v-model="profileForm.pay_remark" maxlength="500" rows="3" class="admin-input adm
         <div v-else class="empty-state" style="padding:16px;">该因子暂未加载</div>
       </div>
 
+      <!-- 竞价强度 · 子权重(权重组因子, 2026-09-30 新增编辑区) -->
+      <div v-if="scoringStrategy === 'auction'" class="admin-card">
+        <div class="card-title"><i class="fa fa-bolt"></i> 竞价强度 · 子权重
+          <span class="admin-tip">上面 17% 的「竞价强度」由这几项合成；合计需约等于 1。要关闭整个强度项，请把上表的 w_warn 设为 0</span>
+        </div>
+        <div class="table-scroll">
+        <table class="admin-table">
+          <tbody>
+            <tr v-for="sk in STRENGTH_KEYS" :key="sk[0]">
+              <td>{{ sk[1] }}</td>
+              <td><input v-model.number="strength[sk[0]]" type="number" step="0.05" min="0" max="1" class="admin-input" style="width:90px;" @input="scoringDirty = true" /></td>
+              <td class="weight-desc">{{ sk[2] }}</td>
+            </tr>
+            <tr>
+              <td colspan="2" class="weight-total">子权重合计：{{ strengthSum.toFixed(2) }}
+                <span v-if="Math.abs(strengthSum - 1) > 0.05" class="weight-warn">（需约等于 1 才能保存）</span>
+              </td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+
       <!-- 全局默认筛选参数(所有用户未自定义时使用) -->
       <div class="admin-card">
         <div class="card-title"><i class="fa fa-filter"></i> 全局默认筛选参数 <span class="admin-tip">所有用户未自定义偏好时的默认值；「保存并强制生效」会清除所有用户已保存的筛选偏好(保留背景/字号)，全量立即生效</span></div>
@@ -901,6 +925,25 @@ const FACTOR_ORDER = {
 const factorOrder = computed(() => FACTOR_ORDER[scoringStrategy.value] || FACTOR_ORDER.auction)
 const scoringLoaded = ref(false)
 
+// ---- 「权重组」因子(竞价强度 bid_strength)的子权重编辑态 ----
+// 2026-09-30: 该组不在上面五因子的 buckets 表格里。旧版保存只从五因子表单重建
+//   payload.factors ⇒ bid_strength 被整块丢掉, 后端整表替换后 w_zb(竞价昨比)静默变 0
+//   (线上「昨比 40%」就是这么失效的), 且界面无入口配回。现在: 拉取时存进 strength、
+//   保存时原样回传 ⇒ 后台保存不再丢, 也能在界面上直接调。
+const STRENGTH_FACTOR = 'bid_strength'
+const STRENGTH_KEYS = [
+  ['w_vol_ratio', '量比档', '今日9:25竞价额 ÷ 昨日9:25竞价额 的分档权重'],
+  ['w_zb', '竞价昨比档', '竞价额 ÷ 昨日全天成交额 的分档权重（0 = 不参与评分）'],
+  ['w_ai', 'AI 档', 'aipick XGBoost 全市场 Top30 概率分档权重'],
+  ['w_ff', '净额档', '竞价主力净额分档权重（已废弃，建议保持 0）']
+]
+const strength = reactive({})      // 该重组的完整对象(含各档位表/默认分, 原样回传)
+const strengthSum = computed(() => {
+  let s = 0
+  STRENGTH_KEYS.forEach(([k]) => { const v = Number(strength[k]); if (!isNaN(v)) s += v })
+  return s
+})
+
 async function extendUser(u, action) {
   const label = { week: '+1周', month: '+1月', quarter: '+1季', year: '+1年', forever: '永久', date: '设日期' }[action]
   try {
@@ -965,6 +1008,11 @@ async function loadScoring(strategy = scoringStrategy.value) {
       // buckets 行转数组, 便于 v-model.number 双向绑定
       factors[fk].buckets = (factors[fk].buckets || []).map((b) => [Number(b[0]), Number(b[1]), Number(b[2])])
     })
+    // 权重组(竞价强度): 单独存一份, 保存时原样回传 —— 否则会被整块丢掉。
+    // 后端 GET 返回的是**合并后**的配置, 所以这里拿到的就是当前生效值, 可直接改。
+    Object.keys(strength).forEach((k) => { delete strength[k] })
+    const bs = fac[STRENGTH_FACTOR]
+    if (bs && typeof bs === 'object') Object.assign(strength, bs)
     // 激活 Tab 归位到**该策略的首个因子** —— 否则从竞价('bid')切到盘中会停在
     // 'bid'(盘中无此因子) → 面板显示"该因子暂未加载", 看起来像数据没拉到。
     activeFactor.value = factorOrder.value[0]
@@ -1013,6 +1061,12 @@ async function saveScoring() {
       buckets: f.buckets.map((b) => [String(b[0]), String(b[1]), Number(b[2])])
     }
   })
+  // 权重组(竞价强度子权重)原样回传 —— 不带上就会把 w_zb(昨比)等静默清成默认值。
+  if (Object.keys(strength).length) {
+    const bs = { ...strength }
+    STRENGTH_KEYS.forEach(([k]) => { bs[k] = Number(bs[k]) || 0 })   // 空值当 0, 避免字符串
+    payload.factors[STRENGTH_FACTOR] = bs
+  }
   const strategy = scoringStrategy.value
   saving.value = true
   try {

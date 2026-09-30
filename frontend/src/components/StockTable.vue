@@ -90,15 +90,17 @@
               >{{ devWarnLabel(item.code) }}</span>
             </div>
           </td>
-          <td :class="realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + pct(item._staleReal) + '）') : ''">{{ pct(item.realChange) }}</td>
+          <!-- 2026-09-30 v4.11.83 盯盘反馈: 数值用 :key 绑原值 ⇒ 轮询后值一变即重建元素, 触发一次性背景闪(.tick);
+               同时补 ▲/▼ 方向符号 ⇒ 涨跌不再只靠颜色(色弱可用)。num-cell = 数字列禁折行(见样式段)。 -->
+          <td class="num-cell" :class="realCls(item)" :title="item.realChange === null || item.realChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + pct(item._staleReal) + '）') : ''"><span :key="'r' + item.realChange" class="tick">{{ pct(item.realChange) }}<i class="arw" aria-hidden="true">{{ arrow(item.realChange) }}</i></span></td>
           <!-- 2026-09-28 v4.11.77: 「竞涨」两条策略共用(spot 后端本就下发 bidChange) -->
-          <td :class="chgCls(item.bidChange)" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'">{{ pct(item.bidChange) }}</td>
+          <td class="num-cell" :class="chgCls(item.bidChange)" :title="'竞价涨幅: 集合竞价撮合价相对昨收的涨幅'"><span :key="'b' + item.bidChange" class="tick">{{ pct(item.bidChange) }}<i class="arw" aria-hidden="true">{{ arrow(item.bidChange) }}</i></span></td>
           <!-- 2026-09-28 v4.11.77: 「实体」仅竞价(开→收, 集合竞价语义); spot 去掉 -->
-          <td v-if="!isSpot" :class="item.entityChange === null || item.entityChange === undefined ? 'dim' : (item.entityChange > 0 ? 'up' : 'down')" :title="item.entityChange === null || item.entityChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + pct(item._staleEntity) + '）') : ''">{{ pct(item.entityChange) }}</td>
+          <td v-if="!isSpot" class="num-cell" :class="item.entityChange === null || item.entityChange === undefined ? 'dim' : (item.entityChange > 0 ? 'up' : 'down')" :title="item.entityChange === null || item.entityChange === undefined ? ('无实时行情数据（竞价锁定时刻 ' + pct(item._staleEntity) + '）') : ''"><span :key="'e' + item.entityChange" class="tick">{{ pct(item.entityChange) }}<i class="arw" aria-hidden="true">{{ arrow(item.entityChange) }}</i></span></td>
           <!-- ★ 2026-09-29 主人要求下线: 「竞额」「换手」「自由流通」三列(仍是评分因子, 只是不展示) -->
           <td v-if="hasMainNet" :class="item.mainNet === null || item.mainNet === undefined ? 'dim' : (item.mainNet > 0 ? 'up' : 'down')" :title="item.mainNet === null || item.mainNet === undefined ? '盘中主力净额(亿): 非交易时段或数据未就绪' : ('盘中主力净额: ' + (item.mainNet > 0 ? '+' : '') + item.mainNet + '亿（约每5分钟刷新）')">{{ item.mainNet === null || item.mainNet === undefined ? '-' : (item.mainNet > 0 ? '+' : '') + item.mainNet.toFixed(3) }}</td>
-          <td class="score-cell col-muted">{{ fmtNum(item.probability, 0, '分') }}</td>
-          <td class="col-muted">{{ fmtNum(item.confidence, 0, '%') }}</td>
+          <td class="score-cell col-muted num-cell">{{ fmtNum(item.probability, 0, '分') }}</td>
+          <td class="col-muted num-cell">{{ fmtNum(item.confidence, 0, '%') }}</td>
           <td class="concept-cell" :title="'概念: ' + (item.concept || '')">
             <template v-if="item.concept">
               <span v-for="(c, i) in conceptList(item.concept)" :key="i" class="concept-item">{{ c }}</span>
@@ -229,6 +231,13 @@ function realCls(item) {
   const b = item.bidChange
   if (b !== null && b !== undefined && !isNaN(b) && r < b) return 'real-green'
   return r > 0 ? 'up' : 'down'
+}
+
+// 2026-09-30 v4.11.83 盯盘反馈: 涨跌方向符号 —— 与颜色**双编码**, 红绿色弱用户也能判方向。
+// 0 / 缺失 / 非数字 → 不显示符号(避免"0% 也带箭头"的噪声)。
+function arrow(v) {
+  if (v === null || v === undefined || isNaN(v) || Number(v) === 0) return ''
+  return Number(v) > 0 ? '▲' : '▼'
 }
 </script>
 
@@ -468,6 +477,76 @@ body[data-bg="light"] th.sortable.active { color: #fff; }
   content-visibility: auto;
   contain-intrinsic-size: auto 64px;
 }
+/* ===================== 2026-09-30 v4.11.83 实机体检修复 =====================
+   实机实测(生产站 390px)暴露三处, 根因都在本组件 scoped 样式:
+   ① 数字折行: main.css 的 ≤768 块把 .stock-table 改成 table-layout:auto,
+      浏览器按内容重分配列宽 ⇒ 名称列吃到 176px, 而「评分/可信」被压到 28px,
+      「94分」「83%」折成两行(桌面端 65/80px 正常)。
+   ② 横滑丢身份: 容器 overflow-x:auto 横滑 80px 后, 名称列 left 由 35 变 −45
+      (被切掉约 1/4), 屏幕上认不出是哪只票 —— 盯盘最痛的失误点。
+   ③ min-width 死配置: main.css 里 .stock-table{min-width:880/820/900px}(三处媒体块)
+      一直被本组件 scoped 的 `min-width: 0`(带 [data-v-*] 属性选择器, 特异度更高)
+      覆盖 ⇒「手机宽表横滑」的既定设计从未生效。
+   修法: 数字列禁折行 + 名称列横滑冻结 + 给主表一个最小宽度兜底。
+   仅 ≤768 生效, 桌面端(≥769)逐像素不变。 */
+@media (max-width: 768px) {
+  /* 数字列禁折行: auto 布局下就不会再把「94分」压成两行 */
+  .stock-table-compact td.num-cell,
+  .stock-table-compact th.num {
+    white-space: nowrap;
+  }
+  /* 最小宽度兜底 = colgroup 常驻列之和(36+106+46+46+42+52+40);
+     「实体/主力净额」是按策略出现的列, 其自身宽度会把表继续撑开, 故此处不并入。 */
+  .stock-table-compact {
+    min-width: 368px;
+  }
+  /* 名称列横滑冻结(第 2 列 = 名称; 第 1 列是奖牌/序号, 允许滑走)。
+     🔴 必须不透明底色, 否则横向滚动时后面的列会"穿"过来。
+     🔴🔴 表头格与体格**底色必须分开** —— 2026-09-30 实机踩坑: 表头格若用面板底色
+        (`--bg-panel-solid`), 深色主题下 = rgba(18,22,35,.98) 变成"红表头中间一块黑格",
+        浅色主题下 = #ffffff 配表头白字 ⇒ 文字直接看不见。
+        表头格应改用**表头自己的底色**(main.css `.stock-table thead` 用的 var(--accent-deep2) = #d80000)。 */
+  .stock-table-compact thead th:nth-child(2),
+  .stock-table-compact tbody td:nth-child(2) {
+    position: sticky;
+    left: 0;
+    z-index: 6;
+    box-shadow: 6px 0 8px -6px rgba(0, 0, 0, 0.65);
+  }
+  .stock-table-compact thead th:nth-child(2) {
+    z-index: 9;                                  /* 表头行整体 sticky top(z-index:8) ⇒ 名称表头要更高一层 */
+    background: var(--accent-deep2, #d80000);
+  }
+  .stock-table-compact tbody td:nth-child(2) {
+    background: var(--bg-panel-solid, #121623);  /* 体格用面板底色: 要盖住从它下面滑过的列 */
+  }
+}
+
+/* ---- 数字变化反馈: 值一变就重建的 .tick 闪一次背景(不做位移/不做过渡, 盯盘要克制) ---- */
+@keyframes kx-tick-up {
+  from { background: rgba(255, 138, 111, 0.26); }
+  to   { background: transparent; }
+}
+@keyframes kx-tick-down {
+  from { background: rgba(0, 200, 100, 0.24); }
+  to   { background: transparent; }
+}
+.tick {
+  display: inline-block;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+.up .tick   { animation: kx-tick-up 0.30s ease-out; }
+.down .tick { animation: kx-tick-down 0.30s ease-out; }
+/* 方向符号: 小一号 + 半透明, 不抢红绿主次 */
+.arw {
+  font-style: normal;
+  font-size: 0.72em;
+  opacity: 0.8;
+  margin-left: 1px;
+}
+/* 系统「减少动态效果」已在 main.css 全局降级(animation-duration:.01ms), 此处无需重复 */
+
 /* 浅色主题覆盖: 表头红底白字(与全局统一) */
 body[data-bg="light"] th.sortable {  color: #fff;  }
 body[data-bg="light"] th.sortable:hover {  color: #fff;  }

@@ -5,8 +5,29 @@ export function fetchPerformance(query = {}) {
   return request('/api/stats/performance', { query })
 }
 
+// 2026-09-30 v4.11.83 实机体检修复: auction-overview 首屏被调用多次(实机抓包 3 次/首屏)。
+//   本接口被「轮询探服务日期 refreshServeDate()」与「整页加载 loadAll()」两处各调一次,
+//   首屏 + 首次轮询会落在同一两秒内 ⇒ 3 次请求。这里做**在途去重 + 3 秒记忆化**
+//   (与 api/stocks.js 的 getPrefs 同一套路), 人工刷新(>3s)与历史回看(带 date)不受影响:
+//   date 参与缓存键, 切换日期必重新取数。
+const _AO_TTL = 3000
+let _aoKey = null
+let _aoCacheAt = 0
+let _aoData = null
+let _aoInflight = null
+
 export function auctionOverview(date = '') {
-  return request('/api/stats/auction-overview', { query: date ? { date } : {} })
+  const key = String(date || '')
+  const now = Date.now()
+  if (_aoData !== null && _aoKey === key && now - _aoCacheAt < _AO_TTL) {
+    return Promise.resolve(_aoData)
+  }
+  if (_aoInflight && _aoInflight.key === key) return _aoInflight.p
+  const p = request('/api/stats/auction-overview', { query: date ? { date } : {} })
+    .then((d) => { _aoData = d; _aoKey = key; _aoCacheAt = Date.now(); return d })
+    .finally(() => { _aoInflight = null })
+  _aoInflight = { key, p }
+  return p
 }
 
 export function auctionSnapshot(date, timePoint) {

@@ -94,8 +94,13 @@ export const useStocksStore = defineStore('stocks', {
     // 2026-08-25: 偏好/全局默认异步加载完成前为 false, 防止 FilterPanel 先用内置默认(limitUp=true)
     // 渲染勾选、随后被用户偏好(limitUp=false)覆盖导致"先勾选后取消"闪烁
     filterReady: false,
-    // 2026-09-16 选股闸门(主人拍板: 开盘日 9:00-9:26 不支持选股)。
-    // true = 当前被拦(9:00-9:26, 或后端回 blocked=当日定格未落库); msg 供 UI 展示。
+    // 2026-09-16 选股闸门(主人拍板: 开盘日竞价时段不支持选股)。
+    // 🔴 2026-09-30 口径修正: 原注释写"9:00-9:26"与常量不符 —— 实际拦截段 =
+    //   `PICK_BLOCK_FROM ~ PICK_BLOCK_TO` = **09:15:00 ~ 09:26:30**(utils/time.js;
+    //   09:15 = 竞价开始, 09:26:30 = 当日 9:25 定格首采时刻)。
+    //   **09:00 那一刀是另一件事**: 属 serve_date 的"逻辑交易日起点"(09:00 起当日没数据
+    //   也不许回退上一交易日), 它**不拦选股**, 只决定"看哪一天的数"。
+    // true = 当前被拦(09:15:00~09:26:30, 或后端回 blocked=当日定格未落库); msg 供 UI 展示。
     // 由 StockView 的闸门定时器在解禁后自动清除并重新选股(见 refreshPickGate)。
     pickBlocked: false,
     pickBlockedMsg: '',
@@ -105,10 +110,12 @@ export const useStocksStore = defineStore('stocks', {
     pickGateEnabled: true,
     pickGateCheckedTs: 0,      // 上次探测开关的时间(60s 节流, 避免 20s 定时器反复发请求)
     // 2026-09-18 (v4.11.29) 定格数据来源日期: 盘前/非交易日按设计仍出名单(用上一交易日
-    // 9:25 定格), 顶栏据此常驻标注"当前为 X 日定格数据", 避免被误当成当日名单
+    // 9:25 定格)。原供顶栏「当前为 X 日定格数据」标注条使用, 避免被误当成当日名单
     // (主人 9/18 反馈「刷出来是昨天的数据」即这类误解)。
+    // 🔴 2026-09-30 主人指令: 那条标注条**已删除** ⇒ 这两个字段当前**无人消费**。
+    //   保留原因: 后端 /api/stocks 仍在下发; 将来若要恢复标注条可直接取用, 不必回头改后端。
     freezeDate: '',            // 后端 /api/stocks 返回的 freezeDate(名单所用定格日期)
-    freezeIsToday: true,       // == 当日? false 时顶栏出标注条
+    freezeIsToday: true,       // == 当日?(标注条已删 ⇒ 暂无消费方)
     // 2026-09-21 会员体系: 选股配额超限(后端 429 code=quota_exceeded) → 页面显示开通引导。
     // quotaInfo 透传 {feature, feature_label, limit, used} 供 VipGate 配额模式渲染。
     quotaExceeded: false,
@@ -142,7 +149,7 @@ export const useStocksStore = defineStore('stocks', {
     // 2026-09-28 v4.11.75 新增。与竞价链路**严格隔离**:
     //   · 不落批次 / 不推送 / 不参与 9:26 定格 —— 后端该端点本身就不做这些。
     //   · **不受 pick_window_guard 闸门限制** —— 盘中选股本就是"看当下",
-    //     9:00-9:26 那套"当日定格尚未产生"的理由对 spot 不成立。
+    //     09:15:00~09:26:30 那套"当日定格尚未产生"的理由对 spot 不成立。
     //   · **不做本地快照预筛**(不像竞价 P3 的 pickFromSnapshot): 竞价用的是 9:25 定格、
     //     全天恒定; spot 的现涨/量比/换手每次请求都在变, 本地缓存立刻过期 ⇒ 必须真打网络。
     buildSpotFilterParams() {
@@ -199,7 +206,7 @@ export const useStocksStore = defineStore('stocks', {
       return (this.spotStocks || []).filter((it) => passSpotFilter(it, this.spotFilterSettings)).length
     },
 
-    // ---- 2026-09-16 选股闸门(9:00-9:26 不支持选股) ----
+    // ---- 2026-09-16 选股闸门(交易日 09:15:00~09:26:30 不支持选股) ----
     markPickBlocked(msg) {
       this.pickBlocked = true
       this.pickBlockedMsg = msg || PICK_BLOCK_MSG_TIME
@@ -543,7 +550,8 @@ export const useStocksStore = defineStore('stocks', {
       // 仅当实际命中 auto_applied 批次(isAuto)时才为 true; 命中手动锁定批次则为 false(需按条件过滤)
       stocks.autoApplied = isAuto
       // 2026-09-18: 回显批次同样标注定格来源 —— 命中当日定格后批次 → freezeIsToday=true;
-      // 命中历史日期批次 → 顶栏出标注条。freezeReady 已保证不会命中定格前的当日批次。
+      // 命中历史日期批次 → 原会出顶栏标注条(**该条 2026-09-30 已删**)。
+      // freezeReady 已保证不会命中定格前的当日批次。
       stocks.freezeDate = b.batch_date || ''
       stocks.freezeIsToday = (b.batch_date === today)
       return stocks
@@ -589,7 +597,8 @@ export const useStocksStore = defineStore('stocks', {
       }
       this.clearPickBlocked()
       // 2026-09-18: 记录名单所用定格日期(后端透出)。盘前/非交易日 = 上一交易日 →
-      // 顶栏标注条据此显示, 避免"上一交易日名单被当成当日名单"。
+      // 顶栏标注条曾据此显示(避免"上一交易日名单被当成当日名单");
+      // 🔴 **该条 2026-09-30 已按主人指令删除** ⇒ 此处赋值现仅供将来恢复时取用。
       if (data.freezeDate) {
         this.freezeDate = data.freezeDate
         this.freezeIsToday = data.freezeIsToday !== false

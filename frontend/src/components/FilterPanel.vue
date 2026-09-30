@@ -38,7 +38,7 @@ v-if="store.filterReady" class="filter-custom" :class="{ 'filter-locked': store.
       </template>
 
       <!-- 按钮组: 桌面端吸右上角; 手机端紧凑靠右 -->
-      <!-- 2026-09-16 选股闸门: 交易日 9:00-9:26 全部动作按钮置灰(store.pickBlocked),
+      <!-- 2026-09-16 选股闸门: 交易日 09:15:00~09:26:30 全部动作按钮置灰(store.pickBlocked),
            title 显示具体原因; 输入框仍可编辑, 到点自动解禁后可直接点「应用」 -->
       <span class="filter-actions-top" :style="layoutStyle.actions">
         <button
@@ -218,7 +218,7 @@ const chgGt = _spotField('chgGt')
 //      (= 与 2026-09-14「评分≥」同类处置: 保留数据链路, 只撤 UI 入口。)
 const spotExcludeZT = _spotField('spotExcludeZT')
 
-// 按钮禁用: 竞价模式受 9:00-9:26 闸门; 盘中模式**不受闸门**(盘中随时可重选)。
+// 按钮禁用: 竞价模式受 09:15:00~09:26:30 闸门; 盘中模式**不受闸门**(盘中随时可重选)。
 const applyDisabled = computed(() => {
   if (isSpot.value) return false
   return store.pickBlocked || (store.isFilterLocked && store.strategy === 'auction')
