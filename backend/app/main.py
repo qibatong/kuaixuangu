@@ -148,6 +148,12 @@ def on_startup():
     try:
         from .services import kpl as _kpl_replay
         _kpl_replay.start_kpl_replay_prewarm()
+        # 2026-10-01 P1-5: 开盘啦出网埋点汇总线程(供 10-08 竞价窗口量化; KX_KPL_OUTBOUND_STAT=0 可关)
+        try:
+            from .services import kpl as _kpl_stat_mod
+            _kpl_stat_mod.start_kpl_stat()
+        except Exception as _e:                                # noqa: BLE001
+            log.warning("KPL 出网埋点线程启动失败: %s", _e)
     except Exception as e:
         log.warning("KPL回看预热启动失败(不影响主服务) err=%s", e)
     # 会员权益配置回灌(2026-09-21): 后台改的会员配置存 settings 表, 重启后必须重新

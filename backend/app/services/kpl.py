@@ -7,6 +7,7 @@
 返回字段均为 App 数组格式(无字段名, 靠位置解析), 统一在此转换为 dict。
 """
 import json
+import os
 import sqlite3
 import ssl
 import threading
@@ -131,6 +132,97 @@ def clear_cache():
         pass
 
 
+# ============================================================================
+# 上游出网**埋点**（2026-10-01 竞价链路 P1-5 / 清单 1.3）
+#
+# 为什么加: 清单 §六 验收口径要"竞价窗口(09:15~09:28) 的**上游调用次数 / 429 条数**"。
+#   journalctl 里只有**接口层**访问日志(`[app.main] <ip> GET <path> uid=N <status> <ms>ms`),
+#   拿不到"一次页面请求到底打了几次开盘啦"。`_call` 是**唯一出网口** ⇒ 在这里计数最准。
+#   开销: 每次出网只做两次 dict 自增(无 I/O), 每 60s 汇总打**一行**日志, 平时零噪声。
+#   开关: `KX_KPL_OUTBOUND_STAT=0` 关闭; `KX_KPL_STAT_PERIOD` 调周期(默认 60s)。
+#
+# 已量化的基线（测试机实测, `scripts/_kx_p15_probe.py`, 冷缓存, 强制竞价分支）:
+#   封单 tab **66 次**(其中按股概念 `GetStockIDPlate` 60 次 + 榜单 7 次);
+#   爆量 tab **0 次**(量比纯库内算) / 净额 tab **1 次**; 三 tab **无重叠**
+#   ⇒ 清单 1.3 原设想"三 tab 各打一套、可合并"**不成立**, 真成本是按股概念。
+# ============================================================================
+_KPL_STAT_LOCK = threading.Lock()
+_KPL_STAT = {}                       # {"a=X|Type=2": [调用数, 失败数]}
+_KPL_STAT_TOT = [0, 0, 0]            # [总调用, 总失败, 429 次数]
+_KPL_STAT_SINCE = [time.time()]
+KPL_STAT_PERIOD = int(os.environ.get("KX_KPL_STAT_PERIOD", "60") or 60)
+_KPL_STAT_ON = (os.environ.get("KX_KPL_OUTBOUND_STAT", "1") or "1") != "0"
+_kpl_stat_started = False
+
+
+def _stat_inc(a, tp, ok=True, http=None):
+    """出网计数(埋点)。🔴 统计绝不允许影响业务: 整段 try 包住, 出错静默"""
+    if not _KPL_STAT_ON:
+        return
+    try:
+        # key 里**不放 "="**（否则 `a=X|Type=2=60` 这种行对 grep/正则都不友好）
+        k = "%s|T%s" % (a, tp if tp is not None else "-")
+        with _KPL_STAT_LOCK:
+            it = _KPL_STAT.get(k)
+            if it is None:
+                it = _KPL_STAT[k] = [0, 0]
+            it[0] += 1
+            _KPL_STAT_TOT[0] += 1
+            if not ok:
+                it[1] += 1
+                _KPL_STAT_TOT[1] += 1
+            if http == 429:
+                _KPL_STAT_TOT[2] += 1
+            due = (time.time() - _KPL_STAT_SINCE[0]) >= KPL_STAT_PERIOD
+        # ★ 汇总改为**机会式**: 在计数时判断"窗口是否到期", 到期就顺带打一行。
+        #   为什么不用后台线程(2026-10-01 实测踩到): 线程是否起来/是否中途死掉**不可观测**,
+        #   而埋点"必须有输出"是硬要求 ⇒ 挂在业务路径上, 有流量就一定有统计。
+        #   代价: 一次 time() 比较; 且流量停止时最后一窗不落日志(下一波流量会带更长 span 落盘)。
+        if due:
+            kpl_stat_flush()
+    except Exception:                                          # noqa: BLE001
+        pass
+
+
+def kpl_stat_flush(force=False):
+    """把窗口内计数汇总成一行日志并清零; 窗口内无调用 ⇒ 不打日志(返回 '')"""
+    if not _KPL_STAT_ON:
+        return ""
+    now = time.time()
+    with _KPL_STAT_LOCK:
+        if not _KPL_STAT and not force:
+            return ""
+        items = sorted(_KPL_STAT.items(), key=lambda kv: -kv[1][0])
+        tot = list(_KPL_STAT_TOT)
+        span = now - _KPL_STAT_SINCE[0]
+        _KPL_STAT.clear()
+        for i in range(3):
+            _KPL_STAT_TOT[i] = 0
+        _KPL_STAT_SINCE[0] = now
+    parts = ["%s=%d%s" % (k, v[0], ("(fail%d)" % v[1]) if v[1] else "")
+             for k, v in items[:12]]
+    line = ("KPL出网统计 %.0fs: total=%d fail=%d http429=%d | %s"
+            % (span, tot[0], tot[1], tot[2], " ".join(parts)))
+    log.info("%s", line)
+    return line
+
+
+def start_kpl_stat():
+    """启用出网埋点(启动点保留, 供 main 调用并**留一行启动日志**便于确认生效)。
+
+    2026-10-01: 由"独立后台线程定时汇总"改为**机会式汇总**(见 `_stat_inc`)——
+    独立线程起没起来、有没有半路死掉都无法从日志上确认, 而"10-08 必须有统计输出"是硬要求;
+    挂到业务路径上则**有流量就一定有输出**。此处只播报一次配置, 不再起线程。
+    """
+    global _kpl_stat_started
+    if not _KPL_STAT_ON or _kpl_stat_started:
+        if not _KPL_STAT_ON:
+            log.info("KPL 出网埋点已关闭(KX_KPL_OUTBOUND_STAT=0)")
+        return
+    _kpl_stat_started = True
+    log.info("KPL 出网埋点已启用(机会式汇总, 每 %ds 或下次调用时输出一行)", KPL_STAT_PERIOD)
+
+
 def _record(ok, ms=0):
     with _health_lock:
         h = _HEALTH["kpl"]
@@ -183,6 +275,7 @@ def _call(host_key, params, timeout=12):
     sem_key = store.acquire_sem("kpl", limit=3, timeout=timeout)
     if sem_key is None:
         _record(False)
+        _stat_inc(params.get("a"), params.get("Type"), ok=False)
         log.warning("KPL 并发信号量获取超时(限流) a=%s", params.get("a"))
         return None
     try:
@@ -190,11 +283,15 @@ def _call(host_key, params, timeout=12):
             body = r.read().decode("utf-8", "ignore")
         data = json.loads(body)
         _record(True, int((time.time() - t0) * 1000))
+        _stat_inc(params.get("a"), params.get("Type"), ok=True)
         if data.get("errcode") not in (None, "0"):
             log.warning("开盘啦接口返回异常 errcode=%s a=%s", data.get("errcode"), params.get("a"))
         return data
     except Exception as e:
         _record(False)
+        # urllib 对 HTTP 4xx/5xx 抛 HTTPError(带 .code) ⇒ 429(限流) 可据此单列统计
+        _stat_inc(params.get("a"), params.get("Type"), ok=False,
+                  http=getattr(e, "code", None))
         log.warning("开盘啦调用失败 a=%s err=%s", params.get("a"), e)
         return None
     finally:
@@ -2126,6 +2223,89 @@ def fetch_board_map():
     return _cached("board_map", 300, loader)
 
 
+# ============================================================================
+# 按股概念**后台补齐**（2026-10-01 竞价链路 P1-5 / 清单 1.3）
+#
+# 量化依据（测试机实测, `scripts/_kx_p15_probe.py`）:
+#   · 封单 tab 冷启动出网 **66 次**，其中 **60 次是 `GetStockIDPlate` 按股查概念**；
+#     爆量 tab **0 次**（纯库内算量比）、净额 tab **1 次** ⇒ 三 tab **无同源榜单可共用**
+#     （清单 1.3 原设想"三 tab 各打一套、可合并"经实测**不成立**）。
+#   · 真正的缺口在 `apply_board_concept` 的 3s 预算: 名单 144 只时只补上 60 只,
+#     日志 `耗时预算3.0s已用尽(已补60只), 剩余84只本轮放弃` ⇒ **页面概念残缺**,
+#     且下一次轮询**再阻塞 3s** 补下一批（要好几轮才补齐），竞价窗口内反复占额。
+#
+# 修法（不动 3s 预算 —— 它是 2026-09-10 生产 504 的止血线）:
+#   预算断掉时, 把**剩余 code 丢进后台串行补齐**; 后台只做 `fetch_stock_plate`
+#   （它自带"按股 1 天缓存"与 `_cached` 并发保护）⇒ **只热缓存, 不碰任何响应**,
+#   下一次轮询(30s)直接命中, 概念补齐从"好几轮"变成"一轮以内"。
+#   队列有上限 + 去重; 单 daemon 线程 + 间隔 ⇒ 不抢前台配额, 不涨线程数。
+# ============================================================================
+_KPL_PLATE_WARM_Q = None          # 惰性创建的 queue.Queue(避免 import 期开销)
+_KPL_PLATE_WARM_STARTED = False   # 线程只起一次: 队列被重置(如测试)时不重复起线程
+_KPL_PLATE_WARM_QUEUED = set()    # 去重: 已入队/正在补
+_KPL_PLATE_WARM_MAX = 400         # 队列上限(超出丢弃: 下轮请求会重新入队, 不会积压)
+_KPL_PLATE_WARM_GAP = 0.25        # 每次查询后的间隔(秒): 后台让路前台
+_KPL_PLATE_WARM_LOCK = threading.Lock()
+
+
+def _plate_warm_loop():
+    """后台串行补齐按股概念: 只调 fetch_stock_plate(命中缓存则零出网), 失败静默下轮自愈
+
+    🔴 每轮都重新读**模块级** `_KPL_PLATE_WARM_Q`（而不是启动时捕获的引用）:
+       这样测试里重置队列后不会出现"老线程死等旧队列、新队列无人消费"的假死。
+    """
+    while True:
+        q = _KPL_PLATE_WARM_Q
+        if q is None:
+            time.sleep(0.5)
+            continue
+        code = q.get()
+        try:
+            fetch_stock_plate(code)
+        except Exception as e:                                  # noqa: BLE001
+            log.debug("按股概念后台补齐失败 code=%s err=%s", code, str(e)[:80])
+        finally:
+            with _KPL_PLATE_WARM_LOCK:
+                _KPL_PLATE_WARM_QUEUED.discard(code)
+            try:
+                q.task_done()
+            except Exception:                                   # noqa: BLE001
+                pass
+        time.sleep(_KPL_PLATE_WARM_GAP)
+
+
+def warm_stock_plates_async(codes):
+    """把一批 code 丢后台补齐(返回实际入队数)。
+
+    🔴 只热缓存: 不改 result、不写 concept_deep 池(池由下一次前台请求正常写入) ⇒
+       与"请求内原地修改 result"的既有逻辑**零耦合**, 不存在并发改同一份响应的风险。
+    """
+    global _KPL_PLATE_WARM_Q, _KPL_PLATE_WARM_STARTED
+    todo = [str(c) for c in (codes or []) if c]
+    if not todo:
+        return 0
+    with _KPL_PLATE_WARM_LOCK:
+        if _KPL_PLATE_WARM_Q is None:
+            import queue as _queue
+            _KPL_PLATE_WARM_Q = _queue.Queue()
+        if not _KPL_PLATE_WARM_STARTED:
+            _KPL_PLATE_WARM_STARTED = True
+            threading.Thread(target=_plate_warm_loop, daemon=True,
+                             name="kpl-plate-warm").start()
+            log.info("按股概念后台补齐线程已启动(上限%d, 间隔%.2fs)",
+                     _KPL_PLATE_WARM_MAX, _KPL_PLATE_WARM_GAP)
+        n = 0
+        for c in todo:
+            if len(_KPL_PLATE_WARM_QUEUED) >= _KPL_PLATE_WARM_MAX:
+                break
+            if c in _KPL_PLATE_WARM_QUEUED:
+                continue
+            _KPL_PLATE_WARM_QUEUED.add(c)
+            _KPL_PLATE_WARM_Q.put(c)
+            n += 1
+    return n
+
+
 def apply_board_concept(result, log_tag="", deep=True, field="concept",
                         truncate=None, blank_if_missing=False,
                         time_budget=3.0):
@@ -2226,9 +2406,15 @@ def apply_board_concept(result, log_tag="", deep=True, field="concept",
                 # 2026-09-10 生产 504 止血: 逐股外网查询必须有总耗时上限,
                 # 否则"展示字段"能把接口拖到 200s 并占满 worker 拖垮全站。
                 if time_budget and time_budget > 0 and (time.time() - t_deep) > time_budget:
+                    # ★ 2026-10-01 P1-5: 由"本轮放弃(等下一轮再阻塞 3s 补)"改为
+                    #   **转后台补齐** —— 本请求的耗时上限不变(仍是 3s 防线),
+                    #   但剩余 code 会在后台补进"按股 1 天缓存", 下一轮轮询(30s)即命中,
+                    #   概念残缺从"好几轮"缩到"一轮以内"。仅 deep 路径会走到这里。
+                    rest = miss_codes[i:]
+                    wn = warm_stock_plates_async(rest)
                     log.warning("选股概念开盘啦覆盖[按股] %s 耗时预算%.1fs已用尽(已补%d只), "
-                                "剩余%d只本轮放弃(保留原值, 后续共享池命中自动补齐)",
-                                log_tag, time_budget, n2, len(miss_codes) - i)
+                                "剩余%d只**转后台补齐**(入队%d; 只热缓存不阻塞本请求)",
+                                log_tag, time_budget, n2, len(rest), wn)
                     break
                 chunk = miss_codes[i:i + BATCH]
                 with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
