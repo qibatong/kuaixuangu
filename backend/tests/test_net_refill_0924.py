@@ -178,3 +178,57 @@ def test_refill_does_not_touch_other_points_or_dates(monkeypatch):
         conn.close()
     assert other == 0.0                             # 9_20 未被污染
     assert _count(date) == 1                        # 9_25 只有本用例种的那一行
+
+
+# ---------------------------------------------------- ⑤ 防串日(2026-09-30 修复)
+# 🔴 修复前的缺陷: 取数用 `date_offset=0`, 而猫爪 `fundflow_kp` 的该参数语义 =
+#   "**最近一个有数据的交易日**" —— 当日数据未产出时会**回退到上一交易日**
+#   (2026-09-30 实测: 盘前 offset=0 返回 20260929/净额非零 1292 只; 而
+#    显式 `tradedate=20260930` 返回 0 行 + 业务错误 code=1002, 不返回假值)。
+#   ⇒ 首轮补采(09:26:10)若撞上猫爪今日数据尚未产出, 会把**昨日净额**写进今日定格行;
+#     且 `WHERE auc_main_net=0` 使后续轮次不会纠正, 非零 1292 只又已 ≥ 达标线(1000)
+#     ⇒ 直接"达标即停", 静默把昨天冒充今天。量比那条 09-29 已加固, 净额当时漏改。
+def test_refill_skips_rows_carrying_another_tradedate(monkeypatch):
+    """上游回的是**别的交易日**的行 → 一律不回填(核心保护)。"""
+    D = "2026-08-11"
+    _seed(D, [("600001", 0.0), ("600002", 0.0)])
+    monkeypatch.setattr(meoz_client, "enabled", lambda: True)
+    monkeypatch.setattr(meoz_client, "fundflow_map", lambda codes, **kw: {
+        "600001": {"auction_main_net_amount": 9.9e7, "tradedate": "20260810"},   # 昨日 → 跳过
+        "600002": {"auction_main_net_amount": 8.8e7, "tradedate": "20260811"},   # 当日 → 回填
+    })
+    nz, n_upd, n_all = asnap.refill_bid_main_net(D, PT)
+    assert (nz, n_upd, n_all) == (1, 1, 2)          # 只认当日那一行
+    assert _read(D, "600001") == 0.0                # 🔴 昨日值绝不进库
+    assert _read(D, "600002") == 8.8e7
+
+
+def test_refill_accepts_rows_without_tradedate(monkeypatch):
+    """上游未回 `tradedate` 时不误杀 —— 守卫仅在"有值且与目标日不同"时跳过。
+
+    与 `refill_bid_vol_ratio` 的守卫同款语义; 也保证既有 mock(不带该字段)的用例不受影响。
+    """
+    D = "2026-08-12"
+    _seed(D, [("600001", 0.0)])
+    monkeypatch.setattr(meoz_client, "enabled", lambda: True)
+    monkeypatch.setattr(meoz_client, "fundflow_map",
+                        lambda codes, **kw: {"600001": {"auction_main_net_amount": 1.1e7}})
+    assert asnap.refill_bid_main_net(D, PT) == (1, 1, 1)
+    assert _read(D, "600001") == 1.1e7
+
+
+def test_refill_passes_explicit_tradedate_not_offset(monkeypatch):
+    """取数必须**显式传 date**(→ tradedate=YYYYMMDD), 不得再回退成 date_offset=0。"""
+    D = "2026-08-13"
+    _seed(D, [("600001", 0.0)])
+    seen = {}
+
+    def _ff(codes, **kw):
+        seen.update(kw)
+        return {"600001": {"auction_main_net_amount": 1.0, "tradedate": "20260813"}}
+
+    monkeypatch.setattr(meoz_client, "enabled", lambda: True)
+    monkeypatch.setattr(meoz_client, "fundflow_map", _ff)
+    asnap.refill_bid_main_net(D, PT)
+    assert seen.get("date") == "20260813", "必须显式传目标交易日"
+    assert "date_offset" not in seen, "不得再用 date_offset(会串到上一交易日)"

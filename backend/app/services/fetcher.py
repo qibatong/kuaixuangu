@@ -3116,7 +3116,16 @@ def fetch_stock_chart_robust(code, period="day"):
     #     被调用一次，不会退回"每次都打"。
     #   · 新浪日K/周K 实测可取但**无成交额**，故不接入（需要时再作第 4 源）。
     #   · **分时图**（_fetch_minute_trend，走东财 trends2）不属"日K"，本次不动。
-    sources = ["meoz", "tencent", "eastmoney"]
+    # 🔴 2026-09-30 首源调整: **猫爪 → 腾讯**（此前 9/24 WP5 把猫爪提为日K首源）。
+    #   原因(生产实测, 见 kpl.fill_close_change_from_kline 的批量修复注释):
+    #     逐只 chart 调用 = 每票 1 次猫爪 `a=daily`; 09:15-09:18 四分钟内 458 次,
+    #     把猫爪打成 345 次 429(96.5% 挤在 08:45-09:30)。
+    #     猫爪额度必须留给**不可替代**的调用(竞价快照 screening/auc_kp/daily_auc_detail
+    #     等全市场批量口); K 线逐只流量是可替代的, 应走实测无风控的腾讯。
+    #   安全性: 腾讯 day/week/month 全支持(count 200/700/300)、既有注释实测无风控;
+    #     猫爪**降为第一备源仍在链上**(不删源), 东财保持末位兜底。
+    #   ⚠️ 可一行回退: 把本行两元素换回 ["meoz", "tencent", "eastmoney"] 即恢复 9/24 口径。
+    sources = ["tencent", "meoz", "eastmoney"]
     for src in sources:
         try:
             if src == "meoz":
@@ -3161,3 +3170,72 @@ def fetch_stock_chart_robust(code, period="day"):
             log.warning("chart[robust]聚合失败 code=%s err=%s", code, e)
     log.error("chart[robust]全部数据源失败 code=%s period=%s", code, period)
     return {}
+
+
+# ==================== 当日收盘涨跌幅: 批量口(2026-09-30 猫爪 429 限流修复) ====================
+_BATCH_CLOSE_CHG_CHUNK = 800     # 猫爪 daily 实测 800 只/次 0.32s 无截断(见 meoz_client.daily_history_map)
+_BATCH_CLOSE_CHG_DAYS_MAX = 27   # 目标日超出"最近 N 个自然日"则不做批量, 交回逐只链
+
+
+def batch_close_chg_map(codes, date):
+    """批量取 codes 在 date 的**当日收盘涨跌幅(%)** —— 单次 800 只, 替代逐只日K。
+
+    🔴 为什么需要它(2026-09-30 生产实测):
+      `kpl.fill_close_change_from_kline` 对"库/缓存里缺的票"是**逐只**调
+      `fetch_stock_chart_robust(code,"day")`, 而该函数首源是猫爪
+      ⇒ **每只票 1 次 `a=daily`**。生产实测当日: 「连续多日封单」471 次请求
+      → 854 次逐只日K → **345 次 429**(96.5% 挤在 08:45-09:30, 09:17 一分钟 130 次;
+      单次请求最多触发 73 次)。而猫爪 daily 本身**支持 800 只/次** —— 逐只纯属调用放大。
+
+    口径与 `kpl._one()` 逐只路径 **完全一致**: 前复权日K的**相邻收盘 close-to-close**
+    涨跌幅(猫爪 daily 与腾讯 qfq 已对拍"逐日收盘全等", 见 _fetch_chart_from_meoz)
+    ⇒ 两者可安全互换, 唯一差别是请求数。
+
+    只为「最近 _BATCH_CLOSE_CHG_DAYS_MAX 个自然日内」的目标日做批量: 更早的历史回看,
+    单票就要拉几十根(recentdays 大), 批量反而更重 ⇒ 返回 {} 交回逐只链。
+    失败/未启用/非交易日/接口异常 ⇒ 一律返回 {} —— **调用方原逻辑不变**, 仍是逐只兜底,
+    所以本函数只可能"少打请求", 不可能改变取数结果。
+    """
+    if not _meoz_enabled():
+        return {}
+    codes = [str(c) for c in (codes or []) if str(c).strip()]
+    ds = str(date or "")[:10]
+    if not codes or not ds:
+        return {}
+    try:
+        tgt = time.mktime(time.strptime(ds, "%Y-%m-%d"))
+        today = time.mktime(time.strptime(
+            time.strftime("%Y-%m-%d", time.gmtime(time.time() + 8 * 3600)), "%Y-%m-%d"))
+    except (ValueError, TypeError, OverflowError):
+        return {}
+    gap_days = int((today - tgt) // 86400)
+    if gap_days < 0 or gap_days > _BATCH_CLOSE_CHG_DAYS_MAX:
+        return {}
+    # 交易日数 ≤ 自然日数 ⇒ "gap+3 个交易日"必然覆盖到目标日那一根
+    recent = max(3, gap_days + 3)
+    from . import meoz_client
+    out = {}
+    for i in range(0, len(codes), _BATCH_CLOSE_CHG_CHUNK):
+        chunk = codes[i:i + _BATCH_CLOSE_CHG_CHUNK]
+        try:
+            hist = meoz_client.daily_history_map(chunk, days=recent) or {}
+        except Exception as e:                                    # noqa: BLE001
+            log.warning("现涨批量日K拉取失败 n=%d date=%s err=%s", len(chunk), ds, e)
+            continue
+        for code, rows in hist.items():
+            if not rows:
+                continue
+            prev = None
+            # 上游最新在前 ⇒ 升序后再找目标日, 其**前一根**即上一交易日
+            for m in sorted(rows, key=lambda x: str(x.get("tradedate") or "")):
+                c = _num(m.get("close"), 0.0)
+                if c <= 0:
+                    continue
+                if _norm_kline_date(m.get("tradedate")) == ds:
+                    if prev and prev > 0:
+                        out[code] = round((c - prev) / prev * 100, 2)
+                    break
+                prev = c
+    log.info("现涨批量日K date=%s 请求 %d 只(recentdays=%d) → 命中 %d 只",
+             ds, len(codes), recent, len(out))
+    return out

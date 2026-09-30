@@ -20,6 +20,7 @@
 2026-09-28 (v4.11.76): 权重表可由管理端覆盖(settings 表 "scoring_spot"),
 读取走本模块 get_spot_cfg(), 与竞价侧 scorer.get_scoring_cfg 同款合并/缓存范式。
 """
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -86,6 +87,33 @@ DEFAULT_SCORING_SPOT: Dict[str, Any] = {
 #   原实现随 4c56083 删除; 现按 scorer.get_scoring_cfg 的**同款范式**并入:
 #   内存缓存 + 管理端保存后 reload 强制失效。
 _spot_cfg = None
+_spot_fp = None           # 构建 _spot_cfg 时 settings.scoring_spot 的**原文指纹**(settings.raw)
+_spot_chk = 0.0           # 上次比对指纹的时间(节流: 每 settings.CFG_TTL 秒最多一次查询)
+
+
+def _build_spot_cfg() -> Dict[str, Any]:
+    """按 settings("scoring_spot") 与 DEFAULT_SCORING_SPOT 合并出盘中配置(不碰缓存)"""
+    cfg = settings.get("scoring_spot")
+    if not isinstance(cfg, dict):
+        return dict(DEFAULT_SCORING_SPOT)
+    merged = dict(DEFAULT_SCORING_SPOT)
+    num_keys = ("w_chg", "w_vol_ratio", "w_turnover", "w_seal",
+                "w_market", "w_yesterday",
+                "conf_seal_high", "conf_vol_ratio", "conf_chg")
+    for k, v in cfg.items():
+        if k in num_keys:
+            try:
+                merged[k] = float(v)
+            except (TypeError, ValueError):
+                pass
+    # factors 逐层合并, 缺省因子/分档用默认(不整表替换)
+    if isinstance(cfg.get("factors"), dict):
+        fac = dict(DEFAULT_SCORING_SPOT["factors"])
+        for fk, fv in cfg["factors"].items():
+            if fk in fac and isinstance(fv, dict):
+                fac[fk] = dict(fac[fk], **fv)
+        merged["factors"] = fac
+    return merged
 
 
 def get_spot_cfg(force: bool = False) -> Dict[str, Any]:
@@ -99,36 +127,29 @@ def get_spot_cfg(force: bool = False) -> Dict[str, Any]:
         (防止旧配置缺了新因子后整块丢失默认分档)。
 
     ★ 为什么要内存缓存: compute_score_spot 每只票调一次, 一场盘中选股会调
-      几百次; 每次都读 SQLite 是纯浪费。管理端保存后调 `reload_spot_cfg()`
-      强制失效 —— 与竞价侧 reload_scoring_cfg 完全对称。
+      几百次; 每次都读 SQLite 是纯浪费 —— 所以**不能**简单改成"每次都读库"。
+      2026-09-30 改为"每 settings.CFG_TTL 秒比一次配置指纹(settings.raw)"的按需
+      重读: 管理端保存后 `reload_spot_cfg()` 让本进程立刻生效, 其余 worker 最迟
+      CFG_TTL 秒自动跟上(改前是"另一半 worker 要等到重启才跟上")。
 
     ★ 为什么是**独立缓存**而不是复用 scorer 的: 两者是不同因子表(竞价 5 因子 /
       盘中 6 因子), 键名部分重合(w_market/w_yesterday)但语义分档不同
       ⇒ 共用缓存必然串味。命名 _spot_cfg 与 _scoring_cfg 刻意区分。
     """
-    global _spot_cfg
-    if _spot_cfg is None or force:
-        cfg = settings.get("scoring_spot")
-        if isinstance(cfg, dict):
-            merged = dict(DEFAULT_SCORING_SPOT)
-            num_keys = ("w_chg", "w_vol_ratio", "w_turnover", "w_seal",
-                        "w_market", "w_yesterday",
-                        "conf_seal_high", "conf_vol_ratio", "conf_chg")
-            for k, v in cfg.items():
-                if k in num_keys:
-                    try:
-                        merged[k] = float(v)
-                    except (TypeError, ValueError):
-                        pass
-            # factors 逐层合并, 缺省因子/分档用默认(不整表替换)
-            if isinstance(cfg.get("factors"), dict):
-                fac = dict(DEFAULT_SCORING_SPOT["factors"])
-                for fk, fv in cfg["factors"].items():
-                    if fk in fac and isinstance(fv, dict):
-                        fac[fk] = dict(fac[fk], **fv)
-                merged["factors"] = fac
-            _spot_cfg = merged
-        else:
+    global _spot_cfg, _spot_fp, _spot_chk
+    # 2026-09-30 多 worker 一致性(与 scorer.get_scoring_cfg 同款): reload_spot_cfg()
+    # 只清当前进程的缓存, 线上 --workers 2 时另一半 worker 会一直用旧配置。
+    # 改为每 settings.CFG_TTL 秒比对一次配置指纹(settings.raw 原文), 变了才重建;
+    # ★ 顺序: 先读指纹再读配置值 —— 竞态下只会"多刷一次", 不会永久漏改动。
+    #   raw is None(读库抖动) ⇒ 沿用现有缓存, 不重建(否则会把配置打回默认)。
+    now = time.time()
+    if _spot_cfg is None or force or (now - _spot_chk) >= settings.CFG_TTL:
+        _spot_chk = now
+        raw = settings.raw("scoring_spot")
+        if raw is not None and (force or _spot_cfg is None or raw != _spot_fp):
+            _spot_cfg = _build_spot_cfg()
+            _spot_fp = raw
+        elif _spot_cfg is None:
             _spot_cfg = dict(DEFAULT_SCORING_SPOT)
     return _spot_cfg
 
@@ -136,6 +157,8 @@ def get_spot_cfg(force: bool = False) -> Dict[str, Any]:
 def reload_spot_cfg() -> Dict[str, Any]:
     """管理端更新盘中配置后强制刷新内存缓存, 返回新配置。
     与 scorer.reload_scoring_cfg 对称, 由 admin PUT 调用。
+
+    ★ 同样只影响**当前进程**; 其余 worker 由 TTL 指纹比对自动跟上(见 get_spot_cfg)。
     """
     get_spot_cfg(force=True)
     return get_spot_cfg()

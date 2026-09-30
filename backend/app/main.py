@@ -37,6 +37,19 @@ _WORKER_THREAD_TOKENS = 120
 
 
 
+# ---------- 会员配置按需重载(多 worker 一致性, 2026-09-30) ----------
+def _sync_member_conf():
+    """后台改的会员配置原先只 apply 到当前 worker(线上 --workers 2), 另一半要等重启;
+    这里借全局中间件在请求前做一次**带 TTL 节流**的指纹比对(见 settings.CFG_TTL),
+    变了才重载 ⇒ 所有 worker 最迟 CFG_TTL 秒一致。
+    成本 = 每 worker 每 CFG_TTL 秒 1 次主键查询; 异常一律吞掉, 绝不能影响请求。"""
+    try:
+        from .api import admin as _admin
+        _admin.ensure_member_conf_fresh()
+    except Exception:
+        pass
+
+
 # ---------- 限流 + 访问日志中间件: 每 IP 每分钟 N 次, 全部请求落日志 ----------
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
@@ -56,6 +69,9 @@ async def rate_limit_middleware(request: Request, call_next):
         log.warning("限流拦截 ip=%s %s %s uid=%s 429 %.0fms",
                     ip, request.method, request.url.path, uid or "-", cost)
         return jr({"ok": False, "msg": "请求过于频繁, 请稍后再试"}, 429)
+
+    # 会员配置同步放限流之后: 被 429 拦掉的请求不必做同步
+    _sync_member_conf()
 
     response = await call_next(request)
     cost = (time.time() - start) * 1000

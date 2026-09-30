@@ -19,6 +19,7 @@ from typing import Optional
 from ..core import config, logger
 from ..core import net as _net
 from ..core import trade_calendar
+from . import serve_date
 from .cache_store import store
 
 log = logger.get_logger(__name__)
@@ -433,13 +434,17 @@ def fetch_bid_boom():
         # 2026-09-05 修复"竞价爆量表格无数据": 非交易日(周末/节假日)/盘后今日无快照时,
         # 自动回退最近有快照的交易日 — 与 bid-seal/bid-net/抢筹 等 tab 盘后仍显示最近交易日一致
         # (竞价时段不回退, 避免 9:15-9:25 早段拿昨日冒充今日实时)
+        # 🔴 2026-09-30 主人「数据日期规矩」补闸: 上面那句"竞价时段不回退"只挡住了 9:15-9:30,
+        #   于是 **09:00~09:15 与盘中早段**只要今天还没快照, 这里就把**昨天**当今天返回
+        #   (审计出的后门①)。现改为**问唯一判据** `serve_date.allow_back(today)` ——
+        #   交易日 09:00 起一律不许回退 ⇒ 当天没数据就老实返空。
         if not hm_in_bid:
             try:
                 conn = sqlite3.connect(config.DB_FILE)
                 try:
                     has_today = conn.execute(
                         "SELECT COUNT(*) FROM snapshot_bid WHERE date=? ", (today,)).fetchone()[0]
-                    if not has_today:
+                    if not has_today and serve_date.allow_back(today):
                         # 2026-09-27 v4.11.66: 加交易日历过滤。原裸 MAX(date) 会"回退"到休市日
                         # 幽灵快照(2026-09-25 中秋), 而幽灵日的竞价额恰是 09-24 的 9_25 复制值
                         # ⇒ 「今日÷昨日」量比恒等于 1.0 ⇒ 被「量比>2」全量滤掉 ⇒ 整个 tab 变空。
@@ -447,6 +452,8 @@ def fetch_bid_boom():
                         if d0:
                             log.info("竞价爆量[回退] date=%s 今日无快照, 自动回退最近交易日 %s", today, d0)
                             today = str(d0)
+                    elif not has_today:
+                        log.info("竞价爆量 date=%s 当日无快照且**不许回退**(交易日 09:00 起) ⇒ 返回空", today)
                 finally:
                     conn.close()
             except Exception as e:
@@ -1787,9 +1794,19 @@ def freeze_day(day=None):
     ★ 与 `_latest_trade_snap_date` 的分工: 本函数先用**日历**判"是不是交易日", 只有非交易日
       才去表里找最近交易日; 表里也找不到时降级为纯日历推算 `prev_trade_date`(fail-open,
       **绝不返回空** —— 返回空会把"回退"变成"无数据", 比回退错更糟)。
+
+    ★★ 2026-09-30 主人「数据日期规矩」—— 本函数是本仓"今天到底是哪天"的**总闸**:
+      · 交易日 **09:00 以前** ⇒ 逻辑上仍属**上一个交易日**的尾巴 ⇒ 基准日退到上一交易日
+        (于是凌晨 2 点整站显示的是昨天那份完整数据, 而不是"今天(空)");
+      · 交易日 **09:00 起**   ⇒ 基准日就是今天; 今天没数据由下游走"空", **绝不回退**。
+      🔴 只对**无参调用**(= 问"现在该看哪天")生效: 显式传 `day`(= 回看某一天 / 相对某个参照日)
+        一律原样归一, 绝不平移 —— 否则历史回看会被静默挪一天。
+      实现由 `serve_date.allow_back()` 单点判定, 与全仓其余门禁同一真相源。
     """
     base = day or _bj_today()
     if trade_calendar.is_trade_day(base):
+        if day is None and serve_date.allow_back(base):
+            return trade_calendar.prev_trade_date(base) or base
         return base
     return _latest_trade_snap_date(base) or trade_calendar.prev_trade_date(base) or base
 
@@ -2663,9 +2680,14 @@ def fill_bid_ratio_yest(lst, date=None):
     try:
         import sqlite3
         conn = sqlite3.connect(config.DB_FILE)
-        today = date or time.strftime("%Y-%m-%d")
         # 2026-09-27 v4.11.66: 今日/昨日两处都加交易日历过滤(原裸 MAX(date) 会把休市日
         # 幽灵行当成"今日"与"昨日" —— 09-25 的竞价额恰是 09-24 的 9_25 复制值 ⇒ 量比恒 1.0)
+        # 🔴 2026-09-30 主人「数据日期规矩」: 原实现 `today = date or 裸自然日` 再
+        #   `cur = _latest_trade_snap_date(today) or today` ⇒ 无 date 时"今日"会被**静默平移**
+        #   到最近有数据的交易日(审计后门③): 交易日 09:00~09:15 与盘中早段会把昨天当今天,
+        #   量比的分子分母整天错位(历史上出现过恒 1.0, 整个 tab 被滤空)。
+        #   改为与全站同一真相源 —— 无 date 取 `freeze_day()`(含 09:00 分界), 显式 date 原样使用。
+        today = date or freeze_day()
         cur = _latest_trade_snap_date(today) or today
         yest = _latest_trade_snap_date(cur, strict=True)
         if not yest:
@@ -2915,11 +2937,22 @@ def fetch_bid_qiangcang(date=None):
     # 提到 loader 外, 供 loader 分支 + 下方缓存 TTL 分层共用。
     _g = time.gmtime(time.time() + 8 * 3600)
     _hm = _g.tm_hour * 60 + _g.tm_min
-    in_bid = (not date) and _g.tm_wday < 5 and (9 * 60 + 15) <= _hm <= (9 * 60 + 26)
+    # 2026-09-30 补: 原来是裸 `_g.tm_wday < 5`(只判周末, 不认法定休市) ⇒ 休市日的
+    #   9:15-9:26 会被当成竞价时段, 去上游要根本就不存在的数据。改用交易日历单一口径。
+    try:
+        _is_td = trade_calendar.is_trade_day_of(_g)
+    except Exception:                                          # noqa: BLE001
+        # 单测里的轻量时钟替身常常只带 tm_hour/tm_min/tm_wday(缺 tm_year ⇒ 日历查不了),
+        # 此时退回旧口径。生产恒走日历分支, 不影响节假日判定。
+        _is_td = getattr(_g, "tm_wday", 0) < 5
+    in_bid = (not date) and _is_td and (9 * 60 + 15) <= _hm <= (9 * 60 + 26)
 
     def loader():
         t0 = time.time()
-        today = date or time.strftime("%Y-%m-%d")
+        # 🔴 2026-09-30 主人「数据日期规矩」: 原 `today = date or 裸自然日` ⇒ 无 date 时"今日"
+        #   锚在自然日上, 交易日 09:00~09:15 / 盘中早段今天还没快照时被下面的回退块换成昨天
+        #   (审计后门②)。改为 `freeze_day()`(含 09:00 分界), 并给回退加唯一判据闸门。
+        today = date or freeze_day()
         hhmm = time.strftime("%H:%M")
         # 实时模式且非竞价时段: 若今天还没有竞价快照(盘前/周末/节假日), 自动回退到最近
         # 有数据的交易日, 与 bid-seal/bid-boom 等 tab 盘后仍显示最近交易日保持一致
@@ -2939,7 +2972,11 @@ def fetch_bid_qiangcang(date=None):
                 cands = [r[0] for r in rows if r and r[0]]
                 # 全不合规 → None ⇒ 保留原日期(与全局 fail-open 口径一致, 不硬塞一个可疑日)
                 d_new = trade_calendar.latest_trade_in(cands, today)
-                if d_new and d_new != today:
+                if not serve_date.allow_back(today):
+                    # 交易日 09:00 起: 当天没数据就返空, 不许拿昨天顶上(主人铁律)
+                    log.info("抢筹 date=%s %s 当日无快照且**不许回退**(交易日 09:00 起) ⇒ 返空",
+                             today, hhmm)
+                elif d_new and d_new != today:
                     log.info("抢筹[回退] date=%s %s 今日无快照, 自动回退最近交易日 %s",
                              today, hhmm, d_new)
                     today = d_new
@@ -4610,8 +4647,10 @@ def _close_chg_pct_ths(date, code):
 
 def fill_close_change_from_kline(lst, date):
     """历史回看: 把列表中股票 change/realChange 覆盖为所选交易日 date 的**当日收盘涨跌幅(%)
-    数据来源优先级: 进程内存 → close_change_history 库表(持久化) → 多源日K(缺失才拉, 并写库)。
-    多源顺序: fetch_stock_chart_robust(东财→腾讯) → 新浪 → 腾讯 → 同花顺。
+    数据来源优先级: 进程内存 → close_change_history 库表(持久化) → **批量日K**(缺票一次取回)
+    → 逐只多源日K(批量未覆盖的才拉, 并写库)。
+    批量: fetcher.batch_close_chg_map(猫爪 daily, 800 只/次; 仅覆盖最近 27 个自然日内)。
+    逐只顺序: fetch_stock_chart_robust(2026-09-30 起 腾讯→猫爪→东财) → 新浪 → 腾讯 → 同花顺。
     因此历史日首次补齐后, 后续回看不再请求外部接口。返回被覆盖的股票数。"""
     if not lst or not date:
         return 0
@@ -4686,6 +4725,30 @@ def fill_close_change_from_kline(lst, date):
         todo = [it for it in todo if it["code"] not in table]
         _CLOSE_CHG_RESYNCED.add(date)
     # 2) 仍缺的才拉多源日K, 并写库持久化(任一源命中即写入；收盘自愈命中批量行情的也已写库)
+    #
+    # 🔴 2026-09-30 「猫爪 429 限流」修复: 先**批量**取, 未覆盖的才逐只。
+    #   原实现对 todo **逐只**调 fetch_stock_chart_robust(首源=猫爪) ⇒ 每票 1 次
+    #   `a=daily`。生产实测: 「连续多日封单」471 次请求 → 854 次逐只日K → 345 次 429
+    #   (96.5% 挤在 08:45-09:30; 09:16:3x 单次请求触发 49 次、09:17:4x 触发 73 次),
+    #   而猫爪 daily 支持 800 只/次 ⇒ 逐只是纯调用放大。
+    #   批量口径与下方 _one() 完全一致(前复权相邻收盘 close-to-close), 且批量未覆盖
+    #   (更早的历史回看/批量失败)的仍走**原逐只链** ⇒ 只可能少打请求, 不改取数结果。
+    if todo:
+        try:
+            _bc = fetcher.batch_close_chg_map([it["code"] for it in todo], date)
+        except Exception as e:                                    # noqa: BLE001
+            _bc = {}
+            log.warning("现涨批量日K异常(不影响逐只兜底) date=%s err=%s", date, e)
+        if _bc:
+            for it in todo:
+                v = _bc.get(it["code"])
+                if v is not None:
+                    table[it["code"]] = v
+                    fetched[it["code"]] = v
+            _n0 = len(todo)
+            todo = [it for it in todo if it["code"] not in table]
+            log.info("现涨批量日K date=%s 命中 %d/%d 只, 剩余 %d 只走逐只兜底",
+                     date, _n0 - len(todo), _n0, len(todo))
 
     def _one(it):
         code = it.get("code") or ""

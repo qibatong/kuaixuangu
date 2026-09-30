@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Request
 
 from ..core import logger
 from ..core import trade_calendar as tc
-from ..services import auction_snapshot, bid_seal_daily, kpl, scorer, stats
+from ..services import auction_snapshot, bid_seal_daily, kpl, scorer, serve_date, stats
 from ..services.picker import zh as zh_sel
 from ..services.cache_store import store as _cstore
 from ..db import database
@@ -50,9 +50,15 @@ def _latest_trade_snap_date(conn, date="", time_point="", days=0):
         return date or ""
     cands = [r[0] for r in rows if r and r[0]]
     picked = tc.latest_trade_in(cands, date or None)
-    if picked:
-        return picked
-    return cands[0] if cands else (date or "")
+    picked = picked or ""
+    # 🔴 2026-09-30 主人「数据日期规矩」: 交易日 **09:00 起**当天没快照就**不许**退到上一交易日
+    #   (select/display 都会拿昨天的数冒充今天)。原实现还有一处 fail-open 残留 ——
+    #   候选全不合规时 `return cands[0]`, 会把**休市日幽灵行**当成"最近交易日"(09-25 事故同型),
+    #   现一并去掉: 无合规候选 ⇒ 原样返回 `date`。
+    if picked and picked != date and not serve_date.allow_back(date):
+        log.info("_latest_trade_snap_date: %s 无快照且**不许回退**(交易日 09:00 起) ⇒ 返回原日期", date)
+        return date
+    return picked or date or ""
 
 
 def _is_intraday_stats():
@@ -169,7 +175,7 @@ def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid), da
                 # 2026-09-27 v4.11.66: 加交易日历过滤(原为裸 MAX(date), 会把休市日幽灵快照
                 # 当"最近交易日" —— 09-25 中秋事故, 见 _latest_trade_snap_date docstring)
                 # 🔴 2026-09-29 铁律: 交易日请求当日 ⇒ 不回退(见下方 3points 同款说明)
-                resolved = date if tc.is_trade_day(date) else (_latest_trade_snap_date(conn, date) or date)
+                resolved = date if not serve_date.allow_back(date) else (_latest_trade_snap_date(conn, date) or date)
                 has = conn.execute(
                     "SELECT COUNT(*) FROM snapshot_bid WHERE date=?", (resolved,)).fetchone()[0]
                 dates = [resolved] if has else []
@@ -204,13 +210,21 @@ def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid), da
                     day["yizi_count"] = yizi[0]
                     day["yizi_amt"] = (yizi[1] * 10000) if yizi[1] is not None else None  # 万元→元
                 out.append(day)
+            # 🔴 2026-09-30 主人「数据日期规矩」: 由**后端**下发"该请求哪一天"(唯一真相源),
+            #   前端禁止自己拼日期。规矩: 交易日 09:00 前 → 上一交易日; 09:00 起 → 当天
+            #   (没数据就空, 绝不回退); 非交易日 → 最近一个有数据的交易日。
+            #   必须在 conn 关闭前算(非交易日要对齐到"最近有数据的交易日")。
+            _sd, _mode = serve_date.serve_date(date)
+            if _mode == serve_date.MODE_OFFDAY:
+                _sd = _latest_trade_snap_date(conn, _sd) or _sd
         finally:
             conn.close()
         # 🔴 2026-09-29 铁律「零值不得回退昨日」给前端用: 前端原本只凭"days[0].date != 今天"
         #   就把整页切到上一交易日 ⇒ **交易日**盘前(今日快照还没落)会静默显示昨天的数据。
         #   现额外返回 `today` + `todayTradeDay`, 前端据此只在**非交易日**才允许回退。
         _tod = _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 8 * 3600))
-        return {"ok": True, "days": out, "today": _tod, "todayTradeDay": tc.is_trade_day(_tod)}
+        return {"ok": True, "days": out, "today": _tod, "todayTradeDay": tc.is_trade_day(_tod),
+                "serveDate": _sd, "serveMode": _mode}
 
     from ..services.cache_store import cached_singleflight
     # 2026-09-04 二轮: date 空 TTL 30s→60s。原 30s 恰等于前端 30s 轮询周期 →
@@ -295,7 +309,7 @@ def api_stats_bid_snapshot_stock(request: Request, uid: int = Depends(get_uid)):
     # 🔴 2026-09-29 铁律: 交易日请求当日 ⇒ 不回退到更早快照日
     conn = database.get_conn()
     try:
-        resolved = date if tc.is_trade_day(date) else (_latest_trade_snap_date(conn, date) or date)
+        resolved = date if not serve_date.allow_back(date) else (_latest_trade_snap_date(conn, date) or date)
     finally:
         conn.close()
     d = auction_snapshot.query_stock_snapshot(resolved, code)
@@ -370,7 +384,7 @@ def api_stats_zh_picks(request: Request, uid: int = Depends(get_uid), date: str 
     date = date or _time.strftime("%Y-%m-%d", _time.gmtime(_time.time() + 8 * 3600))
     conn = database.get_conn()
     try:
-        resolved = date if tc.is_trade_day(date) else (_latest_trade_snap_date(conn, date) or date)
+        resolved = date if not serve_date.allow_back(date) else (_latest_trade_snap_date(conn, date) or date)
     finally:
         conn.close()
     picks, stats_, meta = zh_sel.run(date=resolved)
@@ -424,7 +438,7 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
         # 幽灵快照顶掉 09-24 真值, 「竞价封单」三层排序退化成三层同值。
         # 🔴 2026-09-29 铁律「零值不得回退昨日」: 交易日的请求**原样返回**, 当日快照没落库时
         #   前端据 frozen=false 把 9:25 列标「待定格」; 只有非交易日才对齐到最近交易日快照。
-        resolved = date if tc.is_trade_day(date) else (_latest_trade_snap_date(conn, date) or date)
+        resolved = date if not serve_date.allow_back(date) else (_latest_trade_snap_date(conn, date) or date)
     finally:
         conn.close()
     if resolved != date:

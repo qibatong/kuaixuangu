@@ -204,8 +204,13 @@ def test_api_broken_date_plus_yesterday_uses_prev_pool(client, first_user, monke
     assert d2["date"] == THU
 
 
-def test_api_broken_yesterday_falls_back_when_prev_missing(client, first_user, monkeypatch):
-    """前一交易日无落库 → 退回"当日炸板"(宁可退化成今炸板, 也不返回空表)。"""
+def test_api_broken_yesterday_missing_pool_returns_empty(client, first_user, monkeypatch):
+    """🔴 池日没落库 ⇒ **返回空 + missingPool**, 绝不"退回当日炸板"冒充"昨炸板"。
+
+    ★ 本用例原先断言的是**相反**的行为(退化成今炸板, "宁可退化成今炸板也不返回空表"),
+      与 2026-09-29 主人铁律「零值不得回退昨日」正面冲突 ⇒ 长期呈红。
+      2026-09-30 主人再次强调"拿不到当天的数据也不能用别的", 故按铁律订正为"返空"。
+    """
     from app.api import deps
     from app.api import kpl as kpl_api
 
@@ -226,4 +231,7 @@ def test_api_broken_yesterday_falls_back_when_prev_missing(client, first_user, m
     r = client.get("/api/kpl/broken?date=%s&day=yesterday" % THU,
                    headers={"Authorization": "Bearer " + token})
     d = r.json()
-    assert d["ok"] and [x["code"] for x in d["list"]] == ["600002"]
+    assert d["ok"] is True
+    assert d["list"] == [], "池日无落库必须返空 —— 不得退化成'今炸板'冒充'昨炸板'"
+    assert d.get("missingPool") is True
+    assert d.get("poolDate") == WED

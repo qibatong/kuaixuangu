@@ -438,6 +438,10 @@ def test_fetch_bid_qiangcang(monkeypatch):
     class FakeT:
         tm_hour, tm_min, tm_wday = 9, 20, 3   # 竞价时段(9:20 周四)
     monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
+    # 2026-09-30: 抢筹的"今日"锚点由裸自然日改为 `freeze_day()`(含 09:00 分界判据),
+    # 而 FakeT 只有 hour/min/wday、缺 tm_year ⇒ 日历查不了。按仓库约定把桩打在**函数边界**上
+    # (`kpl.freeze_day`), 而不是让生产代码迁就轻量替身。
+    monkeypatch.setattr(kpl, "freeze_day", lambda *a, **k: "2026-09-24")
     monkeypatch.setattr(kpl, "_seal_map", lambda *a, **k: {})
 
     # --- list20: auc_kp ---
@@ -483,6 +487,10 @@ def test_fetch_bid_qiangcang_list20_fundflow_fallback(monkeypatch):
     class FakeT:
         tm_hour, tm_min, tm_wday = 9, 25, 3   # 竞价时段(9:25 定格)
     monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
+    # 2026-09-30: 抢筹的"今日"锚点由裸自然日改为 `freeze_day()`(含 09:00 分界判据),
+    # 而 FakeT 只有 hour/min/wday、缺 tm_year ⇒ 日历查不了。按仓库约定把桩打在**函数边界**上
+    # (`kpl.freeze_day`), 而不是让生产代码迁就轻量替身。
+    monkeypatch.setattr(kpl, "freeze_day", lambda *a, **k: "2026-09-24")
     monkeypatch.setattr(kpl, "_seal_map", lambda *a, **k: {})
 
     # auc_kp 返回非空但净额全 0 → 过滤后 0 只, 触发兜底
@@ -554,6 +562,9 @@ def test_fetch_bid_qiangcang_persist(monkeypatch):
     real_gmtime = _t.gmtime
     monkeypatch.setattr("sqlite3.connect", lambda *a, **k: FakeConn())
     monkeypatch.setattr(kpl, "_seal_map", lambda *a, **k: {})
+    # 2026-09-30: 抢筹的"今日"锚点改为 `freeze_day()`(含 09:00 分界), 而本用例的 FakeT
+    # 缺 tm_year ⇒ 日历查不了。按仓库约定在**函数边界**打桩, 不让生产代码迁就轻量替身。
+    monkeypatch.setattr(kpl, "freeze_day", lambda *a, **k: "2026-09-24")
     # 阶段1: 竞价时段(9:20) 猫爪有数据 → live 分支 → 落库
     _FIXED = [FakeT(9, 20)]
     monkeypatch.setattr(_t, "gmtime", fake_gmtime)
@@ -605,6 +616,10 @@ def test_fetch_bid_qiangcang_lastsec_fallback(monkeypatch):
     class FakeT:
         tm_hour, tm_min, tm_wday = 9, 20, 3
     monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
+    # 2026-09-30: 抢筹的"今日"锚点由裸自然日改为 `freeze_day()`(含 09:00 分界判据),
+    # 而 FakeT 只有 hour/min/wday、缺 tm_year ⇒ 日历查不了。按仓库约定把桩打在**函数边界**上
+    # (`kpl.freeze_day`), 而不是让生产代码迁就轻量替身。
+    monkeypatch.setattr(kpl, "freeze_day", lambda *a, **k: "2026-09-24")
     class FakeCursor:
         def __init__(self, rows): self.rows = rows
         def fetchall(self): return self.rows
@@ -662,6 +677,10 @@ def test_fetch_bid_qiangcang_list20chg(monkeypatch):
     class FakeT:
         tm_hour, tm_min, tm_wday = 9, 20, 3
     monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
+    # 2026-09-30: 抢筹的"今日"锚点由裸自然日改为 `freeze_day()`(含 09:00 分界判据),
+    # 而 FakeT 只有 hour/min/wday、缺 tm_year ⇒ 日历查不了。按仓库约定把桩打在**函数边界**上
+    # (`kpl.freeze_day`), 而不是让生产代码迁就轻量替身。
+    monkeypatch.setattr(kpl, "freeze_day", lambda *a, **k: "2026-09-24")
     monkeypatch.setattr(kpl, "_seal_map", lambda *a, **k: {})
     snap = {
         ("0920", "before"): {
@@ -697,6 +716,10 @@ def test_fetch_bid_qiangcang_list20chg_name_fallback(monkeypatch):
     class FakeT:
         tm_hour, tm_min, tm_wday = 9, 20, 3
     monkeypatch.setattr(_t, "gmtime", lambda t=None: FakeT())
+    # 2026-09-30: 抢筹的"今日"锚点由裸自然日改为 `freeze_day()`(含 09:00 分界判据),
+    # 而 FakeT 只有 hour/min/wday、缺 tm_year ⇒ 日历查不了。按仓库约定把桩打在**函数边界**上
+    # (`kpl.freeze_day`), 而不是让生产代码迁就轻量替身。
+    monkeypatch.setattr(kpl, "freeze_day", lambda *a, **k: "2026-09-24")
     monkeypatch.setattr(kpl, "_seal_map", lambda *a, **k: {})
     snap = {
         ("0920", "before"): {"A": {"auc_pct_chg": 1.5}},
@@ -1318,6 +1341,10 @@ def test_read_auction_fast_today_then_nearest(monkeypatch):
     monkeypatch.setattr(kpl_api, "_update_spot_change", lambda lst: 0)
     g = _time.struct_time((2026, 8, 20, 2, 0, 0, 3, 232, 0))
     monkeypatch.setattr(_time, "gmtime", lambda *a, **k: g)
+    # 2026-09-30: 定格基准日必须**显式钉住** —— 本用例把时钟设在 02:00, 按新规矩
+    #   (交易日 09:00 前 = 上一交易日的尾巴) freeze_day 会正当地返回 08-19,
+    #   那测的就不再是"今日优先"了。Case 2/2b/3 本来就已经这么钉。
+    monkeypatch.setattr(kpl_svc, "freeze_day", lambda: "2026-08-20")
     lst, d = kpl_api._read_auction_fast("seal")
     assert d == "2026-08-20"
     assert len(lst) == 1

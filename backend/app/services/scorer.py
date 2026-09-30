@@ -69,6 +69,18 @@ DEFAULT_SCORING = {
             "w_vol_ratio": 0.75,
             "w_ff": 0.0,
             "w_ai": 0.25,
+            # ★★ 2026-09-30 新增层④「竞价昨比」(主人拍板): 竞价额 ÷ 昨日全天成交额 × 100(%),
+            #   与前端「竞/昨比」列同式同源。子权重 **默认 0.0 = 不参与 ⇒ 零回归**;
+            #   启用只需在 settings.scoring 里写 w_zb(并把 w_ai / w_vol_ratio 按需调整)。
+            #   分档边界按【候选池】分位定 —— 生产 `precompute_read` 未开 ⇒ 评分只跑粗筛候选,
+            #   而候选池昨比显著高于全市场(候选池 P10/25/40/55/70/85 = 1.05/1.50/1.94/2.62/4.03/7.66%,
+            #   全市场同分位仅 0.10/0.20/0.29/0.41/0.57/0.90%) ⇒ **必须按候选池定, 否则会退化**。
+            #   形态: 单调递增(越高越好); 缺失 → zb_default 中性(不惩罚)。
+            "w_zb": 0.0,
+            "zb_buckets": [["0", "1.05", 0.2], ["1.05", "1.50", 0.35], ["1.50", "1.94", 0.5],
+                           ["1.94", "2.62", 0.65], ["2.62", "4.03", 0.8], ["4.03", "7.66", 0.9],
+                           ["7.66", "9999", 1.0]],
+            "zb_default": 0.5,
             # 层② 净额占自由流通市值% 分档 —— 按 2026-09-18 全市场分布定草案:
             #   P90=0.006 / P95=0.019 / P99=0.115 / max=1.64; 有值内净流入≈净流出各半。
             #   跑几天有数据后再校准(老规矩)。
@@ -109,10 +121,40 @@ DEFAULT_SCORING = {
     },
 }
 _scoring_cfg = None
+_scoring_fp = None         # 构建 _scoring_cfg 时 settings.scoring 的**原文指纹**(settings.raw)
+_scoring_chk = 0.0         # 上次比对指纹的时间(节流: 每 settings.CFG_TTL 秒最多一次查询)
+
+
+def _build_scoring_cfg():
+    """按 settings("scoring") 与 DEFAULT_SCORING 合并出评分配置(纯函数, 不碰缓存)"""
+    cfg = settings.get("scoring")
+    if not isinstance(cfg, dict):
+        return dict(DEFAULT_SCORING)
+    merged = dict(DEFAULT_SCORING)
+    num_keys = ("w_bid", "w_activity", "w_warn", "w_market", "w_yesterday",
+                "conf_warn_high", "conf_turnover", "conf_bid")
+    for k, v in cfg.items():
+        if k in num_keys:
+            try:
+                merged[k] = float(v)
+            except (TypeError, ValueError):
+                pass
+    # factors 逐层合并, 缺省因子/分档用默认
+    if isinstance(cfg.get("factors"), dict):
+        fac = dict(DEFAULT_SCORING["factors"])
+        for fk, fv in cfg["factors"].items():
+            if fk in fac and isinstance(fv, dict):
+                fac[fk] = dict(fac[fk], **fv)
+        merged["factors"] = fac
+    return merged
 
 
 def get_scoring_cfg(force=False, strategy="auction", mode=None):
-    """读取评分配置(权重+打分明细; 内存缓存; 管理端更新后调 reload 生效)
+    """读取评分配置(权重+打分明细; 进程内缓存 + TTL 指纹比对)
+
+    2026-09-30: 缓存语义从"只有 reload 能清"改为"每 settings.CFG_TTL 秒比一次
+    配置指纹(settings.raw 原文), 变了自动重建" —— 管理端保存后本进程立即生效
+    (reload 仍保留), 其余 worker 最迟 CFG_TTL 秒自动跟上, **不再需要重启服务**。
 
     strategy: 选股策略。2026-09-09 盘中实时选股(spot)功能已下线(前端无入口,
     后端整链零调用), 仅保留 "auction"=竞价因子表。
@@ -125,34 +167,39 @@ def get_scoring_cfg(force=False, strategy="auction", mode=None):
     """
     if mode is not None:
         strategy = mode
-    global _scoring_cfg
-    if _scoring_cfg is None or force:
-        cfg = settings.get("scoring")
-        if isinstance(cfg, dict):
-            merged = dict(DEFAULT_SCORING)
-            num_keys = ("w_bid", "w_activity", "w_warn", "w_market", "w_yesterday",
-                        "conf_warn_high", "conf_turnover", "conf_bid")
-            for k, v in cfg.items():
-                if k in num_keys:
-                    try:
-                        merged[k] = float(v)
-                    except (TypeError, ValueError):
-                        pass
-            # factors 逐层合并, 缺省因子/分档用默认
-            if isinstance(cfg.get("factors"), dict):
-                fac = dict(DEFAULT_SCORING["factors"])
-                for fk, fv in cfg["factors"].items():
-                    if fk in fac and isinstance(fv, dict):
-                        fac[fk] = dict(fac[fk], **fv)
-                merged["factors"] = fac
-            _scoring_cfg = merged
-        else:
+    global _scoring_cfg, _scoring_fp, _scoring_chk
+    # 2026-09-30 多 worker 一致性: 原判断是 `_scoring_cfg is None or force`, 而 admin
+    # PUT 里的 reload_scoring_cfg() 只清**当前进程**的缓存(线上 uvicorn --workers 2)
+    # ⇒ 另一半 worker 会一直用旧权重, 直到重启(实测 30 次请求 19 次旧值/11 次新值)。
+    # 现改为: 每 settings.CFG_TTL 秒读一次配置**原文**当指纹(同一次主键查询, μs 级),
+    # 变了才重建。
+    #   ★ 顺序必须"先读指纹、再读配置值": 若管理员恰在两步之间保存, 我们存下的是
+    #     "新值 + 旧指纹" ⇒ 下一轮比对必然不等 ⇒ 自动重建(自我纠正); 反过来
+    #     (先值后指纹)则可能存下"旧值 + 新指纹" ⇒ **永久漏掉这次改动**。
+    now = time.time()
+    if _scoring_cfg is None or force or (now - _scoring_chk) >= settings.CFG_TTL:
+        _scoring_chk = now
+        raw = settings.raw("scoring")
+        # raw is None = 读库抖动 ⇒ 沿用现有缓存。这里若继续重建, _build_scoring_cfg
+        # 里的 settings.get 同样会失败并回落到 DEFAULT_SCORING ⇒ 一次抖动就把线上
+        # 权重打回代码默认值, 不可接受。
+        if raw is not None and (force or _scoring_cfg is None or raw != _scoring_fp):
+            _scoring_cfg = _build_scoring_cfg()
+            _scoring_fp = raw
+        elif _scoring_cfg is None:
+            # 冷启动 + 读库失败: 退回默认, 保证调用方永远拿到 dict(不能返回 None)
             _scoring_cfg = dict(DEFAULT_SCORING)
     return _scoring_cfg
 
 
 def reload_scoring_cfg():
-    """管理端更新配置后强制刷新内存缓存, 返回新配置"""
+    """管理端更新配置后强制刷新内存缓存, 返回新配置。
+
+    ★ 只影响**当前进程**(线上 uvicorn --workers 2 ⇒ 即时生效的只有处理该请求的
+    那 1 个 worker)。其余 worker 由 get_scoring_cfg 的 TTL 指纹比对在
+    settings.CFG_TTL 秒内自动跟上 —— 所以仍要保留这个调用(让保存后的接口回显
+    与前端立刻看到的值准确), 但**不再需要"保存后重启服务"**。
+    """
     get_scoring_cfg(force=True)
     return get_scoring_cfg()
 

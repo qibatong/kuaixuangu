@@ -31,6 +31,7 @@ import urllib.request
 
 from ..core import config, logger
 from ..core import net as _net
+from ..core import trade_calendar as tc
 from .cache_store import store
 
 log = logger.get_logger(__name__)
@@ -131,6 +132,104 @@ def _get_setting(key):
         return None
 
 
+# ---------------- 竞价期静默窗口(2026-09-30) ----------------
+# 主人指令: 「测试机竞价期间不要去拉数据, 采取一个限制」。
+# 动机: 猫爪**一个 apikey、两台机共用**同份额度 ⇒ 竞价窗口两台机同时拉全市场会翻倍消耗
+#       并触发 429(实测竞价时段单分钟 429 达 163~286 条), 而生产机才是服务真实用户的机器。
+# 设计取舍(为什么收口在 call() 而不是各自调用点):
+#   竞价窗口的取数入口有**两条独立的路** —— ① kx-worker 的定时采集链
+#   (auction_snapshot._scheduler_loop → snapshot_at → _fetch_market_map → screening/daily_auc_fd/
+#   valuation/fundflow/daily); ② web 进程的常驻预热线程(昨比 9:05 / KPL 9:15 / spot 9:28)
+#   + 各 HTTP 端点的按需取数(kpl 竞价 8+ tab、个股图表、首页指数带…)。
+#   逐个调用点加判断既漏得多、又会随新功能不断失守; 收在 call() 这一处**单点收口**,
+#   任何新增的猫爪调用自动被覆盖, 且**不发任何出网请求**(连并发信号量都不取)。
+# 为什么放在 call() 的 enabled() 之后、而不是塞进 enabled():
+#   enabled() 的语义是"猫爪是否配置可用"(静态), 掺进时间条件会让它变成"现在能不能用",
+#   语义被污染且所有调用 enabled() 的地方(如健康盘面)会跟着漂。故独立成 quiet_now()。
+_QUIET_LOG_INTERVAL = 60.0      # 跳过日志限流间隔(秒)
+_quiet_state = {"last_log": 0.0, "n": 0, "apis": set()}
+
+
+def _quiet_window() -> str:
+    """静默窗口配置原文: settings `meoz_quiet_window` 优先, 回落 config.MEOZ_QUIET_WINDOW。
+
+    与 _apikey()/_lines() 同一套"settings 优先、env 兜底"约定 —— settings 是**每机独立**的
+    sqlite, 所以同一份代码在两台机器上可以有不同窗口(测试机配、生产机空)。
+    """
+    try:
+        v = _get_setting("meoz_quiet_window")
+        if v is not None and str(v).strip():
+            return str(v).strip()
+    except Exception:                                          # noqa: BLE001
+        pass
+    return str(getattr(config, "MEOZ_QUIET_WINDOW", "") or "").strip()
+
+
+def parse_window(spec):
+    """"HH:MM-HH:MM" → (起始秒, 结束秒)(北京时间当日秒); 空/非法 → None。
+
+    · 全角冒号/波浪号一并接受("09：05～09:30") —— 手工在 settings 里填时很容易打出全角。
+    · start > end 视为**跨零点**窗口(如 "23:50-00:10")。
+    · 🔴 非法输入一律返回 None = **不静默(fail-open)**: 配置写错宁可照常拉数据, 也不要因为
+      一个错别字把该机的猫爪源整天关掉 —— 静默期间返回的是空数据, 出问题很难一眼看出。
+    """
+    if not spec:
+        return None
+    try:
+        s = str(spec).strip().replace("：", ":").replace("～", "-").replace("~", "-")
+        a, b = s.split("-", 1)
+
+        def _sec(t):
+            hh, mm = t.strip().split(":")
+            h, m = int(hh), int(mm)
+            if not (0 <= h <= 23 and 0 <= m <= 59):
+                raise ValueError("时分越界")
+            return h * 3600 + m * 60
+        return _sec(a), _sec(b)
+    except Exception:                                          # noqa: BLE001
+        log.warning("meoz_quiet_window 配置无法解析(%r) ⇒ 本次不静默(fail-open)", spec)
+        return None
+
+
+def quiet_now(ts=None) -> bool:
+    """此刻是否处于「竞价期静默窗口」内(北京时间, 闭区间, 且当日为交易日)。
+
+    ts 可注入(供单测); 缺省取当前时间。非交易日一律不静默: 没有竞价就没有共用配额的争抢,
+    且周末/假期调试页面时不该莫名全空。
+    """
+    w = parse_window(_quiet_window())
+    if not w:
+        return False
+    g = time.gmtime((time.time() if ts is None else ts) + 8 * 3600)   # 同全仓调度口径
+    try:
+        if not tc.is_trade_day(g):
+            return False
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("静默窗口交易日判定失败 err=%s ⇒ 保守按交易日处理", str(e)[:120])
+    sec = g.tm_hour * 3600 + g.tm_min * 60 + g.tm_sec
+    a, b = w
+    return (a <= sec <= b) if a <= b else (sec >= a or sec <= b)
+
+
+def _log_quiet_skip(apiname):
+    """跳过日志 —— **限流到每 60s 一条**。
+
+    窗口内调用极密(采集链 + 3 个预热线程 + 页面轮询), 不节流会把 app.log 刷爆,
+    反过来把真正该看的告警挤掉。日志里带上"被拦了几次 + 接口样例"便于事后盘点。
+    """
+    st = _quiet_state
+    st["n"] += 1
+    if len(st["apis"]) < 6:
+        st["apis"].add(apiname)
+    now = time.time()
+    if now - st["last_log"] >= _QUIET_LOG_INTERVAL:
+        log.warning("猫爪竞价静默窗口(%s)内 ⇒ 跳过出网; 近一轮已拦 %d 次, 接口样例=%s",
+                    _quiet_window(), st["n"], ",".join(sorted(st["apis"])) or "-")
+        st["last_log"] = now
+        st["n"] = 0
+        st["apis"].clear()
+
+
 # ---------------- 网络层故障判定(决定是否切线路) ----------------
 _NETWORK_ERRORS = (
     urllib.error.URLError,      # DNS失败 / 连接被拒 / 超时(其 reason 亦为此类)
@@ -221,6 +320,12 @@ def call(apiname: str, params=None, fields=None, timeout: int = _TIMEOUT):
     """
     if not enabled():
         log.debug("猫爪未启用(无 apikey 或 use_meoz=0), 跳过 %s", apiname)
+        return None
+
+    # 竞价期静默(2026-09-30 主人: 测试机竞价期间不拉数据) —— 单点收口, 见 quiet_now() 上方说明。
+    # 放在 enabled() 之后、取并发信号量之前: 窗口内**完全不碰上游**(也不占信号量)。
+    if quiet_now():
+        _log_quiet_skip(apiname)
         return None
 
     key = _apikey()

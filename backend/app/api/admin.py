@@ -7,6 +7,7 @@
 - GET  /api/admin/scoring        当前评分权重(?strategy=auction|spot)
 - PUT  /api/admin/scoring        更新评分权重(保存后即时生效; 两策略各存一张表)
 """
+import json
 import re
 import sqlite3
 import time
@@ -494,6 +495,7 @@ def api_admin_scoring_put(request: Request, body: dict = Body(...), uid: int = D
     err = _validate_scoring(new, strategy)
     if err:
         return jr({"ok": False, "msg": err}, 400)
+    new = _preserve_factor_groups(new, strategy)
     if strategy == "spot":
         # 🔴 key 必须是 "scoring_spot" —— 与竞价的 "scoring" 分表存,
         #   写错会静默覆盖竞价权重(两张因子表键名有重合: w_market/w_yesterday)。
@@ -509,6 +511,42 @@ def api_admin_scoring_put(request: Request, body: dict = Body(...), uid: int = D
     log.info("管理端更新评分权重 uid=%s scoring=%s", uid, new)
     return jr({"ok": True, "msg": "已保存并生效", "strategy": "auction", "mode": "auction",
                "scoring": scorer.get_scoring_cfg(strategy="auction")})
+
+
+# ---------- 「权重组」因子的保存保护(2026-09-30) ----------
+# 背景(线上实测): 后台保存评分权重会让「竞价强度」的子权重**静默消失**。
+#   · 前端 AdminView.vue 保存时 `payload.factors = {}` 后只从**界面表单**重建
+#     五个因子 —— 而 bid_strength(w_vol_ratio/w_zb/w_ai/w_ff) 不在界面上 ⇒ 被丢;
+#   · 后端 settings.set("scoring", new) 是**整表替换** ⇒ 库里就真没了;
+#   · 且旧 _validate_scoring 强制"每个因子必须带 buckets" —— bid_strength 是
+#     权重组没有 buckets ⇒ 即使前端想带上也会被 400 拒掉(两头锁死)。
+# 后果: 主人配好的「竞价昨比 40%」被任意一次保存清成默认 w_zb=0(实测线上
+#   因子键只剩 5 个、factors.bid_strength = {})，无日志无提示，界面也没入口配回。
+# 对策: ① 保存时把库里已有、payload 没带的权重组**合并保留**(前端旧版也不丢);
+#       ② 校验放行"含 w_* 的权重组", 允许没有 buckets。
+WG_PRESERVE_KEYS = ("bid_strength",)      # 将来新增权重组因子, 加进这里即可
+
+
+def _preserve_factor_groups(new, strategy="auction"):
+    """把库中已有、但本次 payload 未携带的"权重组"因子并回 new["factors"](返回新 dict)。
+
+    ★ 以 **payload 显式给出的为准**(绝不覆盖前端传的), 只补齐缺失项 —— 这样
+      前端一旦接上编辑区就能正常改, 而旧版前端(或其它调用方)也不会再把值抹掉。
+    """
+    key = "scoring_spot" if strategy == "spot" else "scoring"
+    old = settings.get(key)
+    old_fac = (old or {}).get("factors") if isinstance(old, dict) else None
+    if not isinstance(old_fac, dict):
+        return new
+    fac = dict(new.get("factors") or {})
+    for k in WG_PRESERVE_KEYS:
+        if k in fac:
+            continue
+        if isinstance(old_fac.get(k), dict) and old_fac[k]:
+            fac[k] = old_fac[k]
+    if not fac:
+        return new
+    return dict(new, factors=fac)
 
 
 def _validate_scoring(new, strategy="auction"):
@@ -554,7 +592,28 @@ def _validate_scoring(new, strategy="auction"):
         for fk, fv in factors.items():
             if fk not in default_cfg["factors"]:
                 return "未知因子: %s" % fk
-            if not isinstance(fv, dict) or not isinstance(fv.get("buckets"), list) or not fv["buckets"]:
+            if not isinstance(fv, dict):
+                return "因子 %s 格式错误" % fk
+            # 「权重组」因子(键里带 w_*, 如 bid_strength): 校验各子权重, 且**允许没有
+            # 分档表** —— 旧校验强制要 buckets, 导致竞价强度子权重根本无法从界面保存
+            # (2026-09-30 修复; 详见上方 WG_PRESERVE_KEYS 的注释)。
+            wkeys = [k for k in fv if str(k).startswith("w_")]
+            if wkeys:
+                wsum = 0.0
+                for k in wkeys:
+                    try:
+                        v = float(fv[k])
+                    except (TypeError, ValueError):
+                        return "因子 %s 的子权重 %s 必须是数字" % (fk, k)
+                    if not (0 <= v <= 1):
+                        return "因子 %s 的子权重 %s 需在 0~1 之间" % (fk, k)
+                    wsum += v
+                if abs(wsum - 1.0) > 0.05:
+                    return ("因子 %s 的子权重之和需约等于 1(当前 %.2f); "
+                            "若要关闭该因子请把顶层权重设为 0" % (fk, wsum))
+                if not fv.get("buckets"):
+                    continue                      # 纯权重组: 无分档表合法
+            if not isinstance(fv.get("buckets"), list) or not fv["buckets"]:
                 return "因子 %s 缺少有效的分档表" % fk
             try:
                 dflt = float(fv.get("default", 0.1))
@@ -1015,8 +1074,13 @@ MEMBER_CONF_KEYS = {
 }
 
 
-def get_member_conf():
-    """读取会员配置(settings 表覆盖 config 默认)"""
+def _merge_member_conf(saved):
+    """把 settings 里的覆盖值合并到"运行时/环境变量默认值"之上(纯函数)。
+
+    2026-09-30 从 get_member_conf 抽出: ensure_member_conf_fresh 需要**只读一次**
+    settings 就把原文同时用于"指纹比对"和"合并" —— 若分两次读, 第二次读失败会
+    回落到环境变量默认值并被 apply 进运行时, 等于把后台配好的额度悄悄打回默认。
+    """
     from ..core import config as _cfg
     defaults = {
         "new_user_days": int(getattr(_cfg, "NEW_USER_DAYS", 5)),
@@ -1041,6 +1105,11 @@ def get_member_conf():
     return defaults
 
 
+def get_member_conf():
+    """读取会员配置(settings 表覆盖 config 默认)"""
+    return _merge_member_conf(settings.get("member_conf", None))
+
+
 def apply_member_conf(conf):
     """把配置写回运行时 config(改完立即生效)。进程重启后由 get_member_conf 重新加载。"""
     from ..core import config as _cfg
@@ -1062,6 +1131,47 @@ def apply_member_conf(conf):
                 setattr(_cfg, attr, conf[k])
             except Exception:
                 pass
+
+
+# 会员配置的进程内一致性状态(2026-09-30 引入, 见 ensure_member_conf_fresh)
+_member_conf_fp = None
+_member_conf_chk = 0.0
+
+
+def ensure_member_conf_fresh():
+    """按需重载会员配置, 让**所有** worker 都跟上后台改动。返回是否发生了重载。
+
+    背景(与评分配置同一类问题): `PUT /api/admin/member-conf` 只对**当前进程**
+    调 apply_member_conf(), 而 config.QUOTA_*/REG_OPEN/NEW_USER_DAYS 是**模块属性**
+    ⇒ 线上 uvicorn --workers 2 时另一半 worker 仍用旧值, 且**直到重启才恢复**
+    ("后台改了额度但一半请求按旧额度放行"、"关了注册还能注册")。
+
+    做法: 每 settings.CFG_TTL 秒读一次 settings.member_conf 的**原文**当指纹
+    (settings.raw, 单次主键查询 μs 级), 变了才合并+apply。调用点 = main.py 的
+    全局 HTTP 中间件 —— 覆盖含未登录注册链路在内的全部请求, 不必在每个读取点埋钩子。
+
+    ★ 只读一次 settings: 同一份原文既当指纹又当数据源 ⇒ 不存在"两次读之间被改"
+      或"第二次读失败导致回落到环境默认值"的问题。
+    ★ raw is None(读库抖动) ⇒ 直接返回, 沿用运行时现值。
+    """
+    global _member_conf_fp, _member_conf_chk
+    now = time.time()
+    if (now - _member_conf_chk) < settings.CFG_TTL:
+        return False
+    _member_conf_chk = now
+    raw = settings.raw("member_conf")
+    if raw is None or raw == _member_conf_fp:
+        return False
+    try:
+        saved = json.loads(raw) if raw else None
+    except Exception:
+        log.warning("会员配置原文解析失败, 本轮跳过(沿用运行时现值)")
+        return False
+    conf = _merge_member_conf(saved)
+    apply_member_conf(conf)
+    _member_conf_fp = raw
+    log.info("会员配置按需重载: %s", conf)
+    return True
 
 
 @router.get("/api/admin/member-conf")

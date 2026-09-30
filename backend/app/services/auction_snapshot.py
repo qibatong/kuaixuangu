@@ -15,7 +15,7 @@ import time
 from ..core import logger
 from ..core import trade_calendar as tc
 from ..db import database
-from . import fetcher, mv_cache, scorer, tickplus
+from . import fetcher, mv_cache, scorer, serve_date, tickplus
 from .cache_store import store
 
 log = logger.get_logger(__name__)
@@ -170,9 +170,14 @@ def _ready_sec(field_name, margin_sec, fallback_sec):
 #   而它原先卡在定格那一枪的**关键路径**上 —— 2026-09-29 实测独占 13 秒(猫爪刚抖动恢复, 全市场
 #   3 片), 白白推迟了"定格落库 → aipick 采集/系统批次/自动应用"的启动。
 #   现在: 采集时**不取**净额(见 _FETCH_NET_IN_SNAPSHOT), 完全交给本补采通道(只补 0、幂等、
-#   跨进程单飞) —— 定格落库后仍有 ≈2 轮(约 09:26:45 / 09:27:20)把它补上。
+#   跨进程单飞) —— 定格落库后仍有 ≈2 轮把它补上。
 #   ★ 参与评分的列(竞价量比/涨幅/额/换手)**不受影响**: 仍要求"定格即终值"(量比另有自算兜底)。
-_NETFILL_HARD_END_SEC = 9 * 3600 + 27 * 60 + 30                 # 09:27:30 = 定格时刻 + 60s
+# 🔴 2026-09-30 主人拍板: 硬停由 09:27:30 收到 **09:26:30 = 定格时刻本身**。
+#   原本是"定格 + 60s", 与本文件上面(第 67~77 行)自述的"补采不得晚于 09:26:30(定格时刻)"
+#   **自相矛盾** —— 那 60 秒里 refill 仍可 UPDATE 9_25 行的 auc_main_net, 即"定格之后还在改数据",
+#   破了"定格即终值、之后绝不改数据"这条铁律。现与 `_BID25_FREEZE_SEC` 取同值、同口径。
+#   代价(已知并接受): 定格后不再有多轮兜底, 猫爪抖动时该列可能停在 0(它权重 0, 仅前端展示)。
+_NETFILL_HARD_END_SEC = 9 * 3600 + 26 * 60 + 30                 # 09:26:30 = 定格时刻(单枪定格)
 
 # 🔴 2026-09-29 (定格提速): 快照采集里是否取"竞价净额"。
 #   False(新默认): 不取 ⇒ 定格那一枪省下 fundflow_kp 全市场 3 片的时间(实测 3~13s);
@@ -1574,6 +1579,16 @@ def refill_bid_main_net(date, point="9_25"):
 
     ★ 与 snapshot_at 的分工: 本函数**只做列回填** —— 不触发 aipick / system_batch,
       也不覆盖已有非零值(WHERE auc_main_net=0) ⇒ 幂等, 可安全重复调用。
+    ★ 取数**显式传 date**, 并读回 `tradedate` 做**防串日**校验 —— 与 `refill_bid_vol_ratio`
+      (见其 docstring 同名告警) 同一处置。
+      🔴 2026-09-30 实测定位(修复前这里是 `date_offset=0`): 猫爪 `fundflow_kp` 的
+      `tradedate_offset=0` 语义 = **"最近一个有数据的交易日"**, 当日数据未产出时会
+      **回退到上一交易日** —— 实测盘前 offset=0 返回 20260929(净额非零 1292 只), 而
+      `tradedate=20260930` 返回 0 行 + 业务错误 code=1002(不返回假值)。
+      ⇒ 若用 offset=0: 首轮补采(09:26:10) 一旦撞上猫爪今日数据尚未产出, 会把**昨日净额**
+        写进今日 9_25 行; 而 `WHERE auc_main_net=0` 使后续轮次**不会纠正**它, 且非零 1292 只
+        已 ≥ 达标线(NETFILL_MIN_N=1000) ⇒ 触发"达标即停", 静默把昨天冒充今天。
+      与量比那条的差别就是"量比 09-29 已加固、净额当时漏改"。
     返回 (上游非零只数, 实际回填行数, 定格行总数)。
     """
     from . import meoz_client
@@ -1603,14 +1618,19 @@ def refill_bid_main_net(date, point="9_25"):
     if not store.setnx(_netfill_turn_key("net", date), 1, ttl=_netfill_turn_ttl()):
         log.info("[竞价补采] 净额: 另一 worker 本轮已取, 跳过 date=%s", date)
         return (0, 0, len(codes))
-    ff_map = meoz_client.fundflow_map(codes, date_offset=0, fresh=True)
+    want = str(date).replace("-", "")          # YYYYMMDD: 既作 tradedate, 也作防串日基准
+    ff_map = meoz_client.fundflow_map(codes, date=want, fresh=True)
     if not ff_map:
         return (0, 0, len(codes))
 
     updates = []
     nz = 0
     for code in codes:
-        v = _f((ff_map.get(code) or {}).get("auction_main_net_amount"))
+        r = ff_map.get(code) or {}
+        td = str(r.get("tradedate") or "").replace("-", "")
+        if td and td != want:
+            continue                    # 🔴 串日残值 → 跳过(绝不回填昨日净额; 与量比补采同款)
+        v = _f(r.get("auction_main_net_amount"))
         if v is None or v == 0:
             continue                    # 无值 / 真 0(竞价无大单异动) → 不回填
         nz += 1
@@ -1901,6 +1921,14 @@ def latest_trade_snap_date(date=None, time_point="9_25", days=None):
             except Exception:                                # noqa: BLE001
                 pass
     picked = tc.latest_trade_in([r[0] for r in rows if r and r[0]], date)
+    # 🔴 2026-09-30 主人「数据日期规矩」: 交易日 **09:00 起**当天没快照就**不许**退到上一交易日。
+    #   这正是选股/评分主链 2026-09-16 事故的形态(拿昨天的定格当今天的候选池)。只有
+    #   "允许回退"的时段 —— 非交易日(周末/休市), 或交易日的 09:00 之前 —— 才继续对齐。
+    #   注: `date` 显式传入的**历史交易日**同样禁止平移(allow_back 对历史日恒 False)。
+    if picked and picked != date and not serve_date.allow_back(date):
+        log.info("latest_trade_snap_date: %s(%s) 无快照且**不许回退**(交易日 09:00 起) ⇒ 返回原日期",
+                 date, time_point)
+        return date
     return picked or date
 
 

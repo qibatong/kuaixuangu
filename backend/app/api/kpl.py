@@ -441,7 +441,17 @@ def api_kpl_broken(request: Request, day: str = "", date: str = "",
 
     ★ 2026-09-27 v4.11.67: 新增组合参数 `date=D & day=yesterday` = **"D 这一天的昨炸板"**
       (股票池 = D 的前一交易日炸板; 字段 = D)。没有它时前端一给 date 就只能拿到"当日炸板",
-      于是非交易日的「今炸板」与「昨炸板」完全塌成同一份 —— 主人要求的"定格"没成立。"""
+      于是非交易日的「今炸板」与「昨炸板」完全塌成同一份 —— 主人要求的"定格"没成立。
+
+    🔴 2026-09-30 修「今炸板全天空白」(与 yest-zt / yest-broken 同根因):
+      `date` 解析后 == **北京今天** 且**未指定 day=yesterday** ⇒ 回落实时链, 不读历史表 ——
+      `broken_today` 是**盘后 15:30** 才落库的, 而前端 `servedDate()` 盘中恒等于今天
+      ⇒ 原来整天走历史分支读空表 ⇒ tab 全空白(生产实测 date=2026-09-30 返回 0)。
+      ⚠️ `day=yesterday` 分支**刻意不动**: 它取的是「**前一交易日**」的池(那批有落库),
+        今日实测正常出数(8 条), 不属本 bug。
+    """
+    if date and day != "yesterday" and kpl._bj_today() == _resolve_date(date):
+        date = ""            # 回看"今天" = 看实时 ⇒ 落下方实时链
     if date:
         resolved = _resolve_date(date)
         if day == "yesterday":
@@ -872,7 +882,17 @@ def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(quota_guard("auct
 
 @router.get("/api/kpl/yest-zt")
 def api_kpl_yest_zt(request: Request, uid: int = Depends(require_vip_or_paid), date: str = ""):
-    """昨日涨停股今日竞价表现: date 空=实时, 指定日期回看历史(auction_daily_history yest_zt)"""
+    """昨日涨停股今日竞价表现: date 空=实时, 指定日期回看历史(auction_daily_history yest_zt)
+
+    🔴 2026-09-30 修「昨涨停 tab 全天空白」: `date` 解析后 == **北京今天** ⇒ 回落实时链,
+      **不读历史表**。原因: `yest_zt` / `yest_broken` / `broken_today` 这三类行是**盘后 15:30**
+      才落库的(竞价后 09:27 那批只写 seal/boom/bid_net/qiangcang), 而前端 `servedDate()`
+      盘中恒等于今天 ⇒ 原来整天走历史分支读空表 ⇒ 三个 tab 全空白, 到 15:30 落库才自愈。
+      语义: 回看"今天"本来就是看实时, 不是看历史(与主人铁律「获取为零就不要用昨天的数据」同源)。
+      **只**对"今天"生效 —— 盘前(对齐到上一交易日)/非交易日/历史回看的行为一律不变。
+    """
+    if date and kpl._bj_today() == _resolve_date(date):
+        date = ""            # 回看"今天" = 看实时 ⇒ 落下方实时链
     if date:
         resolved = _resolve_date(date)
         d = kpl.query_auction_history(resolved, "yest_zt")
@@ -901,7 +921,13 @@ def api_kpl_yest_zt(request: Request, uid: int = Depends(require_vip_or_paid), d
 
 @router.get("/api/kpl/yest-broken")
 def api_kpl_yest_broken(request: Request, uid: int = Depends(require_vip_or_paid), date: str = ""):
-    """昨断板: 昨日涨停池中今日未涨停的股票; date 空=实时, 指定日期回看历史"""
+    """昨断板: 昨日涨停池中今日未涨停的股票; date 空=实时, 指定日期回看历史
+
+    🔴 2026-09-30 修「昨断板 tab 全天空白」: `date` 解析后 == **北京今天** ⇒ 回落实时链,
+      **不读历史表**(`yest_broken` 盘后 15:30 才落库)。详见 api_kpl_yest_zt 的说明。
+    """
+    if date and kpl._bj_today() == _resolve_date(date):
+        date = ""            # 回看"今天" = 看实时 ⇒ 落下方实时链
     if date:
         resolved = _resolve_date(date)
         d = kpl.query_auction_history(resolved, "yest_broken")

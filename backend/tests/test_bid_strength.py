@@ -124,6 +124,65 @@ def test_min_yday_bid_amt_gate():
     assert bs.MIN_YDAY_BID_AMT_WAN == 100.0
 
 
+# ---------------------------------------------------------------- 层④ 竞价昨比(2026-09-30 新增)
+def _cfg_zb():
+    """启用昨比层 —— 主人 2026-09-30 指定形态: **量比 0.6 + 昨比 0.4, AI 去掉(w_ai=0)**"""
+    c = _cfg()
+    c["factors"]["bid_strength"].update({
+        "w_vol_ratio": 0.6, "w_ff": 0.0, "w_ai": 0.0, "w_zb": 0.4,
+        "zb_buckets": [["0", "1.05", 0.2], ["1.05", "1.50", 0.35], ["1.50", "1.94", 0.5],
+                       ["1.94", "2.62", 0.65], ["2.62", "4.03", 0.8], ["4.03", "7.66", 0.9],
+                       ["7.66", "9999", 1.0]],
+        "zb_default": 0.5,
+    })
+    return c
+
+
+def test_zb_layer_absent_is_zero_regression():
+    """★ 未写 w_zb ⇒ 默认 0.0 ⇒ 合成与**加层前逐字相同**(零回归, 是老配置不被改变的根本保证)"""
+    st = bs.BidStrength(code="1", bid_vol_ratio=5.0, zb_pct=99.0)
+    assert bs.score_one(st, _cfg()) == pytest.approx(0.45 * 1.0 + 0.30 * 0.35 + 0.25 * 0.35)
+
+
+def test_zb_layer_buckets_monotonic():
+    """昨比越大分越高; 按 0.6/0.4 加权(量比固定顶格 1.0)"""
+    cfg = _cfg_zb()
+    for zb, exp in ((0.5, 0.2), (1.2, 0.35), (1.7, 0.5), (2.0, 0.65),
+                    (3.0, 0.8), (5.0, 0.9), (9.0, 1.0)):
+        st = bs.BidStrength(code="1", bid_vol_ratio=5.0, zb_pct=zb)
+        assert bs.score_one(st, cfg) == pytest.approx(0.6 * 1.0 + 0.4 * exp), "zb=%s" % zb
+
+
+def test_zb_missing_uses_neutral_default():
+    """昨比缺失(缓存未热/新股/停牌) → zb_default 0.5 中性, **不当惩罚**"""
+    cfg = _cfg_zb()
+    assert bs.score_one(bs.BidStrength(code="1", bid_vol_ratio=5.0), cfg) \
+        == pytest.approx(0.6 * 1.0 + 0.4 * 0.5)
+
+
+def test_zb_only_layer_does_not_return_none():
+    """只有昨比有值(量比/AI 全缺) ⇒ **不得**返回 None(全缺判据必须含 zb 层)"""
+    cfg = _cfg_zb()
+    got = bs.score_one(bs.BidStrength(code="1", zb_pct=9.0), cfg)
+    assert got is not None
+    assert got == pytest.approx(0.6 * 0.22 + 0.4 * 1.0)   # 量比缺→default 0.22; AI 权重 0
+
+
+def test_zb_sub_weights_normalized():
+    """子权重自动归一(防配置总和≠1): 写成 6 / 4 与 0.6 / 0.4 结果相同"""
+    cfg = _cfg_zb()
+    cfg["factors"]["bid_strength"].update({"w_vol_ratio": 6.0, "w_zb": 4.0})
+    st = bs.BidStrength(code="1", bid_vol_ratio=5.0, zb_pct=9.0)
+    assert bs.score_one(st, cfg) == pytest.approx(1.0)
+
+
+def test_zb_live_ff_path_shares_compose():
+    """盘中动态加分路径(score_one_live_ff)必须与 score_one 同口径带上昨比层"""
+    cfg = _cfg_zb()
+    st = bs.BidStrength(code="1", bid_vol_ratio=5.0, zb_pct=9.0)
+    assert bs.score_one_live_ff(st, None, cfg) == pytest.approx(bs.score_one(st, cfg))
+
+
 def test_tag_missing_lists_missing_layers():
     """missing 只标 ①②(③ 不在榜是常态, 不标)"""
     out = {"1": bs.BidStrength(code="1")}
