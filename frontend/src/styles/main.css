@@ -19,6 +19,15 @@
   --bg-panel-solid: rgba(18, 22, 35, 0.98);
   --bg-card: rgba(0, 0, 0, 0.35);
   --bg-input: rgba(0, 0, 0, 0.5);
+  /* 2026-09-30 v4.11.84 (P1-4): 语义色 token 收口。此前 407 处硬编码、同类语义还有"两套红"。
+     ⚠️ 只**补 token**, 不改现有配色(主人已习惯现有红) —— 新代码一律引用 token,
+     裸色值由 _verify/color_guard.js 做棘轮闸门(只许减不许增)。 */
+  --up: #ff8a6f;          /* 涨(全局橙粉) */
+  --down: #00c864;        /* 跌 */
+  --up-strong: #ff5a5a;   /* 强涨(竞价表 real-chg-col 的红; 与 --up 并存是历史选择, 本轮不合并) */
+  --warn-amber: #d9822b;  /* 警告琥珀 */
+  --star: #ffb400;        /* 星级/重点 */
+  --dim-soft: #c98a8a;    /* 弱化文字: 原 dim-25 #b06b6b(4.35:1, 叠水印 3.80:1) → 提亮 */
   --bg-hover: rgba(255, 255, 255, 0.06);
   --text-main: #eef2ff;
   --text-secondary: #ddd;
@@ -264,7 +273,7 @@ html, body, #app {
 }
 .home-mob-tab.active {
   background: rgba(255,180,0,0.12);
-  border-color: #ffb400;
+  border-color: var(--star);   /* v4.11.84 P1-4: token 化 */
   color: #ffd700;
 }
 /* 宽屏(>=1280px): 两列并排, 隐藏切换栏 */
@@ -745,7 +754,8 @@ text-align: center; outline: none; font-family: inherit; transition: border-colo
 .stock-table td { padding: 5px 2px; border-bottom: 1px solid rgba(var(--accent-rgb), 0.1); font-size: 0.75rem; vertical-align: middle; }
 .stock-table tbody tr:hover { background: rgba(var(--accent-rgb), 0.05); }
 .rank-col { font-weight: bold; color: var(--accent-deep); }
-.up { color: #ff8a6f; } .down { color: #00c864; } .real-green { color: #00c864 !important; }
+/* 2026-09-30 v4.11.84 (P1-4): 改用语义色 token(值不变) */
+.up { color: var(--up); } .down { color: var(--down); } .real-green { color: var(--down) !important; }
 /* 竞价/昨日成交占比高亮: >=2% 资金抢筹强(红), >=1% 关注(黄), 无数据灰 */
 .ratio-hot { color: var(--accent) !important; font-weight: 700; }
 .ratio-warm { color: #ffd700 !important; }

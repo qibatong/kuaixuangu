@@ -58,7 +58,22 @@ export function pct(v) {
 // 2026-09-11 P0-3: 落库时"未知"被 NOT NULL 约束兜成 0, 读侧按 miss_fields 还原成 null
 // (开关 history_null_restore)。前端必须把 null 显示成「—」而不是 0.00/0分 —— 否则
 // "没测到"继续伪装成"实测 0", 与落库前的语义脱节。
+// 2026-09-30 v4.11.84 (P1-2 数字格式统一): **|v| ≥ 1000(4 位整数起)** 才上千分位。
+//   🔴 与体检报告建议(≥10000)有出入, 理由: 报告给的痛例本身就是 4 位整数 —— 竞价额
+//      "6168.86万"、市值 "1234.5亿" 正落在 1000~9999 这一档, 按 ≥10000 它们**一个都不会**
+//      加上分隔符(实测确认), 等于没修; 而 3 位以下(评分 94分 / 涨幅 10.03%)本来就不需要逗号,
+//      所以取 1000 既不增噪又真正解决"位数靠数"。Intl 实例按小数位缓存。
+const _NF_CACHE = new Map()
+function _nf(digits) {
+  let f = _NF_CACHE.get(digits)
+  if (!f) {
+    f = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+    _NF_CACHE.set(digits, f)
+  }
+  return f
+}
 export function fmtNum(v, digits = 1, suffix = '') {
   if (v === null || v === undefined || v === '' || isNaN(v)) return '—'
-  return Number(v).toFixed(digits) + suffix
+  const n = Number(v)
+  return (Math.abs(n) >= 1000 ? _nf(digits).format(n) : n.toFixed(digits)) + suffix
 }

@@ -1488,7 +1488,7 @@ body[data-bg="light"] .msd-row:hover { background: rgba(0, 0, 0, 0.03); }
       在深色卡片上对比度 11.1:1, 几乎是纯色发光块、盖过了 9:25 主指标。
       换回原色后亮度降到 0.309(对比 7.2:1), 仍远超正文 4.5:1 下限, 但不再刺眼。
    浅色主题: #d9822b 在白底上仅 2.9:1, 故换等色系的加深版保可读性。 */
-.msd-row .msd-p15 { grid-area: 2 / 3; color: #d9822b; }
+.msd-row .msd-p15 { grid-area: 2 / 3; color: var(--warn-amber); }   /* v4.11.84 P1-4 */
 body[data-bg="light"] .msd-row .msd-p15 { color: #b3641a; }
 .msd-row .msd-chg { grid-area: 2 / 4; font-weight: 600; }
 .msd-row .msd-chg.dim { color: var(--text-muted); font-weight: 400; }
@@ -1548,7 +1548,7 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 .s3-table td.chg-col { font-weight: 600; }
 /* 实时涨幅列(开盘啦 realChange): 涨=红, 跌=蓝(A股忌讳绿, 避开绿色系) */
 .real-chg-col { text-align: center; white-space: nowrap; font-weight: 600; font-variant-numeric: tabular-nums; }
-.real-chg-col.up { color: #ff5a5a; }
+.real-chg-col.up { color: var(--up-strong); }   /* v4.11.84 P1-4: token 化 */
 .real-chg-col.down { color: #00c864; }
 .real-chg-col.dim { color: var(--text-muted); }
 /* 9:15 涨幅: 青蓝系(亮=涨, 暗=跌) */
@@ -1562,7 +1562,7 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 /* 9:25 涨幅: 红系(亮=涨停封死, 暗=回落, 灰=平) - 9:25 最终竞价结果用 A 股主色红 */
 .chg-up-25 { color: #ff6a6a; text-shadow: 0 0 6px rgba(255, 90, 90, 0.35); font-weight: 700; }
 .chg-dn-25 { color: #30b060; }
-.dim-25    { color: #b06b6b; }  /* 2026-09-21 对比度修正: #9a5a5a(3.69:1)→#b06b6b(4.77:1) 达 AA */
+.dim-25    { color: var(--dim-soft); }  /* v4.11.84 P1-4: #b06b6b 叠水印后仅 3.80:1(跌破 AA) → #c98a8a(4.28:1 叠水印) */
 /* 封单额: 按时点主色, 弱色 */
 .seal-col { font-variant-numeric: tabular-nums; }
 .seal-col-15 { color: #d8dce4; }

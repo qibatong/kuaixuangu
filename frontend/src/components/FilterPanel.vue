@@ -19,6 +19,7 @@
   <div
 v-if="store.filterReady" class="filter-custom" :class="{ 'filter-locked': store.isFilterLocked }"
        :style="layoutStyle.root"
+         @keydown.enter="onFilterEnter"
 >
     <!-- 第一行: 筛选项 + 右侧按钮对齐 -->
     <div class="filter-row filter-row-1" :style="layoutStyle.row1">
@@ -79,7 +80,7 @@ v-if="store.strategy === 'auction'" class="tdx-export-btn filter-refresh"
            继续显示会让用户以为调它能影响盘中名单，实际无效。 -->
       <template v-if="!isSpot">
         <label class="filter-cell">
-          竞涨 ≤<input v-model.number="bidGt" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(22)">%
+          竞涨 ≤<input v-model.number="bidGt" aria-label="竞价涨幅上限(%)" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(22)">%
         </label>
       </template>
       <!-- ===== 盘中实时专属: 实时涨幅区间 =====
@@ -91,7 +92,7 @@ v-if="store.strategy === 'auction'" class="tdx-export-btn filter-refresh"
              故两个筛选目标的默认值照常生效、对名单结果零影响。 -->
       <template v-else>
         <label class="filter-cell" title="实时涨幅区间(%)：当前价相对昨收的涨幅；两端 0 = 不限">
-          <span class="mv-range-label">现涨</span><input v-model.number="chgFloor" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(26)"><span class="mv-range-op">~</span><input v-model.number="chgGt" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(26)">%
+          <span class="mv-range-label">现涨</span><input v-model.number="chgFloor" aria-label="现涨下限(%)" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(26)"><span class="mv-range-op">~</span><input v-model.number="chgGt" aria-label="现涨上限(%)" type="number" min="0" max="20" step="0.5" :disabled="store.isFilterLocked" :style="inputStyle(26)">%
         </label>
       </template>
       <!-- 2026-09-14 主人拍板: 「涨停率」与「评分」筛的是同一个字段(probability), 属重复项 →
@@ -99,7 +100,7 @@ v-if="store.strategy === 'auction'" class="tdx-export-btn filter-refresh"
            ⚠️ 保留说明: probLt/confLt 不再有 UI 入口, 但仍按默认值(50/50)传给后端,
              "分数<50 且 可信度<50"的双低判据在用户把分数调到 50 以下时会被主门槛覆盖(既有耦合, 未动)。 -->
       <label class="filter-cell">
-        分数 ≥<input v-model.number="scoreFloor" type="number" min="50" max="100" step="1" title="最低 50" :disabled="store.isFilterLocked" :style="inputStyle(32)">分
+        分数 ≥<input v-model.number="scoreFloor" aria-label="评分下限(分)" type="number" min="50" max="100" step="1" title="最低 50" :disabled="store.isFilterLocked" :style="inputStyle(32)">分
       </label>
       <!-- 2026-09-14 主人需求: 原「流通 ≥」与「流通 ≤」两个独立格子**合并为区间一格**,
            显示为 `xx ≤ 自由流通 ≤ yy`。绑定字段不变(下限 floatMvFloor / 上限 floatMvGt),
@@ -112,14 +113,14 @@ v-if="store.strategy === 'auction'" class="tdx-export-btn filter-refresh"
               显示成严格不等号会让文案与真实行为不符。
            ⚠️ 两端 0 仍表示「不限」(下限: mv<0 不可能命中; 上限: `floatMvGt > 0` 才生效)。 -->
       <label class="filter-cell" title="自由流通市值区间(亿)，含边界值；两端 0=不限">
-        <span class="mv-range-label">自由流通</span><input v-model.number="floatMvFloor" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)"><span class="mv-range-op">~</span><input v-model.number="floatMvGt" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
+        <span class="mv-range-label">自由流通</span><input v-model.number="floatMvFloor" aria-label="自由流通市值下限(亿)" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)"><span class="mv-range-op">~</span><input v-model.number="floatMvGt" aria-label="自由流通市值上限(亿)" type="number" min="0" max="5000" step="10" :disabled="store.isFilterLocked" :style="inputStyle(32)">亿
       </label>
       <label class="filter-cell">
-        股价 ≤<input v-model.number="priceGt" type="number" min="0" max="5000" step="10" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">元
+        股价 ≤<input v-model.number="priceGt" aria-label="股价上限(元)" type="number" min="0" max="5000" step="10" title="0=不限" :disabled="store.isFilterLocked" :style="inputStyle(32)">元
       </label>
       <label v-if="!isSpot" class="filter-cell">
         <!-- 2026-09-21 主人反馈「对数字有遮挡」: 宽屏固定宽 42→56px, 4 位数(3500/10000)不裁边 -->
-        竞额 ≥<input v-model.number="bidAmtFloor" type="number" min="0" max="100000" step="500" :disabled="store.isFilterLocked" :style="inputStyle(56)">万
+        竞额 ≥<input v-model.number="bidAmtFloor" aria-label="竞价金额下限(万)" type="number" min="0" max="100000" step="500" :disabled="store.isFilterLocked" :style="inputStyle(56)">万
       </label>
       <!-- 2026-09-14: 原「评分 ≥」行已删除(与「分数」重复, 同一个 probability 字段) -->
     </div>
@@ -322,6 +323,12 @@ function inputStyle(px) {
     padding: '2px 4px', fontSize: '0.75rem',
     lineHeight: '1.3', textAlign: 'center', boxSizing: 'border-box',
   }
+}
+
+// 2026-09-30 v4.11.84 (P2-7 键盘可达性): 筛选区任意输入框按回车 = 应用。
+//   此前只能鼠标点「应用」按钮; 现在 busy/locked 时仍不会重复触发(与按钮同一判据)。
+function onFilterEnter() {
+  if (!applyDisabled.value) apply()
 }
 
 async function apply() {

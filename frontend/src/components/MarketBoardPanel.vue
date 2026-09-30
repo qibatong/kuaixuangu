@@ -24,7 +24,7 @@
           <span>板块</span><span>板</span><span>强度</span><span>主力净</span>
         </div>
         <div
-          v-for="(b, i) in rows" :key="b.boardCode || b.name"
+          v-for="b in rows" :key="b.boardCode || b.name"
           class="mb-item" :class="{ on: current && (current.boardCode === b.boardCode || current.name === b.name) }"
           @click="select(b)"
         >

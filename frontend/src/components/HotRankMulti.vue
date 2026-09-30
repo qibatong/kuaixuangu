@@ -54,7 +54,7 @@ async function load() {
     ])
     const map = {}
     const put = (lst, key) => {
-      ;(lst || []).forEach((h, i) => {
+      (lst || []).forEach((h, i) => {
         const code = h.code
         if (!map[code]) map[code] = { code, name: h.name, change: h.change, kpl: 0, em: 0, ths: 0 }
         map[code][key] = i + 1
