@@ -23,7 +23,7 @@
           <div class="ap-report-head">
             <div class="ap-report-title-row">
               <div class="ap-report-title">
-                <i class="fa fa-chart-line ap-report-icon"></i>
+                <i class="fa fa-line-chart ap-report-icon"></i>
                 涨停概率预测
                 <!-- 2026-09-25 双模型: 让用户一眼看出这是"另一个模型"而不是页面重复 -->
                 <span class="ap-model-chip" :class="{ 'ap-model-lgb': isLgb }">{{ isLgb ? '火眼' : '金睛' }}</span>

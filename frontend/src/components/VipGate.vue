@@ -1,7 +1,7 @@
 <template>
   <div class="vip-gate">
     <div class="vip-card">
-      <div class="vip-icon"><i class="fa" :class="quota ? 'fa-bolt' : 'fa-crown'"></i></div>
+      <div class="vip-icon"><i class="fa" :class="quota ? 'fa-bolt' : 'fa-certificate'"></i></div>
       <div class="vip-title">{{ headline }}</div>
       <div class="vip-desc">
         <!-- 配额用尽模式(2026-09-21 会员体系): 免费用户掉到这里 -->
@@ -18,7 +18,7 @@
           <p class="ways">
             <span class="way"><i class="fa fa-calendar-check-o"></i> 每日签到 +{{ checkinBonus }} 次</span>
             <span class="way"><i class="fa fa-user-plus"></i> 邀请好友各得 5 天会员</span>
-            <span class="way"><i class="fa fa-crown"></i> 开通会员 → 不限次</span>
+            <span class="way"><i class="fa fa-certificate"></i> 开通会员 → 不限次</span>
           </p>
         </template>
         <!-- requiredLevel=1: 严格模式(2026-08-17 竞价异动) -->
@@ -49,7 +49,7 @@
         <div class="vip-wechat">微信: <b>poet-1986</b></div>
       </div>
       <div class="vip-actions">
-        <button v-if="quota" class="vip-primary" @click="goMember"><i class="fa fa-crown"></i> 我的会员 / 签到领次数</button>
+        <button v-if="quota" class="vip-primary" @click="goMember"><i class="fa fa-certificate"></i> 我的会员 / 签到领次数</button>
         <button class="vip-back" @click="goBack"><i class="fa fa-arrow-left"></i> 返回可用功能</button>
       </div>
     </div>

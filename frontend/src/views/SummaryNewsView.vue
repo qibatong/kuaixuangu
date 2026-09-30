@@ -6,7 +6,7 @@
       <div class="sn-head">
         <div class="sn-title-row">
           <div class="sn-title">
-            <i class="fa fa-newspaper sn-icon"></i>
+            <i class="fa fa-newspaper-o sn-icon"></i>
             大V资讯 · 飞书群消息总结
             <span class="sn-sub">每日 凌晨盘后 / 早间 / 午间 / 收盘 四个时段</span>
           </div>

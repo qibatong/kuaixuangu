@@ -65,7 +65,7 @@
       <!-- 概览卡: 等级 + 到期倒计时 -->
       <div class="mb-hero" :class="'lv-' + level">
         <div class="mb-hero-left">
-          <div class="mb-crown"><i class="fa" :class="level === 2 ? 'fa-crown' : level === 1 ? 'fa-star' : 'fa-user'"></i></div>
+          <div class="mb-crown"><i class="fa" :class="level === 2 ? 'fa-certificate' : level === 1 ? 'fa-star' : 'fa-user'"></i></div>
           <div>
             <div class="mb-name">{{ username }}</div>
             <div class="mb-level">{{ memberLabel }}</div>

@@ -5,6 +5,10 @@ import router from './router'
 import { setupGlobalErrorCapture } from './utils/logger'
 // 思源黑体 Noto Sans SC — SIL OFL 1.1 免费商用, Google + Adobe 出品, 字重 400/700
 // 分包加载, 简体中文页面首屏约 200-400KB。默认正文字体, 全局加载。
+// 2026-09-30 v4.11.84 (P1-5): Font Awesome 4.7 **本地子集**(5KB) —— 原先 index.html 走 cdnjs 同步外链,
+//   既阻塞首屏, 断网/内网/被墙时全站图标还会变方框。子集由 scripts/_kx_gen_fa_subset.py 生成,
+//   只含 @font-face + 源码实际引用的图标(字体 77KB 在 public/fonts/)。**新增图标要重跑生成脚本。**
+import './styles/fontawesome-subset.css'
 import '@fontsource/noto-sans-sc/400.css'
 import '@fontsource/noto-sans-sc/700.css'
 // 可选字体按需加载(霞鹜等宽 lxgw / 思源宋体 serif): 不再全局 import,
