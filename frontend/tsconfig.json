@@ -1,0 +1,34 @@
+{
+  "// 2026-09-30 v4.11.84 (P2-4)": "只对**数据主干**做 JS 类型检查（渐进式，不引入构建期 TS）",
+  "// 用法": "npm run typecheck （= tsc --noEmit，只读校验，不产出文件、不影响 vite 构建）",
+  "// 为什么限定范围": "一次性给 83 个 api/stores/utils 文件开 checkJs 会炸出成百个错误，没人会看；先锁住行情数据结构最关键的几个文件，改对了再逐批加 include",
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "types": [],
+    "paths": { "@/*": ["./src/*"] }
+  },
+  "include": [
+    "src/types.d.ts",
+    "src/utils/format.js",
+    "src/utils/strategy.js",
+    "src/utils/filters.js",
+    "src/api/request.js",
+    "src/api/stocks.js",
+    "src/utils/time.js",
+    "src/utils/boards.js",
+    "src/utils/batches.js",
+    "src/utils/storage.js",
+    "src/utils/chart.js",
+    "src/utils/echarts.js",
+    "src/stores/stocks.js"
+  ]
+}

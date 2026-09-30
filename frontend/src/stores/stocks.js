@@ -169,7 +169,8 @@ export const useStocksStore = defineStore('stocks', {
 
     /**
      * 拉取实时动态选股名单。
-     * @param {boolean} [silent] true = 不弹成功 toast(30s 轮询用)
+     * @param {{ silent?: boolean }} [opts] silent=true 表示不弹成功 toast(30s 轮询用)
+     *        🔴 P2-4 订正: 形参早已由 `boolean` 改为**解构对象**, 注释没跟着改(类型检查抓到的第 1 处)
      * @returns {Promise<number>} 名单条数
      */
     async fetchSpotList({ silent = false } = {}) {
@@ -234,7 +235,8 @@ export const useStocksStore = defineStore('stocks', {
      *       ③ 解禁后可能撞上"当日定格尚未落库"(后端回 blocked), fetchAndCache 会重新
      *          标记, 下一轮再试, 天然形成等待重试。
      * @param {boolean} [force] 强制探测开关(首屏 init 用, 不受 60s 节流限制)
-     * @returns {boolean} 是否处于禁用态
+     * @returns {Promise<boolean>} 是否处于禁用态
+     *        🔴 P2-4 订正: 本函数是 **async**, 旧注释写 `{boolean}`(类型检查抓到的第 2 处)
      */
     async refreshPickGate(force = false) {
       // 非闸门时段且未被标记 → 无事可做, 也不发探测请求(省流量)
@@ -409,7 +411,14 @@ export const useStocksStore = defineStore('stocks', {
     //   · 条件放行但行情不在榜 → 保留 + 标"已跌出"
     // 避免"涨停票却显示已跌出"的荒谬现象(剔除条件 ≠ 行情跌出)。
     // 权威名单优先取"当天 lock 批次"(后端落库), 失败退回本地快照。
+    /**
+     * 把实时名单合并进"当日锁定名单"。
+     * @param {PickItem[]} [spotList]
+     * @param {any} [filterSettings]
+     * @returns {Promise<PickItem[]>}
+     */
     async mergeSpotIntoLocked(spotList, filterSettings) {
+      /** @type {LockedStockList | null} */
       let locked = null
       let hasLockBatch = false
       try {
@@ -483,7 +492,10 @@ export const useStocksStore = defineStore('stocks', {
       this.isAutoAppliedList = !!locked.autoApplied
       return out
     },
-    // 从后端读当天 lock 批次(权威锁定名单): 返回完整名单数组, 无则 []
+    /**
+     * 从后端读当天 lock 批次(权威锁定名单)。
+     * @returns {Promise<LockedStockList>} 完整名单数组, 无则 `[]`（数组上另带 autoApplied/freezeDate/freezeIsToday）
+     */
     async loadLockedBatchFromServer() {
       const d = await listBatches()
       const batches = d.batches || []
@@ -548,6 +560,7 @@ export const useStocksStore = defineStore('stocks', {
       }))
       // 标记是否系统统一批次(9:26 自动应用): 统一批次不随用户筛选条件过滤, 保证全用户一致。
       // 仅当实际命中 auto_applied 批次(isAuto)时才为 true; 命中手动锁定批次则为 false(需按条件过滤)
+      // P2-4: 这三个标记位挂在**数组对象**上(见 types.d.ts 的 LockedStockList 说明)
       stocks.autoApplied = isAuto
       // 2026-09-18: 回显批次同样标注定格来源 —— 命中当日定格后批次 → freezeIsToday=true;
       // 命中历史日期批次 → 原会出顶栏标注条(**该条 2026-09-30 已删**)。
