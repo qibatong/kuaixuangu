@@ -73,7 +73,7 @@ export const NAV_GROUPS = [
     entry: '/market',
     // 「大盘温度」不是独立路由 —— 它是 /market 页顶部内嵌的 SentimentPanel（工单 三.3），
     // 因此二级 pill 只列「板块」；页内有数据源切换（开盘啦强度榜 | 东财概念榜）。
-    items: [{ label: '板块', path: '/market' }],
+    items: [{ label: '板块', path: '/market' }, { label: '题材库', path: '/theme' }],
   },
   {
     key: 'review',
@@ -138,7 +138,7 @@ export function groupByKey(key) {
 
 
 /**
- * 手机底部 tab 栏的 4 格（2026-10-01 主人拍板：**首页 / 竞价 / 盘中 / 我的**）
+ * 手机底部 tab 栏的 5 格（2026-10-01 主人二次拍板：**首页 / 竞价 / 盘中 / 复盘 / 我的**）
  *
  * 为什么与 `NAV_GROUPS`(6 组) 分开：
  *   · 桌面顶部导航空间足够 ⇒ **保持 6 组不变**（本次桌面零改动、零风险）；
@@ -151,8 +151,13 @@ export function groupByKey(key) {
 export const TABBAR_TABS = [
   // 图标用 fa-th-large：自托管 FA 子集(108 个)里**没有 fa-home**，重做子集属独立任务
   { key: 'home', label: '首页', icon: 'fa-th-large', path: '/' },
-  { key: 'auc', label: '竞价', icon: 'fa-bell', path: '/auction' },
+  // 2026-10-01 主人: 「竞价」打开后是**原来的竞价选股**（模式 tab + 筛选 + 名单）⇒
+  //   落点由 /auction(竞价异动) 改为工作台深链；竞价异动改由首页宫格「竞价异动」格进。
+  { key: 'auc', label: '竞价', icon: 'fa-bell', path: '/?wb=1&t=auction' },
   { key: 'intraday', label: '盘中', icon: 'fa-line-chart', path: '/market' },
+  // 2026-10-01 主人: 「复盘」从首页宫格**移到**底部栏（盘中与我的之间）；
+  //   落点 = 复盘组入口 /ladder，页面内 GroupNav 二级 pill 给出其余 5 页。
+  { key: 'review', label: '复盘', icon: 'fa-table', path: '/ladder' },
   { key: 'me', label: '我的', icon: 'fa-user', path: '/member' },
 ]
 
@@ -164,10 +169,17 @@ export const TABBAR_TABS = [
 export function tabbarKeyOfRoute(route) {
   if (!route || !route.path) return ''
   const p = route.path
-  if (p === '/' || p.indexOf('/aipick') === 0) return 'home'
+  // 🔴 「竞价」tab 的落点是 `/?wb=1&t=...`（工作台），与首页同路径 ⇒ **必须先按 query 判定**，
+  //    否则会先命中 p === '/' 而误判成「首页」（AppTabBar 关掉了 router-link 自动 active，高亮全靠本函数）。
+  if (p === '/') {
+    if (String(route.query && route.query.wb || '') === '1') return 'auc'
+    return 'home'
+  }
+  if (p.indexOf('/aipick') === 0) return 'home'
   if (p.indexOf('/auction') === 0) return 'auc'
   const g = groupKeyOfRoute(route)
   if (g === 'intraday') return 'intraday'
+  if (g === 'review') return 'review'
   if (g === 'me') return 'me'
   return ''
 }

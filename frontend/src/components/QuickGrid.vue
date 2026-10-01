@@ -40,7 +40,8 @@
         @contextmenu.prevent="beginEdit(i)"
       >
         <span class="qg-ic" :class="'qg-h-' + it.hue">
-          <svg class="qg-svg" viewBox="0 0 24 24" aria-hidden="true">
+          <span v-if="it.text" class="qg-txt" :class="{ 'qg-txt-sm': it.text.length > 1 }">{{ it.text }}</span>
+          <svg v-else class="qg-svg" viewBox="0 0 24 24" aria-hidden="true">
             <path
               v-for="(sh, k) in it.shapes"
               :key="k"
@@ -76,7 +77,8 @@
           @click="replaceWith(c.key)"
         >
           <span class="qg-ic qg-ic-sm" :class="'qg-h-' + c.hue">
-            <svg class="qg-svg" viewBox="0 0 24 24" aria-hidden="true">
+            <span v-if="c.text" class="qg-txt qg-txt-sm">{{ c.text }}</span>
+            <svg v-else class="qg-svg" viewBox="0 0 24 24" aria-hidden="true">
               <path
                 v-for="(sh, k) in c.shapes"
                 :key="k"
@@ -101,7 +103,8 @@
         <div class="qg-sheet" role="dialog" :aria-label="sheet.label + ' 子项'">
           <div class="qg-sheet-h">
             <span class="qg-ic qg-ic-sm" :class="'qg-h-' + sheet.hue">
-              <svg class="qg-svg" viewBox="0 0 24 24" aria-hidden="true">
+              <span v-if="sheet.text" class="qg-txt qg-txt-sm">{{ sheet.text }}</span>
+              <svg v-else class="qg-svg" viewBox="0 0 24 24" aria-hidden="true">
                 <path
                   v-for="(sh, k) in sheet.shapes"
                   :key="k"
@@ -118,17 +121,19 @@
             <span class="qg-sheet-t">{{ sheet.label }}</span>
             <button class="qg-sheet-x" @click="closeSheet">关闭</button>
           </div>
-          <button
-            v-for="c in sheet.children"
-            :key="c.label"
-            class="qg-sheet-row"
-            :data-qg-sub="c.label"
-            @click="goChild(c)"
-          >
-            <i class="qg-dot" :class="'qg-dot-' + c.hue"></i>
-            <span class="qg-sheet-lb">{{ c.label }}</span>
-            <span class="qg-sheet-ar">›</span>
-          </button>
+          <div class="qg-sheet-list" :class="{ 'qg-grid2': sheet.children.length === 2 }">
+            <button
+              v-for="c in sheet.children"
+              :key="c.label"
+              class="qg-sheet-row"
+              :data-qg-sub="c.label"
+              @click="goChild(c)"
+            >
+              <i class="qg-dot" :class="'qg-dot-' + c.hue"></i>
+              <span class="qg-sheet-lb">{{ c.label }}</span>
+              <span class="qg-sheet-ar">›</span>
+            </button>
+          </div>
         </div>
       </div>
     </teleport>
@@ -173,9 +178,10 @@ const ICONS = {
   calc: [{ d: 'M5.2 3.2h13.6v17.6H5.2z' },
          { d: 'M7.4 5.4h9.2v3.4H7.4z', hi: 1 },
          { d: 'M7.6 11.4h2.6v2.6H7.6zm4.1 0h2.6v2.6h-2.6zm4.1 0h2.6v2.6h-2.6zm-8.2 4h2.6v2.6H7.6zm4.1 0h2.6v2.6h-2.6z', hi: 1 }],
-  // 盘前资讯：报纸 + 文字行
-  news: [{ d: 'M4 4.2h12.4l3.6 3.6v12H4z' },
-         { d: 'M6.4 8.4h7.2v1.6H6.4zm0 4h9.2v1.6H6.4zm0 4h6v1.6h-6z', hi: 1 }],
+  // 盘前资讯：**喇叭**（2026-10-01 主人指定：改用喇叭图形，不再用报纸）
+  news: [{ d: 'M3.6 9.4h3.4l5.8-3.6v12.4L7 14.6H3.6z' },
+         { d: 'M15.2 8.2a4.8 4.8 0 0 1 0 7.6', stroke: 1, sw: 2.1, hi: 1 },
+         { d: 'M18.2 5.6a8.6 8.6 0 0 1 0 12.8', stroke: 1, sw: 2.1, hi: 1 }],
   // 复盘（父格）：文档 + 对勾 + 顶部夹
   review: [{ d: 'M5.6 4.6h12.8v15.8H5.6z' },
            { d: 'M9.4 4.6h5.2v1.8H9.4z', hi: 1 },
@@ -206,12 +212,24 @@ const ICONS = {
 }
 
 /** 色系（对应 main.css :root 的 --qg-*-a/--qg-*-b） */
+/**
+ * **文字图标**（2026-10-01 主人指定：竞价选股=「选」、竞价精选=「精」、竞价优选=「优」、
+ *   AI预测=「AI」、题材库=「题材」）—— 不再画 SVG，直接落在同色系渐变块上（更直白、零字形风险）。
+ */
+const TEXT_ICON = {
+  pick: '选',
+  zhpick: '精',
+  yijiner: '优',
+  ai: 'AI',
+  themelib: '题材',
+}
+
 const HUES = {
   pick: 'red', zhpick: 'gold', yijiner: 'green', auc: 'pink', ai: 'purple',
   spot: 'cyan', ladder: 'teal', calc: 'orange', news: 'blue', review: 'lime',
   aipick: 'purple', aipick_lgb: 'orange', pool: 'lime', lhb: 'gold',
   history: 'purple', temper: 'teal', bigv: 'blue', market: 'cyan',
-  member: 'gold', yidong: 'pink',
+  member: 'gold', yidong: 'pink', themelib: 'cyan',
 }
 
 /**
@@ -232,17 +250,13 @@ const CHILDREN = {
     { label: '昨断板', hue: 'cyan', path: '/auction?tab=yestBroken' },
     { label: '昨炸板', hue: 'green', path: '/auction?tab=brokenYest' },
   ],
+  // 顺序 = 面板里的左右顺序（主人 2026-10-01：左火眼、右金睛）
   ai: [
-    { label: 'AI预测 · 金睛', hue: 'purple', path: '/aipick' },
     { label: 'AI预测 · 火眼', hue: 'orange', path: '/aipick-lgb' },
+    { label: 'AI预测 · 金睛', hue: 'purple', path: '/aipick' },
   ],
-  review: [
-    { label: '龙虎榜', hue: 'gold', path: '/lhb' },
-    { label: '异动监管', hue: 'pink', path: '/yidong' },
-    { label: '大V复盘', hue: 'blue', path: '/bigv' },
-    { label: '历史回看', hue: 'purple', path: '/history' },
-    { label: '股性', hue: 'teal', path: '/temper' },
-  ],
+  // 2026-10-01: 原 review(复盘) 子项已随「复盘」移到底部 tab 一并删除
+  //   —— 复盘组各页仍由页面内的 GroupNav 二级 pill 提供（连板天梯/龙虎榜/异动监管/大V复盘/历史回看/股性）
 }
 
 /** 全部可选入口（默认 10 格的来源 + 候选池） */
@@ -258,7 +272,8 @@ const ALL_ITEMS = [
   { key: 'ladder', label: '连板天梯', path: '/ladder' },
   { key: 'calc', label: '异动计算器', path: '/yidong?tab=calc' },
   { key: 'news', label: '盘前资讯', path: '/news' },
-  { key: 'review', label: '复盘' },                        // 有子项
+  // 2026-10-01 主人: 「复盘」移到手机底部 tab（盘中与我的之间）⇒ 本格换成「题材库」
+  { key: 'themelib', label: '题材库', path: '/theme' },
   // 候选池（默认不占格）：换入即可常驻
   { key: 'pool', label: '自选池', path: '/pool' },
   { key: 'aipick', label: 'AI预测·金睛', path: '/aipick' },
@@ -273,15 +288,16 @@ const ALL_ITEMS = [
 ].map((x) => ({
   ...x,
   hue: HUES[x.key] || 'red',
+  text: TEXT_ICON[x.key] || '',
   shapes: ICONS[x.key] || [],
   children: CHILDREN[x.key] || null,
 }))
 
 /** 主人确认的默认 10 格（上排 5 + 下排 5） */
 const DEFAULT_KEYS = ['pick', 'zhpick', 'yijiner', 'auc', 'ai',
-                      'spot', 'ladder', 'calc', 'news', 'review']
+                      'spot', 'ladder', 'calc', 'news', 'themelib']
 const SLOTS = 10
-const LS_KEY = 'kx_quickgrid_v2'        // v2: 10 格内容按主人新指定重排(v1 的旧编排作废)
+const LS_KEY = 'kx_quickgrid_v3'   // v3: 复盘移出宫格、新增题材库(内容变了, 旧的本地编排作废)        // v2: 10 格内容按主人新指定重排(v1 的旧编排作废)
 const byKey = (k) => ALL_ITEMS.find((x) => x.key === k) || ALL_ITEMS[0]
 
 const router = useRouter()
@@ -446,6 +462,17 @@ function resetDefaults() {
   opacity: 0.9;
 }
 
+/* 文字图标（同一块渐变底上直接写字） */
+.qg-txt {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--qg-on);
+  line-height: 1;
+  letter-spacing: -0.5px;
+}
+.qg-txt-sm { font-size: 0.8rem; letter-spacing: -0.3px; }
+.qg-ic-sm .qg-txt { font-size: 0.62rem; }
+
 .qg-lb {
   font-size: 0.625rem;             /* 10px */
   color: var(--text-secondary);
@@ -520,6 +547,11 @@ function resetDefaults() {
   font-size: 0.72rem;
   cursor: pointer;
 }
+/* 只有两项的子项（AI预测）⇒ **左右并排**（左火眼 / 右金睛），而不是上下两行 */
+.qg-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 4px; }
+.qg-grid2 .qg-sheet-row { border: 1px solid var(--border-soft); border-radius: 10px; justify-content: center; }
+.qg-grid2 .qg-sheet-ar { display: none; }
+
 .qg-sheet-row {
   display: flex;
   align-items: center;

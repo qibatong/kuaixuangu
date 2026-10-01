@@ -122,7 +122,7 @@ const ROUTES = [
   R('/news', 'news', 'news'),
   R('/', 'stock', 'auction'), R('/auction', 'auction', 'auction'),
   R('/aipick', 'aipick', 'auction'), R('/aipick-lgb', 'aipick-lgb', 'auction'),
-  R('/market', 'market', 'intraday'),
+  R('/market', 'market', 'intraday'), R('/theme', 'theme', 'intraday'),
   R('/ladder', 'ladder', 'review'), R('/history', 'history', 'review'), R('/temper', 'temper', 'review'),
   R('/bigv', 'bigv', 'review'), R('/yidong', 'yidong', 'review'), R('/lhb', 'lhb', 'review'),
   R('/pool', 'pool', 'pool'),
@@ -207,7 +207,7 @@ const a = await renderAt('/ladder')
 console.log('— A. /ladder（复盘组，主人点名的三页）')
 ok('渲染无异常/无 Vue 警告', a.errors.length === 0, a.errors.join(' | '))
 ok('二级 pill 行已渲染 (.group-nav)', a.html.includes('group-nav'))
-for (const label of ['涨停梯队', '历史回看', '股性', '大V资讯', '异动监管', '龙虎榜']) {
+for (const label of ['连板天梯', '历史回看', '股性', '大V复盘', '异动监管', '龙虎榜']) {
   ok(`复盘组含「${label}」`, a.html.includes(label))
 }
 for (const href of ['/history', '/temper', '/bigv', '/yidong', '/lhb']) {
@@ -239,11 +239,14 @@ ok('盘前资讯不在「竞价」组内（已迁出）',
    !NAV_GROUPS.find((g) => g.key === 'auction').items.some((i) => i.path === '/news'))
 ok('单页组不渲染 pill 行', !b2.html.includes('group-nav-item'))
 
-// C. 单页组不渲染 pill 行（设计约定）
+// C. 2026-10-01 主人新增「题材库」⇒ 盘中组由 1 页变 2 页 ⇒ 该组**应当**渲染 pill 行
+//    （原断言"单页组不渲染 pill 行"在此组不再成立；单页组约定仍由 pool/me 等组覆盖）
 const c = await renderAt('/market')
-console.log('\n— C. /market（盘中组只有 1 页 ⇒ 不渲染 pill 行）')
+console.log('\n— C. /market（盘中组 2 页：板块 / 题材库 ⇒ 渲染 pill 行）')
 ok('渲染无异常/无 Vue 警告', c.errors.length === 0, c.errors.join(' | '))
-ok('单页组不渲染 .group-nav', !c.html.includes('group-nav-item'))
+ok('盘中组渲染 pill 行且含「题材库」',
+   c.html.includes('group-nav-item') && c.html.includes('题材库'))
+ok('盘中组 pill 行含 /theme 链接', c.html.includes('href="/theme"'))
 
 // D. 一级入口：**桌面仍 6 组**（本次未动）；**手机底部收为 4 格 = 首页/竞价/盘中/我的**
 //    2026-10-01 主人拍板（原话「4格 首页、竞价、盘中、我的」「底部不保留搜索，上面已经搜索了」）
@@ -253,13 +256,16 @@ for (const g of NAV_GROUPS) {
   ok(`NavBar 有一级入口「${g.label}」`, b.html.includes(g.label))
 }
 ok('桌面一级分组仍是 6 个（本次未动）', NAV_GROUPS.length === 6, '实际 ' + NAV_GROUPS.length)
-ok('底部 tabbar 恰好 4 个 tab', (b.html.match(/tabbar-item/g) || []).length === 4,
+ok('底部 tabbar 恰好 5 个 tab', (b.html.match(/tabbar-item/g) || []).length === 5,
    '实际 ' + (b.html.match(/tabbar-item/g) || []).length)
 ok('底部 4 格 = 首页/竞价/盘中/我的',
-   TABBAR_TABS.map((t) => t.label).join('/') === '首页/竞价/盘中/我的',
+   TABBAR_TABS.map((t) => t.label).join('/') === '首页/竞价/盘中/复盘/我的',
    '实际 ' + TABBAR_TABS.map((t) => t.label).join('/'))
 for (const t of TABBAR_TABS) {
-  ok(`AppTabBar 有 tab「${t.label}」→ ${t.path}`, b.html.includes(`href="${t.path}"`))
+  // ⚠️ 带 query 的落点（竞价 → /?wb=1&t=auction）在 SSR HTML 里 & 会转义成 &amp; ⇒ 归一化后比较
+  const _href = `href="${t.path}"`
+  ok(`AppTabBar 有 tab「${t.label}」→ ${t.path}`,
+     b.html.includes(_href) || b.html.includes(_href.replace(/&/g, '&amp;')))
 }
 ok('底部不再渲染搜索格（搜索改顶栏常驻）', !b.html.includes('ss-tab'),
    '仍出现 ss-tab ⇒ 第 7 格没删干净')
@@ -271,18 +277,24 @@ ok('首页宫格渲染无异常/无警告', qg.errors.length === 0, qg.errors.jo
 ok('宫格默认恰好 10 格', (qg.html.match(/data-qg="/g) || []).length === 10,
    '实际 ' + (qg.html.match(/data-qg="/g) || []).length)
 // 2026-10-01 主人指定的 10 格（上排 5 + 下排 5）—— 按**顺序**钉死，防以后被悄悄改动
-const _want10 = ['pick', 'zhpick', 'yijiner', 'auc', 'ai', 'spot', 'ladder', 'calc', 'news', 'review']
+const _want10 = ['pick', 'zhpick', 'yijiner', 'auc', 'ai', 'spot', 'ladder', 'calc', 'news', 'themelib']
 const _got10 = [...qg.html.matchAll(/data-qg="([^"]+)"/g)].map((m) => m[1])
 ok('宫格 10 格内容与顺序 = 主人指定（竞价选股/竞价精选/竞价优选/竞价异动/AI预测 + 动态选股/连板天梯/异动计算器/盘前资讯/复盘）',
    _got10.join('/') === _want10.join('/'), '实际 ' + _got10.join('/'))
-ok('三格带子项（竞价异动 / AI预测 / 复盘）',
-   (qg.html.match(/data-qg-children="[1-9]/g) || []).length === 3,
+ok('两格带子项（竞价异动 / AI预测；复盘已移到手机底部 tab）',
+   (qg.html.match(/data-qg-children="[1-9]/g) || []).length === 2,
    '实际 ' + (qg.html.match(/data-qg-children="[1-9]/g) || []).length)
 ok('宫格带「编辑」入口（其余页面靠候选池换入）', qg.html.includes('编辑'))
-// 2026-10-01 图标重设计（主人「参考同类型重新设计」）：自绘多色 SVG，不再是 FA 单色字形
-ok('宫格图标是自绘 SVG（每格一个）',
-   (qg.html.match(/class="qg-svg"/g) || []).length === 10,
-   '实际 ' + (qg.html.match(/class="qg-svg"/g) || []).length)
+// 2026-10-01 图标重设计：自绘多色 SVG；**同日主人指定** 5 格改用**文字图标**
+//   （竞价选股「选」/竞价精选「精」/竞价优选「优」/AI预测「AI」/题材库「题材」）
+ok('宫格图标 = 5 个自绘 SVG + 5 个文字图标',
+   (qg.html.match(/class="qg-svg"/g) || []).length === 5 &&
+   (qg.html.match(/class="qg-txt/g) || []).length === 5,
+   '实际 svg=' + (qg.html.match(/class="qg-svg"/g) || []).length +
+   ' txt=' + (qg.html.match(/class="qg-txt/g) || []).length)
+for (const t of ['选', '精', '优', 'AI', '题材']) {
+  ok(`宫格文字图标含「${t}」`, qg.html.includes(`>${t}</span>`))
+}
 ok('宫格不再依赖 FA 字形做图标（无 qg-ic 内的 fa-）',
    !/class="qg-ic[^"]*"[^>]*>\s*<i class="fa /.test(qg.html))
 ok('色系按 token 走（出现 qg-h-* 且无裸 hex）',
@@ -515,7 +527,7 @@ ok('底部入口渲染无异常/无警告', g9d.errors.length === 0, g9d.errors.
 ok('底部入口是「搜索」按钮（不是路由项）', g9d.html.includes('ss-tab') && g9d.html.includes('搜索'))
 // 2026-10-01: AppTabBar **不再挂搜索格**（4 格、无 ss-tab）；搜索改由顶栏常驻承担
 ok('AppTabBar 已移除搜索格（4 格 + 无 ss-tab）',
-  (b.html.match(/tabbar-item/g) || []).length === 4 && !b.html.includes('ss-tab'),
+  (b.html.match(/tabbar-item/g) || []).length === 5 && !b.html.includes('ss-tab'),
   'tabbar-item=' + (b.html.match(/tabbar-item/g) || []).length)
 // NavBar 里挂上了桌面入口
 ok('NavBar 内已挂搜索入口', b.html.includes('ss-inline-input'))

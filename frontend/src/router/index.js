@@ -25,6 +25,8 @@ const router = createRouter({
     // ---------------- 盘中 ----------------
     // /market = 板块（页顶内嵌大盘温度 SentimentPanel + 数据源切换: 开盘啦强度榜 | 东财概念榜）
     { path: '/market', name: 'market', component: () => import('../views/MarketView.vue'), meta: { group: 'intraday', order: 0 } },
+    // 2026-10-01 主人: 首页宫格「题材库」格 → 开盘啦题材/板块榜（含成分股下钻）
+    { path: '/theme', name: 'theme', component: () => import('../views/ThemeLibView.vue'), meta: { group: 'intraday', order: 1 } },
     // 2026-09-27: 题材异动已并入 /market 的「东财概念榜」数据源（工单 三.4 方案 A）。
     // 路径保留 + 重定向，旧书签/外链不 404。
     { path: '/concept', name: 'concept', redirect: (to) => ({ name: 'market', query: { ...to.query, src: 'em' } }) },

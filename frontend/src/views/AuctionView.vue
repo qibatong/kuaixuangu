@@ -1352,7 +1352,10 @@ polling = usePolling(async () => {
 
 /* === 连续多日竞价封单(2026-09-29): N 列并排, 每列一个交易日 ===
    注: .msd-modebar / .msd-mode-switch / .msd-mode-tip 已随「单日榜入口 + 顶部口径提示」一并移除 */
-.msd-wrap { margin-bottom: 8px; overflow-x: auto; }
+/* 2026-10-01 主人: 「竞价封单支持左右滑动」⇒ 恢复 N 列并排 + 横向滚动（与电脑端一致）。
+   touch 惯性滚动 + 隐藏滚动条，手机上手感更接近"表格横滑"。 */
+.msd-wrap { margin-bottom: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.msd-wrap::-webkit-scrollbar { display: none; }
 /* 🔴 2026-09-30 主人: 「整个页面是个整体」⇒ N 个交易日并列成**一张连续表格**:
    去掉原先每列独立卡片的边框/圆角/底色与列间隙, 只在日与日之间留一条分隔线。
    同时「N 天必须排在一排」的约束不变 —— 窗口不够宽时**整块横向滚动**, 不降列、不换行。
@@ -1391,16 +1394,10 @@ polling = usePolling(async () => {
    一屏只看得到半个交易日，还得左右滑着比对 —— 与"多日对比"的本意相反。
    改单列后：**一张卡 = 一个交易日**（卡内 9:25/9:20/9:15 三列仍横排，卡宽 = 屏宽，无需横滑），
    上下滑动看历史；列与列之间由「左边框」换成「上边框」分隔。 */
-@media (max-width: 430px) {
-  .msd-grid {
-    grid-template-columns: minmax(0, 1fr);
-    min-width: 0;                                   /* 关键: 解除 960px 最窄宽 ⇒ 不再强制横滑 */
-  }
-  .msd-col + .msd-col {
-    border-left: none;
-    border-top: 1px solid var(--border-soft);
-  }
-}
+/* 🔴 2026-10-01 主人**反转** 2026-09-30 的决定: 「竞价封单支持左右滑动」⇒ 删除 ≤430px 单列塌陷。
+   原决定（单列每日一卡、卡内三时点横排、不横滑）实测整页 11354px（≈13.5 屏），
+   且与电脑端呈现不一致；主人要求"与电脑端相同的数据 + 可左右滑动" ⇒ 保持 4 列并排，
+   由 .msd-wrap 接手横向滚动（一屏看一天，左右滑比对）。 */
 .msd-head {
   padding: 3px 4px 4px;          /* 原 4px 4px 5px: 表头下压 2px */
   background: linear-gradient(180deg, #b3271f, #8e1f1f);
