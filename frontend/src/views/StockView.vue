@@ -4,7 +4,15 @@
     <!-- 2026-10-01: 手机端「快捷入口」宫格（10 格常驻、可编辑）。
          ⚠️ 必须放在**最上面** —— 表头 sticky 高度由 setupStickyOffsets() 量 .home-filter
             等的 offsetHeight 写入 --sticky-thead-top；插在筛选区与表格之间会让表头错位。 -->
-    <QuickGrid />
+    <!-- 2026-10-01 主人拍板（已看效果图确认）: 手机端**首页** = 盯盘台
+         10 格宫格 -> 指数 -> 滚动快讯 -> 盘中最强资金 -> 昨日涨停今日表现 -> 今日票战报。
+         原来首页的「选股 / 竞价异动」两栏在手机首页**不再显示**，改由宫格四格进工作台：
+           `/?wb=1&t=auction|spot|zhpick|yijiner`（桌面端一律不受影响，仍是原双栏）。
+         复用「盘中」页同一套组件(MarketView home-mode) => 零新接口、零额外出网、零重复实现。 -->
+    <MarketView v-if="isHomeDash" home-mode />
+
+    <!-- 手机工作台(/?wb=1) 与 桌面端首页 共用下面这段（一字未改） -->
+    <template v-if="!isHomeDash">
     <!-- 窄屏(<1100px) 切换栏: 选股 / 竞价异动 (宽屏 50/50 并排, 本栏隐藏) -->
     <div class="home-mob-toggle">
       <button class="home-mob-tab" :class="{ active: mobilePane === 'stock' }" @click="mobilePane = 'stock'">
@@ -173,6 +181,7 @@
         <AuctionView />
       </div>
     </div><!-- /.home-grid -->
+    </template>
   </div>
 </template>
 
@@ -201,11 +210,19 @@ import { bjDateTimeStr, isIntradayNow, isMemberOnlyTime, todayBj } from '../util
 import { strategyForTab } from '../utils/strategy'
 // 2026-09-27 v4.11.63《移动端清单》§二·4: 数据更新时刻（与页头时钟区分开）
 import DataStamp from '../components/DataStamp.vue'
-import QuickGrid from '../components/QuickGrid.vue'
+import MarketView from './MarketView.vue'
+import { useIsNarrow } from '../composables/useIsNarrow'
 import { useRoute } from 'vue-router'
 import { useDataStamp } from '../composables/useDataStamp'
 
 const route = useRoute()
+
+// 2026-10-01 首页改版(见模板注释): 手机端首页 = 盯盘台; 选股工作台移到 `?wb=1`。
+//   · 桌面端(isNarrow=false) => isHomeDash 恒 false => 首页/工作台都是原样(一字未改)
+//   · 用 JS 判据(而不是只靠 CSS 藏) 是因为: 藏了仍会挂载 => 会白拉选股数据(竞价 spot 扫描是付费出网)
+const isNarrow = useIsNarrow()
+const wbMode = computed(() => String(route.query.wb || '') === '1')
+const isHomeDash = computed(() => isNarrow.value && !wbMode.value)
 const stocks = useStocksStore()
 const pool = usePoolStore()
 const user = useUserStore()
@@ -440,10 +457,24 @@ onMounted(() => {
   bjTime.value = bjDateTimeStr()
   autoOn.value = isIntradayNow()
   applyTabFromQuery()
+  // 2026-10-01: 盯盘台首页不拉选股数据(按需加载 -- 竞价/动态选股都要真出网, 不能在没看表时白打)
+  if (isHomeDash.value) return
   init()
   loadBidSeal()
   refreshYidongCodes()   // 首页选股/竞价异动 标记异动监管股票
   setupStickyOffsets()
+})
+
+// 2026-10-01: 盯盘台 -> 工作台 是**同一路由只变 query**(?wb=1), 组件不会重新挂载
+//   => 必须在这里补一次首屏加载, 否则从首页点宫格进工作台会看到空表。
+watch(wbMode, (on) => {
+  if (!on) return
+  nextTick(() => {
+    init()
+    loadBidSeal()
+    refreshYidongCodes()
+    setupStickyOffsets()
+  })
 })
 onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)

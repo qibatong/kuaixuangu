@@ -248,13 +248,13 @@ const CHILDREN = {
 /** 全部可选入口（默认 10 格的来源 + 候选池） */
 const ALL_ITEMS = [
   // 上排（主人指定）
-  { key: 'pick', label: '竞价选股', path: '/', homeTab: 'auction' },
-  { key: 'zhpick', label: '竞价精选', path: '/', homeTab: 'zhpick' },
-  { key: 'yijiner', label: '竞价优选', path: '/', homeTab: 'yijiner' },
+  { key: 'pick', label: '竞价选股', path: '/', homeTab: 'auction', wb: 1 },
+  { key: 'zhpick', label: '竞价精选', path: '/', homeTab: 'zhpick', wb: 1 },
+  { key: 'yijiner', label: '竞价优选', path: '/', homeTab: 'yijiner', wb: 1 },
   { key: 'auc', label: '竞价异动' },                       // 有子项 ⇒ 点击弹面板
   { key: 'ai', label: 'AI预测' },                          // 有子项
   // 下排（主人指定）
-  { key: 'spot', label: '动态选股', path: '/', homeTab: 'spot' },
+  { key: 'spot', label: '动态选股', path: '/', homeTab: 'spot', wb: 1 },
   { key: 'ladder', label: '连板天梯', path: '/ladder' },
   { key: 'calc', label: '异动计算器', path: '/yidong?tab=calc' },
   { key: 'news', label: '盘前资讯', path: '/news' },
@@ -343,8 +343,11 @@ function onTap(it, i) {
     return
   }
   if (it.homeTab) {
-    // 已在首页 ⇒ 只改 query（StockView 监听后切 mode-tab，不整页重载）
-    router.push({ path: '/', query: { ...route.query, t: it.homeTab } })
+    // 手机首页(盯盘台)不带选股表 => 四格进的是**工作台** `/?wb=1&t=...`；
+    // 桌面端这些格子本就不渲染(<=768 才显示) => 不必区分设备。
+    const q = { ...route.query, t: it.homeTab }
+    if (it.wb) q.wb = '1'
+    router.push({ path: '/', query: q })
   } else {
     go(it.path)
   }

@@ -23,12 +23,17 @@
            为 null 而静默注册失败 → 定时器永不清理，v4.11.59 修过的坑）。
   -->
   <div class="page-shell">
-    <h1 class="visually-hidden">盘中盯盘台</h1>
+    <h1 class="visually-hidden">{{ homeMode ? '首页盯盘台' : '盘中盯盘台' }}</h1>
+
+    <!-- 2026-10-01 主人拍板: 手机端**首页**复用本页做「盯盘台」(见 views/StockView.vue 的 isHomeDash)。
+         首页只要 10 格宫格 + 指数 + 快讯 + 最强资金 + 昨涨停今表现 + 今日战报
+         => 隐藏本页标题条与题材榜，其余一字未改。 -->
+    <QuickGrid v-if="homeMode" />
 
     <!-- 大盘温度: 指数带 + 涨跌家数/成交额（与首页同一组件，不新写图表） -->
     <SentimentPanel />
 
-    <div class="mk-bar">
+    <div v-if="!homeMode" class="mk-bar">
       <span class="mk-bar-title"><i class="fa fa-desktop"></i> 盘中盯盘台</span>
       <span class="mk-bar-sub">快讯 · 昨涨停表现 · 最强资金 · 今日战报 · 题材榜 · 异动</span>
       <button class="mk-refresh" :disabled="ticking" title="手动刷新" @click="tick()">
@@ -63,8 +68,8 @@
         :loading="pickLoading" :failed="pickFailed" :empty-msg="pickEmptyMsg"
       />
 
-      <!-- ⑤ 题材榜（合并原市场雷达 + 题材异动） -->
-      <MarketBoardPanel
+      <!-- ⑤ 题材榜（首页盯盘台不显示；盘中页照旧） -->
+      <MarketBoardPanel v-if="!homeMode"
         ref="boardPanelRef"
         :boards="boardRows" :src="src" :loading="boardLoading" :failed="boardFailed"
         :fail-msg="boardFailMsg" :date="datePicker"
@@ -135,6 +140,11 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, reactive, watch } from 'vue'
+
+// 2026-10-01: `homeMode` = 首页盯盘台模式（手机端首页复用本页组件；桌面端首页不受影响）。
+//   只影响**模板显隐**（顶部宫格 / 标题条 / 题材榜），取数与轮询逻辑一字未动
+//   => 无重复实现、无死代码，verify 的 no-unused-vars 也不会被牵连。
+defineProps({ homeMode: { type: Boolean, default: false } })
 import { useRoute, useRouter } from 'vue-router'
 import { usePolling } from '../composables/usePolling'
 import {
@@ -154,6 +164,7 @@ import { summarizePicks, avgOf } from '../utils/picks'
 import { pickReportBatch } from '../utils/batches'
 import RotCharts from '../components/RotCharts.vue'
 import PoolHoverBtn from '../components/PoolHoverBtn.vue'
+import QuickGrid from '../components/QuickGrid.vue'
 import SentimentPanel from '../components/SentimentPanel.vue'
 import FlashTicker from '../components/FlashTicker.vue'
 import YestZtPanel from '../components/YestZtPanel.vue'
