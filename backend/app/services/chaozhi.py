@@ -335,7 +335,8 @@ def load_picks(top=60):
         data[m] = d
         meta["models"][m] = bool(d)
         if not d:
-            meta["notes"].append("%s（%s）当日无预测文件" % ("火眼 LGB" if m == "lgb" else "金睛 XGB", m))
+            # 文案口径（主人 2026-10-01）: 对外**只提金睛/火眼**，不提 XGB/LGB
+            meta["notes"].append("%s当日无预测文件" % ("火眼" if m == "lgb" else "金睛"))
 
     rows = {}
     for m, key in (("xgb", "scoreXgb"), ("lgb", "scoreLgb")):

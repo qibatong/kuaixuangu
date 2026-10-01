@@ -42,19 +42,16 @@
              2026-09-28 v4.11.75: 新增「盘中实时」—— 后端 /api/stocks_spot 重建后接入 -->
         <div class="alert-rule alert-rule-compact">
           <span class="mode-tabs mode-tabs-inline">
-            <!-- ★ 2026-09-28 主人要求改 tab 文案: 「AI选股」→「竞价选股」、「盘中实时」→「实时动态选股」。
-                 只改**展示文案**, `leftTab` 取值('auction'/'spot')与所有分支判据一字不动。 -->
+            <!-- 🔴 2026-10-01 主人三件事（**只动展示文案与顺序, `leftTab` 取值与所有分支判据一字不动**）:
+                 ① **去掉两个 AI tab**（AI预测·金睛 / 火眼）—— 已并入「超智研判」聚合页（/chaozhi）；
+                    对应分支与 `?t=aipick` 深链**保留**（超智研判页的「查看评分详情」仍指向 /aipick）。
+                 ② **文案与首页 10 宫格对齐**：「实时动态选股」→「动态选股」、「竞价一进二」→「竞价优选」。
+                 ③ **顺序按宫格排序**：竞价选股 → 竞价精选 → 竞价优选 → 动态选股
+                    （宫格上排是 竞价选股/竞价精选/竞价优选/竞价异动/超智研判，下排第 1 个是 动态选股）。 -->
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'auction' }" @click="switchTab('auction')"><i class="fa fa-sun-o"></i> 竞价选股</button>
-            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'spot' }" @click="switchTab('spot')"><i class="fa fa-bolt"></i> 实时动态选股</button>
-            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick' }" @click="switchTab('aipick')"><i class="fa fa-android"></i> AI预测·金睛</button>
-            <!-- 2026-09-25: 火眼(LightGBM) 平行链路(与 AI预测 同构, 只换模型); 手机端一并生效(本组 tab 在左栏内部) -->
-            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'aipick_lgb' }" @click="switchTab('aipick_lgb')"><i class="fa fa-flask"></i> AI预测·火眼</button>
-            <!-- 2026-09-28: 竞价一进二（昨日主板首板 → 今日二连板潜力）。
-                 名单来自独立端点 /api/yijiner，**不读 stock store 的数据流**；
-                 门禁(严格 VIP)/取数/评分全部在 YijinerView 内部，与竞价那条链路互不影响。 -->
-            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'yijiner' }" @click="switchTab('yijiner')"><i class="fa fa-level-up"></i> 竞价一进二</button>
-            <!-- 2026-09-29 主人要求: 竞价精选放到「竞价一进二」右侧(面板=ZhPicksPanel, 数据 /api/stats/zh-picks) -->
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'zhpick' }" @click="switchTab('zhpick')"><i class="fa fa-star"></i> 竞价精选</button>
+            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'yijiner' }" @click="switchTab('yijiner')"><i class="fa fa-level-up"></i> 竞价优选</button>
+            <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'spot' }" @click="switchTab('spot')"><i class="fa fa-bolt"></i> 动态选股</button>
           </span>
           <!-- 2026-09-27 v4.11.63《移动端清单》§二·4: 名单数据的更新时刻。
                用 .right-group 挂到本行右侧（该 class 自带 margin-left:auto，且本行已

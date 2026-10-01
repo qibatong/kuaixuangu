@@ -88,13 +88,34 @@
           type="text"
           placeholder="输入代码 / 名称 / 拼音，如 605058 或 电科"
           aria-label="股票代码"
-          @keydown.enter="doCalc"
+          @input="onCalcInput"
+          @keydown.enter="onCalcEnter"
+          @keydown.down.prevent="moveSug(1)"
+          @keydown.up.prevent="moveSug(-1)"
+          @keydown.esc="closeSug"
         />
         <button class="cal-btn" :disabled="calcLoading" @click="doCalc">
           <i class="fa fa-search"></i> {{ calcLoading ? '计算中…' : '计算' }}
         </button>
         <button v-if="calcCode" class="cal-btn cal-btn-ghost" @click="clearCalc">清空</button>
       </div>
+
+      <!-- 🔎 索引下拉（2026-10-01 主人: 「异动计算器搜索框是不是类似主页搜索框，有个索引」）
+           数据源与顶栏搜索**完全相同**：GET /api/stocks/search —— 后端本地索引(约 5561 条, 进程内 TTL 600s),
+           匹配口径 = 代码精确 > 代码前缀 > 拼音前缀 > 名称前缀 > 名称包含 > 板块。
+           价值: 名称/拼音有歧义时**看得见候选**（原实现是 limit=1 盲取第一条, 选错了无从察觉）。 -->
+      <div v-if="sugRows.length" class="cal-sug" role="listbox" aria-label="股票候选">
+        <button
+          v-for="(r, i) in sugRows" :key="r.code" class="cal-sug-i"
+          :class="{ on: i === sugIdx }" role="option" :aria-selected="i === sugIdx"
+          @click="pickSug(r)"
+        >
+          <span class="cal-sug-name">{{ r.name }}</span>
+          <span class="cal-sug-code">{{ r.code }}</span>
+          <span v-if="r.board" class="cal-sug-board">{{ firstConcept(r.board) }}</span>
+        </button>
+      </div>
+      <div v-else-if="sugPhase === 'empty'" class="cal-sug cal-sug-empty">未找到匹配股票（可直接输入 6 位代码）</div>
       <DevRiskDetail
         :data="calcData"
         :loading="calcLoading"
@@ -154,10 +175,11 @@
  *   ——「区间首尾相减」，**不是**工单正文写的「逐日偏离值求和」。
  *   3 天各涨停时区间法 = 33.10%，逐日累加 = 30.00%，两者结果不同。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { usePolling } from '../composables/usePolling'
 import { useSortable } from '../composables/useSortable'
 import { request } from '../api/request'
+import { stocksSearch } from '../api/stocks'
 import { kplYidongRealtime, kplYidongMonitor } from '../api/kpl'
 import { devRisk, devTomorrow } from '../api/dev'
 import { linkToSoftware } from '../utils/tdx'
@@ -260,6 +282,64 @@ async function loadMonitor() {
     monLoading.value = false
   }
 }
+
+// ---- 计算器搜索框的"索引"下拉（与顶栏 StockSearch 同一后端数据源）----
+const sugRows = ref([])
+const sugIdx = ref(-1)
+const sugPhase = ref('idle')   // idle | loading | ok | empty
+let sugTimer = null
+let sugSeq = 0                 // 序号丢弃过期响应（与 StockSearch.vue 同一手法）
+
+function closeSug() { sugRows.value = []; sugIdx.value = -1; sugPhase.value = 'idle' }
+
+/** 输入即查（300ms 防抖，与顶栏搜索同频）；6 位纯数字=代码本身，不必查 */
+function onCalcInput() {
+  const q = String(calcCode.value || '').trim()
+  if (sugTimer) clearTimeout(sugTimer)
+  if (!q || /^\d{6}$/.test(q)) { closeSug(); return }
+  sugPhase.value = 'loading'
+  sugTimer = setTimeout(async () => {
+    const my = ++sugSeq
+    try {
+      const d = await stocksSearch(q, 20)
+      if (my !== sugSeq) return
+      sugRows.value = (d && d.list) || []
+      sugIdx.value = sugRows.value.length ? 0 : -1
+      sugPhase.value = sugRows.value.length ? 'ok' : 'empty'
+    } catch (e) {
+      if (my !== sugSeq) return
+      sugRows.value = []
+      sugIdx.value = -1
+      sugPhase.value = 'empty'
+    }
+  }, 300)
+}
+
+/** 候选行只显示**首个概念**（`board` 是整串概念，几十个词会撑成一片文字） */
+function firstConcept(b) {
+  return String(b || '').split(',')[0].split('、')[0].trim()
+}
+
+function moveSug(step) {
+  if (!sugRows.value.length) return
+  const n = sugRows.value.length
+  sugIdx.value = (sugIdx.value + step + n) % n
+}
+
+/** 选中候选 ⇒ 用**确定的 code** 计算（不再盲取搜索结果第一条） */
+function pickSug(r) {
+  calcCode.value = r.code
+  closeSug()
+  doCalc()
+}
+
+function onCalcEnter() {
+  if (sugRows.value.length && sugIdx.value >= 0) { pickSug(sugRows.value[sugIdx.value]); return }
+  doCalc()
+}
+
+// 卸载清防抖定时器（否则离开页面后 300ms 还会打一次搜索接口）
+onBeforeUnmount(() => { if (sugTimer) clearTimeout(sugTimer) })
 
 async function doCalc() {
   let c = String(calcCode.value || '').trim()
@@ -383,6 +463,33 @@ onMounted(() => {
 }
 .cal-input:focus { border-color: #ffb400; }
 .cal-input::placeholder { color: var(--text-muted); letter-spacing: 0; }
+
+/* 🔎 计算器搜索框的"索引"下拉（2026-10-01）—— 与顶栏搜索同一后端索引，块级展开（不做浮层，
+   避免手机端定位/遮挡问题；列表最多 20 条，展开后页面自然下推） */
+.cal-sug {
+  margin: -8px 0 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--bg-card);
+  overflow: hidden;
+  max-width: 520px;
+}
+.cal-sug-i {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; flex-wrap: nowrap;
+  padding: 7px 10px; background: transparent; border: none;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-secondary); font-size: 0.78rem; text-align: left; cursor: pointer;
+}
+.cal-sug-i:first-child { border-top: none; }
+.cal-sug-i.on { background: var(--bg-hover); }
+.cal-sug-name { font-weight: 600; color: var(--text-main); }
+.cal-sug-code { font-size: 0.68rem; color: var(--text-dim); }
+.cal-sug-board {
+  margin-left: auto; flex: 0 1 auto; max-width: 46%;
+  font-size: 0.66rem; color: #ffb400;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cal-sug-empty { padding: 9px 10px; font-size: 0.72rem; color: var(--text-muted); }
 .cal-btn {
   padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 0.875rem;
   border: 1px solid #ffb400; background: rgba(255, 180, 0, 0.15); color: #ffd700;

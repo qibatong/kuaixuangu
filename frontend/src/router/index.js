@@ -28,7 +28,10 @@ const router = createRouter({
     // 2026-10-01 主人: 首页宫格「题材库」格 → 开盘啦题材/板块榜（含成分股下钻）
     { path: '/theme', name: 'theme', component: () => import('../views/ThemeLibView.vue'), meta: { group: 'intraday', order: 1 } },
     // 2026-10-01 主人: 「超智研判」（原 AI预测）聚合页 —— 首页宫格第 5 格直跳此页
-    { path: '/chaozhi', name: 'chaozhi', component: () => import('../views/ChaozhiView.vue'), meta: { group: 'intraday', order: 2 } },
+    // ⚠️ `noGroupNav`: 本页是独立聚合页，**不显示**所在分组(盘中)的二级 pill 行
+    //   （主人 2026-10-01:「超智页面上面怎么有盘中/板块/题材库，这个不应该显示在这里」）
+    { path: '/chaozhi', name: 'chaozhi', component: () => import('../views/ChaozhiView.vue'),
+      meta: { group: 'intraday', order: 2, noGroupNav: true } },
     // 2026-09-27: 题材异动已并入 /market 的「东财概念榜」数据源（工单 三.4 方案 A）。
     // 路径保留 + 重定向，旧书签/外链不 404。
     { path: '/concept', name: 'concept', redirect: (to) => ({ name: 'market', query: { ...to.query, src: 'em' } }) },

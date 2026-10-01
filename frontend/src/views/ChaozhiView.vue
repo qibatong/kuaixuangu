@@ -13,7 +13,7 @@
       <span class="cz-logo" aria-hidden="true">智</span>
       <div class="cz-head-txt">
         <div class="cz-h1">超智研判</div>
-        <div class="cz-sub">双模型 XGB(金睛) + LGB(火眼) · 资金 &amp; 情绪预判</div>
+        <div class="cz-sub">双模型 金睛 + 火眼 · 资金 &amp; 情绪预判</div>
       </div>
       <span class="cz-date">{{ date || '—' }}</span>
     </header>
@@ -88,7 +88,7 @@
         </div>
       </section>
 
-      <!-- ④ 个股研判（双模型分数 + 风险 + 标签） -->
+      <!-- ④ 个股研判（双模型分数 金睛/火眼 + 风险 + 标签） -->
       <section class="cz-card">
         <div class="cz-card-h">
           <span class="cz-card-t">个股研判</span>
@@ -103,7 +103,7 @@
               <span class="cz-risk" :class="'r-' + p.risk">{{ riskText(p.risk) }}</span>
             </span>
             <span class="cz-line2">
-              <span class="cz-sc">预判<b>{{ p.scoreXgb ?? '—' }}</b>·火眼<b>{{ p.scoreLgb ?? '—' }}</b></span>
+              <span class="cz-sc">金睛<b>{{ p.scoreXgb ?? '—' }}</b>·火眼<b>{{ p.scoreLgb ?? '—' }}</b></span>
               <span class="cz-chg" :class="(p.change || 0) >= 0 ? 'up' : 'down'">{{ signed(p.change) }}%</span>
               <span v-if="p.concept" class="cz-concept">{{ p.concept }}</span>
             </span>

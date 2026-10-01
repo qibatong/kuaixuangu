@@ -123,7 +123,9 @@ const ROUTES = [
   R('/', 'stock', 'auction'), R('/auction', 'auction', 'auction'),
   R('/aipick', 'aipick', 'auction'), R('/aipick-lgb', 'aipick-lgb', 'auction'),
   R('/market', 'market', 'intraday'), R('/theme', 'theme', 'intraday'),
-  R('/chaozhi', 'chaozhi', 'intraday'),
+  // ⚠️ 桩路由必须与 src/router/index.js 的 meta **逐项一致**（本表只传 group，
+  //    但 /chaozhi 还带 noGroupNav ⇒ 这里显式写出，否则测不到豁免）
+  { path: '/chaozhi', name: 'chaozhi', component: Stub, meta: { group: 'intraday', noGroupNav: true } },
   R('/ladder', 'ladder', 'review'), R('/history', 'history', 'review'), R('/temper', 'temper', 'review'),
   R('/bigv', 'bigv', 'review'), R('/yidong', 'yidong', 'review'), R('/lhb', 'lhb', 'review'),
   R('/pool', 'pool', 'pool'),
@@ -248,6 +250,14 @@ ok('渲染无异常/无 Vue 警告', c.errors.length === 0, c.errors.join(' | ')
 ok('盘中组渲染 pill 行且含「题材库」',
    c.html.includes('group-nav-item') && c.html.includes('题材库'))
 ok('盘中组 pill 行含 /theme 链接', c.html.includes('href="/theme"'))
+
+// C2. 2026-10-01 主人: 「超智页面上面怎么有盘中/板块/题材库，这个不应该显示在这里」
+//     ⇒ /chaozhi 用 `meta.noGroupNav` **路由级**豁免分组 pill 行（不影响盘中组的其它页面）
+const c2 = await renderAt('/chaozhi')
+console.log('\n— C2. /chaozhi（独立聚合页 ⇒ 不渲染分组 pill 行）')
+ok('渲染无异常/无 Vue 警告', c2.errors.length === 0, c2.errors.join(' | '))
+ok('不含分组 pill 行', !c2.html.includes('group-nav-item'))
+ok('不含「板块 / 题材库」pill 文案', !c2.html.includes('>题材库<') && !c2.html.includes('>板块<'))
 
 // D. 一级入口：**桌面仍 6 组**（本次未动）；**手机底部收为 4 格 = 首页/竞价/盘中/我的**
 //    2026-10-01 主人拍板（原话「4格 首页、竞价、盘中、我的」「底部不保留搜索，上面已经搜索了」）
