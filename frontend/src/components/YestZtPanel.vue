@@ -39,7 +39,7 @@
       <span v-if="count" class="yz-count">样本 {{ count }} 只（上一交易日涨停）</span>
       <span v-if="!count && !loading" class="yz-count dim">暂无可统计样本</span>
       <span v-if="loading && !count" class="yz-count dim">统计中…</span>
-      <router-link v-if="count" class="yz-more" to="/ladder">涨停梯队 <i class="fa fa-angle-right"></i></router-link>
+      <router-link v-if="count" class="yz-more" to="/ladder">连板天梯 <i class="fa fa-angle-right"></i></router-link>
     </div>
   </div>
 </template>

@@ -509,7 +509,7 @@ const quotaTop = computed(() => (quotaStat.value && quotaStat.value.usage_top) |
 const loginStat = ref(null)
 const loginRecent = ref([])
 const ACT_LABEL = { picker: '选股', aipick: 'AI 选股', auction: '竞价异动', concept: '题材异动',
-                    history: '历史回看', ladder: '涨停梯队', market: '市场雷达', member: '会员中心' }
+                    history: '历史回看', ladder: '连板天梯', market: '市场雷达', member: '会员中心' }
 function actLabel(k) { return ACT_LABEL[k] || k }
 function resultCount(k) {
   const by = (loginStat.value && loginStat.value.by_result) || {}

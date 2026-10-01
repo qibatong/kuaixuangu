@@ -9,7 +9,7 @@
     <div class="nf-links">
       <router-link to="/auction">竞价异动</router-link>
       <router-link to="/concept">题材异动</router-link>
-      <router-link to="/ladder">涨停梯队</router-link>
+      <router-link to="/ladder">连板天梯</router-link>
       <router-link to="/pool">自选股票池</router-link>
     </div>
   </div>

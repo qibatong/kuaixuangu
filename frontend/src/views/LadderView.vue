@@ -1,120 +1,167 @@
 <template>
-  <div class="page-shell">
-    <h1 class="visually-hidden">涨停梯队</h1>
-    <!-- 头部 -->
-    <div class="zt-head">
-      <span class="zt-title"><i class="fa fa-sitemap"></i> 涨停梯队</span>
-      <span class="zt-sub">实时涨停梯队 · 晋级率 · 题材主线（盘中持续刷新）</span>
-      <span class="zt-time">{{ bjTime }}</span>
-      <!-- 2026-09-27 v4.11.63《移动端清单》§二·4: 数据更新时刻(与左边那个"现在几点"的
-           时钟不是一回事 —— 它只在成功拉到梯队数据时才前进) -->
-      <DataStamp :at="dataAt" :ok="dataOk" :interval="autoOn ? 30 : 0" :stale="dataStale" />
-    </div>
+  <!--
+    连板天梯（2026-10-01 主人拍板重设计；效果图 v4 确认版）
+    结构：KPI 四色 → 晋级率 → 题材主线（精简，一行可滑）→ 阶梯层 → 断板反包 → 盘后天梯图（折叠）
 
-    <!-- 顶部统计 -->
-    <div v-if="stat.ztCount" class="zt-stat">
-      <span class="zt-stat-item">涨停 <b>{{ stat.ztCount }}</b> 家</span>
-      <span class="zt-stat-item">最高 <b>{{ stat.maxLadder }}</b> 板</span>
-      <span class="zt-stat-item">空间龙 <b>{{ stat.spaceDragon || '-' }}</b></span>
-    </div>
+    🔴 相对旧版的改动（主人逐条指定）：
+      ① 标题「涨停梯队」→「连板天梯」；**去掉**副标题「实时涨停梯队 · 晋级率 · 题材主线（盘中持续刷新）」
+         与右侧「时间 + 更新于」整块（连 DataStamp 一起移除）
+      ② 手机整页 8588px → ≈1200px：低板(1~2板)由大卡改**紧凑 chips**（1板默认 12 只 + 展开），
+         每层加**阶梯条**（长度 ∝ 家数、颜色随高度）⇒ 一眼看出金字塔形状
+      ③ 高板(≥3板)每只一行：封单/主力/首封/换手 + 题材
+      ④ 题材主线**精简**：只留「≥3家」或「有≥2板」，按 高度→家数 排序，最多 8 个，其余收进「+N 其他」
+      ⑤ **文字不使用绿色**：题材标签用本页原有约定色（金色）、断板反包改紫色、主力净额去掉红绿
+      ⑥ 点票弹**全字段详情**（接口本就下发 18 个字段，旧版只画 7~12 个）
+    ⚠️ 保留不动：题材点击过滤、30s 盘中轮询、涨停原因弹层、盘后天梯图（日期回看 + 下载）。
+  -->
+  <div class="page-shell lb-root">
+    <h1 class="visually-hidden">连板天梯</h1>
 
-    <!-- 晋级率 -->
-    <div v-if="promote.date" class="zt-promote">
-      <span class="zt-promo-item">首板→2板 <b>{{ pct(promote.r1to2) }}</b></span>
-      <span class="zt-promo-item">2→3板 <b>{{ pct(promote.r2to3) }}</b></span>
-      <span class="zt-promo-item">3→4板 <b>{{ pct(promote.r3to4) }}</b></span>
-      <span class="zt-promo-item">综合 <b>{{ pct(promote.overall) }}</b></span>
-      <span class="zt-promo-date">对比 {{ promote.date }}</span>
-    </div>
+    <header class="lb-head">
+      <span class="lb-logo" aria-hidden="true">
+        <i class="lb-logo-b1"></i><i class="lb-logo-b2"></i><i class="lb-logo-b3"></i>
+      </span>
+      <div class="lb-h1">连板天梯</div>
+    </header>
 
-    <!-- 题材分区(2026-09-20 主人要求: 点击联动过滤下方梯队个股, 再点取消) -->
-    <div v-if="boards.length" class="zt-boards">
-      <div class="zt-board" :class="{ active: !activeBoard }" @click="activeBoard = ''">全部</div>
-      <div
-v-for="b in boards" :key="b.name" class="zt-board"
-           :class="{ main: b.main, active: activeBoard === b.name }" @click="toggleBoard(b.name)"
->
-        <span class="zb-name">{{ b.name }}</span>
-        <span class="zb-meta">{{ b.count }}家·{{ b.maxLadder }}板</span>
+    <div v-if="loading" class="loading-placeholder"><div class="spinner"></div><div>加载连板天梯...</div></div>
+
+    <template v-else>
+      <div class="lb-kpi">
+        <div class="lb-kpi-i k-red"><b>{{ stat.ztCount || 0 }}</b><span>涨停家数</span></div>
+        <div class="lb-kpi-i k-orange"><b>{{ maxLadderText }}</b><span>最高板</span></div>
+        <div class="lb-kpi-i k-gold lb-kpi-w"><b>{{ stat.spaceDragon || '-' }}</b><span>空间龙</span></div>
+        <div class="lb-kpi-i k-purple lb-kpi-w"><b>{{ pct(promote.overall) }}</b><span>综合晋级率</span></div>
       </div>
-    </div>
 
-    <!-- 分层梯队(受题材联动过滤) -->
-    <div v-if="loading" class="loading-placeholder"><div class="spinner"></div><div>加载涨停梯队...</div></div>
-    <div v-else-if="!filteredLadders.length" class="empty-state">{{ activeBoard ? '该题材暂无涨停梯队个股' : '暂无涨停梯队数据（非交易时段可能为空）' }}</div>
-    <div v-else class="zt-ladders">
-      <div v-for="L in filteredLadders" :key="L.ladder" class="zt-tier">
-        <div class="zt-tier-label" :class="'tier-' + Math.min(L.ladder, 5)">{{ L.ladder }}板 <span class="zt-tier-count">{{ L.stocks.length }}</span></div>
-        <div class="zt-tier-cards">
-          <div v-for="it in L.stocks" :key="it.code" class="zt-card" :class="'tier-' + Math.min(L.ladder, 5)" @click="viewReason(it)">
-            <div class="zc-top">
-              <span class="zc-name">{{ it.name }}</span>
-              <span class="zc-code">{{ it.code }}</span>
+      <div class="lb-promo">
+        <span class="lb-promo-i p-red">1→2<b>{{ pct(promote.r1to2) }}</b></span>
+        <span class="lb-promo-i p-orange">2→3<b>{{ pct(promote.r2to3) }}</b></span>
+        <span class="lb-promo-i p-gold">3→4<b>{{ pct(promote.r3to4) }}</b></span>
+        <span class="lb-promo-d">对比 {{ promote.date || '-' }}</span>
+      </div>
+
+      <!-- 题材主线：精简（≥3家 或 有≥2板），一行可滑，其余收进「+N 其他」 -->
+      <div v-if="boards.length" class="lb-boards">
+        <button class="lb-bd" :class="{ on: !activeBoard }" @click="activeBoard = ''">全部</button>
+        <button
+          v-for="b in shownBoards" :key="b.name" class="lb-bd"
+          :class="{ on: activeBoard === b.name, main: b.main }"
+          @click="toggleBoard(b.name)"
+        >
+          {{ b.name }}<em>{{ b.count }}家·{{ b.maxLadder }}板</em>
+        </button>
+        <button
+          v-if="!boardExpand && hiddenBoards.length" class="lb-bd lb-bd-more"
+          @click="boardExpand = true"
+        >
+          +{{ hiddenBoards.length }} 其他
+        </button>
+        <button v-else-if="boardExpand && hiddenBoards.length" class="lb-bd lb-bd-more" @click="boardExpand = false">收起</button>
+      </div>
+
+      <div v-if="!filteredLadders.length" class="empty-state">
+        {{ activeBoard ? '该题材暂无连板个股' : '暂无连板梯队数据（非交易时段可能为空）' }}
+      </div>
+
+      <div v-else class="lb-ladder">
+        <div v-for="L in filteredLadders" :key="L.ladder" class="lb-tier" :class="'lb-t' + Math.min(L.ladder, 5)">
+          <div class="lb-tier-head">
+            <span class="lb-tier-name">{{ ladderText(L.ladder) }}</span>
+            <span class="lb-bar"><i :style="{ width: barW(L.stocks.length) }"></i></span>
+            <span class="lb-tier-cnt">{{ L.stocks.length }}只</span>
+          </div>
+
+          <!-- 高板(≥3板)：逐票一行明细 -->
+          <div v-if="L.ladder >= 3" class="lb-rows">
+            <div v-for="it in L.stocks" :key="it.code" class="lb-row" @click="openDetail(it)">
+              <div class="lb-row-top">
+                <span class="lb-badge">{{ ladderText(L.ladder) }}</span>
+                <span class="lb-name">{{ it.name }}</span>
+                <span class="lb-code">{{ it.code }}</span>
+                <span class="lb-tag">{{ it.boardName || it.concept || '-' }}</span>
+              </div>
+              <div class="lb-m">
+                <span class="lb-m-i">封单<b :class="sealCls(it.seal)">{{ yi(it.seal) }}</b>亿</span>
+                <span class="lb-m-i">主力<b class="n-neutral">{{ signed(it.mainNet) }}</b>亿</span>
+                <span class="lb-m-i">首封<b class="n-gold">{{ hhmm(it.limitTime) }}</b></span>
+                <span class="lb-m-i">换手<b class="n-purple">{{ it.turnover ? Number(it.turnover).toFixed(1) : '-' }}</b>%</span>
+              </div>
             </div>
-            <div class="zc-board">{{ it.boardName || it.concept || '-' }}</div>
-            <div class="zc-meta">
-              <span v-if="it.seal">封单 {{ yi(it.seal) }}亿</span>
-              <span v-if="it.mainNet !== null && it.mainNet !== undefined" :class="it.mainNet >= 0 ? 'up' : 'down'">{{ it.mainNet >= 0 ? '主力吸筹' : '主力出货' }} {{ yi(Math.abs(it.mainNet)) }}亿</span>
-              <span v-if="it.turnover">换手 {{ it.turnover.toFixed(2) }}%</span>
-            </div>
-            <!-- ★ 2026-09-28：接口本来就下发了这些字段（`_parse_ladder` 共 18 个），卡片此前只画了 7 个
-                 ⇒ 补上，零上游成本。单位统一走 yi()=亿元。
-                 ⚠️ 刻意**不显示** `ztCount` —— `ladder_image.py` 明确写过「连板数用 pid，不用 ztCount
-                    （不可靠）」；档位以 rebin 后的真实连板数为准（就是上方的「N板」）。 -->
-            <div class="zc-meta zc-meta2">
-              <span v-if="it.limitTime">首封 {{ hhmm(it.limitTime) }}</span>
-              <span v-if="it.maxSeal">最大封单 {{ yi(it.maxSeal) }}亿</span>
-              <span v-if="it.amplitude">振幅 {{ Number(it.amplitude).toFixed(1) }}%</span>
-              <span v-if="it.amount">成交 {{ yi(it.amount) }}亿</span>
-              <span v-if="it.floatMv">流通 {{ yi(it.floatMv) }}亿</span>
-              <!-- ⚠️ 上游 `mainSell` 是**负数**（实测：买 0.42 + 卖 −0.15 = 主力净额 0.27 ✓ 对得上）
-                   ⇒ 这里必须取绝对值，否则会显示成「卖-0.15亿」。 -->
-              <span v-if="it.mainBuy || it.mainSell" class="zc-mb">主力 买{{ yi(it.mainBuy || 0) }}/卖{{ yi(Math.abs(it.mainSell || 0)) }}亿</span>
-            </div>
-            <div v-if="it.reason" class="zc-reason">{{ it.reason }}</div>
+          </div>
+
+          <!-- 低板(1~2板)：chips 流（1板默认只铺 12 只，其余一键展开） -->
+          <div v-else class="lb-chips">
+            <button v-for="it in shownStocks(L)" :key="it.code" class="lb-chip" @click="openDetail(it)">
+              {{ it.name }}<em :class="sealCls(it.seal)">{{ yi(it.seal) }}</em>
+            </button>
+            <button v-if="L.stocks.length > shownStocks(L).length" class="lb-chip lb-more" @click="expandTier(L.ladder)">
+              +{{ L.stocks.length - shownStocks(L).length }} 展开
+            </button>
+          </div>
+        </div>
+
+        <!-- 断板反包（独立接口；青色→紫色，主人要求文字不用绿色） -->
+        <div v-if="fanbao.length" class="lb-tier lb-tf">
+          <div class="lb-tier-head">
+            <span class="lb-tier-name">断板反包</span>
+            <span class="lb-bar"><i :style="{ width: barW(fanbao.length) }"></i></span>
+            <span class="lb-tier-cnt">{{ fanbao.length }}只</span>
+          </div>
+          <div class="lb-chips">
+            <button v-for="it in fanbao" :key="it.code" class="lb-chip lb-chip-f" @click="openDetail(it)">
+              {{ it.name }}<em :class="sealCls(it.seal)">{{ yi(it.seal) }}</em>
+            </button>
           </div>
         </div>
       </div>
-    </div>
+    </template>
 
-    <!-- 断板反包（★ 2026-09-28 新增）: 昨日断板、今日重新起板且近 5 个交易日有涨停史
-         （不是新首板）。后端 kpl.fetch_fanbao_stocks() 早就有，此前**只在盘后 PNG 图里**，
-         网页端一直看不到。仅在有数据时渲染，空态不占版面。 -->
-    <div v-if="fanbao.length" class="zt-tier fanbao-tier">
-      <div class="zt-tier-label fanbao-label">断板反包 <span class="zt-tier-count">{{ fanbao.length }}</span></div>
-      <div class="zt-tier-cards">
-        <div v-for="it in fanbao" :key="it.code" class="zt-card fanbao-card" @click="viewReason(it)">
-          <div class="zc-top">
-            <span class="zc-name">{{ it.name }}</span>
-            <span class="zc-code">{{ it.code }}</span>
-          </div>
-          <div class="zc-meta">
-            <span :class="Number(it.change) >= 0 ? 'up' : 'down'">{{ Number(it.change) >= 0 ? '+' : '' }}{{ it.change }}%</span>
-          </div>
-          <div v-if="it.reason" class="zc-reason">{{ it.reason }}</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 盘后天梯图 -->
-    <div v-if="imgDates.length" class="img-panel">
-      <div class="img-head">
-        <span class="img-title"><i class="fa fa-image"></i> 盘后涨停梯队图</span>
-        <span class="img-sub">每日 15:30 自动生成</span>
-        <span class="img-date-pick">
-          日期
+    <!-- 盘后天梯图（默认折叠；保留日期回看与下载） -->
+    <section v-if="imgDates.length" class="lb-img">
+      <button class="lb-img-head" @click="showImg = !showImg">
+        <i class="fa fa-image"></i> 盘后天梯图
+        <span class="lb-img-sub">每日 15:30 生成</span>
+        <span class="lb-img-caret">{{ showImg ? '收起' : '展开' }}</span>
+      </button>
+      <div v-if="showImg" class="lb-img-body">
+        <div class="lb-img-bar">
           <select v-model="imgDate" class="img-select" @change="onImgDate">
             <option v-for="d in imgDates" :key="d" :value="d">{{ d }}</option>
           </select>
-          <a class="img-dl" :href="imgDownloadUrl" download>下载</a>
-        </span>
+          <a class="lb-dl" :href="imgDownloadUrl" download>下载</a>
+        </div>
+        <img v-if="imgUrl" :src="imgUrl" class="ladder-img" :alt="'连板天梯 ' + imgDate" />
       </div>
-      <div v-if="imgUrl" class="img-body">
-        <img :src="imgUrl" class="ladder-img" :alt="'涨停梯队 ' + imgDate" />
+    </section>
+
+    <!-- 个股详情（接口 18 个字段尽量都露出来） -->
+    <div v-if="detail" class="lb-mask" @click.self="detail = null">
+      <div class="lb-modal">
+        <div class="lb-modal-h">
+          <span class="lb-modal-name">{{ detail.name }}</span>
+          <span class="lb-modal-code">{{ detail.code }}</span>
+          <span v-if="detail.limitUpDays || detail.ladder" class="lb-badge">{{ ladderText(detail.limitUpDays || detail.ladder) }}</span>
+          <button class="lb-modal-x" @click="detail = null"><i class="fa fa-times"></i></button>
+        </div>
+        <div class="lb-modal-tag">{{ detail.boardName || detail.concept || '-' }}</div>
+        <div class="lb-grid">
+          <div><span>封单额</span><b :class="sealCls(detail.seal)">{{ yi(detail.seal) }} 亿</b></div>
+          <div><span>最大封单</span><b class="n-orange">{{ yi(detail.maxSeal) }} 亿</b></div>
+          <div><span>主力净额</span><b class="n-neutral">{{ signed(detail.mainNet) }} 亿</b></div>
+          <div><span>成交额</span><b class="n-blue">{{ yi(detail.amount) }} 亿</b></div>
+          <div><span>换手率</span><b class="n-purple">{{ detail.turnover ? Number(detail.turnover).toFixed(2) : '-' }}%</b></div>
+          <div><span>振幅</span><b class="n-orange">{{ detail.amplitude ? Number(detail.amplitude).toFixed(1) : '-' }}%</b></div>
+          <div><span>流通市值</span><b class="n-blue">{{ yi(detail.floatMv) }} 亿</b></div>
+          <div><span>首封时间</span><b class="n-gold">{{ hhmm(detail.limitTime) }}</b></div>
+        </div>
+        <div class="lb-modal-foot">
+          <button class="lb-reason-btn" @click="viewReason(detail)"><i class="fa fa-lightbulb-o"></i> 看历史涨停原因</button>
+        </div>
       </div>
     </div>
 
-    <!-- 涨停原因弹窗 -->
+    <!-- 涨停原因弹窗（保留原功能） -->
     <div v-if="reasonModal.show" class="modal-mask" @click.self="reasonModal.show = false">
       <div class="reason-modal">
         <div class="reason-head">
@@ -133,40 +180,63 @@ v-for="b in boards" :key="b.name" class="zt-board"
 </template>
 
 <script setup>
-import { onMounted, onBeforeUnmount, ref, reactive, computed } from 'vue'
-import { usePolling } from '../composables/usePolling'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { kplZtEchelon, kplLadderDates, kplZtReason, kplFanbao } from '../api/kpl'
 import { trackUsageOnce } from '../api/activity'
 import { useUserStore } from '../stores/user'
-import { bjDateTimeStr, isIntradayNow, fmtTsTime } from '../utils/time'
-import { useDataStamp } from '../composables/useDataStamp'
-import DataStamp from '../components/DataStamp.vue'
+// 2026-10-01: 旧版的 bjDateTimeStr(时钟) 与 DataStamp(更新于) 已按主人要求整块去掉
+import { isIntradayNow, fmtTsTime } from '../utils/time'
 
 const user = useUserStore()
 
 const loading = ref(true)
-const bjTime = ref('--:--:--')
-// 清单 §二·4: 数据更新时刻 + "当前是否在自动刷新"（后者决定要不要显示「每 30s 自动刷新」）
-// ⚠️ 这里必须**分解赋值**：useDataStamp 返回的是普通对象，模板只会自动解包「顶层 ref」，
-//    写 `ds.at` 会把 ref 对象本身渲染出来（要写成 ds.at.value 才对）—— 分解后既干净又不会踩。
-const { at: dataAt, ok: dataOk, stale: dataStale, mark: markData } = useDataStamp()
-const autoOn = ref(false)
 const stat = ref({ ztCount: 0, maxLadder: 0, spaceDragon: '' })
 const promote = ref({})
 const ladders = ref([])
 const boards = ref([])
+const fanbao = ref([])
 
-// 盘后天梯图
 const imgDates = ref([])
 const imgDate = ref('')
 const imgUrl = ref('')
+const showImg = ref(false)
 
+const detail = ref(null)
 const reasonModal = reactive({ show: false, code: '', name: '', list: [] })
 const reasonLoading = ref(false)
+const activeBoard = ref('')
+const tierExpanded = reactive({})
+const boardExpand = ref(false)
 
-function _imgToken() {
-  return user.apiToken ? `token=${encodeURIComponent(user.apiToken)}` : ''
+function yi(v) { return (v === null || v === undefined) ? '0' : (Number(v) / 1e8).toFixed(2) }
+function signed(v) {
+  const n = Number(v || 0) / 1e8
+  return (n >= 0 ? '+' : '') + n.toFixed(2)
 }
+function pct(v) { return (v === null || v === undefined) ? '--' : (v * 100).toFixed(0) + '%' }
+function hhmm(ts) {
+  const s = fmtTsTime(ts)
+  return s && s.length >= 5 ? s.slice(-5) : '—'
+}
+/** 档位文案：8 档是「八板+」（rebin 把 ≥8 归到 8，标签不能写死"8板"） */
+function ladderText(n) {
+  const v = Number(n) || 0
+  if (v >= 8) return '8板+'
+  return v + '板'
+}
+/** 封单额按大小着色（大=红 中=橙 小=金）—— 与"不要绿色"一致，不用红绿涨跌色 */
+function sealCls(v) {
+  const a = Number(v || 0) / 1e8
+  if (a >= 3) return 'n-red'
+  if (a >= 1) return 'n-orange'
+  return 'n-gold'
+}
+const maxLadderText = computed(() => {
+  const v = Number(stat.value.maxLadder) || 0
+  return v >= 8 ? '8+' : String(v)
+})
+
+const _imgToken = () => (user.apiToken ? `token=${encodeURIComponent(user.apiToken)}` : '')
 const imgDownloadUrl = computed(() => (`/api/ladder/image/${imgDate.value}/download${imgDate.value && _imgToken() ? '?' + _imgToken() : ''}`))
 
 function onImgDate() {
@@ -184,17 +254,7 @@ async function loadImgDates() {
   } catch (e) { /* 静默 */ }
 }
 
-function yi(v) { return (v / 1e8).toFixed(2) }
-// 首封时间：接口给的是 **epoch 秒**（见 backend/app/services/ladder_image.py 的口径注释），
-// 复用项目自带的 `fmtTsTime`（UTC+8 格式化，返回 'YYYY-MM-DD HH:MM'）⇒ 取后 5 位就是 HH:MM。
-function hhmm(ts) {
-  const s = fmtTsTime(ts)
-  return s && s.length >= 5 ? s.slice(-5) : '—'
-}
-function pct(v) { return (v === null || v === undefined) ? '--' : (v * 100).toFixed(0) + '%' }
-
 // 题材联动(2026-09-20 主人要求): 点击题材过滤下方梯队, 再点取消; 与后端分组同口径取首题材
-const activeBoard = ref('')
 function toggleBoard(name) {
   activeBoard.value = activeBoard.value === name ? '' : name
 }
@@ -209,6 +269,34 @@ const filteredLadders = computed(() => {
     .filter(L => L.stocks.length > 0)
 })
 
+/**
+ * 题材精简（主人 2026-10-01：「展示的概念太多了要精简」）：
+ *   · 保留：家数 ≥3 **或** 该题材内有 ≥2 板（有高度 = 有主线意义）
+ *   · 排序：最高板 desc → 家数 desc（主线在左）
+ *   · 默认最多 8 个，其余收进「+N 其他」（一点展开）
+ *   ⇒ 「汽车零部件 2家·1板」这类长尾噪声不再占位（旧版 16 个 chip 铺了 8 行）。
+ */
+const BOARDS_SHOWN = 8
+const sortedBoards = computed(() => boards.value.slice()
+  .sort((a, b) => (b.maxLadder - a.maxLadder) || (b.count - a.count)))
+const hiddenBoards = computed(() => sortedBoards.value.filter(b => !(b.count >= 3 || b.maxLadder >= 2)))
+const shownBoards = computed(() => (boardExpand.value
+  ? sortedBoards.value
+  : sortedBoards.value.filter(b => b.count >= 3 || b.maxLadder >= 2).slice(0, BOARDS_SHOWN)))
+
+/** 阶梯条：长度 ∝ 该层家数 ⇒ 金字塔形状一眼可见 */
+const maxTierCount = computed(() => Math.max(1, ...ladders.value.map(L => L.stocks.length)))
+function barW(n) { return Math.max(8, Math.round((n / maxTierCount.value) * 100)) + '%' }
+
+/** 低板默认铺的 chip 数：1板 40 只若全铺 = 6 屏（旧版最大痛点） */
+function shownStocks(L) {
+  const cap = tierExpanded[L.ladder] ? 9999 : (L.ladder === 1 ? 12 : 24)
+  return L.stocks.slice(0, cap)
+}
+function expandTier(l) { tierExpanded[l] = true }
+
+function openDetail(it) { detail.value = it }
+
 async function viewReason(it) {
   reasonModal.show = true
   reasonModal.code = it.code
@@ -217,16 +305,13 @@ async function viewReason(it) {
   reasonLoading.value = true
   try {
     const d = await kplZtReason(it.code)
-    reasonModal.list = d.reason || []
-  } catch (e) {
-    reasonModal.list = []
-  } finally {
+    reasonModal.list = (d && d.list) || []
+  } catch (e) { reasonModal.list = [] } finally {
     reasonLoading.value = false
   }
 }
 
 // 断板反包（2026-09-28 新增）：独立接口，后端 30 分钟缓存 ⇒ 与梯队同频刷新也不会压上游。
-const fanbao = ref([])
 async function loadFanbao() {
   try {
     const d = await kplFanbao()
@@ -242,20 +327,13 @@ async function load() {
     ladders.value = (d && d.ladders) || []
     boards.value = (d && d.boards) || []
     loadFanbao()
-    markData()          // ★ 只在成功路径推进「更新于」；失败不得推进（见 useDataStamp 注释）
   } catch (e) { /* 静默 */ } finally {
     loading.value = false
   }
 }
 
 let echelonTimer = null
-// ⚠️ 2026-09-27 v4.11.59 修: 时钟轮询从 onMounted 回调搬到 setup 顶层 ——
-//    Vue 调用 mounted 回调时 currentInstance 为 null, usePolling 内的 onBeforeUnmount
-//    会静默注册失败 ⇒ 1s 定时器永不清理(详见 EmConceptPanel.vue 的长注释)。
-usePolling(() => { bjTime.value = bjDateTimeStr(); autoOn.value = isIntradayNow() }, 1000, { immediate: false })
 onMounted(() => {
-  bjTime.value = bjDateTimeStr()
-  autoOn.value = isIntradayNow()
   // 2026-09-22 v4.11.35: 涨停梯队打开即算一次(Once 版, 组件内 30s 轮询不重复上报)
   trackUsageOnce('ladder')
   load()
@@ -267,124 +345,169 @@ onBeforeUnmount(() => { if (echelonTimer) clearInterval(echelonTimer) })
 </script>
 
 <style scoped>
-.zt-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-/* 断板反包区(2026-09-28): 与梯队同构, 但用**青色**边框与「N板」的红梯度区分开
-   (红=连板强度, 青=形态反包) */
-.fanbao-tier { margin-top: 14px; }
-.fanbao-label { color: #4dd0c2; }
-.fanbao-card { border-left: 3px solid #4dd0c2; }
-/* 卡片第二行补充字段(2026-09-28)：首封时间/最大封单/振幅/成交/流通/主力买卖 ——
-   单行放不下会自然换行，字号比主行再小半级，避免把主信息(封单/主力净额/换手)淹掉 */
-.zc-meta2 { margin-top: 2px; opacity: 0.82; }
-.zc-meta2 .zc-mb { color: #c9a86a; }
-.zt-title { font-size: 1.25rem; font-weight: 700; color: #ffe0a0; }
-.zt-title .fa { color: #ffb400; }
-.zt-sub { color: var(--text-muted); font-size: 0.8125rem; }
-.zt-time { margin-left: auto; color: #aaa; font-size: 0.875rem; font-family: inherit; }
+/* 桌面端限宽居中（旧版是整幅铺开），手机端自然占满 */
+.lb-root { max-width: 980px; margin: 0 auto; padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 
-/* 顶部统计 */
-.zt-stat { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 10px; font-size: 0.8125rem; color: var(--text-secondary); }
-.zt-stat-item b { color: #ff6a6a; font-size: 0.9375rem; margin: 0 2px; }
-
-/* 晋级率 */
-.zt-promote { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; padding: 8px 12px; background: rgba(255,180,0,0.08); border: 1px solid rgba(255,180,0,0.25); border-radius: 8px; font-size: 0.75rem; color: var(--text-secondary); }
-.zt-promo-item b { color: #ffb400; font-size: 0.8125rem; margin-left: 3px; }
-.zt-promo-date { color: var(--text-muted); font-size: 0.75rem; margin-left: auto; }
-
-/* 题材分区 */
-.zt-boards { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
-.zt-board { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px; background: var(--bg-hover); border: 1px solid var(--border-soft); font-size: 0.75rem; color: var(--text-secondary); cursor: pointer; transition: border-color 0.15s, background 0.15s; }
-.zt-board:hover { border-color: var(--accent-deep); }
-.zt-board.main { background: rgba(255,80,80,0.14); border-color: rgba(255,80,80,0.5); }
-.zt-board.active { background: rgba(255,180,0,0.18); border-color: #ffb400; }
-.zt-board.active .zb-name { color: #ffb400; }
-.zb-name { font-weight: 600; color: var(--text-main); }
-.zb-meta { color: var(--text-muted); font-size: 0.75rem; }
-
-/* 分层梯队 */
-.zt-ladders { display: flex; flex-direction: column; gap: 14px; }
-.zt-tier { display: flex; gap: 10px; align-items: flex-start; }
-.zt-tier-label { flex: 0 0 52px; text-align: center; font-size: 0.9375rem; font-weight: 700; padding: 8px 0; border-radius: 8px; color: #fff; }
-.zt-tier-label .zt-tier-count { display: block; font-size: 0.75rem; font-weight: 500; opacity: 0.85; }
-.zt-tier-cards { flex: 1; display: flex; gap: 8px; flex-wrap: wrap; }
-
-/* 高度配色: 4+ 红 / 3 黄 / 2 红 / 1 灰 */
-.tier-5, .tier-4 { background: #c0392b; }
-.tier-3 { background: #d9a020; }
-.tier-2 { background: #d9534f; }
-.tier-1 { background: #6b7280; }
-
-.zt-card { flex: 1 1 200px; min-width: 200px; max-width: 320px; padding: 8px 10px; border-radius: 8px; background: var(--bg-hover); border: 1px solid var(--border-soft); cursor: pointer; transition: border-color 0.15s; }
-.zt-card:hover { border-color: var(--accent-deep); }
-.zt-card.tier-4, .zt-card.tier-5 { border-left: 3px solid #ff5252; }
-.zt-card.tier-3 { border-left: 3px solid #ffb400; }
-.zt-card.tier-2 { border-left: 3px solid #ff8a80; }
-.zt-card.tier-1 { border-left: 3px solid #9aa3af; }
-.zc-top { display: flex; align-items: baseline; gap: 6px; }
-.zc-name { font-size: 0.8125rem; font-weight: 600; color: var(--text-main); }
-.zc-code { font-size: 0.75rem; color: var(--text-muted); font-family: inherit; }
-.zc-board { font-size: 0.75rem; color: #ffb400; margin: 2px 0; }
-.zc-meta { display: flex; gap: 8px; flex-wrap: wrap; font-size: 0.75rem; color: var(--text-muted); margin: 2px 0; }
-.zc-meta .up { color: #ff6a6a; }
-.zc-meta .down { color: #6ad66a; }
-.zc-reason { font-size: 0.75rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-/* 盘后天梯图 */
-.img-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; margin-top: 16px; }
-.img-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; border-bottom: 1px solid var(--border-soft); }
-.img-title { font-size: 1rem; font-weight: 700; color: #ffe0a0; }
-.img-title .fa { color: #ffb400; }
-.img-sub { color: var(--text-muted); font-size: 0.75rem; }
-.img-date-pick { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 0.8125rem; }
-.img-select { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-soft); background: var(--bg-panel-solid); color: var(--text-main); font-size: 0.8125rem; }
-.img-dl { display: inline-block; padding: 7px 14px; border-radius: 8px; background: var(--accent-deep); color: #fff; font-size: 0.8125rem; text-decoration: none; }
-.img-dl:hover { opacity: 0.85; }
-.img-body { padding: 14px; overflow-x: auto; }
-.ladder-img { display: block; max-width: 960px; width: 100%; height: auto; border-radius: 6px; }
-
-/* 弹窗 */
-.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.reason-modal { background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 12px; width: 560px; max-width: 92vw; max-height: 70vh; overflow: auto; padding: 18px; }
-.reason-head { display: flex; align-items: center; justify-content: space-between; color: #ffe0a0; font-size: 1rem; margin-bottom: 14px; }
-.close-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1rem; }
-.close-btn:hover { color: #ff6a6a; }
-.reason-loading { color: var(--text-muted); padding: 20px; text-align: center; }
-.reason-item { padding: 10px 0; border-bottom: 1px solid var(--border-soft); }
-.reason-date { color: #ffb400; font-size: 0.8125rem; margin-bottom: 6px; }
-.sclt { display: inline-block; margin-left: 8px; color: var(--accent-deep); font-size: 0.75rem; border: 1px solid rgba(var(--accent-rgb), 0.5); border-radius: 4px; padding: 0 6px; }
-.reason-text { color: var(--text-secondary); font-size: 0.8125rem; line-height: 1.6; white-space: pre-wrap; }
-
-.loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
-.spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
-
-/* 浅色主题 */
-body[data-bg="light"] .zt-title { color: #8a5500; }
-body[data-bg="light"] .zt-title .fa { color: #c79100; }
-body[data-bg="light"] .zt-promote { background: rgba(255,180,0,0.1); border-color: rgba(199,145,0,0.3); }
-body[data-bg="light"] .zt-promo-item b { color: #8a5500; }
-body[data-bg="light"] .zt-board.main { background: rgba(184,48,16,0.1); border-color: rgba(184,48,16,0.4); }
-body[data-bg="light"] .zt-board.active { background: rgba(199,145,0,0.15); border-color: #c79100; }
-body[data-bg="light"] .zt-board.active .zb-name { color: #8a5500; }
-body[data-bg="light"] .zb-name { color: #1a1d26; }
-body[data-bg="light"] .zc-name { color: #1a1d26; }
-body[data-bg="light"] .zc-board { color: #8a5500; }
-body[data-bg="light"] .img-title { color: #8a5500; }
-body[data-bg="light"] .img-dl { background: #c79100; }
-body[data-bg="light"] .reason-head { color: #5a4a3a; }
-body[data-bg="light"] .reason-date { color: #8a5500; }
-body[data-bg="light"] .sclt { color: #b83010; border-color: rgba(184,48,16,0.5); }
-body[data-bg="light"] .reason-modal { background: rgba(255,255,255,0.98); }
-
-/* 手机端 */
-@media (max-width: 768px) {
-  .zt-title { font-size: 1.0625rem; }
-  .zt-tier { flex-direction: column; gap: 6px; }
-  .zt-tier-label { flex: 0 0 auto; width: 100%; padding: 5px 0; border-radius: 6px; }
-  .zt-tier-label .zt-tier-count { display: inline; margin-left: 6px; }
-  .zt-card { min-width: 100%; max-width: 100%; }
-  .img-date-pick { margin-left: 0; width: 100%; }
-  .img-dl { flex: 1; text-align: center; }
+.lb-head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
+.lb-logo {
+  width: 26px; height: 26px; border-radius: 8px; flex: 0 0 auto;
+  background: linear-gradient(145deg, var(--qg-red-a), var(--qg-orange-b));
+  display: flex; align-items: flex-end; gap: 2px; padding: 5px 4px;
 }
+.lb-logo i { flex: 1; border-radius: 2px 2px 0 0; background: var(--qg-on); }
+.lb-logo-b1 { height: 35%; opacity: 0.85; }
+.lb-logo-b2 { height: 65%; opacity: 0.92; }
+.lb-logo-b3 { height: 100%; }
+.lb-h1 { font-size: 1.05rem; font-weight: 700; color: var(--text-main); }
+
+/* KPI 四格：红/橙/金/紫 各一色（主人反馈"颜色太单调"） */
+.lb-kpi { display: grid; grid-template-columns: 0.8fr 0.8fr 1.3fr 1fr; gap: 6px; }
+.lb-kpi-i {
+  background: var(--bg-card); border: 1px solid var(--border-soft); border-left-width: 3px;
+  border-radius: 8px; padding: 5px 7px; display: flex; flex-direction: column; gap: 1px; min-width: 0;
+}
+.lb-kpi-i b { font-size: 0.92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-kpi-i span { font-size: 0.6rem; color: var(--text-muted); }
+.k-red { border-left-color: var(--qg-red-a); }
+.k-red b { color: var(--qg-red-a); }
+.k-orange { border-left-color: var(--qg-orange-a); }
+.k-orange b { color: var(--qg-orange-a); }
+.k-gold { border-left-color: var(--qg-gold-a); }
+.k-gold b { color: var(--qg-gold-a); }
+.k-purple { border-left-color: var(--qg-purple-a); }
+.k-purple b { color: var(--qg-purple-a); }
+
+.lb-promo { display: flex; align-items: center; gap: 10px; margin: 7px 2px 0; font-size: 0.66rem; color: var(--text-muted); }
+.lb-promo-i b { margin-left: 3px; font-size: 0.72rem; }
+.p-red b { color: var(--qg-red-a); }
+.p-orange b { color: var(--qg-orange-a); }
+.p-gold b { color: var(--qg-gold-a); }
+.lb-promo-d { margin-left: auto; color: var(--text-dim); }
+
+.lb-boards { display: flex; gap: 6px; overflow-x: auto; margin: 8px -10px; padding: 0 10px 3px; scrollbar-width: none; }
+.lb-boards::-webkit-scrollbar { display: none; }
+.lb-bd {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
+  background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: 13px;
+  color: var(--qg-gold-a); font-size: 0.7rem; padding: 4px 9px; cursor: pointer;
+}
+.lb-bd em { font-style: normal; font-size: 0.6rem; color: var(--text-secondary); }
+.lb-bd.main { border-color: var(--qg-gold-a); }
+.lb-bd.on { background: var(--accent); border-color: var(--accent); color: var(--qg-on); }
+.lb-bd.on em { color: var(--qg-hi); }
+.lb-bd-more { color: var(--qg-orange-a); border-style: dashed; border-color: var(--qg-orange-a); }
+
+/* ===== 阶梯 ===== */
+.lb-ladder { display: flex; flex-direction: column; gap: 7px; margin-top: 8px; }
+.lb-tier {
+  background: var(--bg-card); border: 1px solid var(--border-soft); border-left-width: 4px;
+  border-radius: 10px; padding: 7px 8px 8px;
+}
+.lb-tier-head { display: flex; align-items: center; gap: 8px; }
+.lb-tier-name { font-size: 0.72rem; font-weight: 700; flex: 0 0 auto; padding: 1px 7px; border-radius: 9px; color: var(--qg-on); }
+.lb-tier-cnt { font-size: 0.64rem; color: var(--text-muted); flex: 0 0 auto; }
+.lb-bar { flex: 1 1 auto; height: 8px; border-radius: 4px; background: var(--bg-input); overflow: hidden; }
+.lb-bar i { display: block; height: 100%; border-radius: 4px; transition: width 0.25s; }
+
+/* 层色：5板深红 / 4板红 / 3板橙 / 2板金 / 1板蓝（无绿；6板以上沿用最深红=5板档） */
+.lb-t5 { border-left-color: var(--qg-red-b); }
+.lb-t5 .lb-tier-name { background: linear-gradient(90deg, var(--qg-red-a), var(--qg-red-b)); }
+.lb-t5 .lb-bar i { background: linear-gradient(90deg, var(--qg-red-a), var(--qg-red-b)); }
+.lb-t4 { border-left-color: var(--qg-red-a); }
+.lb-t4 .lb-tier-name { background: var(--qg-red-a); }
+.lb-t4 .lb-bar i { background: var(--qg-red-a); }
+.lb-t3 { border-left-color: var(--qg-orange-a); }
+.lb-t3 .lb-tier-name { background: var(--qg-orange-a); }
+.lb-t3 .lb-bar i { background: var(--qg-orange-a); }
+.lb-t2 { border-left-color: var(--qg-gold-a); }
+.lb-t2 .lb-tier-name { background: var(--qg-gold-b); }
+.lb-t2 .lb-bar i { background: var(--qg-gold-a); }
+.lb-t1 { border-left-color: var(--qg-blue-a); }
+.lb-t1 .lb-tier-name { background: var(--qg-blue-b); }
+.lb-t1 .lb-bar i { background: var(--qg-blue-a); }
+.lb-tf { border-left-color: var(--qg-purple-a); }
+.lb-tf .lb-tier-name { background: var(--qg-purple-a); }
+.lb-tf .lb-bar i { background: var(--qg-purple-a); }
+
+.lb-rows { margin-top: 6px; display: flex; flex-direction: column; }
+.lb-row { padding: 6px 2px; border-top: 1px solid var(--border-soft); cursor: pointer; }
+.lb-row:active { background: var(--bg-hover); }
+.lb-row-top { display: flex; align-items: baseline; gap: 5px; }
+.lb-badge {
+  font-size: 0.6rem; font-weight: 700; color: var(--qg-on); background: var(--qg-red-b);
+  border-radius: 4px; padding: 1px 4px; flex: 0 0 auto;
+}
+.lb-name { font-size: 0.82rem; font-weight: 600; color: var(--text-main); }
+.lb-code { font-size: 0.62rem; color: var(--text-dim); }
+.lb-tag { font-size: 0.62rem; color: var(--qg-gold-a); margin-left: 2px; }
+.lb-m { display: flex; gap: 10px; margin-top: 3px; font-size: 0.64rem; color: var(--text-muted); flex-wrap: wrap; }
+.lb-m-i b { margin: 0 1px; font-weight: 700; }
+.n-red { color: var(--qg-red-a); }
+.n-orange { color: var(--qg-orange-a); }
+.n-gold { color: var(--qg-gold-a); }
+.n-purple { color: var(--qg-purple-a); }
+.n-blue { color: var(--qg-blue-a); }
+.n-neutral { color: var(--text-secondary); }
+
+.lb-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.lb-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: 7px;
+  color: var(--text-main); font-size: 0.7rem; padding: 4px 7px; cursor: pointer;
+}
+.lb-chip em { font-style: normal; font-size: 0.6rem; font-weight: 700; }
+.lb-chip:active { background: var(--bg-hover); }
+.lb-t2 .lb-chip { border-color: var(--qg-gold-a); }
+.lb-t1 .lb-chip { border-color: var(--qg-blue-a); }
+.lb-chip-f { border-color: var(--qg-purple-a); }
+.lb-more { color: var(--qg-orange-a); border-style: dashed; border-color: var(--qg-orange-a); }
+
+/* 盘后天梯图（折叠） */
+.lb-img { margin-top: 10px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--bg-card); overflow: hidden; }
+.lb-img-head {
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 8px 10px;
+  background: transparent; border: none; color: var(--text-secondary); font-size: 0.75rem; cursor: pointer;
+}
+.lb-img-sub { font-size: 0.62rem; color: var(--text-dim); }
+.lb-img-caret { margin-left: auto; font-size: 0.66rem; color: var(--accent); }
+.lb-img-body { padding: 0 10px 10px; }
+.lb-img-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.img-select {
+  background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border-soft);
+  border-radius: 6px; padding: 3px 6px; font-size: 0.7rem;
+}
+.lb-dl { font-size: 0.7rem; color: var(--accent); text-decoration: none; }
+.ladder-img { width: 100%; border-radius: 8px; display: block; }
+
+/* 详情弹层 */
+.lb-mask { position: fixed; inset: 0; z-index: 1200; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; padding: 18px; }
+.lb-modal {
+  width: 100%; max-width: 420px; background: var(--bg-panel-solid); border: 1px solid var(--border-soft);
+  border-top: 3px solid var(--qg-red-a); border-radius: 12px; padding: 12px;
+}
+.lb-modal-h { display: flex; align-items: baseline; gap: 6px; }
+.lb-modal-name { font-size: 0.95rem; font-weight: 700; color: var(--text-main); }
+.lb-modal-code { font-size: 0.68rem; color: var(--text-dim); }
+.lb-modal-x { margin-left: auto; background: transparent; border: none; color: var(--text-muted); cursor: pointer; }
+.lb-modal-tag { font-size: 0.68rem; color: var(--qg-gold-a); margin: 4px 0 8px; }
+.lb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+.lb-grid > div { display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-soft); padding-bottom: 3px; font-size: 0.68rem; }
+.lb-grid span { color: var(--text-muted); }
+.lb-grid b { font-weight: 700; }
+.lb-modal-foot { margin-top: 10px; text-align: right; }
+.lb-reason-btn {
+  background: transparent; border: 1px solid var(--accent-border); color: var(--accent);
+  border-radius: 8px; padding: 5px 10px; font-size: 0.7rem; cursor: pointer;
+}
+
+/* 涨停原因弹窗（沿用原样式） */
+.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1300; }
+.reason-modal { background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: 12px; width: 560px; max-width: 92vw; max-height: 70vh; overflow: auto; padding: 18px; }
+.reason-head { display: flex; align-items: center; justify-content: space-between; color: var(--qg-gold-a); font-size: 1rem; margin-bottom: 14px; }
+.sclt { color: var(--text-dim); font-size: 0.72rem; }
+.close-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1rem; }
+.reason-loading { color: var(--text-muted); font-size: 0.78rem; }
+.reason-item { border-top: 1px solid var(--border-soft); padding: 8px 0; }
+.reason-date { color: var(--qg-gold-a); font-size: 0.72rem; margin-bottom: 3px; }
+.reason-text { color: var(--text-secondary); font-size: 0.76rem; line-height: 1.5; }
 </style>

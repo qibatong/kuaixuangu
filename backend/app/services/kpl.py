@@ -938,7 +938,9 @@ def build_zt_echelon():
     """
     all_ = fetch_ladder_all()
     # rebin 到真实连板数(东财涨停池 limitUpDays), 6板以上不再塞五板+档
-    rebin = rebin_ladder(all_, time.strftime("%Y-%m-%d")) or {}
+    # 🔴 2026-10-01 修: 日期必须取**数据所属交易日**（_rebin_ref_date），不能用"今天" ——
+    #    休市/盘前时东财"今天"的池是空的, 会把 6/7/8 板压回「五板+」档（实测新华传媒 7板→5板）。
+    rebin = rebin_ladder(all_, _rebin_ref_date()) or {}
     stocks = []
     for lu in (8, 7, 6, 5, 4, 3, 2, 1):
         for it in (rebin.get(lu) or []):
@@ -1462,6 +1464,43 @@ def real_limit_days(date):
                 m[it.get("code")] = lu
         return m
     return _cached("real_lb_" + date.replace("-", ""), 60, loader) or {}
+
+
+def _rebin_ref_date():
+    """梯队数据所属的**交易日**（rebin 取东财真实连板数用）。
+
+    🔴 2026-10-01 修: `build_zt_echelon` 原先直接用 `time.strftime('%Y-%m-%d')`（今天）。
+       盘前/休市时梯队数据是**上一交易日**的, 而东财"今天"的涨停池是空的 ⇒ 东财真实连板数
+       取不到 ⇒ rebin 原样返回 ⇒ 开盘啦的「五板+」档直接上图, **6/7/8 板全显示成 5 板**。
+       （实测 2026-10-01 休市: 新华传媒 开盘啦 pid=5 / 东财 09-30 池 limitUpDays=7 ⇒ 页面显示「5板」。）
+       与 2026-09-07「龙版传媒真实 6 板显示 5 板」**同源** —— 那次只根治了落库/天梯图链路
+       （见 _inject_real_limit_days），实时梯队页(`build_zt_echelon`)这条漏了。
+
+    判据: 优先今天（盘中/盘后当天池子已就绪）；为空则回退到最近一个「涨停池非空」的交易日
+       （最多回看 10 个自然日；交易日用 weekday 判，与 _prev_cal_days 同一口径，节假日靠"N 天内有池子"容忍）。
+    """
+    today = _bj_today()
+    try:
+        if real_limit_days(today):
+            return today
+    except Exception:                                        # noqa: BLE001
+        return today
+    from datetime import datetime, timedelta
+    try:
+        d = datetime.strptime(today, "%Y-%m-%d")
+    except Exception:                                        # noqa: BLE001
+        return today
+    for _ in range(10):
+        d -= timedelta(days=1)
+        if d.weekday() >= 5:
+            continue
+        ds = d.strftime("%Y-%m-%d")
+        try:
+            if real_limit_days(ds):
+                return ds
+        except Exception:                                    # noqa: BLE001
+            continue
+    return today
 
 
 def rebin_ladder(d, date):

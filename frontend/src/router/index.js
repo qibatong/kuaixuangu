@@ -64,7 +64,7 @@ const router = createRouter({
 // 2026-09-21: 路由级 <title>, 便于多标签区分/书签辨识/前进后退历史
 const TITLES = {
   stock: '选股', pool: '自选', history: '历史回看', market: '板块',
-  concept: '题材异动', ladder: '涨停梯队', temper: '股性', yidong: '异动监管',
+  concept: '题材异动', ladder: '连板天梯', temper: '股性', yidong: '异动监管',
   bigv: '大V资讯', auction: '竞价异动', aipick: 'AI预测·金睛', admin: '管理后台',
   'aipick-lgb': 'AI预测·火眼', lhb: '龙虎榜', news: '盘前资讯',
   member: '我的会员',

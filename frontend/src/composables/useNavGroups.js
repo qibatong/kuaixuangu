@@ -81,7 +81,7 @@ export const NAV_GROUPS = [
     icon: 'fa-table',
     entry: '/ladder',
     items: [
-      { label: '连板梯队', path: '/ladder' },
+      { label: '连板天梯', path: '/ladder' },
       { label: '龙虎榜', path: '/lhb' },
       { label: '异动监管', path: '/yidong' },
       { label: '大V复盘', path: '/bigv' },
