@@ -270,10 +270,14 @@ const qg = await renderComp(QuickGrid, {}, '/')
 ok('首页宫格渲染无异常/无警告', qg.errors.length === 0, qg.errors.join(' | '))
 ok('宫格默认恰好 10 格', (qg.html.match(/data-qg="/g) || []).length === 10,
    '实际 ' + (qg.html.match(/data-qg="/g) || []).length)
-for (const k of ['news', 'ladder', 'lhb', 'pool']) {
-  ok(`宫格默认 10 格含「失去底部入口」的页：${k}`, qg.html.includes(`data-qg="${k}"`),
-     'QuickGrid 默认 10 格不含 ' + k)
-}
+// 2026-10-01 主人指定的 10 格（上排 5 + 下排 5）—— 按**顺序**钉死，防以后被悄悄改动
+const _want10 = ['pick', 'zhpick', 'yijiner', 'auc', 'ai', 'spot', 'ladder', 'calc', 'news', 'review']
+const _got10 = [...qg.html.matchAll(/data-qg="([^"]+)"/g)].map((m) => m[1])
+ok('宫格 10 格内容与顺序 = 主人指定（竞价选股/竞价精选/竞价优选/竞价异动/AI预测 + 动态选股/连板天梯/异动计算器/盘前资讯/复盘）',
+   _got10.join('/') === _want10.join('/'), '实际 ' + _got10.join('/'))
+ok('三格带子项（竞价异动 / AI预测 / 复盘）',
+   (qg.html.match(/data-qg-children="[1-9]/g) || []).length === 3,
+   '实际 ' + (qg.html.match(/data-qg-children="[1-9]/g) || []).length)
 ok('宫格带「编辑」入口（其余页面靠候选池换入）', qg.html.includes('编辑'))
 // 2026-10-01 图标重设计（主人「参考同类型重新设计」）：自绘多色 SVG，不再是 FA 单色字形
 ok('宫格图标是自绘 SVG（每格一个）',

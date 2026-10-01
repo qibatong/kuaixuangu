@@ -448,7 +448,8 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { usePolling } from '../composables/usePolling'
 // 2026-09-29: 去掉 kplLhb —— 「昨上榜」板块已下线(龙虎榜另有独立页 /lhb)
 import { kplBidSeal, kplBidNet, kplBidBoom, kplBidQiangcang, kplBroken, kplYestBroken, kplYestZt } from '../api/kpl'
@@ -824,6 +825,17 @@ function fmtMv(v) {
 }
 
 // 切 Tab 时清掉排序(避免跨表残留的 key 干扰)
+// ★ 2026-10-01: 支持深链到指定子版块（首页宫格「竞价异动」格的子项 → /auction?tab=xxx），
+//   照 StockView 的 `?t=` 既有范式。落地即命中该版块，用户不用再找。
+const route = useRoute()
+const TAB_KEYS = ['s3', 'boom', 'qc', 'seal', 'net',
+                  'brokenToday', 'yestZt', 'yestBroken', 'brokenYest']
+function applyTabFromQuery() {
+  const t = String(route.query.tab || '')
+  if (TAB_KEYS.indexOf(t) >= 0 && tab.value !== t) switchTab(t)
+}
+watch(() => route.query.tab, () => applyTabFromQuery())
+
 function switchTab(t) {
   tab.value = t
   // 2026-09-22 v4.11.35: 用户主动点竞价异动的 Tab 算一次使用(轮询走 ensureTabData, 不经此处)
@@ -1060,6 +1072,8 @@ function onDateChange(e) {
 onMounted(() => {
   loadAll()
   refreshYidongCodes()
+  // 深链放在 loadAll 之后: 先走既有首屏加载, 再切到指定子版块(switchTab 内部按需取数)
+  applyTabFromQuery()
 })
 
 // ⚠️ 2026-09-27 v4.11.59 修: 轮询注册从 onMounted 回调整体搬到 setup 顶层。

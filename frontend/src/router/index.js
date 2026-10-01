@@ -34,7 +34,15 @@ const router = createRouter({
     { path: '/history', name: 'history', component: () => import('../views/HistoryView.vue'), meta: { group: 'review', order: 4 } },
     { path: '/temper', name: 'temper', component: () => import('../views/StockTemperView.vue'), meta: { group: 'review', order: 5 } },
     { path: '/bigv', name: 'bigv', component: () => import('../views/SummaryNewsView.vue'), meta: { group: 'review', order: 3 } },
-    { path: '/yidong', name: 'yidong', component: () => import('../views/YidongView.vue'), meta: { group: 'review', order: 2 } },
+    // 2026-10-01: 支持深链到指定 tab（首页宫格「异动计算器」格 → ?tab=calc）。
+    //   YidongView 早就声明了 `initialTab` prop 并据此设初值 ⇒ 只需在这里把 query 接上。
+    {
+      path: '/yidong',
+      name: 'yidong',
+      component: () => import('../views/YidongView.vue'),
+      props: (route) => ({ initialTab: String(route.query.tab || '') }),
+      meta: { group: 'review', order: 2 },
+    },
     // 2026-09-27: 龙虎榜从市场雷达拆出成独立页（它 17 点后才有数据，盘中看是空的）
     { path: '/lhb', name: 'lhb', component: () => import('../views/LhbView.vue'), meta: { group: 'review', order: 1 } },
 
