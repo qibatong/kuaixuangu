@@ -250,11 +250,8 @@ const CHILDREN = {
     { label: '昨断板', hue: 'cyan', path: '/auction?tab=yestBroken' },
     { label: '昨炸板', hue: 'green', path: '/auction?tab=brokenYest' },
   ],
-  // 顺序 = 面板里的左右顺序（主人 2026-10-01：左火眼、右金睛）
-  ai: [
-    { label: '超智研判 · 火眼', hue: 'orange', path: '/aipick-lgb' },
-    { label: '超智研判 · 金睛', hue: 'purple', path: '/aipick' },
-  ],
+  // 2026-10-01: 超智研判 已改为**直跳聚合页** `/chaozhi`（页内再进金睛/火眼），
+  //   故其子项面板取消；保留 auc（竞价异动）一个带子项的格子。
   // 2026-10-01: 原 review(复盘) 子项已随「复盘」移到底部 tab 一并删除
   //   —— 复盘组各页仍由页面内的 GroupNav 二级 pill 提供（连板天梯/龙虎榜/异动监管/大V复盘/历史回看/股性）
 }
@@ -266,7 +263,7 @@ const ALL_ITEMS = [
   { key: 'zhpick', label: '竞价精选', path: '/', homeTab: 'zhpick', wb: 1 },
   { key: 'yijiner', label: '竞价优选', path: '/', homeTab: 'yijiner', wb: 1 },
   { key: 'auc', label: '竞价异动' },                       // 有子项 ⇒ 点击弹面板
-  { key: 'ai', label: '超智研判' },                         // 有子项（原「AI预测」2026-10-01 更名）
+  { key: 'ai', label: '超智研判', path: '/chaozhi' },        // 原「AI预测」；2026-10-01 起直跳聚合页（原为火眼/金睛子项面板）
   // 下排（主人指定）
   { key: 'spot', label: '动态选股', path: '/', homeTab: 'spot', wb: 1 },
   { key: 'ladder', label: '连板天梯', path: '/ladder' },

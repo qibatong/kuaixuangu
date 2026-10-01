@@ -123,6 +123,7 @@ const ROUTES = [
   R('/', 'stock', 'auction'), R('/auction', 'auction', 'auction'),
   R('/aipick', 'aipick', 'auction'), R('/aipick-lgb', 'aipick-lgb', 'auction'),
   R('/market', 'market', 'intraday'), R('/theme', 'theme', 'intraday'),
+  R('/chaozhi', 'chaozhi', 'intraday'),
   R('/ladder', 'ladder', 'review'), R('/history', 'history', 'review'), R('/temper', 'temper', 'review'),
   R('/bigv', 'bigv', 'review'), R('/yidong', 'yidong', 'review'), R('/lhb', 'lhb', 'review'),
   R('/pool', 'pool', 'pool'),
@@ -281,8 +282,8 @@ const _want10 = ['pick', 'zhpick', 'yijiner', 'auc', 'ai', 'spot', 'ladder', 'ca
 const _got10 = [...qg.html.matchAll(/data-qg="([^"]+)"/g)].map((m) => m[1])
 ok('宫格 10 格内容与顺序 = 主人指定（竞价选股/竞价精选/竞价优选/竞价异动/超智研判 + 动态选股/连板天梯/异动计算器/盘前资讯/题材库）',
    _got10.join('/') === _want10.join('/'), '实际 ' + _got10.join('/'))
-ok('两格带子项（竞价异动 / AI预测；复盘已移到手机底部 tab）',
-   (qg.html.match(/data-qg-children="[1-9]/g) || []).length === 2,
+ok('一格带子项（竞价异动；超智研判改为直跳聚合页、复盘已移到手机底部 tab）',
+   (qg.html.match(/data-qg-children="[1-9]/g) || []).length === 1,
    '实际 ' + (qg.html.match(/data-qg-children="[1-9]/g) || []).length)
 ok('宫格带「编辑」入口（其余页面靠候选池换入）', qg.html.includes('编辑'))
 // 2026-10-01 图标重设计：自绘多色 SVG；**同日主人指定** 5 格改用**文字图标**

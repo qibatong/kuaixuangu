@@ -15,7 +15,7 @@ import time
 
 from fastapi import FastAPI, Request
 
-from .api import (activity, admin, aipick, auth, dev, health, history, invite, kpl, ladder,
+from .api import (activity, admin, aipick, auth, chaozhi, dev, health, history, invite, kpl, ladder,
                   member, news, picker, prefs, sms, stats, stock_temper, stocks,
                   stocks_spot, summary, yijiner)
 from .api.deps import client_ip, jr
@@ -84,6 +84,7 @@ async def rate_limit_middleware(request: Request, call_next):
 
 # ---------- 注册路由 ----------
 app.include_router(auth.router)
+app.include_router(chaozhi.router)
 app.include_router(stocks.router)
 app.include_router(history.router)
 app.include_router(invite.router)

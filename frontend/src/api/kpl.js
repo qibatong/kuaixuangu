@@ -57,6 +57,11 @@ export function kplLadderDates() {
   return request('/api/ladder/dates')
 }
 
+/** 超智研判聚合（只读、零新增上游出网；后端 60s 缓存。⚠️ 不吃 aipick 配额） */
+export function chaozhiOverview() {
+  return request('/api/chaozhi/overview', { cache: 60 })
+}
+
 export function kplBoardRank(date = '') {
   return request(`/api/kpl/board-rank${date ? `?date=${date}` : ''}`)
 }
