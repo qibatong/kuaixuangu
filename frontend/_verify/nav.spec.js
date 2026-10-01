@@ -279,20 +279,20 @@ ok('宫格默认恰好 10 格', (qg.html.match(/data-qg="/g) || []).length === 1
 // 2026-10-01 主人指定的 10 格（上排 5 + 下排 5）—— 按**顺序**钉死，防以后被悄悄改动
 const _want10 = ['pick', 'zhpick', 'yijiner', 'auc', 'ai', 'spot', 'ladder', 'calc', 'news', 'themelib']
 const _got10 = [...qg.html.matchAll(/data-qg="([^"]+)"/g)].map((m) => m[1])
-ok('宫格 10 格内容与顺序 = 主人指定（竞价选股/竞价精选/竞价优选/竞价异动/AI预测 + 动态选股/连板天梯/异动计算器/盘前资讯/复盘）',
+ok('宫格 10 格内容与顺序 = 主人指定（竞价选股/竞价精选/竞价优选/竞价异动/超智研判 + 动态选股/连板天梯/异动计算器/盘前资讯/题材库）',
    _got10.join('/') === _want10.join('/'), '实际 ' + _got10.join('/'))
 ok('两格带子项（竞价异动 / AI预测；复盘已移到手机底部 tab）',
    (qg.html.match(/data-qg-children="[1-9]/g) || []).length === 2,
    '实际 ' + (qg.html.match(/data-qg-children="[1-9]/g) || []).length)
 ok('宫格带「编辑」入口（其余页面靠候选池换入）', qg.html.includes('编辑'))
 // 2026-10-01 图标重设计：自绘多色 SVG；**同日主人指定** 5 格改用**文字图标**
-//   （竞价选股「选」/竞价精选「精」/竞价优选「优」/AI预测「AI」/题材库「题材」）
+//   （竞价选股「选」/竞价精选「精」/竞价优选「优」/超智研判「智」/题材库「题材」）
 ok('宫格图标 = 5 个自绘 SVG + 5 个文字图标',
    (qg.html.match(/class="qg-svg"/g) || []).length === 5 &&
    (qg.html.match(/class="qg-txt/g) || []).length === 5,
    '实际 svg=' + (qg.html.match(/class="qg-svg"/g) || []).length +
    ' txt=' + (qg.html.match(/class="qg-txt/g) || []).length)
-for (const t of ['选', '精', '优', 'AI', '题材']) {
+for (const t of ['选', '精', '优', '智', '题材']) {
   ok(`宫格文字图标含「${t}」`, qg.html.includes(`>${t}</span>`))
 }
 ok('宫格不再依赖 FA 字形做图标（无 qg-ic 内的 fa-）',

@@ -25,8 +25,13 @@
 
     <!-- 首页两块布局: 左=选股主流程, 右=竞价异动; 宽屏 50/50 并排, 窄屏按 mobilePane 切一块 -->
     <div class="home-grid">
-      <!-- 市场情绪面板: 横跨左右视图置于最顶部 -->
-      <div class="home-sentiment"><SentimentPanel /></div>
+      <!-- 市场情绪面板: 横跨左右视图置于最顶部
+           🔴 2026-10-01 主人: 「底部竞价页面 + 宫格几个选股进去的页面」**去掉指数板块**；
+              其他地方的指数**不动** ⇒ 只在**窄屏工作台**(?wb=1)隐藏：
+                · 首页盯盘台(手机)仍显示指数（那里就是指数的落点）
+                · 桌面端 `/` 仍是原双栏 + 指数（wbMode 恒 false）
+                · 盘中 /market、模块内嵌的 SentimentPanel 都不受影响 -->
+      <div v-if="!wbMode" class="home-sentiment"><SentimentPanel /></div>
 
       <!-- 左栏: 选股主流程 -->
       <div class="home-col home-col-left" :class="{ 'home-col-hidden': mobilePane !== 'stock' }">
