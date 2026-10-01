@@ -1,6 +1,10 @@
 <template>
   <div>
     <h1 class="visually-hidden">选股</h1>
+    <!-- 2026-10-01: 手机端「快捷入口」宫格（10 格常驻、可编辑）。
+         ⚠️ 必须放在**最上面** —— 表头 sticky 高度由 setupStickyOffsets() 量 .home-filter
+            等的 offsetHeight 写入 --sticky-thead-top；插在筛选区与表格之间会让表头错位。 -->
+    <QuickGrid />
     <!-- 窄屏(<1100px) 切换栏: 选股 / 竞价异动 (宽屏 50/50 并排, 本栏隐藏) -->
     <div class="home-mob-toggle">
       <button class="home-mob-tab" :class="{ active: mobilePane === 'stock' }" @click="mobilePane = 'stock'">
@@ -197,8 +201,11 @@ import { bjDateTimeStr, isIntradayNow, isMemberOnlyTime, todayBj } from '../util
 import { strategyForTab } from '../utils/strategy'
 // 2026-09-27 v4.11.63《移动端清单》§二·4: 数据更新时刻（与页头时钟区分开）
 import DataStamp from '../components/DataStamp.vue'
+import QuickGrid from '../components/QuickGrid.vue'
+import { useRoute } from 'vue-router'
 import { useDataStamp } from '../composables/useDataStamp'
 
+const route = useRoute()
 const stocks = useStocksStore()
 const pool = usePoolStore()
 const user = useUserStore()
@@ -420,9 +427,19 @@ function setupStickyOffsets() {
   window.addEventListener('resize', _stickyResizeFn)
 }
 
+// 2026-10-01: 宫格「快捷入口」跳首页某个 mode-tab 用 `?t=<leftTab>`。
+//   已在首页时 router.push 只改 query ⇒ watch 到变化就切 tab（不整页重载）。
+const TAB_KEYS = ['auction', 'spot', 'aipick', 'aipick_lgb', 'yijiner', 'zhpick']
+function applyTabFromQuery() {
+  const t = String(route.query.t || '')
+  if (TAB_KEYS.indexOf(t) >= 0) switchTab(t)
+}
+watch(() => route.query.t, () => applyTabFromQuery())
+
 onMounted(() => {
   bjTime.value = bjDateTimeStr()
   autoOn.value = isIntradayNow()
+  applyTabFromQuery()
   init()
   loadBidSeal()
   refreshYidongCodes()   // 首页选股/竞价异动 标记异动监管股票

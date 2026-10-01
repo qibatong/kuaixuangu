@@ -1,6 +1,7 @@
 <template>
   <!--
-    手机端底部固定 tab 栏（2026-09-27 v4.11.58 工单 七；v4.11.61 由 5 tab 扩为 6 tab）
+    手机端底部固定 tab 栏（2026-09-27 v4.11.58 工单 七；v4.11.61 由 5 tab 扩为 6 tab；
+       2026-10-01 主人拍板收为 **4 tab：首页/竞价/盘中/我的**，并去掉第 7 格搜索）
     —— 仅在 ≤768px 渲染（CSS 媒体查询控制，桌面端 display:none）。
     —— 一级分组：竞价 / 盘前资讯 / 盘中 / 复盘 / 自选 / 我的
        （主人在 v4.11.61 反馈「盘前资讯是和竞价、盘中、这些放一行」⇒ 盘前资讯升为一级 tab）。
@@ -14,37 +15,39 @@
        （组件 StockSearch，非路由项、不算一级分组）。
        为什么不能只把入口放在 NavBar：**.nav-bar 不是 sticky**，页面往下滚一屏就够不着了，
        而"看盘中想直接看某只票"恰恰发生在滚到表格中段的时候；这条 tabbar 是 fixed 的。
-       ⚠️ 它用 .ss-root--tabbar/.ss-tab 自己的类，**不占用 .tabbar-item** ——
-          一级分组数仍是 6（SSR 冒烟测试与 useNavGroups.js 的口径都不变）。
+       ⚠️ 它用 .ss-root--tabbar/.ss-tab 自己的类，**不占用 .tabbar-item**。
+       🔴 2026-10-01 主人拍板：**该格已移除**（「上面已经搜索了」），底部收为 4 格
+          ⇒ 顶栏搜索改移动端常驻（StockSearch.vue 的 ≤768 隐藏规则已删）；
+          StockSearch 的 `variant="tabbar"` 变体保留在组件内（SSR 用例仍在测它），只是不再被使用。
   -->
   <nav class="app-tabbar" aria-label="主导航">
     <router-link
-      v-for="g in groups"
-      :key="g.key"
-      :to="g.entry"
+      v-for="t in tabs"
+      :key="t.key"
+      :to="t.path"
       class="tabbar-item"
-      :class="{ active: activeKey === g.key }"
+      :class="{ active: activeKey === t.key }"
       active-class=""
       exact-active-class=""
-      :aria-current="activeKey === g.key ? 'page' : null"
+      :aria-current="activeKey === t.key ? 'page' : null"
     >
-      <i class="fa tabbar-icon" :class="g.icon"></i>
-      <span class="tabbar-label">{{ g.label }}</span>
+      <i class="fa tabbar-icon" :class="t.icon"></i>
+      <span class="tabbar-label">{{ t.label }}</span>
     </router-link>
-    <!-- 第 7 格：全局股票搜索（清单 §三「🔍 跳股」，优先级高） -->
-    <StockSearch variant="tabbar" />
   </nav>
 </template>
 
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { NAV_GROUPS, groupKeyOfRoute } from '../composables/useNavGroups'
-import StockSearch from './StockSearch.vue'
+import { TABBAR_TABS, tabbarKeyOfRoute } from '../composables/useNavGroups'
 
 const route = useRoute()
-const groups = NAV_GROUPS
-const activeKey = computed(() => groupKeyOfRoute(route))
+// 2026-10-01 主人拍板：底部 **4 格 = 首页/竞价/盘中/我的**（原 6 组 + 第 7 格搜索）。
+//   去掉搜索格的理由（原话）「上面已经搜索了」⇒ 顶栏搜索改移动端常驻
+//   （StockSearch.vue 里那条 ≤768 隐藏规则已删）。桌面顶部导航仍读 NAV_GROUPS（6 组不变）。
+const tabs = TABBAR_TABS
+const activeKey = computed(() => tabbarKeyOfRoute(route))
 </script>
 
 <style scoped>
@@ -81,13 +84,12 @@ const activeKey = computed(() => groupKeyOfRoute(route))
   transition: transform 0.15s;
 }
 .tabbar-label {
-  font-size: 10px;
+  font-size: 11px;                /* 4 格更宽松 ⇒ 由 10px 提到 11px 更好点 */
   line-height: 1;
   font-weight: 500;
   white-space: nowrap;
-  /* v4.11.63 起为 7 格（6 个一级分组 + 1 格搜索）⇒ 单格宽 = 屏宽/7
-     （375px→53.6px、320px→45.7px）；"盘前资讯" 4 字 ×10px + 左右各 1px padding = 42px，
-     320px 窄屏仍放得下；这里只是兜底，极端窄屏不撑破格子 */
+  /* 2026-10-01 起为 4 格（首页/竞价/盘中/我的）⇒ 单格宽 = 屏宽/4
+     （375px→93.8px、320px→80px），最长标签 2 字 ⇒ 极宽松；这里仍留 overflow 兜底 */
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -299,10 +299,10 @@ onBeforeUnmount(() => {
   color: var(--text-muted); padding: 0; font-size: 0.8125rem;
 }
 .ss-inline-clear:hover { color: var(--accent); }
-/* 手机端(≤768px)隐藏顶部输入框 —— 改由底部 tabbar 第 7 格承担（见模板注释） */
-@media (max-width: 768px) {
-  .ss-root--nav { display: none; }
-}
+/* 2026-10-01: 手机端**不再隐藏**顶部输入框。
+   原因：主人拍板底部 tab 收为 4 格（首页/竞价/盘中/我的）并去掉第 7 格搜索，
+   原注释「改由底部 tabbar 第 7 格承担」的前提已不存在 ⇒ 顶栏搜索必须常驻，
+   否则手机端没有搜索入口。窄屏下输入框由 NavBar 的 flex 自适应收窄。 */
 
 /* ============ 手机底部 tabbar 第 7 格 ============ */
 /* 尺寸/配色与 AppTabBar 的 .tabbar-item 对齐（56px 高、图标 18px、文字 10px、选中 accent） */

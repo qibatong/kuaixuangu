@@ -56,7 +56,8 @@ import { renderToString } from 'vue/server-renderer'
 import GroupNav from '../src/components/GroupNav.vue'
 import NavBar from '../src/components/NavBar.vue'
 import AppTabBar from '../src/components/AppTabBar.vue'
-import { NAV_GROUPS } from '../src/composables/useNavGroups'
+import QuickGrid from '../src/components/QuickGrid.vue'
+import { NAV_GROUPS, TABBAR_TABS } from '../src/composables/useNavGroups'
 // v4.11.62 盘中盯盘台六层（纯展示组件）
 import FlashTicker from '../src/components/FlashTicker.vue'
 import YestZtPanel from '../src/components/YestZtPanel.vue'
@@ -244,18 +245,36 @@ console.log('\n— C. /market（盘中组只有 1 页 ⇒ 不渲染 pill 行）'
 ok('渲染无异常/无 Vue 警告', c.errors.length === 0, c.errors.join(' | '))
 ok('单页组不渲染 .group-nav', !c.html.includes('group-nav-item'))
 
-// D. 一级入口：NavBar 6 个 + 底部 tabbar 6 个，且都指向各组 entry
-console.log('\n— D. 一级入口（NavBar / AppTabBar）')
+// D. 一级入口：**桌面仍 6 组**（本次未动）；**手机底部收为 4 格 = 首页/竞价/盘中/我的**
+//    2026-10-01 主人拍板（原话「4格 首页、竞价、盘中、我的」「底部不保留搜索，上面已经搜索了」）
+//    ⇒ 底部栏不再逐组渲染，改读 TABBAR_TABS；失去底部入口的页由首页宫格 QuickGrid 承载。
+console.log('\n— D. 一级入口（NavBar 6 组 / AppTabBar 4 格）')
 for (const g of NAV_GROUPS) {
   ok(`NavBar 有一级入口「${g.label}」`, b.html.includes(g.label))
-  ok(`AppTabBar 有 tab「${g.label}」→ ${g.entry}`, b.html.includes(`href="${g.entry}"`))
 }
-ok('一级分组恰好 6 个', NAV_GROUPS.length === 6, '实际 ' + NAV_GROUPS.length)
-ok('底部 tabbar 恰好 6 个 tab', (b.html.match(/tabbar-item/g) || []).length === 6,
+ok('桌面一级分组仍是 6 个（本次未动）', NAV_GROUPS.length === 6, '实际 ' + NAV_GROUPS.length)
+ok('底部 tabbar 恰好 4 个 tab', (b.html.match(/tabbar-item/g) || []).length === 4,
    '实际 ' + (b.html.match(/tabbar-item/g) || []).length)
-ok('底部 tab 顺序 = 竞价 / 盘前资讯 / 盘中 / 复盘 / 自选 / 我的',
-   NAV_GROUPS.map((g) => g.label).join('/') === '竞价/盘前资讯/盘中/复盘/自选/我的',
-   '实际 ' + NAV_GROUPS.map((g) => g.label).join('/'))
+ok('底部 4 格 = 首页/竞价/盘中/我的',
+   TABBAR_TABS.map((t) => t.label).join('/') === '首页/竞价/盘中/我的',
+   '实际 ' + TABBAR_TABS.map((t) => t.label).join('/'))
+for (const t of TABBAR_TABS) {
+  ok(`AppTabBar 有 tab「${t.label}」→ ${t.path}`, b.html.includes(`href="${t.path}"`))
+}
+ok('底部不再渲染搜索格（搜索改顶栏常驻）', !b.html.includes('ss-tab'),
+   '仍出现 ss-tab ⇒ 第 7 格没删干净')
+// 失去底部入口的页面 ⇒ 必须能在首页宫格里找到（否则手机端没入口）。
+//   ⚠️ 宫格在 StockView 里，上面的 `b` 只是**导航外壳** ⇒ 这里**直接渲染 QuickGrid**
+//      （顺带把它的 SSR 安全也测了：SSR 下 localStorage 是桩对象，早期实现会把它带崩）。
+const qg = await renderComp(QuickGrid, {}, '/')
+ok('首页宫格渲染无异常/无警告', qg.errors.length === 0, qg.errors.join(' | '))
+ok('宫格默认恰好 10 格', (qg.html.match(/data-qg="/g) || []).length === 10,
+   '实际 ' + (qg.html.match(/data-qg="/g) || []).length)
+for (const k of ['news', 'ladder', 'lhb', 'pool']) {
+  ok(`宫格默认 10 格含「失去底部入口」的页：${k}`, qg.html.includes(`data-qg="${k}"`),
+     'QuickGrid 默认 10 格不含 ' + k)
+}
+ok('宫格带「编辑」入口（其余页面靠候选池换入）', qg.html.includes('编辑'))
 
 // E. 自由变量/未定义标识符的典型渲染痕迹
 console.log('\n— E. 未定义标识符痕迹扫描')
@@ -481,9 +500,9 @@ ok('关闭态不产出结果面板', !g9c.html.includes('ss-panel'))
 const g9d = await renderComp(StockSearch, { variant: 'tabbar' })
 ok('底部入口渲染无异常/无警告', g9d.errors.length === 0, g9d.errors.join(' | '))
 ok('底部入口是「搜索」按钮（不是路由项）', g9d.html.includes('ss-tab') && g9d.html.includes('搜索'))
-// 挂进 AppTabBar 后：多了第 7 格，但一级分组仍是 6（不占用 .tabbar-item）
-ok('AppTabBar 追加搜索格后一级分组仍为 6',
-  (b.html.match(/tabbar-item/g) || []).length === 6 && b.html.includes('ss-tab'),
+// 2026-10-01: AppTabBar **不再挂搜索格**（4 格、无 ss-tab）；搜索改由顶栏常驻承担
+ok('AppTabBar 已移除搜索格（4 格 + 无 ss-tab）',
+  (b.html.match(/tabbar-item/g) || []).length === 4 && !b.html.includes('ss-tab'),
   'tabbar-item=' + (b.html.match(/tabbar-item/g) || []).length)
 // NavBar 里挂上了桌面入口
 ok('NavBar 内已挂搜索入口', b.html.includes('ss-inline-input'))

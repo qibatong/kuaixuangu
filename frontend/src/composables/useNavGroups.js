@@ -135,3 +135,39 @@ export function groupKeyOfRoute(route) {
 export function groupByKey(key) {
   return NAV_GROUPS.find((g) => g.key === key) || null
 }
+
+
+/**
+ * 手机底部 tab 栏的 4 格（2026-10-01 主人拍板：**首页 / 竞价 / 盘中 / 我的**）
+ *
+ * 为什么与 `NAV_GROUPS`(6 组) 分开：
+ *   · 桌面顶部导航空间足够 ⇒ **保持 6 组不变**（本次桌面零改动、零风险）；
+ *   · 手机底部只留 4 格，并把 `/auction`（竞价异动）从「竞价组二级页」**升为一级**，
+ *     `/` 明确叫「首页」—— 二者同属 auction 组，靠 `tabbarKeyOfRoute` 按**路径**区分高亮。
+ *   · 🔴 代价（记账见 docs/移动端规划-参考短线侠-20261001.md §〇）：盘前资讯/复盘/自选三组
+ *     不再进底部栏 ⇒ 那些页面的入口由**首页宫格**（components/QuickGrid.vue，可编辑候选池）承担；
+ *     第 7 格搜索也去掉（原话「上面已经搜索了」）⇒ 顶栏搜索改为**移动端常驻**。
+ */
+export const TABBAR_TABS = [
+  // 图标用 fa-th-large：自托管 FA 子集(108 个)里**没有 fa-home**，重做子集属独立任务
+  { key: 'home', label: '首页', icon: 'fa-th-large', path: '/' },
+  { key: 'auc', label: '竞价', icon: 'fa-bell', path: '/auction' },
+  { key: 'intraday', label: '盘中', icon: 'fa-line-chart', path: '/market' },
+  { key: 'me', label: '我的', icon: 'fa-user', path: '/member' },
+]
+
+/**
+ * 底部栏高亮哪一格：**路径优先**（首页/竞价同组必须拆开），其余落到分组判定。
+ * 没有对应格子的页面（/ladder、/lhb、/news、/pool、/history…）返回 '' ⇒ 四格都不高亮
+ * —— 它们是「从宫格进」的二级页，不冒充一级 tab。
+ */
+export function tabbarKeyOfRoute(route) {
+  if (!route || !route.path) return ''
+  const p = route.path
+  if (p === '/' || p.indexOf('/aipick') === 0) return 'home'
+  if (p.indexOf('/auction') === 0) return 'auc'
+  const g = groupKeyOfRoute(route)
+  if (g === 'intraday') return 'intraday'
+  if (g === 'me') return 'me'
+  return ''
+}
