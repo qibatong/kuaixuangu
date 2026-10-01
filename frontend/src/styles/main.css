@@ -64,6 +64,24 @@
   --gold-text: #e0a800;
   --silver: #c8c8c8;
   --bronze: #e8a04c;
+
+  /* ===== 2026-10-01 手机端「快捷入口」宫格图标色板（10 色系 × 双色 + 高光） =====
+     参考同类型 App 的图标语言（每个入口一个色系、立体双色块），但**在深色底上重新定过明度**。
+     🔴 一律走 token，组件内不写裸色值 —— 见 _verify/color_guard.js 的纪律
+        （「确实需要新色时先加 token 再用」；:root 块本身不计入裸值统计）。
+     用法：.qg-h-* 只做别名(--qg-a/--qg-b)，图标主形统一 var(--text-main)、次形 var(--qg-hi)。 */
+  --qg-red-a: #ff6b6b;    --qg-red-b: #c92a2a;
+  --qg-cyan-a: #4dabf7;   --qg-cyan-b: #1361a8;
+  --qg-purple-a: #9775fa; --qg-purple-b: #5f3dc4;
+  --qg-orange-a: #ffa94d; --qg-orange-b: #d9480f;
+  --qg-green-a: #51cf66;  --qg-green-b: #2b8a3e;
+  --qg-pink-a: #f783ac;   --qg-pink-b: #a61e4d;
+  --qg-teal-a: #38d9a9;   --qg-teal-b: #087f5b;
+  --qg-gold-a: #ffd43b;   --qg-gold-b: #b8860b;
+  --qg-blue-a: #5c7cfa;   --qg-blue-b: #364fc7;
+  --qg-lime-a: #a9e34b;   --qg-lime-b: #5c940d;
+  --qg-hi: rgba(255, 255, 255, 0.62);          /* 图标高光/次形 */
+  --qg-tile-shadow: 0 3px 10px rgba(0, 0, 0, 0.38);
 }
 body[data-bg="light"] {
   /* 浅色主题: 纯白底(2026-09-21 主人拍板「干净化」) —— 去掉蓝灰渐变/半透明黑,

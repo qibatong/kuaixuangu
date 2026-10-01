@@ -275,6 +275,15 @@ for (const k of ['news', 'ladder', 'lhb', 'pool']) {
      'QuickGrid 默认 10 格不含 ' + k)
 }
 ok('宫格带「编辑」入口（其余页面靠候选池换入）', qg.html.includes('编辑'))
+// 2026-10-01 图标重设计（主人「参考同类型重新设计」）：自绘多色 SVG，不再是 FA 单色字形
+ok('宫格图标是自绘 SVG（每格一个）',
+   (qg.html.match(/class="qg-svg"/g) || []).length === 10,
+   '实际 ' + (qg.html.match(/class="qg-svg"/g) || []).length)
+ok('宫格不再依赖 FA 字形做图标（无 qg-ic 内的 fa-）',
+   !/class="qg-ic[^"]*"[^>]*>\s*<i class="fa /.test(qg.html))
+ok('色系按 token 走（出现 qg-h-* 且无裸 hex）',
+   /qg-h-(red|cyan|purple|orange|green|pink|teal|gold|blue|lime)/.test(qg.html) &&
+   !/#[0-9a-fA-F]{6}/.test(qg.html.replace(/var\(--qg-hi\)/g, '')))
 
 // E. 自由变量/未定义标识符的典型渲染痕迹
 console.log('\n— E. 未定义标识符痕迹扫描')
