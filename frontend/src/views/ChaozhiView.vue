@@ -93,6 +93,15 @@
         <div class="cz-card-h">
           <span class="cz-card-t">个股研判</span>
           <span class="cz-cnt">共 {{ picks.length }} 只</span>
+          <!-- ★ 2026-10-02 主人指令: 宫格「超智研判」改为直跳本页后, 金睛/火眼两页**没有入口了**
+               ⇒ 在本卡（双模型分数列表）头部补两个直达入口 —— 就近原则: 用户看到「金睛94 · 火眼—」
+               时最想点进去看整页名单。路径与宫格旧子项/路由表一致: /aipick(金睛) /aipick-lgb(火眼)。 -->
+          <span class="cz-tabs">
+            <button class="cz-mini" data-cz-go="jing" title="看金睛(XGB)完整名单"
+                    @click="goModel('xgb')">金睛名单 ›</button>
+            <button class="cz-mini" data-cz-go="huo" title="看火眼(LightGBM)完整名单"
+                    @click="goModel('lgb')">火眼名单 ›</button>
+          </span>
         </div>
         <div v-if="picks.length" class="cz-list">
           <div v-for="p in picks" :key="p.code" class="cz-row" :data-cz="p.code">
@@ -120,7 +129,7 @@
           <b>不是概率</b>；「一致/分歧」= 两模型排名差（分歧 ≥0.5 时标签降级为谨慎）。
           单模型日（火眼无产出）综合分即该模型百分位，并标「单模型」。
           <br>
-          名单 = 金睛/火眼<b>过滤后的当日候选</b>（竞价额 ≥3000万、竞价涨幅 ≤7%、涨停率 ≥50%），与那两页一致；
+          名单 = 金睛/火眼<b>过滤后的当日候选</b>（竞价额 ≥3000万、<b>竞价涨幅限制已放开至 ≤10%</b>、涨停率 ≥50%），与那两页一致；
           个股后的<b>涨幅为竞价涨幅（9:25 集合竞价）</b>，<b>不是当前/当日涨幅</b>。
         </div>
       </section>
@@ -223,6 +232,8 @@ function capVal(d) {
 }
 
 function goDetail() { router.push('/aipick') }
+// 2026-10-02: 金睛(XGB)/火眼(LGB) 直达入口（宫格改直跳后这两页失去入口，在个股研判卡头补回）
+function goModel(kind) { router.push(kind === 'lgb' ? '/aipick-lgb' : '/aipick') }
 function addPool() {
   const list = picks.value.slice(0, 30).map((p) => ({
     code: p.code,
@@ -302,6 +313,13 @@ usePolling(() => { if (isIntradayNow()) load() }, 60000, { immediate: false })
 .cz-card-t { font-size: 0.78rem; font-weight: 700; color: var(--text-main); }
 .cz-cnt { margin-left: auto; font-size: 0.62rem; color: var(--text-muted); }
 .cz-tabs { margin-left: auto; display: flex; gap: 5px; }
+/* 2026-10-02: 个股研判卡头的两个直达入口（金睛/火眼）—— 小胶囊，不抢标题视觉 */
+.cz-mini {
+  border: 1px solid var(--border-soft); background: var(--bg-input); color: var(--text-secondary);
+  border-radius: 999px; padding: 3px 8px; font-size: 0.62rem; font-weight: 600; cursor: pointer;
+  white-space: nowrap;
+}
+.cz-mini:hover { color: var(--text-main); border-color: var(--qg-orange-a); }
 .cz-tab {
   background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: 11px;
   color: var(--text-muted); font-size: 0.64rem; padding: 3px 8px; cursor: pointer;
