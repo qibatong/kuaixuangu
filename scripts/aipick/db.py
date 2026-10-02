@@ -144,8 +144,16 @@ def attach_derived(rows, trade_date):
     for i, r in enumerate(rows):
         a, m = amt.get(i, 0.5), mv.get(i, 0.5)
         r["mv_rank"], r["amt_rank"], r["rank_diff"] = m, a, a - m
-        p = r.get("price")
-        r["price_inv"] = (1.0 / float(p)) if p else None
+        # ⚠️ 2026-10-02 实测：历史行里 price 可能是字符串占位符 `'-'`（老回补数据）
+        #    ⇒ 必须容错，否则 float('-') 抛 ValueError 把整批回填打断（生产机实测被打断在 80/134 天）。
+        try:
+            p = r.get("price")
+            p = float(p) if p not in (None, "", "-") else None
+            if p is not None and p <= 0:
+                p = None
+        except (TypeError, ValueError):
+            p = None
+        r["price_inv"] = (1.0 / p) if p else None
     prev_date, zt_cnt, hist, dss = None, 0, {}, []
     try:
         conn = get_conn()
