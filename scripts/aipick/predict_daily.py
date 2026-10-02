@@ -68,7 +68,25 @@ _MODEL_LABEL = {"xgb": "快选・金睛 XGBoost", "lgbm": "快选・金睛 Light
 #   训练基座里那一列却是**前一交易日涨幅** ⇒ 同名两义，换基座即 train/serve skew。
 #   500 天样本外代价 −0.0015 池化AUC，详见 train_model.py 顶部注释 / docs/BACKLOG-特征集5维化.md。
 #   ⚠️ 必须与 backend/app/services/ai_predict.py 及模型文件**同批发布**。
-FEATURES = ["bid_change", "bid_amount", "bid_turnover", "circ_mv", "price"]
+FEATURES = [
+    "bid_change",    # 竞价涨幅
+    "bid_amount",    # 竞价金额(万元)
+    "bid_turnover",   # 竞价换手率
+    "price",         # 价格（9:25 竞价价）
+    # ★ 2026-10-02 主人指令(命中率优先)：改用**口径无关**派生特征。
+    #   动因：线上 circ_mv 是**自由流通市值**、离线基座是**流通市值**（实测 947 vs 2251 亿，
+    #   比值因股而异 1.5~2.4 倍）⇒ 直接用 circ_mv 原始值必然 train-serve skew。
+    #   改分位/昨日侧后两侧都能就地算出，与数据源口径无关。实测(1620 天基座, ≤10% 口径):
+    #   top3 命中 72.9% → 75.7%、top5 67.9% → 70.2%、池化 AUC 0.8422 → 0.8489。
+    #   ⚠️ 与 db.py 的 MODEL_FEATURES 及线上模型文件**必须同批发布**（宽度失配会静默降级）。
+    "mv_rank",       # 当日市值分位（口径无关，替代 circ_mv 原始值）
+    "amt_rank",      # 当日竞价额分位
+    "rank_diff",     # amt_rank − mv_rank（相对市值的热度）
+    "price_inv",     # 1/价格（低价股偏好）
+    "yday_zt",       # 昨日是否涨停
+    "yday_lb",       # 截至昨日连板数
+    "prev_mkt_zt",    # 昨日全市场涨停家数（情绪）
+]
 
 
 def _normalize_algo(v):
@@ -164,7 +182,7 @@ def _model_meta(algo, model_path):
 #   ⇒ 默认 None = 不过滤; **显式传值仍生效**(保留参数化能力, 供前端/历史回放使用)。
 DEFAULT_MV_MIN, DEFAULT_MV_MAX = None, None
 DEFAULT_BID_AMT_MIN = 3000
-DEFAULT_BID_CHG_MAX = 7
+DEFAULT_BID_CHG_MAX = 10   # 2026-10-02 主人指令: 竞价涨幅上限 7 → 10
 # 2026-08-31 主人指令: 竞价涨幅下限方案废弃, 改为剔除涨停率(ai_prob) < 50% 的候选(见过滤处)
 MIN_PROB = 0.5
 

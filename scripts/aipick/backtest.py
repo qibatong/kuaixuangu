@@ -22,8 +22,23 @@ OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output
 # ★ 2026-09-25：移除 `yesterday_chg`（6 维 → 5 维），须与 train_model.py / predict_daily.py
 #   / train_lgbm.py / ai_predict.py 保持逐字一致，理由见 train_model.py 顶部注释。
 FEATURES = [
-    "bid_change", "bid_amount", "bid_turnover",
-    "circ_mv", "price",
+    "bid_change",     # 竞价涨幅
+    "bid_amount",     # 竞价金额(万元)
+    "bid_turnover",   # 竞价换手率
+    "price",          # 价格（9:25 竞价价）
+    # ★ 2026-10-02 主人指令(命中率优先)：改用**口径无关**派生特征。
+    #   动因：线上 circ_mv 是**自由流通市值**、离线基座是**流通市值**（实测 947 vs 2251 亿，
+    #   比值因股而异 1.5~2.4 倍）⇒ 直接用 circ_mv 原始值必然 train-serve skew。
+    #   改分位/昨日侧后两侧都能就地算出，与数据源口径无关。实测(1620 天基座, ≤10% 口径):
+    #   top3 命中 72.9% → 75.7%、top5 67.9% → 70.2%、池化 AUC 0.8422 → 0.8489。
+    #   ⚠️ 与 db.py 的 MODEL_FEATURES 及线上模型文件**必须同批发布**（宽度失配会静默降级）。
+    "mv_rank",        # 当日市值分位（口径无关，替代 circ_mv 原始值）
+    "amt_rank",       # 当日竞价额分位
+    "rank_diff",      # amt_rank − mv_rank（相对市值的热度）
+    "price_inv",      # 1/价格（低价股偏好）
+    "yday_zt",        # 昨日是否涨停
+    "yday_lb",        # 截至昨日连板数
+    "prev_mkt_zt",    # 昨日全市场涨停家数（情绪）
 ]
 
 

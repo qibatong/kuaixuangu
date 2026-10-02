@@ -51,7 +51,7 @@ GRID = {
 #   mv ∈ [30, 100] 闭区间 | bid_amount ≥ 3000 | bid_change ≤ 7 | ai_prob ≥ 0.5 | head(30)
 # 注：`ai_prob >= 0.5` 在脚本里是**硬编码**的（未参数化）；前端可通过 json 的 `all`
 #     字段用自定义规则覆盖，故 `min_prob` 仍是可调旋钮，但要改默认值需动前端。
-CURRENT = dict(mv_min=30.0, mv_max=100.0, bid_amt_min=3000.0, bid_chg_max=7.0,
+CURRENT = dict(mv_min=30.0, mv_max=100.0, bid_amt_min=3000.0, bid_chg_max=10.0,
                min_prob=0.5, topn=30)
 
 

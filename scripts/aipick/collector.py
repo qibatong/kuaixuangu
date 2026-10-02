@@ -45,7 +45,7 @@ import sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from db import init_db, upsert_features, update_labels, today  # noqa
+from db import init_db, upsert_features, update_labels, today, attach_derived  # noqa
 import meoz_source as MZ  # noqa  猫爪数据源(2026-09-20 替换东财)
 import trade_calendar as _tc  # noqa  交易日历桥接(单一事实来源 = backend/app/core/trade_calendar.py)
 
@@ -207,7 +207,11 @@ def fetch_from_kuaixuan(trade_date, historical=None):
             "industry": "",
             "concept": "",
         })
-    print(f"  [快选snapshot_bid {trade_date} 9_25] 读 {len(snap)} 只, 猫爪补字段 {len(extra)} 只")
+    # ★ 2026-10-02: 挂载口径无关派生特征（当日分位 + 昨日侧）。
+    #   三处消费者共用本函数（collector 写库 / predict_daily 预测 / backend ai_predict 推理）
+    #   ⇒ 派生只做一份，自动同步、永不失配。
+    rows = attach_derived(rows, trade_date)
+    print(f"  [快选snapshot_bid {trade_date} 9_25] 读 {len(snap)} 只, 猫爪补字段 {len(extra)} 只, 派生特征已挂载 {len(rows)} 只")
     return rows
 
 

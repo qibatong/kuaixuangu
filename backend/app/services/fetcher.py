@@ -2363,14 +2363,14 @@ _CHART_CACHE = {}
 _CHART_LOCK = threading.Lock()
 _CHART_CACHE_TTL = 60     # 分时 60s 缓存, K线 1800s 缓存
 
-# 🔴 日K 根数 = 200 —— 与**旧链实际供数源**对齐, 不是拍脑袋 (v4.11.48)
-#   旧链 `fetch_stock_chart`(东财) 名义 120 根(`lmt`), 但东财 chart 存在接口级
-#   时段性风控(常 502) ⇒ 线上长期实际落的是备源腾讯 `count=200`。
-#   换首源(猫爪)后若写死 120, 用户看到的日K 会从 ~200 根缩到 ~120 根(约 10 个月
-#   → 约 6 个月) —— 这是**静默退化**, 换源验收(等价替换)直接判负。
-#   取 max(东财 120, 腾讯 200) = 200 ⇒ 对任何一种旧表现都不缩水。
-#   猫爪 daily 的 recentdays 实测 120/200/250/300 均足量返回(数据没问题)。
-_MEOZ_DAY_K_BARS = 200
+# 🔴 日K 根数 = 600（2026-10-02 由 200 调大, 主人指令）—— 目的: **让日K覆盖 1 年+**,
+#   供「板块/龙头」特征（K线相关性聚类）回溯训练与验证（原 200 根仅约 10 个月）。
+#   历史沿革（200 的来历, 保留以备追溯）: 旧链 `fetch_stock_chart`(东财) 名义 120 根(`lmt`),
+#   但东财 chart 有时段性风控(常 502) ⇒ 线上长期实际落的是备源腾讯 `count=200`;
+#   换首源(猫爪)后若写死 120 会「静默退化」⇒ 取 max(东财 120, 腾讯 200) = 200。
+#   猫爪 daily 的 recentdays 实测 120/200/250/300 均足量返回; 600 根以回补实测为准。
+#   仅**加长缓存**, 不改任何展示口径（前端图表仍按自身需要取尾部）。
+_MEOZ_DAY_K_BARS = 600
 
 
 def fetch_stock_chart(code, period="day"):
@@ -2702,7 +2702,10 @@ def _fetch_chart_from_tencent(code, period="day"):
     kp = {"day": "day", "week": "week", "month": "month"}.get(period)
     if not kp:
         return {}
-    count = {"day": 200, "week": 700, "month": 300}.get(period, 200)
+    # 🔴 2026-10-02 主人指令: day 200 → **700**（腾讯 day 实测支持 700 根 ≈ 2.8 年）——
+    #   目的: 让日K覆盖 1 年+，供「板块/龙头」特征（K线相关性聚类）回溯训练/验证。
+    #   仅加长缓存，展示口径不变（图表按自身需要取尾部）。可一行回退为 200。
+    count = {"day": 700, "week": 700, "month": 300}.get(period, 200)
     try:
         url = ("https://web.ifzq.gtimg.cn/appstock/app/kline/kline?param="
                + urllib.parse.quote(secid) + "," + kp + ",,," + str(count))

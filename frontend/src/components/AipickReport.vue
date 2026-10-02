@@ -62,7 +62,7 @@
               <input v-model="amtMin" class="ap-rule-in" type="number" inputmode="decimal" step="100" placeholder="3000">
               <span class="ap-rule-unit">万</span>
               <span class="ap-rule-label">竞价涨幅≤</span>
-              <input v-model="chgMax" class="ap-rule-in" type="number" inputmode="numeric" placeholder="7">
+              <input v-model="chgMax" class="ap-rule-in" type="number" inputmode="numeric" placeholder="10">
               <span class="ap-rule-unit">%</span>
               <span class="ap-rule-label">涨停率≥</span>
               <input v-model="probMin" class="ap-rule-in" type="number" inputmode="numeric" placeholder="50">
@@ -192,7 +192,7 @@ const isLatest = computed(() => !selDate.value)
 const mvMin = ref(30)     // 流通市值下限(亿)  默认与后端 predict 一致
 const mvMax = ref(100)    // 流通市值上限(亿)  2026-08-30 主人要求: 30-100亿
 const amtMin = ref(3000)  // 竞价金额下限(万)  2026-08-30 主人要求: ≥3000万
-const chgMax = ref(7)     // 竞价涨幅上限(%)   2026-08-30 主人要求: ≤7%
+const chgMax = ref(10)    // 竞价涨幅上限(%)   2026-10-02 主人指令: 7 → 10（原 08-30 ≤7%）
 const probMin = ref(50)   // 涨停率下限(%)     2026-08-31 主人要求: 剔除涨停率<50%
 
 // 全量候选集(生成脚本保存过滤前结果); 旧报告无 all 时回退已过滤的 top
@@ -311,16 +311,16 @@ function resetRule() {
   mvMin.value = 30
   mvMax.value = 100
   amtMin.value = 3000
-  chgMax.value = 7
+  chgMax.value = 10
   probMin.value = 50
   saveRules()   // 明确落盘(下方 watch 也会触发, 双保险)
 }
 
 // ===== 规则持久化(localStorage): 记住用户筛选, 再次进入直接套用 =====
 const RULES_KEY = 'kx_aipick_rules'
-// 默认规则(2026-08-31 与后端 predict_daily.py 一致): 流通市值 30-100亿 / 竞价金额≥3000万 / 竞价涨幅≤7% / 涨停率≥50%
+// 默认规则(2026-10-02 与后端 predict_daily.py 一致): 流通市值 30-100亿 / 竞价金额≥3000万 / 竞价涨幅≤10% / 涨停率≥50%
 // 一次仅供"未自定义"用户跟随最新默认; HIST_DEFAULTS 用于识别旧默认并自动迁移
-const NEW_DEFAULT = [30, 100, 3000, 7, 50]
+const NEW_DEFAULT = [30, 100, 3000, 10, 50]
 const HIST_DEFAULTS = [
   [30, 500, 2000, 10],      // 早期默认
   [30, 100, 3000, 7],       // 上一版"新默认"(避免再次被命中)
