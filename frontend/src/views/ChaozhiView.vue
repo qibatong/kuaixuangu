@@ -103,13 +103,21 @@
               <span class="cz-risk" :class="'r-' + p.risk">{{ riskText(p.risk) }}</span>
             </span>
             <span class="cz-line2">
-              <span class="cz-sc">金睛<b>{{ p.scoreXgb ?? '—' }}</b>·火眼<b>{{ p.scoreLgb ?? '—' }}</b></span>
+              <!-- ★ 主分 = **双模型综合分**（当日百分位加权，见 docs/…§十） -->
+              <span class="cz-fused">综合<b>{{ p.scoreFused ?? '—' }}</b></span>
+              <span class="cz-models">金睛{{ p.scoreXgb ?? '—' }} · 火眼{{ p.scoreLgb ?? '—' }}</span>
+              <span class="cz-div" :class="divCls(p)">{{ divText(p) }}</span>
               <span class="cz-chg" :class="(p.change || 0) >= 0 ? 'up' : 'down'">{{ signed(p.change) }}%</span>
               <span v-if="p.concept" class="cz-concept">{{ p.concept }}</span>
             </span>
           </div>
         </div>
         <div v-else class="cz-empty">暂无个股研判数据</div>
+        <div class="cz-legend">
+          综合分 = 金睛/火眼<b>当日百分位加权</b>（等权 0.5/0.5，权重可配）—— 表示<b>当日相对强弱</b>，
+          <b>不是概率</b>；「一致/分歧」= 两模型排名差（分歧 ≥0.5 时标签降级为谨慎）。
+          单模型日（火眼无产出）综合分即该模型百分位，并标「单模型」。
+        </div>
       </section>
 
       <!-- ⑤ 底部按钮 -->
@@ -130,7 +138,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { chaozhiOverview } from '../api/kpl'
 import { usePolling } from '../composables/usePolling'
 import { usePoolStore } from '../stores/pool'
@@ -150,6 +158,8 @@ const picks = ref([])
 const senti = ref({})
 const meta = ref({})
 
+const route = useRoute()
+const pickDate = computed(() => String((route.query.pickDate) || ''))
 const phase = ref('')
 const metric = ref('bidAmt')   // 默认看竞价额: 三列里唯一每天都有采集（主力净额/量比有整日缺口）
 const phaseTabs = ['升温', '分歧', '转强']
@@ -176,6 +186,19 @@ function signed(v) {
 }
 function barH(v, max) { return Math.max(4, Math.round((Math.abs(Number(v) || 0) / (max || 1)) * 100)) + '%' }
 function riskText(r) { return r === 'high' ? '高风险' : (r === 'mid' ? '中风险' : '低风险') }
+/** 一致性标记：0.25 以下=一致；≥0.5=分歧；单模型=证据不足 */
+function divCls(p) {
+  if (p.divergence === null || p.divergence === undefined) return 'd-single'
+  if (p.divergence >= 0.5) return 'd-split'
+  if (p.divergence >= 0.25) return 'd-mid'
+  return 'd-agree'
+}
+function divText(p) {
+  if (p.divergence === null || p.divergence === undefined) return '单模型'
+  if (p.divergence >= 0.5) return '分歧'
+  if (p.divergence >= 0.25) return '略分歧'
+  return '一致'
+}
 function capRaw(d) { return d[metric.value] || 0 }
 /** 采集缺口的日子该列是 null ⇒ 显示 —（**不能显示 0**，会被读成"净额为 0"） */
 function capVal(d) {
@@ -203,7 +226,7 @@ function addPool() {
 
 async function load() {
   try {
-    const d = await chaozhiOverview()
+    const d = await chaozhiOverview(pickDate.value)
     if (!d || d.ok !== true) throw new Error((d && d.msg) || '接口未返回 ok')
     date.value = d.date || ''
     scores.value = d.scores || scores.value
@@ -298,7 +321,14 @@ usePolling(() => { if (isIntradayNow()) load() }, 60000, { immediate: false })
 .t-待定 { background: var(--qg-purple-a); }
 .t-谨慎 { background: var(--qg-blue-b); }
 .cz-line2 { display: flex; align-items: baseline; gap: 8px; margin-top: 3px; font-size: 0.62rem; color: var(--text-muted); }
-.cz-sc b { color: var(--qg-gold-a); font-weight: 700; margin: 0 1px; }
+.cz-fused { font-size: 0.72rem; font-weight: 700; color: var(--text-main); }
+.cz-fused b { font-size: 0.92rem; color: var(--qg-orange-a); margin-left: 2px; }
+.cz-models { font-size: 0.6rem; color: var(--text-muted); }
+.cz-div { font-size: 0.56rem; border-radius: 4px; padding: 0 4px; }
+.d-agree { color: var(--qg-blue-a); border: 1px solid var(--qg-blue-a); }
+.d-mid { color: var(--qg-gold-a); border: 1px solid var(--qg-gold-a); }
+.d-split { color: var(--qg-red-a); border: 1px solid var(--qg-red-a); }
+.d-single { color: var(--text-dim); border: 1px solid var(--border-soft); }
 .cz-chg { font-weight: 700; }
 .cz-chg.up { color: var(--qg-red-a); }
 .cz-chg.down { color: var(--qg-blue-a); }

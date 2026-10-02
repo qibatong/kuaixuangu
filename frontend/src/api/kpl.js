@@ -58,8 +58,10 @@ export function kplLadderDates() {
 }
 
 /** 超智研判聚合（只读、零新增上游出网；后端 60s 缓存。⚠️ 不吃 aipick 配额） */
-export function chaozhiOverview() {
-  return request('/api/chaozhi/overview', { cache: 60 })
+export function chaozhiOverview(pickDate = '') {
+  // pickDate 非空 = 回看某日研判（后端会绕过 60s 缓存直接算，避免与当日互相污染）
+  return request('/api/chaozhi/overview' + (pickDate ? '?pick_date=' + encodeURIComponent(pickDate) : ''),
+                 { cache: 60 })
 }
 
 export function kplBoardRank(date = '') {

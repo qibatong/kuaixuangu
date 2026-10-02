@@ -21,13 +21,14 @@ log = logger.get_logger("chaozhi")
 
 
 @router.get("/api/chaozhi/overview")
-def api_chaozhi_overview(request: Request, uid: int = Depends(get_uid)):
+def api_chaozhi_overview(request: Request, uid: int = Depends(get_uid), pick_date: str = ""):
     """超智研判聚合数据（跨进程 60s 缓存 + 单飞）。
 
     整页不因单块失败而失败：不可用的块在 `meta.notes` 里如实列出，前端按 notes 展示降级原因。
     """
     try:
-        data = chaozhi.build_overview() or {}
+        # pick_date：回看某日研判（也可用于核对效果图）；空 = 取最近有产出的日期
+        data = chaozhi.build_overview(pick_date=(pick_date or None)) or {}
     except Exception as e:                                     # noqa: BLE001
         log.warning("chaozhi overview 失败 uid=%s err=%s", uid, str(e)[:160])
         return jr({"ok": False, "msg": "聚合数据暂不可用，请稍后重试"})

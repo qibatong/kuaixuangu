@@ -48,12 +48,72 @@ def test_risk_map_red_yellow_others(monkeypatch):
 
 
 def test_tag_rules():
-    assert chaozhi._tag(85, 82, "low") == "关注"      # 双 ≥80 且低风险
-    assert chaozhi._tag(85, 50, "low") == "谨慎"      # 有一个 <60
-    assert chaozhi._tag(85, 70, "mid") == "观察"      # 风险中
-    assert chaozhi._tag(70, 65, "low") == "待定"      # 都在 60~80
-    assert chaozhi._tag(95, 95, "high") == "谨慎"     # 高风险一律谨慎
-    assert chaozhi._tag(None, 90, "low") == "观察"    # 单模型（另一个缺失）≥80
+    """标签 = 综合分 + 模型一致性 + 风险（2026-10-02 升级；见方案 §10.2）"""
+    assert chaozhi._tag(85, 82, 80, 0.10, "low") == "关注"    # 综合≥80 且分歧小 且低风险
+    assert chaozhi._tag(85, 82, 80, 0.40, "low") == "观察"    # 分歧偏大 ⇒ 降为观察
+    assert chaozhi._tag(85, 90, 50, 0.60, "low") == "谨慎"    # 分歧 ≥0.5 ⇒ 谨慎
+    assert chaozhi._tag(85, 50, 50, 0.10, "low") == "谨慎"    # 任一模型 <60
+    assert chaozhi._tag(85, 70, 70, 0.10, "mid") == "观察"    # 风险中
+    assert chaozhi._tag(60, 65, 62, 0.10, "low") == "待定"    # 综合 55~70
+    assert chaozhi._tag(40, 45, 42, 0.10, "low") == "谨慎"    # 综合 <55
+    assert chaozhi._tag(95, 95, 95, 0.00, "high") == "谨慎"   # 高风险一律谨慎
+    # 🔴 只有单模型有分（divergence=None）⇒ **不能**判"关注"（证据不足）⇒ 最高只到观察
+    assert chaozhi._tag(95, 90, None, None, "low") == "观察"
+
+
+def test_fuse_rank_equal_weight_and_divergence():
+    """综合分 = 当日百分位加权（等权）；分歧度 = |rank差|；并列取平均名次"""
+    rows = [
+        {"code": "A", "scoreXgb": 90, "scoreLgb": 90},   # 两模型都是最高 ⇒ 综合 100、分歧 0
+        {"code": "B", "scoreXgb": 80, "scoreLgb": 50},   # 金睛第2/火眼最低 ⇒ 分歧大
+        {"code": "C", "scoreXgb": 70, "scoreLgb": 70},   # 两模型都最低 ⇒ 综合 0、分歧 0
+    ]
+    chaozhi.fuse(rows)
+    by = {r["code"]: r for r in rows}
+    assert by["A"]["scoreFused"] == 100 and by["A"]["divergence"] == 0
+    # 三只票 ⇒ 名次百分位 = 0 / 0.5 / 1.0；B 的 rankXgb=0.5、rankLgb=0 ⇒ 综合 25、分歧 0.5
+    assert by["C"]["scoreFused"] == 25 and by["C"]["divergence"] == 0.5
+    assert by["B"]["scoreFused"] == 25                      # (0.5 + 0.0)/2 ⇒ 25
+    assert by["B"]["divergence"] == 0.5                     # |0.5 - 0.0|
+    assert by["A"]["rankXgb"] == 1.0 and by["C"]["rankXgb"] == 0.0
+
+
+def test_picks_fused_spread_within_candidate_pool(monkeypatch):
+    """🔴 综合分的百分位在**候选池内**算 ⇒ 60 只展示项应铺开（而不是全挤在 99~100）
+
+    实测踩到: 在全市场 ~5500 只里算百分位，前 60 名全是 99~100 分，综合分失去区分度。
+    """
+    monkeypatch.setattr(chaozhi, "_pick_date", lambda *a, **k: "2026-10-01")
+    monkeypatch.setattr(chaozhi, "_risk_map", lambda d: {})
+    rows = [{"code": "%06d" % i, "name": "股%d" % i, "ai_prob": (600 - i) / 1000.0}
+            for i in range(600)]                      # 600 只候选(模拟全市场大池)
+    monkeypatch.setattr(chaozhi, "_read_json",
+                        lambda date, model: {"all": rows} if model == "xgb" else None)
+    picks, _ = chaozhi.load_picks(top=60)
+    fused = [p["scoreFused"] for p in picks]
+    # ⚠️ 最高不一定是 100：**并列名次取平均名次**会把顶端拉低（本题假数据有大量同分）
+    assert max(fused) >= 90 and min(fused) < 60, (max(fused), min(fused))
+    assert fused == sorted(fused, reverse=True)
+
+
+def test_fuse_single_model_degrades_to_that_model():
+    """某模型整日缺失 ⇒ 综合分 = 另一个模型的当日百分位（按可用权重归一），divergence=None"""
+    rows = [{"code": "A", "scoreXgb": 90, "scoreLgb": None},
+            {"code": "B", "scoreXgb": 60, "scoreLgb": None}]
+    chaozhi.fuse(rows)
+    assert rows[0]["scoreFused"] == 100 and rows[1]["scoreFused"] == 0
+    assert rows[0]["rankLgb"] is None and rows[0]["divergence"] is None
+
+
+def test_fuse_ties_and_tiny_pool():
+    """并列取平均名次；样本只有 1 只时给 0.5（避免除以 0）"""
+    rows = [{"code": "A", "scoreXgb": 80, "scoreLgb": 80},
+            {"code": "B", "scoreXgb": 80, "scoreLgb": 60}]
+    chaozhi.fuse(rows)
+    assert rows[0]["rankXgb"] == rows[1]["rankXgb"] == 0.5   # 并列 ⇒ 平均名次 0.5
+    one = [{"code": "X", "scoreXgb": 77, "scoreLgb": 77}]
+    chaozhi.fuse(one)
+    assert one[0]["scoreFused"] == 50
 
 
 # ---------------- ③ 资金强度公式 ----------------
@@ -80,7 +140,7 @@ def test_capital_score_formula_and_clamp(monkeypatch):
 
 # ---------------- ④ 双模型合并 ----------------
 def test_picks_merge_two_models_and_risk(monkeypatch):
-    monkeypatch.setattr(chaozhi, "_pick_date", lambda models=("xgb", "lgb"): "2026-10-01")
+    monkeypatch.setattr(chaozhi, "_pick_date", lambda *a, **k: "2026-10-01")
 
     def fake_read(date, model):
         if model == "xgb":
@@ -101,7 +161,7 @@ def test_picks_merge_two_models_and_risk(monkeypatch):
 
 def test_picks_missing_model_is_reported_not_zero(monkeypatch):
     """火眼缺失 ⇒ meta.notes 说明，且分数为 None（**不能显示 0**）"""
-    monkeypatch.setattr(chaozhi, "_pick_date", lambda models=("xgb", "lgb"): "2026-10-01")
+    monkeypatch.setattr(chaozhi, "_pick_date", lambda *a, **k: "2026-10-01")
     monkeypatch.setattr(chaozhi, "_read_json",
                         lambda date, model: {"all": [{"code": "600000", "name": "浦发银行",
                                                       "ai_prob": 0.82}]} if model == "xgb" else None)

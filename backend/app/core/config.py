@@ -124,6 +124,13 @@ KPL_HOSTS = {
 }
 KPL_BID_TTL = int(os.environ.get("KPL_BID_TTL", "30"))        # 竞价委买额缓存新鲜度(秒)
 
+# ★ 2026-10-02 超智研判 双模型融合（综合评分）权重 —— 见 docs/超智研判-聚合页开发方案-20261001.md §十
+#   一期用**当日百分位融合**：综合分 = 100 × Σ(wᵢ·rankᵢ) / Σwᵢ（缺失模型的权重自动剔除并归一）。
+#   为什么先等权：两模型都**未做概率校准**，其 ai_prob 不可直接加权；权重等 Phase 0 离线回测
+#   （hit@10 / AUC）出结论后再调 —— 改这里即可热生效，不必发版。
+CHAOZHI_FUSION_W_XGB = float(os.environ.get("CHAOZHI_FUSION_W_XGB", "0.5"))   # 金睛权重
+CHAOZHI_FUSION_W_LGB = float(os.environ.get("CHAOZHI_FUSION_W_LGB", "0.5"))   # 火眼权重
+
 # ★ 2026-10-01 竞价链路 P2-6(清单 3.3): **轮询间隔与缓存 TTL 对齐**
 #   判据(实测·静态核对): 只有"**前端轮询间隔 > 后端 TTL**"才是真浪费 —— 那种情况下每次
 #   轮询都必然穿透到上游(缓存 100% 未命中)。反之(TTL > 间隔)只是拿到同一份缓存, 廉价。

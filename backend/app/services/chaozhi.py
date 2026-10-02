@@ -46,6 +46,8 @@ from ..db import database
 
 log = kpl.log
 
+# 综合分的百分位"候选池"大小（见 load_picks 里的 🔴 说明：池内排名才有区分度）
+CANDIDATE_POOL = 120
 # 序列窗口（交易日个数；本地库里有多少取多少，最多 10）
 SERIES_N = 10
 # 聚合结果缓存秒数（与 KPL_SENTI_TTL / KPL_BOARD_TTL 同量级）
@@ -262,8 +264,15 @@ def support_today(date):
 
 
 # ==================== ④ 双模型个股（只读 json，不吃配额） ====================
-def _pick_date(models=("xgb", "lgb")):
-    """最近的、**至少一个模型有 json** 的日期（从今天往前找 10 个自然日）。"""
+def _pick_date(models=("xgb", "lgb"), prefer=None):
+    """最近的、**至少一个模型有 json** 的日期（从今天往前找 10 个自然日）。
+
+    `prefer` 指定日期时直接用它（供"回看某日研判"与效果图核对；不存在则回落自动探测）。
+    """
+    if prefer:
+        for m in models:
+            if os.path.isfile(os.path.join(_out_dir(m), "predictions_%s.json" % prefer)):
+                return prefer
     for i in range(10):
         d = time.strftime("%Y-%m-%d", time.localtime(time.time() - i * 86400))
         for m in models:
@@ -301,29 +310,82 @@ def _risk_map(date):
     return out
 
 
-def _tag(sx, sl, risk):
-    """标签规则（方案 §四.4）。分数可能缺失（None）。
+def _pct_rank(pairs):
+    """{code: 当日百分位}（0~1；并列取平均名次；样本 <2 时给 0.5）。
 
-    🔴 优先级（方案原文四条有交叉 ⇒ 这里明确顺序）：
-       谨慎（任一模型 <60 或 高风险） > 关注（双 ≥80 且低风险） > 观察（单 ≥80 或 风险中） > 待定。
-       例：`(85, 50)` 既满足"单模型 ≥80"又满足"任一 <60" ⇒ 判**谨慎**（模型分歧大，不能算观察）。
+    🔴 为什么用百分位而不是原始 `ai_prob`：两个模型**都没做概率校准**（训练 AUC 金睛 0.825 /
+       火眼 0.836，但分数分布可能不同）⇒ 直接加权会让某个模型静默主导。百分位只表达
+       "当日相对强弱"，与校准无关，天然可比（见方案 §10.2）。
+    """
+    items = sorted(pairs.items(), key=lambda kv: kv[1])
+    n = len(items)
+    if n == 0:
+        return {}
+    if n == 1:
+        return {items[0][0]: 0.5}
+    out = {}
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and items[j + 1][1] == items[i][1]:
+            j += 1
+        pct = ((i + j) / 2.0) / (n - 1)
+        for k in range(i, j + 1):
+            out[items[k][0]] = pct
+        i = j + 1
+    return out
+
+
+def fuse(rows):
+    """就地给每行加 `rankXgb` / `rankLgb` / `scoreFused` / `divergence`（方案 §十 一期口径）。
+
+    综合分 = 100 × Σ(wᵢ·rankᵢ) / Σwᵢ（只对**存在的模型**求和再归一 ⇒ 单模型时退化为该模型百分位）；
+    分歧度 divergence = |rank金睛 − rank火眼|（单模型时 None）。权重来自 config（可热改）。
+    """
+    w1 = float(getattr(config, "CHAOZHI_FUSION_W_XGB", 0.5) or 0)
+    w2 = float(getattr(config, "CHAOZHI_FUSION_W_LGB", 0.5) or 0)
+    rx = _pct_rank({r["code"]: r["scoreXgb"] for r in rows if r.get("scoreXgb") is not None})
+    rl = _pct_rank({r["code"]: r["scoreLgb"] for r in rows if r.get("scoreLgb") is not None})
+    for r in rows:
+        a, b = rx.get(r["code"]), rl.get(r["code"])
+        r["rankXgb"] = round(a, 4) if a is not None else None
+        r["rankLgb"] = round(b, 4) if b is not None else None
+        num = (w1 * a if a is not None else 0) + (w2 * b if b is not None else 0)
+        den = (w1 if a is not None else 0) + (w2 if b is not None else 0)
+        r["scoreFused"] = int(round(100 * num / den)) if den > 0 else None
+        r["divergence"] = round(abs(a - b), 4) if (a is not None and b is not None) else None
+    return rows
+
+
+def _tag(fused, sx, sl, div, risk):
+    """标签规则（2026-10-02 升级为**按综合分 + 模型一致性**，见方案 §10.2）。
+
+    优先级：
+      谨慎（高风险 / 任一模型 <60 / **分歧 ≥0.5**）
+      > 关注（综合 ≥80 **且** 分歧 <0.25 **且** 低风险）—— 🔴 必须**两个模型都有分**才算"一致"
+      > 观察（综合 ≥70 / 单模型 ≥85 / 风险中）
+      > 待定（综合 55~70）> 谨慎（综合 <55）
     """
     lo = [v for v in (sx, sl) if v is not None]
-    if risk == "high" or (lo and min(lo) < 60):
+    if risk == "high" or (lo and min(lo) < 60) or (div is not None and div >= 0.5):
         return "谨慎"
-    if sx is not None and sl is not None and sx >= 80 and sl >= 80 and risk == "low":
+    f = fused if fused is not None else 0
+    # "关注"要求**两个模型都有分且一致**（单模型证据不足 ⇒ 最高只到观察）
+    if f >= 80 and div is not None and div < 0.25 and risk == "low":
         return "关注"
-    if (sx is not None and sx >= 80) or (sl is not None and sl >= 80) or risk == "mid":
+    if f >= 70 or (lo and max(lo) >= 85) or risk == "mid":
         return "观察"
-    return "待定"
+    if f >= 55:
+        return "待定"
+    return "谨慎"
 
 
-def load_picks(top=60):
+def load_picks(top=60, pick_date=None):
     """合并金睛(xgb) + 火眼(lgb) 两份 json（按 code 对齐），带风险档位与标签。
 
     返回 `(picks, meta)`；两者都缺 = `([], meta)`，`meta.notes` 里说明为什么（供前端如实展示）。
     """
-    date = _pick_date()
+    date = _pick_date(prefer=pick_date)
     meta = {"date": date, "models": {}, "notes": []}
     if not date:
         meta["notes"].append("两个模型都没有可用预测文件")
@@ -376,21 +438,29 @@ def load_picks(top=60):
         if scorer.is_st(it.get("name") or ""):
             it["risk"] = "high"
             it["st"] = True
-        it["tag"] = _tag(it.get("scoreXgb"), it.get("scoreLgb"), it["risk"])
-        # 排序：双模型均值降序（缺失的模型按另一个算，避免"只有火眼的票"被排到最后）
-        vals = [v for v in (it.get("scoreXgb"), it.get("scoreLgb")) if v is not None]
-        it["_avg"] = sum(vals) / len(vals) if vals else 0
         lut.append(it)
-    lut.sort(key=lambda x: -x["_avg"])
-    for it in lut:
-        it.pop("_avg", None)
-    if not lut:
+    # ★ 双模型融合（综合分 + 分歧度）—— 排序与标签都改为按**综合分**（方案 §十）
+    # 🔴 关键: 百分位必须在**展示候选池内**算。实测踩到过: 在全市场 ~5500 只里算百分位，
+    #    前 60 名会全部挤在 99~100 分（综合分失去区分度）。故先按"单模型最好分"截出候选池，
+    #    池内再算百分位 ⇒ 0~100 自然铺开（口径 = "相对当日**候选票**的强弱"）。
+    def _best(x):
+        vals = [v for v in (x.get("scoreXgb"), x.get("scoreLgb")) if v is not None]
+        return max(vals) if vals else 0
+    lut.sort(key=lambda x: -_best(x))
+    pool = lut[:CANDIDATE_POOL]
+    fuse(pool)
+    for it in pool:
+        it["tag"] = _tag(it.get("scoreFused"), it.get("scoreXgb"), it.get("scoreLgb"),
+                         it.get("divergence"), it["risk"])
+    # 排序: 综合分降序，同分再用"单模型最好分"稳定次序
+    pool.sort(key=lambda x: (-(x.get("scoreFused") if x.get("scoreFused") is not None else -1), -_best(x)))
+    if not pool:
         meta["notes"].append("合并后没有任何带分数的个股")
-    return lut[:top], meta
+    return pool[:top], meta
 
 
 # ==================== ⑤ 总装（带 60s 缓存） ====================
-def _build():
+def _build(pick_date=None):
     date = _today()
     notes = []
 
@@ -421,10 +491,12 @@ def _build():
         notes.append("承接强弱不可用：%s" % (sup_detail or {}).get("reason", "未知"))
 
     try:
-        picks, pmeta = load_picks()
+        picks, pmeta = load_picks(pick_date=pick_date)
     except Exception as e:                                     # noqa: BLE001
         picks, pmeta = [], {"notes": ["个股列表读取失败：%s" % str(e)[:80]]}
     notes += (pmeta.get("notes") or [])
+    if picks and all(p.get("divergence") is None for p in picks):
+        notes.append("当前只有单模型有产出 ⇒ 综合分 = 该模型的当日百分位（非双模型融合）")
 
     return {
         "date": date,
@@ -454,8 +526,13 @@ def _build():
     }
 
 
-def build_overview():
-    """聚合入口（跨进程 60s 缓存 + 单飞，避免并发重复计算）。"""
+def build_overview(pick_date=None):
+    """聚合入口（跨进程 60s 缓存 + 单飞）。
+
+    `pick_date` 非空时（回看某日研判）**绕过缓存**直接计算 —— 否则不同日期的请求会互相污染。
+    """
+    if pick_date:
+        return _build(pick_date=pick_date)
     try:
         return cache_store.cached_singleflight(
             cache_store.store, "chaozhi:overview", OVERVIEW_TTL, _build) or _build()
