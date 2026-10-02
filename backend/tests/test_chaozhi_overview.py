@@ -96,6 +96,44 @@ def test_picks_fused_spread_within_candidate_pool(monkeypatch):
     assert fused == sorted(fused, reverse=True)
 
 
+def test_picks_prefer_top_over_all_and_mark_change_kind(monkeypatch):
+    """🔴 2026-10-02 主人反馈「数据读不对」的根因回归：
+
+    ① 同时存在 top（过滤后候选）与 all（过滤前全量）时**必须只用 top** ——
+       否则竞价涨幅 9.9~10.9% 的票（**竞价就涨停、根本买不进**）会混进名单，
+       且本页 60 只 / 金睛火眼 30 只 ⇒ 名单对不上（机器实测 all 里 >7% 的有 15 只）。
+    ② 涨幅必须带**口径标记**：原始预测文件里只有 `bid_change`（9:25 竞价涨幅）
+       ⇒ changeKind=='bid'，前端据此显示"竞价"，不许裸显示数字（否则被读成"当前涨幅"）。
+    ③ `yesterday_chg` 名字骗人（实测 09-28 版数值==竞价涨幅、09-30 版==当日收盘涨幅，
+       半夜 backfill 跑出来的是"未来数据"）⇒ 必须忽略，绝不拿来当涨幅。
+    """
+    monkeypatch.setattr(chaozhi, "_pick_date", lambda *a, **k: "2026-10-02")
+    monkeypatch.setattr(chaozhi, "_risk_map", lambda d: {})
+    top = [{"code": "600000", "name": "浦发银行", "ai_prob": 0.92, "bid_change": 1.5}]
+    al = top + [{"code": "300001", "name": "特锐德", "ai_prob": 0.99, "bid_change": 10.04}]
+
+    # ① 只用 top
+    monkeypatch.setattr(chaozhi, "_read_json",
+                        lambda date, model: {"top": top, "all": al} if model == "xgb" else None)
+    picks, _ = chaozhi.load_picks(top=60)
+    assert [p["code"] for p in picks] == ["600000"], [p["code"] for p in picks]
+    assert picks[0]["change"] == 1.5
+    # ② 口径标记 = 竞价
+    assert picks[0]["changeKind"] == "bid"
+
+    # ② 接口层若注入实时涨幅 ⇒ 值与该用优先，且标记跟着变
+    monkeypatch.setattr(chaozhi, "_read_json",
+                        lambda date, model: {"top": [dict(top[0], realTime=3.3)]} if model == "xgb" else None)
+    picks2, _ = chaozhi.load_picks(top=60)
+    assert picks2[0]["change"] == 3.3 and picks2[0]["changeKind"] == "realtime"
+
+    # ③ yesterday_chg 必须被忽略（它既不是昨涨幅、也不该当涨幅）
+    monkeypatch.setattr(chaozhi, "_read_json",
+                        lambda date, model: {"top": [dict(top[0], yesterday_chg=9.99)]} if model == "xgb" else None)
+    picks3, _ = chaozhi.load_picks(top=60)
+    assert picks3[0]["change"] == 1.5, picks3[0]["change"]
+
+
 def test_fuse_single_model_degrades_to_that_model():
     """某模型整日缺失 ⇒ 综合分 = 另一个模型的当日百分位（按可用权重归一），divergence=None"""
     rows = [{"code": "A", "scoreXgb": 90, "scoreLgb": None},

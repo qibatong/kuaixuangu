@@ -107,7 +107,9 @@
               <span class="cz-fused">综合<b>{{ p.scoreFused ?? '—' }}</b></span>
               <span class="cz-models">金睛{{ p.scoreXgb ?? '—' }} · 火眼{{ p.scoreLgb ?? '—' }}</span>
               <span class="cz-div" :class="divCls(p)">{{ divText(p) }}</span>
-              <span class="cz-chg" :class="(p.change || 0) >= 0 ? 'up' : 'down'">{{ signed(p.change) }}%</span>
+              <!-- ★ 2026-10-02 核实: 本页涨幅是**竞价涨幅（9:25 撮合）**（原始预测文件里只有 bid_change），
+                   不加标注裸显示会被读成"当前/当日涨幅" ⇒ 数字前永远带口径小字（竞价/当日/实时）。 -->
+              <span class="cz-chg" :class="(p.change || 0) >= 0 ? 'up' : 'down'"><i class="cz-chg-kind">{{ chgKindText(p) }}</i>{{ signed(p.change) }}%</span>
               <span v-if="p.concept" class="cz-concept">{{ p.concept }}</span>
             </span>
           </div>
@@ -117,6 +119,9 @@
           综合分 = 金睛/火眼<b>当日百分位加权</b>（等权 0.5/0.5，权重可配）—— 表示<b>当日相对强弱</b>，
           <b>不是概率</b>；「一致/分歧」= 两模型排名差（分歧 ≥0.5 时标签降级为谨慎）。
           单模型日（火眼无产出）综合分即该模型百分位，并标「单模型」。
+          <br>
+          名单 = 金睛/火眼<b>过滤后的当日候选</b>（竞价额 ≥3000万、竞价涨幅 ≤7%、涨停率 ≥50%），与那两页一致；
+          个股后的<b>涨幅为竞价涨幅（9:25 集合竞价）</b>，<b>不是当前/当日涨幅</b>。
         </div>
       </section>
 
@@ -180,6 +185,15 @@ const capHint = computed(() => {
 })
 
 function fmt(v) { return (v === null || v === undefined || v === '') ? '--' : v }
+// 涨幅**口径**文字（后端 changeKind 给出）：
+//   bid = 9:25 集合竞价涨幅（本页常态，取自当日预测文件）；day = 回看历史时该日**已实现**涨幅；
+//   realtime = 最新交易日盘中实时涨幅。绝不裸显示数字（主人 2026-10-02："数据读不对，涨幅对不对？"）
+function chgKindText(p) {
+  const k = p && p.changeKind
+  if (k === 'realtime') return '实时 '
+  if (k === 'day') return '当日 '
+  return '竞价 '
+}
 function signed(v) {
   const n = Number(v || 0)
   return (n >= 0 ? '+' : '') + n.toFixed(2)
@@ -330,6 +344,8 @@ usePolling(() => { if (isIntradayNow()) load() }, 60000, { immediate: false })
 .d-split { color: var(--qg-red-a); border: 1px solid var(--qg-red-a); }
 .d-single { color: var(--text-dim); border: 1px solid var(--border-soft); }
 .cz-chg { font-weight: 700; }
+/* 涨幅的口径小字（竞价/当日/实时）—— 小、弱、不抢数字 */
+.cz-chg-kind { margin-right: 2px; font-size: 10px; font-style: normal; font-weight: 400; opacity: 0.62; }
 .cz-chg.up { color: var(--qg-red-a); }
 .cz-chg.down { color: var(--qg-blue-a); }
 .cz-concept { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

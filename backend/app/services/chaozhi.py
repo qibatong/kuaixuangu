@@ -403,7 +403,13 @@ def load_picks(top=60, pick_date=None):
     rows = {}
     for m, key in (("xgb", "scoreXgb"), ("lgb", "scoreLgb")):
         d = data.get(m) or {}
-        for r in (d.get("all") or d.get("top") or []):
+        # 🔴 2026-10-02 核实修正（主人："数据读不对"）: 必须用**过滤后的 top**。
+        #   生产脚本按 竞价额≥3000万 / 竞价涨幅≤7% / 涨停率≥50% 筛过，≤30 只，与「金睛/火眼」两页**同一份名单**。
+        #   原写法 `d["all"]`（过滤前全量 5921 只，机器实测）会带来两处错：
+        #     ① 把竞价涨幅 9.9%~10.9% 的票（**竞价就涨停、根本买不进**）排进前列 —— 全量里 >7% 的有 15 只；
+        #     ② 两模型页显示 30 只、本页显示 60 只 ⇒ 名单对不上（用户会以为两套数据打架）。
+        #   `all` 只在当日 top 缺失（异常文件）时兜底。
+        for r in (d.get("top") or d.get("all") or []):
             code = str(r.get("code") or "")
             if not code:
                 continue
@@ -418,16 +424,27 @@ def load_picks(top=60, pick_date=None):
                 "scoreXgb": None,
                 "scoreLgb": None,
                 "change": None,
+                # 涨幅**口径标记**（'bid' 竞价涨幅 / 'day' 当日已实现 / 'realtime' 盘中实时）
+                # —— 前端据此在数字前加"竞价/当日/实时"，不许裸显示（否则会被读成"当前涨幅"）
+                "changeKind": None,
             })
             prob = r.get("ai_prob")
             item[key] = int(round(float(prob) * 100)) if prob is not None else None
-            # 涨幅：优先实时（接口注入）→ 当日涨跌 → 竞价涨幅
-            chg = r.get("realTime")
-            if chg is None:
-                chg = r.get("day_change")
-            if chg is None:
-                chg = r.get("bid_change")
+            # ★ 涨幅 + 口径（2026-10-02 机器核实）：
+            #   本页读的是 predictions_*.json **原始文件** ⇒ 文件里只有 `bid_change`（9:25 集合竞价涨幅）；
+            #   `realTime`/`day_change` 是 `/api/aipick/data` 在**接口层现算注入**的（实时行情 / 本地日K），
+            #   文件里一行都没有（实测 09-28、09-30 各 0 行）⇒ 本页常态是 `bid`。
+            #   🔴 绝不用 `yesterday_chg`：该字段名字骗人 —— 实测 09-28 版数值 == 竞价涨幅、
+            #      09-30 版数值 == 当日收盘涨幅（半夜 backfill 跑出来的就是"未来数据"）；
+            #      生产脚本 2026-09-25 已把它从模型特征里移除并注明"实为当日竞价涨幅"。
+            if r.get("realTime") is not None:
+                chg, kind = r.get("realTime"), "realtime"
+            elif r.get("day_change") is not None:
+                chg, kind = r.get("day_change"), "day"
+            else:
+                chg, kind = r.get("bid_change"), "bid"
             item["change"] = round(float(chg), 2) if chg is not None else None
+            item["changeKind"] = kind
 
     rmap = _risk_map(date)
     lut = []
@@ -443,6 +460,8 @@ def load_picks(top=60, pick_date=None):
     # 🔴 关键: 百分位必须在**展示候选池内**算。实测踩到过: 在全市场 ~5500 只里算百分位，
     #    前 60 名会全部挤在 99~100 分（综合分失去区分度）。故先按"单模型最好分"截出候选池，
     #    池内再算百分位 ⇒ 0~100 自然铺开（口径 = "相对当日**候选票**的强弱"）。
+    #   2026-10-02 起数据源改为两模型**过滤后 top**（各 ≤30）⇒ 池子天然 ≤60 只，
+    #    CANDIDATE_POOL=120 已不再是瓶颈（保留它无害，异常时 all 兜底仍需设上限）。
     def _best(x):
         vals = [v for v in (x.get("scoreXgb"), x.get("scoreLgb")) if v is not None]
         return max(vals) if vals else 0
