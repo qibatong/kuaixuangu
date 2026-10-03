@@ -35,6 +35,9 @@
 
       <!-- 左栏: 选股主流程 -->
       <div class="home-col home-col-left" :class="{ 'home-col-hidden': mobilePane !== 'stock' }">
+        <!-- 2026-10-03: 曾按误解把超智研判常驻在此(ChaozhiView embedded) —— 主人本意是
+             **顶部导航**「放在竞价左边」，本块已整块移除，超智入口 = NavBar「超智」一级 tab。
+             ChaozhiView 的 embedded 能力保留未删(默认关, 对 /chaozhi 页零影响)。 -->
         <!-- 模式切换(内联): 竞价 / 盘中实时 / AI预测 三组
              2026-09-05 主人需求: ① 去掉原顶部提示文案(竞价「9:30前可重新选股…」与
              AI预测「AI 竞价预测…」两行) ② 原右上角「锁定」按钮移除(下方 FilterPanel
@@ -59,13 +62,14 @@
                ⚠️ 它讲的是**名单数据**的取回时刻，与页头那个每秒跳的时钟无关。
                2026-09-28: 竞价一进二 下隐藏 —— 它不读 store 数据流, 显示 store 的时间戳
                会误导（时间戳不是这份名单的取回时刻）。 -->
-          <span v-if="leftTab !== 'yijiner'" class="right-group"><DataStamp :at="dataAt" :ok="dataOk" :interval="autoOn ? 30 : 0" :stale="dataStale" /></span>
+          <span v-if="leftTab !== 'yijiner' && leftTab !== 'auction'" class="right-group"><DataStamp :at="dataAt" :ok="dataOk" :interval="autoOn ? 30 : 0" :stale="dataStale" /></span>
         </div>
 
         <!-- 筛选面板(竞价 / 盘中实时两种模式共用本组件, 组件内部按 store.strategy 分支渲染) -->
         <!-- 2026-09-05: 刷新按钮已下移到 FilterPanel(与 应用/重置/锁定 同组),
              这里监听其 emit 并执行本视图的刷新逻辑 -->
-        <div v-if="leftTab === 'auction' || leftTab === 'spot'" class="home-filter"><FilterPanel @refresh="refreshRealTime" /></div>
+        <!-- 2026-10-03：竞价选股改为《顺势而为竞价终极版》组件（他自带筛选条）⇒ 本面板只服务「动态选股」 -->
+        <div v-if="leftTab === 'spot'" class="home-filter"><FilterPanel @refresh="refreshRealTime" /></div>
 
         <!-- ===== tab1「AI选股」— 2026-09-28 v4.11.80 第三步: **锁定语义 + spot 引擎** =====
              🔴 主人需求原文:「ai竞价出来数据就锁定」—— tab1 保留**锁定**这个动作, 但锁的
@@ -86,7 +90,7 @@
              PICK_BLOCK_FROM/TO), **不是 9:00**。9:00 是 serve_date 的逻辑交易日起点
              (09:00 起当日没数据也不许退上一交易日), 它不拦选股, 只决定看哪一天。 -->
         <!-- 优先于会员门禁: 该时段连会员也不可用(不是权限问题, 是当日定格尚未产生) -->
-        <div v-if="leftTab === 'auction' && stocks.pickBlocked" class="pick-blocked-notice">
+        <div v-if="leftTab === 'legacy-auction' && stocks.pickBlocked" class="pick-blocked-notice">
           <i class="fa fa-clock-o"></i>
           <span>{{ stocks.pickBlockedMsg }}</span>
         </div>
@@ -111,7 +115,16 @@
           title="竞价选股"
         />
 
-        <template v-if="leftTab === 'auction' && (user.isMember || !isMemberOnlyTime()) && !stocks.pickBlocked && !stocks.quotaExceeded">
+        <!-- ★ 2026-10-03 主人指令：竞价选股 = 《顺势而为竞价终极版》（数据来自后端 /api/his-pick）
+             · 他的选股逻辑已在后端逐行等价移植（等价性测试 200/200 行 + 名单 113/113 完全一致）
+             · 版式/交互照原件复刻；旧竞价链路（下方 legacy-auction 分支）**代码保留**，改回 'auction' 即可回滚
+             · 会员/配额门禁照旧（上面两个 VipGate 仍先生效）；不带 pickBlocked（那是旧链路口径） -->
+        <div v-if="leftTab === 'auction' && (user.isMember || !isMemberOnlyTime()) && !stocks.quotaExceeded"
+             class="his-pick-host">
+          <HisPickPanel />
+        </div>
+
+        <template v-if="leftTab === 'legacy-auction' && (user.isMember || !isMemberOnlyTime()) && !stocks.pickBlocked && !stocks.quotaExceeded">
           <!-- 5-1: 奖牌区已降级为 StockTable 行内徽标(前三行), 此处不再渲染三张重复卡片 -->
           <!-- 主表: 无数据时给加载态 -->
           <div v-if="!stocks.isDataCached" class="stock-table-container">
@@ -175,6 +188,13 @@
         <YijinerView v-else-if="leftTab === 'yijiner'" :embedded="true" />
         <!-- 2026-09-29: 竞价精选(主人要求放「竞价一进二」右侧); 兜底分支保持一进二 -->
         <ZhPicksPanel v-else-if="leftTab === 'zhpick'" :embedded="true" />
+        <!-- 🔴 2026-10-03 主人发现「竞价选股页底部还挂着竞价优选的内容」—— 根因就在这里：
+             本链是 v-if / v-else-if **瀑布**，而 `leftTab === 'auction'` 由**上方一个独立的 v-if**
+             承载（HisPickPanel，带会员/配额守卫）。它**不在这条链上** ⇒ 一旦守卫不满足
+             （非会员的会员时段 / 配额用尽）⇒ 链上前面全 false ⇒ 落进链尾 `v-else` = YijinerView
+             （竞价优选）⇒ 竞价选股页底部多出一整块优选内容 ✗
+             修法：把这两个"已由别处承载"的取值**显式吞掉**（空分支），只让真正的未知 tab 走兜底。 -->
+        <template v-else-if="leftTab === 'auction' || leftTab === 'legacy-auction'"></template>
         <YijinerView v-else :embedded="true" />
       </div><!-- /.home-col-left -->
 
@@ -192,6 +212,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FilterPanel from '../components/FilterPanel.vue'
 import SentimentPanel from '../components/SentimentPanel.vue'
 import StockTable from '../components/StockTable.vue'
+import HisPickPanel from '../components/HisPickPanel.vue'   // 2026-10-03 竞价选股
 import AuctionView from './AuctionView.vue'
 import AipickView from './AipickView.vue'
 import AipickLgbView from './AipickLgbView.vue'
@@ -489,6 +510,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.his-pick-host { margin-top: 6px; }
+
 /* 2026-09-16 选股闸门提示块(交易日 09:15:00~09:26:30): 替代主表位置, 说明为何暂时看不到名单。
    配色用黄色提示系(项目五色内), 与涨跌红绿语义无关。 */
 .pick-blocked-notice {

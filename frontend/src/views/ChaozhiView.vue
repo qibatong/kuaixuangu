@@ -6,18 +6,29 @@
     ⚠️ 降级如实展示：`meta.notes` 里有什么就显示什么（例如「火眼 LGB 当日无预测文件」），
        分数缺失显示 `—` 而**不是 0**（0 会被误读成"模型给了 0 分"）。
   -->
-  <div class="page-shell cz-root">
-    <h1 class="visually-hidden">超智研判</h1>
+  <!-- 2026-10-03 主人指令: 本页内容**常驻**电脑端竞价左栏顶部(≥1100px 双栏), 切任何 tab 都能看到
+       ⇒ 新增 `embedded` 模式: ① 不带 h1(宿主 StockView 已有自己的 h1, 一页两个 h1 破坏大纲)
+          ② 去掉整页容器的 max-width / 底部安全区 ③ 卡头补「全文 /chaozhi」入口 + 折叠开关
+          ④ 个股/影子列表限高内滚(避免 60 行名单把下方竞价名单顶出视野) -->
+  <div class="page-shell cz-root" :class="{ 'cz-embed': embedded }">
+    <h1 v-if="!embedded" class="visually-hidden">超智研判</h1>
 
-    <header class="cz-head">
+    <header class="cz-head" :class="{ 'cz-head-embed': embedded }">
       <span class="cz-logo" aria-hidden="true">智</span>
       <div class="cz-head-txt">
         <div class="cz-h1">超智研判</div>
         <div class="cz-sub">双模型 金睛 + 火眼 · 资金 &amp; 情绪预判</div>
       </div>
       <span class="cz-date">{{ date || '—' }}</span>
+      <!-- 嵌入模式下给两个出口：跳完整页 + 就地折叠(状态记 localStorage, 刷新保持) -->
+      <button v-if="embedded" class="cz-more" title="打开超智研判完整页" @click="goFull">全文 ›</button>
+      <button
+        v-if="embedded" class="cz-fold" :aria-expanded="String(open)" :title="open ? '收起' : '展开'"
+        :aria-label="open ? '收起超智研判' : '展开超智研判'" @click="toggleOpen"
+      >{{ open ? '▾' : '▸' }}</button>
     </header>
 
+    <div v-show="open" class="cz-body">
     <div v-if="loading" class="loading-placeholder"><div class="spinner"></div><div>加载研判数据...</div></div>
     <div v-else-if="failed" class="empty-state">研判数据暂不可用，稍后重试</div>
 
@@ -57,10 +68,7 @@
           </div>
         </div>
         <div v-else class="cz-empty">情绪序列暂无数据（需 `limit_history` 有落库；二期起按日快照补齐）</div>
-        <div class="cz-legend">
-          柱高 = 当日涨停家数<template v-if="phase"> · 高亮 = <b>{{ phase }}</b> 阶段</template>
-          · 阶段判定：转强(回封率≥40%) &gt; 升温(≥2 项改善) &gt; 分歧
-        </div>
+        <!-- 2026-10-03 主人指令：说明文字不在前端展示（原「柱高/阶段判定」图例已移除） -->
       </section>
 
       <!-- ③ 资金预判：三种口径可切 -->
@@ -82,10 +90,7 @@
           </div>
         </div>
         <div v-else class="cz-empty">资金序列暂无数据（需 `snapshot_bid` 9:25 行落库）</div>
-        <div class="cz-legend">
-          {{ capHint }}<br>
-          承接强弱 = 昨涨停股今日竞价平均涨幅 ÷ 今日炸板率（越高 = 承接越强；当日池未落库时回退库内最近交易日）
-        </div>
+        <!-- 2026-10-03 主人指令：说明文字不在前端展示（原「竞价额/承接强弱」图例已移除） -->
       </section>
 
       <!-- ④ 个股研判（双模型分数 金睛/火眼 + 风险 + 标签） -->
@@ -103,38 +108,66 @@
                     @click="goModel('lgb')">火眼名单 ›</button>
           </span>
         </div>
-        <div v-if="picks.length" class="cz-list">
+        <!-- 嵌入左栏时限高内滚：后端 top=60，60 行会把下方的竞价名单顶出视野 -->
+        <div v-if="picks.length" class="cz-list" :class="{ 'cz-list-scroll': embedded }">
           <div v-for="p in picks" :key="p.code" class="cz-row" :data-cz="p.code">
             <span class="cz-line1">
               <span class="cz-name">{{ p.name }}</span>
               <span class="cz-code">{{ p.code }}</span>
-              <span class="cz-tag" :class="'t-' + p.tag">{{ p.tag }}</span>
-              <span class="cz-risk" :class="'r-' + p.risk">{{ riskText(p.risk) }}</span>
             </span>
             <span class="cz-line2">
-              <!-- ★ 主分 = **双模型综合分**（当日百分位加权，见 docs/…§十） -->
+              <!-- ★ 2026-10-03 主人指令（信息精简）：只留 1 个主分（综合分）+ 竞价涨幅 + 封板结果；
+                   去掉 风险档位/可买性标签/双模型概率/融合概率/共识/分歧（噪声，用户不看）。 -->
               <span class="cz-fused">综合<b>{{ p.scoreFused ?? '—' }}</b></span>
-              <span class="cz-models">金睛{{ p.scoreXgb ?? '—' }} · 火眼{{ p.scoreLgb ?? '—' }}</span>
-              <span class="cz-div" :class="divCls(p)">{{ divText(p) }}</span>
-              <!-- ★ 2026-10-02 核实: 本页涨幅是**竞价涨幅（9:25 撮合）**（原始预测文件里只有 bid_change），
-                   不加标注裸显示会被读成"当前/当日涨幅" ⇒ 数字前永远带口径小字（竞价/当日/实时）。 -->
               <span class="cz-chg" :class="(p.change || 0) >= 0 ? 'up' : 'down'"><i class="cz-chg-kind">{{ chgKindText(p) }}</i>{{ signed(p.change) }}%</span>
               <span v-if="p.concept" class="cz-concept">{{ p.concept }}</span>
+              <span v-if="p.isLimitUp === 1" class="cz-pk cz-pk-zt">已封板</span>
+              <span v-else-if="p.isLimitUp === 0" class="cz-pk cz-pk-no">未封板</span>
             </span>
           </div>
         </div>
         <div v-else class="cz-empty">暂无个股研判数据</div>
-        <div class="cz-legend">
-          综合分 = 金睛/火眼<b>当日百分位加权</b>（等权 0.5/0.5，权重可配）—— 表示<b>当日相对强弱</b>，
-          <b>不是概率</b>；「一致/分歧」= 两模型排名差（分歧 ≥0.5 时标签降级为谨慎）。
-          单模型日（火眼无产出）综合分即该模型百分位，并标「单模型」。
-          <br>
-          名单 = 金睛/火眼<b>过滤后的当日候选</b>（竞价额 ≥3000万、<b>竞价涨幅限制已放开至 ≤10%</b>、涨停率 ≥50%），与那两页一致；
-          个股后的<b>涨幅为竞价涨幅（9:25 集合竞价）</b>，<b>不是当前/当日涨幅</b>。
-        </div>
+        <!-- 2026-10-03 主人指令：说明文字不在前端展示（原「综合分/名单口径」图例已移除，
+             且其内容已过期：竞价额≥3000万 / 涨幅≤10% 均已改） -->
       </section>
 
-      <!-- ⑤ 底部按钮 -->
+      <!-- ⑤ 影子模型（2026-10-03 上线；主人要求展示在超智内）—— 内部验证中，⚠️ 不对外发布 -->
+      <section v-if="shadow.enabled" class="cz-card cz-shadow">
+        <div class="cz-card-h">
+          <span class="cz-card-t">影子模型 · 内部验证</span>
+          <span class="cz-cnt">不对外</span>
+        </div>
+        <div class="cz-note">
+          候选 <b>{{ shadow.candidate || '—' }}</b>（{{ (shadow.candidateTrainedAt || '—').slice(0, 16) }} 训练）·
+          数据日 {{ shadow.date }} · 当日 top10 封板
+          <b>{{ shadow.hit?.hit }}/{{ shadow.hit?.total }}</b>
+          <b v-if="shadow.hit?.rate != null">（{{ shadow.hit.rate }}%）</b>
+        </div>
+        <div class="cz-list" :class="{ 'cz-list-scroll': embedded }">
+          <div v-for="(p, i) in shadow.picks" :key="p.code" class="cz-row">
+            <span class="cz-line1">
+              <span class="cz-name">{{ i + 1 }}. {{ p.name || '—' }}</span>
+              <span class="cz-code">{{ p.code }}</span>
+              <span v-if="p.isLimitUp === 1" class="cz-pk cz-pk-zt">已封板</span>
+              <span v-else-if="p.isLimitUp === 0" class="cz-pk cz-pk-no">未封板</span>
+              <span v-else class="cz-pk">待回填</span>
+            </span>
+            <span class="cz-line2">
+              <span class="cz-fused">分数<b>{{ p.score }}</b></span>
+              <span class="cz-models">模型 {{ p.modelVer || '—' }}</span>
+            </span>
+          </div>
+        </div>
+        <div v-if="shadow.gate" class="cz-note">
+          闸门（{{ shadow.gate.nDays }} 交易日同日对拍）：top3 {{ signed(shadow.gate.top3Pp) }}pp ·
+          top5 {{ signed(shadow.gate.top5Pp) }}pp · top10 {{ signed(shadow.gate.top10Pp) }}pp ·
+          top30 {{ signed(shadow.gate.top30Pp) }}pp ⇒ <b>{{ shadow.gate.decisionText }}</b>
+        </div>
+        <div v-if="shadow.frozen" class="cz-note">⚠️ 已冻结：{{ shadow.freezeReason }}</div>
+        <!-- 2026-10-03 主人指令：说明文字不在前端展示（原「闸门说明/免责声明」已移除） -->
+      </section>
+
+      <!-- ⑥ 底部按钮 -->
       <div class="cz-foot">
         <button class="cz-btn ghost" @click="goDetail">查看评分详情</button>
         <button class="cz-btn main" :disabled="!picks.length" @click="addPool">加入自选</button>
@@ -147,6 +180,7 @@
         <div v-if="meta.pickDate" class="cz-note">· 模型数据日期：{{ meta.pickDate }}</div>
       </div>
     </template>
+    </div><!-- /.cz-body  ← 2026-10-03: 嵌入模式折叠容器 -->
   </div>
 </template>
 
@@ -162,6 +196,9 @@ import { showToast } from '../utils/toast'
 const router = useRouter()
 const pool = usePoolStore()
 
+// 2026-10-03: `embedded` = 常驻在电脑端竞价左栏顶部（StockView），同一份 UI，只是布局约束不同。
+const props = defineProps({ embedded: { type: Boolean, default: false } })
+
 const loading = ref(true)
 const failed = ref(false)
 const date = ref('')
@@ -169,11 +206,28 @@ const scores = ref({ emotion: null, capital: null, promote: null, support: null 
 const emotion = ref({ series: [], latest: {} })
 const capital = ref({ series: [], latest: {} })
 const picks = ref([])
+const shadow = ref({})            // 影子模型块（内部验证，不对外）
 const senti = ref({})
 const meta = ref({})
 
 const route = useRoute()
 const pickDate = computed(() => String((route.query.pickDate) || ''))
+
+// 折叠状态（**仅嵌入模式**有开关，整页模式永远展开）：用 localStorage 记住，
+// 否则用户每次刷新左栏都被整块超智内容顶住。隐私模式/无 storage 时恒展开。
+const CZ_OPEN_KEY = 'kuaixuan.cz.embed.open'
+const open = ref(true)
+if (props.embedded) {
+  try {
+    if (localStorage.getItem(CZ_OPEN_KEY) === '0') open.value = false
+  } catch (e) { /* 无 storage：默认展开 */ }
+}
+function toggleOpen() {
+  open.value = !open.value
+  try { localStorage.setItem(CZ_OPEN_KEY, open.value ? '1' : '0') } catch (e) { /* 忽略 */ }
+}
+function goFull() { router.push('/chaozhi') }
+
 const phase = ref('')
 const metric = ref('bidAmt')   // 默认看竞价额: 三列里唯一每天都有采集（主力净额/量比有整日缺口）
 const phaseTabs = ['升温', '分歧', '转强']
@@ -258,6 +312,7 @@ async function load() {
     emotion.value = d.emotion || emotion.value
     capital.value = d.capital || capital.value
     picks.value = d.picks || []
+    shadow.value = d.shadow || {}          // 影子模型块（内部验证，不对外）
     senti.value = d.senti || {}
     meta.value = d.meta || {}
     failed.value = false
@@ -272,7 +327,33 @@ usePolling(() => { if (isIntradayNow()) load() }, 60000, { immediate: false })
 <style scoped>
 .cz-root { max-width: 980px; margin: 0 auto; padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 
+/* 2026-10-03 嵌入左栏(StockView)：不再是整页容器 —— 去掉定宽/居中/底部安全区,
+   字级整体收紧一档(左栏只有半屏宽, 整页字号放进来会显得空大)。 */
+.cz-embed { max-width: none; margin: 0 0 8px; padding: 0; padding-bottom: 0; }
+/* 加载态/空态在左栏要收紧：整页那份 40px 留白会把下方 tab 条顶下一大块 */
+.cz-embed .cz-body > .loading-placeholder,
+.cz-embed .cz-body > .empty-state { padding: 16px; }
+
 .cz-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.cz-head-embed { margin-bottom: 6px; }
+/* 折叠/全文两个出口的小按钮（嵌左栏专用；用文字符号不引 Font Awesome 新字形） */
+.cz-head-embed .cz-more,
+.cz-head-embed .cz-fold {
+  flex: 0 0 auto;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-input);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.6rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cz-head-embed .cz-fold { padding: 2px 7px; font-size: 0.66rem; line-height: 1.2; }
+.cz-head-embed .cz-more:hover,
+.cz-head-embed .cz-fold:hover { color: var(--text-main); border-color: var(--qg-orange-a); }
+/* 限高内滚：列表自己在块内滚，不把下方竞价名单推走 */
+.cz-list-scroll { max-height: 260px; overflow-y: auto; overscroll-behavior: contain; }
 .cz-logo {
   width: 30px; height: 30px; border-radius: 9px; flex: 0 0 auto;
   background: linear-gradient(145deg, var(--qg-purple-a), var(--qg-purple-b));
@@ -362,6 +443,16 @@ usePolling(() => { if (isIntradayNow()) load() }, 60000, { immediate: false })
 .d-split { color: var(--qg-red-a); border: 1px solid var(--qg-red-a); }
 .d-single { color: var(--text-dim); border: 1px solid var(--border-soft); }
 .cz-chg { font-weight: 700; }
+/* 融合概率 / 共识 / 可买性 / 封板结果（2026-10-03：综合展示两模型预测能涨停的票） */
+.cz-fused2 b, .cz-models b { color: #ffd166; }
+.cz-consensus { padding: 0 4px; border-radius: 3px; font-size: 10px; font-weight: 700;
+  background: rgba(255, 99, 132, 0.18); color: #ff6384; }
+.cz-pk { padding: 0 4px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+.cz-pk-none { background: rgba(255, 82, 82, 0.16); color: #ff6b6b; }
+.cz-pk-low { background: rgba(255, 167, 38, 0.16); color: #ffa726; }
+.cz-pk-ok { background: rgba(76, 175, 80, 0.14); color: #66bb6a; }
+.cz-pk-zt { background: rgba(255, 82, 82, 0.22); color: #ff5252; }
+.cz-pk-no { background: rgba(255, 255, 255, 0.08); color: rgba(255,255,255,.55); }
 /* 涨幅的口径小字（竞价/当日/实时）—— 小、弱、不抢数字 */
 .cz-chg-kind { margin-right: 2px; font-size: 10px; font-style: normal; font-weight: 400; opacity: 0.62; }
 .cz-chg.up { color: var(--qg-red-a); }
