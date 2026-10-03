@@ -877,7 +877,8 @@ function reasonTitle(it) {
 // 单个接口最多等 15s, 超时返回空对象(不让某个慢接口拖垮整页加载)
 // 2026-09-28: 12000 → 15000。冷取数最坏实测 11.5s(结果层 + 上游层同时失效),
 // 12s 会在临界点把结果截断成空列表(= 用户看到"点了没数据"), 留足余量。
-function withTimeout(p, ms = 15000) {
+// 2026-10-03：15s → 6s。原来一个挂住的请求会让首屏等满 15s 才渲染（主人反馈"要很久才有数据"）
+function withTimeout(p, ms = 6000) {
   return Promise.race([
     p,
     new Promise(res => setTimeout(() => res({ list: [], list20: [], list20Chg: [], listLast: [], days: [] }), ms))
@@ -897,10 +898,6 @@ async function loadAll(fromUser = false) {
       applyServeDate(ov)
       useDate = serveDate.value
     }
-    const s3 = await withTimeout(bidSnapshot3points(useDate || todayBj()))
-    s3List.value = s3.list || []
-    setFrozen(s3)
-    loadedTabs.add('s3')
     const d = (ov.days && ov.days.length ? ov.days[0].date : '') || useDate || ''
     dataDate.value = d || useDate || ''
     if (useDate && fromUser) {
@@ -908,7 +905,18 @@ async function loadAll(fromUser = false) {
         showToast(`数据日期 ${dataDate.value}${dataDate.value !== useDate ? '（非交易日自动对齐）' : ''}`, 'info')
       }
     }
-    await ensureTabData(tab.value, { silent: true })
+    // 🔴 2026-10-03 首屏加速（主人批准）：原来「快照3点 → 当前tab」是**串行** ⇒ 总时长相加，
+    //    最慢一环决定用户何时能看到数据（实测抢筹均 1.04s、最坏 4.51s）。
+    //    改为并发 + 到达即渲染：先放开 loading 占位，两张表各自拿到数据就各自显示。
+    loading.value = false
+    await Promise.allSettled([
+      withTimeout(bidSnapshot3points(useDate || todayBj())).then((s3) => {
+        s3List.value = s3.list || []
+        setFrozen(s3)
+        loadedTabs.add('s3')
+      }),
+      ensureTabData(tab.value, { silent: true }),
+    ])
   } catch (e) { } finally {
     loading.value = false
   }

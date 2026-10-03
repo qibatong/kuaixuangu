@@ -18,6 +18,8 @@ const router = createRouter({
     // ---------------- 竞价 ----------------
     { path: '/', name: 'stock', component: () => import('../views/StockView.vue'), meta: { group: 'auction', order: 0 } },
     { path: '/auction', name: 'auction', component: () => import('../views/AuctionView.vue'), meta: { group: 'auction', order: 1 } },
+    // 2026-10-03：《顺势而为竞价终极版》（数据来自后端 /api/his-pick）
+    { path: '/his-pick', name: 'his-pick', component: () => import('../views/HisPickView.vue'), meta: { group: 'auction', order: 9 } },
     { path: '/aipick', name: 'aipick', component: () => import('../views/AipickView.vue'), meta: { group: 'auction', order: 2 } },
     // 2026-09-25: 火眼(LightGBM) 平行链路独立页(与 /aipick 共用 AipickReport 组件, 只换 model)
     { path: '/aipick-lgb', name: 'aipick-lgb', component: () => import('../views/AipickLgbView.vue'), meta: { group: 'auction', order: 3 } },
@@ -28,10 +30,11 @@ const router = createRouter({
     // 2026-10-01 主人: 首页宫格「题材库」格 → 开盘啦题材/板块榜（含成分股下钻）
     { path: '/theme', name: 'theme', component: () => import('../views/ThemeLibView.vue'), meta: { group: 'intraday', order: 1 } },
     // 2026-10-01 主人: 「超智研判」（原 AI预测）聚合页 —— 首页宫格第 5 格直跳此页
-    // ⚠️ `noGroupNav`: 本页是独立聚合页，**不显示**所在分组(盘中)的二级 pill 行
-    //   （主人 2026-10-01:「超智页面上面怎么有盘中/板块/题材库，这个不应该显示在这里」）
+    // 2026-10-03 主人指令: 升为**一级分组**「超智」（放「竞价」左边），meta.group 改 'chaozhi'。
+    //   ⚠️ 曾经的 noGroupNav 豁免随之取消 —— 它当时是为了挡住误归属「盘中」组的 pill 行；
+    //      现在自成一组且组内只有 1 页 ⇒ GroupNav 的 items.length>1 判据本来就不渲染。
     { path: '/chaozhi', name: 'chaozhi', component: () => import('../views/ChaozhiView.vue'),
-      meta: { group: 'intraday', order: 2, noGroupNav: true } },
+      meta: { group: 'chaozhi', order: 0 } },
     // 2026-09-27: 题材异动已并入 /market 的「东财概念榜」数据源（工单 三.4 方案 A）。
     // 路径保留 + 重定向，旧书签/外链不 404。
     { path: '/concept', name: 'concept', redirect: (to) => ({ name: 'market', query: { ...to.query, src: 'em' } }) },

@@ -21,3 +21,9 @@ export function aipickData(date = '', model = 'xgb') {
   const path = date ? `/api/aipick/data/${date}` : '/api/aipick/data'
   return request(path, { query: { model } })
 }
+
+// 交易层信息（2026-10-03）：**只保留“当日是否封板”结果**（可买性/收益/卖出规则均不展示）
+//   数据源 = pick_daily（每日 9:28 自动落库）；失败/无数据一律返回空结构，前端静默不显示
+export function pickDaily(date = '', line = 'xgb', top = 60) {
+  return request('/api/pick/daily', { query: { date, line, top } })
+}

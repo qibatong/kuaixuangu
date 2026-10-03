@@ -24,7 +24,7 @@
             <div class="ap-report-title-row">
               <div class="ap-report-title">
                 <i class="fa fa-line-chart ap-report-icon"></i>
-                涨停概率预测
+                涨停评分预测
                 <!-- 2026-09-25 双模型: 让用户一眼看出这是"另一个模型"而不是页面重复 -->
                 <span class="ap-model-chip" :class="{ 'ap-model-lgb': isLgb }">{{ isLgb ? '火眼' : '金睛' }}</span>
                 <span class="ap-date-badge">{{ data.date }}</span>
@@ -59,14 +59,14 @@
               <input v-model="mvMax" class="ap-rule-in" type="number" inputmode="decimal" step="100" placeholder="100">
               <span class="ap-rule-unit">亿</span>
               <span class="ap-rule-label">竞价金额≥</span>
-              <input v-model="amtMin" class="ap-rule-in" type="number" inputmode="decimal" step="100" placeholder="3000">
+              <input v-model="amtMin" class="ap-rule-in" type="number" inputmode="decimal" step="100" placeholder="0">
               <span class="ap-rule-unit">万</span>
               <span class="ap-rule-label">竞价涨幅≤</span>
               <input v-model="chgMax" class="ap-rule-in" type="number" inputmode="numeric" placeholder="10">
               <span class="ap-rule-unit">%</span>
-              <span class="ap-rule-label">涨停率≥</span>
+              <span class="ap-rule-label">评分≥</span>
               <input v-model="probMin" class="ap-rule-in" type="number" inputmode="numeric" placeholder="50">
-              <span class="ap-rule-unit">%</span>
+              <span class="ap-rule-unit">分</span>
               <span class="ap-rule-n">{{ shownCount }} 只</span>
               <button class="ap-rule-reset" title="恢复默认规则" @click="resetRule"><i class="fa fa-undo"></i></button>
               <span class="ap-rule-tip">留空表示不限；回车即时过滤</span>
@@ -85,12 +85,13 @@
             <table class="stock-table ap-stock-table">
               <thead>
                 <!-- ★ 2026-09-29 主人拍板: 列精简为 7 列 ——
-                     名称 / AI涨停概率 / 竞价涨幅 / 实时涨幅(回看时=当日涨幅) / **实体涨幅** / 竞价金额 / 概念。
+                     名称 / AI评分 / 竞价涨幅 / 实时涨幅(回看时=当日涨幅) / **实体涨幅** / 竞价金额 / 概念。
                      去掉「流通市值」「换手率」两列(它们仍是**规则过滤**条件, 见上方规则条, 只是不再占列)。
                      顺序按主人给的清单排(实时涨幅在实体涨幅之前)。 -->
                 <tr>
                   <th :class="thCls('name')" @click="toggleSort('name')">名称</th>
-                  <th :class="thCls('ai_prob')" @click="toggleSort('ai_prob')">AI涨停概率</th>
+                  <th :class="thCls('ai_prob')" @click="toggleSort('ai_prob')"
+                      title="模型输出分（100 分制）：仅用于排序与比较；未做概率校准，请勿当概率理解">AI评分</th>
                   <th :class="thCls('bid_change')" @click="toggleSort('bid_change')">竞价涨幅</th>
                   <th v-if="isLatest" :class="thCls('realtime')" @click="toggleSort('realtime')">实时涨幅</th>
                   <th v-else :class="thCls('day_change')" @click="toggleSort('day_change')">当日涨幅</th>
@@ -104,9 +105,18 @@
                 <tr v-for="(r, i) in rows" :key="r.code + i">
                   <td class="name-col" :data-stock-code="r.code" :data-stock-name="r.name" title="点击查看分时/日K/周K/月K">
                     <div class="name-main"><span class="pool-hover-wrap">{{ r.name }}<PoolHoverBtn :item="r" /></span></div>
-                    <div class="name-sub">{{ r.code }}</div>
+                    <div class="name-sub">{{ r.code }}<span class="ap-board"
+                      :class="'ap-bd-' + boardOf(r.code).key">{{ boardOf(r.code).text }}</span></div>
+                    <!-- 交易层标签：**只保留"当日是否封板"**（结果数据）。
+                         2026-10-03 主人指令：可买性分级（一字买不进/排队打板/可买）不再展示
+                         —— 实测 93% 的"竞价一字"当天会开板，该分级对用户是误导。
+                         取不到数据时 pm() 返回 null ⇒ 完全不渲染，零回归。 -->
+                    <div v-if="pm(r)" class="ap-pick-tags">
+                      <span class="ap-tag" :class="pm(r).cls">{{ pm(r).text }}</span>
+                    </div>
                   </td>
-                  <td><span class="score-badge" :class="probCls(r.ai_prob)">{{ (r.ai_prob * 100).toFixed(1) }}%</span></td>
+                  <td><span class="score-badge" :class="probCls(r.ai_prob)"
+                          title="模型输出分·仅用于排序（未校准，非概率）">{{ scoreText(r.ai_prob) }}</span></td>
                   <td :class="chgCls(r.bid_change)">{{ fmtChg(r.bid_change) }}</td>
                   <td v-if="isLatest" :class="chgCls(rt(r))">{{ rtText(r) }}</td>
                   <td v-else :class="chgCls(r.day_change)">{{ dayChgText(r) }}</td>
@@ -118,6 +128,8 @@
             </table>
           </div>
 
+          <!-- 2026-10-03 主人指令：产品 = 涨停评分排序（排序器），不是交易策略引擎
+               ⇒ 「建议卖出 / 持有期收益」不再展示（后端接口也不再返回）。 -->
           <div class="ap-note">数据仅供研究参考，不构成任何投资建议</div>
         </template>
       </div>
@@ -129,7 +141,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import VipGate from '../components/VipGate.vue'
 import PoolHoverBtn from '../components/PoolHoverBtn.vue'
-import { aipickDates, aipickData, aipickRealtime } from '../api/aipick'
+import { aipickDates, aipickData, aipickRealtime, pickDaily } from '../api/aipick'
 import { trackUsage } from '../api/activity'
 
 // 2026-09-01: 嵌入首页左视图(替换盘中选股)时传入 embedded=true,
@@ -191,9 +203,9 @@ const isLatest = computed(() => !selDate.value)
 // ===== 用户可调的规则过滤(默认与生成脚本一致) =====
 const mvMin = ref(30)     // 流通市值下限(亿)  默认与后端 predict 一致
 const mvMax = ref(100)    // 流通市值上限(亿)  2026-08-30 主人要求: 30-100亿
-const amtMin = ref(3000)  // 竞价金额下限(万)  2026-08-30 主人要求: ≥3000万
+const amtMin = ref(0)     // 竞价金额下限(万)  2026-10-02 主人指令: 取消限制(0=不限, 原 ≥3000万)
 const chgMax = ref(10)    // 竞价涨幅上限(%)   2026-10-02 主人指令: 7 → 10（原 08-30 ≤7%）
-const probMin = ref(50)   // 涨停率下限(%)     2026-08-31 主人要求: 剔除涨停率<50%
+const probMin = ref(50)   // **评分**下限(0~100 分, 模型原始分非概率)  2026-08-31 主人要求: 剔除 <50
 
 // 全量候选集(生成脚本保存过滤前结果); 旧报告无 all 时回退已过滤的 top
 const base = computed(() => {
@@ -297,6 +309,40 @@ function thCls(key) {
 // 展示行: 限制条数(兼顾性能与实时行情接口单次上限)
 const MAX_ROWS = 150
 // 展示行: 按当前排序键排序后截断前 MAX_ROWS
+// ===== 交易层（只保留“当日是否封板”这一结果）=====
+// 🔴 2026-10-03 主人指令：可买性分级、建议卖出、持有期收益**一律不进展示层**。
+const pickMap = ref({})
+// 🔴 2026-10-03 主人指令：移除"可买性分级"标签（一字买不进/排队打板/可买）——
+//    实测 93% 的"竞价一字"当天会开板，该分级是误导；只保留**当日是否封板**这个结果。
+function pm(r) {
+  const m = pickMap.value[r.code]
+  if (!m || m.isLimitUp === null || m.isLimitUp === undefined) return null
+  const zt = (m.isLimitUp === true || m.isLimitUp === 1)
+  return zt ? { text: '已封板', cls: 'ap-tag-mid' } : { text: '未封板', cls: 'ap-tag-none' }
+}
+
+async function loadPickMeta() {
+  pickMap.value = {}
+  try {
+    // 🔴 必须用**当前报告日期**请求，且返回日期与之一致才渲染
+    //    （否则"最新 pick_daily"会被贴到历史日期的名单上 —— 静默显示错数据）
+    const want = selDate.value || (data.value && data.value.date) || ''
+    const r = await pickDaily(want, props.model, 60)
+    const d = r && r.data ? r.data : r
+    if (!d || !d.ok) return
+    const norm = (x) => String(x || '').replace(/[^0-9]/g, '').slice(0, 8)
+    if (want && norm(d.date) !== norm(want)) return
+    const map = {}
+    for (const it of (d.items || [])) {
+      const c = String(it.code || '').padStart(6, '0')
+      if (c) map[c] = it
+    }
+    pickMap.value = map
+  } catch (e) {
+    pickMap.value = {}
+  }
+}
+
 const rows = computed(() => {
   const arr = filtered.value.slice()
   if (sortKey.value) arr.sort(sortCompare)
@@ -318,12 +364,13 @@ function resetRule() {
 
 // ===== 规则持久化(localStorage): 记住用户筛选, 再次进入直接套用 =====
 const RULES_KEY = 'kx_aipick_rules'
-// 默认规则(2026-10-02 与后端 predict_daily.py 一致): 流通市值 30-100亿 / 竞价金额≥3000万 / 竞价涨幅≤10% / 涨停率≥50%
+// 默认规则(2026-10-02 与后端 predict_daily.py + filter_defaults 一致): 流通市值 30-100亿 / 竞价金额**不限** / 竞价涨幅≤10% / 涨停率≥50%
 // 一次仅供"未自定义"用户跟随最新默认; HIST_DEFAULTS 用于识别旧默认并自动迁移
-const NEW_DEFAULT = [30, 100, 3000, 10, 50]
+const NEW_DEFAULT = [30, 100, 0, 10, 50]
 const HIST_DEFAULTS = [
   [30, 500, 2000, 10],      // 早期默认
-  [30, 100, 3000, 7],       // 上一版"新默认"(避免再次被命中)
+  [30, 100, 3000, 7],       // 更早"新默认"
+  [30, 100, 3000, 10],      // 上一版"新默认"(竞价额≥3000万 / 涨幅≤10%) —— 2026-10-02 取消金额限制
 ]
 
 function loadRules() {
@@ -415,7 +462,26 @@ function chgCls(v) {
   if (v == null) return ''
   return v >= 0 ? 'up' : 'down'
 }
-// AI涨停概率分级徽章颜色(和股性分徽章一致, 收敛红色滥用)
+// 评分显示（2026-10-03 主人确认）：模型输出**未做概率校准** ⇒ 不作为概率展示，
+//   统一按 100 分制显示（去掉 % 号），表头/单元格都注明"仅用于排序"。
+function scoreText(v) {
+  const x = Number(v)
+  return Number.isFinite(x) ? (x * 100).toFixed(1) : '—'
+}
+
+// 板块徽章（2026-10-03）：主板(10%) / 创业(20%) / 科创(20%) / 北交(30%)。
+//   用途只是让用户一眼知道"这是哪种制度"，**不标预期命中数字**
+//   （线上实测 top3 命中：主板 55.8% vs 20% 板 47.1% ⇒ 差距仅 8.7pp，标数字反而误导）。
+function boardOf(code) {
+  const c = String(code || '').padStart(6, '0')
+  if (c.startsWith('68')) return { key: 'star', text: '科创' }
+  if (c.startsWith('30')) return { key: 'gem', text: '创业' }
+  if (/^(60|00)/.test(c)) return { key: 'main', text: '主板' }
+  if (/^(83|87|43|92)/.test(c)) return { key: 'bj', text: '北交' }
+  return { key: 'other', text: '其他' }
+}
+
+// 评分分级徽章颜色(和股性分徽章一致, 收敛红色滥用)
 function probCls(prob) {
   const p = Number(prob || 0) * 100
   if (p >= 90) return 'score-high'
@@ -470,6 +536,7 @@ async function loadReport() {
   } finally {
     loading.value = false
     startRealtime()
+    loadPickMeta()
     trackUsage('aipick', blocked)
   }
 }
@@ -724,11 +791,11 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   position: sticky; top: 0; z-index: 2;
   background: var(--accent-deep2);
 }
-/* 2026-09-29 主人拍板: 列精简为 **7 列** —— 名称/AI涨停概率/竞价涨幅/实时涨幅(回看=当日涨幅)/
+/* 2026-09-29 主人拍板: 列精简为 **7 列** —— 名称/AI评分/竞价涨幅/实时涨幅(回看=当日涨幅)/
    实体涨幅/竞价金额/概念(去掉「流通市值」「换手率」两列, 但它们仍是上方规则条的过滤条件)。
    🔴 定宽必须跟着列数一起改, 否则表头换行/列宽错位。 */
-.ap-stock-table th:nth-child(1) { width: 84px; }    /* 名称(含代码副行) */
-.ap-stock-table th:nth-child(2) { width: 96px; }    /* AI涨停概率 */
+.ap-stock-table th:nth-child(1) { width: 106px; }   /* 名称(含代码副行 + 板块徽章) */
+.ap-stock-table th:nth-child(2) { width: 96px; }    /* AI评分 */
 .ap-stock-table th:nth-child(3) { width: 60px; }    /* 竞价涨幅 */
 .ap-stock-table th:nth-child(4) { width: 64px; }    /* 实时涨幅 / 当日涨幅 */
 .ap-stock-table th:nth-child(5) { width: 64px; }    /* 实体涨幅 */
@@ -736,10 +803,25 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
 .ap-stock-table th:nth-child(7) { width: 110px; }   /* 概念(限宽110, 单行省略) */
 .ap-stock-table th:nth-child(9) { width: 56px; }    /* 操作(＋自选, 对齐竞价选股) */
 /* 名称列: 上方名称 + 下方代码(参考竞价异动页 stock-info-cell) */
-.ap-stock-table .name-col { width: 84px; padding: 4px 2px; }
+.ap-stock-table .name-col { width: 106px; padding: 4px 2px; }   /* 2026-10-03: 84→106 容纳板块徽章 */
 .ap-stock-table .name-main {
   font-size: 0.8125rem; font-weight: 600; color: var(--text-main);
   line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* 板块徽章：只做"制度标识"，统一中性样式（不给颜色暗示，不标预期命中） */
+.ap-stock-table .ap-board {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.35;
+  vertical-align: 1px;
+  color: var(--text-muted);
+  border: 1px solid var(--border-soft);
+  background: var(--bg-hover);
 }
 .ap-stock-table .name-sub {
   font-size: 0.75rem; color: var(--text-muted);
@@ -776,7 +858,7 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   text-align: right;
 }
 
-/* AI 涨停概率徽章(复用股性页 score-badge 体系 + 我们的自定义级别色) */
+/* AI 评分徽章(复用股性页 score-badge 体系 + 我们的自定义级别色) */
 .score-badge {
   display: inline-block;
   min-width: 60px;

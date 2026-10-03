@@ -70,18 +70,31 @@
      🔴 一律走 token，组件内不写裸色值 —— 见 _verify/color_guard.js 的纪律
         （「确实需要新色时先加 token 再用」；:root 块本身不计入裸值统计）。
      用法：.qg-h-* 只做别名(--qg-a/--qg-b)，图标主形统一 var(--text-main)、次形 var(--qg-hi)。 */
-  --qg-red-a: #ff6b6b;    --qg-red-b: #c92a2a;
-  --qg-cyan-a: #4dabf7;   --qg-cyan-b: #1361a8;
-  --qg-purple-a: #9775fa; --qg-purple-b: #5f3dc4;
-  --qg-orange-a: #ffa94d; --qg-orange-b: #d9480f;
-  --qg-green-a: #51cf66;  --qg-green-b: #2b8a3e;
-  --qg-pink-a: #f783ac;   --qg-pink-b: #a61e4d;
-  --qg-teal-a: #38d9a9;   --qg-teal-b: #087f5b;
-  --qg-gold-a: #ffd43b;   --qg-gold-b: #b8860b;
-  --qg-blue-a: #5c7cfa;   --qg-blue-b: #364fc7;
-  --qg-lime-a: #a9e34b;   --qg-lime-b: #5c940d;
-  --qg-hi: rgba(255, 255, 255, 0.62);          /* 图标高光/次形 */
-  --qg-tile-shadow: 0 3px 10px rgba(0, 0, 0, 0.38);
+  /* ===== 2026-10-03 图标去 AI 化：材质色卡（低饱和自然色，10 档）=====
+     改造前是 Open Color 5xx/9xx 高饱和彩虹色 + 渐变方块，观感"AI 生成"。
+     现改为**哑光材质色**：明度 45~58%、饱和度 20~35%，白墨对比 ≥3:1
+     （单字大号粗体属大文本，3:1 即达 WCAG AA）。
+     上下排各 5 个色族、明度交替 ⇒ 两排有呼应但不重复。 */
+  /* ===== 2026-10-03 v3（主人指示：不要绿色 + 文字不用白底 + 字更大）=====
+     色族（10，**不含绿**）：逐格一色、白字形直接落在色块上
+     · `-a` 方块底色（已按"白字 ≥4.5:1"校过：最低 4.51 最高 5.28）
+     · `-b` 同族深色（备用：若将来要放白底，用它承载文字） */
+  --qg-red-a: #d0432d;     --qg-red-b: #a8331f;     /* 朱红 */
+  --qg-gold-a: #9c6a0a;    --qg-gold-b: #7a5108;    /* 金 */
+  --qg-indigo-a: #4a63cb;  --qg-indigo-b: #2f4499;  /* 靛蓝（替换原青绿）*/
+  --qg-pink-a: #c93b62;    --qg-pink-b: #a02a4c;    /* 玫红 */
+  --qg-purple-a: #7b5ccb;  --qg-purple-b: #5a3fa8;  /* 紫 */
+  --qg-magenta-a: #b8438f; --qg-magenta-b: #8f2f6d; /* 品红（替换原蓝/cyan 名）*/
+  --qg-brown-a: #9c6a3a;   --qg-brown-b: #7a4f28;   /* 棕（替换原草绿）*/
+  --qg-orange-a: #cc6c1c;  --qg-orange-b: #a85413;  /* 橙 */
+  --qg-blue-a: #3f7ad8;    --qg-blue-b: #2258b8;    /* 蓝 */
+  --qg-slate-a: #547aa0;   --qg-slate-b: #2f5476;   /* 灰蓝（替换原松石）*/
+  --qg-on: #ffffff;                             /* 图形/文字主形：纯白 */
+  --qg-mid: rgba(0, 0, 0, 0.16);                /* 少量暗面（细节层次，不发光）*/
+  --qg-hi: rgba(255, 255, 255, 0.42);           /* 高光层（少量点缀）*/
+  --qg-edge: rgba(0, 0, 0, 0.06);               /* 方块内边界（浅底不脏、深底不糊）*/
+  --qg-top-light: rgba(255, 255, 255, 0.22);    /* 顶部 1px 受光 */
+  --qg-tile-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
 }
 body[data-bg="light"] {
   /* 浅色主题: 纯白底(2026-09-21 主人拍板「干净化」) —— 去掉蓝灰渐变/半透明黑,

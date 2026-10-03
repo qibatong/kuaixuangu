@@ -400,6 +400,32 @@ def load_picks(top=60, pick_date=None):
             # 文案口径（主人 2026-10-01）: 对外**只提金睛/火眼**，不提 XGB/LGB
             meta["notes"].append("%s当日无预测文件" % ("火眼" if m == "lgb" else "金睛"))
 
+    # 🔴 2026-10-03 主人反馈"名单里很多跌停的"：展示层加**竞价涨幅下界**（与 FILTER_DEFAULTS.bidLt
+    #    同源，默认 2.0）。上游历史文件（旧口径产物）里已存在的低开票同样不再展示。
+    try:
+        from .filter_defaults import FILTER_DEFAULTS as _FD
+        _bid_floor = float(_FD.get("bidLt", 0.0) or 0.0)
+        _bid_ratio = float(_FD.get("bidLtRatio", 0.0) or 0.0)
+    except Exception:                                            # noqa: BLE001
+        _bid_floor, _bid_ratio = 0.0, 0.0
+
+    def _limit_pct(code):
+        c = str(code)
+        if c[:3] in ("300", "301", "688", "689"):
+            return 20.0
+        if c[:1] in ("8", "4") or c[:3] == "920":
+            return 30.0
+        return 10.0
+
+    def _out_of_range(code, chg, name=None):
+        """是否不达标：低于阈值 / 高于板块涨停幅度×1.05（剔脏行）/ 名称为 ST 退市（主人口径）"""
+        if name and ("ST" in str(name) or "退" in str(name)):
+            return True
+        if chg is None:
+            return False
+        lp = _limit_pct(code)
+        return chg < max(_bid_floor, _bid_ratio * lp) or chg > lp * 1.05
+    _drop = set()
     rows = {}
     for m, key in (("xgb", "scoreXgb"), ("lgb", "scoreLgb")):
         d = data.get(m) or {}
@@ -445,6 +471,39 @@ def load_picks(top=60, pick_date=None):
                 chg, kind = r.get("bid_change"), "bid"
             item["change"] = round(float(chg), 2) if chg is not None else None
             item["changeKind"] = kind
+            # 下界过滤（只对**竞价口径**生效）：先记入待删集合，循环结束后统一剔除
+            #   —— 若在此处 rows.pop()，下一个模型的同名票会把它加回来（两天前踩过同类坑）
+            if kind == "bid" and _out_of_range(code, item["change"], item.get("name")):
+                _drop.add(code)
+
+    _dropped_n = 0
+    for _c in _drop:
+        rows.pop(_c, None)
+        _dropped_n += 1
+    # ===== 交易层与结果回填（2026-10-03 上线）=====
+    # 来源：aipick.db 的 pick_daily（每日 9:28 落库，含可买性分级/是否一字/当日封板结果）
+    #   + label_truth（涨停池真值，作为当日封板的兜底）
+    # 只读、缺表/缺文件一律静默降级（本页原有的名单/概率展示不受影响）
+    meta = _pick_meta(date)
+    if _dropped_n:      # ⚠️ 必须放在 meta 重新赋值**之后**（原位置那句写进了被丢弃的旧 dict）
+        meta.setdefault("notes", []).append(
+            "已按阈值（竞价涨幅介于 板块涨停幅度×%.0f%% ~ ×105%%）剔除 %d 只不达标票（含 ST/脏数据）"
+            % (_bid_ratio * 100, _dropped_n))
+
+    def _fuse(a, b):
+        """两模型概率的融合：都为真取均值，只有一个则有哪个用哪个"""
+        vs = [v for v in (a, b) if v is not None]
+        return int(round(sum(vs) / len(vs))) if vs else None
+
+    for it in rows.values():
+        px, pl = it.get("scoreXgb"), it.get("scoreLgb")
+        it["probFused"] = _fuse(px, pl)
+        # 双模型共识：两个模型都给出概率且都 ≥50%（"两个大模型都认为能涨停"）
+        it["consensus"] = bool(px is not None and pl is not None and px >= 50 and pl >= 50)
+        m = meta.get(it["code"]) or {}
+        it["fillGrade"] = m.get("fillGrade")
+        it["isYidzi"] = m.get("isYidzi")
+        it["isLimitUp"] = m.get("isLimitUp")
 
     rmap = _risk_map(date)
     lut = []
@@ -514,6 +573,11 @@ def _build(pick_date=None):
     except Exception as e:                                     # noqa: BLE001
         picks, pmeta = [], {"notes": ["个股列表读取失败：%s" % str(e)[:80]]}
     notes += (pmeta.get("notes") or [])
+    # 2026-10-03 主人要求：影子名单/闸门状态展示在超智接口内（仅内部参考，不对外）
+    try:
+        shadow = load_shadow(pick_date=pick_date)
+    except Exception as e:                                      # noqa: BLE001
+        shadow, notes = {"enabled": False, "note": "影子块读取失败：%s" % str(e)[:80]}, notes
     if picks and all(p.get("divergence") is None for p in picks):
         notes.append("当前只有单模型有产出 ⇒ 综合分 = 该模型的当日百分位（非双模型融合）")
 
@@ -535,6 +599,7 @@ def _build(pick_date=None):
             "latest": capital[-1] if capital else {},
         },
         "picks": picks,
+        "shadow": shadow,
         "senti": {"ztCount": (senti or {}).get("ztCount"), "lbgd": (senti or {}).get("lbgd")},
         "meta": {
             "pickDate": pmeta.get("date"),
@@ -558,3 +623,168 @@ def build_overview(pick_date=None):
     except Exception as e:                                     # noqa: BLE001
         log.warning("chaozhi 聚合缓存失败, 直接计算 err=%s", str(e)[:120])
         return _build()
+
+
+def load_shadow(pick_date=None):
+    """影子模型块（2026-10-03 上线，展示于超智）：影子名单 + 20 日对拍 + 闸门状态。
+
+    ⚠️ 影子名单**仅供内部参考，不对外**（产品口径：评分排序验证期，不干扰用户决策）。
+    数据源（全部只读、零出网）：
+      · pick_daily_shadow —— 影子名单（交易日 9:27 由 aipick_shadow 落库）
+      · shadow_gate       —— 闸门判定历史（20 日同日配对 topN 差 + 决策/原因）
+      · models/current.json / shadow_freeze.json —— 候选版本、冻结状态
+    任何异常都返回 enabled=False（静默降级，绝不影响超智主流程）。
+    """
+    import json
+    import os
+    import sqlite3
+    db = os.environ.get("AIPICK_DB_PATH", "/opt/kuaixuan/aipick/scripts/data/aipick.db")
+    md = os.environ.get("AIPICK_MODELS_DIR", "/opt/kuaixuan/aipick/models")
+    out = {"enabled": False, "picks": [], "gate": None, "candidate": None, "frozen": False,
+           "note": "", "disclaimer": "影子名单仅内部参考，未对外发布"}
+    try:
+        with open(os.path.join(md, "current.json"), encoding="utf-8") as f:
+            ptr = json.load(f) or {}
+        out["candidate"] = ptr.get("shadow")
+        out["candidateTrainedAt"] = ptr.get("shadow_trained_at")
+        out["live"] = ptr.get("live") or "线上 11 维模型"
+        out["promotedAt"] = ptr.get("promoted_at")
+    except Exception:
+        pass
+    try:
+        with open(os.path.join(md, "shadow_freeze.json"), encoding="utf-8") as f:
+            fr = json.load(f) or {}
+        out["frozen"] = bool(fr.get("frozen"))
+        out["freezeReason"] = fr.get("reason") or ""
+    except Exception:
+        pass
+    if not os.path.exists(db):
+        out["note"] = "影子数据未就绪（库不存在）"
+        return out
+    try:
+        c = sqlite3.connect('file:%s?mode=ro' % db, uri=True, timeout=5)
+    except Exception:
+        return out
+    try:
+        d8 = ''.join(ch for ch in str(pick_date) if ch.isdigit())[:8] if pick_date else ''
+        if not d8:
+            r = c.execute("SELECT MAX(REPLACE(trade_date,'-','')) FROM pick_daily_shadow").fetchone()
+            d8 = (r[0] or '') if r else ''
+        out["date"] = d8
+        if d8:
+            # 🔴 只取 topn=10 那一组（pick_daily_shadow 同时存 top3/5/10/30 四组，
+            #    混着取会让同一只票重复出现 —— 2026-10-03 实测踩到）
+            rows = c.execute(
+                "SELECT code, score, topn, model_ver, y FROM pick_daily_shadow "
+                "WHERE REPLACE(trade_date,'-','')=? AND topn=10 ORDER BY score DESC",
+                (d8,)).fetchall()
+            if not rows:      # 兜底：老数据没有 topn=10 组时，按代码去重
+                seen, tmp = set(), []
+                for r in c.execute(
+                        "SELECT code, score, topn, model_ver, y FROM pick_daily_shadow "
+                        "WHERE REPLACE(trade_date,'-','')=? ORDER BY topn, score DESC", (d8,)):
+                    k = str(r[0]).zfill(6)
+                    if k not in seen:
+                        seen.add(k)
+                        tmp.append(r)
+                rows = tmp
+            names, labels = {}, {}
+            try:
+                for code, nm, zt in c.execute(
+                        "SELECT code, name, is_limit_up_v3 FROM features "
+                        "WHERE REPLACE(trade_date,'-','')=?", (d8,)):
+                    k = str(code).zfill(6)
+                    names[k] = nm
+                    if zt is not None:
+                        labels[k] = int(zt)
+            except Exception:
+                pass
+            top10 = [{"code": str(cd).zfill(6), "name": names.get(str(cd).zfill(6)),
+                      "score": (round(float(sc), 4) if sc is not None else None),
+                      "modelVer": mv,
+                      "isLimitUp": (labels.get(str(cd).zfill(6)) if str(cd).zfill(6) in labels
+                                    else (int(y) if y is not None else None))}
+                     for cd, sc, tn, mv, y in rows][:10]
+            cnt = {"hit": 0, "total": 0}
+            for it in top10:
+                if it["isLimitUp"] is not None:
+                    cnt["total"] += 1
+                    cnt["hit"] += it["isLimitUp"]
+            out["picks"] = top10
+            out["hit"] = ({"hit": cnt["hit"], "total": cnt["total"],
+                           "rate": (round(100.0 * cnt["hit"] / cnt["total"], 1) if cnt["total"]
+                                    else None)})
+        try:
+            r = c.execute("SELECT trade_date, shadow_ver, n_days, top3_pp, top5_pp, top10_pp, "
+                          "top30_pp, decision, reason FROM shadow_gate "
+                          "ORDER BY REPLACE(trade_date,'-','') DESC LIMIT 1").fetchone()
+            if r:
+                out["gate"] = {"date": ''.join(ch for ch in str(r[0]) if ch.isdigit())[:8],
+                               "candidate": r[1], "nDays": r[2],
+                               "top3Pp": r[3], "top5Pp": r[4], "top10Pp": r[5], "top30Pp": r[6],
+                               "decision": r[7], "reason": r[8],
+                               "decisionText": {"promote": "已晋级（换线上）", "trial": "通过闸门·试运行",
+                                                "rollback": "已回滚", "continue_shadow": "继续影子"
+                                                }.get(r[7] or '', r[7] or '')}
+        except Exception:
+            pass
+        out["enabled"] = bool(out["picks"] or out["gate"])
+        if not out["enabled"] and not out["note"]:
+            out["note"] = ("影子链路已上线：交易日 9:27 出名单、19:25 闸门判定；"
+                           "满 20 个交易日后才可能自动晋级")
+    except Exception as e:                                      # noqa: BLE001
+        out["note"] = "影子块读取失败：%s" % str(e)[:80]
+    finally:
+        c.close()
+    return out
+
+
+def _pick_meta(date):
+    """读 pick_daily + label_truth，返回 {code: {fillGrade, isYidzi, isLimitUp}}。
+
+    date: 'YYYY-MM-DD'（与 features.trade_date 同格式）。任何异常都返回 {}（静默降级）。
+    """
+    import os
+    import sqlite3
+    db = os.environ.get("AIPICK_DB_PATH", "/opt/kuaixuan/aipick/scripts/data/aipick.db")
+    if not os.path.exists(db):
+        return {}
+    out = {}
+    try:
+        c = sqlite3.connect('file:%s?mode=ro' % db, uri=True, timeout=5)
+        try:
+            # pick_daily 自带 is_limit_up（当日封板结果，官方涨停价口径）⇒ 优先用它，
+            # 这样"未封板"也能明确显示 0（此前只有涨停池内的票有值，其余 None 显示不出"未封板"）
+            for code, fg, yz, zt in c.execute(
+                    "SELECT code, COALESCE(fill_grade,''), COALESCE(is_yidzi,0), is_limit_up "
+                    "FROM pick_daily WHERE trade_date=?", (date,)):
+                out[str(code).zfill(6)] = {"fillGrade": fg, "isYidzi": int(yz),
+                                           "isLimitUp": (int(zt) if zt is not None else None)}
+        except Exception:
+            pass
+        # 第三层：features 的封板标签（官方涨停价口径，覆盖 ~95% 行）⇒ 让复盘结果尽量完整
+        try:
+            cols = {r[1] for r in c.execute("PRAGMA table_info(features)")}
+            lab = 'is_limit_up_v3' if 'is_limit_up_v3' in cols else ('is_limit_up' if 'is_limit_up' in cols else None)
+            if lab:
+                for code, zt in c.execute("SELECT code, %s FROM features WHERE trade_date=?" % lab, (date,)):
+                    if zt is None:
+                        continue
+                    k = str(code).zfill(6)
+                    out.setdefault(k, {"fillGrade": None, "isYidzi": None, "isLimitUp": None})
+                    if out[k]["isLimitUp"] is None:
+                        out[k]["isLimitUp"] = int(zt)
+        except Exception:
+            pass
+        try:
+            for code, zt in c.execute("SELECT code, zt FROM label_truth WHERE trade_date=?", (date,)):
+                k = str(code).zfill(6)
+                out.setdefault(k, {"fillGrade": None, "isYidzi": None, "isLimitUp": None})
+                if out[k]["isLimitUp"] is None and zt is not None:   # 池真值兜底（不覆盖 pick_daily 结果）
+                    out[k]["isLimitUp"] = int(zt)
+        except Exception:
+            pass
+        c.close()
+    except Exception:
+        return out
+    return out

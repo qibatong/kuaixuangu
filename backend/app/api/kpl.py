@@ -123,21 +123,45 @@ def _update_spot_change(lst):
         return 0
 
 
+_CONCEPT_CACHE = {}          # code -> (board, ts)：进程内概念缓存（概念是静态属性）
+_CONCEPT_TTL = 24 * 3600
+
+
 def _ensure_concepts(lst, tag=""):
     """保证列表中至少有 ~30% 股票带概念/板块。
-    若已有概念比例 ≥30%, 直接跳过(保护深查开销);
-    否则用 apply_board_concept(deep=False) 轻量模式补齐。"""
+
+    🔴 性能修复（2026-10-03 实测）：原实现在概念比例 <30% 时调
+       `kpl.apply_board_concept(deep=False)` ⇒ **逐股实时查开盘啦**：6 条列表耗时 **1.67s**，
+       三张表叠加 2~5s ⇒ 这是「竞价异动打开很慢」的主因（nginx 实测 1.04s / 峰值 4.51s）。
+       概念是**静态属性**（某票属于什么板块不随日期变化）⇒ 进程内缓存 24h，命中即免外网；
+       且只对「库内 + 缓存都没命中」的股票出网一次（原实现每请求全量重查）。
+    """
     if not lst:
         return
+    now = _time.time()
+    for it in lst:                                    # ① 先吃进程内缓存
+        c = str(it.get("code") or "")
+        v = _CONCEPT_CACHE.get(c)
+        if v and now - v[1] < _CONCEPT_TTL and not (it.get("board") or "").strip() and v[0]:
+            it["board"] = v[0]
     total = len(lst)
     filled = sum(1 for it in lst if (it.get("board") or "").strip())
-    if total > 0 and filled / total >= 0.30:
-        return  # 已足够, 跳过
+    if total and filled / total >= 0.30:
+        return
+    miss = [it for it in lst if not (it.get("board") or "").strip()
+            and (now - _CONCEPT_CACHE.get(str(it.get("code") or ""), (None, 0))[1]) >= _CONCEPT_TTL]
+    if not miss:                                      # ② 缺的都在缓存里（含"确实没有"的负结果）
+        return
     try:
-        kpl.apply_board_concept(lst, log_tag=tag or "auc", deep=False,
+        kpl.apply_board_concept(miss, log_tag=tag or "auc", deep=False,
                                 field="board", truncate=2, blank_if_missing=False)
     except Exception as e:
         log.warning("竞价异动概念补齐失败 tag=%s err=%s", tag, e)
+        return
+    for it in miss:                                   # ③ 结果写回缓存（含空值，避免反复出网）
+        c = str(it.get("code") or "")
+        if c:
+            _CONCEPT_CACHE[c] = ((it.get("board") or "").strip(), _time.time())
 
 
 def _latest_trade_date_in(table, day, op="<="):
@@ -669,7 +693,7 @@ def api_kpl_hot_rank(request: Request, uid: int = Depends(get_uid), source: str 
     source_failed = False
     if not d:
         err = hot_rank.last_source_error()
-        if err and err.get("source") == source and time.time() - (err.get("ts") or 0) < 60:
+        if err and err.get("source") == source and _time.time() - (err.get("ts") or 0) < 60:
             source_failed = True
     # 2026-08-18 修复: 热点榜补开盘啦概念(此前 board/concept 全空)
     try:
@@ -821,8 +845,7 @@ def api_kpl_wpqc(request: Request, uid: int = Depends(require_vip_or_paid)):
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
 
 
-@router.get("/api/kpl/bid-qiangcang")
-def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(quota_guard("auction")), date: str = ""):
+def _bid_qiangcang_payload(request: Request, uid: int, date: str = ""):
     """竞价抢筹(左右双表): list20=9:20→9:25 竞额抢筹(开盘啦净额强度),
     list20Chg=9:20→9:25 涨幅抢筹(全市场快照涨幅差), listLast=9:24→9:25 最后1秒段
     date 空=实时; 指定 'YYYY-MM-DD' 回看历史(qc_snapshot + snapshot_bid)
@@ -876,9 +899,26 @@ def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(quota_guard("auct
         kpl.fill_bid_turnover_from_snap(lLast, serve_date if serve_date != today_str or not _is_auction_hours() else None)
     except Exception as e:
         log.warning("抢筹竞价换手补齐失败 err=%s", e)
-    return jr({"ok": True, "list20": l20, "list20Chg": l20Chg, "listLast": lLast,
-               "count20": len(l20), "count20Chg": len(l20Chg), "countLast": len(lLast),
-               "date": d.get("date") or serve_date or ""})
+    return {"ok": True, "list20": l20, "list20Chg": l20Chg, "listLast": lLast,
+            "count20": len(l20), "count20Chg": len(l20Chg), "countLast": len(lLast),
+            "date": d.get("date") or serve_date or ""}
+
+
+@router.get("/api/kpl/bid-qiangcang")
+def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(quota_guard("auction")), date: str = ""):
+    """竞价抢筹（含接口级缓存 + single-flight，2026-10-03 加，照 bid-seal 范式）。
+
+    🔴 动机（生产 nginx 实测）：本接口均 **1.04s**、最大 **4.51s**；每次请求都要
+      「出网取数 + 概念补全 + 现涨 merge + 补换手」，其中**概念补全单次实测 1.67s**。
+      盘后与历史日的这些结果都是**定格**的，重复计算纯属浪费 ⇒
+        竞价时段 15s（现涨要有实时感）/ 盘后·非交易日 300s / 指定历史日 600s（不可变）
+    """
+    from ..services.cache_store import cached_singleflight, store
+    auction = _is_auction_hours()
+    ck = "bidqc:" + (("hist:" + date) if date else ("live" if auction else "post"))
+    ttl = 600 if date else (15 if auction else 300)
+    return jr(cached_singleflight(store, ck, ttl,
+                                  lambda: _bid_qiangcang_payload(request, uid, date)))
 
 
 @router.get("/api/kpl/yest-zt")
@@ -1042,7 +1082,7 @@ def api_kpl_sector_rotation(request: Request, uid: int = Depends(get_uid), days:
     source_failed = False
     if not rot.get("dates") and source == "em":
         err = sector_rotation.last_source_error()
-        if err and err.get("source") == "em" and time.time() - (err.get("ts") or 0) < 12 * 3600:
+        if err and err.get("source") == "em" and _time.time() - (err.get("ts") or 0) < 12 * 3600:
             source_failed = True
     return jr({"ok": True, "rotation": rot, "windows": win,
                "dates": rot.get("dates") or [], "source": source,

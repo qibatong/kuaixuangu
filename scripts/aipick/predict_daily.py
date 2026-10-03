@@ -181,7 +181,25 @@ def _model_meta(algo, model_path):
 #        (实测等效区间已变成 16~56 亿), 继续硬卡只会误伤中大盘。
 #   ⇒ 默认 None = 不过滤; **显式传值仍生效**(保留参数化能力, 供前端/历史回放使用)。
 DEFAULT_MV_MIN, DEFAULT_MV_MAX = None, None
-DEFAULT_BID_AMT_MIN = 3000
+# 🔴 2026-10-02 主人指令: 竞价金额下限**取消**（0 = 不限）—— 目标"命中涨停为主"，
+#    金额门槛会挡掉高命中的小盘票；与 filter_defaults.FILTER_DEFAULTS / 前端默认同批发布。
+# 🔴 2026-10-03 主人反馈"名单里很多跌停票" ⇒ 补竞价涨幅下界（此前只有上界 CHG_MAX）。
+#    100 日实测：下界 2% 时逐日 top30 封板率 27.87% → 32.61%；≤-9% 组实际涨停率仅 1.66%。
+DEFAULT_BID_CHG_MIN = 2.0          # 绝对下界（兜底）
+# 🔴 2026-10-03 主人指令：按**占板块涨停幅度的比例**卡阈值（主板 8% / 创业科创 16% / 北交所 24%）
+#    实测全名单封板率 68.4%（11 只/日，不凑数）；统一阈值会让 20% 板被不公平地压低命中率。
+DEFAULT_BID_CHG_RATIO = 0.8
+
+
+def _limit_pct(code):
+    """板块涨停幅度（%）：主板 10 / 创业科创 20 / 北交所 30"""
+    c = str(code)
+    if c[:3] in ("300", "301", "688", "689"):
+        return 20.0
+    if c[:1] in ("8", "4") or c[:3] == "920":
+        return 30.0
+    return 10.0
+DEFAULT_BID_AMT_MIN = 0
 DEFAULT_BID_CHG_MAX = 10   # 2026-10-02 主人指令: 竞价涨幅上限 7 → 10
 # 2026-08-31 主人指令: 竞价涨幅下限方案废弃, 改为剔除涨停率(ai_prob) < 50% 的候选(见过滤处)
 MIN_PROB = 0.5
@@ -221,7 +239,7 @@ def _concept_map():
 
 def predict(trade_date=None, mv_min=DEFAULT_MV_MIN, mv_max=DEFAULT_MV_MAX,
             bid_amt_min=DEFAULT_BID_AMT_MIN, bid_chg_max=DEFAULT_BID_CHG_MAX,
-            force=False):
+            bid_chg_min=DEFAULT_BID_CHG_MIN, bid_chg_ratio=DEFAULT_BID_CHG_RATIO, force=False):
     """生成某日预测报告。
     - 保护规则(2026-08-27): 若当日 predictions_{d}.json 已存在且非 force=True，
       主文件(前端展示的那一份)不覆盖；新结果另存 predictions_{d}_rerun.json + _rerun.html
@@ -326,7 +344,18 @@ def predict(trade_date=None, mv_min=DEFAULT_MV_MIN, mv_max=DEFAULT_MV_MAX,
     if mv_max is not None:
         df = df[df["circ_mv"] <= mv_max]
     df = df[(df["bid_amount"] >= bid_amt_min)]
-    df = df[(df["bid_change"] <= bid_chg_max)]
+    # 🔴 2026-10-03：补**下界**（此前只有上界 ⇒ 竞价跌停/低开票照样进名单，主人直接看到）
+    # 阈值 = max(绝对下界, 占板块涨停幅度比例) —— 主板/创业科创/北交所各自换算
+    _ratio_floor = df["code"].map(lambda c: bid_chg_ratio * _limit_pct(c))
+    _floor = np.maximum(float(bid_chg_min), _ratio_floor)
+    # 🔴 2026-10-03 上限也按板块归一：≤ 板块涨停幅度 × 1.05（含涨停价四舍五入余量）。
+    #    原先固定 ≤10% 有两处错：① 20% 板的 +16% 合法票被误杀；② 206.17% 这类脏行照样通过。
+    _cap = df["code"].map(lambda c: _limit_pct(c) * 1.05)
+    df = df[(df["bid_change"] >= _floor) & (df["bid_change"] <= _cap)]
+    # 全链路排除 ST/*ST（主人 2026-10-02 口径）
+    if "name" in df.columns:
+        _nm = df["name"].fillna("").astype(str)
+        df = df[~_nm.str.contains("ST|退", case=True, regex=True)]
     # 2026-08-31 主人指令: 取消竞价涨幅下限过滤, 改为剔除涨停率(ai_prob) < 50% 的候选
     df = df[(df["ai_prob"] >= 0.5)]
     result = df.sort_values("ai_prob", ascending=False).head(30)
@@ -444,7 +473,7 @@ td{{padding:8px 9px;border-bottom:1px solid #242a38}}
 .warn{{background:#3d2a10;border:1px solid #a07020;border-radius:10px;padding:14px 18px;font-size:12px;color:#e0b060;margin-bottom:16px;line-height:1.8}}
 </style></head><body>
 <div class="card"><h1>AI 竞价选股 · 涨停概率预测 <span class="tag">{d}</span></h1>
-<div class="sub">模型：{_MODEL_LABEL[ALGO]} · 预测当日涨停概率 · 默认过滤（竞价金额≥{DEFAULT_BID_AMT_MIN}万 / 竞价涨幅≤{DEFAULT_BID_CHG_MAX}% / 涨停率≥{MIN_PROB*100:.0f}%）· 市值不设门槛（由前端自筛）· 供研究参考</div>
+<div class="sub">模型：{_MODEL_LABEL[ALGO]} · 预测当日涨停概率 · 默认过滤（竞价金额≥{DEFAULT_BID_AMT_MIN}万 / 竞价涨幅 {DEFAULT_BID_CHG_MIN}~{DEFAULT_BID_CHG_MAX}% / 涨停率≥{MIN_PROB*100:.0f}%）· 市值不设门槛（由前端自筛）· 供研究参考</div>
 <table><thead><tr><th>#</th><th>代码</th><th>名称</th><th>AI涨停概率</th><th>竞价涨幅</th><th>竞价金额</th><th title="自由流通市值（2026-09-26 口径统一）">市值(亿)</th><th>换手率</th></tr></thead>
 <tbody>{rows}</tbody></table>
 </div>

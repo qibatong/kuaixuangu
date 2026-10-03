@@ -67,6 +67,46 @@ _TASKS = [
     # 2026-09-25: LGB 训练同窗口串行(本模块单线程轮询, 两个训练不会并发抢 CPU);
     #   产物 models/model_lgb.txt + models/model_meta_lgb.json + output/lgb/train_report.json,
     #   **绝不写** output/train_report.json(该文件被 scripts/aipick/backtest.py 消费)。
+    # 2026-10-03 上线：9:28 预测后统一落库四线名单（pick_daily；含可买性分级/模拟成交）
+    ("aipick_pickdaily", 9 * 60 + 28, 9 * 60 + 32, [
+        (os.path.join(AIPICK_DIR, "scripts", "pick_daily.py"),
+         ["--db", os.path.join(AIPICK_DIR, "scripts", "data", "aipick.db"), "--lines", "xgb,lgb,zh"]),
+    ]),
+    # 2026-10-03 上线：盘后 15:15 留存当日分钟线（**仅最新交易日可得、过期不可追回**；供卖出规则精确回放）
+    ("aipick_minute", 15 * 60 + 15, 15 * 60 + 20, [
+        (os.path.join(AIPICK_DIR, "scripts", "capture_minute.py"),
+         ["--db", os.path.join(AIPICK_DIR, "scripts", "data", "aipick.db")]),
+    ]),
+    # 2026-10-03 上线：19:05 影子训练（写 models/v3/，**绝不覆盖线上模型**；供晋级闸门评估）
+    ("aipick_train_v3", 19 * 60 + 5, 19 * 60 + 10, [
+        (os.path.join(AIPICK_DIR, "scripts", "train_v3.py"),
+         ["--db", os.path.join(AIPICK_DIR, "scripts", "data", "aipick.db")]),
+    ]),
+    # ==================== 2026-10-03 影子链路（方案第 1/8/12 条）====================
+    #   ① fetch_auc    抓当日 9:25 全市场竞价特征 → aipick.db 的 auc_open 表
+    #                  （影子模型的特征来源；脚本内置重试等数据就绪，最多 240s）
+    #   ② picks        影子出名单 → pick_daily_shadow（**不推给用户**）
+    #   ⚠️ ①② 必须**串成同一条任务**（09:27-09:34）：顺序由 _run_task 保证（同 aipick_predict
+    #      的 xgb→lgb 模式），且本任务已加入「等 9:25 定格落库」守卫白名单。
+    #      09:27 与主链路同档 ⇒ 将来晋级顶替主链路无需二次改造。
+    #   ③ shadow_train 19:15-19:22 训练影子候选 → models/versions/（**绝不覆盖线上模型**）
+    #   ④ shadow_gate  19:25-19:32 闸门判定：20 日同日配对（≥2pp 且 t≥1.0 且 top5 不劣）
+    #                  + 连续 2 窗同向防抖 → 达标**自动晋级**（原子替换+自动备份）/
+    #                  60 日复核恶化 >3pp 自动回滚 / 连续 2 日劣化冻结并向飞书告警。
+    #   全部为独立脚本、故障隔离；任一失败只影响影子，线上模型与名单不受影响。
+    #   ⚠️ 起点定在 09:29（而非 09:27）：竞价接口在 9:25 刚过时常未就绪，而 _run_task 的
+    #      setnx 当日只跑一次 ⇒ 太早会一天白跑（故给 6 分钟窗口 + 起点后移）。
+    ("aipick_shadow", 9 * 60 + 27, 9 * 60 + 34, [
+        (os.path.join(AIPICK_DIR, "scripts", "shadow.py"),
+         ["fetch_auc", "--commit", "--wait-sec", "240"]),
+        (os.path.join(AIPICK_DIR, "scripts", "shadow.py"), ["picks", "--commit"]),
+    ]),
+    ("aipick_shadow_train", 19 * 60 + 15, 19 * 60 + 22, [
+        (os.path.join(AIPICK_DIR, "scripts", "shadow.py"), ["train"]),
+    ]),
+    ("aipick_shadow_gate", 19 * 60 + 25, 19 * 60 + 32, [
+        (os.path.join(AIPICK_DIR, "scripts", "shadow.py"), ["gate", "--act", "--commit"]),
+    ]),
     ("aipick_train", 18 * 60 + 59, 19 * 60 + 2, [
         (os.path.join(AIPICK_DIR, "scripts", "train_model.py"), []),
         (os.path.join(AIPICK_DIR, "scripts", "train_lgbm.py"), []),
@@ -114,7 +154,9 @@ def _specs_of(name):
 #
 # 硬兜底: 到 `_AIPICK_READY_FALLBACK_HM`(9:29) 即使仍无定格也放行 —— 定格整点缺失是
 #   独立故障(已有 `_check_system_batch` 补跑+飞书告警链路), 不能让 AI 侧连带"当天彻底不跑"。
-_AIPICK_NEED_SNAPSHOT = ("aipick_collect", "aipick_predict")
+# 2026-10-03: 影子链路(aipick_shadow)同样必须等 9:25 定格落库后再跑 —— 它读的是
+#   features(11 维) + auc_open(当日竞价特征)，抢跑会拿到空快照 ⇒ 名单为空。
+_AIPICK_NEED_SNAPSHOT = ("aipick_collect", "aipick_predict", "aipick_shadow")
 _AIPICK_READY_FALLBACK_HM = 9 * 60 + 29         # 09:29
 
 
