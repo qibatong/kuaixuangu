@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>顺势而为竞价终极版 · AI选股</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+            background: linear-gradient(135deg, #0f1219 0%, #0a0c12 100%);
+            color: #eef2ff; padding: 2px; line-height: 1.5; min-height: 100vh;
+        }
+        .container { max-width: 1500px; margin: 0 auto; }
+        .hero-section { text-align: center; margin: 10px 0 5px; }
+        .dominant-title {
+            font-size: 48px; font-weight: 800;
+            background: linear-gradient(135deg, #ff4d4d, #cc0000);
+            -webkit-background-clip: text; background-clip: text; color: transparent;
+            display: inline-block; letter-spacing: 3px;
+        }
+        .title-sub {
+            font-size: 14px; color: #ffa2a2; background: rgba(0,0,0,0.4);
+            display: inline-block; padding: 2px 12px; border-radius: 20px;
+            backdrop-filter: blur(4px); margin-top: 4px; letter-spacing: 1px;
+        }
+        .alert-rule {
+            background: linear-gradient(90deg, rgba(255,60,60,0.1), rgba(200,40,40,0.05));
+            border-left: 4px solid #ff4d4d; padding: 8px 12px; border-radius: 6px;
+            margin: 8px 0; display: flex; align-items: center; justify-content: space-between;
+            flex-wrap: wrap; backdrop-filter: blur(4px); gap: 10px;
+        }
+        .rule-text { font-size: 13px; font-weight: 500; color: #ffbcbc; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .rule-text strong { color: #ff7b7b; }
+        .right-group { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+        .tdx-export-btn {
+            background: rgba(255,70,70,0.2); border: 1px solid #ff5c5c; padding: 6px 14px;
+            border-radius: 4px; color: #fff0f0; font-weight: bold; font-size: 12px;
+            cursor: pointer; transition: all 0.2s; backdrop-filter: blur(4px);
+            display: flex; align-items: center; gap: 4px; white-space: nowrap;
+        }
+        .tdx-export-btn:hover { background: #ff3a3a; color: white; border-color: white; transform: translateY(-1px); box-shadow: 0 5px 12px rgba(255,60,60,0.3); }
+        .tdx-export-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .reset-lock-btn { background: rgba(100,130,255,0.2); border: 1px solid #5a7aff; }
+        .reset-lock-btn:hover { background: #3a6eff; }
+        .real-time-btn { background: rgba(0,200,100,0.2); border: 1px solid #00c864; }
+        .real-time-btn:hover { background: #00c864; }
+        .reset-filter-btn { background: rgba(80,140,255,0.2); border: 1px solid #5a8aff; color: #d0e0ff; }
+        .reset-filter-btn:hover { background: #4a7aff; color: white; border-color: white; transform: translateY(-1px); box-shadow: 0 5px 12px rgba(70,120,255,0.3); }
+        .reset-filter-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+        .reset-filter-btn:disabled:hover { background: rgba(80,140,255,0.2); border-color: #5a8aff; color: #d0e0ff; transform: none; box-shadow: none; }
+        .lock-filter-btn { background: rgba(160,160,160,0.2); border: 1px solid #999; color: #ddd; transition: all 0.2s; }
+        .lock-filter-btn:hover { background: rgba(180,180,180,0.35); color: white; border-color: #bbb; transform: translateY(-1px); box-shadow: 0 5px 12px rgba(160,160,160,0.3); }
+        .lock-filter-btn.locked { background: rgba(255,140,40,0.25); border: 1px solid #ff8c28; color: #ffe0c0; animation: lockPulse 2s ease-in-out infinite; }
+        .lock-filter-btn.locked:hover { background: #ff7b1a; color: white; border-color: #fff; box-shadow: 0 5px 14px rgba(255,120,30,0.5); }
+        .lock-filter-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; animation: none; }
+        @keyframes lockPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,140,40,0.5); } 50% { box-shadow: 0 0 0 8px rgba(255,140,40,0); } }
+        .count-select, .export-select { background: rgba(0,0,0,0.5); border: 1px solid #ff5c5c; color: #fff; padding: 6px 10px; border-radius: 4px; font-size: 12px; outline: none; cursor: pointer; }
+        .live-time { background: rgba(0,0,0,0.45); backdrop-filter: blur(4px); border-radius: 6px; padding: 6px 12px; text-align: center; border: 1px solid rgba(255,100,100,0.3); font-family: monospace; white-space: nowrap; }
+        .live-time .time-digital { font-size: 16px; font-weight: 700; color: #ffbb99; letter-spacing: 1px; }
+
+        .medal-section { background: rgba(18,22,35,0.85); backdrop-filter: blur(8px); border-radius: 10px; padding: 16px; border: 1px solid rgba(255,215,0,0.4); margin: 12px 0; display: flex; flex-wrap: wrap; gap: 15px; justify-content: space-around; }
+        .medal-card { flex: 1 1 180px; min-width: 180px; text-align: center; padding: 12px 8px; border-radius: 12px; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,215,0,0.3); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+        .medal-rank { font-size: 18px; font-weight: 700; color: #ffd700; display: flex; align-items: center; gap: 6px; }
+        .medal-rank-icon { font-size: 28px; }
+        .medal-name-big { font-size: 22px; font-weight: 800; color: #ffffff; letter-spacing: 1px; margin: 2px 0; }
+        .medal-code { font-size: 18px; font-weight: 600; color: #ffd700; cursor: pointer; font-family: 'Consolas', monospace; letter-spacing: 1px; margin: 2px 0; transition: color 0.2s; }
+        .medal-code:hover { color: #fff; text-shadow: 0 0 8px rgba(255,215,0,0.6); }
+        .medal-prob-big { font-size: 48px; font-weight: 900; color: #ff7b4a; line-height: 1; margin: 4px 0; }
+        .medal-detail { font-size: 13px; color: #ddd; display: flex; gap: 12px; align-items: center; }
+        .medal-detail .bid-chg { color: #ff8a6f; font-weight: 600; }
+        .medal-detail .conf-val { color: #ffbcbc; font-weight: 600; }
+        .medal-real-chg { font-size: 14px; font-weight: 700; color: #ff5252; margin-top: 2px; }
+        .medal-real-chg.green-real { color: #00c864 !important; }
+
+        .export-medal-group { display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.3); padding: 8px 14px; border-radius: 8px; }
+
+        .filter-custom {
+            background: rgba(0,0,0,0.3); border: 1px solid rgba(255,100,100,0.4); border-radius: 8px;
+            padding: 10px 14px; margin: 8px 0; display: flex; flex-wrap: wrap; align-items: center;
+            gap: 10px; backdrop-filter: blur(4px); row-gap: 8px; transition: border-color 0.3s, box-shadow 0.3s;
+        }
+        .filter-custom.filter-locked {
+            border-color: rgba(255,140,40,0.7) !important;
+            box-shadow: 0 0 16px rgba(255,120,30,0.2) !important;
+            background: rgba(15,10,5,0.4) !important;
+        }
+        .filter-custom label { font-size: 12px; color: #ffbcbc; display: flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; transition: opacity 0.3s; }
+        .filter-custom.filter-locked label { cursor: not-allowed; opacity: 0.7; }
+        .filter-custom input[type="checkbox"] { margin: 0 3px; accent-color: #ff5c5c; cursor: pointer; transition: opacity 0.3s; }
+        .filter-custom.filter-locked input[type="checkbox"] { cursor: not-allowed; opacity: 0.6; accent-color: #888; }
+        .filter-custom input[type="number"] {
+            background: rgba(0,0,0,0.5); border: 1px solid #ff5c5c; color: #fff;
+            padding: 4px 6px; border-radius: 4px; font-size: 11px; width: 62px;
+            text-align: center; outline: none; font-family: monospace; transition: border-color 0.3s, background 0.3s;
+        }
+        .filter-custom input[type="number"]:focus { box-shadow: 0 0 0 2px #ff5c5c; }
+        .filter-custom.filter-locked input[type="number"] { border-color: #666 !important; background: rgba(30,30,30,0.6) !important; color: #999 !important; cursor: not-allowed; }
+        .filter-custom.filter-locked input[type="number"]:focus { box-shadow: none !important; }
+        .filter-divider { color: rgba(255,255,255,0.2); font-size: 14px; margin: 0 2px; }
+        .filter-tag { font-size: 10px; background: rgba(255,100,100,0.2); padding: 2px 8px; border-radius: 10px; color: #ffaaaa; white-space: nowrap; }
+        .lock-indicator { display: none; font-size: 10px; background: rgba(255,140,30,0.3); color: #ffcc88; padding: 3px 10px; border-radius: 12px; font-weight: 600; letter-spacing: 1px; animation: lockPulseText 2s ease-in-out infinite; white-space: nowrap; }
+        .filter-custom.filter-locked .lock-indicator { display: inline-block; }
+        @keyframes lockPulseText { 0%,100% { opacity: 0.7; } 50% { opacity: 1; } }
+
+        .stock-pool-panel { margin: 15px 0; background: rgba(10,15,28,0.85); backdrop-filter: blur(8px); border-radius: 10px; border: 1px solid rgba(255,140,140,0.3); padding: 15px 18px; }
+        .pool-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; border-bottom: 1px dashed rgba(255,120,120,0.3); padding-bottom: 10px; }
+        .pool-title { font-size: 18px; font-weight: 700; background: linear-gradient(135deg, #ffb347, #ff7e5e); -webkit-background-clip: text; background-clip: text; color: transparent; display: inline-flex; align-items: center; gap: 8px; }
+        .auto-tag { background: rgba(0,200,100,0.2); border-radius: 20px; padding: 3px 10px; font-size: 11px; color: #a2ffc2; margin-left: 8px; }
+        .pool-expiry-info { font-size: 11px; color: #ffcc88; margin-left: 8px; background: rgba(255,150,50,0.15); padding: 3px 10px; border-radius: 20px; white-space: nowrap; display: inline-block; }
+        .pool-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+        .pool-btn { background: rgba(50,65,100,0.6); border: 1px solid rgba(255,160,120,0.5); padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 500; cursor: pointer; transition: 0.2s; color: #ffe0e0; display: inline-flex; align-items: center; gap: 5px; }
+        .pool-btn:hover { background: #ff6a3a; border-color: #fff0c0; color: white; transform: translateY(-1px); }
+        .pool-list { max-height: 240px; overflow-y: auto; margin-top: 10px; border-radius: 8px; }
+        .pool-item { display: flex; align-items: center; justify-content: space-between; background: rgba(20,28,40,0.7); margin: 6px 0; padding: 8px 12px; border-radius: 16px; border-left: 3px solid #ff8866; }
+        .pool-item-info { display: flex; flex-direction: column; gap: 2px; }
+        .pool-stock-name { font-weight: 600; font-size: 14px; }
+        .pool-stock-code { font-size: 11px; color: #bbaaee; font-family: monospace; }
+        .pool-add-time { font-size: 10px; color: #88aacc; }
+        .del-single { background: rgba(220,50,50,0.6); border: none; border-radius: 20px; padding: 4px 10px; color: white; cursor: pointer; font-size: 11px; }
+        .del-single:hover { background: #ff3a3a; }
+        .empty-pool { text-align: center; padding: 20px; color: #ccaacc; font-size: 13px; }
+
+        .stock-table-container { background: rgba(18,22,35,0.85); backdrop-filter: blur(4px); border-radius: 8px; padding: 10px; border: 1px solid rgba(255,80,80,0.35); margin: 8px 0; overflow-x: auto; }
+        .stock-table { width: 100%; border-collapse: collapse; text-align: center; min-width: 1100px; }
+        .stock-table thead { background: rgba(255,60,60,0.15); border-bottom: 2px solid #ff4d4d; }
+        .stock-table th { padding: 10px 4px; font-weight: 600; color: #ffbcbc; font-size: 12px; white-space: nowrap; }
+        .stock-table td { padding: 8px 4px; border-bottom: 1px solid rgba(255,80,80,0.1); font-size: 12px; }
+        .stock-table tbody tr:hover { background: rgba(255,60,60,0.05); }
+        .rank-col { font-weight: bold; color: #ff3a3a; }
+        .up { color: #ff8a6f; } .down { color: #00c864; } .real-green { color: #00c864 !important; }
+        .code-click { cursor: pointer; color: #ffd700 !important; font-weight: bold; }
+        .empty-state { background: rgba(0,0,0,0.5); padding: 40px; text-align: center; border-radius: 16px; color: #ffaaaa; }
+        .loading-placeholder { text-align: center; padding: 40px; }
+        .spinner { width: 40px; height: 40px; border: 3px solid rgba(255,80,80,0.2); border-top: 3px solid #ff5e5e; border-radius: 50%; animation: spin 0.9s linear infinite; margin: 0 auto 15px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .footnote { text-align: center; font-size: 12px; color: #7788aa; margin-top: 20px; padding-bottom: 20px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 20px; }
+        .toast-msg { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: #ff3a3a; color: white; padding: 8px 22px; border-radius: 40px; font-size: 13px; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.3); animation: fadeInOut 2.2s forwards; }
+        @keyframes fadeInOut { 0%{opacity:0;transform:translateX(-50%) translateY(10px);} 15%{opacity:1;transform:translateX(-50%) translateY(0);} 85%{opacity:1;transform:translateX(-50%) translateY(0);} 100%{opacity:0;transform:translateX(-50%) translateY(-10px);visibility:hidden;} }
+        @media (max-width:780px) { .dominant-title{font-size:32px;} .stock-table{min-width:900px;} .medal-card{min-width:140px;} .medal-name-big{font-size:18px;} .medal-prob-big{font-size:36px;} }
+    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+</head>
+<body>
+<div class="container">
+    <div class="hero-section">
+        <span class="dominant-title">顺势而为竞价终极版</span><br>
+        <span class="title-sub">AI选股，仅供参考</span>
+    </div>
+
+    <div class="alert-rule">
+        <div class="rule-text"><i class="fa fa-clock-o"></i> <strong>9:30前可重新选股 · 9:30后仅更新实时涨幅</strong></div>
+        <div class="right-group">
+            <div class="btn-group">
+                <button id="refreshLockedBtn" class="tdx-export-btn reset-lock-btn"><i class="fa fa-refresh"></i> 重新锁定(9:30前可用)</button>
+                <button id="refreshRealTimeBtn" class="tdx-export-btn real-time-btn"><i class="fa fa-refresh"></i> 刷新实时涨幅</button>
+            </div>
+            <div class="live-time" id="liveTimeDisplay"><div class="time-digital">--:--:--</div></div>
+        </div>
+    </div>
+
+    <div class="filter-custom" id="filterBox">
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px;">
+            <label><input type="checkbox" id="filterSTSuspend" checked> 剔除ST/停牌</label>
+            <span class="filter-divider">|</span>
+            <span style="color:#ffbcbc; font-size:12px; font-weight:600;">市场范围：</span>
+            <label><input type="checkbox" class="market-check" value="hs" checked> 沪深A股主板</label>
+            <label><input type="checkbox" class="market-check" value="cyb" checked> 创业板</label>
+            <label><input type="checkbox" class="market-check" value="kcb" checked> 科创板</label>
+            <span class="filter-divider">|</span>
+            <label><input type="checkbox" id="filterLimitUp" checked> 剔除昨日涨停</label>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px;">
+            <label>竞价涨幅 &gt; <input type="number" id="bidGtThreshold" value="7" min="0" max="20" step="0.5">%</label>
+            <span class="filter-divider">|</span>
+            <label>涨停率 &lt; <input type="number" id="probLtThreshold" value="65" min="5" max="95" step="1">% 且可信度 &lt; <input type="number" id="confLtThreshold" value="65" min="50" max="90" step="1">%</label>
+            <span class="filter-divider">|</span>
+            <label>流通市值 &gt; <input type="number" id="floatMvThreshold" value="100" min="1" max="5000" step="1">亿</label>
+            <label>股价 &gt; <input type="number" id="priceGtThreshold" value="30" min="1" max="5000" step="1">元</label>
+            <button id="applyFilterBtn" class="tdx-export-btn" style="background:#ff5c5c;">应用筛选</button>
+            <button id="resetFilterBtn" class="tdx-export-btn reset-filter-btn" title="重置为锁定条件或默认条件"><i class="fa fa-undo"></i> 重置</button>
+            <button id="lockFilterBtn" class="tdx-export-btn lock-filter-btn" title="锁定/解锁筛选条件">🔒 锁定</button>
+            <span class="lock-indicator" id="lockIndicator">🔒 筛选已锁定</span>
+        </div>
+    </div>
+
+    <div class="medal-section" id="medalArea"><div class="loading-placeholder" style="width:100%;">加载中...</div></div>
+    <div style="display:flex;justify-content:flex-end;margin:6px 0;">
+        <div class="export-medal-group">
+            <span style="color:#ffbcbc;font-size:12px;">导出前</span>
+            <select id="medalExportCount" class="export-select"><option value="3">3只</option><option value="5">5只</option><option value="8">8只</option><option value="10">10只</option></select>
+            <button id="exportMedalBtn" class="tdx-export-btn"><i class="fa fa-download"></i> 导出至通达信</button>
+        </div>
+    </div>
+
+    <div class="stock-pool-panel" id="stockPoolPanel">
+        <div class="pool-header">
+            <div class="pool-title"><i class="fa fa-database"></i> 策略股票池 <span class="auto-tag" id="autoAddStatusTag">⏳ 9:30前自动选股</span><span class="pool-expiry-info" id="poolExpiryInfo" style="display:none;"></span></div>
+            <div class="pool-buttons">
+                <button id="manualAddCurrentBtn" class="pool-btn"><i class="fa fa-plus-circle"></i> 加入当前前三</button>
+                <button id="clearPoolBtn" class="pool-btn"><i class="fa fa-trash-o"></i> 清空股票池</button>
+                <button id="exportPoolBtn" class="pool-btn"><i class="fa fa-share-square-o"></i> 导出股票池</button>
+            </div>
+        </div>
+        <div id="poolListContainer" class="pool-list"><div class="empty-pool">暂无股票，9:30前系统自动将前三名选入池中</div></div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin:6px 0;"><button id="exportAllTopBtn" class="tdx-export-btn"><i class="fa fa-download"></i> 导出全部筛选结果至通达信</button></div>
+    <div id="allStockTableArea" class="stock-table-container"><div class="loading-placeholder"><div class="spinner"></div><div>正在初始化选股数据...</div></div></div>
+    <div style="display:flex;justify-content:flex-end;margin:6px 0;"><button id="exportAllBtn" class="tdx-export-btn"><i class="fa fa-download"></i> 导出全部筛选结果至通达信</button></div>
+
+    <div class="footnote">
+        <i class="fa fa-bullhorn"></i> 9:30前可唯一选股并缓存 | 9:30后仅更新实时涨幅 | 实时涨幅＜竞价涨幅自动标绿 | 点击股票代码联动通达信 | 股票池10小时防刷新锁定
+    </div>
+</div>
+
+<script>
+    (function() {
+        function getMarketFs() {
+            const checks = document.querySelectorAll('.market-check:checked');
+            if (checks.length === 0) return 'm:1+t:2,m:0+t:6';
+            const parts = [];
+            checks.forEach(cb => {
+                if (cb.value === 'hs') { parts.push('m:1+t:2'); parts.push('m:0+t:6'); }
+                else if (cb.value === 'cyb') parts.push('m:0+t:80');
+                else if (cb.value === 'kcb') parts.push('m:1+t:23');
+            });
+            return [...new Set(parts)].join(',');
+        }
+        function getStockApiUrl() {
+            const fs = getMarketFs();
+            return `https://push2dycalc.eastmoney.com/api/qt/clist/get?fs=${fs}&fltt=2&invt=2&fields=f2,f3,f4,f5,f6,f8,f10,f12,f14,f17,f18,f20,f615,f630,f100,f102,f103&fid=f3&po=1&pn=1&pz=200&np=1&ut=c92c50e6b0fab2c17cd5e276e9a79c42`;
+        }
+
+        let cachedStocks = [], allRawStocks = [], isDataCached = false;
+
+        // 默认筛选条件
+        const defaultFilterSettings = {
+            stSuspend: true,
+            markets: ['hs', 'cyb', 'kcb'],
+            limitUp: true,
+            bidGt: 7,
+            probLt: 65,
+            confLt: 65,
+            floatMvGt: 100,
+            priceGt: 30
+        };
+
+        // 当前工作的筛选条件
+        let filterSettings = { ...defaultFilterSettings };
+        // 筛选锁定状态
+        let isFilterLocked = false;
+        // 存储锁定条件（持久化）
+        const LOCKED_FILTER_KEY = 'shunshi_locked_filter_v3';
+
+        let realTimeRefreshUsed = false;
+
+        const STORAGE_KEY = 'shunshi_stock_pool_v2';
+        const LOCK_DURATION_MS = 10 * 60 * 60 * 1000;
+        let stockPool = [], autoPoolLockTime = null, autoPoolTimer = null, expiryCheckTimer = null;
+
+        function isBefore930() {
+            const now = new Date();
+            const bj = new Date(now.getTime() + 8*60*60*1000 + now.getTimezoneOffset()*60*1000);
+            return bj.getHours() < 9 || (bj.getHours() === 9 && bj.getMinutes() < 30);
+        }
+
+        function getBidChange(s) { return (s.f615 != null && !isNaN(s.f615)) ? parseFloat(s.f615) : parseFloat(s.f3||0); }
+        function getYesterdayChange(s) { return parseFloat(s.f3 || 0); }
+        function getEntityChange(s) { const o=parseFloat(s.f17||0),c=parseFloat(s.f2||0); return o===0?0:((c-o)/o)*100; }
+        function getBidVolumeRatio(s) { return 0; }
+        function getBidTurnover(s) { const bv=parseFloat(s.f5||0),mv=parseFloat(s.f10||0),p=parseFloat(s.f2||0); if(mv<=0||p<=0||bv<=0) return 0; const turnover = (bv * p) / (mv * 100); return isNaN(turnover)||!isFinite(turnover)?0:turnover; }
+        function getWarnType(s) { return parseInt(s.f630||0); }
+        function isFirstBoard(s) { return getWarnType(s) >= 5; }
+        function isST(name) { return name.includes('ST')||name.includes('*ST'); }
+        function isSuspended(s) { return (s.f4||0)<=0||(s.f5||0)===0; }
+
+        function computeScore(stock) {
+            const bidChange = getBidChange(stock), bidTurnover = getBidTurnover(stock), bidVolRatio = getBidVolumeRatio(stock);
+            const warnType = getWarnType(stock), circMV = parseFloat(stock.f10||0), yesterdayApprox = getYesterdayChange(stock);
+            let bidScore=0.15;
+            if(bidChange>=3&&bidChange<=5.5) bidScore=1;
+            else if(bidChange>=2) bidScore=0.88;
+            else if(bidChange>=1.5) bidScore=0.65;
+            else if(bidChange>0) bidScore=0.4;
+            else bidScore=0.1;
+            let activityScore=0.2;
+            if(bidTurnover>=0.8) activityScore=1;
+            else if(bidTurnover>=0.4) activityScore=0.88;
+            else if(bidTurnover>=0.2) activityScore=0.72;
+            else if(bidTurnover>=0.08) activityScore=0.5;
+            else if(bidTurnover>0) activityScore=0.3;
+            else activityScore=0.1;
+            if(bidVolRatio>=0.3) activityScore=Math.min(1,activityScore+0.1);
+            let warnScore=warnType===5?1:warnType===4?0.85:warnType===3?0.6:0.18;
+            let marketScore=circMV<30?1:circMV<60?0.88:circMV<120?0.68:circMV<250?0.45:0.22;
+            let yesterdayScore=yesterdayApprox>=3&&yesterdayApprox<9.5?0.9:yesterdayApprox>=1?0.65:yesterdayApprox>=0?0.4:yesterdayApprox>-3?0.25:0.15;
+            const base=bidScore*0.34+activityScore*0.32+warnScore*0.17+marketScore*0.11+yesterdayScore*0.06;
+            let prob=Math.max(5,Math.min(95,base*100));
+            let conf=65;
+            if(warnType>=4) conf+=10;
+            if(bidTurnover>=0.4) conf+=8;
+            if(bidChange>=2&&bidChange<=6.5) conf+=7;
+            conf=Math.min(90,Math.max(55,conf));
+            return { probability:Math.round(prob), confidence:Math.round(conf), bidTurnover, bidVolRatio };
+        }
+
+        function applyFilters(list) {
+            return list.filter(item => {
+                const raw = item.rawStock;
+                const name = item.name||'';
+                const bidChg = item.bidChange;
+                const prob = item.probability, conf = item.confidence;
+                const mv = parseFloat(raw?.f10||0);
+                const price = parseFloat(raw?.f2||0);
+
+                if (filterSettings.stSuspend) {
+                    if (isST(name)) return false;
+                    if (raw && isSuspended(raw)) return false;
+                }
+                if (filterSettings.limitUp && raw && isFirstBoard(raw)) return false;
+                if (bidChg > filterSettings.bidGt) return false;
+                if (prob < filterSettings.probLt && conf < filterSettings.confLt) return false;
+                if (mv > filterSettings.floatMvGt) return false;
+                if (price > filterSettings.priceGt) return false;
+                return true;
+            });
+        }
+
+        function processAllStocks(rawStocks) {
+            const scored = rawStocks.map(stock => {
+                const sc = computeScore(stock);
+                return {
+                    code: stock.f12, name: stock.f14, probability: sc.probability, confidence: sc.confidence,
+                    bidChange: getBidChange(stock), realChange: parseFloat(stock.f3||0), entityChange: getEntityChange(stock),
+                    bidTurnover: sc.bidTurnover, bidVolRatio: sc.bidVolRatio, speed: parseFloat(stock.f8||0),
+                    warnType: getWarnType(stock), circulationMV: parseFloat(stock.f10||0),
+                    industry: stock.f100||'-', concept: stock.f103||'-', province: stock.f102||'-', rawStock: stock
+                };
+            });
+            scored.sort((a,b) => b.probability - a.probability);
+            return applyFilters(scored);
+        }
+
+        function renderMedalArea() {
+            const c = document.getElementById('medalArea');
+            if (!isDataCached || !cachedStocks.length) {
+                c.innerHTML = '<div class="empty-state" style="width:100%">暂无数据，请先执行选股</div>';
+                return;
+            }
+            const top = cachedStocks.slice(0,3);
+            const medals = [
+                { rank:'金牌', icon:'🥇' },
+                { rank:'银牌', icon:'🥈' },
+                { rank:'铜牌', icon:'🥉' }
+            ];
+            let h = '';
+            top.forEach((item,i) => {
+                const m = medals[i];
+                const realCls = item.realChange < item.bidChange ? 'green-real' : '';
+                h += `<div class="medal-card">
+                    <div class="medal-rank"><span class="medal-rank-icon">${m.icon}</span> ${m.rank}</div>
+                    <div class="medal-name-big">${item.name}</div>
+                    <div class="medal-code" onclick="linkToSoftware('${item.code}')">${item.code}</div>
+                    <div class="medal-prob-big">${item.probability}%</div>
+                    <div class="medal-detail">
+                        <span class="bid-chg">竞涨幅${item.bidChange>0?'+':''}${item.bidChange.toFixed(2)}%</span>
+                        <span class="conf-val">可信${item.confidence}%</span>
+                    </div>
+                    <div class="medal-real-chg ${realCls}">实时涨幅${item.realChange>0?'+':''}${item.realChange.toFixed(2)}%</div>
+                </div>`;
+            });
+            c.innerHTML = h;
+        }
+
+        function renderAllStockTable() {
+            const c = document.getElementById('allStockTableArea');
+            if (!isDataCached || !cachedStocks.length) {
+                c.innerHTML = '<div class="empty-state">暂无符合条件股票</div>';
+                return;
+            }
+            let h = `<table class="stock-table"><thead><tr><th>排名</th><th>股票代码</th><th>股票名称</th><th>竞价涨幅</th><th>实时涨幅</th><th>实体涨幅</th><th>异动</th><th>行业</th><th>概念</th><th>综合评分</th><th>可信度</th></tr></thead><tbody>`;
+            cachedStocks.forEach((item,idx) => {
+                const rc = item.realChange < item.bidChange ? 'real-green' : (item.realChange>0?'up':'down');
+                const bc = item.bidChange>0?'up':'down', ec = item.entityChange>0?'up':'down';
+                const warnL = item.warnType===5?'🔥强':item.warnType===4?'⚡中':item.warnType===3?'↑弱':'-';
+                h += `<tr><td class="rank-col">${idx+1}</td><td class="code-click" onclick="linkToSoftware('${item.code}')">${item.code}</td><td>${item.name}</td><td class="${bc}">${item.bidChange>0?'+':''}${item.bidChange.toFixed(2)}%</td><td class="${rc}">${item.realChange>0?'+':''}${item.realChange.toFixed(2)}%</td><td class="${ec}">${item.entityChange>0?'+':''}${item.entityChange.toFixed(2)}%</td><td>${warnL}</td><td>${item.industry}</td><td style="max-width:180px;white-space:pre-wrap">${item.concept}</td><td class="up">${item.probability}%</td><td>${item.confidence}%</td></tr>`;
+            });
+            c.innerHTML = h + '</tbody></table>';
+        }
+
+        function renderAll() { renderMedalArea(); renderAllStockTable(); }
+
+        async function fetchAndCache() {
+            if (isDataCached) { renderAll(); return; }
+            try {
+                document.getElementById('allStockTableArea').innerHTML = '<div class="loading-placeholder"><div class="spinner"></div><div>正在拉取数据…</div></div>';
+                const resp = await fetch(getStockApiUrl());
+                const json = await resp.json();
+                if (json.rc !== 0 || !json.data?.diff) throw new Error('数据异常');
+                allRawStocks = json.data.diff;
+                cachedStocks = processAllStocks(allRawStocks);
+                isDataCached = true;
+                realTimeRefreshUsed = false;
+                renderAll();
+                showToast('✅ 选股完成', 'success');
+            } catch(e) {
+                document.getElementById('allStockTableArea').innerHTML = '<div class="empty-state">数据拉取失败<br><button onclick="fetchAndCache()" style="margin-top:16px;background:#ff4d4d;border:none;padding:6px 20px;border-radius:30px;color:white;cursor:pointer;">重试</button></div>';
+            }
+        }
+
+        async function updateRealTimeOnly() {
+            if (!isDataCached) { await fetchAndCache(); return; }
+            try {
+                const resp = await fetch(getStockApiUrl());
+                const json = await resp.json();
+                json.data.diff.forEach(s => {
+                    const it = cachedStocks.find(x => x.code === s.f12);
+                    if (it) { it.realChange = parseFloat(s.f3||0); it.entityChange = getEntityChange(s); }
+                });
+                realTimeRefreshUsed = true;
+                renderAll();
+                showToast('✅ 实时涨幅更新完成', 'success');
+            } catch(e) { showToast('❌ 更新失败','error'); }
+        }
+
+        function reLockData() {
+            if (!isBefore930()) { showToast('❌ 9:30后禁止重新选股','error'); return; }
+            isDataCached = false; cachedStocks = []; allRawStocks = [];
+            realTimeRefreshUsed = false;
+            fetchAndCache();
+        }
+
+        function exportStocks(count) {
+            const list = cachedStocks.slice(0, count);
+            if (!list.length) { showToast('无数据','error'); return; }
+            let imp = ''; list.forEach(it => { let m = it.code.startsWith('6')?'1':(it.code.startsWith('4')||it.code.startsWith('8'))?'2':'0'; imp += `${m}#${it.code}|`; });
+            window.location.href = `http://www.treeid/AddToBlock_${imp.slice(0,-1)}`;
+        }
+        function exportAllFiltered() { if(cachedStocks.length) exportStocks(cachedStocks.length); else showToast('无数据','error'); }
+
+        window.linkToSoftware = function(code) {
+            if (!code) return;
+            const tdxUrl = `http://www.treeid/code_${code}`;
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = tdxUrl;
+            document.body.appendChild(iframe);
+            setTimeout(() => { document.body.removeChild(iframe); }, 1000);
+            showToast(`✅ 联动通达信：${code}`, 'success');
+        }
+
+        // ========== 筛选锁定逻辑 ==========
+        function saveLockedFilter(settings) {
+            try { localStorage.setItem(LOCKED_FILTER_KEY, JSON.stringify({ locked: true, settings })); } catch(e) {}
+        }
+        function loadLockedFilter() {
+            try {
+                const raw = localStorage.getItem(LOCKED_FILTER_KEY);
+                if (!raw) return null;
+                const data = JSON.parse(raw);
+                if (data && data.locked && data.settings) return data;
+                return null;
+            } catch(e) { return null; }
+        }
+        function clearLockedFilter() {
+            try { localStorage.removeItem(LOCKED_FILTER_KEY); } catch(e) {}
+        }
+
+        // 根据filterSettings更新DOM显示
+        function updateFilterInputsFromSettings(settings) {
+            document.getElementById('filterSTSuspend').checked = settings.stSuspend;
+            document.getElementById('filterLimitUp').checked = settings.limitUp;
+            document.getElementById('bidGtThreshold').value = settings.bidGt;
+            document.getElementById('probLtThreshold').value = settings.probLt;
+            document.getElementById('confLtThreshold').value = settings.confLt;
+            document.getElementById('floatMvThreshold').value = settings.floatMvGt;
+            document.getElementById('priceGtThreshold').value = settings.priceGt;
+            document.querySelectorAll('.market-check').forEach(cb => {
+                cb.checked = settings.markets.includes(cb.value);
+            });
+        }
+
+        // 从DOM读取当前设置
+        function readFilterSettingsFromDOM() {
+            filterSettings.stSuspend = document.getElementById('filterSTSuspend').checked;
+            filterSettings.limitUp = document.getElementById('filterLimitUp').checked;
+            filterSettings.bidGt = parseFloat(document.getElementById('bidGtThreshold').value) || 7;
+            filterSettings.probLt = parseFloat(document.getElementById('probLtThreshold').value) || 65;
+            filterSettings.confLt = parseFloat(document.getElementById('confLtThreshold').value) || 65;
+            filterSettings.floatMvGt = parseFloat(document.getElementById('floatMvThreshold').value) || 100;
+            filterSettings.priceGt = parseFloat(document.getElementById('priceGtThreshold').value) || 30;
+
+            const selectedMarkets = [];
+            document.querySelectorAll('.market-check:checked').forEach(cb => selectedMarkets.push(cb.value));
+            filterSettings.markets = selectedMarkets.length ? selectedMarkets : ['hs','cyb','kcb'];
+        }
+
+        // 重置筛选条件（优先恢复到锁定条件，否则默认值）
+        function resetFilterToDefault() {
+            if (isFilterLocked) {
+                showToast('🔒 筛选已锁定，请先解锁再重置', 'error');
+                return;
+            }
+            // 若存在锁定记录，则恢复到锁定条件
+            const lockedData = loadLockedFilter();
+            if (lockedData && lockedData.settings) {
+                filterSettings = { ...lockedData.settings };
+                updateFilterInputsFromSettings(filterSettings);
+                showToast('✅ 已恢复为上次锁定的条件', 'success');
+            } else {
+                filterSettings = { ...defaultFilterSettings };
+                updateFilterInputsFromSettings(filterSettings);
+                showToast('✅ 筛选条件已恢复默认', 'success');
+            }
+        }
+
+        // 切换锁定状态
+        function toggleFilterLock() {
+            isFilterLocked = !isFilterLocked;
+            if (isFilterLocked) {
+                // 锁定：保存当前设置
+                readFilterSettingsFromDOM();
+                saveLockedFilter(filterSettings);
+                updateFilterLockUI();
+                showToast('🔒 筛选条件已锁定，后续选股将使用此设置', 'success');
+            } else {
+                // 解锁：清除锁定标志，但保留设置以便重置使用
+                clearLockedFilter();
+                // 解锁时保持当前设置不变（DOM已显示）
+                updateFilterLockUI();
+                showToast('🔓 筛选条件已解锁，可自由编辑', 'success');
+            }
+        }
+
+        function updateFilterLockUI() {
+            const filterBox = document.getElementById('filterBox');
+            const lockBtn = document.getElementById('lockFilterBtn');
+            const lockIndicator = document.getElementById('lockIndicator');
+            const applyBtn = document.getElementById('applyFilterBtn');
+            const resetBtn = document.getElementById('resetFilterBtn');
+            const allFilterInputs = document.querySelectorAll('#filterBox input[type="checkbox"], #filterBox input[type="number"]');
+
+            if (isFilterLocked) {
+                filterBox.classList.add('filter-locked');
+                lockBtn.classList.add('locked');
+                lockBtn.innerHTML = '🔓 解锁';
+                lockBtn.title = '点击解锁筛选条件';
+                allFilterInputs.forEach(el => { el.disabled = true; });
+                if (applyBtn) applyBtn.disabled = true;
+                if (resetBtn) resetBtn.disabled = true;
+                if (lockIndicator) lockIndicator.style.display = 'inline-block';
+            } else {
+                filterBox.classList.remove('filter-locked');
+                lockBtn.classList.remove('locked');
+                lockBtn.innerHTML = '🔒 锁定';
+                lockBtn.title = '点击锁定筛选条件';
+                allFilterInputs.forEach(el => { el.disabled = false; });
+                if (applyBtn) applyBtn.disabled = false;
+                if (resetBtn) resetBtn.disabled = false;
+                if (lockIndicator) lockIndicator.style.display = 'none';
+            }
+        }
+
+        function applyCustomFilter() {
+            if (isFilterLocked) {
+                showToast('🔒 筛选条件已锁定，无法手动应用', 'error');
+                return;
+            }
+            readFilterSettingsFromDOM();
+
+            if (isDataCached && allRawStocks.length) {
+                cachedStocks = processAllStocks(allRawStocks);
+                renderAll();
+                showToast('✅ 筛选条件已更新', 'success');
+            } else {
+                fetchAndCache();
+            }
+        }
+
+        // 股票池逻辑（保持不变）
+        function savePoolToStorage(){ let d={stocks:stockPool,autoPoolLockTime}; try{localStorage.setItem(STORAGE_KEY,JSON.stringify(d));}catch(e){} }
+        function loadPoolFromStorage(){ try{ let r=localStorage.getItem(STORAGE_KEY); if(!r) return {stocks:[],autoPoolLockTime:null}; let d=JSON.parse(r); if(d.autoPoolLockTime&&Date.now()-d.autoPoolLockTime>LOCK_DURATION_MS){ localStorage.removeItem(STORAGE_KEY); return {stocks:[],autoPoolLockTime:null}; } return {stocks:d.stocks||[],autoPoolLockTime:d.autoPoolLockTime||null}; }catch(e){ return {stocks:[],autoPoolLockTime:null}; } }
+        function syncPoolToStorage(){ if(!stockPool.length) autoPoolLockTime=null; savePoolToStorage(); }
+        function checkPoolExpiry(){ if(autoPoolLockTime&&stockPool.length&&Date.now()-autoPoolLockTime>LOCK_DURATION_MS){ stockPool=[]; autoPoolLockTime=null; savePoolToStorage(); renderStockPool(); updatePoolStatusTag(); } else if(autoPoolLockTime) updatePoolExpiryDisplay(); }
+        function updatePoolExpiryDisplay(){ let el=document.getElementById('poolExpiryInfo'); if(!el)return; if(autoPoolLockTime&&stockPool.length){ let rem=autoPoolLockTime+LOCK_DURATION_MS-Date.now(); if(rem<=0){el.style.display='none';return;} let h=Math.floor(rem/3600000),m=Math.floor((rem%3600000)/60000); el.style.display='inline'; el.innerHTML=`🔒 锁定剩余 <strong>${h}小时${m}分</strong>`; }else{el.style.display='none';} }
+        function updatePoolStatusTag(){ let s=document.getElementById('autoAddStatusTag'); if(!s)return; let now=new Date(),h=now.getHours(),m=now.getMinutes(); if(autoPoolLockTime&&stockPool.length){ let d=new Date(autoPoolLockTime); s.innerHTML=`🔒 已锁定于 ${d.toLocaleTimeString('zh-CN',{hour12:false})} · 刷新不变`; } else if(h<9||(h===9&&m<30)){ s.innerHTML=`⏰ 9:30前自动收录中 (${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')})`; } else { s.innerHTML=`🔒 已过9:30 停止自动选股`; } updatePoolExpiryDisplay(); }
+        function addStocksToPool(stks){ let added=0; stks.forEach(s=>{ if(!stockPool.some(x=>x.code===s.code)){ stockPool.push({code:s.code,name:s.name,addTime:new Date().toLocaleTimeString('zh-CN',{hour12:false}),addTimestamp:Date.now()}); added++; } }); if(added){ syncPoolToStorage(); renderStockPool(); updatePoolStatusTag(); } }
+        function renderStockPool(){ let c=document.getElementById('poolListContainer'); if(!c)return; if(!stockPool.length){ c.innerHTML='<div class="empty-pool">暂无股票，9:30前系统自动将前三名选入池中</div>'; return; } let h=''; stockPool.forEach(item=>{ h+=`<div class="pool-item"><div class="pool-item-info"><div class="pool-stock-name">${item.name}</div><div class="pool-stock-code code-click" onclick="linkToSoftware('${item.code}')">${item.code}</div><div class="pool-add-time">📅 ${item.addTime}</div></div><div class="pool-item-actions"><button class="del-single" data-code="${item.code}" data-name="${item.name}">移除</button></div></div>`; }); c.innerHTML=h; document.querySelectorAll('.del-single').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); let cd=b.dataset.code,nm=b.dataset.name; stockPool=stockPool.filter(s=>s.code!==cd); syncPoolToStorage(); renderStockPool(); updatePoolStatusTag(); } }); }
+        function clearStockPool(){ if(!stockPool.length)return; stockPool=[]; autoPoolLockTime=null; savePoolToStorage(); renderStockPool(); updatePoolStatusTag(); }
+        function exportStockPoolToTdx(){ if(!stockPool.length){ showToast('池空','error'); return; } let imp=''; stockPool.forEach(i=>{ let m=i.code.startsWith('6')?'1':(i.code.startsWith('4')||i.code.startsWith('8'))?'2':'0'; imp+=`${m}#${i.code}|`; }); window.location.href=`http://www.treeid/AddToBlock_${imp.slice(0,-1)}`; }
+        function manualAddCurrentTop3(){ if(!isDataCached||!cachedStocks.length){ showToast('无缓存','error'); return; } let top=cachedStocks.slice(0,3); if(top.length) addStocksToPool(top); }
+        async function autoAddTask(){ let now=new Date(),h=now.getHours(),m=now.getMinutes(); if(autoPoolLockTime&&stockPool.length){ if(Date.now()-autoPoolLockTime<=LOCK_DURATION_MS){ updatePoolStatusTag(); return; } else { stockPool=[]; autoPoolLockTime=null; savePoolToStorage(); renderStockPool(); updatePoolStatusTag(); } } if(h<9||(h===9&&m<30)){ if(isDataCached&&cachedStocks.length){ let top=cachedStocks.slice(0,3); if(top.length&&!stockPool.length){ addStocksToPool(top); autoPoolLockTime=Date.now(); syncPoolToStorage(); updatePoolStatusTag(); } } updatePoolStatusTag(); } else { if(autoPoolTimer){clearInterval(autoPoolTimer);autoPoolTimer=null;} updatePoolStatusTag(); } }
+        function startAutoPoolTimer(){ if(autoPoolTimer)clearInterval(autoPoolTimer); autoAddTask(); autoPoolTimer=setInterval(autoAddTask,20000); }
+        function startExpiryCheckTimer(){ if(expiryCheckTimer)clearInterval(expiryCheckTimer); expiryCheckTimer=setInterval(checkPoolExpiry,30000); }
+
+        function showToast(msg,type='info'){ document.querySelector('.toast-msg')?.remove(); let d=document.createElement('div'); d.className='toast-msg'; d.innerHTML=`<i class="fa fa-${type==='success'?'check-circle':'info-circle'}"></i> ${msg}`; document.body.appendChild(d); setTimeout(()=>d.remove(),2500); }
+        function updateBeijingTime(){ let now=new Date(); let bj=new Date(now.getTime()+8*60*60*1000+now.getTimezoneOffset()*60*1000); document.querySelector('.time-digital').textContent=`${String(bj.getHours()).padStart(2,'0')}:${String(bj.getMinutes()).padStart(2,'0')}:${String(bj.getSeconds()).padStart(2,'0')}`; document.getElementById('refreshLockedBtn').disabled=!isBefore930(); }
+
+        function initSystem() {
+            // 初始化股票池
+            const loaded = loadPoolFromStorage();
+            stockPool = loaded.stocks;
+            autoPoolLockTime = loaded.autoPoolLockTime;
+            renderStockPool();
+            updatePoolStatusTag();
+
+            // 检查是否已存在锁定筛选
+            const lockedData = loadLockedFilter();
+            if (lockedData && lockedData.settings) {
+                // 恢复锁定状态
+                isFilterLocked = true;
+                filterSettings = { ...lockedData.settings };
+                updateFilterInputsFromSettings(filterSettings);
+            } else {
+                // 无锁定记录，使用默认并更新DOM
+                filterSettings = { ...defaultFilterSettings };
+                updateFilterInputsFromSettings(filterSettings);
+            }
+            updateFilterLockUI();
+
+            // 按钮事件
+            document.getElementById('refreshLockedBtn').onclick = reLockData;
+            document.getElementById('refreshRealTimeBtn').onclick = updateRealTimeOnly;
+            document.getElementById('applyFilterBtn').onclick = applyCustomFilter;
+            document.getElementById('resetFilterBtn').onclick = resetFilterToDefault;
+            document.getElementById('lockFilterBtn').onclick = toggleFilterLock;
+            document.getElementById('exportMedalBtn').onclick = () => exportStocks(parseInt(document.getElementById('medalExportCount').value));
+            document.getElementById('exportAllBtn').onclick = exportAllFiltered;
+            document.getElementById('exportAllTopBtn').onclick = exportAllFiltered;
+            document.getElementById('manualAddCurrentBtn').onclick = manualAddCurrentTop3;
+            document.getElementById('clearPoolBtn').onclick = clearStockPool;
+            document.getElementById('exportPoolBtn').onclick = exportStockPoolToTdx;
+
+            fetchAndCache();
+            updateBeijingTime();
+            setInterval(updateBeijingTime, 1000);
+            startAutoPoolTimer();
+            startExpiryCheckTimer();
+        }
+
+        window.addEventListener('beforeunload', () => {
+            if (autoPoolTimer) clearInterval(autoPoolTimer);
+            if (expiryCheckTimer) clearInterval(expiryCheckTimer);
+        });
+        window.addEventListener('DOMContentLoaded', initSystem);
+    })();
+</script>
+</body>
+</html>
