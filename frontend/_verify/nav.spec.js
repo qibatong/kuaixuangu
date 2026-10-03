@@ -259,14 +259,21 @@ ok('渲染无异常/无 Vue 警告', c2.errors.length === 0, c2.errors.join(' | 
 ok('不含分组 pill 行', !c2.html.includes('group-nav-item'))
 ok('不含「板块 / 题材库」pill 文案', !c2.html.includes('>题材库<') && !c2.html.includes('>板块<'))
 
-// D. 一级入口：**桌面仍 6 组**（本次未动）；**手机底部收为 4 格 = 首页/竞价/盘中/我的**
+// D. 一级入口：**桌面 7 组**（2026-10-03 主人指令：「超智」升为一级分组且放「竞价」左边，
+//    原话「放在竞价这里，竞价向右调整一下」—— 曾误解为竞价页左栏，已回退）；手机底部仍 5 格
+//    = 首页/竞价/盘中/复盘/我的（超智不进底部栏，入口仍走首页宫格，与盘前资讯同待遇）
 //    2026-10-01 主人拍板（原话「4格 首页、竞价、盘中、我的」「底部不保留搜索，上面已经搜索了」）
 //    ⇒ 底部栏不再逐组渲染，改读 TABBAR_TABS；失去底部入口的页由首页宫格 QuickGrid 承载。
-console.log('\n— D. 一级入口（NavBar 6 组 / AppTabBar 4 格）')
+console.log('\n— D. 一级入口（NavBar 7 组 / AppTabBar 5 格）')
 for (const g of NAV_GROUPS) {
   ok(`NavBar 有一级入口「${g.label}」`, b.html.includes(g.label))
 }
-ok('桌面一级分组仍是 6 个（本次未动）', NAV_GROUPS.length === 6, '实际 ' + NAV_GROUPS.length)
+ok('超智是一级分组且排在竞价**前面**（竞价向右让位）',
+   NAV_GROUPS.length > 1 && NAV_GROUPS[0].key === 'chaozhi' && NAV_GROUPS[1].key === 'auction',
+   '实际前两组: ' + NAV_GROUPS.slice(0, 2).map((g) => g.key).join(','))
+ok('超智组落点是 /chaozhi 且单页组（不渲染 pill 行）',
+   NAV_GROUPS.find((g) => g.key === 'chaozhi').entry === '/chaozhi')
+ok('桌面一级分组是 7 个（2026-10-03 起超智入列）', NAV_GROUPS.length === 7, '实际 ' + NAV_GROUPS.length)
 ok('底部 tabbar 恰好 5 个 tab', (b.html.match(/tabbar-item/g) || []).length === 5,
    '实际 ' + (b.html.match(/tabbar-item/g) || []).length)
 ok('底部 4 格 = 首页/竞价/盘中/我的',
@@ -292,9 +299,12 @@ const _want10 = ['pick', 'zhpick', 'yijiner', 'auc', 'ai', 'spot', 'ladder', 'ca
 const _got10 = [...qg.html.matchAll(/data-qg="([^"]+)"/g)].map((m) => m[1])
 ok('宫格 10 格内容与顺序 = 主人指定（竞价选股/竞价精选/竞价优选/竞价异动/超智研判 + 动态选股/连板天梯/异动计算器/盘前资讯/题材库）',
    _got10.join('/') === _want10.join('/'), '实际 ' + _got10.join('/'))
-ok('一格带子项（竞价异动；超智研判改为直跳聚合页、复盘已移到手机底部 tab）',
-   (qg.html.match(/data-qg-children="[1-9]/g) || []).length === 1,
-   '实际 ' + (qg.html.match(/data-qg-children="[1-9]/g) || []).length)
+// 2026-10-03 主人指令：手机端宫格点「竞价异动」**不再弹子版块面板**，改为直跳 /auction
+//   （与电脑端一致，版块在页内 9 个 tab 切）⇒ 带子项的格子数由 1 变 **0**。
+//   同例：2026-10-01 超智研判也是从"子项面板"改为"直跳聚合页"。
+ok('宫格 10 格**全部直跳**（竞价异动 2026-10-03 起也不再弹子项面板，与电脑端一致）',
+   (qg.html.match(/data-qg-children="[1-9]/g) || []).length === 0,
+   '实际带子项的格数 ' + (qg.html.match(/data-qg-children="[1-9]/g) || []).length)
 ok('宫格带「编辑」入口（其余页面靠候选池换入）', qg.html.includes('编辑'))
 // 2026-10-01 图标重设计：自绘多色 SVG；**同日主人指定** 5 格改用**文字图标**
 //   （竞价选股「选」/竞价精选「精」/竞价优选「优」/超智研判「智」/题材库「题材」）
