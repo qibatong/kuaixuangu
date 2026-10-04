@@ -74,11 +74,26 @@ export function usePush() {
       subscribed.value = true
       return true
     } catch (e) {
-      message.value = (e && e.message) || '开启失败'
+      message.value = friendlyPushError((e && e.message) || '')
       return false
     } finally {
       busy.value = false
     }
+  }
+
+  // 2026-10-04 实测（主人手机 Android Chrome）：subscribe 阶段浏览器抛
+  // "Registration failed - push service error" ⇒ 原文直接展示用户看不懂。
+  //   根因：Android Chrome 的 WebPush 必须经 Google FCM，国内网络连不上 ⇒ 注册失败。
+  //   这是**网络环境限制**，不是代码 bug；iOS(Safari+加到主屏幕) 走 APNs 不受此限。
+  //   把高频错误映射成中文 + 指路；未识别的保留原文（附中文前缀）。
+  function friendlyPushError(raw) {
+    if (/push service error|Registration failed/i.test(raw))
+      return '注册推送失败：Android 浏览器需连接 Google 推送服务，国内网络通常连不上（iPhone 加到主屏幕后可用）。网络环境限制，非账号问题。'
+    if (/permission|NotAllowed/i.test(raw))
+      return '未授权通知权限（浏览器设置 → 通知 → 允许本站）'
+    if (/InvalidAccessError|applicationServerKey/i.test(raw))
+      return '推送公钥校验失败（服务端配置问题，请联系管理员）'
+    return raw ? '开启失败：' + raw : '开启失败'
   }
 
   const disable = async () => {

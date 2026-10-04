@@ -86,6 +86,8 @@ const chartCode = computed(() => uiBus.chartModal.code)
 const chartName = computed(() => uiBus.chartModal.name)
 // 2026-10-04 P1⑥ 个股详情抽屉：≤768px 走底部抽屉（多一个「竞价三时点」tab），
 // 桌面仍是原来的居中弹窗 —— 不改已验收的桌面交互。
+// 🔴 发版注意：生产目前跑的是「仅推送」版（2026-10-04 换盘时这里曾临时锁成 'modal'，
+//    抽屉还没上线生产）；主人验收通过后，用含本段逻辑的 dist 重新部署即生效。
 const chartMode = computed(() => {
   try { return window.innerWidth <= 768 ? 'drawer' : 'modal' } catch (e) { return 'modal' }
 })
