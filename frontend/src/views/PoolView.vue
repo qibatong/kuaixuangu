@@ -9,10 +9,13 @@
 
     <!-- 通达信下载工具区: 从首页迁入, 集中管理 -->
     <div class="tdx-toolbar">
-      <!-- 2026-10-04 安卓壳: 这两个是 **Windows 专属**(tdx_import.exe / 剪贴板自动导入),
-           安卓上点了也用不了 ⇒ 壳内用 v-if 不挂载(不是 CSS 隐藏, 免得白占位)。 -->
+      <!-- 2026-10-04 安卓壳（主人要求：隐藏「唤起客户端」，只留「下载 .blk」）：
+           · tdx_import.exe 是 **Windows 专属** ⇒ 壳内不挂载（点了也用不了）；
+           · .blk 是**纯文本文件**，安卓上有用（存到「下载」目录后可手动导入通达信）⇒ 保留，
+             但文案改成不带「自动导入」（壳内没有剪贴板监控，做不到自动）。 -->
       <a v-if="!isNativeApp" href="/download/tdx_import.exe" class="tdx-export-btn tdx-only nav-btn nav-tdx"><i class="fa fa-windows"></i> 下载通达信工具</a>
       <button v-if="!isNativeApp" class="tdx-export-btn tdx-only nav-btn nav-pool-import" data-tip="💡 首次用：先点「下载通达信工具」并运行，再在通达信『选项/工具』勾选『监控剪贴板』，之后点下载即可自动导入" @click="downloadAll"><i class="fa fa-download"></i> 下载自选股(自动导入)</button>
+      <button v-else class="tdx-export-btn tdx-only nav-btn nav-pool-import" data-tip="💡 手机上不会自动导入：文件存到「下载」目录，到电脑上导入通达信" @click="downloadAll"><i class="fa fa-download"></i> 下载自选股 .blk</button>
       <button class="tdx-export-btn pool-btn" @click="copyCodes"><i class="fa fa-copy"></i> 复制代码列表</button>
       <div class="tdx-tip">💡 通达信导入需在<b>电脑端</b>操作；手机上可点「复制代码列表」</div>
     </div>

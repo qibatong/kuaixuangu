@@ -135,6 +135,15 @@ self.addEventListener('message', (e) => {
 // 后端按 RFC 8291 加密后 POST 到浏览器给的 endpoint，浏览器解密后派 `push` 事件。
 // 🔴 这里**只负责弹通知**：不做任何数据请求（SW 里没有登录态，且铁律一禁止碰 /api/）。
 //    载荷里带的是 {title, body, url}，够用了 —— 想看详情就点通知进页面。
+//
+// 2026-10-04 说明（推送「要么接真、要么藏掉」→ 本轮选"藏掉"，但**只藏安卓**）：
+//   · 安卓 Chrome / 壳内 WebView 的 WebPush 必须经 Google FCM，国内网络连不上
+//     ⇒ subscribe 会抛 "Registration failed - push service error"
+//     ⇒ 前端已在 `usePush.js` 里对安卓隐藏入口（不会再产生新订阅）。
+//   · 本段**保留**：iPhone（Safari 加到主屏幕）走 Apple APNs 真能收到，
+//     已订阅的设备要靠它弹通知；没有订阅就不会有 push 事件，留着无害。
+//   TODO（接真推送时）：安卓侧换 @capacitor/push-notifications + 厂商通道后，
+//     通知改由原生侧弹出，本段仍服务于 Web/iOS，不动。
 // ==================================================================
 self.addEventListener('push', (e) => {
   let data = {}

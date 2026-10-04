@@ -20,3 +20,21 @@ export function isNative() {
     return false
   }
 }
+
+/**
+ * 安卓环境（Capacitor 壳 **或** 安卓浏览器）—— 用于屏蔽在安卓上根本用不了的能力。
+ *
+ * 2026-10-04 实测依据：安卓 Chrome 的 WebPush 必须经 Google FCM，国内网络连不上，
+ * subscribe 直接抛 `Registration failed - push service error`；壳内 WebView 同理。
+ * iOS Safari（添加到主屏幕后）走 Apple APNs，**不受影响** ⇒ 只屏蔽安卓，iPhone 保留推送。
+ *
+ * 若将来接了厂商通道（小米/华为/OPPO Push）或 FCM 可用，把这里改回 false 即可恢复入口。
+ */
+export function isAndroidEnv() {
+  if (isNative()) return true
+  try {
+    return /Android/i.test(navigator.userAgent || '')
+  } catch (e) {
+    return false
+  }
+}

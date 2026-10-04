@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { fetchPushStatus, fetchVapidKey, pushSubscribe, pushUnsubscribe } from '../api/push'
+import { isAndroidEnv } from '../utils/native'
 
 /**
  * WebPush 开关（2026-10-04 手机端真推送）。
@@ -31,11 +32,18 @@ function urlBase64ToUint8Array(b64) {
 
 export function usePush() {
   const refresh = async () => {
+    // 2026-10-04 做法 B：**安卓上把推送入口整个藏掉**（不是禁用，是不显示）。
+    //   依据：安卓 Chrome/壳内 WebView 的 WebPush 必须经 Google FCM，国内网络连不上，
+    //   实测 subscribe 抛 "Registration failed - push service error" ⇒ 按钮留着只会
+    //   让用户点一次失败一次。iPhone（Safari 加到主屏幕走 APNs）仍然可用 ⇒ 只对安卓屏蔽。
+    //   TODO(接真推送时改回): 接 @capacitor/push-notifications + 厂商通道后，
+    //   删掉 `&& !isAndroidEnv()` 这一行即可恢复入口。
     supported.value =
       typeof window !== 'undefined' &&
       'serviceWorker' in navigator &&
       'PushManager' in window &&
-      'Notification' in window
+      'Notification' in window &&
+      !isAndroidEnv()
     if (!supported.value) return
     try {
       const r = await fetchPushStatus()

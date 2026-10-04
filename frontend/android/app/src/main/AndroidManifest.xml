@@ -44,6 +44,15 @@
          正确做法是改用 context.getExternalFilesDir()（app 私有目录，无需任何权限），
          而不是重新申请敏感权限。 -->
 
-    <!-- 下载完成后通知栏可见(Android 13+ 需要 POST_NOTIFICATIONS 才弹通知) -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 2026-10-04 移除 POST_NOTIFICATIONS（主人拍板：推送要么接真、要么藏掉，
+         本轮选"藏掉" ⇒ 前端已在安卓环境隐藏推送入口，权限就没理由再申请）。
+         理由：它是 Android 13+ 的**运行时敏感权限**，会在系统设置里显示为"通知"，
+         而我们并没有真实推送可发 ⇒ 声明它只让用户怀疑"这 app 要给我推什么"。
+
+         ⚠️ 已知副作用：MainActivity 下载接管完成后，原本会往通知栏发一条
+         "下载完成"提示 —— Android 13+ 上没这个权限就**不会显示**了。
+         影响可控（文件照样下载成功，只是少一条通知栏提示）。
+         TODO：若将来接了真推送（@capacitor/push-notifications + 厂商通道 /
+         FCM），需把本权限加回来，并在 MainActivity 里做运行时申请
+         （Android 13+ 光声明不够，必须 requestPermissions）。 -->
 </manifest>
