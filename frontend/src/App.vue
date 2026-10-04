@@ -16,6 +16,7 @@
       v-model:visible="chartVisible"
       :code="chartCode"
       :name="chartName"
+      :mode="chartMode"
     />
     <!-- 2026-09-21 主人拍板: 页脚只保留免责声明一条(规则条/术语图例移除, 术语解释已有各列表头 title 悬浮) -->
     <footer class="app-footer">
@@ -83,6 +84,11 @@ const chartVisible = computed({
 })
 const chartCode = computed(() => uiBus.chartModal.code)
 const chartName = computed(() => uiBus.chartModal.name)
+// 2026-10-04 P1⑥ 个股详情抽屉：≤768px 走底部抽屉（多一个「竞价三时点」tab），
+// 桌面仍是原来的居中弹窗 —— 不改已验收的桌面交互。
+const chartMode = computed(() => {
+  try { return window.innerWidth <= 768 ? 'drawer' : 'modal' } catch (e) { return 'modal' }
+})
 
 // 全局点击事件委托: 点击股票代码/名称单元格 → 弹 分时/K线 图(生产机还原版)
 // 覆盖: 首页选股/自选/竞价异动(.stock-info-cell)、连板天梯/市场雷达(td.code-click)、

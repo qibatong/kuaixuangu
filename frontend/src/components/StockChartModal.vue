@@ -1,7 +1,15 @@
 <template>
   <Teleport to="body">
-    <div v-if="visible" class="chart-mask" @click.self="close">
+    <!-- 2026-10-04 P1⑥ 个股详情抽屉：mode="drawer" 时从底部升起（默认仍是居中弹窗） -->
+    <div v-if="visible" class="chart-mask" :class="{ 'is-drawer': isDrawer }" @click.self="close">
       <div class="chart-modal">
+        <!-- 抽屉把手：下拉 >70px 关闭（手机端习惯手势） -->
+        <div
+          v-if="isDrawer" class="drawer-grab"
+          @touchstart.passive="onGrabStart" @touchmove.passive="onGrabMove" @touchend.passive="onGrabEnd"
+        >
+          <span class="drawer-grab-bar"></span>
+        </div>
         <div class="chart-header">
           <div class="chart-title">
             <span class="stock-name">{{ stockName || '股票' }}</span>
@@ -20,7 +28,7 @@
 
         <div class="chart-tabs">
           <button
-            v-for="t in tabs" :key="t.key"
+            v-for="t in tabsShown" :key="t.key"
             class="chart-tab" :class="{ active: activeTab === t.key }"
             @click.stop="switchTab(t.key)"
           >
@@ -33,6 +41,33 @@
           <div v-if="activeTab === 'detail'" class="chart-body-detail">
             <StockDetailPanel :code="stockCode" :name="stockName" />
           </div>
+
+          <!-- 竞价三时点（9:15/9:20/9:25）：抽屉专属 tab —— 规划 P1⑥ 的四块内容之一。
+               接口 GET /api/stats/bid-snapshot-stock?date=&code=；非交易日后端自动回退最近交易日。 -->
+          <div v-else-if="activeTab === 'bid'" class="chart-body-bid">
+            <div class="bid-head">
+              竞价三时点
+              <span class="bid-date">{{ bidDate }}</span>
+            </div>
+            <div v-if="bidLoading" class="bid-tip"><i class="fa fa-spinner fa-spin"></i> 加载中…</div>
+            <div v-else-if="bidErr" class="bid-tip err">{{ bidErr }}</div>
+            <div v-else-if="!bidPoints.length" class="bid-tip">当日无竞价快照数据</div>
+            <template v-else>
+              <div class="bid-grid">
+                <div v-for="p in bidPoints" :key="p.key" class="bid-item">
+                  <span class="bid-time">{{ p.label }}</span>
+                  <span class="bid-chg" :class="{ up: p.change > 0, down: p.change < 0 }">{{ fmtPct(p.change) }}</span>
+                  <span class="bid-sub">竞价额 {{ fmtAmt(p.bidAmt) }}</span>
+                  <span v-if="p.buyAmt" class="bid-sub">封单 {{ fmtAmt(p.buyAmt) }}</span>
+                </div>
+              </div>
+              <div class="bid-note">
+                口径：竞价涨幅按快照价相对昨收计算；「封单」为该时点买一档挂单金额。9:15 之前撤单可撤，
+                9:20 后不可撤 ⇒ 三个时点的变化最能反映资金意图。
+              </div>
+            </template>
+          </div>
+
           <template v-else>
             <!-- 画布容器必须常驻, 不能随 loading 被 v-if 卸载:
                  否则切 分时/日K/周K/月K 时容器摘掉再重建, 而 ECharts 实例仍绑在旧(已脱离)节点上,
@@ -54,16 +89,21 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick, shallowRef } fr
 // 2026-09-30 v4.11.83 (P2-2): echarts 注册收口到 utils/echarts.js(全仓共用一份, 见该文件注释)
 import echarts from '../utils/echarts'
 import { stockChart } from '../api/stocks'
+import { bidSnapshotStock } from '../api/stats'
 import StockDetailPanel from './StockDetailPanel.vue'
 import { fmtNum, fmtVol, fmtVolShort } from '../utils/chart'
-import { isIntradayNow } from '../utils/time'
+import { isIntradayNow, todayBj } from '../utils/time'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
   code: { type: String, default: '' },
   name: { type: String, default: '' },
+  // 2026-10-04 P1⑥：'modal' = 原居中弹窗(桌面)；'drawer' = 手机端底部抽屉（多一个竞价三时点 tab）
+  mode: { type: String, default: 'modal' },
 })
 const emit = defineEmits(['update:visible', 'close'])
+
+const isDrawer = computed(() => props.mode === 'drawer')
 
 const tabs = [
   { key: 'detail', label: '个股' },
@@ -72,6 +112,10 @@ const tabs = [
   { key: 'week',   label: '周K' },
   { key: 'month',  label: '月K' },
 ]
+// 抽屉模式才给「竞价」页：桌面弹窗维持原样，避免动到已验收的界面
+const tabsShown = computed(() => isDrawer.value
+  ? [...tabs.slice(0, 1), { key: 'bid', label: '竞价' }, ...tabs.slice(1)]
+  : tabs)
 const activeTab = ref('detail')
 const stockCode = computed(() => props.code || '')
 const stockName = ref(props.name || '')
@@ -127,7 +171,7 @@ function close() {
 }
 
 async function fetchData({ silent = false } = {}) {
-  if (activeTab.value === 'detail') return
+  if (activeTab.value === 'detail' || activeTab.value === 'bid') return
   if (!stockCode.value) return
   if (!silent) loading.value = true
   errorMsg.value = ''
@@ -158,9 +202,69 @@ function switchTab(k) {
   if (activeTab.value === k) return
   activeTab.value = k
   if (k === 'detail') return
+  if (k === 'bid') { loadBid(); return }
   fetchData()
   startPoll()
 }
+
+// ---------- 竞价三时点（抽屉专属 tab）----------
+// 后端 /api/stats/bid-snapshot-stock 需要 date；非交易日会自动回退到最近交易日 ⇒
+// 前端只管传**北京时间的今天**，不必自己判交易日。
+const BID_POINT_LABELS = { '9_15': '9:15', '9_20': '9:20', '9_25': '9:25' }
+const bidDate = ref('')
+const bidLoading = ref(false)
+const bidErr = ref('')
+const bidPoints = ref([])
+
+function fmtPct(v) {
+  if (v == null || v === '') return '—'
+  const n = Number(v)
+  if (!isFinite(n)) return '—'
+  return (n > 0 ? '+' : '') + n.toFixed(2) + '%'
+}
+// 后端返回单位：万元
+function fmtAmt(v) {
+  if (v == null || v === '') return '—'
+  const n = Number(v)
+  if (!isFinite(n)) return '—'
+  return n >= 10000 ? (n / 10000).toFixed(2) + '亿' : n.toFixed(0) + '万'
+}
+
+async function loadBid() {
+  if (!stockCode.value) return
+  bidLoading.value = true
+  bidErr.value = ''
+  try {
+    const d = todayBj()
+    const r = await bidSnapshotStock(d, stockCode.value)
+    bidDate.value = (r && r.date) || d
+    const raw = (r && r.points) || {}
+    bidPoints.value = Object.keys(BID_POINT_LABELS).map(k => ({
+      key: k,
+      label: BID_POINT_LABELS[k],
+      change: raw[k] ? Number(raw[k].bid_change) : null,
+      bidAmt: raw[k] ? Number(raw[k].bid_amt) : null,
+      buyAmt: raw[k] ? Number(raw[k].bid_buy_amt) : null,
+    }))
+  } catch (e) {
+    bidErr.value = (e && e.message) || '竞价数据加载失败'
+    bidPoints.value = []
+  } finally {
+    bidLoading.value = false
+  }
+}
+
+// ---------- 抽屉下拉关闭手势 ----------
+let grabStartY = 0
+let grabbing = false
+function onGrabStart(e) { grabbing = true; grabStartY = e.touches[0].clientY }
+function onGrabMove(e) {
+  if (!grabbing) return
+  const dy = e.touches[0].clientY - grabStartY
+  // 只有向下拖才响应，向上滑不动（避免误关）
+  if (dy > 70) { grabbing = false; close() }
+}
+function onGrabEnd() { grabbing = false }
 
 function refresh() {
   fetchData()
@@ -449,6 +553,8 @@ watch(() => props.visible, (v) => {
     stockName.value = props.name || ''
     activeTab.value = 'detail'
     document.addEventListener('keydown', onKey)
+    // 抽屉模式预取竞价三时点：一次请求换「竞价」tab 秒开（切 tab 再拉会有明显白等）
+    if (isDrawer.value) loadBid()
   } else {
     document.removeEventListener('keydown', onKey)
     stopPoll()
@@ -613,5 +719,68 @@ onUnmounted(() => {
   .chart-btn-icon {
     min-width: 36px; min-height: 36px; width: 36px; height: 36px; font-size: 0.9375rem;
   }
+}
+
+/* ===== 2026-10-04 P1⑥ 个股详情抽屉（mode="drawer"，≤768px 从底部升起）=====
+   ★ 选择器都用「双类」提高特异性：上面 @media(max-width:768px) 里有 .chart-modal 全屏规则，
+     单类选择器会被它压住，写成 .chart-modal.is-drawer 才能可靠覆盖（与媒体查询的先后无关）。 */
+.chart-mask.is-drawer {
+  align-items: flex-end;
+  justify-content: stretch;
+  padding: 0;
+  background: rgba(0, 0, 0, .62);
+  backdrop-filter: none;
+}
+.chart-modal.is-drawer {
+  width: 100vw !important;
+  max-width: none !important;
+  height: 84vh !important;
+  border-radius: 14px 14px 0 0;
+  border-bottom: none;
+  /* iPhone 底部 Home 指示条别压住内容（全站统一用 env(safe-area-inset-*) 适配） */
+  padding-bottom: env(safe-area-inset-bottom);
+  box-sizing: content-box;
+  animation: drawerUp .22s ease-out;
+}
+@keyframes drawerUp { from { transform: translateY(16%); opacity: .5 } to { transform: none; opacity: 1 } }
+.drawer-grab {
+  display: flex; justify-content: center; flex-shrink: 0;
+  padding: 8px 0 2px; background: var(--bg-panel-solid, #0f172a);
+  touch-action: none;   /* 禁止浏览器把它当页面滚动，才能收到连续的 touchmove */
+}
+.drawer-grab-bar {
+  width: 40px; height: 4px; border-radius: 2px;
+  background: var(--border-soft, #374151);
+}
+
+/* ===== 竞价三时点卡 ===== */
+.chart-body-bid {
+  height: 100%; overflow-y: auto;
+  padding: 12px 14px calc(16px + env(safe-area-inset-bottom));
+}
+.bid-head {
+  display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px;
+  font-size: .8125rem; font-weight: 700; color: var(--text-main, #f3f4f6);
+}
+.bid-date { font-size: .6875rem; font-weight: 400; color: var(--text-muted, #6b7280); }
+.bid-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.bid-item {
+  border: 1px solid var(--border-soft, #1f2937); border-radius: 10px;
+  padding: 10px 8px; text-align: center;
+}
+.bid-time { display: block; font-size: .75rem; color: var(--text-secondary, #9ca3af); }
+.bid-chg {
+  display: block; margin: 2px 0 4px; font-size: 1rem; font-weight: 700;
+  color: var(--text-main, #f3f4f6);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.bid-chg.up { color: #ef4444; }     /* A 股口径：红涨绿跌 */
+.bid-chg.down { color: #22c55e; }
+.bid-sub { display: block; font-size: .6875rem; color: var(--text-muted, #6b7280); }
+.bid-tip { padding: 30px 0; text-align: center; font-size: .8125rem; color: var(--text-muted, #6b7280); }
+.bid-tip.err { color: #ff6a6a; }
+.bid-note {
+  margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border-soft, #1f2937);
+  font-size: .6875rem; color: var(--text-muted, #6b7280); line-height: 1.6;
 }
 </style>
