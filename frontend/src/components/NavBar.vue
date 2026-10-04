@@ -256,17 +256,25 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
 
 /* ===================== 移动端适配 (<=768px) ===================== */
 @media (max-width: 768px) {
-  .nav-bar { padding: 6px 4px; gap: 6px; margin-bottom: 10px; flex-wrap: nowrap; }
-  /* 2026-10-04 主人拍板：手机端顶栏 = **左用户中心 / 中搜索 / 右系统消息** 三栏。
-     ⇒ 品牌文字让位（首页仍有底部 tab，回得了家）、工具区不再换行。
-     2026-10-04 二次反馈：搜索框**恢复原始尺寸**（上一轮挤压间距促宽被否）——
-     改用 max-width 限宽（见下），多出的横向空间留白；顶栏改为**竖向拉长**。 */
-  .nav-left { gap: 6px; width: auto; flex: 0 0 auto; }
+  /* 2026-10-04 主人要求「搜索栏居中」: 顶栏改**三列栅格** —— 左右两列都是 1fr(等宽),
+     中间一列自然落在屏幕正中 —— 即便头像(38px)与信封(约36px)宽度不等也不会把搜索挤偏。
+     .nav-tools 用 display:contents, 让搜索框和信封"提升"为栅格项(分别进第2、3列);
+     中间列宽度 = min(230px, 100%-120px): 230 是视觉上限, 120 保证两侧至少各留 60px 给头像/信封。 */
+  .nav-bar {
+    display: grid;
+    grid-template-columns: 1fr min(230px, calc(100% - 120px)) 1fr;
+    column-gap: 6px;
+    align-items: center;
+    padding: 6px 8px;
+    margin-bottom: 10px;
+  }
+  .nav-left { gap: 6px; width: auto; flex: 0 0 auto; justify-self: start; }
   .nav-brand { display: none; }
-  .nav-tools { flex: 1 1 auto; flex-wrap: nowrap; gap: 6px; }
-  .nav-tools :deep(.notice-bell) { order: 3; }
-  /* 搜索框吃掉中间剩余宽度（桌面是定宽 150px，手机上必须能伸能缩） */
-  .nav-tools :deep(.ss-root--nav) { flex: 1 1 auto; min-width: 0; }
+  .nav-tools { display: contents; }
+  /* 信封进第 3 列并贴右头像列对称(DOM 顺序本来就在搜索之后, order 可省) */
+  .nav-tools :deep(.notice-bell) { justify-self: end; }
+  /* 栅格项: 占满中间那一列(flex 属性在栅格里无效) */
+  .nav-tools :deep(.ss-root--nav) { width: 100%; min-width: 0; }
   .nav-tools :deep(.ss-inline) { flex: 1 1 auto; min-width: 0; }
   .nav-tools :deep(.ss-inline-input),
   .nav-tools :deep(.ss-inline-input:focus) { width: 100%; min-width: 0; }
