@@ -4,14 +4,15 @@
          （Capacitor 模板删得太干净），是颗定时炸弹：将来任何一次 clean build 都可能
          报 "resource color/colorPrimary not found"。这里补齐，同时统一品牌色。 -->
 
-    <!-- 品牌主色 #c62828（红）：与前端 CSS 变量 kx-red 保持一致
+    <!-- 品牌主色 #e5484d（同花顺红, 2026-10-04 主人反馈 #c62828 太深调浅）：
+         与前端顶栏/theme-color/manifest 一致
          （🔴 XML 注释里不许出现连续两个短横线，所以这里变量名的前导符省略了） -->
-    <color name="colorPrimary">#c62828</color>
-    <color name="colorPrimaryDark">#8e0000</color>
-    <color name="colorAccent">#c62828</color>
+    <color name="colorPrimary">#e5484d</color>
+    <color name="colorPrimaryDark">#e5484d</color>
+    <color name="colorAccent">#e5484d</color>
 
-    <!-- 启动屏底色：app 一被点开第一帧就是品牌红，不会闪白 -->
-    <color name="splash_background">#c62828</color>
+    <!-- 启动屏底色：app 一被点开第一帧就是品牌红，不会闪白（与顶栏同色, 无缝衔接） -->
+    <color name="splash_background">#e5484d</color>
 
     <!-- 🔴 ic_launcher_background 不在此处定义：
          Capacitor 生成的 values/ic_launcher_background.xml 里已有同名资源，

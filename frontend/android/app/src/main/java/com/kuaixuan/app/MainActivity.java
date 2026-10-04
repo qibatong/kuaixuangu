@@ -28,6 +28,14 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 2026-10-04 Android 15+(targetSdk 35+) 强制 edge-to-edge ⇒ styles.xml 里
+        // statusBarColor/windowLightStatusBar 全部被系统忽略, 状态栏图标默认黑色,
+        // 压在品牌红窗口背景上看不清 ⇒ 这里显式改回"白图标"。
+        // (API < 35 的设备仍走 styles.xml 的 windowLightStatusBar=false, 两边一致)
+        if (android.os.Build.VERSION.SDK_INT >= 35) {
+            androidx.core.view.WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView())
+                .setAppearanceLightStatusBars(false);
+        }
         setupDownloadListener();
     }
 

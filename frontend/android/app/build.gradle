@@ -31,8 +31,9 @@ android {
         //   1 = 首个 release(2026-10-04)；2 = 第二轮（去存储权限/关备份/品牌启动屏）
         //   3 = 第三轮（安卓隐藏通达信唤起 + 隐藏推送入口/删通知权限 + 保留 .blk 下载）
         //   4 = 第四轮（/login 全屏 + 浅色红顶栏 + 状态栏品牌红 + 搜索框限宽/顶栏拉高）
-        versionCode 4
-        versionName "1.3"
+        //   5 = 第五轮（修 Android 15 edge-to-edge 状态栏白底 + 品牌红调浅 #e5484d）
+        versionCode 5
+        versionName "1.4"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

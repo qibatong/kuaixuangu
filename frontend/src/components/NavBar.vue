@@ -301,7 +301,8 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
      · 桌面端**不动** —— 2026-09-21 主人拍板过「白底细边、红色只作点缀」，
        大面积铺红只发生在手机端浅色主题。 */
   body[data-bg="light"] .nav-bar {
-    background: #c62828;
+    /* 2026-10-04 二次反馈: #c62828 太深, 调浅为同花顺红 #e5484d */
+    background: #e5484d;
     border-color: transparent;
     border-radius: 0;
     box-shadow: none;
@@ -318,7 +319,7 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
   body[data-bg="light"] .nav-user-btn {
     background: #fff;
     border-color: rgba(255, 255, 255, 0.9);
-    color: #c62828;
+    color: #e5484d;
   }
   /* 右上角信封(NoticeBell 是子组件, :deep 穿透)在红底上改透明底白描边 ——
      🔴 必须覆盖 background：它自身是 var(--bg-panel-solid)(浅色=白)，

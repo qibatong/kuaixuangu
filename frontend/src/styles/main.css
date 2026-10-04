@@ -1190,7 +1190,7 @@ body[data-bg="light"] .auth-overlay { background: #f4f4f6; }
     position: fixed;
     top: 0; left: 0; right: 0;
     height: env(safe-area-inset-top, 0px);
-    background: #c62828;
+    background: #e5484d;
     z-index: 9998;
     pointer-events: none;
   }

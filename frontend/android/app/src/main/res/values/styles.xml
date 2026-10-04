@@ -13,11 +13,15 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
-        <!-- 2026-10-04 主人需求(参考开盘啦): 状态栏品牌红, 与浅色模式红顶栏连成一体。
-             白色图标(红底上必须白图标); Android 15+ edge-to-edge 下此值可能被忽略,
-             那时 WebView 顶到状态栏下, 由网页红顶栏自然衔接 —— 两种机制都指向红色。 -->
+        <!-- 2026-10-04 状态栏品牌红(与浅色红顶栏连成一体, 白色图标)。
+             🔴 Android 15+(targetSdk 35+) 强制 edge-to-edge: 本主题的 statusBarColor/
+             windowLightStatusBar 都被系统忽略 —— Capacitor 会把 WebView 顶部推到状态栏下,
+             状态栏区域露的是**窗口背景**(白色, 这就是主人截图中"信号栏没被红色覆盖"的根因)。
+             ⇒ 补 android:windowBackground 染红; 白色图标由 MainActivity 里
+             WindowCompat.setAppearanceLightStatusBars(false) 兜(API 35+ 分支)。 -->
         <item name="android:statusBarColor">@color/colorPrimary</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">@color/colorPrimary</item>
     </style>
 
 
