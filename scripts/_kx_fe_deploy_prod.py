@@ -23,8 +23,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(REPO, "frontend", "dist")
 TAR = os.path.join(REPO, "frontend", "_dist_upload.tar.gz")
 
-ENTRY = "index-D8XTnQxa.js"           # 新(2026-10-04 第6批: /login 全屏独立布局 + 手机端浅色红顶栏)
-OLD_ENTRY = "index-DNxoUwZW.js"       # 生产线上当前(2026-10-04 第5批)
+ENTRY = "index-CLuuV_sV.js"           # 新(2026-10-04 第7批: 搜索框限宽/顶栏拉高/信封红底修复)
+OLD_ENTRY = "index-D8XTnQxa.js"       # 生产线上当前(2026-10-04 第6批)
 EXP_FILES = 771
 EXP_ASSETS = 762
 
