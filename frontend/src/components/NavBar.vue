@@ -256,12 +256,14 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
 
 /* ===================== 移动端适配 (<=768px) ===================== */
 @media (max-width: 768px) {
-  .nav-bar { padding: 6px 4px; gap: 6px; margin-bottom: 10px; flex-wrap: nowrap; }
+  .nav-bar { padding: 6px 4px; gap: 4px; margin-bottom: 10px; flex-wrap: nowrap; }
   /* 2026-10-04 主人拍板：手机端顶栏 = **左用户中心 / 中搜索 / 右系统消息** 三栏。
-     ⇒ 品牌文字让位（首页仍有底部 tab，回得了家）、工具区不再换行。 */
-  .nav-left { gap: 6px; width: auto; flex: 0 0 auto; }
+     ⇒ 品牌文字让位（首页仍有底部 tab，回得了家）、工具区不再换行。
+     2026-10-04 主人再要求「搜索框整体再宽一些」：三处 gap 6→4 + 头像 38→36，
+     挤出来的宽度全给搜索胶囊（它本来就是 flex:1 吃剩余宽度）。 */
+  .nav-left { gap: 4px; width: auto; flex: 0 0 auto; }
   .nav-brand { display: none; }
-  .nav-tools { flex: 1 1 auto; flex-wrap: nowrap; gap: 6px; }
+  .nav-tools { flex: 1 1 auto; flex-wrap: nowrap; gap: 4px; }
   .nav-tools :deep(.notice-bell) { order: 3; }
   /* 搜索框吃掉中间剩余宽度（桌面是定宽 150px，手机上必须能伸能缩） */
   .nav-tools :deep(.ss-root--nav) { flex: 1 1 auto; min-width: 0; }
@@ -272,7 +274,7 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
   .user-tools { display: none; }
   /* 用户中心头像在手机端显示（它是底部「我的」tab 的替代入口）。
      2026-10-04 参考开盘啦 App 顶栏：入口加大到 38px 圆钮（32px 点击目标偏小） */
-  .nav-user-btn { display: flex; width: 38px; height: 38px; font-size: 1rem; }
+  .nav-user-btn { display: flex; width: 36px; height: 36px; font-size: 1rem; }
   /* 2026-10-04 参考开盘啦 App 顶栏：搜索框改**全圆角胶囊** + 提亮底色
      （原 --bg-input 深黑底几乎融进顶栏）；浅色主题反向压暗保持可读 */
   .nav-tools :deep(.ss-inline) {
@@ -291,6 +293,50 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
   .nav-logo { width: 26px; height: 26px; border-radius: 6px; }
   .nav-brand-name { font-size: 0.875rem; }
   .nav-brand-slogan { display: none; }
+
+  /* ===== 2026-10-04 主人需求(参考开盘啦 App 截图): 手机端浅色模式顶栏改**品牌红**，
+     与系统状态栏连成一体(状态栏红条见 main.css 的 body::before，iOS PWA
+     black-translucent 内容顶到状态栏下，正好露红)。
+     · 通栏：负 margin 抵消 body 的 4px 左右内边距 ⇒ 左右贴屏；去圆角/边框/阴影。
+     · 桌面端**不动** —— 2026-09-21 主人拍板过「白底细边、红色只作点缀」，
+       大面积铺红只发生在手机端浅色主题。 */
+  body[data-bg="light"] .nav-bar {
+    background: #c62828;
+    border-color: transparent;
+    border-radius: 0;
+    box-shadow: none;
+    margin: 0 -4px 10px;
+    padding: 6px 8px;
+  }
+  body[data-bg="light"] .nav-brand-name,
+  body[data-bg="light"] .nav-item { color: #fff; }
+  /* 头像在红底上改白底红字(对比最强, 对照开盘啦的金色头像圈) */
+  body[data-bg="light"] .nav-user-btn {
+    background: #fff;
+    border-color: rgba(255, 255, 255, 0.9);
+    color: #c62828;
+  }
+  /* 右上角信封(NoticeBell 是子组件, :deep 穿透)在红底上描白边 */
+  body[data-bg="light"] .nav-tools :deep(.notice-bell) {
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.55);
+  }
+  /* 未登录的登录/注册小钮(桌面显示, 手机隐藏 —— 保险起见红底适配) */
+  body[data-bg="light"] .mini-btn {
+    background: rgba(255, 255, 255, 0.92);
+    border-color: transparent;
+    color: #b71c1c;
+  }
+  /* 红底上搜索胶囊改**白底深红字**(对照开盘啦: 红栏内浅胶囊)；
+     原浅色覆盖(rgba(0,0,0,0.05) 压暗底)是给白顶栏用的, 红顶栏下必须反转。 */
+  body[data-bg="light"] .nav-tools :deep(.ss-inline) {
+    background: rgba(255, 255, 255, 0.94);
+    border-color: transparent;
+  }
+  body[data-bg="light"] .nav-tools :deep(.ss-inline-input) { color: #4a1515; }
+  body[data-bg="light"] .nav-tools :deep(.ss-inline-input)::placeholder { color: #c98a8a; }
+  body[data-bg="light"] .nav-tools :deep(.ss-inline-icon),
+  body[data-bg="light"] .nav-tools :deep(.ss-inline-clear) { color: #b83010; }
   /* 2026-09-27 v4.11.58 信息架构改造: 手机端**隐藏**顶部一级分组导航,
      改由底部固定 AppTabBar(6 tab) 承担一级分组切换, 组内二级页用 GroupNav pill 换行/横滑。
      原先「9 个 tab 自动换行」的老行为不再需要。 */

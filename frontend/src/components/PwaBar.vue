@@ -68,8 +68,14 @@ function dismissedRecently() {
   } catch (e) { return false }
 }
 
+// 2026-10-04 兜底(主人方案第4条): Capacitor 安卓壳(WebView)里「装到桌面」毫无意义
+//   ⇒ 组件自身也永远不显示。App.vue 的 v-if="!isNativeApp && !isBare" 是第一层，这是第二层。
+function inNativeShell() {
+  try { return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) } catch (e) { return false }
+}
+
 function refreshMode() {
-  if (isStandalone() || dismissedRecently()) { visible.value = false; return }
+  if (inNativeShell() || isStandalone() || dismissedRecently()) { visible.value = false; return }
   if (hasUpdate.value) { mode.value = 'update'; visible.value = true; return }
   if (deferred) { mode.value = 'install'; visible.value = true; return }
   if (isIosSafari()) { mode.value = 'ios'; visible.value = true; return }

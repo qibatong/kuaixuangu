@@ -13,6 +13,11 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- 2026-10-04 主人需求(参考开盘啦): 状态栏品牌红, 与浅色模式红顶栏连成一体。
+             白色图标(红底上必须白图标); Android 15+ edge-to-edge 下此值可能被忽略,
+             那时 WebView 顶到状态栏下, 由网页红顶栏自然衔接 —— 两种机制都指向红色。 -->
+        <item name="android:statusBarColor">@color/colorPrimary</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
 

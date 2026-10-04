@@ -1,10 +1,13 @@
 <template>
   <div class="container" :class="{ 'has-tabbar': showTabBar }">
-    <NavBar />
-    <!-- 2026-09-27 v4.11.58 信息架构改造: 二级页 pill 行, 随当前一级分组列出该组二级页
-         （手机端同样显示 —— 底部 tab 只切一级分组, 组内切换靠这一行;
-          v4.11.61 起「竞价」组标了 hidePills, 该组不渲染这一行） -->
-    <GroupNav />
+    <!-- 2026-10-04 登录页(meta.bare)独立布局: 顶栏/二级 pill 不挂载, 登录页全屏铺满 -->
+    <template v-if="!isBare">
+      <NavBar />
+      <!-- 2026-09-27 v4.11.58 信息架构改造: 二级页 pill 行, 随当前一级分组列出该组二级页
+           （手机端同样显示 —— 底部 tab 只切一级分组, 组内切换靠这一行;
+            v4.11.61 起「竞价」组标了 hidePills, 该组不渲染这一行） -->
+      <GroupNav />
+    </template>
     <!-- 无障碍: 主内容区用语义地标 main 包裹, 读屏可跳转到主内容 -->
     <main class="app-main">
       <router-view />
@@ -18,15 +21,19 @@
       :name="chartName"
       :mode="chartMode"
     />
-    <!-- 2026-09-21 主人拍板: 页脚只保留免责声明一条(规则条/术语图例移除, 术语解释已有各列表头 title 悬浮) -->
-    <footer class="app-footer">
-      <div class="disclaimer">本平台仅提供软件工具使用权，不构成任何投资建议，股市有风险，投资需谨慎。</div>
-    </footer>
-    <!-- 2026-09-27: 手机端(≤768px) 底部固定 tab 栏(v4.11.61 起 6 个一级 tab); 登录页/404/管理后台不显示 -->
-    <AppTabBar v-if="showTabBar" />
-    <!-- 2026-10-03: PWA 提示条(≤768px 才渲染) ——「安装到桌面」+「有新版本·刷新」;
-         自带"已安装/7 天内关过"判定 ⇒ 未满足条件时组件内部不渲染任何东西。 -->
-    <PwaBar v-if="!isNativeApp" />
+    <!-- 2026-10-04 登录页(meta.bare): 页脚/底部tab/PWA安装条也不挂载(登录页要全屏) -->
+    <template v-if="!isBare">
+      <!-- 2026-09-21 主人拍板: 页脚只保留免责声明一条(规则条/术语图例移除, 术语解释已有各列表头 title 悬浮) -->
+      <footer class="app-footer">
+        <div class="disclaimer">本平台仅提供软件工具使用权，不构成任何投资建议，股市有风险，投资需谨慎。</div>
+      </footer>
+      <!-- 2026-09-27: 手机端(≤768px) 底部固定 tab 栏(v4.11.61 起 6 个一级 tab); 登录页/404/管理后台不显示 -->
+      <AppTabBar v-if="showTabBar" />
+      <!-- 2026-10-03: PWA 提示条(≤768px 才渲染) ——「安装到桌面」+「有新版本·刷新」;
+           自带"已安装/7 天内关过"判定 ⇒ 未满足条件时组件内部不渲染任何东西。
+           2026-10-04: 安卓壳内本就不该有「装到桌面」⇒ 补 !isBare 并由 PwaBar 组件内再兜底一层。 -->
+      <PwaBar v-if="!isNativeApp && !isBare" />
+    </template>
   </div>
 </template>
 
@@ -53,6 +60,11 @@ const userStore = useUserStore()
 const route = useRoute()
 useAndroidBack()   // 🔴 不要放进 onMounted: 那样卸载时解绑不了 ⇒ 返回键被重复处理
 const isNativeApp = isNative()   // 安卓壳: PWA 安装/更新提示条不适用(v-if 不挂载)
+
+// 2026-10-04 登录页独立布局(主人方案): /login 带 meta.bare ⇒ 顶栏/二级pill/页脚/
+//   底部tab/PWA安装条全部不渲染, 仅 <main><router-view/></main> 始终在 ——
+//   登录遮罩(.auth-overlay)改成不透明全屏后, 手机端登录页就是一张完整的页。
+const isBare = computed(() => route.meta.bare === true)
 
 // 2026-10-04 安卓壳: 手动撤掉启动屏(配合 capacitor.config.ts 的 SplashScreen.launchAutoHide=false)。
 //   ★ 目的: 默认行为是 Capacitor bridge 一就绪就撤屏, 但**远端页面还在拉** ⇒ 用户先看几百毫秒白屏。

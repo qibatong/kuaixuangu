@@ -70,7 +70,10 @@ const router = createRouter({
       meta: { group: 'me', noGroupNav: true } },
 
     // ---------------- 不参与分组 ----------------
-    { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },
+    // 2026-10-04 登录页独立布局: meta.bare ⇒ App.vue 不挂 NavBar/GroupNav/页脚/TabBar/PwaBar,
+    //   配合 .auth-overlay 改不透明 ⇒ 手机端登录页全屏铺满, 不再像"浮在导航上的弹窗"。
+    //   注册/忘记密码是 LoginView 内部页签(mode query), 同走本路由 ⇒ 不需要额外 meta。
+    { path: '/login', name: 'login', component: () => import('../views/LoginView.vue'), meta: { bare: true } },
     // 2026-09-21: 由 redirect '/' 改为独立 404 视图, 避免未知路径静默落首页造成困惑
     { path: '/:pathMatch(.*)*', name: 'notFound', component: () => import('../views/NotFoundView.vue') }
   ]
