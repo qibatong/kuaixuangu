@@ -16,7 +16,17 @@
     </style>
 
 
+    <!-- 2026-10-04：换成自定义的**品牌红**启动屏（原先 @drawable/splash 是 Capacitor
+         默认的浅色图 ⇒ 点开包那一瞬上下白边，看着像"闪白屏"）。
+         ★ 实测取舍（AVD android-34）：曾试过 windowSplashScreenAnimatedIcon 里组合
+           「图标+正在加载文字」，但系统 12+ 对 icon 层有强制圆形 mask + 缩放动画，
+           文字必被裁掉/变形 ⇒ 放弃叠字。加载提示由两层机制保证：
+           ① 启动屏底色=品牌红，用户一进去看到红屏即知"在加载"；
+           ② 新前端页面就绪立即 SplashScreen.hide()（见 src/App.vue），无白屏空窗。 -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="android:windowBackground">@drawable/splash_brand</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+        <item name="android:statusBarColor">@color/colorPrimaryDark</item>
     </style>
 </resources>

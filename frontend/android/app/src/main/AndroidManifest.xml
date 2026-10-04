@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -33,11 +33,16 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- 2026-10-04 安卓壳下载接管(MainActivity.setDownloadListener → DownloadManager):
-         落盘到公共 Downloads 目录。Android 10(API 29) 起走 scoped storage 不再需要授权,
-         仅旧系统(≤API 28)要写权限 ⇒ 用 maxSdkVersion 限定, 避免在 Android 11+ 上申请无用权限
-         (商店与系统设置里会显示为"存储"敏感权限, 影响用户信任)。 -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <!-- 2026-10-04 安全检查：WRITE_EXTERNAL_STORAGE 已移除。
+         它是**敏感权限**（系统设置里显示为"存储空间"），而 Android 10(API 29) 起
+         走 scoped storage 本来就用不着 ⇒ 留着只劣化用户信任。
+
+
+
+         权衡：≤API 28（Android 9 及更早）设备上，MainActivity 的下载接管落公共
+         Downloads 目录会因缺权限而失败。这类设备 2026 年占比极低；真要兼容，
+         正确做法是改用 context.getExternalFilesDir()（app 私有目录，无需任何权限），
+         而不是重新申请敏感权限。 -->
 
     <!-- 下载完成后通知栏可见(Android 13+ 需要 POST_NOTIFICATIONS 才弹通知) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

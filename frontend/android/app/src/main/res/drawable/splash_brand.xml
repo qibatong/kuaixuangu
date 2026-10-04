@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2026-10-04 自定义启动屏（解决"点开包先闪一下白屏"）。
+     结构：**纯色底 + 居中图标 + 图标下方加载文字**。
+     两层都用 android:width/height 锁死 dp 尺寸 ⇒ 不会被各种屏幕比例拉变形。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- ① 底色：品牌红，覆盖整个窗口 -->
+    <item android:drawable="@color/splash_background" />
+
+    <!-- ② 居中应用图标 -->
+    <item
+        android:drawable="@mipmap/ic_launcher"
+        android:width="112dp"
+        android:height="112dp"
+        android:gravity="center" />
+
+    <!-- ③ 图标下方的「正在加载…」白字（drawable-nodpi/splash_loading.png，透明底） -->
+    <item
+        android:drawable="@drawable/splash_loading"
+        android:width="160dp"
+        android:height="40dp"
+        android:gravity="center_horizontal|bottom"
+        android:bottom="88dp" />
+</layer-list>

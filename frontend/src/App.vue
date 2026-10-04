@@ -53,6 +53,19 @@ const route = useRoute()
 useAndroidBack()   // 🔴 不要放进 onMounted: 那样卸载时解绑不了 ⇒ 返回键被重复处理
 const isNativeApp = isNative()   // 安卓壳: PWA 安装/更新提示条不适用(v-if 不挂载)
 
+// 2026-10-04 安卓壳: 手动撤掉启动屏(配合 capacitor.config.ts 的 SplashScreen.launchAutoHide=false)。
+//   ★ 目的: 默认行为是 Capacitor bridge 一就绪就撤屏, 但**远端页面还在拉** ⇒ 用户先看几百毫秒白屏。
+//     改由前端在 DOM 挂载后再撤 ⇒ 视觉上从"品牌红启动屏"直接切到页面，中间没有白帧。
+//   ★ 动态 import ⇒ 浏览器打开时**完全不会**下载这个 chunk（只有壳内才加载）。
+//   ★ 兜底 3s：万一页面 mount 事件没跑到 / 插件异常，也强制撤屏，绝不让用户永远卡在红屏。
+if (isNativeApp) {
+  const hideSplash = () => import('@capacitor/splash-screen')
+    .then(m => m.SplashScreen.hide())
+    .catch(() => { /* 重复 hide/不支持都是静默失败，不必打扰用户 */ })
+  onMounted(() => { setTimeout(hideSplash, 200) })
+  setTimeout(hideSplash, 3000)
+}
+
 // 2026-09-27 v4.11.58: 手机端底部 tab 栏的显示判定。
 // 登录页整屏、404 无归属、管理后台保持独立布局 —— 这三种都不挂 tabbar
 // （工单 七「只在手机端显示」+「/admin 不显示底部 tabbar」；≤768px 由 AppTabBar 自带媒体查询控制）。

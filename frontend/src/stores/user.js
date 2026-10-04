@@ -16,10 +16,21 @@ function readSession() {
 }
 
 // 旧版 key 迁移: 品牌改名(shunshi -> kuaixuan)
+// 2026-10-04 ★ 这是**有时限的兼容代码**，不是永久设施：
+//   品牌改名后旧用户浏览器里还留着 shunshi_session_v1；只要还有人没访问过新版，
+//   这段就得在（删掉 ⇒ 那批用户被登出，需重新登录一次）。
+//   迁移完的标志：上线后再无用户因缺 session 被登出 ⇒ 即可整体删掉本函数及
+//   其在 state() 里的调用。**预定清理时间 2026-11-15**，已记入 docs/安卓APK封装评估-20261003.md 待办清单。
+//   迁移成功后会主动 removeItem 旧 key ⇒ localStorage 里不再留老品牌痕迹。
 function migrateSession() {
   try {
     if (!localStorage.getItem(SESSION_KEY) && localStorage.getItem('shunshi_session_v1')) {
       localStorage.setItem(SESSION_KEY, localStorage.getItem('shunshi_session_v1'))
+    }
+    // 🔴 只在新/旧 key 都存在时清理旧 key：万一上面的 setItem 因隐私模式失败，
+    //    旧凭证还在，用户不至于立刻掉登录。
+    if (localStorage.getItem(SESSION_KEY) && localStorage.getItem('shunshi_session_v1')) {
+      localStorage.removeItem('shunshi_session_v1')
     }
   } catch (e) { /* ignore */ }
 }

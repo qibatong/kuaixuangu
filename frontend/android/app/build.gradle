@@ -26,8 +26,11 @@ android {
         applicationId "com.kuaixuan.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // 2026-10-04 发版流程：**每次发版 versionCode 必须 +1**（整数递增）。
+        //   安卓靠它判断新旧，不自增 ⇒ 已装用户安装时直接签名冲突/拒绝安装。
+        //   1 = 首个 release(2026-10-04)；2 = 2026-10-04 第二轮（去存储权限/关备份/品牌启动屏）
+        versionCode 2
+        versionName "1.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

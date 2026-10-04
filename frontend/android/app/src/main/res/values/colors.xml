@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 2026-10-04 建立。此前 styles.xml 引用 @color/colorPrimary 却**没有**这个文件
+         （Capacitor 模板删得太干净），是颗定时炸弹：将来任何一次 clean build 都可能
+         报 "resource color/colorPrimary not found"。这里补齐，同时统一品牌色。 -->
+
+    <!-- 品牌主色 #c62828（红）：与前端 CSS 变量 kx-red 保持一致
+         （🔴 XML 注释里不许出现连续两个短横线，所以这里变量名的前导符省略了） -->
+    <color name="colorPrimary">#c62828</color>
+    <color name="colorPrimaryDark">#8e0000</color>
+    <color name="colorAccent">#c62828</color>
+
+    <!-- 启动屏底色：app 一被点开第一帧就是品牌红，不会闪白 -->
+    <color name="splash_background">#c62828</color>
+
+    <!-- 🔴 ic_launcher_background 不在此处定义：
+         Capacitor 生成的 values/ic_launcher_background.xml 里已有同名资源，
+         两个文件定义同名 <color> 会直接让资源合并失败（duplicate resource）。 -->
+</resources>

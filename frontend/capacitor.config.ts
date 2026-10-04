@@ -26,14 +26,34 @@ const config: CapacitorConfig = {
   android: {
     // 不允许 http 混合内容：全站 https，避免 WebView 静默拦掉资源
     allowMixedContent: false,
-    // 键盘弹出时**缩放页面**而不是平移 WebView（网页侧已用 env(safe-area-inset-*)，
-    // 缩放会破坏固定底栏；平移是更稳的选择）
+    // 2026-10-04：以上 keyboardResize 之前是**死配置**——
+    //   它属于 @capacitor/keyboard 插件，插件没装 ⇒ 这段被静默忽略。
+    //   现已安装 @capacitor/keyboard@8（见 package.json），配置项才真正生效。
+    //   取值说明：'body' = 插件在 web 侧压 body 高度补了一段 padding，不缩放 WebView
+    //   ⇒ 不会破坏 env(safe-area-inset-*) 的固定底栏；'native' 会走 adjustResize。
+    //   固定底栏 + 绝对定位元素较多的页面（现在的首页）用 'body' 更稳。
     keyboardResize: 'body',
   },
   plugins: {
     // 返回键由前端接管（见 src/composables/useAndroidBack.js）：
     // 有历史 → router.back()；无历史 → 双击退出 + Toast。
     App: {},
+
+    // 2026-10-04：消除"首屏白屏"（品牌红启动屏 + 消失时机接管）。
+    //   机制：launchAutoHide=true 时，bridge 就绪后还会**继续显示 launchShowDuration**
+    //   才自动撤屏 —— 远端页面渲染慢时，用户看到的是红屏而不是白屏。
+    //   两层保险：
+    //   ① 新前端（已 build，部署后生效）在 App.vue mount 后主动 SplashScreen.hide()
+    //     ⇒ 页面一好就撤屏，无白帧也无多余等待；
+    //   ② launchShowDuration=4000 是**原生侧兜底**：前端旧版/加载失败/异常时，
+    //     最多 4s 自动撤屏 —— 实测 launchAutoHide:false 会把旧前端卡死在启动屏，绝不能用。
+    SplashScreen: {
+      launchAutoHide: true,
+      launchShowDuration: 4000,
+      backgroundColor: '#c62828',
+      showSpinner: false,
+      splashFullScreen: false,
+    },
   },
 }
 
