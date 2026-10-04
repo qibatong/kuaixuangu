@@ -2,6 +2,21 @@
   <!-- 全站顶部导航栏: 左品牌 logo+导航入口, 右主题/字号/账户工具 -->
   <nav class="nav-bar" aria-label="主导航">
     <div class="nav-left">
+      <!-- 2026-10-04 主人指令「app端右下角我的去掉」的**配套补偿**：
+           底部 tab 没了「我的」⇒ 手机端必须另有账户入口，否则 /member（会员/个人信息/
+           修改密码/退出登录）在手机上**无处可进**（该页还有登录守卫，未登录会被卡死）。
+           ⇒ 顶部**最左**加「用户中心」：**首字母头像**（主人指定），点进 /member；
+             未登录则指向 /login（手机上原「登录/注册」两个按钮也一并收进这个入口）。
+           ⚠️ 仅 ≤768px 渲染：桌面端顶部导航仍有「我的」一级分组，不需要重复。 -->
+      <router-link
+        :to="user.isLoggedIn ? '/member' : '/login'"
+        class="nav-user-btn"
+        :title="user.isLoggedIn ? '用户中心：' + user.username : '登录 / 注册'"
+        :aria-label="user.isLoggedIn ? '用户中心' : '登录'"
+      >
+        <span v-if="user.isLoggedIn" class="nav-avatar-initial">{{ userInitial }}</span>
+        <i v-else class="fa fa-user" aria-hidden="true"></i>
+      </router-link>
       <!-- 2026-09-28: 品牌副标题随 tab 改名同步（AI选股 → 竞价选股），避免站点 tooltip 指向不存在的一级概念 -->
       <router-link to="/" class="nav-brand" title="快选 · 竞价选股">
         <img src="/logo.jpg" class="nav-logo" alt="快选">
@@ -37,16 +52,10 @@
            手机端(≤768px)本组件自我隐藏，改由底部 AppTabBar 第 7 格承担 ——
            因为 .nav-bar 不 sticky，滚一屏就够不着这里了。 -->
       <StockSearch variant="nav" />
-      <!-- 主题快捷切换(2026-08-18 主人要求: 主题设置移出下拉菜单, 导航栏直接可见) -->
-      <div class="theme-quick" title="切换主题">
-        <button
-  v-for="b in BGS" :key="b.key"
-          class="nav-theme-dot" :class="{ active: bg === b.key }"
-          :style="{ background: b.color }" :title="b.label"
-          :aria-label="'切换主题：' + b.label"
-          @click="setBg(b.key)"
-></button>
-      </div>
+      <!-- 2026-10-04 主人需求: 右上角「系统消息」(系统更新提醒 / 会员到期提醒…)。
+           桌面端与手机端**同一个组件**(NoticeBell)，手机端由 CSS 把它顶到栏尾 = 右上角；
+           未登录时不渲染(v-if，非 CSS 隐藏) —— 接口必然 401，没必要发。 -->
+      <NoticeBell />
       <!-- 🔴 2026-09-27 v4.11.65：已登录的「用户名 + 下拉菜单（我的会员 / 个人信息 / 修改密码 /
            退出登录 / 字号 / 字体族）」**整块从顶部移除**，收进「我的」页
            （views/MemberView.vue 的「账户」卡片）。主人原话：
@@ -70,16 +79,26 @@
 //     本组件不再 import ChangePwdModal / ProfileModal，也不再持有 useTheme 的 font/fontFam。
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { useTheme, BGS } from '../composables/useTheme'
 import { useUserStore } from '../stores/user'
 import { NAV_GROUPS, groupKeyOfRoute } from '../composables/useNavGroups'
 import StockSearch from './StockSearch.vue'
+import NoticeBell from './NoticeBell.vue'
 
 const route = useRoute()
 const user = useUserStore()
 // 当前路由落在哪个一级分组（竞价 / 盘前资讯 / 盘中 / 复盘 / 自选 / 我的）——顶部一级 tab 高亮依据
 const activeGroup = computed(() => groupKeyOfRoute(route))
-const { bg, setBg } = useTheme()
+
+// 2026-10-04：左上角用户中心的**首字母头像**（主人指定）。
+//   · 中文名取首字（"张三" → "张"）；英文/数字取首字母并大写（"jack" → "J"）
+//     —— 用 codePointAt 而非 charAt，避免用户名含 emoji/生僻字时取到半个代理对（渲染成乱码方块）。
+//   · 空用户名兜底「我」：绝不渲染空白圆块（空白圆块在浅色主题下等于"按钮坏了"）。
+const userInitial = computed(() => {
+  const u = String(user.username || '').trim()
+  if (!u) return '我'
+  const ch = String.fromCodePoint(u.codePointAt(0))
+  return /[a-z]/i.test(ch) ? ch.toUpperCase() : ch
+})
 
 // 注册入口开关(2026-09-21 放开注册, 由后端 /api/register/config 决定)
 const regOpen = ref(true)
@@ -189,24 +208,6 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
   font-weight: 600;
 }
 
-/* 导航栏主题快捷圆点(2026-08-18 主人要求移出下拉；v4.11.65 账户区块迁走后仍留在顶部) */
-.theme-quick {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 2px 4px; border-radius: 14px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-}
-body[data-bg="light"] .theme-quick { border-color: #e0e3ea; background: #f2f4f8; }
-.nav-theme-dot {
-  width: 18px; height: 18px; border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.35); cursor: pointer; padding: 0;
-  transition: transform 0.15s, border-color 0.15s;
-}
-.nav-theme-dot:hover { transform: scale(1.18); }
-.nav-theme-dot.active { border-color: #fff; box-shadow: 0 0 6px rgba(255, 255, 255, 0.85); }
-body[data-bg="light"] .nav-theme-dot { border-color: rgba(0, 0, 0, 0.3); }
-body[data-bg="light"] .nav-theme-dot.active { border-color: #1a1d26; box-shadow: 0 0 6px rgba(26, 29, 38, 0.3); }
-
 /* 账户工具（仅未登录时渲染：登录 / 注册） */
 .user-tools { display: flex; align-items: center; gap: 6px; }
 /* 🔴 2026-09-27 v4.11.65：此处原有约 130 行「用户名按钮 + Teleport 到 body 的下拉菜单
@@ -231,10 +232,46 @@ body[data-bg="light"] .nav-theme-dot.active { border-color: #1a1d26; box-shadow:
 
 /* 浅色主题高亮(红色导航栏已在上方统一处理 router-link-active 白底红字) */
 
+/* ===================== 左上角「用户中心」（2026-10-04） =====================
+   底部「我的」tab 去掉后，手机端唯一的账户入口。**桌面端不渲染**（顶部有「我的」一级分组）。
+   配色走 accent 系 token（浅底 + 深色字），深浅两套主题都可读。 */
+.nav-user-btn {
+  display: none;                 /* 桌面隐藏；≤768px 内改 flex */
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent-bg2);
+  border: 1px solid var(--accent-border);
+  color: var(--accent-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  line-height: 1;
+}
+.nav-user-btn:active { transform: scale(0.92); }        /* 与底部 tabbar 一致的点击反馈 */
+.nav-avatar-initial { display: block; user-select: none; }
+
 /* ===================== 移动端适配 (<=768px) ===================== */
 @media (max-width: 768px) {
-  .nav-bar { padding: 6px 4px; gap: 6px; margin-bottom: 10px; }
-  .nav-left { gap: 6px; width: 100%; }
+  .nav-bar { padding: 6px 4px; gap: 6px; margin-bottom: 10px; flex-wrap: nowrap; }
+  /* 2026-10-04 主人拍板：手机端顶栏 = **左用户中心 / 中搜索 / 右系统消息** 三栏。
+     ⇒ 品牌文字让位（首页仍有底部 tab，回得了家）、工具区不再换行。 */
+  .nav-left { gap: 6px; width: auto; flex: 0 0 auto; }
+  .nav-brand { display: none; }
+  .nav-tools { flex: 1 1 auto; flex-wrap: nowrap; gap: 6px; }
+  .nav-tools :deep(.notice-bell) { order: 3; }
+  /* 搜索框吃掉中间剩余宽度（桌面是定宽 150px，手机上必须能伸能缩） */
+  .nav-tools :deep(.ss-root--nav) { flex: 1 1 auto; min-width: 0; }
+  .nav-tools :deep(.ss-inline) { flex: 1 1 auto; min-width: 0; }
+  .nav-tools :deep(.ss-inline-input),
+  .nav-tools :deep(.ss-inline-input:focus) { width: 100%; min-width: 0; }
+  /* 未登录时的「登录/注册」按钮在手机上隐藏 —— 左上角头像已指向 /login，留着是重复且挤 */
+  .user-tools { display: none; }
+  /* 用户中心头像在手机端显示（它是底部「我的」tab 的替代入口） */
+  .nav-user-btn { display: flex; }
   .nav-brand { gap: 5px; padding: 0 6px 0 2px; }
   .nav-logo { width: 26px; height: 26px; border-radius: 6px; }
   .nav-brand-name { font-size: 0.875rem; }

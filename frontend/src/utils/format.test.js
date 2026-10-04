@@ -1,7 +1,7 @@
 // 纯函数单测(node:test 零依赖 ESM 版, 运行: node --test src/utils/format.test.js)
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { yi, signed, amtText, fmtAvg, fmtT, wan, pct, fmtNum, sealDailyText } from './format.js'
+import { yi, signed, amtText, fmtAvg, fmtT, wan, pct, fmtNum, sealDailyText, firstSealText } from './format.js'
 
 test('sealDailyText: 连续多日封单额(亿取1位并去尾随.0 / 万取整 / 0→-)', () => {
   assert.equal(sealDailyText(8.094737011e9), '80.9亿')
@@ -83,4 +83,17 @@ test('P0-3 fmtNum: 定点小数 + 后缀, 缺失→「—」', () => {
   assert.equal(fmtNum(undefined, 1), '—')
   assert.equal(fmtNum(NaN, 1), '—')
   assert.equal(fmtNum('', 1), '—')
+})
+
+// 2026-10-04 手机端批次2: 「昨涨停」表新增「首封」列(昨日首次封板时刻)。
+// 真值取自生产实测: 金辰股份 1790559001(09:30 早封) / 时代万恒 1790561291(10:08) / 宏柏新材 1790577426(14:37 尾盘封)。
+test('firstSealText: 首封时间按北京时间 HH:MM(闪购时间戳→东八区)', () => {
+  assert.equal(firstSealText(1790559001), '09:30')
+  assert.equal(firstSealText(1790561291), '10:08')
+  assert.equal(firstSealText(1790577426), '14:37')
+  assert.equal(firstSealText(0), '-')            // 历史快照无该字段 → 整列隐藏, 不显示 '-' 占位
+  assert.equal(firstSealText(null), '-')
+  assert.equal(firstSealText(undefined), '-')
+  assert.equal(firstSealText('abc'), '-')
+  assert.equal(firstSealText(-1), '-')
 })

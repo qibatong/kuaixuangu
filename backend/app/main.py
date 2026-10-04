@@ -16,7 +16,7 @@ import time
 from fastapi import FastAPI, Request
 
 from .api import (activity, admin, aipick, auth, chaozhi, dev, health, his_pick, history, invite, kpl, ladder,
-                  member, news, pick, picker, prefs, sms, stats, stock_temper, stocks,
+                  member, news, notices, pick, picker, prefs, push, sms, stats, stock_temper, stocks,
                   stocks_spot, summary, yijiner)
 from .api.deps import client_ip, jr
 from .core import logger as app_logger
@@ -106,6 +106,8 @@ app.include_router(activity.router)  # 2026-09-22: 用户行为上报(功能使�
 app.include_router(news.router)      # 2026-09-27 v4.11.59: 盘前资讯(猫爪 news + 开盘啦 doc95/96/97/99)
 app.include_router(pick.router)      # 2026-10-03: pick_daily（可买性分级/卖出建议/回填结果）
 app.include_router(dev.router)       # 2026-09-27 v4.11.64: 异动/停牌风险(/api/dev/*)
+app.include_router(notices.router)    # 2026-10-04: 站内消息(站方广播 + 会员到期等账户事件)
+app.include_router(push.router)       # 2026-10-04: WebPush 订阅(手机端真推送, 需 https)
 app.include_router(stocks_spot.router)  # 2026-09-28: 盘中实时选股(/api/stocks_spot)
 app.include_router(yijiner.router)   # 2026-09-28: 竞价一进二(/api/yijiner, 严格 VIP 门禁)
 

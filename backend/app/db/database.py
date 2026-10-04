@@ -169,6 +169,24 @@ def init_db():
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_created ON admin_audit(created_at)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_target ON admin_audit(target_uid)")
+    # ================= WebPush 订阅表(2026-10-04, 手机端真推送) =================
+    # 🔴 主键用 **endpoint** 而不是 user_id: 一个人可能有手机壳 + 电脑浏览器 + 平板,
+    #    每个订阅是一条独立的 endpoint, 全部都要能收到 ⇒ 按 endpoint 唯一,
+    #    user_id 只是归属(用于「给某人推」和「退订全部设备」)。
+    #    last_ok_at 用于后台看出哪些订阅长期失效(推送服务返回 404/410 时会当场删行,
+    #    这里只是留一个"最后一次成功"的时间戳, 便于排查"为什么没收到")。
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+            endpoint TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            ua TEXT,
+            created_at INTEGER NOT NULL,
+            last_ok_at INTEGER
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_pushsub_user ON push_subscriptions(user_id)")
     # 登录 Token 持久化表(进程重启不失效, 支持「记住我」30 天)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS tokens (
@@ -747,6 +765,37 @@ def init_db():
             "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?,?,?)",
             (mig_key, json.dumps({"t": int(time.time()), "users_flipped": _flip_count}, ensure_ascii=False), int(time.time())))
         log.info("[mig_filter_sem_flip_v2] done, users_flipped=%d", _flip_count)
+
+    # ---------------- 站内消息(2026-10-04) ----------------
+    # 主人需求: 右上角「系统消息」= ① 站方广播(系统更新提醒等, 人工发布) ② 账户事件(会员到期等, 实时推导)。
+    # 🔴 只有 ① 需要落表; ② 由 users.expire_at / quota 现算, **不落表**(落了就会过期变脏)。
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS notices (
+            id          INTEGER PRIMARY KEY,
+            title       TEXT NOT NULL,
+            body        TEXT NOT NULL,
+            level       TEXT NOT NULL DEFAULT 'info',
+            target      TEXT NOT NULL DEFAULT 'all',
+            start_ts    INTEGER NOT NULL,
+            end_ts      INTEGER NOT NULL DEFAULT 0,
+            created_by  TEXT,
+            created_at  INTEGER NOT NULL
+        )
+    """)
+    # 已读回执: 主人拍板**服务端记录**(换设备不重弹) ⇒ 必须有这张表, 不能省成 localStorage。
+    # 复合主键天然幂等: 重复点已读只是 UPDATE 同一行, 不会堆积。
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS notice_reads (
+            user_id   INTEGER NOT NULL,
+            notice_id INTEGER NOT NULL,
+            read_at   INTEGER NOT NULL,
+            PRIMARY KEY (user_id, notice_id)
+        )
+    """)
+    # 撤回(下架): 老库建的 notices 可能没有 off_at 列
+    _ncols = [r[1] for r in cur.execute("PRAGMA table_info(notices)").fetchall()]
+    if "off_at" not in _ncols:
+        cur.execute("ALTER TABLE notices ADD COLUMN off_at INTEGER NOT NULL DEFAULT 0")
 
     conn.commit()
     conn.close()

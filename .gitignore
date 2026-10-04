@@ -224,3 +224,6 @@ pkg_expected_md5.txt
 # 于是 13 个目录长期以「未跟踪」挂在 git status 里(约 460MB / 上万文件)。
 # 与 2026-09-27「dist_oldsuspect_<TS> 匹配不到 ⇒ 误入库 1050 文件」是同一类命名缝隙。
 frontend/dist_*/
+
+# CodeBuddy 本地数据(不进库)
+.codebuddy/

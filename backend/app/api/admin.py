@@ -1392,3 +1392,113 @@ def api_admin_active_users(request: Request, uid: int = Depends(get_admin)):
         days = 30
     return jr({"ok": True, **act_svc.active_trend(days=days),
                "feature_labels": act_svc.FEATURES})
+
+
+# ==================== 站内公告(2026-10-04) ====================
+# 主人需求: 右上角「系统消息」里的**系统更新提醒**等站方广播, 由管理员在后台发布。
+# 🔴 与之配套的「会员到期提醒」是**实时推导**的(不落表), 见 api/notices.py 文件头说明 1。
+#    这里只管人工发布的 A 类; 别把到期提醒也做成一条条公告 —— 用户续费后它会变脏数据。
+NOTICE_LEVELS = ("info", "warn", "urgent")
+NOTICE_TARGETS = ("all", "free", "member", "vip")
+
+
+@router.get("/api/admin/notices")
+def api_admin_notices(request: Request, uid: int = Depends(get_admin)):
+    """公告列表(含已撤回): 倒序 50 条"""
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, title, body, level, target, start_ts, end_ts, off_at, created_by, created_at "
+            "FROM notices ORDER BY id DESC LIMIT 50").fetchall()
+        items = []
+        for r in rows:
+            d = dict(r)
+            d["date"] = time.strftime("%Y-%m-%d %H:%M", time.gmtime(int(d["created_at"]) + 8 * 3600))
+            d["start_date"] = time.strftime("%Y-%m-%d %H:%M", time.gmtime(int(d["start_ts"]) + 8 * 3600))
+            d["end_date"] = time.strftime("%Y-%m-%d %H:%M", time.gmtime(int(d["end_ts"]) + 8 * 3600)) if d["end_ts"] else ""
+            items.append(d)
+    finally:
+        conn.close()
+    return jr({"ok": True, "items": items,
+               "levels": NOTICE_LEVELS, "targets": NOTICE_TARGETS})
+
+
+@router.post("/api/admin/notices")
+def api_admin_notices_post(request: Request, body: dict = Body(...), uid: int = Depends(get_admin)):
+    """发布公告: {title, body, level=info|warn|urgent, target=all|free|member|vip, days=有效天数(0=长期)}"""
+    title = str(body.get("title") or "").strip()
+    btext = str(body.get("body") or "").strip()
+    if not title or not btext:
+        return jr({"ok": False, "msg": "标题与正文都不能为空"}, status=400)
+    level = str(body.get("level") or "info").strip()
+    if level not in NOTICE_LEVELS:
+        level = "info"
+    target = str(body.get("target") or "all").strip()
+    if target not in NOTICE_TARGETS:
+        target = "all"
+    try:
+        days = max(0, int(body.get("days") or 0))
+    except (TypeError, ValueError):
+        days = 0
+    now = int(time.time())
+    end_ts = now + days * 86400 if days > 0 else 0
+
+    conn = _conn()
+    try:
+        cur = conn.execute(
+            "INSERT INTO notices (title, body, level, target, start_ts, end_ts, off_at, "
+            "created_by, created_at) VALUES (?,?,?,?,?,?,0,?,?)",
+            (title, btext, level, target, now, end_ts, str(uid), now))
+        nid = cur.lastrowid
+        # 🔴 血的教训(2026-10-04 实测): **必须清掉这个 id 上的旧已读回执**。
+        #   notices.id 是普通 INTEGER PRIMARY KEY(无 AUTOINCREMENT) ⇒ 公告被 DELETE 后
+        #   **id 会被新公告复用**，而 notice_reads 里的 (user_id, notice_id) 残留还在
+        #   ⇒ 用户拿到的是"全新公告"却被判成"已读"，红点永远不亮（实测 unread=0 但列表有 1 条）。
+        #   正常运营走的是**软删撤回**(off_at)，不会 DELETE；但手工清库/迁移会触发，
+        #   故在发布时自愈一次。代价：一行 DELETE，可忽略。
+        conn.execute("DELETE FROM notice_reads WHERE notice_id=?", (nid,))
+        conn.commit()
+    except Exception as e:
+        log.warning("公告发布失败 uid=%s err=%s", uid, e)
+        return jr({"ok": False, "msg": "发布失败"}, status=500)
+    finally:
+        conn.close()
+    try:
+        users.audit(uid, "notice_publish", detail="%s|%s|%s" % (nid, level, target), ip=client_ip(request))
+    except Exception:
+        pass
+    # 2026-10-04: 发布公告**顺带**推一条手机端通知(主人要的"系统更新提醒"场景)。
+    # 🔴 全程 try/except + 不参与返回值: 推送是附赠, 失败绝不能让"发布公告"这个主流程失败。
+    try:
+        from . import push as push_api
+        n = push_api.notify_by_target(target, title, btext[:80], "/messages")
+        log.info("公告推送已下发 nid=%s target=%s 成功=%s 条", nid, target, n)
+    except Exception as e:
+        log.warning("公告推送失败 nid=%s err=%s", nid, e)
+    log.info("管理端发布公告 uid=%s nid=%s level=%s target=%s days=%s", uid, nid, level, target, days)
+    return jr({"ok": True, "id": nid})
+
+
+@router.post("/api/admin/notices/off")
+def api_admin_notices_off(request: Request, body: dict = Body(...), uid: int = Depends(get_admin)):
+    """撤回公告: {id}。软删(置 off_at) —— 保留历史, 且已读回执行不悬空"""
+    try:
+        nid = int(body.get("id") or 0)
+    except (TypeError, ValueError):
+        nid = 0
+    if nid <= 0:
+        return jr({"ok": False, "msg": "缺少公告 id"}, status=400)
+    conn = _conn()
+    try:
+        conn.execute("UPDATE notices SET off_at=? WHERE id=? AND off_at=0", (int(time.time()), nid))
+        conn.commit()
+    except Exception as e:
+        log.warning("公告撤回失败 uid=%s nid=%s err=%s", uid, nid, e)
+        return jr({"ok": False, "msg": "撤回失败"}, status=500)
+    finally:
+        conn.close()
+    try:
+        users.audit(uid, "notice_off", detail=str(nid), ip=client_ip(request))
+    except Exception:
+        pass
+    return jr({"ok": True, "id": nid})

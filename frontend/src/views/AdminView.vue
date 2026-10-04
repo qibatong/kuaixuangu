@@ -14,6 +14,65 @@
     </div>
 
     <template v-else>
+      <!-- 站内公告(2026-10-04): 主人需求「系统消息比如系统更新提醒…」——
+           这里是**站方广播**的发布端; 会员到期提醒是后端实时推导的, 不在这里发。 -->
+      <div class="admin-card">
+        <div class="card-title"><i class="fa fa-bullhorn"></i> 站内公告（系统消息）</div>
+        <div class="notice-form">
+          <input v-model="nf.title" class="admin-input" placeholder="标题，如：系统更新：新增超智研判" maxlength="60" />
+          <textarea v-model="nf.body" class="admin-input" rows="3" placeholder="正文（换行会原样展示）"></textarea>
+          <div class="notice-form-row">
+            <label>级别
+              <select v-model="nf.level" class="admin-input">
+                <option value="info">普通</option>
+                <option value="warn">提醒（亮红点）</option>
+                <option value="urgent">紧急（亮红点 + 强调）</option>
+              </select>
+            </label>
+            <label>定向
+              <select v-model="nf.target" class="admin-input">
+                <option value="all">全部用户</option>
+                <option value="free">仅免费试用</option>
+                <option value="member">仅付费/VIP</option>
+                <option value="vip">仅 VIP</option>
+              </select>
+            </label>
+            <label>有效期
+              <select v-model.number="nf.days" class="admin-input">
+                <option :value="0">长期</option>
+                <option :value="3">3 天</option>
+                <option :value="7">7 天</option>
+                <option :value="30">30 天</option>
+              </select>
+            </label>
+            <button class="admin-btn" :disabled="nfPosting || !nf.title.trim() || !nf.body.trim()" @click="publishNotice">
+              {{ nfPosting ? '发布中…' : '发布' }}
+            </button>
+          </div>
+          <span class="admin-tip">发布后用户右上角铃铛会亮红点；级别 warn/urgent 才计入红点数。</span>
+        </div>
+
+        <div class="table-scroll" style="margin-top:10px;">
+          <table class="admin-table">
+            <thead><tr><th style="width:40%">标题</th><th>级别</th><th>定向</th><th>发布时间</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-if="!notices.length"><td colspan="6" class="weight-desc">还没有公告</td></tr>
+              <tr v-for="n in notices" :key="n.id">
+                <td :title="n.body">{{ n.title }}</td>
+                <td>{{ noticeLevelLabel(n.level) }}</td>
+                <td>{{ noticeTargetLabel(n.target) }}</td>
+                <td>{{ n.date }}</td>
+                <td>{{ n.off_at ? '已撤回' : '展示中' }}</td>
+                <td>
+                  <button v-if="!n.off_at" class="admin-btn admin-btn-sm" @click="offNotice(n.id)">撤回</button>
+                  <span v-else class="weight-desc">—</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- 用户统计卡片 -->
       <StatCards :stats="stats" />
 
@@ -483,6 +542,8 @@ v-if="menuUid !== null && menuRect" class="row-menu"
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { adminCreateUser, adminDeleteUser, adminScoring, adminSetMemberLevel, adminSetUserProfile, adminUserInvites, adminUsers, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire, setUsersExpire } from '../api/admin'
+// 2026-10-04 站内公告(系统消息的站方广播部分)
+import { adminNotices, adminOffNotice, adminPublishNotice } from '../api/notices'
 import { showToast as toast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
 import { expireState } from '../utils/admin'
@@ -1084,10 +1145,51 @@ async function saveScoring() {
   }
 }
 
+// ---------- 站内公告(2026-10-04) ----------
+// 🔴 这里只管**站方广播**(系统更新提醒等); 会员到期提醒是后端按 expire_at 实时推导的,
+//    管理员发不了也**不该**发(用户续费后那条会变成永久的脏数据)。
+const notices = ref([])
+const nf = reactive({ title: '', body: '', level: 'info', target: 'all', days: 0 })
+const nfPosting = ref(false)
+
+function noticeLevelLabel(l) { return ({ info: '普通', warn: '提醒', urgent: '紧急' })[l] || l }
+function noticeTargetLabel(t) { return ({ all: '全部', free: '免费试用', member: '付费/VIP', vip: 'VIP' })[t] || t }
+
+async function loadNotices() {
+  try {
+    const d = await adminNotices()
+    if (d && d.ok) notices.value = d.items || []
+  } catch (e) { /* 管理端已有全局错误提示, 这里静默即可 */ }
+}
+
+async function publishNotice() {
+  if (!nf.title.trim() || !nf.body.trim()) { toast('标题与正文都不能为空', 'error'); return }
+  nfPosting.value = true
+  try {
+    const d = await adminPublishNotice({ ...nf })
+    if (d && d.ok) {
+      toast('公告已发布', 'success')
+      nf.title = ''; nf.body = ''
+      await loadNotices()
+    } else toast('发布失败：' + ((d && d.msg) || ''), 'error')
+  } catch (e) {
+    toast('发布失败：' + (e.message || ''), 'error')
+  } finally { nfPosting.value = false }
+}
+
+async function offNotice(id) {
+  try {
+    const d = await adminOffNotice(id)
+    if (d && d.ok) { toast('已撤回', 'success'); await loadNotices() }
+    else toast('撤回失败', 'error')
+  } catch (e) { toast('撤回失败', 'error') }
+}
+
 onMounted(() => {
   loadUsers(1)
   loadScoring('auction')   // 显式: 首屏默认竞价页签(与 scoringStrategy 初值一致)
   loadDefaults()
+  loadNotices()
 })
 </script>
 

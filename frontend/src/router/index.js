@@ -63,6 +63,11 @@ const router = createRouter({
     { path: '/member', name: 'member', component: () => import('../views/MemberView.vue'), meta: { group: 'me', order: 0 } },
     // 2026-09-21 会员体系: 我的会员(等级/到期/配额/签到/邀请)
     { path: '/admin', name: 'admin', component: () => import('../views/AdminView.vue'), meta: { admin: true, group: 'me', order: 1 } },
+    // 2026-10-04 主人需求「系统消息」：消息中心。入口 = 顶栏右上角铃铛（全站常驻），
+    //   故**不进任何导航组**（进组就会在「我的」pill 行里多一个没人点的死项）。
+    //   🔴 noGroupNav：它不属于任何组的二级页，不该渲染分组 pill 行。
+    { path: '/messages', name: 'messages', component: () => import('../views/MessagesView.vue'),
+      meta: { group: 'me', noGroupNav: true } },
 
     // ---------------- 不参与分组 ----------------
     { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },

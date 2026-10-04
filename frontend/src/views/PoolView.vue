@@ -9,8 +9,10 @@
 
     <!-- 通达信下载工具区: 从首页迁入, 集中管理 -->
     <div class="tdx-toolbar">
-      <a href="/download/tdx_import.exe" class="tdx-export-btn tdx-only nav-btn nav-tdx"><i class="fa fa-windows"></i> 下载通达信工具</a>
-      <button class="tdx-export-btn tdx-only nav-btn nav-pool-import" data-tip="💡 首次用：先点「下载通达信工具」并运行，再在通达信『选项/工具』勾选『监控剪贴板』，之后点下载即可自动导入" @click="downloadAll"><i class="fa fa-download"></i> 下载自选股(自动导入)</button>
+      <!-- 2026-10-04 安卓壳: 这两个是 **Windows 专属**(tdx_import.exe / 剪贴板自动导入),
+           安卓上点了也用不了 ⇒ 壳内用 v-if 不挂载(不是 CSS 隐藏, 免得白占位)。 -->
+      <a v-if="!isNativeApp" href="/download/tdx_import.exe" class="tdx-export-btn tdx-only nav-btn nav-tdx"><i class="fa fa-windows"></i> 下载通达信工具</a>
+      <button v-if="!isNativeApp" class="tdx-export-btn tdx-only nav-btn nav-pool-import" data-tip="💡 首次用：先点「下载通达信工具」并运行，再在通达信『选项/工具』勾选『监控剪贴板』，之后点下载即可自动导入" @click="downloadAll"><i class="fa fa-download"></i> 下载自选股(自动导入)</button>
       <button class="tdx-export-btn pool-btn" @click="copyCodes"><i class="fa fa-copy"></i> 复制代码列表</button>
       <div class="tdx-tip">💡 通达信导入需在<b>电脑端</b>操作；手机上可点「复制代码列表」</div>
     </div>
@@ -28,10 +30,12 @@ import { usePoolStore } from '../stores/pool'
 import { useUserStore } from '../stores/user'
 import { showToast } from '../utils/toast'
 import { copyText, downloadBlkFile } from '../utils/tdx'
+import { isNative } from '../utils/native'
 
 const stocks = useStocksStore()
 const pool = usePoolStore()
 const user = useUserStore()
+const isNativeApp = isNative()   // 安卓壳内隐藏 Windows 专属的 tdx 导入功能
 
 let autoAddTimer = null
 let expiryTimer = null

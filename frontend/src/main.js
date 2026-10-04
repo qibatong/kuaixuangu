@@ -21,3 +21,30 @@ const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 app.mount('#app')
+
+// 2026-10-03 · PWA 离线壳（主人决策：先做 PWA，再谈 APK 封装）
+//   · 只在 **生产构建 + https/localhost** 注册（SW 需要安全上下文；dev 下注册会干扰 HMR）。
+//   · 注册失败**静默**（老浏览器/内网 http 访问只是没有离线能力，不影响正常使用）。
+//   · 发现新版本 ⇒ 派 `kx:sw-update`，由 PwaBar.vue 显示「刷新」按钮 —— 🔴 **不自动 reload**，
+//     竞价盘中强刷会把用户正在看的名单打断。
+//   · ⚠️ 部署后要验 `/sw.js` 的 content-type 是 application/javascript（生产 nginx 的 SPA 回退
+//     曾把静态资源吞成 text/html ⇒ 注册失败且报错很难懂，见 AGENTS.md v4.11.84）。
+if (import.meta.env.PROD && 'serviceWorker' in navigator &&
+    (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').then((reg) => {
+      if (!reg) return
+      // 挂载前就已经有 waiting（例如上次刷新时刚发版）也要提示
+      if (reg.waiting) window.dispatchEvent(new CustomEvent('kx:sw-update'))
+      reg.addEventListener('updatefound', () => {
+        const sw = reg.installing
+        if (!sw) return
+        sw.addEventListener('statechange', () => {
+          if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+            window.dispatchEvent(new CustomEvent('kx:sw-update'))
+          }
+        })
+      })
+    }).catch(() => { /* 不支持/不安全上下文：无离线能力，照常使用 */ })
+  })
+}

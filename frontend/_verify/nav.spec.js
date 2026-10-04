@@ -58,6 +58,8 @@ import NavBar from '../src/components/NavBar.vue'
 import AppTabBar from '../src/components/AppTabBar.vue'
 import QuickGrid from '../src/components/QuickGrid.vue'
 import { NAV_GROUPS, TABBAR_TABS } from '../src/composables/useNavGroups'
+// 2026-10-04 站内消息
+import MessagesView from '../src/views/MessagesView.vue'
 // v4.11.62 盘中盯盘台六层（纯展示组件）
 import FlashTicker from '../src/components/FlashTicker.vue'
 import YestZtPanel from '../src/components/YestZtPanel.vue'
@@ -130,6 +132,8 @@ const ROUTES = [
   R('/bigv', 'bigv', 'review'), R('/yidong', 'yidong', 'review'), R('/lhb', 'lhb', 'review'),
   R('/pool', 'pool', 'pool'),
   R('/member', 'member', 'me'), R('/admin', 'admin', 'me'),
+  // 2026-10-04 消息中心：不渲染分组 pill 行（它是铃铛进的独立页，不属于任何组的二级页）
+  { path: '/messages', name: 'messages', component: Stub, meta: { group: 'me', noGroupNav: true } },
   R('/login', 'login', null),
 ]
 
@@ -274,11 +278,27 @@ ok('超智是一级分组且排在竞价**前面**（竞价向右让位）',
 ok('超智组落点是 /chaozhi 且单页组（不渲染 pill 行）',
    NAV_GROUPS.find((g) => g.key === 'chaozhi').entry === '/chaozhi')
 ok('桌面一级分组是 7 个（2026-10-03 起超智入列）', NAV_GROUPS.length === 7, '实际 ' + NAV_GROUPS.length)
-ok('底部 tabbar 恰好 5 个 tab', (b.html.match(/tabbar-item/g) || []).length === 5,
+// 2026-10-04 主人指令「app端右下角我的去掉」⇒ 5 格 → **4 格**（首页/竞价/盘中/复盘）。
+ok('底部 tabbar 恰好 4 个 tab', (b.html.match(/tabbar-item/g) || []).length === 4,
    '实际 ' + (b.html.match(/tabbar-item/g) || []).length)
-ok('底部 4 格 = 首页/竞价/盘中/我的',
-   TABBAR_TABS.map((t) => t.label).join('/') === '首页/竞价/盘中/复盘/我的',
+ok('底部 4 格 = 首页/竞价/盘中/复盘（「我的」2026-10-04 起已移除）',
+   TABBAR_TABS.map((t) => t.label).join('/') === '首页/竞价/盘中/复盘',
    '实际 ' + TABBAR_TABS.map((t) => t.label).join('/'))
+// 🔴 补偿断言：底部没了「我的」，手机端**必须**还有账户入口，否则 /member 无处可进
+//   （该页有登录守卫）⇒ 顶部左上角用户中心（首字母头像，仅 ≤768px 渲染）。
+const nb = await renderComp(NavBar, {}, '/')
+ok('顶部左上角有用户中心入口（底部「我的」移除后的补偿）', nb.html.includes('nav-user-btn'),
+   'NavBar 里找不到 nav-user-btn ⇒ 手机端账户入口丢失')
+ok('用户中心已登录显示首字母头像 / 未登录显示 fa-user',
+   nb.html.includes('nav-avatar-initial') || nb.html.includes('fa-user'),
+   '两个分支都没渲染')
+// 2026-10-04 系统消息：消息中心页必须渲染得出来, 且**失败态与空态文案不同**（静态闸门）
+const ms = await renderComp(MessagesView, {}, '/messages')
+ok('消息中心页渲染无异常/无警告', ms.errors.length === 0, ms.errors.join(' | '))
+ok('消息中心有页头「系统消息」', ms.html.includes('系统消息'))
+ok('消息中心空态/失败态文案不同（不都渲染成空列表）',
+   ms.html.includes('暂无消息') || ms.html.includes('读取失败'),
+   '两个状态文案都没渲染')
 for (const t of TABBAR_TABS) {
   // ⚠️ 带 query 的落点（竞价 → /?wb=1&t=auction）在 SSR HTML 里 & 会转义成 &amp; ⇒ 归一化后比较
   const _href = `href="${t.path}"`
@@ -546,9 +566,10 @@ ok('关闭态不产出结果面板', !g9c.html.includes('ss-panel'))
 const g9d = await renderComp(StockSearch, { variant: 'tabbar' })
 ok('底部入口渲染无异常/无警告', g9d.errors.length === 0, g9d.errors.join(' | '))
 ok('底部入口是「搜索」按钮（不是路由项）', g9d.html.includes('ss-tab') && g9d.html.includes('搜索'))
-// 2026-10-01: AppTabBar **不再挂搜索格**（4 格、无 ss-tab）；搜索改由顶栏常驻承担
+// 2026-10-01: AppTabBar **不再挂搜索格**（无 ss-tab）；搜索改由顶栏常驻承担。
+// 2026-10-04: 底部同时**去掉「我的」** ⇒ 格数 5 → **4**（此处同步，否则与上面的 4 格断言打架）。
 ok('AppTabBar 已移除搜索格（4 格 + 无 ss-tab）',
-  (b.html.match(/tabbar-item/g) || []).length === 5 && !b.html.includes('ss-tab'),
+  (b.html.match(/tabbar-item/g) || []).length === 4 && !b.html.includes('ss-tab'),
   'tabbar-item=' + (b.html.match(/tabbar-item/g) || []).length)
 // NavBar 里挂上了桌面入口
 ok('NavBar 内已挂搜索入口', b.html.includes('ss-inline-input'))
@@ -812,7 +833,14 @@ const navMember = await renderAt('/member')
 ok('顶部导航不再有用户名按钮（.user-name-btn）', !navMember.html.includes('user-name-btn'))
 ok('顶部导航不再有账户下拉项（修改密码 / 退出登录）',
   !navMember.html.includes('修改密码') && !navMember.html.includes('退出登录'))
-ok('顶部导航保留主题圆点（未误删）', navMember.html.includes('nav-theme-dot'))
+// 2026-10-04 主人指令「深色和浅色背景 转移到用户中心里面」⇒ 断言方向**反转**：
+//   顶部**不许**再有主题圆点，且会员页必须提供了「深色/浅色」两个选项
+//   （不写这条，以后有人把圆点加回顶栏、或搬进却漏了一个选项，都不会被拦住）。
+ok('🔴 顶部导航已移除主题圆点（迁入用户中心）', !navMember.html.includes('nav-theme-dot'),
+  '仍有 nav-theme-dot ⇒ 背景切换没从顶栏搬走')
+ok('用户中心有「背景」设置项', mv.html.includes('mb-bg-btn'))
+ok('背景两档都在（深色 / 浅色）', ['深色', '浅色'].every((s) => mv.html.includes(s)),
+  '缺少某一档 ⇒ 用户换不了该背景')
 
 console.log(`\n=== 结果：PASS=${PASS}  FAIL=${FAIL} ===`)
 if (FAIL) { console.log('失败项：\n  - ' + fails.join('\n  - ')); process.exit(1) }

@@ -783,13 +783,15 @@ def api_kpl_lhb(request: Request, uid: int = Depends(require_vip_or_paid), date:
     kpl.fill_bid_change_from_snap(lst, None)   # 今日 9_25 快照补竞价涨幅
     kpl.fill_float_mv_from_snap(lst, None)
     kpl.fill_bid_turnover_from_snap(lst, None)   # 2026-08-18: 补竞价换手
-    kpl.apply_board_concept_db(lst, log_tag="auc:lhb[now]", field="board", truncate=2, blank_if_missing=True)
+    kpl.apply_board_concept_db(lst, log_tag="auc:lhb[now]", field="board", truncate=2, blank_if_missing=True, date=kpl.freeze_day())
     # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
     try:
         _apply_change_for(lst, kpl.freeze_day())
     except Exception as e:
         log.warning("lhb 现涨覆盖失败 err=%s", e)
-    return jr({"ok": True, "list": lst, "count": len(lst), "date": ""})
+    # 2026-10-04: date 一律返回**定格基准日**(休市日=最近交易日) ⇒ 前端日期选择器
+    #   能显示当前榜单真实日期、详情接口回看也锚住同一天(此前返回空串, 前端无从回显)。
+    return jr({"ok": True, "list": lst, "count": len(lst), "date": kpl.freeze_day()})
 
 
 @router.get("/api/kpl/lhb-detail")

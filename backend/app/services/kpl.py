@@ -2634,6 +2634,11 @@ def fetch_yest_zt():
                 "limitUpDays": it["limitUpDays"],        # 昨日连板数
                 "stillLimit": code in today_codes,       # 今日是否仍涨停(连板)
                 "reason": it.get("reason", ""),          # 昨日涨停原因
+                # 2026-10-04 手机端批次2: 首封时间(Unix秒, 昨日首次封板时刻)。
+                #   取数 = flash 涨停池自带 first_limit_up(已验证为秒级时间戳), 前端按北京时间
+                #   HH:MM 呈现; 0/空 → 显示 '-'。**封单额不补** —— 昨日封单无历史采集
+                #   (见 AuctionView 历史提示), 硬造一列会全是 '-'。
+                "firstLimitUp": int(_num(it.get("firstLimitUp"))) or 0,
                 # 今日实时涨幅: Type4 实时涨幅优先, 无则 9_25 竞价涨幅
                 "change": s.get("realChange") if s.get("realChange") is not None
                           else (sn.get("bid_change") if sn else None),

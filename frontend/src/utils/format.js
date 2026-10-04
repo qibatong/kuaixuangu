@@ -77,3 +77,20 @@ export function fmtNum(v, digits = 1, suffix = '') {
   const n = Number(v)
   return (Math.abs(n) >= 1000 ? _nf(digits).format(n) : n.toFixed(digits)) + suffix
 }
+
+/**
+ * 首封时间(HH:MM)。
+ * 📌 状态(2026-10-04 主人决定): 「昨涨停」表的「首封」列**已撤下**, 本函数**当前无引用**
+ *    (仅单测在用), 保留是因为它是纯函数零成本, 将来若要加回只需模板加 2 行。
+ * 入参是**秒级 Unix 时间戳**(开盘啦 flash 涨停池 first_limit_up, 后端透传为 firstLimitUp),
+ * 按**北京时间**取 HH:MM。0 / 空 / 非数字 → '-'。
+ *
+ * 🔴 必须显式 +8 小时再用 getUTC*: 东八区时间戳直接 toLocaleTimeString 会随**运行环境时区**漂移,
+ *    在 UTC 机器上(服务器/CI)会显示成 01:30 而不是 09:30。
+ */
+export function firstSealText(ts) {
+  const n = Number(ts)
+  if (!Number.isFinite(n) || n <= 0) return '-'
+  const d = new Date(n * 1000 + 8 * 3600 * 1000)
+  return String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0')
+}

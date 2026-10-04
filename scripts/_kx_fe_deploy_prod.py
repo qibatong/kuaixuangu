@@ -23,10 +23,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(REPO, "frontend", "dist")
 TAR = os.path.join(REPO, "frontend", "_dist_upload.tar.gz")
 
-ENTRY = "index-1N7B3gsW.js"          # 新(2026-09-30 12:0x: strategy 修复)
-OLD_ENTRY = "index-BG6YyHij.js"      # 生产线上当前(2026-09-30 04:49 那版)
-EXP_FILES = 1054
-EXP_ASSETS = 1046
+ENTRY = "index-CbS1F642.js"           # 新(2026-10-04 第2批: 龙虎榜通达信样式 + 站内消息 + 去"我的" + 背景迁用户中心 + 昨涨停「首封」列 + ≤480 隐藏列)
+OLD_ENTRY = "index-DoQF-9dY.js"       # 生产线上当前(2026-10-04 03:22 那版)
+EXP_FILES = 769
+EXP_ASSETS = 760
 
 MUST_HAVE = ["activity/track", "usage-rank", "active-users", "login-log", "user-activity"]
 MUST_NOT = ["activityUsage"]         # 已修复的死变量, 绝不能重现

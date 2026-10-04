@@ -23,6 +23,9 @@
     </footer>
     <!-- 2026-09-27: 手机端(≤768px) 底部固定 tab 栏(v4.11.61 起 6 个一级 tab); 登录页/404/管理后台不显示 -->
     <AppTabBar v-if="showTabBar" />
+    <!-- 2026-10-03: PWA 提示条(≤768px 才渲染) ——「安装到桌面」+「有新版本·刷新」;
+         自带"已安装/7 天内关过"判定 ⇒ 未满足条件时组件内部不渲染任何东西。 -->
+    <PwaBar v-if="!isNativeApp" />
   </div>
 </template>
 
@@ -33,16 +36,22 @@ import Watermark from './components/Watermark.vue'
 import NavBar from './components/NavBar.vue'
 import GroupNav from './components/GroupNav.vue'
 import AppTabBar from './components/AppTabBar.vue'
+import PwaBar from './components/PwaBar.vue'
 // 图表弹窗按需异步加载: 其内部引用了 echarts(数百 KB), 若静态引入会把 echarts 打进首屏主 bundle。
 // defineAsyncComponent 让 echarts 相关代码拆成独立 chunk, 首次点开图表才下载。
 const StockChartModal = defineAsyncComponent(() => import('./components/StockChartModal.vue'))
 import { uiBus, openStockChart, closeStockChart } from './composables/uiBus'
 import { useTheme } from './composables/useTheme'
 import { useUserStore } from './stores/user'
+// 2026-10-04 安卓壳: 物理返回键接管(仅壳内生效, 网页恒 no-op)。必须 setup 顶层调用。
+import { useAndroidBack } from './composables/useAndroidBack'
+import { isNative } from './utils/native'
 
 const { load: loadTheme } = useTheme()
 const userStore = useUserStore()
 const route = useRoute()
+useAndroidBack()   // 🔴 不要放进 onMounted: 那样卸载时解绑不了 ⇒ 返回键被重复处理
+const isNativeApp = isNative()   // 安卓壳: PWA 安装/更新提示条不适用(v-if 不挂载)
 
 // 2026-09-27 v4.11.58: 手机端底部 tab 栏的显示判定。
 // 登录页整屏、404 无归属、管理后台保持独立布局 —— 这三种都不挂 tabbar

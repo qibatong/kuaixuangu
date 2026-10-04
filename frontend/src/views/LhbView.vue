@@ -3,9 +3,10 @@
     <h1 class="visually-hidden">龙虎榜</h1>
     <div class="lhb-head">
       <span class="lhb-title"><i class="fa fa-list-alt"></i> 龙虎榜</span>
-      <!-- ★ 2026-09-29 主人拍板: 本页只留一张**层级树图**(个股 → 买卖营业部);
-           原「点明细看营业部」的弹窗已下线 ⇒ 副标题同步改成树图的读法。 -->
-      <span class="lhb-sub">营业部（席位）→ 个股 · 点席位展开 · 左栏点席位只看它 · 滚轮缩放 / 拖拽平移</span>
+      <!-- ★ 2026-10-04 主人定标(通达信手机端截图): 本页弃树图, 改为
+           「榜单列表(股票/机构/营业部 3 tab + 日期回看) ↔ 个股详情(买卖营业部表)」。
+           原层级树图(echarts tree)与第一版桑基图均已下线。 -->
+      <span class="lhb-sub">上榜个股 · 机构 / 营业部席位 · 点股票看买卖前五营业部 · 可回看历史交易日</span>
       <span class="lhb-time">{{ bjTime }}</span>
     </div>
     <LhbPanel />

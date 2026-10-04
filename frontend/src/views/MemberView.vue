@@ -33,7 +33,23 @@
         <button class="mb-mini-btn" @click="changePwdModal.open()"><i class="fa fa-key"></i> 修改密码</button>
         <button class="mb-mini-btn danger" @click="logout"><i class="fa fa-sign-out"></i> 退出登录</button>
       </div>
-      <!-- 显示设置：原顶部下拉菜单里的「字号 / 字体族」（主题仍留在顶部导航栏圆点） -->
+      <!-- 显示设置：背景明暗 / 字号 / 字体族。原在**顶部导航栏**（背景是右侧圆点，
+           字号字体在账户下拉菜单），2026-09-27 下拉整块迁来；
+           **2026-10-04 主人指令「深色和浅色背景 转移到用户中心里面」** ⇒ 顶部圆点一并收进来，
+           三者现在同属一张「显示」卡片，位置集中、不再需要顶栏那个只有 2 个点的控件。 -->
+      <div class="mb-setting-row">
+        <span class="mb-setting-label"><i class="fa fa-desktop"></i> 背景</span>
+        <button
+          v-for="b in BGS" :key="b.key"
+          class="mb-bg-btn" :class="{ active: bg === b.key }"
+          :title="b.label" :aria-label="'背景：' + b.label"
+          :aria-pressed="bg === b.key ? 'true' : 'false'"
+          @click="setBg(b.key)"
+        >
+          <span class="mb-bg-chip" :style="{ background: b.color }"></span>
+          <span>{{ b.key === 'dark' ? '深色' : '浅色' }}</span>
+        </button>
+      </div>
       <div class="mb-setting-row">
         <span class="mb-setting-label"><i class="fa fa-font"></i> 字号</span>
         <button
@@ -56,7 +72,7 @@
           <span class="ff-desc">{{ ff.desc }}</span>
         </button>
       </div>
-      <div class="mb-acc-tip">背景主题（黑色 / 白色）仍在顶部导航栏右侧的圆点上切换。</div>
+      <div class="mb-acc-tip">显示设置即刻保存：背景明暗跟随账号同步，换设备登录也保持一致。</div>
     </div>
 
     <div v-if="loading" class="loading-placeholder"><div class="spinner"></div><div>加载会员信息...</div></div>
@@ -235,15 +251,15 @@ import { memberOverview, memberPlans, memberCheckin, doCheckin as apiCheckin, re
 import { trackUsageOnce } from '../api/activity'
 import { logoutApi } from '../api/auth'
 import { useUserStore } from '../stores/user'
-import { useTheme, FONTS, FONT_FAMILIES } from '../composables/useTheme'
+import { useTheme, BGS, FONTS, FONT_FAMILIES } from '../composables/useTheme'
 import { showToast } from '../utils/toast'
 import ChangePwdModal from '../components/ChangePwdModal.vue'
 import ProfileModal from '../components/ProfileModal.vue'
 
 const router = useRouter()
 const user = useUserStore()
-// 字号 / 字体族（原在顶部下拉菜单里；主题圆点仍留在顶部导航栏）
-const { font, fontFam, setFont, setFontFam } = useTheme()
+// 显示设置三项：背景明暗 / 字号 / 字体族（2026-10-04 起背景也在这里 —— 顶部圆点已移除）
+const { bg, setBg, font, fontFam, setFont, setFontFam } = useTheme()
 // 账户弹层（2026-09-27 v4.11.65 由 NavBar 迁来）
 const changePwdModal = ref(null)
 const profileModal = ref(null)
@@ -460,9 +476,25 @@ onMounted(() => {
 }
 .mb-set-btn:hover { border-color: var(--accent); }
 .mb-set-btn.active { border-color: var(--accent); background: var(--accent); color: #fff; }
-.mb-fontfam {
-  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
+/* 2026-10-04 背景明暗：由顶部导航栏圆点搬来。带真实色块预览 ⇒ 比两个纯圆点更好认，
+   且「深色/浅色」有文字标签（原来的圆点只能靠 tooltip，触屏没 tooltip 就等于没标签）。 */
+.mb-bg-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 5px;
   border: 1px solid var(--border-soft); border-radius: 8px;
+  background: transparent; color: var(--text-secondary);
+  cursor: pointer; font-size: 0.8125rem; line-height: 1;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.mb-bg-btn:hover { border-color: var(--accent); }
+.mb-bg-btn.active { border-color: var(--accent); background: var(--accent-bg2); color: var(--accent-text); }
+.mb-bg-chip {
+  width: 16px; height: 16px; border-radius: 4px; flex: 0 0 auto;
+  border: 1px solid var(--border-soft);
+}
+/* 浅色主题下深色块自带描边更清楚（避免白底上看不见块边界） */
+body[data-bg="light"] .mb-bg-btn.active { background: rgba(11, 134, 200, .12); color: #0b5fa5; }
+.mb-fontfam {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--border-soft); border-radius: 8px;
   background: transparent; color: var(--text-secondary);
   cursor: pointer; font-size: 0.8125rem;
   transition: border-color .15s, background .15s, color .15s;

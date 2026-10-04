@@ -325,13 +325,13 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
           <tr>
 <th class="sortable" :class="{ active: yestZtSort.keyOf('code') }" @click="yestZtSort.onSort('code', 'string')">名称<span class="sort-ind">{{ yestZtSort.ind('name') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('limitUpDays') }" @click="yestZtSort.onSort('limitUpDays')">连板<span class="sort-ind">{{ yestZtSort.ind('limitUpDays') }}</span></th>
-            <th class="sortable" :class="{ active: yestZtSort.keyOf('floatMv') }" @click="yestZtSort.onSort('floatMv')">流通(亿)<span class="sort-ind">{{ yestZtSort.ind('floatMv') }}</span></th>
+            <th v-if="!isSmall" class="sortable" :class="{ active: yestZtSort.keyOf('floatMv') }" @click="yestZtSort.onSort('floatMv')">流通(亿)<span class="sort-ind">{{ yestZtSort.ind('floatMv') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('change') }" @click="yestZtSort.onSort('change')">现涨<span class="sort-ind">{{ yestZtSort.ind('change') }}</span></th>
             <th class="sortable" :class="{ active: yestZtSort.keyOf('bidChange') }" @click="yestZtSort.onSort('bidChange')">竞涨<span class="sort-ind">{{ yestZtSort.ind('bidChange') }}</span></th>
-            <th class="sortable" :class="{ active: yestZtSort.keyOf('bidTurnover') }" @click="yestZtSort.onSort('bidTurnover')">竞换<span class="sort-ind">{{ yestZtSort.ind('bidTurnover') }}</span></th>
-            <th class="sortable" :class="{ active: yestZtSort.keyOf('bidAmt') }" @click="yestZtSort.onSort('bidAmt')">竞额(亿)<span class="sort-ind">{{ yestZtSort.ind('bidAmt') }}</span></th>
+            <th v-if="!isSmall" class="sortable" :class="{ active: yestZtSort.keyOf('bidTurnover') }" @click="yestZtSort.onSort('bidTurnover')">竞换<span class="sort-ind">{{ yestZtSort.ind('bidTurnover') }}</span></th>
+            <th v-if="!isSmall" class="sortable" :class="{ active: yestZtSort.keyOf('bidAmt') }" @click="yestZtSort.onSort('bidAmt')">竞额(亿)<span class="sort-ind">{{ yestZtSort.ind('bidAmt') }}</span></th>
             <th class="sortable reason-th" :class="{ active: yestZtSort.keyOf('reason') }" @click="yestZtSort.onSort('reason', 'string')">涨停原因<span class="sort-ind">{{ yestZtSort.ind('reason') }}</span></th>
-            <th class="sortable" :class="{ active: yestZtSort.keyOf('board') }" @click="yestZtSort.onSort('board', 'string')">概念<span class="sort-ind">{{ yestZtSort.ind('board') }}</span></th>
+            <th v-if="!isSmall" class="sortable" :class="{ active: yestZtSort.keyOf('board') }" @click="yestZtSort.onSort('board', 'string')">概念<span class="sort-ind">{{ yestZtSort.ind('board') }}</span></th>
 </tr>
         </thead>
         <tbody>
@@ -345,17 +345,17 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
             <div v-if="yidongTag(z.code)" class="yd-badge-row"><span class="yd-badge" :title="yidongTagTitle(z.code)">{{ yidongTag(z.code) }}</span></div>
           </td>
             <td><span v-if="z.limitUpDays > 0" class="lb-badge">{{ z.limitUpDays }}板</span><span v-else class="dim">-</span></td>
-            <td class="dim">{{ fmtMv(z.floatMv) }}</td>
+            <td v-if="!isSmall" class="dim">{{ fmtMv(z.floatMv) }}</td>
             <td :class="z.change > 0 ? 'up' : z.change < 0 ? 'down' : 'dim'">{{ z.change !== null && z.change !== undefined ? signed(z.change) + '%' : '-' }}</td>
             <td :class="z.bidChange > 0 ? 'up' : z.bidChange < 0 ? 'down' : 'dim'">{{ z.bidChange !== null && z.bidChange !== undefined ? signed(z.bidChange) + '%' : '-' }}</td>
-            <td>{{ z.bidTurnover !== null && z.bidTurnover !== undefined ? z.bidTurnover.toFixed(2) + '%' : '-' }}</td>
-            <td>{{ z.bidAmt ? amtText(z.bidAmt) : '-' }}</td>
+            <td v-if="!isSmall">{{ z.bidTurnover !== null && z.bidTurnover !== undefined ? z.bidTurnover.toFixed(2) + '%' : '-' }}</td>
+            <td v-if="!isSmall">{{ z.bidAmt ? amtText(z.bidAmt) : '-' }}</td>
             <td class="reason-cell" :title="reasonTitle(z)"><span class="reason-clamp">{{ reasonOf(z) || '-' }}</span></td>
-            <td class="concept-cell dim" :title="z.board"><span v-if="z.board" class="concept-clamp">{{ conceptText(z.board) }}</span><span v-else class="dim">-</span></td>
+            <td v-if="!isSmall" class="concept-cell dim" :title="z.board"><span v-if="z.board" class="concept-clamp">{{ conceptText(z.board) }}</span><span v-else class="dim">-</span></td>
 </tr>
           <!-- 2026-09-30: 空表必须说清"为什么空"(原来纯空白, 用户看不出是没数据还是坏了) -->
           <tr v-if="!yestZtList.length">
-            <td colspan="9" class="snap-empty">{{ emptyHint() }}</td>
+            <td :colspan="ztColSpan" class="snap-empty">{{ emptyHint() }}</td>
           </tr>
         </tbody>
       </table>
@@ -451,6 +451,9 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { usePolling } from '../composables/usePolling'
+// 2026-10-04 手机端批次2: ≤480 隐藏次要列(见 composables/useMediaQuery.js)。
+//   🔴 必须在 setup 顶层调用(同 usePolling 的纪律), 否则卸载时不解绑 ⇒ 切页仍触发。
+import { useIsSmall } from '../composables/useMediaQuery'
 // 2026-09-29: 去掉 kplLhb —— 「昨上榜」板块已下线(龙虎榜另有独立页 /lhb)
 import { kplBidSeal, kplBidNet, kplBidBoom, kplBidQiangcang, kplBroken, kplYestBroken, kplYestZt } from '../api/kpl'
 import { auctionOverview, bidSnapshot3points, bidSealDaily } from '../api/stats'
@@ -460,7 +463,7 @@ import { todayBj } from '../utils/time'
 import { showToast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
-import { yi, signed, amtText, fmtT, sealDailyText } from '../utils/format'
+import { amtText, fmtT, sealDailyText, signed, yi } from '../utils/format'
 import VipGate from '../components/VipGate.vue'
 import PoolHoverBtn from '../components/PoolHoverBtn.vue'
 // 2026-09-27 v4.11.63《移动端清单》§二·4: 数据更新时刻（与页头时钟区分开）
@@ -472,6 +475,9 @@ const quotaExceeded = ref(false)
 const gateRef = ref(null)
 const { yidongTag, yidongTagTitle, refreshYidongCodes } = useYidongMonitor()
 const tab = ref('s3')   // 默认选中三时点封单
+const isSmall = useIsSmall()   // ≤480: 昨涨停表隐藏 流通/竞换/竞额/概念 四列, 保住原因
+/** 空表提示的 colspan 必须跟着实际列数走, 否则空表那一格宽度不对(fixed/auto 布局都会歪) */
+const ztColSpan = computed(() => (isSmall.value ? 5 : 9))
 const sealRaw = ref([])
 const bidNetList = ref([])   // 2026-08-18: 竞价净额专用(开盘啦 Type2 竞价>1000万), 空时回退封单列表
 const boomList = ref([])
