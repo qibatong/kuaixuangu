@@ -338,12 +338,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.login-form { display: flex; flex-direction: column; gap: 10px; }
+.login-form { display: flex; flex-direction: column; gap: var(--s2); }
 /* 忘记密码/注册表单: 同 login-form 间距 + 强制所有 input 统一高度 43px, 避免单独 input 与 phone-row 内 input 高度差 */
 .forgot-form {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--s2);
 }
 .forgot-form > input {
   min-height: 43px;
@@ -352,7 +352,7 @@ onMounted(() => {
 }
 .forgot-form .phone-row {
   display: flex;
-  gap: 8px;
+  gap: var(--s2);
   align-items: stretch;        /* 子项自动等高 */
 }
 .forgot-form .phone-row input {
@@ -364,11 +364,11 @@ onMounted(() => {
 }
 .forgot-form .sms-btn {
   flex-shrink: 0;
-  padding: 0 12px;
-  font-size: 0.75rem;
+  padding: 0 var(--s3);
+  font-size: var(--fs-xs);
   white-space: nowrap;
   border: 1px solid var(--accent);
-  border-radius: 6px;
+  border-radius: var(--r-md);
   background: transparent;
   color: var(--accent);
   cursor: pointer;
@@ -382,8 +382,8 @@ onMounted(() => {
 .remember-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
+  gap: var(--s2);
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   cursor: pointer;
   user-select: none;
@@ -392,7 +392,7 @@ onMounted(() => {
 .remember-check { width: 14px; height: 14px; accent-color: var(--accent); cursor: pointer; }
 .phone-row {
   display: flex;
-  gap: 8px;
+  gap: var(--s2);
   align-items: stretch;         /* 子项自动等高 */
 }
 .phone-row input {
@@ -404,11 +404,11 @@ onMounted(() => {
   flex-shrink: 0;
   /* 高度与 input 完全一致: 全局 input = padding 11px 上下 + font-size 14px 行高 + border */
   /* 用 align-items:stretch + 自身不设 padding 上下, 由 flex 拉伸到 input 同高 */
-  padding: 0 12px;
-  font-size: 0.75rem;
+  padding: 0 var(--s3);
+  font-size: var(--fs-xs);
   white-space: nowrap;
   border: 1px solid var(--accent);
-  border-radius: 6px;
+  border-radius: var(--r-md);
   background: transparent;
   color: var(--accent);
   cursor: pointer;
@@ -422,19 +422,19 @@ onMounted(() => {
 .sms-btn:disabled { opacity: .45; cursor: not-allowed; }
 /* 注册页赠送提示 */
 .gift-tip {
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   line-height: 1.5;
   color: var(--text-muted);
   background: rgba(255, 176, 32, .1);
   border: 1px solid rgba(255, 176, 32, .35);
-  border-radius: 6px;
-  padding: 8px 10px;
+  border-radius: var(--r-md);
+  padding: var(--s2) var(--s2);
 }
-.gift-tip b { color: #ffb020; }
+.gift-tip b { color: var(--warn-amber); }
 .inviter-tip {
-  font-size: 0.75rem;
-  color: #2bb673;
+  font-size: var(--fs-xs);
+  color: var(--down);
   margin-top: -2px;
 }
-.switch-sep { margin: 0 6px; color: #334; }
+.switch-sep { margin: 0 var(--s2); color: #334; }
 </style>

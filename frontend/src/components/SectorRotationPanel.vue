@@ -80,21 +80,21 @@ onMounted(load)
 </script>
 
 <style scoped>
-.srp { background: var(--card, #111826); border: 1px solid var(--border-soft, #1f2937); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
-.srp-head { display: flex; align-items: center; margin-bottom: 12px; }
-.srp-title { font-size: 0.9375rem; font-weight: 700; color: var(--text-main, #f3f4f6); }
-.srp-title i { color: var(--accent, #ff7a5c); margin-right: 8px; }
-.srp-sub { margin-left: auto; font-size: 0.6875rem; color: var(--text-muted, #6b7280); }
-.srp-loading, .srp-empty { padding: 24px 0; text-align: center; color: var(--text-muted, #6b7280); font-size: 0.75rem; }
-.srp-stocks { margin-top: 12px; border-top: 1px solid var(--border-soft, #1f2937); padding-top: 12px; }
-.srp-stocks-head { display: flex; align-items: center; font-size: 0.875rem; font-weight: 700; color: var(--text-main, #f3f4f6); margin-bottom: 8px; }
-.srp-stocks-head i { color: var(--accent, #ff7a5c); margin-right: 6px; }
-.srp-stocks-close { margin-left: auto; background: none; border: none; color: var(--text-muted, #6b7280); cursor: pointer; font-size: 0.875rem; }
+.srp { background: var(--card, #111826); border: 1px solid var(--border-soft, #1f2937); border-radius: var(--r-lg); padding: var(--s4); margin-bottom: var(--s4); }
+.srp-head { display: flex; align-items: center; margin-bottom: var(--s3); }
+.srp-title { font-size: var(--fs-md); font-weight: 700; color: var(--text-main, #f3f4f6); }
+.srp-title i { color: var(--accent, var(--up)); margin-right: var(--s2); }
+.srp-sub { margin-left: auto; font-size: var(--fs-xs); color: var(--text-muted, var(--text-faint)); }
+.srp-loading, .srp-empty { padding: var(--s6) 0; text-align: center; color: var(--text-muted, var(--text-faint)); font-size: var(--fs-xs); }
+.srp-stocks { margin-top: var(--s3); border-top: 1px solid var(--border-soft, #1f2937); padding-top: var(--s3); }
+.srp-stocks-head { display: flex; align-items: center; font-size: var(--fs-base); font-weight: 700; color: var(--text-main, #f3f4f6); margin-bottom: var(--s2); }
+.srp-stocks-head i { color: var(--accent, var(--up)); margin-right: var(--s2); }
+.srp-stocks-close { margin-left: auto; background: none; border: none; color: var(--text-muted, var(--text-faint)); cursor: pointer; font-size: var(--fs-base); }
 .srp-table { width: 100%; border-collapse: collapse; }
-.srp-table th, .srp-table td { padding: 6px 10px; font-size: 0.8125rem; text-align: left; border-top: 1px solid rgba(255,255,255,.04); }
-.srp-table th { color: var(--text-muted, #6b7280); font-weight: 500; }
+.srp-table th, .srp-table td { padding: var(--s2) var(--s2); font-size: var(--fs-sm); text-align: left; border-top: 1px solid rgba(255,255,255,.04); }
+.srp-table th { color: var(--text-muted, var(--text-faint)); font-weight: 500; }
 .srp-table tr { cursor: pointer; }
 .srp-table tr:hover { background: rgba(255,255,255,.04); }
-.up { color: #ff5c5c; }
-.down { color: #3db97f; }
+.up { color: var(--accent); }
+.down { color: var(--down); }
 </style>

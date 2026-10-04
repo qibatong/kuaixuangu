@@ -210,7 +210,7 @@ onMounted(() => {
     }
     s.textContent =
       `html, body, #app { width: ${logicalW}px !important; max-width: ${logicalW}px !important; overflow-x: hidden !important; min-width: 0 !important; } ` +
-      `body { padding: 2px 4px !important; padding-top: env(safe-area-inset-top, 0px) !important; padding-left: max(4px, env(safe-area-inset-left)) !important; padding-right: max(4px, env(safe-area-inset-right)) !important; padding-bottom: env(safe-area-inset-bottom, 0px) !important; } `
+      `body { padding: 2px var(--s1) !important; padding-top: env(safe-area-inset-top, 0px) !important; padding-left: max(var(--s1), env(safe-area-inset-left)) !important; padding-right: max(var(--s1), env(safe-area-inset-right)) !important; padding-bottom: env(safe-area-inset-bottom, 0px) !important; } `
   }
 
   try {
@@ -245,13 +245,13 @@ onBeforeUnmount(() => {
   overflow-x: hidden !important;
   min-width: 0 !important;
   margin: 0 auto;
-  padding: 0 4px;
+  padding: 0 var(--s1);
 }
 /* ============================================================================
    2026-09-27 v4.11.58 信息架构改造: 底部固定 tab 栏的"内容区留底"
    —— 不加这段, 手机端滚到底时最后一行(含免责声明页脚)会被 tabbar 盖住。
    —— 高度必须与 components/AppTabBar.vue 的 56px 常量保持一致(改一处要改两处)。
-   —— 用 !important 覆盖 main.css 手机端块里的 `.container { padding: 0 2px }`。
+   —— 用 !important 覆盖 main.css 手机端块里的 `.container { padding: 0 2px}`。
    —— 只在挂了 tabbar 时生效(登录/404/管理后台不加, 免得白留一块空白)。
    ============================================================================ */
 @media (max-width: 768px) {
@@ -260,9 +260,9 @@ onBeforeUnmount(() => {
 /* 网页底部免责声明 (2026-09-21 对比度修正: 提级到 secondary 并去 opacity, 合规文字须最清晰) */
 .disclaimer {
   text-align: center;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
-  margin: 8px 16px 24px;
+  margin: var(--s2) var(--s4) var(--s6);
   line-height: 1.7;
   letter-spacing: 0.3px;
 }

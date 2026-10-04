@@ -590,19 +590,19 @@ onUnmounted(stopRealtime)
 .ap-panel {
   background: var(--bg-hover);
   border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  padding: 14px;
+  border-radius: var(--r-lg);
+  padding: var(--s4);
   overflow: hidden;
 }
 /* 嵌入首页左视图(替换盘中选股, 2026-09-01): 半宽布局下收紧面板,
    表格启用横向滚动(9列在左栏必然超宽), 无需等待移动端断点 */
-.ap-embedded .ap-panel { padding: 10px; border-radius: 8px; }
+.ap-embedded .ap-panel { padding: var(--s2); border-radius: var(--r-md); }
 .ap-embedded .ap-table-scroll {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
 .ap-embedded .ap-stock-table { min-width: 696px; }  /* 9列: 8列定宽640 + 操作列56 */
-.loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
+.loading-placeholder { text-align: center; padding: var(--s8); color: var(--text-muted); }
 .spinner {
   width: 28px; height: 28px;
   border: 3px solid rgba(var(--accent-rgb), 0.3);
@@ -612,37 +612,37 @@ onUnmounted(stopRealtime)
   margin: 0 auto 10px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-.empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
-.ap-empty-rule { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.empty-state { text-align: center; padding: var(--s8); color: var(--text-muted); }
+.ap-empty-rule { display: flex; flex-direction: column; align-items: center; gap: var(--s4); }
 .ap-empty-rule > div:first-child { color: var(--text-secondary); font-weight: 600; }
 .ap-empty-reset {
-  padding: 9px 20px; border-radius: 8px;
+  padding: var(--s2) var(--s5); border-radius: var(--r-md);
   border: 1px solid var(--accent-border);
   background: var(--accent-bg);
   color: var(--accent-deep);
   cursor: pointer;
-  font-size: 0.875rem; font-weight: 600;
-  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-base); font-weight: 600;
+  display: inline-flex; align-items: center; gap: var(--s2);
 }
 .ap-empty-reset:hover { border-color: var(--accent); }
-.ap-empty-hint { font-size: 0.75rem; }
+.ap-empty-hint { font-size: var(--fs-xs); }
 
 /* 报告头部: 标题左, 日期选择工具栏右, 一行排布, 小屏自动折行 */
 .ap-report-head {
-  display: flex; flex-direction: column; gap: 6px;
-  margin-bottom: 14px;
-  padding-bottom: 12px;
+  display: flex; flex-direction: column; gap: var(--s2);
+  margin-bottom: var(--s4);
+  padding-bottom: var(--s3);
   border-bottom: 1px solid var(--border-soft);
 }
 .ap-report-title-row {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; flex-wrap: wrap;
+  gap: var(--s3); flex-wrap: wrap;
 }
 .ap-report-title {
-  font-size: 1rem;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: var(--text-main);
-  display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  display: inline-flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
 }
 .ap-report-icon { color: var(--accent); }
 .ap-date-badge {
@@ -650,9 +650,9 @@ onUnmounted(stopRealtime)
   background: var(--accent-bg);
   border: 1px solid var(--accent-border);
   color: var(--accent-deep);
-  padding: 2px 10px;
-  border-radius: 12px;
-  font-size: 0.75rem;
+  padding: 2px var(--s2);
+  border-radius: var(--r-lg);
+  font-size: var(--fs-xs);
   font-weight: 600;
 }
 .ap-count-chip {
@@ -660,9 +660,9 @@ onUnmounted(stopRealtime)
   background: var(--bg-card);
   border: 1px solid var(--border-soft);
   color: var(--text-secondary);
-  padding: 2px 10px;
-  border-radius: 12px;
-  font-size: 0.75rem;
+  padding: 2px var(--s2);
+  border-radius: var(--r-lg);
+  font-size: var(--fs-xs);
 }
 /* 2026-09-25 双模型徽标: 金睛(XGB, 中性) / 火眼(LightGBM, 强调色), 一眼区分两个模型 */
 .ap-model-chip {
@@ -670,9 +670,9 @@ onUnmounted(stopRealtime)
   background: var(--bg-input);
   border: 1px solid var(--border-soft);
   color: var(--text-muted);
-  padding: 2px 9px;
-  border-radius: 12px;
-  font-size: 0.75rem;
+  padding: 2px var(--s2);
+  border-radius: var(--r-lg);
+  font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.3px;
 }
@@ -683,9 +683,9 @@ onUnmounted(stopRealtime)
 }
 /* 2026-09-30 主人精简副标题: .ap-meta(训练时间/AUC 元信息) 已随其一并删除 */
 .ap-toolbar {
-  display: inline-flex; align-items: center; gap: 10px;
+  display: inline-flex; align-items: center; gap: var(--s2);
 }
-.ap-data-date { color: var(--text-muted); font-size: 0.8125rem; }
+.ap-data-date { color: var(--text-muted); font-size: var(--fs-sm); }
 /* 透明 input 覆盖整个日期按钮: 保留下划线显示, opacity 0 让视觉只显示按钮文案,
    用户点击会直接命中 input, 原生弹日历. 不使用 width:0/left:-9999px(那会让 showPicker 失效). */
 .rot-date-hidden {
@@ -702,54 +702,54 @@ onUnmounted(stopRealtime)
 /* 样式化的日期选择按钮, 和"最新"按钮视觉一致, 更精致 */
 .rot-date-btn {
   position: relative;
-  padding: 7px 14px; border-radius: 8px;
+  padding: var(--s2) var(--s4); border-radius: var(--r-md);
   border: 1px solid var(--border-soft);
   background: var(--bg-card);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 0.8125rem;
-  display: inline-flex; align-items: center; gap: 6px;
-  font-family: Consolas, Menlo, monospace;
+  font-size: var(--fs-sm);
+  display: inline-flex; align-items: center; gap: var(--s2);
+  font-family: var(--font-mono);
   transition: color 0.15s, border-color 0.15s;
   overflow: hidden;
 }
 .rot-date-btn:hover { color: var(--accent); border-color: var(--accent); }
 .rot-date-btn .fa { opacity: 0.75; }
 .rot-reset-btn {
-  padding: 6px 10px; border-radius: 8px;
+  padding: var(--s2) var(--s2); border-radius: var(--r-md);
   border: 1px solid var(--border-soft);
   background: var(--bg-hover);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
 }
 .rot-reset-btn:hover { color: var(--accent); border-color: var(--accent); }
 
 .ap-report-sub {
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   line-height: 1.8;
 }
 /* 用户可调规则过滤栏 — 2026-09-01 对齐竞价选股 FilterPanel 紧凑风格 */
 .ap-rulebar {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px;
-  margin-bottom: 8px;
-  padding: 5px 8px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--s1) var(--s2);
+  margin-bottom: var(--s2);
+  padding: var(--s1) var(--s2);
   background: var(--bg-main);
   border: 1px solid var(--border-soft);
-  border-radius: 6px;
+  border-radius: var(--r-md);
 }
-.ap-rule-label { color: var(--text-muted); font-size: 0.75rem; }
+.ap-rule-label { color: var(--text-muted); font-size: var(--fs-xs); }
 .ap-rule-in {
   width: 56px;
   max-width: 72px;
   min-width: 44px;
-  padding: 2px 4px;
-  border-radius: 4px;
+  padding: 2px var(--s1);
+  border-radius: var(--r-sm);
   border: 1px solid var(--border-soft);
   background: var(--bg-input);
   color: var(--text-primary);
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   line-height: 1.3;
   text-align: center;
   box-sizing: border-box;
@@ -757,23 +757,23 @@ onUnmounted(stopRealtime)
 }
 body[data-bg="light"] .ap-rule-in { color-scheme: light; }
 .ap-rule-in:focus { outline: none; border-color: var(--accent); }
-.ap-rule-sep { color: var(--text-muted); font-size: 0.75rem; }
-.ap-rule-unit { color: var(--text-muted); font-size: 0.75rem; }
+.ap-rule-sep { color: var(--text-muted); font-size: var(--fs-xs); }
+.ap-rule-unit { color: var(--text-muted); font-size: var(--fs-xs); }
 .ap-rule-n {
-  color: var(--accent-deep); font-weight: 700; font-size: 0.75rem;
+  color: var(--accent-deep); font-weight: 700; font-size: var(--fs-xs);
   background: var(--accent-bg); border: 1px solid var(--accent-border);
-  padding: 1px 8px; border-radius: 10px; margin-left: 2px;
+  padding: 1px var(--s2); border-radius: var(--r-lg); margin-left: 2px;
 }
 .ap-rule-reset {
-  padding: 2px 8px; border-radius: 4px;
+  padding: 2px var(--s2); border-radius: var(--r-sm);
   border: 1px solid var(--border-soft);
   background: var(--bg-hover);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
 }
 .ap-rule-reset:hover { color: var(--accent); border-color: var(--accent); }
-.ap-rule-tip { color: var(--text-muted); font-size: 0.75rem; }
+.ap-rule-tip { color: var(--text-muted); font-size: var(--fs-xs); }
 .ap-stock-table {
   /* 股性/连板页 stock-table 默认居中; AI预测表格数据统一居中展示 */
   text-align: center;
@@ -803,18 +803,18 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
 .ap-stock-table th:nth-child(7) { width: 110px; }   /* 概念(限宽110, 单行省略) */
 .ap-stock-table th:nth-child(9) { width: 56px; }    /* 操作(＋自选, 对齐竞价选股) */
 /* 名称列: 上方名称 + 下方代码(参考竞价异动页 stock-info-cell) */
-.ap-stock-table .name-col { width: 106px; padding: 4px 2px; }   /* 2026-10-03: 84→106 容纳板块徽章 */
+.ap-stock-table .name-col { width: 106px; padding: var(--s1) 2px; }   /* 2026-10-03: 84→106 容纳板块徽章 */
 .ap-stock-table .name-main {
-  font-size: 0.8125rem; font-weight: 600; color: var(--text-main);
+  font-size: var(--fs-sm); font-weight: 600; color: var(--text-main);
   line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* 板块徽章：只做"制度标识"，统一中性样式（不给颜色暗示，不标预期命中） */
 .ap-stock-table .ap-board {
   display: inline-block;
-  margin-left: 4px;
-  padding: 0 3px;
-  border-radius: 3px;
-  font-size: 0.625rem;
+  margin-left: var(--s1);
+  padding: 0 var(--s1);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: 0;
   line-height: 1.35;
@@ -824,7 +824,7 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   background: var(--bg-hover);
 }
 .ap-stock-table .name-sub {
-  font-size: 0.75rem; color: var(--text-muted);
+  font-size: var(--fs-xs); color: var(--text-muted);
   font-family: inherit;
   letter-spacing: 0.5px; line-height: 1.3; margin-top: 1px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -840,7 +840,7 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   max-width: 110px; min-width: 110px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--text-secondary);
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
 }
 /* 唯一横向滚动容器(2026-09-29: 由"仅手机端启用"改为**全宽度启用**) ——
    原实现只在 @media(max-width:768px) 里给 overflow-x:auto, 于是 769~900px 区间(横屏手机、
@@ -853,8 +853,8 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
 .ap-swipe-hint { display: none; }
 .ap-note {
   color: var(--text-muted);
-  font-size: 0.75rem;
-  margin-top: 14px;
+  font-size: var(--fs-xs);
+  margin-top: var(--s4);
   text-align: right;
 }
 
@@ -863,10 +863,10 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   display: inline-block;
   min-width: 60px;
   text-align: center;
-  padding: 3px 8px;
-  border-radius: 8px;
+  padding: var(--s1) var(--s2);
+  border-radius: var(--r-md);
   font-weight: 700;
-  font-size: 0.7812rem;
+  font-size: var(--fs-sm);
 }
 .score-high {
   background: var(--accent-bg2);
@@ -880,7 +880,7 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
 }
 .score-low {
   background: rgba(255, 215, 0, 0.10);
-  color: #c79100;
+  color: var(--gold-deep);
   border: 1px solid rgba(255, 215, 0, 0.4);
 }
 .score-dim {
@@ -891,22 +891,22 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
 
 @media (max-width: 768px) {
   /* 报告头部: 标题/徽章/工具栏三段式折行, 减少视觉噪音 */
-  .ap-report-head { margin-bottom: 10px; padding-bottom: 10px; }
-  .ap-report-title-row { gap: 8px; }
+  .ap-report-head { margin-bottom: var(--s2); padding-bottom: var(--s2); }
+  .ap-report-title-row { gap: var(--s2); }
   .ap-report-title {
-    font-size: 0.9375rem;
-    gap: 8px;
-    row-gap: 6px;
+    font-size: var(--fs-md);
+    gap: var(--s2);
+    row-gap: var(--s2);
     width: 100%;
     flex: 1 1 100%;
   }
   .ap-report-icon { margin-right: 2px; }
   .ap-date-badge, .ap-count-chip {
-    font-size: 0.75rem;
-    padding: 2px 8px;
+    font-size: var(--fs-xs);
+    padding: 2px var(--s2);
   }
   .ap-report-sub {
-    font-size: 0.75rem;
+    font-size: var(--fs-xs);
     line-height: 1.6;
     padding-top: 2px;
   }
@@ -915,11 +915,11 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
     width: 100%;
     justify-content: flex-start;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--s2);
   }
   .ap-data-date {
     width: 100%;
-    font-size: 0.75rem;
+    font-size: var(--fs-xs);
     padding-left: 2px;
   }
   /* 移动端日期按钮和"最新"按钮同为 40px 触控高, 并排分布 */
@@ -927,10 +927,10 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
     flex: 1 1 auto;
     min-width: 0;
     height: 40px;
-    padding: 6px 12px;
-    font-size: 0.8125rem;
+    padding: var(--s2) var(--s3);
+    font-size: var(--fs-sm);
     justify-content: center;
-    gap: 6px;
+    gap: var(--s2);
   }
   .rot-reset-btn {
     flex: 0 0 auto;
@@ -938,19 +938,19 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
     width: 40px;
     height: 40px;
     padding: 0;
-    font-size: 0.8125rem;
+    font-size: var(--fs-sm);
     display: inline-flex; align-items: center; justify-content: center;
   }
 
   /* 单一横向滚动策略(经验 1573633): 外层.表格包装器 作为唯一 x 滚动容器, 表格保持 min-width 避免列挤压 */
   .ap-panel {
-    padding: 10px 8px;
+    padding: var(--s2) var(--s2);
   }
   .ap-table-scroll {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    margin: 0 -8px;
-    padding: 0 8px 4px;
+    margin: 0 -var(--s2);
+    padding: 0 var(--s2) var(--s1);
   }
   /* 🔴 2026-09-29 修正(主人反馈"手机页面看不全"): 原 1006px 是**9 列时代**的遗留数字
      (见上方 th:nth-child(9) 的"操作列"注释 —— 该列已不存在), 而本表实际只有 8 列,
@@ -961,20 +961,20 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
         此处的 min-width 只是地板, 调小是安全操作。 */
   .ap-stock-table {
     min-width: 620px;
-    font-size: 0.75rem;
+    font-size: var(--fs-xs);
   }
   /* 嵌入态: 移动端仍按全宽表格处理(优先级高于 .ap-embedded .ap-stock-table 的桌面 696px) */
   .ap-embedded .ap-stock-table { min-width: 620px; }
   /* 2026-09-01 手机适配: 嵌入首页左视图时, 修正 .ap-embedded .ap-panel(padding:10px)
      特异性高于 .ap-panel 导致手机端 padding 不被收紧的问题, 横滑表格贴边对齐 */
-  .ap-embedded .ap-panel { padding: 8px 4px; }
-  .ap-embedded .ap-table-scroll { margin: 0 -4px; padding: 0 4px 4px; }
+  .ap-embedded .ap-panel { padding: var(--s2) var(--s1); }
+  .ap-embedded .ap-table-scroll { margin: 0 -var(--s1); padding: 0 var(--s1) var(--s1); }
   .ap-stock-table thead th {
-    padding: 6px 4px;
-    font-size: 0.75rem;
+    padding: var(--s2) var(--s1);
+    font-size: var(--fs-xs);
   }
   .ap-stock-table tbody td {
-    padding: 6px 4px;
+    padding: var(--s2) var(--s1);
     white-space: nowrap;
   }
   .ap-stock-table tbody tr { height: 44px; } /* 触控友好行高 */
@@ -998,8 +998,8 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   /* 窄屏可发现性提示 */
   .ap-swipe-hint {
     display: block;
-    margin: 0 0 4px;
-    font-size: 0.6875rem;
+    margin: 0 0 var(--s1);
+    font-size: var(--fs-xs);
     color: var(--text-muted);
     text-align: right;
   }
@@ -1007,21 +1007,21 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   /* 手机端收紧徽章, 保留最小可识别宽度 */
   .score-badge {
     min-width: 52px;
-    padding: 2px 6px;
-    font-size: 0.75rem;
-    border-radius: 6px;
+    padding: 2px var(--s2);
+    font-size: var(--fs-xs);
+    border-radius: var(--r-md);
   }
   .ap-note {
-    margin-top: 10px;
-    font-size: 0.75rem;
+    margin-top: var(--s2);
+    font-size: var(--fs-xs);
     text-align: left;
   }
   /* 手机端规则栏紧凑换行, 输入框等宽 */
-  .ap-rulebar { padding: 4px 5px; gap: 3px 4px; }
-  .ap-rule-in { width: 48px; padding: 1px 3px; font-size: 0.75rem; }
-  .ap-rule-label { font-size: 0.75rem; }
+  .ap-rulebar { padding: var(--s1) var(--s1); gap: var(--s1) var(--s1); }
+  .ap-rule-in { width: 48px; padding: 1px var(--s1); font-size: var(--fs-xs); }
+  .ap-rule-label { font-size: var(--fs-xs); }
   .ap-rule-tip { display: none; }
-  .ap-rule-n { font-size: 0.75rem; }
+  .ap-rule-n { font-size: var(--fs-xs); }
 }
 
 /* 极窄屏 (<= 390px, 比如 iPhone SE/小屏安卓): 工具栏自适应全屏宽度 */

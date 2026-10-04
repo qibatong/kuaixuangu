@@ -123,13 +123,13 @@ onMounted(async () => {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 40px 12px 20px;
+  padding: var(--s8) var(--s3) var(--s5);
 }
 .vip-card {
   background: var(--bg-panel);
   border: 1px solid rgba(var(--accent-rgb), 0.35);
-  border-radius: 14px;
-  padding: 32px 40px;
+  border-radius: var(--r-lg);
+  padding: var(--s8) var(--s8);
   text-align: center;
   max-width: 460px;
   width: 100%;
@@ -138,27 +138,27 @@ onMounted(async () => {
 .vip-icon {
   font-size: 2.75rem;
   color: var(--accent);
-  margin-bottom: 10px;
+  margin-bottom: var(--s2);
 }
 .vip-title {
-  font-size: 1.25rem;
+  font-size: var(--fs-2xl);
   font-weight: 700;
   color: var(--text-main);
-  margin-bottom: 12px;
+  margin-bottom: var(--s3);
 }
 .vip-desc {
-  font-size: 0.875rem;
+  font-size: var(--fs-base);
   color: var(--text-secondary);
   line-height: 1.7;
 }
-.vip-desc p { margin: 0 0 10px; }
+.vip-desc p { margin: 0 0 var(--s2); }
 .vip-desc .warn { color: var(--accent-deep); font-weight: 700; }
-.vip-desc .highlight { color: var(--accent-deep); font-size: 1.125rem; }
-.quota-list { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.vip-desc .highlight { color: var(--accent-deep); font-size: var(--fs-xl); }
+.quota-list { display: flex; gap: var(--s2); justify-content: center; flex-wrap: wrap; }
 .quota-chip {
-  font-size: 0.75rem;
-  padding: 2px 8px;
-  border-radius: 10px;
+  font-size: var(--fs-xs);
+  padding: 2px var(--s2);
+  border-radius: var(--r-lg);
   border: 1px solid rgba(var(--accent-rgb), 0.35);
   color: var(--text-secondary);
 }
@@ -166,30 +166,30 @@ onMounted(async () => {
 .ways {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 0.8125rem;
+  gap: var(--s1);
+  font-size: var(--fs-sm);
   color: var(--text-muted);
   text-align: left;
 }
-.way i { color: var(--accent); margin-right: 6px; }
+.way i { color: var(--accent); margin-right: var(--s2); }
 .vip-tip {
-  margin-top: 14px;
-  font-size: 0.8125rem;
+  margin-top: var(--s4);
+  font-size: var(--fs-sm);
   color: var(--text-muted);
   background: rgba(var(--accent-rgb), 0.08);
-  border-radius: 8px;
-  padding: 8px 12px;
+  border-radius: var(--r-md);
+  padding: var(--s2) var(--s3);
 }
 .vip-wechat {
-  margin-top: 4px;
-  font-size: 0.875rem;
+  margin-top: var(--s1);
+  font-size: var(--fs-base);
   color: var(--accent-deep);
 }
 .vip-wechat b { font-weight: 700; letter-spacing: 0.5px; }
 .vip-actions {
-  margin-top: 18px;
+  margin-top: var(--s4);
   display: flex;
-  gap: 10px;
+  gap: var(--s2);
   justify-content: center;
   flex-wrap: wrap;
 }
@@ -197,9 +197,9 @@ onMounted(async () => {
   background: var(--accent);
   color: #fff;
   border: none;
-  border-radius: 8px;
-  padding: 9px 22px;
-  font-size: 0.875rem;
+  border-radius: var(--r-md);
+  padding: var(--s2) var(--s6);
+  font-size: var(--fs-base);
   cursor: pointer;
   transition: opacity 0.15s;
 }
@@ -208,9 +208,9 @@ onMounted(async () => {
   background: var(--accent-deep);
   color: #fff;
   border: none;
-  border-radius: 8px;
-  padding: 9px 22px;
-  font-size: 0.875rem;
+  border-radius: var(--r-md);
+  padding: var(--s2) var(--s6);
+  font-size: var(--fs-base);
   cursor: pointer;
   transition: opacity 0.15s;
 }

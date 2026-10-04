@@ -380,13 +380,13 @@ function replaceWith(candKey) {
 .qg-root { display: none; }          /* 桌面端不渲染；≤768 打开（顶部导航已含全部入口） */
 
 /* 2026-10-04: qg-head/qg-title/qg-edit 样式随模板一并删除（标题与编辑按钮撤下） */
-.qg-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px 2px; }
+.qg-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--s2) 2px; }
 .qg-item {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: var(--s1);
   background: transparent;
   border: none;
   padding: 0;
@@ -411,7 +411,7 @@ function replaceWith(candKey) {
   overflow: hidden;
 }
 .qg-svg, .qg-txt { position: relative; z-index: 1; }
-.qg-ic-sm { width: 20px; height: 20px; border-radius: 6px; }
+.qg-ic-sm { width: 20px; height: 20px; border-radius: var(--r-md); }
 .qg-svg { width: 25px; height: 25px; }        /* 与放大的文字图标对齐 */
 .qg-ic-sm .qg-svg { width: 14px; height: 14px; }
 
@@ -434,25 +434,25 @@ function replaceWith(candKey) {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.3rem;              /* 加大：16px → 21px（方块 42px，留边 ~10px）*/
-  font-weight: 800;
+  font-size: var(--fs-2xl);              /* 加大：16px → 21px（方块 42px，留边 ~10px）*/
+  font-weight: 700;
   line-height: 1;
   letter-spacing: 0;
   font-family: inherit;
 }
-.qg-txt-sm { font-size: 0.92rem; }                 /* 双字（「题材」）：约 14.7px，占宽 ~30px */
-.qg-ic-sm .qg-txt { font-size: 0.8rem; }            /* 小尺寸块（更多面板）*/
-.qg-ic-sm .qg-txt-sm { font-size: 0.56rem; }        /* 小尺寸 + 双字 */
+.qg-txt-sm { font-size: var(--fs-md); }                 /* 双字（「题材」）：约 14.7px，占宽 ~30px */
+.qg-ic-sm .qg-txt { font-size: var(--fs-sm); }            /* 小尺寸块（更多面板）*/
+.qg-ic-sm .qg-txt-sm { font-size: var(--fs-xs); }        /* 小尺寸 + 双字 */
 
 
 .qg-lb {
-  font-size: 0.625rem;             /* 10px */
+  font-size: var(--fs-xs);             /* 10px */
   color: var(--text-secondary);
   line-height: 1.1;
   letter-spacing: -0.2px;
   white-space: nowrap;
 }
-.qg-swap { position: absolute; top: -2px; right: 8px; font-size: 0.6rem; color: var(--accent); }
+.qg-swap { position: absolute; top: -2px; right: 8px; font-size: var(--fs-xs); color: var(--accent); }
 .qg-picking .qg-ic { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* 色系别名（色值只在 main.css 的 :root 定义 —— 组件里不写裸值） */
@@ -468,24 +468,24 @@ function replaceWith(candKey) {
 .qg-h-brown { --qg-a: var(--qg-brown-a); --qg-b: var(--qg-brown-b); }
 
 .qg-pool {
-  margin-top: 10px;
-  padding: 8px 9px;
+  margin-top: var(--s2);
+  padding: var(--s2) var(--s2);
   background: var(--bg-card);
   border: 1px solid var(--border-soft);
-  border-radius: 10px;
+  border-radius: var(--r-lg);
 }
-.qg-pool-hint { font-size: 0.68rem; color: var(--text-muted); margin-bottom: 7px; }
-.qg-pool-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.qg-pool-hint { font-size: var(--fs-xs); color: var(--text-muted); margin-bottom: var(--s2); }
+.qg-pool-list { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .qg-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 0.7rem;
+  gap: var(--s1);
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
   background: var(--bg-input);
   border: 1px solid var(--border-soft);
-  border-radius: 14px;
-  padding: 3px 9px 3px 4px;
+  border-radius: var(--r-lg);
+  padding: var(--s1) var(--s2) var(--s1) var(--s1);
   cursor: pointer;
 }
 .qg-chip:disabled { opacity: 0.4; cursor: default; }
@@ -509,32 +509,32 @@ function replaceWith(candKey) {
   border-radius: 16px 16px 0 0;
   box-shadow: var(--qg-tile-shadow);
 }
-.qg-sheet-h { display: flex; align-items: center; gap: 8px; padding: 2px 2px 10px; }
-.qg-sheet-t { font-size: 0.82rem; font-weight: 600; color: var(--text-main); }
+.qg-sheet-h { display: flex; align-items: center; gap: var(--s2); padding: 2px 2px var(--s2); }
+.qg-sheet-t { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
 .qg-sheet-x {
   margin-left: auto;
   background: transparent;
   border: none;
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   cursor: pointer;
 }
 /* 只有两项的子项（AI预测）⇒ **左右并排**（左火眼 / 右金睛），而不是上下两行 */
-.qg-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 4px; }
-.qg-grid2 .qg-sheet-row { border: 1px solid var(--border-soft); border-radius: 10px; justify-content: center; }
+.qg-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); padding-top: var(--s1); }
+.qg-grid2 .qg-sheet-row { border: 1px solid var(--border-soft); border-radius: var(--r-lg); justify-content: center; }
 .qg-grid2 .qg-sheet-ar { display: none; }
 
 .qg-sheet-row {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--s2);
   width: 100%;
-  padding: 11px 6px;
+  padding: var(--s3) var(--s2);
   background: transparent;
   border: none;
   border-top: 1px solid var(--border-soft);
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -551,7 +551,7 @@ function replaceWith(candKey) {
 .qg-dot-blue { background: var(--qg-blue-a); }
 .qg-dot-brown { background: var(--qg-brown-a); }
 .qg-sheet-lb { flex: 1; }
-.qg-sheet-ar { color: var(--text-dim); font-size: 0.9rem; }
+.qg-sheet-ar { color: var(--text-dim); font-size: var(--fs-base); }
 
 @media (max-width: 768px) {
   .qg-root { display: block; }

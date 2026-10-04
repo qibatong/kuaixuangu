@@ -102,25 +102,25 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
 .sentiment-panel {
   display: flex;
   align-items: stretch;
-  gap: 10px;
+  gap: var(--s2);
   /* 🔴 桌面端不换行(2026-09-21): 指数带 963 + 情绪带 449 = 1412 与容器 1413 **只差 1px**,
      wrap 模式下任何内容微增都会把情绪带顶到第二行。改为 nowrap 后由两个带各自
      overflow-x:auto 消化溢出, 布局恒定同排。手机端断点内显式覆盖为 column/nowrap。 */
   flex-wrap: nowrap;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  padding: 8px 12px;
-  margin: 10px 0;
+  border-radius: var(--r-lg);
+  padding: var(--s2) var(--s3);
+  margin: var(--s2) 0;
 }
 .senti-title {
-  color: #ffe0a0;
-  font-size: 0.8125rem;
+  color: var(--warn-text);
+  font-size: var(--fs-sm);
   font-weight: 600;
   white-space: nowrap;
   align-self: center;
 }
-.senti-title .fa { color: #ffb400; margin-right: 4px; }
+.senti-title .fa { color: var(--star); margin-right: var(--s1); }
 /* 指数带: 紧凑靠左不拉伸(2026-09-20 主人反馈"情绪卡太靠右"), 空间不够时内部横滑。
    🔴 桌面端总宽算术(1440 视口): 指数带自然 963 + 情绪带自然 449 + gap 10 + padding 24 = 1446,
       而容器仅 1413 → **必然溢出 33px, 必然发生 shrink**。此时必须让**指数带独自承担全部收缩**
@@ -133,7 +133,7 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--s2);
   overflow-x: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -159,7 +159,7 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--s2);
   overflow-x: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -171,19 +171,19 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
   flex-direction: column;
   align-items: center;
   gap: 1px;
-  padding: 3px 8px;
-  border-radius: 6px;
+  padding: var(--s1) var(--s2);
+  border-radius: var(--r-md);
   background: rgba(255, 255, 255, 0.04);
   min-width: 78px;
 }
-.idx-name { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
-.idx-px { font-size: 0.9375rem; font-weight: 700; font-family: inherit; }
-.idx-chg { font-size: 0.75rem; font-weight: 600; font-family: inherit; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.idx-name { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+.idx-px { font-size: var(--fs-md); font-weight: 700; font-family: inherit; }
+.idx-chg { font-size: var(--fs-xs); font-weight: 600; font-family: inherit; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .idx-chg .idx-chg-sep { color: var(--text-muted); font-weight: 400; }
 .idx-chg .idx-chg-pts { color: var(--text-secondary); font-weight: 500; }
 .idx-px { font-variant-numeric: tabular-nums; }
-.idx-up { color: #ff5252; }
-.idx-down { color: #00c864; }
+.idx-up { color: var(--accent); }
+.idx-down { color: var(--down); }
 .idx-flat { color: var(--text-muted); }
 /* 情绪卡: 与指数卡同款竖排卡片 */
 .emo-card {
@@ -192,23 +192,23 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
   flex-direction: column;
   align-items: center;
   gap: 1px;
-  padding: 3px 8px;
-  border-radius: 6px;
+  padding: var(--s1) var(--s2);
+  border-radius: var(--r-md);
   background: rgba(255, 255, 255, 0.04);
   min-width: 78px;
 }
-.emo-val { font-size: 0.9375rem; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.emo-val { font-size: var(--fs-md); font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* 亏钱效应: 绿色(负面指标, 主人指定) */
-.emo-val.loss { color: #00c864; }
+.emo-val.loss { color: var(--down); }
 .senti-vdivider { width: 1px; align-self: stretch; background: rgba(255, 255, 255, 0.1); flex-shrink: 0; }
-.senti-loading { color: var(--text-muted); font-size: 0.8125rem; align-self: center; }
-.mkt-amt { color: #ffd76a; }      /* 成交额: 金色 */
-.mkt-shrink { color: #6ad66a; }   /* 缩量: 绿 */
+.senti-loading { color: var(--text-muted); font-size: var(--fs-sm); align-self: center; }
+.mkt-amt { color: var(--star); }      /* 成交额: 金色 */
+.mkt-shrink { color: var(--down); }   /* 缩量: 绿 */
 .mkt-grow { color: #ff8a5a; }     /* 放量: 橙红 */
-.mkt-rise { color: #ff6a6a; }     /* 涨家数: 红 */
-.mkt-fall { color: #6ad66a; }     /* 跌家数: 绿 */
-.senti-val.zt, .emo-val .zt { color: #ff6a6a; }
-.emo-val.lbg { color: #ffb400; }
+.mkt-rise { color: var(--brand-soft); }     /* 涨家数: 红 */
+.mkt-fall { color: var(--down); }     /* 跌家数: 绿 */
+.senti-val.zt, .emo-val .zt { color: var(--brand-soft); }
+.emo-val.lbg { color: var(--star); }
 .senti-val.dt, .emo-val .dt { color: var(--accent-text); }
 
 /* 手机端(2026-09-21 主人指令, 方案 A 定稿):
@@ -224,8 +224,8 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
     flex-direction: column;
     flex-wrap: nowrap;
     align-items: stretch;
-    padding: 6px 8px;
-    gap: 5px;
+    padding: var(--s2) var(--s2);
+    gap: var(--s1);
   }
   /* 第一行: 指数带占满整行, 卡片自然宽度, 溢出 → 横滑 */
   .index-strip {
@@ -234,14 +234,14 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
     width: 100%;
     max-width: 100%;
     overflow-x: auto;
-    gap: 6px;
+    gap: var(--s2);
     -webkit-overflow-scrolling: touch;
   }
   .senti-vdivider { display: none; }
   /* 卡片保持自然宽度, 不参与压缩(名称/数值完整显示) */
   .index-card {
     flex: 0 0 auto;
-    padding: 3px 7px;
+    padding: var(--s1) var(--s2);
     gap: 0;
     overflow: visible;
   }
@@ -256,33 +256,33 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
   /* 绝对值段恢复显示(横滑空间足够, 不再丢信息) */
   .index-card .idx-chg-pts,
   .index-card .idx-chg-sep { display: inline; }
-  .idx-name { font-size: 0.6875rem; }    /* 11px */
-  .idx-px   { font-size: 0.8125rem; }    /* 13px */
-  .idx-chg  { font-size: 0.6875rem; }    /* 11px */
+  .idx-name { font-size: var(--fs-xs); }    /* 11px */
+  .idx-px   { font-size: var(--fs-sm); }    /* 13px */
+  .idx-chg  { font-size: var(--fs-xs); }    /* 11px */
   /* 第二行: 情绪卡横排, 总宽超出屏宽 → 可横滑 */
   .emo-strip {
     flex: 0 0 auto;
     width: 100%;
     max-width: 100%;
-    gap: 8px;
+    gap: var(--s2);
     -webkit-overflow-scrolling: touch;
   }
-  .emo-card { min-width: 88px; padding: 3px 8px; flex: 0 0 auto; }
-  .emo-val { font-size: 0.875rem; }
+  .emo-card { min-width: 88px; padding: var(--s1) var(--s2); flex: 0 0 auto; }
+  .emo-val { font-size: var(--fs-base); }
   .senti-loading { align-self: flex-start; }
 }
 
 /* 超窄屏(<=480px, iPhone SE 等): 同样横滑, 仅微调间距与内边距 */
 @media (max-width: 480px) {
-  .sentiment-panel { padding: 5px 6px; gap: 4px; }
-  .index-strip { gap: 5px; }
-  .index-card { padding: 3px 6px; }
-  .idx-name { font-size: 0.625rem; }     /* 10px */
-  .idx-px   { font-size: 0.78125rem; }   /* 12.5px */
-  .idx-chg  { font-size: 0.625rem; }     /* 10px */
-  .emo-strip { gap: 7px; }
-  .emo-card { min-width: 84px; padding: 3px 7px; }
-  .emo-val { font-size: 0.8125rem; }
+  .sentiment-panel { padding: var(--s1) var(--s2); gap: var(--s1); }
+  .index-strip { gap: var(--s1); }
+  .index-card { padding: var(--s1) var(--s2); }
+  .idx-name { font-size: var(--fs-xs); }     /* 10px */
+  .idx-px   { font-size: var(--fs-sm); }   /* 12.5px */
+  .idx-chg  { font-size: var(--fs-xs); }     /* 10px */
+  .emo-strip { gap: var(--s2); }
+  .emo-card { min-width: 84px; padding: var(--s1) var(--s2); }
+  .emo-val { font-size: var(--fs-sm); }
 }
 
 /* 浅色主题覆盖 */

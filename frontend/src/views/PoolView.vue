@@ -94,22 +94,22 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .pool-page-head {
-  margin: 0 0 10px;
+  margin: 0 0 var(--s2);
 }
 .pool-page-title {
-  font-size: 1.25rem;
-  font-weight: 800;
+  font-size: var(--fs-2xl);
+  font-weight: 700;
   color: var(--text-main);
   letter-spacing: 1px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--s2);
 }
 .pool-page-title i { color: var(--accent); }
 .pool-page-sub {
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
-  margin-top: 4px;
+  margin-top: var(--s1);
 }
 
 /* 通达信工具栏: 紧凑横排, 集中管理下载入口 */
@@ -117,19 +117,19 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin: 0 0 10px;
-  padding: 10px 14px;
+  gap: var(--s2);
+  margin: 0 0 var(--s2);
+  padding: var(--s2) var(--s4);
   background: var(--bg-panel);
   border: 1px solid rgba(var(--accent-rgb), 0.25);
-  border-radius: 10px;
+  border-radius: var(--r-lg);
   backdrop-filter: blur(4px);
 }
 .tdx-toolbar .tdx-export-btn {
   margin: 0;
 }
 .tdx-toolbar .tdx-tip {
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   margin-left: auto;
 }

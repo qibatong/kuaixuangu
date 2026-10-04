@@ -82,12 +82,12 @@ const activeKey = computed(() => tabbarKeyOfRoute(route))
   transition: color 0.15s, transform 0.15s;
 }
 .tabbar-icon {
-  font-size: 18px;
+  font-size: var(--fs-xl);
   line-height: 1;
   transition: transform 0.15s;
 }
 .tabbar-label {
-  font-size: 11px;                /* 4 格更宽松 ⇒ 由 10px 提到 11px 更好点 */
+  font-size: var(--fs-xs);                /* 4 格更宽松 ⇒ 由 10px 提到 11px 更好点 */
   line-height: 1;
   font-weight: 500;
   white-space: nowrap;

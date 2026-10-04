@@ -158,13 +158,13 @@ onBeforeUnmount(() => {
   bottom: calc(64px + env(safe-area-inset-bottom));
   z-index: 1200;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: var(--s2);
+  padding: var(--s2) var(--s2);
   border: 1px solid var(--border-soft);
-  border-radius: 10px;
+  border-radius: var(--r-lg);
   background: var(--bg-input);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-  font-size: 0.75rem;
+  box-shadow: var(--sh-2);
+  font-size: var(--fs-xs);
 }
 @media (max-width: 768px) {
   .pwa-bar { display: flex; }
@@ -175,11 +175,11 @@ onBeforeUnmount(() => {
 .pwa-btn {
   flex: 0 0 auto;
   border: 1px solid var(--qg-orange-a);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: transparent;
   color: var(--qg-orange-a);
-  padding: 3px 12px;
-  font-size: 0.72rem;
+  padding: var(--s1) var(--s3);
+  font-size: var(--fs-xs);
   cursor: pointer;
 }
 .pwa-btn:hover { background: rgba(255, 180, 0, 0.1); }
@@ -188,9 +188,9 @@ onBeforeUnmount(() => {
   border: none;
   background: transparent;
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   line-height: 1;
-  padding: 2px 4px;
+  padding: 2px var(--s1);
   cursor: pointer;
 }
 .pwa-x:hover { color: var(--text-main); }

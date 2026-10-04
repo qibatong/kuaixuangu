@@ -69,22 +69,22 @@ onMounted(load)
 </script>
 
 <style scoped>
-.hrm { background: var(--card, #111826); border: 1px solid var(--border-soft, #1f2937); border-radius: 12px; padding: 12px; }
-.hrm-title { font-size: 0.875rem; font-weight: 700; color: var(--text-main, #f3f4f6); margin-bottom: 8px; display: flex; align-items: center; }
-.hrm-title i { color: var(--accent, #ff7a5c); margin-right: 6px; }
-.hrm-sub { margin-left: auto; font-size: 0.65rem; color: var(--text-muted, #6b7280); font-weight: 400; }
-.hrm-empty { padding: 20px 0; text-align: center; color: var(--text-muted, #6b7280); font-size: 0.75rem; }
+.hrm { background: var(--card, #111826); border: 1px solid var(--border-soft, #1f2937); border-radius: var(--r-lg); padding: var(--s3); }
+.hrm-title { font-size: var(--fs-base); font-weight: 700; color: var(--text-main, #f3f4f6); margin-bottom: var(--s2); display: flex; align-items: center; }
+.hrm-title i { color: var(--accent, var(--up)); margin-right: var(--s2); }
+.hrm-sub { margin-left: auto; font-size: var(--fs-xs); color: var(--text-muted, var(--text-faint)); font-weight: 400; }
+.hrm-empty { padding: var(--s5) 0; text-align: center; color: var(--text-muted, var(--text-faint)); font-size: var(--fs-xs); }
 .hrm-table { width: 100%; border-collapse: collapse; }
-.hrm-table th, .hrm-table td { padding: 4px 4px; font-size: 0.75rem; text-align: left; }
-.hrm-table th { color: var(--text-muted, #6b7280); font-weight: 500; border-bottom: 1px solid var(--border-soft, #1f2937); }
+.hrm-table th, .hrm-table td { padding: var(--s1) var(--s1); font-size: var(--fs-xs); text-align: left; }
+.hrm-table th { color: var(--text-muted, var(--text-faint)); font-weight: 500; border-bottom: 1px solid var(--border-soft, #1f2937); }
 .c-src { cursor: pointer; text-align: center; }
-.c-src.on { color: var(--accent, #ff7a5c); font-weight: 700; }
+.c-src.on { color: var(--accent, var(--up)); font-weight: 700; }
 .hrm-table tbody tr { cursor: pointer; }
 .hrm-table tbody tr:hover { background: rgba(255,255,255,.04); }
-.c-rk { color: var(--text-muted, #6b7280); width: 16px; font-family: ui-monospace, monospace; }
+.c-rk { color: var(--text-muted, var(--text-faint)); width: 16px; font-family: var(--font-mono); }
 .c-name { color: var(--text-main, #f3f4f6); }
-.c-src { color: var(--text-muted, #6b7280); font-family: ui-monospace, monospace; text-align: center; }
+.c-src { color: var(--text-muted, var(--text-faint)); font-family: var(--font-mono); text-align: center; }
 .c-chg { text-align: right; font-weight: 600; }
-.up { color: #ff5c5c; }
-.down { color: #3db97f; }
+.up { color: var(--accent); }
+.down { color: var(--down); }
 </style>

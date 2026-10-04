@@ -565,140 +565,140 @@ onBeforeUnmount(() => { if (staleTimer) clearInterval(staleTimer) })
 <style scoped>
 /* ===================== 盯盘台骨架 ===================== */
 .mk-bar {
-  display: flex; align-items: center; gap: 8px;
-  margin: 10px 0 8px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: var(--s2);
+  margin: var(--s2) 0 var(--s2); flex-wrap: wrap;
 }
-.mk-bar-title { color: #ffe0a0; font-size: 1rem; font-weight: 700; }
-.mk-bar-title .fa { color: #ffb400; }
-.mk-bar-sub { color: var(--text-muted); font-size: 0.75rem; }
+.mk-bar-title { color: var(--warn-text); font-size: var(--fs-lg); font-weight: 700; }
+.mk-bar-title .fa { color: var(--star); }
+.mk-bar-sub { color: var(--text-muted); font-size: var(--fs-xs); }
 .mk-refresh {
   margin-left: auto; background: transparent; border: 1px solid var(--border-soft);
-  color: var(--text-secondary); border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 0.75rem;
+  color: var(--text-secondary); border-radius: var(--r-md); padding: var(--s1) var(--s2); cursor: pointer; font-size: var(--fs-xs);
 }
 .mk-refresh:hover { border-color: var(--accent); color: var(--text-main); }
 .mk-refresh:disabled { opacity: 0.5; cursor: default; }
-.mk-updated { color: var(--text-dim); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.mk-updated { color: var(--text-dim); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .mk-updated.mk-stale { opacity: 0.55; color: var(--text-muted); }
 .mk-stale-tag {
-  display: inline-flex; align-items: center; gap: 3px;
-  color: #ffb020; font-weight: 600; font-size: 0.75rem; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: var(--s1);
+  color: var(--warn-amber); font-weight: 600; font-size: var(--fs-xs); white-space: nowrap;
 }
 .spin { animation: spin 0.8s linear infinite; display: inline-block; }
 
 /* 五层竖排，层间距 8px（工单「卡片间距 8px」） */
-.mk-stack { display: flex; flex-direction: column; gap: 8px; }
+.mk-stack { display: flex; flex-direction: column; gap: var(--s2); }
 
 /* ===================== 进阶区折叠 ===================== */
-.mk-more { margin-top: 14px; border-top: 1px solid var(--border-soft); padding-top: 10px; }
+.mk-more { margin-top: var(--s4); border-top: 1px solid var(--border-soft); padding-top: var(--s2); }
 .mk-more-sum {
-  cursor: pointer; color: var(--text-secondary); font-size: 0.8125rem;
-  padding: 4px 0; list-style: none; user-select: none;
+  cursor: pointer; color: var(--text-secondary); font-size: var(--fs-sm);
+  padding: var(--s1) 0; list-style: none; user-select: none;
 }
 .mk-more-sum::-webkit-details-marker { display: none; }
-.mk-more-sum .fa { color: var(--accent); margin-right: 4px; transition: transform 0.15s; }
+.mk-more-sum .fa { color: var(--accent); margin-right: var(--s1); transition: transform 0.15s; }
 .mk-more[open] .mk-more-sum .fa-caret-down { transform: rotate(0deg); }
 .mk-more:not([open]) .mk-more-sum .fa-caret-down { transform: rotate(-90deg); }
 
 /* ===================== 板块（沿用既有样式） ===================== */
-.mrk-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.mrk-title { font-size: 1.25rem; font-weight: 700; color: #ffe0a0; }
-.mrk-title .fa { color: #ffb400; }
-.mrk-sub { color: var(--text-muted); font-size: 0.8125rem; }
-.mrk-time { margin-left: auto; color: var(--text-dim); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
-.mrk-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+.mrk-head { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s3); }
+.mrk-title { font-size: var(--fs-2xl); font-weight: 700; color: var(--warn-text); }
+.mrk-title .fa { color: var(--star); }
+.mrk-sub { color: var(--text-muted); font-size: var(--fs-sm); }
+.mrk-time { margin-left: auto; color: var(--text-dim); font-size: var(--fs-base); font-variant-numeric: tabular-nums; }
+.mrk-tabs { display: flex; gap: var(--s2); margin-bottom: var(--s4); }
 .mrk-tab {
-  padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border-soft);
-  background: var(--bg-hover); color: var(--text-secondary); font-size: 0.875rem; cursor: pointer; transition: border-color 0.2s, color 0.2s;
+  padding: var(--s2) var(--s4); border-radius: var(--r-md); border: 1px solid var(--border-soft);
+  background: var(--bg-hover); color: var(--text-secondary); font-size: var(--fs-base); cursor: pointer; transition: border-color 0.2s, color 0.2s;
 }
-.mrk-tab:hover { border-color: #ffb400; color: #ffe0a0; }
-.mrk-tab.active { background: rgba(255,180,0,0.15); border-color: #ffb400; color: #ffd700; font-weight: 600; }
-.mrk-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 14px; }
-.loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
-.spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
+.mrk-tab:hover { border-color: var(--star); color: var(--warn-text); }
+.mrk-tab.active { background: rgba(255,180,0,0.15); border-color: var(--star); color: var(--gold); font-weight: 600; }
+.mrk-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); }
+.loading-placeholder { text-align: center; padding: var(--s8); color: var(--text-muted); }
+.spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: var(--star); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
-.empty-state.src-fail { color: #ffb400; }
-.empty-state.src-fail i { margin-right: 6px; }
+.empty-state { text-align: center; padding: var(--s8); color: var(--text-muted); }
+.empty-state.src-fail { color: var(--star); }
+.empty-state.src-fail i { margin-right: var(--s2); }
 .board-row { cursor: pointer; }
 .board-row:hover td { background: rgba(255, 180, 0, 0.06); }
 .board-detail-hint {
-  display: inline-flex; align-items: center; gap: 3px;
-  font-size: 0.75rem; color: var(--accent); opacity: 0.85; margin-left: 6px;
-  border: 1px solid rgba(var(--accent-rgb), 0.4); border-radius: 10px; padding: 0 6px;
+  display: inline-flex; align-items: center; gap: var(--s1);
+  font-size: var(--fs-xs); color: var(--accent); opacity: 0.85; margin-left: var(--s2);
+  border: 1px solid rgba(var(--accent-rgb), 0.4); border-radius: var(--r-lg); padding: 0 var(--s2);
 }
-.board-code { font-size: 0.75rem; color: var(--text-muted); }
-.strength { color: #ffb400; font-weight: 700; }
-.lb-badge { display: inline-block; color: #ff8a5c; border: 1px solid rgba(255,80,40,0.5); border-radius: 4px; padding: 0 5px; font-size: 0.75rem; background: rgba(255,80,40,0.12); }
+.board-code { font-size: var(--fs-xs); color: var(--text-muted); }
+.strength { color: var(--star); font-weight: 700; }
+.lb-badge { display: inline-block; color: var(--up); border: 1px solid rgba(255,80,40,0.5); border-radius: var(--r-sm); padding: 0 var(--s1); font-size: var(--fs-xs); background: rgba(255,80,40,0.12); }
 .name-col { white-space: nowrap; }
 
 /* 成分股弹层 */
 .mrk-modal-mask {
   position: fixed; inset: 0; z-index: 2000;
   background: rgba(0, 0, 0, 0.55);
-  display: flex; align-items: center; justify-content: center; padding: 20px;
+  display: flex; align-items: center; justify-content: center; padding: var(--s5);
 }
 .mrk-modal {
   background: var(--bg-panel);
   border: 1px solid rgba(var(--accent-rgb), 0.4);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   max-width: 980px; width: 100%;
   max-height: 80vh;
   display: flex; flex-direction: column;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--sh-3);
 }
 .mrk-modal-head {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 16px; border-bottom: 1px solid var(--border-soft);
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s3) var(--s4); border-bottom: 1px solid var(--border-soft);
 }
-.mrk-modal-title { font-size: 1.0625rem; font-weight: 700; color: var(--text-main); }
+.mrk-modal-title { font-size: var(--fs-lg); font-weight: 700; color: var(--text-main); }
 .mrk-modal-title .fa { color: var(--accent); }
-.mrk-modal-code { font-size: 0.8125rem; color: var(--text-muted); margin-left: 6px; }
-.mrk-modal-sub { font-size: 0.75rem; color: var(--text-muted); margin-left: 8px; }
+.mrk-modal-code { font-size: var(--fs-sm); color: var(--text-muted); margin-left: var(--s2); }
+.mrk-modal-sub { font-size: var(--fs-xs); color: var(--text-muted); margin-left: var(--s2); }
 .mrk-modal-close {
   margin-left: auto; background: transparent; border: none;
-  color: var(--text-muted); font-size: 1.125rem; cursor: pointer; padding: 4px 8px;
+  color: var(--text-muted); font-size: var(--fs-xl); cursor: pointer; padding: var(--s1) var(--s2);
 }
 .mrk-modal-close:hover { color: var(--text-main); }
-.mrk-modal-body { overflow-y: auto; padding: 10px 14px 14px; }
+.mrk-modal-body { overflow-y: auto; padding: var(--s2) var(--s4) var(--s4); }
 .mrk-modal-table { min-width: 640px; }
 
 /* ===================== 板块轮动历史 ===================== */
-.rot-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-.rot-tip { color: var(--text-muted, #aaa); font-size: 0.75rem; flex: 1; min-width: 0; }
-.rot-source { display: flex; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-soft, #444); }
-.rot-source-btn { background: var(--bg-input, #1a1a1a); color: var(--text-secondary, #aaa); border: none; padding: 5px 12px; font-size: 0.75rem; cursor: pointer; transition: background 0.15s; }
+.rot-toolbar { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s2); flex-wrap: wrap; }
+.rot-tip { color: var(--text-muted, var(--text-muted)); font-size: var(--fs-xs); flex: 1; min-width: 0; }
+.rot-source { display: flex; gap: 0; border-radius: var(--r-md); overflow: hidden; border: 1px solid var(--border-soft, var(--text-faint)); }
+.rot-source-btn { background: var(--bg-input, #1a1a1a); color: var(--text-secondary, var(--text-muted)); border: none; padding: var(--s1) var(--s3); font-size: var(--fs-xs); cursor: pointer; transition: background 0.15s; }
 .rot-source-btn:hover { background: var(--bg-card, #222); }
-.rot-source-btn.active { background: var(--accent-warm, #ffb400); color: #1a1a1a; font-weight: 600; }
-.rot-table-scroll { overflow-x: auto; border: 1px solid var(--border-soft); border-radius: 6px; }
-.rot-table { border-collapse: collapse; min-width: 100%; font-size: 0.75rem; }
-.rot-table th, .rot-table td { padding: 5px 8px; text-align: center; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
+.rot-source-btn.active { background: var(--accent-warm, var(--star)); color: #1a1a1a; font-weight: 600; }
+.rot-table-scroll { overflow-x: auto; border: 1px solid var(--border-soft); border-radius: var(--r-md); }
+.rot-table { border-collapse: collapse; min-width: 100%; font-size: var(--fs-xs); }
+.rot-table th, .rot-table td { padding: var(--s1) var(--s2); text-align: center; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
 .rot-table th { background: var(--bg-hover); color: var(--text-secondary); font-weight: 500; position: sticky; top: 0; }
-.rot-rownum { color: var(--text-muted); font-size: 0.75rem; min-width: 40px; }
-.rot-date { color: var(--text-secondary); font-size: 0.75rem; min-width: 70px; }
-.rot-cell { min-width: 80px; padding: 3px 4px !important; vertical-align: middle; }
-.rot-board { font-size: 0.75rem; color: var(--text-main); border-radius: 4px; padding: 1px 6px; display: inline-block; }
+.rot-rownum { color: var(--text-muted); font-size: var(--fs-xs); min-width: 40px; }
+.rot-date { color: var(--text-secondary); font-size: var(--fs-xs); min-width: 70px; }
+.rot-cell { min-width: 80px; padding: var(--s1) var(--s1) !important; vertical-align: middle; }
+.rot-board { font-size: var(--fs-xs); color: var(--text-main); border-radius: var(--r-sm); padding: 1px var(--s2); display: inline-block; }
 .rot-board.rot-c-0 { color: var(--text-main); background: transparent; }
 .rot-c-1 { color: #fff; background: #E24B4A; } .rot-c-2 { color: #fff; background: #F08C3F; }
 .rot-c-3 { color: #222; background: #E6BE2A; } .rot-c-4 { color: #fff; background: #5C6BC0; }
 .rot-c-5 { color: #fff; background: #38A6DF; } .rot-c-6 { color: #fff; background: #2851A8; }
 .rot-c-7 { color: #fff; background: #9A57C9; } .rot-c-8 { color: #fff; background: #D45B92; }
-.rot-strength { font-size: 0.75rem; color: var(--text-muted); margin-top: 1px; }
+.rot-strength { font-size: var(--fs-xs); color: var(--text-muted); margin-top: 1px; }
 
 /* 移动端适配(<=768px) */
 @media (max-width: 768px) {
   .mk-bar-sub { display: none; }
-  .mk-more .mrk-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 10px 8px; }
+  .mk-more .mrk-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: var(--s2) var(--s2); }
   .mk-more .mrk-panel .stock-table { min-width: 880px; }
   .rot-table-scroll .rot-table { min-width: 680px; }
-  .mrk-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 4px; }
+  .mrk-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: var(--s1); }
   .mrk-tabs::-webkit-scrollbar { display: none; }
-  .mrk-tab { flex-shrink: 0; white-space: nowrap; padding: 7px 12px; font-size: 0.8125rem; }
-  .mrk-head { gap: 6px; }
-  .mrk-title { font-size: 1.0625rem; }
-  .mrk-sub { font-size: 0.75rem; width: 100%; }
-  .mrk-time { margin-left: 0; font-size: 0.75rem; }
-  .mk-more .mrk-panel .stock-table th { padding: 7px 4px; font-size: 0.75rem; }
-  .mk-more .mrk-panel .stock-table td { padding: 6px 4px; font-size: 0.75rem; }
+  .mrk-tab { flex-shrink: 0; white-space: nowrap; padding: var(--s2) var(--s3); font-size: var(--fs-sm); }
+  .mrk-head { gap: var(--s2); }
+  .mrk-title { font-size: var(--fs-lg); }
+  .mrk-sub { font-size: var(--fs-xs); width: 100%; }
+  .mrk-time { margin-left: 0; font-size: var(--fs-xs); }
+  .mk-more .mrk-panel .stock-table th { padding: var(--s2) var(--s1); font-size: var(--fs-xs); }
+  .mk-more .mrk-panel .stock-table td { padding: var(--s2) var(--s1); font-size: var(--fs-xs); }
   .mrk-modal { max-height: 86vh; }
 }
 

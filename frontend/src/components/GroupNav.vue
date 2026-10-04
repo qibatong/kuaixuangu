@@ -76,22 +76,22 @@ function isActive(it) {
 .group-nav {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--s2);
   flex-wrap: wrap;
-  margin: -8px 0 14px;      /* 紧贴 NavBar 下沿（NavBar 自身 margin-bottom: 18px） */
-  padding: 6px 8px;
+  margin: -var(--s2) 0 var(--s4);      /* 紧贴 NavBar 下沿（NavBar 自身 margin-bottom: 18px） */
+  padding: var(--s2) var(--s2);
   background: var(--bg-card);
   border: 1px solid var(--border-soft);
-  border-radius: 10px;
+  border-radius: var(--r-lg);
 }
 .group-nav-label {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 0.75rem;
+  gap: var(--s1);
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--text-muted);
-  padding-right: 8px;
+  padding-right: var(--s2);
   margin-right: 2px;
   border-right: 1px solid var(--border-soft);
   white-space: nowrap;
@@ -100,12 +100,12 @@ function isActive(it) {
 .group-nav-item {
   display: inline-flex;
   align-items: center;
-  padding: 5px 13px;
-  border-radius: 999px;              /* pill */
+  padding: var(--s1) var(--s3);
+  border-radius: var(--r-pill);              /* pill */
   border: 1px solid transparent;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-secondary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   text-decoration: none;
   white-space: nowrap;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
@@ -140,9 +140,9 @@ body[data-bg="light"] .group-nav-item.active {
 
 @media (max-width: 768px) {
   .group-nav {
-    gap: 5px;
-    padding: 5px 6px;
-    margin: -6px 0 10px;
+    gap: var(--s1);
+    padding: var(--s1) var(--s2);
+    margin: -var(--s2) 0 var(--s2);
     /* 🔴 2026-09-27 v4.11.65 修复（主人反馈「异动要放到复盘板块中」的真正成因）:
        本块原为 `flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none`
        （注释写「二级 pill 多于一屏时横滑，不换行占纵向空间」）—— 实测这个折中是错的：
@@ -156,7 +156,7 @@ body[data-bg="light"] .group-nav-item.active {
     flex-wrap: wrap;
     overflow-x: visible;
   }
-  .group-nav-label { font-size: 0.6875rem; padding-right: 6px; }
-  .group-nav-item { flex-shrink: 0; padding: 4px 11px; font-size: 0.75rem; }
+  .group-nav-label { font-size: var(--fs-xs); padding-right: var(--s2); }
+  .group-nav-item { flex-shrink: 0; padding: var(--s1) var(--s3); font-size: var(--fs-xs); }
 }
 </style>

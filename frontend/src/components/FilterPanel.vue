@@ -393,11 +393,11 @@ function toggleLock() {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  padding: 0 4px;
+  padding: 0 var(--s1);
 }
 .filter-loading-text {
-  font-size: 0.75rem;
-  color: var(--text-muted, #889);
+  font-size: var(--fs-xs);
+  color: var(--text-muted, var(--text-dim));
   opacity: 0.7;
 }
 
@@ -407,7 +407,7 @@ function toggleLock() {
   flex-wrap: nowrap;
   justify-content: flex-start;
   align-items: center;
-  gap: 6px;
+  gap: var(--s2);
   width: 100%;
   box-sizing: border-box;
 }
@@ -418,15 +418,15 @@ function toggleLock() {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: var(--s2);
   flex-wrap: nowrap;
 }
-.filter-apply { padding: 4px 9px; font-size: 0.75rem; }
-.filter-reset { padding: 3px 8px; font-size: 0.75rem; }
-.filter-lock  { padding: 3px 8px; font-size: 0.75rem; }
+.filter-apply { padding: var(--s1) var(--s2); font-size: var(--fs-xs); }
+.filter-reset { padding: var(--s1) var(--s2); font-size: var(--fs-xs); }
+.filter-lock  { padding: var(--s1) var(--s2); font-size: var(--fs-xs); }
 /* 2026-09-05: 刷新按钮从 StockView 顶部移入本组, 尺寸与相邻的 重置/锁定 完全对齐
    (纯文字无图标; 应用按钮略大是主按钮的既有设计, 保留其视觉主次) */
-.filter-refresh { padding: 3px 8px; font-size: 0.75rem; }
+.filter-refresh { padding: var(--s1) var(--s2); font-size: var(--fs-xs); }
 
 /* ===== 第二行: 核心布局 =====
    2026-09-21 主人反馈桌面端「很分散」: 原 space-between 把 5 个格子拉开到整行两端 →
@@ -436,10 +436,10 @@ function toggleLock() {
   align-items: center;
   justify-content: flex-start;
   flex-wrap: nowrap;
-  gap: 20px;
+  gap: var(--s5);
   width: 100%;
   box-sizing: border-box;
-  margin-top: 8px;
+  margin-top: var(--s2);
 }
 
 /* 隐藏 number 输入框的上下箭头(spin button): 会占输入框宽度挤压数字显示 */
@@ -459,24 +459,24 @@ function toggleLock() {
   padding: 0;
   min-width: 0;
   overflow: hidden;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
 }
 
 /* 2026-09-14: 流通市值区间一格的中间运算符 `< 流通 <`
    (与两侧 input 之间留 3px, 手机端收紧到 2px; nowrap 保证不拆行) */
 .mv-range-op {
   display: inline-block;
-  margin: 0 3px;
+  margin: 0 var(--s1);
   white-space: nowrap;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   line-height: 1.3;
 }
 /* 5-5: 对称双输入框「自由流通 [20] ~ [200] 亿」的前置标签 */
 .mv-range-label {
   display: inline-block;
-  margin-right: 3px;
+  margin-right: var(--s1);
   white-space: nowrap;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   line-height: 1.3;
 }
 
@@ -485,8 +485,8 @@ function toggleLock() {
   max-width: 85px;
   min-width: 46px;
   flex: 0 0 auto;
-  padding: 2px 4px;
-  font-size: 0.75rem;
+  padding: 2px var(--s1);
+  font-size: var(--fs-xs);
   line-height: 1.3;
   text-align: center;
   box-sizing: border-box;
@@ -496,11 +496,11 @@ function toggleLock() {
 @media (max-width: 768px) {
   .filter-row-1 {
     flex-wrap: nowrap;
-    gap: 3px;
-    font-size: 0.75rem;
+    gap: var(--s1);
+    font-size: var(--fs-xs);
   }
   .filter-row-1 label {
-    font-size: 0.75rem;
+    font-size: var(--fs-xs);
     gap: 2px;
   }
   .filter-divider {
@@ -514,34 +514,34 @@ function toggleLock() {
     margin-top: 0;
     flex-wrap: nowrap;
     justify-content: flex-end;
-    gap: 3px;
+    gap: var(--s1);
     flex-shrink: 0;
   }
-  .filter-apply { padding: 3px 7px; font-size: 0.75rem; min-height: 24px; }
-  .filter-reset { padding: 3px 7px; font-size: 0.75rem; min-height: 24px; }
-  .filter-lock  { padding: 3px 7px; font-size: 0.75rem; min-height: 24px; }
+  .filter-apply { padding: var(--s1) var(--s2); font-size: var(--fs-xs); min-height: 24px; }
+  .filter-reset { padding: var(--s1) var(--s2); font-size: var(--fs-xs); min-height: 24px; }
+  .filter-lock  { padding: var(--s1) var(--s2); font-size: var(--fs-xs); min-height: 24px; }
   /* 2026-09-05: 刷新按钮(手机端同 重置/锁定 尺寸, 含 min-height 保证等高) */
-  .filter-refresh { padding: 3px 7px; font-size: 0.75rem; min-height: 24px; }
+  .filter-refresh { padding: var(--s1) var(--s2); font-size: var(--fs-xs); min-height: 24px; }
 
   /* 第二行: 换行 + 左对齐; 2026-09-21 主人反馈「对数字有遮挡」: 行间距 4→8px,
      输入框 70→80px 留足 4 位数余量 */
   .filter-row-2 {
     flex-wrap: wrap !important;
     justify-content: flex-start !important;
-    gap: 8px 8px !important;
-    margin-top: 8px !important;
+    gap: var(--s2) var(--s2) !important;
+    margin-top: var(--s2) !important;
   }
   .filter-cell {
     flex: 0 0 auto !important;
-    font-size: 0.75rem;
+    font-size: var(--fs-xs);
   }
   .filter-cell input[type="number"] {
     max-width: 80px;
-    font-size: 0.75rem;
+    font-size: var(--fs-xs);
   }
   .mv-range-op {
     margin: 0 2px;
-    font-size: 0.75rem;
+    font-size: var(--fs-xs);
   }
 }
 
@@ -549,16 +549,16 @@ function toggleLock() {
 @media (max-width: 480px) {
   .filter-row-1 {
     gap: 2px;
-    font-size: 0.75rem;
+    font-size: var(--fs-xs);
   }
-  .filter-row-1 label { font-size: 0.75rem; }
+  .filter-row-1 label { font-size: var(--fs-xs); }
   .filter-actions-top { gap: 2px; }
   .filter-apply, .filter-reset, .filter-lock {
-    padding: 2px 6px; font-size: 0.75rem; min-height: 22px;
+    padding: 2px var(--s2); font-size: var(--fs-xs); min-height: 22px;
   }
-  .filter-cell { font-size: 0.75rem; }
+  .filter-cell { font-size: var(--fs-xs); }
   /* 2026-09-21 主人反馈「对数字有遮挡」: 60→76px, 保证 4 位数完整显示 */
-  .filter-cell input[type="number"] { max-width: 76px; font-size: 0.75rem; }
-  .mv-range-op { margin: 0 1px; font-size: 0.75rem; }
+  .filter-cell input[type="number"] { max-width: 76px; font-size: var(--fs-xs); }
+  .mv-range-op { margin: 0 1px; font-size: var(--fs-xs); }
 }
 </style>

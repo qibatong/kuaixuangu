@@ -79,25 +79,25 @@ function toggle(it) {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--s2);
   height: 32px;
-  padding: 0 10px;
-  border-radius: 8px;
+  padding: 0 var(--s2);
+  border-radius: var(--r-md);
   background: rgba(255, 180, 0, 0.12);
   border: 1px solid rgba(255, 180, 0, 0.35);
   overflow: hidden;
   transition: height 0.15s;
 }
 /* 展开时不再锁高(详情条要占位) */
-.ft.is-open { height: auto; flex-wrap: wrap; padding: 6px 10px; }
+.ft.is-open { height: auto; flex-wrap: wrap; padding: var(--s2) var(--s2); }
 .ft-tag {
   flex: 0 0 auto;
-  display: inline-flex; align-items: center; gap: 4px;
-  color: #ffd76a; font-size: 0.75rem; font-weight: 700; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: var(--s1);
+  color: var(--star); font-size: var(--fs-xs); font-weight: 700; white-space: nowrap;
 }
-.ft-tag .fa { color: #ffb400; }
+.ft-tag .fa { color: var(--star); }
 .ft-track { flex: 1 1 auto; min-width: 0; overflow: hidden; }
-.ft-empty { color: var(--text-muted); font-size: 0.75rem; white-space: nowrap; }
+.ft-empty { color: var(--text-muted); font-size: var(--fs-xs); white-space: nowrap; }
 /* 走马灯轨道：两份内容 + 每项自带右间距 ⇒ translateX(-50%) 精确无缝 */
 .ft-rail {
   display: flex; align-items: center; flex-wrap: nowrap; width: max-content;
@@ -111,30 +111,30 @@ function toggle(it) {
 }
 .ft-item {
   flex: 0 0 auto;
-  display: inline-flex; align-items: center; gap: 6px;
-  margin-right: 22px;
+  display: inline-flex; align-items: center; gap: var(--s2);
+  margin-right: var(--s6);
   background: transparent; border: none; padding: 0;
-  color: var(--text-main); font-size: 0.75rem; line-height: 1.6;
+  color: var(--text-main); font-size: var(--fs-xs); line-height: 1.6;
   cursor: pointer; white-space: nowrap;
 }
-.ft-item.active { color: #ffd76a; }
-.ft-time { color: #ffb400; font-variant-numeric: tabular-nums; font-weight: 600; }
+.ft-item.active { color: var(--star); }
+.ft-time { color: var(--star); font-variant-numeric: tabular-nums; font-weight: 600; }
 .ft-text { max-width: none; }
 .ft-close {
   flex: 0 0 auto; background: transparent; border: none; cursor: pointer;
-  color: var(--text-muted); font-size: 0.8125rem; padding: 0 2px;
+  color: var(--text-muted); font-size: var(--fs-sm); padding: 0 2px;
 }
 .ft-close:hover { color: var(--text-main); }
 .ft-detail {
   flex: 1 0 100%;
-  margin-top: 6px; padding-top: 6px;
+  margin-top: var(--s2); padding-top: var(--s2);
   border-top: 1px dashed rgba(255, 180, 0, 0.3);
 }
-.ft-detail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.ft-detail-time { color: #ffb400; font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
-.ft-detail-src { color: var(--text-muted); font-size: 0.6875rem; }
-.ft-detail-body { color: var(--text-main); font-size: 0.75rem; line-height: 1.65; white-space: pre-wrap; }
-.ft-detail-link { display: inline-block; margin-top: 4px; color: var(--accent); font-size: 0.6875rem; text-decoration: none; }
+.ft-detail-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s1); }
+.ft-detail-time { color: var(--star); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.ft-detail-src { color: var(--text-muted); font-size: var(--fs-xs); }
+.ft-detail-body { color: var(--text-main); font-size: var(--fs-xs); line-height: 1.65; white-space: pre-wrap; }
+.ft-detail-link { display: inline-block; margin-top: var(--s1); color: var(--accent); font-size: var(--fs-xs); text-decoration: none; }
 .ft-detail-link:hover { text-decoration: underline; }
 
 body[data-bg="light"] .ft { background: rgba(199, 145, 0, 0.12); border-color: rgba(199, 145, 0, 0.4); }

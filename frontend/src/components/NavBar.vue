@@ -118,52 +118,52 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--s3);
   flex-wrap: wrap;
   background: var(--bg-card);
   border: 1px solid var(--border-soft);
-  border-radius: 10px;
+  border-radius: var(--r-lg);
   /* 与 .page-shell 内容对齐: container 4 + 自有 4 = 8px 缩进 */
-  padding: 10px 8px;
-  margin: 0 0 18px;
+  padding: var(--s2) var(--s2);
+  margin: 0 0 var(--s4);
 }
 /* 左侧: 品牌 logo + 导航入口 */
-.nav-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.nav-left { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; min-width: 0; }
 .nav-brand {
-  display: inline-flex; align-items: center; gap: 8px;
-  text-decoration: none; padding: 2px 8px 2px 4px;
+  display: inline-flex; align-items: center; gap: var(--s2);
+  text-decoration: none; padding: 2px var(--s2) 2px var(--s1);
   border-right: 1px solid var(--border-soft);
 }
 .nav-logo {
   width: 34px; height: 34px;
-  border-radius: 8px; object-fit: cover;
+  border-radius: var(--r-md); object-fit: cover;
   display: block;
 }
 .nav-brand-name {
-  font-size: 1.125rem; font-weight: 800;
+  font-size: var(--fs-xl); font-weight: 700;
   color: var(--accent); letter-spacing: 10px;
   line-height: 1.1;
-  padding-left: 5px; /* 补偿 letter-spacing 末尾 10px 空白, 让"快选"视觉中点 = 几何中点 */
-  margin-left: 4px; /* 2026-08-17 主人反馈"往右边移一点点": 整体右移 4px */
+  padding-left: var(--s1); /* 补偿 letter-spacing 末尾 10px 空白, 让"快选"视觉中点 = 几何中点 */
+  margin-left: var(--s1); /* 2026-08-17 主人反馈"往右边移一点点": 整体右移 4px */
 }
-.nav-brand-text { display: flex; flex-direction: column; align-items: center; gap: 3px; line-height: 1.1; }
+.nav-brand-text { display: flex; flex-direction: column; align-items: center; gap: var(--s1); line-height: 1.1; }
 .nav-brand-slogan {
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   opacity: 0.85;
   white-space: nowrap;
   letter-spacing: 0.5px;
   line-height: 1.1;
 }
-.nav-tabs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.nav-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.nav-tabs { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.nav-tools { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
 .nav-item {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border-radius: 8px;
-  font-size: 0.8125rem;
+  gap: var(--s2);
+  padding: var(--s2) var(--s4);
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
   color: var(--text-secondary);
   text-decoration: none;
   border: 1px solid transparent;
@@ -209,7 +209,7 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
 }
 
 /* 账户工具（仅未登录时渲染：登录 / 注册） */
-.user-tools { display: flex; align-items: center; gap: 6px; }
+.user-tools { display: flex; align-items: center; gap: var(--s2); }
 /* 🔴 2026-09-27 v4.11.65：此处原有约 130 行「用户名按钮 + Teleport 到 body 的下拉菜单
    （我的会员 / 个人信息 / 修改密码 / 退出登录 / 字号 / 字体族）」样式
    （.user-dropdown / .user-name-btn / .caret-up / .user-menu / .menu-* / .menu-dot），
@@ -217,8 +217,8 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
    纪律：UI 迁走时同步删样式，不留引用不到的死 CSS（否则下次改样式会改到"看不见的副本"）。 */
 .mini-btn {
   background: var(--bg-input); border: 1px solid var(--border-soft);
-  color: var(--text-secondary); border-radius: 6px;
-  font-size: 0.75rem; padding: 4px 10px; cursor: pointer;
+  color: var(--text-secondary); border-radius: var(--r-md);
+  font-size: var(--fs-xs); padding: var(--s1) var(--s2); cursor: pointer;
   text-decoration: none; transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .mini-btn:hover { background: var(--bg-hover); color: var(--text-main); border-color: var(--accent); }
@@ -246,7 +246,7 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
   background: var(--accent-bg2);
   border: 1px solid var(--accent-border);
   color: var(--accent-text);
-  font-size: 0.875rem;
+  font-size: var(--fs-base);
   font-weight: 600;
   text-decoration: none;
   line-height: 1;
@@ -263,12 +263,12 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
   .nav-bar {
     display: grid;
     grid-template-columns: 1fr min(230px, calc(100% - 120px)) 1fr;
-    column-gap: 6px;
+    column-gap: var(--s2);
     align-items: center;
-    padding: 6px 8px;
-    margin-bottom: 10px;
+    padding: var(--s2) var(--s2);
+    margin-bottom: var(--s2);
   }
-  .nav-left { gap: 6px; width: auto; flex: 0 0 auto; justify-self: start; }
+  .nav-left { gap: var(--s2); width: auto; flex: 0 0 auto; justify-self: start; }
   .nav-brand { display: none; }
   .nav-tools { display: contents; }
   /* 信封进第 3 列并贴右头像列对称(DOM 顺序本来就在搜索之后, order 可省) */
@@ -282,24 +282,24 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
   .user-tools { display: none; }
   /* 用户中心头像在手机端显示（它是底部「我的」tab 的替代入口）。
      2026-10-04 参考开盘啦 App 顶栏：入口加大到 38px 圆钮（32px 点击目标偏小） */
-  .nav-user-btn { display: flex; width: 38px; height: 38px; font-size: 1rem; }
+  .nav-user-btn { display: flex; width: 38px; height: 38px; font-size: var(--fs-lg); }
   /* 2026-10-04 参考开盘啦 App 顶栏：搜索框改**全圆角胶囊** + 提亮底色
      （原 --bg-input 深黑底几乎融进顶栏）；浅色主题反向压暗保持可读 */
   .nav-tools :deep(.ss-inline) {
-    border-radius: 999px;
+    border-radius: var(--r-pill);
     background: rgba(255, 255, 255, 0.13);
     border-color: rgba(255, 255, 255, 0.10);
-    padding: 0 12px;
+    padding: 0 var(--s3);
     height: 40px;   /* 2026-10-04 顶栏竖向拉长后, 36→40 胶囊同步加高更饱满 */
   }
-  .nav-tools :deep(.ss-inline-input) { font-size: 0.875rem; }
+  .nav-tools :deep(.ss-inline-input) { font-size: var(--fs-base); }
   body[data-bg="light"] .nav-tools :deep(.ss-inline) {
     background: rgba(0, 0, 0, 0.05);
     border-color: rgba(0, 0, 0, 0.10);
   }
-  .nav-brand { gap: 5px; padding: 0 6px 0 2px; }
-  .nav-logo { width: 26px; height: 26px; border-radius: 6px; }
-  .nav-brand-name { font-size: 0.875rem; }
+  .nav-brand { gap: var(--s1); padding: 0 var(--s2) 0 2px; }
+  .nav-logo { width: 26px; height: 26px; border-radius: var(--r-md); }
+  .nav-brand-name { font-size: var(--fs-base); }
   .nav-brand-slogan { display: none; }
 
   /* ===== 2026-10-04 主人需求(参考开盘啦 App 截图): 手机端浅色模式顶栏改**品牌红**，
@@ -310,13 +310,13 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
        大面积铺红只发生在手机端浅色主题。 */
   body[data-bg="light"] .nav-bar {
     /* 2026-10-04 二次反馈: #c62828 太深, 调浅为同花顺红 #e5484d */
-    background: #e5484d;
+    background: var(--accent);
     border-color: transparent;
     border-radius: 0;
     box-shadow: none;
-    margin: 0 -4px 10px;
+    margin: 0 -var(--s1) var(--s2);
     /* 竖向拉长(主人二次反馈, 参考同花顺/开盘啦的顶栏高度): 上下 6px → 13px */
-    padding: 13px 10px;
+    padding: var(--s3) var(--s2);
   }
   /* 搜索胶囊恢复**原始尺寸**：不再 flex 吃光剩余宽度，限宽 230px 居其位，
      多出的横向空间留给红底留白（对照开盘啦：胶囊不大，四周都是红）。 */
@@ -327,7 +327,7 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
   body[data-bg="light"] .nav-user-btn {
     background: #fff;
     border-color: rgba(255, 255, 255, 0.9);
-    color: #e5484d;
+    color: var(--accent);
   }
   /* 右上角信封(NoticeBell 是子组件, :deep 穿透)在红底上改透明底白描边 ——
      🔴 必须覆盖 background：它自身是 var(--bg-panel-solid)(浅色=白)，
@@ -359,8 +359,8 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
   .nav-tabs { display: none; }
   /* 工具区(2026-10-04): 顶栏只剩 用户钮/搜索/信封 三件套，放得下 ⇒ 不再换行
      （旧规则 flex-wrap:wrap 会把信封挤到第二行被裁掉，实测截图确认过） */
-  .nav-tools { gap: 6px; flex-wrap: nowrap; overflow: visible; max-width: 100%; }
+  .nav-tools { gap: var(--s2); flex-wrap: nowrap; overflow: visible; max-width: 100%; }
   .nav-tools::-webkit-scrollbar { display: none; }
-  .mini-btn { padding: 4px 8px; font-size: 0.75rem; white-space: nowrap; }
+  .mini-btn { padding: var(--s1) var(--s2); font-size: var(--fs-xs); white-space: nowrap; }
 }
 </style>

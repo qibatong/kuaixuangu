@@ -101,49 +101,49 @@ function go(code) { linkToSoftware(code) }
 
 <style scoped>
 .tp {
-  border-radius: 10px; padding: 10px 12px;
+  border-radius: var(--r-lg); padding: var(--s2) var(--s3);
   background: rgba(198, 40, 40, 0.10);
   border: 1px solid rgba(198, 40, 40, 0.35);
 }
-.tp-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
-.tp-title { color: #ff8a80; font-size: 0.8125rem; font-weight: 700; }
-.tp-title .fa { color: #ff5252; }
-.tp-date { margin-left: auto; color: var(--text-muted); font-size: 0.6875rem; }
-.tp-date.stale { color: #ffb400; }   /* 非今日名单必须显眼，避免被当成当日名单 */
+.tp-head { display: flex; align-items: baseline; gap: var(--s2); margin-bottom: var(--s2); flex-wrap: wrap; }
+.tp-title { color: #ff8a80; font-size: var(--fs-sm); font-weight: 700; }
+.tp-title .fa { color: var(--accent); }
+.tp-date { margin-left: auto; color: var(--text-muted); font-size: var(--fs-xs); }
+.tp-date.stale { color: var(--star); }   /* 非今日名单必须显眼，避免被当成当日名单 */
 
 .tp-agg {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
-  padding: 8px; border-radius: 8px; background: rgba(0, 0, 0, 0.18); margin-bottom: 10px;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s2);
+  padding: var(--s2); border-radius: var(--r-md); background: rgba(0, 0, 0, 0.18); margin-bottom: var(--s2);
 }
 .tp-agg-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.tp-k { color: var(--text-muted); font-size: 0.6875rem; white-space: nowrap; }
-.tp-v { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-main); white-space: nowrap; }
-.tp-v .zt, .tp-v.zt { color: #ff5252; }
-.tp-v .bk { color: #ff8a5c; }
-.tp-v .sep { color: var(--text-muted); margin: 0 3px; }
-.tp-v .rise { color: #ff5252; }
-.tp-v .fall { color: #00c864; }
-.tp-v.up { color: #ff5252; }
-.tp-v.down { color: #00c864; }
+.tp-k { color: var(--text-muted); font-size: var(--fs-xs); white-space: nowrap; }
+.tp-v { font-size: var(--fs-lg); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-main); white-space: nowrap; }
+.tp-v .zt, .tp-v.zt { color: var(--accent); }
+.tp-v .bk { color: var(--up); }
+.tp-v .sep { color: var(--text-muted); margin: 0 var(--s1); }
+.tp-v .rise { color: var(--accent); }
+.tp-v .fall { color: var(--down); }
+.tp-v.up { color: var(--accent); }
+.tp-v.down { color: var(--down); }
 .tp-v.dim { color: var(--text-muted); }
 
-.tp-empty { color: var(--text-muted); font-size: 0.75rem; padding: 10px 2px; }
-.tp-empty.warn { color: #ffb400; }
-.tp-empty.warn i { margin-right: 5px; }
+.tp-empty { color: var(--text-muted); font-size: var(--fs-xs); padding: var(--s2) 2px; }
+.tp-empty.warn { color: var(--star); }
+.tp-empty.warn i { margin-right: var(--s1); }
 .tp-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .tp-table { min-width: 420px; width: 100%; }
 .tp-st {
-  display: inline-block; font-size: 0.6875rem; padding: 1px 6px; border-radius: 4px; white-space: nowrap;
+  display: inline-block; font-size: var(--fs-xs); padding: 1px var(--s2); border-radius: var(--r-sm); white-space: nowrap;
 }
-.st-limit { color: #fff; background: #c62828; }
-.st-broken { color: #ffd76a; background: rgba(255, 180, 0, 0.2); border: 1px solid rgba(255, 180, 0, 0.45); }
+.st-limit { color: #fff; background: var(--brand-deep); }
+.st-broken { color: var(--star); background: rgba(255, 180, 0, 0.2); border: 1px solid rgba(255, 180, 0, 0.45); }
 .st-high { color: #ff8a80; border: 1px solid rgba(255, 82, 82, 0.45); }
 .st-flat { color: var(--text-secondary); border: 1px solid var(--border-soft); }
-.st-down { color: #00c864; border: 1px solid rgba(0, 200, 100, 0.45); }
+.st-down { color: var(--down); border: 1px solid rgba(0, 200, 100, 0.45); }
 .st-unknown { color: var(--text-muted); }
 
 @media (max-width: 480px) {
-  .tp-agg { grid-template-columns: repeat(2, 1fr); row-gap: 8px; }
+  .tp-agg { grid-template-columns: repeat(2, 1fr); row-gap: var(--s2); }
 }
 
 body[data-bg="light"] .tp { background: rgba(198, 40, 40, 0.07); border-color: rgba(198, 40, 40, 0.3); }

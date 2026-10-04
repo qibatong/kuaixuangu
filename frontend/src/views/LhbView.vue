@@ -37,18 +37,18 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.lhb-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.lhb-title { font-size: 1.25rem; font-weight: 700; color: #ffe0a0; }
-.lhb-title .fa { color: #ffb400; }
-.lhb-sub { color: var(--text-muted); font-size: 0.8125rem; }
-.lhb-time { margin-left: auto; color: var(--text-dim); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.lhb-head { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s3); }
+.lhb-title { font-size: var(--fs-2xl); font-weight: 700; color: var(--warn-text); }
+.lhb-title .fa { color: var(--star); }
+.lhb-sub { color: var(--text-muted); font-size: var(--fs-sm); }
+.lhb-time { margin-left: auto; color: var(--text-dim); font-size: var(--fs-base); font-variant-numeric: tabular-nums; }
 
 body[data-bg="light"] .lhb-title { color: #8a5500; }
 body[data-bg="light"] .lhb-title .fa { color: #c79100; }
 
 @media (max-width: 768px) {
-  .lhb-title { font-size: 1.0625rem; }
-  .lhb-sub { font-size: 0.75rem; width: 100%; }
-  .lhb-time { margin-left: 0; font-size: 0.75rem; }
+  .lhb-title { font-size: var(--fs-lg); }
+  .lhb-sub { font-size: var(--fs-xs); width: 100%; }
+  .lhb-time { margin-left: 0; font-size: var(--fs-xs); }
 }
 </style>

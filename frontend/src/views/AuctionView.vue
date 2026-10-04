@@ -1125,53 +1125,53 @@ polling = usePolling(async () => {
 <style scoped>
 /* 2026-08-18: 竞价成交额列内嵌"昨日竞价额"小字 */
 .yest-bid-amt {
-  display: block; font-size: 0.75rem; color: var(--text-muted, #889);
+  display: block; font-size: var(--fs-xs); color: var(--text-muted, var(--text-dim));
   font-weight: 400; line-height: 1.2;
 }
-.page-back { color: var(--text-muted); cursor: pointer; font-size: 0.8125rem; margin-bottom: 12px; display: inline-block; }
-.page-back:hover { color: #ffb400; }
-.auc-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.page-back { color: var(--text-muted); cursor: pointer; font-size: var(--fs-sm); margin-bottom: var(--s3); display: inline-block; }
+.page-back:hover { color: var(--star); }
+.auc-head { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s3); }
 .auc-head-spacer { flex: 1; }
 .auc-head .rot-date { flex-shrink: 0; }
 .auc-head .rot-reset-btn { flex-shrink: 0; }
-.auc-title { font-size: 1.25rem; font-weight: 700; color: #ffe0a0; }
-.auc-title .fa { color: #ffb400; }
+.auc-title { font-size: var(--fs-2xl); font-weight: 700; color: var(--warn-text); }
+.auc-title .fa { color: var(--star); }
 /* 2026-09-05 P0: 静默刷新指示(角落, 不遮挡内容) —— 金色与页面主色一致 */
 .auc-silent-loading {
-  color: #ffb400; font-size: 0.8125rem; line-height: 1;
+  color: var(--star); font-size: var(--fs-sm); line-height: 1;
   display: inline-flex; align-items: center;
   opacity: .9;
 }
 /* 2026-09-29 (B2): 9:25 定格未落库时的占位样式(灰色斜体, 与真值的红黄区分开) */
 .tp-pending {
-  display: inline-block; margin-left: 4px; padding: 0 4px;
-  border-radius: 3px; font-size: 0.6875rem; font-weight: 400;
-  color: var(--text-muted, #889); background: rgba(136, 153, 170, .15);
+  display: inline-block; margin-left: var(--s1); padding: 0 var(--s1);
+  border-radius: var(--r-sm); font-size: var(--fs-xs); font-weight: 400;
+  color: var(--text-muted, var(--text-dim)); background: rgba(136, 153, 170, .15);
   vertical-align: middle;
 }
-.th-pending { color: var(--text-muted, #889); }
-.s3-table td.cell-pending { color: var(--text-muted, #889); font-style: italic; }
+.th-pending { color: var(--text-muted, var(--text-dim)); }
+.s3-table td.cell-pending { color: var(--text-muted, var(--text-dim)); font-style: italic; }
 /* 连续失败提示: 用橙黄警示(避开绿色 —— A 股语境绿=跌) */
 .auc-poll-warn {
-  color: #ff9d3c; font-size: 0.75rem; line-height: 1;
-  display: inline-flex; align-items: center; gap: 3px;
+  color: #ff9d3c; font-size: var(--fs-xs); line-height: 1;
+  display: inline-flex; align-items: center; gap: var(--s1);
   background: rgba(255, 157, 60, .12);
   border: 1px solid rgba(255, 157, 60, .3);
-  border-radius: 4px; padding: 2px 6px;
+  border-radius: var(--r-sm); padding: 2px var(--s2);
 }
 /* 刷新按钮禁用态: 降低透明度, 明确不可点 */
 .auc-head .rot-reset-btn:disabled { opacity: .45; cursor: not-allowed; }
-.auc-sub { color: var(--text-muted); font-size: 0.8125rem; }
+.auc-sub { color: var(--text-muted); font-size: var(--fs-sm); }
 .auc-tabs {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
-  margin-bottom: 14px;
-  padding: 6px;
+  gap: var(--s2);
+  margin-bottom: var(--s4);
+  padding: var(--s2);
   background: var(--bg-panel-solid);
   border: 1px solid var(--border-soft);
-  border-radius: 10px;
+  border-radius: var(--r-lg);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -1187,19 +1187,19 @@ polling = usePolling(async () => {
   display: inline-block;
   color: var(--text-muted);
   opacity: 0.5;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   line-height: 1;
   flex: 0 0 auto;
   user-select: none;
   margin: 0 1px;
 }
 .auc-tab {
-  padding: 6px 10px;
-  border-radius: 5px;
+  padding: var(--s2) var(--s2);
+  border-radius: var(--r-sm);
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 0.7812rem;
+  font-size: var(--fs-sm);
   cursor: pointer;
   transition: background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
   font-weight: 500;
@@ -1215,27 +1215,27 @@ polling = usePolling(async () => {
 }
 .auc-tab.active {
   background: linear-gradient(135deg, rgba(255, 180, 0, 0.22), rgba(255, 140, 50, 0.18));
-  color: #ffd700;
+  color: var(--gold);
   font-weight: 600;
-  box-shadow: 0 2px 6px rgba(255, 180, 0, 0.2);
+  box-shadow: var(--sh-1);
 }
-.auc-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 14px; }
+.auc-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); }
 /* 竞价抢筹左右双表 */
-.qc-dual { display: flex; flex-direction: column; gap: 10px; }
-.qc-panel { width: 100%; background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px; overflow: visible; display: flex; flex-direction: column; gap: 8px; }
-.qc-table-scroll { overflow-x: auto; overflow-y: auto; max-height: 480px; scrollbar-width: none; -ms-overflow-style: none; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--bg-hover); }
+.qc-dual { display: flex; flex-direction: column; gap: var(--s2); }
+.qc-panel { width: 100%; background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s2); overflow: visible; display: flex; flex-direction: column; gap: var(--s2); }
+.qc-table-scroll { overflow-x: auto; overflow-y: auto; max-height: 480px; scrollbar-width: none; -ms-overflow-style: none; border: 1px solid var(--border-soft); border-radius: var(--r-md); background: var(--bg-hover); }
 .qc-table-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 /* 2026-09-20 视觉减噪: qc 抢筹双表 sticky 表头统一红底白字(与全局一致) */
 .qc-table-scroll .stock-table thead th { position: sticky; top: 0; z-index: 8; background: var(--accent-deep2); border-bottom: none; }
-.qc-panel-title { font-size: 0.875rem; font-weight: 700; color: #ffe0a0; display: flex; align-items: center; gap: 10px; }
-.qc-mode-switch { display: inline-flex; gap: 4px; margin-left: auto; }
+.qc-panel-title { font-size: var(--fs-base); font-weight: 700; color: var(--warn-text); display: flex; align-items: center; gap: var(--s2); }
+.qc-mode-switch { display: inline-flex; gap: var(--s1); margin-left: auto; }
 .qc-mode-switch button {
-  font-size: 0.75rem; padding: 2px 10px; border-radius: 4px; cursor: pointer;
+  font-size: var(--fs-xs); padding: 2px var(--s2); border-radius: var(--r-sm); cursor: pointer;
   background: var(--border-soft); border: 1px solid rgba(255,255,255,0.18);
-  color: #aaa; transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+  color: var(--text-muted); transition: background-color 0.2s, border-color 0.2s, color 0.2s;
 }
-.qc-mode-switch button.active { background: rgba(255,180,0,0.18); border-color: #ffb400; color: #ffd700; font-weight: 600; }
-.qc-mode-switch button:hover { border-color: #ffb400; color: #ffe0a0; }
+.qc-mode-switch button.active { background: rgba(255,180,0,0.18); border-color: var(--star); color: var(--gold); font-weight: 600; }
+.qc-mode-switch button:hover { border-color: var(--star); color: var(--warn-text); }
 /* 2026-08-20 所有竞价异动表格紧凑型: 缩小padding/font, 统一宽度策略 */
 .auc-panel table.stock-table,
 .qc-panel table.stock-table,
@@ -1246,19 +1246,19 @@ polling = usePolling(async () => {
 }
 .auc-panel .stock-table th, .auc-panel .stock-table td,
 .qc-panel .stock-table th, .qc-panel .stock-table td {
-  padding: 5px 2px !important;
-  font-size: 0.75rem !important;
+  padding: var(--s1) 2px !important;
+  font-size: var(--fs-xs) !important;
   vertical-align: middle;
 }
 .auc-panel .stock-table th,
 .qc-panel .stock-table th {
-  padding: 7px 2px !important;
-  font-size: 0.75rem !important;
+  padding: var(--s2) 2px !important;
+  font-size: var(--fs-xs) !important;
   white-space: nowrap;
 }
 /* S3 封单榜列宽 (已移除"状态"列, 优化各列宽度) */
 .s3-table th.board-col, .s3-table td.board-col { width: 64px; }
-.s3-table th.tp-th, .s3-table td.tp-th-15, .s3-table td.tp-th-20, .s3-table td.tp-th-25 { width: 54px; font-size: 0.75rem; }
+.s3-table th.tp-th, .s3-table td.tp-th-15, .s3-table td.tp-th-20, .s3-table td.tp-th-25 { width: 54px; font-size: var(--fs-xs); }
 .s3-table th:nth-of-type(1) { width: 84px; } /* 名称 */
 .s3-table th.tp-th-25 + th.tp-th-25 { width: 44px; } /* 竞涨 (紧跟最后一个 tp-th) */
 .s3-table tr th:nth-of-type(7) { width: 38px; } /* 竞换 */
@@ -1313,13 +1313,13 @@ polling = usePolling(async () => {
 /* 昨涨停/昨断板表的「涨停原因」列: 这两张表原本没有定宽规则 ⇒ 补一条(不然长原因会把整行撑开)
    ★ 2026-09-29 主人反馈"没有对齐": 表头默认居中、而单元格是左对齐文本 ⇒ 表头悬在文字中间上方。
    文本列应与内容同一对齐(且共用同一左内边距), 故此处把表头也左对齐。 */
-.auc-panel .stock-table th.reason-th { width: 168px; text-align: left; padding-left: 10px; }
+.auc-panel .stock-table th.reason-th { width: 168px; text-align: left; padding-left: var(--s2); }
 /* 概念列已缩短 */
-.concept-cell { padding: 4px 2px !important; font-size: 0.75rem !important; }
+.concept-cell { padding: var(--s1) 2px !important; font-size: var(--fs-xs) !important; }
 /* 抢筹徽章缩小 */
-.qc-panel .qc-badge { padding: 1px 4px; font-size: 0.75rem; }
+.qc-panel .qc-badge { padding: 1px var(--s1); font-size: var(--fs-xs); }
 /* 操作列按钮缩小 */
-.auc-panel .pool-add-btn, .qc-panel .pool-add-btn { padding: 1px 5px; font-size: 0.75rem; }
+.auc-panel .pool-add-btn, .qc-panel .pool-add-btn { padding: 1px var(--s1); font-size: var(--fs-xs); }
 .qc-panel .stock-table { width: 100%; border-collapse: collapse; }
 /* 手机端 / 窄屏: qc-table-scroll 内仍保留横滚 (scrollbar 隐藏) */
 /* 2026-08-19 回归通用 stock-table 样式(跟其他 tab 一致):
@@ -1328,34 +1328,34 @@ polling = usePolling(async () => {
 /* 2026-08-20: 以上样式已被紧凑型覆盖 (优先级相同但后写的 !important 胜出) */
 .auc-panel .stock-table-container,
 .qc-panel .stock-table-container {
-  padding: 6px !important;
+  padding: var(--s2) !important;
 }
 /* 2026-09-20 视觉减噪: qc-panel 表头统一红底白字 */
 .qc-panel .stock-table th { color: #fff; font-weight: 600; background: var(--accent-deep2); border-bottom: none; }
 .qc-panel .stock-table td { border-bottom: 1px solid rgba(255,255,255,0.04); }
 .qc-panel .stock-table th:nth-child(10), .qc-panel .stock-table td:nth-child(10) { text-align: center; white-space: nowrap; }  /* 操作 */
 .qc-panel .stock-table th:nth-child(9), .qc-panel .stock-table td:nth-child(9) { max-width: 240px; white-space: pre-line; }  /* 概念: 按概念分隔换行, 不拆字 */
-.qc-panel .name-main { font-size: 0.8125rem; line-height: 1.3; }
+.qc-panel .name-main { font-size: var(--fs-sm); line-height: 1.3; }
 /* 窄屏(<1280px) 纵向堆叠; <1100 已原有 fallback */
-@media (max-width: 1280px) { .qc-dual { gap: 8px; } }
+@media (max-width: 1280px) { .qc-dual { gap: var(--s2); } }
 /* 2026-08-20 手机端修复(qc 双表列挤压): 改为整表横向滚动, 保留全部10列
    - 不再隐藏次要列, 手机端横向滑动查看完整数据(与竞价委买等其它 tab 一致)
    - 模式切换按钮加大点击区 */
 @media (max-width: 700px) {
-  .qc-panel { padding: 8px; }
-  .qc-panel-title { font-size: 0.8125rem; flex-wrap: wrap; }
-  .qc-mode-switch button { padding: 4px 12px; font-size: 0.75rem; }
+  .qc-panel { padding: var(--s2); }
+  .qc-panel-title { font-size: var(--fs-sm); flex-wrap: wrap; }
+  .qc-mode-switch button { padding: var(--s1) var(--s3); font-size: var(--fs-xs); }
   .qc-table-scroll .stock-table { min-width: 860px; white-space: nowrap; }
   .qc-table-scroll { max-height: 420px; }
-  .qc-panel .stock-table th, .qc-panel .stock-table td { padding: 3px 3px; font-size: 0.75rem; }
+  .qc-panel .stock-table th, .qc-panel .stock-table td { padding: var(--s1) var(--s1); font-size: var(--fs-xs); }
   /* 概念列: 加宽到 150px, 每概念独占一行(pre-line)且不拆字 */
   .qc-panel .stock-table th:nth-child(9),
   .qc-panel .stock-table td:nth-child(9) { min-width: 90px; max-width: 90px; white-space: pre-line; }
 }
-.loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
-.spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: #ffb400; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
+.loading-placeholder { text-align: center; padding: var(--s8); color: var(--text-muted); }
+.spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: var(--star); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.lb-badge { display: inline-block; color: #ff8a5c; border: 1px solid rgba(255,80,40,0.5); border-radius: 4px; padding: 0 5px; font-size: 0.75rem; background: rgba(255,80,40,0.12); }
+.lb-badge { display: inline-block; color: var(--up); border: 1px solid rgba(255,80,40,0.5); border-radius: var(--r-sm); padding: 0 var(--s1); font-size: var(--fs-xs); background: rgba(255,80,40,0.12); }
 .bk-hot { color: var(--accent-deep); font-weight: 700; }
 
 /* 模态框通用 */
@@ -1368,7 +1368,7 @@ polling = usePolling(async () => {
    注: .msd-modebar / .msd-mode-switch / .msd-mode-tip 已随「单日榜入口 + 顶部口径提示」一并移除 */
 /* 2026-10-01 主人: 「竞价封单支持左右滑动」⇒ 恢复 N 列并排 + 横向滚动（与电脑端一致）。
    touch 惯性滚动 + 隐藏滚动条，手机上手感更接近"表格横滑"。 */
-.msd-wrap { margin-bottom: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.msd-wrap { margin-bottom: var(--s2); overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
 .msd-wrap::-webkit-scrollbar { display: none; }
 /* 🔴 2026-09-30 主人: 「整个页面是个整体」⇒ N 个交易日并列成**一张连续表格**:
    去掉原先每列独立卡片的边框/圆角/底色与列间隙, 只在日与日之间留一条分隔线。
@@ -1392,7 +1392,7 @@ polling = usePolling(async () => {
   gap: 0;
   min-width: calc(var(--msd-cols) * var(--msd-col-min));
   border: 1px solid var(--border-soft);
-  border-radius: 4px;
+  border-radius: var(--r-sm);
   overflow: hidden;
 }
 
@@ -1413,15 +1413,15 @@ polling = usePolling(async () => {
    且与电脑端呈现不一致；主人要求"与电脑端相同的数据 + 可左右滑动" ⇒ 保持 4 列并排，
    由 .msd-wrap 接手横向滚动（一屏看一天，左右滑比对）。 */
 .msd-head {
-  padding: 3px 4px 4px;          /* 原 4px 4px 5px: 表头下压 2px */
-  background: linear-gradient(180deg, #b3271f, #8e1f1f);
+  padding: var(--s1) var(--s1) var(--s1);          /* 原 4px 4px 5px: 表头下压 2px */
+  background: linear-gradient(180deg, #b3271f, var(--brand-deep));
   color: #fff;
   text-align: center;
 }
 /* 2026-09-30 紧凑化: 日期 0.8→0.76rem, 摘要行 0.68→0.65rem 且去掉 1px 上边距
    (表头整体从 3 行视高收到约 2 行半, 但仍在 0.65rem 下限之上 ⇒ 保持清晰可读) */
-.msd-date { font-size: 0.76rem; font-weight: 700; letter-spacing: 0.3px; }
-.msd-sum { margin-top: 0; font-size: 0.65rem; opacity: 0.95; white-space: nowrap; }
+.msd-date { font-size: var(--fs-sm); font-weight: 700; letter-spacing: 0.3px; }
+.msd-sum { margin-top: 0; font-size: var(--fs-xs); opacity: 0.95; white-space: nowrap; }
 .msd-num { font-weight: 700; }
 .msd-sep { opacity: 0.6; margin: 0 1px; }
 /* .msd-trend* 已随环比那行一并移除(2026-09-30 主人明确) */
@@ -1452,7 +1452,7 @@ polling = usePolling(async () => {
      此前只有名称格有 padding-left:6px、其余为 0 ⇒ 同列内文字起点不一致。
      box-sizing 已由全局样式设为 border-box ⇒ 不会撑破网格列。
      2026-09-30 紧凑化: 6px → 4px(列间呼吸位收窄, 同时把每列文字可用宽度让回 4px)。 */
-  padding: 0 4px;
+  padding: 0 var(--s1);
 }
 /* 竖分割线: 每列左缘一条, **首列除外**(否则会在卡片左边缘画线)。
    表头与数据行两行都用同一组规则 ⇒ 线上下贯通。 */
@@ -1465,9 +1465,9 @@ body[data-bg="light"] .msd-row .msd-cell:not(.msd-name):not(.msd-p25) { border-l
 .msd-sub .msd-cell:not(:first-child) { border-left-color: rgba(255, 255, 255, 0.28); }
 
 .msd-sub {
-  background: linear-gradient(90deg, #8e1f1f 0%, #c2441f 55%, #d9822b 100%);
+  background: linear-gradient(90deg, var(--brand-deep) 0%, #c2441f 55%, var(--warn-amber) 100%);
   color: #fff;
-  font-size: 0.64rem;           /* 原 0.66rem */
+  font-size: var(--fs-xs);           /* 原 0.66rem */
   font-weight: 600;
   padding: 1px 0;               /* 原 2px 0 */
 }
@@ -1489,7 +1489,7 @@ body[data-bg="light"] .msd-row .msd-cell:not(.msd-name):not(.msd-p25) { border-l
   line-height: 1.3;
   border-bottom: 1px solid var(--border-soft);
   font-variant-numeric: tabular-nums;
-  font-size: 0.66rem;
+  font-size: var(--fs-xs);
 }
 .msd-row:last-child { border-bottom: none; }
 .msd-row:hover { background: rgba(255, 255, 255, 0.04); }
@@ -1503,8 +1503,8 @@ body[data-bg="light"] .msd-row:hover { background: rgba(0, 0, 0, 0.03); }
 }
 /* 截断提示(仅当该日行数超过 MAX_ROWS_MSD 时出现) */
 .msd-more {
-  padding: 4px 0 2px;
-  font-size: 0.68rem;
+  padding: var(--s1) 0 2px;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   text-align: center;
 }
@@ -1516,11 +1516,11 @@ body[data-bg="light"] .msd-row:hover { background: rgba(0, 0, 0, 0.03); }
   color: var(--text-secondary); font-weight: 600;
 }
 /* 概念/板: 随主字号下移一档(0.66→0.64 / 0.64→0.62), 保持"次要信息更轻"的层级不变 */
-.msd-row .msd-concept { grid-area: 1 / 2; color: var(--text-muted); font-size: 0.64rem; }
-.msd-row .msd-lb { grid-area: 1 / 3; color: #ffb400; font-size: 0.62rem; }
+.msd-row .msd-concept { grid-area: 1 / 2; color: var(--text-muted); font-size: var(--fs-xs); }
+.msd-row .msd-lb { grid-area: 1 / 3; color: var(--star); font-size: var(--fs-xs); }
 .msd-row .msd-blank { grid-area: 1 / 4; }
 /* 第 2 行: 各列的封单金额 + 涨幅 —— 同样居中; 数字仍靠 .msd-row 的 tabular-nums 对齐位数 */
-.msd-row .msd-p25 { grid-area: 2 / 1; color: #ff6a6a; font-weight: 600; }
+.msd-row .msd-p25 { grid-area: 2 / 1; color: var(--brand-soft); font-weight: 600; }
 .msd-row .msd-p20 { grid-area: 2 / 2; color: var(--text-secondary); }
 /* 9:15 金额: 与**表头背景色呼应**(2026-09-30 主人要求)。
    表头是 `linear-gradient(90deg, #8e1f1f, #c2441f 55%, #d9822b)`, 9:15 列正落在渐变右端
@@ -1534,38 +1534,38 @@ body[data-bg="light"] .msd-row .msd-p15 { color: #b3641a; }
 .msd-row .msd-chg { grid-area: 2 / 4; font-weight: 600; }
 .msd-row .msd-chg.dim { color: var(--text-muted); font-weight: 400; }
 .msd-empty, .msd-empty-all {
-  padding: 8px 4px;               /* 原 10px 6px */
+  padding: var(--s2) var(--s1);               /* 原 10px 6px */
   text-align: center;
   color: var(--text-muted);
-  font-size: 0.7rem;              /* 原 0.72rem */
+  font-size: var(--fs-xs);              /* 原 0.72rem */
 }
 
 /* === 三时点封单榜表格样式: 三色分组 + 概念列 + 拆列 === */
 .s3-hint {
-  margin: 8px 0 12px;
-  padding: 9px 12px;
-  border: 1px dashed var(--accent-warm, #ffb400);
-  border-radius: 8px;
+  margin: var(--s2) 0 var(--s3);
+  padding: var(--s2) var(--s3);
+  border: 1px dashed var(--accent-warm, var(--star));
+  border-radius: var(--r-md);
   background: rgba(255, 180, 0, 0.06);
   color: var(--text-secondary);
-  font-size: 0.7812rem;
+  font-size: var(--fs-sm);
   line-height: 1.6;
 }
-.s3-hint b { color: var(--accent-warm, #ffb400); }
+.s3-hint b { color: var(--accent-warm, var(--star)); }
 .s3-hint-soft { border-color: var(--border-soft); background: rgba(106, 214, 106, 0.05); color: var(--text-secondary); }
-.s3-hint-soft b { color: #6ad66a; }
+.s3-hint-soft b { color: var(--down); }
 body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 .s3-table { table-layout: auto; }
-.board-text { color: var(--text-secondary); font-size: 0.75rem; line-height: 1.3; }
+.board-text { color: var(--text-secondary); font-size: var(--fs-xs); line-height: 1.3; }
 /* 2026-08-20 合并代码+名称列: 上方名称, 下方代码, 代码字体更小 */
 .stock-info-cell { cursor: pointer; min-width: 120px; min-height: 0; height: 56px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.stock-info-cell .stock-name-row { order: 1; display: flex; align-items: center; justify-content: center; gap: 4px; line-height: 1.3; }
-.stock-info-cell .stock-name { font-weight: 600; color: var(--text-main); font-size: 0.8125rem; }
+.stock-info-cell .stock-name-row { order: 1; display: flex; align-items: center; justify-content: center; gap: var(--s1); line-height: 1.3; }
+.stock-info-cell .stock-name { font-weight: 600; color: var(--text-main); font-size: var(--fs-sm); }
 .yd-badge-row { order: 3; height: 17px; display: flex; align-items: center; justify-content: center; margin-top: 2px; }
-.yd-badge { display: inline-block; font-size: 0.75rem; line-height: 1; padding: 1px 5px; border-radius: 3px; background: #ff9632; border: 1px solid #ff9632; color: #3a1f00; font-weight: 600; white-space: nowrap; }
+.yd-badge { display: inline-block; font-size: var(--fs-xs); line-height: 1; padding: 1px var(--s1); border-radius: var(--r-sm); background: var(--warn); border: 1px solid var(--warn); color: #3a1f00; font-weight: 600; white-space: nowrap; }
 .stock-info-cell .stock-code-row { order: 2; line-height: 1.2; text-align: center; margin-top: 2px; }
 .stock-info-cell .stock-code {
-  font-family: inherit; font-size: 0.75rem; color: var(--text-muted);
+  font-family: inherit; font-size: var(--fs-xs); color: var(--text-muted);
   letter-spacing: 0.5px;
 }
 .stock-info-cell:hover .stock-name { color: var(--accent); }
@@ -1575,7 +1575,7 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 .auction-table th, .auction-table td { text-align: center; vertical-align: middle; }
 /* 2026-08-20 概念列: 纯文本无任何样式, 列宽极小
    2026-08-21: 改为 pre-line 按概念换行, 不限制最大宽度让概念正常显示 */
-.concept-cell { width: 90px; min-width: 90px; white-space: pre-line; line-height: 1.3; font-size: 0.75rem; color: var(--text-secondary); padding: 4px 2px; }
+.concept-cell { width: 90px; min-width: 90px; white-space: pre-line; line-height: 1.3; font-size: var(--fs-xs); color: var(--text-secondary); padding: var(--s1) 2px; }
 /* 2026-08-21 概念列限高2行: 过长概念不再把整行撑高(如"新华百货"多行导致与相邻行不上下对齐),
    超出部分省略(完整概念仍在 td 的 title 悬浮中可看) */
 .concept-clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; line-height: 1.3; word-break: break-word; }
@@ -1590,25 +1590,25 @@ body[data-bg="light"] .s3-hint-soft b { color: #1a7a60; }
 /* 实时涨幅列(开盘啦 realChange): 涨=红, 跌=蓝(A股忌讳绿, 避开绿色系) */
 .real-chg-col { text-align: center; white-space: nowrap; font-weight: 600; font-variant-numeric: tabular-nums; }
 .real-chg-col.up { color: var(--up-strong); }   /* v4.11.84 P1-4: token 化 */
-.real-chg-col.down { color: #00c864; }
+.real-chg-col.down { color: var(--down); }
 .real-chg-col.dim { color: var(--text-muted); }
 /* 9:15 涨幅: 青蓝系(亮=涨, 暗=跌) */
 .chg-up-15 { color: #e8ecf2; text-shadow: 0 0 6px rgba(255,255,255,0.25); }
 .chg-dn-15 { color: #4fc07a; }
-.dim-15    { color: #8a8a8a; }
+.dim-15    { color: var(--text-dim); }
 /* 9:20 涨幅: 橙系 */
 .chg-up-20 { color: #ffd566; text-shadow: 0 0 6px rgba(255, 180, 0, 0.3); }
 .chg-dn-20 { color: #35b866; }
 .dim-20    { color: #8a7a5a; }
 /* 9:25 涨幅: 红系(亮=涨停封死, 暗=回落, 灰=平) - 9:25 最终竞价结果用 A 股主色红 */
-.chg-up-25 { color: #ff6a6a; text-shadow: 0 0 6px rgba(255, 90, 90, 0.35); font-weight: 700; }
+.chg-up-25 { color: var(--brand-soft); text-shadow: 0 0 6px rgba(255, 90, 90, 0.35); font-weight: 700; }
 .chg-dn-25 { color: #30b060; }
 .dim-25    { color: var(--dim-soft); }  /* v4.11.84 P1-4: #b06b6b 叠水印后仅 3.80:1(跌破 AA) → #c98a8a(4.28:1 叠水印) */
 /* 封单额: 按时点主色, 弱色 */
 .seal-col { font-variant-numeric: tabular-nums; }
 .seal-col-15 { color: #d8dce4; }
-.seal-col-20 { color: #ffb400; }
-.seal-col-25 { color: #ff6a6a; }
+.seal-col-20 { color: var(--star); }
+.seal-col-25 { color: var(--brand-soft); }
 body[data-bg="light"] .seal-col-15 { color: #5a5a5a; }
 body[data-bg="light"] .seal-col-20 { color: #b07800; }
 body[data-bg="light"] .seal-col-25 { color: #c82020; }
@@ -1621,18 +1621,18 @@ body[data-bg="light"] .chg-dn-20 { color: #1a8a4a; }
 body[data-bg="light"] .chg-dn-25 { color: #1a8a4a; }
 
 /* === 加单趋势标签 === */
-.seal-mode { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
-.seal-mode-strong { color: #ffb400; border: 1px solid #ffb400; background: rgba(255, 180, 0, 0.12); }
-.seal-mode-mid { color: #6ad66a; border: 1px solid #4a9e28; background: rgba(106, 214, 106, 0.12); }
-.seal-mode-weak { color: #9a9a9a; border: 1px solid #8a8a8a; background: rgba(154, 154, 154, 0.12); }
-.seal-mode-danger { color: #ff6a6a; border: 1px solid #ff6a6a; background: rgba(255, 106, 106, 0.12); }
+.seal-mode { display: inline-block; padding: 1px var(--s2); border-radius: var(--r-sm); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
+.seal-mode-strong { color: var(--star); border: 1px solid var(--star); background: rgba(255, 180, 0, 0.12); }
+.seal-mode-mid { color: var(--down); border: 1px solid #4a9e28; background: rgba(106, 214, 106, 0.12); }
+.seal-mode-weak { color: var(--text-muted); border: 1px solid var(--text-dim); background: rgba(154, 154, 154, 0.12); }
+.seal-mode-danger { color: var(--brand-soft); border: 1px solid var(--brand-soft); background: rgba(255, 106, 106, 0.12); }
 .seal-mode-flat { color: var(--text-muted); border: 1px solid var(--border-soft); background: transparent; }
 body[data-bg="light"] .seal-mode-strong { color: #8a5a00; border-color: #c79100; background: rgba(255, 180, 0, 0.12); }
 body[data-bg="light"] .seal-mode-mid { color: #2d7020; border-color: #4a9e28; }
 body[data-bg="light"] .seal-mode-weak { color: #6b6b6b; border-color: #8a8a8a; }
 body[data-bg="light"] .seal-mode-danger { color: #c82020; border-color: #c82020; }
 
-.snap-empty { text-align: center; color: var(--text-dim); padding: 30px 0; font-size: 0.8125rem; }
+.snap-empty { text-align: center; color: var(--text-dim); padding: var(--s8) 0; font-size: var(--fs-sm); }
 
 /* 浅色主题: 加深原 scoped 内的浅色文字 */
 body[data-bg="light"] .auc-title { color: #8a5500; }
@@ -1658,13 +1658,13 @@ body[data-bg="light"] .modal-mask { background: rgba(0,0,0,0.45); }
 /* ---- 涨停原因列(★ 2026-09-29: 列内直接展示, 不再点「查看」弹窗; 2 行截断以保持"精简") ----
    🔴 截断必须放在**内层 span** 上: `-webkit-line-clamp` 需要 `display:-webkit-box`,
       直接加在 `<td>` 上会破坏表格布局(box 不是 table-cell)。 */
-.reason-cell { text-align: left; vertical-align: top; padding: 6px 10px !important; }
+.reason-cell { text-align: left; vertical-align: top; padding: var(--s2) var(--s2) !important; }
 .reason-clamp {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden; white-space: normal; word-break: break-word;
   /* ★ 2026-09-29: 不写死宽度 —— 原 160px 在 ~320px 的列里只占一半, 文字像一条窄条(主人反馈"没有对齐");
      改为自动撑满单元格(display:-webkit-box 本身按块级排布), 列宽由 th.reason-th 决定。 */
-  line-height: 1.35; font-size: 0.75rem; color: var(--text-secondary); cursor: help;
+  line-height: 1.35; font-size: var(--fs-xs); color: var(--text-secondary); cursor: help;
 }
 body[data-bg="light"] .reason-clamp { color: #4a4a4a; }
 
@@ -1677,12 +1677,12 @@ body[data-bg="light"] .reason-clamp { color: #4a4a4a; }
 /* 2026-08-20 右栏嵌入首页后: 右栏约占 50% 宽, 在 1100-1300px 区间右栏约 470-570px,
    10 个 tab 换行堆 2-3 行严重挤压 → 把"单行横滚"方案提前到 1300px 断点 */
 @media (max-width: 1280px) {
-  .auc-tab { padding: 5px 6px; font-size: 0.75rem; }
+  .auc-tab { padding: var(--s1) var(--s2); font-size: var(--fs-xs); }
 }
 
 @media (max-width: 768px) {
   /* 宽表格横向滚动 */
-  .auc-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 10px 8px; }
+  .auc-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: var(--s2) var(--s2); }
   .auc-panel .stock-table { min-width: 880px; }
   /* ===== 2026-08-20 用户明确: PC端 tab 用两端对齐(美观), 手机端必须"自动换行, 不然会重叠"
      覆盖方案: 只在 <=768px 生效, 绝不碰桌面端 baseline space-between 样式.
@@ -1691,46 +1691,46 @@ body[data-bg="light"] .reason-clamp { color: #4a4a4a; }
      3) justify-content:flex-start 左对齐(换行时行首整齐, space-between 会把单独的行尾 tab
         拉到最右, 视觉跳动, 用户不想要; flex-start + gap 每行均匀, 也不重叠)
      4) overflow-x:visible 既然换行就不需要横滚条, 也不会被裁切导致"右边被遮住" */
-  .auc-tab { flex: 0 0 auto !important; padding: 7px 12px; font-size: 0.75rem; min-width: 0; }
+  .auc-tab { flex: 0 0 auto !important; padding: var(--s2) var(--s3); font-size: var(--fs-xs); min-width: 0; }
   .auc-tabs {
     flex-wrap: wrap !important;
     overflow-x: visible !important;
     justify-content: flex-start !important;
     align-content: flex-start;
-    gap: 6px 8px !important; /* 行间距 6px, 列间距 8px, 保证文字不互叠 */
-    padding: 8px;
+    gap: var(--s2) var(--s2) !important; /* 行间距 6px, 列间距 8px, 保证文字不互叠 */
+    padding: var(--s2);
   }
   /* 滚动/吸附没用了, 关掉(因为已换成 wrap) */
   .auc-tabs { scroll-snap-type: none; }
   .auc-tabs .auc-tab { scroll-snap-align: none; }
   /* 头部紧凑: 标题+日期+按钮同行, 不换行 */
-  .auc-head { gap: 6px; flex-wrap: nowrap; }
-  .auc-title { font-size: 0.9375rem; flex-shrink: 0; }
+  .auc-head { gap: var(--s2); flex-wrap: nowrap; }
+  .auc-title { font-size: var(--fs-md); flex-shrink: 0; }
   .auc-head-spacer { flex: 1 1 auto; min-width: 0; }
   /* 日期选择器缩窄 */
-  .auc-head input[type="date"].rot-date { max-width: 120px; font-size: 0.75rem; min-height: 28px; padding: 3px 6px; }
-  .auc-head button.rot-reset-btn { padding: 3px 6px; font-size: 0.75rem; }
+  .auc-head input[type="date"].rot-date { max-width: 120px; font-size: var(--fs-xs); min-height: 28px; padding: var(--s1) var(--s2); }
+  .auc-head button.rot-reset-btn { padding: var(--s1) var(--s2); font-size: var(--fs-xs); }
   /* 表格字号/行高压缩 */
-  .stock-table th { padding: 7px 4px; font-size: 0.75rem; }
-  .stock-table td { padding: 6px 4px; font-size: 0.75rem; }
+  .stock-table th { padding: var(--s2) var(--s1); font-size: var(--fs-xs); }
+  .stock-table td { padding: var(--s2) var(--s1); font-size: var(--fs-xs); }
   /* S3 封单榜超窄屏: 名字列更窄, 三时点列压到 44px */
   .s3-table th:nth-of-type(1) { width: 72px !important; }
-  .s3-table th.tp-th, .s3-table td.tp-th-15, .s3-table td.tp-th-20, .s3-table td.tp-th-25 { width: 48px !important; font-size: 0.75rem; }
+  .s3-table th.tp-th, .s3-table td.tp-th-15, .s3-table td.tp-th-20, .s3-table td.tp-th-25 { width: 48px !important; font-size: var(--fs-xs); }
   .s3-table th.board-col { width: 90px !important; white-space: pre-line; }
   .s3-table td.concept-cell { width: 90px; max-width: 90px; white-space: pre-line; }
   /* 操作按钮触控加大(可点区域 ≥40px) */
-  .pool-add-btn { padding: 5px 10px; font-size: 0.75rem; min-height: 28px; }
+  .pool-add-btn { padding: var(--s1) var(--s2); font-size: var(--fs-xs); min-height: 28px; }
   /* 三时点提示条 */
-  .s3-hint { font-size: 0.75rem; padding: 7px 10px; }
+  .s3-hint { font-size: var(--fs-xs); padding: var(--s2) var(--s2); }
   /* 页面留白压缩 */
-  .page-back { font-size: 0.75rem; margin-bottom: 8px; }
+  .page-back { font-size: var(--fs-xs); margin-bottom: var(--s2); }
   /* 涨停原因列: 窄屏缩留白(宽度仍由列宽自动决定, 不再写死) */
-  .reason-cell { padding: 4px 6px !important; }
-  .reason-clamp { font-size: 0.75rem; }
+  .reason-cell { padding: var(--s1) var(--s2) !important; }
+  .reason-clamp { font-size: var(--fs-xs); }
   /* 合并代码+名称列: 手机缩小 name 字号 */
   .stock-info-cell { min-width: 68px; }
-  .stock-info-cell .stock-name { font-size: 0.75rem !important; }
-  .stock-info-cell .stock-code { font-size: 0.75rem !important; letter-spacing: 0; }
+  .stock-info-cell .stock-name { font-size: var(--fs-xs) !important; }
+  .stock-info-cell .stock-code { font-size: var(--fs-xs) !important; letter-spacing: 0; }
   /* 竞价封单/爆量/净额等其它 tab 表格: 概念列按概念换行显示, 不拆字, 宽度 90px 与 qc 表一致
      各概念用 \n 分隔, 配合 white-space:pre-line 每概念独占一行, 单个概念内不拆字 */
   .auc-panel .concept-cell,
@@ -1754,11 +1754,11 @@ body[data-bg="light"] .reason-clamp { color: #4a4a4a; }
 }
 /* 超小屏(< 480px, 如 iPhone SE 1/2/3 375px): 再压一级字号/留白 */
 @media (max-width: 480px) {
-  .auc-tab { padding: 5px 8px !important; font-size: 0.75rem !important; }
-  .auc-title { font-size: 0.875rem; }
-  .stock-table th, .stock-table td { padding: 5px 2px; font-size: 0.75rem !important; }
-  .stock-info-cell .stock-name { font-size: 0.75rem !important; }
-  .stock-info-cell .stock-code { font-size: 0.75rem !important; }
+  .auc-tab { padding: var(--s1) var(--s2) !important; font-size: var(--fs-xs) !important; }
+  .auc-title { font-size: var(--fs-base); }
+  .stock-table th, .stock-table td { padding: var(--s1) 2px; font-size: var(--fs-xs) !important; }
+  .stock-info-cell .stock-name { font-size: var(--fs-xs) !important; }
+  .stock-info-cell .stock-code { font-size: var(--fs-xs) !important; }
   .auc-panel .stock-table { min-width: 800px; }
 }
 </style>

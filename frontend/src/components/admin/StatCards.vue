@@ -16,11 +16,11 @@ defineProps({
 </script>
 
 <style scoped>
-.stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 14px; }
-.stat-card { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 16px; text-align: center; }
-.stat-num { font-size: 1.625rem; font-weight: 700; color: #ffd700; }
-.stat-num.small { font-size: 1rem; color: var(--accent-text); }
-.stat-label { margin-top: 6px; color: #aaa; font-size: 0.75rem; }
+.stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--s3); margin-bottom: var(--s4); }
+.stat-card { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); text-align: center; }
+.stat-num { font-size: var(--fs-display); font-weight: 700; color: var(--gold); }
+.stat-num.small { font-size: var(--fs-lg); color: var(--accent-text); }
+.stat-label { margin-top: var(--s2); color: var(--text-muted); font-size: var(--fs-xs); }
 
 /* 浅色主题覆盖 */
 body[data-bg="light"] .stat-num { color: #1a1d26; }

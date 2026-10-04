@@ -46,8 +46,8 @@ const title = computed(() => {
 .ds {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 0.75rem;
+  gap: var(--s1);
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   white-space: nowrap;
   /* 数字等宽 —— 时间跳秒时宽度不变，不会推着旁边的元素左右动（清单 §二·2 同一纪律） */
@@ -62,8 +62,8 @@ const title = computed(() => {
 .ds-stale-tag {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  color: #ffb020;
+  gap: var(--s1);
+  color: var(--warn-amber);
   opacity: 1;
   font-weight: 600;
   white-space: nowrap;

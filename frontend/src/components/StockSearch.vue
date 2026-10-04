@@ -274,21 +274,21 @@ onBeforeUnmount(() => {
 <style scoped>
 /* ============ 桌面内联输入框（NavBar 内） ============ */
 .ss-inline {
-  display: flex; align-items: center; gap: 5px;
+  display: flex; align-items: center; gap: var(--s1);
   background: var(--bg-input);
   border: 1px solid var(--border-soft);
-  border-radius: 6px;
-  padding: 0 8px;
+  border-radius: var(--r-md);
+  padding: 0 var(--s2);
   transition: border-color 0.15s;
 }
 .ss-inline.is-open { border-color: var(--accent); }
-.ss-inline-icon { color: var(--text-muted); font-size: 0.8125rem; }
+.ss-inline-icon { color: var(--text-muted); font-size: var(--fs-sm); }
 .ss-inline-input {
   width: 150px;                 /* 桌面常驻但不喧宾夺主；聚焦时展开 */
   background: transparent; border: none; outline: none;
   color: var(--text-main);
-  font-size: 0.8125rem;
-  padding: 5px 0;
+  font-size: var(--fs-sm);
+  padding: var(--s1) 0;
   -webkit-appearance: none; appearance: none;
 }
 .ss-inline-input:focus { width: 200px; }
@@ -296,7 +296,7 @@ onBeforeUnmount(() => {
 .ss-inline-input::placeholder { color: var(--text-muted); }
 .ss-inline-clear {
   background: transparent; border: none; cursor: pointer;
-  color: var(--text-muted); padding: 0; font-size: 0.8125rem;
+  color: var(--text-muted); padding: 0; font-size: var(--fs-sm);
 }
 .ss-inline-clear:hover { color: var(--accent); }
 /* 2026-10-01: 手机端**不再隐藏**顶部输入框。
@@ -323,9 +323,9 @@ onBeforeUnmount(() => {
   -webkit-tap-highlight-color: transparent;
   transition: color 0.15s, transform 0.15s;
 }
-.ss-tab-icon { font-size: 18px; line-height: 1; transition: transform 0.15s; }
+.ss-tab-icon { font-size: var(--fs-xl); line-height: 1; transition: transform 0.15s; }
 .ss-tab-label {
-  font-size: 10px; line-height: 1; font-weight: 500;
+  font-size: var(--fs-xs); line-height: 1; font-weight: 500;
   white-space: nowrap; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis;
 }

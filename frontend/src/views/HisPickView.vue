@@ -10,5 +10,5 @@ import HisPickPanel from '../components/HisPickPanel.vue'
 </script>
 
 <style scoped>
-.his-pick-page { padding: 4px 6px 16px; }
+.his-pick-page { padding: var(--s1) var(--s2) var(--s4); }
 </style>

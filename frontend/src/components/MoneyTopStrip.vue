@@ -73,40 +73,40 @@ function signedPct(v) {
 
 <style scoped>
 .mt { margin-top: 0; }
-.mt-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
-.mt-title { color: #ffd76a; font-size: 0.8125rem; font-weight: 700; }
-.mt-title .fa { color: #ffb400; }
-.mt-sub { color: var(--text-muted); font-size: 0.6875rem; }
-.mt-loading { color: var(--text-muted); font-size: 0.75rem; padding: 10px 2px; }
+.mt-head { display: flex; align-items: baseline; gap: var(--s2); margin-bottom: var(--s2); }
+.mt-title { color: var(--star); font-size: var(--fs-sm); font-weight: 700; }
+.mt-title .fa { color: var(--star); }
+.mt-sub { color: var(--text-muted); font-size: var(--fs-xs); }
+.mt-loading { color: var(--text-muted); font-size: var(--fs-xs); padding: var(--s2) 2px; }
 .mt-loading.dim { color: var(--text-dim); }
 
 /* 横滑条：每卡 96px，溢价卡不挤压 */
 .mt-rail {
-  display: flex; gap: 8px;
+  display: flex; gap: var(--s2);
   overflow-x: auto; -webkit-overflow-scrolling: touch;
   scrollbar-width: none; padding-bottom: 2px;
 }
 .mt-rail::-webkit-scrollbar { display: none; height: 0; }
 .mt-card {
   flex: 0 0 auto; width: 96px;
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  padding: 8px 6px;
-  border-radius: 10px;
+  display: flex; flex-direction: column; align-items: center; gap: var(--s1);
+  padding: var(--s2) var(--s2);
+  border-radius: var(--r-lg);
   background: var(--bg-card);
   border: 1px solid var(--border-soft);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
 .mt-card:hover { border-color: var(--accent); }
-.mt-card.active { border-color: #ffb400; background: rgba(255, 180, 0, 0.12); }
+.mt-card.active { border-color: var(--star); background: rgba(255, 180, 0, 0.12); }
 .mt-name {
-  max-width: 100%; font-size: 0.75rem; color: var(--text-main);
+  max-width: 100%; font-size: var(--fs-xs); color: var(--text-main);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.mt-net { font-size: 0.8125rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.mt-chg { font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
-.mt-net.up, .mt-chg.up { color: #ff5252; }
-.mt-net.down, .mt-chg.down { color: #00c864; }
+.mt-net { font-size: var(--fs-sm); font-weight: 700; font-variant-numeric: tabular-nums; }
+.mt-chg { font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.mt-net.up, .mt-chg.up { color: var(--accent); }
+.mt-net.down, .mt-chg.down { color: var(--down); }
 .mt-net.flat, .mt-chg.flat, .mt-net.dim, .mt-chg.dim { color: var(--text-muted); }
 
 body[data-bg="light"] .mt-title { color: #8a5500; }

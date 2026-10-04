@@ -164,41 +164,41 @@ onMounted(() => { if (user.isVipOrPaid) load() })
 
 <style scoped>
 /* 头部与「竞价一进二」同一套尺度(两面板在首页左栏并排, 必须看起来是一家) */
-.zh-panel { padding: 2px 0 8px; }
+.zh-panel { padding: 2px 0 var(--s2); }
 .zh-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--s2);
   flex-wrap: wrap;
-  margin: 2px 0 4px;
+  margin: 2px 0 var(--s1);
 }
 .zh-title {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 15px;
+  gap: var(--s2);
+  font-size: var(--fs-md);
   font-weight: 700;
   color: var(--text-main);
 }
 .zh-icon { color: var(--accent); }
 .zh-chip {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
-  padding: 1px 8px;
-  border-radius: 10px;
+  padding: 1px var(--s2);
+  border-radius: var(--r-lg);
   border: 1px solid var(--border-soft, #3a3f4b);
   color: var(--text-secondary);
 }
-.zh-chip-accent { color: #7ce8a0; border-color: rgba(124, 232, 160, 0.4); }
-.zh-tools { display: flex; align-items: center; gap: 6px; }
+.zh-chip-accent { color: var(--success-text); border-color: rgba(124, 232, 160, 0.4); }
+.zh-tools { display: flex; align-items: center; gap: var(--s2); }
 .zh-btn {
   background: none;
   border: 1px solid var(--border-soft, #3a3f4b);
   color: var(--text-secondary);
-  border-radius: 6px;
-  padding: 2px 8px;
-  font-size: 12px;
+  border-radius: var(--r-md);
+  padding: 2px var(--s2);
+  font-size: var(--fs-xs);
   cursor: pointer;
 }
 .zh-btn:disabled { opacity: .5; cursor: default; }
@@ -221,13 +221,13 @@ onMounted(() => { if (user.isVipOrPaid) load() })
   width: 1px; height: 1px; padding: 0; border: 0; opacity: 0;
   pointer-events: none;
 }
-.zh-empty { padding: 22px 10px; text-align: center; color: var(--text-muted); }
+.zh-empty { padding: var(--s6) var(--s2); text-align: center; color: var(--text-muted); }
 /* 2026-09-30 主人清理提示: .zh-empty-hint 已随其说明文案一并删除 */
 
 /* ---- 表格 ---- */
 .zh-scroll { overflow-x: auto; }
-.zh-table { font-size: 12px; }
-.zh-table th { font-size: 11.5px; white-space: nowrap; }
+.zh-table { font-size: var(--fs-xs); }
+.zh-table th { font-size: var(--fs-xs); white-space: nowrap; }
 .zh-table td { white-space: nowrap; }
 /*
   🔴 关闭 sticky 表头（与 YijinerView.vue:311-321 同因，勿"顺手恢复"）：
@@ -243,7 +243,7 @@ onMounted(() => { if (user.isVipOrPaid) load() })
 @keyframes zh-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 /* 嵌入首页左栏(半宽)时收紧标题 */
-.yj-embedded .zh-title { font-size: 14px; }
+.yj-embedded .zh-title { font-size: var(--fs-base); }
 
 /* 浅色主题 */
 body[data-bg="light"] .zh-chip { color: #5a4a3a; }
@@ -262,15 +262,15 @@ body[data-bg="light"] .zh-empty { color: #6b6257; }
 
 @media (max-width: 768px) {
   .zh-swipe-hint {
-    display: flex; align-items: center; gap: 5px;
-    padding: 4px 8px; margin-bottom: 4px;
-    font-size: 11.5px; color: var(--text-secondary);
+    display: flex; align-items: center; gap: var(--s1);
+    padding: var(--s1) var(--s2); margin-bottom: var(--s1);
+    font-size: var(--fs-xs); color: var(--text-secondary);
     background: rgba(255, 255, 255, 0.04);
-    border: 1px dashed var(--border-soft, #3a3f4b); border-radius: 6px;
+    border: 1px dashed var(--border-soft, #3a3f4b); border-radius: var(--r-md);
   }
   .zh-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .zh-table { min-width: 420px; font-size: 11.5px; }
-  .zh-table th, .zh-table td { padding: 6px 4px; }
+  .zh-table { min-width: 420px; font-size: var(--fs-xs); }
+  .zh-table th, .zh-table td { padding: var(--s2) var(--s1); }
   /* 概念用 overflow-wrap 而非 word-break:break-all —— 后者会把 MiniLED/CPO/PCB 从中间断开 */
   .zh-table td.concept-cell { max-width: 110px; white-space: normal; line-height: 1.3; overflow-wrap: anywhere; }
 }
@@ -278,28 +278,28 @@ body[data-bg="light"] .zh-empty { color: #6b6257; }
 @media (max-width: 430px) {
   .zh-swipe-hint { display: none; }          /* 卡片态不需要横滑, 提示反而误导 */
   .zh-scroll { overflow-x: visible; }
-  .zh-table { display: block; width: 100%; min-width: 0; font-size: 12px; }
+  .zh-table { display: block; width: 100%; min-width: 0; font-size: var(--fs-xs); }
   .zh-table thead { display: none; }         /* 字段名改由 data-label 在卡内展示 */
   .zh-table tbody { display: block; }
   .zh-table tbody tr {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 3px 8px;
-    padding: 7px 8px 8px;
-    margin: 0 0 6px;
+    gap: var(--s1) var(--s2);
+    padding: var(--s2) var(--s2) var(--s2);
+    margin: 0 0 var(--s2);
     border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.1));
-    border-radius: 8px;
+    border-radius: var(--r-md);
     background: var(--bg-panel, rgba(18, 22, 35, 0.85));
   }
   .zh-table tbody td {
     display: inline-flex;
     align-items: baseline;
-    gap: 3px;
+    gap: var(--s1);
     width: auto;
     padding: 0;
     border: 0;
-    font-size: 12px;
+    font-size: var(--fs-xs);
     white-space: nowrap;
   }
   /* 第 1 行: 名称独占整行(名称+代码上下两行)
@@ -308,12 +308,12 @@ body[data-bg="light"] .zh-empty { color: #6b6257; }
   .zh-table tbody td:nth-child(1) { display: block; flex: 1 0 100%; text-align: left; }
   .zh-table tbody td:nth-child(1) .stock-code-row,
   .zh-table tbody td:nth-child(1) .stock-name-row { display: block; }
-  .zh-table tbody td:nth-child(1) .stock-name { font-size: 13.5px; }
+  .zh-table tbody td:nth-child(1) .stock-name { font-size: var(--fs-sm); }
   /* 其余字段: 灰色标签 + 值, 自动换行铺满卡片 */
   .zh-table tbody td:nth-child(n + 2)::before {
     content: attr(data-label);
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: var(--fs-xs);
     font-weight: 400;
   }
   /* 概念: 独占一行且可折行(表格态被限宽截断, 卡片态要看全) */

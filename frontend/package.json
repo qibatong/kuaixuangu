@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test src/utils/*.test.js",
+    "style:guard": "python3 ../scripts/_kx_style_converge.py check",
     "test:nav": "vite build --ssr _verify/nav.spec.js --outDir .navssr --emptyOutDir && node .navssr/nav.spec.js",
     "test:spot": "vite build --ssr _verify/spot.spec.js --outDir .spotssr --emptyOutDir && node .spotssr/spot.spec.js",
     "test:adm": "vite build --ssr _verify/admin_scoring.spec.js --outDir .admssr --emptyOutDir && node .admssr/admin_scoring.spec.js",

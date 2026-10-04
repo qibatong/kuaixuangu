@@ -134,12 +134,12 @@ usePolling(loadConcepts, 30000, { immediate: false })
 </script>
 
 <style scoped>
-.ecp { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: 10px; padding: 14px; }
-.ecp-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-.ecp-title { font-size: 0.9375rem; font-weight: 700; color: var(--text-main); }
+.ecp { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); }
+.ecp-head { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; margin-bottom: var(--s2); }
+.ecp-title { font-size: var(--fs-md); font-weight: 700; color: var(--text-main); }
 .ecp-title .fa { color: var(--accent); }
-.ecp-sub { font-size: 0.75rem; color: var(--text-muted); }
-.ecp-count { margin-left: auto; font-size: 0.75rem; color: var(--text-muted); }
+.ecp-sub { font-size: var(--fs-xs); color: var(--text-muted); }
+.ecp-count { margin-left: auto; font-size: var(--fs-xs); color: var(--text-muted); }
 
 .ecp-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .ecp-table { width: 100%; }
@@ -147,19 +147,19 @@ usePolling(loadConcepts, 30000, { immediate: false })
 
 .ecp-row { cursor: pointer; }
 .ecp-row:hover td { background: rgba(255, 180, 0, 0.07); }
-.ecp-subinfo { font-size: 0.7188rem; color: var(--text-muted); margin-top: 2px; }
-.ecp-subinfo .leader { margin-left: 6px; font-weight: 600; }
+.ecp-subinfo { font-size: var(--fs-xs); color: var(--text-muted); margin-top: 2px; }
+.ecp-subinfo .leader { margin-left: var(--s2); font-weight: 600; }
 
 /* 竞价异动徽章(2026-09-21 融合 theme_auc_kp 进精选板块榜) */
 .auc-badge {
-  display: inline-block; margin-left: 6px; padding: 0 6px;
-  font-size: 0.6563rem; font-weight: 700; line-height: 1.5;
-  border-radius: 4px; vertical-align: middle;
+  display: inline-block; margin-left: var(--s2); padding: 0 var(--s2);
+  font-size: var(--fs-xs); font-weight: 700; line-height: 1.5;
+  border-radius: var(--r-sm); vertical-align: middle;
 }
-.auc-l1 { background: rgba(255, 76, 76, 0.14); color: var(--up, #ff5252); }
+.auc-l1 { background: rgba(255, 76, 76, 0.14); color: var(--up, var(--accent)); }
 .auc-l2 { background: rgba(255, 160, 0, 0.14); color: #ff9f0a; }
 .auc-l3 { background: rgba(140, 150, 170, 0.16); color: var(--text-muted); }
-.auc-net { margin-left: 6px; font-weight: 600; }
+.auc-net { margin-left: var(--s2); font-weight: 600; }
 
 body[data-bg="light"] .ecp { background: rgba(255, 255, 255, 0.85); border-color: var(--border-soft); }
 body[data-bg="light"] .ecp-row:hover td { background: rgba(199, 145, 0, 0.08); }
@@ -167,9 +167,9 @@ body[data-bg="light"] .auc-l1 { color: #b83010; }
 body[data-bg="light"] .auc-l2 { color: #8a5500; }
 
 @media (max-width: 768px) {
-  .ecp { padding: 10px 8px; }
+  .ecp { padding: var(--s2) var(--s2); }
   .ecp-table { min-width: 720px; }
-  .ecp-table th { padding: 7px 4px; font-size: 0.75rem; }
-  .ecp-table td { padding: 6px 4px; font-size: 0.75rem; }
+  .ecp-table th { padding: var(--s2) var(--s1); font-size: var(--fs-xs); }
+  .ecp-table td { padding: var(--s2) var(--s1); font-size: var(--fs-xs); }
 }
 </style>

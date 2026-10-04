@@ -33,8 +33,9 @@ android {
         //   4 = 第四轮（/login 全屏 + 浅色红顶栏 + 状态栏品牌红 + 搜索框限宽/顶栏拉高）
         //   5 = 第五轮（修 Android 15 edge-to-edge 状态栏白底 + 品牌红调浅 #e5484d）
         //   6 = 第六轮（手机端顶栏改三列栅格 ⇒ 搜索框屏幕居中）
-        versionCode 6
-        versionName "1.5"
+        //   7 = 第七轮（视觉令牌收敛：颜色/字号/圆角/阴影/间距全部走 token）
+        versionCode 7
+        versionName "1.6"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

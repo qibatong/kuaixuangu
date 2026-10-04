@@ -3,7 +3,7 @@
    理由: 原先 index.html 同步外链 cdnjs ⇒ ① 阻塞首屏 ② 断网/内网/被墙 ⇒ 全站图标变方框。
    本文件只含 @font-face + 源码实际引用的 111 个图标类; 字体文件 public/fonts/fontawesome-webfont.woff2 (77KB)。
    新增图标请重跑生成脚本（否则该图标无字形）。 */
-@font-face{font-family:'FontAwesome';src:url('../assets/fonts/fontawesome-webfont.woff2') format('woff2');  /* v4.11.84: 走 Vite 资产管线(相对路径 ⇒ 打包成 /assets/xxx.woff2)。原先放 public/fonts/ 由 nginx 直接托管, 但生产 nginx 的 SPA 回退把 /fonts/* 吞成 index.html ⇒ 字体 200 却是 text/html ⇒ FontAwesome:error、图标空白(实测踩到)。 */font-weight:normal;font-style:normal;font-display:swap}
+@font-face{font-family:'FontAwesome';src:url('../assets/fonts/fontawesome-webfont.woff2') format('woff2');  /* v4.11.84: 走 Vite 资产管线(相对路径 ⇒ 打包成 /assets/xxx.woff2)。原先放 public/fonts/ 由 nginx 直接托管, 但生产 nginx 的 SPA 回退把 /fonts/* 吞成 index.html ⇒ 字体 200 却是 text/html ⇒ FontAwesome:error、图标空白(实测踩到)。 */font-weight: 400;font-style:normal;font-display:swap}
 @keyframes fa-spin{0%{-webkit-transform:rotate(0deg);transform:rotate(0deg)}100%{-webkit-transform:rotate(359deg);transform:rotate(359deg)}}
 .fa{display:inline-block;font:normal normal normal 14px/1 FontAwesome;font-size:inherit;text-rendering:auto;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 .fa-spin{-webkit-animation:fa-spin 2s infinite linear;animation:fa-spin 2s infinite linear}

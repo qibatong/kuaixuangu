@@ -510,21 +510,21 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.his-pick-host { margin-top: 6px; }
+.his-pick-host { margin-top: var(--s2); }
 
 /* 2026-09-16 选股闸门提示块(交易日 09:15:00~09:26:30): 替代主表位置, 说明为何暂时看不到名单。
    配色用黄色提示系(项目五色内), 与涨跌红绿语义无关。 */
 .pick-blocked-notice {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 4px 0;
-  padding: 10px 12px;
+  gap: var(--s2);
+  margin: var(--s1) 0;
+  padding: var(--s2) var(--s3);
   border: 1px solid rgba(230, 180, 0, 0.5);
-  border-radius: 6px;
+  border-radius: var(--r-md);
   background: rgba(230, 180, 0, 0.10);
   color: var(--text-main);
-  font-size: 0.7812rem;
+  font-size: var(--fs-sm);
   line-height: 1.5;
 }
 .pick-blocked-notice .fa { color: #e6b400; }
@@ -541,14 +541,14 @@ body[data-bg="light"] .pick-blocked-notice { color: #8a5500; }
 .spot-notice {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 4px 0;
-  padding: 8px 12px;
+  gap: var(--s2);
+  margin: var(--s1) 0;
+  padding: var(--s2) var(--s3);
   border: 1px solid rgba(64, 148, 255, 0.38);
-  border-radius: 6px;
+  border-radius: var(--r-md);
   background: rgba(64, 148, 255, 0.08);
   color: var(--text-main);
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   line-height: 1.5;
 }
 .spot-notice .fa { color: #4094ff; }
@@ -564,21 +564,21 @@ body[data-bg="light"] .spot-notice b { color: #1a5fb4; }
 .medal-section {
   display: flex;
   flex-wrap: nowrap;
-  gap: 8px;
+  gap: var(--s2);
   justify-content: center;
   align-items: stretch;
 }
 .yizi-card {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  margin-left: 10px;
-  padding: 3px 10px;
+  gap: var(--s1);
+  margin-left: var(--s2);
+  padding: var(--s1) var(--s2);
   border: 1px solid rgba(var(--accent-rgb), 0.4);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   background: rgba(var(--accent-rgb), 0.08);
   color: var(--accent-text);
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   white-space: nowrap;
   cursor: default;
 }
@@ -586,20 +586,20 @@ body[data-bg="light"] .spot-notice b { color: #1a5fb4; }
 
 /* 紧凑规则条: 规则文本 + 内联模式切换 + 操作按钮 一行排布 */
 .alert-rule.alert-rule-compact {
-  padding: 4px 10px;
-  margin: 4px 0 6px;
-  gap: 8px;
-  border-radius: 6px;
+  padding: var(--s1) var(--s2);
+  margin: var(--s1) 0 var(--s2);
+  gap: var(--s2);
+  border-radius: var(--r-md);
   border-left-width: 3px;
   flex-wrap: wrap;
   /* 覆盖 main.css .alert-rule 的 space-between: 让 rule-text + mode-tabs 始终紧贴左侧,
      不再因 right-group 是否存在而在「居中/靠右」之间漂移 (2026-09-01 反馈) */
   justify-content: flex-start;
 }
-.alert-rule.alert-rule-compact .rule-text { font-size: 0.75rem; gap: 4px; flex: 0 1 auto; min-width: 0; }
-.alert-rule.alert-rule-compact .rule-text strong { font-size: 0.75rem; }
+.alert-rule.alert-rule-compact .rule-text { font-size: var(--fs-xs); gap: var(--s1); flex: 0 1 auto; min-width: 0; }
+.alert-rule.alert-rule-compact .rule-text strong { font-size: var(--fs-xs); }
 .alert-rule.alert-rule-compact .right-group {
-  gap: 6px;
+  gap: var(--s2);
   flex: 0 1 auto;
   flex-wrap: wrap;
   display: inline-flex;
@@ -609,7 +609,7 @@ body[data-bg="light"] .spot-notice b { color: #1a5fb4; }
 }
 .mode-tabs.mode-tabs-inline {
   margin: 0;
-  gap: 4px;
+  gap: var(--s1);
   flex: 0 1 auto;
   flex-wrap: wrap;
   display: inline-flex;
@@ -618,18 +618,18 @@ body[data-bg="light"] .spot-notice b { color: #1a5fb4; }
 .mode-tab.mode-tab-compact {
   /* 2026-09-05 主人需求: 竞价/AI预测 tab 适当放大(3px 10px → 6px 16px, 12→13px),
      active 态同尺寸避免切换跳动 */
-  padding: 6px 16px;
-  font-size: 0.8125rem;
-  border-radius: 6px;
-  gap: 4px;
+  padding: var(--s2) var(--s4);
+  font-size: var(--fs-sm);
+  border-radius: var(--r-md);
+  gap: var(--s1);
   line-height: 1.2;
   font-weight: 500;
   box-shadow: none;
 }
-.mode-tab.mode-tab-compact:hover { transform: none; box-shadow: none; border-color: #ffb400; }
+.mode-tab.mode-tab-compact:hover { transform: none; box-shadow: none; border-color: var(--star); }
 .mode-tab.mode-tab-compact.active {
-  padding: 6px 16px;
-  font-size: 0.8125rem;
+  padding: var(--s2) var(--s4);
+  font-size: var(--fs-sm);
   font-weight: 700;
   /* 2026-09-05 主人需求: tab 选中后变为红色。
      用 var(--accent) 自动适配双主题(深色 #ff5c5c / 浅色已重定义深红 #c62828,
@@ -646,27 +646,27 @@ body[data-bg="light"] .spot-notice b { color: #1a5fb4; }
 .alert-rule.alert-rule-compact .tdx-export-btn { padding: 3px 8px; font-size: 0.75rem; gap: 3px; border-radius: 4px; font-weight: 500; }
 .alert-rule.alert-rule-compact .tdx-export-btn:hover { transform: none; box-shadow: 0 2px 6px rgba(var(--accent-rgb),0.25); }
 /* 左栏筛选面板紧凑 */
-.home-col-left .filter-custom { padding: 5px 9px; margin: 4px 0; gap: 3px; border-radius: 7px; }
-.home-col-left .filter-row-1 { gap: 5px; }
+.home-col-left .filter-custom { padding: var(--s1) var(--s2); margin: var(--s1) 0; gap: var(--s1); border-radius: var(--r-md); }
+.home-col-left .filter-row-1 { gap: var(--s1); }
 .home-col-left .filter-custom label,
-.home-col-left .filter-row-2 .filter-cell { font-size: 0.75rem; }
-.home-col-left .filter-row-2 input[type=number] { font-size: 0.75rem; }
-.home-col-left .filter-apply { padding: 3px 8px; font-size: 0.75rem; }
+.home-col-left .filter-row-2 .filter-cell { font-size: var(--fs-xs); }
+.home-col-left .filter-row-2 input[type=number] { font-size: var(--fs-xs); }
+.home-col-left .filter-apply { padding: var(--s1) var(--s2); font-size: var(--fs-xs); }
 .home-col-left .filter-reset,
-.home-col-left .filter-lock { padding: 3px 7px; font-size: 0.75rem; }
+.home-col-left .filter-lock { padding: var(--s1) var(--s2); font-size: var(--fs-xs); }
 /* 左栏奖牌区 (2026-09-20 回滚三张卡布局; 字号由 MedalPanel scoped + main.css 统一控制,
    不再需要 :deep 覆盖子元素字号 —— 旧 40px/18px 大字覆盖是"字体不统一"的元凶, 保持删除) */
-.home-col-left .medal-section { padding: 5px; margin: 4px 0; gap: 8px; border-radius: 8px; }
+.home-col-left .medal-section { padding: var(--s1); margin: var(--s1) 0; gap: var(--s2); border-radius: var(--r-md); }
 @media (max-width: 1099px) {
-  .alert-rule.alert-rule-compact { flex-wrap: wrap; gap: 6px; }
+  .alert-rule.alert-rule-compact { flex-wrap: wrap; gap: var(--s2); }
 }
 @media (max-width: 768px) {
-  .alert-rule.alert-rule-compact { padding: 4px 6px !important; margin: 2px 0 4px !important; gap: 4px !important; row-gap: 4px !important; flex-wrap: wrap !important; }
+  .alert-rule.alert-rule-compact { padding: var(--s1) var(--s2) !important; margin: 2px 0 var(--s1) !important; gap: var(--s1) !important; row-gap: var(--s1) !important; flex-wrap: wrap !important; }
   .alert-rule.alert-rule-compact .rule-text,
-  .alert-rule.alert-rule-compact .rule-text strong { font-size: 0.75rem !important; }
-  .mode-tabs.mode-tabs-inline { gap: 3px !important; }
-  .mode-tab.mode-tab-compact { padding: 4px 9px !important; font-size: 0.75rem !important; min-height: 26px; }
-  .alert-rule.alert-rule-compact .tdx-export-btn { padding: 4px 6px !important; font-size: 0.75rem !important; min-height: 26px; }
+  .alert-rule.alert-rule-compact .rule-text strong { font-size: var(--fs-xs) !important; }
+  .mode-tabs.mode-tabs-inline { gap: var(--s1) !important; }
+  .mode-tab.mode-tab-compact { padding: var(--s1) var(--s2) !important; font-size: var(--fs-xs) !important; min-height: 26px; }
+  .alert-rule.alert-rule-compact .tdx-export-btn { padding: var(--s1) var(--s2) !important; font-size: var(--fs-xs) !important; min-height: 26px; }
 }
 
 /* 浅色主题覆盖 */

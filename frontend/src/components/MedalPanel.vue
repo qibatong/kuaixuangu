@@ -44,20 +44,20 @@ function fmtPct(v) {
    2026-09-20 视觉减噪: 56px → 34px; 2026-09-20晚 主人拍板回滚三张卡布局, 保留 34px 紧凑字号 */
 .medal-real-big {
   font-size: 2.125rem;
-  font-weight: 900;
-  color: #ff5252;
+  font-weight: 700;
+  color: var(--accent);
   line-height: 1.1;
   margin: 2px 0 0;
   font-family: inherit;
   letter-spacing: -0.5px;
 }
-.medal-real-big.green-real { color: #00c864 !important; }
+.medal-real-big.green-real { color: var(--down) !important; }
 body[data-bg="light"] .medal-real-big { color: #c62828; }
 body[data-bg="light"] .medal-real-big.green-real { color: #1a7a2a !important; }
 /* 竞涨幅: 缩字号, 实时涨幅下面 */
 .medal-bid-sm {
-  font-size: 0.8125rem;
-  color: #ff8a6f;
+  font-size: var(--fs-sm);
+  color: var(--up);
   font-weight: 600;
   font-family: inherit;
   margin-top: 1px;
@@ -67,19 +67,19 @@ body[data-bg="light"] .medal-bid-sm { color: #c0562f; }
 .medal-score-row {
   display: flex;
   align-items: baseline;
-  gap: 6px;
-  font-size: 0.8125rem;
+  gap: var(--s2);
+  font-size: var(--fs-sm);
   white-space: nowrap;
 }
 .medal-prob-sm { color: #e0a800; font-weight: 700; }
 .medal-conf { color: var(--text-muted); }
 /* 手机端覆盖(2026-08-18 补: desktop 放大字号后, 这3个 scoped 类在 mobile 也要缩小, 否则手机端挤压) */
 @media (max-width: 899px) {
-  .medal-rank { font-size: 0.875rem; }
-  .medal-name-big { font-size: 1rem; }
-  .medal-code { font-size: 0.875rem; }
-  .medal-real-big { font-size: 1.75rem; }
-  .medal-bid-sm { font-size: 0.75rem; }
-  .medal-score-row { font-size: 0.75rem; gap: 5px; }
+  .medal-rank { font-size: var(--fs-base); }
+  .medal-name-big { font-size: var(--fs-lg); }
+  .medal-code { font-size: var(--fs-base); }
+  .medal-real-big { font-size: var(--fs-3xl); }
+  .medal-bid-sm { font-size: var(--fs-xs); }
+  .medal-score-row { font-size: var(--fs-xs); gap: var(--s1); }
 }
 </style>

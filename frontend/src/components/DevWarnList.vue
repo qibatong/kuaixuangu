@@ -142,24 +142,24 @@ function money(v) {
 
 <style scoped>
 .dev-bar {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  margin-bottom: 10px; font-size: 0.8125rem;
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  margin-bottom: var(--s2); font-size: var(--fs-sm);
 }
 .dev-bar-date { color: var(--text-secondary); }
-.dev-bar-date b { color: #ffd700; font-family: inherit; letter-spacing: 0.5px; }
-.dev-bar-tip { color: var(--text-muted); font-size: 0.75rem; }
+.dev-bar-date b { color: var(--gold); font-family: inherit; letter-spacing: 0.5px; }
+.dev-bar-tip { color: var(--text-muted); font-size: var(--fs-xs); }
 .dev-chip {
-  display: inline-block; padding: 1px 8px; border-radius: 10px;
-  font-size: 0.75rem; font-weight: 600;
+  display: inline-block; padding: 1px var(--s2); border-radius: var(--r-lg);
+  font-size: var(--fs-xs); font-weight: 600;
 }
-.dev-chip-red { color: #ff6b6b; background: rgba(255, 77, 79, 0.14); border: 1px solid rgba(255, 77, 79, 0.45); }
-.dev-chip-yellow { color: #ffc53d; background: rgba(255, 197, 61, 0.12); border: 1px solid rgba(255, 197, 61, 0.42); }
+.dev-chip-red { color: var(--brand-soft); background: rgba(255, 77, 79, 0.14); border: 1px solid rgba(255, 77, 79, 0.45); }
+.dev-chip-yellow { color: var(--gold); background: rgba(255, 197, 61, 0.12); border: 1px solid rgba(255, 197, 61, 0.42); }
 
-.dev-ph { text-align: center; padding: 36px 12px; color: var(--text-muted); }
-.dev-ph-t { font-size: 0.9375rem; margin-bottom: 6px; color: var(--text-secondary); }
-.dev-ph-s { font-size: 0.75rem; line-height: 1.6; }
-.dev-ph-fail .dev-ph-t { color: #ff6b6b; }
-.dev-ph-fail .dev-ph-s { color: #ff9a9a; }
+.dev-ph { text-align: center; padding: var(--s8) var(--s3); color: var(--text-muted); }
+.dev-ph-t { font-size: var(--fs-md); margin-bottom: var(--s2); color: var(--text-secondary); }
+.dev-ph-s { font-size: var(--fs-xs); line-height: 1.6; }
+.dev-ph-fail .dev-ph-t { color: var(--brand-soft); }
+.dev-ph-fail .dev-ph-s { color: var(--accent-text); }
 
 .dev-table { width: 100%; }
 .dev-table th, .dev-table td { vertical-align: middle !important; text-align: center !important; }
@@ -167,43 +167,43 @@ function money(v) {
 .col-lv { width: 48px; }
 .dev-lv {
   display: inline-block; width: 20px; height: 20px; line-height: 20px;
-  border-radius: 4px; font-size: 0.75rem; font-weight: 700; cursor: help;
+  border-radius: var(--r-sm); font-size: var(--fs-xs); font-weight: 700; cursor: help;
 }
-.dev-lv-red { background: #b3261e; color: #fff; border: 1px solid #ff5c5c; }
-.dev-lv-yellow { background: rgba(255, 197, 61, 0.2); color: #ffd666; border: 1px solid #ffc53d; }
+.dev-lv-red { background: var(--brand-deep); color: #fff; border: 1px solid var(--accent); }
+.dev-lv-yellow { background: rgba(255, 197, 61, 0.2); color: #ffd666; border: 1px solid var(--gold); }
 .dev-lv-safe { background: rgba(255, 255, 255, 0.05); color: var(--text-muted); border: 1px solid var(--border-soft); }
 
-.col-board { color: var(--text-muted); font-size: 0.75rem; white-space: nowrap; }
+.col-board { color: var(--text-muted); font-size: var(--fs-xs); white-space: nowrap; }
 .col-num { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.col-up { color: #ff6b6b; font-weight: 600; }
+.col-up { color: var(--brand-soft); font-weight: 600; }
 .col-down { color: #33cc77; font-weight: 600; }
-.col-near { color: #ffc53d; font-weight: 600; }
+.col-near { color: var(--gold); font-weight: 600; }
 .col-dim { color: var(--text-muted); }
-.col-rule { display: block; font-size: 0.6875rem; color: var(--text-muted); font-weight: 400; }
+.col-rule { display: block; font-size: var(--fs-xs); color: var(--text-muted); font-weight: 400; }
 
 /* 股票名称格：与全站其它表格同构（名称在上、代码在下） */
 .dev-table td.stock-info-cell {
-  cursor: pointer; min-width: 80px !important; padding: 6px 4px !important;
+  cursor: pointer; min-width: 80px !important; padding: var(--s2) var(--s1) !important;
   display: table-cell !important; vertical-align: middle !important; text-align: center !important;
 }
 .stock-info-cell .stock-name-row { display: block !important; line-height: 1.4 !important; }
-.stock-info-cell .stock-name { font-weight: 600 !important; color: var(--text-main); font-size: 0.8125rem !important; }
+.stock-info-cell .stock-name { font-weight: 600 !important; color: var(--text-main); font-size: var(--fs-sm) !important; }
 .stock-info-cell .stock-code-row { display: block !important; line-height: 1.2 !important; margin-top: 2px !important; }
 .stock-info-cell .stock-code {
-  font-family: inherit; font-size: 0.75rem !important; color: var(--text-muted); letter-spacing: 0.5px !important;
+  font-family: inherit; font-size: var(--fs-xs) !important; color: var(--text-muted); letter-spacing: 0.5px !important;
 }
 .stock-info-cell:hover .stock-name, .stock-info-cell:hover .stock-code { color: var(--accent); }
 
 .spinner {
   width: 28px; height: 28px; border: 3px solid rgba(255, 180, 0, 0.3);
-  border-top-color: #ffb400; border-radius: 50%;
+  border-top-color: var(--star); border-radius: 50%;
   animation: dev-spin 0.8s linear infinite; margin: 0 auto 10px;
 }
 @keyframes dev-spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 768px) {
   .dev-table { min-width: 720px; }
-  .dev-bar { font-size: 0.75rem; }
+  .dev-bar { font-size: var(--fs-xs); }
 }
 
 /* 浅色主题 */

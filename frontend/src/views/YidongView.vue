@@ -410,89 +410,89 @@ onMounted(() => {
 
 <style scoped>
 .yd-head {
-  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;
+  display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s3);
 }
-.yd-title { font-size: 1.25rem; font-weight: 700; color: #ffe0a0; }
-.yd-title .fa { color: #ffb400; }
-.yd-sub { color: var(--text-muted); font-size: 0.8125rem; }
-.yd-time { margin-left: auto; color: #aaa; font-size: 0.875rem; font-family: inherit; }
+.yd-title { font-size: var(--fs-2xl); font-weight: 700; color: var(--warn-text); }
+.yd-title .fa { color: var(--star); }
+.yd-sub { color: var(--text-muted); font-size: var(--fs-sm); }
+.yd-time { margin-left: auto; color: var(--text-muted); font-size: var(--fs-base); font-family: inherit; }
 
-.yd-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+.yd-tabs { display: flex; gap: var(--s2); margin-bottom: var(--s4); }
 .yd-tab {
-  padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border-soft);
-  background: var(--bg-hover); color: var(--text-secondary); font-size: 0.875rem;
+  padding: var(--s2) var(--s4); border-radius: var(--r-md); border: 1px solid var(--border-soft);
+  background: var(--bg-hover); color: var(--text-secondary); font-size: var(--fs-base);
   cursor: pointer; transition: border-color 0.2s, color 0.2s;
 }
-.yd-tab:hover { border-color: #ffb400; color: #ffe0a0; }
+.yd-tab:hover { border-color: var(--star); color: var(--warn-text); }
 .yd-tab.active {
-  background: rgba(255, 180, 0, 0.15); border-color: #ffb400;
-  color: #ffd700; font-weight: 600;
+  background: rgba(255, 180, 0, 0.15); border-color: var(--star);
+  color: var(--gold); font-weight: 600;
 }
 
 .yd-panel {
   background: var(--bg-hover); border: 1px solid var(--border-soft);
-  border-radius: 10px; padding: 14px;
+  border-radius: var(--r-lg); padding: var(--s4);
 }
 
-.yd-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-.yd-tip { color: var(--text-muted); font-size: 0.75rem; flex: 1; min-width: 0; line-height: 1.5; }
+.yd-toolbar { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s2); flex-wrap: wrap; }
+.yd-tip { color: var(--text-muted); font-size: var(--fs-xs); flex: 1; min-width: 0; line-height: 1.5; }
 .yd-badge {
-  display: inline-block; padding: 2px 10px; border-radius: 12px;
-  background: rgba(255, 180, 0, 0.12); color: #ffb400;
-  font-size: 0.75rem; font-weight: 600;
+  display: inline-block; padding: 2px var(--s2); border-radius: var(--r-lg);
+  background: rgba(255, 180, 0, 0.12); color: var(--star);
+  font-size: var(--fs-xs); font-weight: 600;
 }
 
 /* 折叠区：交易所已公布异动 */
-.yd-fold { margin-top: 16px; border-top: 1px dashed var(--border-soft); padding-top: 10px; }
+.yd-fold { margin-top: var(--s4); border-top: 1px dashed var(--border-soft); padding-top: var(--s2); }
 .yd-fold-h {
-  background: none; border: none; padding: 4px 0; cursor: pointer;
-  color: var(--text-secondary); font-size: 0.8125rem;
+  background: none; border: none; padding: var(--s1) 0; cursor: pointer;
+  color: var(--text-secondary); font-size: var(--fs-sm);
 }
-.yd-fold-h:hover { color: #ffd700; }
-.yd-fold-h .fa { margin-right: 6px; color: #ffb400; }
-.yd-fold-b { margin-top: 8px; }
+.yd-fold-h:hover { color: var(--gold); }
+.yd-fold-h .fa { margin-right: var(--s2); color: var(--star); }
+.yd-fold-b { margin-top: var(--s2); }
 .yd-fold-b .stock-table { width: 100%; }
 
 /* 异动计算器 */
-.cal-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+.cal-bar { display: flex; gap: var(--s2); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
 .cal-input {
-  width: 220px; padding: 8px 12px; border-radius: 8px;
+  width: 220px; padding: var(--s2) var(--s3); border-radius: var(--r-md);
   border: 1px solid var(--border-soft); background: var(--bg-main, #1a1a1a);
-  color: var(--text-main); font-size: 0.875rem; font-family: inherit;
+  color: var(--text-main); font-size: var(--fs-base); font-family: inherit;
   letter-spacing: 1px; outline: none;
 }
-.cal-input:focus { border-color: #ffb400; }
+.cal-input:focus { border-color: var(--star); }
 .cal-input::placeholder { color: var(--text-muted); letter-spacing: 0; }
 
 /* 🔎 计算器搜索框的"索引"下拉（2026-10-01）—— 与顶栏搜索同一后端索引，块级展开（不做浮层，
    避免手机端定位/遮挡问题；列表最多 20 条，展开后页面自然下推） */
 .cal-sug {
-  margin: -8px 0 14px;
+  margin: -var(--s2) 0 var(--s4);
   border: 1px solid var(--border-soft);
-  border-radius: 9px;
+  border-radius: var(--r-md);
   background: var(--bg-card);
   overflow: hidden;
   max-width: 520px;
 }
 .cal-sug-i {
-  display: flex; align-items: baseline; gap: 8px; width: 100%; flex-wrap: nowrap;
-  padding: 7px 10px; background: transparent; border: none;
+  display: flex; align-items: baseline; gap: var(--s2); width: 100%; flex-wrap: nowrap;
+  padding: var(--s2) var(--s2); background: transparent; border: none;
   border-top: 1px solid var(--border-soft);
-  color: var(--text-secondary); font-size: 0.78rem; text-align: left; cursor: pointer;
+  color: var(--text-secondary); font-size: var(--fs-sm); text-align: left; cursor: pointer;
 }
 .cal-sug-i:first-child { border-top: none; }
 .cal-sug-i.on { background: var(--bg-hover); }
 .cal-sug-name { font-weight: 600; color: var(--text-main); }
-.cal-sug-code { font-size: 0.68rem; color: var(--text-dim); }
+.cal-sug-code { font-size: var(--fs-xs); color: var(--text-dim); }
 .cal-sug-board {
   margin-left: auto; flex: 0 1 auto; max-width: 46%;
-  font-size: 0.66rem; color: #ffb400;
+  font-size: var(--fs-xs); color: var(--star);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.cal-sug-empty { padding: 9px 10px; font-size: 0.72rem; color: var(--text-muted); }
+.cal-sug-empty { padding: var(--s2) var(--s2); font-size: var(--fs-xs); color: var(--text-muted); }
 .cal-btn {
-  padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 0.875rem;
-  border: 1px solid #ffb400; background: rgba(255, 180, 0, 0.15); color: #ffd700;
+  padding: var(--s2) var(--s4); border-radius: var(--r-md); cursor: pointer; font-size: var(--fs-base);
+  border: 1px solid var(--star); background: rgba(255, 180, 0, 0.15); color: var(--gold);
   font-weight: 600;
 }
 .cal-btn:disabled { opacity: 0.6; cursor: default; }
@@ -500,18 +500,18 @@ onMounted(() => {
 
 .desc-col { max-width: 300px; }
 .concept-col { max-width: 240px; color: #9cf; }
-.type-col { max-width: 200px; color: #ffd700; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
-.trigger-col { max-width: 180px; color: #aaa; font-size: 0.75rem; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+.type-col { max-width: 200px; color: var(--gold); white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+.trigger-col { max-width: 180px; color: var(--text-muted); font-size: var(--fs-xs); white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
 .dev-col { text-align: right; white-space: nowrap; }
-.dev-col .dev-num { color: #ff4d4f; font-weight: 600; font-size: 0.8125rem; }
-.dev-col .dev-days { color: #999; font-size: 0.75rem; margin-left: 4px; }
+.dev-col .dev-num { color: var(--accent); font-weight: 600; font-size: var(--fs-sm); }
+.dev-col .dev-days { color: var(--text-muted); font-size: var(--fs-xs); margin-left: var(--s1); }
 
 .trigger-status {
-  display: inline-block; padding: 2px 8px; border-radius: 4px;
-  font-size: 0.75rem; font-weight: 500;
-  color: #666; background: rgba(255, 255, 255, 0.05); white-space: nowrap;
+  display: inline-block; padding: 2px var(--s2); border-radius: var(--r-sm);
+  font-size: var(--fs-xs); font-weight: 500;
+  color: var(--text-faint); background: rgba(255, 255, 255, 0.05); white-space: nowrap;
 }
-.trigger-status.triggered { color: #ff4d4f; background: rgba(255, 77, 79, 0.15); border: 1px solid rgba(255, 77, 79, 0.4); }
+.trigger-status.triggered { color: var(--accent); background: rgba(255, 77, 79, 0.15); border: 1px solid rgba(255, 77, 79, 0.4); }
 
 /* 表格单元格居中对齐 */
 .yd-panel .stock-table th,
@@ -521,30 +521,30 @@ onMounted(() => {
    关键: td 必须是 table-cell + vertical-align:middle 才能自动撑满整行高度,
         不能设 display:flex(flex 高度由自身内容决定, 不会跟随行高, 导致偏上) */
 .yd-panel .stock-table td.stock-info-cell {
-  cursor: pointer; min-width: 80px !important; padding: 6px 4px !important;
+  cursor: pointer; min-width: 80px !important; padding: var(--s2) var(--s1) !important;
   display: table-cell !important; vertical-align: middle !important; text-align: center !important;
 }
 .stock-info-cell .stock-name-row { display: block !important; line-height: 1.4 !important; text-align: center !important; }
-.stock-info-cell .stock-name { font-weight: 600 !important; color: var(--text-main); font-size: 0.8125rem !important; }
+.stock-info-cell .stock-name { font-weight: 600 !important; color: var(--text-main); font-size: var(--fs-sm) !important; }
 .stock-info-cell .stock-code-row { display: block !important; line-height: 1.2 !important; text-align: center !important; margin-top: 2px !important; }
 .stock-info-cell .stock-code {
-  font-family: inherit; font-size: 0.75rem !important; color: var(--text-muted); letter-spacing: 0.5px !important;
+  font-family: inherit; font-size: var(--fs-xs) !important; color: var(--text-muted); letter-spacing: 0.5px !important;
 }
 .stock-info-cell:hover .stock-name,
 .stock-info-cell:hover .stock-code { color: var(--accent); }
 
-.loading-placeholder { text-align: center; padding: 40px; color: var(--text-muted); }
+.loading-placeholder { text-align: center; padding: var(--s8); color: var(--text-muted); }
 .spinner {
   width: 28px; height: 28px; border: 3px solid rgba(255, 180, 0, 0.3);
-  border-top-color: #ffb400; border-radius: 50%;
+  border-top-color: var(--star); border-radius: 50%;
   animation: spin 0.8s linear infinite; margin: 0 auto 10px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-.empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
+.empty-state { text-align: center; padding: var(--s8); color: var(--text-muted); }
 
 .lb-badge {
-  display: inline-block; color: #ff8a5c; border: 1px solid rgba(255, 80, 40, 0.5);
-  border-radius: 4px; padding: 0 5px; font-size: 0.75rem;
+  display: inline-block; color: var(--up); border: 1px solid rgba(255, 80, 40, 0.5);
+  border-radius: var(--r-sm); padding: 0 var(--s1); font-size: var(--fs-xs);
   background: rgba(255, 80, 40, 0.12);
 }
 
@@ -566,19 +566,19 @@ body[data-bg="light"] .cal-btn-ghost { background: none; color: #6b6b6b; border-
 
 /* 移动端适配 */
 @media (max-width: 768px) {
-  .yd-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 10px 8px; }
+  .yd-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: var(--s2) var(--s2); }
   .yd-panel .stock-table { min-width: 680px; }
-  .yd-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 4px; }
+  .yd-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: var(--s1); }
   .yd-tabs::-webkit-scrollbar { display: none; }
-  .yd-tab { flex-shrink: 0; white-space: nowrap; padding: 7px 12px; font-size: 0.8125rem; }
-  .yd-head { gap: 6px; }
-  .yd-title { font-size: 1.0625rem; }
-  .yd-sub { font-size: 0.75rem; width: 100%; }
-  .yd-time { margin-left: 0; font-size: 0.75rem; }
-  .yd-panel .stock-table th { padding: 7px 4px; font-size: 0.75rem; }
-  .yd-panel .stock-table td { padding: 6px 4px; font-size: 0.75rem; }
+  .yd-tab { flex-shrink: 0; white-space: nowrap; padding: var(--s2) var(--s3); font-size: var(--fs-sm); }
+  .yd-head { gap: var(--s2); }
+  .yd-title { font-size: var(--fs-lg); }
+  .yd-sub { font-size: var(--fs-xs); width: 100%; }
+  .yd-time { margin-left: 0; font-size: var(--fs-xs); }
+  .yd-panel .stock-table th { padding: var(--s2) var(--s1); font-size: var(--fs-xs); }
+  .yd-panel .stock-table td { padding: var(--s2) var(--s1); font-size: var(--fs-xs); }
   .desc-col { max-width: 180px; }
   .cal-input { width: 100%; }
-  .cal-bar { gap: 6px; }
+  .cal-bar { gap: var(--s2); }
 }
 </style>

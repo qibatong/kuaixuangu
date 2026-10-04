@@ -252,12 +252,12 @@ function arrow(v) {
 .stock-table-compact td {
   text-align: center;
   vertical-align: middle;
-  padding: 5px 2px !important;
-  font-size: 0.75rem !important;
+  padding: var(--s1) 2px !important;
+  font-size: var(--fs-xs) !important;
 }
 .stock-table-compact th {
-  padding: 7px 2px !important;
-  font-size: 0.75rem !important;
+  padding: var(--s2) 2px !important;
+  font-size: var(--fs-xs) !important;
 }
 .stock-table-compact th.sortable {
   white-space: nowrap;
@@ -267,9 +267,9 @@ function arrow(v) {
   min-width: 0;
   white-space: normal;
   line-height: 1.3;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
-  padding: 4px 2px !important;
+  padding: var(--s1) 2px !important;
 }
 .concept-cell .concept-item {
   display: block;
@@ -280,9 +280,9 @@ function arrow(v) {
   max-width: 100%;
 }
 .stock-table-compact .pool-add-btn {
-  padding: 1px 5px;
-  font-size: 0.75rem;
-  border-radius: 3px;
+  padding: 1px var(--s1);
+  font-size: var(--fs-xs);
+  border-radius: var(--r-sm);
 }
 /* 2026-09-20 视觉减噪: 中性列(竞额/市值/评分/可信)灰字, 页面只保留涨跌红绿一个彩色语义 */
 .col-muted { color: var(--text-muted); }
@@ -297,7 +297,7 @@ function arrow(v) {
        出现, 同样溢出只是不易察觉)。故单元格 56->64px, 并同步 contain-intrinsic-size。 */
   height: 64px;
   text-align: center;
-  padding: 4px 2px !important;
+  padding: var(--s1) 2px !important;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -314,7 +314,7 @@ function arrow(v) {
 .stock-info-cell .stock-name {
   font-weight: 600;
   color: var(--text-main);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
 }
 /* 5-1: 奖牌独立一列(2026-09-21 主人拍板: 绝对定位+padding 预留方案导致名称列前后行不对齐)
    独立 36px 窄列, 前三名显示奖牌居中, 其余行空 —— 名称列恢复整齐对齐 */
@@ -325,7 +325,7 @@ function arrow(v) {
 }
 .stock-info-cell .row-medal,
 .medal-cell .row-medal {
-  font-size: 1.25rem;
+  font-size: var(--fs-2xl);
   line-height: 1;
 }
 /* 名称格内的标签行: 「连板高度」胶囊 + 「异动监管」标签 **并排**。
@@ -338,7 +338,7 @@ function arrow(v) {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: var(--s1);
   margin-top: 2px;
   min-width: 0;
   max-width: 100%;
@@ -350,13 +350,13 @@ function arrow(v) {
    类名唯一性(用 lb-tag 而非 lb-badge)的依据见全局那一节的注释。 */
 .yd-badge {
   display: inline-block;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   line-height: 1;
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 1px var(--s1);
+  border-radius: var(--r-sm);
   /* 5-4: 监管告警标签从金色边框(奖牌语义)改为琥珀色实心胶囊(告警语义) */
-  background: #ff9632;
-  border: 1px solid #ff9632;
+  background: var(--warn);
+  border: 1px solid var(--warn);
   color: #3a1f00;
   font-weight: 600;
   white-space: nowrap;
@@ -367,16 +367,16 @@ function arrow(v) {
    超过窄屏名称列宽时由 .badge-row 的 overflow:hidden 裁掉尾部（不换行、不撑高）。 */
 .dev-badge {
   display: inline-block;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   line-height: 1;
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 1px var(--s1);
+  border-radius: var(--r-sm);
   border: 1px solid transparent;
   font-weight: 600;
   white-space: nowrap;
   cursor: help;
 }
-.dev-badge-red { background: rgba(255, 77, 79, 0.16); border-color: rgba(255, 77, 79, 0.6); color: #ff9a9a; }
+.dev-badge-red { background: rgba(255, 77, 79, 0.16); border-color: rgba(255, 77, 79, 0.6); color: var(--accent-text); }
 .dev-badge-yellow { background: rgba(255, 197, 61, 0.13); border-color: rgba(255, 197, 61, 0.55); color: #ffd666; }
 body[data-bg="light"] .dev-badge-red { background: #fde3e3; border-color: #d4380d; color: #8c1c00; }
 body[data-bg="light"] .dev-badge-yellow { background: #fff8e0; border-color: #c79100; color: #7a4d00; }
@@ -388,7 +388,7 @@ body[data-bg="light"] .dev-badge-yellow { background: #fff8e0; border-color: #c7
 }
 .stock-info-cell .stock-code {
   font-family: inherit;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   letter-spacing: 0.5px;
 }
@@ -438,11 +438,11 @@ body[data-bg="light"] th.sortable.active { color: #fff; }
 }
 .pool-add-btn {
   background: rgba(120, 200, 80, 0.15);
-  border: 1px solid #78c850;
-  color: #c0e8a0;
-  border-radius: 4px;
-  padding: 2px 8px;
-  font-size: 0.75rem;
+  border: 1px solid var(--success);
+  color: var(--success-text);
+  border-radius: var(--r-sm);
+  padding: 2px var(--s2);
+  font-size: var(--fs-xs);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -451,7 +451,7 @@ body[data-bg="light"] th.sortable.active { color: #fff; }
 }
 .pool-add-btn.added {
   background: rgba(120, 200, 80, 0.35);
-  border-color: #78c850;
+  border-color: var(--success);
   color: #e8ffd0;
   cursor: default;
 }
@@ -460,13 +460,13 @@ body[data-bg="light"] th.sortable.active { color: #fff; }
 .name-main { line-height: 1.4; }
 .offline-tag {
   display: inline-block;
-  margin-top: 3px;
-  font-size: 0.75rem;
+  margin-top: var(--s1);
+  font-size: var(--fs-xs);
   line-height: 1.3;
   color: var(--text-muted);
   border: 1px dashed #777;
-  border-radius: 4px;
-  padding: 1px 5px;
+  border-radius: var(--r-sm);
+  padding: 1px var(--s1);
 }
 
 /* 2026-09-20 性能优化: content-visibility 虚拟化渲染。
@@ -511,11 +511,11 @@ body[data-bg="light"] th.sortable.active { color: #fff; }
     position: sticky;
     left: 0;
     z-index: 6;
-    box-shadow: 6px 0 8px -6px rgba(0, 0, 0, 0.65);
+    box-shadow: var(--sh-1);
   }
   .stock-table-compact thead th:nth-child(2) {
     z-index: 9;                                  /* 表头行整体 sticky top(z-index:8) ⇒ 名称表头要更高一层 */
-    background: var(--accent-deep2, #d80000);
+    background: var(--accent-deep2, var(--accent-deep2));
   }
   .stock-table-compact tbody td:nth-child(2) {
     background: var(--bg-panel-solid, #121623);  /* 体格用面板底色: 要盖住从它下面滑过的列 */
@@ -534,7 +534,7 @@ body[data-bg="light"] th.sortable.active { color: #fff; }
 .tick {
   display: inline-block;
   padding: 0 2px;
-  border-radius: 2px;
+  border-radius: var(--r-sm);
 }
 .up .tick   { animation: kx-tick-up 0.30s ease-out; }
 .down .tick { animation: kx-tick-down 0.30s ease-out; }

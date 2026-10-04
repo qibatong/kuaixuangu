@@ -261,56 +261,56 @@ function ztText(r) {
 
 <style scoped>
 .dd-head {
-  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
-  padding-bottom: 10px; margin-bottom: 12px; border-bottom: 1px solid var(--border-soft);
+  display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap;
+  padding-bottom: var(--s2); margin-bottom: var(--s3); border-bottom: 1px solid var(--border-soft);
 }
-.dd-title { display: flex; align-items: baseline; gap: 6px; }
-.dd-name { font-size: 1.0625rem; font-weight: 700; color: var(--text-main); }
-.dd-code { color: var(--text-muted); font-size: 0.8125rem; letter-spacing: 0.5px; }
+.dd-title { display: flex; align-items: baseline; gap: var(--s2); }
+.dd-name { font-size: var(--fs-lg); font-weight: 700; color: var(--text-main); }
+.dd-code { color: var(--text-muted); font-size: var(--fs-sm); letter-spacing: 0.5px; }
 .dd-tag {
-  padding: 1px 8px; border-radius: 10px; font-size: 0.75rem;
-  color: #ffd700; background: rgba(255, 180, 0, 0.12); border: 1px solid rgba(255, 180, 0, 0.35);
+  padding: 1px var(--s2); border-radius: var(--r-lg); font-size: var(--fs-xs);
+  color: var(--gold); background: rgba(255, 180, 0, 0.12); border: 1px solid rgba(255, 180, 0, 0.35);
 }
 .dd-tag-idx { color: #9cf; background: rgba(120, 190, 255, 0.1); border-color: rgba(120, 190, 255, 0.35); }
-.dd-price { margin-left: auto; color: var(--text-secondary); font-size: 0.8125rem; }
-.dd-price b { color: #ffd700; }
-.dd-date { color: var(--text-muted); font-size: 0.75rem; }
+.dd-price { margin-left: auto; color: var(--text-secondary); font-size: var(--fs-sm); }
+.dd-price b { color: var(--gold); }
+.dd-date { color: var(--text-muted); font-size: var(--fs-xs); }
 
-.dd-lines { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 12px; }
+.dd-lines { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--s2); margin-bottom: var(--s3); }
 .dd-card {
-  border: 1px solid var(--border-soft); border-radius: 8px; padding: 10px 12px;
+  border: 1px solid var(--border-soft); border-radius: var(--r-md); padding: var(--s2) var(--s3);
   background: var(--bg-hover);
 }
 .dd-card.dd-hit { border-color: rgba(255, 77, 79, 0.55); background: rgba(255, 77, 79, 0.08); }
 .dd-card.dd-near { border-color: rgba(255, 197, 61, 0.5); background: rgba(255, 197, 61, 0.07); }
-.dd-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.dd-tt { font-size: 0.8125rem; color: var(--text-secondary); }
-.dd-badge { font-size: 0.6875rem; padding: 0 6px; border-radius: 3px; font-weight: 600; }
-.dd-badge-hit { color: #fff; background: #b3261e; }
-.dd-badge-near { color: #3a2a00; background: #ffc53d; }
+.dd-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--s2); }
+.dd-tt { font-size: var(--fs-sm); color: var(--text-secondary); }
+.dd-badge { font-size: var(--fs-xs); padding: 0 var(--s2); border-radius: var(--r-sm); font-weight: 600; }
+.dd-badge-hit { color: #fff; background: var(--brand-deep); }
+.dd-badge-near { color: #3a2a00; background: var(--gold); }
 .dd-badge-safe { color: var(--text-muted); background: rgba(255, 255, 255, 0.07); }
-.dd-val { font-size: 1.25rem; font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
-.dd-thresh { font-size: 0.75rem; font-weight: 400; color: var(--text-muted); margin-left: 6px; }
-.dd-bar { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.08); margin: 8px 0; overflow: hidden; }
-.dd-bar i { display: block; height: 100%; background: #ffb400; }
-.dd-hit .dd-bar i { background: #ff4d4f; }
-.dd-meta { font-size: 0.6875rem; color: var(--text-muted); line-height: 1.7; }
+.dd-val { font-size: var(--fs-2xl); font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
+.dd-thresh { font-size: var(--fs-xs); font-weight: 400; color: var(--text-muted); margin-left: var(--s2); }
+.dd-bar { height: 4px; border-radius: var(--r-sm); background: rgba(255, 255, 255, 0.08); margin: var(--s2) 0; overflow: hidden; }
+.dd-bar i { display: block; height: 100%; background: var(--star); }
+.dd-hit .dd-bar i { background: var(--accent); }
+.dd-meta { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.7; }
 .dd-meta-w { color: var(--text-muted); opacity: 0.8; }
 
 .dd-room {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: 10px 12px; border-radius: 8px; margin-bottom: 12px;
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); border-radius: var(--r-md); margin-bottom: var(--s3);
   background: rgba(255, 180, 0, 0.08); border: 1px solid rgba(255, 180, 0, 0.28);
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
 }
-.dd-room-t { color: #ffd700; font-weight: 600; }
+.dd-room-t { color: var(--gold); font-weight: 600; }
 .dd-room-r { color: var(--text-main); }
-.dd-room-r b { color: #ff6b6b; }
-.dd-room-w { color: var(--text-muted); font-size: 0.75rem; }
+.dd-room-r b { color: var(--brand-soft); }
+.dd-room-w { color: var(--text-muted); font-size: var(--fs-xs); }
 
-.dd-proj-h { font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 8px; }
-.dd-proj-s { font-size: 0.6875rem; color: var(--text-muted); margin-left: 6px; font-weight: 400; }
-.dd-proj-empty { padding: 20px; text-align: center; color: var(--text-muted); font-size: 0.8125rem; line-height: 1.7; }
+.dd-proj-h { font-size: var(--fs-base); color: var(--text-secondary); margin-bottom: var(--s2); }
+.dd-proj-s { font-size: var(--fs-xs); color: var(--text-muted); margin-left: var(--s2); font-weight: 400; }
+.dd-proj-empty { padding: var(--s5); text-align: center; color: var(--text-muted); font-size: var(--fs-sm); line-height: 1.7; }
 .dd-proj-empty b { color: var(--text-secondary); font-weight: 600; }
 .dd-table { width: 100%; table-layout: fixed; }
 .dd-table th, .dd-table td { vertical-align: middle !important; text-align: center !important; }
@@ -319,26 +319,26 @@ function ztText(r) {
    上行 = 数值（大、着色），下行 = 单位/说明（小、灰）。两行高度固定，
    避免不同行单元格高度不齐把表格拉成锯齿。 */
 .dd-cell { line-height: 1.35; }
-.dd-v { display: block; font-size: 0.8125rem; font-weight: 600; font-variant-numeric: tabular-nums; }
-.dd-p { display: block; font-size: 0.6875rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.dd-v { display: block; font-size: var(--fs-sm); font-weight: 600; font-variant-numeric: tabular-nums; }
+.dd-p { display: block; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .dd-p-dim { opacity: 0.75; }
-.dd-day-n { display: block; font-size: 0.8125rem; color: var(--text-secondary); }
-.dd-day-d { display: block; font-size: 0.6875rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.dd-day-n { display: block; font-size: var(--fs-sm); color: var(--text-secondary); }
+.dd-day-d { display: block; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .dd-rule .dd-v { white-space: nowrap; }
 
 .col-num { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.col-up { color: #ff6b6b; font-weight: 600; }
+.col-up { color: var(--brand-soft); font-weight: 600; }
 .col-dim { color: var(--text-muted); }
 
-.dev-ph { text-align: center; padding: 36px 12px; color: var(--text-muted); }
-.dev-ph-t { font-size: 0.9375rem; margin-bottom: 6px; color: var(--text-secondary); }
-.dev-ph-s { font-size: 0.75rem; line-height: 1.6; }
-.dev-ph-fail .dev-ph-t { color: #ff6b6b; }
-.dev-ph-fail .dev-ph-s { color: #ff9a9a; }
+.dev-ph { text-align: center; padding: var(--s8) var(--s3); color: var(--text-muted); }
+.dev-ph-t { font-size: var(--fs-md); margin-bottom: var(--s2); color: var(--text-secondary); }
+.dev-ph-s { font-size: var(--fs-xs); line-height: 1.6; }
+.dev-ph-fail .dev-ph-t { color: var(--brand-soft); }
+.dev-ph-fail .dev-ph-s { color: var(--accent-text); }
 
 .spinner {
   width: 28px; height: 28px; border: 3px solid rgba(255, 180, 0, 0.3);
-  border-top-color: #ffb400; border-radius: 50%;
+  border-top-color: var(--star); border-radius: 50%;
   animation: dd-spin 0.8s linear infinite; margin: 0 auto 10px;
 }
 @keyframes dd-spin { to { transform: rotate(360deg); } }

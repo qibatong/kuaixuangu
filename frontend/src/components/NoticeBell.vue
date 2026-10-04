@@ -79,12 +79,12 @@ onUnmounted(() => {
   right: -5px;
   min-width: 15px;
   height: 15px;
-  padding: 0 3px;
+  padding: 0 var(--s1);
   box-sizing: border-box;
-  border-radius: 8px;
+  border-radius: var(--r-md);
   background: var(--accent);
   color: var(--accent-on);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   line-height: 15px;
   text-align: center;
   font-weight: 600;

@@ -283,22 +283,22 @@ defineExpose({ load })
 </script>
 
 <style scoped>
-.yj-panel { padding: 2px 0 8px; }
+.yj-panel { padding: 2px 0 var(--s2); }
 
 /* ---- 头部 ---- */
 .yj-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--s2);
   flex-wrap: wrap;
-  margin: 2px 0 4px;
+  margin: 2px 0 var(--s1);
 }
 .yj-title {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 15px;
+  gap: var(--s2);
+  font-size: var(--fs-md);
   font-weight: 700;
   color: var(--text-main);
 }
@@ -325,10 +325,10 @@ defineExpose({ load })
   pointer-events: none;
 }
 .yj-chip {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
-  padding: 1px 8px;
-  border-radius: 10px;
+  padding: 1px var(--s2);
+  border-radius: var(--r-lg);
   border: 1px solid var(--border-soft, #3a3f4b);
   color: var(--text-secondary);
 }
@@ -341,9 +341,9 @@ defineExpose({ load })
   background: rgba(var(--accent-rgb), 0.12);
   border: 1px solid rgba(var(--accent-rgb), 0.45);
   color: var(--accent-text, var(--accent));
-  border-radius: 6px;
-  padding: 4px 12px;
-  font-size: 12px;
+  border-radius: var(--r-md);
+  padding: var(--s1) var(--s3);
+  font-size: var(--fs-xs);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -355,27 +355,27 @@ defineExpose({ load })
 /* ---- 空态 / 错误态 ---- */
 .yj-empty {
   text-align: center;
-  padding: 28px 12px;
+  padding: var(--s7) var(--s3);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
-.yj-empty .fa { color: var(--accent); margin-right: 6px; }
-.yj-empty-hint { margin-top: 6px; font-size: 11.5px; color: var(--text-muted); }
+.yj-empty .fa { color: var(--accent); margin-right: var(--s2); }
+.yj-empty-hint { margin-top: var(--s2); font-size: var(--fs-xs); color: var(--text-muted); }
 .yj-retry {
-  margin-left: 8px;
+  margin-left: var(--s2);
   background: rgba(var(--accent-rgb), 0.15);
   border: 1px solid rgba(var(--accent-rgb), 0.45);
   color: var(--accent-text, var(--accent));
-  border-radius: 6px;
-  padding: 3px 12px;
-  font-size: 12px;
+  border-radius: var(--r-md);
+  padding: var(--s1) var(--s3);
+  font-size: var(--fs-xs);
   cursor: pointer;
 }
 
 /* ---- 表格 ---- */
 .yj-scroll { overflow-x: auto; }
-.yj-table { min-width: 1020px; font-size: 12px; }
-.yj-table th { font-size: 11.5px; white-space: nowrap; }
+.yj-table { min-width: 1020px; font-size: var(--fs-xs); }
+.yj-table th { font-size: var(--fs-xs); white-space: nowrap; }
 /*
   2026-09-28: 关闭本表的 sticky 表头（有意为之，勿"顺手恢复"）。
   全局 main.css:314-324 给 `.home-col-left .stock-table thead th` 设了
@@ -400,7 +400,7 @@ defineExpose({ load })
    改法选择"内容向表头看齐"（而非表头向内容看齐），保持全表 12 列对齐方式统一。 */
 .yj-name { cursor: pointer; }
 .yj-name-main { font-weight: 600; color: var(--text-main); }
-.yj-name-sub { font-size: 10.5px; color: var(--text-muted); }
+.yj-name-sub { font-size: var(--fs-xs); color: var(--text-muted); }
 
 .yj-score {
   font-weight: 700;
@@ -425,7 +425,7 @@ defineExpose({ load })
 /* 2026-09-30 主人清理提示: .yj-note(底部口径与统计) / .yj-disclaimer 已连同其文案一并删除 */
 
 /* 嵌入首页左视图（半宽）时收紧 */
-.yj-embedded .yj-title { font-size: 14px; }
+.yj-embedded .yj-title { font-size: var(--fs-base); }
 .yj-embedded .yj-concept { max-width: 110px; }
 
 /* 浅色主题：白底上不用亮红当文字，改用深变体 */
@@ -451,14 +451,14 @@ body[data-bg="light"] .yj-chip { color: #5a4a3a; }
 @media (max-width: 768px) {
   .yj-swipe-hint {
     display: block;
-    margin: 0 0 4px;
-    font-size: 11px;
+    margin: 0 0 var(--s1);
+    font-size: var(--fs-xs);
     color: var(--text-muted);
     text-align: right;
   }
-  .yj-table { min-width: 880px; font-size: 11.5px; }
+  .yj-table { min-width: 880px; font-size: var(--fs-xs); }
   .yj-table th,
-  .yj-table td { padding: 6px 4px; }
+  .yj-table td { padding: var(--s2) var(--s1); }
   .yj-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   /* 2026-09-29: 概念用 overflow-wrap 而非 word-break:break-all —— 后者会把 MiniLED/CPO/PCB
      这类英文概念从中间断开(交易名词断字很容易看错), 前者只在整词放不下时才断, 且优先在「、」后断。 */
@@ -479,41 +479,41 @@ body[data-bg="light"] .yj-chip { color: #5a4a3a; }
      ============================================================ */
   .yj-swipe-hint { display: none; }        /* 卡片不需要横滑, 提示反而误导 */
   .yj-scroll { overflow-x: visible; }
-  .yj-table { display: block; width: 100%; min-width: 0; font-size: 12px; }
+  .yj-table { display: block; width: 100%; min-width: 0; font-size: var(--fs-xs); }
   .yj-table thead { display: none; }       /* 字段名改由 data-label 在卡内展示 */
   .yj-table tbody { display: block; }
   .yj-table tbody tr {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 3px 8px;
-    padding: 7px 8px 8px;
-    margin: 0 0 6px;
+    gap: var(--s1) var(--s2);
+    padding: var(--s2) var(--s2) var(--s2);
+    margin: 0 0 var(--s2);
     border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.1));
-    border-radius: 8px;
+    border-radius: var(--r-md);
     background: var(--bg-panel, rgba(18, 22, 35, 0.85));
   }
   .yj-table tbody td {
     display: inline-flex;
     align-items: baseline;
-    gap: 3px;
+    gap: var(--s1);
     width: auto;
     padding: 0;
     border: 0;
-    font-size: 12px;
+    font-size: var(--fs-xs);
     white-space: nowrap;
   }
   /* 第 1 行：名次(🏆/序号) + 名称(撑满, 逼后面字段换行) + 综合评分(靠右, 与名称同一行) */
   .yj-table tbody td:nth-child(1) { flex: 0 0 auto; }
   .yj-table tbody td:nth-child(2) { flex: 1 1 auto; min-width: 0; text-align: left; }
-  .yj-table tbody td:nth-child(2) .yj-name-main { display: block; font-size: 13.5px; }
+  .yj-table tbody td:nth-child(2) .yj-name-main { display: block; font-size: var(--fs-sm); }
   .yj-table tbody td:nth-child(2) .yj-name-sub { display: block; }
   .yj-table tbody td:nth-child(3) { flex: 0 0 auto; margin-left: auto; }
   /* 其余字段：灰标签 + 值, 自动换行铺满卡片（一行能放几个就放几个） */
   .yj-table tbody td:nth-child(n + 4)::before {
     content: attr(data-label);
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: var(--fs-xs);
     font-weight: 400;
   }
   /* 概念：独占一行且可折行（表格态被 118px 限宽 + 省略号截断, 卡片态要能看全）

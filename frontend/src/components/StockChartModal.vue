@@ -601,35 +601,35 @@ onUnmounted(() => {
   width: min(960px, 96vw); height: min(680px, 92vh);
   background: var(--bg-panel-solid, #0f172a);
   border: 1px solid var(--border-soft, #1f2937);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   display: flex; flex-direction: column; overflow: hidden;
-  box-shadow: 0 25px 60px rgba(0,0,0,0.5);
+  box-shadow: var(--sh-3);
 }
 .chart-header {
-  padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;
+  padding: var(--s3) var(--s4); display: flex; align-items: center; justify-content: space-between;
   border-bottom: 1px solid var(--border-soft, #1f2937);
   background: var(--bg-panel-solid, #111827);
 }
-.chart-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.stock-name { font-size: 1.0625rem; font-weight: 700; color: var(--text-main, #f3f4f6); }
-.stock-code { font-size: 0.8125rem; color: var(--text-secondary, #9ca3af); font-family: inherit; }
-.stock-pre-close { font-size: 0.75rem; color: var(--text-muted, #6b7280); }
-.chart-actions { display: flex; gap: 6px; }
+.chart-title { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+.stock-name { font-size: var(--fs-lg); font-weight: 700; color: var(--text-main, #f3f4f6); }
+.stock-code { font-size: var(--fs-sm); color: var(--text-secondary, var(--text-dim)); font-family: inherit; }
+.stock-pre-close { font-size: var(--fs-xs); color: var(--text-muted, var(--text-faint)); }
+.chart-actions { display: flex; gap: var(--s2); }
 .chart-btn-icon {
-  width: 32px; height: 32px; border-radius: 6px; border: none; cursor: pointer;
-  background: transparent; color: var(--text-secondary, #d1d5db); font-size: 0.875rem;
+  width: 32px; height: 32px; border-radius: var(--r-md); border: none; cursor: pointer;
+  background: transparent; color: var(--text-secondary, #d1d5db); font-size: var(--fs-base);
   transition: background 0.15s;
 }
 .chart-btn-icon:hover { background: rgba(255,255,255,0.08); }
 .chart-btn-close:hover { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
 
 .chart-tabs {
-  display: flex; gap: 4px; padding: 10px 16px 0;
+  display: flex; gap: var(--s1); padding: var(--s2) var(--s4) 0;
   border-bottom: 1px solid var(--border-soft, #1f2937);
 }
 .chart-tab {
-  padding: 7px 16px; border-radius: 6px 6px 0 0; border: none; cursor: pointer;
-  background: transparent; color: var(--text-secondary, #9ca3af); font-size: 0.8125rem;
+  padding: var(--s2) var(--s4); border-radius: 6px 6px 0 0; border: none; cursor: pointer;
+  background: transparent; color: var(--text-secondary, var(--text-dim)); font-size: var(--fs-sm);
   font-weight: 500; transition: background-color 0.15s, color 0.15s;
 }
 .chart-tab:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
@@ -639,14 +639,14 @@ onUnmounted(() => {
 }
 
 .chart-body {
-  flex: 1; min-height: 0; position: relative; padding: 4px 8px 4px 4px;
+  flex: 1; min-height: 0; position: relative; padding: var(--s1) var(--s2) var(--s1) var(--s1);
   background: var(--bg-panel-solid, #0b1220);
 }
 .chart-canvas { width: 100%; height: 100%; }
 .chart-body-detail { width: 100%; height: 100%; overflow: hidden; }
 .chart-loading, .chart-empty {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  flex-direction: column; gap: 8px; color: var(--text-muted, #6b7280); font-size: 0.875rem;
+  flex-direction: column; gap: var(--s2); color: var(--text-muted, var(--text-faint)); font-size: var(--fs-base);
 }
 .chart-loading i { color: #3b82f6; }
 .chart-empty i { font-size: 2rem; opacity: 0.5; }
@@ -674,50 +674,50 @@ onUnmounted(() => {
   }
   /* 头部: 更紧凑 + 触控按钮加大到 min 44px */
   .chart-header {
-    padding: 10px 12px;
-    gap: 8px;
+    padding: var(--s2) var(--s3);
+    gap: var(--s2);
   }
-  .chart-title { gap: 6px; align-items: center; }
-  .stock-name { font-size: 1rem !important; }
-  .stock-code { font-size: 0.75rem !important; }
-  .stock-pre-close { font-size: 0.75rem; }
+  .chart-title { gap: var(--s2); align-items: center; }
+  .stock-name { font-size: var(--fs-lg) !important; }
+  .stock-code { font-size: var(--fs-xs) !important; }
+  .stock-pre-close { font-size: var(--fs-xs); }
   .chart-btn-icon {
     min-width: 44px;
     min-height: 44px;
     width: 44px;
     height: 44px;
-    font-size: 1.0625rem;
-    border-radius: 10px;
+    font-size: var(--fs-lg);
+    border-radius: var(--r-lg);
   }
   /* 4 个周期 Tab: 手机上等宽一排, 可点击区加大 */
   .chart-tabs {
-    padding: 6px 6px 0;
+    padding: var(--s2) var(--s2) 0;
     gap: 2px;
   }
   .chart-tab {
     flex: 1 1 0;
     min-width: 0;
-    padding: 8px 4px;
-    font-size: 0.8125rem;
+    padding: var(--s2) var(--s1);
+    font-size: var(--fs-sm);
     border-radius: 6px 6px 0 0;
   }
   /* 图表主体: 去掉 body padding, 让画布占满 */
   .chart-body {
-    padding: 2px 4px 2px 2px;
+    padding: 2px var(--s1) 2px 2px;
   }
 }
 
 /* 横屏手机(< 768px height, 但 width > height 即横屏): 画布顶边距再压, 留给内容 */
 @media (max-width: 768px) and (orientation: landscape) {
   .chart-header {
-    padding: 6px 10px;
+    padding: var(--s2) var(--s2);
   }
-  .chart-title { gap: 4px; }
-  .stock-name { font-size: 0.875rem !important; }
-  .chart-tabs { padding: 2px 6px 0; }
-  .chart-tab { padding: 4px 4px; font-size: 0.75rem; }
+  .chart-title { gap: var(--s1); }
+  .stock-name { font-size: var(--fs-base) !important; }
+  .chart-tabs { padding: 2px var(--s2) 0; }
+  .chart-tab { padding: var(--s1) var(--s1); font-size: var(--fs-xs); }
   .chart-btn-icon {
-    min-width: 36px; min-height: 36px; width: 36px; height: 36px; font-size: 0.9375rem;
+    min-width: 36px; min-height: 36px; width: 36px; height: 36px; font-size: var(--fs-md);
   }
 }
 
@@ -745,11 +745,11 @@ onUnmounted(() => {
 @keyframes drawerUp { from { transform: translateY(16%); opacity: .5 } to { transform: none; opacity: 1 } }
 .drawer-grab {
   display: flex; justify-content: center; flex-shrink: 0;
-  padding: 8px 0 2px; background: var(--bg-panel-solid, #0f172a);
+  padding: var(--s2) 0 2px; background: var(--bg-panel-solid, #0f172a);
   touch-action: none;   /* 禁止浏览器把它当页面滚动，才能收到连续的 touchmove */
 }
 .drawer-grab-bar {
-  width: 40px; height: 4px; border-radius: 2px;
+  width: 40px; height: 4px; border-radius: var(--r-sm);
   background: var(--border-soft, #374151);
 }
 
@@ -759,28 +759,28 @@ onUnmounted(() => {
   padding: 12px 14px calc(16px + env(safe-area-inset-bottom));
 }
 .bid-head {
-  display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px;
-  font-size: .8125rem; font-weight: 700; color: var(--text-main, #f3f4f6);
+  display: flex; align-items: baseline; gap: var(--s2); margin-bottom: var(--s2);
+  font-size: var(--fs-sm); font-weight: 700; color: var(--text-main, #f3f4f6);
 }
-.bid-date { font-size: .6875rem; font-weight: 400; color: var(--text-muted, #6b7280); }
-.bid-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.bid-date { font-size: var(--fs-xs); font-weight: 400; color: var(--text-muted, var(--text-faint)); }
+.bid-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); }
 .bid-item {
-  border: 1px solid var(--border-soft, #1f2937); border-radius: 10px;
-  padding: 10px 8px; text-align: center;
+  border: 1px solid var(--border-soft, #1f2937); border-radius: var(--r-lg);
+  padding: var(--s2) var(--s2); text-align: center;
 }
-.bid-time { display: block; font-size: .75rem; color: var(--text-secondary, #9ca3af); }
+.bid-time { display: block; font-size: var(--fs-xs); color: var(--text-secondary, var(--text-dim)); }
 .bid-chg {
-  display: block; margin: 2px 0 4px; font-size: 1rem; font-weight: 700;
+  display: block; margin: 2px 0 var(--s1); font-size: var(--fs-lg); font-weight: 700;
   color: var(--text-main, #f3f4f6);
-  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
 }
 .bid-chg.up { color: #ef4444; }     /* A 股口径：红涨绿跌 */
 .bid-chg.down { color: #22c55e; }
-.bid-sub { display: block; font-size: .6875rem; color: var(--text-muted, #6b7280); }
-.bid-tip { padding: 30px 0; text-align: center; font-size: .8125rem; color: var(--text-muted, #6b7280); }
-.bid-tip.err { color: #ff6a6a; }
+.bid-sub { display: block; font-size: var(--fs-xs); color: var(--text-muted, var(--text-faint)); }
+.bid-tip { padding: var(--s8) 0; text-align: center; font-size: var(--fs-sm); color: var(--text-muted, var(--text-faint)); }
+.bid-tip.err { color: var(--brand-soft); }
 .bid-note {
-  margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border-soft, #1f2937);
-  font-size: .6875rem; color: var(--text-muted, #6b7280); line-height: 1.6;
+  margin-top: var(--s2); padding-top: var(--s2); border-top: 1px dashed var(--border-soft, #1f2937);
+  font-size: var(--fs-xs); color: var(--text-muted, var(--text-faint)); line-height: 1.6;
 }
 </style>

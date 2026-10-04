@@ -112,8 +112,8 @@ defineExpose({ focus, rowEls, setRowEl })
 .ss-panel {
   background: var(--bg-panel-solid);
   border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-3);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -123,8 +123,8 @@ body[data-bg="light"] .ss-panel { box-shadow: 0 10px 30px rgba(16, 24, 40, 0.16)
 
 /* 面板顶部输入框（仅 tabbar 变体） */
 .ss-panel-search {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 10px;
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s2) var(--s2);
   border-bottom: 1px solid var(--border-soft);
   background: var(--bg-card);
 }
@@ -133,10 +133,10 @@ body[data-bg="light"] .ss-panel { box-shadow: 0 10px 30px rgba(16, 24, 40, 0.16)
   flex: 1 1 auto; min-width: 0;
   background: var(--bg-input);
   border: 1px solid var(--border-soft);
-  border-radius: 8px;
+  border-radius: var(--r-md);
   color: var(--text-main);
-  font-size: 1rem;            /* ≥16px：iOS 聚焦时才不会自动放大页面 */
-  padding: 8px 10px;
+  font-size: var(--fs-lg);            /* ≥16px：iOS 聚焦时才不会自动放大页面 */
+  padding: var(--s2) var(--s2);
   outline: none;
   -webkit-appearance: none; appearance: none;
 }
@@ -145,42 +145,42 @@ body[data-bg="light"] .ss-panel { box-shadow: 0 10px 30px rgba(16, 24, 40, 0.16)
 .ss-input::-webkit-search-cancel-button { display: none; }
 .ss-panel-close {
   background: transparent; border: 1px solid var(--border-soft);
-  color: var(--text-secondary); border-radius: 8px;
+  color: var(--text-secondary); border-radius: var(--r-md);
   width: 32px; height: 32px; flex: 0 0 auto; cursor: pointer;
 }
 .ss-panel-close:hover { background: var(--bg-hover); color: var(--text-main); }
 
 /* 提示 / 空态 / 错误态 */
 .ss-hint, .ss-state {
-  padding: 14px 14px;
-  font-size: 0.8125rem;
+  padding: var(--s4) var(--s4);
+  font-size: var(--fs-sm);
   color: var(--text-muted);
   line-height: 1.7;
 }
 .ss-hint b { color: var(--text-secondary); }
-.ss-state i { margin-right: 6px; }
-.ss-err { color: #ff9632; }
+.ss-state i { margin-right: var(--s2); }
+.ss-err { color: var(--warn); }
 body[data-bg="light"] .ss-err { color: #b87220; }
 .ss-retry {
-  margin-left: 10px; padding: 3px 12px;
+  margin-left: var(--s2); padding: var(--s1) var(--s3);
   background: transparent; color: var(--accent);
-  border: 1px solid var(--accent); border-radius: 6px;
-  font-size: 0.75rem; cursor: pointer;
+  border: 1px solid var(--accent); border-radius: var(--r-md);
+  font-size: var(--fs-xs); cursor: pointer;
 }
 .ss-retry:hover { background: var(--accent-bg); }
 
 /* 结果列表 */
 .ss-list {
-  list-style: none; margin: 0; padding: 4px;
+  list-style: none; margin: 0; padding: var(--s1);
   overflow-y: auto;
   overscroll-behavior: contain;   /* 列表内滚到底不再带动整页回弹（《移动端清单》§二·1） */
   -webkit-overflow-scrolling: touch;
 }
 .ss-row {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: var(--s2);
   width: 100%; text-align: left;
-  padding: 9px 10px;
-  background: transparent; border: none; border-radius: 8px;
+  padding: var(--s2) var(--s2);
+  background: transparent; border: none; border-radius: var(--r-md);
   color: var(--text-main);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -191,30 +191,30 @@ body[data-bg="light"] .ss-err { color: #b87220; }
 .ss-code {
   flex: 0 0 auto;
   font-variant-numeric: tabular-nums; font-feature-settings: "tnum";
-  color: var(--accent); font-weight: 600; font-size: 0.8125rem;
+  color: var(--accent); font-weight: 600; font-size: var(--fs-sm);
 }
 .ss-name {
   flex: 0 0 auto; min-width: 0;
-  font-size: 0.875rem; font-weight: 600; color: var(--text-main);
+  font-size: var(--fs-base); font-weight: 600; color: var(--text-main);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ss-board {
   flex: 0 0 auto;
-  font-size: 0.6875rem; color: var(--text-muted);
-  border: 1px solid var(--border-soft); border-radius: 4px;
-  padding: 0 5px;
+  font-size: var(--fs-xs); color: var(--text-muted);
+  border: 1px solid var(--border-soft); border-radius: var(--r-sm);
+  padding: 0 var(--s1);
 }
 .ss-py {
   flex: 0 0 auto;
-  font-size: 0.6875rem; color: var(--text-muted);
-  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: var(--fs-xs); color: var(--text-muted);
+  font-family: var(--font-mono);
   letter-spacing: 0.5px;
 }
 .ss-foot {
-  padding: 6px 12px;
+  padding: var(--s2) var(--s3);
   border-top: 1px solid var(--border-soft);
-  font-size: 0.6875rem; color: var(--text-muted);
-  display: flex; align-items: center; gap: 6px;
+  font-size: var(--fs-xs); color: var(--text-muted);
+  display: flex; align-items: center; gap: var(--s2);
 }
 .ss-foot-loading { color: var(--accent); }
 </style>
