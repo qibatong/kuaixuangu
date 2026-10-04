@@ -270,8 +270,23 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
   .nav-tools :deep(.ss-inline-input:focus) { width: 100%; min-width: 0; }
   /* 未登录时的「登录/注册」按钮在手机上隐藏 —— 左上角头像已指向 /login，留着是重复且挤 */
   .user-tools { display: none; }
-  /* 用户中心头像在手机端显示（它是底部「我的」tab 的替代入口） */
-  .nav-user-btn { display: flex; }
+  /* 用户中心头像在手机端显示（它是底部「我的」tab 的替代入口）。
+     2026-10-04 参考开盘啦 App 顶栏：入口加大到 38px 圆钮（32px 点击目标偏小） */
+  .nav-user-btn { display: flex; width: 38px; height: 38px; font-size: 1rem; }
+  /* 2026-10-04 参考开盘啦 App 顶栏：搜索框改**全圆角胶囊** + 提亮底色
+     （原 --bg-input 深黑底几乎融进顶栏）；浅色主题反向压暗保持可读 */
+  .nav-tools :deep(.ss-inline) {
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.13);
+    border-color: rgba(255, 255, 255, 0.10);
+    padding: 0 12px;
+    height: 36px;
+  }
+  .nav-tools :deep(.ss-inline-input) { font-size: 0.875rem; }
+  body[data-bg="light"] .nav-tools :deep(.ss-inline) {
+    background: rgba(0, 0, 0, 0.05);
+    border-color: rgba(0, 0, 0, 0.10);
+  }
   .nav-brand { gap: 5px; padding: 0 6px 0 2px; }
   .nav-logo { width: 26px; height: 26px; border-radius: 6px; }
   .nav-brand-name { font-size: 0.875rem; }
@@ -280,8 +295,9 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
      改由底部固定 AppTabBar(6 tab) 承担一级分组切换, 组内二级页用 GroupNav pill 换行/横滑。
      原先「9 个 tab 自动换行」的老行为不再需要。 */
   .nav-tabs { display: none; }
-  /* 工具区自动换行(2026-08-18 主人要求: 不横滑, 放不下自动换行) */
-  .nav-tools { gap: 6px; flex-wrap: wrap; overflow: visible; max-width: 100%; }
+  /* 工具区(2026-10-04): 顶栏只剩 用户钮/搜索/信封 三件套，放得下 ⇒ 不再换行
+     （旧规则 flex-wrap:wrap 会把信封挤到第二行被裁掉，实测截图确认过） */
+  .nav-tools { gap: 6px; flex-wrap: nowrap; overflow: visible; max-width: 100%; }
   .nav-tools::-webkit-scrollbar { display: none; }
   .mini-btn { padding: 4px 8px; font-size: 0.75rem; white-space: nowrap; }
 }

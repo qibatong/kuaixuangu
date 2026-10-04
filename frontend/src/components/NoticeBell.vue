@@ -20,7 +20,7 @@
     :title="unread > 0 ? ('系统消息：' + unread + ' 条未读') : '系统消息'"
     :aria-label="unread > 0 ? ('系统消息，' + unread + ' 条未读') : '系统消息'"
   >
-    <i class="fa fa-bell" aria-hidden="true"></i>
+    <i class="fa fa-envelope-o" aria-hidden="true"></i>
     <span v-if="unread > 0" class="nb-badge">{{ unread > 99 ? '99+' : unread }}</span>
   </router-link>
 </template>

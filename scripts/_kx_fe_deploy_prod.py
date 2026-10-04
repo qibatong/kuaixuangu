@@ -23,8 +23,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(REPO, "frontend", "dist")
 TAR = os.path.join(REPO, "frontend", "_dist_upload.tar.gz")
 
-ENTRY = "index-CbS1F642.js"           # 新(2026-10-04 第2批: 龙虎榜通达信样式 + 站内消息 + 去"我的" + 背景迁用户中心 + 昨涨停「首封」列 + ≤480 隐藏列)
-OLD_ENTRY = "index-DoQF-9dY.js"       # 生产线上当前(2026-10-04 03:22 那版)
+ENTRY = "index-trj2Hsi6.js"           # 新(2026-10-04 第3批: 宫格撤标题/编辑 + 顶栏胶囊搜索框 + 用户钮加大 + 信封图标 + 计算器图标重画)
+OLD_ENTRY = "index-CQ9NrfJn.js"       # 生产线上当前(2026-10-04 撤首封版)
 EXP_FILES = 769
 EXP_ASSETS = 760
 

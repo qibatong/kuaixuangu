@@ -20,14 +20,9 @@
     ⚠️ 只在 ≤768px 渲染（桌面顶部导航已含全部入口）。
   -->
   <div class="qg-root">
-    <div class="qg-head">
-      <span class="qg-title">快捷入口</span>
-      <button v-if="!editing" class="qg-edit" @click="beginEdit">编辑</button>
-      <template v-else>
-        <button class="qg-edit" @click="resetDefaults">恢复默认</button>
-        <button class="qg-edit qg-edit-done" @click="finishEdit">完成</button>
-      </template>
-    </div>
+    <!-- 2026-10-04 主人指令：删「快捷入口」标题与「编辑」按钮（qg-head 整块），
+         长按进编辑的 contextmenu 入口也一并去掉 —— 宫格变成纯入口，
+         编辑机制(editing/slots/candidates)保留在 script（不再有任何触发路径）。 -->
 
     <div class="qg-grid">
       <button
@@ -39,7 +34,6 @@
         :data-qg-children="it.children ? it.children.length : 0"
         :aria-label="it.label"
         @click="onTap(it, i)"
-        @contextmenu.prevent="beginEdit(i)"
       >
         <span class="qg-ic" :class="'qg-h-' + it.hue">
           <span v-if="it.text" class="qg-txt" :class="{ 'qg-txt-sm': it.text.length > 1 }">{{ it.text }}</span>
@@ -172,11 +166,11 @@ const ICONS = {
            { d: 'M8.1 9.6l4.8-.5.1 1.1-4.8.5z', mid: 1 },
            { d: 'M13.6 4.5l4.9-.4v1.1l-4.9.4z', mid: 1 },
            { d: 'M2.1 20.4l19.3-.6v1.2l-19.3.6z', hi: 1 }],
-  // 异动计算器：机身 + 屏幕 + 三键
-  calc: [{ d: 'M5.1 2.9l13.9-.2c.6 0 1.1.5 1.1 1.1l-.2 16.9c0 .6-.5 1.1-1.1 1.1l-13.9.2c-.6 0-1.1-.5-1.1-1.1L4 4c0-.6.5-1.1 1.1-1.1z' },
-         { d: 'M7.2 5.3l9.7-.2.1 3.5-9.8.2z', mid: 1 },
-         { d: 'M8.6 6.7h2.6v.9H8.6zm4 0h2.2v.9h-2.2z', hi: 1 },
-         { d: 'M7.1 11.2h2.7v2.5H7.1zm4.2 0h2.6v2.5h-2.6zm4.2.1h2.7v2.5h-2.7zM7.1 15.3h2.7v2.5H7.1zm4.2 0h2.6v2.5h-2.6zm4.2.1h2.7v2.7h-2.7z', hi: 1 }],
+  // 异动计算器：**线性机身**(白描边) + 屏幕 + 键盘全白实心 —— 2026-10-04 主人反馈
+  //   旧版"白色实心机身叠白键"不清晰，改线性风格后橙底上白形对比拉开（同题材库等线性图标语言）
+  calc: [{ d: 'M6.4 2.9h11.2c.9 0 1.6.7 1.6 1.6v15c0 .9-.7 1.6-1.6 1.6H6.4c-.9 0-1.6-.7-1.6-1.6v-15c0-.9.7-1.6 1.6-1.6z', stroke: 1, sw: 2.2 },
+         { d: 'M7.8 5.7h8.4v3.1H7.8z', hi: 1 },
+         { d: 'M8 11.3h2v2H8zm3 0h2v2h-2zm3 0h2v2h-2zM8 14.9h2v2H8zm3 0h2v2h-2zm3 0h2v2h-2z', hi: 1 }],
   // 盘前资讯：**喇叭**（2026-10-01 主人指定：改用喇叭图形，不再用报纸）
   news: [{ d: 'M3.4 9.1l3.5-.1 5.9-3.7c.4-.2.8.1.8.5v12.4c0 .4-.5.7-.9.4l-5.8-3.9-3.5-.1c-.4 0-.7-.3-.7-.7V9.8c0-.4.3-.7.7-.7z' },
          { d: 'M3.4 12.2h3.5v2.2H3.4z', mid: 1 },
@@ -378,40 +372,14 @@ function replaceWith(candKey) {
   saveKeys()
 }
 
-function beginEdit(i) {
-  editing.value = true
-  sheet.value = null
-  pickIndex.value = typeof i === 'number' ? i : -1
-}
-
-function finishEdit() {
-  editing.value = false
-  pickIndex.value = -1
-}
-
-function resetDefaults() {
-  keys.value = DEFAULT_KEYS.slice()
-  pickIndex.value = -1
-  saveKeys()
-}
+/* 2026-10-04: beginEdit/finishEdit/resetDefaults 随「编辑」按钮撤下而删除 ——
+   编辑机制(editing/slots/candidates/replaceWith)保留：将来要恢复只需加回触发入口。 */
 </script>
 
 <style scoped>
 .qg-root { display: none; }          /* 桌面端不渲染；≤768 打开（顶部导航已含全部入口） */
 
-.qg-head { display: flex; align-items: center; gap: 8px; padding: 0 2px 6px; }
-.qg-title { font-size: 0.72rem; color: var(--text-secondary); font-weight: 600; }
-.qg-edit {
-  margin-left: auto;
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: 0.7rem;
-  padding: 2px 4px;
-  cursor: pointer;
-}
-.qg-edit-done { color: var(--accent); font-weight: 600; }
-
+/* 2026-10-04: qg-head/qg-title/qg-edit 样式随模板一并删除（标题与编辑按钮撤下） */
 .qg-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px 2px; }
 .qg-item {
   position: relative;
