@@ -256,14 +256,14 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
 
 /* ===================== 移动端适配 (<=768px) ===================== */
 @media (max-width: 768px) {
-  .nav-bar { padding: 6px 4px; gap: 4px; margin-bottom: 10px; flex-wrap: nowrap; }
+  .nav-bar { padding: 6px 4px; gap: 6px; margin-bottom: 10px; flex-wrap: nowrap; }
   /* 2026-10-04 主人拍板：手机端顶栏 = **左用户中心 / 中搜索 / 右系统消息** 三栏。
      ⇒ 品牌文字让位（首页仍有底部 tab，回得了家）、工具区不再换行。
-     2026-10-04 主人再要求「搜索框整体再宽一些」：三处 gap 6→4 + 头像 38→36，
-     挤出来的宽度全给搜索胶囊（它本来就是 flex:1 吃剩余宽度）。 */
-  .nav-left { gap: 4px; width: auto; flex: 0 0 auto; }
+     2026-10-04 二次反馈：搜索框**恢复原始尺寸**（上一轮挤压间距促宽被否）——
+     改用 max-width 限宽（见下），多出的横向空间留白；顶栏改为**竖向拉长**。 */
+  .nav-left { gap: 6px; width: auto; flex: 0 0 auto; }
   .nav-brand { display: none; }
-  .nav-tools { flex: 1 1 auto; flex-wrap: nowrap; gap: 4px; }
+  .nav-tools { flex: 1 1 auto; flex-wrap: nowrap; gap: 6px; }
   .nav-tools :deep(.notice-bell) { order: 3; }
   /* 搜索框吃掉中间剩余宽度（桌面是定宽 150px，手机上必须能伸能缩） */
   .nav-tools :deep(.ss-root--nav) { flex: 1 1 auto; min-width: 0; }
@@ -274,7 +274,7 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
   .user-tools { display: none; }
   /* 用户中心头像在手机端显示（它是底部「我的」tab 的替代入口）。
      2026-10-04 参考开盘啦 App 顶栏：入口加大到 38px 圆钮（32px 点击目标偏小） */
-  .nav-user-btn { display: flex; width: 36px; height: 36px; font-size: 1rem; }
+  .nav-user-btn { display: flex; width: 38px; height: 38px; font-size: 1rem; }
   /* 2026-10-04 参考开盘啦 App 顶栏：搜索框改**全圆角胶囊** + 提亮底色
      （原 --bg-input 深黑底几乎融进顶栏）；浅色主题反向压暗保持可读 */
   .nav-tools :deep(.ss-inline) {
@@ -282,7 +282,7 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
     background: rgba(255, 255, 255, 0.13);
     border-color: rgba(255, 255, 255, 0.10);
     padding: 0 12px;
-    height: 36px;
+    height: 40px;   /* 2026-10-04 顶栏竖向拉长后, 36→40 胶囊同步加高更饱满 */
   }
   .nav-tools :deep(.ss-inline-input) { font-size: 0.875rem; }
   body[data-bg="light"] .nav-tools :deep(.ss-inline) {
@@ -306,8 +306,12 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
     border-radius: 0;
     box-shadow: none;
     margin: 0 -4px 10px;
-    padding: 6px 8px;
+    /* 竖向拉长(主人二次反馈, 参考同花顺/开盘啦的顶栏高度): 上下 6px → 13px */
+    padding: 13px 10px;
   }
+  /* 搜索胶囊恢复**原始尺寸**：不再 flex 吃光剩余宽度，限宽 230px 居其位，
+     多出的横向空间留给红底留白（对照开盘啦：胶囊不大，四周都是红）。 */
+  .nav-tools :deep(.ss-inline) { max-width: 230px; }
   body[data-bg="light"] .nav-brand-name,
   body[data-bg="light"] .nav-item { color: #fff; }
   /* 头像在红底上改白底红字(对比最强, 对照开盘啦的金色头像圈) */
@@ -316,8 +320,11 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
     border-color: rgba(255, 255, 255, 0.9);
     color: #c62828;
   }
-  /* 右上角信封(NoticeBell 是子组件, :deep 穿透)在红底上描白边 */
+  /* 右上角信封(NoticeBell 是子组件, :deep 穿透)在红底上改透明底白描边 ——
+     🔴 必须覆盖 background：它自身是 var(--bg-panel-solid)(浅色=白)，
+     红底白底白字 = 信封图标隐形，只剩一个"白圆"(主人截图实测)。 */
   body[data-bg="light"] .nav-tools :deep(.notice-bell) {
+    background: transparent;
     color: #fff;
     border-color: rgba(255, 255, 255, 0.55);
   }
