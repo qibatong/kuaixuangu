@@ -78,19 +78,25 @@ def _public(it):
                                    'bidTurnover', 'speed')}
 
 
-def _enrich_concept(items):
+def _enrich_concept(items, date=None):
     """概念列改用**开盘啦**概念（原件用的是东财 f103，过长；按主人要求换源）。
 
     · 数据来自我们库里 concept_refresh 已回写的映射（**不出网** ✓）
     · truncate=2 ⇒ 最多两个概念（与站内其它列表一致）
     · blank_if_missing=False ⇒ 库内查不到的票保留原件东财概念（不清空）
+    · 🔴 2026-10-05 修 bug：新增 `date` 参数并透传给 apply_board_concept_db。
+      原实现**不传日期** ⇒ _load_board_map_db 会默认取**今天**；而本接口在
+      「9:30 后 / 非交易日」走的是**快照分支**（快照日未必是今天 —— 例：10-05 国庆假期，
+      快照日=09-30，概念表里根本没有 10-05 的行）⇒ 覆盖必然落空。
+      因 blank_if_missing=False 会保留东财概念，所以症状不是"空白"而是
+      **"概念不是开盘啦的"**——比空白更难发现，与 stats.py 竞价精选那处是同一类 bug。
     · 只影响展示列：他的评分/过滤/排序**完全不用** concept ⇒ 数值与名单零变化 ✓
     """
     if not items:
         return items
     try:
         KPL.apply_board_concept_db(items, log_tag='his-pick', field='concept',
-                                   truncate=2, blank_if_missing=False)
+                                   truncate=2, blank_if_missing=False, date=date)
     except Exception as e:                              # noqa: BLE001
         log.warning('his-pick 概念换源失败（保留东财概念）：%s', str(e)[:80])
     # 兜底：库里查不到开盘啦概念的票，把东财那串长概念也截成最多 2 个（只影响展示）
@@ -173,8 +179,8 @@ def api_his_pick(request: Request,
 
         # ① 竞价时段：实时取数 → 跑他的逻辑 → 落快照（他的"9:30 前重新选股"语义）
         if live and rows:
-            items = _enrich_concept(H.processAllStocks(rows, filters))
-            day = time.strftime('%Y-%m-%d')
+            day = time.strftime('%Y-%m-%d')          # 2026-10-05: 提前取出, 供概念覆盖按日查库
+            items = _enrich_concept(H.processAllStocks(rows, filters), day)
             ok = H.save_snapshot(items, day, {'pool_size': len(rows)})
             pub = [_public(x) for x in items]
             return {'ok': True, 'date': day, 'fetchedAt': time.strftime('%Y-%m-%d %H:%M:%S'),
@@ -187,7 +193,7 @@ def api_his_pick(request: Request,
             if rows:
                 items = _refresh_quote(items, rows)
                 H.save_snapshot(items, day, {'pool_size': len(rows)})
-            _enrich_concept(items)
+            _enrich_concept(items, day)     # 2026-10-05: 必须用**快照日**（不一定是今天）查概念库
             pub = [_public(x) for x in items]
             return {'ok': True, 'date': day, 'fetchedAt': time.strftime('%Y-%m-%d %H:%M:%S'),
                     'src': 'snapshot', 'phase': phase, 'poolSize': None, 'picked': len(pub),

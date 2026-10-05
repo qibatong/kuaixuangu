@@ -1712,11 +1712,24 @@ body[data-bg="light"] .reason-clamp { color: #4a4a4a; }
   .auc-tabs { scroll-snap-type: none; }
   .auc-tabs .auc-tab { scroll-snap-align: none; }
   /* 头部紧凑: 标题+日期+按钮同行, 不换行 */
-  .auc-head { gap: var(--s2); flex-wrap: nowrap; }
+  /* 2026-10-05 主人：「日期显示不全，把前面的时间和每 30s 更新去掉是不是就能显示全了」。
+     实测 390px 顶栏（可用 378）：标题 73 + 更新戳 **205**（其中「· 每 30s 自动刷新」95）
+     + 日期框 120（被下面的 max-width 死卡，**自然宽 131**）+ 3 个按钮 96 + 间隔 40 = **542**
+     ⇒ 溢出 164px：日期只画到「2026年9月…」，末尾按钮被推到顶栏外（x=437）。
+     处置（主人的判断是对的，但要补一刀）：
+       ① **时间戳整块让位**（−205px）。新鲜度反馈并未失去：刷新中有 spinner、
+          刷新失败有「稍后重试」；且此页日期框本身已表明数据所属交易日。
+       ② 🔴 光去文字**不够** —— 日期框被 `max-width: 120px` 卡住，必须同时放开到 136
+          （自然宽 131 + 余量），「2026/09/30」才能完整显示。
+       ③ `nowrap` → `wrap` 作兜底：再窄的屏（≤360）宁可折两行，也不裁切控件。
+     合计 73+131+96+40 = 340 ≤ 378 ✓（余 38px）。 */
+  .auc-head { gap: var(--s2); flex-wrap: wrap; }
+  .auc-head .ds { display: none; }
   .auc-title { font-size: var(--fs-md); flex-shrink: 0; }
   .auc-head-spacer { flex: 1 1 auto; min-width: 0; }
   /* 日期选择器缩窄 */
-  .auc-head input[type="date"].rot-date { max-width: 120px; font-size: var(--fs-xs); min-height: 28px; padding: var(--s1) var(--s2); }
+  /* 120 → 136：120 会把「2026/09/30」裁成「2026年9月…」（实测自然宽 131，见上） */
+  .auc-head input[type="date"].rot-date { max-width: 136px; font-size: var(--fs-xs); min-height: 28px; padding: var(--s1) var(--s2); }
   .auc-head button.rot-reset-btn { padding: var(--s1) var(--s2); font-size: var(--fs-xs); }
   /* 表格字号/行高压缩 */
   .stock-table th { padding: var(--s2) var(--s1); font-size: var(--fs-xs); }

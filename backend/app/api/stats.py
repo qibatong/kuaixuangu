@@ -408,9 +408,15 @@ def api_stats_zh_picks(request: Request, uid: int = Depends(get_uid), date: str 
         log.warning("竞价精选 现价/实时/实体涨幅补齐失败 err=%s", e)
 
     # 概念: 与竞价异动各 tab 同源(开盘啦概念库, 取前 2 个), 填到 board 字段
+    # 🔴 2026-10-05 修 bug: **必须传 date=resolved(本接口实际服务的数据日)**。
+    #   原实现不传 ⇒ _load_board_map_db 默认取**今天**, 而本接口在非交易日 / 历史回看时
+    #   resolved 可能不是今天(例: 10-05 国庆假期 ⇒ resolved=09-30, 概念表里没有 10-05 的行)
+    #   ⇒ 取不到任何概念, 再被 blank_if_missing=True 清空 ⇒ 前端「概念」整列显示「-」。
+    #   实测: stock_concept 中 09-30 有 575 行且这 5 只票都有概念(600241 锂电池、大圆柱电池 等),
+    #   而接口返回 board 全为 ""。api/kpl.py 与 yijiner.py 的历史分支都传了 date, 只有这里漏了。
     try:
         kpl.apply_board_concept_db(picks, log_tag="stats:zh-picks", field="board",
-                                   truncate=2, blank_if_missing=True)
+                                   truncate=2, blank_if_missing=True, date=resolved)
     except Exception as e:                                       # noqa: BLE001
         log.warning("竞价精选 概念补齐失败 err=%s", e)
 
