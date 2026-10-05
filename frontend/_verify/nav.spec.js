@@ -19,7 +19,11 @@
  *        ② G1~G6 盯盘台六层（FlashTicker / YestZtPanel / MoneyTopStrip / TodayPicksPanel /
  *           MarketBoardPanel / YidongFlow）的正常态与**空态/降级态**——
  *           重点盯「null 不许渲染成 0」这类静默造假；
- *        ③ G8 盯盘台**本体** MarketView（六层编排 + 既有板块能力保留）——
+ *        ③ G8 盯盘台**本体** MarketView（六层编排 + 板块能力：就地留着的对现状断言 /
+ *           搬走的去新家核对 / 下线的反向钉死）——
+ *           ★ 2026-10-05：本节原写「既有板块能力一件不丢」，但实测「板块进阶数据」折叠区
+ *           （强度明细 / 轮动历史 / 人气热榜 + 日期回看工具条）已在 09-27~09-28 的板块区重构中
+ *           移出 /market，且当时没留版本表条目 ⇒ 断言改为如实反映现状 + 去向核对，详见 G8 段内注释。
  *           ⚠️ G1~G6 覆盖不到它：MarketView 自己模板里还有几十个自由变量
  *           （flashList/yestCount/pickRows/boardRows/hotBoard/updatedAt…），错拼同样是静默的。
  *        ④ G9 全局股票搜索（《移动端清单》§三）—— 面板是**纯展示组件**，
@@ -58,6 +62,11 @@ import NavBar from '../src/components/NavBar.vue'
 import AppTabBar from '../src/components/AppTabBar.vue'
 import QuickGrid from '../src/components/QuickGrid.vue'
 import { NAV_GROUPS, TABBAR_TABS } from '../src/composables/useNavGroups'
+// ★ 2026-10-05：板块区重构后，两项能力**搬去了别的页面**，断言必须"去新家核对" ⇒ 读源码。
+//   与 spot.spec.js 同一套写法（dirname(fileURLToPath(import.meta.url)) + readFileSync）。
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 // 2026-10-04 站内消息
 import MessagesView from '../src/views/MessagesView.vue'
 // v4.11.62 盘中盯盘台六层（纯展示组件）
@@ -479,6 +488,22 @@ ok('空名单给出等待文案', g4e.html.includes('今日名单尚未生成'))
 const g4f = await renderComp(TodayPicksPanel, { stocks: [], summary: summarizePicks([]), failed: true })
 ok('名单读取失败有明确提示', g4f.html.includes('名单读取失败'))
 
+// ★ 2026-10-05：下面两条断言（G5 数据源按钮 / 列头）与 G8 的「板块进阶数据」5 条**曾经长期红**，
+//   逐条取证后确认**都不是产品坏了，而是产品有意重构、断言没跟上** —— 来源：
+//     · v4.11.62→v4.11.71（2026-09-27~28）板块区重构：面板改为「左栏板块列表 + 右栏成分股」，
+//       数据源按钮文案由「开盘啦榜 / 东财概念榜」缩成「开盘啦 / 东财」（MarketBoardPanel.vue:11/13），
+//       原四列（题材/涨停数/涨幅%/主力净额(亿)）改为左栏「板块/板/强度/主力净」（:23-25）。
+//     · 同一次重构把「板块进阶数据」折叠区（强度明细 / 轮动历史 / 人气热榜 三 tab + 日期回看工具条）
+//       整体移出 /market，且当时**没留版本表条目**（v4.11.71 的 history 已把它记为"改动前既存失败"）。
+//   处置原则：**不许为了把灯改绿而删断言** ——
+//     ① 还在的能力 → 断言改成"当前真实文案/列头"；
+//     ② 搬走的能力 → 去**新家**核对（读源码），证明是"搬走了"而不是"搬丢了"；
+//     ③ 确实下线的能力 → 反向钉死"不许再出现"，并注明是哪个决定删的。
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const SRC_MARKET_BOARD = readFileSync(resolve(__dirname, '../src/components/MarketBoardPanel.vue'), 'utf8')
+const SRC_SECTOR_ROTATION = readFileSync(resolve(__dirname, '../src/components/SectorRotationPanel.vue'), 'utf8')
+const SRC_HOT_RANK_MULTI = readFileSync(resolve(__dirname, '../src/components/HotRankMulti.vue'), 'utf8')
+
 // G5 ⑤ 题材榜
 const boardRows = mergeLimitCount([
   { name: '机器人概念', boardCode: '801001', change: 3.2, mainNet: 5e8 },
@@ -493,16 +518,20 @@ ok('🔴 涨停数来自另一上游、名称归一化后匹配成功（机器�
 ok('默认按涨停数降序（半导体 12 在 机器人 8 之前）',
   g5.html.indexOf('半导体设备') < g5.html.indexOf('机器人概念'))
 ok('匹配不上的题材显示 —（不显示 0）', g5.html.includes('—'))
-ok('数据源切换按钮齐备（开盘啦榜 / 东财概念榜）',
-  g5.html.includes('开盘啦榜') && g5.html.includes('东财概念榜'))
-ok('列头齐备（题材 / 涨停数 / 涨幅% / 主力净额(亿)）',
-  g5.html.includes('题材') && g5.html.includes('涨停数') && g5.html.includes('涨幅%') && g5.html.includes('主力净额(亿)'))
+ok('数据源切换按钮齐备（开盘啦 / 东财）',
+  g5.html.includes('开盘啦') && g5.html.includes('东财'))
+ok('左栏列头齐备（板块 / 强度 / 主力净）',
+  g5.html.includes('板块') && g5.html.includes('强度') && g5.html.includes('主力净'))
+// 反向钉死：旧列头文案不许回来 —— 否则就是"重构做了一半、新旧两套并存"
+ok('🔴 旧题材榜列头「涨停数」已不出现（现为行内「N板」）', !g5.html.includes('涨停数'))
+// 按钮文案也做同样约束：旧的长文案不许复活（EmConceptPanel 里的「东财概念榜」属另一个组件）
+ok('🔴 旧按钮文案「开盘啦榜」已不出现', !g5.html.includes('开盘啦榜'))
 ok('sortBoardsByLimit: null 恒排最后', (() => {
   const s = sortBoardsByLimit([{ name: 'a', limitCount: null }, { name: 'b', limitCount: 1 }])
   return s[0].name === 'b'
 })())
 const g5e = await renderComp(MarketBoardPanel, { boards: [], src: 'kpl' })
-ok('空题材榜有明确文案', g5e.html.includes('暂无题材榜数据'))
+ok('空板块榜有明确文案（不冒充有数据）', g5e.html.includes('暂无板块数据'))
 
 // G6 ⑥ 实时异动流 —— 🔴 2026-09-28 主人拍板**整块移除**（组件 YidongFlow.vue 已删除 ⇒ 渲染不出来），
 //   故原「四态渲染 + 文案」断言整块删除；「不许再加回来」的反向守卫见 G13。
@@ -535,13 +564,30 @@ for (const t of ['快讯', '昨日涨停今日表现', '按主力净额排序', 
 //   这里反向钉死：不得再出现该层，也不得出现它的副标题（防「顺手搬回来」）。
 ok('🔴 盯盘台不再含第 ⑥ 层「实时异动流」（v4.11.71 整层移除）',
   !g8.html.includes('实时异动流') && !g8.html.includes('按累计偏离值排序'))
-// 既有能力一件不丢（折叠区 + 三个 tab + 强度表工具条）
-ok('保留 板块进阶数据 折叠区', g8.html.includes('板块进阶数据'))
-for (const t of ['板块强度明细', '板块轮动历史', '人气热榜']) ok(`保留 tab「${t}」`, g8.html.includes(t))
-ok('保留强度表工具条（日期回看）', g8.html.includes('实时板块强度排行'))
-// ⚠️ SSR 初始态 boardLoading=true ⇒ 强度表走「加载占位」分支（不是空态文案）；
+// 🔴 2026-10-05：本节原为「既有能力一件不丢」（折叠区 + 三 tab + 强度工具条），
+//   实测这 5 条**全部过期**：「板块进阶数据」折叠区已在 v4.11.62→v4.11.71 的板块区重构中
+//   **整体移出 /market**（MarketView.vue:94 留有墓碑注释），且当时没留版本表条目。
+//   处置原则（不许为了把灯改绿而删断言）：
+//     ① 搬走的 → **去新家核对**，证明是"搬走了"而不是"搬丢了"；
+//     ② 确实下线的 → **反向钉死**不许再出现，并注明去向/结论。
+//   去向：板块轮动历史 → /history 的 SectorRotationPanel（文案逐字未变）；
+//        人气热榜 → /news 的 HotRankMulti（标题改成「热门个股」）；
+//        板块强度明细（11 列 + 日期回看工具条）→ ⚠️ **无等价替代**，已记入 CHANGELOG「本轮遗留」。
+ok('🔴 盯盘台不再渲染「板块进阶数据」折叠区（09-27~09-28 重构移出）',
+  !g8.html.includes('板块进阶数据'))
+ok('🔴 盯盘台不再渲染三个旧 tab（强度明细 / 轮动历史 / 人气热榜）',
+  !['板块强度明细', '板块轮动历史', '人气热榜'].some((t) => g8.html.includes(t)))
+ok('🔴 旧强度表工具条「实时板块强度排行」已不存在',
+  !g8.html.includes('实时板块强度排行'))
+// 去向守卫：能力搬到了别处 ⇒ 必须在新家找得到（这两条是本节唯一还能抓"搬丢了"的判据）
+ok('板块轮动历史仍在（已搬到 /history 的 SectorRotationPanel）',
+  SRC_SECTOR_ROTATION.includes('板块轮动历史'), '若这里也找不到 = 能力被搬丢了')
+ok('人气热榜仍在（已搬到 /news 的 HotRankMulti，标题「热门个股」）',
+  SRC_HOT_RANK_MULTI.includes('热门个股'), '若这里也找不到 = 能力被搬丢了')
+// ⚠️ SSR 初始态 boardLoading=true ⇒ 层⑤走「加载占位」分支（不是空态文案）；
 //    两者都是「不冒充有数据」的诚实态，这里断言的是实际该出现的那一个。
-ok('初始态 → 加载占位（不冒充有数据）', g8.html.includes('加载板块强度'))
+//    （文案随重构由「加载板块强度」变为「加载板块榜…」，见 MarketBoardPanel.vue:16）
+ok('初始态 → 加载占位（不冒充有数据）', g8.html.includes('加载板块榜'))
 ok('MarketView 渲染结果不含 "undefined"', !g8.html.includes('undefined'))
 ok('MarketView 渲染结果不含 "NaN"', !g8.html.includes('NaN'))
 

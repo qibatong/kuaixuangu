@@ -12,12 +12,18 @@
  * 断言的重点是**差异**, 不是"都有" —— 只断言"有"会让"两套一起渲染"这种最可能的错法
  * (分支写错)安然通过。
  *
- * v4.11.77 列定义(主人指令: 去掉实体涨幅/量比/3日20%异动提示, 增加竞价涨幅/竞价金额):
- *   · spot 必须有: 竞涨 / 竞额 / 换手 列; 「剔涨停」; .spot-notice
- *   · spot 必须**没有**: 量比 / 实体 列; 名称格内红/黄「异动风险」徽章; 锁定按钮
- *   · 竞价必须有: 竞涨 / 实体 / 竞额; 必须没有: 量比 / 换手 / spot 专属控件
- *   ⚠️ 「竞涨/竞额」现在**两态都有**, 故不能再用它区分两态! 区分点改为
- *      「实体(仅竞价)」vs「换手(仅 spot)」+ 「量比(两态都无)」。
+ * 列定义演进（★ 2026-10-05 校正：本节此前停在 v4.11.77，与现状脱节 —— 这正是 7 条断言长期红的原因）:
+ *   v4.11.77（09-28）: 去实体涨幅/量比/3日20%异动提示，加竞价涨幅/竞价金额
+ *   v4.11.82（**09-29 主人第三次列调整**：纯前端列下线，数据链路一字未动）:
+ *     · spot 最终列 = 现涨 | 竞涨 | [主力净额] | 评分 | 可信 | 概念
+ *     · 竞价最终列 = 现涨 | 竞涨 | 实体 | 评分 | 可信 | 概念
+ *     · 两态都**不再有**「竞额 / 自由流通」；spot 另去「换手」
+ *   · spot 必须有: 竞涨 / 现涨 / 评分 / 可信 / 概念; 「剔涨停」; .spot-notice
+ *   · spot 必须**没有**: 竞额 / 换手 / 自由流通 / 量比 / 实体 列; 名称格内红/黄「异动风险」徽章; 锁定按钮
+ *   · 竞价必须有: 竞涨 / 实体; 必须没有: 竞额 / 自由流通 / 量比 / 换手 / spot 专属控件
+ *   ⚠️ 两态区分点现在**只剩「实体(仅竞价)」** —— 「竞涨」两态都有、「换手」两态都已下线，
+ *      故 S3 段那两条 `!…includes('换手')` 已是**恒真**（不再有区分力，保留仅为意图留痕）；
+ *      真正的区分力由 `includes('实体')` 承担（列写反时它会红）。
  *
  * 跑法: vite build --ssr _verify/spot.spec.js --outDir .spotssr --emptyOutDir && node .spotssr/spot.spec.js
  *   ⚠️ 不能输出到 /tmp(Node 向上找不到 node_modules ⇒ Cannot find package 'vue')
@@ -119,20 +125,32 @@ async function main() {
   console.log('\n— S1. StockTable 在 spot 下的列定义（本次改动的核心可观察行为）')
   const spot = await renderComp(StockTable, { stocks: SPOT_STOCKS, strategy: 'spot' })
   ok('StockTable(spot) 渲染无异常/无 Vue 警告', spot.errors.length === 0, spot.errors.join(' | '))
-  // v4.11.77: spot 增加「竞涨 / 竞额」
+  // 🔴 2026-10-05：本节曾长期红 5 条。逐条取证结论 = **断言过期，不是产品坏了**。
+  //   2026-09-29 主人**第三次列调整**（纯前端列下线，数据链路一字未动）：
+  //     · 竞价选股: 去「竞价金额(竞额)」与「自由流通市值」
+  //     · 实时动态选股: 去「竞额」「自由流通」「换手率」
+  //   证据：StockTable.vue 文件头 :6-14 + 两处墓碑注释 :44 / :100
+  //        + docs/竞价链路-按优先级优化清单-20260929.md §24 + CHANGELOG v4.11.82 ④。
+  //   处置：把原来的"有"翻成"没有"（锁死这次下线，防旧列悄悄复活），
+  //       同时保留对**仍在列**的真值断言 —— 不许把断言删成空壳。
+  //   ⚠️ 反向断言一律用 textOnly（可见文本）：列刚下线时 `title=` 里仍可能残留解释词，
+  //      用裸 html 判会把属性值误当成"列还在"（2026-09-30 已踩过同型坑，见 textOnly 注释）。
   const spotText = textOnly(spot.html)      // 见 textOnly 注释: 只判可见文本, 不判属性值
   ok('spot 表头有「竞涨」', spotText.includes('竞涨'))
-  ok('spot 表头有「竞额」', spotText.includes('竞额'))
-  ok('spot 表头有「换手」', spotText.includes('换手'))
+  ok('spot 表头有「现涨」「评分」「可信」「概念」',
+    ['现涨', '评分', '可信', '概念'].every((t) => spotText.includes(t)))
+  ok('🔴 spot 表头**没有**「竞额」（2026-09-29 主人下线，两态都不再展示）', !spotText.includes('竞额'))
+  ok('🔴 spot 表头**没有**「换手」（同上）', !spotText.includes('换手'))
+  ok('🔴 spot 表头**没有**「自由流通」（同上）', !spotText.includes('自由流通'))
   // v4.11.77: spot 去掉「实体」「量比」
   ok('🔴 spot 表头**没有**「实体」', !spotText.includes('实体'), '实体是竞价语义(开→收), spot 必须去掉')
   ok('🔴 spot 表头**没有**「量比」', !spotText.includes('量比'), '主人要求精简, 量比不再占列')
-  ok('spot 渲染出数据行', countByClass(spot.html, 'col-turnover') >= 1
-     || (spot.html.match(/<tbody/g) || []).length >= 1)
-  // v4.11.77: spot 值必须真渲染竞涨/竞额(不只是表头)
-  ok('🔴 spot 值渲染竞涨 2.10%', spot.html.includes('2.1'))
-  ok('🔴 spot 值渲染竞额 8500', spot.html.includes('8500'))
-  ok('spot 值渲染换手 7.90%', spot.html.includes('7.9'))
+  ok('spot 渲染出数据行', (spot.html.match(/<tbody/g) || []).length >= 1)
+  // spot 值仍要真渲染（夹具 bidChange: 2.1 ⇒ 现涨/竞涨那一列必须出数字）
+  ok('🔴 spot 值渲染竞涨 2.10%', spotText.includes('2.1'))
+  // 🔴 已下线列的值**不许**再渲染 —— 与上面的"表头没有"配套，专防"表头删了、td 还在"
+  ok('🔴 spot 值不再渲染竞额 8500（该列已下线）', !spotText.includes('8500'))
+  ok('🔴 spot 值不再渲染换手 7.9（该列已下线）', !spotText.includes('7.9'))
   ok('🔴 spot 不含 "undefined"', !spot.html.includes('undefined'))
   ok('🔴 spot 不含 "NaN"', !spot.html.includes('NaN'))
 
@@ -161,15 +179,21 @@ async function main() {
   const bidText = textOnly(bid.html)        // 见 textOnly 注释(解释性 title 会含"换手/实体"等词)
   ok('竞价表头有「竞涨」', bidText.includes('竞涨'))
   ok('竞价表头有「实体」(spot 已去掉)', bidText.includes('实体'))
-  ok('竞价表头有「竞额」', bidText.includes('竞额'))
+  // 🔴 2026-10-05：与 spot 侧同因 —— 2026-09-29 主人下线「竞额」，**两条策略都不再展示**
+  //   （StockTable.vue:44 墓碑注释：「原「竞额」列已按主人要求下线(两条策略都不再展示)」）。
+  //   改判为"没有"并锁死，防旧列复活。
+  ok('🔴 竞价表头**没有**「竞额」（2026-09-29 主人下线，两态都不再展示）', !bidText.includes('竞额'))
+  ok('🔴 竞价表头**没有**「自由流通」（同上）', !bidText.includes('自由流通'))
   ok('🔴 竞价表头**没有**「量比」', !bidText.includes('量比'), '量比两态都已移除')
-  ok('🔴 竞价表头**没有**「换手」', !bidText.includes('换手'), '换手是 spot 专属(竞价无实时换手)')
+  ok('🔴 竞价表头**没有**「换手」', !bidText.includes('换手'), '换手两态都已移除（09-29 列调整）')
 
   console.log('\n— S3. 非 spot 的一切取值都必须走竞价列（防"分支写反"）')
   // ⚠️ 本条最初只测「不传 prop」—— 变异测试证明它抓不到 `!== 'auction'` 这类写反:
   //    因为 prop 默认值就是 'auction', 不传时 `=== 'spot'` 与 `!== 'auction'` 结果相同 ⇒ 等价变异。
   //    真正有区分度的是**第三个取值**(typo / 新增策略)。故补测之。
-  // ★ v4.11.77: 区分点由「竞涨」改为「实体 / 换手」—— 竞涨两态都有, 不再有区分度。
+  // ★ 区分点演进: v4.11.77 由「竞涨」改为「实体 / 换手」；★ 2026-10-05 校正：换手两态都已下线
+  //   ⇒ 现在**只有「实体」还有区分度**（下面两条里的 `!includes('换手')` 已恒真，保留仅为意图留痕；
+  //      真正的判别力来自 `includes('实体')` —— 列一旦写反它就会红）。
   const noProp = await renderComp(StockTable, { stocks: BID_STOCKS })
   const noPropText = textOnly(noProp.html)
   ok('不传 strategy 时走竞价列(实体在场 / 换手不在)', noPropText.includes('实体') && !noPropText.includes('换手'),
@@ -226,11 +250,16 @@ async function main() {
      /aipick[\s\S]{0,80}?\?\s*'auction'\s*:\s*'spot'/.test(switchFn),
      '实际: ' + switchFn.replace(/\s+/g, ' ').slice(0, 200))
   ok('🔴 switchTab 里 aipick 两 tab 显式归 auction(不留 spot 脏值)', /aipick_lgb/.test(switchFn))
-  // 定格标注条必须仅在 auction 策略下出现(spot 无"上一交易日定格"概念)
-  ok('🔴 freeze-notice 仅在 !isSpotStrategy 时出现',
-     /!stocks\.isSpotStrategy[\s\S]{0,120}?freeze-notice/.test(VIEW_SRC)
-     || /isSpotStrategy[\s\S]{0,200}?![\s\S]{0,40}?freeze-notice/.test(VIEW_SRC),
-     '冻结标注条若在 spot 态露出, 会让用户误以为实时名单是"上一交易日定格"')
+  // 🔴 2026-10-05：本条原断言「定格标注条只在竞价态出现」，**已过期** ——
+  //   2026-09-30 主人明确指令**删除「定格来源标注条」**（StockView.vue:98-107 墓碑注释写明
+  //   "主人已知悉该背景仍决定去掉"；样式 :533 也一并移除）⇒ 模板里已无 freeze-notice，
+  //   原正则永远匹配不到。处置：① 反向钉死"不许悄悄加回来"；② 保住真正有价值的那半 —— 数据层仍在。
+  ok('🔴 freeze-notice 定格标注条已按主人指令下线（2026-09-30）',
+     !/class="[^"]*freeze-notice/.test(VIEW_SRC) && !/\.freeze-notice\s*\{/.test(VIEW_SRC),
+     '若这里变红 = 有人把已下线的标注条加回来了，请先确认主人意图再改本断言')
+  ok('冻结数据层仍在（后端下发 freezeDate + store 保留，随时可恢复）',
+     /freezeDate/.test(STORE_SRC) && /freezeIsToday/.test(STORE_SRC),
+     '删标注条时特意保留的数据字段被删了 ⇒ "随时可回滚"的前提没了')
 
   console.log('\n— S8. store 侧策略契约（v4.11.80 第三步 · ⚡ 静态核源码）')
   ok('🔴 store 导出 isSpotStrategy getter', /isSpotStrategy\s*\(\s*\)\s*\{\s*return\s+this\.strategy\s*===\s*\'spot\'/.test(STORE_SRC))
@@ -271,9 +300,13 @@ async function main() {
   ok('🔴 NavBar 品牌 tooltip 已同步为「竞价选股」',
      /title="快选\s*·\s*竞价选股"/.test(NAVBAR_SRC) && !/title="快选\s*·\s*AI选股"/.test(NAVBAR_SRC),
      '站点 logo tooltip 若仍写 AI选股 = 品牌名未同步')
+  // 🔴 2026-10-05：原正则要求 `document.title` 后**紧跟**模板字符串；但 2026-10-05（S7 未登录落地页）
+  //   之后那一行变成三元 `document.title = t ? `${t} · 快选 竞价选股` : '快选 · 竞价选股'`，
+  //   反引号前多了 `t ? ` ⇒ 正则匹配不到而**误红**。产品本身是对的（后缀确实是「竞价选股」）。
+  //   修正判据：只要**任一** document.title 赋值行里出现「竞价选股」、且全文件不再出现「AI选股」。
   ok('🔴 路由文档标题后缀已同步为「竞价选股」',
-     /document\.title\s*=\s*`[^`]*竞价选股`/.test(ROUTER_SRC)
-     && !/document\.title\s*=\s*`[^`]*AI选股`/.test(ROUTER_SRC),
+     /document\.title\s*=[^;\n]*竞价选股/.test(ROUTER_SRC)
+     && !/document\.title\s*=[^;\n]*AI选股/.test(ROUTER_SRC),
      '浏览器标签标题若仍写 AI选股 = 品牌名未同步')
   // ③ 量比/换手**选择框**必须从 FilterPanel 模板移除(注意: 「换手」表头列仍保留, 两者不同物)
   // 🔴 关键 1: 必须切**整个 SFC 模板区**(首个 `<template>` → `<script>` 之前),
