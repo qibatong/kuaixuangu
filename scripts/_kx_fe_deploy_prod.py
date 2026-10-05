@@ -23,10 +23,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(REPO, "frontend", "dist")
 TAR = os.path.join(REPO, "frontend", "_dist_upload.tar.gz")
 
-ENTRY = "index-BfsKawZs.js"           # 新(2026-10-05 v4.11.89: A1 robots/sitemap/JSON-LD + A2 主表数据来源脚注)
-OLD_ENTRY = "index-Dl-AU0OS.js"       # 生产线上当前(v4.11.88: 审查清单 P1–P2 批次)
-EXP_FILES = 781
-EXP_ASSETS = 769
+ENTRY = "index-X3IkG1hz.js"           # 新(2026-10-05 v4.11.90: 撤数据来源脚注 + 账户卡置顶 + 手机端显示设置命中区)
+OLD_ENTRY = "index-DaA2AsPS.js"       # 生产线上当前(同日 18:16 第一次换盘: 回退脚注 + 账户卡置顶)
+EXP_FILES = 779
+EXP_ASSETS = 767
 
 MUST_HAVE = ["activity/track", "usage-rank", "active-users", "login-log", "user-activity"]
 MUST_NOT = ["activityUsage"]         # 已修复的死变量, 绝不能重现

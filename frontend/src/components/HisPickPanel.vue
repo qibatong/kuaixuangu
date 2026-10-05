@@ -133,17 +133,6 @@
         </tbody>
       </table>
     </div>
-
-    <!-- 2026-10-05 (A2): 数据来源/口径脚注。
-         ★ 放在 .stock-table-container **之外**：容器是 overflow-x:auto 的横滑区
-           （表格 min-width 1100px），脚注若放里面会随表一起横向滑走。
-         ★ :date 用的是后端下发的 date（HisPickPanel.vue 早就在取，但**此前从未渲染**）⇒
-           顺带补上"这份名单属于哪个交易日"这个原本完全缺失的信息。 -->
-    <SourceNote
-      source="东方财富"
-      :date="date"
-      caliber="名单为 9:25 竞价定格；9:30 后读当日快照、涨幅按实时价刷新；概念列由开盘啦覆盖"
-    />
     <!-- 2026-10-05 (M5): 此处原有**与上方工具条完全重复**的第二个「导出全部筛选结果至通达信」
          （同文案/同图标/同 @click=exportAll，实测同屏出现两次 ⇒ 用户不知道点哪个，也显得页面没做完）。
          保留表格上方工具条位置的那个，理由：它在表头之上、长列表滚动时仍能被第一眼看到。 -->
@@ -154,8 +143,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { hisPick } from '../api/hisPick'
-// 2026-10-05 (A2): 数据来源/口径脚注（表格下方小字，不占页头版面）
-import SourceNote from './SourceNote.vue'
 
 const DEFAULTS = { stSuspend: true, markets: ['hs', 'cyb', 'kcb'], limitUp: true,
                    bidGt: 7, probLt: 65, confLt: 65, floatMvGt: 100, priceGt: 30 }

@@ -443,11 +443,6 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
         </tbody>
       </table>
 
-      <!-- 2026-10-05 (A2): 数据来源/口径脚注。
-           ★ 位置：.auc-panel（AuctionView.vue:67 开）的最后子节点 ⇒ **9 个 tab 全覆盖**，
-             且不在任何横滑容器内（.qc-table-scroll / .msd-wrap 都只包表格本身）⇒ 390px 不溢出。
-           ★ 来源随 tab 变（见 TAB_SRC），不写死一个名字。 -->
-      <SourceNote :source="srcNote.source" :date="displayDate" :caliber="srcNote.caliber" />
     </div>
 
     <!-- ★ 2026-09-29 主人要求: 涨停原因改为**列内直接展示**(不再弹窗) ⇒ 原 .reason-modal 弹窗已删除。
@@ -478,8 +473,6 @@ import PoolHoverBtn from '../components/PoolHoverBtn.vue'
 // 2026-09-27 v4.11.63《移动端清单》§二·4: 数据更新时刻（与页头时钟区分开）
 import DataStamp from '../components/DataStamp.vue'
 import { useDataStamp } from '../composables/useDataStamp'
-// 2026-10-05 (A2): 数据来源/口径脚注（9 个 tab 共用一个组件，来源按 tab 映射，见 srcNote）
-import SourceNote from '../components/SourceNote.vue'
 
 // 配额用尽(2026-09-21): 接口返回 429 code=quota_exceeded 时置 true → 显示配额引导页
 const quotaExceeded = ref(false)
@@ -588,29 +581,6 @@ function servedDate() {
 
 /** 日期框显示值 —— **必须等于实际请求的日期**, 否则又会出现"框里 A、实际查 B"的误导。 */
 const displayDate = computed(() => datePicker.value || serveDate.value || dataDate.value)
-
-// 2026-10-05 (A2): 各 tab 的数据来源与口径。
-//   ★ 必须**逐 tab**标注：这 9 个榜的上游并不相同（开盘啦榜单 / 本系统自采 9:25 定格 /
-//     猫爪 / 选股宝 混编），统一写一句"数据来源：XX"必然是错的。
-//   ★ 逐条依据（后端实现，均已核对）：
-//     seal  → services/kpl.py:340-346（开盘啦 MorningBiddingList Type=4）
-//     boom  → services/kpl.py:513-521（自采 snapshot_bid 自算竞价量比，非第三方榜单）
-//     net   → services/kpl.py:357-372（开盘啦 doc112 Type=2）
-//     s3    → api/stats.py:452（自采 snapshot_bid 三时点）/ services/bid_seal_daily.py:4-11（连续多日=猫爪）
-//     qc    → services/kpl.py:3148-3164（猫爪 meoz，2026-09-19 全量换源）
-//     yestZt / yestBroken / broken* → services/kpl.py:2596-2611 / :2657-2671 / :2016-2017（选股宝 flash 池）
-const TAB_SRC = {
-  seal: { source: '开盘啦', caliber: '竞价委买额榜' },
-  boom: { source: '本系统自采 9:25 快照', caliber: '竞价量比 = 今日竞价额 ÷ 昨日竞价额，按全市场自算排序，非上游榜单' },
-  net: { source: '开盘啦', caliber: '竞价净额榜（抢筹强度按"实际流通"口径折算）' },
-  s3: { source: '本系统自采 9:15 / 9:20 / 9:25 定格快照', caliber: '连续多日封单取猫爪分时封单；概念列由开盘啦覆盖' },
-  qc: { source: '猫爪', caliber: '抢筹幅度 = 9:20 → 9:25 的竞价涨幅差 / 竞额差（两时点快照相减）' },
-  yestZt: { source: '选股宝', caliber: '涨停池口径；缺失字段用开盘啦与本系统 9:25 快照兜底' },
-  yestBroken: { source: '选股宝', caliber: '按涨停池"次日是否再涨停"判定断板（本系统推导，非上游直接给出）' },
-  brokenToday: { source: '选股宝', caliber: '炸板池' },
-  brokenYest: { source: '选股宝', caliber: '炸板池' },
-}
-const srcNote = computed(() => TAB_SRC[tab.value] || { source: '', caliber: '' })
 
 /**
  * 吸收后端下发的服务日期。返回 true = 服务日期**变了**(调用方需重新加载)。

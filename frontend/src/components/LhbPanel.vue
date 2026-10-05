@@ -138,14 +138,6 @@
           </template>
         </div>
       </template>
-
-      <!-- 2026-10-05 (A2): 数据来源/口径脚注 —— 在 v-show="view === 'list'" 之内 ⇒
-           只在列表态出现，进个股详情自动隐藏（不与详情页自带说明打架）。 -->
-      <SourceNote
-        source="开盘啦"
-        :date="serverDate"
-        caliber="净买入按榜单 buyIn 口径；涨停原因取自选股宝，竞价涨幅/流通市值取本系统 9:25 快照；当日 17:00 后陆续披露"
-      />
     </div>
 
     <!-- ============ 个股详情（图2/3） ============ -->
@@ -221,8 +213,6 @@
 import { computed, onMounted, ref } from 'vue'
 import { kplLhb, kplLhbDetail, kplLhbTags } from '../api/kpl'
 import { fmtPct } from '../utils/chart'
-// 2026-10-05 (A2): 数据来源/口径脚注（仅列表态渲染，进个股详情自动隐藏）
-import SourceNote from './SourceNote.vue'
 
 const TABS = [
   { key: 'stock', label: '股票' },
