@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  快选 · 竞价选股 站点地图
+  2026-10-05 (A1): 新建。
+
+  ★ 只收「匿名可达 + 有独立内容」的 URL（依据 router/index.js:125 PUBLIC_ROUTES）：
+      /            落地页（价值主张 / 能力墙 / 数据与免责）—— 唯一对搜索引擎有内容价值的页面
+      /terms       用户协议
+      /privacy     隐私政策
+      /refund      退款说明
+    ⚠️ 其余 18 条路由一律**不放**：匿名访问会被守卫 302 到 /login，
+       放进 sitemap 等于主动提交一批「重定向页」，会被 Search Console 判为软 404。
+       它们同时已在 robots.txt 里 Disallow。
+
+  ★ lastmod 只写「页面内容真实变更日」，不写抓取日 —— 每次抓取都刷新 lastmod 是
+     sitemap 里最常见的作弊信号，Google 会直接忽略该字段。
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://www.kuaixuangu.cn/</loc>
+    <lastmod>2026-10-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://www.kuaixuangu.cn/terms</loc>
+    <lastmod>2026-10-05</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://www.kuaixuangu.cn/privacy</loc>
+    <lastmod>2026-10-05</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://www.kuaixuangu.cn/refund</loc>
+    <lastmod>2026-10-05</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+</urlset>

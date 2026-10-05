@@ -1,0 +1,44 @@
+# 快选 · 竞价选股  https://www.kuaixuangu.cn
+# 2026-10-05 (A1): 此前站点**没有** robots.txt —— nginx 的 SPA 回退(try_files ... /index.html)
+#   会把 /robots.txt 当成未知路径返回 HTML 首页，爬虫拿到的是一段 HTML 而不是指令。
+#   本次补齐，并显式排除「登录墙内页面」。
+#
+# ⚠️ 为什么除 / 与三张合规页之外全部 Disallow：
+#   全站除落地页外**均需登录**（router/index.js:125 PUBLIC_ROUTES 只放行 stock/terms/privacy/refund），
+#   爬虫抓到 /ladder、/lhb 等只会被 302 到 /login ⇒ 在 Search Console 里堆一堆
+#   「网页会重定向」软 404，既浪费抓取配额又拉低整站质量分。
+#   等哪天匿名可读首屏真数据了，把对应路径从这里删掉即可（勿忘同步 sitemap.xml）。
+User-agent: *
+Allow: /
+
+# 管理后台与用户私有页（本来也进不去，别让爬虫浪费配额）
+Disallow: /admin
+Disallow: /messages
+Disallow: /member
+Disallow: /pool
+
+# 登录墙内的功能页（匿名访问一律 302 → /login）
+Disallow: /auction
+Disallow: /aipick
+Disallow: /aipick-lgb
+Disallow: /his-pick
+Disallow: /market
+Disallow: /concept
+Disallow: /theme
+Disallow: /chaozhi
+Disallow: /ladder
+Disallow: /history
+Disallow: /temper
+Disallow: /bigv
+Disallow: /yidong
+Disallow: /lhb
+Disallow: /news
+
+# 登录/注册页本身不需要被索引（无内容价值），避免与落地页抢品牌词
+Disallow: /login
+
+# 接口不参与索引（部分接口需鉴权且返回 JSON）
+Disallow: /api/
+
+# 站点地图：只列匿名可达且有真实内容的 4 个 URL
+Sitemap: https://www.kuaixuangu.cn/sitemap.xml

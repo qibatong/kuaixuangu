@@ -23,10 +23,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(REPO, "frontend", "dist")
 TAR = os.path.join(REPO, "frontend", "_dist_upload.tar.gz")
 
-ENTRY = "index-BzMX48Pm.js"           # 新(2026-10-04 第11批: 视觉令牌收敛② — 补长尾色/标题字号 + 阴影3档 + 间距4px栅格)
-OLD_ENTRY = "index-DOwMOVLJ.js"       # 生产线上当前(2026-10-04 第10批: 收敛①)
-EXP_FILES = 771
-EXP_ASSETS = 762
+ENTRY = "index-BfsKawZs.js"           # 新(2026-10-05 v4.11.89: A1 robots/sitemap/JSON-LD + A2 主表数据来源脚注)
+OLD_ENTRY = "index-Dl-AU0OS.js"       # 生产线上当前(v4.11.88: 审查清单 P1–P2 批次)
+EXP_FILES = 781
+EXP_ASSETS = 769
 
 MUST_HAVE = ["activity/track", "usage-rank", "active-users", "login-log", "user-activity"]
 MUST_NOT = ["activityUsage"]         # 已修复的死变量, 绝不能重现
@@ -46,11 +46,22 @@ files = sum(len(f) for _, _, f in os.walk(d))
 assets = os.path.join(d, "assets")
 na = len(os.listdir(assets)) if os.path.isdir(assets) else -1
 idx = os.path.join(d, "index.html")
-have_entry = os.path.exists(idx) and (entry in open(idx, encoding="utf-8", errors="replace").read())
+idxhtml = open(idx, encoding="utf-8", errors="replace").read() if os.path.exists(idx) else ""
+have_entry = (entry in idxhtml)
 print("files=%d (期望 %d)  assets=%d (期望 %d)  entry_hit=%s" % (files, exp_files, na, exp_assets, have_entry))
 if files != exp_files: bad.append("files")
 if na != exp_assets: bad.append("assets")
 if not have_entry: bad.append("entry")
+
+# 2026-10-05 (A1): SEO 三件套必须真的躺在 dist 里 —— 这三个都靠 nginx 直接按静态文件取,
+#   少一个都会掉回 SPA 回退(返回 HTML), 而线上**不会**报错 ⇒ 必须在这里拦住。
+for f in ("robots.txt", "sitemap.xml"):
+    ok = os.path.exists(os.path.join(d, f))
+    print("  %s 静态文件 %s" % ("ok  " if ok else "MISS", f))
+    if not ok: bad.append("file:" + f)
+ok_ld = "application/ld+json" in idxhtml
+print("  %s index.html JSON-LD" % ("ok  " if ok_ld else "MISS"))
+if not ok_ld: bad.append("ldjson")
 blob = ""
 for fn in sorted(os.listdir(assets)):
     if fn.endswith(".js"):

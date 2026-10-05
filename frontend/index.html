@@ -33,6 +33,59 @@
 <meta name="twitter:title" content="快选 · 竞价选股">
 <meta name="twitter:description" content="早 9:25 定格竞价名单，一键导出通达信。">
 <title>快选 · 竞价选股</title>
+<!-- 2026-10-05 (A1): 结构化数据（JSON-LD）。
+     ⚠️ 刻意**不写** aggregateRating / review / offers：
+        · 评分与评价：站内没有任何真实评价数据，编造会被 Google 判为垃圾结构化数据（人工惩罚风险）；
+        · 价格：落地页当前写的是「在架套餐与价格请加微信咨询」(LandingView.vue:161)，
+          没有公开标价 ⇒ 用 Offer 编一个 price 就是一戳就破的假数据。等价格公开后再补。
+     因此只声明「这是个什么产品、叫什么、给谁用」这些**可验证**的事实。 -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://www.kuaixuangu.cn/#website",
+      "url": "https://www.kuaixuangu.cn/",
+      "name": "快选 · 竞价选股",
+      "description": "交易日 9:25 定格竞价名单，竞价异动、连板天梯、龙虎榜、超智研判、盘前资讯一站式复盘。",
+      "inLanguage": "zh-CN",
+      "publisher": { "@id": "https://www.kuaixuangu.cn/#org" }
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://www.kuaixuangu.cn/#org",
+      "name": "快选",
+      "url": "https://www.kuaixuangu.cn/",
+      "logo": {
+        "@type": "ImageObject",
+        "url": "https://www.kuaixuangu.cn/icon-512.png",
+        "width": 512,
+        "height": 512
+      }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://www.kuaixuangu.cn/#app",
+      "name": "快选 · 竞价选股",
+      "url": "https://www.kuaixuangu.cn/",
+      "applicationCategory": "FinanceApplication",
+      "applicationSubCategory": "股票选股工具",
+      "operatingSystem": "Web, iOS, Android",
+      "inLanguage": "zh-CN",
+      "description": "面向 A 股短线交易的竞价选股工具：9:25 定格竞价名单、竞价异动五榜、连板天梯、龙虎榜席位、超智研判与盘前资讯；筛选结果可一键导出通达信。",
+      "featureList": [
+        "9:25 定格竞价选股名单，可一键导出通达信自选股",
+        "竞价异动：封单 / 爆量 / 抢筹 / 委买 / 净额多榜",
+        "连板天梯与涨停梯队晋级率",
+        "龙虎榜机构 / 营业部席位明细",
+        "超智研判（金睛 / 火眼）与盘前资讯"
+      ],
+      "publisher": { "@id": "https://www.kuaixuangu.cn/#org" }
+    }
+  ]
+}
+</script>
 <link rel="icon" type="image/png" href="/favicon.png">
 <!-- 「加到主屏幕」后全屏无地址栏 + 状态栏透明（内容顶到状态栏下, 由 body 的
      env(safe-area-inset-top) 内边距让开）—— 验收项 1 靠这四条。 -->

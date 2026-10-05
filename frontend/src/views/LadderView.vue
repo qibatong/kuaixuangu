@@ -115,6 +115,16 @@
           </div>
         </div>
       </div>
+
+      <!-- 2026-10-05 (A2): 数据来源/口径脚注。
+           ★ 刻意不写「更新于 / 时钟」：页头那两块是主人 2026-10-01 明确要求去掉的，不在这里复活。
+           ★ 也刻意**不写交易日**：/api/kpl/zt-echelon 的响应体里没有当日日期字段
+             （唯一的 promote.date 是"算晋级率用的昨日基线"，不是本页数据的交易日）——
+             宁可不写，也不拿昨日日期冒充今天。 -->
+      <SourceNote
+        source="开盘啦 · 选股宝"
+        caliber="梯队与晋级率来自开盘啦涨停梯队；连板数按选股宝涨停池校准；晋级率对比上一交易日梯队"
+      />
     </template>
 
     <!-- 盘后天梯图（默认折叠；保留日期回看与下载） -->
@@ -186,6 +196,9 @@ import { trackUsageOnce } from '../api/activity'
 import { useUserStore } from '../stores/user'
 // 2026-10-01: 旧版的 bjDateTimeStr(时钟) 与 DataStamp(更新于) 已按主人要求整块去掉
 import { isIntradayNow, fmtTsTime } from '../utils/time'
+// 2026-10-05 (A2): 数据来源/口径脚注（放在梯队内容下方；**不碰页头** —— 页头的时钟与「更新于」
+// 是主人 2026-10-01 明确要求去掉的，本次不复活它们，只补来源与口径）
+import SourceNote from '../components/SourceNote.vue'
 
 const user = useUserStore()
 

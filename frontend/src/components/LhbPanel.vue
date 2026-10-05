@@ -20,7 +20,7 @@
 
       <template v-else>
         <div class="lhb-toolbar">
-          <span class="lhb-count">今日上榜数: <b>{{ list.length }}</b></span>
+          <span class="lhb-count">{{ countLabel }}: <b>{{ list.length }}</b></span>
           <input
             v-model="dateSel" type="date" class="lhb-date"
             :max="todayStr" aria-label="选择日期回看历史龙虎榜"
@@ -138,6 +138,14 @@
           </template>
         </div>
       </template>
+
+      <!-- 2026-10-05 (A2): 数据来源/口径脚注 —— 在 v-show="view === 'list'" 之内 ⇒
+           只在列表态出现，进个股详情自动隐藏（不与详情页自带说明打架）。 -->
+      <SourceNote
+        source="开盘啦"
+        :date="serverDate"
+        caliber="净买入按榜单 buyIn 口径；涨停原因取自选股宝，竞价涨幅/流通市值取本系统 9:25 快照；当日 17:00 后陆续披露"
+      />
     </div>
 
     <!-- ============ 个股详情（图2/3） ============ -->
@@ -213,6 +221,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { kplLhb, kplLhbDetail, kplLhbTags } from '../api/kpl'
 import { fmtPct } from '../utils/chart'
+// 2026-10-05 (A2): 数据来源/口径脚注（仅列表态渲染，进个股详情自动隐藏）
+import SourceNote from './SourceNote.vue'
 
 const TABS = [
   { key: 'stock', label: '股票' },
@@ -252,6 +262,13 @@ const todayStr = (() => {
   const g = new Date(Date.now() + 8 * 3600e3)
   return '%04d-%02d-%02d'.replace('%04d', g.getFullYear()).replace('%02d', String(g.getMonth() + 1).padStart(2, '0')).replace('%02d', String(g.getDate()).padStart(2, '0'))
 })()
+// 2026-10-05 (A2): 上榜数标签随所选日期变化 —— 原文案恒为「今日上榜数」，
+//   即便用户把日期框切到历史某天它仍写"今日"（事实性错误，会让人误以为看的是当天榜单）。
+const countLabel = computed(() => {
+  const d = serverDate.value || dateSel.value
+  if (!d) return '上榜数'
+  return String(d) === todayStr.value ? '今日上榜数' : `${d} 上榜数`
+})
 const tipText = computed(() => '正在加载龙虎榜…')
 const seatCount = computed(() => (detail.value ? (detail.value.buyList || []).length + (detail.value.sellList || []).length : 0))
 
