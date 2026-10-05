@@ -260,6 +260,17 @@ git push mirror  <分支>     # 备份仓库 github.com:qibatong/kuaixuangu （2
 ⚠️ **两条都要推**，只推 origin 不算完成。mirror 上若还没有该分支，`push` 会自动创建（首次会提示 new branch，属正常）。
 当前分支：2026-10-04 的视觉令牌收敛推的是 `feature/scoring-v7-meoz`。
 
+> **2026-10-05 首次全量镜像已完成**（17 分支 + 85 tag 双向一致）。
+> 🔴 **当时发现方向是反的**：mirror 的 `main`(`4cf2766`, 09-30) 比本地/origin 的 `main`(`769ad46`, 09-19)
+> **新 163 个提交** —— 即 09-20~09-30 那批活**只存在于 qibatong 仓库**。已把本地与 origin 的 `main`
+> **快进**到 `4cf2766`（纯快进，零丢失），而不是把旧 main 推过去覆盖。
+> ⚠️ 教训：两边同步前**先比 HEAD 日期与分叉点**，别默认"本地更新"。
+>
+> 补镜像历史分支的写法（直接写 `refs/remotes/origin/$b:refs/heads/$b` 会被 shell 吞掉 `:r`，必须用变量）：
+> ```bash
+> while read b; do src="refs/remotes/origin/$b"; dst="refs/heads/$b"; git push mirror "$src:$dst"; done
+> ```
+
 **① 连服务器**（唯一入口，两个目标 `prod` / `test`）：
 
 ```bash
