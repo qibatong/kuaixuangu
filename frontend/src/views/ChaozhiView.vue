@@ -405,7 +405,7 @@ usePolling(() => { if (isIntradayNow()) load() }, 60000, { immediate: false })
   background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: 11px;
   color: var(--text-muted); font-size: var(--fs-xs); padding: var(--s1) var(--s2); cursor: pointer;
 }
-.cz-tab.on { background: var(--accent); border-color: var(--accent); color: var(--qg-on); }
+.cz-tab.on { background: var(--accent-solid); border-color: var(--accent); color: var(--qg-on); }
 
 /* 柱状图（纯 CSS，10 个点，不引图表库） */
 .cz-chart { display: flex; align-items: flex-end; gap: var(--s1); height: 96px; margin: var(--s2) 2px var(--s1); }

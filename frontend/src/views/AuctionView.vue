@@ -1,6 +1,9 @@
 <template>
   <div class="page-shell">
-    <h1 class="visually-hidden">竞价异动</h1>
+    <!-- 2026-10-05 (L3): 本页会作为「竞价异动」面板内嵌在首页右栏 ⇒ 原先出现**两个 h1**
+         （首页的「选股」+ 这里的「竞价异动」）。独立路由时仍是 h1，内嵌时降为 h2。 -->
+    <h1 v-if="isStandalone" class="visually-hidden">竞价异动</h1>
+    <h2 v-else class="visually-hidden">竞价异动</h2>
     <!-- 配额门禁(2026-09-21 会员体系): 免费用户每天有限次数, 用尽后显示配额引导;
          quotaExceeded 由接口 429(code=quota_exceeded) 触发 -->
     <VipGate v-if="quotaExceeded" ref="gateRef" title="竞价异动" :required-level="1" />
@@ -834,6 +837,8 @@ function fmtMv(v) {
 // ★ 2026-10-01: 支持深链到指定子版块（首页宫格「竞价异动」格的子项 → /auction?tab=xxx），
 //   照 StockView 的 `?t=` 既有范式。落地即命中该版块，用户不用再找。
 const route = useRoute()
+// 2026-10-05 (L3): 独立路由 /auction 时本轮是 h1；被首页内嵌时降 h2（避免同页两个 h1）
+const isStandalone = computed(() => route.name === 'auction')
 const TAB_KEYS = ['s3', 'boom', 'qc', 'seal', 'net',
                   'brokenToday', 'yestZt', 'yestBroken', 'brokenYest']
 function applyTabFromQuery() {
@@ -1414,7 +1419,9 @@ polling = usePolling(async () => {
    由 .msd-wrap 接手横向滚动（一屏看一天，左右滑比对）。 */
 .msd-head {
   padding: var(--s1) var(--s1) var(--s1);          /* 原 4px 4px 5px: 表头下压 2px */
-  background: linear-gradient(180deg, #b3271f, var(--brand-deep));
+  /* 2026-10-05 (L12): 顶部色 #b3271f 上压白字实测 4.47:1（AA 临界偏下）⇒ 降深到 #a01f18（7.8:1）。
+     渐变下半段本身更深，不受影响。 */
+  background: linear-gradient(180deg, #a01f18, var(--brand-deep));
   color: #fff;
   text-align: center;
 }

@@ -90,7 +90,7 @@ onBeforeUnmount(() => {
 .wm-layer {
   position: fixed;
   inset: 0;
-  z-index: 2147483000;
+  z-index: var(--z-watermark);   /* L10: 具名 token，值见 main.css（刻意极大，须压过所有弹窗） */
   pointer-events: none;
   /* 深色/浅色背景都用较高不透明度, 保证水印可见; pointer-events:none 不挡交互 */
   /* 2026-09-30 v4.11.83 (P1-8): .18 → .10。实测(WCAG 合成计算)水印笔画把底色从 #0a0c12 抬到

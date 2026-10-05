@@ -2,79 +2,6 @@
   <div class="page-shell member-page">
     <h1 class="visually-hidden">我的会员</h1>
 
-    <!-- 🔴 2026-09-27 v4.11.65 账户区块由顶部导航栏整块迁入这里
-         （主人：「3、首页的用户收进 我的 里面。」+ 澄清「是，从顶部移除、整块收进『我的』」）。
-         原 NavBar「用户名 ▾ 下拉菜单」里的能力逐一对应保留：
-           我的会员 = 本页自身 / 个人信息 / 修改密码 / 退出登录 / 字号 / 字体族。
-         顶部导航栏此后只保留：品牌 · 一级分组 · 全局搜索 · 主题圆点（+ 未登录时的登录/注册）。
-         ★ 刻意放在 `loading` 判断**之外**：本卡片的每一项（个人信息/改密/退出/字号/字体）
-           都不依赖会员接口。接口慢或挂了也必须能改密、能退出登录 ——
-           否则「会员接口异常」会连带把「退出登录」也锁死，那就成了一个自己把自己关在门里的缺陷。
-           附带好处：SSR 冒烟测试（_verify/nav.spec.js G12）无需接口即可覆盖本卡模板。 -->
-    <div class="mb-card mb-acc-card">
-      <div class="mb-card-head">
-        <span class="mb-card-title"><i class="fa fa-user-circle-o"></i> 账户</span>
-        <span class="mb-card-note">{{ user.username }}</span>
-      </div>
-      <div class="mb-acc-badges">
-        <span v-if="user.memberLevel === 2" class="member-badge vip-badge" title="VIP · 永久权限">VIP</span>
-        <span v-else-if="user.memberLevel === 1" class="member-badge paid-badge" title="付费会员">付费会员</span>
-        <span v-else-if="user.isAdmin" class="member-badge admin-badge" title="管理员">管理员</span>
-        <span v-else-if="user.memberDaysLeft >= 0" class="member-badge trial-badge" :title="'免费试用剩余 ' + user.memberDaysLeft + ' 天, 到期请联系管理员开通'">试用{{ user.memberDaysLeft }}天</span>
-        <span
-          v-if="!user.isAdmin && user.memberLevel !== 2 && user.memberDaysLeft >= 0 && user.memberDaysLeft <= 2"
-          class="member-badge renew-badge" title="请尽快续费, 联系管理员(微信号 poet-1986)"
-        >
-          <i class="fa fa-exclamation-circle"></i> 还剩{{ user.memberDaysLeft }}天续费
-        </span>
-      </div>
-      <div class="mb-acc-actions">
-        <button class="mb-mini-btn" @click="profileModal.open()"><i class="fa fa-id-card"></i> 个人信息</button>
-        <button class="mb-mini-btn" @click="changePwdModal.open()"><i class="fa fa-key"></i> 修改密码</button>
-        <button class="mb-mini-btn danger" @click="logout"><i class="fa fa-sign-out"></i> 退出登录</button>
-      </div>
-      <!-- 显示设置：背景明暗 / 字号 / 字体族。原在**顶部导航栏**（背景是右侧圆点，
-           字号字体在账户下拉菜单），2026-09-27 下拉整块迁来；
-           **2026-10-04 主人指令「深色和浅色背景 转移到用户中心里面」** ⇒ 顶部圆点一并收进来，
-           三者现在同属一张「显示」卡片，位置集中、不再需要顶栏那个只有 2 个点的控件。 -->
-      <div class="mb-setting-row">
-        <span class="mb-setting-label"><i class="fa fa-desktop"></i> 背景</span>
-        <button
-          v-for="b in BGS" :key="b.key"
-          class="mb-bg-btn" :class="{ active: bg === b.key }"
-          :title="b.label" :aria-label="'背景：' + b.label"
-          :aria-pressed="bg === b.key ? 'true' : 'false'"
-          @click="setBg(b.key)"
-        >
-          <span class="mb-bg-chip" :style="{ background: b.color }"></span>
-          <span>{{ b.key === 'dark' ? '深色' : '浅色' }}</span>
-        </button>
-      </div>
-      <div class="mb-setting-row">
-        <span class="mb-setting-label"><i class="fa fa-font"></i> 字号</span>
-        <button
-          v-for="f in FONTS" :key="f.key"
-          class="mb-set-btn" :class="{ active: font === f.key }"
-          :style="{ fontSize: f.key === 'sm' ? '12px' : f.key === 'lg' ? '16px' : '13px' }"
-          :title="f.label" :aria-label="'字号：' + f.label" @click="setFont(f.key)"
-        >
-          A
-        </button>
-      </div>
-      <div class="mb-setting-row">
-        <span class="mb-setting-label"><i class="fa fa-text-height"></i> 字体</span>
-        <button
-          v-for="ff in FONT_FAMILIES" :key="ff.key"
-          class="mb-fontfam" :class="{ active: fontFam === ff.key }"
-          :title="ff.desc" :aria-label="'字体：' + ff.label" @click="setFontFam(ff.key)"
-        >
-          <span class="ff-label" :style="{ fontFamily: ff.family }">{{ ff.label }}</span>
-          <span class="ff-desc">{{ ff.desc }}</span>
-        </button>
-      </div>
-      <div class="mb-acc-tip">显示设置即刻保存：背景明暗跟随账号同步，换设备登录也保持一致。</div>
-    </div>
-
     <div v-if="loading" class="loading-placeholder"><div class="spinner"></div><div>加载会员信息...</div></div>
 
     <template v-else>
@@ -133,7 +60,10 @@
       </div>
 
       <!-- 签到 -->
-      <div class="mb-card">
+      <!-- 2026-10-05 (M7): 不限次会员不显示签到 —— 原先那三格写着「不限次」，下面却给一个大红
+           按钮「签到领 3 次选股额度」，自相矛盾（用户会怀疑额度体系到底有没有生效）。
+           签到只对免费/试用账号有实际意义。 -->
+      <div v-if="!user.isVipOrPaid" class="mb-card">
         <div class="mb-card-head">
           <span class="mb-card-title"><i class="fa fa-calendar-check-o"></i> 每日签到</span>
           <span class="mb-card-note">连续签到 {{ checkin.streak }} 天</span>
@@ -264,6 +194,88 @@
          这两个弹层现在只由本页的「个人信息 / 修改密码」按钮打开）。 -->
     <ChangePwdModal ref="changePwdModal" />
     <ProfileModal ref="profileModal" />
+
+    <!-- 2026-10-05 (M6b): 账户卡从页首**移到页尾**。原先点「我的会员」第一屏是
+         "个人信息/修改密码/退出登录 + 背景/字号/字体"，而用户来这页的真实目的
+         （还有多少天、怎么续费）要往下滚；现在会员与开配置顶，账户与显示设置收尾。
+         ★ 仍然放在 loading 闸门之外（接口挂了也能改密/退出）。 -->
+    <!-- 🔴 2026-09-27 v4.11.65 账户区块由顶部导航栏整块迁入这里
+         （主人：「3、首页的用户收进 我的 里面。」+ 澄清「是，从顶部移除、整块收进『我的』」）。
+         原 NavBar「用户名 ▾ 下拉菜单」里的能力逐一对应保留：
+           我的会员 = 本页自身 / 个人信息 / 修改密码 / 退出登录 / 字号 / 字体族。
+         顶部导航栏此后只保留：品牌 · 一级分组 · 全局搜索 · 主题圆点（+ 未登录时的登录/注册）。
+         ★ 刻意放在 `loading` 判断**之外**：本卡片的每一项（个人信息/改密/退出/字号/字体）
+           都不依赖会员接口。接口慢或挂了也必须能改密、能退出登录 ——
+           否则「会员接口异常」会连带把「退出登录」也锁死，那就成了一个自己把自己关在门里的缺陷。
+           附带好处：SSR 冒烟测试（_verify/nav.spec.js G12）无需接口即可覆盖本卡模板。 -->
+    <div class="mb-card mb-acc-card">
+      <div class="mb-card-head">
+        <span class="mb-card-title"><i class="fa fa-user-circle-o"></i> 账户</span>
+        <span class="mb-card-note">{{ user.username }}</span>
+      </div>
+      <div class="mb-acc-badges">
+        <span v-if="user.memberLevel === 2" class="member-badge vip-badge" title="VIP · 永久权限">VIP</span>
+        <span v-else-if="user.memberLevel === 1" class="member-badge paid-badge" title="付费会员">付费会员</span>
+        <span v-else-if="user.isAdmin" class="member-badge admin-badge" title="管理员">管理员</span>
+        <span v-else-if="user.memberDaysLeft >= 0" class="member-badge trial-badge" :title="'免费试用剩余 ' + user.memberDaysLeft + ' 天, 到期请联系管理员开通'">试用{{ user.memberDaysLeft }}天</span>
+        <span
+          v-if="!user.isAdmin && user.memberLevel !== 2 && user.memberDaysLeft >= 0 && user.memberDaysLeft <= 2"
+          class="member-badge renew-badge" title="请尽快续费, 联系管理员(微信号 poet-1986)"
+        >
+          <i class="fa fa-exclamation-circle"></i> 还剩{{ user.memberDaysLeft }}天续费
+        </span>
+      </div>
+      <div class="mb-acc-actions">
+        <button class="mb-mini-btn" @click="profileModal.open()"><i class="fa fa-id-card"></i> 个人信息</button>
+        <button class="mb-mini-btn" @click="changePwdModal.open()"><i class="fa fa-key"></i> 修改密码</button>
+        <button class="mb-mini-btn danger" @click="logout"><i class="fa fa-sign-out"></i> 退出登录</button>
+      </div>
+      <!-- 显示设置：背景明暗 / 字号 / 字体族。原在**顶部导航栏**（背景是右侧圆点，
+           字号字体在账户下拉菜单），2026-09-27 下拉整块迁来；
+           **2026-10-04 主人指令「深色和浅色背景 转移到用户中心里面」** ⇒ 顶部圆点一并收进来，
+           三者现在同属一张「显示」卡片，位置集中、不再需要顶栏那个只有 2 个点的控件。 -->
+      <!-- 2026-10-05 (M6a): 显示设置（背景/字号/字体）原先是三整行，直接占掉「我的会员」首屏。
+           折叠成原生 <details>（默认收起）⇒ 首屏回到"账户 + 会员卡"本身；点开才占版面。 -->
+      <details class="mb-settings">
+        <summary class="mb-settings-sum"><i class="fa fa-sliders"></i> 显示设置（背景 / 字号 / 字体）</summary>
+      <div class="mb-setting-row">
+          <span class="mb-setting-label"><i class="fa fa-desktop"></i> 背景</span>
+          <button
+            v-for="b in BGS" :key="b.key"
+            class="mb-bg-btn" :class="{ active: bg === b.key }"
+            :title="b.label" :aria-label="'背景：' + b.label"
+            :aria-pressed="bg === b.key ? 'true' : 'false'"
+            @click="setBg(b.key)"
+          >
+            <span class="mb-bg-chip" :style="{ background: b.color }"></span>
+            <span>{{ b.key === 'dark' ? '深色' : '浅色' }}</span>
+          </button>
+        </div>
+        <div class="mb-setting-row">
+          <span class="mb-setting-label"><i class="fa fa-font"></i> 字号</span>
+          <button
+            v-for="f in FONTS" :key="f.key"
+            class="mb-set-btn" :class="{ active: font === f.key }"
+            :style="{ fontSize: f.key === 'sm' ? '12px' : f.key === 'lg' ? '16px' : '13px' }"
+            :title="f.label" :aria-label="'字号：' + f.label" @click="setFont(f.key)"
+          >
+            A
+          </button>
+        </div>
+        <div class="mb-setting-row">
+          <span class="mb-setting-label"><i class="fa fa-text-height"></i> 字体</span>
+          <button
+            v-for="ff in FONT_FAMILIES" :key="ff.key"
+            class="mb-fontfam" :class="{ active: fontFam === ff.key }"
+            :title="ff.desc" :aria-label="'字体：' + ff.label" @click="setFontFam(ff.key)"
+          >
+            <span class="ff-label" :style="{ fontFamily: ff.family }">{{ ff.label }}</span>
+            <span class="ff-desc">{{ ff.desc }}</span>
+          </button>
+        </div>
+        <div class="mb-acc-tip">显示设置即刻保存：背景明暗跟随账号同步，换设备登录也保持一致。</div>
+      </details>
+    </div>
   </div>
 </template>
 
@@ -509,6 +521,15 @@ onMounted(() => {
 .mb-acc-badges { display: flex; flex-wrap: wrap; gap: var(--s2); margin-bottom: var(--s3); }
 .mb-acc-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .mb-mini-btn.danger { border-color: rgba(255, 106, 106, .6); color: var(--brand-soft); }
+/* 2026-10-05 (M6a): 折叠后的「显示设置」 */
+.mb-settings { margin-top: var(--s3); border-top: 1px dashed var(--border-soft); padding-top: var(--s2); }
+.mb-settings-sum {
+  cursor: pointer; list-style: none; font-size: var(--fs-sm); color: var(--text-muted);
+  display: inline-flex; align-items: center; gap: var(--s1); padding: var(--s1) 0;
+}
+.mb-settings-sum::-webkit-details-marker { display: none; }
+.mb-settings-sum:hover { color: var(--accent); }
+.mb-settings[open] .mb-setting-row:first-of-type { margin-top: var(--s2); }
 .mb-setting-row { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin-top: var(--s3); }
 .mb-setting-label {
   display: inline-flex; align-items: center; gap: var(--s2);
@@ -523,7 +544,7 @@ onMounted(() => {
   transition: border-color .15s, background .15s, color .15s;
 }
 .mb-set-btn:hover { border-color: var(--accent); }
-.mb-set-btn.active { border-color: var(--accent); background: var(--accent); color: #fff; }
+.mb-set-btn.active { border-color: var(--accent); background: var(--accent-solid); color: #fff; }
 /* 2026-10-04 背景明暗：由顶部导航栏圆点搬来。带真实色块预览 ⇒ 比两个纯圆点更好认，
    且「深色/浅色」有文字标签（原来的圆点只能靠 tooltip，触屏没 tooltip 就等于没标签）。 */
 .mb-bg-btn {
@@ -598,13 +619,13 @@ body[data-bg="light"] .mb-fontfam { background: #f7f8fb; }
 .mb-q-num b { font-size: var(--fs-2xl); color: var(--accent-deep); margin-right: var(--s1); }
 .mb-q-num b.zero { color: var(--brand-soft); }
 .mb-q-bar { height: 4px; border-radius: var(--r-sm); background: var(--bg-input); margin-top: var(--s2); overflow: hidden; }
-.mb-q-bar i { display: block; height: 100%; background: var(--accent); border-radius: var(--r-sm); transition: width .3s; }
+.mb-q-bar i { display: block; height: 100%; background: var(--accent-solid); border-radius: var(--r-sm); transition: width .3s; }
 .mb-q-bonus { font-size: var(--fs-xs); color: var(--down); margin-top: var(--s2); }
 
 /* 签到 */
 .mb-checkin-btn {
   width: 100%; padding: var(--s3) 0; border: none; border-radius: var(--r-md);
-  background: var(--accent); color: #fff; font-size: var(--fs-md); cursor: pointer;
+  background: var(--accent-solid); color: #fff; font-size: var(--fs-md); cursor: pointer;
   transition: opacity .15s;
 }
 .mb-checkin-btn:hover:not(:disabled) { opacity: .88; }

@@ -293,7 +293,7 @@ function ztText(r) {
 .dd-thresh { font-size: var(--fs-xs); font-weight: 400; color: var(--text-muted); margin-left: var(--s2); }
 .dd-bar { height: 4px; border-radius: var(--r-sm); background: rgba(255, 255, 255, 0.08); margin: var(--s2) 0; overflow: hidden; }
 .dd-bar i { display: block; height: 100%; background: var(--star); }
-.dd-hit .dd-bar i { background: var(--accent); }
+.dd-hit .dd-bar i { background: var(--accent-solid); }
 .dd-meta { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.7; }
 .dd-meta-w { color: var(--text-muted); opacity: 0.8; }
 

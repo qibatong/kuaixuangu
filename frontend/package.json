@@ -16,7 +16,7 @@
     "test:board": "vite build --ssr _verify/board_refresh.spec.js --outDir .boardssr --emptyOutDir && node .boardssr/board_refresh.spec.js",
     "test:concept": "vite build --ssr _verify/concept_main.spec.js --outDir .cmspec --emptyOutDir && node .cmspec/concept_main.spec.js",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run lint && npm run typecheck && node _verify/css_scroll_guard.js && node _verify/color_guard.js && node _verify/breakpoint_guard.js && node _verify/fa_guard.js && npm run test:nav && npm run test:spot && npm run test:adm && npm run test:board",
+    "verify": "npm run lint && npm run typecheck && node _verify/css_scroll_guard.js && node _verify/color_guard.js && node _verify/contrast_guard.js && node _verify/breakpoint_guard.js && node _verify/fa_guard.js && npm run test:nav && npm run test:spot && npm run test:adm && npm run test:board",
     "lint": "eslint src --ext .js,.vue",
     "lint:fix": "eslint src --ext .js,.vue --fix",
     "format": "prettier --write \"src/**/*.{js,vue,css}\"",

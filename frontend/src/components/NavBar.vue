@@ -104,6 +104,10 @@ const activeGroup = computed(() => groupKeyOfRoute(route))
 const userInitial = computed(() => {
   const u = String(user.username || '').trim()
   if (!u) return '我'
+  // 2026-10-05 (M2): 绝大多数用户用**手机号**注册（用户名 = 11 位数字）⇒ 首字符恒为「1」，
+  //   配红底圆形后与"未读消息红点"几乎无法区分（生产实测：左上角一个红圈写着 1，用户以为有未读）。
+  //   纯数字用户名改取**后两位**（每个账号不同、可辨识），非数字仍取首字符。
+  if (/^\d{4,}$/.test(u)) return u.slice(-2)
   const ch = String.fromCodePoint(u.codePointAt(0))
   return /[a-z]/i.test(ch) ? ch.toUpperCase() : ch
 })
@@ -228,8 +232,8 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
 }
 .mini-btn:hover { background: var(--bg-hover); color: var(--text-main); border-color: var(--accent); }
 .login-btn { color: var(--accent); border-color: var(--accent); }
-.reg-btn { color: #fff; background: var(--accent); border-color: var(--accent); }
-.reg-btn:hover { background: var(--accent); color: #fff; filter: brightness(1.1); }
+.reg-btn { color: #fff; background: var(--accent-solid); border-color: var(--accent); }
+.reg-btn:hover { background: var(--accent-solid); color: #fff; filter: brightness(1.1); }
 
 /* 会员等级徽标（.member-badge / .vip-badge / .paid-badge / .admin-badge / .trial-badge /
    .renew-badge）2026-09-27 v4.11.65 随账户区块一并迁到 views/MemberView.vue 的 scoped 样式，
@@ -315,7 +319,7 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
        大面积铺红只发生在手机端浅色主题。 */
   body[data-bg="light"] .nav-bar {
     /* 2026-10-04 二次反馈: #c62828 太深, 调浅为同花顺红 #e5484d */
-    background: var(--accent);
+    background: var(--accent-solid);
     border-color: transparent;
     border-radius: 0;
     box-shadow: none;

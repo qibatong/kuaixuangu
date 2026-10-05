@@ -272,7 +272,7 @@ function copyWx() {
 }
 .ld-trust li::before {
   content: ''; position: absolute; left: 0; top: 0.62em; width: 6px; height: 6px;
-  border-radius: 50%; background: var(--accent);
+  border-radius: 50%; background: var(--accent-solid);
 }
 .ld-trust b { color: var(--text-secondary); margin-right: var(--s2); }
 .ld-trust a { color: var(--accent); }

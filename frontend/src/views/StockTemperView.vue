@@ -21,9 +21,9 @@
       </label>
       <input v-model="keyword" class="temper-search" placeholder="搜索代码/名称" @keyup.enter="reload()" />
       <div class="temper-page">
-        <button class="pg-btn" :disabled="page <= 1" @click="page--; load(false)"><i class="fa fa-chevron-left"></i></button>
+        <button class="pg-btn" aria-label="上一页" :disabled="page <= 1" @click="page--; load(false)"><i class="fa fa-chevron-left" aria-hidden="true"></i></button>
         <span class="pg-info">{{ list.length ? ((page - 1) * size + 1) + '-' + ((page - 1) * size + list.length) : 0 }} / {{ total }}</span>
-        <button class="pg-btn" :disabled="(page - 1) * size + list.length >= total" @click="page++; load(false)"><i class="fa fa-chevron-right"></i></button>
+        <button class="pg-btn" aria-label="下一页" :disabled="(page - 1) * size + list.length >= total" @click="page++; load(false)"><i class="fa fa-chevron-right" aria-hidden="true"></i></button>
       </div>
     </div>
 

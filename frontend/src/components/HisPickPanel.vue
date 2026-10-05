@@ -133,9 +133,9 @@
         </tbody>
       </table>
     </div>
-    <div class="hp-right-bar">
-      <button class="tdx-export-btn" @click="exportAll"><i class="fa fa-download"></i> 导出全部筛选结果至通达信</button>
-    </div>
+    <!-- 2026-10-05 (M5): 此处原有**与上方工具条完全重复**的第二个「导出全部筛选结果至通达信」
+         （同文案/同图标/同 @click=exportAll，实测同屏出现两次 ⇒ 用户不知道点哪个，也显得页面没做完）。
+         保留表格上方工具条位置的那个，理由：它在表头之上、长列表滚动时仍能被第一眼看到。 -->
 
   </div>
 </template>
@@ -343,7 +343,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .real-time-btn:hover:enabled { background: var(--down); }
 .reset-filter-btn { background: rgba(80, 140, 255, 0.2); border-color: #5a8aff; color: var(--text-main); }
 /* 2026-10-05 (S3): 主操作按钮对比度修复。
-   原: background:var(--accent) + color:var(--accent-text) ⇒ 浅红字压亮红底
+   原: background:var(--accent-solid) + color:var(--accent-text) ⇒ 浅红字压亮红底
       深色 #ffbcbc on #ff5c5c = 1.90:1 / 浅色 #b91c1c on #c62828 = 1.31:1, 两套主题都不达 AA。
    现: 实心深红 + 纯白字 = 5.36:1(dark) / 5.36:1(light)，同时与旁边 3 个描边按钮拉开主次层级。 */
 .apply-btn {
@@ -422,7 +422,7 @@ body[data-bg="light"] .auto-tag { background: #fdf3e6; color: var(--warn-text); 
   border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 500; cursor: pointer; transition: 0.2s;
   color: var(--accent-text); display: inline-flex; align-items: center; gap: var(--s1);
 }
-.pool-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--text-main); transform: translateY(-1px); }
+.pool-btn:hover { background: var(--accent-solid); border-color: var(--accent); color: var(--text-main); transform: translateY(-1px); }
 .pool-list { max-height: 240px; overflow-y: auto; margin-top: var(--s2); border-radius: var(--r-md); }
 .pool-item {
   display: flex; align-items: center; justify-content: space-between; background: var(--bg-subtle);

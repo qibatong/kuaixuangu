@@ -8,8 +8,10 @@
       <!-- 登录 -->
       <template v-if="mode === 'login'">
         <form class="login-form" @submit.prevent="submit">
-          <input v-model="username" type="text" placeholder="用户名 / 手机号" autocomplete="username" maxlength="20">
-          <input v-model="password" type="password" placeholder="密码" autocomplete="current-password">
+          <label class="visually-hidden" for="lg-user">用户名或手机号</label>
+            <input id="lg-user" v-model="username" type="text" placeholder="用户名 / 手机号" autocomplete="username" maxlength="20">
+          <label class="visually-hidden" for="lg-pwd">密码</label>
+            <input id="lg-pwd" v-model="password" type="password" placeholder="密码" autocomplete="current-password">
           <label class="remember-row">
             <input v-model="remember" type="checkbox" class="remember-check" />
             <span>记住我，30 天内免登录</span>
@@ -17,41 +19,45 @@
           <!-- 2026-09-21 主人需求: 电脑+手机每次都要重新输入账号密码 → 本地记住凭据自动填充 -->
           <label class="remember-row">
             <input v-model="savePwd" type="checkbox" class="remember-check" />
-            <span>记住密码（本机自动填充）</span>
+            <span>本机自动填充（凭据只存本机）</span>
           </label>
           <button class="login-btn" type="submit" :disabled="busy">{{ busy ? '登录中...' : '登录' }}</button>
           <div class="login-err" :class="{error: errIsError}">{{ err }}</div>
         </form>
         <div class="login-switch">
-          <a href="javascript:void(0)" @click="mode = 'forgot'">忘记密码？</a>
+          <button type="button" class="lnk" @click="mode = 'forgot'">忘记密码？</button>
           <span class="switch-sep">|</span>
-          <a v-if="regOpen" href="javascript:void(0)" @click="toRegister">注册新账号</a>
+          <button v-if="regOpen" type="button" class="lnk" @click="toRegister">注册新账号</button>
         </div>
       </template>
 
       <!-- 注册(手机号 + 短信验证码, 2026-09-21 放开) -->
       <template v-else-if="mode === 'register'">
         <form class="forgot-form" @submit.prevent="doRegister">
-          <div class="gift-tip">
-            🎁 注册即送 <b>{{ giftDays }}</b> 天会员完整体验
-            <template v-if="inviteRewardDays > 0">，填邀请码双方各得 <b>{{ inviteRewardDays }}</b> 天</template>
-          </div>
+          <!-- 2026-10-05 (L4): 原先把 <template> 换行书写 ⇒ 渲染出「完整体验 ，填邀请码」的多余空格。
+               必须写在同一行内，空格才不会漏出来。 -->
+          <div class="gift-tip">🎁 注册即送 <b>{{ giftDays }}</b> 天会员完整体验<template v-if="inviteRewardDays > 0">，填邀请码双方各得 <b>{{ inviteRewardDays }}</b> 天</template></div>
           <div class="phone-row">
-            <input v-model="phone" type="text" placeholder="手机号" autocomplete="off" maxlength="11" inputmode="numeric" @keydown.enter="sendRegSms">
+            <label class="visually-hidden" for="rg-phone">手机号</label>
+            <input id="rg-phone" v-model="phone" type="text" placeholder="手机号" autocomplete="off" maxlength="11" inputmode="numeric" @keydown.enter="sendRegSms">
             <button type="button" class="sms-btn" :disabled="smsBusy || countdown > 0" @click="sendRegSms">
               {{ countdown > 0 ? countdown + 's 后重发' : '获取验证码' }}
             </button>
           </div>
-          <input v-model="smsCode" type="text" placeholder="短信验证码" autocomplete="one-time-code" maxlength="6" inputmode="numeric" @keydown.enter="doRegister">
-          <input v-model="resetPwd" type="password" placeholder="设置密码（至少 6 位）" autocomplete="new-password" @keydown.enter="doRegister">
-          <input v-model="resetPwd2" type="password" placeholder="确认密码" autocomplete="new-password" @keydown.enter="doRegister">
-          <input v-model="inviteCode" type="text" placeholder="邀请码（选填）" autocomplete="off" maxlength="16" @keydown.enter="doRegister">
+          <label class="visually-hidden" for="rg-sms">短信验证码</label>
+            <input id="rg-sms" v-model="smsCode" type="text" placeholder="短信验证码" autocomplete="one-time-code" maxlength="6" inputmode="numeric" @keydown.enter="doRegister">
+          <label class="visually-hidden" for="rg-pwd">设置密码</label>
+            <input id="rg-pwd" v-model="resetPwd" type="password" placeholder="设置密码（至少 6 位）" autocomplete="new-password" @keydown.enter="doRegister">
+          <!-- 2026-10-05 (M8): 删掉「确认密码」—— 移动端要敲两遍密码 + 切键盘，是注册漏斗里最烦的一栏；
+               改为提交时按长度校验（≥6 位），配合浏览器自带密码可见性，风险可接受。 -->
+          <label class="visually-hidden" for="rg-inv">邀请码（选填）</label>
+            <input id="rg-inv" v-model="inviteCode" type="text" placeholder="邀请码（选填）" autocomplete="off" maxlength="16" @keydown.enter="doRegister">
           <div v-if="inviterName" class="inviter-tip">✅ 邀请人：{{ inviterName }}，注册后你可得 {{ inviteRewardDays }} 天会员</div>
           <button class="login-btn" type="submit" :disabled="busy">{{ busy ? '注册中...' : '注册并登录' }}</button>
         </form>
         <div class="login-err" :class="{error: errIsError}">{{ err }}</div>
         <div class="login-switch">
-          <a href="javascript:void(0)" @click="mode = 'login'">已有账号？去登录</a>
+          <button type="button" class="lnk" @click="mode = 'login'">已有账号？去登录</button>
         </div>
       </template>
 
@@ -60,20 +66,24 @@
         <form class="forgot-form" @submit.prevent="doResetByPhone">
           <div class="login-sub">输入已绑定的手机号，通过短信验证码重置密码</div>
           <div class="phone-row">
-            <input v-model="phone" type="text" placeholder="绑定手机号" autocomplete="off" maxlength="11" @keydown.enter="sendForgotSms">
+            <label class="visually-hidden" for="fg-phone">绑定手机号</label>
+            <input id="fg-phone" v-model="phone" type="text" placeholder="绑定手机号" autocomplete="off" maxlength="11" @keydown.enter="sendForgotSms">
             <button type="button" class="sms-btn" :disabled="smsBusy || countdown > 0" @click="sendForgotSms">
               {{ countdown > 0 ? countdown + 's 后重发' : '获取验证码' }}
             </button>
           </div>
           <!-- one-time-code: 短信验证码专用, 避免浏览器自动填账号; new-password: 让浏览器知道这是新密码, 不自动填旧密码 -->
-          <input v-model="smsCode" type="text" placeholder="短信验证码" autocomplete="one-time-code" maxlength="6" inputmode="numeric" @keydown.enter="doResetByPhone">
-          <input v-model="resetPwd" type="password" placeholder="新密码（至少 6 位）" autocomplete="new-password" @keydown.enter="doResetByPhone">
-          <input v-model="resetPwd2" type="password" placeholder="确认新密码" autocomplete="new-password" @keydown.enter="doResetByPhone">
+          <label class="visually-hidden" for="fg-sms">短信验证码</label>
+            <input id="fg-sms" v-model="smsCode" type="text" placeholder="短信验证码" autocomplete="one-time-code" maxlength="6" inputmode="numeric" @keydown.enter="doResetByPhone">
+          <label class="visually-hidden" for="fg-pwd">新密码</label>
+            <input id="fg-pwd" v-model="resetPwd" type="password" placeholder="新密码（至少 6 位）" autocomplete="new-password" @keydown.enter="doResetByPhone">
+          <label class="visually-hidden" for="fg-pwd2">确认新密码</label>
+            <input id="fg-pwd2" v-model="resetPwd2" type="password" placeholder="确认新密码" autocomplete="new-password" @keydown.enter="doResetByPhone">
           <button class="login-btn" type="submit" :disabled="busy">{{ busy ? '提交中...' : '重置密码' }}</button>
         </form>
         <div class="login-err" :class="{error: errIsError}">{{ err }}</div>
         <div class="login-switch">
-          <a href="javascript:void(0)" @click="mode = 'login'">返回登录</a>
+          <button type="button" class="lnk" @click="mode = 'login'">返回登录</button>
         </div>
       </template>
 
@@ -240,7 +250,7 @@ async function doRegister() {
   if (!/^1[3-9]\d{9}$/.test(phone.value.trim())) { setErr('请输入正确的 11 位手机号'); return }
   if (!/^\d{4,6}$/.test(smsCode.value.trim())) { setErr('请输入短信验证码'); return }
   if (!resetPwd.value || resetPwd.value.length < 6) { setErr('密码至少 6 位'); return }
-  if (resetPwd.value !== resetPwd2.value) { setErr('两次输入的密码不一致'); return }
+  // 2026-10-05 (M8): 「确认密码」已下线 ⇒ 该校验随之删除（resetPwd2 只剩"忘记密码"表单在用）
   busy.value = true
   err.value = '注册中...'
   errIsError.value = false
@@ -428,6 +438,16 @@ onMounted(() => {
   min-height: 43px;             /* 保险: 即使 stretch 失效也有最小高度 */
 }
 .sms-btn:disabled { opacity: .45; cursor: not-allowed; }
+/* 2026-10-05 (L5): 手机号框与其余输入框**等宽**（原先 206px vs 300px，右侧「获取验证码」把行撑得不齐） */
+.forgot-form .phone-row { display: flex; gap: var(--s2); }
+.forgot-form .phone-row input { flex: 1 1 auto; min-width: 0; }
+/* 2026-10-05 (L1): 「忘记密码 / 注册新账号 / 去登录」改真按钮后的样式（原先是 <a javascript:void(0)>：
+   无按钮语义、状态栏不显示链接、也无法新标签打开） */
+.login-switch .lnk {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font: inherit; color: inherit;
+}
+.login-switch .lnk:hover { text-decoration: underline; }
 /* 注册页赠送提示 */
 .gift-tip {
   font-size: var(--fs-xs);

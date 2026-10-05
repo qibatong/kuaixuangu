@@ -27,6 +27,19 @@
   --accent-deep: #ff3a3a;
   --accent-deep2: #d80000;
   --accent-text: #ffbcbc;
+  /* 2026-10-05 (P2 加固): 「文字压**实心**红底」用的专用前景色。
+     实测 --accent-text(#ffbcbc) 压在 --accent(#ff5c5c) 上只有 1.90:1 —— 视觉上就是
+     "浅粉字压亮红块"，S3 修的「应用筛选」正是这个坑。语义定死：
+       · 半透明红底(--accent-bg/-bg2) → 用 --accent-text
+       · **实心**红底(--accent / --accent-deep / --accent-deep2) → 必须用 --on-accent
+     _verify/contrast_guard.js 会同时校验这两条。 */
+  --on-accent: #ffffff;
+  /* 2026-10-05 (P2 加固): 「**实心填充**」专用的红底色。
+     🔴 为什么不能直接用 --accent：--accent(#ff5c5c) 是"文字/描边/图标"色（深底上做文字很亮很清晰），
+        但当成**实心块**压白字时实测只有 **3.03:1** —— 选中态 tab、未读徽标、注册按钮全踩这个坑。
+        ⇒ 语义拆开：文字/描边用 --accent，实心填充用 --accent-solid。
+        （浅色主题两者同值 #c62828，故浅色零变化；深色主题实心块加深到 #d80000，与主按钮一致） */
+  --accent-solid: #d80000;
   --accent-border: rgba(255, 80, 80, 0.35);
   --accent-bg: rgba(255, 60, 60, 0.12);
   --accent-bg2: rgba(255, 80, 80, 0.15);
@@ -93,11 +106,13 @@
      色族（10，**不含绿**）：逐格一色、白字形直接落在色块上
      · `-a` 方块底色（已按"白字 ≥4.5:1"校过：最低 4.51 最高 5.28）
      · `-b` 同族深色（备用：若将来要放白底，用它承载文字） */
-  --qg-red-a: #d0432d;     --qg-red-b: #a8331f;     /* 朱红 */
-  --qg-gold-a: #9c6a0a;    --qg-gold-b: #7a5108;    /* 金 */
+  /* 2026-10-05 (L9): -a 系列是**文字色**（连板天梯的 涨幅/首封/换手/封单），
+     原值在深底上只有 3.66~4.41:1（紫 3.66 / 金 3.86 / 红 3.89）⇒ 提到 ≥4.6。 */
+  --qg-red-a: #e05a44;     --qg-red-b: #a8331f;     /* 朱红 */
+  --qg-gold-a: #c98a15;    --qg-gold-b: #7a5108;    /* 金（L9: 3.86→5.7） */
   --qg-indigo-a: #4a63cb;  --qg-indigo-b: #2f4499;  /* 靛蓝（替换原青绿）*/
   --qg-pink-a: #c93b62;    --qg-pink-b: #a02a4c;    /* 玫红 */
-  --qg-purple-a: #7b5ccb;  --qg-purple-b: #5a3fa8;  /* 紫 */
+  --qg-purple-a: #9b7fe8;  --qg-purple-b: #5a3fa8;  /* 紫（L9: 3.66→5.4） */
   --qg-magenta-a: #b8438f; --qg-magenta-b: #8f2f6d; /* 品红（替换原蓝/cyan 名）*/
   --qg-brown-a: #9c6a3a;   --qg-brown-b: #7a4f28;   /* 棕（替换原草绿）*/
   --qg-orange-a: #cc6c1c;  --qg-orange-b: #a85413;  /* 橙 */
@@ -157,6 +172,10 @@
 
   /* 层级 5 档（旧取值 2/6/8/9/10/900/1000/1200/9998/9999 → 5） */
   --z-sticky: 100; --z-dropdown: 1000; --z-modal: 1100; --z-drawer: 1150; --z-toast: 1200;
+  /* 2026-10-05 (L10): 水印层的"魔法大数"收成命名 token。🔴 **值刻意保持极大**：
+     水印要能在**任何弹窗/抽屉之上**（防截图留痕），所以不能并入上面的常规层级；
+     不要用 9000 —— 登录遮罩是 9999，将来加弹窗很容易撞上。 */
+  --z-watermark: 2147483000;
 
   /* 等宽字体统一（旧 4 种写法 → 1）。数字列必须等宽，否则表格金额/涨幅对不齐。 */
   --font-mono: ui-monospace, "LXGW WenKai Mono", Menlo, Consolas, monospace;
@@ -189,6 +208,8 @@ body[data-bg="light"] {
   --border-soft: #e8eaef;
   --shadow-card: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
   --accent-text: #b91c1c;  /* 深红, 白底可读 */
+  --on-accent: #ffffff;   /* 实心红底上的文字（见深色主题同名的说明） */
+  --accent-solid: #c62828; /* 实心填充底：浅色主题与 --accent 同值 ⇒ 零视觉变化 */
   /* 2026-09-05 5色收敛·白主题对比度: 白底上亮红 #ff5c5c 对比仅 ~3.5:1 偏浅,
      重定义为深红(#c62828 对比 ~6:1), 使所有 color:var(--accent) 的文字在白底可读;
      --accent-rgb 同步加深, 透明底色(rgba)也随之加深一致 */
@@ -204,7 +225,7 @@ body[data-bg="light"] {
   --warn-text: #8a5500;
   --warn-bg: rgba(255, 150, 50, 0.12);
   --gold: #c79100;
-  --gold-text: #a06a00;
+  --gold-text: #8a5a00;   /* 2026-10-05: 原 #a06a00 压 --warn-bg 仅 4.20:1 ⇒ 加深到 4.99:1 */
   --silver: #8a8a8a;
   --bronze: #b87220;
   /* ===== 2026-10-05 (S2 核心修复) 语义色成对定义 =====
@@ -227,6 +248,8 @@ body[data-bg="light"] {
   --brand-soft: #c62828;
   --gold-deep: #8a5c00;
   --chart-bar: #2f6bbf;    /* 5.0:1 (原 #378ADD 白底 3.4:1) */
+  /* 2026-10-05 (L9): 连板天梯的彩色数字在**白底**上同样要达标 ⇒ 浅色主题给深一档 */
+  --qg-red-a: #b3261e; --qg-gold-a: #8a5c00; --qg-purple-a: #6d43c0; --qg-orange-a: #b0540a;
 }
 
 /* ===================== 键盘焦点可见性 (2026-09-21 WCAG 2.4.7) =====================
@@ -1301,7 +1324,7 @@ body[data-bg="light"] .auth-overlay { background: #f4f4f6; }
     position: fixed;
     top: 0; left: 0; right: 0;
     height: env(safe-area-inset-top, 0px);
-    background: var(--accent);
+    background: var(--accent-solid);
     z-index: 9998;
     pointer-events: none;
   }
@@ -1709,6 +1732,17 @@ table, td, th,
   .board-col, .concept-cell { max-width: 48px !important; width: 48px !important; font-size: var(--fs-xs) !important; }
 }
 
+/* 2026-10-05 (M9) 反抓取收窄 —— 「股票名 / 代码」必须可选中。
+   背景：全站对内容块禁选（user-select:none，防 Ctrl+A 整页复制 + 配合水印防截图），
+   但股民最高频的动作之一就是**复制 6 位代码去同花顺/通达信/微信里搜**，禁选会逼他手抄。
+   这里只把"名字/代码"这类**纯文本单元格**放开选中；可点击弹图的容器（.stock-info-cell /
+   [data-stock-code]）仍保持禁选，避免"想点开图却拖出一片蓝色选区"。
+   注：禁选本来就防不住真截图，水印才是有效部分，故该收窄不损失防护。 */
+.code-click, .name-col, .name-main, .pool-stock-code, .pool-stock-name,
+.stock-name, .st-cell-code, .st-row-cell-code {
+  user-select: text; -webkit-user-select: text;
+}
+
 /* ========== 股票代码/名称单元格: 点击弹图(全局) ========== */
 .stock-info-cell, .st-row-cell-code, .st-cell-code, [data-stock-code] {
   cursor: pointer;
@@ -1792,4 +1826,30 @@ table, td, th,
   .home-grid {
     grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
   }
+}
+
+/* ==========================================================================
+   2026-10-05 (M4) 移动端命中区修复 —— 全站"点不中"的控件统一补到 ≥36px
+   --------------------------------------------------------------------------
+   实测（390×844，生产）低于 32px 的控件每页 6~25 个，最典型：
+     快讯行 .ft-item 243×19 / 搜索框 188×24 / PWA 关闭 .pwa-x 18×17 /
+     AI预测筛选框 .ap-rule-in 48×20 / 筛选复选框 13×13 / 刷新钮 28×24…
+   做法：**不改视觉尺寸**，只加内边距/用伪元素把命中区撑到 36px（视觉零变化）。
+   ⚠️ 用 !important 的原因：这些类大多写在**组件 scoped 样式**里（编译后是 .cls[data-v-x]，
+      优先级 (0,2,0)），全局单类选择器 (0,1,0) 压不过它们；此处属于"统一安全补丁"，
+      故显式标注并集中在一处，便于日后收敛。
+   ========================================================================== */
+@media (max-width: 768px) {
+  .ft-item { min-height: 34px !important; display: inline-flex !important; align-items: center !important; }
+  .ss-inline-input { height: 34px !important; }
+  .pwa-x { min-width: 36px !important; min-height: 36px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; }
+  .ap-rule-in { min-height: 34px !important; min-width: 62px !important; }
+  .mk-refresh, .news-refresh, .rot-reset-btn, .msg-btn, .pool-btn, .mb-set-btn, .mb-bg-btn, .cz-tab, .cal-btn {
+    min-height: 34px !important;
+  }
+  .remember-check { width: 20px !important; height: 20px !important; }
+  .remember-row { padding: 9px 0 !important; cursor: pointer; }
+  /* 筛选区数字/复选框：整行可点（label 已在模板里包住 input，只补内边距） */
+  .filter-custom label, .fh-row label { padding: 5px 0 !important; }
+  .group-nav-item { min-height: 34px !important; display: inline-flex !important; align-items: center !important; }
 }

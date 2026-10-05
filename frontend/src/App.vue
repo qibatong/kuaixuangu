@@ -300,6 +300,12 @@ onBeforeUnmount(() => {
    ============================================================================ */
 @media (max-width: 768px) {
   .container.has-tabbar { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important; }
+  /* 2026-10-05 (L11): PWA 安装条（56px 高，浮在 tabbar 之上）出现时再多让出一块，
+     否则它会把页面最后一段内容压住（实测手机端会员页「不限次」被截断）。
+     标记由 components/PwaBar.vue 的 watch(visible) 打在 body 上。 */
+  body.has-pwabar .container.has-tabbar {
+    padding-bottom: calc(64px + 62px + env(safe-area-inset-bottom, 0px)) !important;
+  }
 }
 /* 网页底部免责声明 (2026-09-21 对比度修正: 提级到 secondary 并去 opacity, 合规文字须最清晰) */
 .disclaimer {

@@ -393,7 +393,7 @@ onBeforeUnmount(() => { if (echelonTimer) clearInterval(echelonTimer) })
 }
 .lb-bd em { font-style: normal; font-size: var(--fs-xs); color: var(--text-secondary); }
 .lb-bd.main { border-color: var(--qg-gold-a); }
-.lb-bd.on { background: var(--accent); border-color: var(--accent); color: var(--qg-on); }
+.lb-bd.on { background: var(--accent-solid); border-color: var(--accent); color: var(--qg-on); }
 .lb-bd.on em { color: var(--qg-hi); }
 .lb-bd-more { color: var(--qg-orange-a); border-style: dashed; border-color: var(--qg-orange-a); }
 

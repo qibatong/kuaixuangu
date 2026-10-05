@@ -216,7 +216,7 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 .vip-primary {
-  background: var(--accent);
+  background: var(--accent-solid);
   color: #fff;
   border: none;
   border-radius: var(--r-md);

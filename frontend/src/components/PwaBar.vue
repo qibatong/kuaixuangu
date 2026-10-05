@@ -140,7 +140,14 @@ onMounted(() => {
   refreshMode()
 })
 
+// 2026-10-05 (L11): 安装条是 fixed 且浮在底部 tabbar 之上（bottom:64px）⇒ 会**压住页面最后一段内容**
+//   （实测手机端会员页「不限次」被截断）。这里给 body 打标记，由 App.vue 的 CSS 相应加大底部内边距。
+import { watch } from 'vue'
+watch(visible, (v) => {
+  try { document.body.classList.toggle('has-pwabar', !!v) } catch (e) { /* SSR/隐私模式 */ }
+}, { immediate: true })
 onBeforeUnmount(() => {
+  try { document.body.classList.remove('has-pwabar') } catch (e) { /* ignore */ }
   window.removeEventListener('beforeinstallprompt', onBeforeInstall)
   window.removeEventListener('kx:sw-update', onSwUpdate)
   navigator.serviceWorker?.removeEventListener?.('controllerchange', onControllerChange)
