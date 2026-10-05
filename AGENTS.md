@@ -357,6 +357,7 @@ cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/p
 > · 🔴 **部署脚本两个坑**：① `ENTRY` 常量**不带 `assets/` 前缀**；② `… stage | tail && … apply`
 >   会把 `tail` 的退出码当成功 ⇒ **stage 失败也会继续 apply**（本次实际发生）。**stage 与 apply 分开跑**。
 > ⚙️ 另：XML 注释里不能有连续 `--`（写 CSS 变量名 `--bg-body` 会把 `mergeReleaseResources` 打挂）。
+> 🏷️ **同日补齐 4 个历史版本 tag**（原漏打，登记在 CHANGELOG「需要主人一句话」里）：`v4.11.83`→`1548f01`、`v4.11.84`→`7310a88`、`v4.11.85`→`da1e68d`、`v4.11.86`→`e769636`（均取**该版本收尾提交**：版本条目/部署记录/最后一项改动）。已推 origin + mirror，本地 tag 共 101 个。补打用**附注 tag + 说明消息**（写明"原漏打于某日"），便于日后分辨是补的还是当次打的。
 
 > **`v4.11.97`（2026-10-05 晚 · 分支 `feature/scoring-v7-meoz` · 前端 `index-BsMVVbGk.js`）**
 > 竞价选股表列重构（主人拍板"方案 A + 代码放名称下面"）。**最值得记的一条**：
