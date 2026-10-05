@@ -14,22 +14,15 @@
            都不依赖会员接口。接口慢或挂了也必须能改密、能退出登录 ——
            否则「会员接口异常」会连带把「退出登录」也锁死，那就成了一个自己把自己关在门里的缺陷。
            附带好处：SSR 冒烟测试（_verify/nav.spec.js G12）无需接口即可覆盖本卡模板。 -->
+    <!-- 🔴 2026-10-05 晚（主人：「账户卡与会员卡重复展示身份，修改」）：账户卡收成**纯操作区** ——
+         去掉用户名与等级徽章。身份/等级/到期统一由紧随其后的会员卡承载
+         （`.mb-name` + `memberLabel` + 「剩余 N 天 / 到期 X」），不再同屏说两遍。
+         ⇒ 信息零丢失：「还剩 N 天续费」的替代是会员卡右上的「剩余 N 天」+ days_left≤3 的 `.mb-warn` 警示条；
+            管理员身份本身不靠徽章标识（顶栏有「管理后台」入口）。
+         ⇒ 本卡现在 = 「账户」标题 + 三个操作 + 折叠的显示设置，首屏更短。 -->
     <div class="mb-card mb-acc-card">
       <div class="mb-card-head">
         <span class="mb-card-title"><i class="fa fa-user-circle-o"></i> 账户</span>
-        <span class="mb-card-note">{{ user.username }}</span>
-      </div>
-      <div class="mb-acc-badges">
-        <span v-if="user.memberLevel === 2" class="member-badge vip-badge" title="VIP · 永久权限">VIP</span>
-        <span v-else-if="user.memberLevel === 1" class="member-badge paid-badge" title="付费会员">付费会员</span>
-        <span v-else-if="user.isAdmin" class="member-badge admin-badge" title="管理员">管理员</span>
-        <span v-else-if="user.memberDaysLeft >= 0" class="member-badge trial-badge" :title="'免费试用剩余 ' + user.memberDaysLeft + ' 天, 到期请联系管理员开通'">试用{{ user.memberDaysLeft }}天</span>
-        <span
-          v-if="!user.isAdmin && user.memberLevel !== 2 && user.memberDaysLeft >= 0 && user.memberDaysLeft <= 2"
-          class="member-badge renew-badge" title="请尽快续费, 联系管理员(微信号 poet-1986)"
-        >
-          <i class="fa fa-exclamation-circle"></i> 还剩{{ user.memberDaysLeft }}天续费
-        </span>
       </div>
       <div class="mb-acc-actions">
         <button class="mb-mini-btn" @click="profileModal.open()"><i class="fa fa-id-card"></i> 个人信息</button>
@@ -127,7 +120,14 @@
           <span class="mb-card-title"><i class="fa fa-tachometer"></i> 今日可用次数</span>
           <span class="mb-card-note">每日 0 点重置（北京时间）</span>
         </div>
-        <div class="mb-quota-grid">
+        <!-- 2026-10-05 晚（主人同意）：三项全部"不限次"时，三格网格只是在复读同一句话
+             （VIP/付费账号下这是常态）⇒ 收成一行摘要，把首屏让给会员卡与权益。
+             有任何一项受限（免费试用/额度用完）仍走原来的三格 + 进度条，信息不缩水。 -->
+        <div v-if="allUnlimited" class="mb-quota-all">
+          <i class="fa fa-check-circle" aria-hidden="true"></i>
+          <span>{{ quotaLabels }} 全部<b>不限次</b></span>
+        </div>
+        <div v-else class="mb-quota-grid">
           <div v-for="q in quota" :key="q.feature" class="mb-quota-item" :class="{ exhausted: !q.privileged && q.remain <= 0 }">
             <div class="mb-q-name">{{ q.label }}</div>
             <div class="mb-q-num">
@@ -341,6 +341,11 @@ const memberLabel = computed(() => member.value.member_label || '免费试用')
 const freePicker = computed(() => plans.value.free.picker ?? 3)
 
 const QUOTA_ORDER = { picker: '选股', aipick: 'AI 预测', auction: '竞价异动' }
+
+// 2026-10-05 晚（主人同意）：所有配额项都"不限次"时，三格网格只是复读同一句话 ⇒ 收成一行摘要。
+// ★ 只有 `quota` 真的拿到数据（length > 0）才判定"全不限次"，避免接口未返回时误把空数组当"全不限"。
+const allUnlimited = computed(() => quota.value.length > 0 && quota.value.every((q) => q.privileged))
+const quotaLabels = computed(() => quota.value.map((q) => q.label).filter(Boolean).join(' / '))
 
 function pct(q) {
   if (!q || !q.limit) return 0
@@ -589,7 +594,11 @@ body[data-bg="light"] .mb-bg-btn.active { background: rgba(11, 134, 200, .12); c
   .mb-fontfam { min-height: 34px; }
 }
 
-/* 会员徽标（类名与迁出前一致，便于对照历史截图） */
+/* 会员徽标（类名与迁出前一致，便于对照历史截图）
+   ⚠️ 2026-10-05 晚：下面的 `.member-badge` 与上面的 `.mb-acc-badges` 目前**在本页已无引用** ——
+      账户卡去重时把徽章区整体撤掉了（等级改由会员卡承担）。CSS 特意**保留**而不是删除：
+      主人今天已两次反转这页的信息架构，徽章大概率还会回来；留着可直接复用。
+      （本 style 是 scoped，不存在"删了会影响别处"的问题。） */
 .member-badge {
   display: inline-flex; align-items: center; gap: var(--s1);
   font-size: var(--fs-xs); font-weight: 600;
@@ -620,6 +629,15 @@ body[data-bg="light"] .mb-fontfam { background: #f7f8fb; }
 
 /* 配额 */
 .mb-quota-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s3); }
+/* 2026-10-05 晚：全部不限次时的一行摘要（替代上面的三格网格）。
+   配色用 --accent-text（文字专用 token：深色 #ffbcbc / 浅色 #b91c1c），
+   不直接用 --accent —— 那是实心填充色，当文字压普通卡片底不达标（见 main.css 的语义说明）。 */
+.mb-quota-all {
+  display: flex; align-items: center; gap: var(--s2);
+  font-size: var(--fs-sm); color: var(--text-secondary);
+}
+.mb-quota-all i { color: var(--accent-text); }
+.mb-quota-all b { color: var(--accent-text); font-weight: 700; }
 .mb-quota-item {
   border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s3) var(--s4);
   background: rgba(255, 255, 255, .015);

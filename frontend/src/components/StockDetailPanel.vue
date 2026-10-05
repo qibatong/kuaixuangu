@@ -84,7 +84,8 @@ v-if="risk && risk.warn_level" class="sd-tag"
       </div>
     </div>
 
-    <div class="sd-foot">数据来源：最近交易日 9:25 定格快照 · 仅展示分项评分</div>
+    <!-- 2026-10-05 晚（主人：「撤」）：去掉「数据来源：最近交易日 9:25 定格快照」，只留范围说明。 -->
+    <div class="sd-foot">仅展示分项评分</div>
   </div>
 
   <div v-else class="sd-state">
