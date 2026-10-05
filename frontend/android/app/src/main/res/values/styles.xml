@@ -19,9 +19,9 @@
              状态栏区域露的是**窗口背景**(白色, 这就是主人截图中"信号栏没被红色覆盖"的根因)。
              ⇒ 补 android:windowBackground 染红; 白色图标由 MainActivity 里
              WindowCompat.setAppearanceLightStatusBars(false) 兜(API 35+ 分支)。 -->
-        <item name="android:statusBarColor">@color/colorPrimary</item>
+        <item name="android:statusBarColor">@color/statusBarBrand</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowBackground">@color/colorPrimary</item>
+        <item name="android:windowBackground">@color/windowBg</item>
         <!-- 🔴 2026-10-05（v1.8）主人：「页面底部那条红是干啥的」—— 它就是上面的
              windowBackground（品牌红）在**系统导航栏区域**露出来的：
              Android 15+ 强制 edge-to-edge ⇒ statusBarColor/navigationBarColor **全部被忽略**、

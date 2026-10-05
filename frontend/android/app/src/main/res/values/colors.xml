@@ -20,6 +20,20 @@
             它要跟手机端浅色主题的红色顶栏连成一体，与启动屏是两件事。 -->
     <color name="splash_background">#ffffff</color>
 
+    <!-- 2026-10-05（v1.8.1）主人：「底部红条还是存在」+「深色下上面下面都该是深色」。
+         🔴 机制：**gesture 导航下 navigationBarColor 是无效的**（系统强制透明），
+            所以底部露的是 `windowBackground`。原来 windowBackground 与 statusBarColor
+            共用同一个品牌红是为了染红状态栏 —— 但代价是底部也被染红，两者从此绑死。
+         修法：把它们**拆开**并都做成随系统深浅色变化：
+           · statusBarBrand  → 只染状态栏。浅色 = 品牌红（与浅色红顶栏连成一体，主人 10-04 拍板）；
+                              深色 = 深色（与深色顶栏一致 ⇒ 深色模式上下都是深色）
+           · windowBg        → 窗口底色，**底部露的就是它**。浅色 = 白（与白色 tab 栏一致）；
+                              深色 = #0f1219（与深色 tab 栏一致）
+         ⇒ 底部不再是红的；深色模式顶/底都变深色。
+         （深色变体见 values-night/colors.xml） -->
+    <color name="statusBarBrand">#e5484d</color>
+    <color name="windowBg">#ffffff</color>
+
     <!-- 2026-10-05 (APK v1.8)：**系统导航栏**底色（不是启动屏、不是状态栏）。
          浅色主题给白 —— 与底部 tab 栏白底一致，消除"底部一条红"（原为 windowBackground
          的品牌红露出）。深色变体见 values-night/colors.xml。 -->

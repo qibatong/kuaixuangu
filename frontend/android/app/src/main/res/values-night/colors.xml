@@ -4,4 +4,11 @@
          底色取页面深色主题的背景基色（main.css 里那个深色渐变底，起点 #0f1219），
          让底部导航栏与 App 深色底栏连成一体。 -->
     <color name="navBarBackground">#0f1219</color>
+
+    <!-- 2026-10-05（v1.8.1）主人在深色模式下截图反馈：「上面下面都该是深色，怎么还有红色背景」。
+         深色模式下 App 顶栏本身是深色的（红色顶栏规则只作用于浅色主题），
+         他却看到顶/底都红 —— 因为 native 的 statusBarColor 与 windowBackground **都是品牌红**
+         且不随主题变。⇒ 深色变体里两者都改成深色（与深色顶栏/tab 栏一致）。 -->
+    <color name="statusBarBrand">#0f1219</color>
+    <color name="windowBg">#0f1219</color>
 </resources>

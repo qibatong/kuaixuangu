@@ -359,6 +359,20 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
     /* 竖向拉长(主人二次反馈, 参考同花顺/开盘啦的顶栏高度): 上下 6px → 13px */
     padding: var(--s3) var(--s2);
   }
+  /* 🔴 2026-10-05 二次修复（主人：「白色白条还是存在」）：
+     负 margin 只能抵消**已知的 4px**，而真机上还有第二处内缩 —— `App.vue` 的
+     980-虚拟视口那段会**再注入一份** `body { padding: 2px var(--s1) … ; padding-left: max(var(--s1), env(safe-area-inset-left)) }`
+     （手机 UA 才注入；我第一次真机复测用的 headless Chrome 没带手机 UA，被绕过了 ⇒ 只量到 4px）。
+     于是 APK 里实际内缩可能是 8px 或更多，负 margin 抵消不干净，仍露白。
+     ⇒ 这里补两条「把空隙刷成顶栏自身颜色」的阴影：**左右偏移、0 模糊 0 扩散**，
+        横向各铺 12px —— 无论内缩几像素都盖得住（横向溢出部分在屏幕外；纵向不越界，
+        不会压到下方内容）。这属于"兜底"，与上面的负 margin 并存：能抵消就抵消，剩下由它盖。
+     · 深色：顶栏底色是 --bg-card（红顶栏只作用于浅色主题）
+     · 浅色：顶栏是品牌红 --accent-solid（下面的 light 规则会覆盖本行，按 CSS 顺序必须先写深色） */
+  .nav-bar { box-shadow: -24px 0 0 var(--bg-card), 24px 0 0 var(--bg-card); }
+  body[data-bg="light"] .nav-bar {
+    box-shadow: -24px 0 0 var(--accent-solid), 24px 0 0 var(--accent-solid);
+  }
   /* 搜索胶囊恢复**原始尺寸**：不再 flex 吃光剩余宽度，限宽 230px 居其位，
      多出的横向空间留给红底留白（对照开盘啦：胶囊不大，四周都是红）。 */
   .nav-tools :deep(.ss-inline) { max-width: 230px; }
