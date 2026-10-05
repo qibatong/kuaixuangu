@@ -180,3 +180,38 @@ export function adminUsageRank(params = {}) {
 export function adminActiveUsers(days = 30) {
   return request(`/api/admin/active-users?days=${days}`)
 }
+
+/* ============ 第二批: 用户运营(2026-10-06) ============ */
+
+// A4 分层标签汇总(每个标签多少人 + 口径说明)
+export function adminUserTags() {
+  return request('/api/admin/user-tags')
+}
+
+// A4 重算全员自动标签(手动标签不会被冲掉)
+export function adminRefreshTags() {
+  return request('/api/admin/tags/refresh', { method: 'POST', body: {} })
+}
+
+// A4 设置某用户的手动标签(全量替换)
+export function adminSetUserTags(uid, tags) {
+  return request('/api/admin/users/tags', { method: 'POST', body: { uid, tags } })
+}
+
+// A10 转化漏斗: 注册 → 用过核心功能 → 撞免费墙 → 付费 → 续费
+export function adminFunnel(days = 30) {
+  return request(`/api/admin/funnel?days=${days}`)
+}
+
+// A5「仅自己可见」的测试发送(发布前先看看消息长什么样)
+export function adminTestNotice(payload) {
+  return request('/api/admin/notices/test', { method: 'POST', body: payload })
+}
+
+// A7 统一导出(浏览器直接下载, 不走 request 封装)
+//   kind=users 用户清单(扩充) | churn 流失用户 | reach 触达明细(需 nkey)
+export function adminExportUrl(params = {}) {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') q.set(k, v) })
+  return '/api/admin/export?' + q.toString()
+}

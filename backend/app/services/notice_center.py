@@ -61,8 +61,9 @@ CATEGORY_LABEL = {"system": "系统", "account": "账户会员", "trade": "交�
 #: 级别
 LEVELS = ("info", "warn", "urgent")
 
-#: 定向(沿用旧口径)
-TARGETS = ("all", "free", "member", "vip")
+#: 定向(沿用旧口径) —— 'tag' 是 2026-10-06 第二批加的**标签定向**(A4),
+#: 具体标签名存在 notices.target_tag, 人群由 user_ops.uids_by_tag() 现算。
+TARGETS = ("all", "free", "member", "vip", "tag")
 TARGET_LEVELS = {"all": None, "free": {0}, "member": {1, 2}, "vip": {2}}
 ADMIN_LEVEL = 3  # 管理员永远可见全部广播, 否则自己发的公告自己看不到
 
@@ -144,6 +145,8 @@ def init_tables(conn=None):
         ("action_value", "TEXT NOT NULL DEFAULT ''"),       # 路由或待复制文本
         ("meta", "TEXT NOT NULL DEFAULT ''"),               # JSON 快照(用于 account 自愈)
         ("sent_at", "INTEGER NOT NULL DEFAULT 0"),          # 实际投递时刻
+        # A4 标签定向(2026-10-06 第二批): target='tag' 时按 target_tag 过滤人群
+        ("target_tag", "TEXT NOT NULL DEFAULT ''"),
     ):
         if col not in cols:
             cur.execute("ALTER TABLE notices ADD COLUMN %s %s" % (col, ddl))
@@ -190,6 +193,18 @@ def init_tables(conn=None):
             click_count  INTEGER NOT NULL DEFAULT 0
         )
     """)
+
+    # --- 点击明细(2026-10-06 第二批): 触达明细导出要按人看"谁点了", 计数表给不了;
+    #     (uid,nkey) 做主键 ⇒ 同一个人点多次只记一次, 明细与计数永远一致。
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS notice_clicks (
+            uid  INTEGER NOT NULL,
+            nkey TEXT NOT NULL,
+            ts   INTEGER NOT NULL,
+            PRIMARY KEY (uid, nkey)
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_notice_clicks_nkey ON notice_clicks(nkey)")
 
     # --- 订阅偏好
     cur.execute("""
@@ -315,10 +330,18 @@ def _in_quiet_hours(push_key):
 # ---------------------------------------------------------------- 定向人群
 
 
-def _target_uids(target):
-    """定向 → uid 列表。target=all 时返回 None(表示全员, 避免拉全表)"""
+def _target_uids(target, tag=""):
+    """定向 → uid 列表。target=all 时返回 None(表示全员, 避免拉全表)
+
+    target='tag' 时按标签取人(user_tags 表) —— A4 定向运营的前提:
+    没有标签就只能"全部/免费/付费/VIP"四档, 没法对"免费但很活跃"这群最该转化的人单独说话。
+    """
     try:
         c = _conn()
+        if target == "tag":
+            from . import user_ops
+            c.close()
+            return user_ops.uids_by_tag(tag)
         if target == "vip":
             rows = c.execute("SELECT id FROM users WHERE member_level=2").fetchall()
         elif target == "member":
@@ -335,15 +358,15 @@ def _target_uids(target):
         return None
 
 
-def preview_count(target):
-    """发布前预估人数(含"其中已开推送 N 人")"""
+def preview_count(target, tag=""):
+    """发布前预估人数(含"其中已开推送 N 人")。支持 target='tag' + tag 名。"""
     try:
         c = _conn()
         if target == "all":
             total = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
             pushed = c.execute("SELECT COUNT(DISTINCT user_id) FROM push_subscriptions").fetchone()[0]
         else:
-            uids = _target_uids(target) or []
+            uids = _target_uids(target, tag) or []
             total = len(uids)
             pushed = 0
             if uids:
@@ -463,7 +486,8 @@ def _touch_stats(nkey, conn=None, **kw):
 
 def publish(title, body, level="info", target="all", category="system", days=None,
             scope_uid=0, dedup_key="", push_key=None, action_type="", action_value="",
-            meta=None, publish_at=0, status="sent", created_by="system", url="/messages"):
+            meta=None, publish_at=0, status="sent", created_by="system", url="/messages",
+            skip_push=False, tag=""):
     """统一发布入口。返回 {"ok", "nkey", "id", "pushed", "failed", "target_count"}
 
     · status='draft'     只存不投(后台草稿)
@@ -502,12 +526,13 @@ def publish(title, body, level="info", target="all", category="system", days=Non
         cur = conn.execute(
             "INSERT INTO notices (nkey, title, body, level, target, category, status, publish_at, "
             " start_ts, end_ts, scope_uid, dedup_key, push_key, action_type, action_value, meta, "
-            " off_at, sent_at, created_by, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,?,?)",
+            " off_at, sent_at, created_by, created_at, target_tag) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,?,?,?)",
             (nkey, title, body, level, target, category, status, int(publish_at or 0),
              start_ts, end_ts, int(scope_uid or 0), dedup_key or "", push_key,
              action_type or "", action_value or "",
-             json.dumps(meta or {}, ensure_ascii=False), str(created_by), now))
+             json.dumps(meta or {}, ensure_ascii=False), str(created_by), now,
+             str(tag or "") if target == "tag" else ""))
         nid = cur.lastrowid
         # 🔴 自愈: id 复用导致旧回执错挂(见文件头 1)。哪怕走软删也顺手清一次, 一行 DELETE 可忽略。
         conn.execute("DELETE FROM notice_reads WHERE notice_id=? AND (nkey IS NULL OR nkey='')", (nid,))
@@ -523,11 +548,17 @@ def publish(title, body, level="info", target="all", category="system", days=Non
         return {"ok": True, "nkey": nkey, "id": nid, "pushed": 0, "failed": 0,
                 "target_count": 0, "status": status}
 
-    return _deliver(nid, nkey, title, body, level, target, category, push_key, url)
+    return _deliver(nid, nkey, title, body, level, target, category, push_key, url,
+                    skip_push=skip_push, tag=tag)
 
 
-def _deliver(nid, nkey, title, body, level, target, category, push_key, url="/messages"):
-    """实际投递(上架 + 推送 + 统计)。立即发布与定时到点都走这里。"""
+def _deliver(nid, nkey, title, body, level, target, category, push_key, url="/messages",
+             skip_push=False, tag=""):
+    """实际投递(上架 + 推送 + 统计)。立即发布与定时到点都走这里。
+
+    skip_push=True 时只上架、不下发推送 —— 供 A5「仅自己可见的测试发送」使用:
+    测试的是"这条消息长什么样 / 排版对不对", 不该顺手把人推一遍。
+    """
     now = _now()
     try:
         c = _conn()
@@ -538,13 +569,16 @@ def _deliver(nid, nkey, title, body, level, target, category, push_key, url="/me
     except Exception as e:
         log.warning("消息上架失败 nid=%s err=%s", nid, e)
 
-    uids = None if target == "all" else (_target_uids(target) or [])
-    total = preview_count(target).get("total", 0)
+    uids = None if target == "all" else (_target_uids(target, tag) or [])
+    total = preview_count(target, tag).get("total", 0)
     ok_n, fail_n = 0, 0
-    try:
-        ok_n, fail_n = _do_push(uids, title, (body or "")[:80], url, push_key, nkey)
-    except Exception as e:
-        log.warning("推送下发异常 nid=%s err=%s", nid, e)
+    if skip_push:
+        log.info("测试发送(仅自己可见) nid=%s ⇒ 跳过推送下发", nid)
+    else:
+        try:
+            ok_n, fail_n = _do_push(uids, title, (body or "")[:80], url, push_key, nkey)
+        except Exception as e:
+            log.warning("推送下发异常 nid=%s err=%s", nid, e)
 
     try:
         c = _conn()
@@ -572,7 +606,8 @@ def dispatch_due():
     try:
         c = _conn()
         rows = c.execute(
-            "SELECT id, nkey, title, body, level, target, category, push_key, action_type, action_value "
+            "SELECT id, nkey, title, body, level, target, category, push_key, action_type, action_value, "
+            " COALESCE(target_tag,'') target_tag "
             "FROM notices WHERE status='scheduled' AND off_at=0 AND publish_at>0 AND publish_at<=? "
             "ORDER BY publish_at ASC LIMIT 50", (now,)).fetchall()
         c.close()
@@ -586,7 +621,8 @@ def dispatch_due():
         try:
             _deliver(int(d["id"]), d["nkey"], d["title"], d["body"], d.get("level") or "info",
                      d.get("target") or "all", d.get("category") or "system",
-                     d.get("push_key") or "system", url)
+                     d.get("push_key") or "system", url,
+                     tag=d.get("target_tag") or "")
             n += 1
         except Exception as e:
             log.warning("定时投递失败 nid=%s err=%s", d.get("id"), e)
@@ -608,6 +644,21 @@ def start_scheduler():
                 log.warning("dispatch 异常 err=%s", e)
             time.sleep(30)
 
+    def _loop_tags():
+        """每小时一次: 重算用户分层标签(A4)。
+
+        标签是"谁该被定向运营"的依据, 依赖最近 7/30 天的活跃与撞墙数据 ⇒ 会随行为变化,
+        必须定期重算。放在独立线程: 它要扫全表, 绝不能挂在 60s 的时点 job 里拖慢竞价闹钟。
+        """
+        while True:
+            try:
+                from . import user_ops
+                n = user_ops.refresh_auto_tags()
+                log.info("自动标签重算完成 rows=%s", n)
+            except Exception as e:
+                log.warning("自动标签重算失败 err=%s", e)
+            time.sleep(3600)
+
     def _loop_jobs():
         """每分钟检查一次: 交易时点类 / 每日一次的到期与签到提醒"""
         fired = set()
@@ -617,6 +668,8 @@ def start_scheduler():
             except Exception as e:
                 log.warning("消息 job 异常 err=%s", e)
             time.sleep(60)
+
+    threading.Thread(target=_loop_tags, name="user-tags", daemon=True).start()
 
     threading.Thread(target=_loop_dispatch, name="notice-dispatch", daemon=True).start()
     threading.Thread(target=_loop_jobs, name="notice-jobs", daemon=True).start()
@@ -922,7 +975,7 @@ def fetch(uid, level, limit=40):
         c = _conn()
         rows = c.execute(
             "SELECT id, nkey, title, body, level, target, category, scope_uid, start_ts, end_ts, "
-            " off_at, action_type, action_value, meta, push_key FROM notices "
+            " off_at, action_type, action_value, meta, push_key, target_tag FROM notices "
             "WHERE off_at=0 AND status='sent' AND start_ts<=? AND (scope_uid=0 OR scope_uid=?) "
             "ORDER BY start_ts DESC LIMIT ?", (now, int(uid), int(limit) * 2)).fetchall()
         read_rows = c.execute(
@@ -939,12 +992,27 @@ def fetch(uid, level, limit=40):
     read_set = {r[0] for r in read_rows}
     del_set = {r[0] for r in del_rows}
 
+    # 标签定向(A4): 同一个标签只查一次, 结果缓存在本次请求内 —— 不逐条消息查库。
+    tag_cache = {}
+
+    def _tag_set(name):
+        if name not in tag_cache:
+            try:
+                from . import user_ops
+                tag_cache[name] = set(user_ops.uids_by_tag(name))
+            except Exception:
+                tag_cache[name] = set()
+        return tag_cache[name]
+
     for r in rows:
         d = dict(r)
         if d.get("end_ts") and now > int(d["end_ts"]):
             continue
         tgt = d.get("target") or "all"
-        if tgt != "all":
+        if tgt == "tag":
+            if int(uid) not in _tag_set(d.get("target_tag") or ""):
+                continue
+        elif tgt != "all":
             allow = TARGET_LEVELS.get(tgt)
             if allow is not None and level not in allow:
                 continue
@@ -1037,10 +1105,22 @@ def delete_for_user(uid, nkeys):
 
 
 def track_click(uid, nkey):
+    """消息内行动按钮点击上报(触达漏斗的最后一环)。
+
+    🔴 明细去重: (uid,nkey) 主键 ⇒ 同一个人反复点同一条只算一次, 计数也只 +1。
+        否则"点了 5 次"会被当成 5 个人点了, 点击率直接失真。
+    """
     try:
-        _touch_stats(nkey, click_count=1)
-    except Exception:
-        pass
+        c = _conn()
+        cur = c.execute("INSERT OR IGNORE INTO notice_clicks (uid, nkey, ts) VALUES (?,?,?)",
+                        (int(uid), str(nkey), _now()))
+        hit = cur.rowcount
+        c.commit()
+        c.close()
+        if hit:                       # 首次点击才计数
+            _touch_stats(nkey, click_count=1)
+    except Exception as e:
+        log.warning("点击上报失败 uid=%s nkey=%s err=%s", uid, nkey, e)
 
 
 def nkeys_by_ids(ids):

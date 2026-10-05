@@ -140,11 +140,46 @@
         </div>
       </div>
 
+      <!-- U8 会员价值回顾(2026-10-06 第二批): 客单价不低, 到期时用户凭印象决策,
+           很容易觉得自己"好像也没怎么用"。这块给续费话术提供**真实**弹药。
+           🔴 只讲"你实际用了多少": 天数/次数/最常用功能, 都来自 usage_daily 的真实计数。
+              刻意不做「选出多少只涨停」「帮你赚了多少」—— 战绩无法归因到个人,
+              写出来就是编数字, 而这是拿去劝人续费的钱。 -->
+      <div v-if="valueReview && valueReview.ok" class="mb-card">
+        <div class="mb-card-head">
+          <span class="mb-card-title"><i class="fa fa-line-chart"></i> 近 {{ valueReview.days }} 天使用回顾</span>
+          <span class="mb-card-note">{{ valueReview.since }} 起</span>
+        </div>
+        <div class="mb-value-grid">
+          <div class="mb-value-cell">
+            <span class="mb-value-num">{{ valueReview.days_used }}</span>
+            <span class="mb-value-label">天打开过</span>
+          </div>
+          <div class="mb-value-cell">
+            <span class="mb-value-num">{{ valueReview.actions }}</span>
+            <span class="mb-value-label">次操作</span>
+          </div>
+          <div class="mb-value-cell">
+            <span class="mb-value-num">{{ valueReview.streak }}</span>
+            <span class="mb-value-label">天连续签到</span>
+          </div>
+        </div>
+        <div v-if="valueReview.top_feature" class="mb-value-note">
+          最常用：{{ valueReview.top_feature }}
+          <template v-if="valueReview.by_feature.length > 1">
+            （{{ valueReview.by_feature.slice(1, 3).map((f) => f.label + ' ' + f.count + ' 次').join('、') }}）
+          </template>
+        </div>
+        <div v-else class="mb-value-note dim">这段时间还没有使用记录</div>
+      </div>
+
       <!-- 签到 -->
-      <!-- 2026-10-05 (M7): 不限次会员不显示签到 —— 原先那三格写着「不限次」，下面却给一个大红
-           按钮「签到领 3 次选股额度」，自相矛盾（用户会怀疑额度体系到底有没有生效）。
-           签到只对免费/试用账号有实际意义。 -->
-      <div v-if="!user.isVipOrPaid" class="mb-card">
+      <!-- 2026-10-06 (U6 第二批): 付费用户**也显示签到卡**。
+           原逻辑(2026-10-05 M7)把整块对不限次会员隐藏, 理由是"三格写着不限次, 下面却给按钮
+           领额度, 自相矛盾"。但签到同时是**非交易日唯一的回访理由**, 对付费用户关掉它等于
+           把周末/假期的打开理由也关掉了。折中: 卡片保留, 但**文案按身份分开** ——
+           会员看到的是"打卡(保持连续)", 不再承诺领额度(他本来就不限次, 承诺了才是骗人)。 -->
+      <div class="mb-card">
         <div class="mb-card-head">
           <span class="mb-card-title"><i class="fa fa-calendar-check-o"></i> 每日签到</span>
           <span class="mb-card-note">连续签到 {{ checkin.streak }} 天</span>
@@ -152,6 +187,7 @@
         <button class="mb-checkin-btn" :disabled="checkin.done_today || checkinBusy" @click="doCheckin">
           <template v-if="checkin.done_today"><i class="fa fa-check"></i> 今日已签到</template>
           <template v-else-if="checkinBusy">签到中...</template>
+          <template v-else-if="user.isVipOrPaid"><i class="fa fa-calendar-check-o"></i> 打卡，保持连续 {{ checkin.streak }} 天</template>
           <template v-else><i class="fa fa-gift"></i> 签到领 {{ checkin.reward }} 次选股额度</template>
         </button>
         <div v-if="history.length" class="mb-checkin-hist">
@@ -284,7 +320,8 @@
 //     退出登录/字号/字体族）整块迁入本页，见模板里的「账户」卡片。
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { memberOverview, memberPlans, memberCheckin, doCheckin as apiCheckin, refreshInvite } from '../api/member'
+import { memberOverview, memberPlans, memberCheckin, doCheckin as apiCheckin, refreshInvite,
+  memberValueReview } from '../api/member'   // U8 会员价值回顾(第二批)
 import { trackUsageOnce } from '../api/activity'
 import { logoutApi } from '../api/auth'
 import { useUserStore } from '../stores/user'
@@ -343,6 +380,8 @@ const checkinBusy = ref(false)
 const member = ref({})
 const quota = ref([])
 const checkin = ref({ done_today: false, reward: 3, streak: 0 })
+// U8 会员价值回顾(第二批): null = 整块不渲染(没数据或接口失败都不显示, 绝不显示占位数字)
+const valueReview = ref(null)
 const invite = ref({ code: '', invited_count: 0, earned_days: 0, reward_days: 5, invitees: [] })
 const plans = ref({ ...PLANS_DEFAULT })
 const history = ref([])
@@ -401,6 +440,12 @@ async function load() {
     history.value = c.history || []
     checkin.value = { ...checkin.value, ...c }
   } catch { /* 忽略 */ }
+  // U8 价值回顾: 挂了就整块不渲染(v-if), 不能因为它把「我的」页拖白 —— 上面的
+  // 注释记过一次白屏事故: 这个页面任何接口返回形状不完整都可能整页白屏。
+  try {
+    const v = await memberValueReview(30)
+    if (v && v.ok) valueReview.value = v
+  } catch { valueReview.value = null }
 }
 
 async function doCheckin() {
@@ -751,4 +796,15 @@ body[data-bg="light"] .mb-fontfam { background: #f7f8fb; }
 /* 浅色主题微调 */
 body[data-bg="light"] .mb-quota-item { background: rgba(0, 0, 0, .015); }
 body[data-bg="light"] .mb-code-box { background: rgba(var(--accent-rgb), .08); }
+
+/* U8 会员价值回顾(2026-10-06 第二批) */
+.mb-value-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); margin: var(--s2) 0; }
+.mb-value-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: var(--s2) 0; border-radius: var(--r-md); background: var(--bg-panel-solid);
+}
+.mb-value-num { font-size: var(--fs-xl); font-weight: 600; color: var(--accent-solid); line-height: 1.1; }
+.mb-value-label { font-size: var(--fs-xs); color: var(--text-2); }
+.mb-value-note { font-size: var(--fs-sm); color: var(--text-2); }
+.mb-value-note.dim { color: var(--text-muted, var(--text-2)); }
 </style>

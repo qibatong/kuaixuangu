@@ -108,7 +108,14 @@ def api_admin_users(request: Request, uid: int = Depends(get_admin)):
     member_tab = (q.get("memberTab") or ["all"])[0].strip()
     if member_tab not in ("all", "member", "paid", "vip", "normal", "admin"):
         member_tab = "all"
-    page_data = users.list_users_page(page, page_size, keyword, member_tab=member_tab)
+    tag = (q.get("tag") or [""])[0].strip()      # A4 分层标签筛选
+    page_data = users.list_users_page(page, page_size, keyword, member_tab=member_tab, tag=tag)
+    # 给当前页每人附标签(一次批量查询, 不逐人查库)
+    try:
+        from ..services import user_ops
+        page_data["rows"] = user_ops.attach_tags(page_data.get("rows") or [])
+    except Exception:
+        pass
     stats = users.user_stats()
     log.info("管理端用户列表 uid=%s page=%s member_tab=%s total=%s",
              uid, page, member_tab, page_data["total"])
@@ -1491,7 +1498,7 @@ def api_admin_active_users(request: Request, uid: int = Depends(get_admin)):
 # 🔴 与之配套的「会员到期提醒」是**实时推导**的(不落表), 见 api/notices.py 文件头说明 1。
 #    这里只管人工发布的 A 类; 别把到期提醒也做成一条条公告 —— 用户续费后它会变脏数据。
 NOTICE_LEVELS = ("info", "warn", "urgent")
-NOTICE_TARGETS = ("all", "free", "member", "vip")
+NOTICE_TARGETS = ("all", "free", "member", "vip", "tag")   # tag = 标签定向(A4, 需同时传 tag 名)
 
 
 def _parse_publish_at(v):
@@ -1529,10 +1536,12 @@ def api_admin_notices(request: Request, uid: int = Depends(get_admin)):
 
 
 @router.get("/api/admin/notices/count")
-def api_admin_notices_count(request: Request, target: str = "all", uid: int = Depends(get_admin)):
-    """发布前人数预估: 目标人群多少、其中已开推送多少(防误发全量)"""
+def api_admin_notices_count(request: Request, target: str = "all", tag: str = "",
+                            uid: int = Depends(get_admin)):
+    """发布前人数预估: 目标人群多少、其中已开推送多少(防误发全量)。target=tag 时需带 tag 名"""
     from ..services import notice_center as nc
-    return jr({"ok": True, "data": nc.preview_count(target if target in NOTICE_TARGETS else "all")})
+    t = target if target in NOTICE_TARGETS else "all"
+    return jr({"ok": True, "data": nc.preview_count(t, tag if t == "tag" else "")})
 
 
 @router.post("/api/admin/notices")
@@ -1577,11 +1586,16 @@ def api_admin_notices_post(request: Request, body: dict = Body(...), uid: int = 
         if publish_at <= int(time.time()):
             return jr({"ok": False, "msg": "定时时刻必须晚于当前时间"}, status=400)
 
+    # A4 标签定向: target='tag' 时必须有标签名, 否则退回全员(宁可发给全量, 也不发个空集让人以为发成功了)
+    tag_name = str(body.get("tag") or "").strip()
+    if target == "tag" and not tag_name:
+        target = "all"
+
     res = nc.publish(title=title, body=btext, level=level, target=target, category=category,
                      days=days, status=status, publish_at=publish_at,
                      action_type=str(body.get("action_type") or ""),
                      action_value=str(body.get("action_value") or ""),
-                     created_by=str(uid))
+                     created_by=str(uid), tag=tag_name)
     if not res.get("ok"):
         return jr({"ok": False, "msg": res.get("msg") or "发布失败"}, status=500)
 
@@ -1682,3 +1696,124 @@ def api_admin_expire_remind(request: Request, body: dict = Body(...), uid: int =
         pass
     log.info("管理端批量到期提醒 uid=%s 选择=%s 成功=%s", uid, len(uids), n)
     return jr({"ok": True, "sent": n, "total": len(uids)})
+
+
+# ==================== 第二批: 用户运营(A4/A5/A7/A10) ====================
+# 落在独立模块 services/user_ops.py, 这里只做鉴权 + 参数校验 + 审计。
+
+
+@router.get("/api/admin/user-tags")
+def api_admin_user_tags(request: Request, uid: int = Depends(get_admin)):
+    """标签汇总: 每个标签的人数 + 口径说明(运营要看得懂"这个标签是怎么算出来的")"""
+    from ..services import user_ops
+    return jr({"ok": True, "tags": user_ops.tag_summary(), "defs": user_ops.TAG_DEFS})
+
+
+@router.post("/api/admin/tags/refresh")
+def api_admin_tags_refresh(request: Request, uid: int = Depends(get_admin)):
+    """立即重算全员自动标签。
+
+    🔴 只重算 source='auto' 的行, 运营手动打的标签不会被冲掉。
+    """
+    from ..services import user_ops
+    n = user_ops.refresh_auto_tags()
+    log.info("管理端重算自动标签 uid=%s 写入=%s 行", uid, n)
+    return jr({"ok": True, "rows": int(n)})
+
+
+@router.post("/api/admin/users/tags")
+def api_admin_set_user_tags(request: Request, body: dict = Body(...), uid: int = Depends(get_admin)):
+    """设置某用户的**手动标签**(全量替换): {uid, tags:[...]}"""
+    from ..services import user_ops
+    target = int(body.get("uid") or 0)
+    if target <= 0:
+        return jr({"ok": False, "msg": "缺少 uid"}, 400)
+    tags = [str(t).strip() for t in (body.get("tags") or []) if str(t).strip()]
+    ok = user_ops.set_manual_tags(target, tags)
+    try:
+        users.audit(uid, "set_user_tags", target, {"tags": tags}, client_ip(request))
+    except Exception:
+        pass
+    return jr({"ok": ok, "tags": user_ops.tags_of(target)})
+
+
+@router.get("/api/admin/funnel")
+def api_admin_funnel(request: Request, uid: int = Depends(get_admin)):
+    """转化漏斗(A10): 注册 → 用过核心功能 → 撞免费墙 → 付费 → 续费
+
+    🔴 「咨询客服」这一环**没有埋点**(客服是微信人工), 返回 null, 前端必须显示「无数据」。
+        宁可空着也不能编一个数字 —— 运营是拿这个看板决定投入方向的。
+    """
+    from ..services import user_ops
+    q = qs(request)
+    try:
+        days = max(1, min(365, int((q.get("days") or [30])[0])))
+    except (TypeError, ValueError):
+        days = 30
+    return jr({"ok": True, **user_ops.funnel(days=days)})
+
+
+@router.get("/api/admin/export")
+def api_admin_export(request: Request, uid: int = Depends(get_admin)):
+    """统一导出(A7 扩充): ?kind=users|churn|reach
+
+    · users 用户清单(扩充: 最后登录/活跃天数/各功能次数/连续签到/标签…)
+    · churn 流失用户(到期后无使用)
+    · reach 某条公告的触达明细(需 nkey)
+    """
+    from fastapi.responses import Response
+    from ..services import user_ops
+    q = qs(request)
+    kind = (q.get("kind") or ["users"])[0].strip()
+    if kind == "churn":
+        body = user_ops.export_churn(days=int((q.get("days") or [60])[0]))
+        fn = "kuaixuan_churn_%s.csv" % time.strftime("%Y%m%d_%H%M")
+        what = "churn"
+    elif kind == "reach":
+        nkey = (q.get("nkey") or [""])[0].strip()
+        if not nkey:
+            return jr({"ok": False, "msg": "缺少 nkey"}, 400)
+        body = user_ops.export_reach(nkey)
+        if not body:
+            return jr({"ok": False, "msg": "找不到这条公告的统计"}, 404)
+        fn = "kuaixuan_reach_%s.csv" % time.strftime("%Y%m%d_%H%M")
+        what = "reach:%s" % nkey
+    else:
+        body = user_ops.export_users(
+            keyword=(q.get("keyword") or [""])[0].strip(),
+            member_tab=(q.get("memberTab") or ["all"])[0].strip(),
+            tag=(q.get("tag") or [""])[0].strip(),
+            days=int((q.get("days") or [30])[0]))
+        fn = "kuaixuan_users_%s.csv" % time.strftime("%Y%m%d_%H%M")
+        what = "users"
+    try:
+        users.audit(uid, "export_" + what.split(":")[0], None, {"kind": what}, client_ip(request))
+    except Exception:
+        pass
+    log.info("管理端导出 uid=%s kind=%s", uid, what)
+    return Response(content=body.encode("utf-8"), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="%s"' % fn})
+
+
+@router.post("/api/admin/notices/test")
+def api_admin_notice_test(request: Request, body: dict = Body(...), uid: int = Depends(get_admin)):
+    """A5「仅自己可见」的测试发送 —— 发布前先看清楚这条消息长什么样。
+
+    · 定向 = 管理员本人(scope_uid), 其他人看不到
+    · 默认**不推送**(push=false); 勾了 push 才真的给自己推一次(用来验证推送通道)
+    """
+    from ..services import user_ops
+    title = str(body.get("title") or "").strip()
+    if not title:
+        return jr({"ok": False, "msg": "标题不能为空"}, 400)
+    r = user_ops.send_test_notice(
+        uid, title, str(body.get("body") or ""),
+        level=str(body.get("level") or "info"),
+        category=str(body.get("category") or "system"),
+        action_type=str(body.get("action_type") or ""),
+        action_value=str(body.get("action_value") or ""),
+        push=bool(body.get("push")))
+    if not r.get("ok"):
+        return jr({"ok": False, "msg": r.get("msg") or "测试发送失败"}, 400)
+    log.info("管理端测试发送 uid=%s nkey=%s push=%s", uid, r.get("nkey"), bool(body.get("push")))
+    return jr({"ok": True, "nkey": r.get("nkey"), "msg": "已发送，去 /messages 查看（仅你可见）"})

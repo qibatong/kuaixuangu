@@ -44,6 +44,16 @@
                 <option value="free">仅免费试用</option>
                 <option value="member">仅付费/VIP</option>
                 <option value="vip">仅 VIP</option>
+                <!-- A4: 标签定向 —— 能对"免费但很活跃"这群最该转化的人单独说话 -->
+                <option value="tag">按分层标签</option>
+              </select>
+            </label>
+            <label v-if="nf.target === 'tag'">标签
+              <select v-model="nf.tag" class="admin-input" @change="loadNoticeCount">
+                <option value="">请选择标签</option>
+                <option v-for="t in tagSummary" :key="t.tag" :value="t.tag">
+                  {{ t.label }}（{{ t.count }} 人）
+                </option>
               </select>
             </label>
             <label>有效期
@@ -84,6 +94,10 @@
             <button class="admin-btn" :disabled="nfPosting || !canPublish" @click="publishNotice">
               {{ nfPosting ? '提交中…' : (nf.status === 'draft' ? '存草稿' : (nf.status === 'scheduled' ? '排期' : '发布')) }}
             </button>
+            <!-- A5: 发之前先用「仅自己可见」看一眼排版, 确认无误再真发 -->
+            <button class="admin-btn admin-btn-sm" :disabled="nfTesting || !nf.title.trim()" @click="testSendNotice">
+              {{ nfTesting ? '发送中…' : '测试发送（仅我可见）' }}
+            </button>
             <!-- 发布前人数预估：防误发全量（金融工具站误发紧急公告是信任事故） -->
             <span class="admin-tip">目标人群约 {{ noticeCount.total }} 人，其中已开推送 {{ noticeCount.pushable }} 人</span>
           </div>
@@ -97,11 +111,11 @@
             <thead>
               <tr>
                 <th style="width:28%">标题</th><th>分类</th><th>级别</th><th>定向</th>
-                <th>状态</th><th>人群</th><th>推送</th><th>已读</th><th>操作</th>
+                <th>状态</th><th>人群</th><th>推送</th><th>已读</th><th>点击</th><th>操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-if="!notices.length"><td colspan="9" class="weight-desc">还没有公告</td></tr>
+              <tr v-if="!notices.length"><td colspan="10" class="weight-desc">还没有公告</td></tr>
               <tr v-for="n in notices" :key="n.nkey || n.id">
                 <td :title="n.body">
                   {{ n.title }}
@@ -119,8 +133,11 @@
                 <td>{{ n.target_count || 0 }}</td>
                 <td>{{ n.push_sent || 0 }}<span v-if="n.push_failed" class="weight-desc"> / 失败{{ n.push_failed }}</span></td>
                 <td>{{ n.read_count || 0 }}<span v-if="n.target_count" class="weight-desc"> ({{ n.read_rate }}%)</span></td>
+                <!-- 点击 = 消息内行动按钮被点了多少人(触达漏斗最后一环) -->
+                <td>{{ n.click_count || 0 }}<span v-if="n.target_count" class="weight-desc"> ({{ clickRate(n) }}%)</span></td>
                 <td>
                   <button v-if="!n.off_at && n.status !== 'sent'" class="admin-btn admin-btn-sm" @click="editNotice(n)">编辑</button>
+                  <button v-if="n.status === 'sent' && n.nkey" class="admin-btn admin-btn-sm" @click="exportReach(n)">明细</button>
                   <button v-if="!n.off_at" class="admin-btn admin-btn-sm" @click="offNotice(n)">撤回</button>
                   <span v-else class="weight-desc">—</span>
                 </td>
@@ -128,6 +145,51 @@
             </tbody>
           </table>
         </div>
+      </div>
+
+      <!-- 第二批(2026-10-06): A4 用户分层标签 —— 定向运营的前提。
+           没有标签, 公告只能对"全部/免费/付费/VIP"四档说话。 -->
+      <div class="admin-card">
+        <div class="card-title">
+          <i class="fa fa-th-large"></i> 用户分层标签
+          <button class="admin-btn admin-btn-sm" :disabled="tagRefreshing" @click="refreshTags">
+            {{ tagRefreshing ? '重算中…' : '重算自动标签' }}
+          </button>
+        </div>
+        <div v-if="tagSummary.length" class="tag-cloud">
+          <button
+            v-for="t in tagSummary" :key="t.tag" class="tag-chip"
+            :class="{ on: tagFilter === t.tag }" :title="t.desc" @click="pickTag(t.tag)"
+          >
+            {{ t.label }}<span class="tag-n">{{ t.count }}</span>
+          </button>
+        </div>
+        <div v-else class="weight-desc">还没有标签，点右上角「重算自动标签」生成</div>
+        <span class="admin-tip">
+          点标签 = 下方用户列表按该标签筛选（再点一次取消）；悬停看口径。自动标签每天凌晨重算，手动标签在用户详情里打。
+        </span>
+      </div>
+
+      <!-- 第二批(2026-10-06): A10 转化漏斗 -->
+      <div class="admin-card">
+        <div class="card-title">
+          <i class="fa fa-filter"></i> 转化漏斗（近 {{ funnelDays }} 天）
+          <button class="admin-btn admin-btn-sm" @click="loadFunnel">刷新</button>
+        </div>
+        <div v-if="funnel && funnel.stages && funnel.stages.length">
+          <div v-for="s in funnel.stages" :key="s.key" class="funnel-row">
+            <span class="funnel-label">{{ s.label }}</span>
+            <span class="funnel-bar-wrap">
+              <span class="funnel-bar" :style="{ width: funnelWidth(s.count) + '%' }"></span>
+            </span>
+            <span class="funnel-num">{{ s.count }} 人 · {{ s.rate }}%</span>
+          </div>
+          <span class="admin-tip">
+            🔴 「咨询客服」这一环<strong>没有埋点</strong>（客服走微信人工），所以显示「无数据」而不是编一个数字填进去 ——
+            这个看板是给运营决定投入方向用的。
+          </span>
+        </div>
+        <div v-else class="weight-desc">暂无数据</div>
       </div>
 
       <!-- 用户统计卡片 -->
@@ -156,7 +218,18 @@ v-for="t in memberTabs" :key="t.key" class="member-tab"
               <i class="fa fa-clock-o"></i> 批量设到期{{ selectedIds.length ? ' (' + selectedIds.length + ')' : '' }}
             </button>
             <button class="admin-search-btn btn-create" @click="openCreate()"><i class="fa fa-plus"></i> 新建会员</button>
+            <!-- A7 导出扩充: 客服拿这份 CSV 当工作清单用(字段越全沟通越准) -->
+            <button class="admin-search-btn" title="导出当前筛选条件下的用户（含活跃/签到/标签等字段）" @click="exportUsers('users')">
+              <i class="fa fa-download"></i> 导出用户
+            </button>
+            <button class="admin-search-btn" title="导出已到期且到期后无使用的用户" @click="exportUsers('churn')">
+              <i class="fa fa-download"></i> 导出流失
+            </button>
           </div>
+        </div>
+        <div v-if="tagFilter" class="admin-tip" style="padding:0 0 6px;">
+          已按标签「{{ (tagSummary.find(t => t.tag === tagFilter) || {}).label || tagFilter }}」筛选
+          <button class="admin-btn admin-btn-sm" @click="pickTag(tagFilter)">取消筛选</button>
         </div>
         <div class="table-scroll">
           <table class="admin-table">
@@ -174,6 +247,7 @@ v-for="t in memberTabs" :key="t.key" class="member-tab"
                 <th class="sortable" :class="{ active: userSort.keyOf('invited_count') }" @click="userSort.onSort('invited_count')">邀请<span class="sort-ind">{{ userSort.ind('invited_count') }}</span></th>
                 <th class="sortable" :class="{ active: userSort.keyOf('batch_count') }" @click="userSort.onSort('batch_count')">选股<span class="sort-ind">{{ userSort.ind('batch_count') }}</span></th>
                 <th>会员等级</th>
+                <th>标签</th>
                 <th style="min-width:70px;">操作</th>
               </tr>
             </thead>
@@ -211,6 +285,16 @@ v-for="t in memberTabs" :key="t.key" class="member-tab"
                     <option :value="2">VIP</option>
                   </select>
                 </td>
+                <!-- A4 分层标签: 自动标签系统算, 手动标签运营打(点 ✎ 编辑, 两者互不影响) -->
+                <td class="tag-cell">
+                  <span
+                    v-for="t in (u.tags || [])" :key="t.tag" class="tag-chip-mini"
+                    :class="{ manual: t.source === 'manual' }"
+                    :title="t.source === 'manual' ? '手动标签' : '自动标签: ' + (tagSummary.find(x => x.tag === t.tag) || {}).desc"
+                  >{{ t.label }}</span>
+                  <span v-if="!(u.tags || []).length" class="dim">-</span>
+                  <button class="mini-btn tag-edit" title="编辑手动标签" @click="editTags(u)">✎</button>
+                </td>
                 <td>
                   <div class="row-actions">
                     <!-- ⋮ 操作下拉(teleport 到 body 避免短表格时溢出覆盖搜索栏) -->
@@ -218,7 +302,7 @@ v-for="t in memberTabs" :key="t.key" class="member-tab"
                   </div>
                 </td>
               </tr>
-              <tr v-if="!rows.length"><td colspan="12" style="text-align:center;color:#888;padding:20px;">暂无用户</td></tr>
+              <tr v-if="!rows.length"><td colspan="13" style="text-align:center;color:#888;padding:20px;">暂无用户</td></tr>
             </tbody>
           </table>
         </div>
@@ -598,7 +682,10 @@ v-if="menuUid !== null && menuRect" class="row-menu"
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { adminCreateUser, adminDeleteUser, adminScoring, adminSetMemberLevel, adminSetUserProfile, adminUserInvites, adminUsers, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire, setUsersExpire } from '../api/admin'
+import { adminCreateUser, adminDeleteUser, adminScoring, adminSetMemberLevel, adminSetUserProfile, adminUserInvites, adminUsers, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire, setUsersExpire,
+  // 第二批(2026-10-06): A4 分层标签 / A5 测试发送 / A7 导出 / A10 转化漏斗
+  adminUserTags, adminRefreshTags, adminSetUserTags, adminFunnel, adminTestNotice,
+  adminExportUrl } from '../api/admin'
 // 2026-10-04 站内公告(系统消息的站方广播部分)
 import {
   adminNotices, adminOffNotice, adminPublishNotice, adminEditNotice, adminNoticeCount,
@@ -932,7 +1019,8 @@ async function loadUsers(p) {
   try {
     const d = await adminUsers({ page: p, pageSize: pageSize.value,
                                  keyword: keyword.value,
-                                 memberTab: memberTab.value })
+                                 memberTab: memberTab.value,
+                                 tag: tagFilter.value })    // A4 按分层标签筛选
     rows.value = (d.rows || []).map(r => ({ ...r, _level: r.member_level || 0 }))
     total.value = d.total || 0
     page.value = d.page || 1
@@ -1213,12 +1301,17 @@ const nf = reactive({
   title: '', body: '', level: 'info', target: 'all', days: 0,
   category: 'system', status: 'sent', publish_at: '',
   action_type: '', action_value: '',
+  tag: '',                       // A4 标签定向: 仅 target==='tag' 时生效
 })
 const nfPosting = ref(false)
+const nfTesting = ref(false)
 const noticeCount = ref({ total: 0, pushable: 0 })
 
 function noticeLevelLabel(l) { return ({ info: '普通', warn: '提醒', urgent: '紧急' })[l] || l }
-function noticeTargetLabel(t) { return ({ all: '全部', free: '免费试用', member: '付费/VIP', vip: 'VIP' })[t] || t }
+function noticeTargetLabel(t) {
+  if (t === 'tag') return '标签'
+  return ({ all: '全部', free: '免费试用', member: '付费/VIP', vip: 'VIP' })[t] || t
+}
 function noticeCatLabel(c) { return ({ system: '系统', account: '账户', trade: '交易' })[c] || c || '系统' }
 
 const canPublish = computed(() => {
@@ -1229,9 +1322,125 @@ const canPublish = computed(() => {
 
 async function loadNoticeCount() {
   try {
-    const d = await adminNoticeCount(nf.target)
+    const d = await adminNoticeCount(nf.target, nf.tag)
     if (d && d.ok) noticeCount.value = d.data || { total: 0, pushable: 0 }
   } catch (e) { noticeCount.value = { total: 0, pushable: 0 } }
+}
+
+// A5「仅自己可见」的测试发送: 发布前先看清楚这条消息长什么样, 只有你自己能看到。
+// 🔴 默认不推送 —— 测试的是排版, 不该顺手把人推一遍。想验证推送通道再勾 push。
+async function testSendNotice() {
+  if (!nf.title.trim()) { toast('先填个标题再测试发送', 'error'); return }
+  nfTesting.value = true
+  try {
+    const d = await adminTestNotice({
+      title: nf.title, body: nf.body, level: nf.level, category: nf.category,
+      action_type: nf.action_type, action_value: nf.action_value, push: false,
+    })
+    if (d && d.ok) toast('已发送，去 /messages 查看（仅你可见，不会推送给别人）', 'success')
+    else toast('测试发送失败：' + ((d && d.msg) || ''), 'error')
+  } catch (e) {
+    toast('测试发送失败：' + (e.message || ''), 'error')
+  } finally { nfTesting.value = false }
+}
+
+// ---------- 第二批: A4 用户分层标签 ----------
+// 标签是**定向运营的前提**: 没有它, 公告只能对"全部/免费/付费/VIP"四档说话,
+// 没法单独对"免费但很活跃"这群最该转化的人说话。
+const tagSummary = ref([])
+const tagFilter = ref('')            // 用户列表当前按哪个标签筛
+const tagRefreshing = ref(false)
+
+async function loadTags() {
+  try {
+    const d = await adminUserTags()
+    if (d && d.ok) tagSummary.value = d.tags || []
+  } catch (e) { /* 静默: 标签是运营增强项, 挂了不影响主流程 */ }
+}
+
+async function refreshTags() {
+  tagRefreshing.value = true
+  try {
+    const d = await adminRefreshTags()
+    if (d && d.ok) {
+      toast('已重算自动标签（' + (d.rows || 0) + ' 条）', 'success')
+      await loadTags()
+    } else toast('重算失败', 'error')
+  } catch (e) {
+    toast('重算失败：' + (e.message || ''), 'error')
+  } finally { tagRefreshing.value = false }
+}
+
+// 点标签 = 用户列表按该标签筛选(再点一次取消)
+function pickTag(t) {
+  tagFilter.value = tagFilter.value === t ? '' : t
+  loadUsers(1)
+}
+
+// ---------- 第二批: A10 转化漏斗 ----------
+// 🔴 「咨询客服」这一环**没有埋点**(客服是微信人工) ⇒ 后端返回 null, 这里显示「无数据」。
+//    宁可空着也不编个数字填进去 —— 运营是拿这个看板决定投入方向的。
+const funnel = ref(null)
+const funnelDays = ref(30)
+
+async function loadFunnel() {
+  try {
+    const d = await adminFunnel(funnelDays.value)
+    if (d && d.ok) funnel.value = d
+  } catch (e) { funnel.value = null }
+}
+
+function funnelWidth(n) {
+  const st = funnel.value && funnel.value.stages
+  const base = st && st[0] ? st[0].count : 0
+  return base ? Math.max(2, Math.round(n / base * 100)) : 0
+}
+
+// 点击率(分母用定向人群, 与已读率同口径, 两个率才可比)
+function clickRate(n) {
+  return n && n.target_count ? Math.round((n.click_count || 0) * 1000.0 / n.target_count) / 10 : 0
+}
+
+// A7 导出: 浏览器直接下载(不走 request 封装, 后端返回的是 CSV 流)
+function downloadCsv(url) {
+  const a = document.createElement('a')
+  a.href = url
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
+function exportReach(n) {
+  if (!n || !n.nkey) { toast('这条公告没有 nkey，导不出明细', 'error'); return }
+  downloadCsv(adminExportUrl({ kind: 'reach', nkey: n.nkey }))
+}
+
+function exportUsers(kind) {
+  const p = { kind }
+  if (kind === 'users') {
+    if (keyword.value) p.keyword = keyword.value
+    if (memberTab.value && memberTab.value !== 'all') p.memberTab = memberTab.value
+    if (tagFilter.value) p.tag = tagFilter.value
+  }
+  downloadCsv(adminExportUrl(p))
+}
+
+// A4 手动标签: 逗号分隔; 留空 = 清空手动标签(自动标签不会被删, 重算时也不会冲掉手动标签)
+async function editTags(u) {
+  const cur = (u.tags || []).filter(t => t.source === 'manual').map(t => t.tag).join(',')
+  const v = window.prompt('手动标签（英文逗号分隔；留空清空；自动标签不受影响）', cur)
+  if (v === null) return
+  try {
+    const d = await adminSetUserTags(u.id, v.split(',').map(s => s.trim()).filter(Boolean))
+    if (d && d.ok) {
+      toast('已更新标签', 'success')
+      await loadUsers(page.value)
+      await loadTags()
+    } else toast('更新失败', 'error')
+  } catch (e) {
+    toast('更新失败：' + (e.message || ''), 'error')
+  }
 }
 
 async function loadNotices() {
@@ -1294,6 +1503,9 @@ onMounted(() => {
   loadDefaults()
   loadNotices()
   loadNoticeCount()
+  // 第二批: 标签汇总(定向要用) + 转化漏斗
+  loadTags()
+  loadFunnel()
 })
 </script>
 
@@ -1596,4 +1808,43 @@ body[data-bg="light"] .weight-warn { color: #b83010; }
   /* 保存按钮触控加大 */
   .admin-save-btn { padding: var(--s2) var(--s4); }
 }
+</style>
+
+<style scoped>
+/* ===== 第二批(2026-10-06): A4 标签云 + A10 转化漏斗 ===== */
+/* 说明单独放在第二个 style 块: 这批样式与上面的历史样式没有层叠关系,
+   拆开后将来要撤走这一批, 直接删这个块即可, 不用在上面 1000 行里找。 */
+.tag-cloud { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.tag-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: var(--r-lg);
+  border: 1px solid var(--border-soft); background: var(--bg-panel-solid);
+  color: var(--text-1); cursor: pointer; font-size: var(--fs-sm); line-height: 1.4;
+}
+.tag-chip:hover { border-color: var(--accent-solid); }
+.tag-chip.on { background: var(--accent-solid); color: var(--on-accent); border-color: var(--accent-solid); }
+.tag-n { font-size: var(--fs-xs); opacity: .75; }
+
+.funnel-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+.funnel-label { width: 104px; flex: none; font-size: var(--fs-sm); color: var(--text-2); }
+.funnel-bar-wrap {
+  flex: 1; height: 14px; min-width: 60px;
+  background: rgba(128, 128, 128, .18); border-radius: var(--r-lg); overflow: hidden;
+}
+.funnel-bar { display: block; height: 100%; background: var(--accent-solid); }
+.funnel-num { width: 132px; flex: none; font-size: var(--fs-sm); text-align: right; }
+@media (max-width: 768px) {
+  .funnel-label { width: 84px; }
+  .funnel-num { width: 108px; }
+}
+
+/* 用户列表里的标签(比标签云的 chip 更小, 表格里要省地方) */
+.tag-cell { white-space: normal; }
+.tag-chip-mini {
+  display: inline-block; margin: 1px 3px 1px 0; padding: 1px 6px;
+  border-radius: var(--r-lg); font-size: var(--fs-xs);
+  border: 1px solid var(--border-soft); background: var(--bg-panel-solid); color: var(--text-2);
+}
+.tag-chip-mini.manual { border-color: var(--accent-solid); color: var(--accent-text); }
+.tag-edit { margin-left: 4px; }
 </style>

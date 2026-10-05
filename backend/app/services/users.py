@@ -404,7 +404,7 @@ def is_expired(uid):
     return bool(et) and time.time() > et
 
 
-def list_users_page(page=1, page_size=20, keyword="", member_tab="all"):
+def list_users_page(page=1, page_size=20, keyword="", member_tab="all", tag=""):
     """管理端用户列表(分页), 附带每个用户的基础统计
     member_tab:
       - 'all'    不限(默认)
@@ -412,7 +412,8 @@ def list_users_page(page=1, page_size=20, keyword="", member_tab="all"):
       - 'paid'   member_level = 1 且非管理员(付费会员)
       - 'vip'    member_level = 2 且非管理员(VIP)
       - 'normal' member_level = 0 且非管理员(普通/试用)
-      - 'admin'  is_admin = 1"""
+      - 'admin'  is_admin = 1
+    tag: 分层标签(A4, 2026-10-06) —— 传了就只返回带该标签的人"""
     conn = _conn()
     cond = ""
     params = []
@@ -432,6 +433,9 @@ def list_users_page(page=1, page_size=20, keyword="", member_tab="all"):
         cond += " AND COALESCE(u.member_level,0) = 0 AND COALESCE(u.is_admin,0) = 0"
     elif member_tab == "admin":
         cond += " AND COALESCE(u.is_admin,0) = 1"
+    if tag:
+        cond += " AND EXISTS (SELECT 1 FROM user_tags t WHERE t.uid=u.id AND t.tag=?)"
+        params.append(str(tag))
     total = conn.execute(
         "SELECT COUNT(*) FROM users u WHERE 1=1" + cond, params).fetchone()[0]
     rows = conn.execute(

@@ -808,6 +808,14 @@ def init_db():
     except Exception as e:
         log.warning("[init_db] 消息中心表初始化失败(不阻断启动) err=%s", e)
 
+    # ---------------- 用户运营第二批(2026-10-06) ----------------
+    # 分层标签 user_tags。同样复用当前连接(见上: 另开连接会自己把自己锁死)。
+    try:
+        from ..services import user_ops
+        user_ops.init_tables(conn)
+    except Exception as e:
+        log.warning("[init_db] 用户运营表初始化失败(不阻断启动) err=%s", e)
+
     conn.close()
 
 

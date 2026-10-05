@@ -214,3 +214,19 @@ def api_member_plans(request: Request):
             "picker": -1, "aipick": -1, "auction": -1,
         },
     })
+
+
+@router.get("/api/member/value-review")
+def api_member_value_review(request: Request, uid: int = Depends(get_uid)):
+    """U8 会员价值回顾: ?days=30
+
+    🔴 口径(主人 2026-10-06 确认): **只讲"你实际用了多少", 不讲战绩**。
+       刻意不提供「选出多少只涨停」「帮你赚了多少」—— 战绩无法归因到个人,
+       拿它做续费话术就是编数字。这里的每个数字都来自 usage_daily 的真实计数。
+    """
+    from ..services import user_ops
+    try:
+        days = max(1, min(365, int(request.query_params.get("days") or 30)))
+    except (TypeError, ValueError):
+        days = 30
+    return jr({"ok": True, **user_ops.value_review(uid, days=days)})

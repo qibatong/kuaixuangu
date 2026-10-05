@@ -68,9 +68,14 @@ export function adminOffNotice(payload) {
   return request('/api/admin/notices/off', { method: 'POST', body: payload })
 }
 
-/** 发布前人数预估：{target} ⇒ {total, pushable}（防误发全量） */
-export function adminNoticeCount(target) {
-  return request('/api/admin/notices/count?target=' + encodeURIComponent(target || 'all'))
+/**
+ * 发布前人数预估：{total, pushable}（防误发全量）
+ * target='tag' 时必须同时给 tag 名，否则预估的是全员。
+ */
+export function adminNoticeCount(target, tag = '') {
+  let url = '/api/admin/notices/count?target=' + encodeURIComponent(target || 'all')
+  if (tag) url += '&tag=' + encodeURIComponent(tag)
+  return request(url)
 }
 
 /** 到期预警「一键提醒」：{uids:[...]} */
