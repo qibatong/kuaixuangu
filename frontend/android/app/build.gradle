@@ -35,8 +35,12 @@ android {
         //   5 = 第五轮（修 Android 15 edge-to-edge 状态栏白底 + 品牌红调浅 #e5484d）
         //   6 = 第六轮（手机端顶栏改三列栅格 ⇒ 搜索框屏幕居中）
         //   7 = 第七轮（视觉令牌收敛：颜色/字号/圆角/阴影/间距全部走 token）
-        versionCode 7
-        versionName "1.6"
+        //   8 = 第八轮（**启动屏由品牌红改纯白**：colors.xml 的 splash_background、
+        //       splash_brand.xml、styles.xml 注释 + 同步 Capacitor 配置的
+        //       SplashScreen.backgroundColor ⇒ 消除"红底一闪"；本轮**无其他 native 改动**。
+        //       网页侧改动走远端加载，不占 APK 版本）
+        versionCode 8
+        versionName "1.7"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

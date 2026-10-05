@@ -47,10 +47,17 @@ const config: CapacitorConfig = {
     //     ⇒ 页面一好就撤屏，无白帧也无多余等待；
     //   ② launchShowDuration=4000 是**原生侧兜底**：前端旧版/加载失败/异常时，
     //     最多 4s 自动撤屏 —— 实测 launchAutoHide:false 会把旧前端卡死在启动屏，绝不能用。
+    // 2026-10-05（v4.11.97 第八轮）：backgroundColor 由品牌红 `#e5484d` 改 **纯白 `#ffffff`**。
+    //   🔴 为什么必须连这里一起改：native 那三处（colors.xml 的 splash_background /
+    //      splash_brand.xml / styles.xml）已经把**系统启动屏**改成白的，但本插件的
+    //      `show()` 会**再刷一层 backgroundColor** ⇒ 只改 native 就会「白底一闪又红回来」，
+    //      等于没修（主人原话：「首页启动全是红色」）。两处必须同色。
+    //   ⚠️ 本文件改动**必须同步** `android/app/src/main/assets/capacitor.config.json` ——
+    //      原生读的是那份 JSON，而沙箱里 `npx cap sync` 跑不了（批量删除守卫），本次手动同步。
     SplashScreen: {
       launchAutoHide: true,
       launchShowDuration: 4000,
-      backgroundColor: '#e5484d',
+      backgroundColor: '#ffffff',
       showSpinner: false,
       splashFullScreen: false,
     },
