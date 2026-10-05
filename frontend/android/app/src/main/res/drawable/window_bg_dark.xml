@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2026-10-05 (APK 1.8.3) 深色主题用的窗口分层底：顶层与页面底同值 #0f1219，
+     顶栏/状态栏/页面/底栏/导航栏五处同色，不再有色带。
+     由 KxThemePlugin 在运行时按 App 主题装载（不再依赖 DayNight）。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/kxWindowDark" />
+    <item
+        android:drawable="@color/kxStatusBarDark"
+        android:gravity="top"
+        android:height="96dp" />
+</layer-list>

@@ -85,7 +85,7 @@ import { useTheme } from './composables/useTheme'
 import { useUserStore } from './stores/user'
 // 2026-10-04 安卓壳: 物理返回键接管(仅壳内生效, 网页恒 no-op)。必须 setup 顶层调用。
 import { useAndroidBack } from './composables/useAndroidBack'
-import { isNative } from './utils/native'
+import { isNative, isIOSShell } from './utils/native'
 // 2026-10-05 (S6): 合规页脚用 —— 客服微信号单一来源 + 复用现有剪贴板工具
 import { copyText } from './utils/tdx'
 import { SUPPORT_WECHAT } from './utils/contact'
@@ -104,6 +104,11 @@ const userStore = useUserStore()
 const route = useRoute()
 useAndroidBack()   // 🔴 不要放进 onMounted: 那样卸载时解绑不了 ⇒ 返回键被重复处理
 const isNativeApp = isNative()   // 安卓壳: PWA 安装/更新提示条不适用(v-if 不挂载)
+
+// 2026-10-05 iOS 壳：给 body 打标记，让 main.css 里那条「状态栏同色带」只在 iOS 壳生效
+//   （iOS 上 WKWebView 全屏，状态栏/刘海那一条露的是网页自己 ⇒ 需要网页自己刷成顶栏同色）。
+//   安卓壳与浏览器/PWA 都拿不到这个类 ⇒ 零影响。
+if (isIOSShell()) document.body.classList.add('is-ios-shell')
 
 // 2026-10-04 登录页独立布局(主人方案): /login 带 meta.bare ⇒ 顶栏/二级pill/页脚/
 //   底部tab/PWA安装条全部不渲染, 仅 <main><router-view/></main> 始终在 ——

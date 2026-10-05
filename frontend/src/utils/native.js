@@ -38,3 +38,21 @@ export function isAndroidEnv() {
     return false
   }
 }
+
+/**
+ * iOS 壳（Capacitor iOS / iPhone App）判定 —— 2026-10-05 为 iOS 打包新增。
+ *
+ * 用途：安卓壳里状态栏那条带子由**原生窗口底**绘制（window_bg_light|dark.xml）；
+ *   iOS 上 WKWebView 是**全屏**的（viewport-fit=cover + contentInset:never），
+ *   状态栏与刘海那一条露出来的其实是**网页自己** ⇒ 需要网页把那条刷成顶栏同色
+ *   （见 main.css 的 `body.is-ios-shell::before`）。打上这个类，两端视觉才一致。
+ *
+ * 🔴 判定同样用 `getPlatform()`（读 Capacitor 注入的标记），不要自己嗅探 UA。
+ */
+export function isIOSShell() {
+  try {
+    return Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios'
+  } catch (e) {
+    return false
+  }
+}

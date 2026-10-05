@@ -27,6 +27,9 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // 2026-10-05 (APK 1.8.3)：注册主题桥插件，让网页把 App 主题同步给系统栏
+        // （必须在 super 之前注册，否则桥建好后插件列表已固定）。详见 KxThemePlugin 注释。
+        registerPlugin(KxThemePlugin.class);
         super.onCreate(savedInstanceState);
         // 2026-10-04 Android 15+(targetSdk 35+) 强制 edge-to-edge ⇒ styles.xml 里
         // statusBarColor/windowLightStatusBar 全部被系统忽略, 状态栏图标默认黑色,

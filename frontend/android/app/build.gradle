@@ -50,8 +50,8 @@ android {
         //   11 = 1.8.2（① 网页侧：body 横向内边距与 .container 重复 ⇒ 顶栏左侧白条；
         //       已把 body 横向改为只留安全区 ⇒ 顶栏贴屏。② native：windowBackground 改
         //       「上红下白」分层底 ⇒ 顶部品牌红恢复、底部仍与 tab 栏同色）
-        versionCode 11
-        versionName "1.8.2"
+        versionCode 12
+        versionName "1.8.3"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

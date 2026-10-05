@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2026-10-05 (APK 1.8.3) 浅色主题用的窗口分层底：顶层 96dp 品牌红（与网页红顶栏连成
+     一体），其余为页面底色。由 KxThemePlugin 在运行时按 App 主题装载（不再依赖 DayNight）。
+     96dp 远大于任何机型的状态栏高度，多出的部分被 WebView 完全盖住，不会渗进正文。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/kxWindowLight" />
+    <item
+        android:drawable="@color/kxStatusBarLight"
+        android:gravity="top"
+        android:height="96dp" />
+</layer-list>

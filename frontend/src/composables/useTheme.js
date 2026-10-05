@@ -1,6 +1,7 @@
 // 主题 composable: 背景明暗(body[data-bg]) + 字号(html 根字号百分比) + 字体族(body[data-font]) 切换
 // 持久化到账号级 prefs: { bg, font, fontFam }
 import { ref } from 'vue'
+import { Capacitor, registerPlugin } from '@capacitor/core'
 import { getPrefs, savePrefs } from '../api/stocks'
 
 export const BGS = [
@@ -82,8 +83,27 @@ function ensureFontCss(key) {
   _FONT_CSS[key].forEach((fn) => fn().catch(() => {}))
 }
 
+// 2026-10-05 (APK 1.8.3)：把当前主题同步给安卓系统栏。
+// 🔴 为什么要它（主人反馈：「信号那一栏现在是黑的，时间和信号都看不见」＋
+//    「不应该是 app 和系统颜色联动吗」）：
+//    系统栏那条带子此前由 native 的 DayNight 资源决定 ⇒ 跟着**系统**深浅色走，
+//    而 App 自己的主题存在这里（账号 prefs/本地）⇒ 两个独立源头，深浅一冲突就
+//    「上面黑一条 + 下面红顶栏」，黑底叠深图标 ⇒ 时间/信号完全看不见。
+//    ⇒ 改成**以 App 主题为唯一源头**：每次应用主题都通知壳改写系统栏
+//      （浅色=品牌红条，深色=深条；图标恒为亮色，两种主题都看得清）。
+//   网页端没有原生实现，isNativePlatform() 已经挡掉；旧版壳没这个插件也只是静默失败。
+const KxTheme = registerPlugin('KxTheme')
+function syncNativeTheme(key) {
+  try {
+    if (Capacitor.isNativePlatform()) {
+      KxTheme.apply({ mode: key === 'light' ? 'light' : 'dark' })
+    }
+  } catch (e) { /* 壳里没注册该插件（旧版本）或非原生环境：忽略 */ }
+}
+
 function applyBg(key) {
   document.body.dataset.bg = key || ''
+  syncNativeTheme(key || 'dark')
 }
 function applyFont(key) {
   const f = FONTS.find(x => x.key === key)

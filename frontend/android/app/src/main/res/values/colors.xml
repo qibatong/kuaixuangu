@@ -39,6 +39,23 @@
          的品牌红露出）。深色变体见 values-night/colors.xml。 -->
     <color name="navBarBackground">#ffffff</color>
 
+    <!-- 2026-10-05 (APK 1.8.3) 主人反馈：「信号那一栏现在是黑的，字和信号都看不见了」＋
+         「不应该是 app 和系统颜色联动吗」。
+         🔴 根因：那条带子此前由 **DayNight 资源**决定（values-night 里是 #0f1219）⇒
+            它跟着**系统**深浅色走；而 App 自己的主题存在网页里（账号 prefs / 本地），
+            两者是独立源头 ⇒ 系统深色 + App 浅色（红顶栏）时：上面一条黑、下面一条红，
+            黑底再叠深色图标 ⇒ 时间和信号看不见。
+         修法：**以 App 主题为唯一源头** —— 网页每次应用主题时经 KxThemePlugin
+            一次性改写窗口底/状态栏/导航栏（见该插件注释）。
+         ⚠️ 这里的 kx* 颜色**刻意只写在 values/ 里（不做 values-night 变体）**：
+            运行时由网页显式传 mode 选择，不再被系统深浅色偷偷换掉。 -->
+    <color name="kxStatusBarLight">#c62828</color>   <!-- 浅色主题：与红顶栏连成一体 -->
+    <color name="kxStatusBarDark">#0f1219</color>    <!-- 深色主题：与深色顶栏同值 -->
+    <color name="kxWindowLight">#f0f2f7</color>      <!-- 与网页浅色页面底同值 -->
+    <color name="kxWindowDark">#0f1219</color>
+    <color name="kxNavBarLight">#f0f2f7</color>
+    <color name="kxNavBarDark">#0f1219</color>
+
     <!-- 🔴 ic_launcher_background 不在此处定义：
          Capacitor 生成的 values/ic_launcher_background.xml 里已有同名资源，
          两个文件定义同名 <color> 会直接让资源合并失败（duplicate resource）。 -->

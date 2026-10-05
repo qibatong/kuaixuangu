@@ -34,6 +34,25 @@ const config: CapacitorConfig = {
     //   固定底栏 + 绝对定位元素较多的页面（现在的首页）用 'body' 更稳。
     keyboardResize: 'body',
   },
+  /**
+   * iOS 壳（2026-10-05 新增，与安卓同一套远端加载方案：server.url 指向线上域名，
+   * 网页更新即时生效，不用重发 App）。
+   *
+   * 🔴 contentInset: 'never' 是**关键**：
+   *   Capacitor iOS 默认 'always' 会自动给 WebView 加安全区内边距 ⇒ 网页里
+   *   `env(safe-area-inset-*)` 全部变 0，我们就**画不出**状态栏那条同色带
+   *   （见 src/styles/main.css 的 body.is-ios-shell::before）。
+   *   设成 'never' 后 WebView 全屏贴边，安全区交给网页 CSS 自己处理（与安卓壳一致）。
+   */
+  ios: {
+    contentInset: 'never',
+    // WebView 背后的底色：与启动屏 / 网页浅色底一致，避免页面切换瞬间闪黑
+    backgroundColor: '#ffffff',
+    // 保留回弹手感（与安卓壳观感一致）
+    scrollEnabled: true,
+    // 关掉长按链接预览：行情表里长按很容易被误触发，弹出半屏预览很打断操作
+    allowsLinkPreview: false,
+  },
   plugins: {
     // 返回键由前端接管（见 src/composables/useAndroidBack.js）：
     // 有历史 → router.back()；无历史 → 双击退出 + Toast。

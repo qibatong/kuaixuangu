@@ -1880,3 +1880,30 @@ table, td, th,
   .filter-custom label, .fh-row label { padding: 5px 0 !important; }
   .group-nav-item { min-height: 34px !important; display: inline-flex !important; align-items: center !important; }
 }
+
+/* ============================================================================
+   iOS 壳（Capacitor iOS）专用的「状态栏同色带」  2026-10-05（与 APK 1.8.3 同期）
+   ----------------------------------------------------------------------------
+   背景：安卓壳里状态栏那条带子由**原生窗口底**绘制（见 android 侧的
+     drawable/window_bg_light.xml / window_bg_dark.xml，由 KxThemePlugin 按 App 主题装载）；
+     而 iOS 上 WKWebView 是**全屏**的（viewport-fit=cover + contentInset:never），
+     状态栏与刘海那一条露出来的其实是**网页自己** ⇒ 这里用 body::before 把它刷成顶栏同色，
+     两端视觉一致：浅色主题 = 品牌红，深色主题 = #0f1219。
+   ⚠️ 只在 body 带 .is-ios-shell 时生效（App.vue 在 iOS 壳里加的类）⇒
+      浏览器 / PWA / 安卓壳 **完全不受影响**。
+   ⚠️ 高度取 env(safe-area-inset-top)：非刘海机型为 0 ⇒ 这条带子自动消失，不会多出空白。
+   ============================================================================ */
+body.is-ios-shell::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top, 0px);
+  background: var(--chrome-bg);        /* 深色主题：与深色顶栏同值 */
+  pointer-events: none;                /* 纯装饰，不吃点击 */
+  z-index: 60;                         /* 在正文之上、弹层/toast 之下 */
+}
+body.is-ios-shell[data-bg="light"]::before {
+  background: var(--accent-solid);     /* 浅色主题：与红色顶栏连成一体 */
+}
