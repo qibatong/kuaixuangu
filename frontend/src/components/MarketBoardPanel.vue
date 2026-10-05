@@ -183,7 +183,7 @@ function dirCls(v) {
 </script>
 
 <style scoped>
-.mb { border-radius: var(--r-lg); padding: var(--s2) var(--s3); background: var(--bg-hover); border: 1px solid var(--border-soft); }
+.mb { border-radius: var(--r-lg); padding: var(--s2) var(--s3); background: var(--bg-subtle); border: 1px solid var(--border-soft); }
 .mb-head { display: flex; align-items: baseline; gap: var(--s2); margin-bottom: var(--s2); flex-wrap: wrap; }
 .mb-title { color: var(--text-main); font-size: var(--fs-sm); font-weight: 700; }
 .mb-title .fa { color: var(--accent); }

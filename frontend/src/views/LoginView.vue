@@ -76,6 +76,14 @@
           <a href="javascript:void(0)" @click="mode = 'login'">返回登录</a>
         </div>
       </template>
+
+      <!-- 2026-10-05 (S6): 手机号注册的合规提示。
+           登录页是 meta.bare(不挂页脚) ⇒ 这里是新用户唯一能看到协议入口的地方,
+           缺了它等于"要手机号却不说数据怎么用"; 同时能显著降低注册犹豫。 -->
+      <p class="login-agree">
+        注册 / 登录即表示同意
+        <router-link to="/terms">《用户协议》</router-link>与<router-link to="/privacy">《隐私政策》</router-link>
+      </p>
     </div>
   </div>
 </template>

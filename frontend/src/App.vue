@@ -5,8 +5,10 @@
       <NavBar />
       <!-- 2026-09-27 v4.11.58 信息架构改造: 二级页 pill 行, 随当前一级分组列出该组二级页
            （手机端同样显示 —— 底部 tab 只切一级分组, 组内切换靠这一行;
-            v4.11.61 起「竞价」组标了 hidePills, 该组不渲染这一行） -->
-      <GroupNav />
+            v4.11.61 起「竞价」组标了 hidePills, 该组不渲染这一行）
+           2026-10-05 (S1): 未登录不渲染 —— 落地页上这些 pill 全部指向需登录的页面, 点了只会
+             被守卫弹到 /login, 属于"死链式"点击（整块 v-if 而非 CSS 隐藏, 不残留无用 DOM）。 -->
+      <GroupNav v-if="userStore.isLoggedIn" />
     </template>
     <!-- 无障碍: 主内容区用语义地标 main 包裹, 读屏可跳转到主内容 -->
     <main class="app-main">
@@ -23,9 +25,38 @@
     />
     <!-- 2026-10-04 登录页(meta.bare): 页脚/底部tab/PWA安装条也不挂载(登录页要全屏) -->
     <template v-if="!isBare">
-      <!-- 2026-09-21 主人拍板: 页脚只保留免责声明一条(规则条/术语图例移除, 术语解释已有各列表头 title 悬浮) -->
+      <!-- 2026-09-21 主人拍板: 页脚只保留免责声明一条(规则条/术语图例移除, 术语解释已有各列表头 title 悬浮)
+           2026-10-05 (S6) 扩为**合规页脚**: 免责声明 + 三张协议链接 + 联系客服 + 版权/备案。
+           背景: 此前全站页脚只有一行免责声明 —— 没有任何"我们是谁 / 我的手机号怎么用 /
+           买了能不能退 / 出问题找谁"的入口, 而产品要收手机号与会员费, 这四点直接决定付费意愿,
+           备案号在国内还是合规硬要求。 -->
       <footer class="app-footer">
+        <nav class="footer-links" aria-label="站点信息">
+          <router-link to="/terms">用户协议</router-link>
+          <router-link to="/privacy">隐私政策</router-link>
+          <router-link to="/refund">退款说明</router-link>
+          <!-- 2026-10-05: 「联系客服」升级为可展开面板（原生 <details>，零 JS 状态、零依赖）：
+               面板里同时给二维码与"复制微信号"两条路 —— 电脑端扫码、手机端长按保存图片或直接复制。
+               二维码缺图时 ContactQr 自身不渲染，面板仍只剩「复制微信号」，不出现裂图。 -->
+          <details class="footer-wx">
+            <summary class="footer-link-btn">
+              <i class="fa fa-weixin" aria-hidden="true"></i> 联系客服
+            </summary>
+            <div class="footer-wx-pop">
+              <ContactQr :width="150" compact />
+              <button type="button" class="footer-link-btn" @click="copySupportWx">
+                复制微信号 {{ SUPPORT_WECHAT }}
+              </button>
+            </div>
+          </details>
+        </nav>
         <div class="disclaimer">本平台仅提供软件工具使用权，不构成任何投资建议，股市有风险，投资需谨慎。</div>
+        <div class="footer-copy">
+          <span>© {{ year }} 快选</span>
+          <!-- 🔴 2026-10-05 (S6) 备案号**待主人提供**: 填好下面 ICP 常量即自动展示(绝不写假号)。
+               国内经营性网站需在页脚展示 ICP 备案号并链接到 beian.miit.gov.cn。 -->
+          <a v-if="ICP" class="footer-icp" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">{{ ICP }}</a>
+        </div>
       </footer>
       <!-- 2026-09-27: 手机端(≤768px) 底部固定 tab 栏(v4.11.61 起 6 个一级 tab); 登录页/404/管理后台不显示 -->
       <AppTabBar v-if="showTabBar" />
@@ -49,11 +80,24 @@ import PwaBar from './components/PwaBar.vue'
 // defineAsyncComponent 让 echarts 相关代码拆成独立 chunk, 首次点开图表才下载。
 const StockChartModal = defineAsyncComponent(() => import('./components/StockChartModal.vue'))
 import { uiBus, openStockChart, closeStockChart } from './composables/uiBus'
+import ContactQr from './components/ContactQr.vue'   // 2026-10-05 客服二维码（页脚展开面板）
 import { useTheme } from './composables/useTheme'
 import { useUserStore } from './stores/user'
 // 2026-10-04 安卓壳: 物理返回键接管(仅壳内生效, 网页恒 no-op)。必须 setup 顶层调用。
 import { useAndroidBack } from './composables/useAndroidBack'
 import { isNative } from './utils/native'
+// 2026-10-05 (S6): 合规页脚用 —— 客服微信号单一来源 + 复用现有剪贴板工具
+import { copyText } from './utils/tdx'
+import { SUPPORT_WECHAT } from './utils/contact'
+
+// 🔴 2026-10-05 (S6) ICP 备案号 —— **待主人提供后填入**（例如 '浙ICP备2026000000号'）。
+//   刻意留空 + v-if：没填就完全不渲染，**绝不显示假备案号**（那比不显示更糟）。
+const ICP = ''
+const year = new Date().getFullYear()
+
+function copySupportWx() {
+  copyText(SUPPORT_WECHAT, '客服微信已复制')
+}
 
 const { load: loadTheme } = useTheme()
 const userStore = useUserStore()
@@ -269,4 +313,43 @@ onBeforeUnmount(() => {
 /* 无障碍语义地标: 重置 main/footer 默认样式, 避免引入意外外边距 */
 .app-main { display: block; }
 .app-footer { display: block; }
+
+/* ===== 2026-10-05 (S6) 合规页脚 =====
+   三行式: 协议链接行 / 免责声明 / 版权+备案。字号用 --fs-xs, 颜色用 text-dim(浅色主题
+   已保证 ≥4.5:1), 避免又多一处低对比度合规文字。 */
+.footer-links {
+  display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5);
+  align-items: center; justify-content: center;
+  padding: var(--s4) var(--s4) 0;
+}
+.footer-links a, .footer-link-btn {
+  color: var(--text-muted); font-size: var(--fs-xs); text-decoration: none;
+  background: none; border: none; padding: var(--s1) 0; cursor: pointer;
+  display: inline-flex; align-items: center; gap: var(--s1);
+}
+.footer-links a:hover, .footer-link-btn:hover { color: var(--accent); }
+/* 2026-10-05 页脚「联系客服」展开面板：原生 <details>，绝对定位向上弹出 ⇒ 展开不推挤页脚布局 */
+.footer-wx { position: relative; display: inline-flex; }
+.footer-wx > summary { list-style: none; }
+.footer-wx > summary::-webkit-details-marker { display: none; }
+.footer-wx-pop {
+  position: absolute; bottom: calc(100% + var(--s2)); right: 0; z-index: 60;
+  display: flex; flex-direction: column; align-items: center; gap: var(--s2);
+  padding: var(--s3); min-width: 168px;
+  background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: var(--r-md);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+.footer-wx-pop .footer-link-btn { white-space: nowrap; }
+.footer-copy {
+  display: flex; flex-wrap: wrap; gap: var(--s1) var(--s4);
+  align-items: center; justify-content: center;
+  margin: 0 var(--s4) var(--s6);
+  color: var(--text-dim); font-size: var(--fs-xs);
+}
+.footer-icp { color: var(--text-dim); text-decoration: none; }
+.footer-icp:hover { color: var(--accent); }
+@media (max-width: 768px) {
+  /* 手机端底部有 tabbar: 页脚最后一行再留一点余量, 免得贴住 tab 栏 */
+  .footer-copy { margin-bottom: var(--s4); }
+}
 </style>

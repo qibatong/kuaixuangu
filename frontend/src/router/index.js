@@ -16,7 +16,13 @@ const router = createRouter({
     { path: '/news', name: 'news', component: () => import('../views/NewsView.vue'), meta: { group: 'news', order: 0 } },
 
     // ---------------- 竞价 ----------------
-    { path: '/', name: 'stock', component: () => import('../views/StockView.vue'), meta: { group: 'auction', order: 0 } },
+    // 2026-10-05 (S1): 根路径改为「登录态分流入口」——
+    //   已登录 → StockView(选股名单)；未登录 → LandingView(落地页: 价值主张/能力墙/权益价目/双 CTA)。
+    //   🔴 目的: 此前未登录访问任意深链都会被守卫 302 到 /login ⇒ 新用户第一眼只有一个登录框,
+    //      不知道产品是什么、值多少钱, 转化链条在最贵的一秒被切断（实测 21 条路由仅 /login 对匿名可见）。
+    //   ⚠️ 必须在"进入 StockView 之前"分流: StockView 的 onMounted 会打 /api/* 与轮询,
+    //      匿名触发 401 会被 request.js 直接 window.location.href='/login' 弹走（见 api/request.js:79-90）。
+    { path: '/', name: 'stock', component: () => import('../views/HomeEntry.vue'), meta: { group: 'auction', order: 0 } },
     { path: '/auction', name: 'auction', component: () => import('../views/AuctionView.vue'), meta: { group: 'auction', order: 1 } },
     // 2026-10-03：《顺势而为竞价终极版》（数据来自后端 /api/his-pick）
     { path: '/his-pick', name: 'his-pick', component: () => import('../views/HisPickView.vue'), meta: { group: 'auction', order: 9 } },
@@ -74,30 +80,52 @@ const router = createRouter({
     //   配合 .auth-overlay 改不透明 ⇒ 手机端登录页全屏铺满, 不再像"浮在导航上的弹窗"。
     //   注册/忘记密码是 LoginView 内部页签(mode query), 同走本路由 ⇒ 不需要额外 meta。
     { path: '/login', name: 'login', component: () => import('../views/LoginView.vue'), meta: { bare: true } },
+    // 2026-10-05 (S6): 合规静态页（用户协议/隐私政策/退款说明）—— 匿名可访问。
+    //   三页共用一个 LegalView, 由 meta.doc 决定渲染哪一份文档（减少三个近乎重复的文件）。
+    { path: '/terms', name: 'terms', component: () => import('../views/LegalView.vue'), meta: { doc: 'terms', bare: false } },
+    { path: '/privacy', name: 'privacy', component: () => import('../views/LegalView.vue'), meta: { doc: 'privacy' } },
+    { path: '/refund', name: 'refund', component: () => import('../views/LegalView.vue'), meta: { doc: 'refund' } },
+
     // 2026-09-21: 由 redirect '/' 改为独立 404 视图, 避免未知路径静默落首页造成困惑
     { path: '/:pathMatch(.*)*', name: 'notFound', component: () => import('../views/NotFoundView.vue') }
   ]
 })
 
 // 2026-09-21: 路由级 <title>, 便于多标签区分/书签辨识/前进后退历史
+// 2026-10-05 (S7): 补齐 4 个缺失键（theme/chaozhi/his-pick/messages）——
+//   缺键时兜底值 '快选' 会被拼成「**快选 · 快选 竞价选股**」(重复品牌词, 实测 4 条路由如此);
+//   同时把 bigv 的「大V资讯」对齐到导航一级 pill 的「大V复盘」(useNavGroups.js:103),
+//   避免"点的是大V复盘、标签写的是大V资讯"的自相矛盾。
 const TITLES = {
   stock: '选股', pool: '自选', history: '历史回看', market: '板块',
   concept: '题材异动', ladder: '连板天梯', temper: '股性', yidong: '异动监管',
-  bigv: '大V资讯', auction: '竞价异动', aipick: 'AI预测·金睛', admin: '管理后台',
+  bigv: '大V复盘', auction: '竞价异动', aipick: 'AI预测·金睛', admin: '管理后台',
   'aipick-lgb': 'AI预测·火眼', lhb: '龙虎榜', news: '盘前资讯',
   member: '我的会员',
+  theme: '题材库', chaozhi: '超智研判', 'his-pick': '顺势而为', messages: '消息中心',
+  terms: '用户协议', privacy: '隐私政策', refund: '退款说明',
 }
+// 2026-10-05 (S7): 未登录首屏（/，落地页）给一个能进搜索/分享卡片的标题，
+//   不再让新用户第一眼看到「选股 · 快选 竞价选股」这种内部术语。
+const GUEST_TITLE = '快选 · 竞价选股｜早 9:25 定格名单，一键导出通达信'
 router.afterEach((to) => {
   if (to.name === 'login') { document.title = '登录 · 快选'; return }
   if (to.name === 'notFound') { document.title = '页面不存在 · 快选'; return }
+  if (to.name === 'stock' && !useUserStore().isLoggedIn) { document.title = GUEST_TITLE; return }
   // 2026-09-28: 站点后缀随 tab 改名同步（AI选股 → 竞价选股）
-  document.title = `${TITLES[to.name] || '快选'} · 快选 竞价选股`
+  const t = TITLES[to.name]
+  document.title = t ? `${t} · 快选 竞价选股` : '快选 · 竞价选股'
 })
 
-// 路由守卫: 除 /login 外均需登录; 已登录访问 /login 跳回主页; /admin 需管理员
+// 路由守卫: 除白名单外均需登录; 已登录访问 /login 跳回主页; /admin 需管理员
+// 2026-10-05 (S1/S6): 新增匿名白名单 —— 落地首屏 / 与三张合规静态页。
+//   · /（name=stock）: 匿名不再被弹到 /login, 由 HomeEntry.vue 在组件层分流到 LandingView,
+//     因此**不会**挂载 StockView、不会发出任何需鉴权的 API 请求（避免 401 硬跳转）。
+//   · /terms /privacy /refund: 合规页必须能匿名打开（注册前要能点开看）。
+const PUBLIC_ROUTES = new Set(['stock', 'terms', 'privacy', 'refund'])
 router.beforeEach((to) => {
   const user = useUserStore()
-  if (to.name !== 'login' && !user.isLoggedIn) {
+  if (to.name !== 'login' && !PUBLIC_ROUTES.has(to.name) && !user.isLoggedIn) {
     // 2026-08-18 修复: 跳 /login 时保留原始 query(如 ?reset=TOKEN),
     // 否则忘记密码邮件链接点击后 reset 参数丢失 → 只显示登录框而不是设置新密码
     return { name: 'login', query: { redirect: to.fullPath, ...to.query } }

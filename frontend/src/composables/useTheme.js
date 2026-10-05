@@ -21,13 +21,19 @@ export const FONTS = [
 // 字体族: 控制中文正文显示的"主角字体", 对应 body[data-font=xxx].
 // 数字列/代码列固定霞鹜等宽(不随此处切换), 保证表格对齐不歪.
 // 所有字体都是 SIL OFL 1.1 授权, 完全免费商用, 无任何风险.
+// 2026-10-05 (S5): 新增 **system(系统字体)** 并设为默认 —— 零下载。
+//   原先默认 sans(思源黑体) 走全局静态 import, 首访要下 459KB 中文子集;
+//   现在只有**显式选中** sans/serif/lxgw 时才动态加载对应网络字体, 默认路径零字体请求。
 export const FONT_FAMILIES = [
+  { key: 'system', label: '系统字体', desc: '秒开·推荐',        family: '系统中文黑体' },
+  { key: 'sans',  label: '思源黑体', desc: '现代无衬线·需下载', family: '"Noto Sans SC"' },
+  { key: 'serif', label: '思源宋体', desc: '传统有衬线·需下载', family: '"Noto Serif SC"' },
   { key: 'lxgw',  label: '霞鹜等宽', desc: '0带斜杠·数字清晰', family: '"LXGW WenKai Mono"' },
-  { key: 'sans',  label: '思源黑体', desc: '现代无衬线',         family: '"Noto Sans SC"' },
-  { key: 'serif', label: '思源宋体', desc: '传统有衬线',         family: '"Noto Serif SC"' },
 ]
 
 const STORE_KEY = 'kuaixuan_bg'   // 本地兜底 { bg, font, fontFam }, 登录后以 prefs 为准
+// 2026-10-05: 「字体族统一到系统字体」的一次性迁移标记（打上后永不再强行覆盖用户选择）
+const FONT_UNIFIED_KEY = 'kuaixuan_font_unified_v1'
 
 // 系统配色偏好: 未登录/无明确偏好时, 跟随操作系统明暗主题作为初始值 (2026-09-21)
 // 此前一律强推深色; 现在首次访问的用户若系统是浅色, 自动落到浅色主题。
@@ -41,7 +47,7 @@ function systemBg() {
 // 模块级单例 state: 避免多次 useTheme() 各持独立 ref, 导致跨组件读不到最新主题
 const bg      = ref('dark')       // 默认黑色(深色)主题, 2026-08-22 主人确认
 const font    = ref('md')         // 默认标准字号
-const fontFam = ref('sans')       // 默认思源黑体 (2026-08-23 主人 A/B 对比后确认, 之前默认 lxgw 改 sans)
+const fontFam = ref('system')     // 2026-10-05 (S5): 默认「系统字体」(零下载); 原默认 sans 见下方说明
 
 // 可选字体按需加载: 默认正文 = 思源黑体(Noto Sans SC, 在 main.js 全局加载)。
 // 另外两个可选字体 —— 霞鹜等宽(lxgw, 数字列「去楷体」后已 inherit, 不再默认用) 与
@@ -59,6 +65,13 @@ const _FONT_CSS = {
   ],
   serif: [
     () => import('@fontsource/noto-serif-sc/400.css'),
+  ],
+  // 2026-10-05 (S5): 思源黑体由「main.js 全局静态 import」改为**按需加载** ——
+  //   从此不再进入口 CSS; 只有用户在「我的会员 → 字体」里主动选它才下载(400 + 700 两套子集)。
+  //   ⚠️ 保留 700: 表格/标题大量用 font-weight:700, 缺了会由浏览器合成粗体(中文合成发糊, 观感差)。
+  sans: [
+    () => import('@fontsource/noto-sans-sc/400.css'),
+    () => import('@fontsource/noto-sans-sc/700.css'),
   ],
 }
 const _fontLoaded = {}
@@ -79,7 +92,7 @@ function applyFont(key) {
 }
 function applyFontFam(key) {
   const ff = FONT_FAMILIES.find(x => x.key === key)
-  document.body.dataset.font = ff ? ff.key : 'lxgw'
+  document.body.dataset.font = ff ? ff.key : 'system'   // 2026-10-05 (S5): 兜底也改「系统字体」
 }
 
 export function useTheme() {
@@ -101,24 +114,42 @@ export function useTheme() {
         // 忽略 localStorage 残留, 强制默认
         b  = BGS.some(x => x.key === settings.bg)                ? settings.bg        : systemBg()
         ft = FONTS.some(x => x.key === settings.font)            ? settings.font      : 'md'
-        ff = FONT_FAMILIES.some(x => x.key === settings.fontFam) ? settings.fontFam   : 'sans'   // 2026-08-23 默认改思源黑体
+        // 2026-10-05 (S5): 账号从未设过字体族时默认「系统字体」(零下载网络字体)。
+        //   老用户若**显式**选过 sans/serif/lxgw, settings.fontFam 有值 ⇒ 尊重其选择(按需加载)。
+        ff = FONT_FAMILIES.some(x => x.key === settings.fontFam) ? settings.fontFam   : 'system'
       } else {
         // 服务器返回空偏好(新账号) -> 背景跟随系统, 字号/字体用默认
         b  = systemBg()
         ft = 'md'
-        ff = 'sans'   // 2026-08-23 默认改思源黑体
+        ff = 'system'
       }
     } catch (e) { /* 未登录/请求失败: 保留本地兜底值 */ }
     if (!BGS.some(x => x.key === b))                b  = systemBg()
     if (!FONTS.some(x => x.key === ft))             ft = 'md'
-    if (!FONT_FAMILIES.some(x => x.key === ff))     ff = 'sans'   // 2026-08-23 最终兜底也改成思源黑体
+    if (!FONT_FAMILIES.some(x => x.key === ff))     ff = 'system'
     bg.value      = b
     font.value    = ft
     fontFam.value = ff
     applyBg(b)
     applyFont(ft)
     applyFontFam(ff)
-    if (ff !== 'sans') ensureFontCss(ff)   // 账号偏好是可选字体(lxgw/serif)时, 恢复加载对应字体
+    // 2026-10-05 (主人指令「统一」): **一次性**把所有账号的字体族收敛到「系统字体」——
+    //   包含此前显式选过网络字体(sans/serif/lxgw)的老账号(它们的 settings.fontFam 有值,
+    //   上面会"尊重其选择" ⇒ 这里必须再兜一层)。只做一次(本地打标记), 之后用户在本页的
+    //   手动切换照常生效、不会被反复覆盖。收益: 老账号也不再下载数百个 @font-face/woff。
+    try {
+      if (localStorage.getItem(FONT_UNIFIED_KEY) !== '1') {
+        if (ff !== 'system') {
+          ff = 'system'
+          fontFam.value = 'system'
+          applyFontFam('system')
+          persist()          // 写回本地 + 账号偏好(未登录时只写本地)
+        }
+        localStorage.setItem(FONT_UNIFIED_KEY, '1')
+      }
+    } catch (e) { /* 隐私模式等: 收敛失败不影响渲染, 只是该次仍按账号原偏好 */ }
+    // 2026-10-05 (S5): 只有账号偏好是**网络字体**(sans/serif/lxgw)时加载; system 零请求
+    if (ff !== 'system') ensureFontCss(ff)
   }
 
   function persist() {

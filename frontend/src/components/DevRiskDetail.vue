@@ -279,7 +279,7 @@ function ztText(r) {
 .dd-lines { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--s2); margin-bottom: var(--s3); }
 .dd-card {
   border: 1px solid var(--border-soft); border-radius: var(--r-md); padding: var(--s2) var(--s3);
-  background: var(--bg-hover);
+  background: var(--bg-subtle);
 }
 .dd-card.dd-hit { border-color: rgba(255, 77, 79, 0.55); background: rgba(255, 77, 79, 0.08); }
 .dd-card.dd-near { border-color: rgba(255, 197, 61, 0.5); background: rgba(255, 197, 61, 0.07); }

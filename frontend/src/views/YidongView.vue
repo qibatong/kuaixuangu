@@ -420,7 +420,7 @@ onMounted(() => {
 .yd-tabs { display: flex; gap: var(--s2); margin-bottom: var(--s4); }
 .yd-tab {
   padding: var(--s2) var(--s4); border-radius: var(--r-md); border: 1px solid var(--border-soft);
-  background: var(--bg-hover); color: var(--text-secondary); font-size: var(--fs-base);
+  background: var(--bg-subtle); color: var(--text-secondary); font-size: var(--fs-base);
   cursor: pointer; transition: border-color 0.2s, color 0.2s;
 }
 .yd-tab:hover { border-color: var(--star); color: var(--warn-text); }
@@ -430,7 +430,7 @@ onMounted(() => {
 }
 
 .yd-panel {
-  background: var(--bg-hover); border: 1px solid var(--border-soft);
+  background: var(--bg-subtle); border: 1px solid var(--border-soft);
   border-radius: var(--r-lg); padding: var(--s4);
 }
 
@@ -481,7 +481,7 @@ onMounted(() => {
   color: var(--text-secondary); font-size: var(--fs-sm); text-align: left; cursor: pointer;
 }
 .cal-sug-i:first-child { border-top: none; }
-.cal-sug-i.on { background: var(--bg-hover); }
+.cal-sug-i.on { background: var(--bg-subtle); }
 .cal-sug-name { font-weight: 600; color: var(--text-main); }
 .cal-sug-code { font-size: var(--fs-xs); color: var(--text-dim); }
 .cal-sug-board {

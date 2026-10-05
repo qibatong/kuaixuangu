@@ -342,7 +342,16 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .real-time-btn { background: rgba(0, 200, 100, 0.2); border-color: var(--down); }
 .real-time-btn:hover:enabled { background: var(--down); }
 .reset-filter-btn { background: rgba(80, 140, 255, 0.2); border-color: #5a8aff; color: var(--text-main); }
-.apply-btn { background: var(--accent); }
+/* 2026-10-05 (S3): 主操作按钮对比度修复。
+   原: background:var(--accent) + color:var(--accent-text) ⇒ 浅红字压亮红底
+      深色 #ffbcbc on #ff5c5c = 1.90:1 / 浅色 #b91c1c on #c62828 = 1.31:1, 两套主题都不达 AA。
+   现: 实心深红 + 纯白字 = 5.36:1(dark) / 5.36:1(light)，同时与旁边 3 个描边按钮拉开主次层级。 */
+.apply-btn {
+  background: var(--accent-deep2);
+  border-color: var(--accent-deep2);
+  color: #fff;
+}
+.apply-btn:hover:enabled { background: var(--accent-deep); border-color: var(--accent-deep); color: #fff; }
 .lock-filter-btn { background: var(--bg-hover); border: 1px solid var(--border-soft); color: var(--text-secondary); }
 .lock-filter-btn.locked { background: var(--warn-bg); border-color: var(--warn); color: var(--warn-text); animation: lockPulse 2s ease-in-out infinite; }
 @keyframes lockPulse { 0%, 100% { box-shadow: 0 0 0 0 var(--warn-bg); } 50% { box-shadow: 0 0 0 8px rgba(255, 140, 40, 0); } }
@@ -398,7 +407,14 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 }
 .pool-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--s2); margin-bottom: var(--s2); border-bottom: 1px dashed var(--accent-border); padding-bottom: var(--s2); }
 .pool-title { font-size: var(--fs-md); font-weight: 700; color: var(--accent-text); display: flex; align-items: center; gap: var(--s2); }
-.auto-tag { font-size: var(--fs-xs); color: var(--warn-text); background: var(--warn-bg); padding: var(--s1) var(--s2); border-radius: var(--r-pill); }
+/* 2026-10-05 (S2 附带): 原 `background: var(--warn-bg)` 是**半透明琥珀**, 而本标签就嵌在
+   `.lock-filter-btn.locked`(同样是琥珀底)内部 ⇒ 琥珀叠琥珀, 实测深色 1.91:1 / 浅色 2.28:1 不可读。
+   改为**不透明**底色, 两套主题各给一档, 彻底消除"叠色后不可预期"。 */
+.auto-tag {
+  font-size: var(--fs-xs); color: var(--warn-text); background: #3a2a12;
+  padding: var(--s1) var(--s2); border-radius: var(--r-pill);
+}
+body[data-bg="light"] .auto-tag { background: #fdf3e6; color: var(--warn-text); }
 .pool-expiry-info { font-size: var(--fs-xs); color: var(--gold-text); margin-left: var(--s2); background: var(--warn-bg); padding: var(--s1) var(--s2); border-radius: var(--r-pill); white-space: nowrap; display: inline-block; }
 .pool-buttons { display: flex; gap: var(--s2); flex-wrap: wrap; }
 .pool-btn {
@@ -409,7 +425,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .pool-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--text-main); transform: translateY(-1px); }
 .pool-list { max-height: 240px; overflow-y: auto; margin-top: var(--s2); border-radius: var(--r-md); }
 .pool-item {
-  display: flex; align-items: center; justify-content: space-between; background: var(--bg-hover);
+  display: flex; align-items: center; justify-content: space-between; background: var(--bg-subtle);
   margin: var(--s2) 0; padding: var(--s2) var(--s3); border-radius: 16px; border-left: 3px solid var(--up);
 }
 .pool-item-info { display: flex; flex-direction: column; gap: 2px; }

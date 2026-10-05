@@ -134,7 +134,7 @@ usePolling(loadConcepts, 30000, { immediate: false })
 </script>
 
 <style scoped>
-.ecp { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); }
+.ecp { background: var(--bg-subtle); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); }
 .ecp-head { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; margin-bottom: var(--s2); }
 .ecp-title { font-size: var(--fs-md); font-weight: 700; color: var(--text-main); }
 .ecp-title .fa { color: var(--accent); }

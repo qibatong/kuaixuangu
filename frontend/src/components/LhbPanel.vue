@@ -550,8 +550,8 @@ body[data-bg="light"] .lhb-date { color-scheme: light; }
 
 /* ---- 标签（机构=金 / 游资=橙红; 全走 token, 不添裸值） ---- */
 .tag { display: inline-block; font-size: var(--fs-xs); padding: 0 var(--s1); border-radius: var(--r-sm); margin-left: var(--s1); vertical-align: middle; }
-.tag-inst { background: var(--bg-hover); color: var(--star); border: 1px solid var(--border-soft); }
-.tag-hot { background: var(--bg-hover); color: var(--up-strong); border: 1px solid var(--border-soft); }
+.tag-inst { background: var(--bg-subtle); color: var(--star); border: 1px solid var(--border-soft); }
+.tag-hot { background: var(--bg-subtle); color: var(--up-strong); border: 1px solid var(--border-soft); }
 
 @media (max-width: 768px) {
   .lhb-toolbar { flex-wrap: wrap; }

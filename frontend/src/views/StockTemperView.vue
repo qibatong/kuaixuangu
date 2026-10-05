@@ -235,10 +235,10 @@ onMounted(() => {
 .temper-search { padding: var(--s2) var(--s2); border-radius: var(--r-md); border: 1px solid var(--border-soft); background: var(--bg-main); color: var(--text-primary); font-size: var(--fs-sm); width: 150px; outline: none; }
 .temper-search:focus { border-color: var(--star); }
 .temper-page { display: inline-flex; align-items: center; gap: var(--s2); }
-.pg-btn { padding: var(--s2) var(--s2); border-radius: var(--r-md); border: 1px solid var(--border-soft); background: var(--bg-hover); color: var(--text-secondary); cursor: pointer; }
+.pg-btn { padding: var(--s2) var(--s2); border-radius: var(--r-md); border: 1px solid var(--border-soft); background: var(--bg-subtle); color: var(--text-secondary); cursor: pointer; }
 .pg-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .pg-info { color: var(--text-muted); font-size: var(--fs-xs); white-space: nowrap; }
-.temper-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); }
+.temper-panel { background: var(--bg-subtle); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); }
 .temper-row { cursor: pointer; }
 .temper-row:hover td { background: rgba(255, 180, 0, 0.06); }
 .score-badge { display: inline-block; min-width: 44px; text-align: center; padding: var(--s1) var(--s2); border-radius: var(--r-md); font-weight: 700; font-size: var(--fs-sm); }
@@ -266,7 +266,7 @@ body[data-bg="light"] .tag-chip-warn { background: rgba(220, 60, 60, 0.12); colo
 .big-score { font-size: 2.125rem; font-weight: 700; }
 .score-label { color: var(--text-muted); font-size: var(--fs-sm); }
 .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s2); }
-.metric { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: var(--r-md); padding: var(--s2); }
+.metric { background: var(--bg-subtle); border: 1px solid var(--border-soft); border-radius: var(--r-md); padding: var(--s2); }
 .metric-label { color: var(--text-muted); font-size: var(--fs-xs); margin-bottom: var(--s1); }
 .metric-val { font-size: var(--fs-2xl); font-weight: 700; }
 .metric-sub { color: var(--text-muted); font-size: var(--fs-xs); margin-top: 2px; }

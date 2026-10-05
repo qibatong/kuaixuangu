@@ -1219,11 +1219,11 @@ polling = usePolling(async () => {
   font-weight: 600;
   box-shadow: var(--sh-1);
 }
-.auc-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); }
+.auc-panel { background: var(--bg-subtle); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); }
 /* 竞价抢筹左右双表 */
 .qc-dual { display: flex; flex-direction: column; gap: var(--s2); }
-.qc-panel { width: 100%; background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s2); overflow: visible; display: flex; flex-direction: column; gap: var(--s2); }
-.qc-table-scroll { overflow-x: auto; overflow-y: auto; max-height: 480px; scrollbar-width: none; -ms-overflow-style: none; border: 1px solid var(--border-soft); border-radius: var(--r-md); background: var(--bg-hover); }
+.qc-panel { width: 100%; background: var(--bg-subtle); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s2); overflow: visible; display: flex; flex-direction: column; gap: var(--s2); }
+.qc-table-scroll { overflow-x: auto; overflow-y: auto; max-height: 480px; scrollbar-width: none; -ms-overflow-style: none; border: 1px solid var(--border-soft); border-radius: var(--r-md); background: var(--bg-subtle); }
 .qc-table-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 /* 2026-09-20 视觉减噪: qc 抢筹双表 sticky 表头统一红底白字(与全局一致) */
 .qc-table-scroll .stock-table thead th { position: sticky; top: 0; z-index: 8; background: var(--accent-deep2); border-bottom: none; }

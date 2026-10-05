@@ -608,11 +608,11 @@ onBeforeUnmount(() => { if (staleTimer) clearInterval(staleTimer) })
 .mrk-tabs { display: flex; gap: var(--s2); margin-bottom: var(--s4); }
 .mrk-tab {
   padding: var(--s2) var(--s4); border-radius: var(--r-md); border: 1px solid var(--border-soft);
-  background: var(--bg-hover); color: var(--text-secondary); font-size: var(--fs-base); cursor: pointer; transition: border-color 0.2s, color 0.2s;
+  background: var(--bg-subtle); color: var(--text-secondary); font-size: var(--fs-base); cursor: pointer; transition: border-color 0.2s, color 0.2s;
 }
 .mrk-tab:hover { border-color: var(--star); color: var(--warn-text); }
 .mrk-tab.active { background: rgba(255,180,0,0.15); border-color: var(--star); color: var(--gold); font-weight: 600; }
-.mrk-panel { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); }
+.mrk-panel { background: var(--bg-subtle); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); }
 .loading-placeholder { text-align: center; padding: var(--s8); color: var(--text-muted); }
 .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,180,0,0.3); border-top-color: var(--star); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -672,7 +672,7 @@ onBeforeUnmount(() => { if (staleTimer) clearInterval(staleTimer) })
 .rot-table-scroll { overflow-x: auto; border: 1px solid var(--border-soft); border-radius: var(--r-md); }
 .rot-table { border-collapse: collapse; min-width: 100%; font-size: var(--fs-xs); }
 .rot-table th, .rot-table td { padding: var(--s1) var(--s2); text-align: center; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
-.rot-table th { background: var(--bg-hover); color: var(--text-secondary); font-weight: 500; position: sticky; top: 0; }
+.rot-table th { background: var(--bg-subtle); color: var(--text-secondary); font-weight: 500; position: sticky; top: 0; }
 .rot-rownum { color: var(--text-muted); font-size: var(--fs-xs); min-width: 40px; }
 .rot-date { color: var(--text-secondary); font-size: var(--fs-xs); min-width: 70px; }
 .rot-cell { min-width: 80px; padding: var(--s1) var(--s1) !important; vertical-align: middle; }

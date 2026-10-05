@@ -588,7 +588,7 @@ onUnmounted(stopRealtime)
 
 <style scoped>
 .ap-panel {
-  background: var(--bg-hover);
+  background: var(--bg-subtle);
   border: 1px solid var(--border-soft);
   border-radius: var(--r-lg);
   padding: var(--s4);
@@ -718,7 +718,7 @@ onUnmounted(stopRealtime)
 .rot-reset-btn {
   padding: var(--s2) var(--s2); border-radius: var(--r-md);
   border: 1px solid var(--border-soft);
-  background: var(--bg-hover);
+  background: var(--bg-subtle);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: var(--fs-sm);
@@ -767,7 +767,7 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
 .ap-rule-reset {
   padding: 2px var(--s2); border-radius: var(--r-sm);
   border: 1px solid var(--border-soft);
-  background: var(--bg-hover);
+  background: var(--bg-subtle);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: var(--fs-xs);
@@ -821,7 +821,7 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   vertical-align: 1px;
   color: var(--text-muted);
   border: 1px solid var(--border-soft);
-  background: var(--bg-hover);
+  background: var(--bg-subtle);
 }
 .ap-stock-table .name-sub {
   font-size: var(--fs-xs); color: var(--text-muted);

@@ -227,9 +227,35 @@
             </tbody>
           </table>
         </div>
-        <div class="mb-contact">
-          <i class="fa fa-phone"></i> 开通 / 续费会员请联系管理员
-          <span class="mb-wechat">微信: <b>poet-1986</b></span>
+        <!-- 2026-10-05 (S4): 开通/续费自助化。
+             原先这里只有一行纯文本「开通 / 续费会员请联系管理员 微信: poet-1986」——
+             不可点、不可复制, 用户要长按选中手抄一串微信号; 且页面上**没有任何**"立即开通"按钮,
+             付费只能靠人工承接。现在: 可点击复制 + 价格区(主人填了才展示) + 到期顺延说明。 -->
+        <div class="mb-open">
+          <div class="mb-open-head">
+            <!-- 图标用 fa-money: fa-credit-card 在 FA4.7 本地子集里没有字形(_verify/fa_guard.js 会拦) -->
+            <span class="mb-open-title"><i class="fa fa-money" aria-hidden="true"></i> 开通 / 续费会员</span>
+            <span class="mb-open-sub">通过客服微信办理，付款后即时开通；续费后到期时间自动顺延，可在本页查看。</span>
+          </div>
+          <!-- 价格表：数据来自本文件 script 里的 PLANS_PRICE 常量（2026-10-05 主人给定
+               月卡 ¥218 / 季卡 ¥588）。改价只动那一处常量，模板不用碰。 -->
+          <ul v-if="PLANS_PRICE.length" class="mb-price">
+            <li v-for="p in PLANS_PRICE" :key="p.label">
+              <b>{{ p.label }}</b>
+              <em>¥{{ p.price }}</em>
+              <span>{{ p.days }} 天<template v-if="p.perDay"> · 折合 ¥{{ p.perDay }}/天</template></span>
+            </li>
+          </ul>
+          <div class="mb-open-acts">
+            <button type="button" class="mb-btn-cta" @click="copySupportWx">
+              <i class="fa fa-weixin" aria-hidden="true"></i> 复制客服微信 {{ SUPPORT_WECHAT }}
+            </button>
+            <span class="mb-open-hint">加微信办理 · 付款后即时开通</span>
+          </div>
+          <!-- 2026-10-05 主人提供客服二维码：付款前最需要"扫一下就能加上"，故与本区并排展示 -->
+          <div class="mb-open-qr">
+            <ContactQr :width="186" />
+          </div>
         </div>
       </div>
     </template>
@@ -255,9 +281,31 @@ import { useTheme, BGS, FONTS, FONT_FAMILIES } from '../composables/useTheme'
 import { showToast } from '../utils/toast'
 import ChangePwdModal from '../components/ChangePwdModal.vue'
 import ProfileModal from '../components/ProfileModal.vue'
+// 2026-10-05 (S4): 开通/续费自助化 —— 客服微信号单一来源。
+//   ⚠️ 本文件下方**已自带** async copyText(text, okMsg)（含 secureContext 判断 + execCommand 兜底），
+//   故这里只引 contact 常量，不再从 utils/tdx 引同名函数（同名会解析冲突）。
+import { SUPPORT_WECHAT } from '../utils/contact'
+// 2026-10-05: 客服二维码（缺图时组件自身不渲染）
+import ContactQr from '../components/ContactQr.vue'
 
 const router = useRouter()
 const user = useUserStore()
+
+// 🔴 2026-10-05 (S4) **在售套餐与价格 —— 待主人填写**。
+//   格式: [{ label:'月卡', price:'¥99', days:30 }, ...]；**留空数组则整块价格区自动隐藏**
+//   （绝不展示编造的价钱）。填好后前端立刻展示，无需改后端。
+//   后端 /api/member/plans 目前只有配额字段、没有价格字段，故价格由前端常量承载。
+// 2026-10-05 (S4) 主人给定在售套餐与价格：月卡 ¥218 / 季卡 ¥588。
+//   perDay 是"折合每天"（月卡 218/30 ≈ 7.3、季卡 588/90 ≈ 6.5）—— 让季卡更划算这件事
+//   一眼可见，是纯前端展示值，不是后端口径。改价只动这个数组。
+const PLANS_PRICE = [
+  { label: '月卡', price: 218, days: 30, perDay: '7.3' },
+  { label: '季卡', price: 588, days: 90, perDay: '6.5' },
+]
+
+function copySupportWx() {
+  copyText(SUPPORT_WECHAT, '客服微信已复制')
+}
 // 显示设置三项：背景明暗 / 字号 / 字体族（2026-10-04 起背景也在这里 —— 顶部圆点已移除）
 const { bg, setBg, font, fontFam, setFont, setFontFam } = useTheme()
 // 账户弹层（2026-09-27 v4.11.65 由 NavBar 迁来）
@@ -602,12 +650,41 @@ body[data-bg="light"] .mb-fontfam { background: #f7f8fb; }
 .mb-table th { color: var(--text-muted); font-weight: 600; }
 .mb-table td { color: var(--text-secondary); }
 .mb-table .mine { background: rgba(var(--accent-rgb), .09); color: var(--text-main); font-weight: 600; }
-.mb-contact {
-  margin-top: var(--s3); font-size: var(--fs-sm); color: var(--text-muted);
-  background: rgba(var(--accent-rgb), .06); border-radius: var(--r-md); padding: var(--s2) var(--s3);
+/* ===== 2026-10-05 (S4) 开通 / 续费区 =====
+   替换原 `.mb-contact`（一行纯文本微信号）。要点: 主色实心按钮(白字, 对比 ≥4.5:1)
+   + 价格区(填了才显示, 走 dashed 主色描边表示"这里是转化入口")。 */
+.mb-open {
+  margin-top: var(--s4); padding: var(--s3) var(--s4);
+  background: rgba(var(--accent-rgb), .06);
+  border: 1px dashed var(--accent-border); border-radius: var(--r-md);
 }
-.mb-wechat { margin-left: var(--s2); color: var(--accent-deep); }
-.mb-wechat b { letter-spacing: .5px; }
+.mb-open-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s1) var(--s3); }
+.mb-open-title { font-size: var(--fs-md); font-weight: 700; color: var(--text-main); }
+.mb-open-title i { color: var(--accent); margin-right: var(--s1); }
+.mb-open-sub { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.7; }
+.mb-price { list-style: none; display: flex; flex-wrap: wrap; gap: var(--s2); margin: var(--s3) 0 0; padding: 0; }
+.mb-price li {
+  display: inline-flex; align-items: baseline; gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  background: var(--bg-panel); border: 1px solid var(--border-soft); border-radius: var(--r-md);
+}
+.mb-price b { color: var(--text-main); font-size: var(--fs-sm); }
+.mb-price em { color: var(--accent); font-style: normal; font-weight: 700; }
+.mb-price span { color: var(--text-dim); font-size: var(--fs-xs); }
+.mb-open-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); margin-top: var(--s3); }
+.mb-open-qr { margin-top: var(--s3); }   /* 客服二维码（2026-10-05） */
+.mb-btn-cta {
+  display: inline-flex; align-items: center; gap: var(--s1);
+  background: var(--accent-deep2); color: #fff; border: 1px solid transparent;
+  border-radius: var(--r-md); padding: var(--s2) var(--s4);
+  font-size: var(--fs-sm); font-weight: 700; cursor: pointer;
+}
+.mb-btn-cta:hover { background: var(--accent-deep); }
+.mb-open-hint { font-size: var(--fs-xs); color: var(--text-dim); }
+@media (max-width: 768px) {
+  .mb-btn-cta { width: 100%; justify-content: center; }
+  .mb-open-hint { width: 100%; text-align: center; }
+}
 
 /* 浅色主题微调 */
 body[data-bg="light"] .mb-quota-item { background: rgba(0, 0, 0, .015); }

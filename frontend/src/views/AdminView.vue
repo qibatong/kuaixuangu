@@ -1207,12 +1207,12 @@ body[data-bg="light"] .inviter-tag { color: #b83010; background: rgba(90, 130, 2
 .chain-val { color: var(--text-main); }
 .invite-list-scroll { max-height: 300px; overflow-y: auto; margin-top: var(--s2); border: 1px solid var(--border-soft); border-radius: var(--r-md); }
 .invite-table { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
-.invite-table th { text-align: left; padding: var(--s2) var(--s2); color: var(--text-muted); border-bottom: 1px solid var(--border-soft); background: var(--bg-hover); position: sticky; top: 0; }
+.invite-table th { text-align: left; padding: var(--s2) var(--s2); color: var(--text-muted); border-bottom: 1px solid var(--border-soft); background: var(--bg-subtle); position: sticky; top: 0; }
 .invite-table td { padding: var(--s2) var(--s2); border-bottom: 1px solid var(--border-soft); }
 .invite-table tr:last-child td { border-bottom: none; }
 .admin-wrap { max-width: 1500px; margin: 0 auto; padding: var(--s4) var(--s4); }
 .admin-head { display: flex; align-items: center; margin-bottom: var(--s4); }
-.admin-card { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); margin-bottom: var(--s4); }
+.admin-card { background: var(--bg-subtle); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); margin-bottom: var(--s4); }
 .field-label { color: #bbb; font-size: var(--fs-xs); }
 .admin-tip { color: var(--text-muted); font-size: var(--fs-xs); margin-left: var(--s2); }
 .admin-save-btn {
@@ -1283,7 +1283,7 @@ body[data-bg="light"] .btn-create {
   flex-wrap: wrap;
 }
 .factor-tab {
-  background: var(--bg-hover);
+  background: var(--bg-subtle);
   border: 1px solid var(--border-soft);
   color: var(--text-secondary);
   border-radius: var(--r-md);

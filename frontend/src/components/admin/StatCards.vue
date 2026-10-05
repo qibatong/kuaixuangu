@@ -17,7 +17,7 @@ defineProps({
 
 <style scoped>
 .stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--s3); margin-bottom: var(--s4); }
-.stat-card { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); text-align: center; }
+.stat-card { background: var(--bg-subtle); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); text-align: center; }
 .stat-num { font-size: var(--fs-display); font-weight: 700; color: var(--gold); }
 .stat-num.small { font-size: var(--fs-lg); color: var(--accent-text); }
 .stat-label { margin-top: var(--s2); color: var(--text-muted); font-size: var(--fs-xs); }

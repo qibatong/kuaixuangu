@@ -14,8 +14,25 @@
        「.page-shell 一旦成为滚动容器 → 首页竞价页 sticky tab 失效」的真实回归, 代价远大于收益。
        「禁整页回弹」改用 overscroll-behavior(见 styles/main.css), 不碰文档滚动。 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, maximum-scale=2.0, viewport-fit=cover">
-<meta name="robots" content="noindex, nofollow">
-<title>快选 · AI选股</title>
+<!-- 2026-10-05 (S7): 此前是 noindex,nofollow + 零描述零 OG 卡片 ⇒ 全站主动放弃被搜索与
+     被分享; 用户把链接发到微信/群里只有一行光秃秃的标题。现在补齐基础 SEO 与分享卡片。
+     注: 站点自 2026-09-28 起已把品牌名从「AI选股」改名「竞价选股」, 静态 title 这次同步。
+     og:image 用既有 logo.jpg(256×256, 已自托管) —— 没有单独做分享大图, 够用且零新增资源。 -->
+<meta name="robots" content="index, follow">
+<meta name="description" content="快选 · 竞价选股：交易日 9:25 定格竞价名单，竞价异动五榜、连板天梯、龙虎榜、超智研判、盘前资讯一站式复盘，名单可一键导出通达信。">
+<link rel="canonical" href="https://www.kuaixuangu.cn/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="快选">
+<meta property="og:title" content="快选 · 竞价选股｜早 9:25 定格名单，一键导出通达信">
+<meta property="og:description" content="竞价选股 · 竞价异动 · 连板天梯 · 龙虎榜 · 超智研判 · 盘前资讯。新用户注册送会员体验。">
+<meta property="og:url" content="https://www.kuaixuangu.cn/">
+<meta property="og:image" content="https://www.kuaixuangu.cn/logo.jpg">
+<meta property="og:image:width" content="256">
+<meta property="og:image:height" content="256">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="快选 · 竞价选股">
+<meta name="twitter:description" content="早 9:25 定格竞价名单，一键导出通达信。">
+<title>快选 · 竞价选股</title>
 <link rel="icon" type="image/png" href="/favicon.png">
 <!-- 「加到主屏幕」后全屏无地址栏 + 状态栏透明（内容顶到状态栏下, 由 body 的
      env(safe-area-inset-top) 内边距让开）—— 验收项 1 靠这四条。 -->

@@ -89,7 +89,15 @@ import MarketViewSrc from '../src/views/MarketView.vue?raw'
 
 
 /* ---------- SSR 环境兜底：useTheme/NavBar 只在 onMounted 碰 DOM，但 store 初始化会读 localStorage ---------- */
-if (typeof globalThis.localStorage === 'undefined') {
+/* ⚠️ 2026-10-05：判据从「有没有 localStorage」改为「方法齐不齐」。
+   Node 22+ 起 globalThis.localStorage **存在但只是个空壳**（实测 Object.keys(prototype) 为空、
+   getItem/setItem/removeItem 都不是函数）⇒ 原判据 `typeof === 'undefined'` 恒假、垫片从不安装，
+   于是 store 的 readSession() 每次都抛异常进 catch、永远读成"未登录"（本 spec 因此**长期只能测匿名态**）。 */
+function hasLocalStorage() {
+  const ls = globalThis.localStorage
+  return !!ls && typeof ls.getItem === 'function' && typeof ls.setItem === 'function' && typeof ls.removeItem === 'function'
+}
+if (!hasLocalStorage()) {
   const _s = new Map()
   globalThis.localStorage = {
     getItem: (k) => (_s.has(k) ? _s.get(k) : null),
@@ -171,8 +179,29 @@ function stripComments(src) {
     .replace(/(^|\s)\/\/[^\n]*/g, '$1')     // 行首/空白后的 // 行注释
 }
 
-/** 渲染指定路由下的导航三件套，返回 { html, errors } */
-async function renderAt(path) {
+/** 写入 / 清除测试用登录态。
+ *  ⚠️ Node 22+ 自带的 globalThis.localStorage 只实现了部分方法（实测没有 removeItem），
+ *     所以**不能**直接调 removeItem；这里对每个方法都做存在性判断，并退化用
+ *     `setItem(key, 'null')` 表达"无会话"（store 的 readSession 会 JSON.parse('null') → null，等价）。 */
+function seedSession(on) {
+  const SESSION = JSON.stringify({
+    username: '_spec', token: '_spec_token', is_admin: 0, expire_at: 0, expired: 0, member_level: 1,
+  })
+  try {
+    const ls = globalThis.localStorage
+    if (!ls) return
+    if (on) { ls.setItem && ls.setItem('kuaixuan_session_v1', SESSION); return }
+    if (ls.removeItem) ls.removeItem('kuaixuan_session_v1')
+    else if (ls.setItem) ls.setItem('kuaixuan_session_v1', 'null')
+  } catch (e) { /* 垫片缺失时忽略：仅影响登录态渲染，不影响其余断言 */ }
+}
+
+/** 渲染指定路由下的导航三件套，返回 { html, errors }
+ *  2026-10-05 (S1)：新增 opts.auth —— NavBar 的一级分组 tab 现在对**匿名访客不渲染**
+ *  （v-if="user.isLoggedIn"：落地页上这些 tab 全部指向需登录页面，点了只会被守卫弹到 /login）。
+ *  因此"一级入口齐备"这类断言必须在**已登录**上下文里渲染；匿名上下文另立断言（见 D 段末尾）。 */
+async function renderAt(path, opts = {}) {
+  seedSession(opts.auth === true)
   const router = createRouter({ history: createMemoryHistory(), routes: ROUTES })
   const errors = []
   const app = createSSRApp({
@@ -224,7 +253,9 @@ ok('组内 6 项全在（pill 数=6）', (a.html.match(/group-nav-item/g) || [])
    '实际 ' + (a.html.match(/group-nav-item/g) || []).length)
 
 // B. 「竞价」组**不渲染 pill 行**（v4.11.61 主人实测反馈后定稿：与 / 页内联 tab 重复）
-const b = await renderAt('/')
+//    ⚠️ 这里起用 auth:true —— 一级 tab 只对已登录渲染（见 renderAt 注释），
+//    本段及 D 段断言的是"登录后的导航结构"。
+const b = await renderAt('/', { auth: true })
 console.log('\n— B. /（竞价组，无二级 pill 行）')
 ok('渲染无异常/无 Vue 警告', b.errors.length === 0, b.errors.join(' | '))
 ok('竞价组不渲染 .group-nav（hidePills）', !b.html.includes('group-nav-item'),
@@ -236,7 +267,7 @@ for (const href of ['/', '/auction', '/aipick', '/aipick-lgb']) {
 }
 
 // B2. 盘前资讯**已升为一级分组**（主人：和竞价、盘中放一行）
-const b2 = await renderAt('/news')
+const b2 = await renderAt('/news', { auth: true })
 console.log('\n— B2. /news（盘前资讯，一级分组）')
 ok('渲染无异常/无 Vue 警告', b2.errors.length === 0, b2.errors.join(' | '))
 ok('盘前资讯是一级分组（NAV_GROUPS 里有 key=news）', !!NAV_GROUPS.find((g) => g.key === 'news'))
@@ -272,6 +303,16 @@ console.log('\n— D. 一级入口（NavBar 7 组 / AppTabBar 5 格）')
 for (const g of NAV_GROUPS) {
   ok(`NavBar 有一级入口「${g.label}」`, b.html.includes(g.label))
 }
+// ★ 2026-10-05 (S1) 新增：登录态 = 渲染 N 个一级 tab；匿名态 = 一个都不渲染。
+//   目的：把"落地页不给死链"这条产品约定锁进闸门，防止后人把 v-if 去掉又退化成
+//   「匿名访客点一级 tab 就被弹到登录页」。
+const countNavItems = (html) => (html.match(/class="nav-item/g) || []).length
+ok('登录态渲染出全部一级 tab（' + NAV_GROUPS.length + ' 个）',
+  countNavItems(b.html) === NAV_GROUPS.length, '实际 ' + countNavItems(b.html))
+const bAnon = await renderAt('/')
+ok('🔴 匿名访客不渲染一级 tab（避免"点了就被弹到登录页"的死链）',
+  countNavItems(bAnon.html) === 0, '实际 ' + countNavItems(bAnon.html))
+ok('匿名访客仍保留登录 / 注册入口（.user-tools）', bAnon.html.includes('user-tools'))
 ok('超智是一级分组且排在竞价**前面**（竞价向右让位）',
    NAV_GROUPS.length > 1 && NAV_GROUPS[0].key === 'chaozhi' && NAV_GROUPS[1].key === 'auction',
    '实际前两组: ' + NAV_GROUPS.slice(0, 2).map((g) => g.key).join(','))
@@ -820,10 +861,11 @@ for (const t of ['账户', '个人信息', '修改密码', '退出登录', '字�
 }
 ok('账户卡片渲染 3 档字号按钮', countByClass(mv.html, 'mb-set-btn') === 3,
   '实际 ' + countByClass(mv.html, 'mb-set-btn'))
-ok('账户卡片渲染 3 个字体族选项', countByClass(mv.html, 'mb-fontfam') === 3,
+ok('账户卡片渲染 4 个字体族选项', countByClass(mv.html, 'mb-fontfam') === 4,
   '实际 ' + countByClass(mv.html, 'mb-fontfam'))
-ok('字体族三选都在（霞鹜等宽 / 思源黑体 / 思源宋体）',
-  ['霞鹜等宽', '思源黑体', '思源宋体'].every((s) => mv.html.includes(s)))
+// 2026-10-05 (S5): 新增「系统字体」并置于首位 —— 默认路径零网络字体下载
+ok('字体族四选都在（系统字体 / 思源黑体 / 思源宋体 / 霞鹜等宽）',
+  ['系统字体', '思源黑体', '思源宋体', '霞鹜等宽'].every((s) => mv.html.includes(s)))
 // ★ 本卡片刻意放在 loading 判断之外 —— 会员接口慢/挂了也必须能改密、能退出登录
 ok('🔴 账户卡片在 loading 闸门之外（接口未返回时也已渲染）',
   mv.html.includes('加载会员信息') && mv.html.includes('mb-acc-card'))

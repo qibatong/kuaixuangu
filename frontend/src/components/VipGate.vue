@@ -44,9 +44,17 @@
           </template>
         </template>
       </div>
+      <!-- 2026-10-05 (S4): 原为「请联系管理员 + 纯文本微信号」——不可点、不可复制,
+           用户要长按选中手抄。改为可一键复制的按钮(微信号仍来自 utils/contact.js 单一来源)。 -->
       <div v-if="!quota" class="vip-tip">
-        <i class="fa fa-phone"></i> 如需开通/续费会员，请联系管理员
-        <div class="vip-wechat">微信: <b>poet-1986</b></div>
+        <i class="fa fa-phone" aria-hidden="true"></i> 如需开通 / 续费会员
+        <div class="vip-wechat">
+          <button type="button" class="vip-copy-btn" @click="copySupportWx">
+            <i class="fa fa-weixin" aria-hidden="true"></i> 复制客服微信 {{ SUPPORT_WECHAT }}
+          </button>
+          <!-- 2026-10-05 主人提供客服二维码：付费墙是最需要"马上加得上"的位置 -->
+          <ContactQr :width="168" />
+        </div>
       </div>
       <div class="vip-actions">
         <button v-if="quota" class="vip-primary" @click="goMember"><i class="fa fa-certificate"></i> 我的会员 / 签到领次数</button>
@@ -61,6 +69,14 @@ import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { memberQuota, memberPlans } from '../api/member'
+// 2026-10-05 (S4): 客服微信号单一来源 + 一键复制
+import { copyText } from '../utils/tdx'
+import { SUPPORT_WECHAT } from '../utils/contact'
+import ContactQr from './ContactQr.vue'
+
+function copySupportWx() {
+  copyText(SUPPORT_WECHAT, '客服微信已复制')
+}
 
 // requiredLevel: 0=任何会员(默认, 兼容旧调用) / 1=严格 VIP/付费门禁
 const props = defineProps({
@@ -180,12 +196,18 @@ onMounted(async () => {
   border-radius: var(--r-md);
   padding: var(--s2) var(--s3);
 }
-.vip-wechat {
-  margin-top: var(--s1);
-  font-size: var(--fs-base);
-  color: var(--accent-deep);
+.vip-wechat { margin-top: var(--s2); font-size: var(--fs-base); color: var(--accent-deep); }
+/* 2026-10-05 (S4): 一键复制客服微信（替换原来的纯文本微信号） */
+.vip-copy-btn {
+  display: inline-flex; align-items: center; gap: var(--s1);
+  background: var(--accent-deep2); color: #fff; border: 1px solid transparent;
+  border-radius: var(--r-md); padding: var(--s2) var(--s4);
+  font-size: var(--fs-sm); font-weight: 700; cursor: pointer;
 }
-.vip-wechat b { font-weight: 700; letter-spacing: 0.5px; }
+.vip-copy-btn:hover { background: var(--accent-deep); }
+@media (max-width: 768px) {
+  .vip-copy-btn { width: 100%; justify-content: center; }
+}
 .vip-actions {
   margin-top: var(--s4);
   display: flex;

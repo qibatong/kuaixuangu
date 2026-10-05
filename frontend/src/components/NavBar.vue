@@ -31,7 +31,7 @@
            手机端(≤768px)本块整体隐藏，改用底部 AppTabBar。
            ★ 组定义唯一来源 = composables/useNavGroups.js，勿在此另抄一份。
            ★ 手动 active：/ 作为「竞价」入口时，router-link 自动 active 会前缀匹配全站恒亮。 -->
-      <div class="nav-tabs">
+      <div v-if="user.isLoggedIn" class="nav-tabs">
         <router-link
           v-for="g in NAV_GROUPS"
           :key="g.key"
@@ -45,6 +45,10 @@
           <i class="fa" :class="g.icon"></i> {{ g.label }}
         </router-link>
       </div>
+      <!-- 2026-10-05 (S1): 未登录（落地页）**不渲染**一级分组 tab —— 它们全部指向需登录的页面,
+           点了只会被守卫弹到 /login（死链式点击）。匿名的「登录 / 注册」入口由右侧 .user-tools
+           承担（本来就存在），此处不重复给 CTA，避免同一个动作出现两处。
+           整块 v-if 而非 CSS 隐藏 ⇒ 落地页不残留无用 DOM。 -->
     </div>
 
     <div class="nav-tools">
@@ -77,12 +81,16 @@
 //   ★ 2026-09-27 v4.11.65: 账户区块（用户名下拉 + 我的会员/个人信息/修改密码/退出登录/字号/字体族）
 //     已整体迁出到「我的」页 —— 见 views/MemberView.vue 的「账户」卡片。
 //     本组件不再 import ChangePwdModal / ProfileModal，也不再持有 useTheme 的 font/fontFam。
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { NAV_GROUPS, groupKeyOfRoute } from '../composables/useNavGroups'
 import StockSearch from './StockSearch.vue'
 import NoticeBell from './NoticeBell.vue'
+// 2026-10-05 (S1): 未登录顶栏要显示「免费注册 · 领 N 天会员」——N 走匿名公共配置（单例去重）
+import { usePublicConfig } from '../composables/usePublicConfig'
+
+const { regOpen, load: loadPublicConfig } = usePublicConfig()
 
 const route = useRoute()
 const user = useUserStore()
@@ -101,15 +109,11 @@ const userInitial = computed(() => {
 })
 
 // 注册入口开关(2026-09-21 放开注册, 由后端 /api/register/config 决定)
-const regOpen = ref(true)
-
+// 2026-10-05 (S1): regOpen / giftDays 统一由 usePublicConfig() 提供（模块级单例 + 请求去重）——
+//   原先本组件自己 import('../api/auth') 拉一次、落地页又拉一次、登录页再拉一次，
+//   同一时刻会重复请求（实测登录页重复 2 次 /api/register/config）。
 onMounted(() => {
-  // 注册开关: 未登录时才查, 决定是否显示「注册」入口
-  if (!user.isLoggedIn) {
-    import('../api/auth').then(({ registerConfig }) => {
-      registerConfig().then((d) => { regOpen.value = d.open !== false }).catch(() => {})
-    }).catch(() => {})
-  }
+  if (!user.isLoggedIn) loadPublicConfig()
 })
 </script>
 
@@ -181,7 +185,8 @@ body[data-bg="light"] .nav-bar {
   box-shadow: 0 1px 4px rgba(30, 40, 60, 0.06);
 }
 body[data-bg="light"] .nav-brand-name { color: #1a1d26; }
-body[data-bg="light"] .nav-brand-slogan { color: #8a8f9c; }
+/* 2026-10-05 (S2): 原 #8a8f9c 在白底仅 3.24:1(不达 AA) → 改用 --text-muted(#6b7280, 4.83:1) */
+body[data-bg="light"] .nav-brand-slogan { color: var(--text-muted); }
 body[data-bg="light"] .nav-brand { border-right-color: #e3e6ec; }
 body[data-bg="light"] .nav-item {
   background: #f2f4f8;

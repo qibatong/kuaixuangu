@@ -388,7 +388,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: baseline;
   gap: var(--s2);
-  background: var(--bg-hover);
+  background: var(--bg-subtle);
   border: 1px solid var(--border-soft);
   color: var(--text-secondary);
   border-radius: var(--r-md);
@@ -419,7 +419,7 @@ onMounted(() => {
 .batch-tip b { color: var(--gold); }
 .batch-list { display: flex; flex-direction: column; gap: var(--s2); }
 .batch-card {
-  background: var(--bg-hover);
+  background: var(--bg-subtle);
   border: 1px solid var(--border-soft);
   border-radius: var(--r-lg);
   overflow: hidden;

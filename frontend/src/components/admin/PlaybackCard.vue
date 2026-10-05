@@ -60,7 +60,7 @@ async function loadPlayback() {
 </script>
 
 <style scoped>
-.admin-card { background: var(--bg-hover); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); margin-bottom: var(--s4); }
+.admin-card { background: var(--bg-subtle); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); margin-bottom: var(--s4); }
 .card-title { display: flex; align-items: center; font-size: var(--fs-md); color: var(--warn-text); margin-bottom: var(--s3); }
 .admin-tip { color: var(--text-muted); font-size: var(--fs-xs); margin-left: var(--s2); }
 .admin-input { background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: var(--r-md); color: var(--text-main); padding: var(--s2) var(--s2); font-size: var(--fs-sm); }

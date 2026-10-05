@@ -3,16 +3,17 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import { setupGlobalErrorCapture } from './utils/logger'
-// 思源黑体 Noto Sans SC — SIL OFL 1.1 免费商用, Google + Adobe 出品, 字重 400/700
-// 分包加载, 简体中文页面首屏约 200-400KB。默认正文字体, 全局加载。
 // 2026-09-30 v4.11.84 (P1-5): Font Awesome 4.7 **本地子集**(5KB) —— 原先 index.html 走 cdnjs 同步外链,
 //   既阻塞首屏, 断网/内网/被墙时全站图标还会变方框。子集由 scripts/_kx_gen_fa_subset.py 生成,
 //   只含 @font-face + 源码实际引用的图标(字体 77KB 在 public/fonts/)。**新增图标要重跑生成脚本。**
 import './styles/fontawesome-subset.css'
-import '@fontsource/noto-sans-sc/400.css'
-import '@fontsource/noto-sans-sc/700.css'
-// 可选字体按需加载(霞鹜等宽 lxgw / 思源宋体 serif): 不再全局 import,
-// 由 useTheme.js 在用户切换字体族时动态加载, 默认用户首屏不下载(约省 22MB)。
+// 🔴 2026-10-05 (S5): **移除** `@fontsource/noto-sans-sc/400.css` + `/700.css` 的全局静态 import。
+//   原因(实测): 这两行会把 **203 条 @font-face**(全部 unicode 子集声明)塞进入口 CSS ——
+//   入口 CSS 原始体积 319KB(gzip 114KB), 且登录页只有 ~30 个汉字却触发 11 个中文子集
+//   woff2 下载 ⇒ 首访 683KB 里 459KB 是字体, FCP/LCP 4.58s 的主因。
+//   现在: 默认字体 = 系统中文黑体栈(main.css 的 var(--font-system)), 首访**零 CJK 字体字节**;
+//   「思源黑体/思源宋体/霞鹜等宽」三个可选字体全部改为**选中时才动态加载**
+//   (见 composables/useTheme.js 的 _FONT_CSS), 默认用户与不切字体的用户永不下载。
 import './styles/main.css'
 
 setupGlobalErrorCapture()
