@@ -23,8 +23,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(REPO, "frontend", "dist")
 TAR = os.path.join(REPO, "frontend", "_dist_upload.tar.gz")
 
-ENTRY = "index-CMtNk3pK.js"           # 新(2026-10-05 v4.11.94: 品牌启动页(白底+logo+标语+快选股) + 手机端恢复副标语 + L1 收尾)
-OLD_ENTRY = "index-DoE0iwLA.js"       # 生产线上当前(v4.11.91: 账户卡去重 + 次数卡收行)
+ENTRY = "index-DvnoZscg.js"           # 新(2026-10-05 v4.11.94 最终版: 启动页 + L1 + 副标语核查注释)
+OLD_ENTRY = "index-CMtNk3pK.js"       # 生产线上当前(同日 19:31 首版 v4.11.94; 与最终版仅差 Vue scoped 属性名)
 EXP_FILES = 779
 EXP_ASSETS = 767
 
