@@ -354,6 +354,11 @@ cd /opt/kuaixuan/backend && PYTHONPATH=/opt/kuaixuan/backend /opt/bid-venv/bin/p
 >   再决定往哪优化。另：接口总耗时(2.39s) 与内部日志耗时(501ms) 的**差额**也要看 ——
 >   本次差额 1.9s 全在「概念补全」，而它发生在取数之后，**不在那行耗时日志里**。
 > ⚠️ **遗留 P1**：竞价时段概念补全是「三张表各自 3s 预算」= 最坏 9s，未收敛为总预算。
+> 📦 **同日重打包 APK `v1.7`（`versionCode 8`）** —— `https://www.kuaixuangu.cn/download/kuaixuan-1.7.apk`（sha256 `823b2b03…`，覆盖安装数据不丢；远端保留 1.3–1.6 可回滚）。**本轮唯一 native 变更是「启动屏纯白」**（v4.11.94 那批漏了打包，拖到本次才进包）。四条必读：
+> · 🔴 **「远端加载壳 ⇒ 不用重打包」只对网页侧成立。** native 侧（启动屏 / 权限 / 图标 / 主题 / 插件）**必须重打包** —— 判断依据：改动落在 `android/app/src/main/res/**`、`AndroidManifest.xml`、`*.gradle` 就是 native。v4.11.94 正是在这一点上判断失误（当时写了「不必重新打包」）。
+> · 🔴 **改 native 启动屏底色，必须同时改 Capacitor 配置的 `SplashScreen.backgroundColor`**（`capacitor.config.ts` 与 native 读的 `assets/capacitor.config.json`）。native 那三处改的是**系统启动屏**，而 `@capacitor/splash-screen` 的 `show()` 会**再刷一层**配置里的底色 ⇒ 只改 native 会「白底一闪又红回来」，等于没修。
+> · ⚙️ **沙箱里 `npx cap sync` 跑不了**（批量删除守卫，仓库已记录两次）⇒ 手工同步：先 `mv` 走旧目录，再 `cp -R dist/. android/app/src/main/assets/public/`，并手改 `assets/capacitor.config.json`。⚠️ `assets/` 被 `frontend/android/.gitignore` 忽略 ⇒ **源头是 `capacitor.config.ts`**，手工同步那份 JSON 不进 git。
+> · ⚙️ **构建环境**：`JAVA_HOME` 默认**没有**，JDK 在 `~/android-tools/jdk-21.0.12.1+1/Contents/Home`（另有 17）；Android SDK 在 `~/Library/Android/sdk`（`local.properties` 已配）；签名材料 `android/keystore.properties` + `kuaixuan-release.jks`。构建：`cd frontend/android && JAVA_HOME=… ./gradlew assembleRelease`（约 24s）。**验证必须看产物内部**：`aapt2 dump badging`（versionCode/Name）、`apksigner verify --print-certs`、`aapt2 dump resources | grep -A2 splash_background`、`unzip -p … assets/capacitor.config.json`。上传：`python3 scripts/_kx_apk_upload.py`。
 > ⚠️ 顺带发现（既有，未修）：历史日 `fill_bid_turnover_from_snap` 报 `'NoneType' has no attribute 'get'`。
 
 > **`v4.11.95`（2026-10-05 晚 · 分支 `feature/scoring-v7-meoz` · 前端 `index-D9LAIJkZ.js` ＋ 后端已重启）**
