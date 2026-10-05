@@ -31,7 +31,7 @@
                               深色 = #0f1219（与深色 tab 栏一致）
          ⇒ 底部不再是红的；深色模式顶/底都变深色。
          （深色变体见 values-night/colors.xml） -->
-    <color name="statusBarBrand">#e5484d</color>
+    <color name="statusBarBrand">#c62828</color>
     <color name="windowBg">#ffffff</color>
 
     <!-- 2026-10-05 (APK v1.8)：**系统导航栏**底色（不是启动屏、不是状态栏）。

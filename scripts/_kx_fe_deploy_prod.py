@@ -23,8 +23,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(REPO, "frontend", "dist")
 TAR = os.path.join(REPO, "frontend", "_dist_upload.tar.gz")
 
-ENTRY = "index-Y1nGkxdI.js"           # 新(2026-10-05 v4.11.99: 顶栏左右阴影兜底 ⇒ 真机未知内缩也盖成同色)
-OLD_ENTRY = "index-D5S3ksgw.js"       # 生产线上当前(v4.11.98: 负 margin 修无效写法)
+ENTRY = "index-DZzPx4NZ.js"           # 新(2026-10-05 v4.12.2: 深色底改纯色 #0f1219 + 屏幕边缘同色 token)
+OLD_ENTRY = "index-YPSsOTkd.js"       # 生产线上当前(v4.12.1: 根元素 min-width:100vw ⇒ 右边缘白缝)
 EXP_FILES = 779
 EXP_ASSETS = 767
 

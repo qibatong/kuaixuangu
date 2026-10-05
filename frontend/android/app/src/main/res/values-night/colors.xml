@@ -11,4 +11,12 @@
          且不随主题变。⇒ 深色变体里两者都改成深色（与深色顶栏/tab 栏一致）。 -->
     <color name="statusBarBrand">#0f1219</color>
     <color name="windowBg">#0f1219</color>
+
+    <!-- 2026-10-05（主人：「深色模式下黑色色值不统一」）：现在统一到同一个
+         #0f1219（网页侧的页面底与屏幕边缘 token 也已由渐变改为该纯色），
+         状态栏区、顶栏、页面、底栏、导航栏区**五处同值** ⇒ 不再有任何色带。
+         这里补 splash_background：此前它只在浅色目录里定义为 #ffffff，
+         深色模式启动时会闪一下白底（与深色主题不一致），补上深色变体。
+         注意：XML 注释内不能出现连续的两个短横线。 -->
+    <color name="splash_background">#0f1219</color>
 </resources>

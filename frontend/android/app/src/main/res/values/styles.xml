@@ -21,7 +21,11 @@
              WindowCompat.setAppearanceLightStatusBars(false) 兜(API 35+ 分支)。 -->
         <item name="android:statusBarColor">@color/statusBarBrand</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowBackground">@color/windowBg</item>
+        <!-- 2026-10-05（1.8.2）：由纯色改**分层 drawable**。原因：这台机器上系统状态栏与
+             导航栏区域露的都是 windowBackground（statusBarColor/navigationBarColor 被忽略），
+             单色只能让「顶部红」和「底部不红」二选一。分层后可同时满足：顶部 96dp 品牌红、
+             其余为页面底色。详见 drawable/window_bg.xml 的注释。 -->
+        <item name="android:windowBackground">@drawable/window_bg</item>
         <!-- 🔴 2026-10-05（v1.8）主人：「页面底部那条红是干啥的」—— 它就是上面的
              windowBackground（品牌红）在**系统导航栏区域**露出来的：
              Android 15+ 强制 edge-to-edge ⇒ statusBarColor/navigationBarColor **全部被忽略**、

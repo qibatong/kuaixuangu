@@ -252,9 +252,32 @@ onMounted(() => {
       s.id = '__vpfix__'
       document.head.appendChild(s)
     }
+    // 🔴 2026-10-05 第四次修（主人：「右侧有一条白线」）—— 根因是**宽度被四舍五入取小**：
+    //   `iw = Math.round(window.innerWidth)`，真机常见 1080 物理像素 / DPR 2.75 = 392.727 CSS px，
+    //   取整后 logicalW = 392 < 实际视口 392.727 ⇒ 根元素比屏幕窄 0.7 CSS px
+    //   ⇒ 右边缘露出约 1 物理像素的白线（html 的白色底）。
+    //   为什么以前看不到：旧的 body 横向内边距(4px)把内容整体右移、且让页面比屏幕宽 4px 溢出到屏外，
+    //   正好把这条缝盖住了；本次把 body 横向内边距去掉后（修左侧白条），缝就露出来了。
+    //   修法：普通手机分支额外加 `min-width: 100vw`。CSS 规则是 min-width 胜过 max-width，
+    //   所以实际宽度 = max(logicalW, 100vw) ⇒ 永远不会比真实视口窄（100vw 是精确值，不受取整影响），
+    //   同时也不会被撑到超过视口 ⇒ 右侧缝消失、横向溢出仍为 0。
+    //   ⚠️ 只加在**普通手机**分支：suspect980（真 980 虚拟视口）分支里 100vw 可能仍是 980，
+    //      加 min-width 会把页面撑成 980 宽（那正是该分支要修的 bug），故该分支保持原样。
+    const lockW = suspect980
+      ? `width: ${logicalW}px !important; max-width: ${logicalW}px !important; min-width: 0 !important;`
+      : `width: ${logicalW}px !important; max-width: ${logicalW}px !important; min-width: 100vw !important;`
     s.textContent =
-      `html, body, #app { width: ${logicalW}px !important; max-width: ${logicalW}px !important; overflow-x: hidden !important; min-width: 0 !important; } ` +
-      `body { padding: 2px var(--s1) !important; padding-top: env(safe-area-inset-top, 0px) !important; padding-left: max(var(--s1), env(safe-area-inset-left)) !important; padding-right: max(var(--s1), env(safe-area-inset-right)) !important; padding-bottom: env(safe-area-inset-bottom, 0px) !important; } `
+      `html, body, #app { ${lockW} overflow-x: hidden !important; } ` +
+      // 🔴 2026-10-05 修「顶栏左侧那条白竖条」（主人三次反馈）：
+      //   原为 `padding: 2px var(--s1)` + `padding-left: max(var(--s1), env(safe-area-inset-left))`
+      //   ⇒ body 左右各 4px。但 **`.container` 自己已经有 `padding: 0 var(--s1)`** ⇒ 两层叠加：
+      //     真机 UA 实测 `.container` x=4（被 body 顶开）、其内容 x=8，而顶栏最多只能贴到 x=4
+      //     （.container 的 overflow-x:hidden 会把负 margin/阴影一起裁掉）⇒ 屏左 0~3px 永远露
+      //     body 的白底 = 主人截图里那条白竖条。
+      //   横向改为**只留安全区**（竖屏 = 0）：装订线由 .container 的 4px 独家负责 ⇒
+      //     左右对称 4px、顶栏可真正贴到 x=0，且顺带修掉原来「左侧 8px / 右侧溢出 4px」的不对称。
+      //   纵向保持 2px + 安全区（顶部/底部仍需避开刘海与手势条），本次不动。
+      `body { padding: 2px 0 !important; padding-top: env(safe-area-inset-top, 0px) !important; padding-left: env(safe-area-inset-left, 0px) !important; padding-right: env(safe-area-inset-right, 0px) !important; padding-bottom: env(safe-area-inset-bottom, 0px) !important; } `
   }
 
   try {

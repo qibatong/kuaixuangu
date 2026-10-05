@@ -64,7 +64,11 @@ const activeKey = computed(() => tabbarKeyOfRoute(route))
   height: calc(56px + env(safe-area-inset-bottom, 0px));
   padding-bottom: env(safe-area-inset-bottom, 0px);
   box-sizing: border-box;
-  background: var(--bg-panel-solid);
+  /* 🔴 2026-10-05 深色模式：原为 var(--bg-panel-solid) = rgba(18,22,35,.98) ——
+     与 native 导航栏区域露出的 windowBg(#0f1219) 差一点点 ⇒ 底栏下方一条浅色带。
+     ⇒ 改用 --chrome-bg（深色 #0f1219 / 浅色 #ffffff）与系统栏完全同值。
+     浅色主题下 --chrome-bg 也是 #ffffff，与原 --bg-panel-solid(#ffffff) 同值 ⇒ 零变化。 */
+  background: var(--chrome-bg);
   border-top: 1px solid var(--border-soft);
 }
 .tabbar-item {

@@ -44,11 +44,22 @@
   --accent-bg: rgba(255, 60, 60, 0.12);
   --accent-bg2: rgba(255, 80, 80, 0.15);
   /* 深色主题(默认): 黑色背景 */
-  --bg-body: linear-gradient(135deg, #0f1219 0%, #0a0c12 100%);
+  /* 🔴 2026-10-05 主人第三次反馈深色问题：「手机状态栏信号位置的背景应为黑色」+「深色模式下
+     黑色色值不统一」。根因就是这里：原先是**渐变** `#0f1219 → #0a0c12`，
+     而系统状态栏/导航栏露的是 native 的**纯色** windowBg(#0f1219) ⇒ 接缝左右/上下永远对不齐
+     （渐变沿 135° 走，同一条水平线上的颜色还随 x 变化，纯色系统栏无从匹配）。
+     ⇒ 深色**底**改为纯色 #0f1219，与 native 系统栏、顶栏、底栏取同一个值。
+     ⚠️ 改这里必须同步核对：native values(-night)/colors.xml 的 statusBarBrand/windowBg/
+        navBarBackground、以及对 --chrome-bg 的引用（顶栏/底栏）。任何一处漂移都会重新出现色带。 */
+  --bg-body: #0f1219;
   --bg-panel: rgba(18, 22, 35, 0.85);
   --bg-panel-solid: rgba(18, 22, 35, 0.98);
   --bg-card: rgba(0, 0, 0, 0.35);
   --bg-input: rgba(0, 0, 0, 0.5);
+  /* 2026-10-05: **屏幕上下边缘**专用底色(顶栏/底部 tab 栏)。它必须与 native 系统栏同色，
+     否则边上就会出现一条色带（深色原为半透明 --bg-card/--bg-panel-solid，压在渐变/纯色上
+     各显出一种黑 ⇒ 正是主人说的「黑色色值不统一」）。浅色主题下它 = #ffffff，与浅色系统栏一致。 */
+  --chrome-bg: #0f1219;
   /* 2026-09-30 v4.11.84 (P1-4): 语义色 token 收口。此前 407 处硬编码、同类语义还有"两套红"。
      ⚠️ 只**补 token**, 不改现有配色(主人已习惯现有红) —— 新代码一律引用 token,
      裸色值由 _verify/color_guard.js 做棘轮闸门(只许减不许增)。 */
@@ -196,6 +207,10 @@ body[data-bg="light"] {
   --bg-body: #ffffff;
   --bg-panel: #ffffff;
   --bg-panel-solid: #ffffff;
+  /* 2026-10-05: 屏幕上下边缘底色。浅色下 native windowBg/statusBarBrand 里
+     「底部」那支也是 #ffffff ⇒ 底栏与导航栏区域完全同色。
+     （顶部区域在浅色下由顶栏自己的红 --accent-solid #c62828 接管，见 NavBar.vue。） */
+  --chrome-bg: #ffffff;
   --bg-card: #ffffff;
   --card: #ffffff;                 /* 2026-10-05 S2: 图表块/资讯卡不再沿用深色兜底 */
   --bg-input: #ffffff;             /* 2026-10-05: 输入框改纯白 + 细边(同花顺式), 原 #f7f8fa 发灰 */

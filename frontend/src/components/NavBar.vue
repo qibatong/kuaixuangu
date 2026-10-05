@@ -128,7 +128,13 @@ onMounted(() => {
   justify-content: space-between;
   gap: var(--s3);
   flex-wrap: wrap;
-  background: var(--bg-card);
+  /* 🔴 2026-10-05 深色模式：原为 var(--bg-card) = rgba(0,0,0,.35) **半透明** ——
+     压在深色底上呈现出的是"另一种黑"，与紧挨着的 native 系统状态栏区域(windowBg #0f1219)
+     对不上 ⇒ 顶栏上方能看到一条色带（主人：「黑色色值不统一」）。
+     ⇒ 改用 --chrome-bg（深色 #0f1219 / 浅色 #ffffff，见 main.css），与系统栏同值。
+     浅色主题下面那条 `body[data-bg="light"] .nav-bar { background: var(--accent-solid) }`
+     会把它覆盖成品牌红，故浅色观感零变化。 */
+  background: var(--chrome-bg);
   border: 1px solid var(--border-soft);
   border-radius: var(--r-lg);
   /* 与 .page-shell 内容对齐: container 4 + 自有 4 = 8px 缩进 */
@@ -359,20 +365,16 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
     /* 竖向拉长(主人二次反馈, 参考同花顺/开盘啦的顶栏高度): 上下 6px → 13px */
     padding: var(--s3) var(--s2);
   }
-  /* 🔴 2026-10-05 二次修复（主人：「白色白条还是存在」）：
-     负 margin 只能抵消**已知的 4px**，而真机上还有第二处内缩 —— `App.vue` 的
-     980-虚拟视口那段会**再注入一份** `body { padding: 2px var(--s1) … ; padding-left: max(var(--s1), env(safe-area-inset-left)) }`
-     （手机 UA 才注入；我第一次真机复测用的 headless Chrome 没带手机 UA，被绕过了 ⇒ 只量到 4px）。
-     于是 APK 里实际内缩可能是 8px 或更多，负 margin 抵消不干净，仍露白。
-     ⇒ 这里补两条「把空隙刷成顶栏自身颜色」的阴影：**左右偏移、0 模糊 0 扩散**，
-        横向各铺 12px —— 无论内缩几像素都盖得住（横向溢出部分在屏幕外；纵向不越界，
-        不会压到下方内容）。这属于"兜底"，与上面的负 margin 并存：能抵消就抵消，剩下由它盖。
-     · 深色：顶栏底色是 --bg-card（红顶栏只作用于浅色主题）
-     · 浅色：顶栏是品牌红 --accent-solid（下面的 light 规则会覆盖本行，按 CSS 顺序必须先写深色） */
-  .nav-bar { box-shadow: -24px 0 0 var(--bg-card), 24px 0 0 var(--bg-card); }
-  body[data-bg="light"] .nav-bar {
-    box-shadow: -24px 0 0 var(--accent-solid), 24px 0 0 var(--accent-solid);
-  }
+  /* 🔴 2026-10-05 第三次修（主人刚反馈「白条还在」）—— **上面那段阴影兜底已删除**：
+     真机 UA 实测证明它根本画不出来。`.container` 系（main.css:380-387）带
+     `overflow-x: hidden !important`，元素画到容器外的一切（负 margin 让出的空白、box-shadow）
+     都会被**裁在容器边缘** ⇒ 阴影再宽也铺不到屏幕上。
+     📌 教训：**负 margin / 阴影只在「不被祖先裁剪」的前提下生效**；动手前先查祖先有没有 overflow:hidden。
+     ⇒ 正确做法是消掉内缩本身。真机 UA 量出内缩有**两层**：
+        body 4px（App.vue 的 __vpfix__ 注入，`padding: 2px var(--s1)`）
+        + .container 4px（main.css:632）
+     已把 body 横向改为「只留安全区」（竖屏 = 0）⇒ 现在只剩 .container 一层，
+     由上面那条 `margin: 0 calc(-1 * var(--s1))` 精确抵消，顶栏即可贴到 x=0。 */
   /* 搜索胶囊恢复**原始尺寸**：不再 flex 吃光剩余宽度，限宽 230px 居其位，
      多出的横向空间留给红底留白（对照开盘啦：胶囊不大，四周都是红）。 */
   .nav-tools :deep(.ss-inline) { max-width: 230px; }

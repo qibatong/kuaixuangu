@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2026-10-05（APK 1.8.2）主人反馈：「最顶层屏幕红色背景也没有了」。
+     上一版（1.8.1）把 windowBackground 从品牌红改成「浅色白 / 深色 #0f1219」后，
+     顶部那条红跟着没了 —— 因为**他那台机器上，状态栏与导航栏区域露的正是 windowBackground**
+     （Android 15+ 忽略 statusBarColor／navigationBarColor；gesture 导航下
+     navigationBarColor 本来也无效），两条系统栏被同一个颜色绑死，
+     于是「顶部要红」与「底部不要红」用单色永远无法同时满足。
+     ⇒ 改用一个「顶部一条红、其余为页面底色」的分层底：
+        · 底层铺满整窗 = @color/windowBg（浅色 #ffffff / 深色 #0f1219）→ 底部与 tab 栏一致
+        · 顶层贴顶 96dp = @color/statusBarBrand（浅色品牌红 #e5484d / 深色 #0f1219）
+          → 顶部恢复红色（深色主题下则是深色，与深色顶栏一致）
+     96dp 远大于任何机型的状态栏高度，多出来的部分被 WebView 完全盖住 ⇒ 不会渗进正文。
+     系统栏若在某些机型上仍听 statusBarColor／navigationBarColor（styles.xml 里仍保留，
+     并用 windowOptOutEdgeToEdgeEnforcement 试图让它们生效），颜色与本文件一致 ⇒ 结果相同。
+     注意：XML 注释内不能出现连续两个短横线。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/windowBg" />
+    <item
+        android:drawable="@color/statusBarBrand"
+        android:gravity="top"
+        android:height="96dp" />
+</layer-list>
