@@ -20,6 +20,11 @@
             它要跟手机端浅色主题的红色顶栏连成一体，与启动屏是两件事。 -->
     <color name="splash_background">#ffffff</color>
 
+    <!-- 2026-10-05 (APK v1.8)：**系统导航栏**底色（不是启动屏、不是状态栏）。
+         浅色主题给白 —— 与底部 tab 栏白底一致，消除"底部一条红"（原为 windowBackground
+         的品牌红露出）。深色变体见 values-night/colors.xml。 -->
+    <color name="navBarBackground">#ffffff</color>
+
     <!-- 🔴 ic_launcher_background 不在此处定义：
          Capacitor 生成的 values/ic_launcher_background.xml 里已有同名资源，
          两个文件定义同名 <color> 会直接让资源合并失败（duplicate resource）。 -->

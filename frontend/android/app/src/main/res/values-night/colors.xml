@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 2026-10-05 (APK v1.8)：系统处于**深色模式**时的系统栏配色。
+         底色取页面深色主题的背景基色（main.css 里那个深色渐变底，起点 #0f1219），
+         让底部导航栏与 App 深色底栏连成一体。 -->
+    <color name="navBarBackground">#0f1219</color>
+</resources>

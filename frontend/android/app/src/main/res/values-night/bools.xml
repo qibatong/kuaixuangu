@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色导航栏 ⇒ 需要**浅色图标**（false = 不启用浅色导航栏外观） -->
+    <bool name="navBarLightIcons">false</bool>
+</resources>

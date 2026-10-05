@@ -22,6 +22,24 @@
         <item name="android:statusBarColor">@color/colorPrimary</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowBackground">@color/colorPrimary</item>
+        <!-- 🔴 2026-10-05（v1.8）主人：「页面底部那条红是干啥的」—— 它就是上面的
+             windowBackground（品牌红）在**系统导航栏区域**露出来的：
+             Android 15+ 强制 edge-to-edge ⇒ statusBarColor/navigationBarColor **全部被忽略**、
+             两条系统栏变透明，而 WebView 仍被内缩 ⇒ 上下两条栏都露"窗口背景"。
+             10-04 为了把状态栏染红（与浅色红顶栏连成一体）才设了 windowBackground=红色；
+             代价是**底部导航栏也被染红**（底下是白色底栏，红条就格外扎眼）。
+             ⇒ 修法两步：
+               ① 用官方提供的 opt-out 让 statusBarColor/navigationBarColor **重新生效**
+                  （Android 15 起可用；不写这个，下面那条 navigationBarColor 是空话）。
+               ② 导航栏颜色按深浅主题分别给（@color/navBarBackground 有 values-night 变体）
+                  —— 浅色主题给白、深色主题给深色，与底部 tab 栏底色一致。
+             ⚠️ 已知局限：原生颜色是**静态**的，只跟随**系统**深/浅色设置；
+                若系统是浅色而 App 内选了深色（或反之），底部会是一条不匹配的纯色。
+                要做到严格跟随 App 内主题，得改走"真 edge-to-edge + 网页自己用 safe-area 画"，
+                那是更大的改动，需要真机验证，单独排。 -->
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+        <item name="android:navigationBarColor">@color/navBarBackground</item>
+        <item name="android:windowLightNavigationBar">@bool/navBarLightIcons</item>
     </style>
 
 

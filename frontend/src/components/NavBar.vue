@@ -278,6 +278,23 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
     margin-bottom: var(--s2);
   }
   .nav-left { gap: var(--s2); width: auto; flex: 0 0 auto; justify-self: start; }
+  /* 2026-10-05 主人：「手机端左上角有一个白色竖条」—— 实测根因不是某个元素，而是
+     **顶栏没铺满**：`.container` 有 `padding: 0 var(--s1)`（4px），顶栏作为它的子元素
+     左右各被内缩 4px，那 4px 露的是 body 的纯白底（线上探针：body=rgb(255,255,255)，
+     .nav-bar x=4 / w=382 @390px ⇒ 左边缘就是一条 4px 白竖条；DPR3 手机上等于 12 物理像素）。
+     修法：用负 margin 抵消这 4px，让顶栏真正顶到屏幕两边。
+     同时去掉圆角与左右描边 —— 铺满后若留着它们，屏幕边缘会出现弧形缺口和一条竖线；
+     手机端顶栏是"一条顶部栏"而不是卡片，桌面端（>768）保持原样不动。 */
+  /* 说明：下方 `body[data-bg="light"] .nav-bar` 那条同意图规则**原为无效写法**（`-var(--s1)`），
+     已在本轮修正 —— 但它是浅色主题专属，深色主题手机端同样有这 4px 缝，
+     所以这里再给一条**主题无关**的手机端贴屏规则（值相同，两条不冲突）。 */
+  .nav-bar {
+    margin-left: calc(-1 * var(--s1));
+    margin-right: calc(-1 * var(--s1));
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
   .nav-brand { display: none; }
   .nav-tools { display: contents; }
   /* 信封进第 3 列并贴右头像列对称(DOM 顺序本来就在搜索之后, order 可省) */
@@ -331,7 +348,14 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
     border-color: transparent;
     border-radius: 0;
     box-shadow: none;
-    margin: 0 -var(--s1) var(--s2);
+    /* 🔴 2026-10-05 修：这里原写 `margin: 0 -var(--s1) var(--s2)` —— **`-var(--s1)` 是无效写法**
+       （CSS 里负号不能直接写在 var() 前，必须 `calc(-1 * var(--s1))`）。而 `var()` 替换失败的
+       声明会**退化成初始值 0**，所以这条「通栏」规则从上线起就是死的：
+       顶栏左右各留 4px 内缩，露 body 纯白底 ⇒ 主人截图里那条「左上角白色竖条」。
+       （线上探针实测：.nav-bar x=4 / w=382 @390px，body=rgb(255,255,255)；上面第 339 行的
+       注释写着意图就是负 margin 贴屏 —— **意图对、写法错，静默失效**。）
+       全仓同类写法共 7 处（见 CHANGELOG/AGENTS 记录），本次只修顶栏这一处。 */
+    margin: 0 calc(-1 * var(--s1)) var(--s2);
     /* 竖向拉长(主人二次反馈, 参考同花顺/开盘啦的顶栏高度): 上下 6px → 13px */
     padding: var(--s3) var(--s2);
   }

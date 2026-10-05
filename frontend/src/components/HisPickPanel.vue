@@ -115,12 +115,27 @@
             <!-- 2026-10-05 主人指令（方案 A）：① 删「行业」列；② 「综合评分」「可信度」移到「概念」左侧；
                  ③ 股票代码挪到股票名称**下方**（照竞价优选 / AI 精选报告的写法）。
                  列数 11 → 9，表格 min-width 随之从 1100 收到 980（见样式区）。 -->
-            <th>排名</th><th>名称</th><th>竞价涨幅</th><th>实时涨幅</th>
-            <th>实体涨幅</th><th>异动</th><th>综合评分</th><th>可信度</th><th>概念</th>
+            <th>排名</th>
+            <th class="sortable" :class="{ active: sort.keyOf('name') }" :aria-sort="ariaSort('name')" tabindex="0"
+                @click="sort.onSort('name', 'string')" @keydown.enter.prevent="sort.onSort('name', 'string')" @keydown.space.prevent="sort.onSort('name', 'string')">名称<span class="sort-ind" aria-hidden="true">{{ sort.ind('name') }}</span></th>
+            <th class="sortable" :class="{ active: sort.keyOf('bidChange') }" :aria-sort="ariaSort('bidChange')" tabindex="0"
+                @click="sort.onSort('bidChange')" @keydown.enter.prevent="sort.onSort('bidChange')" @keydown.space.prevent="sort.onSort('bidChange')">竞价涨幅<span class="sort-ind" aria-hidden="true">{{ sort.ind('bidChange') }}</span></th>
+            <th class="sortable" :class="{ active: sort.keyOf('realChange') }" :aria-sort="ariaSort('realChange')" tabindex="0"
+                @click="sort.onSort('realChange')" @keydown.enter.prevent="sort.onSort('realChange')" @keydown.space.prevent="sort.onSort('realChange')">实时涨幅<span class="sort-ind" aria-hidden="true">{{ sort.ind('realChange') }}</span></th>
+            <th class="sortable" :class="{ active: sort.keyOf('entityChange') }" :aria-sort="ariaSort('entityChange')" tabindex="0"
+                @click="sort.onSort('entityChange')" @keydown.enter.prevent="sort.onSort('entityChange')" @keydown.space.prevent="sort.onSort('entityChange')">实体涨幅<span class="sort-ind" aria-hidden="true">{{ sort.ind('entityChange') }}</span></th>
+            <th class="sortable" :class="{ active: sort.keyOf('warnType') }" :aria-sort="ariaSort('warnType')" tabindex="0"
+                @click="sort.onSort('warnType')" @keydown.enter.prevent="sort.onSort('warnType')" @keydown.space.prevent="sort.onSort('warnType')">异动<span class="sort-ind" aria-hidden="true">{{ sort.ind('warnType') }}</span></th>
+            <th class="sortable" :class="{ active: sort.keyOf('probability') }" :aria-sort="ariaSort('probability')" tabindex="0"
+                @click="sort.onSort('probability')" @keydown.enter.prevent="sort.onSort('probability')" @keydown.space.prevent="sort.onSort('probability')">综合评分<span class="sort-ind" aria-hidden="true">{{ sort.ind('probability') }}</span></th>
+            <th class="sortable" :class="{ active: sort.keyOf('confidence') }" :aria-sort="ariaSort('confidence')" tabindex="0"
+                @click="sort.onSort('confidence')" @keydown.enter.prevent="sort.onSort('confidence')" @keydown.space.prevent="sort.onSort('confidence')">可信度<span class="sort-ind" aria-hidden="true">{{ sort.ind('confidence') }}</span></th>
+            <th class="sortable" :class="{ active: sort.keyOf('concept') }" :aria-sort="ariaSort('concept')" tabindex="0"
+                @click="sort.onSort('concept', 'string')" @keydown.enter.prevent="sort.onSort('concept', 'string')" @keydown.space.prevent="sort.onSort('concept', 'string')">概念<span class="sort-ind" aria-hidden="true">{{ sort.ind('concept') }}</span></th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(it, idx) in list" :key="it.code">
+          <tr v-for="(it, idx) in sortedList" :key="it.code">
             <td class="rank-col">{{ idx + 1 }}</td>
             <!-- 名称 + 代码两行，容器挂 .name-col + data-stock-* —— 与 YijinerView.vue:116 /
                  AipickReport.vue:106 同构（其它页面就是这么写的，主人要求「参考其他的页面」）。
@@ -152,6 +167,9 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { hisPick } from '../api/hisPick'
+// 2026-10-05 主人要求「点表头排序」：复用站内通用排序 composable（与竞价优选 / 动态选股同源，
+// 行为一致：点击 无 → 降序(数值列)/升序(字符串列) → 反向 → 无；空值恒排末尾）
+import { useSortable } from '../composables/useSortable'
 
 const DEFAULTS = { stSuspend: true, markets: ['hs', 'cyb', 'kcb'], limitUp: true,
                    bidGt: 7, probLt: 65, confLt: 65, floatMvGt: 100, priceGt: 30 }
@@ -163,6 +181,17 @@ const form = reactive({ ...DEFAULTS, markets: [...DEFAULTS.markets] })
 const locked = ref(false)
 const loading = ref(false)
 const list = ref([])
+// 2026-10-05 主人：竞价选股没有排序 ⇒ 表头可点。
+// 🔴 排序**只影响表格**：金牌/银牌卡（list.slice(0,3)）与「导出全部/前 N」仍用原 list ——
+//    那两个是"本策略的名次"，不该因为用户按某列排了个序就被改写。
+const sort = useSortable()
+const sortedList = computed(() => sort.sorted(list.value))
+
+/** 无障碍：排序指示符（↑/↓）→ aria-sort 值（表头已加 tabindex/Enter/Space 键盘可点） */
+function ariaSort(k) {
+  const i = sort.ind(k)
+  return i === ' ↓' ? 'descending' : i === ' ↑' ? 'ascending' : 'none'
+}
 const medals = ref([])
 const date = ref('')
 const fetchedAt = ref('')
@@ -477,6 +506,13 @@ body[data-bg="light"] .auto-tag { background: #fdf3e6; color: var(--warn-text); 
 .stock-table .name-sub { font-size: var(--fs-xs); line-height: 1.3; font-variant-numeric: tabular-nums; }
 .concept-col { max-width: 180px; white-space: pre-wrap; color: var(--text-secondary); }
 .prob-col { color: var(--up); font-weight: 700; }
+/* 2026-10-05 主人要求：点表头排序。视觉照 StockTable.vue:399-418 的既有排序表头范式
+   （pointer / hover 高亮 / active / 指示符占位），但**文字色用 token `--on-accent`**，
+   **不照抄那边的裸 `#fff`** —— `_verify/color_guard.js` 是棘轮闸门：裸色值只许减不许增。 */
+.stock-table th.sortable { cursor: pointer; user-select: none; }
+.stock-table th.sortable:hover { color: var(--on-accent); }
+.stock-table th.sortable.active { color: var(--on-accent); }
+.stock-table .sort-ind { display: inline-block; min-width: 10px; color: var(--on-accent); font-weight: 700; }
 .loading-placeholder, .empty-state { padding: var(--s8); text-align: center; color: var(--accent-text); background: var(--bg-card); border-radius: 16px; }
 /* 2026-10-03: 原为 780px —— 不在 main.css 顶部约定的 5 档内，_verify/breakpoint_guard.js 判为
    新断点碎片（「780 与 768 是同一意图写两处」的魔数对，改一处必漏一处）。

@@ -39,8 +39,12 @@ android {
         //       splash_brand.xml、styles.xml 注释 + 同步 Capacitor 配置的
         //       SplashScreen.backgroundColor ⇒ 消除"红底一闪"；本轮**无其他 native 改动**。
         //       网页侧改动走远端加载，不占 APK 版本）
-        versionCode 8
-        versionName "1.7"
+        //   9 = 第九轮（**系统导航栏不再露品牌红**：加 windowOptOutEdgeToEdgeEnforcement 让
+        //       statusBarColor/navigationBarColor 重新生效 + navigationBarColor 按深浅主题给
+        //       white/#0f1219 ⇒ 底部那条红消失。状态栏仍是品牌红，与红顶栏连成一体&#10;
+        //       —— 这是"网页画不到系统栏区域"导致的，只能 native 修，故重打包）
+        versionCode 9
+        versionName "1.8"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

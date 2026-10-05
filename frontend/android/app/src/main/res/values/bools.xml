@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 2026-10-05 (APK v1.8)：导航栏图标是否为"深色"（即导航栏本身是浅色）。
+         浅色主题下导航栏取白色 ⇒ 需要深色图标 ⇒ true。
+         深色变体见 values-night/bools.xml。用 bool 资源而不是把 windowLightNavigationBar
+         写死在 style 里，是为了让"深浅两套"跟着系统深色模式走（DayNight 主题）。 -->
+    <bool name="navBarLightIcons">true</bool>
+</resources>

@@ -23,8 +23,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(REPO, "frontend", "dist")
 TAR = os.path.join(REPO, "frontend", "_dist_upload.tar.gz")
 
-ENTRY = "assets/index-BsMVVbGk.js"           # 新(2026-10-05 v4.11.97: 竞价选股表 9 列 + min-width 按实测自然宽收紧到 720)
-OLD_ENTRY = "index-L5Kzwn2j.js"       # 生产线上当前(v4.11.95/96: 行情修复那一批)
+ENTRY = "index-CbEt5QPw.js"           # 新(2026-10-05 v4.11.98: 顶栏负 margin 修无效写法 ⇒ 真铺满 + 表头排序)
+OLD_ENTRY = "index-bmlTVEd7.js"       # 生产线上当前(同批第一次换盘: 圆角/描边已去，但负 margin 被无效规则盖住)
 EXP_FILES = 779
 EXP_ASSETS = 767
 
