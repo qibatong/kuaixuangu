@@ -5151,6 +5151,10 @@ def start_kpl_prewarm():
 # ⚠️ 必须挂 web 进程(main.py startup) 而非 kx-worker: 与首屏预热同理 —— 结果层/上游层
 #    虽在 kv_cache(跨进程), 但接口层还有 fetcher._quote_map_cache(进程级), worker 预热不到。
 _KPL_REPLAY_PERIOD = 1200       # 秒; < 结果层 TTL(1800) 且整除上游 TTL(3600)
+#   🔴 2026-10-05 追加约束: 还必须 **< 接口层 TTL**（竞价抢筹历史日现为 3600s，
+#      见 api/kpl.py: bid_qiangcang_key_ttl）。原来接口层写 600s < 本周期 1200s，
+#      即每轮之间有一半时间缓存处于过期 ⇒ 预热覆盖不住 ⇒ 用户撞上就冷重算(2.4~9s)。
+#      改 TTL 时**必须同时核对本周期**：周期 ≥ 接口层 TTL 就等于没预热。
 _KPL_REPLAY_DAYS = 5            # 预热最近 N 个交易日的**默认值**(可被 settings 覆盖)
 _KPL_REPLAY_GAP = 1.2           # 两次调用之间的间隔(秒)
 # ★ 2026-10-01 竞价链路 P2-7(清单 1.5): 预热范围改**可配**。
@@ -5233,7 +5237,15 @@ def _kpl_replay_prewarm_once():
     ok = 0
     for d in dates:
         try:
-            if fetch_bid_qiangcang(d):
+            # 🔴 2026-10-05 修「竞价抢筹每次打开要 5 秒以上」的根因:
+            #   原来这里调 `fetch_bid_qiangcang(d)` —— 只温暖了**上游层**(猫爪 3600s),
+            #   而用户读的是**接口层**缓存键 `bidqc:hist:<date>`（键只在 api/kpl.py 的路由里
+            #   拼过，全仓仅此一处）⇒ 预热写 A、用户读 B，预热跑得再勤也白跑，
+            #   用户每次打开都是冷重算（实测盘后 2.39s、竞价时段最坏 9s）。
+            #   改为调用**与路由共用的缓存入口** ⇒ 预热真正落到用户读的键上（≈60ms）。
+            #   延迟导入: 本模块被 api.kpl 依赖, 模块级导入会成环; 运行期导入安全。
+            from ..api import kpl as _api_kpl
+            if _api_kpl.bid_qiangcang_cached(d):
                 ok += 1
         except Exception as e:                              # noqa: BLE001
             log.warning("KPL回看预热 %s 异常 err=%s", d, str(e)[:100])

@@ -847,7 +847,10 @@ def api_kpl_wpqc(request: Request, uid: int = Depends(require_vip_or_paid)):
     return jr({"ok": True, "list": d or [], "count": len(d) if d else 0})
 
 
-def _bid_qiangcang_payload(request: Request, uid: int, date: str = ""):
+def _bid_qiangcang_payload(date: str = ""):
+    # 2026-10-05: 去掉 request/uid 形参 —— 函数体从未使用它们（已 grep 确认）。
+    #   去掉后，后台预热可与 HTTP 路由复用同一条计算链（入口见 bid_qiangcang_cached），
+    #   这正是「预热写的层 = 用户读的层」的前提。
     """竞价抢筹(左右双表): list20=9:20→9:25 竞额抢筹(开盘啦净额强度),
     list20Chg=9:20→9:25 涨幅抢筹(全市场快照涨幅差), listLast=9:24→9:25 最后1秒段
     date 空=实时; 指定 'YYYY-MM-DD' 回看历史(qc_snapshot + snapshot_bid)
@@ -906,21 +909,56 @@ def _bid_qiangcang_payload(request: Request, uid: int, date: str = ""):
             "date": d.get("date") or serve_date or ""}
 
 
+def bid_qiangcang_key_ttl(date: str = ""):
+    """竞价抢筹接口层缓存的 **(键, TTL秒)** —— **HTTP 路由与后台预热必须共用本函数**。
+
+    🔴 为什么必须抽出来（2026-10-05 生产复盘）：键原来只在路由里拼，而每 1200s 一轮的
+      后台预热调的是服务层 `fetch_bid_qiangcang(date)` —— 两者**不是同一个键**
+      ⇒ 预热写的层(上游/猫爪) ≠ 用户读的层(接口) ⇒ 预热跑得再勤也白跑，
+      用户每次打开都冷重算：实测盘后 2.39s、竞价时段最坏 9s（三张表各自 3s 概念 deep 补全）。
+      主人反馈「竞价抢筹每次打开要 5 秒以上、修很多次没效果」即此因。
+    🔴 TTL 按「**数据日是不是过去交易日**」分层，**不能**按「有没有传 date」分层：
+      前端 `servedDate()` **总是**带 date 参数 ⇒ 旧写法 `600 if date else (... 15 ...)`
+      让竞价时段的 15s 短缓存**永远不生效**，竞价期间拿到的是最长 10 分钟前的陈数据。
+    🔴 过去交易日的数据**不可变**（抢筹结果不会因为再算一次而变）⇒ 给 3600s，
+      且必须 **> 预热周期**(_KPL_REPLAY_PERIOD=1200s)，否则预热覆盖不住
+      （原 600s < 1200s ⇒ 每轮之间有一半时间处于过期 ⇒ 用户撞上就是冷重算）。
+    """
+    auction = _is_auction_hours()
+    if not date:
+        return ("bidqc:live" if auction else "bidqc:post", 15 if auction else 300)
+    # 只认标准 ISO 日期串（前端 <input type=date> 即此格式）；格式异常一律保守当"当日"走短 TTL
+    iso = len(date) == 10 and date[4] == "-" and date[7] == "-"
+    try:
+        past = iso and date < kpl._bj_today()
+    except Exception:                     # noqa: BLE001 - 时钟/日历异常时保守当"当日"
+        past = False
+    return ("bidqc:hist:" + date, 3600 if past else (15 if auction else 300))
+
+
+def bid_qiangcang_cached(date: str = ""):
+    """竞价抢筹「接口层缓存 + single-flight」的共享入口 —— HTTP 路由 与 后台预热**共用同一键**。
+
+    返回 payload(dict，空 dict 也是 falsy ⇒ 预热侧据此计成功数)。
+    """
+    from ..services.cache_store import cached_singleflight, store
+    ck, ttl = bid_qiangcang_key_ttl(date)
+    return cached_singleflight(store, ck, ttl, lambda: _bid_qiangcang_payload(date))
+
+
 @router.get("/api/kpl/bid-qiangcang")
 def api_kpl_bid_qiangcang(request: Request, uid: int = Depends(quota_guard("auction")), date: str = ""):
-    """竞价抢筹（含接口级缓存 + single-flight，2026-10-03 加，照 bid-seal 范式）。
+    """竞价抢筹（接口级缓存 + single-flight + 后台预热，2026-10-03 加 / 10-05 修预热错位）。
 
     🔴 动机（生产 nginx 实测）：本接口均 **1.04s**、最大 **4.51s**；每次请求都要
       「出网取数 + 概念补全 + 现涨 merge + 补换手」，其中**概念补全单次实测 1.67s**。
-      盘后与历史日的这些结果都是**定格**的，重复计算纯属浪费 ⇒
-        竞价时段 15s（现涨要有实时感）/ 盘后·非交易日 300s / 指定历史日 600s（不可变）
+      盘后与历史日的这些结果都是**定格**的，重复计算纯属浪费。
+
+    🔴 2026-10-05 修「每次打开要 5 秒以上」：缓存键与 TTL 已抽到 `bid_qiangcang_key_ttl()`
+      供**后台预热共用**（原因见该函数注释 —— 原实现里预热写的层与用户读的键不是同一个，
+      预热跑得再勤也白跑，用户每次都是冷重算）。
     """
-    from ..services.cache_store import cached_singleflight, store
-    auction = _is_auction_hours()
-    ck = "bidqc:" + (("hist:" + date) if date else ("live" if auction else "post"))
-    ttl = 600 if date else (15 if auction else 300)
-    return jr(cached_singleflight(store, ck, ttl,
-                                  lambda: _bid_qiangcang_payload(request, uid, date)))
+    return jr(bid_qiangcang_cached(date))
 
 
 @router.get("/api/kpl/yest-zt")
