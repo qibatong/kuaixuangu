@@ -18,13 +18,15 @@ import paramiko
 from _kx_put_lf import to_lf
 
 HOST = "121.196.230.80"
-PASS = "Xqhty@84313313"
+# 🔴 密码一律走环境变量 KX_PW，**绝不写死在仓库里**(本仓库公开可见)。
+#    2026-10-06 清理: 此前明文写在这里, 随提交进了公开仓库 ⇒ 生产 root 密码已视为泄露, 请尽快改密码。
+PASS = os.environ.get("KX_PW", "")
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(REPO, "frontend", "dist")
 TAR = os.path.join(REPO, "frontend", "_dist_upload.tar.gz")
 
-ENTRY = "index-DZzPx4NZ.js"           # 新(2026-10-05 v4.12.2: 深色底改纯色 #0f1219 + 屏幕边缘同色 token)
-OLD_ENTRY = "index-YPSsOTkd.js"       # 生产线上当前(v4.12.1: 根元素 min-width:100vw ⇒ 右边缘白缝)
+ENTRY = "index-DVL1pBIg.js"           # 新(2026-10-05 v4.12.4: 主题桥 + iOS 状态栏同色带)
+OLD_ENTRY = "index-CVxLWVrz.js"       # 生产线上当前(v4.12.3: 主题桥 useTheme→KxTheme)
 EXP_FILES = 779
 EXP_ASSETS = 767
 
@@ -105,6 +107,8 @@ curl -s -k -o /dev/null -w "new_entry=%{http_code}\n" "https://127.0.0.1/assets/
 
 
 def conn():
+    if not PASS:
+        sys.exit("请用环境变量给密码: KX_PW=<生产root密码> python3 scripts/_kx_fe_deploy_prod.py <cmd>")
     c = paramiko.SSHClient()
     c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     c.connect(HOST, 22, username="root", password=PASS, timeout=60)
