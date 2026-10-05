@@ -112,23 +112,32 @@
       <table v-else class="stock-table">
         <thead>
           <tr>
-            <th>排名</th><th>股票代码</th><th>股票名称</th><th>竞价涨幅</th><th>实时涨幅</th>
-            <th>实体涨幅</th><th>异动</th><th>行业</th><th>概念</th><th>综合评分</th><th>可信度</th>
+            <!-- 2026-10-05 主人指令（方案 A）：① 删「行业」列；② 「综合评分」「可信度」移到「概念」左侧；
+                 ③ 股票代码挪到股票名称**下方**（照竞价优选 / AI 精选报告的写法）。
+                 列数 11 → 9，表格 min-width 随之从 1100 收到 980（见样式区）。 -->
+            <th>排名</th><th>名称</th><th>竞价涨幅</th><th>实时涨幅</th>
+            <th>实体涨幅</th><th>异动</th><th>综合评分</th><th>可信度</th><th>概念</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(it, idx) in list" :key="it.code">
             <td class="rank-col">{{ idx + 1 }}</td>
-            <td class="code-click" @click="linkToSoftware(it.code)">{{ it.code }}</td>
-            <td>{{ it.name }}</td>
+            <!-- 名称 + 代码两行，容器挂 .name-col + data-stock-* —— 与 YijinerView.vue:116 /
+                 AipickReport.vue:106 同构（其它页面就是这么写的，主人要求「参考其他的页面」）。
+                 ⚠️ 行为变化要说清：原来只有「代码」格（td.code-click）能被 App.vue 的全局代理
+                 命中弹分时，现在**整格（名称+代码）**都能弹。这不是新增功能，是把原来只覆盖
+                 代码格的既有行为扩到整格；若主人只要代码可点，说一声即可收窄。 -->
+            <td class="name-col" :data-stock-code="it.code" :data-stock-name="it.name">
+              <div class="name-main">{{ it.name }}</div>
+              <div class="name-sub code-click" @click="linkToSoftware(it.code)">{{ it.code }}</div>
+            </td>
             <td :class="cls(it.bidChange)">{{ fmt(it.bidChange) }}%</td>
             <td :class="isGreen(it) ? 'real-green' : cls(it.realChange)">{{ fmt(it.realChange) }}%</td>
             <td :class="cls(it.entityChange)">{{ fmt(it.entityChange) }}%</td>
             <td>{{ warnText(it.warnType) }}</td>
-            <td>{{ it.industry }}</td>
-            <td class="concept-col">{{ it.concept }}</td>
             <td class="prob-col">{{ it.probability }}%</td>
             <td>{{ it.confidence }}%</td>
+            <td class="concept-col">{{ it.concept }}</td>
           </tr>
         </tbody>
       </table>
@@ -440,7 +449,13 @@ body[data-bg="light"] .auto-tag { background: #fdf3e6; color: var(--warn-text); 
   background: var(--bg-panel); backdrop-filter: blur(4px); border-radius: var(--r-md); padding: var(--s2);
   border: 1px solid var(--accent-border); margin: var(--s2) 0; overflow-x: auto;
 }
-.stock-table { width: 100%; border-collapse: collapse; text-align: center; min-width: 1100px; }
+/* 2026-10-05 方案 A：列数 11 → 9（删行业、代码并入名称列）⇒ min-width 同步下调。
+   🔴 定值依据是**实测自然宽度**，不是拍脑袋：线上量出「去掉 min-width 后表格自然宽 = 676px」，
+      而 9 列里最宽的概念列本身有 max-width:180px 兜着 ⇒ 给 720 就够（比自然宽留 ~44px 余量，
+      个别长名/长概念也不会挤断）。
+   ⚠️ 原值 1100 是从「11 列 + 4 列长表头」时代留下的：不减就等于**白留 300+px 空列宽**
+      —— 实测 980 时表格被撑到 980，各列之间大片空白，反而更不像样。 */
+.stock-table { width: 100%; border-collapse: collapse; text-align: center; min-width: 720px; }
 .stock-table thead { background: var(--accent-bg); border-bottom: 2px solid var(--accent); }
 .stock-table th { padding: var(--s2) var(--s1); font-weight: 600; color: var(--accent-text); font-size: var(--fs-xs); white-space: nowrap; text-align: center; }
 .stock-table td { padding: var(--s2) var(--s1); border-bottom: 1px solid var(--border-soft); font-size: var(--fs-xs); text-align: center; }
@@ -450,6 +465,16 @@ body[data-bg="light"] .auto-tag { background: #fdf3e6; color: var(--warn-text); 
 .down { color: var(--down); }
 .real-green { color: var(--down) !important; }
 .code-click { cursor: pointer; color: var(--gold) !important; font-weight: 700; }
+/* 2026-10-05 方案 A：名称格改「名称 + 代码」两行。
+   写法对齐竞价优选（.yj-name-main / .yj-name-sub，YijinerView.vue:402-403）与 AI 精选报告
+   （.name-main / .name-sub）—— 主人要求「参考其他的页面」。
+   · 名称用 --text-main + 600，代码用 --gold（沿用原 .code-click 的配色，不动视觉语言）
+   · line-height 1.3 收紧，两行合计仍比原来「代码列 + 名称列」省宽（列数 11 → 9）
+   · 整表居中（.stock-table td 就是 center）⇒ 这里**不改成左对齐**，避免又出现
+     「表头居中、内容左对齐」那种错位（YijinerView 那边踩过这个坑，注释里有记录）。 */
+.stock-table .name-col { white-space: nowrap; }
+.stock-table .name-main { font-weight: 600; color: var(--text-main); line-height: 1.3; }
+.stock-table .name-sub { font-size: var(--fs-xs); line-height: 1.3; font-variant-numeric: tabular-nums; }
 .concept-col { max-width: 180px; white-space: pre-wrap; color: var(--text-secondary); }
 .prob-col { color: var(--up); font-weight: 700; }
 .loading-placeholder, .empty-state { padding: var(--s8); text-align: center; color: var(--accent-text); background: var(--bg-card); border-radius: 16px; }
