@@ -192,6 +192,16 @@ def api_register(request: Request, body: dict = Body(...)):
             invite_rewarded = bool(got)
             log.info("邀请奖励发放 inviter=%s invitee=%s days=%s new_expire=%s",
                      inviter["id"], uid, config.INVITE_REWARD_DAYS, got)
+            # 2026-10-06: 邀请成功**必须通知邀请人** —— 之前奖励静默到账, 邀请人不知道自己
+            # 赚了 5 天, 裂变正反馈是断的。🔴 全程吞异常: 注册主流程不能被它拖垮。
+            if got:
+                try:
+                    from ..services import notice_center as nc
+                    nc.notify_invite_reward(
+                        inviter["id"], username, int(config.INVITE_REWARD_DAYS),
+                        time.strftime("%Y-%m-%d", time.gmtime(int(got) + 8 * 3600)))
+                except Exception as e:
+                    log.warning("邀请成功通知失败 inviter=%s err=%s", inviter["id"], e)
 
     sms_verify.mark_consumed(phone, "register", ttl=config.SMS_VALID_MIN * 60)
 

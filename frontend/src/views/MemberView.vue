@@ -248,10 +248,10 @@
             <span class="mb-open-title"><i class="fa fa-money" aria-hidden="true"></i> 开通 / 续费会员</span>
             <span class="mb-open-sub">通过客服微信办理，付款后即时开通；续费后到期时间自动顺延，可在本页查看。</span>
           </div>
-          <!-- 价格表：数据来自本文件 script 里的 PLANS_PRICE 常量（2026-10-05 主人给定
-               月卡 ¥218 / 季卡 ¥588）。改价只动那一处常量，模板不用碰。 -->
-          <ul v-if="PLANS_PRICE.length" class="mb-price">
-            <li v-for="p in PLANS_PRICE" :key="p.label">
+          <!-- 价格表：优先取后台配置（管理端可改，含年卡），取不到才用前端兜底常量。
+               改价/促销不必再发版。 -->
+          <ul v-if="planList.length" class="mb-price">
+            <li v-for="p in planList" :key="p.key || p.label">
               <b>{{ p.label }}</b>
               <em>¥{{ p.price }}</em>
               <span>{{ p.days }} 天<template v-if="p.perDay"> · 折合 ¥{{ p.perDay }}/天</template></span>
@@ -302,17 +302,29 @@ import ContactQr from '../components/ContactQr.vue'
 const router = useRouter()
 const user = useUserStore()
 
-// 🔴 2026-10-05 (S4) **在售套餐与价格 —— 待主人填写**。
-//   格式: [{ label:'月卡', price:'¥99', days:30 }, ...]；**留空数组则整块价格区自动隐藏**
-//   （绝不展示编造的价钱）。填好后前端立刻展示，无需改后端。
-//   后端 /api/member/plans 目前只有配额字段、没有价格字段，故价格由前端常量承载。
-// 2026-10-05 (S4) 主人给定在售套餐与价格：月卡 ¥218 / 季卡 ¥588。
-//   perDay 是"折合每天"（月卡 218/30 ≈ 7.3、季卡 588/90 ≈ 6.5）—— 让季卡更划算这件事
-//   一眼可见，是纯前端展示值，不是后端口径。改价只动这个数组。
-const PLANS_PRICE = [
-  { label: '月卡', price: 218, days: 30, perDay: '7.3' },
-  { label: '季卡', price: 588, days: 90, perDay: '6.5' },
+// 2026-10-06 (U11/A11)：价格**改为后台可配**（settings 键 member_plans，管理端可改）。
+//   原来写死在这里 ⇒ 改一次价要重新构建 + 换盘，运营做不了促销，也上不了年卡
+//   （年卡是最直接的改善现金流的手段）。现在优先取接口，取不到才用下面的兜底常量。
+// 🔴 兜底常量必须保留：接口挂了/老后端没这个字段时，开通页不能变成空白卡。
+//   perDay 是"折合每天"（月卡 218/30 ≈ 7.3、季卡 588/90 ≈ 6.5、年卡 2188/365 ≈ 6.0）
+//   —— 让"买长更划算"一眼可见，纯前端展示值，不是后端口径。
+const PLANS_FALLBACK = [
+  { key: 'month', label: '月卡', price: 218, days: 30 },
+  { key: 'quarter', label: '季卡', price: 588, days: 90 },
+  { key: 'year', label: '年卡', price: 2188, days: 365 },
 ]
+
+const planList = computed(() => {
+  const src = Array.isArray(plans.value.plans) && plans.value.plans.length
+    ? plans.value.plans
+    : PLANS_FALLBACK
+  return src
+    .filter((p) => p && p.price > 0 && p.days > 0)
+    .map((p) => ({
+      ...p,
+      perDay: (Number(p.price) / Number(p.days)).toFixed(1),
+    }))
+})
 
 function copySupportWx() {
   copyText(SUPPORT_WECHAT, '客服微信已复制')
@@ -324,7 +336,7 @@ const changePwdModal = ref(null)
 const profileModal = ref(null)
 
 // 权益对照表的展示默认值。★ 必须是一个可复用的常量，不能只在 ref 里写一次字面量 —— 见 load() 的合并注释。
-const PLANS_DEFAULT = { free: {}, member: {}, vip: {}, checkin_bonus: 3, invite_reward_days: 5, new_user_days: 5 }
+const PLANS_DEFAULT = { free: {}, member: {}, vip: {}, checkin_bonus: 3, invite_reward_days: 5, new_user_days: 5, plans: [] }
 
 const loading = ref(true)
 const checkinBusy = ref(false)

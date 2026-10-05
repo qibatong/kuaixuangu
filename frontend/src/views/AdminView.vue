@@ -14,14 +14,23 @@
     </div>
 
     <template v-else>
-      <!-- 站内公告(2026-10-04): 主人需求「系统消息比如系统更新提醒…」——
-           这里是**站方广播**的发布端; 会员到期提醒是后端实时推导的, 不在这里发。 -->
+      <!-- 站内公告(2026-10-04 建立 / 2026-10-06 扩展: 定时/草稿/编辑/触达统计)
+           主人需求：「系统消息比如系统更新提醒…」——这里是**站方广播**的发布端。
+           🔴 会员到期提醒不在这里发：它由消息中心按 expire_at 自动生成（T-7/T-3/T-1/T+0），
+              人工发会在用户续费后变成永久脏数据。要催续费去「到期预警」点「一键提醒」。 -->
       <div class="admin-card">
         <div class="card-title"><i class="fa fa-bullhorn"></i> 站内公告（系统消息）</div>
         <div class="notice-form">
           <input v-model="nf.title" class="admin-input" placeholder="标题，如：系统更新：新增超智研判" maxlength="60" />
           <textarea v-model="nf.body" class="admin-input" rows="3" placeholder="正文（换行会原样展示）"></textarea>
           <div class="notice-form-row">
+            <label>分类
+              <select v-model="nf.category" class="admin-input">
+                <option value="system">系统/运营</option>
+                <option value="trade">交易时点</option>
+                <option value="account">账户会员</option>
+              </select>
+            </label>
             <label>级别
               <select v-model="nf.level" class="admin-input">
                 <option value="info">普通</option>
@@ -30,7 +39,7 @@
               </select>
             </label>
             <label>定向
-              <select v-model="nf.target" class="admin-input">
+              <select v-model="nf.target" class="admin-input" @change="loadNoticeCount">
                 <option value="all">全部用户</option>
                 <option value="free">仅免费试用</option>
                 <option value="member">仅付费/VIP</option>
@@ -45,26 +54,74 @@
                 <option :value="30">30 天</option>
               </select>
             </label>
-            <button class="admin-btn" :disabled="nfPosting || !nf.title.trim() || !nf.body.trim()" @click="publishNotice">
-              {{ nfPosting ? '发布中…' : '发布' }}
-            </button>
           </div>
-          <span class="admin-tip">发布后用户右上角铃铛会亮红点；级别 warn/urgent 才计入红点数。</span>
+          <div class="notice-form-row">
+            <label>发送方式
+              <select v-model="nf.status" class="admin-input">
+                <option value="sent">立即发送</option>
+                <option value="scheduled">定时发送</option>
+                <option value="draft">存为草稿</option>
+              </select>
+            </label>
+            <label v-if="nf.status === 'scheduled'">定时时刻（北京时间）
+              <input v-model="nf.publish_at" class="admin-input" type="datetime-local" />
+            </label>
+            <label>行动按钮
+              <select v-model="nf.action_type" class="admin-input">
+                <option value="">无</option>
+                <option value="route">跳转页面</option>
+                <option value="copy">复制文本</option>
+              </select>
+            </label>
+            <input
+              v-if="nf.action_type"
+              v-model="nf.action_value"
+              class="admin-input"
+              :placeholder="nf.action_type === 'route' ? '如 /member' : '如客服微信号'"
+            />
+          </div>
+          <div class="notice-form-row">
+            <button class="admin-btn" :disabled="nfPosting || !canPublish" @click="publishNotice">
+              {{ nfPosting ? '提交中…' : (nf.status === 'draft' ? '存草稿' : (nf.status === 'scheduled' ? '排期' : '发布')) }}
+            </button>
+            <!-- 发布前人数预估：防误发全量（金融工具站误发紧急公告是信任事故） -->
+            <span class="admin-tip">目标人群约 {{ noticeCount.total }} 人，其中已开推送 {{ noticeCount.pushable }} 人</span>
+          </div>
+          <span class="admin-tip">
+            发布后用户铃铛亮红点（info 级不亮）；推送会按用户偏好与每日上限（3 条/运营 1 条）过滤，不保证人人收到。
+          </span>
         </div>
 
         <div class="table-scroll" style="margin-top:10px;">
           <table class="admin-table">
-            <thead><tr><th style="width:40%">标题</th><th>级别</th><th>定向</th><th>发布时间</th><th>状态</th><th>操作</th></tr></thead>
+            <thead>
+              <tr>
+                <th style="width:28%">标题</th><th>分类</th><th>级别</th><th>定向</th>
+                <th>状态</th><th>人群</th><th>推送</th><th>已读</th><th>操作</th>
+              </tr>
+            </thead>
             <tbody>
-              <tr v-if="!notices.length"><td colspan="6" class="weight-desc">还没有公告</td></tr>
-              <tr v-for="n in notices" :key="n.id">
-                <td :title="n.body">{{ n.title }}</td>
+              <tr v-if="!notices.length"><td colspan="9" class="weight-desc">还没有公告</td></tr>
+              <tr v-for="n in notices" :key="n.nkey || n.id">
+                <td :title="n.body">
+                  {{ n.title }}
+                  <div v-if="n.publish_date" class="weight-desc">计划 {{ n.publish_date }} 发送</div>
+                </td>
+                <td>{{ noticeCatLabel(n.category) }}</td>
                 <td>{{ noticeLevelLabel(n.level) }}</td>
                 <td>{{ noticeTargetLabel(n.target) }}</td>
-                <td>{{ n.date }}</td>
-                <td>{{ n.off_at ? '已撤回' : '展示中' }}</td>
                 <td>
-                  <button v-if="!n.off_at" class="admin-btn admin-btn-sm" @click="offNotice(n.id)">撤回</button>
+                  <span v-if="n.off_at">已撤回</span>
+                  <span v-else-if="n.status === 'draft'">草稿</span>
+                  <span v-else-if="n.status === 'scheduled'">待发送</span>
+                  <span v-else>展示中</span>
+                </td>
+                <td>{{ n.target_count || 0 }}</td>
+                <td>{{ n.push_sent || 0 }}<span v-if="n.push_failed" class="weight-desc"> / 失败{{ n.push_failed }}</span></td>
+                <td>{{ n.read_count || 0 }}<span v-if="n.target_count" class="weight-desc"> ({{ n.read_rate }}%)</span></td>
+                <td>
+                  <button v-if="!n.off_at && n.status !== 'sent'" class="admin-btn admin-btn-sm" @click="editNotice(n)">编辑</button>
+                  <button v-if="!n.off_at" class="admin-btn admin-btn-sm" @click="offNotice(n)">撤回</button>
                   <span v-else class="weight-desc">—</span>
                 </td>
               </tr>
@@ -543,7 +600,9 @@ v-if="menuUid !== null && menuRect" class="row-menu"
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { adminCreateUser, adminDeleteUser, adminScoring, adminSetMemberLevel, adminSetUserProfile, adminUserInvites, adminUsers, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire, setUsersExpire } from '../api/admin'
 // 2026-10-04 站内公告(系统消息的站方广播部分)
-import { adminNotices, adminOffNotice, adminPublishNotice } from '../api/notices'
+import {
+  adminNotices, adminOffNotice, adminPublishNotice, adminEditNotice, adminNoticeCount,
+} from '../api/notices'
 import { showToast as toast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
 import { expireState } from '../utils/admin'
@@ -1145,15 +1204,35 @@ async function saveScoring() {
   }
 }
 
-// ---------- 站内公告(2026-10-04) ----------
-// 🔴 这里只管**站方广播**(系统更新提醒等); 会员到期提醒是后端按 expire_at 实时推导的,
-//    管理员发不了也**不该**发(用户续费后那条会变成永久的脏数据)。
+// ---------- 站内公告(2026-10-04 建立 / 2026-10-06 扩展) ----------
+// 🔴 这里只管**站方广播**(系统更新提醒等)。会员到期提醒不在这里发 ——
+//    它由消息中心按 expire_at 自动生成(T-7/T-3/T-1/T+0), 人工发会在用户续费后变成永久脏数据。
+//    要催续费: 去「到期预警」点「一键提醒」(会给每个人补发一条, 且带 expire_at 快照自愈)。
 const notices = ref([])
-const nf = reactive({ title: '', body: '', level: 'info', target: 'all', days: 0 })
+const nf = reactive({
+  title: '', body: '', level: 'info', target: 'all', days: 0,
+  category: 'system', status: 'sent', publish_at: '',
+  action_type: '', action_value: '',
+})
 const nfPosting = ref(false)
+const noticeCount = ref({ total: 0, pushable: 0 })
 
 function noticeLevelLabel(l) { return ({ info: '普通', warn: '提醒', urgent: '紧急' })[l] || l }
 function noticeTargetLabel(t) { return ({ all: '全部', free: '免费试用', member: '付费/VIP', vip: 'VIP' })[t] || t }
+function noticeCatLabel(c) { return ({ system: '系统', account: '账户', trade: '交易' })[c] || c || '系统' }
+
+const canPublish = computed(() => {
+  if (!nf.title.trim() || !nf.body.trim()) return false
+  if (nf.status === 'scheduled' && !nf.publish_at) return false
+  return true
+})
+
+async function loadNoticeCount() {
+  try {
+    const d = await adminNoticeCount(nf.target)
+    if (d && d.ok) noticeCount.value = d.data || { total: 0, pushable: 0 }
+  } catch (e) { noticeCount.value = { total: 0, pushable: 0 } }
+}
 
 async function loadNotices() {
   try {
@@ -1163,13 +1242,20 @@ async function loadNotices() {
 }
 
 async function publishNotice() {
-  if (!nf.title.trim() || !nf.body.trim()) { toast('标题与正文都不能为空', 'error'); return }
+  if (!canPublish.value) {
+    if (nf.status === 'scheduled' && !nf.publish_at) toast('请选择定时时刻', 'error')
+    else toast('标题与正文都不能为空', 'error')
+    return
+  }
   nfPosting.value = true
   try {
-    const d = await adminPublishNotice({ ...nf })
+    const payload = { ...nf }
+    // datetime-local 给的是 "YYYY-MM-DDTHH:MM"(本地时区), 后端按北京时间解析
+    if (nf.status !== 'scheduled') delete payload.publish_at
+    const d = await adminPublishNotice(payload)
     if (d && d.ok) {
-      toast('公告已发布', 'success')
-      nf.title = ''; nf.body = ''
+      toast(nf.status === 'draft' ? '草稿已保存' : (nf.status === 'scheduled' ? '已排期，到点自动发送' : '公告已发布'), 'success')
+      nf.title = ''; nf.body = ''; nf.publish_at = ''
       await loadNotices()
     } else toast('发布失败：' + ((d && d.msg) || ''), 'error')
   } catch (e) {
@@ -1177,9 +1263,26 @@ async function publishNotice() {
   } finally { nfPosting.value = false }
 }
 
-async function offNotice(id) {
+async function editNotice(n) {
+  // 简单起见只改正文与定时时刻 —— 这两项是"发错了最想改的", 也是已投递后仍可改的字段
+  const body = window.prompt('修改正文（已发送的消息改标题/定向会让已读统计对不上，故只允许改正文）', n.body || '')
+  if (body === null) return
+  const patch = { nkey: n.nkey, body: body.trim() }
+  if (n.status === 'scheduled') {
+    const at = window.prompt('定时时刻（北京时间 YYYY-MM-DD HH:MM）', n.publish_date || '')
+    if (at === null) return
+    patch.publish_at = at.trim()
+  }
   try {
-    const d = await adminOffNotice(id)
+    const d = await adminEditNotice(patch)
+    if (d && d.ok) { toast('已更新', 'success'); await loadNotices() }
+    else toast('更新失败：' + ((d && d.msg) || ''), 'error')
+  } catch (e) { toast('更新失败', 'error') }
+}
+
+async function offNotice(n) {
+  try {
+    const d = await adminOffNotice({ nkey: n.nkey, id: n.id })
     if (d && d.ok) { toast('已撤回', 'success'); await loadNotices() }
     else toast('撤回失败', 'error')
   } catch (e) { toast('撤回失败', 'error') }
@@ -1190,6 +1293,7 @@ onMounted(() => {
   loadScoring('auction')   // 显式: 首屏默认竞价页签(与 scoringStrategy 初值一致)
   loadDefaults()
   loadNotices()
+  loadNoticeCount()
 })
 </script>
 

@@ -69,6 +69,21 @@ SPOT_CONF_KEYS = [
     ("conf_chg", "健康涨幅", "实时涨幅 1.5%~6% 时置信度加成"),
 ]
 
+def after_membership_change(target_uid):
+    """续费/改期/改等级之后: 下架该用户已经过时的「会员到期」提醒。
+
+    🔴 背景: 到期提醒从 2026-10-06 起改为**落表**(为了统计已读率), 但它是"状态"不是"信件"
+       —— 用户续了费, 那条"3 天后到期"就成了脏数据。双保险的另一半在读取侧
+       (notice_center 校验 meta.expire_at 与当前值是否一致), 这里只是让列表尽快干净。
+       🔴 全程吞异常: 清理失败绝不能让"续费"这个主流程失败。
+    """
+    try:
+        from ..services import notice_center as nc
+        nc.on_membership_changed(target_uid)
+    except Exception as e:
+        log.warning("到期提醒下架失败 uid=%s err=%s", target_uid, e)
+
+
 def get_admin(request: Request, uid: int = Depends(get_uid)):
     """管理员依赖: 未登录 401; 非管理员 403"""
     users.ensure_admin()   # 幂等初始化(ADMIN_USERNAME 或 id 最小用户)
@@ -149,6 +164,7 @@ def api_admin_user_expire(request: Request, body: dict = Body(...), uid: int = D
     users.audit(uid, "set_expire", target,
                 {"duration": duration, "days": days, "expire_at": expire_at,
                  "new_expire_at": row.get("expire_at")}, client_ip(request))
+    after_membership_change(target)
     log.info("管理端设置到期 uid=%s target=%s(%s) expire_at=%s",
              uid, target, u["username"], row.get("expire_at"))
     return jr({"ok": True, "msg": "已设置", "uid": target,
@@ -226,6 +242,7 @@ def api_admin_user_expire_batch(request: Request, body: dict = Body(...),
             else:
                 failed.append({"uid": target, "msg": "缺少时长参数"})
                 continue
+            after_membership_change(target)
             ok_n += 1
         except Exception as e:
             failed.append({"uid": target, "msg": str(e)[:60]})
@@ -1067,10 +1084,16 @@ MEMBER_CONF_KEYS = {
     "quota_picker_daily": ("免费用户选股次数/日", int),
     "quota_aipick_daily": ("免费用户AI预测次数/日", int),
     "quota_auction_daily": ("免费用户竞价异动次数/日", int),
-    "quota_checkin_bonus": ("签到赠送选股额度", int),
+    "quota_checkin_bonus": ("签到赠送额度次数", int),
+    "quota_checkin_feature": ("签到奖励加到哪个功能(picker/aipick/auction)", str),
     "reg_open": ("开放注册", bool),
     "reg_ip_day_limit": ("同IP 24h 注册上限", int),
     "invite_same_ip_limit": ("同IP邀请奖励上限", int),
+}
+
+#: 字符串型权益配置的候选值(前端渲染成下拉, 避免手打错字把奖励打没)
+MEMBER_CONF_OPTIONS = {
+    "quota_checkin_feature": ["picker", "aipick", "auction"],
 }
 
 
@@ -1090,6 +1113,9 @@ def _merge_member_conf(saved):
         "quota_aipick_daily": int(getattr(_cfg, "QUOTA_AIPICK_DAILY", 1)),
         "quota_auction_daily": int(getattr(_cfg, "QUOTA_AUCTION_DAILY", 1)),
         "quota_checkin_bonus": int(getattr(_cfg, "QUOTA_CHECKIN_BONUS", 3)),
+        # 2026-10-06 新增: 签到奖励加到**哪个功能**上。默认维持 picker(与历史行为一致),
+        # 主人拍板"做成后台可配, 默认维持现状" —— 因为 aipick/auction 用户此前签到无感。
+        "quota_checkin_feature": str(getattr(_cfg, "QUOTA_CHECKIN_FEATURE", "picker")),
         "reg_open": bool(getattr(_cfg, "REG_OPEN", True)),
         "reg_ip_day_limit": int(getattr(_cfg, "REG_IP_DAY_LIMIT", 5)),
         "invite_same_ip_limit": int(getattr(_cfg, "INVITE_SAME_IP_LIMIT", 3)),
@@ -1099,9 +1125,17 @@ def _merge_member_conf(saved):
         for k in defaults:
             if k in saved:
                 try:
-                    defaults[k] = bool(saved[k]) if isinstance(defaults[k], bool) else int(saved[k])
+                    if isinstance(defaults[k], bool):
+                        defaults[k] = bool(saved[k])
+                    elif isinstance(defaults[k], int):
+                        defaults[k] = int(saved[k])
+                    else:
+                        defaults[k] = str(saved[k])
                 except (TypeError, ValueError):
                     pass
+    # 签到奖励功能白名单兜底: 配错(比如写成 pickr)会让签到奖励凭空消失
+    if defaults.get("quota_checkin_feature") not in ("picker", "aipick", "auction"):
+        defaults["quota_checkin_feature"] = "picker"
     return defaults
 
 
@@ -1121,6 +1155,7 @@ def apply_member_conf(conf):
         "quota_aipick_daily": "QUOTA_AIPICK_DAILY",
         "quota_auction_daily": "QUOTA_AUCTION_DAILY",
         "quota_checkin_bonus": "QUOTA_CHECKIN_BONUS",
+        "quota_checkin_feature": "QUOTA_CHECKIN_FEATURE",
         "reg_open": "REG_OPEN",
         "reg_ip_day_limit": "REG_IP_DAY_LIMIT",
         "invite_same_ip_limit": "INVITE_SAME_IP_LIMIT",
@@ -1174,12 +1209,68 @@ def ensure_member_conf_fresh():
     return True
 
 
+@router.get("/api/admin/plans")
+def api_admin_plans_get(request: Request, uid: int = Depends(get_admin)):
+    """套餐价格(读取)。2026-10-06: 价格原本写死在前端常量 ⇒ 改价要重新构建换盘,
+    运营做不了促销也上不了年卡。现在后台可改, 前端 fetch 一次即可。"""
+    from .member import DEFAULT_PLANS, _plans
+    return jr({"ok": True, "plans": _plans(), "defaults": DEFAULT_PLANS})
+
+
+@router.put("/api/admin/plans")
+def api_admin_plans_put(request: Request, body: dict = Body(...), uid: int = Depends(get_admin)):
+    """套餐价格(保存): {plans:[{key,label,days,price,on}]}
+
+    🔴 只允许改 label/days/price/on, key 必须来自默认三档(month/quarter/year) ——
+       前端按 key 决定"折合每天"的展示与排序, 放任自定义 key 会让开通页渲染错乱。
+    🔴 至少要留一个 on=1 的套餐, 否则开通页变成空白卡。
+    """
+    from .member import DEFAULT_PLANS
+    allow = {p["key"]: p for p in DEFAULT_PLANS}
+    src = body.get("plans")
+    if not isinstance(src, list) or not src:
+        return jr({"ok": False, "msg": "缺少 plans"}, 400)
+    out = []
+    for p in src:
+        if not isinstance(p, dict):
+            continue
+        k = str(p.get("key") or "")
+        if k not in allow:
+            continue
+        try:
+            out.append({
+                "key": k,
+                "label": str(p.get("label") or allow[k]["label"])[:12],
+                "days": int(p.get("days") or allow[k]["days"]),
+                "price": max(0, int(p.get("price") or 0)),
+                "on": 1 if int(p.get("on", 1)) else 0,
+            })
+        except (TypeError, ValueError):
+            continue
+    if not out:
+        return jr({"ok": False, "msg": "没有合法的套餐项"}, 400)
+    if not any(x["on"] for x in out):
+        return jr({"ok": False, "msg": "至少要保留一个在售套餐"}, 400)
+    settings.set("member_plans", out)
+    try:
+        users.audit(uid, "plans_update", None, {"plans": out}, client_ip(request))
+    except Exception:
+        pass
+    log.info("管理端更新套餐价格 uid=%s %s", uid, out)
+    return jr({"ok": True, "plans": out})
+
+
 @router.get("/api/admin/member-conf")
 def api_admin_member_conf_get(request: Request, uid: int = Depends(get_admin)):
     """会员权益配置(读取)"""
-    return jr({"ok": True, "conf": get_member_conf(),
-               "meta": {k: {"label": v[0], "type": v[1].__name__}
-                        for k, v in MEMBER_CONF_KEYS.items()}})
+    meta = {}
+    for k, v in MEMBER_CONF_KEYS.items():
+        m = {"label": v[0], "type": v[1].__name__}
+        # 字符串型配置必须带候选值, 否则前端只能渲染成一个 number 输入框(会把 "picker" 变成 0)
+        if k in MEMBER_CONF_OPTIONS:
+            m["options"] = MEMBER_CONF_OPTIONS[k]
+        meta[k] = m
+    return jr({"ok": True, "conf": get_member_conf(), "meta": meta})
 
 
 @router.put("/api/admin/member-conf")
@@ -1196,7 +1287,7 @@ def api_admin_member_conf_put(request: Request, body: dict = Body(...),
             return jr({"ok": False, "msg": "未知配置项: %s" % k}, 400)
         typ = MEMBER_CONF_KEYS[k][1]
         try:
-            cur[k] = bool(v) if typ is bool else int(v)
+            cur[k] = bool(v) if typ is bool else (int(v) if typ is int else str(v))
         except (TypeError, ValueError):
             return jr({"ok": False, "msg": "%s 类型不正确" % k}, 400)
     if not (0 <= cur.get("new_user_days", 0) <= 3650):
@@ -1300,6 +1391,7 @@ def api_admin_extend_plus(request: Request, body: dict = Body(...),
             users.extend_expire(t, days)
             if set_level is not None:
                 users.set_member_level(t, int(set_level))
+            after_membership_change(t)
             ok_n += 1
         except Exception as e:
             failed.append({"uid": t, "msg": str(e)[:60]})
@@ -1402,30 +1494,60 @@ NOTICE_LEVELS = ("info", "warn", "urgent")
 NOTICE_TARGETS = ("all", "free", "member", "vip")
 
 
+def _parse_publish_at(v):
+    """定时时刻: 接受秒级时间戳 或 'YYYY-MM-DD HH:MM'(北京时间)。解析失败返回 0。"""
+    if v in (None, "", 0):
+        return 0
+    try:
+        ts = int(v)
+        if ts > 10 ** 9:
+            return ts
+    except (TypeError, ValueError):
+        pass
+    import calendar
+    # 🔴 服务器时区是 UTC(全站日期换算都用 gmtime(+8h)) ⇒ 不能用 mktime(按本地时区),
+    #    必须按 UTC 解析再减 8 小时, 否则运营填 09:00 会变成北京时间 17:00 才发。
+    s = str(v).strip()
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return int(calendar.timegm(time.strptime(s, fmt))) - 8 * 3600
+        except ValueError:
+            continue
+    return 0
+
+
 @router.get("/api/admin/notices")
 def api_admin_notices(request: Request, uid: int = Depends(get_admin)):
-    """公告列表(含已撤回): 倒序 50 条"""
-    conn = _conn()
-    try:
-        rows = conn.execute(
-            "SELECT id, title, body, level, target, start_ts, end_ts, off_at, created_by, created_at "
-            "FROM notices ORDER BY id DESC LIMIT 50").fetchall()
-        items = []
-        for r in rows:
-            d = dict(r)
-            d["date"] = time.strftime("%Y-%m-%d %H:%M", time.gmtime(int(d["created_at"]) + 8 * 3600))
-            d["start_date"] = time.strftime("%Y-%m-%d %H:%M", time.gmtime(int(d["start_ts"]) + 8 * 3600))
-            d["end_date"] = time.strftime("%Y-%m-%d %H:%M", time.gmtime(int(d["end_ts"]) + 8 * 3600)) if d["end_ts"] else ""
-            items.append(d)
-    finally:
-        conn.close()
+    """公告列表(含草稿/定时/已撤回) + 触达统计(人群/送达/已读/点击)"""
+    from ..services import notice_center as nc
+    items = nc.admin_rows(50)
     return jr({"ok": True, "items": items,
-               "levels": NOTICE_LEVELS, "targets": NOTICE_TARGETS})
+               "levels": NOTICE_LEVELS, "targets": NOTICE_TARGETS,
+               "categories": list(nc.CATEGORIES),
+               "category_label": nc.CATEGORY_LABEL,
+               "statuses": ("draft", "scheduled", "sent")})
+
+
+@router.get("/api/admin/notices/count")
+def api_admin_notices_count(request: Request, target: str = "all", uid: int = Depends(get_admin)):
+    """发布前人数预估: 目标人群多少、其中已开推送多少(防误发全量)"""
+    from ..services import notice_center as nc
+    return jr({"ok": True, "data": nc.preview_count(target if target in NOTICE_TARGETS else "all")})
 
 
 @router.post("/api/admin/notices")
 def api_admin_notices_post(request: Request, body: dict = Body(...), uid: int = Depends(get_admin)):
-    """发布公告: {title, body, level=info|warn|urgent, target=all|free|member|vip, days=有效天数(0=长期)}"""
+    """发布公告(2026-10-06 扩展: 草稿 / 定时 / 分类 / 行动按钮)
+
+    body = {title, body, level=info|warn|urgent, target=all|free|member|vip,
+            category=system|account|trade, days=有效天数(0=长期),
+            status=draft|scheduled|sent, publish_at=定时时刻(秒或 'YYYY-MM-DD HH:MM'),
+            action_type=''|route|copy, action_value='/member'|'微信号'}
+
+    🔴 推送已收进 notice_center: 会按用户偏好 + 每日上限(3 条/运营 1 条) + 免打扰时段过滤,
+       不是无脑全量推 —— 站外通道只有 WebPush 一条, 炸一次就永久失效。
+    """
+    from ..services import notice_center as nc
     title = str(body.get("title") or "").strip()
     btext = str(body.get("body") or "").strip()
     if not title or not btext:
@@ -1436,69 +1558,127 @@ def api_admin_notices_post(request: Request, body: dict = Body(...), uid: int = 
     target = str(body.get("target") or "all").strip()
     if target not in NOTICE_TARGETS:
         target = "all"
+    category = str(body.get("category") or "system").strip()
+    if category not in nc.CATEGORIES:
+        category = "system"
+    status = str(body.get("status") or "sent").strip()
+    if status not in ("draft", "scheduled", "sent"):
+        status = "sent"
     try:
         days = max(0, int(body.get("days") or 0))
     except (TypeError, ValueError):
         days = 0
-    now = int(time.time())
-    end_ts = now + days * 86400 if days > 0 else 0
 
-    conn = _conn()
+    publish_at = 0
+    if status == "scheduled":
+        publish_at = _parse_publish_at(body.get("publish_at"))
+        if not publish_at:
+            return jr({"ok": False, "msg": "定时发送需要合法的 publish_at"}, status=400)
+        if publish_at <= int(time.time()):
+            return jr({"ok": False, "msg": "定时时刻必须晚于当前时间"}, status=400)
+
+    res = nc.publish(title=title, body=btext, level=level, target=target, category=category,
+                     days=days, status=status, publish_at=publish_at,
+                     action_type=str(body.get("action_type") or ""),
+                     action_value=str(body.get("action_value") or ""),
+                     created_by=str(uid))
+    if not res.get("ok"):
+        return jr({"ok": False, "msg": res.get("msg") or "发布失败"}, status=500)
+
     try:
-        cur = conn.execute(
-            "INSERT INTO notices (title, body, level, target, start_ts, end_ts, off_at, "
-            "created_by, created_at) VALUES (?,?,?,?,?,?,0,?,?)",
-            (title, btext, level, target, now, end_ts, str(uid), now))
-        nid = cur.lastrowid
-        # 🔴 血的教训(2026-10-04 实测): **必须清掉这个 id 上的旧已读回执**。
-        #   notices.id 是普通 INTEGER PRIMARY KEY(无 AUTOINCREMENT) ⇒ 公告被 DELETE 后
-        #   **id 会被新公告复用**，而 notice_reads 里的 (user_id, notice_id) 残留还在
-        #   ⇒ 用户拿到的是"全新公告"却被判成"已读"，红点永远不亮（实测 unread=0 但列表有 1 条）。
-        #   正常运营走的是**软删撤回**(off_at)，不会 DELETE；但手工清库/迁移会触发，
-        #   故在发布时自愈一次。代价：一行 DELETE，可忽略。
-        conn.execute("DELETE FROM notice_reads WHERE notice_id=?", (nid,))
-        conn.commit()
-    except Exception as e:
-        log.warning("公告发布失败 uid=%s err=%s", uid, e)
-        return jr({"ok": False, "msg": "发布失败"}, status=500)
-    finally:
-        conn.close()
-    try:
-        users.audit(uid, "notice_publish", detail="%s|%s|%s" % (nid, level, target), ip=client_ip(request))
+        users.audit(uid, "notice_publish",
+                    detail="%s|%s|%s|%s" % (res.get("nkey"), level, target, status),
+                    ip=client_ip(request))
     except Exception:
         pass
-    # 2026-10-04: 发布公告**顺带**推一条手机端通知(主人要的"系统更新提醒"场景)。
-    # 🔴 全程 try/except + 不参与返回值: 推送是附赠, 失败绝不能让"发布公告"这个主流程失败。
+    log.info("管理端发布公告 uid=%s nkey=%s status=%s level=%s target=%s 推送=%s",
+             uid, res.get("nkey"), status, level, target, res.get("pushed"))
+    return jr({"ok": True, "id": res.get("id"), "nkey": res.get("nkey"),
+               "pushed": res.get("pushed", 0), "target_count": res.get("target_count", 0)})
+
+
+@router.post("/api/admin/notices/edit")
+def api_admin_notices_edit(request: Request, body: dict = Body(...), uid: int = Depends(get_admin)):
+    """编辑公告: {nkey, title?, body?, level?, target?, publish_at?, status?}
+
+    🔴 已投递(sent)的只允许改正文/有效期/行动按钮 —— 改标题或定向会让已读回执与统计对不上。
+       改定时: 只有 scheduled 状态能改 publish_at; sent 改不了。
+    """
+    from ..services import notice_center as nc
+    nkey = str(body.get("nkey") or "").strip()
+    if not nkey:
+        return jr({"ok": False, "msg": "缺少 nkey"}, status=400)
+    fields = {}
+    for k in ("title", "body", "level", "target", "action_type", "action_value"):
+        if k in body:
+            v = str(body[k] or "").strip()
+            if k == "level" and v not in NOTICE_LEVELS:
+                continue
+            if k == "target" and v not in NOTICE_TARGETS:
+                continue
+            fields[k] = v
+    if "publish_at" in body:
+        fields["publish_at"] = _parse_publish_at(body.get("publish_at"))
+    ok, msg = nc.edit(nkey, **fields)
+    if not ok:
+        return jr({"ok": False, "msg": msg or "编辑失败"}, status=400)
     try:
-        from . import push as push_api
-        n = push_api.notify_by_target(target, title, btext[:80], "/messages")
-        log.info("公告推送已下发 nid=%s target=%s 成功=%s 条", nid, target, n)
-    except Exception as e:
-        log.warning("公告推送失败 nid=%s err=%s", nid, e)
-    log.info("管理端发布公告 uid=%s nid=%s level=%s target=%s days=%s", uid, nid, level, target, days)
-    return jr({"ok": True, "id": nid})
+        users.audit(uid, "notice_edit", detail="%s|%s" % (nkey, ",".join(fields.keys())),
+                    ip=client_ip(request))
+    except Exception:
+        pass
+    return jr({"ok": True, "nkey": nkey})
 
 
 @router.post("/api/admin/notices/off")
 def api_admin_notices_off(request: Request, body: dict = Body(...), uid: int = Depends(get_admin)):
-    """撤回公告: {id}。软删(置 off_at) —— 保留历史, 且已读回执行不悬空"""
-    try:
-        nid = int(body.get("id") or 0)
-    except (TypeError, ValueError):
-        nid = 0
-    if nid <= 0:
-        return jr({"ok": False, "msg": "缺少公告 id"}, status=400)
-    conn = _conn()
-    try:
-        conn.execute("UPDATE notices SET off_at=? WHERE id=? AND off_at=0", (int(time.time()), nid))
-        conn.commit()
-    except Exception as e:
-        log.warning("公告撤回失败 uid=%s nid=%s err=%s", uid, nid, e)
+    """撤回公告: {nkey} 或 {id}(兼容)。软删(置 off_at) —— 保留历史, 已读回执不悬空"""
+    from ..services import notice_center as nc
+    nkey = str(body.get("nkey") or "").strip()
+    key = nkey
+    if not key:
+        try:
+            nid = int(body.get("id") or 0)
+        except (TypeError, ValueError):
+            nid = 0
+        if nid <= 0:
+            return jr({"ok": False, "msg": "缺少公告 nkey 或 id"}, status=400)
+        ks = nc.nkeys_by_ids([nid])
+        if not ks:
+            return jr({"ok": False, "msg": "公告不存在"}, status=404)
+        key = ks[0]
+    if not nc.off(key):
         return jr({"ok": False, "msg": "撤回失败"}, status=500)
-    finally:
-        conn.close()
     try:
-        users.audit(uid, "notice_off", detail=str(nid), ip=client_ip(request))
+        users.audit(uid, "notice_off", detail=key, ip=client_ip(request))
     except Exception:
         pass
-    return jr({"ok": True, "id": nid})
+    return jr({"ok": True, "nkey": key})
+
+
+@router.post("/api/admin/expire-remind")
+def api_admin_expire_remind(request: Request, body: dict = Body(...), uid: int = Depends(get_admin)):
+    """到期预警「一键提醒」: {uids:[...]} ⇒ 给每个人补发一条到期提醒(站内 + 推送)
+
+    🔴 这是运营主动触发, 无视 dedup 与免打扰; **但仍走每日推送上限** ——
+       不能因为运营点了按钮就把用户的推送炸掉(那条通道炸了就没了)。
+    """
+    from ..services import notice_center as nc
+    uids = []
+    for x in (body.get("uids") or []):
+        try:
+            uids.append(int(x))
+        except (TypeError, ValueError):
+            pass
+    if not uids:
+        return jr({"ok": False, "msg": "请先选择用户"}, status=400)
+    if len(uids) > 300:
+        return jr({"ok": False, "msg": "单次最多 300 人，请分批"}, status=400)
+    n = nc.expire_reminder_batch(uids)
+    try:
+        users.audit(uid, "expire_remind", detail="%s人/成功%s" % (len(uids), n),
+                    ip=client_ip(request))
+    except Exception:
+        pass
+    log.info("管理端批量到期提醒 uid=%s 选择=%s 成功=%s", uid, len(uids), n)
+    return jr({"ok": True, "sent": n, "total": len(uids)})

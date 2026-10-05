@@ -161,6 +161,11 @@ v-for="d in activeTrend" :key="d.date" class="ma-trend-col"
         <button class="ma-btn" :disabled="!selectedExp.length" @click="batchExtend(30, '续期 30 天')">
           <i class="fa fa-plus-circle"></i> 选中 +30 天（{{ selectedExp.length }}）
         </button>
+        <!-- 2026-10-06: 「一键提醒」—— 看到 30 个快到期的人, 除了手动续期还能主动催。
+             提醒是站内消息 + 推送, 不是群发短信; 后端仍受每日推送上限约束。 -->
+        <button class="ma-btn" :disabled="!selectedExp.length || remindBusy" @click="batchRemind">
+          <i class="fa fa-bell"></i> {{ remindBusy ? '发送中…' : '提醒续费（' + selectedExp.length + '）' }}
+        </button>
       </div>
       <div v-if="loading.exp" class="ma-loading"><div class="spinner"></div></div>
       <div v-else-if="!expRows.length" class="ma-empty">该范围内没有到期账号</div>
@@ -185,6 +190,7 @@ v-for="d in activeTrend" :key="d.date" class="ma-trend-col"
             <td class="ops">
               <button class="ma-mini" @click="extendOne(r.id, 30)">+30天</button>
               <button class="ma-mini" @click="extendOne(r.id, 365)">+1年</button>
+              <button class="ma-mini" @click="remindOne(r.id)">提醒</button>
               <button class="ma-mini" @click="$emit('open-detail', r.id)">详情</button>
             </td>
           </tr>
@@ -343,6 +349,10 @@ v-for="d in activeTrend" :key="d.date" class="ma-trend-col"
                   <option :value="false">关闭</option>
                 </select>
               </template>
+              <!-- 字符串型(如"签到奖励加到哪个功能")必须渲染成下拉, 不能是 number 输入框 -->
+              <select v-else-if="meta.type === 'str'" v-model="conf[k]" class="ma-select">
+                <option v-for="o in (meta.options || [conf[k]])" :key="o" :value="o">{{ o }}</option>
+              </select>
               <input v-else v-model.number="conf[k]" type="number" class="ma-input" min="0" max="3650">
               <span class="ma-conf-key">{{ k }}</span>
             </label>
@@ -357,6 +367,35 @@ v-for="d in activeTrend" :key="d.date" class="ma-trend-col"
             <i class="fa fa-info-circle"></i>
             关闭「开放注册」后，注册页与导航栏注册入口会立即隐藏（已登录用户不受影响）。
           </div>
+        </div>
+
+        <!-- 套餐价格(2026-10-06): 以前写死在前端常量里, 改一次价要重新构建 + 换盘,
+             运营做不了促销也上不了年卡。现在改这里即可, 会员页立刻生效。 -->
+        <div class="ma-card">
+          <div class="ma-card-title"><i class="fa fa-money"></i> 套餐价格（会员页「开通/续费」展示）</div>
+          <div v-if="loading.plans" class="ma-loading"><div class="spinner"></div></div>
+          <template v-else>
+            <div class="ma-conf-grid">
+              <label v-for="p in planRows" :key="p.key" class="ma-conf-item">
+                <span class="ma-conf-label">{{ p.label }}</span>
+                <input v-model.number="p.price" type="number" class="ma-input" min="0" step="1">
+                <span class="ma-conf-key">{{ p.days }} 天 · 折合 ¥{{ perDay(p) }}/天</span>
+                <label class="ma-inline" style="grid-column:1/-1">
+                  <input v-model="p.on" type="checkbox" :true-value="1" :false-value="0"> 在售
+                </label>
+              </label>
+            </div>
+            <div class="ma-actions">
+              <button class="ma-btn" :disabled="saving.plans" @click="savePlans">
+                <i class="fa fa-save"></i> {{ saving.plans ? '保存中...' : '保存价格' }}
+              </button>
+              <button class="ma-btn ghost" @click="loadPlans"><i class="fa fa-undo"></i> 放弃修改</button>
+            </div>
+            <div class="ma-hint">
+              <i class="fa fa-info-circle"></i>
+              取消「在售」即从会员页隐藏该档；至少要保留一档在售，否则开通区会变空白。
+            </div>
+          </template>
         </div>
       </template>
     </template>
@@ -446,6 +485,8 @@ import {
   adminMemberConf, saveAdminMemberConf, adminImportUsers, adminExtendPlus, adminSmsUsage,
   adminLoginLog, adminUsageRank, adminActiveUsers,
 } from '../api/admin'
+import { adminExpireRemind } from '../api/notices'
+import { adminPlans, saveAdminPlans } from '../api/admin'
 import { showToast } from '../utils/toast'
 import { logFront } from '../utils/logger'
 
@@ -469,8 +510,8 @@ const LEVELS = { 0: '免费试用', 1: '付费会员', 2: 'VIP老师' }
 const FEATURE = { picker: '选股', aipick: 'AI 预测', auction: '竞价异动' }
 
 const tab = ref('board')
-const loading = reactive({ board: false, exp: false, risk: false, rank: false, audit: false, conf: false, sms: false })
-const saving = reactive({ conf: false, import: false, plus: false })
+const loading = reactive({ board: false, exp: false, risk: false, rank: false, audit: false, conf: false, sms: false, plans: false })
+const saving = reactive({ conf: false, import: false, plus: false, plans: false })
 
 /* 看板 */
 const stats = ref({})
@@ -602,6 +643,33 @@ async function batchExtend(days, label) {
   } catch (e) { showToast('❌ ' + (e.message || '批量续期失败'), 'error') }
 }
 
+/* 到期「一键提醒」(2026-10-06)
+   🔴 这是**离钱最近**的运营动作: 以前看到 30 个快到期的人, 除了手动一个个续期别无他法,
+      而用户不进站根本收不到任何提醒(到期提醒原先只在站内实时推导) ⇒ 续费全靠用户记得。
+   后端会给每个人补发一条 account 类消息(带 expire_at 快照, 续费后自动消失) + 推送。
+   仍受每日推送上限约束 —— 不能因为运营点了按钮就把用户的推送炸掉。 */
+const remindBusy = ref(false)
+async function remindOne(id) {
+  remindBusy.value = true
+  try {
+    const d = await adminExpireRemind([id])
+    showToast(d && d.ok ? '✅ 提醒已发送' : '❌ ' + ((d && d.msg) || '发送失败'), d && d.ok ? 'success' : 'error')
+  } catch (e) {
+    showToast('❌ ' + (e.message || '发送失败'), 'error')
+  } finally { remindBusy.value = false }
+}
+async function batchRemind() {
+  if (!selectedExp.value.length || remindBusy.value) return
+  if (!confirm(`确定给选中的 ${selectedExp.value.length} 人发送续费提醒？\n（站内消息 + 手机推送；仍受每人每日推送上限约束）`)) return
+  remindBusy.value = true
+  try {
+    const d = await adminExpireRemind(selectedExp.value)
+    showToast(`✅ 已提醒 ${d.sent || 0}/${d.total || selectedExp.value.length} 人`, 'success')
+  } catch (e) {
+    showToast('❌ ' + (e.message || '发送失败'), 'error')
+  } finally { remindBusy.value = false }
+}
+
 /* 风控 */
 const risk = ref({ ip_register: [], same_ip_invite: [], top_inviters: [], dup_claims: [], recent_claims: [] })
 async function loadRisk() {
@@ -679,6 +747,31 @@ async function saveConf() {
   } catch (e) { showToast('❌ ' + (e.message || '保存失败'), 'error') } finally { saving.conf = false }
 }
 
+/* 套餐价格(2026-10-06) */
+const planRows = ref([])
+function perDay(p) { return p && p.days ? (Number(p.price) / Number(p.days)).toFixed(1) : '0' }
+async function loadPlans() {
+  loading.plans = true
+  try {
+    const d = await adminPlans()
+    planRows.value = (d.plans || d.defaults || []).map((p) => ({ ...p }))
+  } catch (e) { showToast('❌ 价格加载失败: ' + (e.message || ''), 'error') } finally { loading.plans = false }
+}
+async function savePlans() {
+  if (!planRows.value.some((p) => Number(p.on))) {
+    showToast('❌ 至少要保留一档在售', 'error')
+    return
+  }
+  saving.plans = true
+  try {
+    const d = await saveAdminPlans(planRows.value)
+    planRows.value = (d.plans || planRows.value).map((p) => ({ ...p }))
+    showToast('✅ 价格已保存，会员页立即生效', 'success')
+  } catch (e) {
+    showToast('❌ ' + (e.message || '保存失败'), 'error')
+  } finally { saving.plans = false }
+}
+
 /* 导入导出 */
 const importText = ref('')
 const importPwd = ref('')
@@ -754,7 +847,7 @@ function switchTab(k) {
   else if (k === 'risk' && !risk.value.ip_register.length) loadRisk()
   else if (k === 'rank' && !rankRows.value.length) loadRank()
   else if (k === 'audit' && !auditRows.value.length) { loadAuditActions(); loadAudit(1) }
-  else if (k === 'conf' && !Object.keys(conf.value).length) loadConf()
+  else if (k === 'conf' && !Object.keys(conf.value).length) { loadConf(); loadPlans() }
   else if (k === 'io' && !sms.value.raw_count) loadSms()
 }
 

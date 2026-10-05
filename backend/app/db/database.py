@@ -798,6 +798,16 @@ def init_db():
         cur.execute("ALTER TABLE notices ADD COLUMN off_at INTEGER NOT NULL DEFAULT 0")
 
     conn.commit()
+
+    # ---------------- 消息中心扩展(2026-10-06) ----------------
+    # 消息 id 唯一化(nkey) / 三分类 / 定时发送 / 触达统计 / 订阅偏好 / 推送日计数。
+    # 🔴 必须放在 conn.commit() 之后: notice_center 自己开连接, 且要能读到刚补出的 off_at 列。
+    try:
+        from ..services import notice_center
+        notice_center.init_tables(conn)
+    except Exception as e:
+        log.warning("[init_db] 消息中心表初始化失败(不阻断启动) err=%s", e)
+
     conn.close()
 
 

@@ -136,6 +136,15 @@ export function saveAdminMemberConf(conf) {
   return request('/api/admin/member-conf', { method: 'PUT', body: { conf } })
 }
 
+// 套餐价格(2026-10-06): 原先写死在前端常量 ⇒ 改价要发版。现在后台可改, 含年卡。
+export function adminPlans() {
+  return request('/api/admin/plans')
+}
+
+export function saveAdminPlans(plans) {
+  return request('/api/admin/plans', { method: 'PUT', body: { plans } })
+}
+
 // 批量导入会员: csv 文本, 每行 "用户名,手机号,天数[,邀请码]"
 export function adminImportUsers(csv, defaultPassword = '') {
   return request('/api/admin/users/import', { method: 'POST', body: { csv, default_password: defaultPassword } })

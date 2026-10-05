@@ -135,6 +135,15 @@ def quota_guard(feature):
             log.warning("配额耗尽拦截 uid=%s feature=%s used=%s limit=%s ip=%s",
                         uid, feature, info.get("used"), info.get("limit"),
                         client_ip(request))
+            # 2026-10-06: 撞免费墙是**转化意愿最高的瞬间**, 补一条站内消息(每天每功能只一条)。
+            # 🔴 全程吞异常 + 不参与返回值: 这是附赠, 失败绝不能影响 429 这个主流程。
+            try:
+                from ..services import notice_center as nc
+                nc.notify_quota_exhausted(uid, feature,
+                                          quota_svc.FEATURE_LABEL.get(feature, feature),
+                                          info.get("limit"))
+            except Exception as e:
+                log.warning("配额耗尽消息写入失败 uid=%s err=%s", uid, e)
             raise HTTPException(status_code=429, detail={
                 "ok": False,
                 "code": "quota_exceeded",

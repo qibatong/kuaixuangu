@@ -20,7 +20,8 @@ import time
 from .core import logger
 from .db import database
 from .services import (auction_snapshot, wpqc_push, aipick_scheduler, concept_refresh,
-                       ladder_daily, stock_temper, dev_risk, close_change_daily)
+                       ladder_daily, stock_temper, dev_risk, close_change_daily,
+                       notice_center)
 
 log = logger.get_logger(__name__)
 
@@ -79,7 +80,12 @@ def main():
                                        # 把全市场当日收盘涨跌幅写满 close_change_history
                                        # (2026-09-28 新增; 根因见模块 docstring —— 该表原先是
                                        #  惰性填充, 导致 lhb 实时/历史回看每请求都要现场拉日K)
-    log.info("快照采集 + 尾盘推送 + AI竞价选股调度 + 盘中概念刷新 + 连板天梯盘后生成 + 股性数据落库 + 异动风险扫描 + 收盘涨跌幅落库已启动")
+    notice_center.start_scheduler()    # 消息中心(2026-10-06): 定时公告投递 30s 一轮 +
+                                       # 竞价闹钟 9:15/9:20/9:25 + 名单就绪 9:26 +
+                                       # 到期提醒 08:30 + 签到提醒 09:00
+                                       # 🔴 只挂 worker, 不挂 web: 这些 job 会写库+推推送,
+                                       #    放 web 进程会跟 API 抢资源, 且重启 web 就中断。
+    log.info("快照采集 + 尾盘推送 + AI竞价选股调度 + 盘中概念刷新 + 连板天梯盘后生成 + 股性数据落库 + 异动风险扫描 + 收盘涨跌幅落库 + 消息中心已启动")
     # 主线程阻塞消费队列
     consume_loop()
 

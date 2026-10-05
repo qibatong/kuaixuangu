@@ -345,10 +345,24 @@ ok('用户中心已登录显示首字母头像 / 未登录显示 fa-user',
 // 2026-10-04 系统消息：消息中心页必须渲染得出来, 且**失败态与空态文案不同**（静态闸门）
 const ms = await renderComp(MessagesView, {}, '/messages')
 ok('消息中心页渲染无异常/无警告', ms.errors.length === 0, ms.errors.join(' | '))
-ok('消息中心有页头「系统消息」', ms.html.includes('系统消息'))
+// 2026-10-06: 页面从「系统消息」升级为「消息中心」(三分类 + 单条管理 + 订阅偏好),
+//   断言按现状钉住新名, 并补钉"分类 tab 三类齐全" —— 分类是主人拍板的三档, 不许悄悄变四档。
+ok('消息中心有页头「消息中心」', ms.html.includes('消息中心'))
 ok('消息中心空态/失败态文案不同（不都渲染成空列表）',
    ms.html.includes('暂无消息') || ms.html.includes('读取失败'),
    '两个状态文案都没渲染')
+for (const c of ['系统', '账户会员', '交易时点']) {
+  ok(`消息中心有分类 tab「${c}」`, ms.html.includes(c))
+}
+// ⚠️ 下面两条走**源码断言**而不是 SSR HTML: 空列表下条目不渲染, 且「通知设置」在
+//    v-if="pushSupported" 内(SSR 无 navigator ⇒ 不挂载 —— 这是主人定的"隐藏组件不许挂载"
+//    约束的正确实现)。所以 HTML 里查不到, 只能查源码, 否则会把合规实现误判成缺失。
+// ⚠️ 用 import.meta.url 而不是 __dirname: 本文件的 __dirname 在更下方才定义,
+//    在这里访问会 ReferenceError(TDZ)。
+const SRC_MSGVIEW = readFileSync(new URL('../src/views/MessagesView.vue', import.meta.url), 'utf8')
+ok('消息中心支持单条删除（deleteNotices）', SRC_MSGVIEW.includes('deleteNotices'))
+ok('消息中心有推送偏好设置（saveNoticePrefs）',
+   SRC_MSGVIEW.includes('saveNoticePrefs') && SRC_MSGVIEW.includes('通知设置'))
 for (const t of TABBAR_TABS) {
   // ⚠️ 带 query 的落点（竞价 → /?wb=1&t=auction）在 SSR HTML 里 & 会转义成 &amp; ⇒ 归一化后比较
   const _href = `href="${t.path}"`

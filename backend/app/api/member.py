@@ -22,12 +22,57 @@ from fastapi import APIRouter, Depends, Request
 
 from ..core import config, logger
 from ..services import quota as quota_svc
+from ..services import settings as settings_svc
 from ..services import users
 from .deps import get_uid, jr
 
 log = logger.get_logger(__name__)
 
 router = APIRouter()
+
+#: 2026-10-06 新增: 套餐价格**后台可配**(settings 键 member_plans), 这里是默认值。
+#: 背景: 价格原本写死在前端 MemberView.vue 的 PLANS_PRICE 常量里 ⇒ 改一次价要重新构建+换盘,
+#:   运营完全没法做促销, 也没法上"年卡"(年卡是最直接的改善现金流的手段)。
+#: ⚠️ 年卡 ¥2188 是**建议价**(按月卡 218 / 季卡 588 折合 196 每月, 年卡再打个折合 182/月),
+#:   主人可随时在后台改。不写死在前端是因为它属于经营决策, 不该由发版来定。
+DEFAULT_PLANS = [
+    {"key": "month", "label": "月卡", "days": 30, "price": 218, "on": 1},
+    {"key": "quarter", "label": "季卡", "days": 90, "price": 588, "on": 1},
+    {"key": "year", "label": "年卡", "days": 365, "price": 2188, "on": 1},
+]
+
+
+def _plans():
+    """套餐价格(后台配置优先; 脏数据/缺失 ⇒ 回落默认, 绝不让开通页白屏)"""
+    saved = settings_svc.get("member_plans", None)
+    if isinstance(saved, list) and saved:
+        out = []
+        for p in saved:
+            if not isinstance(p, dict):
+                continue
+            try:
+                out.append({
+                    "key": str(p.get("key") or ""),
+                    "label": str(p.get("label") or ""),
+                    "days": int(p.get("days") or 0),
+                    "price": int(p.get("price") or 0),
+                    "on": 1 if int(p.get("on", 1)) else 0,
+                })
+            except (TypeError, ValueError):
+                continue
+        if out:
+            return out
+    return list(DEFAULT_PLANS)
+
+
+def _checkin_feature():
+    """签到奖励加到哪个功能(后台可配, 默认 picker)
+
+    🔴 白名单兜底: 配错(写成 pickr / 空串)会让签到奖励凭空消失且很难排查 ——
+       直接回落 picker, 至少和历史行为一致。
+    """
+    f = str(getattr(config, "QUOTA_CHECKIN_FEATURE", "picker") or "picker").strip()
+    return f if f in ("picker", "aipick", "auction") else "picker"
 
 
 def _fmt_date(ts):
@@ -124,13 +169,18 @@ def api_checkin(request: Request, uid: int = Depends(get_uid)):
         return jr({"ok": False, "msg": msg,
                    "done_today": True,
                    "streak": users.checkin_streak(uid)}, 400)
-    # 奖励加到选股额度上
+    # 奖励加到**可配置**的功能上(2026-10-06): 原先写死 picker, 于是 aipick/auction 用户
+    # 签到毫无收益 ⇒ 签到这个留存机制对他们形同虚设。默认仍是 picker, 行为不变。
+    feat = _checkin_feature()
     if reward > 0:
-        quota_svc.add_bonus(uid, "picker", reward)
-    q = quota_svc.peek(uid, "picker")
-    log.info("签到成功 uid=%s reward=%s streak=%s", uid, reward, users.checkin_streak(uid))
-    return jr({"ok": True, "msg": "签到成功，选股额度 +%d" % reward,
+        quota_svc.add_bonus(uid, feat, reward)
+    q = quota_svc.peek(uid, feat)
+    log.info("签到成功 uid=%s reward=%s feature=%s streak=%s", uid, reward, feat,
+             users.checkin_streak(uid))
+    return jr({"ok": True,
+               "msg": "签到成功，%s +%d" % (quota_svc.FEATURE_LABEL.get(feat, feat), reward),
                "reward": reward,
+               "feature": feat,
                "done_today": True,
                "streak": users.checkin_streak(uid),
                "quota": q})
@@ -146,6 +196,9 @@ def api_member_plans(request: Request):
         "new_user_days": int(config.NEW_USER_DAYS),
         "invite_reward_days": int(config.INVITE_REWARD_DAYS),
         "checkin_bonus": int(getattr(config, "QUOTA_CHECKIN_BONUS", 3)),
+        "checkin_feature": _checkin_feature(),
+        # 套餐价格(后台可配, 含年卡): 前端不再写死, 改价/促销不必发版
+        "plans": [p for p in _plans() if p.get("on")],
         "free": {
             "label": "免费试用",
             "picker": free_limits.get("picker"),

@@ -210,7 +210,10 @@ REG_OPEN = os.environ.get("REG_OPEN", "1") == "1"                             # 
 QUOTA_PICKER_DAILY = int(os.environ.get("QUOTA_PICKER_DAILY", "3"))           # 选股快照 次/日
 QUOTA_AIPICK_DAILY = int(os.environ.get("QUOTA_AIPICK_DAILY", "1"))           # AI 预测数据 次/日
 QUOTA_AUCTION_DAILY = int(os.environ.get("QUOTA_AUCTION_DAILY", "1"))         # 竞价异动 次/日
-QUOTA_CHECKIN_BONUS = int(os.environ.get("QUOTA_CHECKIN_BONUS", "3"))         # 每日签到赠送选股额度
+QUOTA_CHECKIN_BONUS = int(os.environ.get("QUOTA_CHECKIN_BONUS", "3"))         # 每日签到赠送额度次数
+# 2026-10-06: 签到奖励加到**哪个功能**上(可后台改, 默认 picker = 与历史行为一致)。
+# 背景: 原实现写死 picker, 于是 aipick/auction 用户签到毫无收益, 签到这个留存机制对他们失效。
+QUOTA_CHECKIN_FEATURE = os.environ.get("QUOTA_CHECKIN_FEATURE", "picker")
 QUOTA_DEDUP_SECONDS = int(os.environ.get("QUOTA_DEDUP_SECONDS", "10"))        # 同用户同功能 N 秒内重复请求不重复计数
 
 # ---------- 跨进程状态存储(CacheStore) ----------
