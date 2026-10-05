@@ -250,6 +250,16 @@
 
 ### 0.2 30 秒上手
 
+**⓪ 推送代码（2026-10-05 主人指令：两个 GitHub 远端都要同步）**：
+
+```bash
+git push origin  <分支>     # 主仓库 github.com:felix-rich/kuaixuan   （分支最全，历史主线在这）
+git push mirror  <分支>     # 备份仓库 github.com:qibatong/kuaixuangu （2026-10-05 起要求同步）
+```
+
+⚠️ **两条都要推**，只推 origin 不算完成。mirror 上若还没有该分支，`push` 会自动创建（首次会提示 new branch，属正常）。
+当前分支：2026-10-04 的视觉令牌收敛推的是 `feature/scoring-v7-meoz`。
+
 **① 连服务器**（唯一入口，两个目标 `prod` / `test`）：
 
 ```bash
