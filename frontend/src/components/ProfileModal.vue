@@ -6,7 +6,8 @@
       <input v-model="wxName" type="text" placeholder="微信名(联系管理员时便于核对)" autocomplete="off" maxlength="40">
       <button class="login-btn" :disabled="busy" @click="submit">保存</button>
       <div class="login-err">{{ err }}</div>
-      <div class="login-switch"><a href="javascript:void(0)" @click="close">取消</a></div>
+      <!-- 2026-10-05 (L1 收尾): 同上，`<a javascript:void(0)>` 改真按钮。 -->
+      <div class="login-switch"><button type="button" class="lnk" @click="close">取消</button></div>
     </div>
   </div>
 </template>

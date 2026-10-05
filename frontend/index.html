@@ -102,6 +102,43 @@
        · 字体: public/fonts/fontawesome-webfont.woff2(77KB, 本地)
      ⇒ 零外链、零渲染阻塞、离线可用。新增图标必须重跑生成脚本(否则该图标无字形, 有 _verify/fa_guard.js 兜底)。 -->
 
+<!-- ============ 2026-10-05 启动页样式（**必须内联在此**） ============
+     放这里的唯一理由：它是首帧渲染路径上最早能生效的东西 —— 外链 CSS 要等下载，
+     写进 main.css 就会先闪一帧空白。以下样式自包含、不引用任何变量（此时它们还没定义）。 -->
+<style>
+  #boot-splash {
+    position: fixed; inset: 0;
+    /* 🔴 必须高于水印层（--z-watermark = 2147483000）与登录遮罩（9999）：
+       启动页是**最上层**，任何东西都不该透出来。 */
+    z-index: 2147483600;
+    background: #ffffff;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    transition: opacity .32s ease;
+    /* 硬兜底：3.5s 后无论 JS 有没有跑成功，都自动隐身（0s 时长 = 直接到位）。
+       防的是"JS 报错 ⇒ 用户被永久困在启动页"这种最坏情况。 */
+    animation: bs-auto-out 0s linear 3.5s forwards;
+  }
+  @keyframes bs-auto-out { to { opacity: 0; visibility: hidden; pointer-events: none; } }
+  #boot-splash.is-out { opacity: 0; pointer-events: none; }
+  #boot-splash .bs-logo {
+    width: 104px; height: 104px; border-radius: 24px; display: block;
+    /* 图片没加载出来时不至于露出破图图标 */
+    object-fit: contain;
+  }
+  #boot-splash .bs-slogan {
+    margin-top: 22px;
+    color: #e5484d; font-size: 17px; font-weight: 600; letter-spacing: 2px;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+  #boot-splash .bs-brand {
+    position: absolute; left: 0; right: 0; bottom: 9%; text-align: center;
+    color: #1a1d26; font-size: 20px; font-weight: 700;
+    /* letter-spacing 会在**最后一个字后面**也留一格 ⇒ 补等量左内边距，视觉才真正居中 */
+    letter-spacing: 5px; padding-left: 5px;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+</style>
 </head>
 <body data-bg="dark">
 <script>
@@ -120,6 +157,22 @@
   })()
 </script>
 <div id="app"></div>
+
+<!-- ============ 2026-10-05 品牌启动页（主人：「首页启动全是红色，应该白底 + logo + 标语 + 快选股」） ============
+     为什么放在 index.html 而不是 Vue 组件里：
+       · 它必须在**任何 JS/CSS 包下载之前**就画出来（样式内联在本文件 <head>），否则又会出现"先白一帧再出品牌"；
+       · Android 壳是**远端加载**（capacitor.config.ts 的 server.url）⇒ 网页侧做 ⇒ iOS / H5 / APK 三端同享，
+         **不必重新打包签名 APK**（native 那侧只把底色改白即可，见 android/.../colors.xml）。
+     生命周期：Vue 挂载完成 → main.js 加 .is-out 淡出并移除；
+       🔴 另有 CSS 动画硬兜底（3.5s 后无论 JS 有没有跑都会自动隐身）——
+          绝不能因为一个 JS 报错就把用户永久困在启动页上。
+     配色：白底 + 品牌红标语，对照主人给的同花顺启动屏参考图。 -->
+<div id="boot-splash" aria-hidden="true">
+  <img class="bs-logo" src="/icon-512.png" alt="">
+  <div class="bs-slogan">一键筛选 · 高效复盘</div>
+  <div class="bs-brand">快选股</div>
+</div>
+
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>

@@ -7,7 +7,9 @@
       <input v-model="newPwd2" type="password" placeholder="确认新密码" autocomplete="off" @keydown.enter="submit">
       <button class="login-btn" :disabled="busy" @click="submit">确认修改</button>
       <div class="login-err">{{ err }}</div>
-      <div class="login-switch"><a href="javascript:void(0)" @click="close">取消</a></div>
+      <!-- 2026-10-05 (L1 收尾): 原 `<a href="javascript:void(0)">` —— 无按钮语义、状态栏不见 URL、
+           也没法新标签打开。改真按钮（样式走 main.css 的 .login-switch button.lnk）。 -->
+      <div class="login-switch"><button type="button" class="lnk" @click="close">取消</button></div>
     </div>
   </div>
 </template>

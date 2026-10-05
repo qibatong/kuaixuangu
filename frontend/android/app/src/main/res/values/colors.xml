@@ -11,8 +11,14 @@
     <color name="colorPrimaryDark">#e5484d</color>
     <color name="colorAccent">#e5484d</color>
 
-    <!-- 启动屏底色：app 一被点开第一帧就是品牌红，不会闪白（与顶栏同色, 无缝衔接） -->
-    <color name="splash_background">#e5484d</color>
+    <!-- 启动屏底色：**2026-10-05 由品牌红改为纯白**（主人：「首页启动全是红色，应该白底 + logo + 标语」，
+         并给了同花顺启动屏作参考）。
+         ★ 为什么可以改白而不闪：网页侧新增的 #boot-splash（index.html）也是白底 + logo + 标语
+           ⇒ native 白 → 网页白，衔接处没有色块跳变；此前之所以用红色，正是因为当时网页侧没有启动页，
+             只能靠"红底"在视觉上表示"正在加载"。
+         🔴 状态栏那条红（AppTheme.NoActionBar 的 windowBackground=colorPrimary）保持不动 ——
+            它要跟手机端浅色主题的红色顶栏连成一体，与启动屏是两件事。 -->
+    <color name="splash_background">#ffffff</color>
 
     <!-- 🔴 ic_launcher_background 不在此处定义：
          Capacitor 生成的 values/ic_launcher_background.xml 里已有同名资源，

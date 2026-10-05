@@ -1,23 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 2026-10-04 自定义启动屏（解决"点开包先闪一下白屏"）。
-     结构：**纯色底 + 居中图标 + 图标下方加载文字**。
-     两层都用 android:width/height 锁死 dp 尺寸 ⇒ 不会被各种屏幕比例拉变形。 -->
+<!-- 2026-10-05 启动屏改白（主人：「首页启动全是红色，应该白底 + logo + 标语，下面是快选股三个字」，
+     并给了同花顺启动屏作参考）。
+     结构：**纯白底 + 居中应用图标**。
+
+     🔴 去掉了原来的第 ③ 层「正在加载…」白字（@drawable/splash_loading）：
+        那是配红底的白字，白底上等于隐形；而且**网页侧已有 #boot-splash 承担品牌展示**
+        （白底 + logo + 标语 + 「快选股」，见 index.html），native 这层只需要"干净的白 + 图标"，
+        两层都放文字反而会打架。
+
+     ⚠️ 本文件是 AppTheme.NoActionBarLaunch 的 android:windowBackground。
+        Android 12+ 的系统启动屏还会叠一层 windowSplashScreenAnimatedIcon（强制圆形 mask +
+        缩放动画，文字必被裁掉/变形 —— 2026-10-04 已实测过），所以真机上图标形状由系统决定，
+        不在本文件控制范围内；这也是把"标语/品牌字"交给网页侧启动页的原因。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- ① 底色：品牌红，覆盖整个窗口 -->
+    <!-- ① 底色：纯白（@color/splash_background 已于 2026-10-05 由品牌红改为 #ffffff） -->
     <item android:drawable="@color/splash_background" />
 
-    <!-- ② 居中应用图标 -->
+    <!-- ② 居中应用图标（尺寸锁死 dp，避免被各种屏幕比例拉变形） -->
     <item
         android:drawable="@mipmap/ic_launcher"
         android:width="112dp"
         android:height="112dp"
         android:gravity="center" />
-
-    <!-- ③ 图标下方的「正在加载…」白字（drawable-nodpi/splash_loading.png，透明底） -->
-    <item
-        android:drawable="@drawable/splash_loading"
-        android:width="160dp"
-        android:height="40dp"
-        android:gravity="center_horizontal|bottom"
-        android:bottom="88dp" />
 </layer-list>

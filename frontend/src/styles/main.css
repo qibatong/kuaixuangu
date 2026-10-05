@@ -982,6 +982,15 @@ margin-top: 2px;
 .login-switch { font-size: var(--fs-xs); color: var(--text-muted); margin-top: var(--s3); line-height: 1.7; }
 .login-switch a { color: var(--warn-amber); text-decoration: none; cursor: pointer; margin: 0 2px; }
 .login-switch a:hover { color: var(--gold); text-decoration: underline; }
+/* 2026-10-05 (L1 收尾): 两个弹窗（改密 / 个人信息）里的「取消」也改成真按钮
+   （原先是 <a href="javascript:void(0)">：无按钮语义、状态栏看不见 URL、也没法新标签打开）。
+   这里是**全局**样式（弹窗没有 scoped 样式可复用），视觉与 <a> 版本保持一致：
+   无边框无底色、只有文字色 + hover 下划线。 */
+.login-switch button.lnk {
+  background: none; border: 0; padding: 0; margin: 0 2px;
+  font: inherit; color: var(--warn-amber); cursor: pointer;
+}
+.login-switch button.lnk:hover { color: var(--gold); text-decoration: underline; }
 /* 2026-10-05 (S6): 登录页协议提示 —— 手机号注册的法定告知; 登录页是 meta.bare, 没有页脚,
    这里是新用户唯一能看到协议入口的位置。 */
 .login-agree { margin: var(--s4) 0 0; text-align: center; color: var(--text-dim); font-size: var(--fs-xs); line-height: 1.7; }
@@ -1303,6 +1312,9 @@ body[data-bg="light"] .login-err { color: #8a5500; }
 body[data-bg="light"] .login-switch { color: #6b6b6b; }
 body[data-bg="light"] .login-switch a { color: #c79100; }
 body[data-bg="light"] .login-switch a:hover { color: #8a5500; }
+/* 同上（L1 收尾）：弹窗按钮版「取消」的浅色值 —— 与 <a> 版本取同一对颜色 */
+body[data-bg="light"] .login-switch button.lnk { color: #c79100; }
+body[data-bg="light"] .login-switch button.lnk:hover { color: #8a5500; }
 body[data-bg="light"] .auth-overlay { background: rgba(0,0,0,0.45); }
 
 /* ============ 2026-10-04 登录页全屏化(主人方案第3条) ============ */

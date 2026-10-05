@@ -25,13 +25,16 @@
     </style>
 
 
-    <!-- 2026-10-04：换成自定义的**品牌红**启动屏（原先 @drawable/splash 是 Capacitor
-         默认的浅色图 ⇒ 点开包那一瞬上下白边，看着像"闪白屏"）。
-         ★ 实测取舍（AVD android-34）：曾试过 windowSplashScreenAnimatedIcon 里组合
-           「图标+正在加载文字」，但系统 12+ 对 icon 层有强制圆形 mask + 缩放动画，
-           文字必被裁掉/变形 ⇒ 放弃叠字。加载提示由两层机制保证：
-           ① 启动屏底色=品牌红，用户一进去看到红屏即知"在加载"；
-           ② 新前端页面就绪立即 SplashScreen.hide()（见 src/App.vue），无白屏空窗。 -->
+    <!-- 2026-10-05：启动屏**由品牌红改为纯白**（主人：「首页启动全是红色，应该白底 + logo + 标语」，
+         并给了同花顺启动屏作参考）。底色值见 values/colors.xml 的 splash_background（#ffffff），
+         windowBackground 见 drawable/splash_brand.xml（白底 + 居中图标，已去掉红底配的白字）。
+         ★ 为什么现在能改白而不"闪"：网页侧新增了 #boot-splash（index.html，白底 + logo + 标语 +
+           「快选股」）⇒ native 白 → 网页白，衔接处无跳变。当初用红底正是因为网页侧没有启动页。
+         ★ 历史取舍（2026-10-04 · AVD android-34 实测）：曾试过在 windowSplashScreenAnimatedIcon
+           里组合「图标 + 正在加载文字」，但系统 12+ 对 icon 层有强制圆形 mask + 缩放动画，
+           文字必被裁掉/变形 ⇒ 放弃叠字。**标语与品牌字改由网页侧启动页承担**，本层只放图标。
+         ★ 加载提示仍由两层机制保证：① 启动屏一出现即知"在加载"；② 新前端页面就绪立即
+           SplashScreen.hide()（见 src/App.vue），无白屏空窗。 -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/splash_background</item>
         <item name="android:windowBackground">@drawable/splash_brand</item>

@@ -23,6 +23,20 @@ app.use(createPinia())
 app.use(router)
 app.mount('#app')
 
+// 2026-10-05 品牌启动页（index.html 里的 #boot-splash）：Vue 挂载完成后淡出移除。
+//   ⚠️ 用**双 rAF** 等一帧真正画出来再淡出 —— 单 rAF 有可能在首帧渲染前就把遮罩拿掉，
+//      那一下就变成"先白一帧再出内容"，正是这个启动页要消灭的现象。
+//   ⚠️ CSS 侧另有 3.5s 硬兜底（见 index.html 的 animation），所以本段拿不到 DOM 也不会卡住用户。
+{
+  const bs = document.getElementById('boot-splash')
+  if (bs) {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      bs.classList.add('is-out')
+      setTimeout(() => bs.remove(), 400)
+    }))
+  }
+}
+
 // 2026-10-03 · PWA 离线壳（主人决策：先做 PWA，再谈 APK 封装）
 //   · 只在 **生产构建 + https/localhost** 注册（SW 需要安全上下文；dev 下注册会干扰 HMR）。
 //   · 注册失败**静默**（老浏览器/内网 http 访问只是没有离线能力，不影响正常使用）。
