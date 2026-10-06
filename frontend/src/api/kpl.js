@@ -13,6 +13,11 @@ export function kplIndexBrief() {
   return request('/api/kpl/index-brief', { cache: 30 })
 }
 
+// 板块名称与对应题材描述（超智首页「主线雷达」的资讯行用它，口径同旧独立页 _desc 模糊匹配）
+export function kplHotPlates() {
+  return request('/api/kpl/hot-plates', { cache: 60 })
+}
+
 export function kplBidSeal(date = '') {
   return request('/api/kpl/bid-seal', { query: date ? { date } : {} })
 }
@@ -62,6 +67,13 @@ export function chaozhiOverview(pickDate = '') {
   // pickDate 非空 = 回看某日研判（后端会绕过 60s 缓存直接算，避免与当日互相污染）
   return request('/api/chaozhi/overview' + (pickDate ? '?pick_date=' + encodeURIComponent(pickDate) : ''),
                  { cache: 60 })
+}
+
+/** 核按钮 / 大幅低开榜（2026-10-06 主人口径，见后端 chaozhi.load_risk_list）。
+ *  只读本地 aipick 库（features 的 9:25 定格快照 + 昨日侧标签），**无出网、不吃配额**；盘后数据不再变 ⇒ 30s 足够。 */
+export function chaozhiRiskList(date = '') {
+  return request('/api/chaozhi/risk-list' + (date ? '?date=' + encodeURIComponent(date) : ''),
+                 { cache: 30 })
 }
 
 export function kplBoardRank(date = '') {

@@ -21,7 +21,7 @@
         <table v-else class="srp-table">
           <thead><tr><th>代码</th><th>名称</th><th>涨幅%</th><th>换手%</th><th>成交额(亿)</th></tr></thead>
           <tbody>
-            <tr v-for="s in stocks" :key="s.code" @click="linkToSoftware(s.code)">
+            <tr v-for="s in stocks" :key="s.code" @click="linkToSoftware(s.code, s.name)">
               <td>{{ s.code }}</td><td>{{ s.name }}</td>
               <td :class="(s.change||0)>=0?'up':'down'">{{ s.change!=null? signed(s.change)+'%':'-' }}</td>
               <td>{{ s.turnover!=null? s.turnover.toFixed(1):'-' }}</td>

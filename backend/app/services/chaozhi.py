@@ -402,8 +402,15 @@ def load_picks(top=60, pick_date=None):
 
     # 🔴 2026-10-03 主人反馈"名单里很多跌停的"：展示层加**竞价涨幅下界**（与 FILTER_DEFAULTS.bidLt
     #    同源，默认 2.0）。上游历史文件（旧口径产物）里已存在的低开票同样不再展示。
+    # 🔴 2026-10-06 修正: 原写法直接读 `FILTER_DEFAULTS` **常量** ⇒ 管理员在 settings 里调的
+    #    `bidLt` / `bidLtRatio` **在本页不生效**（本页始终按代码默认 2.0 / 0.8 拦票）。
+    #    实测：2026-10-06 撤掉"涨停幅度×80%"阈值后，金睛/火眼两页已放行低开票，
+    #    本页却仍把它们全部剔空 ⇒ 页面显示 0 只。
+    #    改为 `resolved_defaults()`（= FILTER_DEFAULTS 与 settings 的合并，与 system_batch /
+    #    auto_apply / 前端同源），口径才真正统一。
     try:
-        from .filter_defaults import FILTER_DEFAULTS as _FD
+        from .filter_defaults import resolved_defaults as _resolve_defaults
+        _FD = _resolve_defaults()
         _bid_floor = float(_FD.get("bidLt", 0.0) or 0.0)
         _bid_ratio = float(_FD.get("bidLtRatio", 0.0) or 0.0)
     except Exception:                                            # noqa: BLE001
@@ -485,6 +492,11 @@ def load_picks(top=60, pick_date=None):
     #   + label_truth（涨停池真值，作为当日封板的兜底）
     # 只读、缺表/缺文件一律静默降级（本页原有的名单/概率展示不受影响）
     meta = _pick_meta(date)
+    # 🔴 2026-10-06 修正: 上面这行**整体替换**了 meta —— 函数开头放进去的 `date` / `models`
+    #    随之丢失（下方注释只注意到 notes 被写进了废弃的旧 dict，漏了 date）⇒ 本函数返回的
+    #    meta 里没有"数据日期"，前端无法显示"这份名单是哪天的"。
+    #    这里把日期补回；键名 `date` 与 6 位股票代码不会冲突。
+    meta["date"] = date
     if _dropped_n:      # ⚠️ 必须放在 meta 重新赋值**之后**（原位置那句写进了被丢弃的旧 dict）
         meta.setdefault("notes", []).append(
             "已按阈值（竞价涨幅介于 板块涨停幅度×%.0f%% ~ ×105%%）剔除 %d 只不达标票（含 ST/脏数据）"
@@ -504,6 +516,10 @@ def load_picks(top=60, pick_date=None):
         it["fillGrade"] = m.get("fillGrade")
         it["isYidzi"] = m.get("isYidzi")
         it["isLimitUp"] = m.get("isLimitUp")
+        # ★ 2026-10-06 主人要求：名称/代码下方联动"几板情况"（只给原始值，文案在前端）
+        it["ydayZt"] = m.get("ydayZt")
+        it["ydayLb"] = m.get("ydayLb")
+        it["dayChg"] = m.get("closeChg")      # 当日收盘涨幅(%)：实时行情取不到时的回退值
 
     rmap = _risk_map(date)
     lut = []
@@ -708,6 +724,42 @@ def build_overview(pick_date=None):
         return _build()
 
 
+# ==================== 聚合结果预热（2026-10-06） ====================
+# 🔴 为什么需要：`_build()` 是 **9 个串行环节**（情绪分/资金分/晋级率/情绪序列/资金序列/承接强弱/
+#    个股名单/影子块/战绩序列），实测**冷算 1.8~3.9s**（逐环节：score_promote 1.33s、
+#    load_hit_series 0.91s、load_shadow 0.49s、load_picks 0.30s… 单看都不算慢，串起来就 2s+）。
+#    而缓存 TTL 只有 60s ⇒ **每个 TTL 周期后的第一个请求都要重算**，日活不高时命中率极低。
+#    生产 access log 实证：66 次请求里 **49 次 >2s（74%）**，这不是冷启动偶发，是**常态**。
+#
+# ⇒ 后台每 30s 走一次带缓存的入口（未过期则命中、过期则重算并回写），TTL 60s : 预热 30s = 2:1，
+#   用户请求恒命中。与昨比/spotMap/KPL 预热同款契约：失败绝不抛出，只记日志。
+OVERVIEW_PREWARM_SEC = 30
+_overview_prewarm_started = False
+
+
+def _overview_prewarm_loop():
+    import time as _t
+    while True:
+        try:
+            build_overview()          # 带缓存的入口：未过期→直接命中(几乎零成本)；已过期→重算并回写
+        except Exception as e:                                     # noqa: BLE001
+            log.warning("超智聚合预热失败(%ds 后重试) err=%s", OVERVIEW_PREWARM_SEC, str(e)[:120])
+        _t.sleep(OVERVIEW_PREWARM_SEC)
+
+
+def start_overview_prewarm():
+    """启动聚合预热线程（幂等）。"""
+    global _overview_prewarm_started
+    if _overview_prewarm_started:
+        return
+    _overview_prewarm_started = True
+    import threading
+    threading.Thread(target=_overview_prewarm_loop, name="czh-overview-prewarm",
+                     daemon=True).start()
+    log.info("超智聚合预热线程已启动（缓存 TTL %ds / 预热间隔 %ds）",
+             OVERVIEW_TTL, OVERVIEW_PREWARM_SEC)
+
+
 def load_shadow(pick_date=None):
     """影子模型块（2026-10-03 上线，展示于超智）：影子名单 + 20 日对拍 + 闸门状态。
 
@@ -822,6 +874,116 @@ def load_shadow(pick_date=None):
     return out
 
 
+# ==================== ⑦ 核按钮 / 大幅低开榜（2026-10-06 主人给定口径） ====================
+# 三个判定输入（主人原话）：
+#   ① 昨日是否涨停 —— 昨日**收盘封住**涨停为"是"（盘中触及但炸板不算），含连板数
+#      ⇒ 对应 features.yday_zt / yday_lb（口径见 db.attach_derived）
+#   ② 今日竞价涨幅 —— (竞价价 − 昨收) / 昨收 × 100%，取 **9:25 定格价** ⇒ 对应 features.bid_change
+#   ③ 涨跌停限制 —— 主板 10% / 创业·科创 20% / ST 5% / 北交所 30%，**按个股实际限制判定**
+#
+# 分档（从上到下，命中即停）：
+#   档1 跌停开·极端核按钮：竞价涨幅 ≤ −(本板限制 − 0.5%)，**无论昨日是否涨停**
+#        （主人原文"≤ −9.5%（主板）"= 主板 10% 跌停留 0.5 容差；ST/创业板/北交所按各自限制同步缩放）
+#   档2 核按钮：昨日涨停（含连板）+ 竞价涨幅 ≤ −5%
+#   档3 大幅低开：（昨日涨停 或 昨日涨幅 > 5%）+ 竞价涨幅 ∈ (−5%, −3%]
+#   档4 不入选
+RISK_TIER_LABELS = {
+    1: "跌停开 · 极端核按钮",
+    2: "核按钮",
+    3: "大幅低开",
+}
+
+
+def _limit_pct_of(code, name=None):
+    """涨跌停限制(%)：创业·科创 20 / 北交所 30 / **主板 ST 5** / 其余主板 10。
+
+    🔴 判定顺序必须**先板块、后 ST**：创业板/科创板的 ST 股涨跌停**仍是 20%**，
+       ST 5% 只适用于主板（与 `api/stats._limit_pct` 同款修正，见其 docstring 的实测依据）。
+    ⚠️ 与 `api/stats._limit_pct`、`load_picks` 内的 `_limit_pct` 同口径（三处各一份是现状，改动需同步）。
+    """
+    s = str(code or "").zfill(6)
+    if s[:3] in ("300", "301", "688", "689"):
+        return 20.0
+    if s[:1] in ("8", "4") or s[:3] == "920":
+        return 30.0
+    if name and "ST" in str(name).upper():
+        return 5.0
+    return 10.0
+
+
+def load_risk_list(date=None, per_tier=20):
+    """核按钮 / 大幅低开榜。返回 `{date, prevDate, tiers:[{tier,label,items,total}], notes}`。
+
+    🔴 口径纪律：只读 aipick 库的 features（9:25 定格快照 + 昨日侧标签），**不另算、不凑数**；
+       某档为空 ⇒ total=0、items=[]（前端显示"无"而不是隐藏整块）。
+    🔴 异常值保护：|竞价涨幅| > 31% ⇒ 超出任何板块的涨跌停幅度（无涨跌幅限制的新股/退市整理
+       或脏数据），**剔除**。实测 09-30 存在 `*ST元道 -75.83%` 这类行，若不过滤会霸占档1 榜首。
+    """
+    import os
+    import sqlite3
+    out = {"date": "", "prevDate": "", "tiers": [], "notes": []}
+    db = os.environ.get("AIPICK_DB_PATH", "/opt/kuaixuan/aipick/scripts/data/aipick.db")
+    if not os.path.exists(db):
+        out["notes"].append("aipick 库不存在")
+        return out
+    try:
+        c = sqlite3.connect('file:%s?mode=ro' % db, uri=True, timeout=5)
+        try:
+            if not date:
+                row = c.execute("SELECT MAX(trade_date) FROM features").fetchone()
+                date = row[0] if row else None
+            if not date:
+                out["notes"].append("库内无 features 数据")
+                return out
+            prev = c.execute("SELECT MAX(trade_date) FROM features WHERE trade_date<?",
+                             (date,)).fetchone()[0]
+            out["date"], out["prevDate"] = date, prev or ""
+            rows = c.execute(
+                "SELECT f.code, f.name, f.bid_change, COALESCE(f.yday_zt,0), COALESCE(f.yday_lb,0),"
+                "       f.concept, p.close_chg "
+                "FROM features f LEFT JOIN features p ON p.code=f.code AND p.trade_date=? "
+                "WHERE f.trade_date=?", (prev, date)).fetchall()
+        finally:
+            c.close()
+    except Exception as e:                                     # noqa: BLE001
+        out["notes"].append("读库失败: %s" % str(e)[:80])
+        return out
+
+    buckets = {1: [], 2: [], 3: []}
+    for code, name, bc, yzt, ylb, con, ychg in rows:
+        if bc is None:
+            continue
+        if bc < -31 or bc > 31:            # 无涨跌幅限制股 / 脏数据
+            continue
+        yzt = int(yzt or 0)
+        ychg = float(ychg) if ychg is not None else None
+        lp = _limit_pct_of(code, name)
+        if bc <= -(lp - 0.5):              # 档1：触及跌停价（不看昨日是否涨停）
+            tier, reason = 1, "竞价触及跌停价（%s限制 %.0f%%）" % ("ST " if lp == 5 else "", lp)
+        elif yzt and bc <= -5.0:           # 档2：昨日涨停 + 竞价 ≤ −5%
+            tier, reason = 2, "昨日涨停，今日竞价 ≤ −5%"
+        elif (yzt or (ychg is not None and ychg > 5.0)) and -5.0 < bc <= -3.0:   # 档3
+            tier = 3
+            reason = ("昨日涨停" if yzt else "昨日涨幅 %.2f%% > 5%%" % ychg) + "，今日竞价 −3%~−5%"
+        else:
+            continue
+        buckets[tier].append({
+            "code": str(code).zfill(6), "name": name or "",
+            "bidChange": round(float(bc), 2),
+            "ydayZt": yzt, "ydayLb": int(ylb or 0),
+            "ydayChg": (round(ychg, 2) if ychg is not None else None),
+            "concept": con or "", "limitPct": lp, "reason": reason,
+        })
+    for t in (1, 2, 3):
+        buckets[t].sort(key=lambda x: x["bidChange"])           # 低开越深越靠前
+    out["tiers"] = [
+        {"tier": t, "label": RISK_TIER_LABELS[t],
+         "items": buckets[t][:per_tier], "total": len(buckets[t])}
+        for t in (1, 2, 3)
+    ]
+    return out
+
+
 def _pick_meta(date):
     """读 pick_daily + label_truth，返回 {code: {fillGrade, isYidzi, isLimitUp}}。
 
@@ -865,6 +1027,22 @@ def _pick_meta(date):
                 out.setdefault(k, {"fillGrade": None, "isYidzi": None, "isLimitUp": None})
                 if out[k]["isLimitUp"] is None and zt is not None:   # 池真值兜底（不覆盖 pick_daily 结果）
                     out[k]["isLimitUp"] = int(zt)
+        except Exception:
+            pass
+        # 第四层（2026-10-06 主人要求"名称/代码下方联动几板情况"）：features 的昨日侧标签。
+        #   ydayZt = 昨日是否涨停 / ydayLb = 截至昨日连板数（口径见 db.attach_derived）。
+        #   这里**只给原始值**，"首板 / N连板"的文案交给前端（展示层不塞业务文案）。
+        try:
+            for code, yzt, ylb, cc in c.execute(
+                    "SELECT code, COALESCE(yday_zt,0), COALESCE(yday_lb,0), close_chg "
+                    "FROM features WHERE trade_date=?", (date,)):
+                k = str(code).zfill(6)
+                out.setdefault(k, {"fillGrade": None, "isYidzi": None, "isLimitUp": None})
+                out[k]["ydayZt"] = int(yzt)
+                out[k]["ydayLb"] = int(ylb)
+                # closeChg = 当日收盘涨幅(%)：供前端"实时涨幅"列在**休市/回看**时回退显示，
+                #   否则假期打开页面那一列会整片空白。
+                out[k]["closeChg"] = (float(cc) if cc is not None else None)
         except Exception:
             pass
         c.close()

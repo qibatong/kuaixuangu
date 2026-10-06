@@ -33,3 +33,17 @@ def api_chaozhi_overview(request: Request, uid: int = Depends(get_uid), pick_dat
         log.warning("chaozhi overview 失败 uid=%s err=%s", uid, str(e)[:160])
         return jr({"ok": False, "msg": "聚合数据暂不可用，请稍后重试"})
     return jr({"ok": True, **data})
+
+
+@router.get("/api/chaozhi/risk-list")
+def api_chaozhi_risk_list(request: Request, uid: int = Depends(get_uid), date: str = ""):
+    """核按钮 / 大幅低开榜（2026-10-06 主人给定口径，详见 chaozhi.load_risk_list）。
+
+    date 空 = 最近交易日。任何异常都静默返回空 tiers —— 本块是增强项，
+    不能把超智首页拖挂（与整页"逐块独立降级"的既有设计一致）。
+    """
+    try:
+        return jr({"ok": True, **chaozhi.load_risk_list(date=(date or None))})
+    except Exception as e:                                     # noqa: BLE001
+        log.warning("chaozhi risk-list 失败 uid=%s err=%s", uid, str(e)[:160])
+        return jr({"ok": False, "msg": "榜单暂不可用", "date": "", "prevDate": "", "tiers": []})

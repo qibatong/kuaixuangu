@@ -17,6 +17,7 @@ from ..services import (auction_snapshot, bid_strength, dev_risk, fetcher,
                         settings, stats, stock_search)
 from ..services.cache_store import store as _cstore   # 2026-09-04: refresh 计算缓存
 from ..services.picker.contract import QuoteRow
+from ..services.picker.filter import bid_ceiling    # 竞价涨幅上界(与 filter 层同口径, 2026-10-06)
 from ..services.picker.score import compute_score
 from .deps import get_uid, jr, qs
 
@@ -224,8 +225,10 @@ def _snapshot_candidate_codes(snap_rows, f, yzt_codes):
         # 昨涨停/连板剔除(limitUp 未勾)
         if not f["limitUp"] and (code in yzt_codes):
             continue
-        # 竞价涨幅 > bidGt 剔除(与 picker.filter.apply_filters 同: 保留 ≤ bidGt)
-        if (v.get("bid_change") or 0) > f["bidGt"]:
+        # 竞价涨幅上限剔除(与 picker.filter.apply_filters **同口径**: 走同一个 bid_ceiling)
+        #   ★ 2026-10-06: 原为固定 `> f["bidGt"]` ⇒ 与 filter 层新启用的"按板块自适应上界"
+        #     分叉(20%/30% 板会被固定 10.4% 误杀)。改调 bid_ceiling 后两入口逐票一致。
+        if (v.get("bid_change") or 0) > bid_ceiling(code, f):
             continue
         # 市值门槛(2026-09-20 主人拍板: 所有流通市值改**自由流通市值**)
         #   取值口径 = picker.QuoteRow.mv —— free_mv 优先, 缺失回退 float_mv。

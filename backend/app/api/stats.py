@@ -156,6 +156,51 @@ def _fill_close_change_fallback(lst, serve_date):
     return n
 
 
+def _limit_pct(code, name=None):
+    """按板块返回涨跌停幅度(%)：创业板·科创板 20 / 北交所 30 / **主板 ST 5** / 其余主板 10。
+
+    🔴 2026-10-06 修正判定顺序：必须**先判板块、再判 ST**。
+       创业板/科创板的 ST 股涨跌停**仍是 20%**（ST 5% 只适用于主板）——
+       实测踩到 `*ST禾信(688622) +14.0%` 被误标成"超出限制"（若先判 ST 会得 lp=5）。
+    ⚠️ 与 `chaozhi._limit_pct_of` 同口径（两处各一份是现状，改动需同步）。
+    """
+    c = str(code or "").zfill(6)
+    if c[:3] in ("300", "301", "688", "689"):
+        return 20.0
+    if c[:1] in ("8", "4") or c[:3] == "920":
+        return 30.0
+    if name and "ST" in str(name).upper():
+        return 5.0
+    return 10.0
+
+
+def _is_beyond_limit(chg, code, name=None):
+    """涨跌幅是否**超出该股所属板块的涨跌停限制** ⇒ 新股 / 次新 / 无涨跌幅限制股。
+
+    正常股票当日涨幅不可能超过本板限制，一旦超出只可能是上市首日等**无涨跌幅限制**情形。
+    前端据此给「新」角标（2026-10-06 主人券商式建议第 3 条）—— 否则 +206% 的新股会和
+    +20% 的正常涨停混在一起看。实测 09-30 榜首 `力勤资源 001246 +206.2%` 即上市首日。
+
+    容差 0.5（不是 0.05）：**涨停价按价格精度四舍五入**会让主板涨幅到 10.01%、
+    实测 `环球印务(002799) +10.1%` 曾被误标。
+    """
+    if chg is None:
+        return False
+    return abs(chg) > _limit_pct(code, name) + 0.5
+
+
+def _is_auction_zt(chg, code):
+    """竞价涨幅是否达到**该股所属板块**的涨停幅度。
+
+    🔴 2026-10-06 修口径：原实现写死 `chg >= 9.9`（只对主板成立）——
+       创业板/科创板涨停是 20%，一只创业板票竞价高开 +12%（**实际没涨停**）也会被算进
+       「竞价涨停家数」⇒ 该指标**系统性高估**。改按板块判定，主板行为不变（10×0.99=9.9）。
+    """
+    if chg is None:
+        return False
+    return chg >= _limit_pct(code) * 0.99
+
+
 @router.get("/api/stats/auction-overview")
 def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid), date: str = ""):
     """竞价多时点对比: date 空=最近4个交易日; 指定 'YYYY-MM-DD' 回看该日(自动对齐最近交易日)
@@ -192,15 +237,39 @@ def api_stats_auction_overview(request: Request, uid: int = Depends(get_uid), da
                 day = {"date": d, "points": {}, "yizi_count": None, "yizi_amt": None}
                 for tp in ("9_15", "9_20", "9_25"):
                     rows = conn.execute(
-                        "SELECT bid_change, bid_amt FROM snapshot_bid WHERE date=? AND time_point=?",
+                        "SELECT bid_change, bid_amt, code, name, board FROM snapshot_bid "
+                        "WHERE date=? AND time_point=?",
                         (d, tp)).fetchall()
                     if rows:
                         chgs = [r[0] for r in rows if r[0] is not None]
                         amts = [r[1] for r in rows if r[1] is not None]
+                        # 2026-10-06: 补「红盘率 / 竞价涨停家数 / 竞价龙头榜」，与旧独立超智页
+                        #   realdata._build_auction 同口径 —— 红盘率 = 竞价明细中 bid_change>0 的占比。
+                        #   🔴 口径必须落在**全市场快照**上：/api/stats/auction-snapshot 是按 limit
+                        #   (max 500) 截断的明细，用它算比例会系统性偏强；此处 rows 已是全量。
+                        n_ok = len(chgs) or 1
+                        leaders = [
+                            {
+                                "code": r[2],
+                                "name": r[3] or "",
+                                "bid_change": round(r[0], 2),
+                                "tag": ((r[4] or "").split("、")[0][:8] or "高开"),
+                                # 「新」角标：涨幅超出本板涨跌停限制 ⇒ 新股/无涨跌幅限制（见 _is_beyond_limit）
+                                "isNew": _is_beyond_limit(r[0], r[2], r[3]),
+                            }
+                            for r in sorted([x for x in rows if x[0] is not None],
+                                            key=lambda x: -x[0])[:4]
+                        ]
                         day["points"][tp] = {
                             "avg_change": round(sum(chgs) / len(chgs), 2) if chgs else None,
                             "total_amt": round(sum(amts) * 10000) if amts else None,  # 万元→元
                             "count": len(rows),
+                            "red_ratio": (round(100.0 * sum(1 for c in chgs if c > 0) / n_ok, 1)
+                                          if chgs else None),
+                            # 🔴 按**板块涨停幅度**判定（原写死 9.9 ⇒ 创业板 20% 板被高估，见 _is_auction_zt）
+                            "zt_count": (sum(1 for r in rows if _is_auction_zt(r[0], r[2]))
+                                         if rows else None),
+                            "leaders": leaders,
                         }
                     else:
                         day["points"][tp] = None

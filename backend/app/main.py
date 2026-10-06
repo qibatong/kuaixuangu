@@ -129,6 +129,24 @@ def on_startup():
         yday_prewarm.start_prewarm_scheduler()
     except Exception as e:
         log.warning("昨比预热调度启动失败(不影响主服务) err=%s", e)
+    # AI 概率图预热(2026-10-06): 个股详情 `/api/stock/detail` 为**单只票**算评分时会触发
+    # `ai_predict._market_prob_map` 的**全市场**推理(全市场取数+猫爪补字段出网+pandas+全市场
+    # predict_proba), 冷启动实测 4.8~5.1s; 而缓存是进程内且按日期 ⇒ 重启后/每天首个用户都要等。
+    # 生产 access log 实证: /api/stock/detail 20 次中 6 次 4.9~5.0s(命中缓存仅 0.35s)。
+    # 后台线程保持该缓存常热 ⇒ 用户请求恒命中。必须挂 web 进程(缓存进程级)。
+    try:
+        from .services import ai_predict as _ai
+        _ai.start_ai_prewarm()
+    except Exception as e:
+        log.warning("AI概率图预热启动失败(不影响主服务) err=%s", e)
+    # 超智聚合预热(2026-10-06): /api/chaozhi/overview 的 _build() 是 9 个串行环节, 冷算 1.8~3.9s,
+    # 而缓存 TTL 仅 60s ⇒ 每个周期后的首个请求都要重算, 生产实测 66 次里 49 次 >2s(74%)。
+    # 后台每 30s 走一次带缓存的入口 ⇒ 用户请求恒命中。
+    try:
+        from .services import chaozhi as _czh
+        _czh.start_overview_prewarm()
+    except Exception as e:
+        log.warning("超智聚合预热启动失败(不影响主服务) err=%s", e)
     # spotMap 预热(2026-09-04): 9:30 后 refresh 直读需全市场行情覆盖, 缓存 60s TTL 到期时
     # 请求内同步拉全市场会出秒级长尾(实测 4.6s) → 交易时段后台每 40s 预刷, 请求永远命中。
     # 必须挂 web 进程: spotMap 缓存是 web 进程级(fetcher._quote_map_cache)。

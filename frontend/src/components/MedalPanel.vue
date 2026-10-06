@@ -6,7 +6,7 @@
     <div v-for="(item, i) in top3" :key="item.code" class="medal-card">
       <div class="medal-rank"><span class="medal-rank-icon"></span> {{ ['金牌', '银牌', '铜牌'][i] }}</div>
       <div class="medal-name-big">{{ item.name }}</div>
-      <div class="medal-code" @click="linkToSoftware(item.code)">{{ item.code }}</div>
+      <div class="medal-code" @click="linkToSoftware(item.code, item.name)">{{ item.code }}</div>
       <!-- 实时涨幅顶替原"95分大字"位置(2026-08-18 主人反馈: 盘中关注点, 应是最显眼数字) -->
       <div class="medal-real-big" :class="{ 'green-real': item.realChange !== null && item.realChange !== undefined && item.realChange < item.bidChange }">
         {{ (item.realChange === null || item.realChange === undefined) ? '-%' : ((item.realChange > 0 ? '+' : '') + item.realChange.toFixed(2) + '%') }}

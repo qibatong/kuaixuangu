@@ -1,6 +1,7 @@
 // 通达信相关: 下载 .blk / 点击联动 / 复制代码
 import { showToast } from './toast'
 import { isNative } from './native'
+import { openStockChart } from '../composables/uiBus'
 
 // 通达信 .blk 标准格式: 每行 "市场#代码" (0=深 1=沪 2=北), 纯ASCII无BOM
 export function marketPrefix(code) {
@@ -25,26 +26,40 @@ export function downloadBlkFile(stocks, count, suffix = '') {
   showToast('✅ 已下载 .blk，工具会自动导入通达信', 'success')
 }
 
-// 通达信「唤起客户端」是否可用（Windows/桌面浏览器可用；安卓壳内不可用）
-// 2026-10-04：手机上点个股的**本意是看详情**（App.vue 全局委托会开个股抽屉），
-// 而 treeid:// 这类老协议在安卓 WebView 里是个打不开的域名 ⇒ 必须整体屏蔽，
-// 只保留 .blk 下载（文件本身在安卓上是有用的）。
+// 通达信「唤起客户端」是否可用。
+//
+// 🔴 2026-10-06 主人指令：**全端（电脑 / 网页 / 手机）点击个股一律显示个股详情/分时，
+//    不再唤起通达信客户端** ⇒ 本开关恒为 false（保留函数与调用点，只关掉行为）。
+//
+// 历史：2026-10-04 曾在安卓壳内屏蔽（`return !isNative()`），因为 treeid 老协议在安卓
+// WebView 里是打不开的域名。但那次的判断范围太窄 —— 桌面与移动浏览器仍会跳走。
 export function canLinkTdx() {
-  return !isNative()
+  return false
 }
 
-// 点击股票代码联动通达信(老协议, 没反应就点下载)
-export function linkToSoftware(code) {
+/**
+ * 点击股票 → **打开个股详情（分时/K线）**。
+ *
+ * 🔴 2026-10-06 主人指令：全端一律看详情，**不再跳转通达信**。
+ *    原实现是 `setTimeout(() => { window.location.href = 'http://www.treeid/code_' + code })`
+ *    唤起通达信客户端（仅安卓壳内被 `canLinkTdx()` 屏蔽）。
+ *
+ * ⚠️ 为什么改本函数而不是删这些调用点：全站有 **16 处** `@click="linkToSoftware(...)"`
+ *    （AuctionView 9 处、YidongView/HistoryView/MarketView/MedalPanel/HisPickPanel/
+ *    DevWarnList/ZhPicksPanel/SectorRotationPanel/HotRankMulti/TodayPicksPanel 各若干），
+ *    其中 **7 处不在** App.vue 全局委托的选择器覆盖内
+ *    （`.medal-code` / `.msd-cell.msd-name` / 非 `td` 的 `.code-click` / `<tr>` 整行）——
+ *    那些位置原本既弹不出详情、又照旧跳通达信。
+ *    把本函数改成与全局委托**同一动作**（`uiBus.openStockChart`），
+ *    16 处一次性全部变成"弹详情"，且 **不碰任何模板**、零回归面。
+ *
+ * 与 App.vue 的关系：全局委托在**捕获阶段**先跑（会 `stopPropagation`），
+ *    所以绝大多数表格里本函数根本轮不到执行；本函数是**兜底**，
+ *    负责那些选择器覆盖不到的点位。两者动作一致，谁先跑都不冲突。
+ */
+export function linkToSoftware(code, name = '') {
   if (!code) return
-  // 🔴 安卓壳内**静默返回**：不 toast、不跳转。
-  //   原因：① `http://www.treeid/...` 在 WebView 里无法解析 ⇒ 跳过去是一片报错页，
-  //      用户感知就是"点股票跳转到一个打不开的地方"；
-  //   ② 手机端点个股要走 App.vue 的全局委托（≤768px 开底部个股抽屉），
-  //      这里若还跳 URL，两个行为会叠加 —— 抽屉刚起来页面就跳走了。
-  //   静默（而非提示）是因为它是**同一手势的副作用**，弹 toast 会打扰看行情。
-  if (!canLinkTdx()) return
-  showToast(`正在唤起通达信：${code}（如浏览器询问请选择"打开"，没反应就点"下载自选股"）`, 'info')
-  setTimeout(() => { window.location.href = `http://www.treeid/code_${code}` }, 400)
+  openStockChart(code, name)
 }
 
 export function copyText(text, okMsg) {

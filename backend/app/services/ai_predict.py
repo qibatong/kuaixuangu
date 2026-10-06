@@ -220,6 +220,69 @@ def degrade_stats() -> Dict:
         }
 
 
+# ==================== 概率图预热（2026-10-06） ====================
+# 🔴 为什么需要：`_market_prob_map(date)` 是**全市场**推理 ——
+#    `collector.fetch_from_kuaixuan(date)` 拉全市场 5923 只（含猫爪补字段 **出网**）+ pandas 建表
+#    + XGBoost 全市场 predict_proba。实测**冷启动 4.8~5.1s**（栈采样：出网占 ~3s、首次 import
+#    pandas/sklearn 占 ~1.8s），而缓存在**进程内且按日期** ⇒ 服务重启后、以及每天首次都会冷。
+#    而它的调用方之一是 `/api/stock/detail`（个股详情）——
+#    **为了给 1 只票算评分，让打开详情的用户替全体等 5 秒**。
+#    实测生产 access log：`/api/stock/detail` 20 次中 6 次为 4.9~5.0s（双峰：命中缓存仅 0.35s）。
+#
+# ⇒ 挂 web 进程后台线程预热（与 main.py 的昨比/spotMap/KPL 预热同款契约：失败绝不抛出）。
+#    必须挂 web 进程 —— `_prob_cache` 是**进程级**的，kx-worker 预热不共享。
+_prewarm_started = False
+
+
+def warm_market_prob(date: Optional[str] = None) -> int:
+    """把全市场概率图算出来写进进程缓存。返回命中只数（0 = 未成功，如无快照/模型缺失）。"""
+    if not date:
+        try:
+            from . import bid_strength
+            from ..db import database
+            conn = database.get_conn()
+            try:
+                date = bid_strength._latest_trade_snap_date(conn.cursor())
+            finally:
+                conn.close()
+        except Exception:                                          # noqa: BLE001
+            return 0
+    if not date:
+        return 0
+    return len(_market_prob_map(str(date)) or {})
+
+
+def _prewarm_loop():
+    import time as _t
+    done_date = None
+    while True:
+        try:
+            n = warm_market_prob()
+            if n and done_date != _date_today():
+                done_date = _date_today()
+                log.info("[AI预测] 概率图预热完成 %d 只（个股详情冷启动 5s → 命中缓存）", n)
+        except Exception as e:                                     # noqa: BLE001
+            log.warning("[AI预测] 概率图预热失败(60s 后重试) err=%s", str(e)[:120])
+        _t.sleep(60)
+
+
+def _date_today() -> str:
+    import time as _t
+    return _t.strftime("%Y-%m-%d")
+
+
+def start_ai_prewarm():
+    """启动概率图预热线程（幂等；多次调用只起一个）。"""
+    global _prewarm_started
+    with _lock:
+        if _prewarm_started:
+            return
+        _prewarm_started = True
+    import threading
+    threading.Thread(target=_prewarm_loop, name="ai-prob-prewarm", daemon=True).start()
+    log.info("[AI预测] 概率图预热线程已启动")
+
+
 def _model_width(model) -> Optional[int]:
     """模型期望的特征宽度; 读不到 → None(不做断言, 保持旧行为)。"""
     try:

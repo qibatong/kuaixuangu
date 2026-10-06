@@ -85,7 +85,7 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
         </thead>
         <tbody>
           <tr v-for="it in sealSort.sorted(sealList)" :key="it.code">
-            <td class="stock-info-cell" @click="linkToSoftware(it.code)">
+            <td class="stock-info-cell" @click="linkToSoftware(it.code, it.name)">
             <div class="stock-code-row"><span class="stock-code">{{ it.code }}</span></div>
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ it.name }}</span><PoolHoverBtn :item="it" /></span></div>
             <div v-if="yidongTag(it.code)" class="yd-badge-row"><span class="yd-badge" :title="yidongTagTitle(it.code)">{{ yidongTag(it.code) }}</span></div>
@@ -158,7 +158,7 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
                 :title="layerTip(it.layer)"
               >
                 <!-- 第 1 行: 名称(9:25列) / 概念(9:20列) / 板(9:15列) —— 各占时点列, 不额外增列 -->
-                <span class="msd-cell msd-name" @click="linkToSoftware(it.code)">{{ it.name || it.code }}</span>
+                <span class="msd-cell msd-name" @click="linkToSoftware(it.code, it.name)">{{ it.name || it.code }}</span>
                 <span class="msd-cell msd-concept" :title="it.board">{{ firstConcept(it.board) }}</span>
                 <span class="msd-cell msd-lb">{{ boardLabel(it.limitTimes) }}</span>
                 <span v-if="chgShown(day)" class="msd-cell msd-blank"></span>
@@ -210,7 +210,7 @@ class="rot-reset-btn" title="刷新全部数据（重新加载所有 Tab）"
         </thead>
         <tbody>
           <tr v-for="it in s3Sort.sorted(s3List, s3Val)" :key="it.code">
-            <td class="stock-info-cell" @click="linkToSoftware(it.code)">
+            <td class="stock-info-cell" @click="linkToSoftware(it.code, it.name)">
             <div class="stock-code-row"><span class="stock-code">{{ it.code }}</span></div>
             <div class="stock-name-row"><span class="pool-hover-wrap"><span class="stock-name">{{ it.name || it.code }}</span><PoolHoverBtn :item="it" /></span></div>
             <div v-if="yidongTag(it.code)" class="yd-badge-row"><span class="yd-badge" :title="yidongTagTitle(it.code)">{{ yidongTag(it.code) }}</span></div>

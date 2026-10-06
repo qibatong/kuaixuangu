@@ -15,7 +15,7 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(r,i) in rows" :key="r.code" @click="linkToSoftware(r.code)">
+        <tr v-for="(r,i) in rows" :key="r.code" @click="linkToSoftware(r.code, r.name)">
           <td class="c-rk">{{ i+1 }}</td>
           <td class="c-name">{{ r.name }}</td>
           <td class="c-src">{{ r.kpl || '·' }}</td>

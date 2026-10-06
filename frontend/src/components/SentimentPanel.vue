@@ -176,8 +176,13 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
   background: rgba(255, 255, 255, 0.04);
   min-width: 78px;
 }
+/* 2026-10-06 字号收敛为 **2 档**（主人："4 层也多了"）：
+   本组件只承担"次要信息展示"这一职责，故不需要独立层级 ——
+     12px(--fs-xs) 标签/涨跌幅  ·  13px(--fs-sm) 点位/情绪数值（700 字重做强调）
+   原用 xs/sm/md/base/lg 共 5 档（md 15px 与 base 14px 仅用于数值）已全部收回。
+   ⚠️ 数值降档后靠 **font-weight 700** 保持可读 —— 不能再往上加字号档位。 */
 .idx-name { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); white-space: nowrap; }
-.idx-px { font-size: var(--fs-md); font-weight: 700; font-family: inherit; }
+.idx-px { font-size: var(--fs-sm); font-weight: 700; font-family: inherit; }
 .idx-chg { font-size: var(--fs-xs); font-weight: 600; font-family: inherit; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .idx-chg .idx-chg-sep { color: var(--text-muted); font-weight: 400; }
 .idx-chg .idx-chg-pts { color: var(--text-secondary); font-weight: 500; }
@@ -197,7 +202,7 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
   background: rgba(255, 255, 255, 0.04);
   min-width: 78px;
 }
-.emo-val { font-size: var(--fs-md); font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.emo-val { font-size: var(--fs-sm); font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* 亏钱效应: 绿色(负面指标, 主人指定) */
 .emo-val.loss { color: var(--down); }
 .senti-vdivider { width: 1px; align-self: stretch; background: rgba(255, 255, 255, 0.1); flex-shrink: 0; }
@@ -268,7 +273,9 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
     -webkit-overflow-scrolling: touch;
   }
   .emo-card { min-width: 88px; padding: var(--s1) var(--s2); flex: 0 0 auto; }
-  .emo-val { font-size: var(--fs-base); }
+  /* 2026-10-06：原为 --fs-base(14px) 专设一档；现降到既有的 --fs-sm(13px)，
+     少一档且与"表格正文"同档，手机上数值仍清晰（有 700 字重兜底）。 */
+  .emo-val { font-size: var(--fs-sm); }
   .senti-loading { align-self: flex-start; }
 }
 

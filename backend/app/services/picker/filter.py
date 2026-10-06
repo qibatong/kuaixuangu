@@ -27,6 +27,37 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 from .score import ScoredRow, coarse_rank_key
 
 
+def bid_ceiling(code, f) -> float:
+    """竞价涨幅**上界**(%)。
+
+    · `bidGtRatio > 0` → **按板块自适应**：上界 = 该板块涨停幅度 × bidGtRatio
+        （主板 10×1.04 = 10.4% / 创业科创 20×1.04 = 20.8% / 北交所 30×1.04 = 31.2%）；
+        此时 `bidGt` 退化为**附加上限**：>0 时取两者**较小值**（管理员/用户仍可进一步收紧），
+        0 = 不附加 —— 这样用户界面那个"竞价涨幅上限"不会变成静默失效的死开关。
+    · `bidGtRatio = 0` → 退回固定上界 `bidGt`（旧行为）。
+    · 两者都 ≤ 0 → 兜底 10.4%（主板口径），避免把名单意外清空。
+
+    板块涨停幅度走 `zt_limit_pct` **单一真相源**（300/301/688/689→20%、920/8/4→30%）。
+
+    🔴 2026-10-06（主人要「榜单完整度」）：统一上界会把 20%/30% 板"竞价 10%~20%"的强势票
+      整片截断 —— 实测 2026-09-30 善水科技 301190（创业板）竞价 +10.89%、模型概率 0.977、
+      当日涨停，却被统一 10.4% 挡在名单外（10.89 > 10.4）。
+    """
+
+    def _f(v):
+        try:
+            return float(v or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    ratio, gt = _f(f.get("bidGtRatio")), _f(f.get("bidGt"))
+    if ratio > 0:
+        from ..auction_snapshot import zt_limit_pct    # 延迟 import, 避免模块级循环依赖
+        base = zt_limit_pct(code) * 100.0 * ratio
+        return min(gt, base) if gt > 0 else base
+    return gt if gt > 0 else 10.4
+
+
 # 市场范围判定(与 scorer._in_markets 同口径, 独立实现以免 picker→scorer 循环依赖)
 def in_markets(code: str, markets: Optional[List[str]]) -> bool:
     """hs=沪主板60x + 深主板00x | cyb=300/301 | kcb=688/689 | **bj=北交所 4/8/920**。
@@ -158,7 +189,7 @@ def apply_filters(rows: List[ScoredRow], f: Dict,
         elif bid_chg < f.get("bidLt", 0):
             out.bump("bid_lt")
             continue
-        elif bid_chg > f["bidGt"]:
+        elif bid_chg > bid_ceiling(r.code, f):
             out.bump("bid_gt")
             continue
 
@@ -278,7 +309,7 @@ def coarse_filter(rows: Sequence[Any], f: Dict,
                 continue
         elif bid_chg < f.get("bidLt", 0):
             continue                                # 低开/大跌剔除(同 apply_filters)
-        elif bid_chg > f["bidGt"]:
+        elif bid_chg > bid_ceiling(r.code, f):
             continue
         # ★ 2026-09-20: 取值改 row.mv_yi(自由流通优先), 与精筛/评分同口径。
         #   ⚠️ mv_yi 是忠实的(nv=0 → 0.0), 但本处语义要求 **0 也算"未知"** ——

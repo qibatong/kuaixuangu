@@ -29,6 +29,11 @@
     </header>
 
     <div v-show="open" class="cz-body">
+    <!-- 整页模式：主站**原生渲染**超智首页看板（2026-10-06 起取代原先 iframe 套独立 Flask 页）。
+         数据全部来自主站已有接口（无写死数据），盘中 30s 轮询；逐块独立降级。
+         取代关系：老实现是 <iframe src="/chaozhi/?embed=1">，指向旁路 Flask 服务(8020)，数据另取一份。 -->
+    <ChaozhiHome v-if="!embedded" />
+    <template v-else>
     <div v-if="loading" class="loading-placeholder"><div class="spinner"></div><div>加载研判数据...</div></div>
     <div v-else-if="failed" class="empty-state">研判数据暂不可用，稍后重试</div>
 
@@ -245,6 +250,7 @@
       </div>
       </template>
     </template>
+    </template>
     </div><!-- /.cz-body  ← 2026-10-03: 嵌入模式折叠容器 -->
   </div>
 </template>
@@ -253,6 +259,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { chaozhiOverview } from '../api/kpl'
+import ChaozhiHome from './ChaozhiHome.vue'
 import { usePolling } from '../composables/usePolling'
 import { usePoolStore } from '../stores/pool'
 import { isIntradayNow } from '../utils/time'
@@ -495,6 +502,11 @@ usePolling(() => { if (isIntradayNow()) load() }, 60000, { immediate: false })
 
 <style scoped>
 .cz-root { max-width: 980px; margin: 0 auto; padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
+/* 整页嵌入超智首页看板：铺满宽度，高度自适应内容 */
+.cz-frame { width: 100%; height: calc(100vh - 120px); min-height: 600px; border: none; border-radius: var(--r-lg); background: var(--bg-body); }
+@media (max-width: 640px) {
+  .cz-frame { height: calc(100vh - 150px); min-height: 480px; border-radius: var(--r-md); }
+}
 
 /* 2026-10-03 嵌入左栏(StockView)：不再是整页容器 —— 去掉定宽/居中/底部安全区,
    字级整体收紧一档(左栏只有半屏宽, 整页字号放进来会显得空大)。 */

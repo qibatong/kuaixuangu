@@ -53,7 +53,7 @@
         <div v-for="(it, i) in medals" :key="it.code" class="medal-card">
           <div class="medal-rank"><span class="medal-rank-icon">{{ ['🥇', '🥈', '🥉'][i] }}</span> {{ ['金牌', '银牌', '铜牌'][i] }}</div>
           <div class="medal-name-big">{{ it.name }}</div>
-          <div class="medal-code" @click="linkToSoftware(it.code)">{{ it.code }}</div>
+          <div class="medal-code" @click="linkToSoftware(it.code, it.name)">{{ it.code }}</div>
           <div class="medal-prob-big">{{ it.probability }}%</div>
           <div class="medal-detail">
             <span class="bid-chg">竞涨幅{{ fmt(it.bidChange) }}%</span>
@@ -144,7 +144,7 @@
                  代码格的既有行为扩到整格；若主人只要代码可点，说一声即可收窄。 -->
             <td class="name-col" :data-stock-code="it.code" :data-stock-name="it.name">
               <div class="name-main">{{ it.name }}</div>
-              <div class="name-sub code-click" @click="linkToSoftware(it.code)">{{ it.code }}</div>
+              <div class="name-sub code-click" @click="linkToSoftware(it.code, it.name)">{{ it.code }}</div>
             </td>
             <td :class="cls(it.bidChange)">{{ fmt(it.bidChange) }}%</td>
             <td :class="isGreen(it) ? 'real-green' : cls(it.realChange)">{{ fmt(it.realChange) }}%</td>
@@ -167,6 +167,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { hisPick } from '../api/hisPick'
+import { linkToSoftware } from '../utils/tdx'
 // 2026-10-05 主人要求「点表头排序」：复用站内通用排序 composable（与竞价优选 / 动态选股同源，
 // 行为一致：点击 无 → 降序(数值列)/升序(字符串列) → 反向 → 无；空值恒排末尾）
 import { useSortable } from '../composables/useSortable'
@@ -320,14 +321,12 @@ function exportByList(arr) {
 }
 function exportStocks(n) { exportByList(list.value.slice(0, n)) }
 function exportAll() { exportByList(list.value) }
-function linkToSoftware(code) {
-  if (!code) return
-  const f = document.createElement('iframe')
-  f.style.display = 'none'
-  f.src = `http://www.treeid/code_${code}`
-  document.body.appendChild(f)
-  setTimeout(() => document.body.removeChild(f), 1000)
-}
+// 🔴 2026-10-06 主人指令：点个股一律看详情，不跳通达信。
+//    本文件原先**自己实现了一套跳转**（`document.createElement('iframe')` + `treeid` 协议）——
+//    它绕过了 utils/tdx.js 的平台判断，**连安卓壳里也会跳**，而 iframe 触发的跳转
+//    连 App.vue 全局委托的 `stopPropagation()` 都拦不住（iframe 是自己创建并 append 的）。
+//    ⇒ 删除本地实现，改用模块统一的 linkToSoftware（= 打开个股详情/分时）。
+//    ⚠️ 勿再在此处新增任何 treeid / 通达信协议跳转。
 
 let timer = null
 onMounted(() => {
