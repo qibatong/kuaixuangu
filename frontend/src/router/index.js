@@ -26,9 +26,12 @@ const router = createRouter({
     { path: '/auction', name: 'auction', component: () => import('../views/AuctionView.vue'), meta: { group: 'auction', order: 1 } },
     // 2026-10-03：《顺势而为竞价终极版》（数据来自后端 /api/his-pick）
     { path: '/his-pick', name: 'his-pick', component: () => import('../views/HisPickView.vue'), meta: { group: 'auction', order: 9 } },
-    { path: '/aipick', name: 'aipick', component: () => import('../views/AipickView.vue'), meta: { group: 'auction', order: 2 } },
+    // 2026-10-06: 金睛/火眼归属从「竞价」组改挂「超智」组 —— 超智页「查看评分详情」
+    //   跳过来时顶栏高亮仍停在「超智」，不再出现"从超智跳进了竞价"的错位感。
+    //   路径 /aipick /aipick-lgb 一字不动（旧书签/外链不失效）。
+    { path: '/aipick', name: 'aipick', component: () => import('../views/AipickView.vue'), meta: { group: 'chaozhi', order: 1 } },
     // 2026-09-25: 火眼(LightGBM) 平行链路独立页(与 /aipick 共用 AipickReport 组件, 只换 model)
-    { path: '/aipick-lgb', name: 'aipick-lgb', component: () => import('../views/AipickLgbView.vue'), meta: { group: 'auction', order: 3 } },
+    { path: '/aipick-lgb', name: 'aipick-lgb', component: () => import('../views/AipickLgbView.vue'), meta: { group: 'chaozhi', order: 2 } },
 
     // ---------------- 盘中 ----------------
     // /market = 板块（页顶内嵌大盘温度 SentimentPanel + 数据源切换: 开盘啦强度榜 | 东财概念榜）

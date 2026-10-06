@@ -169,7 +169,9 @@
 
       <!-- ⑥ 底部按钮 -->
       <div class="cz-foot">
-        <button class="cz-btn ghost" @click="goDetail">查看评分详情</button>
+        <!-- 2026-10-06: 文案改「完整评分榜单」—— 落点是 /aipick 全榜(45 只+筛选)，
+             叫"详情"容易让人以为是个股详情；且 /aipick 已归入超智组，跳转后高亮不切走 -->
+        <button class="cz-btn ghost" @click="goDetail">查看完整评分榜单</button>
         <button class="cz-btn main" :disabled="!picks.length" @click="addPool">加入自选</button>
       </div>
 

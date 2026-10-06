@@ -40,7 +40,15 @@ export const NAV_GROUPS = [
     label: '超智',
     icon: 'fa-lightbulb-o',
     entry: '/chaozhi',
-    items: [{ label: '超智研判', path: '/chaozhi' }],
+    // 2026-10-06: 金睛/火眼(/aipick, /aipick-lgb) 从「竞价」组并进来 —— 它们就是
+    //   超智评分的完整榜单页（超智页底部「查看评分详情」的落点）。组内变 3 页 ⇒
+    //   GroupNav 会开始渲染二级 pill 行（超智研判 / AI预测·金睛 / AI预测·火眼），
+    //   与"超智=聚合页 + 两个模型榜"的信息架构一致。
+    items: [
+      { label: '超智研判', path: '/chaozhi' },
+      { label: 'AI预测·金睛', path: '/aipick' },
+      { label: 'AI预测·火眼', path: '/aipick-lgb' },
+    ],
   },
   {
     key: 'auction',
@@ -62,9 +70,7 @@ export const NAV_GROUPS = [
       { label: '选股名单', path: '/' },
       // /auction 原本根本不在导航里，v4.11.58 时必须提到明面（工单第四节）
       { label: '竞价异动', path: '/auction' },
-      // AI 预测·金睛 / 火眼是 VIP 付费功能，原先只嵌在首页左视图 tab 里，不能藏（工单第四节）
-      { label: 'AI预测·金睛', path: '/aipick' },
-      { label: 'AI预测·火眼', path: '/aipick-lgb' },
+      // 2026-10-06: AI预测·金睛/火眼 移入上方「超智」组（VIP 付费入口仍保留，只是换了组）
     ],
   },
   {
@@ -131,7 +137,9 @@ export const NAV_GROUPS = [
  */
 const NAME_TO_GROUP = {
   chaozhi: 'chaozhi',
-  stock: 'auction', auction: 'auction', aipick: 'auction', 'aipick-lgb': 'auction',
+  stock: 'auction', auction: 'auction',
+  // 2026-10-06: 金睛/火眼随 meta.group 归入超智（兜底同步改）
+  aipick: 'chaozhi', 'aipick-lgb': 'chaozhi',
   news: 'news',
   market: 'intraday', concept: 'intraday',
   ladder: 'review', history: 'review', temper: 'review', bigv: 'review',
@@ -204,7 +212,8 @@ export function tabbarKeyOfRoute(route) {
     if (String(route.query && route.query.wb || '') === '1') return 'auc'
     return 'home'
   }
-  if (p.indexOf('/aipick') === 0) return 'home'
+  // 2026-10-06: /aipick(/aipick-lgb) 归入超智组 ⇒ 手机底栏无对应格，返回 '' 不高亮
+  //   （与 /pool /news 等"从宫格/聚合页进"的二级页同一待遇，不再冒充「首页」高亮）
   if (p.indexOf('/auction') === 0) return 'auc'
   const g = groupKeyOfRoute(route)
   if (g === 'intraday') return 'intraday'
