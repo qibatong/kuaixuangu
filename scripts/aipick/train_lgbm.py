@@ -32,16 +32,20 @@ import sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from db import load_features, init_db  # noqa: E402
+from db import load_features, init_db, apply_gene_filter  # noqa: E402
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from sklearn.metrics import roc_auc_score, classification_report  # noqa: E402
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "models"))
+# ★ 2026-10-06: 支持环境变量重定向 —— 生产机训练必须在临时目录出产物,
+#   否则直接覆盖线上 models/model_lgb.txt（见 train_model.py 同一处注释）。
+MODEL_DIR = os.path.normpath(os.environ.get("AIPICK_MODEL_DIR")
+                             or os.path.join(SCRIPT_DIR, "..", "models"))
 # ★ 与 XGB 的 ../output 隔离
-OUT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "output", "lgb"))
+OUT_DIR = os.path.normpath(os.environ.get("AIPICK_OUT_DIR")
+                           or os.path.join(SCRIPT_DIR, "..", "output", "lgb"))
 
 # ★ 必须与 train_model.py / predict_daily.py / ai_predict.py 逐字一致
 # ★ 2026-09-25：移除 `yesterday_chg`（6 维 → 5 维），理由与实测见 train_model.py 顶部注释。
@@ -150,7 +154,17 @@ def _prepare():
         print("⚠️ 数据不足 200 行，先跑 backfill.py 回补历史数据")
         return None
 
+    # ★ 顺序要紧：先判"真实采集段"，再按池子筛基因（否则池内每日行数变小会让判据误判）。
     df, data_source = _select_training_frame(df)
+
+    # ★ 2026-10-06 主人订正: 训练池**只**要求「40 个交易日内有过涨停」;
+    #   竞价涨幅 / 竞价金额 / 流通市值 训练时不限制, 只在展示侧筛。与 XGB 侧同批。
+    _n_before = len(df)
+    df = apply_gene_filter(df)[0]
+    print(f"  训练池: {_n_before} 行 → 40 交易日内有过涨停 {len(df)} 行")
+    if len(df) < 200:
+        print(f"⚠️ 池内仅 {len(df)} 行，不足 200，放弃本次训练")
+        return None
     if len(df) < 200:
         print(f"⚠️ 选出的训练数据仅 {len(df)} 行，不足 200，放弃本次训练")
         return None

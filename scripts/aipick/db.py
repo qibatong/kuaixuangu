@@ -242,7 +242,59 @@ def update_next_day(trade_date, rows):
     conn.close()
 
 
-def load_features(limit_days=None):
+# ==================== 训练池（2026-10-06 主人指令）====================
+# 🔴 主人订正后的**最终口径**：
+#    训练时**只**要求「40 个交易日内有过涨停」这一条；
+#    竞价涨幅 / 竞价成交金额 / 流通市值 **训练时都不限制，只在展示时（预测侧）要求**。
+#
+#    这样改的道理：训练要让模型看到**全市场的特征分布**。若把"涨幅≤7%、市值≤200亿"
+#    塞进训练池，模型只见过"池子里那批已知强势股"，学到的只是池子内部的相对排序；
+#    一旦展示侧口径微调（例如金额门槛从 3000 万挪到 5000 万），模型输入分布就整体
+#    漂到训练分布之外。**展示侧的过滤交给展示侧做**，模型只负责"给定一只票，判断它
+#    今日涨停的概率"。
+#
+#    （备注：库内 `bid_amount` 在 2026-09-21 前后是两套口径 —— 同一天全市场最大值
+#      994 万 vs 16624 万，差 16 倍，早期是 backfill 的 `开盘价×量×0.15` 近似值。
+#      所以金额**本来就无法**作为训练池的绝对门槛，与上面的口径一致。）
+POOL_ZT_GENE_DAYS = 40      # 涨停基因回看窗口(交易日)
+POOL_ZT_GENE_MIN = 1        # 窗口内最少涨停次数
+
+
+def build_zt_gene_set(days=POOL_ZT_GENE_DAYS, min_cnt=POOL_ZT_GENE_MIN):
+    """涨停基因合格集合 `{(code, trade_date)}`：过去 days 个交易日内涨停 ≥min_cnt 次。
+
+    ⚠️ **严格不含当日** —— 当日 `is_limit_up` 就是训练标签，含当日即标签泄漏。
+    ⚠️ 必须用**全表**交易日序列计算（不受 `load_features` 的 limit_days 截断影响），
+       否则窗口起点被截断，靠近截断边界的样本会被误判为"无基因"。
+    """
+    conn = get_conn()
+    all_dates = [r[0] for r in conn.execute(
+        "SELECT DISTINCT trade_date FROM features ORDER BY trade_date").fetchall()]
+    didx = {d: i for i, d in enumerate(all_dates)}
+    zt = {}
+    for code, d in conn.execute("SELECT code, trade_date FROM features WHERE is_limit_up=1"):
+        i = didx.get(d)
+        if i is not None:
+            zt.setdefault(str(code), []).append(i)
+    conn.close()
+    n = len(all_dates)
+    ok = set()
+    for code, idxs in zt.items():
+        for i in idxs:
+            for j in range(i + 1, min(i + 1 + int(days), n)):
+                ok.add((code, all_dates[j]))
+    return ok
+
+
+def apply_gene_filter(df, gene=None):
+    """按「40 个交易日内有过涨停」筛训练样本。返回 `(df, 命中行数)`。"""
+    if gene is None:
+        gene = build_zt_gene_set()
+    keep = [(str(c), d) in gene for c, d in zip(df["code"], df["trade_date"])]
+    return df[keep], int(sum(keep))
+
+
+def load_features(limit_days=None, pool=False):
     """加载带标签的特征数据（训练用）。
 
     ★ 2026-10-02 两处修正（实测踩到）：
@@ -252,21 +304,29 @@ def load_features(limit_days=None):
          106 万行 × 24 列直接 OOM（`Killed`）⇒ 可按最近 N 个交易日截断。
          调用方由 `AIPICK_TRAIN_DAYS` 环境变量控制（默认见 train_model.py 注释）。
       改用 `pd.read_sql_query` 也比重建 Python 对象省内存。
+
+    ★ 2026-10-06 新增 `pool=True`：只返回**训练池**样本。
+      当前口径 = 「40 个交易日内有过涨停」（涨幅/金额/市值不设训练限制，只在展示侧筛）。
     """
     import pandas as pd
     conn = get_conn()
-    sql = "SELECT * FROM features WHERE is_limit_up IS NOT NULL"
+    where = "is_limit_up IS NOT NULL"
     params = []
     if limit_days:
         days = [r[0] for r in conn.execute(
             "SELECT DISTINCT trade_date FROM features ORDER BY trade_date DESC LIMIT ?",
             (int(limit_days),)).fetchall()]
         if days:
-            sql += " AND trade_date >= ?"
+            where += " AND trade_date >= ?"
             params.append(min(days))
-    sql += " ORDER BY trade_date"
+    sql = "SELECT * FROM features WHERE %s ORDER BY trade_date" % where
     df = pd.read_sql_query(sql, conn, params=tuple(params))
     conn.close()
+    if pool:
+        n0 = len(df)
+        df, _ = apply_gene_filter(df)
+        print("  训练池: 全市场 %d 行 → 40 交易日内有过涨停 %d 行 (涨停率 %.2f%%)" % (
+            n0, len(df), 100.0 * float(df["is_limit_up"].mean()) if len(df) else 0.0))
     return df
 
 

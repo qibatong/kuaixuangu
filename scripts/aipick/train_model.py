@@ -11,7 +11,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from db import load_features, init_db  # noqa
+from db import load_features, init_db, apply_gene_filter  # noqa
 
 import pandas as pd
 import numpy as np
@@ -19,8 +19,13 @@ import xgboost as xgb
 from sklearn.metrics import roc_auc_score, classification_report
 from sklearn.model_selection import TimeSeriesSplit
 
-MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")
-OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output")
+# ★ 2026-10-06: 支持环境变量重定向输出。
+#   线上模型**就是** models/model_xgb.json 这个文件（无版本指针可切），
+#   在生产机直接跑训练会当场替换线上模型 ⇒ 必须能把产物写到临时目录做评估。
+#   用法: AIPICK_MODEL_DIR=/tmp/xxx/models AIPICK_OUT_DIR=/tmp/xxx/output python3 train_model.py
+_BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+MODEL_DIR = os.environ.get("AIPICK_MODEL_DIR") or os.path.join(_BASE, "models")
+OUT_DIR = os.environ.get("AIPICK_OUT_DIR") or os.path.join(_BASE, "output")
 
 # 特征列（与工具评分逻辑一致 + 基础特征）
 # ★ 2026-09-25 拍板：**移除 `yesterday_chg`**（6 维 → 5 维），见 docs/BACKLOG-特征集5维化.md
@@ -105,7 +110,20 @@ def train():
         print("⚠️ 数据不足 200 行，先跑 backfill.py 回补历史数据")
         return
 
+    # ★ 顺序要紧：**先判"真实采集段"，再按池子筛基因**。
+    #   _select_training_frame 的判据是"单日行数 > 3000 = 真实采集日"；若先筛池，
+    #   池内每天只剩几百行，判据必然误判成"没有真实采集段"并打印误导性警告。
     df, data_source = _select_training_frame(df)
+
+    # ★ 2026-10-06 主人订正: 训练池**只**要求「40 个交易日内有过涨停」;
+    #   竞价涨幅 / 竞价金额 / 流通市值 **训练时不限制**, 只在展示侧(预测)筛。
+    #   让模型看到全市场特征分布，展示侧口径微调时模型不必重训。见 db.POOL_*。
+    _n_before = len(df)
+    df = apply_gene_filter(df)[0]
+    print(f"  训练池: {_n_before} 行 → 40 交易日内有过涨停 {len(df)} 行")
+    if len(df) < 200:
+        print(f"⚠️ 池内仅 {len(df)} 行，不足 200，放弃本次训练")
+        return
     if len(df) < 200:
         print(f"⚠️ 选出的训练数据仅 {len(df)} 行，不足 200，放弃本次训练")
         return
