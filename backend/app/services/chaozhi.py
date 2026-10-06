@@ -662,11 +662,8 @@ def _build(pick_date=None):
     except Exception as e:                                     # noqa: BLE001
         picks, pmeta = [], {"notes": ["个股列表读取失败：%s" % str(e)[:80]]}
     notes += (pmeta.get("notes") or [])
-    # 2026-10-03 主人要求：影子名单/闸门状态展示在超智接口内（仅内部参考，不对外）
-    try:
-        shadow = load_shadow(pick_date=pick_date)
-    except Exception as e:                                      # noqa: BLE001
-        shadow, notes = {"enabled": False, "note": "影子块读取失败：%s" % str(e)[:80]}, notes
+    # 2026-10-06: 影子模型块已随影子系统整体下线（主人决定），此处不再读取 current.json /
+    #   pick_daily_shadow / shadow_gate，响应里也不再带 "shadow" 字段。
     if picks and all(p.get("divergence") is None for p in picks):
         notes.append("当前只有单模型有产出 ⇒ 综合分 = 该模型的当日百分位（非双模型融合）")
 
@@ -695,7 +692,6 @@ def _build(pick_date=None):
             "latest": capital[-1] if capital else {},
         },
         "picks": picks,
-        "shadow": shadow,
         # 战绩回看（有真值的交易日；可能为空数组 ⇒ 前端不渲染该条，不得显示 0%）
         "hitSeries": hit_series,
         "hitSummary": summarize_hits(hit_series),
@@ -758,120 +754,6 @@ def start_overview_prewarm():
                      daemon=True).start()
     log.info("超智聚合预热线程已启动（缓存 TTL %ds / 预热间隔 %ds）",
              OVERVIEW_TTL, OVERVIEW_PREWARM_SEC)
-
-
-def load_shadow(pick_date=None):
-    """影子模型块（2026-10-03 上线，展示于超智）：影子名单 + 20 日对拍 + 闸门状态。
-
-    ⚠️ 影子名单**仅供内部参考，不对外**（产品口径：评分排序验证期，不干扰用户决策）。
-    数据源（全部只读、零出网）：
-      · pick_daily_shadow —— 影子名单（交易日 9:27 由 aipick_shadow 落库）
-      · shadow_gate       —— 闸门判定历史（20 日同日配对 topN 差 + 决策/原因）
-      · models/current.json / shadow_freeze.json —— 候选版本、冻结状态
-    任何异常都返回 enabled=False（静默降级，绝不影响超智主流程）。
-    """
-    import json
-    import os
-    import sqlite3
-    db = os.environ.get("AIPICK_DB_PATH", "/opt/kuaixuan/aipick/scripts/data/aipick.db")
-    md = os.environ.get("AIPICK_MODELS_DIR", "/opt/kuaixuan/aipick/models")
-    out = {"enabled": False, "picks": [], "gate": None, "candidate": None, "frozen": False,
-           "note": "", "disclaimer": "影子名单仅内部参考，未对外发布"}
-    try:
-        with open(os.path.join(md, "current.json"), encoding="utf-8") as f:
-            ptr = json.load(f) or {}
-        out["candidate"] = ptr.get("shadow")
-        out["candidateTrainedAt"] = ptr.get("shadow_trained_at")
-        out["live"] = ptr.get("live") or "线上 11 维模型"
-        out["promotedAt"] = ptr.get("promoted_at")
-    except Exception:
-        pass
-    try:
-        with open(os.path.join(md, "shadow_freeze.json"), encoding="utf-8") as f:
-            fr = json.load(f) or {}
-        out["frozen"] = bool(fr.get("frozen"))
-        out["freezeReason"] = fr.get("reason") or ""
-    except Exception:
-        pass
-    if not os.path.exists(db):
-        out["note"] = "影子数据未就绪（库不存在）"
-        return out
-    try:
-        c = sqlite3.connect('file:%s?mode=ro' % db, uri=True, timeout=5)
-    except Exception:
-        return out
-    try:
-        d8 = ''.join(ch for ch in str(pick_date) if ch.isdigit())[:8] if pick_date else ''
-        if not d8:
-            r = c.execute("SELECT MAX(REPLACE(trade_date,'-','')) FROM pick_daily_shadow").fetchone()
-            d8 = (r[0] or '') if r else ''
-        out["date"] = d8
-        if d8:
-            # 🔴 只取 topn=10 那一组（pick_daily_shadow 同时存 top3/5/10/30 四组，
-            #    混着取会让同一只票重复出现 —— 2026-10-03 实测踩到）
-            rows = c.execute(
-                "SELECT code, score, topn, model_ver, y FROM pick_daily_shadow "
-                "WHERE REPLACE(trade_date,'-','')=? AND topn=10 ORDER BY score DESC",
-                (d8,)).fetchall()
-            if not rows:      # 兜底：老数据没有 topn=10 组时，按代码去重
-                seen, tmp = set(), []
-                for r in c.execute(
-                        "SELECT code, score, topn, model_ver, y FROM pick_daily_shadow "
-                        "WHERE REPLACE(trade_date,'-','')=? ORDER BY topn, score DESC", (d8,)):
-                    k = str(r[0]).zfill(6)
-                    if k not in seen:
-                        seen.add(k)
-                        tmp.append(r)
-                rows = tmp
-            names, labels = {}, {}
-            try:
-                for code, nm, zt in c.execute(
-                        "SELECT code, name, is_limit_up_v3 FROM features "
-                        "WHERE REPLACE(trade_date,'-','')=?", (d8,)):
-                    k = str(code).zfill(6)
-                    names[k] = nm
-                    if zt is not None:
-                        labels[k] = int(zt)
-            except Exception:
-                pass
-            top10 = [{"code": str(cd).zfill(6), "name": names.get(str(cd).zfill(6)),
-                      "score": (round(float(sc), 4) if sc is not None else None),
-                      "modelVer": mv,
-                      "isLimitUp": (labels.get(str(cd).zfill(6)) if str(cd).zfill(6) in labels
-                                    else (int(y) if y is not None else None))}
-                     for cd, sc, tn, mv, y in rows][:10]
-            cnt = {"hit": 0, "total": 0}
-            for it in top10:
-                if it["isLimitUp"] is not None:
-                    cnt["total"] += 1
-                    cnt["hit"] += it["isLimitUp"]
-            out["picks"] = top10
-            out["hit"] = ({"hit": cnt["hit"], "total": cnt["total"],
-                           "rate": (round(100.0 * cnt["hit"] / cnt["total"], 1) if cnt["total"]
-                                    else None)})
-        try:
-            r = c.execute("SELECT trade_date, shadow_ver, n_days, top3_pp, top5_pp, top10_pp, "
-                          "top30_pp, decision, reason FROM shadow_gate "
-                          "ORDER BY REPLACE(trade_date,'-','') DESC LIMIT 1").fetchone()
-            if r:
-                out["gate"] = {"date": ''.join(ch for ch in str(r[0]) if ch.isdigit())[:8],
-                               "candidate": r[1], "nDays": r[2],
-                               "top3Pp": r[3], "top5Pp": r[4], "top10Pp": r[5], "top30Pp": r[6],
-                               "decision": r[7], "reason": r[8],
-                               "decisionText": {"promote": "已晋级（换线上）", "trial": "通过闸门·试运行",
-                                                "rollback": "已回滚", "continue_shadow": "继续影子"
-                                                }.get(r[7] or '', r[7] or '')}
-        except Exception:
-            pass
-        out["enabled"] = bool(out["picks"] or out["gate"])
-        if not out["enabled"] and not out["note"]:
-            out["note"] = ("影子链路已上线：交易日 9:27 出名单、19:25 闸门判定；"
-                           "满 20 个交易日后才可能自动晋级")
-    except Exception as e:                                      # noqa: BLE001
-        out["note"] = "影子块读取失败：%s" % str(e)[:80]
-    finally:
-        c.close()
-    return out
 
 
 # ==================== ⑦ 核按钮 / 大幅低开榜（2026-10-06 主人给定口径） ====================

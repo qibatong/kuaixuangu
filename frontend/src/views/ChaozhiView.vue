@@ -196,44 +196,10 @@
              且其内容已过期：竞价额≥3000万 / 涨幅≤10% 均已改） -->
       </section>
 
-      <!-- ⑤⑥ 影子 / 底部按钮 / 降级说明 —— **仅整页**（2026-10-06: 嵌入左栏只留 Hero + Top5） -->
+      <!-- ⑤ 底部按钮 / 降级说明 —— **仅整页**（2026-10-06: 嵌入左栏只留 Hero + Top5）
+           2026-10-06: 「影子模型 · 内部验证」区块已随影子系统整体下线（主人决定），
+           后端 /api/chaozhi/overview 不再返回 shadow 字段，故此处一并移除。 -->
       <template v-if="!embedded">
-      <!-- ⑤ 影子模型（2026-10-03 上线；主人要求展示在超智内）—— 内部验证中，⚠️ 不对外发布 -->
-      <section v-if="shadow.enabled" class="cz-card cz-shadow">
-        <div class="cz-card-h">
-          <span class="cz-card-t">影子模型 · 内部验证</span>
-          <span class="cz-cnt">不对外</span>
-        </div>
-        <div class="cz-note">
-          候选 <b>{{ shadow.candidate || '—' }}</b>（{{ (shadow.candidateTrainedAt || '—').slice(0, 16) }} 训练）·
-          数据日 {{ shadow.date }} · 当日 top10 封板
-          <b>{{ shadow.hit?.hit }}/{{ shadow.hit?.total }}</b>
-          <b v-if="shadow.hit?.rate != null">（{{ shadow.hit.rate }}%）</b>
-        </div>
-        <div class="cz-list" :class="{ 'cz-list-scroll': embedded }">
-          <div v-for="(p, i) in shadow.picks" :key="p.code" class="cz-row">
-            <span class="cz-line1">
-              <span class="cz-name">{{ i + 1 }}. {{ p.name || '—' }}</span>
-              <span class="cz-code">{{ p.code }}</span>
-              <span v-if="p.isLimitUp === 1" class="cz-pk cz-pk-zt">已封板</span>
-              <span v-else-if="p.isLimitUp === 0" class="cz-pk cz-pk-no">未封板</span>
-              <span v-else class="cz-pk">待回填</span>
-            </span>
-            <span class="cz-line2">
-              <span class="cz-fused">分数<b>{{ p.score }}</b></span>
-              <span class="cz-models">模型 {{ p.modelVer || '—' }}</span>
-            </span>
-          </div>
-        </div>
-        <div v-if="shadow.gate" class="cz-note">
-          闸门（{{ shadow.gate.nDays }} 交易日同日对拍）：top3 {{ signed(shadow.gate.top3Pp) }}pp ·
-          top5 {{ signed(shadow.gate.top5Pp) }}pp · top10 {{ signed(shadow.gate.top10Pp) }}pp ·
-          top30 {{ signed(shadow.gate.top30Pp) }}pp ⇒ <b>{{ shadow.gate.decisionText }}</b>
-        </div>
-        <div v-if="shadow.frozen" class="cz-note">⚠️ 已冻结：{{ shadow.freezeReason }}</div>
-        <!-- 2026-10-03 主人指令：说明文字不在前端展示（原「闸门说明/免责声明」已移除） -->
-      </section>
-
       <!-- ⑥ 底部按钮 -->
       <div class="cz-foot">
         <!-- 2026-10-06: 文案改「完整评分榜单」—— 落点是 /aipick 全榜(45 只+筛选)，
@@ -278,7 +244,7 @@ const scores = ref({ emotion: null, capital: null, promote: null, support: null 
 const emotion = ref({ series: [], latest: {} })
 const capital = ref({ series: [], latest: {} })
 const picks = ref([])
-const shadow = ref({})            // 影子模型块（内部验证，不对外）
+// 2026-10-06: shadow ref 已随影子系统下线移除（后端不再返回该字段）
 const senti = ref({})
 const meta = ref({})
 // 2026-10-06 三层重构新增：战绩回看 + 标的折叠
@@ -485,7 +451,7 @@ async function load() {
     emotion.value = d.emotion || emotion.value
     capital.value = d.capital || capital.value
     picks.value = d.picks || []
-    shadow.value = d.shadow || {}          // 影子模型块（内部验证，不对外）
+
     senti.value = d.senti || {}
     meta.value = d.meta || {}
     // 战绩回看（可能为空数组 ⇒ Hero 下的战绩条自动不渲染）
