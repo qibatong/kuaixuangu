@@ -33,23 +33,58 @@
     <div v-else-if="failed" class="empty-state">研判数据暂不可用，稍后重试</div>
 
     <template v-else>
-      <!-- ① 三个得分（参考图顶部大数字） -->
-      <div class="cz-score">
-        <div class="cz-score-i s-red"><b>{{ fmt(scores.emotion) }}</b><span>情绪温度</span></div>
-        <div class="cz-score-i s-gold"><b>{{ fmt(scores.capital) }}</b><span>资金强度</span></div>
-        <div class="cz-score-i s-orange"><b>{{ fmt(scores.promote) }}</b><span>综合晋级率</span></div>
-      </div>
-      <div class="cz-chips">
-        <span class="cz-chip">承接强弱 <b>{{ fmt(scores.support) }}</b></span>
-        <span class="cz-chip">涨停 <b>{{ senti.ztCount ?? '—' }}</b> 家</span>
-        <span class="cz-chip">连板高度 <b>{{ senti.lbgd ?? '—' }}</b></span>
-        <span v-if="emotion.latest && emotion.latest.phase" class="cz-chip">最新阶段 <b>{{ emotion.latest.phase }}</b></span>
-      </div>
+      <!-- ① Hero：今日结论（2026-10-06 三层重构：结论 → 证据 → 标的）
+           金融口径：把分散的分数合成「一句裁决 + 一句依据」，不让用户自己拼。
+           🔴 裁决只吃 0~100 的三项（情绪/资金/晋级率）；承接强弱 support 是**比值**
+              （实测 0.09 量级，尺度不同）⇒ 不参与加权，只在下方单独列。
+           🔴 晋级率**没有历史序列**（当日单值）⇒ 不给环比 Δ；有 10 日序列的两项才有 Δ。 -->
+      <section class="cz-hero" :class="'v-' + verdict.key">
+        <div class="cz-hero-top">
+          <span class="cz-verdict"><i aria-hidden="true"></i>{{ verdict.text }}</span>
+          <span class="cz-kpi">
+            <b>{{ fmt(scores.promote) }}<em>%</em></b>
+            <span>综合晋级率</span>
+          </span>
+        </div>
+        <div class="cz-bars">
+          <div v-for="b in heroBars" :key="b.key" class="cz-bar">
+            <span class="cz-bar-l">{{ b.label }}</span>
+            <i class="cz-bar-track"><b :class="b.cls" :style="{ width: barW(b.v) }"></b></i>
+            <span class="cz-bar-v">{{ fmt(b.v) }}</span>
+            <span v-if="b.delta !== null" class="cz-delta" :class="b.delta >= 0 ? 'up' : 'down'"
+            >{{ b.delta >= 0 ? '▲' : '▼' }}{{ Math.abs(b.delta) }}</span>
+          </div>
+          <div class="cz-bar cz-bar-sup">
+            <span class="cz-bar-l">承接强弱</span>
+            <i class="cz-bar-track"><b class="mid" :style="{ width: supportW }"></b></i>
+            <span class="cz-bar-v">{{ fmt(scores.support) }}</span>
+          </div>
+        </div>
+        <p v-if="whyText" class="cz-why">{{ whyText }}</p>
+      </section>
 
-      <!-- ② 情绪预判：柱=涨停家数，按所选阶段高亮 -->
+      <!-- ①b 战绩回看（与结论一体：告诉你这个判词过去准不准 / 有没有数据支撑）
+           🔴 后端只给**有真值**的交易日；一天都没有 ⇒ 整条不渲染（不许显示 0%） -->
+      <section v-if="hitSummary.total" class="cz-hits">
+        <span class="cz-hits-t">近 {{ hitSummary.days }} 日 Top10 实封</span>
+        <b class="cz-hits-r">{{ hitSummary.rate }}%</b>
+        <span class="cz-hits-n">{{ hitSummary.hit }}/{{ hitSummary.total }} 只</span>
+        <span class="cz-spark" aria-hidden="true">
+          <i
+            v-for="d in hitSeries" :key="d.date" :class="{ hi: d.rate >= 50 }"
+            :style="{ height: sparkH(d.rate) }" :title="d.date + ' 封板 ' + d.rate + '%'"
+          ></i>
+        </span>
+      </section>
+
+      <!-- ②③ 证据层（**仅整页**；嵌入左栏时主人定「只留结论 + 标的」）
+           2026-10-06: 两张图都补了 10 日均值虚线 + 今日环比 —— 单看十根柱子读不出"今天是高还是低" -->
+      <template v-if="!embedded">
       <section class="cz-card">
         <div class="cz-card-h">
           <span class="cz-card-t">情绪预判</span>
+          <span v-if="emoDelta !== null" class="cz-delta lg" :class="emoDelta >= 0 ? 'up' : 'down'"
+          >今日 {{ emoDelta >= 0 ? '▲' : '▼' }}{{ Math.abs(emoDelta) }}</span>
           <span class="cz-tabs">
             <button
               v-for="p in phaseTabs" :key="p" class="cz-tab"
@@ -58,6 +93,8 @@
           </span>
         </div>
         <div v-if="emotion.series && emotion.series.length" class="cz-chart">
+          <!-- 均值虚线（横跨整图，"今天算高还是算低"全靠它） -->
+          <span v-if="emoAvg !== null" class="cz-mean" :style="{ bottom: (emoAvg / (maxZt || 1)) * 100 + '%' }"></span>
           <div
             v-for="d in emotion.series" :key="d.date" class="cz-col"
             :class="{ dim: phase && d.phase !== phase }"
@@ -71,10 +108,11 @@
         <!-- 2026-10-03 主人指令：说明文字不在前端展示（原「柱高/阶段判定」图例已移除） -->
       </section>
 
-      <!-- ③ 资金预判：三种口径可切 -->
       <section class="cz-card">
         <div class="cz-card-h">
           <span class="cz-card-t">资金预判</span>
+          <span v-if="capDelta !== null" class="cz-delta lg" :class="capDelta >= 0 ? 'up' : 'down'"
+          >今日 {{ capDelta >= 0 ? '▲' : '▼' }}{{ capDeltaFmt }}</span>
           <span class="cz-tabs">
             <button
               v-for="m in capMetrics" :key="m.key" class="cz-tab"
@@ -83,15 +121,26 @@
           </span>
         </div>
         <div v-if="capital.series && capital.series.length" class="cz-chart">
+          <!-- 🔴 2026-10-06 修: 此前用 Math.abs ⇒ **净流出和净流入画得一样**, 方向信息全丢。
+               现改为: 零轴按正负区间定位置, 正向上(红=流入) 负向下(绿=流出)。 -->
+          <span class="cz-zero" :style="{ bottom: capZeroPct + '%' }"></span>
           <div v-for="d in capital.series" :key="d.date" class="cz-col">
             <span class="cz-col-v">{{ capVal(d) }}</span>
-            <i class="cz-col-bar b-blue" :style="{ height: barH(Math.abs(capRaw(d)), maxCap) }"></i>
+            <span class="cz-col-slot">
+              <i
+                v-if="d[metric] !== null && d[metric] !== undefined"
+                class="cz-col-bar"
+                :class="Number(d[metric]) >= 0 ? 'b-up' : 'b-down'"
+                :style="capSegStyle(d[metric])"
+              ></i>
+            </span>
             <span class="cz-col-x">{{ d.date.slice(5) }}</span>
           </div>
         </div>
         <div v-else class="cz-empty">资金序列暂无数据（需 `snapshot_bid` 9:25 行落库）</div>
         <!-- 2026-10-03 主人指令：说明文字不在前端展示（原「竞价额/承接强弱」图例已移除） -->
       </section>
+      </template>
 
       <!-- ④ 个股研判（双模型分数 金睛/火眼 + 风险 + 标签） -->
       <section class="cz-card">
@@ -108,29 +157,42 @@
                     @click="goModel('lgb')">火眼名单 ›</button>
           </span>
         </div>
-        <!-- 嵌入左栏时限高内滚：后端 top=60，60 行会把下方的竞价名单顶出视野 -->
+        <!-- 2026-10-06: 恢复四个**决策字段**（后端已经算好，10-03 精简时被砍）：
+             成交概率(fillGrade) / 双模型共识(consensus) / 风险(ST·high) / 竞价额(bidAmount)。
+             它们不是噪声 —— 看完名单还要去别页验证"能不能买到"的话，这一页的决策闭环就没合上。
+             默认只放 Top10，其余折叠（手机端从 8 屏压到 2 屏）；嵌入左栏 Top5。 -->
         <div v-if="picks.length" class="cz-list" :class="{ 'cz-list-scroll': embedded }">
-          <div v-for="p in picks" :key="p.code" class="cz-row" :data-cz="p.code">
+          <div v-for="(p, i) in picksShown" :key="p.code" class="cz-row" :data-cz="p.code">
             <span class="cz-line1">
+              <span class="cz-rank">{{ i + 1 }}</span>
               <span class="cz-name">{{ p.name }}</span>
               <span class="cz-code">{{ p.code }}</span>
+              <span v-if="p.st" class="cz-pk cz-pk-st">ST</span>
+              <span v-else-if="p.risk === 'high'" class="cz-pk cz-pk-risk">高风险</span>
+              <span v-if="p.consensus" class="cz-pk cz-pk-cons">双✓</span>
+              <span v-if="p.fillGrade" class="cz-fill" :class="fillCls(p.fillGrade)">{{ fillText(p.fillGrade) }}</span>
             </span>
             <span class="cz-line2">
-              <!-- ★ 2026-10-03 主人指令（信息精简）：只留 1 个主分（综合分）+ 竞价涨幅 + 封板结果；
-                   去掉 风险档位/可买性标签/双模型概率/融合概率/共识/分歧（噪声，用户不看）。 -->
+              <!-- 分色阶条：横向长度即分数，扫视成本远低于读两位数 -->
+              <i class="cz-fbar"><b :class="'fb-' + fusedCls(p.scoreFused)" :style="{ width: (p.scoreFused || 0) + '%' }"></b></i>
               <span class="cz-fused">综合<b>{{ p.scoreFused ?? '—' }}</b></span>
               <span class="cz-chg" :class="(p.change || 0) >= 0 ? 'up' : 'down'"><i class="cz-chg-kind">{{ chgKindText(p) }}</i>{{ signed(p.change) }}%</span>
+              <span v-if="p.bidAmount" class="cz-amt">{{ amtText(p.bidAmount) }}</span>
               <span v-if="p.concept" class="cz-concept">{{ p.concept }}</span>
               <span v-if="p.isLimitUp === 1" class="cz-pk cz-pk-zt">已封板</span>
               <span v-else-if="p.isLimitUp === 0" class="cz-pk cz-pk-no">未封板</span>
             </span>
           </div>
+          <button v-if="picks.length > pickShow" class="cz-more-row" @click="picksOpen = !picksOpen"
+          >{{ picksOpen ? '收起' : '展开全部 ' + picks.length + ' 只' }}</button>
         </div>
         <div v-else class="cz-empty">暂无个股研判数据</div>
         <!-- 2026-10-03 主人指令：说明文字不在前端展示（原「综合分/名单口径」图例已移除，
              且其内容已过期：竞价额≥3000万 / 涨幅≤10% 均已改） -->
       </section>
 
+      <!-- ⑤⑥ 影子 / 底部按钮 / 降级说明 —— **仅整页**（2026-10-06: 嵌入左栏只留 Hero + Top5） -->
+      <template v-if="!embedded">
       <!-- ⑤ 影子模型（2026-10-03 上线；主人要求展示在超智内）—— 内部验证中，⚠️ 不对外发布 -->
       <section v-if="shadow.enabled" class="cz-card cz-shadow">
         <div class="cz-card-h">
@@ -181,6 +243,7 @@
         <div v-for="(n, i) in notes" :key="i" class="cz-note">· {{ n }}</div>
         <div v-if="meta.pickDate" class="cz-note">· 模型数据日期：{{ meta.pickDate }}</div>
       </div>
+      </template>
     </template>
     </div><!-- /.cz-body  ← 2026-10-03: 嵌入模式折叠容器 -->
   </div>
@@ -211,6 +274,10 @@ const picks = ref([])
 const shadow = ref({})            // 影子模型块（内部验证，不对外）
 const senti = ref({})
 const meta = ref({})
+// 2026-10-06 三层重构新增：战绩回看 + 标的折叠
+const hitSeries = ref([])
+const hitSummary = ref({ days: 0, total: 0, hit: 0, rate: null })
+const picksOpen = ref(false)
 
 const route = useRoute()
 const pickDate = computed(() => String((route.query.pickDate) || ''))
@@ -242,6 +309,78 @@ const capMetrics = [
 const notes = computed(() => (meta.value.notes || []))
 const maxZt = computed(() => Math.max(1, ...(emotion.value.series || []).map((d) => d.zt || 0)))
 const maxCap = computed(() => Math.max(1, ...(capital.value.series || []).map((d) => Math.abs(capRaw(d)))))
+
+// ==================== Hero 结论（2026-10-06） ====================
+/** 三项 0~100 指标的均分 ⇒ 一句裁决。🔴 承接强弱是**比值**（实测 0.09 量级）⇒ 不参与加权。
+ *  阈值65/40 是拍出来的起点，改这里一处即可调全站判词。 */
+const verdict = computed(() => {
+  const vals = [scores.value.emotion, scores.value.capital, scores.value.promote]
+    .map(Number).filter((v) => Number.isFinite(v))
+  if (!vals.length) return { key: 'na', text: '数据不足' }
+  const avg = vals.reduce((a, b) => a + b, 0) / vals.length
+  if (avg >= 65) return { key: 'atk', text: '进攻' }
+  if (avg >= 40) return { key: 'bal', text: '均衡' }
+  return { key: 'def', text: '防守' }
+})
+/** 环比只给**有 10 日序列**的两项；晋级率是当日单值 ⇒ 恒为 null（不编数字） */
+const emoDelta = computed(() => {
+  const s = emotion.value.series || []
+  if (s.length < 2) return null
+  const a = s[s.length - 1].zt; const b = s[s.length - 2].zt
+  return (a === null || a === undefined || b === null || b === undefined) ? null : a - b
+})
+const capDelta = computed(() => {
+  const s = capital.value.series || []
+  if (s.length < 2) return null
+  const a = s[s.length - 1][metric.value]; const b = s[s.length - 2][metric.value]
+  return (a === null || a === undefined || b === null || b === undefined) ? null : a - b
+})
+const capDeltaFmt = computed(() => {
+  const d = capDelta.value
+  if (d === null) return ''
+  return metric.value === 'volRatio' ? Math.abs(d).toFixed(2) : (Math.abs(d) / 1e8).toFixed(1) + '亿'
+})
+const emoAvg = computed(() => {
+  const s = (emotion.value.series || []).map((d) => d.zt).filter((v) => Number.isFinite(v))
+  return s.length ? Math.round(s.reduce((a, b) => a + b, 0) / s.length) : null
+})
+const barTier = (v) => (v === null || v === undefined) ? 'flat' : (v >= 65 ? 'hi' : (v >= 40 ? 'mid' : 'lo'))
+const heroBars = computed(() => [
+  { key: 'emotion', label: '情绪温度', v: scores.value.emotion, cls: barTier(scores.value.emotion), delta: emoDelta.value },
+  { key: 'capital', label: '资金强度', v: scores.value.capital, cls: barTier(scores.value.capital), delta: capDelta.value },
+  { key: 'promote', label: '晋级率', v: scores.value.promote, cls: barTier(scores.value.promote), delta: null },
+])
+/** 依据句：全部来自已有字段，缺哪段就不显示哪段 */
+const whyText = computed(() => {
+  const o = []
+  if (senti.value.ztCount != null) o.push('涨停 ' + senti.value.ztCount + ' 家')
+  if (senti.value.lbgd != null) o.push('最高 ' + senti.value.lbgd + ' 板')
+  if (hitSummary.value.rate != null) o.push('Top10 实封 ' + hitSummary.value.rate + '%')
+  const lv = capital.value.latest || {}
+  if (lv[metric.value] != null && lv[metric.value] !== undefined) o.push(capMetricLabel.value + ' ' + capVal(lv))
+  return o.join(' · ')
+})
+function barW(v) { return (Number.isFinite(Number(v)) ? Math.max(2, Math.min(100, Number(v))) : 0) + '%' }
+/** 承接强弱是**比值**不是百分位 ⇒ 只做相对长度（按 0.3 封顶，非此极值时不误导） */
+const supportW = computed(() => {
+  const v = Number(scores.value.support)
+  return Number.isFinite(v) ? Math.max(4, Math.min(100, (Math.abs(v) / 0.3) * 100)) + '%' : '4%'
+})
+function sparkH(rate) { return Math.max(10, Math.min(100, Number(rate) || 0)) + '%' }
+/** 成交概率分级（后端 fill_grade，语义见 aipick/scripts/pick_daily.py 表头注释）：
+ *   none 一字封死 / low ≥9.8% 排队 / mid 5~9.8% / high ≤5% ⇒ **值越大越好买到** */
+const FILL = { none: { t: '买不进', c: 'f-none' }, low: { t: '难成交', c: 'f-low' },
+               mid: { t: '可成交', c: 'f-mid' }, high: { t: '易成交', c: 'f-high' } }
+function fillText(g) { return (FILL[g] || {}).t || '' }
+function fillCls(g) { return (FILL[g] || {}).c || '' }
+/** 个股竞价额：`predictions_*.json` 的 bid_amount 单位是**万元**（实测 5303.1 = 5303 万），
+ *  ⚠️ 与 `capital.series` 的全市场竞价额**不同源**（那份单位是**元**，走 capVal 折算成亿）。 */
+function amtText(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n) || n === 0) return ''
+  return Math.abs(n) >= 10000 ? (n / 10000).toFixed(2) + '亿' : Math.round(n) + '万'
+}
+function fusedCls(v) { return v >= 80 ? 'hot' : (v >= 60 ? 'warm' : 'cool') }
 const capHint = computed(() => {
   const m = { mainNet: '主力净额 = 当日 9:25 全市场竞价主力净额合计（本地库）',
               bidAmt: '竞价额 = 当日 9:25 全市场竞价成交额合计（本地库）',
@@ -278,6 +417,31 @@ function divText(p) {
   if (p.divergence >= 0.25) return '略分歧'
   return '一致'
 }
+const capMetricLabel = computed(() => (capMetrics.find((m) => m.key === metric.value) || {}).label || '')
+/** 标的区：整页默认 Top10（可展开全部），嵌入左栏 Top5（主人定「不抢主视野」） */
+const pickShow = computed(() => (props.embedded ? 5 : 10))
+const picksShown = computed(() => (picksOpen.value ? picks.value : picks.value.slice(0, pickShow.value)))
+
+/** 资金图的正负区间（净额/主力净额有负值是常态，不能 abs 掉） */
+const capRange = computed(() => {
+  const vals = (capital.value.series || []).map((d) => d[metric.value])
+    .filter((v) => v !== null && v !== undefined && Number.isFinite(Number(v))).map(Number)
+  const pos = Math.max(0, ...vals.filter((v) => v > 0), 0)
+  const neg = Math.max(0, ...vals.filter((v) => v < 0).map(Math.abs), 0)
+  return { pos, neg, span: (pos + neg) || 1 }
+})
+/** 零轴在容器里的位置（自上而下 %）：没有负值 ⇒ 贴底（与普通柱图一致） */
+const capZeroPct = computed(() => (capRange.value.pos / capRange.value.span) * 100)
+/** 单根柱的定位与高度：正值从零轴向上生长，负值向下 */
+function capSegStyle(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return null
+  const { pos, neg, span } = capRange.value
+  const zero = (pos / span) * 100
+  if (n >= 0) return { bottom: zero + '%', height: (pos ? (n / span) * 100 : 0) + '%' }
+  return { top: zero + '%', height: (neg ? (Math.abs(n) / span) * 100 : 0) + '%' }
+}
+
 function capRaw(d) { return d[metric.value] || 0 }
 /** 采集缺口的日子该列是 null ⇒ 显示 —（**不能显示 0**，会被读成"净额为 0"） */
 function capVal(d) {
@@ -317,6 +481,9 @@ async function load() {
     shadow.value = d.shadow || {}          // 影子模型块（内部验证，不对外）
     senti.value = d.senti || {}
     meta.value = d.meta || {}
+    // 战绩回看（可能为空数组 ⇒ Hero 下的战绩条自动不渲染）
+    hitSeries.value = d.hitSeries || []
+    hitSummary.value = d.hitSummary || { days: 0, total: 0, hit: 0, rate: null }
     failed.value = false
   } catch (e) { failed.value = picks.value.length === 0 } finally { loading.value = false }
 }
@@ -367,6 +534,64 @@ usePolling(() => { if (isIntradayNow()) load() }, 60000, { immediate: false })
 .cz-sub { font-size: var(--fs-xs); color: var(--text-muted); margin-top: 1px; }
 .cz-date { font-size: var(--fs-xs); color: var(--text-dim); }
 
+/* ============ Hero 结论区（2026-10-06 三层重构） ============
+   视觉纪律：整页**只有一个焦点** —— 左上判词 + 右侧主 KPI(晋级率)，
+   下面三条 WITH COLOR bar 是副证据，再下一行是事实依据。层级依次减弱。 */
+.cz-hero {
+  background: linear-gradient(160deg, var(--bg-card), var(--bg-panel));
+  border: 1px solid var(--border-soft); border-left-width: 3px;
+  border-radius: var(--r-lg); padding: var(--s2) var(--s3);
+}
+/* 判词用**左侧竖条颜色**表态，不靠用户读说明文字 */
+.cz-hero.v-atk { border-left-color: var(--qg-red-a); }
+.cz-hero.v-bal { border-left-color: var(--qg-gold-a); }
+.cz-hero.v-def { border-left-color: var(--qg-blue-a); }
+.cz-hero.v-na  { border-left-color: var(--border-soft); }
+.cz-hero-top { display: flex; align-items: flex-end; gap: var(--s3); }
+.cz-verdict {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-lg); font-weight: 700; color: var(--text-main); letter-spacing: 1px;
+}
+.cz-verdict i { width: 8px; height: 8px; border-radius: 50%; background: var(--border-soft); }
+.v-atk .cz-verdict i { background: var(--qg-red-a); }
+.v-bal .cz-verdict i { background: var(--qg-gold-a); }
+.v-def .cz-verdict i { background: var(--qg-blue-a); }
+.cz-kpi { margin-left: auto; text-align: right; }
+.cz-kpi b { font-size: var(--fs-display); font-weight: 700; line-height: 1; color: var(--text-main); }
+.cz-kpi b em { font-size: var(--fs-sm); font-style: normal; color: var(--text-muted); margin-left: 1px; }
+.cz-kpi span { display: block; font-size: var(--fs-xs); color: var(--text-muted); margin-top: 2px; }
+
+/* 副指标条 */
+.cz-bars { margin-top: var(--s2); display: flex; flex-direction: column; gap: 5px; }
+.cz-bar { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-xs); }
+.cz-bar-l { flex: 0 0 56px; color: var(--text-muted); }
+.cz-bar-track { flex: 1 1 auto; height: 6px; border-radius: 3px; background: var(--bg-input); overflow: hidden; }
+.cz-bar-track b { display: block; height: 100%; border-radius: 3px; transition: width .35s ease; }
+.cz-bar-track b.hi { background: linear-gradient(90deg, var(--qg-red-a), var(--qg-red-b)); }
+.cz-bar-track b.mid { background: linear-gradient(90deg, var(--qg-gold-a), var(--qg-orange-a)); }
+.cz-bar-track b.lo { background: linear-gradient(90deg, var(--qg-blue-a), var(--qg-blue-b)); }
+.cz-bar-track b.flat { background: var(--border-soft); }
+.cz-bar-v { flex: 0 0 30px; text-align: right; color: var(--text-secondary); font-weight: 600; }
+.cz-bar-sup .cz-bar-track { opacity: .75; }   /* 承接强弱：尺度不同，弱化一档 */
+.cz-delta { flex: 0 0 auto; font-size: var(--fs-xs); font-weight: 700; }
+.cz-delta.up { color: var(--qg-red-a); }
+.cz-delta.down { color: var(--qg-blue-a); }
+.cz-delta.lg { font-size: var(--fs-sm); }
+.cz-why { margin-top: var(--s2); font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.5; }
+
+/* 战绩条（近 n 日 Top10 实封）—— 与结论一体，告诉你这判词过去准不准 */
+.cz-hits {
+  display: flex; align-items: center; gap: var(--s2); margin-top: var(--s1);
+  padding: var(--s1) var(--s3); background: var(--bg-input);
+  border: 1px solid var(--border-soft); border-radius: var(--r-pill);
+}
+.cz-hits-t { font-size: var(--fs-xs); color: var(--text-muted); }
+.cz-hits-r { font-size: var(--fs-md); font-weight: 700; color: var(--qg-gold-a); }
+.cz-hits-n { font-size: var(--fs-xs); color: var(--text-dim); }
+.cz-spark { margin-left: auto; display: flex; align-items: flex-end; gap: 2px; height: 16px; }
+.cz-spark i { width: 5px; border-radius: 1px; background: var(--border-soft); }
+.cz-spark i.hi { background: var(--qg-red-a); }
+
 /* 得分卡：三色大数字（参考图顶部） */
 .cz-score { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); }
 .cz-score-i {
@@ -410,7 +635,21 @@ usePolling(() => { if (isIntradayNow()) load() }, 60000, { immediate: false })
 .cz-tab.on { background: var(--accent-solid); border-color: var(--accent); color: var(--qg-on); }
 
 /* 柱状图（纯 CSS，10 个点，不引图表库） */
-.cz-chart { display: flex; align-items: flex-end; gap: var(--s1); height: 96px; margin: var(--s2) 2px var(--s1); }
+.cz-chart { position: relative; display: flex; align-items: flex-end; gap: var(--s1); height: 96px; margin: var(--s2) 2px var(--s1); }
+/* 10 日均值虚线 / 资金图零轴（2026-10-06） */
+.cz-mean {
+  position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed var(--text-dim);
+  opacity: .5; pointer-events: none; z-index: 1;
+}
+.cz-zero {
+  position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--border-soft);
+  pointer-events: none; z-index: 1;
+}
+/* 资金柱的容器：零轴在中间 ⇒ 柱子要能向上/向下生长 */
+.cz-col-slot { position: relative; width: 100%; max-width: 26px; height: 100%; display: block; }
+.cz-col-slot .cz-col-bar { position: absolute; border-radius: 2px; }
+.b-up { background: linear-gradient(0deg, var(--qg-red-a), var(--qg-red-b)); }
+.b-down { background: linear-gradient(180deg, var(--qg-blue-a), var(--qg-blue-b)); }
 .cz-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 2px; }
 .cz-col.dim { opacity: 0.28; }
 .cz-col-v { font-size: var(--fs-xs); color: var(--text-muted); }
@@ -423,7 +662,35 @@ usePolling(() => { if (isIntradayNow()) load() }, 60000, { immediate: false })
 /* 个股列表 */
 .cz-list { margin-top: var(--s2); display: flex; flex-direction: column; }
 .cz-row { padding: var(--s2) 2px; border-top: 1px solid var(--border-soft); }
-.cz-line1 { display: flex; align-items: center; gap: var(--s2); }
+.cz-line1 { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.cz-rank {
+  flex: 0 0 auto; min-width: 18px; height: 18px; border-radius: var(--r-sm);
+  background: var(--bg-input); border: 1px solid var(--border-soft);
+  color: var(--text-muted); font-size: var(--fs-xs); font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+/* 综合分**色阶条**：长度即分数，比读两位数快一截 */
+.cz-fbar { display: block; width: 100%; height: 3px; border-radius: 2px; background: var(--bg-input); overflow: hidden; margin-bottom: 3px; }
+.cz-fbar b { display: block; height: 100%; border-radius: 2px; }
+.cz-fbar b.fb-hot { background: linear-gradient(90deg, var(--qg-red-a), var(--qg-red-b)); }
+.cz-fbar b.fb-warm { background: linear-gradient(90deg, var(--qg-gold-a), var(--qg-orange-a)); }
+.cz-fbar b.fb-cool { background: linear-gradient(90deg, var(--qg-blue-a), var(--qg-blue-b)); }
+/* 成交概率分级（语义: none 一字买不进 → high ≤5% 易成交） */
+.cz-fill { flex: 0 0 auto; font-size: var(--fs-xs); border-radius: var(--r-sm); padding: 0 var(--s1); }
+.f-none { color: var(--text-dim); border: 1px solid var(--border-soft); }
+.f-low { color: var(--qg-orange-a); border: 1px solid var(--qg-orange-a); }
+.f-mid { color: var(--qg-gold-a); border: 1px solid var(--qg-gold-a); }
+.f-high { color: var(--qg-red-a); border: 1px solid var(--qg-red-a); }
+.cz-pk-cons { background: rgba(255, 99, 132, 0.18); color: #ff6384; font-weight: 700; }
+.cz-pk-st { background: rgba(255, 82, 82, 0.22); color: var(--accent); font-weight: 700; }
+.cz-pk-risk { background: rgba(255, 167, 38, 0.16); color: #ffa726; }
+.cz-amt { color: var(--text-dim); }
+.cz-more-row {
+  margin-top: var(--s2); padding: var(--s1) 0; width: 100%;
+  background: none; border: 1px dashed var(--border-soft); border-radius: var(--r-md);
+  color: var(--text-muted); font-size: var(--fs-xs); cursor: pointer;
+}
+.cz-more-row:hover { color: var(--text-main); border-color: var(--qg-orange-a); }
 .cz-name { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
 .cz-code { font-size: var(--fs-xs); color: var(--text-dim); }
 .cz-risk { margin-left: auto; font-size: var(--fs-xs); border-radius: var(--r-sm); padding: 1px var(--s1); }

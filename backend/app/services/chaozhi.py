@@ -537,6 +537,79 @@ def load_picks(top=60, pick_date=None):
     return pool[:top], meta
 
 
+# ==================== ④b 战绩回看（2026-10-06 上线） ====================
+HIT_SERIES_DAYS = 5        # Hero 下方战绩条取最近几个**有真值**的交易日
+
+def load_hit_series(days=HIT_SERIES_DAYS):
+    """近 `days` 个交易日「线上模型融合 Top10」的**实际封板率**（战绩回看）。
+
+    🔴 口径纪律（2026-10-06 主人：加战绩但必须可信）：
+       · 与页面名单**同源**：必须走 `load_picks(pick_date=d)` 取当日融合排序后的 Top10，
+         绝不另写一套排序 —— 否则会出现"战绩算的是 A 名单、页面展示的是 B 名单"，
+         那比没有战绩更糟（数字看着漂亮但对不上屏）。
+       · 真值只认 `_pick_meta(d)` 的三层兜底（pick_daily.is_limit_up → features
+         is_limit_up_v3 → label_truth），与个股列表的"已封板/未封板"完全一致。
+       · **不编数字**：某日没有真值（未回填）⇒ 该日**整日不入列**；全都没有 ⇒ 返回 []。
+         ⇒ 当日盘中没真值是常态（9:25 出名单、收盘后才知封板），不能显示 0%。
+       · 日期来源 = pick_daily 的 DISTINCT trade_date（有名单落库才算一个交易日），
+         多取几天用于剔除无真值日，凑够 `days` 条即止。
+
+    返回升序 `[{date, total, hit, rate}, ...]`（`rate` = 百分数，保留 1 位）。
+    任何异常静默返回 [] —— 战绩是增强项，**不能因为它把整页拖挂**。
+    """
+    import os
+    import sqlite3
+    db = os.environ.get("AIPICK_DB_PATH", "/opt/kuaixuan/aipick/scripts/data/aipick.db")
+    if not os.path.exists(db):
+        return []
+    dates = []
+    try:
+        c = sqlite3.connect('file:%s?mode=ro' % db, uri=True, timeout=5)
+        try:
+            for (d,) in c.execute(
+                    "SELECT DISTINCT trade_date FROM pick_daily "
+                    "ORDER BY trade_date DESC LIMIT ?", (days + 4,)):
+                dates.append(str(d))
+        finally:
+            c.close()
+    except Exception:                                          # noqa: BLE001
+        return []
+    out = []
+    for d in dates:
+        try:
+            pk, _m = load_picks(top=10, pick_date=d)
+            if not pk:
+                continue
+            meta = _pick_meta(d)
+            tot = hit = 0
+            for it in pk[:10]:
+                v = (meta.get(it["code"]) or {}).get("isLimitUp")
+                if v is None:
+                    continue                    # 无真值不计入分母（不能当成"未封板"）
+                tot += 1
+                hit += int(v)
+            if not tot:
+                continue
+            out.append({"date": d, "total": tot, "hit": hit, "rate": round(100.0 * hit / tot, 1)})
+        except Exception:                                      # noqa: BLE001
+            continue
+        if len(out) >= days:
+            break
+    out.sort(key=lambda x: x["date"])           # 升序：前端画 sparkline 从左往右是时间正序
+    return out
+
+
+def summarize_hits(series):
+    """把 `load_hit_series` 的结果压成一条摘要：近 n 日合计、合计封板率。
+
+    ⚠️ 只在**有真值**的日子上合计；没有任何真值 ⇒ rate=None（前端显示 —，不许显示 0%）。
+    """
+    tot = sum(d.get("total") or 0 for d in (series or []))
+    hit = sum(d.get("hit") or 0 for d in (series or []))
+    return {"days": len(series or []), "total": tot, "hit": hit,
+            "rate": (round(100.0 * hit / tot, 1) if tot else None)}
+
+
 # ==================== ⑤ 总装（带 60s 缓存） ====================
 def _build(pick_date=None):
     date = _today()
@@ -581,6 +654,13 @@ def _build(pick_date=None):
     if picks and all(p.get("divergence") is None for p in picks):
         notes.append("当前只有单模型有产出 ⇒ 综合分 = 该模型的当日百分位（非双模型融合）")
 
+    # 2026-10-06 主人：Hero 下方加「近 5 日战绩」。⚠️ 走 load_picks 逐日回算 ⇒ 比单点读文件重，
+    #   但整体结果被 build_overview 的 60s 缓存兜住（每 60s 最多算一次），且失败静默降级为 []。
+    try:
+        hit_series = load_hit_series()
+    except Exception as e:                                     # noqa: BLE001
+        hit_series, notes = [], notes + ["战绩序列读取失败：%s" % str(e)[:80]]
+
     return {
         "date": date,
         "scores": {
@@ -600,6 +680,9 @@ def _build(pick_date=None):
         },
         "picks": picks,
         "shadow": shadow,
+        # 战绩回看（有真值的交易日；可能为空数组 ⇒ 前端不渲染该条，不得显示 0%）
+        "hitSeries": hit_series,
+        "hitSummary": summarize_hits(hit_series),
         "senti": {"ztCount": (senti or {}).get("ztCount"), "lbgd": (senti or {}).get("lbgd")},
         "meta": {
             "pickDate": pmeta.get("date"),
