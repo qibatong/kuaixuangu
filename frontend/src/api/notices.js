@@ -58,6 +58,17 @@ export function adminPublishNotice(payload) {
   return request('/api/admin/notices', { method: 'POST', body: payload })
 }
 
+/** A6/M7 消息模板库(2026-10-07)：运营反复发的那几类消息不必每次重敲 */
+export function adminTemplates() {
+  return request('/api/admin/notice-templates')
+}
+export function adminSaveTemplate(payload) {
+  return request('/api/admin/notice-templates', { method: 'POST', body: payload })
+}
+export function adminDeleteTemplate(id) {
+  return request(`/api/admin/notice-templates/${id}`, { method: 'DELETE' })
+}
+
 /** 编辑公告（已投递的只允许改正文/有效期/行动按钮） */
 export function adminEditNotice(payload) {
   return request('/api/admin/notices/edit', { method: 'POST', body: payload })

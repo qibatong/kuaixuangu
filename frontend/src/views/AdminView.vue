@@ -21,6 +21,25 @@
       <div class="admin-card">
         <div class="card-title"><i class="fa fa-bullhorn"></i> 站内公告（系统消息）</div>
         <div class="notice-form">
+          <!-- A6/M7 模板库(2026-10-07)：先把架子所在的算法放在最上面，
+               运营一进来就能"选一条现成的"；没有模板时这行只剩「存为模板」，不碍事。 -->
+          <div class="tpl-bar">
+            <select class="admin-input tpl-pick" :value="nf.template_id" @change="pickTemplate($event.target.value)"
+                    aria-label="从模板载入">
+              <option value="0">— 从模板载入 —</option>
+              <option v-for="t in tplList" :key="t.id" :value="t.id">
+                {{ t.name }}（用过 {{ t.use_count }} 次）
+              </option>
+            </select>
+            <input v-model="tplName" class="admin-input tpl-name" placeholder="模板名，如：月度续费提醒" maxlength="30"
+                   aria-label="模板名" />
+            <button class="admin-btn ghost" :disabled="tplSaving" @click="saveTemplate">
+              {{ tplSaving ? '保存中…' : '存为模板' }}
+            </button>
+            <button v-if="nf.template_id" class="admin-btn danger ghost" @click="removeTemplate(tplList.find(t => t.id === nf.template_id))">
+              删除此模板
+            </button>
+          </div>
           <input v-model="nf.title" class="admin-input" placeholder="标题，如：系统更新：新增双脑竞价" maxlength="60" />
           <textarea v-model="nf.body" class="admin-input" rows="3" placeholder="正文（换行会原样展示）"></textarea>
           <div class="notice-form-row">
@@ -746,6 +765,8 @@ import { adminCreateUser, adminDeleteUser, adminScoring, adminSetMemberLevel, ad
 // 2026-10-04 站内公告(系统消息的站方广播部分)
 import {
   adminNotices, adminOffNotice, adminPublishNotice, adminEditNotice, adminNoticeCount,
+  // A6/M7 模板库(2026-10-07)
+  adminTemplates, adminSaveTemplate, adminDeleteTemplate,
 } from '../api/notices'
 import { showToast as toast } from '../utils/toast'
 import { useSortable } from '../composables/useSortable'
@@ -893,7 +914,10 @@ function onMenuOutsideClick(ev) {
   const el = document.querySelector('.row-menu')
   if (el && !el.contains(ev.target)) closeMenu()
 }
-onMounted(() => document.addEventListener('click', onMenuOutsideClick))
+onMounted(() => {
+  document.addEventListener('click', onMenuOutsideClick)
+  loadTemplates()
+})
 onBeforeUnmount(() => document.removeEventListener('click', onMenuOutsideClick))
 function menuAction(u, act) {
   if (act === 'expire') {
@@ -1388,8 +1412,62 @@ const nf = reactive({
   category: 'system', status: 'sent', publish_at: '',
   action_type: '', action_value: '',
   tag: '',                       // A4 标签定向: 仅 target==='tag' 时生效
+  template_id: 0,                // A6/M7: 本次录入来自哪个模板(0=手写)。发出去了才计数, 载入不算
 })
 const nfPosting = ref(false)
+
+/* ------- A6/M7 消息模板库(2026-10-07) ------- */
+const tplList = ref([])
+const tplSaving = ref(false)
+const tplName = ref('')
+async function loadTemplates() {
+  try {
+    const d = await adminTemplates()
+    tplList.value = (d && d.items) || []
+  } catch (e) { /* 模板取不到不影响发布：下面表单照样能手写 */ }
+}
+function pickTemplate(id) {
+  const t = tplList.value.find(x => x.id === Number(id))
+  if (!t) return
+  nf.title = t.title || ''
+  nf.body = t.body || ''
+  nf.level = t.level || 'info'
+  nf.category = t.category || 'system'
+  nf.target = t.target || 'all'
+  nf.days = Number(t.days || 0)
+  nf.action_type = t.action_type || ''
+  nf.action_value = t.action_value || ''
+  nf.tag = t.tag || ''
+  nf.template_id = Number(t.id)
+  loadNoticeCount()            // 受众变了, 人数预估要跟着重算, 否则看到的还是上一个模板的人数
+}
+async function saveTemplate() {
+  const name = tplName.value.trim()
+  if (!name) return toast('请填模板名', 'error')
+  if (!nf.title.trim() || !nf.body.trim()) return toast('标题与正文都不能为空', 'error')
+  tplSaving.value = true
+  try {
+    const d = await adminSaveTemplate({
+      id: 0, name, title: nf.title.trim(), body: nf.body.trim(),
+      level: nf.level, category: nf.category, target: nf.target, days: nf.days,
+      action_type: nf.action_type, action_value: nf.action_value, tag: nf.tag,
+    })
+    if (d && d.ok) {
+      toast('已存为模板', 'success')
+      tplName.value = ''
+      await loadTemplates()
+      nf.template_id = Number(d.id)     // 刚存的立刻选中, 这次发布也会计入它的使用次数
+    } else toast((d && d.msg) || '保存失败', 'error')
+  } catch (e) { toast('保存失败：' + (e.message || ''), 'error') } finally { tplSaving.value = false }
+}
+async function removeTemplate(t) {
+  if (!window.confirm(`删除模板「${t.name}」？`)) return
+  try {
+    const d = await adminDeleteTemplate(t.id)
+    if (d && d.ok) { toast('已删除', 'success'); if (nf.template_id === t.id) nf.template_id = 0; await loadTemplates() }
+    else toast((d && d.msg) || '删除失败', 'error')
+  } catch (e) { toast('删除失败：' + (e.message || ''), 'error') }
+}
 const nfTesting = ref(false)
 const noticeCount = ref({ total: 0, pushable: 0 })
 
@@ -1551,6 +1629,8 @@ async function publishNotice() {
     if (d && d.ok) {
       toast(nf.status === 'draft' ? '草稿已保存' : (nf.status === 'scheduled' ? '已排期，到点自动发送' : '公告已发布'), 'success')
       nf.title = ''; nf.body = ''; nf.publish_at = ''
+      nf.template_id = 0        // 表单已清空, 别让下一条随笔发布挂在这个模板的计数上
+      loadTemplates()           // 这条已发出 ⇒ 模板使用次数刚 +1, 下拉里的"用过 N 次"要跟上
       await loadNotices()
     } else toast('发布失败：' + ((d && d.msg) || ''), 'error')
   } catch (e) {
@@ -1907,6 +1987,15 @@ body[data-bg="light"] .weight-warn { color: var(--brand-deep); }
 </style>
 
 <style scoped>
+/* ===== 第二批(2026-10-07): A6/M7 消息模板库 ===== */
+.tpl-bar { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; margin-bottom: var(--s2); }
+.tpl-pick { max-width: 260px; }
+.tpl-name { max-width: 200px; }
+.admin-btn.ghost { background: transparent; border: 1px solid var(--border-soft); color: var(--text-secondary); }
+.admin-btn.ghost:hover { border-color: var(--accent-deep2); color: var(--accent-text); }
+.admin-btn.ghost:disabled { opacity: .5; cursor: default; }
+.admin-btn.danger.ghost:hover { border-color: var(--down); color: var(--down); }
+
 /* ===== 第二批(2026-10-07): A9 运营日历 ===== */
 .cal-sum { cursor: pointer; font-size: var(--fs-sm); color: var(--text-secondary); min-height: 30px; display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
 .cal-sum-note, .cal-sum-tags { font-size: var(--fs-xs); color: var(--text-dim); }

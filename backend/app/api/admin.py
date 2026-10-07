@@ -1591,6 +1591,7 @@ def api_admin_notices_post(request: Request, body: dict = Body(...), uid: int = 
     if target == "tag" and not tag_name:
         target = "all"
 
+    from ..services import notice_template
     res = nc.publish(title=title, body=btext, level=level, target=target, category=category,
                      days=days, status=status, publish_at=publish_at,
                      action_type=str(body.get("action_type") or ""),
@@ -1605,10 +1606,59 @@ def api_admin_notices_post(request: Request, body: dict = Body(...), uid: int = 
                     ip=client_ip(request))
     except Exception:
         pass
+    # A6/M7: 只有**真的投出去**才计一次使用 —— 草稿(status='draft')虽然也是发布成功,
+    #        但它没到过任何人的信箱; 载入模板更不算(那只是草稿行为, 随时会被丢掉)。
+    if status != "draft":
+        try:
+            notice_template.touch(int(body.get("template_id") or 0))
+        except Exception:
+            pass
     log.info("管理端发布公告 uid=%s nkey=%s status=%s level=%s target=%s 推送=%s",
              uid, res.get("nkey"), status, level, target, res.get("pushed"))
     return jr({"ok": True, "id": res.get("id"), "nkey": res.get("nkey"),
                "pushed": res.get("pushed", 0), "target_count": res.get("target_count", 0)})
+
+
+@router.get("/api/admin/notice-templates")
+def api_admin_tpl_list(request: Request, uid: int = Depends(get_admin)):
+    """A6/M7 消息模板库: 列表(常用优先) —— 供发布表单的下拉选用。"""
+    from ..services import notice_template
+    return jr({"ok": True, "items": notice_template.rows()})
+
+
+@router.post("/api/admin/notice-templates")
+def api_admin_tpl_save(request: Request, body: dict = Body(...), uid: int = Depends(get_admin)):
+    """A6/M7: 新建(id 缺省/0)或整体覆盖更新(id>0)。
+
+    body = {id, name, title, body, level, category, target, days, action_type, action_value, tag}
+    🔴 模板**不存** status / publish_at —— 受众之外的"什么时候发"是每次发布时的现场决定,
+       存进模板会让它退化成一批过期的定时任务(取舍说明见 services/notice_template.py 头)。
+    """
+    from ..services import notice_template
+    res = notice_template.save(int(body.get("id") or 0), body, who=str(uid))
+    if not res.get("ok"):
+        return jr(res, status=400)
+    try:
+        users.audit(uid, "notice_template_save",
+                    detail="tpl:%s|%s" % (res.get("id"), str(body.get("name") or "")[:40]),
+                    ip=client_ip(request))
+    except Exception:
+        pass
+    return jr(res)
+
+
+@router.delete("/api/admin/notice-templates/{tid}")
+def api_admin_tpl_del(tid: int, request: Request, uid: int = Depends(get_admin)):
+    """A6/M7: 删除模板。发布过的不给删(保护在服务层: use_count>0 ⇒ 拒绝)。"""
+    from ..services import notice_template
+    res = notice_template.delete(tid)
+    if not res.get("ok"):
+        return jr(res, status=400)
+    try:
+        users.audit(uid, "notice_template_del", detail="tpl:%s" % tid, ip=client_ip(request))
+    except Exception:
+        pass
+    return jr(res)
 
 
 @router.post("/api/admin/notices/edit")

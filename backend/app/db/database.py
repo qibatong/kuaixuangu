@@ -797,6 +797,33 @@ def init_db():
     if "off_at" not in _ncols:
         cur.execute("ALTER TABLE notices ADD COLUMN off_at INTEGER NOT NULL DEFAULT 0")
 
+    # ---------- 2026-10-07 v4.12.9: A6/M7 消息模板库 ----------
+    # 运营反复发同一类消息(系统维护/到期催费/活动通知)时, 每次手敲一遍标题正文 ⇒ 文案必然漂移。
+    # 🔴 模板只存**消息内容本身**, 不存"发给谁/什么时候发" —— 受众与时机是每次发布时的现场决定,
+    #    一旦存进模板, 它会退化成一批过期的定时任务(这就是为什么要和"定时发布"分开两个概念)。
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS notice_templates (
+            id            INTEGER PRIMARY KEY,
+            name          TEXT NOT NULL,
+            title         TEXT NOT NULL,
+            body          TEXT NOT NULL,
+            level         TEXT NOT NULL DEFAULT 'info',
+            category      TEXT NOT NULL DEFAULT 'system',
+            target        TEXT NOT NULL DEFAULT 'all',
+            days          INTEGER NOT NULL DEFAULT 0,
+            action_type   TEXT NOT NULL DEFAULT '',
+            action_value  TEXT NOT NULL DEFAULT '',
+            tag           TEXT NOT NULL DEFAULT '',
+            use_count     INTEGER NOT NULL DEFAULT 0,
+            last_used_at  INTEGER NOT NULL DEFAULT 0,
+            created_by    TEXT,
+            created_at    INTEGER NOT NULL,
+            updated_at    INTEGER NOT NULL
+        )
+    """)
+    # 模板名重复是运营最容易踩的坑: 下拉里两个同名分不清 ⇒ 选错 ⇒ 发出错的文案。唯一索引顶住。
+    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_notice_tpl_name ON notice_templates(name)")
+
     conn.commit()
 
     # ---------------- 消息中心扩展(2026-10-06) ----------------
