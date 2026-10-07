@@ -21,7 +21,7 @@
       <div class="admin-card">
         <div class="card-title"><i class="fa fa-bullhorn"></i> 站内公告（系统消息）</div>
         <div class="notice-form">
-          <input v-model="nf.title" class="admin-input" placeholder="标题，如：系统更新：新增超智研判" maxlength="60" />
+          <input v-model="nf.title" class="admin-input" placeholder="标题，如：系统更新：新增双脑竞价" maxlength="60" />
           <textarea v-model="nf.body" class="admin-input" rows="3" placeholder="正文（换行会原样展示）"></textarea>
           <div class="notice-form-row">
             <label>分类

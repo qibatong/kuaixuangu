@@ -1,8 +1,9 @@
 <template>
   <!--
-    超智研判（聚合页，2026-10-01 新增；原「AI预测」升级）
+    双脑竞价（聚合页，2026-10-01 新增；原「AI预测」升级）
     数据 = 后端 `/api/chaozhi/overview`（只读聚合，零新增上游出网；见 backend/app/services/chaozhi.py）
-    口径 = docs/超智研判-聚合页开发方案-20261001.md §四 A 案；一期已做：得分卡 + 两条 10 日序列 + 双模型个股 + 标签
+    口径 = docs/超智研判-聚合页开发方案-20261001.md §四 A 案（文档文件名是改名前的历史名，未随本次文案改名而变）；
+    一期已做：得分卡 + 两条 10 日序列 + 双模型个股 + 标签
     ⚠️ 降级如实展示：`meta.notes` 里有什么就显示什么（例如「火眼 LGB 当日无预测文件」），
        分数缺失显示 `—` 而**不是 0**（0 会被误读成"模型给了 0 分"）。
   -->
@@ -11,25 +12,25 @@
           ② 去掉整页容器的 max-width / 底部安全区 ③ 卡头补「全文 /chaozhi」入口 + 折叠开关
           ④ 个股/影子列表限高内滚(避免 60 行名单把下方竞价名单顶出视野) -->
   <div class="page-shell cz-root" :class="{ 'cz-embed': embedded }">
-    <h1 v-if="!embedded" class="visually-hidden">超智研判</h1>
+    <h1 v-if="!embedded" class="visually-hidden">双脑竞价</h1>
 
     <header class="cz-head" :class="{ 'cz-head-embed': embedded }">
       <span class="cz-logo" aria-hidden="true">智</span>
       <div class="cz-head-txt">
-        <div class="cz-h1">超智研判</div>
+        <div class="cz-h1">双脑竞价</div>
         <div class="cz-sub">双模型 金睛 + 火眼 · 资金 &amp; 情绪预判</div>
       </div>
       <span class="cz-date">{{ date || '—' }}</span>
       <!-- 嵌入模式下给两个出口：跳完整页 + 就地折叠(状态记 localStorage, 刷新保持) -->
-      <button v-if="embedded" class="cz-more" title="打开超智研判完整页" @click="goFull">全文 ›</button>
+      <button v-if="embedded" class="cz-more" title="打开双脑竞价完整页" @click="goFull">全文 ›</button>
       <button
         v-if="embedded" class="cz-fold" :aria-expanded="String(open)" :title="open ? '收起' : '展开'"
-        :aria-label="open ? '收起超智研判' : '展开超智研判'" @click="toggleOpen"
+        :aria-label="open ? '收起双脑竞价' : '展开双脑竞价'" @click="toggleOpen"
       >{{ open ? '▾' : '▸' }}</button>
     </header>
 
     <div v-show="open" class="cz-body">
-    <!-- 整页模式：主站**原生渲染**超智首页看板（2026-10-06 起取代原先 iframe 套独立 Flask 页）。
+    <!-- 整页模式：主站**原生渲染**双脑竞价首页看板（2026-10-06 起取代原先 iframe 套独立 Flask 页）。
          数据全部来自主站已有接口（无写死数据），盘中 30s 轮询；逐块独立降级。
          取代关系：老实现是 <iframe src="/chaozhi/?embed=1">，指向旁路 Flask 服务(8020)，数据另取一份。 -->
     <ChaozhiHome v-if="!embedded" />
@@ -152,7 +153,7 @@
         <div class="cz-card-h">
           <span class="cz-card-t">个股研判</span>
           <span class="cz-cnt">共 {{ picks.length }} 只</span>
-          <!-- ★ 2026-10-02 主人指令: 宫格「超智研判」改为直跳本页后, 金睛/火眼两页**没有入口了**
+          <!-- ★ 2026-10-02 主人指令: 宫格「双脑竞价」改为直跳本页后, 金睛/火眼两页**没有入口了**
                ⇒ 在本卡（双模型分数列表）头部补两个直达入口 —— 就近原则: 用户看到「金睛94 · 火眼—」
                时最想点进去看整页名单。路径与宫格旧子项/路由表一致: /aipick(金睛) /aipick-lgb(火眼)。 -->
           <span class="cz-tabs">
@@ -203,7 +204,7 @@
       <!-- ⑥ 底部按钮 -->
       <div class="cz-foot">
         <!-- 2026-10-06: 文案改「完整评分榜单」—— 落点是 /aipick 全榜(45 只+筛选)，
-             叫"详情"容易让人以为是个股详情；且 /aipick 已归入超智组，跳转后高亮不切走 -->
+             叫"详情"容易让人以为是个股详情；且 /aipick 已归入双脑竞价组，跳转后高亮不切走 -->
         <button class="cz-btn ghost" @click="goDetail">查看完整评分榜单</button>
         <button class="cz-btn main" :disabled="!picks.length" @click="addPool">加入自选</button>
       </div>
@@ -256,7 +257,7 @@ const route = useRoute()
 const pickDate = computed(() => String((route.query.pickDate) || ''))
 
 // 折叠状态（**仅嵌入模式**有开关，整页模式永远展开）：用 localStorage 记住，
-// 否则用户每次刷新左栏都被整块超智内容顶住。隐私模式/无 storage 时恒展开。
+// 否则用户每次刷新左栏都被整块双脑竞价内容顶住。隐私模式/无 storage 时恒展开。
 const CZ_OPEN_KEY = 'kuaixuan.cz.embed.open'
 const open = ref(true)
 if (props.embedded) {
@@ -468,7 +469,7 @@ usePolling(() => { if (isIntradayNow()) load() }, 60000, { immediate: false })
 
 <style scoped>
 .cz-root { max-width: 980px; margin: 0 auto; padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
-/* 整页嵌入超智首页看板：铺满宽度，高度自适应内容 */
+/* 整页嵌入双脑竞价首页看板：铺满宽度，高度自适应内容 */
 .cz-frame { width: 100%; height: calc(100vh - 120px); min-height: 600px; border: none; border-radius: var(--r-lg); background: var(--bg-body); }
 @media (max-width: 640px) {
   .cz-frame { height: calc(100vh - 150px); min-height: 480px; border-radius: var(--r-md); }

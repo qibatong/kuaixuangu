@@ -1,6 +1,6 @@
 <template>
   <!--
-    超智研判 · 首页看板（2026-10-06 原生版，取代原先 iframe 套独立 Flask 页）
+    双脑竞价 · 首页看板（2026-10-06 原生版，取代原先 iframe 套独立 Flask 页）
 
     🔴 动态数据：本页所有数字均来自主站现有接口（无任何写死数据），
        盘中(09:15~15:05)每 30s 自动轮询；非盘中不轮询（收盘数据不再变）。
@@ -417,7 +417,7 @@ async function loadEmo() {
 }
 
 // ---------------- ⑤ 主线雷达 ----------------
-// 🔴 以下 4 个规则函数**照抄**旧独立超智页 backend realdata.py 的 _bstate / _bhealth / _pick_ld /
+// 🔴 以下 4 个规则函数**照抄**旧独立双脑竞价页 backend realdata.py 的 _bstate / _bhealth / _pick_ld /
 //    _stock_state（口径不得自创）。数据来源也照旧：
 //      板块涨幅+主力净额 ← /api/kpl/board-rank（旧页 kpl.fetch_board_rank）
 //      龙头/中军        ← /api/kpl/board-stocks（旧页 kpl.fetch_board_stocks，逐板块取成分股再选）
@@ -663,8 +663,14 @@ function pctRatio(v) {                     // 入参是 0~1 比例（zt-echelon.
   return (Number(v) * 100).toFixed(1) + '%'
 }
 function dirCls(v) {
-  const n = Number(v)
-  if (!Number.isFinite(n) || n === 0) return 'dim'
+  /* 🔴 2026-10-07 修「主线雷达里涨幅是灰的」：
+     龙头/中军的 gap 是**已格式化好的字符串**（`gap: fmtSigned(change)` ⇒ "+20.0%"），
+     Number("+20.0%") = NaN ⇒ 旧代码按"无数据"返回 'dim'，而 CSS 里**根本没有 .dim 规则**
+     ⇒ 数字退回父级灰色（.czh-lrow 的 --text-secondary / .czh-flow 的 --text-muted）
+     ⇒ 看上去就是"明明涨了 20% 却是灰的"。这里先剥掉 +/%/空格再解析。 */
+  const n = Number(String(v).replace(/[+%\s,]/g, ''))
+  if (v === null || v === undefined || v === '' || !Number.isFinite(n)) return 'dim'
+  if (n === 0) return 'dim'
   return n > 0 ? 'up' : 'down'
 }
 function boardOf(s) {
@@ -852,11 +858,15 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 .czh-flow b { font-family: var(--font-mono); }
 .czh-flow b.up { color: var(--up); }
 .czh-flow b.down { color: var(--down); }
+/* 2026-10-07: .dim（0 值 / 无数据）此前**没有任何规则** ⇒ 继承父级灰，看着像"颜色坏了"。
+   现在给一个明确的中性色：它是刻意的"中性"，不再靠继承撞运气。 */
+.czh-flow b.dim { color: var(--text-secondary); }
 /* 龙头/中军行 —— 结构照旧页 .lrow/.ltag */
 .czh-lrow { display: flex; align-items: center; gap: var(--s1); font-size: var(--fs-sm); color: var(--text-secondary); margin-top: var(--s1); }
 .czh-lrow b { font-family: var(--font-mono); }
 .czh-lrow b.up { color: var(--up); }
 .czh-lrow b.down { color: var(--down); }
+.czh-lrow b.dim { color: var(--text-secondary); }
 .czh-ltag {
   flex: none; font-size: var(--fs-sm); padding: 2px var(--s1); border-radius: var(--r-sm);
   background: var(--bg-subtle); color: var(--text-muted);

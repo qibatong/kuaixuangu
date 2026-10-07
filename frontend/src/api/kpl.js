@@ -13,7 +13,7 @@ export function kplIndexBrief() {
   return request('/api/kpl/index-brief', { cache: 30 })
 }
 
-// 板块名称与对应题材描述（超智首页「主线雷达」的资讯行用它，口径同旧独立页 _desc 模糊匹配）
+// 板块名称与对应题材描述（双脑竞价首页「主线雷达」的资讯行用它，口径同旧独立页 _desc 模糊匹配）
 export function kplHotPlates() {
   return request('/api/kpl/hot-plates', { cache: 60 })
 }
@@ -62,7 +62,7 @@ export function kplLadderDates() {
   return request('/api/ladder/dates')
 }
 
-/** 超智研判聚合（只读、零新增上游出网；后端 60s 缓存。⚠️ 不吃 aipick 配额） */
+/** 双脑竞价聚合（只读、零新增上游出网；后端 60s 缓存。⚠️ 不吃 aipick 配额） */
 export function chaozhiOverview(pickDate = '') {
   // pickDate 非空 = 回看某日研判（后端会绕过 60s 缓存直接算，避免与当日互相污染）
   return request('/api/chaozhi/overview' + (pickDate ? '?pick_date=' + encodeURIComponent(pickDate) : ''),

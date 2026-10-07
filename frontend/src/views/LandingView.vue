@@ -27,7 +27,7 @@ const FEATURES = [
   { icon: 'fa-bolt',          title: '竞价异动',   desc: '封单 / 爆量 / 抢筹 / 委买 / 净额五张榜，含连续多日封单对比' },
   { icon: 'fa-sitemap',       title: '连板天梯',   desc: '按连板高度分层排列，晋级率与炸板率一眼看清' },
   { icon: 'fa-exchange',      title: '龙虎榜',     desc: '席位 → 个股层级树，按通达信口径对齐，默认只展开到席位' },
-  { icon: 'fa-lightbulb-o',   title: '超智研判',   desc: '情绪 / 资金 / 晋级率 / 承接 四维打分，盘前快速定调' },
+  { icon: 'fa-lightbulb-o',   title: '双脑竞价',   desc: '情绪 / 资金 / 晋级率 / 承接 四维打分，盘前快速定调' },
   { icon: 'fa-newspaper-o',   title: '盘前资讯',   desc: '头条 / 快讯 / 明天炒什么 / 大V复盘，一键扫完' },
 ]
 
@@ -71,7 +71,7 @@ function copyWx() {
         <span class="ld-badge"><i class="fa fa-clock-o" aria-hidden="true"></i> 交易日 09:25 定格</span>
         <p class="ld-h1">早 9:25，把当天竞价名单定下来</p>
         <p class="ld-sub">
-          竞价选股 · 竞价异动 · 连板天梯 · 龙虎榜 · 超智研判 · 盘前资讯 ——
+          竞价选股 · 竞价异动 · 连板天梯 · 龙虎榜 · 双脑竞价 · 盘前资讯 ——
           从盘前到盘后的复盘流程，一个页面走完。
         </p>
         <div class="ld-cta">

@@ -26,8 +26,8 @@ const router = createRouter({
     { path: '/auction', name: 'auction', component: () => import('../views/AuctionView.vue'), meta: { group: 'auction', order: 1 } },
     // 2026-10-03：《顺势而为竞价终极版》（数据来自后端 /api/his-pick）
     { path: '/his-pick', name: 'his-pick', component: () => import('../views/HisPickView.vue'), meta: { group: 'auction', order: 9 } },
-    // 2026-10-06: 金睛/火眼归属从「竞价」组改挂「超智」组 —— 超智页「查看评分详情」
-    //   跳过来时顶栏高亮仍停在「超智」，不再出现"从超智跳进了竞价"的错位感。
+    // 2026-10-06: 金睛/火眼归属从「竞价」组改挂「双脑竞价」组 —— 双脑竞价页「查看评分详情」
+    //   跳过来时顶栏高亮仍停在「双脑竞价」，不再出现"从双脑竞价跳进了竞价"的错位感。
     //   路径 /aipick /aipick-lgb 一字不动（旧书签/外链不失效）。
     { path: '/aipick', name: 'aipick', component: () => import('../views/AipickView.vue'), meta: { group: 'chaozhi', order: 1 } },
     // 2026-09-25: 火眼(LightGBM) 平行链路独立页(与 /aipick 共用 AipickReport 组件, 只换 model)
@@ -38,8 +38,8 @@ const router = createRouter({
     { path: '/market', name: 'market', component: () => import('../views/MarketView.vue'), meta: { group: 'intraday', order: 0 } },
     // 2026-10-01 主人: 首页宫格「题材库」格 → 开盘啦题材/板块榜（含成分股下钻）
     { path: '/theme', name: 'theme', component: () => import('../views/ThemeLibView.vue'), meta: { group: 'intraday', order: 1 } },
-    // 2026-10-01 主人: 「超智研判」（原 AI预测）聚合页 —— 首页宫格第 5 格直跳此页
-    // 2026-10-03 主人指令: 升为**一级分组**「超智」（放「竞价」左边），meta.group 改 'chaozhi'。
+    // 2026-10-01 主人: 「双脑竞价」（原 AI预测）聚合页 —— 首页宫格第 5 格直跳此页
+    // 2026-10-03 主人指令: 升为**一级分组**「双脑竞价」（放「竞价」左边），meta.group 改 'chaozhi'。
     //   ⚠️ 曾经的 noGroupNav 豁免随之取消 —— 它当时是为了挡住误归属「盘中」组的 pill 行；
     //      现在自成一组且组内只有 1 页 ⇒ GroupNav 的 items.length>1 判据本来就不渲染。
     { path: '/chaozhi', name: 'chaozhi', component: () => import('../views/ChaozhiView.vue'),
@@ -105,7 +105,7 @@ const TITLES = {
   bigv: '大V复盘', auction: '竞价异动', aipick: 'AI预测·金睛', admin: '管理后台',
   'aipick-lgb': 'AI预测·火眼', lhb: '龙虎榜', news: '盘前资讯',
   member: '我的会员',
-  theme: '题材库', chaozhi: '超智研判', 'his-pick': '顺势而为', messages: '消息中心',
+  theme: '题材库', chaozhi: '双脑竞价', 'his-pick': '顺势而为', messages: '消息中心',
   terms: '用户协议', privacy: '隐私政策', refund: '退款说明',
 }
 // 2026-10-05 (S7): 未登录首屏（/，落地页）给一个能进搜索/分享卡片的标题，

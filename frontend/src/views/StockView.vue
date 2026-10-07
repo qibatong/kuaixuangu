@@ -35,8 +35,8 @@
 
       <!-- 左栏: 选股主流程 -->
       <div class="home-col home-col-left" :class="{ 'home-col-hidden': mobilePane !== 'stock' }">
-        <!-- 2026-10-03: 曾按误解把超智研判常驻在此(ChaozhiView embedded) —— 主人本意是
-             **顶部导航**「放在竞价左边」，本块已整块移除，超智入口 = NavBar「超智」一级 tab。
+        <!-- 2026-10-03: 曾按误解把双脑竞价常驻在此(ChaozhiView embedded) —— 主人本意是
+             **顶部导航**「放在竞价左边」，本块已整块移除，双脑竞价入口 = NavBar「双脑竞价」一级 tab。
              ChaozhiView 的 embedded 能力保留未删(默认关, 对 /chaozhi 页零影响)。 -->
         <!-- 模式切换(内联): 竞价 / 盘中实时 / AI预测 三组
              2026-09-05 主人需求: ① 去掉原顶部提示文案(竞价「9:30前可重新选股…」与
@@ -46,11 +46,11 @@
         <div class="alert-rule alert-rule-compact">
           <span class="mode-tabs mode-tabs-inline">
             <!-- 🔴 2026-10-01 主人三件事（**只动展示文案与顺序, `leftTab` 取值与所有分支判据一字不动**）:
-                 ① **去掉两个 AI tab**（AI预测·金睛 / 火眼）—— 已并入「超智研判」聚合页（/chaozhi）；
-                    对应分支与 `?t=aipick` 深链**保留**（超智研判页的「查看评分详情」仍指向 /aipick）。
+                 ① **去掉两个 AI tab**（AI预测·金睛 / 火眼）—— 已并入「双脑竞价」聚合页（/chaozhi）；
+                    对应分支与 `?t=aipick` 深链**保留**（双脑竞价页的「查看评分详情」仍指向 /aipick）。
                  ② **文案与首页 10 宫格对齐**：「实时动态选股」→「动态选股」、「竞价一进二」→「竞价优选」。
                  ③ **顺序按宫格排序**：竞价选股 → 竞价精选 → 竞价优选 → 动态选股
-                    （宫格上排是 竞价选股/竞价精选/竞价优选/竞价异动/超智研判，下排第 1 个是 动态选股）。 -->
+                    （宫格上排是 竞价选股/竞价精选/竞价优选/竞价异动/双脑竞价，下排第 1 个是 动态选股）。 -->
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'auction' }" @click="switchTab('auction')"><i class="fa fa-sun-o"></i> 竞价选股</button>
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'zhpick' }" @click="switchTab('zhpick')"><i class="fa fa-star"></i> 竞价精选</button>
             <button class="mode-tab mode-tab-compact" :class="{ active: leftTab === 'yijiner' }" @click="switchTab('yijiner')"><i class="fa fa-level-up"></i> 竞价优选</button>

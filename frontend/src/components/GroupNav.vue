@@ -41,7 +41,7 @@ const user = useUserStore()
 const group = computed(() => groupByKey(groupKeyOfRoute(route)))
 
 // 路由级豁免（2026-10-01）: `meta.noGroupNav` 的页面不显示分组 pill 行 ——
-//   用于「超智研判」这类**独立聚合页**：它在盘中分组里只为导航归属，页内不需要组内二级导航。
+//   用于「双脑竞价」这类**独立聚合页**：它在盘中分组里只为导航归属，页内不需要组内二级导航。
 const noPills = computed(() => !!(route.meta && route.meta.noGroupNav))
 
 // 管理后台入口只对管理员露出（非管理员即便看到也会被路由守卫挡回首页）

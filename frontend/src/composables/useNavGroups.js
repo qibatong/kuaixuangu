@@ -1,7 +1,7 @@
 /**
  * 导航信息架构（2026-09-27 v4.11.58 建立，v4.11.61 定稿）: 9 个平铺顶部 tab → 一级分组
- *   ⚠️ 2026-10-03 起 **7 个**：超智 / 竞价 / 盘前资讯 / 盘中 / 复盘 / 自选 / 我的
- *      （超智由宫格直跳页升为一级分组，主人指令「放在竞价这里，竞价向右调整一下」）
+ *   ⚠️ 2026-10-03 起 **7 个**：双脑竞价 / 竞价 / 盘前资讯 / 盘中 / 复盘 / 自选 / 我的
+ *      （双脑竞价由宫格直跳页升为一级分组，主人指令「放在竞价这里，竞价向右调整一下」）
  *
  * 工单: 《快选产品优化总工单》批次一 + 批次二 布局设计稿 ——
  *       竞价 / 盘前资讯 / 盘中 / 复盘 / 自选 / 我的
@@ -29,7 +29,7 @@
 /** 六个一级分组。entry = 点该分组时先落地的二级页。 */
 export const NAV_GROUPS = [
   {
-    // 2026-10-03 主人指令: 「超智」**升为一级分组**且放在**「竞价」左边**（原话：
+    // 2026-10-03 主人指令: 「双脑竞价」**升为一级分组**且放在**「竞价」左边**（原话：
     //   「放在竞价这里，竞价向右调整一下」）—— 之前误解成塞进竞价页左栏，已回退。
     //   · 落点 = 聚合页 /chaozhi（组内只有 1 页 ⇒ GroupNav 不渲染 pill 行，见其 items.length>1 判据）
     //   · 图标 fa-lightbulb-o：本地 FA 子集里**已有字形**（fa_guard 闸门要求），
@@ -37,15 +37,15 @@ export const NAV_GROUPS = [
     //   · 手机端底部 AppTabBar 读的是 TABBAR_TABS（不进底部栏，入口仍是首页宫格，
     //     与盘前资讯/复盘/自选同一待遇）。
     key: 'chaozhi',
-    label: '超智',
+    label: '双脑竞价',
     icon: 'fa-lightbulb-o',
     entry: '/chaozhi',
     // 2026-10-06: 金睛/火眼(/aipick, /aipick-lgb) 从「竞价」组并进来 —— 它们就是
-    //   超智评分的完整榜单页（超智页底部「查看评分详情」的落点）。组内变 3 页 ⇒
-    //   GroupNav 会开始渲染二级 pill 行（超智研判 / AI预测·金睛 / AI预测·火眼），
-    //   与"超智=聚合页 + 两个模型榜"的信息架构一致。
+    //   双脑竞价评分的完整榜单页（双脑竞价页底部「查看评分详情」的落点）。组内变 3 页 ⇒
+    //   GroupNav 会开始渲染二级 pill 行（双脑竞价 / AI预测·金睛 / AI预测·火眼），
+    //   与"双脑竞价=聚合页 + 两个模型榜"的信息架构一致。
     items: [
-      { label: '超智研判', path: '/chaozhi' },
+      { label: '双脑竞价', path: '/chaozhi' },
       { label: 'AI预测·金睛', path: '/aipick' },
       { label: 'AI预测·火眼', path: '/aipick-lgb' },
     ],
@@ -70,7 +70,7 @@ export const NAV_GROUPS = [
       { label: '选股名单', path: '/' },
       // /auction 原本根本不在导航里，v4.11.58 时必须提到明面（工单第四节）
       { label: '竞价异动', path: '/auction' },
-      // 2026-10-06: AI预测·金睛/火眼 移入上方「超智」组（VIP 付费入口仍保留，只是换了组）
+      // 2026-10-06: AI预测·金睛/火眼 移入上方「双脑竞价」组（VIP 付费入口仍保留，只是换了组）
     ],
   },
   {
@@ -138,7 +138,7 @@ export const NAV_GROUPS = [
 const NAME_TO_GROUP = {
   chaozhi: 'chaozhi',
   stock: 'auction', auction: 'auction',
-  // 2026-10-06: 金睛/火眼随 meta.group 归入超智（兜底同步改）
+  // 2026-10-06: 金睛/火眼随 meta.group 归入双脑竞价（兜底同步改）
   aipick: 'chaozhi', 'aipick-lgb': 'chaozhi',
   news: 'news',
   market: 'intraday', concept: 'intraday',
@@ -212,7 +212,7 @@ export function tabbarKeyOfRoute(route) {
     if (String(route.query && route.query.wb || '') === '1') return 'auc'
     return 'home'
   }
-  // 2026-10-06: /aipick(/aipick-lgb) 归入超智组 ⇒ 手机底栏无对应格，返回 '' 不高亮
+  // 2026-10-06: /aipick(/aipick-lgb) 归入双脑竞价组 ⇒ 手机底栏无对应格，返回 '' 不高亮
   //   （与 /pool /news 等"从宫格/聚合页进"的二级页同一待遇，不再冒充「首页」高亮）
   if (p.indexOf('/auction') === 0) return 'auc'
   const g = groupKeyOfRoute(route)
