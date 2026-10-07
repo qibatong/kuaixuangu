@@ -58,7 +58,13 @@
         </div>
         <div v-if="auc.leaders.length" class="czh-chips czh-leaders">
           <span class="czh-ltag">龙头竞价</span>
-          <span v-for="l in auc.leaders" :key="l.code" class="czh-chip">
+          <!-- 2026-10-07 主人反馈「有的个股点了不弹详情」：chip 缺 data-stock-code ⇒
+               App.vue 全局委托认不出，补上即与核按钮/机会清单同一套弹窗 -->
+          <span
+            v-for="l in auc.leaders" :key="l.code" class="czh-chip czh-chip-go"
+            :data-stock-code="l.code" :data-stock-name="l.name"
+            :title="'点击查看 ' + l.name + ' 个股详情 / 分时 / 日K'"
+          >
             <b>{{ l.name }}</b>
             <i :class="dirCls(l.bid_change)">{{ fmtPct(l.bid_change) }}</i>
             <!-- 「新」角标（2026-10-06 主人券商式建议第 3 条）：涨幅**超出该股涨跌停限制** ⇒
@@ -172,9 +178,12 @@
             </div>
           </div>
           <div v-if="yest.list.length" class="czh-chips czh-yest-list">
+            <!-- 2026-10-07 补 data-stock-code ⇒ 点击弹个股详情（此前点了没反应） -->
             <span
               v-for="s in yest.list.slice(0, 20)" :key="s.code"
-              class="czh-chip" :class="dirCls(s.change)"
+              class="czh-chip czh-chip-go" :class="dirCls(s.change)"
+              :data-stock-code="s.code" :data-stock-name="s.name"
+              :title="'点击查看 ' + s.name + ' 个股详情 / 分时 / 日K'"
             >
               <b>{{ s.name }}</b><i>{{ fmtPct(s.change) }}</i>
             </span>
@@ -202,12 +211,18 @@
           </div>
           <div class="czh-lrow">
             <span class="czh-ltag">龙头</span>
-            <template v-if="b.leader">{{ b.leader.name }} <b :class="dirCls(b.leader.gap)">{{ b.leader.gap }}</b> · {{ b.leader.state }}</template>
+            <template v-if="b.leader"><span
+              class="czh-chip-go" :data-stock-code="b.leader.code" :data-stock-name="b.leader.name"
+              :title="'点击查看 ' + b.leader.name + ' 个股详情 / 分时 / 日K'"
+            >{{ b.leader.name }}</span> <b :class="dirCls(b.leader.gap)">{{ b.leader.gap }}</b> · {{ b.leader.state }}</template>
             <template v-else>—</template>
           </div>
           <div class="czh-lrow">
             <span class="czh-ltag core">中军</span>
-            <template v-if="b.core">{{ b.core.name }} <b :class="dirCls(b.core.gap)">{{ b.core.gap }}</b> · {{ b.core.state }}<span v-if="b.core.amt" class="czh-amt">成交 {{ b.core.amt.toFixed(1) }}亿</span></template>
+            <template v-if="b.core"><span
+              class="czh-chip-go" :data-stock-code="b.core.code" :data-stock-name="b.core.name"
+              :title="'点击查看 ' + b.core.name + ' 个股详情 / 分时 / 日K'"
+            >{{ b.core.name }}</span> <b :class="dirCls(b.core.gap)">{{ b.core.gap }}</b> · {{ b.core.state }}<span v-if="b.core.amt" class="czh-amt">成交 {{ b.core.amt.toFixed(1) }}亿</span></template>
             <template v-else>—</template>
           </div>
           <div v-if="b.news" class="czh-news">{{ b.news }}</div>
@@ -483,10 +498,12 @@ async function loadBoards() {
         try {
           const s = await kplBoardStocks(b.boardCode)
           const [l1, l2] = pickLd((s && s.list) || [])
-          if (l1) leader = { name: l1.name, gap: fmtSigned(l1.change), state: stockState(l1) }
+          // 2026-10-07: 补 code —— 龙头/中军此前只留 name，全局点击委托认不出 ⇒ 点了不弹详情
+          if (l1) leader = { code: l1.code, name: l1.name, gap: fmtSigned(l1.change), state: stockState(l1) }
           // 中军带成交额（元→亿）：它是"按成交额选出"的，把依据一并展示才可核对
           if (l2) {
             core = {
+              code: l2.code,
               name: l2.name, gap: fmtSigned(l2.change), state: stockState(l2),
               amt: (Number(l2.amount) || 0) / 1e8,
             }
@@ -840,6 +857,11 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 .czh-chip em { font-style: normal; color: var(--text-dim); }
 .czh-chip i { font-style: normal; font-family: var(--font-mono); }
 .czh-chip.up { border-color: rgba(var(--accent-rgb), 0.45); }
+/* 2026-10-07: 带 data-stock-code 的可点个股（chip / 龙头·中军名）——给出可点提示，
+   点击由 App.vue 全局委托弹「个股详情 / 分时 / 日K」 */
+.czh-chip-go { cursor: pointer; }
+.czh-chip-go:hover { border-color: var(--accent); color: var(--text-main); }
+.czh-lrow .czh-chip-go:hover { text-decoration: underline; }
 .czh-chip.up i { color: var(--up); }
 .czh-chip.down i { color: var(--down); }
 

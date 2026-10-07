@@ -18,6 +18,12 @@
     <h1 class="visually-hidden">连板天梯</h1>
 
     <header class="lb-head">
+      <!-- 2026-10-07 主人反馈「打开连板天梯后没有返回按钮」：
+           有上一页历史 ⇒ router.back()（从哪来回哪去，例如双脑竞价页/快捷宫格）；
+           直接落在本页（新标签/分享链接）⇒ 回首页，避免出现点了没反应的死按钮 -->
+      <button class="lb-back" type="button" @click="goBack" aria-label="返回上一页">
+        <i class="fa fa-angle-left" aria-hidden="true"></i> 返回
+      </button>
       <span class="lb-logo" aria-hidden="true">
         <i class="lb-logo-b1"></i><i class="lb-logo-b2"></i><i class="lb-logo-b3"></i>
       </span>
@@ -181,6 +187,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { kplZtEchelon, kplLadderDates, kplZtReason, kplFanbao } from '../api/kpl'
 import { trackUsageOnce } from '../api/activity'
 import { useUserStore } from '../stores/user'
@@ -188,6 +195,13 @@ import { useUserStore } from '../stores/user'
 import { isIntradayNow, fmtTsTime } from '../utils/time'
 
 const user = useUserStore()
+const router = useRouter()
+
+// 返回：有站内历史 ⇒ 回上一页；否则（直接打开/新标签）回首页，避免死按钮
+function goBack() {
+  if (window.history.length > 1) router.back()
+  else router.push('/')
+}
 
 const loading = ref(true)
 const stat = ref({ ztCount: 0, maxLadder: 0, spaceDragon: '' })
@@ -349,6 +363,20 @@ onBeforeUnmount(() => { if (echelonTimer) clearInterval(echelonTimer) })
 .lb-root { max-width: 980px; margin: 0 auto; padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 
 .lb-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s2); }
+/* 2026-10-07 返回按钮：与其它页「胶囊描边」一套，不抢标题视觉 */
+.lb-back {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: var(--s1) var(--s2);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-pill);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.lb-back:hover { color: var(--text-main); border-color: var(--accent); }
+.lb-back .fa { font-size: var(--fs-md); }
 .lb-logo {
   width: 26px; height: 26px; border-radius: var(--r-md); flex: 0 0 auto;
   background: linear-gradient(145deg, var(--qg-red-a), var(--qg-orange-b));
