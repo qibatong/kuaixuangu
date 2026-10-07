@@ -147,6 +147,61 @@
         </div>
       </div>
 
+      <!-- 第二批(2026-10-07): A9 运营日历 —— 榜单式看板回答不了"今天就拐了这个弯"，
+           日历把未来 30 天摊平铺开：公告哪天上/下线、哪天多少人会员到期、哪天注册潮。
+           三者都是运营要**提前排班**的事，凑在一起才看得出撞车。 -->
+      <div class="admin-card">
+        <details class="cal-block" @toggle="onCalToggle">
+          <summary class="cal-sum">
+            <i class="fa fa-calendar"></i> 运营日历
+            <span class="cal-sum-note">未来 {{ calDays.length }} 天</span>
+            <span v-if="cal.total" class="cal-sum-tags">
+              公告 <b>{{ cal.total.notices }}</b> · 会员到期 <b>{{ cal.total.expiring }}</b> · 新注册 <b>{{ cal.total.new_users }}</b>
+            </span>
+          </summary>
+          <div v-if="cal.err" class="cal-tip">加载失败</div>
+          <div v-else-if="!calDays.length" class="cal-tip">加载中…</div>
+          <template v-else>
+            <div class="cal-head">
+              <span v-for="w in WEEK_HEAD" :key="w" class="cal-week">{{ w }}</span>
+            </div>
+            <div class="cal-grid">
+              <span v-for="b in calBlanks" :key="'b'+b" class="cal-cell cal-blank"></span>
+              <button
+                v-for="d in calDays" :key="d.date"
+                class="cal-cell" :class="{ today: d.date === calToday, on: d.date === calPick }"
+                @click="calPick = (calPick === d.date ? '' : d.date)"
+              >
+                <span class="cal-d">{{ Number(d.date.slice(8)) }}</span>
+                <span v-if="d.notices.length" class="cal-dot i-notice" :title="d.notices.length + ' 条公告上下线'"></span>
+                <span v-if="d.expiring" class="cal-dot i-expire" :title="d.expiring + ' 人会员到期'">{{ d.expiring }}</span>
+                <span v-if="d.new_users" class="cal-dot i-new" :title="d.new_users + ' 人注册'">{{ d.new_users }}</span>
+              </button>
+            </div>
+            <div class="cal-legend">
+              <span><i class="cal-swatch i-notice"></i>公告上线/下线</span>
+              <span><i class="cal-swatch i-expire"></i>付费会员到期(人数)</span>
+              <span><i class="cal-swatch i-new"></i>当日新注册</span>
+            </div>
+            <div v-if="calDetail" class="cal-detail">
+              <div class="cal-detail-day">{{ calDetail.date }}</div>
+              <div v-if="!calDetail.notices.length && !calDetail.expiring && !calDetail.new_users" class="cal-tip">这天没有安排</div>
+              <template v-else>
+                <div v-for="n in calDetail.notices" :key="n.id + n.kind" class="cal-row">
+                  <span class="cal-chip i-notice">{{ n.kind }}</span>
+                  <span class="cal-row-txt">{{ n.title }}</span>
+                  <span class="cal-row-dim">{{ n.target }} / {{ n.level }}</span>
+                </div>
+                <div v-if="calDetail.expiring" class="cal-row"><span class="cal-chip i-expire">到期</span>{{ calDetail.expiring }} 位付费会员今天到期</div>
+                <div v-if="calDetail.expiring_free" class="cal-row"><span class="cal-chip i-expire dim">到期</span>{{ calDetail.expiring_free }} 位免费用户权益到期</div>
+                <div v-if="calDetail.new_users" class="cal-row"><span class="cal-chip i-new">注册</span>{{ calDetail.new_users }} 人注册</div>
+              </template>
+            </div>
+            <div v-else class="cal-tip">点某一天看当天明细</div>
+          </template>
+        </details>
+      </div>
+
       <!-- 第二批(2026-10-06): A4 用户分层标签 —— 定向运营的前提。
            没有标签, 公告只能对"全部/免费/付费/VIP"四档说话。 -->
       <div class="admin-card">
@@ -685,7 +740,9 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { adminCreateUser, adminDeleteUser, adminScoring, adminSetMemberLevel, adminSetUserProfile, adminUserInvites, adminUsers, getAdminDefaults, resetUserPassword, saveAdminDefaults, saveScoring as apiSaveScoring, setUserExpire, setUsersExpire,
   // 第二批(2026-10-06): A4 分层标签 / A5 测试发送 / A7 导出 / A10 转化漏斗
   adminUserTags, adminRefreshTags, adminSetUserTags, adminFunnel, adminTestNotice,
-  adminExportUrl } from '../api/admin'
+  adminExportUrl,
+  // 第二批(2026-10-07): A9 运营日历
+  adminCalendar } from '../api/admin'
 // 2026-10-04 站内公告(系统消息的站方广播部分)
 import {
   adminNotices, adminOffNotice, adminPublishNotice, adminEditNotice, adminNoticeCount,
@@ -701,6 +758,35 @@ import UserDetailDrawer from '../components/UserDetailDrawer.vue'
 
 // 表格排序实例(用户列表)
 const userSort = useSortable()
+
+/* ---------------- A9 运营日历(2026-10-07) ---------------- */
+const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六']
+const cal = reactive({ total: null, err: false })
+const calDays = ref([])
+const calPick = ref('')
+// 北京时间今天(服务器/本机都可能是 UTC ⇒ 一律 +8h 后取 ISO 日期，不能直接用本地时区)
+const calToday = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10)
+let calLoaded = false
+// 首行补齐：今天之前的那几格留空，保证星期列对齐
+const calBlanks = computed(() => {
+  if (!calDays.value.length) return 0
+  return new Date(calDays.value[0].date + 'T00:00:00Z').getUTCDay()
+})
+const calDetail = computed(() => calDays.value.find(d => d.date === calPick.value) || null)
+async function loadCal() {
+  if (calLoaded) return          // 默认折叠 ⇒ 展开才请求，别让每个管理员进页面都白跑一次聚合
+  calLoaded = true
+  try {
+    const r = await adminCalendar(30)
+    calDays.value = r.days || []
+    cal.total = r.total || null
+  } catch (e) {
+    cal.err = true               // 日历挂了不该拖垮后台其它板块
+  }
+}
+function onCalToggle(e) {
+  if (e.target.open) loadCal()
+}
 
 // 用户表取值函数: "手机/邮箱"列实际存 phone 或 email, 需合并取
 function userVal(u) {
@@ -1821,6 +1907,39 @@ body[data-bg="light"] .weight-warn { color: var(--brand-deep); }
 </style>
 
 <style scoped>
+/* ===== 第二批(2026-10-07): A9 运营日历 ===== */
+.cal-sum { cursor: pointer; font-size: var(--fs-sm); color: var(--text-secondary); min-height: 30px; display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.cal-sum-note, .cal-sum-tags { font-size: var(--fs-xs); color: var(--text-dim); }
+.cal-tip { font-size: var(--fs-xs); color: var(--text-dim); padding: var(--s2) 0; }
+.cal-head { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--s1); margin-top: var(--s2); }
+.cal-week { font-size: var(--fs-xs); color: var(--text-dim); text-align: center; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--s1); }
+.cal-cell {
+  min-height: 46px; padding: 4px; border: 1px solid var(--border-soft); border-radius: var(--r-md);
+  background: var(--bg-panel-solid); color: var(--text-secondary); cursor: pointer;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; font-size: var(--fs-xs);
+}
+.cal-blank { border: none; background: transparent; cursor: default; }
+.cal-cell.today { border-color: var(--accent-deep2); }
+.cal-cell.on { background: rgba(120, 160, 255, 0.15); }
+.cal-d { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim); }
+.cal-cell.today .cal-d { color: var(--accent-text); }
+/* 🔴 事件配色收进 i-* 语义类：格子里的圆点与图例、明细里的 chip 共用同一套，
+   不会出现"图例改了颜色、格子没跟着改"的漂移。 */
+.i-notice { background: var(--accent-deep2); color: var(--on-accent); }
+.i-expire { background: var(--up); color: var(--on-accent); }
+.i-new { background: var(--down); color: var(--on-accent); }
+.i-expire.dim { background: var(--bg-hover); color: var(--text-secondary); }
+.cal-dot { border-radius: var(--r-md); padding: 0 4px; font-size: var(--fs-xs); line-height: 15px; }
+.cal-legend { display: flex; flex-wrap: wrap; gap: var(--s3); margin-top: var(--s2); font-size: var(--fs-xs); color: var(--text-dim); }
+.cal-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; }
+.cal-detail { margin-top: var(--s3); border-top: 1px dashed var(--border-soft); padding-top: var(--s2); }
+.cal-detail-day { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim); margin-bottom: var(--s2); }
+.cal-row { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-xs); color: var(--text-secondary); padding: 3px 0; }
+.cal-row-txt { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-row-dim { color: var(--text-dim); }
+.cal-chip { border-radius: var(--r-md); padding: 0 5px; line-height: 16px; color: var(--on-accent); flex: 0 0 auto; }
+
 /* ===== 第二批(2026-10-06): A4 标签云 + A10 转化漏斗 ===== */
 /* 说明单独放在第二个 style 块: 这批样式与上面的历史样式没有层叠关系,
    拆开后将来要撤走这一批, 直接删这个块即可, 不用在上面 1000 行里找。 */

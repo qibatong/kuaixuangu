@@ -203,6 +203,11 @@ export function adminFunnel(days = 30) {
   return request(`/api/admin/funnel?days=${days}`)
 }
 
+// A9 运营日历(2026-10-07): 未来 N 天每天有什么事(公告上下线/会员到期/新注册)
+export function adminCalendar(days = 30) {
+  return request(`/api/admin/calendar?days=${days}`)
+}
+
 // A5「仅自己可见」的测试发送(发布前先看看消息长什么样)
 export function adminTestNotice(payload) {
   return request('/api/admin/notices/test', { method: 'POST', body: payload })

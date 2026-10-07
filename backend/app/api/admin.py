@@ -1737,6 +1737,21 @@ def api_admin_set_user_tags(request: Request, body: dict = Body(...), uid: int =
     return jr({"ok": ok, "tags": user_ops.tags_of(target)})
 
 
+@router.get("/api/admin/calendar")
+def api_admin_calendar(request: Request, uid: int = Depends(get_admin)):
+    """运营日历(A9): 未来 N 天每天有什么事 —— 公告上线/下线、会员到期人数、当日新注册。
+
+    数据全部来自既有表(notices / users), 不新增埋点; 聚合与口径说明见 services/user_ops.calendar()。
+    """
+    from ..services import user_ops
+    q = qs(request)
+    try:
+        days = max(1, min(90, int((q.get("days") or [30])[0])))
+    except (TypeError, ValueError):
+        days = 30
+    return jr({"ok": True, **user_ops.calendar(days=days)})
+
+
 @router.get("/api/admin/funnel")
 def api_admin_funnel(request: Request, uid: int = Depends(get_admin)):
     """转化漏斗(A10): 注册 → 用过核心功能 → 撞免费墙 → 付费 → 续费

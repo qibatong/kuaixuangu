@@ -580,3 +580,97 @@ def send_test_notice(admin_uid, title, body, level="info", category="system",
                       action_type=action_type, action_value=action_value,
                       meta={"test": 1}, status="sent", created_by="admin-test",
                       skip_push=not push)
+
+
+# ================= A9 运营日历(2026-10-07 v4.12.8) =================
+def _bj_today():
+    """北京时间今天。服务器时区是 UTC, 全站统一 +8h 口径(别用 localtime)。"""
+    import datetime as _dt
+    return _dt.datetime.utcfromtimestamp(time.time() + 8 * 3600).date()
+
+
+def _bj_date(ts):
+    """时间戳 → 北京日期串(Y-m-d); 0/空 → ''"""
+    import datetime as _dt
+    try:
+        return _dt.datetime.utcfromtimestamp(int(ts or 0) + 8 * 3600).strftime("%Y-%m-%d")
+    except Exception:
+        return ""
+
+
+def _bj_date_start(d):
+    """北京日期 d 的 00:00 对应 unix 时间戳(用于范围查询)。
+
+    🔴 必须走 timegm(按 UTC 解释) 而不是 datetime.timestamp() —— 后者按**本机时区**解释同一个
+       朴素 datetime: 服务器 UTC 下算出的是正确值, 换到 CST 的开发机上会整整差 8 小时
+       ⇒ 同一个 DAY 在两台机器查出来的用户不一样。这种 bug 在生产上不报错, 只是静静地漏人。
+    """
+    import calendar as _cal
+    import datetime as _dt
+    return int(_cal.timegm(_dt.datetime(d.year, d.month, d.day).timetuple())) - 8 * 3600
+
+
+def calendar(days=30):
+    """按**北京日期**聚合未来 N 天的运营日程 —— 让运营在一个格子里看见"那天有什么事"。
+
+    三类事件, 全部来自**既有表**, 不新增埋点、不新建表格:
+      ① 公告上线/下线(notices.start_ts / end_ts): 运营自己排的, 最容易撞车(多条挤同一天)
+      ② 会员到期(users.expire_at): 哪天多少人到期 —— 催续费排班就看这个
+      ③ 新注册(users.created_at): 回看用, 判断"那天是不是做过推广/出现注册潮"
+
+    🔴 刻意不把"使用量/活跃"这类连续指标放进日历: 它们每天都有值, 摊到格子里只会变成
+       一片均匀的噪声, 反而淹没真正需要排班处理的离散事件(到期、上线、下线)。
+
+    🔴 一律 fail-soft: 日历是锦上添花的视图, 查不动就返回空, 不该拖垮整个后台首页。
+    """
+    import datetime as _dt
+    n = max(1, min(int(days or 30), 90))
+    today = _bj_today()
+    span = [today + _dt.timedelta(days=i) for i in range(n)]
+    lo = _bj_date_start(today - _dt.timedelta(days=1))   # 含昨天, 便于看到"刚上线没多久的"
+    hi = _bj_date_start(today + _dt.timedelta(days=n + 1))
+    grid = {d.isoformat(): {"date": d.isoformat(), "notices": [], "expiring": 0,
+                            "expiring_free": 0, "new_users": 0} for d in span}
+    try:
+        c = _conn()
+        try:
+            # 🔴 排除 created_by='system' 的**系统自动生成**通知(签到提醒/账户变动, category
+            #    = system|account)：它们是每天一条的流水线, 测试机实测 349 条里占 100% ——
+            #    放进日历会把"运营自己排的事"彻底淹没。日历要回答的是「要不要今天排班」,
+            #    自动消息不需要排班 ⇒ 只收**人工发布**的公告(运营台即使不发也会自动存在)。
+            rows = c.execute(
+                "SELECT id, title, level, target, status, start_ts, end_ts, off_at FROM notices "
+                "WHERE off_at=0 AND IFNULL(created_by,'') <> 'system' "
+                "AND (start_ts BETWEEN ? AND ? OR end_ts BETWEEN ? AND ?)",
+                (lo, hi, lo, hi)).fetchall()
+            for r in rows:
+                base = {"id": int(r["id"]), "title": r["title"] or "", "level": r["level"] or "info",
+                        "target": r["target"] or "all", "status": r["status"] or ""}
+                for field, ts, kind in (("start_ts", r["start_ts"], "上线"),
+                                        ("end_ts", r["end_ts"], "下线")):
+                    k = _bj_date(ts)
+                    if k in grid and int(ts or 0) > 0:
+                        grid[k]["notices"].append(dict(base, kind=kind))
+            for r in c.execute(
+                    "SELECT expire_at, member_level FROM users WHERE expire_at>0 "
+                    "AND expire_at BETWEEN ? AND ?", (lo, hi)).fetchall():
+                k = _bj_date(r["expire_at"])
+                if k not in grid:
+                    continue
+                grid[k]["expiring" if int(r["member_level"] or 0) > 0 else "expiring_free"] += 1
+            for r in c.execute(
+                    "SELECT created_at FROM users WHERE created_at BETWEEN ? AND ?",
+                    (lo, hi)).fetchall():
+                k = _bj_date(r["created_at"])
+                if k in grid:
+                    grid[k]["new_users"] += 1
+        finally:
+            c.close()
+    except Exception as e:
+        log.warning("运营日历聚合失败 err=%s", e)
+        return {"days": [], "total": {"notices": 0, "expiring": 0, "new_users": 0}}
+    out = [grid[d.isoformat()] for d in span]
+    return {"days": out, "total": {
+        "notices": sum(len(d["notices"]) for d in out),
+        "expiring": sum(d["expiring"] for d in out),
+        "new_users": sum(d["new_users"] for d in out)}}
