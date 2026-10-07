@@ -14,7 +14,8 @@
     class="group-nav"
     :aria-label="group.label + ' · 组内导航'"
   >
-    <span class="group-nav-label"><i class="fa" :class="group.icon"></i> {{ group.label }}</span>
+    <!-- 2026-10-07 主人指令：去掉最左侧的「💡 分组名」标签（红框截图指认），
+         pill 行只留组内页面本身；分组归属仍由 NavBar 高亮 + aria-label 表达 -->
     <router-link
       v-for="it in items"
       :key="it.path"
@@ -84,19 +85,7 @@ function isActive(it) {
   border: 1px solid var(--border-soft);
   border-radius: var(--r-lg);
 }
-.group-nav-label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s1);
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  color: var(--text-muted);
-  padding-right: var(--s2);
-  margin-right: 2px;
-  border-right: 1px solid var(--border-soft);
-  white-space: nowrap;
-}
-.group-nav-label .fa { color: var(--accent); }
+/* 2026-10-07: .group-nav-label（分组名标签）随主人指令下线，样式一并清掉 */
 .group-nav-item {
   display: inline-flex;
   align-items: center;
@@ -124,7 +113,6 @@ body[data-bg="light"] .group-nav {
   border-color: #d9dde5;
   box-shadow: 0 1px 4px rgba(30, 40, 60, 0.06);
 }
-body[data-bg="light"] .group-nav-label { color: #8a8f9c; border-right-color: #e3e6ec; }
 body[data-bg="light"] .group-nav-item {
   background: #f2f4f8;
   color: #3a3f4c;
@@ -156,7 +144,6 @@ body[data-bg="light"] .group-nav-item.active {
     flex-wrap: wrap;
     overflow-x: visible;
   }
-  .group-nav-label { font-size: var(--fs-xs); padding-right: var(--s2); }
   .group-nav-item { flex-shrink: 0; padding: var(--s1) var(--s3); font-size: var(--fs-xs); }
 }
 </style>
