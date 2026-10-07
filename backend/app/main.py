@@ -129,16 +129,15 @@ def on_startup():
         yday_prewarm.start_prewarm_scheduler()
     except Exception as e:
         log.warning("昨比预热调度启动失败(不影响主服务) err=%s", e)
-    # AI 概率图预热(2026-10-06): 个股详情 `/api/stock/detail` 为**单只票**算评分时会触发
-    # `ai_predict._market_prob_map` 的**全市场**推理(全市场取数+猫爪补字段出网+pandas+全市场
-    # predict_proba), 冷启动实测 4.8~5.1s; 而缓存是进程内且按日期 ⇒ 重启后/每天首个用户都要等。
-    # 生产 access log 实证: /api/stock/detail 20 次中 6 次 4.9~5.0s(命中缓存仅 0.35s)。
-    # 后台线程保持该缓存常热 ⇒ 用户请求恒命中。必须挂 web 进程(缓存进程级)。
-    try:
-        from .services import ai_predict as _ai
-        _ai.start_ai_prewarm()
-    except Exception as e:
-        log.warning("AI概率图预热启动失败(不影响主服务) err=%s", e)
+    # 🔴 2026-10-07 v8: AI 概率图预热线程**已随 AI 层一起删除**(主人拍板)。
+    #   原先它存在的理由: `/api/stock/detail` 与竞价选股主链路算评分时会触发
+    #   `bid_strength._fill_ai` → `ai_predict._market_prob_map` 的**全市场**推理
+    #   (全市场取数 + 猫爪补字段出网 + pandas + 5561 只 predict_proba, 冷启动实测
+    #   4.417~5.1s), 故用后台线程把进程内按日缓存保热。
+    #   而线上 `w_ai` 早已被置 0 ⇒ 那次推理的结果**乘 0 丢弃**, 属纯浪费; 现连同
+    #   `_fill_ai` / `ai_predict.py` 一并移除 ⇒ 该 4.4s 开销从**竞价选股主链路**上消失。
+    #   ⚠️ 不影响 aipick 名单页(金睛/火眼)与超智页机会清单 —— 它们读
+    #   `predictions_*.json` 与 `aipick.db`, 与评分链路无关。
     # 超智聚合预热(2026-10-06): /api/chaozhi/overview 的 _build() 是 9 个串行环节, 冷算 1.8~3.9s,
     # 而缓存 TTL 仅 60s ⇒ 每个周期后的首个请求都要重算, 生产实测 66 次里 49 次 >2s(74%)。
     # 后台每 30s 走一次带缓存的入口 ⇒ 用户请求恒命中。

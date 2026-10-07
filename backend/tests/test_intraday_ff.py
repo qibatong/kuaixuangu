@@ -14,24 +14,26 @@ from app.services import bid_strength as bs
 
 
 def _scoring_cfg():
-    """scorer.get_scoring_cfg 的最小替身(与 test_bid_strength._cfg 同款 bid_strength 段)"""
+    """scorer.get_scoring_cfg 的最小替身(与 test_bid_strength._cfg 同款 bid_strength 段)。
+
+    ⚠️ v8(2026-10-07) 起 **AI 层已删除**: w_ai / ai_buckets / ai_topn / ai_default
+    四个键随之移除; 原本 AI 那 0.25 份额归量比(0.45 → 0.70), 使**权重和仍为 1.0**
+    —— 这样下方各处期望值可直接按权重书写, 且差分(bonus)与删除前**逐字相同**
+    (原式里 AI 项在 static/live 两侧都是 0.25×0.35, 抵消)。
+    """
     return {
         "w_warn": 0.17,
         "factors": {"bid_strength": {
             "buckets": [["3", "9999", 1.0], ["2", "3", 0.85], ["1.5", "2", 0.7],
                         ["1.0", "1.5", 0.55], ["0.6", "1.0", 0.4], ["0", "0.6", 0.25]],
             "default": 0.22,
-            "w_vol_ratio": 0.45, "w_ff": 0.30, "w_ai": 0.25,
+            "w_vol_ratio": 0.70, "w_ff": 0.30,
             "ff_buckets": [["0.30", "9999", 1.0], ["0.10", "0.30", 0.85],
                            ["0.03", "0.10", 0.7], ["0.005", "0.03", 0.55],
                            ["0.0001", "0.005", 0.45],
                            ["-0.005", "0", 0.30], ["-0.03", "-0.005", 0.20],
                            ["-9999", "-0.03", 0.10]],
             "ff_default": 0.35,
-            "ai_buckets": [["0.90", "1.01", 1.0], ["0.85", "0.90", 0.85],
-                           ["0.80", "0.85", 0.70]],
-            "ai_topn": 30,
-            "ai_default": 0.35,
         }},
     }
 
@@ -70,9 +72,11 @@ def _patch_common(monkeypatch, secs_wday, net_map):
 # ------------------------------------------------------------------ 现算
 def test_compute_bonus_only_positive_and_absolute(monkeypatch):
     """B 盘中大买(ff_live 5% → 满分档) → 加分; A 无盘中净额 → 不进 map(保持定格)"""
-    # warn_static(B) = 0.45*0.55 + 0.30*0.35 + 0.25*0.35 = 0.44
-    # warn_live(B)   = 0.45*0.55 + 0.30*1.0  + 0.25*0.35 = 0.635
-    # bonus = 0.17 × (0.635-0.44) × 100 = 3.315 → 79 + 3.315 = 82.315 → 取整 82
+    # warn_static(B) = 0.70*0.55 + 0.30*0.35       = 0.49
+    # warn_live(B)   = 0.70*0.55 + 0.30*1.0        = 0.685
+    # bonus = 0.17 × (0.685-0.49) × 100 = 0.17 × 0.195 × 100 = 3.315
+    #       → 79 + 3.315 = 82.315 → 取整 82
+    # (v8 删 AI 层后差分仍为 0.195: 原 AI 项 0.25×0.35 在 static/live 两侧相同, 抵消)
     _patch_common(monkeypatch, (9 * 3600 + 35 * 60, 0),
                   {"600002": 0.05 * 8e8})            # 盘中净流入 4000 万
     out = st_mod._intraday_ff_compute(_lst(), "2026-09-21")

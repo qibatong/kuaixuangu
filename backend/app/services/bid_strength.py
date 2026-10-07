@@ -20,13 +20,25 @@
   同源(`score_one_live_ff`) ⇒ w_ff=0 后 warn_live ≡ warn_static, bonus 恒 0,
   该功能**一并失效**(2026-09-23 实测: 原本 12 只被 +1~3 分, 归零后 Top5 边界
   换 1 只)。要恢复盘中加分, 需把 w_ff 调回 0.30(或另立独立加成通道)。
+* v8(2026-10-07): **主人拍板: 删除 AI 预测层**(原 v6 加的 aipick 内联推理档)。
+  依据: ① 线上 `w_ai` 早已被配置置 0(09-30 引入昨比层时让位), AI 层对评分
+  **零贡献**已持续多日; ② 该层取数是**全市场内联推理**(全市场取数 + 猫爪补字段
+  出网 + pandas + 5561 只 predict_proba), 线上实测冷启动 **4.417s**, 而结果被乘 0
+  丢弃 —— 属纯浪费; ③ 唯一消费方是 `_fill_ai` 自身, 模块 `ai_predict.py` 随之成为
+  孤儿(及其保温线程)。
+  ⇒ 删掉 `BidStrength.ai` / `_fill_ai` / 合成项 `w_ai×ai_score` / `ai_predict.py` /
+  `main.py` 预热线程。AI 那 0.25 份额**归量比**(合成只剩量比, 权重写 0.75 即可 ——
+  自动归一后即全量)。
+  ⚠️ 边界: **只删评分里的 AI 层**; aipick 自身的采集/预测/名单页(金睛·火眼)与
+  超智页机会清单**完全不受影响**(它们读 `predictions_*.json` 与 `aipick.db`,
+  与评分链路无关)。要恢复 AI 层需重新引入模型推理, 不是改配置能回来的。
 
-现状三层 + 1 个可选层(净额层保留字段与分档表, 但权重 0 = 不参与合成)
+现状两层(量比 + 可选昨比) + 1 个保留字段但权重 0 的净额层
 --------------------------------------------------------------------------------
 ④ 竞价昨比     —— **2026-09-30 主人拍板新增**: 竞价额 ÷ **昨日全天成交额** × 100 (%),
                   与前端「竞/昨比」展示列(pipeline.bid_ratio)同式同源。
                   由子权重 `w_zb` 控制是否参与 —— **默认 0.0 = 不参与 ⇒ 老行为逐字不变**;
-                  启用由配置写 `w_zb`(并把 `w_ai`/`w_vol_ratio` 按需调整)。
+                  启用由配置写 `w_zb`(并把 `w_vol_ratio` 按需调整)。
                   数据源 = fetcher 昨比缓存(wait=False, 绝不阻塞; 9:05 有预热),
                   缺失走 `zb_default`(中性, 不惩罚)。
 ① 竞价量比     —— **标准口径: 竞价成交量 ÷ 近 5 日平均每分钟成交量**(2026-09-24 主人拍板换口径)。
@@ -39,10 +51,10 @@
                   default(历史快照无新列, 否则全员落到量比档 default 0.22)。
                   为什么不用官方 `auc_to_pre_auc_vol_ratio`(竞昨量比): 该字段实测失真
                   (与真实竞昨量比 r≈0.19、max 691 倍), 2026-09-20 已回退。
-② AI 预测概率  —— **aipick 模型内联推理**(ai_predict.ai_score_map): 全市场
-                  Top30 ∩ p≥0.80 三档(0.90/0.85/0.80 → 1.0/0.85/0.70)。
-                  不在榜是**常态**(全市场仅 30 只) → 走 ai_default 0.35 中性,
-                  不当惩罚也**不标 missing**(与 ff 层不同: 缺列才是故障)。
+(已移除) AI 预测概率 —— **v8(2026-10-07) 主人拍板整体删除**, 见上方演进史。
+                  原实现: aipick 模型内联推理(ai_predict.ai_score_map)全市场 Top30
+                  ∩ p≥0.80 三档, 不在榜 → ai_default 0.35 中性。删除理由: 权重本为 0
+                  却仍每日跑 4.4s 全市场推理。
 (已移除) 竞价主力净额 —— 猫爪 fundflow_kp 落 snapshot_bid.auc_main_net ÷ 自由流通
                   市值 ×100。**2026-09-23 权重置 0**: 竞价主力净额是"有大单才有值",
                   且采集链路 9:25 定格早于猫爪生成(9:26 后才有) ⇒ 12 日全市场非零
@@ -110,8 +122,7 @@ class BidStrength:
     bid_vol_ratio: Optional[float] = None  # 猫爪 auc_vol_ratio; 缺则回退「今额/昨额」
     # ② 竞价主力净额占自由流通市值(%; 猫爪 fundflow_kp, 采集链路落库)
     ff_pct: Optional[float] = None
-    # ③ AI 预测档位分(aipick XGBoost, 全市场 Top30 ∩ p≥0.80 三档; None=不在榜=常态)
-    ai: Optional[float] = None
+    # ③ (已删除 2026-10-07 v8) AI 预测档位分 —— 原 aipick 内联推理, 权重为 0 故整体移除
     # ④ 竞价昨比(2026-09-30 主人拍板新增): 竞价额 ÷ **昨日全天成交额** × 100 (%)
     #    与前端「竞/昨比」展示列(pipeline.bid_ratio)同式同源(共用 fetcher 昨比缓存)。
     #    None = 缓存未热/新股/停牌(常态) → 走该层 default, **不标 missing**(同 AI 层)。
@@ -148,12 +159,10 @@ def load(codes: Optional[Sequence[str]] = None,
     except Exception as e:                                        # noqa: BLE001
         log.warning("[竞价强度] 快照层加载失败 err=%s", e)
 
-    # ---- ③ AI 预测层(aipick 内联推理, 独立降级) ----
-    # 必须用快照**实际**交易日(节假日/盘前已回退), 与 ①② 同一天, 否则
-    # 评分读 T-1 快照而 AI 查当日 → 周末/盘前 AI 层恒空。
+    # ---- ③ 竞价昨比(2026-09-30 新增, 独立降级) ----
+    # 原 ③「AI 预测层」已于 v8(2026-10-07) 删除(权重为 0 却每日跑 4.4s 全市场推理)。
     if out and filled_date:
-        _fill_ai(out, filled_date)
-        _fill_zb(out)                    # 层④ 竞价昨比(2026-09-30, 独立降级)
+        _fill_zb(out)
 
     _tag_missing(out)
     return out
@@ -240,30 +249,6 @@ def _fill_snapshot(out: Dict[str, BidStrength], want, date: Optional[str]):
         conn.close()
 
 
-def _fill_ai(out: Dict[str, BidStrength], date: str):
-    """层③ AI 预测(主人拍板 2026-09-20): aipick XGBoost 全市场榜 Top30 ∩ p≥0.80 三档。
-
-    独立降级契约: 模型缺失/collector 异常/推理失败 → 本层整体不填(走 default),
-    量比/净额两层完全不受影响。配置(ai_topn/ai_buckets)从 scorer 读。
-    """
-    try:
-        from . import scorer, ai_predict
-        fac = (scorer.get_scoring_cfg().get("factors") or {}).get("bid_strength") or {}
-        try:
-            topn = int(fac.get("ai_topn", 30))
-        except (TypeError, ValueError):
-            topn = 30
-        ai_map = ai_predict.ai_score_map(out.keys(), date, topn=topn,
-                                         buckets=fac.get("ai_buckets"))
-    except Exception as e:                                        # noqa: BLE001
-        log.warning("[竞价强度] AI 层加载失败(独立降级) err=%s", str(e)[:150])
-        return
-    for code, sc in (ai_map or {}).items():
-        st = out.get(code)
-        if st is not None:
-            st.ai = sc
-
-
 def _fill_zb(out: Dict[str, BidStrength]):
     """层④ 竞价昨比(2026-09-30 主人拍板): zb_pct = 竞价额 ÷ **昨日全天成交额** × 100 (%)。
 
@@ -325,12 +310,12 @@ def _cfgf(fac: dict, key: str, default: float) -> float:
 def score_one(st: Optional["BidStrength"], cfg: Optional[dict] = None) -> Optional[float]:
     """子权重合成 → 0~1 分。返回 None = 所有层都缺(调用方走 factor default)。
 
-    合成(2026-09-23 v7, 净额档已移除): score = w_vol×量比分档 + w_ai×AI档位
-      * 每层缺失只走各自 default(量比→0.22 / AI→ai_default 0.35), 独立降级;
-      * 子权重从配置读(w_vol_ratio/w_ff/w_ai), 自动归一化(防配置总和≠1);
+    合成(2026-10-07 v8, AI 档已删除): score = w_vol×量比分档 (+ w_zb×昨比分档)
+      * 每层缺失只走各自 default(量比→0.22 / 昨比→zb_default 0.5), 独立降级;
+      * 子权重从配置读(w_vol_ratio/w_ff/w_zb), 自动归一化(防配置总和≠1);
       * 🔴 w_ff 现为 0(2026-09-23 主人拍板去掉净额档, 权重并入量比) —— 净额项
         即使有值也乘 0, 等价移除; 恢复只需把 w_ff 调回 0.30;
-      * v6 AI 层: 不在榜(全市场仅 Top30)是常态 → ai_default 中性, 不当惩罚。
+      * 🔴 v8 起无 AI 项(原 w_ai×ai_score 删除, 其 0.25 份额归量比)。
     """
     if st is None:
         return None
@@ -338,7 +323,7 @@ def score_one(st: Optional["BidStrength"], cfg: Optional[dict] = None) -> Option
         from . import scorer
         cfg = scorer.get_scoring_cfg()
     fac = (cfg.get("factors") or {}).get("bid_strength") or {}
-    return _compose(st.bid_vol_ratio, st.ff_pct, st.ai, fac, zb=st.zb_pct)
+    return _compose(st.bid_vol_ratio, st.ff_pct, fac, zb=st.zb_pct)
 
 
 def score_one_live_ff(st: Optional["BidStrength"], ff_live: Optional[float],
@@ -359,11 +344,11 @@ def score_one_live_ff(st: Optional["BidStrength"], ff_live: Optional[float],
         from . import scorer
         cfg = scorer.get_scoring_cfg()
     fac = (cfg.get("factors") or {}).get("bid_strength") or {}
-    return _compose(st.bid_vol_ratio, st.ff_pct, st.ai, fac, ff_live=ff_live,
+    return _compose(st.bid_vol_ratio, st.ff_pct, fac, ff_live=ff_live,
                     zb=st.zb_pct)
 
 
-def _compose(vol: Optional[float], ff: Optional[float], ai: Optional[float],
+def _compose(vol: Optional[float], ff: Optional[float],
              fac: dict, ff_live: Optional[float] = None,
              zb: Optional[float] = None) -> Optional[float]:
     """层合成主体(score_one / score_one_live_ff 共享; 任何一方都不得再复制权重逻辑)。
@@ -373,22 +358,23 @@ def _compose(vol: Optional[float], ff: Optional[float], ai: Optional[float],
 
     ★ 2026-09-30 新增层④「竞价昨比」+ 子权重 `w_zb`, **默认 0.0 ⇒ 不参与**
       ⇒ 未写配置时本函数行为与改动前**逐字一致**(零回归)。
-      启用方式(纯配置): `w_zb` 写 0.40 等, 并把 `w_ai` 调 0(去掉 AI 层)/`w_vol_ratio` 调 0.60。
       `zb` 为 None(缓存未热/新股) → 走 `zb_default`(中性), **不惩罚**。
+
+    🔴 2026-10-07 v8: **AI 档整体删除**(`w_ai` 与其 ai_default/ai_buckets 一并移除)。
+      原 AI 那 0.25 份额归量比 —— 量比单独占满时权重写 0.75 即可(自动归一后即全量)。
     """
-    if vol is None and ff is None and ai is None and zb is None:
+    if vol is None and ff is None and zb is None:
         return None                                  # 全层缺 → 交给 default
 
     # 子权重(自动归一)
     w_vol = _cfgf(fac, "w_vol_ratio", 0.75)
     w_ff = _cfgf(fac, "w_ff", 0.0)
-    w_ai = _cfgf(fac, "w_ai", 0.25)
     w_zb = _cfgf(fac, "w_zb", 0.0)
-    tot = w_vol + w_ff + w_ai + w_zb
+    tot = w_vol + w_ff + w_zb
     if tot <= 0:
-        w_vol, w_ff, w_ai, w_zb = 0.75, 0.0, 0.25, 0.0
+        w_vol, w_ff, w_zb = 0.75, 0.0, 0.0
     else:
-        w_vol, w_ff, w_ai, w_zb = w_vol / tot, w_ff / tot, w_ai / tot, w_zb / tot
+        w_vol, w_ff, w_zb = w_vol / tot, w_ff / tot, w_zb / tot
 
     # 层① 量比分档: 缺失 → default(不是 0!)
     vol_default = _cfgf(fac, "default", 0.22)
@@ -410,16 +396,14 @@ def _compose(vol: Optional[float], ff: Optional[float], ai: Optional[float],
         if ff_live_score > ff_score:
             ff_score = ff_live_score
 
-    # 层③ AI 预测: 不在榜/未启用 → ai_default(中性, 不惩罚)
-    ai_default = _cfgf(fac, "ai_default", 0.35)
-    ai_score = ai if ai is not None else ai_default
+    # 层③ (已删除 2026-10-07 v8) AI 预测 → 原 ai_score 项移除
 
     # 层④ 竞价昨比(2026-09-30): 缺失(缓存未热/新股/停牌) → zb_default(中性, 不惩罚)
     zb_default = _cfgf(fac, "zb_default", 0.5)
     zb_score = zb_default if zb is None else _bucket(fac.get("zb_buckets"), zb, zb_default)
 
     return max(0.05, min(1.0, w_vol * vol_score + w_ff * ff_score
-                            + w_ai * ai_score + w_zb * zb_score))
+                            + w_zb * zb_score))
 
 
 def _bucket(buckets, value, default: float) -> float:
