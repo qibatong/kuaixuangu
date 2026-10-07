@@ -41,7 +41,7 @@ import sqlite3 as _sqlite3
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from db import today  # noqa E402
+from db import today, apply_gene_filter  # noqa E402
 from collector import (fetch_from_kuaixuan, fetch_market,  # noqa E402
                        fetch_market_eastmoney, to_features)
 import trade_calendar as _tc  # noqa E402  交易日历桥接(事实来源 = backend/app/core/trade_calendar.py)
@@ -352,7 +352,25 @@ def predict(trade_date=None, mv_min=DEFAULT_MV_MIN, mv_max=DEFAULT_MV_MAX,
             r["concept"] = "、".join(cl[:2])
         return r
 
+    # === 2026-10-07 主人拍板：展示侧只留「训练池内」个股（与训练同一条基因） ===
+    #   依据（docs/训练口径-仅涨停基因-可行性评估-20261007.md 第五节）：推理对全市场 5561 只打分，
+    #   其中 77.5% **在训练池外**（近 40 交易日无涨停）；实测池外票命中率仅 11.11%（池内 25.25%）
+    #   ⇒ 它们的分数不可信，却占着名单位置。35 天累计：池外进名单 126 只、命中仅 14 只（约 112 个假信号）。
+    #   ⇒ 展示侧按**训练用的同一条基因**（db.POOL_ZT_GENE_*）过滤，模型不必重训。
+    #   🔴 一键回退：环境变量 AIPICK_NO_GENE_FILTER=1 即恢复全市场口径（不改代码、不重新部署）。
+    _gene_on = os.environ.get("AIPICK_NO_GENE_FILTER", "") != "1"
+    _all_expect = 5400          # 空壳检测的 all 数量期望基线（随下面是否过滤而变）
+    if _gene_on:
+        _before = len(df)
+        df, _hit = apply_gene_filter(df)
+        _all_expect = 800       # 池内样本正常 1200~1300；低于 800 视为异常(空壳/缺数据)
+        print(f"[基因过滤] 展示侧 {_before} → {len(df)} 只（池内命中 {_hit}）")
+    else:
+        print("[基因过滤] 已按 AIPICK_NO_GENE_FILTER=1 关闭，维持全市场展示口径")
+
     # 过滤前全量候选(按概率降序), 供 App 自定义规则过滤
+    # ⚠️ 基因过滤**在 all 之前** —— all 是 App 自筛的空间，若它仍含池外票，
+    #    用户自定义规则筛出来的同样是不可信分数 ⇒ 过滤形同虚设（口径必须一致）。
     full = df.sort_values("ai_prob", ascending=False)
     all_rows = [_attach(r) for r in full.to_dict(orient="records")]
 
@@ -392,6 +410,8 @@ def predict(trade_date=None, mv_min=DEFAULT_MV_MIN, mv_max=DEFAULT_MV_MAX,
         # 2026-09-25: 元信息供页面头部展示"这是哪个模型 / 何时训练 / AUC 多少"，
         # 让用户一眼看出 LGB 页不是 XGB 页的重复。老前端读不到该字段也不会报错。
         "meta": _model_meta(ALGO, model_path),
+        # 2026-10-07: 展示口径标记（是否经过涨停基因过滤）——空壳检测靠它识别"旧口径文件"
+        "gene_filter": _gene_on,
     }
     json_path = os.path.join(OUT_DIR, f"predictions_{d}.json")
 
@@ -405,13 +425,21 @@ def predict(trade_date=None, mv_min=DEFAULT_MV_MIN, mv_max=DEFAULT_MV_MAX,
             _all_len = len(_old.get("all") or [])
             _top = _old.get("top") or []
             _first = _top[0] if _top else {}
-            # 1) all < 5400: 快选 snapshot_bid 正常≈5550 只；fallback 东财自拉≈5209(空壳典型值)
-            #    → 或 snapshot 缺失时写的空壳(含 ST/停牌过滤后也应在 5400 左右)
+            # 🔴 2026-10-07 口径切换保护（必须先于数量判据）：
+            #   启用基因过滤后 all 从≈5550 降到≈1250。若旧文件是**过滤前口径**（没有 gene_filter 标记
+            #   或标记为 false），它对新口径毫无参考价值 —— 且第 3 条判据里"本次 all 数必须 > 旧文件"
+            #   在新口径下永远不成立 ⇒ **主文件会被昨天的旧结果永久压住**，过滤永不生效。
+            #   ⇒ 见到旧口径文件即允许覆盖一次。
+            if _gene_on and not _old.get("gene_filter"):
+                shell_empty = True
+                print(f"[空壳检测] 旧文件为**基因过滤前**口径(all.len={_all_len})，本次为过滤后口径 ⇒ 允许覆盖")
+            # 1) all 少于期望基线: 全市场口径正常≈5550（fallback 东财自拉≈5209 为空壳典型值）；
+            #    基因过滤口径正常≈1200~1300 ⇒ 基线由 _all_expect 按本次口径给出
             # 2) 首行 trade_date 与文件 date 不符 → 跨日写串
             # 3) 首行 bid_turnover 为 22.53(前一日 f8 误用历史换手)或 ai_prob 全 None → 坏数据
-            if _all_len < 5400:
+            elif _all_len < _all_expect:
                 shell_empty = True
-                print(f"[空壳检测] all.len={_all_len}<5400，判定为午夜空壳/旧 fallback 数据，允许覆盖")
+                print(f"[空壳检测] all.len={_all_len}<基线{_all_expect}，判定为午夜空壳/旧 fallback 数据，允许覆盖")
             elif _first.get("trade_date") and _first.get("trade_date") != d:
                 shell_empty = True
                 print(f"[空壳检测] 首行 trade_date={_first.get('trade_date')} != 文件日期={d}，判定为空壳，允许覆盖")
