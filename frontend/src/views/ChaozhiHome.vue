@@ -120,28 +120,22 @@
       </div>
     </section>
 
-    <!-- ③ 连板梯队（可折叠，收起时摘要保留关键数字） -->
+    <!--
+      ③ 连板梯队（2026-10-07 主人拍板去重）
+      🔴 与 /ladder「连板天梯」同源（都走 fetch_ladder_all + rebin_ladder），
+         天梯页已有分层明细 + 晋级率 + 题材主线 + 点票详情 ⇒ 这里的分层 chips 属重复展示。
+      ⇒ 降级为**一行感知 + 跳转**：只留「最高 X 板 / 共 N 只 / 首板 M 只」，
+         明细统一去 /ladder 看。lad.levels 仍用于算 total/first，只是不再渲染个股。
+    -->
     <section class="czh-sec">
-      <details class="czh-fold" :open="open.ladder" @toggle="onFold('ladder', $event)">
-        <summary class="czh-sum">
-          <span class="czh-t">连板梯队</span>
-          <span class="czh-brief">
-            最高 <b>{{ lad.max }}</b> 板 · 共 <b>{{ lad.total }}</b> 只 · 首板 <b>{{ lad.first }}</b> 只
-          </span>
-          <span class="czh-cue">{{ open.ladder ? '收起' : '展开' }} ›</span>
-        </summary>
-        <div class="czh-fold-body">
-          <div v-if="!lad.levels.length" class="czh-empty">暂无连板梯队数据（非交易时段可能为空）</div>
-          <div v-for="L in lad.levels" :key="L.ladder" class="czh-lad">
-            <div class="czh-lad-n">{{ ladText(L.ladder) }}<span class="cap">{{ L.stocks.length }} 家</span></div>
-            <div class="czh-chips">
-              <span v-for="s in L.stocks.slice(0, 10)" :key="s.code" class="czh-chip">
-                <b>{{ s.name }}</b><em>{{ boardOf(s) }}</em>
-              </span>
-            </div>
-          </div>
+      <div class="czh-card czh-ladgo">
+        <div class="czh-ladgo-n">
+          最高 <b>{{ lad.max }}</b> 板 · 共 <b>{{ lad.total }}</b> 只 · 首板 <b>{{ lad.first }}</b> 只
         </div>
-      </details>
+        <router-link class="czh-ladgo-a" to="/ladder">
+          查看完整天梯<i class="fa fa-angle-right" aria-hidden="true"></i>
+        </router-link>
+      </div>
     </section>
 
     <!-- ④ 昨日涨停今日表现（可折叠） -->
@@ -302,7 +296,8 @@ import { aipickRealtime } from '../api/aipick'
 import { auctionOverview } from '../api/stats'
 import { isIntradayNow } from '../utils/time'
 
-const DEFAULT_OPEN = { ladder: true, yest: true }   // 折叠状态（记 localStorage）
+// 2026-10-07: ladder 折叠键随③降级下线（③不再是可折叠块）；yest 保持可折叠
+const DEFAULT_OPEN = { yest: true }                 // 折叠状态（记 localStorage）
 const open = reactive({ ...DEFAULT_OPEN })
 try {
   const saved = JSON.parse(localStorage.getItem('czh_fold') || 'null')
@@ -658,10 +653,7 @@ function pct(v) {                          // 入参已是百分数（如 scores
   if (v === null || v === undefined || !Number.isFinite(Number(v))) return '—'
   return Number(v).toFixed(1) + '%'
 }
-function pctRatio(v) {                     // 入参是 0~1 比例（zt-echelon.promote 的 r1to2 等）
-  if (v === null || v === undefined || !Number.isFinite(Number(v))) return '—'
-  return (Number(v) * 100).toFixed(1) + '%'
-}
+// 2026-10-07: pctRatio（zt-echelon.promote 晋级率格式化）随③降级下线——晋级率只在 /ladder 展示
 function dirCls(v) {
   /* 🔴 2026-10-07 修「主线雷达里涨幅是灰的」：
      龙头/中军的 gap 是**已格式化好的字符串**（`gap: fmtSigned(change)` ⇒ "+20.0%"），
@@ -673,10 +665,7 @@ function dirCls(v) {
   if (n === 0) return 'dim'
   return n > 0 ? 'up' : 'down'
 }
-function boardOf(s) {
-  const b = (s.boardName || s.concept || '').trim()
-  return b ? b.split('、')[0].split(',')[0].trim() : ''
-}
+// 2026-10-07: boardOf（chip 上的首题材）随③分层 chips 下线
 /** 板块状态 → pill 配色类（延续中/新启动=金，分化/退潮=灰，与旧页 .pill.gold/.gray 对应） */
 function pillCls(status) {
   return (status === '延续中' || status === '新启动') ? 'run' : 'out'
@@ -695,10 +684,7 @@ function tagCls(tag) {
   if (tag === '待定') return 't-warn'
   return 't-dim'
 }
-function ladText(n) {
-  const M = { 1: '首板', 2: '二板', 3: '三板', 4: '四板', 5: '五板', 6: '六板', 7: '七板', 8: '八板' }
-  return M[n] || n + ' 板'
-}
+// 2026-10-07: ladText（"N板"文案）随③分层 chips 下线；/ladder 有自己的 ladderText
 
 // ---------------- 轮询：盘中每 30s，非盘中只取一次 ----------------
 let timer = null
@@ -821,13 +807,27 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 .czh-promo-i b, .czh-promo-d b { color: var(--text-main); font-weight: 700; font-family: var(--font-mono); }
 .czh-promo-d { margin-left: auto; }
 
-.czh-lad { display: flex; gap: var(--s3); padding: var(--s2) 0; border-bottom: 1px dashed var(--border-soft); }
-.czh-lad:last-child { border-bottom: none; }
-.czh-lad-n {
-  flex: 0 0 56px; text-align: right; font-size: var(--fs-sm); font-weight: 700;
-  color: var(--gold); white-space: nowrap;
+/* ③ 连板梯队降级后的一行卡片（2026-10-07）：感知数字 + 跳 /ladder
+   （原 .czh-lad/.czh-lad-n 分层 chips 样式随重复展示一起下线） */
+.czh-ladgo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  flex-wrap: wrap;
 }
-.czh-lad-n .cap { display: block; color: var(--text-dim); font-weight: 400; }
+.czh-ladgo-n { color: var(--text-secondary); font-size: var(--fs-sm); }
+.czh-ladgo-n b { color: var(--text-main); font-size: var(--fs-md); }
+.czh-ladgo-a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.czh-ladgo-a:hover { text-decoration: underline; }
 .czh-chips { display: flex; flex-wrap: wrap; gap: var(--s2); min-width: 0; }
 .czh-yest-list { padding-top: var(--s2); }
 .czh-chip {
