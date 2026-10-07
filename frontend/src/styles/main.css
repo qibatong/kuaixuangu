@@ -292,8 +292,6 @@ body[data-bg="light"] .stock-pool-panel { box-shadow: var(--shadow-card); }
 body[data-bg="light"] .title-sub { color: var(--text-muted); }
 body[data-bg="light"] .rule-text { color: var(--text-secondary); }
 body[data-bg="light"] .rule-text strong { color: var(--accent-deep); }
-body[data-bg="light"] .live-time { background: rgba(0,0,0,0.04); border-color: var(--border-soft); }
-body[data-bg="light"] .live-time .time-digital { color: var(--text-muted); }
 body[data-bg="light"] #mobileTdxHint { color: #8a5500; background: rgba(255,150,50,0.08); border-color: rgba(255,150,50,0.5); }
 /* 2026-10-05 (S3 收口·同 1205 行那处): 排除主操作按钮 .apply-btn —— 它是深红实心底,
    文字必须纯白(组件内定义)；这条 (0,2,1) 的通用规则会压过组件内 (0,2,0)。 */
@@ -313,8 +311,8 @@ body[data-bg="light"] .lock-filter-btn.locked { background: rgba(255,140,40,0.15
 body[data-bg="light"] .pool-expiry-info { color: #8a5500; background: rgba(255,150,50,0.12); }
 body[data-bg="light"] .filter-divider { color: rgba(0,0,0,0.25); }
 body[data-bg="light"] .stat-num { color: var(--text-main); }
-body[data-bg="light"] .medal-rank { color: #c79100; }
-body[data-bg="light"] .medal-code { color: #c79100; }
+body[data-bg="light"] .medal-rank { color: var(--gold-deep); }
+body[data-bg="light"] .medal-code { color: var(--gold-deep); }
 body[data-bg="light"] .medal-code:hover { color: #1a1d26; text-shadow: none; }
 body[data-bg="light"] .lock-indicator { background: rgba(255,140,30,0.15); color: #8a5500; }
 body[data-bg="light"] .empty-state { background: var(--bg-card); color: var(--text-muted); }
@@ -352,10 +350,10 @@ body[data-bg="light"] .page-btn,
 body[data-bg="light"] .add-btn {
   background: rgba(11, 134, 200, 0.10);
   border-color: rgba(184,48,16,0.5);
-  color: #b83010;
+  color: var(--brand-deep);
 }
 body[data-bg="light"] .bucket-table input { color: var(--text-main); }
-body[data-bg="light"] .stat-num.small { color: #b83010; }
+body[data-bg="light"] .stat-num.small { color: var(--brand-deep); }
 body[data-bg="light"] .admin-msg-ok,
 body[data-bg="light"] .admin-ok-text { color: #2e7d1e; }
 body[data-bg="light"] .card-title { color: #7a5200; }
@@ -724,8 +722,6 @@ pointer-events: none;
 z-index: 9999;
 }
 [data-tip]:hover::after { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
-.reset-lock-btn { background: rgba(100,130,255,0.2); border: 1px solid rgba(184,48,16,0.5); }
-.reset-lock-btn:hover { background: var(--accent-deep); }
 .real-time-btn { background: rgba(0,200,100,0.2); border: 1px solid var(--down); }
 .real-time-btn:hover { background: var(--down); }
 .reset-filter-btn { background: rgba(80,140,255,0.2); border: 1px solid rgba(184,48,16,0.5); color: var(--text-secondary); }
@@ -741,9 +737,7 @@ z-index: 9999;
 .lock-filter-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; animation: none; }
 @keyframes lockPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,140,40,0.5); } 50% { box-shadow: 0 0 0 8px rgba(255,140,40,0); } }
 .count-select, .export-select { background: var(--bg-input); border: 1px solid var(--accent); color: #fff; padding: var(--s2) var(--s2); border-radius: var(--r-sm); font-size: var(--fs-xs); outline: none; cursor: pointer; }
-/* 2026-08-17 主人反馈: 时间显示框容易被误点, 改为纯文字不带框(本身是状态, 不是操作) */
-.live-time { background: transparent; border: 0; border-radius: 0; padding: 2px var(--s2); text-align: center; font-family: inherit; white-space: nowrap; display: inline-flex; align-items: center; gap: var(--s1); }
-.live-time .time-digital { font-size: var(--fs-xs); font-weight: 500; color: var(--text-muted); letter-spacing: 0; opacity: 0.7; }
+/* 2026-10-07 视觉自查: .live-time/.time-digital 原规则在全部组件中零引用(死代码)已删除 */
 
 .medal-section { background: var(--bg-panel); backdrop-filter: blur(8px); border-radius: var(--r-lg); padding: var(--s2); border: 1px solid var(--border-soft); margin: 0; display: flex; flex-wrap: nowrap; gap: var(--s2); justify-content: center; align-items: stretch; }
 .medal-card { flex: 1 1 0; min-width: 0; text-align: center; margin: 0; padding: var(--s2) var(--s1); border-radius: var(--r-lg); background: var(--bg-card); border: 1px solid var(--border-soft); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s1); position: relative; }
@@ -1244,16 +1238,16 @@ body[data-bg="light"] th.sortable .sort-ind:empty::before { color: #fff; }
 
 /* 浅色主题覆盖: 文字加深, 边框保留(指示色) */
 body[data-bg="light"] .nav-history { color: #8a5500; }
-body[data-bg="light"] .nav-ladder { color: #b83010; }
+body[data-bg="light"] .nav-ladder { color: var(--brand-deep); }
 body[data-bg="light"] .nav-market { color: #00845a; }
-body[data-bg="light"] .nav-auction { color: #b83010; }
-body[data-bg="light"] .nav-invite { color: #b83010; }
+body[data-bg="light"] .nav-auction { color: var(--brand-deep); }
+body[data-bg="light"] .nav-invite { color: var(--brand-deep); }
 body[data-bg="light"] .nav-admin { color: #8a6d00; }
 body[data-bg="light"] .nav-tdx { color: #8a4a00; }
 body[data-bg="light"] .nav-pool-import { color: #2d7020; }
 body[data-bg="light"] .health-degraded { color: #8a5500; background: rgba(255,180,0,0.12); border-color: rgba(255,150,30,0.6); }
-body[data-bg="light"] .health-down { color: #b83010; background: rgba(255,80,80,0.1); border-color: rgba(220,50,50,0.5); }
-body[data-bg="light"] .health-none { color: #6b6b6b; background: rgba(120,160,200,0.12); border-color: rgba(100,140,180,0.4); }
+body[data-bg="light"] .health-down { color: var(--brand-deep); background: rgba(255,80,80,0.1); border-color: rgba(220,50,50,0.5); }
+body[data-bg="light"] .health-none { color: var(--text-faint); background: rgba(120,160,200,0.12); border-color: rgba(100,140,180,0.4); }
 
 
 /* ===================== 浅色主题: 通用浅色文字深度修复 ===================== */
@@ -1264,76 +1258,73 @@ body[data-bg="light"] #mobileTdxHint { color: #8a5500; background: rgba(255,150,
    仅 2.36:1（这条全局规则的优先级 (0,2,1) 高于组件里 .apply-btn 的 (0,2,0)，改组件没用）。
    故这里排除 .apply-btn：主按钮保留组件内定义的**纯白字**（#fff on #d80000 = 5.36:1）。 */
 body[data-bg="light"] .tdx-export-btn:not(.apply-btn) { color: #333; }
-body[data-bg="light"] .live-time .time-digital { color: var(--text-muted); }
-body[data-bg="light"] .live-time { background: rgba(0,0,0,0.04); border-color: var(--border-soft); color: var(--text-secondary); }
 body[data-bg="light"] .health-ok { color: #2d7020; background: rgba(80,200,120,0.15); border-color: rgba(80,200,120,0.4); }
 body[data-bg="light"] .health-degraded { color: #8a5500; background: rgba(255,180,0,0.12); border-color: rgba(255,150,30,0.5); }
-body[data-bg="light"] .health-down { color: #b83010; background: rgba(255,80,80,0.1); border-color: rgba(220,50,50,0.5); }
-body[data-bg="light"] .health-none { color: #6b6b6b; background: rgba(120,160,200,0.12); border-color: rgba(100,140,180,0.4); }
+body[data-bg="light"] .health-down { color: var(--brand-deep); background: rgba(255,80,80,0.1); border-color: rgba(220,50,50,0.5); }
+body[data-bg="light"] .health-none { color: var(--text-faint); background: rgba(120,160,200,0.12); border-color: rgba(100,140,180,0.4); }
 body[data-bg="light"] .rule-text strong { color: var(--accent-deep); }
 body[data-bg="light"] .rule-text { color: var(--text-secondary); }
 /* tdx-export-btn 浅色文字 */
-body[data-bg="light"] .reset-lock-btn { color: var(--accent-deep); background: rgba(184,48,16,0.12); border-color: rgba(184,48,16,0.5); }
 body[data-bg="light"] .real-time-btn { color: #00c864; background: rgba(0,200,100,0.15); border-color: #00c864; }
 body[data-bg="light"] .reset-filter-btn { color: var(--accent-deep); background: rgba(184,48,16,0.12); border-color: rgba(184,48,16,0.5); }
 /* 奖牌区(金色文字浅色变深金) */
 body[data-bg="light"] .medal-section { border-color: rgba(199,145,0,0.4); }
-body[data-bg="light"] .medal-rank { color: #c79100; }
-body[data-bg="light"] .medal-code { color: #c79100; }
+body[data-bg="light"] .medal-rank { color: var(--gold-deep); }
+body[data-bg="light"] .medal-code { color: var(--gold-deep); }
 body[data-bg="light"] .medal-code:hover { color: #1a1d26; text-shadow: none; }
-body[data-bg="light"] .medal-detail .bid-chg { color: #b83010; }
-body[data-bg="light"] .medal-real-chg { color: #b83010; }
+body[data-bg="light"] .medal-detail .bid-chg { color: var(--brand-deep); }
+body[data-bg="light"] .medal-real-chg { color: var(--brand-deep); }
 body[data-bg="light"] .medal-card { background: rgba(0,0,0,0.04); border-color: rgba(199,145,0,0.35); }
 body[data-bg="light"] .medal-name-big { color: #1a1d26; }
 body[data-bg="light"] .export-medal-group { background: rgba(0,0,0,0.04); }
 /* 选股池(浅橙浅绿文字) */
 body[data-bg="light"] .stock-pool-panel { background: rgba(255,255,255,0.85); border-color: rgba(255,140,100,0.4); }
-body[data-bg="light"] .pool-title { background: linear-gradient(135deg, #c79100, #b83010); -webkit-background-clip: text; background-clip: text; color: transparent; }
+body[data-bg="light"] .pool-title { background: linear-gradient(135deg, var(--gold-deep), var(--brand-deep)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 body[data-bg="light"] .pool-header { border-bottom-color: rgba(180,50,20,0.3); }
 body[data-bg="light"] .pool-btn { color: #333; background: rgba(80,100,180,0.12); border-color: rgba(120,140,180,0.5); }
 body[data-bg="light"] .pool-btn:hover { background: #ff6a3a; border-color: #fff0c0; color: white; }
-body[data-bg="light"] .pool-item { background: rgba(255,255,255,0.8); border-color: rgba(255,140,140,0.4); border-left-color: #b83010; }
+body[data-bg="light"] .pool-item { background: rgba(255,255,255,0.8); border-color: rgba(255,140,140,0.4); border-left-color: var(--brand-deep); }
 body[data-bg="light"] .pool-item:hover { background: rgba(245,245,250,1); border-color: rgba(200,80,60,0.6); }
-body[data-bg="light"] .pool-item.gold { border-left-color: #c79100; background: rgba(199,145,0,0.1); }
+body[data-bg="light"] .pool-item.gold { border-left-color: var(--gold-deep); background: rgba(199,145,0,0.1); }
 body[data-bg="light"] .pool-item.silver { border-left-color: #8a8a8a; background: rgba(192,200,216,0.1); }
 body[data-bg="light"] .pool-item.bronze { border-left-color: #b87220; background: rgba(232,160,76,0.12); }
 body[data-bg="light"] .pool-rank { color: #8a8a8a; }
 body[data-bg="light"] .pool-stock-code { color: #8a5500; }
 body[data-bg="light"] .pool-stock-code:hover { color: #1a1d26; }
-body[data-bg="light"] .pool-stock-name { color: #6b6b6b; }
+body[data-bg="light"] .pool-stock-name { color: var(--text-faint); }
 body[data-bg="light"] .pool-snap { color: #333; background: rgba(0,0,0,0.06); }
 body[data-bg="light"] .pool-score { color: var(--accent-deep); background: rgba(184,48,16,0.12); }
 body[data-bg="light"] .pool-add-time { color: #8a8a8a; }
-body[data-bg="light"] .del-single { color: #b83010; background: rgba(255,80,80,0.1); border-color: rgba(220,50,50,0.4); }
+body[data-bg="light"] .del-single { color: var(--brand-deep); background: rgba(255,80,80,0.1); border-color: rgba(220,50,50,0.4); }
 body[data-bg="light"] .del-single:hover { background: #ff3a3a; color: white; }
 body[data-bg="light"] .auto-tag { background: rgba(0,200,100,0.15); color: #1a7030; }
 body[data-bg="light"] .pool-expiry-info { color: #8a5500; background: rgba(255,150,50,0.12); }
 /* 统计/邀盘/历史 浅色文字 */
 body[data-bg="light"] .medal-card { border-color: rgba(199,145,0,0.35); }
 body[data-bg="light"] .stat-num { color: #1a1d26; }
-body[data-bg="light"] .stat-label { color: #6b6b6b; }
+body[data-bg="light"] .stat-label { color: var(--text-faint); }
 body[data-bg="light"] .score-bar-label { color: #333; }
 body[data-bg="light"] .score-bar-val { color: #333; }
 body[data-bg="light"] .stats-empty { color: #8a8a8a; }
-body[data-bg="light"] .stats-range { color: #6b6b6b; }
+body[data-bg="light"] .stats-range { color: var(--text-faint); }
 body[data-bg="light"] .footnote { color: #8a8a8a; border-top-color: rgba(0,0,0,0.1); }
 body[data-bg="light"] .toast-msg { background: #ff3a3a; color: white; }
 /* 登录页 */
 body[data-bg="light"] .login-sub { color: #8a5500; }
-body[data-bg="light"] .login-title { color: #b83010; }
-body[data-bg="light"] .login-box { background: rgba(255,255,255,0.98); border-color: #b83010; }
+body[data-bg="light"] .login-title { color: var(--brand-deep); }
+body[data-bg="light"] .login-box { background: rgba(255,255,255,0.98); border-color: var(--brand-deep); }
 body[data-bg="light"] .login-box input[type="password"],
-body[data-bg="light"] .login-box input[type="text"] { color: #1a1d26; background: rgba(255,255,255,0.95); border-color: #b83010; }
+body[data-bg="light"] .login-box input[type="text"] { color: #1a1d26; background: rgba(255,255,255,0.95); border-color: var(--brand-deep); }
 body[data-bg="light"] .login-box input[type="password"]:focus,
-body[data-bg="light"] .login-box input[type="text"]:focus { box-shadow: 0 0 0 2px #b83010; }
-body[data-bg="light"] .login-btn { background: #b83010; color: white; }
+body[data-bg="light"] .login-box input[type="text"]:focus { box-shadow: 0 0 0 2px var(--brand-deep); }
+body[data-bg="light"] .login-btn { background: var(--brand-deep); color: white; }
 body[data-bg="light"] .login-btn:hover { background: #8a2010; }
 body[data-bg="light"] .login-err { color: #8a5500; }
-body[data-bg="light"] .login-switch { color: #6b6b6b; }
-body[data-bg="light"] .login-switch a { color: #c79100; }
+body[data-bg="light"] .login-switch { color: var(--text-faint); }
+body[data-bg="light"] .login-switch a { color: var(--gold-deep); }
 body[data-bg="light"] .login-switch a:hover { color: #8a5500; }
 /* 同上（L1 收尾）：弹窗按钮版「取消」的浅色值 —— 与 <a> 版本取同一对颜色 */
-body[data-bg="light"] .login-switch button.lnk { color: #c79100; }
+body[data-bg="light"] .login-switch button.lnk { color: var(--gold-deep); }
 body[data-bg="light"] .login-switch button.lnk:hover { color: #8a5500; }
 body[data-bg="light"] .auth-overlay { background: rgba(0,0,0,0.45); }
 
@@ -1364,20 +1355,20 @@ body[data-bg="light"] .auth-overlay { background: #f4f4f6; }
 /* 邀盘页(蓝主题) */
 body[data-bg="light"] .invite-panel { background: rgba(255,255,255,0.98); border-color: rgba(var(--accent-rgb),0.5); }
 body[data-bg="light"] .invite-head { border-bottom-color: rgba(184,48,16,0.3); background: rgba(184,48,16,0.08); }
-body[data-bg="light"] .invite-title { color: #b83010; }
-body[data-bg="light"] .invite-close { color: #b83010; background: rgba(255,80,80,0.1); border-color: rgba(220,50,50,0.5); }
-body[data-bg="light"] .invite-close:hover { background: #b83010; color: white; }
-body[data-bg="light"] .invite-code-box { background: rgba(255,255,255,0.95); border-color: #b83010; }
-body[data-bg="light"] .invite-code-label { color: #6b6b6b; }
-body[data-bg="light"] .invite-code-text { color: #b83010; }
-body[data-bg="light"] .invite-btn { color: #b83010; background: rgba(var(--accent-rgb),0.15); border-color: #b83010; }
-body[data-bg="light"] .invite-btn:hover { background: #b83010; color: white; }
-body[data-bg="light"] .invite-btn.danger { color: #8a5500; background: rgba(255,140,40,0.15); border-color: #c79100; }
-body[data-bg="light"] .invite-btn.danger:hover { background: #c79100; color: white; }
-body[data-bg="light"] .invite-tip { color: #6b6b6b; }
+body[data-bg="light"] .invite-title { color: var(--brand-deep); }
+body[data-bg="light"] .invite-close { color: var(--brand-deep); background: rgba(255,80,80,0.1); border-color: rgba(220,50,50,0.5); }
+body[data-bg="light"] .invite-close:hover { background: var(--brand-deep); color: white; }
+body[data-bg="light"] .invite-code-box { background: rgba(255,255,255,0.95); border-color: var(--brand-deep); }
+body[data-bg="light"] .invite-code-label { color: var(--text-faint); }
+body[data-bg="light"] .invite-code-text { color: var(--brand-deep); }
+body[data-bg="light"] .invite-btn { color: var(--brand-deep); background: rgba(var(--accent-rgb),0.15); border-color: var(--brand-deep); }
+body[data-bg="light"] .invite-btn:hover { background: var(--brand-deep); color: white; }
+body[data-bg="light"] .invite-btn.danger { color: #8a5500; background: rgba(255,140,40,0.15); border-color: var(--gold-deep); }
+body[data-bg="light"] .invite-btn.danger:hover { background: var(--gold-deep); color: white; }
+body[data-bg="light"] .invite-tip { color: var(--text-faint); }
 body[data-bg="light"] .invite-stats { color: #8a5500; }
 body[data-bg="light"] .invite-stats strong { color: #8a5500; }
-body[data-bg="light"] .invite-list-title { color: #6b6b6b; }
+body[data-bg="light"] .invite-list-title { color: var(--text-faint); }
 body[data-bg="light"] .invite-item { background: rgba(240,245,250,0.8); color: #1a1d26; }
 body[data-bg="light"] .invite-item-date { color: #8a8a8a; }
 body[data-bg="light"] .invite-empty { color: #888; }
@@ -1385,38 +1376,38 @@ body[data-bg="light"] .invite-empty { color: #888; }
 body[data-bg="light"] .history-panel { background: rgba(255,255,255,0.98); border-color: rgba(255,120,80,0.5); }
 body[data-bg="light"] .history-head { border-bottom-color: rgba(255,120,80,0.3); background: rgba(255,80,60,0.08); }
 body[data-bg="light"] .history-title { color: #8a5500; }
-body[data-bg="light"] .history-close { color: #b83010; background: rgba(255,80,80,0.1); border-color: rgba(220,50,50,0.5); }
-body[data-bg="light"] .history-close:hover { background: #b83010; color: white; }
+body[data-bg="light"] .history-close { color: var(--brand-deep); background: rgba(255,80,80,0.1); border-color: rgba(220,50,50,0.5); }
+body[data-bg="light"] .history-close:hover { background: var(--brand-deep); color: white; }
 body[data-bg="light"] .stats-panel { border-bottom-color: rgba(255,120,80,0.3); background: rgba(245,250,255,0.8); }
 body[data-bg="light"] .stats-title { color: #8a5500; }
 body[data-bg="light"] .stats-toggle { color: #8a5500; }
-body[data-bg="light"] .stats-sub { color: #6b6b6b; }
+body[data-bg="light"] .stats-sub { color: var(--text-faint); }
 body[data-bg="light"] .stat-card { background: rgba(255,255,255,0.95); border-color: rgba(120,160,220,0.4); }
 body[data-bg="light"] .stat-card.medal-gold { border-color: rgba(199,145,0,0.5); background: rgba(255,230,160,0.2); }
 /* 占位/指标色: 涨红/跌绿在浅色背景下保持对比度(用更深色) */
 body[data-bg="light"] .up { color: #c8311c; }
 body[data-bg="light"] .down { color: #2d7020; }
 body[data-bg="light"] .real-green { color: #2d7020 !important; }
-body[data-bg="light"] .ratio-hot { color: #b83010 !important; }
+body[data-bg="light"] .ratio-hot { color: var(--brand-deep) !important; }
 body[data-bg="light"] .ratio-warm { color: #8a5500 !important; }
-body[data-bg="light"] .rank-col { color: #b83010; }
+body[data-bg="light"] .rank-col { color: var(--brand-deep); }
 body[data-bg="light"] .code-click { color: #8a5500 !important; }
-body[data-bg="light"] .dim { color: #6b6b6b; }
+body[data-bg="light"] .dim { color: var(--text-faint); }
 /* 综合评分金色(非涨跌语义色, 收敛页面红色滥用); hover 显示评分构成 */
 .score-cell { color: var(--gold-text); font-weight: 700; cursor: help; }
-body[data-bg="light"] .empty-pool { color: #6b6b6b; }
-body[data-bg="light"] .empty-state { background: rgba(255,255,255,0.95); color: #6b6b6b; }
-body[data-bg="light"] .spinner { border-color: rgba(184,48,16,0.2); border-top-color: #b83010; }
-body[data-bg="light"] .toast-msg { background: #b83010; color: white; }
+body[data-bg="light"] .empty-pool { color: var(--text-faint); }
+body[data-bg="light"] .empty-state { background: rgba(255,255,255,0.95); color: var(--text-faint); }
+body[data-bg="light"] .spinner { border-color: rgba(184,48,16,0.2); border-top-color: var(--brand-deep); }
+body[data-bg="light"] .toast-msg { background: var(--brand-deep); color: white; }
 /* query-form 输入/选项/标签 */
 body[data-bg="light"] .query-form { border-bottom-color: rgba(255,160,120,0.4); }
-body[data-bg="light"] .query-form label { color: #5a4a3a; }
+body[data-bg="light"] .query-form label { color: var(--watermark); }
 body[data-bg="light"] .query-form input,
-body[data-bg="light"] .query-form select { color: #1a1d26; background: rgba(255,255,255,0.95); border-color: #b83010; }
-body[data-bg="light"] .query-form input:focus { box-shadow: 0 0 0 2px #b83010; }
+body[data-bg="light"] .query-form select { color: #1a1d26; background: rgba(255,255,255,0.95); border-color: var(--brand-deep); }
+body[data-bg="light"] .query-form input:focus { box-shadow: 0 0 0 2px var(--brand-deep); }
 body[data-bg="light"] .query-form input::placeholder { color: #888; }
-body[data-bg="light"] .query-tip { color: #6b6b6b; }
-body[data-bg="light"] .query-summary { color: #6b6b6b; }
+body[data-bg="light"] .query-tip { color: var(--text-faint); }
+body[data-bg="light"] .query-summary { color: var(--text-faint); }
 body[data-bg="light"] .query-submit-btn { background: var(--accent-deep); }
 body[data-bg="light"] .query-result .stock-table thead { background: var(--accent-deep2); border-bottom-color: transparent; }
 body[data-bg="light"] .query-result .stock-table th { color: #fff; }
@@ -1426,12 +1417,12 @@ body[data-bg="light"] .stock-table tbody tr:hover { background: rgba(184,48,16,0
 /* daily-row 表格 */
 body[data-bg="light"] .daily-row { color: #1a1d26; }
 body[data-bg="light"] .daily-row:nth-child(odd) { background: rgba(0,0,0,0.02); }
-body[data-bg="light"] .daily-date { color: #6b6b6b; }
+body[data-bg="light"] .daily-date { color: var(--text-faint); }
 body[data-bg="light"] .daily-cnt { color: #8a8a8a; }
 body[data-bg="light"] .daily-rate { color: #1a1d26; }
-body[data-bg="light"] .daily-real { color: #6b6b6b; }
+body[data-bg="light"] .daily-real { color: var(--text-faint); }
 body[data-bg="light"] .batch-type { color: #1a1d26; }
-body[data-bg="light"] .empty-state { background: rgba(255,255,255,0.95); color: #6b6b6b; }
+body[data-bg="light"] .empty-state { background: rgba(255,255,255,0.95); color: var(--text-faint); }
 
 
 /* ===================== 通用日期选择器/重置按钮/数据日期提示(市场雷达&连板天梯共用) ===================== */
@@ -1585,7 +1576,8 @@ html, body {
    其余表格数字是比例字宽 ⇒ 60.20 → 100.05 会让整列左右跳。这里做全局兜底。
    只影响数字的字形宽度，中文/英文名称不受影响。 ------------------------------ */
 table, td, th,
-.num, .price, .tabular, time, .time-digital, .live-time {
+/* 2026-10-07 视觉自查: 原选择器列表里的 .time-digital/.live-time 随配套组件一起下线(已零引用), 一并去掉 */
+.num, .price, .tabular, time {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
 }

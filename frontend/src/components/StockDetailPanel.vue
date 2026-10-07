@@ -119,7 +119,26 @@ const loaded = ref(false)
 const trendRef = ref(null)
 let chart = null
 
-const ACCENT = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#ff7a59'
+// 2026-10-07 视觉自查: 原为模块级常量(加载时取一次, 不随主题变); 改为函数实时取, 且兜底色改主题令牌。
+function accent() {
+  return getComputedStyle(document.body).getPropertyValue('--accent').trim() || '#ff5c5c'
+}
+// 近5日走势图配色: 随主题取 CSS 变量(此前写死深底色, 浅色主题下轴标签/网格线/绿柱不可读)
+function chartC() {
+  const light = document.body.dataset.bg === 'light'
+  const cs = getComputedStyle(document.body)
+  const v = (name, fb) => { const s = (cs.getPropertyValue(name) || '').trim(); return s || fb }
+  return {
+    axisLabel: v('--text-muted', light ? '#5b6472' : '#9ca3af'),
+    axisLine: light ? 'rgba(0,0,0,0.30)' : 'rgba(255,255,255,0.28)',
+    splitLine: light ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.05)',
+    tooltipBg: light ? 'rgba(255,255,255,0.97)' : '#1c2740',
+    tooltipText: v('--text-main', light ? '#1a1d26' : '#e8edf5'),
+    up: v('--up', light ? '#c62828' : '#ff8a6f'),
+    down: v('--down', light ? '#0f7a3d' : '#00c864'),
+    line: v('--chart-bar', light ? '#c62828' : '#ff7a5c'),
+  }
+}
 
 function fmtPct(v) { return (v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%') }
 function fmtNum(v) { return Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 1 }) }
@@ -137,7 +156,7 @@ const chgCls = computed(() => {
 })
 const ringStyle = computed(() => {
   const p = score.value ? score.value.probability : 0
-  return { background: 'conic-gradient(' + ACCENT + ' ' + (p * 3.6) + 'deg, rgba(255,255,255,.07) 0deg)' }
+  return { background: 'conic-gradient(' + accent() + ' ' + (p * 3.6) + 'deg, rgba(255,255,255,.07) 0deg)' }
 })
 
 const PALETTE = ['#ff5c5c', '#ff8a5c', '#ffb020', '#6ea8ff', '#b98aff', '#ff7a59']
@@ -155,19 +174,20 @@ function renderTrend() {
   if (!trendRef.value || !recent5.value.dates.length) return
   if (!chart) chart = echarts.init(trendRef.value)
   const { dates, closes, pcts } = recent5.value
+  const C = chartC()
   chart.setOption({
     grid: { left: 40, right: 40, top: 18, bottom: 22 },
-    tooltip: { trigger: 'axis', backgroundColor: '#1c2740', borderWidth: 0, textStyle: { color: '#e8edf5', fontSize: 11 } },
-    xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: '#2a3650' } }, axisLabel: { color: '#5b6b85', fontSize: 10 } },
+    tooltip: { trigger: 'axis', backgroundColor: C.tooltipBg, borderWidth: 0, textStyle: { color: C.tooltipText, fontSize: 11 } },
+    xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: C.axisLine } }, axisLabel: { color: C.axisLabel, fontSize: 10 } },
     yAxis: [
-      { type: 'value', scale: true, position: 'left', axisLabel: { color: '#5b6b85', fontSize: 10 }, splitLine: { lineStyle: { color: '#1c2740' } } },
-      { type: 'value', position: 'right', axisLabel: { color: '#5b6b85', fontSize: 10, formatter: '{value}%' }, splitLine: { show: false } },
+      { type: 'value', scale: true, position: 'left', axisLabel: { color: C.axisLabel, fontSize: 10 }, splitLine: { lineStyle: { color: C.splitLine } } },
+      { type: 'value', position: 'right', axisLabel: { color: C.axisLabel, fontSize: 10, formatter: '{value}%' }, splitLine: { show: false } },
     ],
     series: [
       { name: '收盘价', type: 'line', data: closes, smooth: true, symbol: 'circle', symbolSize: 5,
-        lineStyle: { color: '#ff7a5c', width: 2 }, itemStyle: { color: '#ff7a5c' }, yAxisIndex: 0 },
+        lineStyle: { color: C.line, width: 2 }, itemStyle: { color: C.line }, yAxisIndex: 0 },
       { name: '涨跌幅', type: 'bar', data: pcts, barWidth: 10, yAxisIndex: 1,
-        itemStyle: { color: p => p.value >= 0 ? '#ffb020' : '#35c284', borderRadius: [3,3,0,0] } },
+        itemStyle: { color: p => p.value >= 0 ? C.up : C.down, borderRadius: [3,3,0,0] } },
     ],
   }, true)
 }
@@ -230,12 +250,12 @@ watch(() => props.code, () => { if (props.code) { loaded.value = false; load() }
 .sd-wrap::-webkit-scrollbar { width: 6px; }
 .sd-wrap::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: var(--r-sm); }
 
-.sd-head { padding-bottom: var(--s3); border-bottom: 1px solid var(--border-soft, #1f2937); }
+.sd-head { padding-bottom: var(--s3); border-bottom: 1px solid var(--border-soft); }
 .sd-head-top { display: flex; justify-content: space-between; align-items: flex-start; }
-.sd-nm { font-size: var(--fs-xl); font-weight: 700; color: var(--text-main, #f3f4f6); }
-.sd-code { font-size: var(--fs-sm); color: var(--text-secondary, var(--text-dim)); font-weight: 500; margin-left: var(--s2); }
-.sd-metrics { text-align: right; font-size: var(--fs-xs); color: var(--text-secondary, var(--text-dim)); line-height: 1.7; }
-.sd-mrow b { color: var(--text-main, #f3f4f6); font-weight: 600; margin-left: 2px; }
+.sd-nm { font-size: var(--fs-xl); font-weight: 700; color: var(--text-main); }
+.sd-code { font-size: var(--fs-sm); color: var(--text-secondary); font-weight: 500; margin-left: var(--s2); }
+.sd-metrics { text-align: right; font-size: var(--fs-xs); color: var(--text-secondary); line-height: 1.7; }
+.sd-mrow b { color: var(--text-main); font-weight: 600; margin-left: 2px; }
 
 .sd-price { margin-top: var(--s2); display: flex; align-items: baseline; gap: var(--s2); }
 .sd-price-num { font-size: 2rem; font-weight: 700; line-height: 1; }
@@ -246,48 +266,48 @@ watch(() => props.code, () => { if (props.code) { loaded.value = false; load() }
 
 .sd-tags { margin-top: var(--s2); display: flex; gap: var(--s2); flex-wrap: wrap; }
 .sd-tag { padding: var(--s1) var(--s2); border-radius: var(--r-md); font-size: var(--fs-xs); border: 1px solid; }
-.sd-tag-gray { color: var(--text-secondary, var(--text-dim)); background: rgba(255,255,255,.04); border-color: var(--border-soft, #1f2937); }
+.sd-tag-gray { color: var(--text-secondary); background: rgba(255,255,255,.04); border-color: var(--border-soft); }
 .sd-tag-amber { color: var(--amber, var(--warn-amber)); background: rgba(255,176,32,.08); border-color: rgba(255,176,32,.4); }
 .sd-tag-red { color: var(--brand-soft); background: rgba(255,77,79,.1); border-color: rgba(255,77,79,.4); }
 .sd-tag-app { color: var(--up, var(--accent)); background: rgba(255,92,92,.08); border-color: rgba(255,92,92,.4); }
 
-.sd-card { margin-top: var(--s3); background: var(--card, #111826); border: 1px solid var(--border-soft, #1f2937); border-radius: var(--r-lg); padding: var(--s4); }
-.sd-ctitle { display: flex; align-items: center; font-size: var(--fs-md); font-weight: 700; color: var(--text-main, #f3f4f6); margin-bottom: var(--s3); }
+.sd-card { margin-top: var(--s3); background: var(--card); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); }
+.sd-ctitle { display: flex; align-items: center; font-size: var(--fs-md); font-weight: 700; color: var(--text-main); margin-bottom: var(--s3); }
 .sd-ctitle::before { content: ""; width: 3px; height: 14px; background: var(--accent, var(--up)); border-radius: var(--r-sm); margin-right: var(--s2); }
 .sd-hint { margin-left: auto; font-size: var(--fs-xs); color: var(--text-muted, var(--text-faint)); font-weight: 400; }
 
 .sd-score { display: flex; gap: var(--s4); align-items: center; }
 .sd-ring { width: 84px; height: 84px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
-.sd-ring-in { width: 64px; height: 64px; border-radius: 50%; background: var(--card, #111826); display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.sd-ring-in b { font-size: var(--fs-2xl); color: var(--text-main, #f3f4f6); line-height: 1; }
+.sd-ring-in { width: 64px; height: 64px; border-radius: 50%; background: var(--card); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.sd-ring-in b { font-size: var(--fs-2xl); color: var(--text-main); line-height: 1; }
 .sd-ring-in span { font-size: var(--fs-xs); color: var(--text-muted, var(--text-faint)); margin-top: 2px; }
 .sd-factors { flex: 1; min-width: 0; }
 .sd-f { margin-bottom: var(--s2); }
 .sd-f-row { display: flex; justify-content: space-between; font-size: var(--fs-sm); margin-bottom: var(--s1); }
-.sd-f-name { color: var(--text-secondary, var(--text-dim)); }
-.sd-f-score { color: var(--text-main, #f3f4f6); font-weight: 700; }
+.sd-f-name { color: var(--text-secondary); }
+.sd-f-score { color: var(--text-main); font-weight: 700; }
 .sd-f-bar { height: 6px; background: rgba(255,255,255,.06); border-radius: var(--r-sm); overflow: hidden; }
 .sd-f-fill { height: 100%; border-radius: var(--r-sm); }
 
-.sd-reason { margin-top: var(--s3); border: 1px solid rgba(255,122,89,.35); border-left: 3px solid var(--accent, var(--up));
-  background: rgba(255,122,89,.06); border-radius: var(--r-md); padding: var(--s2) var(--s3); font-size: var(--fs-sm); line-height: 1.7; color: #d8c8c0; }
-.sd-reason b { color: var(--accent, #ff7a59); }
+.sd-reason { margin-top: var(--s3); border: 1px solid rgba(255,122,89,.35); border-left: 3px solid var(--accent);
+  background: rgba(255,122,89,.06); border-radius: var(--r-md); padding: var(--s2) var(--s3); font-size: var(--fs-sm); line-height: 1.7; color: var(--text-secondary); }
+.sd-reason b { color: var(--accent); }
 
 .sd-trend { width: 100%; height: 160px; }
 
 .sd-hist { display: flex; flex-direction: column; gap: var(--s2); }
 .sd-hist-row { display: flex; justify-content: space-between; align-items: center;
   padding: var(--s2) var(--s2); background: rgba(255,255,255,.03); border-radius: var(--r-md); }
-.sd-hist-date { font-size: var(--fs-sm); color: var(--text-secondary, var(--text-dim)); font-family: var(--font-mono); }
+.sd-hist-date { font-size: var(--fs-sm); color: var(--text-secondary); font-family: var(--font-mono); }
 .sd-hist-pct { font-size: var(--fs-base); font-weight: 700; }
 
 .sd-boards { display: flex; flex-wrap: wrap; gap: var(--s2); }
-.sd-board { padding: var(--s2) var(--s3); border-radius: var(--r-md); font-size: var(--fs-sm); color: var(--text-main, #f3f4f6);
-  background: rgba(255,255,255,.04); border: 1px solid var(--border-soft, #1f2937); cursor: pointer; }
+.sd-board { padding: var(--s2) var(--s3); border-radius: var(--r-md); font-size: var(--fs-sm); color: var(--text-main);
+  background: rgba(255,255,255,.04); border: 1px solid var(--border-soft); cursor: pointer; }
 .sd-board:hover { border-color: var(--accent, var(--up)); color: var(--accent, var(--up)); }
 .sd-board-hot { color: var(--amber, var(--warn-amber)); font-size: var(--fs-xs); margin-left: 2px; }
 
-.sd-riskbox { padding: var(--s2) var(--s3); border-radius: var(--r-md); font-size: var(--fs-sm); line-height: 1.6; color: var(--text-secondary, var(--text-dim)); }
+.sd-riskbox { padding: var(--s2) var(--s3); border-radius: var(--r-md); font-size: var(--fs-sm); line-height: 1.6; color: var(--text-secondary); }
 .sd-riskbox.red { background: rgba(255,77,79,.08); border: 1px solid rgba(255,77,79,.35); }
 .sd-riskbox.amber { background: rgba(255,176,32,.08); border: 1px solid rgba(255,176,32,.35); }
 

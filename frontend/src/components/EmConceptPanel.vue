@@ -163,7 +163,7 @@ usePolling(loadConcepts, 30000, { immediate: false })
 
 body[data-bg="light"] .ecp { background: rgba(255, 255, 255, 0.85); border-color: var(--border-soft); }
 body[data-bg="light"] .ecp-row:hover td { background: rgba(199, 145, 0, 0.08); }
-body[data-bg="light"] .auc-l1 { color: #b83010; }
+body[data-bg="light"] .auc-l1 { color: var(--brand-deep); }
 body[data-bg="light"] .auc-l2 { color: #8a5500; }
 
 @media (max-width: 768px) {

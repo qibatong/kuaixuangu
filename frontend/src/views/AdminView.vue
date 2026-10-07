@@ -2,7 +2,7 @@
   <div class="admin-wrap">
     <h1 class="visually-hidden">管理后台</h1>
     <div class="admin-head">
-      <h2 style="margin:0 auto;color:var(--accent-text);"><i class="fa fa-shield"></i> 管理后台</h2>
+      <h2 class="admin-title"><i class="fa fa-shield"></i> 管理后台</h2>
       <span style="width:120px;"></span>
     </div>
 
@@ -1515,7 +1515,7 @@ onMounted(() => {
   background: rgba(120, 160, 255, 0.15); color: var(--accent-text);
   border: 1px solid rgba(120, 160, 255, 0.35); font-size: var(--fs-xs); white-space: nowrap;
 }
-body[data-bg="light"] .inviter-tag { color: #b83010; background: rgba(90, 130, 255, 0.1); border-color: rgba(90, 130, 255, 0.4); }
+body[data-bg="light"] .inviter-tag { color: var(--brand-deep); background: rgba(90, 130, 255, 0.1); border-color: rgba(90, 130, 255, 0.4); }
 .mono { font-family: inherit; }
 .invite-chain { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2) var(--s1); }
 .chain-row { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-sm); }
@@ -1528,6 +1528,16 @@ body[data-bg="light"] .inviter-tag { color: #b83010; background: rgba(90, 130, 2
 .invite-table tr:last-child td { border-bottom: none; }
 .admin-wrap { max-width: 1500px; margin: 0 auto; padding: var(--s4) var(--s4); }
 .admin-head { display: flex; align-items: center; margin-bottom: var(--s4); }
+/* 2026-10-07 视觉自查收口: ① 大标题回归全站标题色(原内联 --accent-text 粉色); ② .card-title 补 700 与其他卡片标题一致;
+   ③ 公告表单标题/正文原本是两个 inline-block 挤一行、基线错位 ⇒ 收成纵向表单; ④ .admin-btn 此前整仓无定义(浏览器默认白底按钮) ⇒ 补全站一致样式。 */
+.admin-title { margin: 0 auto; color: var(--text-main); font-size: var(--fs-2xl); font-weight: 700; }
+.notice-form { display: flex; flex-direction: column; gap: var(--s2); }
+.notice-form .admin-input { width: 100%; box-sizing: border-box; }
+.notice-form textarea.admin-input { resize: vertical; min-height: 72px; }
+.notice-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.admin-btn { background: var(--bg-input); border: 1px solid var(--border-soft); color: var(--text-secondary); border-radius: var(--r-md); padding: var(--s1) var(--s2); font-size: var(--fs-xs); cursor: pointer; }
+.admin-btn:hover { background: var(--bg-hover); color: var(--text-main); border-color: var(--accent); }
+.admin-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .admin-card { background: var(--bg-subtle); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s4); margin-bottom: var(--s4); }
 .field-label { color: #bbb; font-size: var(--fs-xs); }
 .admin-tip { color: var(--text-muted); font-size: var(--fs-xs); margin-left: var(--s2); }
@@ -1700,7 +1710,7 @@ body[data-bg="light"] .btn-create {
 body[data-bg="light"] .member-tabs { background: rgba(0,0,0,0.04); }
 body[data-bg="light"] .member-tab { color: #6b7280; }
 body[data-bg="light"] .member-tab:hover { color: #1a1d26; }
-body[data-bg="light"] .member-tab.active { background: rgba(11,134,200,0.18); color: #b83010; font-weight: 600; }
+body[data-bg="light"] .member-tab.active { background: rgba(11,134,200,0.18); color: var(--brand-deep); font-weight: 600; }
 /* 用户列表工具区: desktop 横排右对齐(标题左边, tab+搜索+按钮挤右) */
 .user-toolbar {
   display: flex;
@@ -1744,27 +1754,27 @@ body[data-bg="light"] .member-tab.active { background: rgba(11,134,200,0.18); co
 .del-btn { background: rgba(255,80,80,0.15); border: 1px solid var(--accent); color: var(--accent-text); border-radius: var(--r-md); padding: 2px var(--s2); cursor: pointer; }
 
 /* 浅色主题覆盖 */
-body[data-bg="light"] .card-title {  color: #5a4a3a;  }
-body[data-bg="light"] .mini-btn.danger {  color: #b83010; background: rgba(255,80,80,0.12); border-color: rgba(220,50,50,0.5);  }
-body[data-bg="light"] .mini-btn.danger:hover {  background: #b83010; color: white;  }
-body[data-bg="light"] .del-btn {  color: #b83010; background: rgba(255,80,80,0.1); border-color: rgba(220,50,50,0.5);  }
-body[data-bg="light"] .del-btn:hover {  background: #b83010; color: white;  }
+body[data-bg="light"] .card-title {  color: var(--watermark);  }
+body[data-bg="light"] .mini-btn.danger {  color: var(--brand-deep); background: rgba(255,80,80,0.12); border-color: rgba(220,50,50,0.5);  }
+body[data-bg="light"] .mini-btn.danger:hover {  background: var(--brand-deep); color: white;  }
+body[data-bg="light"] .del-btn {  color: var(--brand-deep); background: rgba(255,80,80,0.1); border-color: rgba(220,50,50,0.5);  }
+body[data-bg="light"] .del-btn:hover {  background: var(--brand-deep); color: white;  }
 body[data-bg="light"] .pwd-pop {  background: rgba(255,255,255,0.98); border-color: var(--border-soft);  }
 body[data-bg="light"] .pwd-mask {  background: rgba(0,0,0,0.45);  }
-body[data-bg="light"] .pwd-btn {  color: #8a5500; background: rgba(255,180,0,0.15); border-color: #c79100;  }
-body[data-bg="light"] .pwd-title {  color: #5a4a3a;  }
+body[data-bg="light"] .pwd-btn {  color: #8a5500; background: rgba(255,180,0,0.15); border-color: var(--gold-deep);  }
+body[data-bg="light"] .pwd-title {  color: var(--watermark);  }
 body[data-bg="light"] .weight-table input {  color: #1a1d26; background: rgba(255,255,255,0.95);  }
 body[data-bg="light"] .bucket-table input {  color: #1a1d26; background: rgba(255,255,255,0.95);  }
 body[data-bg="light"] .factor-title {  color: #8a5500;  }
-body[data-bg="light"] .factor-tab {  color: #6b6b6b; border-color: var(--border-soft);  }
-body[data-bg="light"] .factor-tab:hover {  color: #5a4a3a; border-color: #c79100;  }
-body[data-bg="light"] .factor-tab.active {  color: #5a4a3a; border-color: #c79100; background: rgba(255,180,0,0.15);  }
-body[data-bg="light"] .page-btn {  color: #b83010; background: rgba(184,48,16,0.12); border-color: #b83010;  }
+body[data-bg="light"] .factor-tab {  color: var(--text-faint); border-color: var(--border-soft);  }
+body[data-bg="light"] .factor-tab:hover {  color: var(--watermark); border-color: var(--gold-deep);  }
+body[data-bg="light"] .factor-tab.active {  color: var(--watermark); border-color: var(--gold-deep); background: rgba(255,180,0,0.15);  }
+body[data-bg="light"] .page-btn {  color: var(--brand-deep); background: rgba(184,48,16,0.12); border-color: var(--brand-deep);  }
 body[data-bg="light"] .mini-date {  color: #1a1d26; background: rgba(255,255,255,0.95); border-color: var(--border-soft);  }
 body[data-bg="light"] .mini-btn {  color: #1a1d26; background: rgba(240,245,250,0.9); border-color: var(--border-soft);  }
-body[data-bg="light"] .admin-tag {  color: #8a5500; border-color: #c79100;  }
-body[data-bg="light"] .expired-tag {  color: #b83010; border-color: #b83010;  }
-body[data-bg="light"] .level-2 { color: #8a5500; border-color: #c79100; }
+body[data-bg="light"] .admin-tag {  color: #8a5500; border-color: var(--gold-deep);  }
+body[data-bg="light"] .expired-tag {  color: var(--brand-deep); border-color: var(--brand-deep);  }
+body[data-bg="light"] .level-2 { color: #8a5500; border-color: var(--gold-deep); }
 body[data-bg="light"] .level-1 { color: #c03030; border-color: #e06060; }
 body[data-bg="light"] .ok-tag {  color: #2d7020; border-color: #4caf70;  }
 body[data-bg="light"] .weight-table input { color: #1a1d26; background: rgba(255,255,255,0.95); }
@@ -1772,17 +1782,17 @@ body[data-bg="light"] .bucket-table input { color: #1a1d26; background: rgba(255
 body[data-bg="light"] .factor-title { color: #8a5500; }
 body[data-bg="light"] .expire-popover { background: rgba(255,255,255,0.98); border-color: var(--border-soft); }
 body[data-bg="light"] .pwd-pop { background: rgba(255,255,255,0.98); border-color: var(--border-soft); }
-body[data-bg="light"] .field-label { color: #5a4a3a; }
-body[data-bg="light"] .admin-tip { color: #6b6b6b; }
+body[data-bg="light"] .field-label { color: var(--watermark); }
+body[data-bg="light"] .admin-tip { color: var(--text-faint); }
 body[data-bg="light"] .admin-save-btn { background: rgba(34,139,34,0.1); border: 1px solid #228722; color: #1a6b1a; }
 body[data-bg="light"] .admin-save-btn:hover { background: #228722; color: #fff; }
 /* 浅色主题: 「保存并强制生效」改用浅红底 + 深红字(对应「保存默认值」浅绿底 + 深绿字) */
 body[data-bg="light"] .save-force-btn { background: rgba(163,45,45,0.12); border-color: #A32D2D; color: #A32D2D; }
 body[data-bg="light"] .save-force-btn:hover:not(:disabled) { background: #A32D2D; color: #fff; }
 body[data-bg="light"] .admin-msg-ok { color: #1a6b1a; }
-body[data-bg="light"] .weight-desc { color: #6b6b6b; }
+body[data-bg="light"] .weight-desc { color: var(--text-faint); }
 body[data-bg="light"] .weight-total { color: #8a5500; }
-body[data-bg="light"] .weight-warn { color: #b83010; }
+body[data-bg="light"] .weight-warn { color: var(--brand-deep); }
 
 /* ===================== 移动端适配 (<=768px) ===================== */
 @media (max-width: 768px) {

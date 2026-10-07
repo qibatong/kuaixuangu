@@ -431,7 +431,7 @@ defineExpose({ load })
 /* 浅色主题：白底上不用亮红当文字，改用深变体 */
 body[data-bg="light"] .yj-down { color: #1f7a45; }
 body[data-bg="light"] .yj-trophy-1 { color: #8a5500; }
-body[data-bg="light"] .yj-chip { color: #5a4a3a; }
+body[data-bg="light"] .yj-chip { color: var(--watermark); }
 
 /* ============================================================
    手机窄屏（2026-09-29 主人反馈："一进二手机页面看不全"）

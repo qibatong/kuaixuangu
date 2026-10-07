@@ -53,7 +53,7 @@ function fmtPct(v) {
 }
 .medal-real-big.green-real { color: var(--down) !important; }
 body[data-bg="light"] .medal-real-big { color: #c62828; }
-body[data-bg="light"] .medal-real-big.green-real { color: #1a7a2a !important; }
+body[data-bg="light"] .medal-real-big.green-real { color: var(--down) !important; }
 /* 竞涨幅: 缩字号, 实时涨幅下面 */
 .medal-bid-sm {
   font-size: var(--fs-sm);

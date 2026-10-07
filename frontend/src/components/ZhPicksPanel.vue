@@ -246,7 +246,7 @@ onMounted(() => { if (user.isVipOrPaid) load() })
 .yj-embedded .zh-title { font-size: var(--fs-base); }
 
 /* 浅色主题 */
-body[data-bg="light"] .zh-chip { color: #5a4a3a; }
+body[data-bg="light"] .zh-chip { color: var(--watermark); }
 body[data-bg="light"] .zh-empty { color: #6b6257; }
 
 /* ==================== 手机端自适应(★ 2026-09-29 主人反馈「手机端没有自适应」) ====================

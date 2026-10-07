@@ -138,6 +138,6 @@ body[data-bg="light"] .tdx-toolbar {
   border-color: rgba(184,48,16,0.25);
 }
 body[data-bg="light"] .tdx-toolbar .tdx-tip {
-  color: #8a5500;
+  color: var(--warn-amber);
 }
 </style>

@@ -409,7 +409,7 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
   body[data-bg="light"] .nav-tools :deep(.ss-inline-input) { color: #4a1515; }
   body[data-bg="light"] .nav-tools :deep(.ss-inline-input)::placeholder { color: #c98a8a; }
   body[data-bg="light"] .nav-tools :deep(.ss-inline-icon),
-  body[data-bg="light"] .nav-tools :deep(.ss-inline-clear) { color: #b83010; }
+  body[data-bg="light"] .nav-tools :deep(.ss-inline-clear) { color: var(--brand-deep); }
   /* 2026-09-27 v4.11.58 信息架构改造: 手机端**隐藏**顶部一级分组导航,
      改由底部固定 AppTabBar(6 tab) 承担一级分组切换, 组内二级页用 GroupNav pill 换行/横滑。
      原先「9 个 tab 自动换行」的老行为不再需要。 */

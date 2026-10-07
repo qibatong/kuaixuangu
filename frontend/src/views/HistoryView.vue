@@ -450,11 +450,11 @@ onMounted(() => {
 .batch-body { border-top: 1px solid var(--border-soft); padding: var(--s2) var(--s2); }
 
 /* 浅色主题覆盖 */
-body[data-bg="light"] .view-tab:hover {  color: #5a4a3a; border-color: #b83010;  }
-body[data-bg="light"] .view-tab {  color: #5a4a3a; border-color: #d0d0d0; background: rgba(255,255,255,0.6);  }
+body[data-bg="light"] .view-tab:hover {  color: var(--watermark); border-color: var(--brand-deep);  }
+body[data-bg="light"] .view-tab {  color: var(--watermark); border-color: #d0d0d0; background: rgba(255,255,255,0.6);  }
 body[data-bg="light"] .view-tab.active .view-tab-desc {  color: #6a5a20;  }
 body[data-bg="light"] .batch-tip b {  color: #8a5500;  }
-body[data-bg="light"] .batch-time {  color: #5a4a3a;  }
-body[data-bg="light"] .type-lock {  color: #b83010; border-color: #b83010; background: rgba(255,80,80,0.12);  }
+body[data-bg="light"] .batch-time {  color: var(--watermark);  }
+body[data-bg="light"] .type-lock {  color: var(--brand-deep); border-color: var(--brand-deep); background: rgba(255,80,80,0.12);  }
 body[data-bg="light"] .batch-type {  color: #1a1d26;  }
 </style>

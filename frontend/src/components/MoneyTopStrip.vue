@@ -112,5 +112,5 @@ function signedPct(v) {
 body[data-bg="light"] .mt-title { color: #8a5500; }
 body[data-bg="light"] .mt-card { background: rgba(255, 255, 255, 0.85); }
 body[data-bg="light"] .mt-net.up, body[data-bg="light"] .mt-chg.up { color: #c62828; }
-body[data-bg="light"] .mt-net.down, body[data-bg="light"] .mt-chg.down { color: #1a7a2a; }
+body[data-bg="light"] .mt-net.down, body[data-bg="light"] .mt-chg.down { color: var(--down); }
 </style>

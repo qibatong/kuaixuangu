@@ -378,8 +378,8 @@ function arrow(v) {
 }
 .dev-badge-red { background: rgba(255, 77, 79, 0.16); border-color: rgba(255, 77, 79, 0.6); color: var(--accent-text); }
 .dev-badge-yellow { background: rgba(255, 197, 61, 0.13); border-color: rgba(255, 197, 61, 0.55); color: #ffd666; }
-body[data-bg="light"] .dev-badge-red { background: #fde3e3; border-color: #d4380d; color: #8c1c00; }
-body[data-bg="light"] .dev-badge-yellow { background: #fff8e0; border-color: #c79100; color: #7a4d00; }
+body[data-bg="light"] .dev-badge-red { background: #fde3e3; border-color: var(--up); color: #8c1c00; }
+body[data-bg="light"] .dev-badge-yellow { background: #fff8e0; border-color: var(--gold-deep); color: #7a4d00; }
 .stock-info-cell .stock-code-row {
   order: 2;
   line-height: 1.2;
@@ -541,7 +541,7 @@ body[data-bg="light"] th.sortable.active { color: #fff; }
 /* 方向符号: 小一号 + 半透明, 不抢红绿主次 */
 .arw {
   font-style: normal;
-  font-size: 0.72em;
+  font-size: var(--fs-xs);
   opacity: 0.8;
   margin-left: 1px;
 }

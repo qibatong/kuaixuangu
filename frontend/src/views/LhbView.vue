@@ -44,7 +44,7 @@ onMounted(() => {
 .lhb-time { margin-left: auto; color: var(--text-dim); font-size: var(--fs-base); font-variant-numeric: tabular-nums; }
 
 body[data-bg="light"] .lhb-title { color: #8a5500; }
-body[data-bg="light"] .lhb-title .fa { color: #c79100; }
+body[data-bg="light"] .lhb-title .fa { color: var(--gold-deep); }
 
 @media (max-width: 768px) {
   .lhb-title { font-size: var(--fs-lg); }

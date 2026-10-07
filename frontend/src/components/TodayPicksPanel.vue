@@ -147,8 +147,8 @@ function go(code) { linkToSoftware(code) }
 }
 
 body[data-bg="light"] .tp { background: rgba(198, 40, 40, 0.07); border-color: rgba(198, 40, 40, 0.3); }
-body[data-bg="light"] .tp-title { color: #b83010; }
+body[data-bg="light"] .tp-title { color: var(--brand-deep); }
 body[data-bg="light"] .tp-agg { background: rgba(0, 0, 0, 0.04); }
 body[data-bg="light"] .st-limit { color: #fff; background: #c62828; }
-body[data-bg="light"] .st-down { color: #1a7a2a; }
+body[data-bg="light"] .st-down { color: var(--down); }
 </style>

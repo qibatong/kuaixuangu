@@ -78,7 +78,7 @@ function isActive(it) {
   align-items: center;
   gap: var(--s2);
   flex-wrap: wrap;
-  margin: -var(--s2) 0 var(--s4);      /* 紧贴 NavBar 下沿（NavBar 自身 margin-bottom: 18px） */
+  margin: calc(-1 * var(--s2)) 0 var(--s4);  /* 紧贴 NavBar 下沿（NavBar 自身 margin-bottom: 18px）；calc 写法见 NavBar 同类修复 */
   padding: var(--s2) var(--s2);
   background: var(--bg-card);
   border: 1px solid var(--border-soft);
@@ -142,7 +142,7 @@ body[data-bg="light"] .group-nav-item.active {
   .group-nav {
     gap: var(--s1);
     padding: var(--s1) var(--s2);
-    margin: -var(--s2) 0 var(--s2);
+    margin: calc(-1 * var(--s2)) 0 var(--s2);
     /* 🔴 2026-09-27 v4.11.65 修复（主人反馈「异动要放到复盘板块中」的真正成因）:
        本块原为 `flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none`
        （注释写「二级 pill 多于一屏时横滑，不换行占纵向空间」）—— 实测这个折中是错的：

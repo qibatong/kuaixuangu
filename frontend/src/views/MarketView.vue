@@ -705,14 +705,14 @@ onBeforeUnmount(() => { if (staleTimer) clearInterval(staleTimer) })
 /* 浅色主题覆盖 */
 body[data-bg="light"] .mk-bar-title { color: #8a5500; }
 body[data-bg="light"] .mrk-title { color: #8a5500; }
-body[data-bg="light"] .mrk-title .fa { color: #c79100; }
-body[data-bg="light"] .mrk-sub, body[data-bg="light"] .mrk-time { color: #6b6b6b; }
-body[data-bg="light"] .mrk-tab { color: #6b6b6b; background: rgba(255,255,255,0.6); }
-body[data-bg="light"] .mrk-tab:hover { color: #5a4a3a; border-color: #c79100; }
-body[data-bg="light"] .mrk-tab.active { color: #5a4a3a; background: rgba(255,180,0,0.15); border-color: #c79100; }
+body[data-bg="light"] .mrk-title .fa { color: var(--gold-deep); }
+body[data-bg="light"] .mrk-sub, body[data-bg="light"] .mrk-time { color: var(--text-faint); }
+body[data-bg="light"] .mrk-tab { color: var(--text-faint); background: rgba(255,255,255,0.6); }
+body[data-bg="light"] .mrk-tab:hover { color: var(--watermark); border-color: var(--gold-deep); }
+body[data-bg="light"] .mrk-tab.active { color: var(--watermark); background: rgba(255,180,0,0.15); border-color: var(--gold-deep); }
 body[data-bg="light"] .mrk-panel { background: rgba(255,255,255,0.85); }
 body[data-bg="light"] .strength { color: #8a5500; }
-body[data-bg="light"] .lb-badge { color: #b83010; border-color: rgba(184,48,16,0.5); background: rgba(255,80,80,0.1); }
+body[data-bg="light"] .lb-badge { color: var(--brand-deep); border-color: rgba(184,48,16,0.5); background: rgba(255,80,80,0.1); }
 body[data-bg="light"] .board-code { color: #1a1d26; }
 body[data-bg="light"] .board-detail-hint { color: #a06a00; border-color: rgba(160, 106, 0, 0.4); }
 body[data-bg="light"] .board-row:hover td { background: rgba(199, 145, 0, 0.08); }

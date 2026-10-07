@@ -246,7 +246,7 @@ onMounted(() => {
 .score-mid { background: rgba(255, 160, 40, 0.15); color: #ffa028; border: 1px solid rgba(255, 160, 40, 0.5); }
 .score-lo { background: rgba(201, 145, 0, 0.14); color: var(--gold-deep); border: 1px solid rgba(255, 180, 0, 0.4); }
 .score-low { background: var(--bg-input); color: var(--text-muted); border: 1px solid var(--border-soft); }
-.up { color: var(--accent); } .down { color: #5ac17a; }
+.up { color: var(--accent); } .down { color: var(--down); }
 .zt-cell { font-weight: 700; color: var(--star); }
 .rank-col { color: var(--text-muted); }
 .name-col { max-width: 120px; } .name-main { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

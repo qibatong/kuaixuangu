@@ -297,13 +297,13 @@ body[data-bg="light"] .index-card { background: rgba(0, 0, 0, 0.04); }
 body[data-bg="light"] .emo-card { background: rgba(0, 0, 0, 0.04); }
 body[data-bg="light"] .senti-vdivider { background: rgba(0, 0, 0, 0.1); }
 body[data-bg="light"] .idx-up { color: #c62828; }
-body[data-bg="light"] .idx-down { color: #1a7a2a; }
-body[data-bg="light"] .emo-val.loss { color: #1a7a2a; }
+body[data-bg="light"] .idx-down { color: var(--down); }
+body[data-bg="light"] .emo-val.loss { color: var(--down); }
 body[data-bg="light"] .mkt-amt { color: #8a6a00; }
-body[data-bg="light"] .mkt-shrink { color: #2a7a2a; }
-body[data-bg="light"] .mkt-grow { color: #b83010; }
-body[data-bg="light"] .mkt-rise { color: #b83010; }
-body[data-bg="light"] .mkt-fall { color: #2a7a2a; }
-body[data-bg="light"] .senti-val.zt, body[data-bg="light"] .emo-val .zt { color: #b83010; }
+body[data-bg="light"] .mkt-shrink { color: var(--down); }
+body[data-bg="light"] .mkt-grow { color: var(--brand-deep); }
+body[data-bg="light"] .mkt-rise { color: var(--brand-deep); }
+body[data-bg="light"] .mkt-fall { color: var(--down); }
+body[data-bg="light"] .senti-val.zt, body[data-bg="light"] .emo-val .zt { color: var(--brand-deep); }
 body[data-bg="light"] .emo-val.lbg { color: #8a5500; }
 </style>

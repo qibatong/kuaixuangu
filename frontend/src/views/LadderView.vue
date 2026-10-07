@@ -358,7 +358,7 @@ onBeforeUnmount(() => { if (echelonTimer) clearInterval(echelonTimer) })
 .lb-logo-b1 { height: 35%; opacity: 0.85; }
 .lb-logo-b2 { height: 65%; opacity: 0.92; }
 .lb-logo-b3 { height: 100%; }
-.lb-h1 { font-size: var(--fs-lg); font-weight: 700; color: var(--text-main); }
+.lb-h1 { font-size: var(--fs-2xl); font-weight: 700; color: var(--text-main); }  /* 2026-10-07 自查: 原 --fs-lg 比其他 6 个主页面标题低一档, 对齐 */
 
 /* KPI 四格：红/橙/金/紫 各一色（主人反馈"颜色太单调"） */
 .lb-kpi { display: grid; grid-template-columns: 0.8fr 0.8fr 1.3fr 1fr; gap: var(--s2); }
@@ -388,7 +388,7 @@ onBeforeUnmount(() => { if (echelonTimer) clearInterval(echelonTimer) })
 .lb-boards::-webkit-scrollbar { display: none; }
 .lb-bd {
   flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--s1);
-  background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: 13px;
+  background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: var(--r-lg);
   color: var(--qg-gold-a); font-size: var(--fs-xs); padding: var(--s1) var(--s2); cursor: pointer;
 }
 .lb-bd em { font-style: normal; font-size: var(--fs-xs); color: var(--text-secondary); }

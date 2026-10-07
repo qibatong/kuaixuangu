@@ -385,8 +385,8 @@ h1 { font-size: var(--fs-2xl); margin: 0 0 var(--s3); color: var(--text-main); }
 }
 .msg-tab.on { color: var(--on-accent); background: var(--accent-solid); border-color: var(--accent-solid); }
 .msg-tab-badge {
-  min-width: 16px; padding: 0 4px; font-size: 10px; line-height: 16px; text-align: center;
-  border-radius: 8px; background: var(--accent-deep); color: var(--on-accent);
+  min-width: 16px; padding: 0 4px; font-size: var(--fs-xs); line-height: 16px; text-align: center;
+  border-radius: var(--r-md); background: var(--accent-deep); color: var(--on-accent);
 }
 .msg-tab.on .msg-tab-badge { background: var(--on-accent); color: var(--accent-solid); }
 
@@ -414,7 +414,7 @@ h1 { font-size: var(--fs-2xl); margin: 0 0 var(--s3); color: var(--text-main); }
   font-size: var(--fs-sm); color: var(--text-secondary); cursor: pointer;
 }
 .msg-pref-ops {
-  padding: 0 4px; font-size: 10px; font-style: normal; border-radius: var(--r-sm);
+  padding: 0 4px; font-size: var(--fs-xs); font-style: normal; border-radius: var(--r-sm);
   border: 1px solid var(--border-soft); color: var(--text-muted);
 }
 .msg-prefs-tip, .msg-prefs-foot { margin: var(--s1) 0 0; font-size: var(--fs-xs); color: var(--text-dim); }
@@ -440,7 +440,7 @@ h1 { font-size: var(--fs-2xl); margin: 0 0 var(--s3); color: var(--text-main); }
 .msg-item.lv-warn .msg-bar { color: var(--warn-text); }
 .msg-item.lv-urgent .msg-bar { color: var(--accent-text); }
 .msg-main { flex: 1 1 auto; min-width: 0; }
-.msg-title { font-size: var(--fs-base); font-weight: 600; color: var(--text-main); }
+.msg-title { font-size: var(--fs-base); font-weight: 700; color: var(--text-main); }
 .msg-tag {
   margin-left: var(--s2); padding: 1px var(--s1); font-size: var(--fs-xs); font-weight: 400;
   border-radius: var(--r-sm); border: 1px solid var(--border-soft); color: var(--text-muted);

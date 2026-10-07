@@ -311,6 +311,28 @@ function ma(arr, n) {
   return out
 }
 
+// 2026-10-07 视觉自查: 图表配色改随主题取 CSS 变量 —— 此前整份 ECharts 写死深底色,
+// 浅色主题下轴标签/tooltip/K线绿原样渲染(#22c55e 白底约 2.2:1 不可读)。
+// 弹窗每次打开/切周期都会重建 option ⇒ 在构建时取当次主题值即可, 无需监听主题切换。
+function chartC() {
+  const light = document.body.dataset.bg === 'light'
+  const cs = getComputedStyle(document.body)
+  const v = (name, fb) => { const s = (cs.getPropertyValue(name) || '').trim(); return s || fb }
+  return {
+    up: v('--up', light ? '#c62828' : '#ff8a6f'),
+    down: v('--down', light ? '#0f7a3d' : '#00c864'),
+    flat: v('--text-muted', light ? '#5b6472' : '#9ca3af'),
+    axisLabel: v('--text-muted', light ? '#5b6472' : '#9ca3af'),
+    axisLine: light ? 'rgba(0,0,0,0.30)' : 'rgba(255,255,255,0.28)',
+    splitLine: light ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.05)',
+    tooltipBg: light ? 'rgba(255,255,255,0.97)' : 'rgba(20,22,28,0.94)',
+    tooltipBorder: light ? 'rgba(0,0,0,0.12)' : '#374151',
+    tooltipText: v('--text-main', light ? '#1a1d26' : '#e5e7eb'),
+    pointerBg: light ? 'rgba(0,0,0,0.72)' : '#1f2937',
+    sliderBg: light ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.04)',
+  }
+}
+
 function renderChart() {
   if (!chartData.value) return
   ensureChart()
@@ -332,9 +354,10 @@ function optionMinute(d) {
   const pricePct = pctArr(prices, base)
   const avgPct = pctArr(avgs, base)
   // 涨跌色成交量
+  const C = chartC()
   const volData = times.map((_, i) => {
-    const color = i === 0 ? '#999'
-      : (prices[i] > prices[i - 1] ? '#ef4444' : prices[i] < prices[i - 1] ? '#22c55e' : '#999')
+    const color = i === 0 ? C.flat
+      : (prices[i] > prices[i - 1] ? C.up : prices[i] < prices[i - 1] ? C.down : C.flat)
     return { value: vols[i] || 0, itemStyle: { color } }
   })
   // Y轴右边: 价格刻度 → 左边: 涨跌幅
@@ -348,8 +371,8 @@ function optionMinute(d) {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross' },
-      backgroundColor: 'rgba(20,22,28,0.94)', borderColor: '#374151',
-      textStyle: { color: '#e5e7eb', fontSize: m.tooltipFont > 0 ? m.tooltipFont : 12 },
+      backgroundColor: C.tooltipBg, borderColor: C.tooltipBorder,
+      textStyle: { color: C.tooltipText, fontSize: m.tooltipFont > 0 ? m.tooltipFont : 12 },
       formatter: (params) => {
         if (!params || !params.length) return ''
         const idx = params[0].dataIndex
@@ -358,7 +381,7 @@ function optionMinute(d) {
         const v = vols[idx]
         const pct = pricePct[idx]
         const lines = [`<b>${tm}</b>`]
-        if (p != null) lines.push(`价格: <b>${+Number(p).toFixed(2)}</b> <span style="color:${pct >= 0 ? '#ef4444' : '#22c55e'}">${pct >= 0 ? '+' : ''}${pct}%</span>`)
+        if (p != null) lines.push(`价格: <b>${+Number(p).toFixed(2)}</b> <span style="color:${pct >= 0 ? C.up : C.down}">${pct >= 0 ? '+' : ''}${pct}%</span>`)
         if (ap != null) lines.push(`均价: ${+Number(ap).toFixed(2)}`)
         if (v != null) lines.push(`成交量: ${fmtVol(v)}`)
         return lines.join('<br/>')
@@ -371,28 +394,28 @@ function optionMinute(d) {
     ],
     xAxis: [
       { type: 'category', data: times, boundaryGap: false,
-        gridIndex: 0, axisLine: { lineStyle: { color: '#555' } },
+        gridIndex: 0, axisLine: { lineStyle: { color: C.axisLine } },
         axisLabel: { show: false }, axisTick: { show: false } },
       { type: 'category', data: times, boundaryGap: false,
-        gridIndex: 1, axisLine: { lineStyle: { color: '#555' } },
-        axisLabel: { color: '#9ca3af', fontSize: af } },
+        gridIndex: 1, axisLine: { lineStyle: { color: C.axisLine } },
+        axisLabel: { color: C.axisLabel, fontSize: af } },
     ],
     yAxis: [
       // 主图 左: 涨跌幅, 右: 价格
       { type: 'value', gridIndex: 0, position: 'left',
-        axisLabel: { color: '#9ca3af', fontSize: af, formatter: v => v.toFixed(2) + '%' },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
+        axisLabel: { color: C.axisLabel, fontSize: af, formatter: v => v.toFixed(2) + '%' },
+        splitLine: { lineStyle: { color: C.splitLine } },
         min: base ? +(((base - (maxPrice + margin)) / base * 100)).toFixed(2) : null,
         max: base ? +(((maxPrice + margin - base) / base * 100)).toFixed(2) : null,
       },
       { type: 'value', gridIndex: 0, position: 'right',
-        axisLabel: { color: '#9ca3af', fontSize: af, formatter: v => Number(v).toFixed(2) },
+        axisLabel: { color: C.axisLabel, fontSize: af, formatter: v => Number(v).toFixed(2) },
         splitLine: { show: false }, min: minPrice - margin, max: maxPrice + margin,
       },
       // 副图 成交量
       { type: 'value', gridIndex: 1, position: 'left',
-        axisLabel: { color: '#9ca3af', fontSize: m.axisFont > 0 ? m.axisFont : 10, formatter: fmtVolShort },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+        axisLabel: { color: C.axisLabel, fontSize: m.axisFont > 0 ? m.axisFont : 10, formatter: fmtVolShort },
+        splitLine: { lineStyle: { color: C.splitLine } } },
     ],
     dataZoom: [
       { type: 'inside', xAxisIndex: [0, 1], start: 0, end: 100 },
@@ -409,8 +432,8 @@ function optionMinute(d) {
         },
         markLine: {
           symbol: 'none', silent: true,
-          lineStyle: { color: '#6b7280', type: 'dashed', width: 1 },
-          data: [{ yAxis: 0, label: { formatter: base ? Number(base).toFixed(2) : '', position: 'end', color: '#9ca3af',
+          lineStyle: { color: C.flat, type: 'dashed', width: 1 },
+          data: [{ yAxis: 0, label: { formatter: base ? Number(base).toFixed(2) : '', position: 'end', color: C.axisLabel,
               fontSize: m.markLineFont > 0 ? m.markLineFont : 10 } }]
         }
       },
@@ -433,9 +456,10 @@ function optionCandle(d) {
   // OHLC Candlestick
   const ohlc = times.map((_, i) => [opens[i], closes[i], lows[i], highs[i]])
   // 涨跌色成交量
+  const C = chartC()
   const volData = times.map((_, i) => {
     const c = closes[i], o = opens[i]
-    const color = c > o ? '#ef4444' : c < o ? '#22c55e' : '#6b7280'
+    const color = c > o ? C.up : c < o ? C.down : C.flat
     return { value: vols[i] || 0, itemStyle: { color } }
   })
   const m = chartMetrics()
@@ -445,8 +469,8 @@ function optionCandle(d) {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross' },
-      backgroundColor: 'rgba(20,22,28,0.94)', borderColor: '#374151',
-      textStyle: { color: '#e5e7eb', fontSize: m.tooltipFont > 0 ? m.tooltipFont : 12 },
+      backgroundColor: C.tooltipBg, borderColor: C.tooltipBorder,
+      textStyle: { color: C.tooltipText, fontSize: m.tooltipFont > 0 ? m.tooltipFont : 12 },
       formatter: (params) => {
         if (!params || !params.length) return ''
         const idx = params[0].dataIndex
@@ -454,7 +478,7 @@ function optionCandle(d) {
         const o = opens[idx], c = closes[idx], h = highs[idx], l = lows[idx]
         const v = vols[idx], am = amounts[idx]
         const chg = base && o ? +((c - base) / base * 100).toFixed(2) : null
-        const color = chg >= 0 ? '#ef4444' : '#22c55e'
+        const color = chg >= 0 ? C.up : C.down
         // 追加均线值(MA5/10/20/30/60, 同为 line 系列)
         const maLine = (params || []).filter(p => p.seriesType === 'line' && /^MA\d+$/.test(p.seriesName))
           .map(p => `${p.seriesName}: <span style="color:${p.color || '#ccc'}">${p.value == null ? '-' : +Number(p.value).toFixed(2)}</span>`)
@@ -467,28 +491,28 @@ function optionCandle(d) {
         `
       }
     },
-    axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#1f2937' } },
+    axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: C.pointerBg } },
     grid: [
       m.mainGrid || { left: 60, right: 24, top: 20, height: '55%' },
       m.volGrid  || { left: 60, right: 24, top: '75%', height: '18%' },
     ],
     xAxis: [
       { type: 'category', data: times, scale: true, boundaryGap: true,
-        gridIndex: 0, axisLine: { lineStyle: { color: '#555' } },
+        gridIndex: 0, axisLine: { lineStyle: { color: C.axisLine } },
         axisLabel: { show: false }, axisTick: { show: false } },
       { type: 'category', data: times, scale: true, boundaryGap: true,
-        gridIndex: 1, axisLine: { lineStyle: { color: '#555' } },
-        axisLabel: { color: '#9ca3af', fontSize: af },
+        gridIndex: 1, axisLine: { lineStyle: { color: C.axisLine } },
+        axisLabel: { color: C.axisLabel, fontSize: af },
       },
     ],
     yAxis: [
       { type: 'value', gridIndex: 0, scale: true,
-        axisLabel: { color: '#9ca3af', fontSize: af, formatter: v => Number(v).toFixed(2) },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
+        axisLabel: { color: C.axisLabel, fontSize: af, formatter: v => Number(v).toFixed(2) },
+        splitLine: { lineStyle: { color: C.splitLine } },
       },
       { type: 'value', gridIndex: 1,
-        axisLabel: { color: '#9ca3af', fontSize: m.axisFont > 0 ? m.axisFont : 10, formatter: fmtVolShort },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+        axisLabel: { color: C.axisLabel, fontSize: m.axisFont > 0 ? m.axisFont : 10, formatter: fmtVolShort },
+        splitLine: { lineStyle: { color: C.splitLine } } },
     ],
     dataZoom: (() => {
       const dz = [
@@ -499,18 +523,18 @@ function optionCandle(d) {
           bottom: m.sliderBottom ?? 2,
           height: m.sliderHeight ?? 16,
           borderColor: 'transparent',
-          backgroundColor: 'rgba(255,255,255,0.04)',
+          backgroundColor: C.sliderBg,
           fillerColor: 'rgba(59,130,246,0.2)',
           handleStyle: { color: '#3b82f6' },
-          textStyle: { color: '#9ca3af', fontSize: 9 },
+          textStyle: { color: C.axisLabel, fontSize: 9 },
         })
       } else {
         dz.push({ type: 'slider', xAxisIndex: [0, 1], start: 50, end: 100,
           bottom: 2, height: 18, borderColor: 'transparent',
-          backgroundColor: 'rgba(255,255,255,0.04)',
+          backgroundColor: C.sliderBg,
           fillerColor: 'rgba(59,130,246,0.2)',
           handleStyle: { color: '#3b82f6' },
-          textStyle: { color: '#9ca3af', fontSize: 10 },
+          textStyle: { color: C.axisLabel, fontSize: 10 },
         })
       }
       return dz
@@ -519,8 +543,8 @@ function optionCandle(d) {
       { name: 'K线', type: 'candlestick', xAxisIndex: 0, yAxisIndex: 0,
         data: ohlc,
         itemStyle: {
-          color: '#ef4444', color0: '#22c55e',
-          borderColor: '#ef4444', borderColor0: '#22c55e',
+          color: C.up, color0: C.down,
+          borderColor: C.up, borderColor0: C.down,
         }
       },
       // 均线 MA5/10/20/30/60 (基于收盘价)
@@ -600,14 +624,14 @@ onUnmounted(() => {
 .chart-modal {
   width: min(960px, 96vw); height: min(680px, 92vh);
   background: var(--bg-panel-solid, #0f172a);
-  border: 1px solid var(--border-soft, #1f2937);
+  border: 1px solid var(--border-soft);
   border-radius: var(--r-lg);
   display: flex; flex-direction: column; overflow: hidden;
   box-shadow: var(--sh-3);
 }
 .chart-header {
   padding: var(--s3) var(--s4); display: flex; align-items: center; justify-content: space-between;
-  border-bottom: 1px solid var(--border-soft, #1f2937);
+  border-bottom: 1px solid var(--border-soft);
   background: var(--bg-panel-solid, #111827);
 }
 .chart-title { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
@@ -621,11 +645,11 @@ onUnmounted(() => {
   transition: background 0.15s;
 }
 .chart-btn-icon:hover { background: rgba(255,255,255,0.08); }
-.chart-btn-close:hover { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+.chart-btn-close:hover { background: rgba(239, 68, 68, 0.2); color: var(--accent); }
 
 .chart-tabs {
   display: flex; gap: var(--s1); padding: var(--s2) var(--s4) 0;
-  border-bottom: 1px solid var(--border-soft, #1f2937);
+  border-bottom: 1px solid var(--border-soft);
 }
 .chart-tab {
   padding: var(--s2) var(--s4); border-radius: 6px 6px 0 0; border: none; cursor: pointer;
@@ -765,7 +789,7 @@ onUnmounted(() => {
 .bid-date { font-size: var(--fs-xs); font-weight: 400; color: var(--text-muted, var(--text-faint)); }
 .bid-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); }
 .bid-item {
-  border: 1px solid var(--border-soft, #1f2937); border-radius: var(--r-lg);
+  border: 1px solid var(--border-soft); border-radius: var(--r-lg);
   padding: var(--s2) var(--s2); text-align: center;
 }
 .bid-time { display: block; font-size: var(--fs-xs); color: var(--text-secondary, var(--text-dim)); }
@@ -774,13 +798,13 @@ onUnmounted(() => {
   color: var(--text-main, #f3f4f6);
   font-family: var(--font-mono);
 }
-.bid-chg.up { color: #ef4444; }     /* A 股口径：红涨绿跌 */
-.bid-chg.down { color: #22c55e; }
+.bid-chg.up { color: var(--up); }     /* A 股口径：红涨绿跌(2026-10-07 自查: 原裸 #ef4444/#22c55e 不随主题) */
+.bid-chg.down { color: var(--down); }
 .bid-sub { display: block; font-size: var(--fs-xs); color: var(--text-muted, var(--text-faint)); }
 .bid-tip { padding: var(--s8) 0; text-align: center; font-size: var(--fs-sm); color: var(--text-muted, var(--text-faint)); }
 .bid-tip.err { color: var(--brand-soft); }
 .bid-note {
-  margin-top: var(--s2); padding-top: var(--s2); border-top: 1px dashed var(--border-soft, #1f2937);
+  margin-top: var(--s2); padding-top: var(--s2); border-top: 1px dashed var(--border-soft);
   font-size: var(--fs-xs); color: var(--text-muted, var(--text-faint)); line-height: 1.6;
 }
 </style>

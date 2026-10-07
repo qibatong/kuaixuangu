@@ -139,7 +139,7 @@ function toggle(it) {
 
 body[data-bg="light"] .ft { background: rgba(199, 145, 0, 0.12); border-color: rgba(199, 145, 0, 0.4); }
 body[data-bg="light"] .ft-tag { color: #8a5500; }
-body[data-bg="light"] .ft-tag .fa { color: #c79100; }
+body[data-bg="light"] .ft-tag .fa { color: var(--gold-deep); }
 body[data-bg="light"] .ft-time { color: #a06a00; }
 body[data-bg="light"] .ft-item.active { color: #8a5500; }
 </style>

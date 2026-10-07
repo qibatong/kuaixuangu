@@ -176,7 +176,7 @@ function money(v) {
 .col-board { color: var(--text-muted); font-size: var(--fs-xs); white-space: nowrap; }
 .col-num { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .col-up { color: var(--brand-soft); font-weight: 600; }
-.col-down { color: #33cc77; font-weight: 600; }
+.col-down { color: var(--down); font-weight: 600; }
 .col-near { color: var(--gold); font-weight: 600; }
 .col-dim { color: var(--text-muted); }
 .col-rule { display: block; font-size: var(--fs-xs); color: var(--text-muted); font-weight: 400; }
@@ -211,9 +211,9 @@ body[data-bg="light"] .dev-bar-date b { color: #8a5500; }
 body[data-bg="light"] .dev-chip-red { color: #b3261e; }
 body[data-bg="light"] .dev-chip-yellow { color: #8a5500; }
 body[data-bg="light"] .dev-lv-red { color: #fff; }
-body[data-bg="light"] .dev-lv-yellow { background: #fff3cd; color: #8a5500; border-color: #c79100; }
-body[data-bg="light"] .dev-lv-safe { background: #f1efe8; color: #6b6b6b; }
-body[data-bg="light"] .col-up { color: #d4380d; }
-body[data-bg="light"] .col-down { color: #237804; }
+body[data-bg="light"] .dev-lv-yellow { background: #fff3cd; color: #8a5500; border-color: var(--gold-deep); }
+body[data-bg="light"] .dev-lv-safe { background: #f1efe8; color: var(--text-faint); }
+body[data-bg="light"] .col-up { color: var(--up); }
+body[data-bg="light"] .col-down { color: var(--down); }
 body[data-bg="light"] .col-near { color: #8a5500; }
 </style>

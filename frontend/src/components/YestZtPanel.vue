@@ -129,11 +129,11 @@ function pctOrDash(v) {
 body[data-bg="light"] .yz { background: rgba(64, 140, 255, 0.1); border-color: rgba(40, 100, 200, 0.35); }
 body[data-bg="light"] .yz-title { color: #1a5fb4; }
 body[data-bg="light"] .yz-title .fa { color: #2a6fd4; }
-body[data-bg="light"] .mood-good { color: #1a7a2a; }
+body[data-bg="light"] .mood-good { color: var(--down); }
 body[data-bg="light"] .mood-bad { color: #c62828; }
 body[data-bg="light"] .mood-warn { color: #8a5500; }
 body[data-bg="light"] .yz-v.up { color: #c62828; }
-body[data-bg="light"] .yz-v.down { color: #1a7a2a; }
+body[data-bg="light"] .yz-v.down { color: var(--down); }
 body[data-bg="light"] .yz-v.lb { color: #8a5500; }
 body[data-bg="light"] .yz-more { color: #1a5fb4; }
 </style>

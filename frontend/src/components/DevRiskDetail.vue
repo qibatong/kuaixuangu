@@ -354,10 +354,10 @@ body[data-bg="light"] .dd-name { color: #3a2a00; }
 body[data-bg="light"] .dd-val { color: #3a2a00; }
 body[data-bg="light"] .dd-tag { color: #8a5500; background: #fff8e6; border-color: #e0b800; }
 body[data-bg="light"] .dd-tag-idx { color: #0b4a80; background: #eaf4ff; border-color: #85b7eb; }
-body[data-bg="light"] .dd-badge-safe { color: #6b6b6b; background: #f1efe8; }
+body[data-bg="light"] .dd-badge-safe { color: var(--text-faint); background: #f1efe8; }
 body[data-bg="light"] .dd-room { background: #fffaf0; border-color: #e0b800; }
 body[data-bg="light"] .dd-room-t { color: #8a5500; }
 body[data-bg="light"] .dd-room-r { color: #3a2a00; }
-body[data-bg="light"] .col-up { color: #d4380d; }
+body[data-bg="light"] .col-up { color: var(--up); }
 body[data-bg="light"] .dd-bar { background: #e8e6df; }
 </style>

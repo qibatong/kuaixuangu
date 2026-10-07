@@ -594,7 +594,7 @@ usePolling(() => { if (isIntradayNow()) load() }, 60000, { immediate: false })
 .cz-chip b { color: var(--text-secondary); margin-left: 2px; }
 
 /* 卡片 */
-.cz-card { margin-top: var(--s2); background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 11px; padding: var(--s2) var(--s2) var(--s2); }
+.cz-card { margin-top: var(--s2); background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: var(--r-lg); padding: var(--s2) var(--s2) var(--s2); }
 .cz-card-h { display: flex; align-items: center; gap: var(--s2); }
 .cz-card-t { font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); }
 .cz-cnt { margin-left: auto; font-size: var(--fs-xs); color: var(--text-muted); }
@@ -607,7 +607,7 @@ usePolling(() => { if (isIntradayNow()) load() }, 60000, { immediate: false })
 }
 .cz-mini:hover { color: var(--text-main); border-color: var(--qg-orange-a); }
 .cz-tab {
-  background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: 11px;
+  background: var(--bg-input); border: 1px solid var(--border-soft); border-radius: var(--r-lg);
   color: var(--text-muted); font-size: var(--fs-xs); padding: var(--s1) var(--s2); cursor: pointer;
 }
 .cz-tab.on { background: var(--accent-solid); border-color: var(--accent); color: var(--qg-on); }

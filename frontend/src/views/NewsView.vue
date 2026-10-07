@@ -477,7 +477,7 @@ watch(tab, (k) => {
 
 /* ---------- 浅色主题 ---------- */
 body[data-bg="light"] .news-title { color: #8a5500; }
-body[data-bg="light"] .news-title .fa { color: #c79100; }
+body[data-bg="light"] .news-title .fa { color: var(--gold-deep); }
 body[data-bg="light"] .news-tab.active { background: rgba(216, 60, 30, 0.10); border-color: #d83c1e; color: #c03318; }
 body[data-bg="light"] .news-badge { background: rgba(216, 60, 30, 0.14); color: #c03318; }
 body[data-bg="light"] .nf-title,
@@ -491,7 +491,7 @@ body[data-bg="light"] .nf-day-tag,
 body[data-bg="light"] .bigv-day-badge { background: rgba(0, 0, 0, 0.04); }
 body[data-bg="light"] .news-degraded { background: rgba(200, 130, 0, 0.10); border-color: rgba(200, 130, 0, 0.35); color: #8a5a00; }
 body[data-bg="light"] .pm-block-head { color: #8a5500; }
-body[data-bg="light"] .pm-block-head .fa { color: #c79100; }
+body[data-bg="light"] .pm-block-head .fa { color: var(--gold-deep); }
 body[data-bg="light"] .news-retry,
 body[data-bg="light"] .news-refresh { color: #55595f; }
 body[data-bg="light"] .modal-box { background: #fff; }

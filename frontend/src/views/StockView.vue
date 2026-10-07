@@ -670,11 +670,11 @@ body[data-bg="light"] .spot-notice b { color: #1a5fb4; }
 }
 
 /* 浅色主题覆盖 */
-body[data-bg="light"] .mode-tab:hover {  color: #5a4a3a;  }
-body[data-bg="light"] .mode-tab {  color: #5a4a3a; border-color: #b83010; background: rgba(255,255,255,0.6);  }
+body[data-bg="light"] .mode-tab:hover {  color: var(--watermark);  }
+body[data-bg="light"] .mode-tab {  color: var(--watermark); border-color: var(--brand-deep); background: rgba(255,255,255,0.6);  }
 body[data-bg="light"] .mode-tab.active .mode-desc {  color: #6a5a20;  }
-body[data-bg="light"] .page-back {  color: #6b6b6b;  }
-body[data-bg="light"] .page-back:hover {  color: #c79100;  }
+body[data-bg="light"] .page-back {  color: var(--text-faint);  }
+body[data-bg="light"] .page-back:hover {  color: var(--gold-deep);  }
 body[data-bg="light"] .yizi-card {  color: #8a5500; background: rgba(255,150,50,0.12); border-color: rgba(255,150,50,0.5);  }
 body[data-bg="light"] .yizi-card b {  color: #8a4a00;  }
 body[data-bg="light"] .filter-tag {  color: #8a5500; background: rgba(255,80,80,0.12);  }

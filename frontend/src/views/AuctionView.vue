@@ -1635,31 +1635,31 @@ body[data-bg="light"] .chg-dn-25 { color: #1a8a4a; }
 .seal-mode-weak { color: var(--text-muted); border: 1px solid var(--text-dim); background: rgba(154, 154, 154, 0.12); }
 .seal-mode-danger { color: var(--brand-soft); border: 1px solid var(--brand-soft); background: rgba(255, 106, 106, 0.12); }
 .seal-mode-flat { color: var(--text-muted); border: 1px solid var(--border-soft); background: transparent; }
-body[data-bg="light"] .seal-mode-strong { color: #8a5a00; border-color: #c79100; background: rgba(255, 180, 0, 0.12); }
+body[data-bg="light"] .seal-mode-strong { color: #8a5a00; border-color: var(--gold-deep); background: rgba(255, 180, 0, 0.12); }
 body[data-bg="light"] .seal-mode-mid { color: #2d7020; border-color: #4a9e28; }
-body[data-bg="light"] .seal-mode-weak { color: #6b6b6b; border-color: #8a8a8a; }
+body[data-bg="light"] .seal-mode-weak { color: var(--text-faint); border-color: #8a8a8a; }
 body[data-bg="light"] .seal-mode-danger { color: #c82020; border-color: #c82020; }
 
 .snap-empty { text-align: center; color: var(--text-dim); padding: var(--s8) 0; font-size: var(--fs-sm); }
 
 /* 浅色主题: 加深原 scoped 内的浅色文字 */
 body[data-bg="light"] .auc-title { color: #8a5500; }
-body[data-bg="light"] .auc-title .fa { color: #c79100; }
+body[data-bg="light"] .auc-title .fa { color: var(--gold-deep); }
 body[data-bg="light"] .auc-tab:hover { color: #8a5500; background: rgba(199,145,0,0.08); }
 body[data-bg="light"] .auc-tab.active { color: #8a5500; background: linear-gradient(135deg, rgba(255,180,0,0.2), rgba(255,140,50,0.12)); box-shadow: 0 2px 6px rgba(199,145,0,0.18); }
-body[data-bg="light"] .page-back { color: #6b6b6b; }
-body[data-bg="light"] .page-back:hover { color: #c79100; }
+body[data-bg="light"] .page-back { color: var(--text-faint); }
+body[data-bg="light"] .page-back:hover { color: var(--gold-deep); }
 body[data-bg="light"] .auc-panel { background: rgba(255,255,255,0.85); border-color: var(--border-soft); }
 body[data-bg="light"] .qc-panel { background: rgba(255,255,255,0.85); border-color: var(--border-soft); }
-body[data-bg="light"] .qc-panel-title { color: #5a4a3a; }
-body[data-bg="light"] .qc-mode-switch button { color: #6b6b6b; border-color: var(--border-soft); background: rgba(255,255,255,0.6); }
-body[data-bg="light"] .qc-mode-switch button.active { color: #5a4a3a; background: rgba(255,180,0,0.15); border-color: #c79100; }
-body[data-bg="light"] .qc-mode-switch button:hover { color: #5a4a3a; border-color: #c79100; }
+body[data-bg="light"] .qc-panel-title { color: var(--watermark); }
+body[data-bg="light"] .qc-mode-switch button { color: var(--text-faint); border-color: var(--border-soft); background: rgba(255,255,255,0.6); }
+body[data-bg="light"] .qc-mode-switch button.active { color: var(--watermark); background: rgba(255,180,0,0.15); border-color: var(--gold-deep); }
+body[data-bg="light"] .qc-mode-switch button:hover { color: var(--watermark); border-color: var(--gold-deep); }
 body[data-bg="light"] .qc-panel .stock-table th { color: #fff; border-bottom-color: transparent; }
 body[data-bg="light"] .qc-panel .stock-table td { border-bottom-color: rgba(0,0,0,0.08); }
 body[data-bg="light"] .qc-panel .stock-table tbody tr:hover { background: rgba(184,48,16,0.04); }
-body[data-bg="light"] .lb-badge { color: #b83010; border-color: rgba(184,48,16,0.5); background: rgba(255,80,80,0.1); }
-body[data-bg="light"] .bk-hot { color: #b83010; }
+body[data-bg="light"] .lb-badge { color: var(--brand-deep); border-color: rgba(184,48,16,0.5); background: rgba(255,80,80,0.1); }
+body[data-bg="light"] .bk-hot { color: var(--brand-deep); }
 body[data-bg="light"] .snap-empty { color: #8a8a8a; }
 body[data-bg="light"] .modal-mask { background: rgba(0,0,0,0.45); }
 
