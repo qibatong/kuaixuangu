@@ -52,6 +52,11 @@ export function forgotCheck(login) {
   return request('/api/forgot/check', { method: 'POST', auth: false, body: { login } })
 }
 
+// 自己的最近登录记录(2026-10-07 U13 设备管理的可见性)：用于自查是否有陌生登录
+export function myLogins(limit = 20) {
+  return request('/api/auth/logins', { query: { limit } })
+}
+
 /* ---------------- 个人资料 ---------------- */
 
 export function ping() {

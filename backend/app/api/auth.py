@@ -391,6 +391,78 @@ def api_logout(request: Request, uid: int = Depends(get_uid)):
     return jr({"ok": True, "msg": "已退出登录"})
 
 
+def _device_label(ua: str) -> str:
+    """User-Agent → 人话设备名('Windows · Chrome' / 'iPhone · Safari' / 'Android · 微信')。
+
+    刻意只做**够用的粗粒度识别**（系统 + 浏览器/容器）。写正则去追版本号会长期劣化，
+    而这里唯一用途是让用户认出"这是不是我那台设备"，型号版本反而添乱。
+    """
+    u = (ua or "").lower()
+    if not u:
+        return "未知设备"
+    os_name = "未知系统"
+    for key, name in (("iphone", "iPhone"), ("ipad", "iPad"), ("mac os x", "Mac"),
+                      ("android", "Android"), ("windows", "Windows"), ("linux", "Linux")):
+        if key in u:
+            os_name = name
+            break
+    app_name = "未知浏览器"
+    # 顺序敏感: 微信/QQ 内置浏览器的 UA 里也含 safari/chrome 字样, 必须先判容器
+    if "micromessenger" in u:
+        app_name = "微信"
+    elif "qq/" in u:
+        app_name = "QQ"
+    elif "weibo" in u:
+        app_name = "微博"
+    elif "edg/" in u or "edge/" in u:
+        app_name = "Edge"
+    elif "chrome/" in u:
+        app_name = "Chrome"
+    elif "safari/" in u:
+        app_name = "Safari"
+    elif "firefox/" in u:
+        app_name = "Firefox"
+    return f"{os_name} · {app_name}"
+
+
+@router.get("/api/auth/logins")
+def api_auth_logins(request: Request, uid: int = Depends(get_uid), limit: int = 20):
+    """2026-10-07 新增(v4.12.3 第二批 U13「设备管理」的**可见性**部分)。
+
+    给「我的」页返回当前用户自己的最近登录记录（成功 / 失败 / 主动退出），用于自查
+    「是不是有陌生人在登我的号」—— 密码泄漏时这是用户能拿到的唯一线索。
+
+    🔴 **刻意不做成多设备在线列表**：本系统是**强制单点**（auth.py:50 登录即作废旧会话，
+       目的是防止账号共享），同一时刻只可能有一条有效会话，列出来也永远只有一台。
+       是否放开多点登录属安全策略取舍 ⇒ **需主人决定，本次不动**。
+       "退出所有设备"的能力也已存在（POST /api/logout 作废全部 token），这里只补可见性。
+    """
+    conn = database.get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT result, ip, ua, remember, created_at FROM login_log "
+            "WHERE uid=? ORDER BY id DESC LIMIT ?", (uid, max(1, min(int(limit or 20), 50)))
+        ).fetchall()
+        cur = conn.execute(
+            "SELECT token, created_at, expire_ts FROM tokens "
+            "WHERE user_id=? AND revoked=0 AND expire_ts>? ORDER BY created_at DESC LIMIT 1",
+            (uid, int(time.time()))).fetchone()
+    finally:
+        conn.close()
+    items = [{
+        "result": r[0] or "",
+        "ip": r[1] or "",
+        "device": _device_label(r[2] or ""),
+        "remember": 1 if r[3] else 0,
+        "ts": int(r[4] or 0),
+    } for r in rows]
+    session = None
+    if cur:
+        session = {"created_at": int(cur[1] or 0), "expire_at": int(cur[2] or 0),
+                   "device": _device_label(request.headers.get("User-Agent") or "")}
+    return jr({"ok": True, "items": items, "session": session})
+
+
 @router.post("/api/forgot/check")
 def api_forgot_check(request: Request, body: dict = Body(...)):
     """忘记密码辅助: 输入用户名/手机号, 告知走哪条自助路径.

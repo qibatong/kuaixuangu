@@ -74,6 +74,33 @@
         </div>
         <div class="mb-acc-tip">显示设置即刻保存：背景明暗跟随账号同步，换设备登录也保持一致。</div>
       </details>
+
+      <!-- 登录记录（2026-10-07 · v4.12.3 第二批 U13「设备管理」）
+           后台已有 /api/logout（作废全部 token）= "退出所有设备"能力，此前缺的是**可见性**：
+           用户无从知道自己的号有没有被别人登过。这里把自己最近的登录/失败/退出记录摊开，
+           密码泄漏时这是用户能拿到的第一条线索。默认折叠，点开才请求。
+           🔴 本系统是强制单点（登录后旧会话即作废），所以同时只有一台在线，不做"多设备列表"。 -->
+      <details class="mb-settings" @toggle="onLoginsToggle">
+        <summary class="mb-settings-sum"><i class="fa fa-shield"></i> 登录记录</summary>
+        <div v-if="logins.loading" class="mb-login-tip">加载中…</div>
+        <div v-else-if="logins.err" class="mb-login-tip">加载失败，稍后再试</div>
+        <template v-else>
+          <ul v-if="logins.items.length" class="mb-login-list">
+            <li v-for="(r, i) in logins.items" :key="i">
+              <i class="fa mb-lg-ic" :class="r.result === 'fail' ? 'fa-times-circle lg-bad' : 'fa-check-circle lg-ok'" aria-hidden="true"></i>
+              <span class="mb-lg-when">{{ fmtLoginTs(r.ts) }}</span>
+              <span class="mb-lg-dev">{{ r.device }}</span>
+              <span class="mb-lg-ip">{{ r.ip || '—' }}</span>
+              <span class="mb-lg-res" :class="{ 'lg-bad': r.result === 'fail' }">{{ resText(r.result) }}</span>
+            </li>
+          </ul>
+          <div v-else class="mb-login-tip">暂无登录记录</div>
+          <div v-if="logins.session" class="mb-login-tip">
+            当前会话：{{ logins.session.device }} · 签发于 {{ fmtLoginTs(logins.session.created_at) }}
+          </div>
+          <div class="mb-login-tip">发现不是自己的登录？立即<b>退出登录</b>（会作废全部会话）并修改密码。</div>
+        </template>
+      </details>
     </div>
 
     <div v-if="loading" class="loading-placeholder"><div class="spinner"></div><div>加载会员信息...</div></div>
@@ -323,7 +350,7 @@ import { useRouter } from 'vue-router'
 import { memberOverview, memberPlans, memberCheckin, doCheckin as apiCheckin, refreshInvite,
   memberValueReview } from '../api/member'   // U8 会员价值回顾(第二批)
 import { trackUsageOnce } from '../api/activity'
-import { logoutApi } from '../api/auth'
+import { logoutApi, myLogins } from '../api/auth'
 import { useUserStore } from '../stores/user'
 import { useTheme, BGS, FONTS, FONT_FAMILIES } from '../composables/useTheme'
 import { showToast } from '../utils/toast'
@@ -371,6 +398,38 @@ const { bg, setBg, font, fontFam, setFont, setFontFam } = useTheme()
 // 账户弹层（2026-09-27 v4.11.65 由 NavBar 迁来）
 const changePwdModal = ref(null)
 const profileModal = ref(null)
+
+// 登录记录（U13 可见性）：默认折叠，展开才请求，避免每位用户进页面都多打一次接口
+const logins = ref({ loading: false, err: false, items: [], session: null })
+let loginsLoaded = false
+async function loadLogins() {
+  if (loginsLoaded) return
+  loginsLoaded = true
+  logins.value.loading = true
+  try {
+    const r = await myLogins(20)
+    logins.value.items = (r && r.items) || []
+    logins.value.session = (r && r.session) || null
+  } catch (e) {
+    logins.value.err = true        // 展示失败但不抛错：这部分失败不该影响会员页其它内容
+  } finally {
+    logins.value.loading = false
+  }
+}
+function onLoginsToggle(e) {
+  if (e.target.open) loadLogins()
+}
+function fmtLoginTs(ts) {
+  if (!ts) return '—'
+  const d = new Date(ts * 1000)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+function resText(r) {
+  if (r === 'fail') return '登录失败'
+  if (r === 'logout') return '退出登录'
+  return '登录成功'
+}
 
 // 权益对照表的展示默认值。★ 必须是一个可复用的常量，不能只在 ref 里写一次字面量 —— 见 load() 的合并注释。
 const PLANS_DEFAULT = { free: {}, member: {}, vip: {}, checkin_bonus: 3, invite_reward_days: 5, new_user_days: 5, plans: [] }
@@ -638,6 +697,22 @@ body[data-bg="light"] .mb-bg-btn.active { background: rgba(11, 134, 200, .12); c
 .mb-fontfam .ff-label { font-weight: 600; }
 .mb-fontfam .ff-desc { font-size: var(--fs-xs); color: var(--text-muted); }
 .mb-acc-tip { margin-top: var(--s3); font-size: var(--fs-xs); color: var(--text-muted); }
+/* 登录记录（2026-10-07 U13）：一行一条，失败用红、成功用绿，"不是自己的登录"要一眼看见 */
+.mb-login-tip { margin-top: var(--s2); font-size: var(--fs-xs); color: var(--text-muted); }
+.mb-login-list { list-style: none; margin: var(--s2) 0 0; padding: 0; }
+.mb-login-list li {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s1) 0; border-bottom: 1px dashed var(--border-soft);
+  font-size: var(--fs-xs); color: var(--text-secondary); min-height: 30px;
+}
+.mb-login-list li:last-child { border-bottom: none; }
+.mb-lg-ic { flex: 0 0 auto; }
+.mb-lg-when { flex: 0 0 auto; font-family: var(--font-mono); color: var(--text-dim); }
+.mb-lg-dev { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mb-lg-ip { flex: 0 0 auto; font-family: var(--font-mono); color: var(--text-dim); }
+.mb-lg-res { flex: 0 0 auto; color: var(--up); }
+.mb-lg-res.lg-bad, .lg-bad { color: var(--up); }
+.lg-ok { color: var(--down); }
 /* 2026-10-05 晚：显示设置各控件的**触屏命中区**补到 ≥34px。
    实测桌面尺寸：折叠摘要 193×28、背景 64×26、字号 27×24、字体族 178×28 ——
    鼠标够用，但手机（H5 + APK，本产品的真正主战场）点不中；
