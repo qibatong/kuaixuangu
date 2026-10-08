@@ -27,6 +27,9 @@
       <div class="mb-acc-actions">
         <button class="mb-mini-btn" @click="profileModal.open()"><i class="fa fa-id-card"></i> 个人信息</button>
         <button class="mb-mini-btn" @click="changePwdModal.open()"><i class="fa fa-key"></i> 修改密码</button>
+        <!-- 2026-10-08 主人要求「增加更换手机号功能」：入口放在改密旁边（同属账号安全），
+             换绑必须旧号 + 新号双向短信验证；原先「个人信息」里可直接改号的老旁路已堵掉。 -->
+        <button class="mb-mini-btn" @click="changePhoneModal.open()"><i class="fa fa-mobile"></i> 更换手机号</button>
         <button class="mb-mini-btn danger" @click="logout"><i class="fa fa-sign-out"></i> 退出登录</button>
       </div>
       <!-- 显示设置：背景明暗 / 字号 / 字体族。原在**顶部导航栏**（背景是右侧圆点，
@@ -337,6 +340,7 @@
     <!-- 账户弹层（2026-09-27 v4.11.65 由 NavBar 迁来：顶部导航栏已无触发按钮，
          这两个弹层现在只由本页的「个人信息 / 修改密码」按钮打开）。 -->
     <ChangePwdModal ref="changePwdModal" />
+    <ChangePhoneModal ref="changePhoneModal" />
     <ProfileModal ref="profileModal" />
   </div>
 </template>
@@ -355,6 +359,7 @@ import { useUserStore } from '../stores/user'
 import { useTheme, BGS, FONTS, FONT_FAMILIES } from '../composables/useTheme'
 import { showToast } from '../utils/toast'
 import ChangePwdModal from '../components/ChangePwdModal.vue'
+import ChangePhoneModal from '../components/ChangePhoneModal.vue'
 import ProfileModal from '../components/ProfileModal.vue'
 // 2026-10-05 (S4): 开通/续费自助化 —— 客服微信号单一来源。
 //   ⚠️ 本文件下方**已自带** async copyText(text, okMsg)（含 secureContext 判断 + execCommand 兜底），
@@ -397,6 +402,7 @@ function copySupportWx() {
 const { bg, setBg, font, fontFam, setFont, setFontFam } = useTheme()
 // 账户弹层（2026-09-27 v4.11.65 由 NavBar 迁来）
 const changePwdModal = ref(null)
+const changePhoneModal = ref(null)   // 2026-10-08 主人要求「增加更换手机号功能」
 const profileModal = ref(null)
 
 // 登录记录（U13 可见性）：默认折叠，展开才请求，避免每位用户进页面都多打一次接口

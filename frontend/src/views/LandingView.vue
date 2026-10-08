@@ -7,22 +7,18 @@
 //   ② 断点只用仓库已有的 768 / 1100，不新增（_verify/breakpoint_guard.js 棘轮）；
 //   ③ 只用**匿名可访问**的接口，且失败一律静默降级 —— 落地页是转化入口，绝不能被接口拖垮：
 //        · GET /api/register/config  → 赠送天数 / 邀请奖励天数（backend/app/api/auth.py:244 无 Depends）
-//        · GET /api/member/plans     → 三档权益真实配额（backend/app/api/member.py:139 无 Depends）
+//        （2026-10-08 起不再请求 /api/member/plans：主人要求首页去掉「会员权益」区块，
+//          那张三档配额表连同它的数据源一起删了；现在只有「我的会员」页需要配额。）
 //   ④ 不放任何"假数据预览"。商品截图带用户水印、真实行情需鉴权 ⇒ 一律不伪造，
 //      改为如实描述能力与口径（这也是合规页要讲清的东西）。
 import { ref, onMounted, onUnmounted } from 'vue'
-import { memberPlans } from '../api/member'
 import { usePublicConfig } from '../composables/usePublicConfig'
-import ContactQr from '../components/ContactQr.vue'
 // 2026-10-08 主人要求「未登录也能下载 App」：首屏弹层 + 中部下载区块共用同一个码组件
 import AppDownloadQr from '../components/AppDownloadQr.vue'
 import { APP_APK_URL, APP_PAGE_URL, APP_VERSION, APP_SIZE, APP_MIN_OS } from '../utils/appDownload'
-import { copyText } from '../utils/tdx'
-import { SUPPORT_WECHAT, OPEN_TIP } from '../utils/contact'
 
 // 赠送天数/注册开关走匿名公共配置（模块级单例 + 请求去重，顶栏也用同一份 ⇒ 全站只请求一次）
 const { giftDays, inviteRewardDays, regOpen, load: loadPublicConfig } = usePublicConfig()
-const plans = ref(null)     // null = 加载中；对象 = 后端真实配额
 // 2026-10-08 主人要求「未登录也能下载 App」：首屏「下载安卓版」的二维码弹层开关
 const dlOpen = ref(false)
 
@@ -44,26 +40,14 @@ const FACTS = [
   { icon: 'fa-shield',    t: '可追溯',       d: '每处数据都标注更新时刻，随时可核对' },
 ]
 
-/** -1 表示不限次 */
-function lim(v) {
-  if (v === undefined || v === null) return '—'
-  return Number(v) < 0 ? '不限次' : `${v} 次/日`
-}
-
-onMounted(async () => {
-  // 两个都是匿名接口；任何一个失败都不影响落地页渲染（有默认值兜底）
+onMounted(() => {
+  // 匿名接口；失败不影响落地页渲染（有默认值兜底）
   loadPublicConfig()
-  try {
-    const p = await memberPlans()
-    if (p) plans.value = p
-  } catch (e) { /* 静默：权益表退化为"登录后查看" */ }
+  // 2026-10-08 主人要求去掉「会员权益」区块 ⇒ 顺带停掉 /api/member/plans 那次请求
+  //   （原先纯粹为那张配额表服务，现在只有「我的会员」页需要它）。
   // 注：此处**刻意不做**曝光埋点 —— 全站埋点接口 /api/activity/track 需鉴权，
   //   匿名调用必然 401（白费一次请求且污染日志）。要做落地页转化统计需后端先开匿名口径。
 })
-
-function copyWx() {
-  copyText(SUPPORT_WECHAT, '客服微信已复制')
-}
 
 // 下载弹层：Esc 可关（无障碍）；点遮罩 / 右上角 ✕ 也能关
 function onKeydown(e) { if (e.key === 'Escape') dlOpen.value = false }
@@ -96,7 +80,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           </button>
         </div>
         <p class="ld-cta-note">
-          手机号注册，浏览器直接就能用，不需要下载 App；已有 {{ inviteRewardDays }} 天邀请奖励 —— 邀请好友双方各得 {{ inviteRewardDays }} 天。
+          手机号注册即可，网页与安卓 App 同一账号通用；已有 {{ inviteRewardDays }} 天邀请奖励 —— 邀请好友双方各得 {{ inviteRewardDays }} 天。
         </p>
       </div>
 
@@ -149,73 +133,12 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
       </div>
     </section>
 
-    <!-- ================= 权益对照（读后端真实配额） ================= -->
-    <section id="plans" class="ld-section">
-      <h2 class="ld-h2">会员权益</h2>
-      <p class="ld-h2-sub">新注册账号自动获得 {{ giftDays }} 天完整体验，到期后仍可用免费额度。</p>
-      <div class="ld-plans" :class="{ 'is-loading': !plans }">
-        <table class="ld-table">
-          <thead>
-            <tr>
-              <th scope="col">能力</th>
-              <th scope="col">免费试用</th>
-              <th scope="col" class="is-hi">付费会员</th>
-              <th scope="col">VIP 老师</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <th scope="row">选股快照</th>
-              <td>{{ lim(plans && plans.free && plans.free.picker) }}</td>
-              <td class="is-hi">{{ lim(plans && plans.member && plans.member.picker) }}</td>
-              <td>{{ lim(plans && plans.vip && plans.vip.picker) }}</td>
-            </tr>
-            <tr>
-              <th scope="row">AI 预测</th>
-              <td>{{ lim(plans && plans.free && plans.free.aipick) }}</td>
-              <td class="is-hi">{{ lim(plans && plans.member && plans.member.aipick) }}</td>
-              <td>{{ lim(plans && plans.vip && plans.vip.aipick) }}</td>
-            </tr>
-            <tr>
-              <th scope="row">竞价异动</th>
-              <td>{{ lim(plans && plans.free && plans.free.auction) }}</td>
-              <td class="is-hi">{{ lim(plans && plans.member && plans.member.auction) }}</td>
-              <td>{{ lim(plans && plans.vip && plans.vip.auction) }}</td>
-            </tr>
-            <tr>
-              <th scope="row">每日签到</th>
-              <td colspan="3">每日签到再加 {{ (plans && plans.checkin_bonus) || 3 }} 次选股额度</td>
-            </tr>
-            <tr>
-              <th scope="row">邀请好友</th>
-              <td colspan="3">每成功邀请 1 人，双方各得 {{ (plans && plans.invite_reward_days) || inviteRewardDays }} 天会员</td>
-            </tr>
-            <tr>
-              <th scope="row">新用户</th>
-              <td colspan="3">{{ (plans && plans.new_user_days) || giftDays }} 天会员完整体验</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+    <!-- 2026-10-08 主人：「首页那里的会员权益及添加客服微信的这些都去掉。还没开始用就说收费，
+         不合适。」⇒ 整段删除，含三部分：① 会员权益对照表（免费/付费/VIP 三档配额）
+         ② 开通入口（复制客服微信 + 价格咨询文案）③ 客服二维码 ContactQr。
+         连带清掉了 #plans 锚点、plans 数据与 lim() 折算函数（全站已确认无其它引用）。 -->
 
-      <!-- 开通入口：可点击复制（原先是 title 悬停里的一串纯文本，用户要手抄微信号） -->
-      <div class="ld-open">
-        <div class="ld-open-txt">
-          <b>{{ OPEN_TIP }}</b>
-          <span>在架套餐与价格请加微信咨询；付款后即时开通，额度与到期时间可在「我的会员」查看。</span>
-        </div>
-        <div class="ld-open-acts">
-          <button type="button" class="ld-btn ld-btn-primary" @click="copyWx">
-            <i class="fa fa-weixin" aria-hidden="true"></i> 复制客服微信 {{ SUPPORT_WECHAT }}
-          </button>
-          <router-link v-if="regOpen" class="ld-btn ld-btn-ghost" to="/login?mode=register">
-            先免费体验 {{ giftDays }} 天
-          </router-link>
-        </div>
-        <!-- 2026-10-05 主人提供客服二维码：未登录访客想咨询/开通时不必先注册 -->
-        <ContactQr :width="180" />
-      </div>
-    </section>
+    <!-- ================= 数据与免责（信任元素） ================= -->
 
     <!-- ================= 数据与免责（信任元素） ================= -->
     <section class="ld-section">
@@ -306,25 +229,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 .ld-card h3 { margin: var(--s2) 0 var(--s1); font-size: var(--fs-lg); color: var(--text-main); }
 .ld-card p { margin: 0; color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.75; }
 
-.ld-plans { background: var(--bg-panel); border: 1px solid var(--border-soft); border-radius: var(--r-lg); overflow: hidden; }
-.ld-plans.is-loading { opacity: 0.72; }
-.ld-table { width: 100%; border-collapse: collapse; font-size: var(--fs-base); }
-.ld-table th, .ld-table td { padding: var(--s3) var(--s4); text-align: left; border-bottom: 1px solid var(--border-soft); }
-.ld-table thead th { background: var(--bg-subtle); color: var(--text-secondary); font-size: var(--fs-sm); font-weight: 600; }
-.ld-table tbody th { color: var(--text-secondary); font-weight: 500; }
-.ld-table td { color: var(--text-main); font-weight: 600; }
-.ld-table .is-hi { background: var(--accent-bg); color: var(--accent); }
-.ld-table tr:last-child th, .ld-table tr:last-child td { border-bottom: none; }
-
-.ld-open {
-  display: flex; flex-wrap: wrap; gap: var(--s4); align-items: center; justify-content: space-between;
-  margin-top: var(--s4); padding: var(--s4);
-  background: var(--bg-panel); border: 1px dashed var(--accent-border); border-radius: var(--r-lg);
-}
-.ld-open-txt { display: grid; gap: var(--s1); max-width: 52em; }
-.ld-open-txt b { color: var(--text-main); font-size: var(--fs-md); }
-.ld-open-txt span { color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.7; }
-.ld-open-acts { display: flex; flex-wrap: wrap; gap: var(--s2); }
+/* 2026-10-08 已删除：.ld-plans / .ld-table*（会员权益表）与 .ld-open*（开通入口 + 客服二维码）
+   —— 对应区块已按主人要求整体移除，样式一并清掉，不留死规则。 */
 
 .ld-trust { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s3); }
 .ld-trust li {
@@ -401,8 +307,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   .ld-grid { grid-template-columns: 1fr; }
   .ld-cta { gap: var(--s2); }
   .ld-btn { flex: 1 1 100%; padding: var(--s3) var(--s4); }
-  .ld-open { flex-direction: column; align-items: stretch; }
-  .ld-open-acts { flex-direction: column; }
   /* 下载区块：手机上码在上、步骤在下（断点沿用既有 768，不新增） */
   .ld-dl { flex-direction: column; align-items: center; }
   .ld-dl-steps li { font-size: var(--fs-xs); }

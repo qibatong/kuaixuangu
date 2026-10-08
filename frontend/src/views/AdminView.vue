@@ -125,6 +125,15 @@
           </span>
         </div>
 
+        <!-- 2026-10-08 主人：「我进入管理后就是消息发布，我看有很多历史发布的消息占用了很大的
+             页面，这块是不是可以收起来」⇒ 用**同页「运营日历」那一套**原生 <details>/<summary>
+             + 既有 .cal-sum 样式折叠（零新增 CSS，视觉与日历一致）。
+             ⚠️ 只折**历史列表**，发布表单不折 —— 那是每天真正要用的部分。 -->
+        <details class="cal-block">
+          <summary class="cal-sum">
+            <i class="fa fa-list" aria-hidden="true"></i> 历史发布的消息
+            <span class="cal-sum-note">共 {{ notices.length }} 条（点击展开 / 收起）</span>
+          </summary>
         <div class="table-scroll" style="margin-top:10px;">
           <table class="admin-table">
             <thead>
@@ -164,6 +173,7 @@
             </tbody>
           </table>
         </div>
+        </details>
       </div>
 
       <!-- 第二批(2026-10-07): A9 运营日历 —— 榜单式看板回答不了"今天就拐了这个弯"，

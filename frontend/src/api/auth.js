@@ -10,12 +10,32 @@ export function login(body) {
 //   · 发码**不传手机号** —— 服务端按登录态取 users.phone（前端 store 只有 username，
 //     不保证等于手机号），号码也不必经过浏览器；
 //   · 改密必须带 code（服务端校验 scene=changepw，与发码一致）。
+// 🔴 2026-10-08 二次调整：主人指示「去掉旧密码那一栏」⇒ 不再传 old_password
+//   （短信验证码是唯一凭证；旧密码从来不是安全边界，依据见后端 api/auth.py）。
 export function sendChangePwdSms() {
   return request('/api/change-password/send-code', { method: 'POST' })
 }
 
-export function changePassword(old_password, new_password, code) {
-  return request('/api/change-password', { method: 'POST', body: { old_password, new_password, code } })
+export function changePassword(new_password, code) {
+  return request('/api/change-password', { method: 'POST', body: { new_password, code } })
+}
+
+/* ---------------- 更换手机号（2026-10-08 主人要求） ---------------- */
+
+// which='old' → 服务端发到**当前**绑定号（证明是本人）；which='new' → 发到 newPhone
+// （证明新号在手，并校验未被占用）。两个号共用一个 scene(chgphone)，由服务端持有。
+export function sendChangePhoneSms(which, newPhone) {
+  return request('/api/change-phone/send-code', {
+    method: 'POST', body: { which, new_phone: newPhone || '' },
+  })
+}
+
+// 双向验证后换绑：旧号 + 新号各一个验证码
+export function changePhone(newPhone, oldCode, newCode) {
+  return request('/api/change-phone', {
+    method: 'POST',
+    body: { new_phone: newPhone, old_code: oldCode || '', new_code: newCode || '' },
+  })
 }
 
 // 主动退出登录(2026-09-22 v4.11.35 新增): 仅清本地 token 时后端无感知,

@@ -23,6 +23,11 @@ router = APIRouter()
 # 短信验证码 scene（= 阿里云「方案名」）。🔴 send 与 check 必须**逐字一致**，
 # 否则阿里云返回 isv.ValidateFail（见 services/sms_verify.check_code 的注释）⇒ 用常量防手滑。
 SMS_SCENE_CHANGE_PW = "changepw"
+# 换绑手机号（2026-10-08 主人要求「增加更换手机号功能」）。
+# 🔴 旧号与新号**共用同一个 scene**：阿里云按「手机号 + scene」两个维度存码，
+#   两个号码天然隔离（互不覆盖、互不串码）；而每新开一个 scene 都要在阿里云
+#   控制台另配一个「方案名」才行 ⇒ 复用一个，少一处运维依赖。
+SMS_SCENE_CHANGE_PHONE = "chgphone"
 
 
 @router.post("/api/login")
@@ -319,24 +324,20 @@ def api_change_password_send_code(request: Request, uid: int = Depends(get_uid))
 @router.post("/api/change-password")
 def api_change_password(request: Request, uid: int = Depends(get_uid),
                         body: dict = Body(...)):
-    """改密：**短信验证码**（必填）+ 旧密码（**选填**）+ 新密码。
+    """改密：**短信验证码**（必填）+ 新密码。旧密码字段**已彻底移除**。
 
-    🔴 2026-10-08 主人问「如果忘记旧密码怎么处理？是不是取消旧密码的验证」——
-      是的，旧密码改为**选填**，这是刻意的，理由是它**从来不是安全边界**：
-      本系统本来就有一条**只认短信**的改密通道（登录页「忘记密码？」→
-      /api/reset-by-phone：公开接口、无需旧密码、只要手机号 + 验证码 + 新密码）。
-      ⇒ 拿到手机的人走那条路照样能改密码，所以把旧密码做成**必填**，
-        唯一作用就是拦住"忘了旧密码的正常用户"，安全上什么都没多防。
-      保留输入框（选填）是为了照顾"记得密码的人"的心理预期，并在**填错**时明确提示。
-
-    真正的安全边界是**短信验证码**（证明手机在手 = 本产品账号的身份锚点，
-    注册就是手机号注册）⇒ 所以 code 恒为必填，且校验通过后立即 mark_consumed 防重放。
-
-    🔴 校验顺序刻意是「格式 → 旧密码(若填) → 短信码」：
-      旧密码是免费的本地校验、先跑 ⇒ 填错立刻返回且**不消耗短信码**
-      （用户清空该栏或改对后，同一个码还能继续用，不必重新发）。
+    🔴 演进（2026-10-08，主人两条意见）：
+      ① 先问「忘记旧密码怎么办？是不是取消旧密码的验证」⇒ 当时改成**选填**；
+      ② 随即指示「去掉旧密码那一栏」⇒ 现在**输入框与后端字段一起删掉**。
+      依据（先核代码再定）：本系统本来就有一条**只认短信**的改密通道
+      （登录页「忘记密码？」→ /api/reset-by-phone：公开接口、无需旧密码、只要
+      手机号 + 验证码 + 新密码）⇒ 拿到手机的人走那条路照样能改密码
+      ⇒ **旧密码从来不是安全边界**，留着它只会拦住"忘了旧密码的正常用户"。
+    真正的身份锚点是**短信验证码**（注册即手机号注册，手机在手 = 账号本人）
+    ⇒ code 恒为必填，校验通过后立即 mark_consumed 防重放。
+    注意：没有再校验"新密码不能与旧密码相同" —— 本接口已拿不到旧密码
+    （要拦这个只能靠密码历史，本产品无此表，属另一个需求）。
     """
-    old_pw = str(body.get("old_password") or "")
     new_pw = str(body.get("new_password") or "")
     code = str(body.get("code") or "").strip()
     if len(new_pw) < 6:
@@ -344,14 +345,6 @@ def api_change_password(request: Request, uid: int = Depends(get_uid),
     if not code or not code.isdigit():
         return jr({"ok": False, "msg": "请输入短信验证码"}, 400)
     user = users.find_user_by_id(uid)
-    # 旧密码**选填**：留空 ⇒ 不校验，只认短信码（= 「忘记密码」通道的等价物）
-    if old_pw:
-        if old_pw == new_pw:
-            return jr({"ok": False, "msg": "新密码不能与旧密码相同"}, 400)
-        if user is None or not security.verify_password(old_pw, user.get("password_hash") or ""):
-            log.warning("改密失败: 旧密码错误 uid=%s", uid)
-            return jr({"ok": False,
-                       "msg": "旧密码不正确；若已忘记，把旧密码留空、用短信验证码即可"}, 400)
     phone = str(user.get("phone") or "").strip()
     if not re.match(r"^1[3-9]\d{9}$", phone):
         log.warning("改密失败: 账号未绑定手机号 uid=%s", uid)
@@ -380,6 +373,161 @@ def api_change_password(request: Request, uid: int = Depends(get_uid),
     sms_verify.mark_consumed(phone, SMS_SCENE_CHANGE_PW, ttl=config.SMS_VALID_MIN * 60)
     log.info("改密成功 uid=%s user=%s(已过短信验证)", uid, user.get("username"))
     return jr({"ok": True, "msg": "密码已修改，请重新登录"})
+
+
+# ==================== 更换手机号（2026-10-08 主人要求「增加更换手机号功能」） ====================
+# 🔴 为什么必须**双向**短信验证（旧号 + 新号各一个码）：
+#    手机号是本产品的**身份锚点** —— 找回密码、改密、将来更多敏感操作都认这个号收码。
+#    · 只验新号 ⇒ 拿到登录态的人（token 被偷 / 手机借人）就能把账号搬到自己的号上，
+#      再走「忘记密码」完成**永久接管**（这正是同日修掉的 /api/profile 漏洞）；
+#    · 只验旧号 ⇒ 无法证明新号真实可用（号码打错也照改，改完自己也收不到码）。
+#    ⇒ 两个都验，才等价于"本人 + 新号在手"。
+# ⚠️ 由此带来的固有边界：**旧号已注销/换号**的用户自助换不了，只能找管理员人工处理
+#    （错误提示与前后端文案都写明了这一点，不让用户卡死）。
+
+
+def _mask_phone(phone: str) -> str:
+    """138****8888 —— 仅用于回显给本人确认"码发到了哪台手机"（号码是用户自己的）"""
+    p = str(phone or "").strip()
+    return (p[:3] + "****" + p[-4:]) if len(p) == 11 else p
+
+
+@router.post("/api/change-phone/send-code")
+def api_change_phone_send_code(request: Request, uid: int = Depends(get_uid),
+                               body: dict = Body(...)):
+    """换绑手机号-发送验证码。body: {which: "old"|"new", new_phone?}
+
+    which=old → 发给**当前** users.phone（证明是本人）
+    which=new → 发给 body.new_phone（证明新号在手；并校验格式 / 未占用 / ≠当前号）
+
+    与改密发码同一套口径：必须登录；号码由服务端持有/校验，限流沿用
+    sms_verify.can_send（同号 SMS_SEND_INTERVAL + 同 IP 每分钟 10 次）；
+    账号**未绑定手机号**时 which=old 直接提示"填新号即可"（没有旧号可验，
+    属于历史账号首次绑定的场景，见 /api/change-phone 的 bound 分支）。
+    """
+    which = str(body.get("which") or "").strip().lower()
+    if which not in ("old", "new"):
+        return jr({"ok": False, "msg": "参数错误"}, 400)
+    user = users.find_user_by_id(uid) or {}
+    cur_phone = str(user.get("phone") or "").strip()
+
+    if which == "old":
+        if not re.match(r"^1[3-9]\d{9}$", cur_phone):
+            log.info("换绑发码: 账号未绑定手机号 uid=%s", uid)
+            return jr({"ok": False,
+                       "msg": "该账号还没绑定手机号，直接填新手机号获取验证码即可"}, 400)
+        phone = cur_phone
+    else:
+        phone = str(body.get("new_phone") or "").strip()
+        if not re.match(r"^1[3-9]\d{9}$", phone):
+            return jr({"ok": False, "msg": "手机号格式不正确"}, 400)
+        if phone == cur_phone:
+            return jr({"ok": False, "msg": "新手机号与当前手机号相同"}, 400)
+        if users.find_user_by_phone(phone):
+            return jr({"ok": False, "msg": "该手机号已被其他账号绑定"}, 409)
+
+    ip = client_ip(request)
+    allowed, reason = sms_verify.can_send(phone, ip, config.SMS_SEND_INTERVAL)
+    if not allowed:
+        return jr({"ok": False, "msg": reason}, 429)
+    try:
+        ok, msg = sms_verify.send_code(phone, scene=SMS_SCENE_CHANGE_PHONE,
+                                       interval=config.SMS_SEND_INTERVAL,
+                                       valid_time=config.SMS_VALID_MIN)
+    except sms_verify.SmsNotConfigured as e:
+        log.warning("换绑短信发送未配置: %s", e)
+        return jr({"ok": False, "msg": "短信服务未配置，请联系管理员"}, 503)
+    except Exception as e:                                        # noqa: BLE001
+        log.error("换绑短信发送异常 uid=%s which=%s err=%s", uid, which, e)
+        return jr({"ok": False, "msg": "发送失败，请稍后再试"}, 500)
+    if not ok:
+        return jr({"ok": False, "msg": "发送失败: %s" % msg}, 500)
+    masked = _mask_phone(phone)
+    log.info("换绑验证码已发送 uid=%s which=%s phone=%s", uid, which, masked)
+    return jr({"ok": True, "msg": "验证码已发送至 " + masked,
+               "phone": masked, "current_phone": _mask_phone(cur_phone)})
+
+
+@router.post("/api/change-phone")
+def api_change_phone(request: Request, uid: int = Depends(get_uid),
+                     body: dict = Body(...)):
+    """更换手机号。body: {new_phone, old_code, new_code}
+
+    校验顺序（先便宜后昂贵，且**失败不消耗任何验证码**）：
+      格式/唯一性 → 旧号码 → 新号码 → 落库 → 双号 mark_consumed 防重放。
+    · 账号**已绑定**手机号：old_code 必填且必须通过（这是防接管的那一道）；
+    · 账号**未绑定**（历史/后台建的号）：无旧号可验 ⇒ 只验新号即可绑定。
+    成功后**不踢下线**（本操作已双向验明本人，且换号后本人仍持有有效会话；
+    与改密不同 —— 改密是凭证被替换，必须重新登录）。
+    """
+    new_phone = str(body.get("new_phone") or "").strip()
+    old_code = str(body.get("old_code") or "").strip()
+    new_code = str(body.get("new_code") or "").strip()
+    if not re.match(r"^1[3-9]\d{9}$", new_phone):
+        return jr({"ok": False, "msg": "手机号格式不正确"}, 400)
+    if not new_code or not new_code.isdigit():
+        return jr({"ok": False, "msg": "请输入新手机号收到的验证码"}, 400)
+    user = users.find_user_by_id(uid)
+    if user is None:
+        return jr({"ok": False, "msg": "用户不存在"}, 404)
+    cur_phone = str(user.get("phone") or "").strip()
+    bound = bool(re.match(r"^1[3-9]\d{9}$", cur_phone))
+    if new_phone == cur_phone:
+        return jr({"ok": False, "msg": "新手机号与当前手机号相同"}, 400)
+    if users.find_user_by_phone(new_phone):
+        return jr({"ok": False, "msg": "该手机号已被其他账号绑定"}, 409)
+
+    # ---- 旧号码（已绑定时必验）----
+    if bound:
+        if not old_code or not old_code.isdigit():
+            return jr({"ok": False, "msg": "请输入当前手机号收到的验证码"}, 400)
+        if sms_verify.is_consumed(cur_phone, SMS_SCENE_CHANGE_PHONE):
+            return jr({"ok": False, "msg": "验证码已使用，请重新获取"}, 400)
+        try:
+            ok, msg = sms_verify.check_code(cur_phone, old_code, scene=SMS_SCENE_CHANGE_PHONE)
+        except sms_verify.SmsNotConfigured as e:
+            log.warning("换绑短信校验未配置: %s", e)
+            return jr({"ok": False, "msg": "短信服务未配置，请联系管理员"}, 503)
+        except Exception as e:                                    # noqa: BLE001
+            log.error("换绑短信校验异常(旧号) uid=%s err=%s", uid, e)
+            return jr({"ok": False, "msg": "校验失败，请稍后再试"}, 500)
+        if not ok:
+            log.warning("换绑失败: 旧号验证码错误 uid=%s", uid)
+            return jr({"ok": False, "msg": "当前手机号的验证码错误或已过期"}, 400)
+
+    # ---- 新号码（恒必验）----
+    if sms_verify.is_consumed(new_phone, SMS_SCENE_CHANGE_PHONE):
+        return jr({"ok": False, "msg": "验证码已使用，请重新获取"}, 400)
+    try:
+        ok, msg = sms_verify.check_code(new_phone, new_code, scene=SMS_SCENE_CHANGE_PHONE)
+    except sms_verify.SmsNotConfigured as e:
+        log.warning("换绑短信校验未配置: %s", e)
+        return jr({"ok": False, "msg": "短信服务未配置，请联系管理员"}, 503)
+    except Exception as e:                                        # noqa: BLE001
+        log.error("换绑短信校验异常(新号) uid=%s err=%s", uid, e)
+        return jr({"ok": False, "msg": "校验失败，请稍后再试"}, 500)
+    if not ok:
+        log.warning("换绑失败: 新号验证码错误 uid=%s", uid)
+        return jr({"ok": False, "msg": "新手机号的验证码错误或已过期"}, 400)
+
+    # ---- 落库（唯一性再确认一次，缩小并发换到同一号码的窗口）----
+    dup = users.find_user_by_phone(new_phone)
+    if dup and dup.get("id") != uid:
+        return jr({"ok": False, "msg": "该手机号已被其他账号绑定"}, 409)
+    conn = database.get_conn()
+    conn.execute("UPDATE users SET phone=? WHERE id=?", (new_phone, uid))
+    conn.commit()
+    conn.close()
+    # 防重放：两个号码的码都作废（同一个码不能再用于下一轮换绑）
+    ttl = config.SMS_VALID_MIN * 60
+    sms_verify.mark_consumed(new_phone, SMS_SCENE_CHANGE_PHONE, ttl=ttl)
+    if bound:
+        sms_verify.mark_consumed(cur_phone, SMS_SCENE_CHANGE_PHONE, ttl=ttl)
+    log.info("换绑成功 uid=%s user=%s %s -> %s", uid, user.get("username"),
+             _mask_phone(cur_phone) or "(未绑定)", _mask_phone(new_phone))
+    return jr({"ok": True,
+               "msg": "手机号已更换为 " + _mask_phone(new_phone) + "，下次登录可用新手机号",
+               "phone": _mask_phone(new_phone)})
 
 
 @router.post("/api/forgot-phone/send")

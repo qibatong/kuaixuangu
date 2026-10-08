@@ -2,10 +2,12 @@
   <div v-if="visible" class="auth-overlay">
     <div class="login-box">
       <div class="login-title">修改密码</div>
-      <!-- 2026-10-08 主人问「忘记旧密码怎么办」：旧密码改为**选填**（忘了就留空，
-           只认短信验证码）。原因见后端 api/auth.py 该接口的注释：原本就有一条
-           「忘记密码」通道只认短信 ⇒ 旧密码从来不是安全边界，必填只会拦正常用户。 -->
-      <input v-model="oldPwd" type="password" placeholder="旧密码（忘记可留空）" autocomplete="off" @keydown.enter="submit">
+      <!-- 🔴 2026-10-08 主人指示「去掉旧密码那一栏」：旧密码输入框与后端字段**一起删除**，
+           只剩「短信验证码 + 新密码 + 确认新密码」。
+           依据（先核代码再定，不是图省事）：本系统本来就有一条**只认短信**的改密通道
+           （登录页「忘记密码？」→ /api/reset-by-phone：公开接口、无需旧密码）⇒ 拿到手机
+           的人走那条路照样能改密码 ⇒ **旧密码从来不是安全边界**，留着它只会拦住
+           "忘了旧密码的正常用户"。真正的身份锚点是短信验证码（注册即手机号注册）。 -->
       <!-- 2026-10-08 主人要求「修改密码增加手机短信验证」：验证码为**必填**，
            号码由服务端按登录态取（前端不传手机号，见 api/auth.js 注释）。 -->
       <div class="cp-row">
@@ -36,10 +38,9 @@ const visible = ref(false)
 const busy = ref(false)
 const err = ref('')
 const errIsError = ref(false)
-const oldPwd = ref('')
 const newPwd = ref('')
 const newPwd2 = ref('')
-// 短信验证码（2026-10-08 新增）
+// 短信验证码（2026-10-08 新增；旧密码字段已于同日删除）
 const smsCode = ref('')
 const smsBusy = ref(false)
 const countdown = ref(0)
@@ -66,7 +67,7 @@ function startCountdown() {
 
 function open() {
   setErr('', false)
-  oldPwd.value = newPwd.value = newPwd2.value = smsCode.value = ''
+  newPwd.value = newPwd2.value = smsCode.value = ''
   countdown.value = 0
   stopCountdown()
   visible.value = true
@@ -94,15 +95,13 @@ async function sendSms() {
 async function submit() {
   if (busy.value) return
   setErr('', false)
-  // 旧密码**不再必填**（忘了就留空，只认短信验证码）—— 见模板顶部注释
   if (!/^\d{4,6}$/.test(smsCode.value.trim())) { setErr('请输入短信验证码'); return }
   if (newPwd.value.length < 6) { setErr('新密码至少 6 位'); return }
   if (newPwd.value !== newPwd2.value) { setErr('两次输入的新密码不一致'); return }
-  if (oldPwd.value && oldPwd.value === newPwd.value) { setErr('新密码不能与旧密码相同'); return }
   busy.value = true
   setErr('提交中...', false)
   try {
-    const data = await changePassword(oldPwd.value, newPwd.value, smsCode.value.trim())
+    const data = await changePassword(newPwd.value, smsCode.value.trim())
     setErr('✅ ' + data.msg, false)
     stopCountdown()
     setTimeout(() => {

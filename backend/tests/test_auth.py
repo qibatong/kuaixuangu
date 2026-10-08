@@ -111,35 +111,31 @@ def test_no_token_401(client):
 
 
 def test_change_password_flow(client, create_user_token, monkeypatch):
-    """改密: 缺验证码400 / 旧密码错400 / 新密码太短400 / 验证码错400 / 成功后踢下线 / 新密码可登录。
+    """改密: 缺验证码400 / 新密码太短400 / 验证码错400 / 成功后踢下线 / 新密码可登录。
 
-    2026-10-08 起改密**必须带短信验证码**（主人要求「修改密码增加手机短信验证」），
-    故本用例补上 code 与 sms 桩；并断言校验顺序是「格式 → 旧密码 → 短信码」。
+    2026-10-08 起改密 = **短信验证码（唯一凭证）** + 新密码。主人先让旧密码改选填、
+    随后指示「去掉旧密码那一栏」⇒ `old_password` 字段已从接口删除，本用例同步去掉
+    旧密码相关断言（旧密码从来不是安全边界，依据见 api/auth.py 该接口的注释）。
     """
     from app.services import sms_verify
     u = create_user_token()
     token = u["token"]
-    # 缺验证码 → 400（新口径；短信未配置时也不该走到发码）
-    r = client.post("/api/change-password", json={
-        "old_password": u["password"], "new_password": "NewPass456"}, headers=hdrs(token))
+    # 缺验证码 → 400（短信未配置时也不该走到发码）
+    r = client.post("/api/change-password", json={"new_password": "NewPass456"}, headers=hdrs(token))
     assert r.status_code == 400 and "验证码" in r.json().get("msg", "")
-    # 旧密码错误 —— 应被**旧密码**拦下（免费的本地校验先跑，不消耗短信码）
-    r = client.post("/api/change-password", json={
-        "old_password": "wrong", "new_password": "NewPass456", "code": "123456"}, headers=hdrs(token))
-    assert r.status_code == 400 and "旧密码" in r.json().get("msg", "")
     # 新密码太短
-    r = client.post("/api/change-password", json={
-        "old_password": u["password"], "new_password": "123", "code": "123456"}, headers=hdrs(token))
+    r = client.post("/api/change-password", json={"new_password": "123", "code": "123456"},
+                    headers=hdrs(token))
     assert r.status_code == 400
     # 验证码错误 → 400（密码不变）
     monkeypatch.setattr(sms_verify, "check_code", lambda *a, **k: (False, "验证码错误"))
-    r = client.post("/api/change-password", json={
-        "old_password": u["password"], "new_password": "NewPass456", "code": "000000"}, headers=hdrs(token))
+    r = client.post("/api/change-password", json={"new_password": "NewPass456", "code": "000000"},
+                    headers=hdrs(token))
     assert r.status_code == 400 and "验证码" in r.json().get("msg", "")
     # 正常改密（短信校验通过）
     monkeypatch.setattr(sms_verify, "check_code", lambda *a, **k: (True, "OK"))
-    r = client.post("/api/change-password", json={
-        "old_password": u["password"], "new_password": "NewPass456", "code": "123456"}, headers=hdrs(token))
+    r = client.post("/api/change-password", json={"new_password": "NewPass456", "code": "123456"},
+                    headers=hdrs(token))
     assert r.status_code == 200 and r.json().get("ok")
     # 旧 token 应失效(被踢)
     assert client.get("/api/invite", headers=hdrs(token)).status_code == 401
@@ -148,31 +144,92 @@ def test_change_password_flow(client, create_user_token, monkeypatch):
     assert r.status_code == 200 and r.json().get("token")
 
 
-def test_change_password_without_old_password(client, create_user_token, monkeypatch):
-    """忘了旧密码也能改：旧密码**留空** + 短信验证码通过 ⇒ 200。
+# ---------------- 更换手机号（2026-10-08 主人要求） ----------------
 
-    2026-10-08 主人问「如果忘记旧密码怎么处理呢？是不是取消旧密码的验证」——
-    答：旧密码改为**选填**，短信码恒为必填。依据：本系统本来就有一条只认短信的
-    改密通道（登录页「忘记密码？」→ /api/reset-by-phone，公开接口、无需旧密码），
-    ⇒ 旧密码从来不是安全边界，做成必填只会拦住"忘了密码的正常用户"。
-    """
+_NEW_PHONE = "13900000001"        # 给"真的换绑"的用例用（跑完该号就真被绑走了）
+_NEW_PHONE_FREE = "13900000003"   # 给"只发码不换绑"的用例用
+# ⚠️ 两者必须分开：换绑用例会把 _NEW_PHONE 绑到用户名下 ⇒ 只发码的用例再用同一个号
+#    就会因"已被其他账号绑定"返回 409（实测踩到过 ⇒ 用例间顺序耦合，单跑绿、全量红）。
+
+
+def test_change_phone_flow(client, create_user_token, monkeypatch):
+    """换绑手机号：新号码必填 → 已绑定账号**旧号码也必填**（防接管）→ 双码正确才落库。"""
     from app.services import sms_verify
     monkeypatch.setattr(sms_verify, "check_code", lambda *a, **k: (True, "OK"))
     u = create_user_token()
     token = u["token"]
-    # ① 短信是硬门槛：旧密码留空但**不给码** → 400
-    r = client.post("/api/change-password", json={"new_password": "ForgotIt789"},
+    # ① 新号验证码是必填（格式校验最先跑）
+    r = client.post("/api/change-phone", json={"new_phone": _NEW_PHONE, "old_code": "111111"},
                     headers=hdrs(token))
-    assert r.status_code == 400 and "验证码" in r.json().get("msg", "")
-    # ② 留空旧密码 + 有效码 → 成功
-    r = client.post("/api/change-password",
-                    json={"new_password": "ForgotIt789", "code": "123456"}, headers=hdrs(token))
+    assert r.status_code == 400 and "新手机号收到的验证码" in r.json().get("msg", "")
+    # ② 已绑定账号：旧号验证码必填 —— 这是挡住"只有登录态的人把号换走"的那一道
+    r = client.post("/api/change-phone", json={"new_phone": _NEW_PHONE, "new_code": "222222"},
+                    headers=hdrs(token))
+    assert r.status_code == 400 and "当前手机号收到的验证码" in r.json().get("msg", "")
+    # ③ 两个码都对 → 成功，且 getProfile 回显新号
+    r = client.post("/api/change-phone",
+                    json={"new_phone": _NEW_PHONE, "old_code": "111111", "new_code": "222222"},
+                    headers=hdrs(token))
     assert r.status_code == 200 and r.json().get("ok"), r.text
-    # ③ 新密码可登录（旧密码已失效 —— 登录失败是 401，不是 400）
-    assert client.post("/api/login", json={"login": u["username"],
-                                           "password": "ForgotIt789"}).status_code == 200
-    assert client.post("/api/login", json={"login": u["username"],
-                                           "password": u["password"]}).status_code == 401
+    prof = client.get("/api/profile", headers=hdrs(token)).json()["profile"]
+    assert prof["phone"] == _NEW_PHONE
+
+
+def test_change_phone_rejects_taken_number(client, create_user_token, monkeypatch):
+    """新号已被别人绑定 → 409（防两个账号共用一个身份锚点）。"""
+    from app.services import sms_verify
+    monkeypatch.setattr(sms_verify, "check_code", lambda *a, **k: (True, "OK"))
+    a = create_user_token()
+    b = create_user_token()
+    r = client.post("/api/change-phone",
+                    json={"new_phone": b["phone"], "old_code": "111111", "new_code": "222222"},
+                    headers=hdrs(a["token"]))
+    assert r.status_code == 409
+
+
+def test_change_phone_send_code_uses_right_target(client, create_user_token, monkeypatch):
+    """发码：which=old 发到登录态里的当前号；which=new 发到传入的新号；两者 scene 一致。"""
+    from app.services import sms_verify
+    captured = []
+
+    def fake_send(phone, scene="", **kw):
+        captured.append((phone, scene))
+        return True, "OK"
+
+    monkeypatch.setattr(sms_verify, "send_code", fake_send)
+    u = create_user_token()
+    token = u["token"]
+    r = client.post("/api/change-phone/send-code", json={"which": "old"}, headers=hdrs(token))
+    assert r.status_code == 200 and r.json().get("ok"), r.text
+    assert r.json().get("phone") == u["phone"][:3] + "****" + u["phone"][-4:]   # 只回掩码
+    assert client.post("/api/change-phone/send-code",
+                       json={"which": "new", "new_phone": _NEW_PHONE_FREE},
+                       headers=hdrs(token)).status_code == 200
+    assert captured[0][0] == u["phone"] and captured[0][1] == "chgphone"
+    assert captured[1][0] == _NEW_PHONE_FREE and captured[1][1] == "chgphone"
+    # 新号已被占用 → 409，且**不发码**（省短信费）
+    other = create_user_token()
+    assert client.post("/api/change-phone/send-code",
+                       json={"which": "new", "new_phone": other["phone"]},
+                       headers=hdrs(token)).status_code == 409
+    assert len(captured) == 2
+
+
+def test_profile_cannot_change_phone(client, create_user_token):
+    """🔴 2026-10-08 安全修复回归：/api/profile **不允许**改手机号。
+
+    原先该接口只校验格式与唯一性、**没有任何短信验证** ⇒ 拿到登录态的人可把手机号
+    换成自己的，再走「忘记密码」永久接管账号（改密的短信验证会被整体绕过）。
+    现改为必须走 /api/change-phone（旧号 + 新号双向短信验证）。其余字段不受影响。
+    """
+    u = create_user_token()
+    token = u["token"]
+    r = client.post("/api/profile", json={"phone": "13900000009"}, headers=hdrs(token))
+    assert r.status_code == 403 and "更换手机号" in r.json().get("msg", ""), r.text
+    assert client.get("/api/profile", headers=hdrs(token)).json()["profile"]["phone"] == u["phone"]
+    # 不要误伤其它资料字段
+    assert client.post("/api/profile", json={"wx_name": "小王"},
+                       headers=hdrs(token)).status_code == 200
 
 
 def test_change_password_send_code_uses_login_phone(client, create_user_token, monkeypatch):

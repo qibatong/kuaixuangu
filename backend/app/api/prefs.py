@@ -78,7 +78,19 @@ def api_update_profile(request: Request, uid: int = Depends(get_uid),
     email = body.get("email")
     wx_name = body.get("wx_name")
     remark = body.get("remark")
-    ok, msg = users.update_profile(uid, phone=phone, email=email,
+    # 🔴 2026-10-08 安全修复：**不再允许通过本接口改手机号**。
+    #   原因：手机号是本产品的**身份锚点**（找回密码/改密全靠它收码），而本接口
+    #   原先只校验格式与唯一性、**没有任何短信验证** ⇒ 拿到登录态（token 被偷、
+    #   手机借人）的人可以先把手机号换成自己的，再走「忘记密码」完成**永久接管**，
+    #   顺带把真正的机主挡在门外 ⇒ 前面加的改密短信验证会被整体绕过。
+    #   现改为：改手机号只能走 POST /api/change-phone（**旧号 + 新号双向短信验证**）。
+    #   注：users.update_profile 的函数签名**保持不变**（后台/管理端仍可传 phone），
+    #   这里只是**不再把用户端传上来的 phone 透传下去**。
+    if phone:
+        log.warning("用户端尝试改手机号已被拦截 uid=%s（须走 /api/change-phone）", uid)
+        return jr({"ok": False,
+                   "msg": "手机号需短信验证后才能更换，请到「我的」→「更换手机号」操作"}, 403)
+    ok, msg = users.update_profile(uid, phone=None, email=email,
                                    wx_name=wx_name, remark=remark)
     if not ok:
         return jr({"ok": False, "msg": msg}, 400)
