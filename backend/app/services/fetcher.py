@@ -1263,7 +1263,13 @@ def fetch_spot_quote_map(fs):
 # 失败返回 {} ⇒ 调用方自行回退全市场 spot map(旧路径保留, 可用性不降低)。
 # 附带收益: ulist 路径不受 `fetch_eastmoney_all` 的 clist 熔断开关影响 ⇒ 东财 clist
 #   熔断窗口(如 09:15 那段)里现涨仍有独立来源。
-_CODE_QUOTE_TTL = 60
+# 🔴 2026-10-08: 60 → 25。原注释写的是「= SPOT_CACHE_TTL 口径, 前端 30s 轮询 ⇒ 高命中」——
+#   可是**缓存比轮询长一倍**，含义就变成"每隔一轮必然拿到最多 60s 前的旧价"，
+#   用户看到的就是「实时涨幅有的更新、有的不动」（竞价异动各子榜 + 竞价选股都吃这条）。
+#   本路径（ulist 按代码点查）**很便宜**：51 只 = 1 个请求 ⇒ 30s 轮询下也值得每轮取新。
+#   注意只改这一条：全市场路径（fetch_spot_quote_map / SPOT_CACHE_TTL）不动 ——
+#   那里一次要 33 个请求，容不得按 30s 打。
+_CODE_QUOTE_TTL = 25
 _code_quote_cache = {}          # {code: (quote_entry, ts)}
 _code_quote_lock = threading.Lock()
 

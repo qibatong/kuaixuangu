@@ -110,27 +110,67 @@ def test_no_token_401(client):
     assert client.get("/api/invite").status_code == 401
 
 
-def test_change_password_flow(client, create_user_token):
-    """改密: 旧密码错400 / 成功后踢下线 / 新密码可登录。"""
+def test_change_password_flow(client, create_user_token, monkeypatch):
+    """改密: 缺验证码400 / 旧密码错400 / 新密码太短400 / 验证码错400 / 成功后踢下线 / 新密码可登录。
+
+    2026-10-08 起改密**必须带短信验证码**（主人要求「修改密码增加手机短信验证」），
+    故本用例补上 code 与 sms 桩；并断言校验顺序是「格式 → 旧密码 → 短信码」。
+    """
+    from app.services import sms_verify
     u = create_user_token()
     token = u["token"]
-    # 旧密码错误
-    r = client.post("/api/change-password", json={
-        "old_password": "wrong", "new_password": "NewPass456"}, headers=hdrs(token))
-    assert r.status_code == 400
-    # 新密码太短
-    r = client.post("/api/change-password", json={
-        "old_password": u["password"], "new_password": "123"}, headers=hdrs(token))
-    assert r.status_code == 400
-    # 正常改密
+    # 缺验证码 → 400（新口径；短信未配置时也不该走到发码）
     r = client.post("/api/change-password", json={
         "old_password": u["password"], "new_password": "NewPass456"}, headers=hdrs(token))
+    assert r.status_code == 400 and "验证码" in r.json().get("msg", "")
+    # 旧密码错误 —— 应被**旧密码**拦下（免费的本地校验先跑，不消耗短信码）
+    r = client.post("/api/change-password", json={
+        "old_password": "wrong", "new_password": "NewPass456", "code": "123456"}, headers=hdrs(token))
+    assert r.status_code == 400 and "旧密码" in r.json().get("msg", "")
+    # 新密码太短
+    r = client.post("/api/change-password", json={
+        "old_password": u["password"], "new_password": "123", "code": "123456"}, headers=hdrs(token))
+    assert r.status_code == 400
+    # 验证码错误 → 400（密码不变）
+    monkeypatch.setattr(sms_verify, "check_code", lambda *a, **k: (False, "验证码错误"))
+    r = client.post("/api/change-password", json={
+        "old_password": u["password"], "new_password": "NewPass456", "code": "000000"}, headers=hdrs(token))
+    assert r.status_code == 400 and "验证码" in r.json().get("msg", "")
+    # 正常改密（短信校验通过）
+    monkeypatch.setattr(sms_verify, "check_code", lambda *a, **k: (True, "OK"))
+    r = client.post("/api/change-password", json={
+        "old_password": u["password"], "new_password": "NewPass456", "code": "123456"}, headers=hdrs(token))
     assert r.status_code == 200 and r.json().get("ok")
     # 旧 token 应失效(被踢)
     assert client.get("/api/invite", headers=hdrs(token)).status_code == 401
     # 新密码登录
     r = client.post("/api/login", json={"login": u["username"], "password": "NewPass456"})
     assert r.status_code == 200 and r.json().get("token")
+
+
+def test_change_password_send_code_uses_login_phone(client, create_user_token, monkeypatch):
+    """改密发码: 号码由**服务端按登录态取**（前端不传手机号），scene=changepw，响应只回掩码。"""
+    from app.services import sms_verify
+    captured = {}
+
+    def fake_send(phone, scene="", code=None, interval=60, valid_time=5, out_id=""):
+        captured["phone"] = phone
+        captured["scene"] = scene
+        return True, "OK"
+
+    monkeypatch.setattr(sms_verify, "send_code", fake_send)
+    monkeypatch.setattr(sms_verify, "can_send", lambda *a, **k: (True, ""))
+    u = create_user_token()
+    r = client.post("/api/change-password/send-code", headers=hdrs(u["token"]))
+    assert r.status_code == 200 and r.json().get("ok")
+    assert captured.get("phone") == u["phone"], "必须发到登录账号绑定的号码"
+    assert captured.get("scene") == "changepw", "scene 必须与校验侧逐字一致"
+    assert "****" in r.json().get("msg", ""), "响应只回掩码号，不回完整号码"
+
+
+def test_change_password_send_code_requires_login(client):
+    """未登录不能发码（改密是登录后行为）"""
+    assert client.post("/api/change-password/send-code").status_code == 401
 
 
 def test_register_ip_limit_functions_healthy(create_user_token):

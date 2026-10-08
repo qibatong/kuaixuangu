@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from ..core import logger, net
 from ..core import trade_calendar as tc
+from ..services import fetcher
 from ..services import his_pick as H
 from ..services import kpl as KPL          # 概念列改用**开盘啦**映射（库内 concept_refresh 已回写，零额外抓取）
 from .deps import get_uid, jr
@@ -143,18 +144,47 @@ def _snapshot_items():
 
 
 def _refresh_quote(items, rows):
-    """冻结名单下**只刷新现涨**（原件语义：9:30 后仅更新实时涨幅）"""
+    """冻结名单下**只刷新现涨**（原件语义：9:30 后仅更新实时涨幅）
+
+    🔴 2026-10-08 主人反馈「竞价选股有部分实时涨幅没有自动更新」—— 本函数是根因之一：
+       `rows` 来自东财 clist，而那个 URL 带 `fid=f3&po=1&pz=200` ⇒ **只给「现涨前 200 名」**，
+       再叠加 `fs` 只覆盖**当前勾选的板块** ⇒ 冻结名单里相当一部分票压根不在 rows 里；
+       原逻辑对未命中的 code `continue`，**保留竞价时的旧值** ⇒ 用户看到"有些数字一直不动"。
+
+    修法：对**未命中的代码按代码二次点查**（`fetch_spot_quote_map_by_codes` 走东财 ulist，
+    51 只 = 1 个请求；逐 code 缓存 25s < 前端 30s 轮询 ⇒ 每轮都拿到新价），
+    整体失败时仍回退"保留旧值"（可用性不降低，只是退回改动前的行为）。
+    """
     idx = {}
     for s in rows:
         k = str(s.get('f12') or '').zfill(6)
         if k:
             idx[k] = s
+    miss = [it.get('code') for it in items if it.get('code') and it.get('code') not in idx]
+    extra = {}
+    if miss:
+        try:
+            extra = fetcher.fetch_spot_quote_map_by_codes(miss) or {}
+        except Exception as e:                                  # noqa: BLE001
+            log.warning('his-pick 按代码补查现涨失败 %d只 err=%s', len(miss), str(e)[:120])
+            extra = {}
     for it in items:
-        s = idx.get(it.get('code'))
-        if not s:
+        code = it.get('code')
+        s = idx.get(code)
+        if s:
+            it['realChange'] = H.pf(H.or0(s.get('f3')))
+            it['entityChange'] = H.getEntityChange(s)
             continue
-        it['realChange'] = H.pf(H.or0(s.get('f3')))
-        it['entityChange'] = H.getEntityChange(s)
+        q = extra.get(code)
+        if q:
+            # ulist 路径返回的是**已算好**的字段（与 clist 的 f3 同义）
+            if q.get('realChange') is not None:
+                it['realChange'] = q['realChange']
+            if q.get('entityChange') is not None:
+                it['entityChange'] = q['entityChange']
+    if miss:
+        log.info('his-pick 现涨补查: 名单%d只 clist未命中%d只 补到%d只',
+                 len(items), len(miss), len(extra))
     return items
 
 

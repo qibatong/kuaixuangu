@@ -20,6 +20,10 @@ log = logger.get_logger(__name__)
 
 router = APIRouter()
 
+# 短信验证码 scene（= 阿里云「方案名」）。🔴 send 与 check 必须**逐字一致**，
+# 否则阿里云返回 isv.ValidateFail（见 services/sms_verify.check_code 的注释）⇒ 用常量防手滑。
+SMS_SCENE_CHANGE_PW = "changepw"
+
 
 @router.post("/api/login")
 async def api_login(request: Request, body: dict = Body(...)):
@@ -274,19 +278,85 @@ def api_invite_info(code: str = ""):
                "reward_days": int(config.INVITE_REWARD_DAYS)})
 
 
+@router.post("/api/change-password/send-code")
+def api_change_password_send_code(request: Request, uid: int = Depends(get_uid)):
+    """改密码前的短信验证码（2026-10-08 主人要求「修改密码增加手机短信验证」）。
+
+    🔴 与 `/api/sms/send`（未登录可用、号码由前端传）的两点区别：
+      ① **号码由服务端按登录态取**（users.phone）—— 前端 store 里只有 username，
+         不保证等于手机号；且号码不必经过浏览器，少一处泄露面；
+      ② 必须登录（Depends(get_uid)）—— 改密本就是登录后行为。
+    限流沿用 sms_verify.can_send（同号 SMS_SEND_INTERVAL + 同 IP 每分钟 10 次），
+    与注册 / 找回密码同一口径；账号未绑定手机号时不发（省短信费），提示走人工客服。
+    """
+    user = users.find_user_by_id(uid) or {}
+    phone = str(user.get("phone") or "").strip()
+    if not re.match(r"^1[3-9]\d{9}$", phone):
+        log.warning("改密发码失败-账号未绑定手机号 uid=%s", uid)
+        return jr({"ok": False, "msg": "该账号未绑定手机号，无法自助短信验证，请联系管理员（微信 poet-1986）"}, 400)
+    ip = client_ip(request)
+    allowed, reason = sms_verify.can_send(phone, ip, config.SMS_SEND_INTERVAL)
+    if not allowed:
+        return jr({"ok": False, "msg": reason}, 429)
+    try:
+        ok, msg = sms_verify.send_code(phone, scene=SMS_SCENE_CHANGE_PW,
+                                       interval=config.SMS_SEND_INTERVAL,
+                                       valid_time=config.SMS_VALID_MIN)
+    except sms_verify.SmsNotConfigured as e:
+        log.warning("改密短信发送未配置: %s", e)
+        return jr({"ok": False, "msg": "短信服务未配置，请联系管理员"}, 503)
+    except Exception as e:                                        # noqa: BLE001
+        log.error("改密短信发送异常 uid=%s err=%s", uid, e)
+        return jr({"ok": False, "msg": "发送失败，请稍后再试"}, 500)
+    if not ok:
+        return jr({"ok": False, "msg": "发送失败: %s" % msg}, 500)
+    masked = phone[:3] + "****" + phone[-4:]
+    log.info("改密验证码已发送 uid=%s phone=%s", uid, masked)
+    # 只回掩码，便于用户确认发到了哪台手机（号码是用户自己的，无泄露问题）
+    return jr({"ok": True, "msg": "验证码已发送至 " + masked})
+
+
 @router.post("/api/change-password")
 def api_change_password(request: Request, uid: int = Depends(get_uid),
                         body: dict = Body(...)):
+    """改密：旧密码 + **短信验证码** + 新密码（2026-10-08 起短信为必填）。
+
+    🔴 校验顺序刻意是「格式 → 旧密码 → 短信码」：
+      · 旧密码先查 —— 它是免费的本地校验，错了就立刻返回，**不消耗短信码**
+        （用户重填后可继续用同一个码，不会"错一次就得重新发"）；
+      · 短信码后查 —— 这样"拿到密码但没有手机"的攻击者仍然改不了密码，
+        而"手机在手但忘了旧密码"的人走 /api/reset-by-phone（scene=forgot）。
+    """
     old_pw = str(body.get("old_password") or "")
     new_pw = str(body.get("new_password") or "")
+    code = str(body.get("code") or "").strip()
     if len(new_pw) < 6:
         return jr({"ok": False, "msg": "新密码至少 6 位"}, 400)
     if old_pw == new_pw:
         return jr({"ok": False, "msg": "新密码不能与旧密码相同"}, 400)
+    if not code or not code.isdigit():
+        return jr({"ok": False, "msg": "请输入短信验证码"}, 400)
     user = users.find_user_by_id(uid)
     if user is None or not security.verify_password(old_pw, user.get("password_hash") or ""):
         log.warning("改密失败: 旧密码错误 uid=%s", uid)
         return jr({"ok": False, "msg": "旧密码不正确"}, 400)
+    phone = str(user.get("phone") or "").strip()
+    if not re.match(r"^1[3-9]\d{9}$", phone):
+        log.warning("改密失败: 账号未绑定手机号 uid=%s", uid)
+        return jr({"ok": False, "msg": "该账号未绑定手机号，无法自助短信验证，请联系管理员（微信 poet-1986）"}, 400)
+    if sms_verify.is_consumed(phone, SMS_SCENE_CHANGE_PW):
+        return jr({"ok": False, "msg": "验证码已使用，请重新获取"}, 400)
+    try:
+        ok, msg = sms_verify.check_code(phone, code, scene=SMS_SCENE_CHANGE_PW)
+    except sms_verify.SmsNotConfigured as e:
+        log.warning("改密短信校验未配置: %s", e)
+        return jr({"ok": False, "msg": "短信服务未配置，请联系管理员"}, 503)
+    except Exception as e:                                        # noqa: BLE001
+        log.error("改密短信校验异常 uid=%s err=%s", uid, e)
+        return jr({"ok": False, "msg": "校验失败，请稍后再试"}, 500)
+    if not ok:
+        log.warning("改密失败: 短信验证码错误 uid=%s", uid)
+        return jr({"ok": False, "msg": "验证码错误或已过期"}, 400)
     conn = database.get_conn()
     conn.execute("UPDATE users SET password_hash=? WHERE id=?",
                  (security.hash_password(new_pw), uid))
@@ -294,7 +364,9 @@ def api_change_password(request: Request, uid: int = Depends(get_uid),
     conn.close()
     # 改密后强制下线(所有会话失效, 需重新登录)
     security.revoke_user_tokens(uid)
-    log.info("改密成功 uid=%s user=%s", uid, user.get("username"))
+    # 防重放: 同一个码 5 分钟内不能再用（与找回密码同一套标记）
+    sms_verify.mark_consumed(phone, SMS_SCENE_CHANGE_PW, ttl=config.SMS_VALID_MIN * 60)
+    log.info("改密成功 uid=%s user=%s(已过短信验证)", uid, user.get("username"))
     return jr({"ok": True, "msg": "密码已修改，请重新登录"})
 
 

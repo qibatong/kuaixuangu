@@ -165,9 +165,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { hisPick } from '../api/hisPick'
 import { linkToSoftware } from '../utils/tdx'
+// 2026-10-08 主人反馈「部分实时涨幅不自动更新」：本页原先**没有数据轮询**（详见下方长注释）
+import { usePolling } from '../composables/usePolling'
+import { bjNow } from '../utils/time'
 // 2026-10-05 主人要求「点表头排序」：复用站内通用排序 composable（与竞价优选 / 动态选股同源，
 // 行为一致：点击 无 → 降序(数值列)/升序(字符串列) → 反向 → 无；空值恒排末尾）
 import { useSortable } from '../composables/useSortable'
@@ -328,7 +331,6 @@ function exportAll() { exportByList(list.value) }
 //    ⇒ 删除本地实现，改用模块统一的 linkToSoftware（= 打开个股详情/分时）。
 //    ⚠️ 勿再在此处新增任何 treeid / 通达信协议跳转。
 
-let timer = null
 onMounted(() => {
   try {
     const lk = localStorage.getItem(LOCK_KEY)
@@ -341,10 +343,30 @@ onMounted(() => {
     }
   } catch (e) { /* ignore */ }
   fetchData(false)
-  // 时钟已去掉；改用 30s 轻量 tick 驱动 before930 / 锁定倒计时（开销可忽略）
-  timer = setInterval(() => { tick.value++ }, 30000)
 })
-onUnmounted(() => { if (timer) clearInterval(timer) })
+
+/* 🔴 2026-10-08 主人反馈「竞价选股有部分实时涨幅没有自动更新」——
+   根因之一：本页**根本没有数据轮询**。原来那个 30s `setInterval` 只做 `tick.value++`
+   驱动 before930 / 锁定倒计时，**不取数** ⇒ 除首次挂载与手动点按钮外，「实时涨幅」永不变化。
+
+   现改为真轮询，复用站内 usePolling（自动清理定时器 + 页面不可见时暂停 + 连续失败退避）：
+     · 交易时段（09:10–15:05，含 9:15 起的竞价段）用 `force=1` **绕过后端 20s/30s 缓存**取最新现涨；
+     · 非交易时段不 force（走后端 300s 缓存，几乎零成本），仍能把服务端 phase 探测回来。
+   ⚠️ 时间窗按北京时间近似，**不判交易日**：节假日盘前会多打几次东财，但每次只是
+      "名单级点查"（几十~几百只 code，不是全市场 33 个请求）⇒ 代价可接受。
+      若要精确到交易日，应改为信任后端下发的 phase（需要后端多给一个"下一时段开始时刻"）。 */
+function inTradingWindow() {
+  const bj = bjNow()
+  const hm = bj.getHours() * 60 + bj.getMinutes()
+  return hm >= 9 * 60 + 10 && hm <= 15 * 60 + 5
+}
+// ⚠️ immediate: false —— 首次取数由上面 onMounted 里的 `fetchData(false)` 负责，
+//    那里**先**把 localStorage 的筛选锁定读回来再取数（顺序不能反，否则首屏用默认筛选渲染一次）。
+//    若用默认的 immediate: true，挂载瞬间会多打一次接口（实测 0s 处出现 2 个 his-pick 请求）。
+usePolling(async () => {
+  tick.value++                                  // 顺带承担原 setInterval 的时钟职责
+  await fetchData(inTradingWindow())
+}, 30000, { backoff: true, immediate: false })
 </script>
 
 <style scoped>

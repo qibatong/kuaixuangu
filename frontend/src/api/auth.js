@@ -6,8 +6,16 @@ export function login(body) {
   return request('/api/login', { method: 'POST', auth: false, body })
 }
 
-export function changePassword(old_password, new_password) {
-  return request('/api/change-password', { method: 'POST', body: { old_password, new_password } })
+// 2026-10-08 主人要求「修改密码增加手机短信验证」：
+//   · 发码**不传手机号** —— 服务端按登录态取 users.phone（前端 store 只有 username，
+//     不保证等于手机号），号码也不必经过浏览器；
+//   · 改密必须带 code（服务端校验 scene=changepw，与发码一致）。
+export function sendChangePwdSms() {
+  return request('/api/change-password/send-code', { method: 'POST' })
+}
+
+export function changePassword(old_password, new_password, code) {
+  return request('/api/change-password', { method: 'POST', body: { old_password, new_password, code } })
 }
 
 // 主动退出登录(2026-09-22 v4.11.35 新增): 仅清本地 token 时后端无感知,
