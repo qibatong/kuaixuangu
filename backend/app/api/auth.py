@@ -319,27 +319,39 @@ def api_change_password_send_code(request: Request, uid: int = Depends(get_uid))
 @router.post("/api/change-password")
 def api_change_password(request: Request, uid: int = Depends(get_uid),
                         body: dict = Body(...)):
-    """改密：旧密码 + **短信验证码** + 新密码（2026-10-08 起短信为必填）。
+    """改密：**短信验证码**（必填）+ 旧密码（**选填**）+ 新密码。
 
-    🔴 校验顺序刻意是「格式 → 旧密码 → 短信码」：
-      · 旧密码先查 —— 它是免费的本地校验，错了就立刻返回，**不消耗短信码**
-        （用户重填后可继续用同一个码，不会"错一次就得重新发"）；
-      · 短信码后查 —— 这样"拿到密码但没有手机"的攻击者仍然改不了密码，
-        而"手机在手但忘了旧密码"的人走 /api/reset-by-phone（scene=forgot）。
+    🔴 2026-10-08 主人问「如果忘记旧密码怎么处理？是不是取消旧密码的验证」——
+      是的，旧密码改为**选填**，这是刻意的，理由是它**从来不是安全边界**：
+      本系统本来就有一条**只认短信**的改密通道（登录页「忘记密码？」→
+      /api/reset-by-phone：公开接口、无需旧密码、只要手机号 + 验证码 + 新密码）。
+      ⇒ 拿到手机的人走那条路照样能改密码，所以把旧密码做成**必填**，
+        唯一作用就是拦住"忘了旧密码的正常用户"，安全上什么都没多防。
+      保留输入框（选填）是为了照顾"记得密码的人"的心理预期，并在**填错**时明确提示。
+
+    真正的安全边界是**短信验证码**（证明手机在手 = 本产品账号的身份锚点，
+    注册就是手机号注册）⇒ 所以 code 恒为必填，且校验通过后立即 mark_consumed 防重放。
+
+    🔴 校验顺序刻意是「格式 → 旧密码(若填) → 短信码」：
+      旧密码是免费的本地校验、先跑 ⇒ 填错立刻返回且**不消耗短信码**
+      （用户清空该栏或改对后，同一个码还能继续用，不必重新发）。
     """
     old_pw = str(body.get("old_password") or "")
     new_pw = str(body.get("new_password") or "")
     code = str(body.get("code") or "").strip()
     if len(new_pw) < 6:
         return jr({"ok": False, "msg": "新密码至少 6 位"}, 400)
-    if old_pw == new_pw:
-        return jr({"ok": False, "msg": "新密码不能与旧密码相同"}, 400)
     if not code or not code.isdigit():
         return jr({"ok": False, "msg": "请输入短信验证码"}, 400)
     user = users.find_user_by_id(uid)
-    if user is None or not security.verify_password(old_pw, user.get("password_hash") or ""):
-        log.warning("改密失败: 旧密码错误 uid=%s", uid)
-        return jr({"ok": False, "msg": "旧密码不正确"}, 400)
+    # 旧密码**选填**：留空 ⇒ 不校验，只认短信码（= 「忘记密码」通道的等价物）
+    if old_pw:
+        if old_pw == new_pw:
+            return jr({"ok": False, "msg": "新密码不能与旧密码相同"}, 400)
+        if user is None or not security.verify_password(old_pw, user.get("password_hash") or ""):
+            log.warning("改密失败: 旧密码错误 uid=%s", uid)
+            return jr({"ok": False,
+                       "msg": "旧密码不正确；若已忘记，把旧密码留空、用短信验证码即可"}, 400)
     phone = str(user.get("phone") or "").strip()
     if not re.match(r"^1[3-9]\d{9}$", phone):
         log.warning("改密失败: 账号未绑定手机号 uid=%s", uid)

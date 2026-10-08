@@ -2,7 +2,10 @@
   <div v-if="visible" class="auth-overlay">
     <div class="login-box">
       <div class="login-title">修改密码</div>
-      <input v-model="oldPwd" type="password" placeholder="旧密码" autocomplete="off" @keydown.enter="submit">
+      <!-- 2026-10-08 主人问「忘记旧密码怎么办」：旧密码改为**选填**（忘了就留空，
+           只认短信验证码）。原因见后端 api/auth.py 该接口的注释：原本就有一条
+           「忘记密码」通道只认短信 ⇒ 旧密码从来不是安全边界，必填只会拦正常用户。 -->
+      <input v-model="oldPwd" type="password" placeholder="旧密码（忘记可留空）" autocomplete="off" @keydown.enter="submit">
       <!-- 2026-10-08 主人要求「修改密码增加手机短信验证」：验证码为**必填**，
            号码由服务端按登录态取（前端不传手机号，见 api/auth.js 注释）。 -->
       <div class="cp-row">
@@ -91,10 +94,11 @@ async function sendSms() {
 async function submit() {
   if (busy.value) return
   setErr('', false)
-  if (!oldPwd.value) { setErr('请输入旧密码'); return }
+  // 旧密码**不再必填**（忘了就留空，只认短信验证码）—— 见模板顶部注释
   if (!/^\d{4,6}$/.test(smsCode.value.trim())) { setErr('请输入短信验证码'); return }
   if (newPwd.value.length < 6) { setErr('新密码至少 6 位'); return }
   if (newPwd.value !== newPwd2.value) { setErr('两次输入的新密码不一致'); return }
+  if (oldPwd.value && oldPwd.value === newPwd.value) { setErr('新密码不能与旧密码相同'); return }
   busy.value = true
   setErr('提交中...', false)
   try {

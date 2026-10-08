@@ -148,6 +148,33 @@ def test_change_password_flow(client, create_user_token, monkeypatch):
     assert r.status_code == 200 and r.json().get("token")
 
 
+def test_change_password_without_old_password(client, create_user_token, monkeypatch):
+    """忘了旧密码也能改：旧密码**留空** + 短信验证码通过 ⇒ 200。
+
+    2026-10-08 主人问「如果忘记旧密码怎么处理呢？是不是取消旧密码的验证」——
+    答：旧密码改为**选填**，短信码恒为必填。依据：本系统本来就有一条只认短信的
+    改密通道（登录页「忘记密码？」→ /api/reset-by-phone，公开接口、无需旧密码），
+    ⇒ 旧密码从来不是安全边界，做成必填只会拦住"忘了密码的正常用户"。
+    """
+    from app.services import sms_verify
+    monkeypatch.setattr(sms_verify, "check_code", lambda *a, **k: (True, "OK"))
+    u = create_user_token()
+    token = u["token"]
+    # ① 短信是硬门槛：旧密码留空但**不给码** → 400
+    r = client.post("/api/change-password", json={"new_password": "ForgotIt789"},
+                    headers=hdrs(token))
+    assert r.status_code == 400 and "验证码" in r.json().get("msg", "")
+    # ② 留空旧密码 + 有效码 → 成功
+    r = client.post("/api/change-password",
+                    json={"new_password": "ForgotIt789", "code": "123456"}, headers=hdrs(token))
+    assert r.status_code == 200 and r.json().get("ok"), r.text
+    # ③ 新密码可登录（旧密码已失效 —— 登录失败是 401，不是 400）
+    assert client.post("/api/login", json={"login": u["username"],
+                                           "password": "ForgotIt789"}).status_code == 200
+    assert client.post("/api/login", json={"login": u["username"],
+                                           "password": u["password"]}).status_code == 401
+
+
 def test_change_password_send_code_uses_login_phone(client, create_user_token, monkeypatch):
     """改密发码: 号码由**服务端按登录态取**（前端不传手机号），scene=changepw，响应只回掩码。"""
     from app.services import sms_verify
