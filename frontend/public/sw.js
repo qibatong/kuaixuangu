@@ -96,7 +96,9 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(
       fetch(req)
         .then((res) => {
-          if (res && res.ok) {
+          // 🔴 2026-10-08: 只把 **SPA 壳** 写进 '/' 缓存。带扩展名的路径（如独立静态下载页
+          //   /app.html）不是壳 —— 否则离线时 '/' 会回退成下载页，用户以为 App 打不开了。
+          if (res && res.ok && !/\.[a-z0-9]+$/i.test(url.pathname)) {
             const copy = res.clone()
             caches.open(SHELL_CACHE).then((c) => c.put('/', copy)).catch(() => {})
           }

@@ -10,16 +10,21 @@
 //        · GET /api/member/plans     → 三档权益真实配额（backend/app/api/member.py:139 无 Depends）
 //   ④ 不放任何"假数据预览"。商品截图带用户水印、真实行情需鉴权 ⇒ 一律不伪造，
 //      改为如实描述能力与口径（这也是合规页要讲清的东西）。
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { memberPlans } from '../api/member'
 import { usePublicConfig } from '../composables/usePublicConfig'
 import ContactQr from '../components/ContactQr.vue'
+// 2026-10-08 主人要求「未登录也能下载 App」：首屏弹层 + 中部下载区块共用同一个码组件
+import AppDownloadQr from '../components/AppDownloadQr.vue'
+import { APP_APK_URL, APP_PAGE_URL, APP_VERSION, APP_SIZE, APP_MIN_OS } from '../utils/appDownload'
 import { copyText } from '../utils/tdx'
 import { SUPPORT_WECHAT, OPEN_TIP } from '../utils/contact'
 
 // 赠送天数/注册开关走匿名公共配置（模块级单例 + 请求去重，顶栏也用同一份 ⇒ 全站只请求一次）
 const { giftDays, inviteRewardDays, regOpen, load: loadPublicConfig } = usePublicConfig()
 const plans = ref(null)     // null = 加载中；对象 = 后端真实配额
+// 2026-10-08 主人要求「未登录也能下载 App」：首屏「下载安卓版」的二维码弹层开关
+const dlOpen = ref(false)
 
 // 能力墙：如实描述产品实际具备的能力（每条都能在登录后找到对应页面）
 const FEATURES = [
@@ -59,6 +64,11 @@ onMounted(async () => {
 function copyWx() {
   copyText(SUPPORT_WECHAT, '客服微信已复制')
 }
+
+// 下载弹层：Esc 可关（无障碍）；点遮罩 / 右上角 ✕ 也能关
+function onKeydown(e) { if (e.key === 'Escape') dlOpen.value = false }
+onMounted(() => document.addEventListener('keydown', onKeydown))
+onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
@@ -79,9 +89,14 @@ function copyWx() {
             免费注册 · 领 {{ giftDays }} 天会员
           </router-link>
           <router-link class="ld-btn ld-btn-ghost" :to="regOpen ? '/login' : '/'">已有账号，登录</router-link>
+          <!-- 2026-10-08 主人要求「未登录也能下载 App」：下载页与 APK 都不需要登录，
+               按钮只开二维码弹层（不直接跳走，避免把正在注册的人踢出落地页） -->
+          <button type="button" class="ld-btn ld-btn-ghost" @click="dlOpen = true">
+            <i class="fa fa-android" aria-hidden="true"></i> 下载安卓版
+          </button>
         </div>
         <p class="ld-cta-note">
-          手机号注册，不需要下载 App；已有 {{ inviteRewardDays }} 天邀请奖励 —— 邀请好友双方各得 {{ inviteRewardDays }} 天。
+          手机号注册，浏览器直接就能用，不需要下载 App；已有 {{ inviteRewardDays }} 天邀请奖励 —— 邀请好友双方各得 {{ inviteRewardDays }} 天。
         </p>
       </div>
 
@@ -103,6 +118,34 @@ function copyWx() {
           <h3>{{ f.title }}</h3>
           <p>{{ f.desc }}</p>
         </article>
+      </div>
+    </section>
+
+    <!-- ================= 下载 App（未登录访客可下载，主人 2026-10-08 要求） ================= -->
+    <section id="download" class="ld-section">
+      <h2 class="ld-h2">下载安卓 App</h2>
+      <p class="ld-h2-sub">
+        {{ APP_VERSION }} · {{ APP_SIZE }} · 适用于 {{ APP_MIN_OS }} 及以上。扫码即得，无需注册。
+      </p>
+      <div class="ld-dl">
+        <AppDownloadQr :width="180" />
+        <div class="ld-dl-main">
+          <ol class="ld-dl-steps">
+            <li>
+              <b>1</b>
+              <span>手机扫码，或在浏览器打开<a href="/app.html">下载页</a></span>
+            </li>
+            <li><b>2</b><span>首次安装需在系统提示里允许「未知来源应用」</span></li>
+            <li><b>3</b><span>打开快选，用同一账号登录即可</span></li>
+          </ol>
+          <div class="ld-cta">
+            <a class="ld-btn ld-btn-primary" :href="APP_PAGE_URL">下载安卓版</a>
+            <a class="ld-btn ld-btn-ghost" :href="APP_APK_URL" download="快选.apk">
+              <i class="fa fa-download" aria-hidden="true"></i> 直接下载 APK
+            </a>
+          </div>
+          <p class="ld-cta-note">微信内请点右上角「···」→ 在浏览器打开；也可以长按二维码识别。</p>
+        </div>
       </div>
     </section>
 
@@ -194,6 +237,24 @@ function copyWx() {
         <router-link class="ld-btn ld-btn-ghost" to="/login">已有账号，登录</router-link>
       </div>
     </section>
+
+    <!-- ================= 首屏「下载安卓版」的二维码弹层（2026-10-08 主人要求，未登录可见） ================= -->
+    <div v-if="dlOpen" class="ld-mask" @click.self="dlOpen = false">
+      <div class="ld-modal" role="dialog" aria-modal="true" aria-labelledby="ld-dl-title">
+        <button type="button" class="ld-modal-x" aria-label="关闭" @click="dlOpen = false">
+          <i class="fa fa-times" aria-hidden="true"></i>
+        </button>
+        <h3 id="ld-dl-title" class="ld-modal-h">
+          <i class="fa fa-android" aria-hidden="true"></i> 手机扫码下载「快选」
+        </h3>
+        <AppDownloadQr :width="200" />
+        <div class="ld-modal-acts">
+          <a class="ld-btn ld-btn-primary" :href="APP_PAGE_URL">打开下载页</a>
+          <a class="ld-btn ld-btn-ghost" :href="APP_APK_URL" download="快选.apk">直接下载 APK</a>
+        </div>
+        <p class="ld-cta-note">下载页含安装教程；微信内长按二维码识别，或点右上角「···」在浏览器打开。</p>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -284,6 +345,50 @@ function copyWx() {
 .ld-final-h { margin: 0; font-size: var(--fs-xl); font-weight: 700; color: var(--text-main); }
 .ld-final .ld-cta { justify-content: center; }
 
+/* ===== 下载 App（2026-10-08 主人要求：未登录访客也要能下载） ===== */
+.ld-dl {
+  display: flex; flex-wrap: wrap; gap: var(--s5); align-items: center;
+  padding: var(--s4); background: var(--bg-panel);
+  border: 1px solid var(--border-soft); border-radius: var(--r-lg);
+}
+.ld-dl-main { display: grid; gap: var(--s3); flex: 1 1 20em; }
+.ld-dl-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); }
+.ld-dl-steps li {
+  display: grid; grid-template-columns: 24px 1fr; gap: var(--s2); align-items: baseline;
+  color: var(--text-muted); font-size: var(--fs-sm); line-height: 1.7;
+}
+/* 序号徽章沿用顶部 .ld-badge 同一套 token + 白字对比度口径 */
+.ld-dl-steps b {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: var(--r-pill);
+  background: var(--accent-bg); color: var(--accent); border: 1px solid var(--accent-border);
+  font-size: var(--fs-xs); font-weight: 700;
+}
+.ld-dl-steps a { color: var(--accent); }
+.ld-dl .ld-cta { margin-top: 0; }
+
+/* 二维码弹层：层级走 token（--z-modal），遮罩色与全站 .auth-overlay 同值 */
+.ld-mask {
+  position: fixed; inset: 0; z-index: var(--z-modal);
+  display: flex; align-items: center; justify-content: center; padding: var(--s4);
+  background: rgba(0, 0, 0, 0.65);
+}
+.ld-modal {
+  position: relative; display: grid; gap: var(--s3); justify-items: center;
+  width: min(340px, 100%); max-height: 88vh; overflow: auto;
+  padding: var(--s5) var(--s4); text-align: center;
+  background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: var(--r-lg);
+}
+.ld-modal-h { margin: 0; font-size: var(--fs-lg); font-weight: 700; color: var(--text-main); }
+.ld-modal-acts { display: flex; flex-wrap: wrap; gap: var(--s2); justify-content: center; width: 100%; }
+.ld-modal-x {
+  position: absolute; top: var(--s2); right: var(--s2);
+  width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 0; border-radius: var(--r-md);
+  color: var(--text-muted); cursor: pointer; font-size: var(--fs-base);
+}
+.ld-modal-x:hover { background: var(--bg-subtle); color: var(--text-main); }
+
 /* ≤1100：首屏右栏下移（沿用仓库既有断点，不新增） */
 @media (max-width: 1100px) {
   .ld-hero { grid-template-columns: 1fr; }
@@ -298,6 +403,9 @@ function copyWx() {
   .ld-btn { flex: 1 1 100%; padding: var(--s3) var(--s4); }
   .ld-open { flex-direction: column; align-items: stretch; }
   .ld-open-acts { flex-direction: column; }
+  /* 下载区块：手机上码在上、步骤在下（断点沿用既有 768，不新增） */
+  .ld-dl { flex-direction: column; align-items: center; }
+  .ld-dl-steps li { font-size: var(--fs-xs); }
   .ld-table th, .ld-table td { padding: var(--s2) var(--s2); font-size: var(--fs-xs); }
   .ld-final { padding: var(--s5) var(--s3); }
 }

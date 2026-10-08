@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 快选安卓版下载页（独立静态页；未登录可访问，微信内弹「请在浏览器打开」引导）。
+     2026-10-08 纳入仓库 public/ ⇒ 随 npm run build 一起发布
+       （此前是手工丢在服务器 dist 里的，任何一次整体部署都会把它清掉）。
+     ⚠️ 版本号/包大小在本页与 src/utils/appDownload.js 各有一份 ⇒ 升级时**两处都要改**。 -->
+<title>快选 - 安卓版下载</title>
+<meta name="description" content="快选（竞价选股工具）安卓版下载，实时行情 · 智能选股 · 轻松看盘。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23D93025'/%3E%3Cpath d='M14 42 L24 32 L32 38 L46 22' stroke='white' stroke-width='5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #F5F6F8;
+    color: #1A2332;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+  .container {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 0 20px 40px;
+  }
+
+  /* ===== 顶部 Hero ===== */
+  .hero {
+    text-align: center;
+    padding: 48px 0 28px;
+  }
+  .app-icon {
+    width: 84px;
+    height: 84px;
+    border-radius: 20px;
+    background: linear-gradient(135deg, #D93025 0%, #B31E14 100%);
+    margin: 0 auto 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 24px rgba(217, 48, 37, 0.25);
+  }
+  .app-icon svg { width: 44px; height: 44px; }
+  .app-name {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: #1A2332;
+    margin-bottom: 8px;
+  }
+  .app-slogan {
+    font-size: 15px;
+    color: #6B7689;
+    margin-bottom: 4px;
+  }
+
+  /* ===== 下载按钮 ===== */
+  .download-section {
+    margin: 28px 0;
+  }
+  .btn-download {
+    display: block;
+    width: 100%;
+    padding: 18px;
+    background: linear-gradient(135deg, #D93025 0%, #B31E14 100%);
+    color: #fff;
+    text-align: center;
+    text-decoration: none;
+    border-radius: 14px;
+    font-size: 18px;
+    font-weight: 600;
+    box-shadow: 0 6px 20px rgba(217, 48, 37, 0.3);
+    transition: transform 0.1s, box-shadow 0.2s;
+  }
+  .btn-download:active {
+    transform: scale(0.98);
+    box-shadow: 0 3px 10px rgba(217, 48, 37, 0.3);
+  }
+  .btn-download .arrow {
+    display: inline-block;
+    margin-left: 6px;
+    font-weight: 400;
+  }
+  .version-info {
+    text-align: center;
+    font-size: 14px;
+    color: #8A94A6;
+    margin-top: 12px;
+  }
+
+  /* ===== 区块标题 ===== */
+  .section {
+    margin-top: 36px;
+  }
+  .section-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1A2332;
+    margin-bottom: 16px;
+    padding-left: 10px;
+    border-left: 3px solid #D93025;
+  }
+
+  /* ===== 功能列表 ===== */
+  .feature-list {
+    background: #fff;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .feature-item {
+    display: flex;
+    align-items: center;
+    padding: 16px;
+    border-bottom: 1px solid #F0F2F5;
+  }
+  .feature-item:last-child { border-bottom: none; }
+  .feature-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: #FDECEA;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 14px;
+    flex-shrink: 0;
+  }
+  .feature-icon svg { width: 22px; height: 22px; }
+  .feature-text h4 {
+    font-size: 15px;
+    font-weight: 600;
+    color: #1A2332;
+    margin-bottom: 2px;
+  }
+  .feature-text p {
+    font-size: 14px;
+    color: #8A94A6;
+  }
+
+  /* ===== 安装说明 ===== */
+  .install-steps {
+    background: #fff;
+    border-radius: 14px;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .step {
+    display: flex;
+    margin-bottom: 16px;
+  }
+  .step:last-child { margin-bottom: 0; }
+  .step-num {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #1B3A5C;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .step-body h5 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1A2332;
+    margin-bottom: 2px;
+  }
+  .step-body p {
+    font-size: 14px;
+    color: #6B7689;
+  }
+
+  /* ===== 免责声明 ===== */
+  .disclaimer {
+    margin-top: 36px;
+    padding: 16px;
+    background: #FFF8E6;
+    border-radius: 10px;
+    font-size: 13px;
+    color: #8A7A4A;
+    line-height: 1.7;
+  }
+  .disclaimer strong { color: #B8860B; }
+
+  /* ===== 微信遮罩 ===== */
+  .wx-mask {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.92);
+    z-index: 9999;
+    padding: 20px;
+  }
+  .wx-mask.show { display: block; }
+  .wx-mask-arrow {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    width: 60px;
+    height: 60px;
+  }
+  .wx-mask-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: #fff;
+    width: 100%;
+    padding: 0 30px;
+  }
+  .wx-mask-content h3 {
+    font-size: 20px;
+    margin-bottom: 16px;
+    margin-top: 60px;
+  }
+  .wx-mask-content p {
+    font-size: 15px;
+    color: #CCC;
+    line-height: 1.8;
+  }
+  .wx-mask-content .tip {
+    margin-top: 24px;
+    font-size: 14px;
+    color: #FFD966;
+  }
+
+  /* ===== 底部 ===== */
+  .footer {
+    text-align: center;
+    margin-top: 32px;
+    font-size: 13px;
+    color: #B0B8C5;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- ===== Hero ===== -->
+  <div class="hero">
+    <div class="app-icon">
+      <!-- App 图标：可替换成你自己的 logo -->
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 17 L9 11 L13 15 L21 6"/>
+        <path d="M15 6 L21 6 L21 12"/>
+      </svg>
+    </div>
+    <h1 class="app-name">快选</h1>
+    <p class="app-slogan">实时行情 · 智能选股 · 轻松看盘</p>
+  </div>
+
+  <!-- ===== 下载按钮 ===== -->
+  <div class="download-section">
+    <a class="btn-download" href="/download/kuaixuan-1.8.3.apk" download="快选.apk">
+      下载安卓版<span class="arrow">→</span>
+    </a>
+    <p class="version-info">适用于 Android 7.0 及以上 · v1.8.3 · 26.5 MB</p>
+  </div>
+
+  <!-- ===== 核心功能 ===== -->
+  <div class="section">
+    <h2 class="section-title">核心功能</h2>
+    <div class="feature-list">
+      <div class="feature-item">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#D93025" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 17 9 11 13 15 21 7"/>
+            <polyline points="15 7 21 7 21 13"/>
+          </svg>
+        </div>
+        <div class="feature-text">
+          <h4>实时行情</h4>
+          <p>沪深京 A 股实时报价，毫秒级刷新</p>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#D93025" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"/>
+            <line x1="21" y1="21" x2="16.5" y2="16.5"/>
+          </svg>
+        </div>
+        <div class="feature-text">
+          <h4>条件选股</h4>
+          <p>按涨幅、市盈率、行业等多维度筛选</p>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#D93025" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 3v18h18"/>
+            <path d="M7 14l4-4 4 3 5-6"/>
+          </svg>
+        </div>
+        <div class="feature-text">
+          <h4>自选股追踪</h4>
+          <p>添加关注股票，涨跌提醒不错过</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 安装说明 ===== -->
+  <div class="section">
+    <h2 class="section-title">安装教程</h2>
+    <div class="install-steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h5>点击下载按钮</h5>
+          <p>下载 APK 安装包到手机</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h5>允许未知来源安装</h5>
+          <p>首次安装需在系统提示中开启"允许安装未知应用"权限</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h5>完成安装</h5>
+          <p>打开快选，开始使用</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 免责声明 ===== -->
+  <div class="disclaimer">
+    <strong>风险提示：</strong>本应用提供的行情数据及选股结果仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。据此操作，风险自担。数据如有延迟或错误，以交易所实际数据为准。
+  </div>
+
+  <div class="footer">
+    © 2026 快选 · 仅供学习交流使用
+  </div>
+
+</div>
+
+<!-- ===== 微信浏览器遮罩 ===== -->
+<div class="wx-mask" id="wxMask">
+  <svg class="wx-mask-arrow" viewBox="0 0 64 64" fill="none">
+    <path d="M40 8 L56 24 L48 32 L32 16 Z" fill="#FFD966"/>
+    <path d="M56 24 L56 48 Q56 56 48 56 L20 56" stroke="#FFD966" stroke-width="3" fill="none" stroke-linecap="round"/>
+  </svg>
+  <div class="wx-mask-content">
+    <h3>请在浏览器中打开</h3>
+    <p>微信内暂不支持直接下载 APK<br>请按以下步骤操作</p>
+    <p class="tip">点击屏幕右上角 <b>···</b><br>选择"在浏览器打开"或"在Safari打开"</p>
+  </div>
+</div>
+
+<script>
+  // 检测微信内置浏览器，弹出引导遮罩
+  (function() {
+    var ua = navigator.userAgent.toLowerCase();
+    var isWechat = ua.indexOf('micromessenger') > -1;
+    if (isWechat) {
+      document.getElementById('wxMask').classList.add('show');
+    }
+  })();
+</script>
+
+</body>
+</html>
