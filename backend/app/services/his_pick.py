@@ -302,6 +302,12 @@ def save_snapshot(items, day, meta):
         c = sqlite3.connect(DB, timeout=5)
         snapshot_table(c)
         ts = time.strftime('%Y-%m-%d %H:%M:%S')
+        # 🔴 2026-10-08: 写入前**强制按评分降序**再枚举 rank。
+        #   原先直接 enumerate(items) ⇒ rank 只是"调用方那份列表的下标"，而调用方是**带筛选条件**的
+        #   （竞价时段不同 filters 各写一次）⇒ rank 会互相错位、不再是评分序（实测 2026-10-08 全表无序）。
+        #   这里只重排**本次要写的顺序**，不改他原件的评分/过滤/排序逻辑（他的 processAllStocks 本就
+        #   已按评分排好，此行为对正常输入是**无操作**，只对异常输入兜底）。
+        items = sorted(items, key=lambda x: -(x.get('probability') or 0))
         for i, it in enumerate(items, 1):
             c.execute("INSERT OR REPLACE INTO his_pick_daily VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                       (day, ts, it['code'], it.get('name', ''), i, it.get('probability'),

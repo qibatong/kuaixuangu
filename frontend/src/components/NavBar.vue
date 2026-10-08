@@ -52,7 +52,7 @@
     </div>
 
     <div class="nav-tools">
-      <!-- 2026-09-27 v4.11.63《快选移动端追加清单》§三: 全局股票快速搜索(桌面入口)。
+      <!-- 2026-09-27 v4.11.63《快选股移动端追加清单》§三: 全局股票快速搜索(桌面入口)。
            手机端(≤768px)本组件自我隐藏，改由底部 AppTabBar 第 7 格承担 ——
            因为 .nav-bar 不 sticky，滚一屏就够不着这里了。 -->
       <StockSearch variant="nav" />
@@ -155,9 +155,11 @@ onMounted(() => {
 }
 .nav-brand-name {
   font-size: var(--fs-xl); font-weight: 700;
-  color: var(--accent); letter-spacing: 10px;
+  /* 2026-10-08: 品牌名 2 字→3 字（快选股→快选股）后，原 10px 字距按 3 字排会明显发散
+     （letter-spacing 是**每个字后**都加，3 字 ⇒ 两处空隙），主人认可收紧 ⇒ 10px → 6px。 */
+  color: var(--accent); letter-spacing: 6px;
   line-height: 1.1;
-  padding-left: var(--s1); /* 补偿 letter-spacing 末尾 10px 空白, 让"快选股"视觉中点 = 几何中点 */
+  padding-left: 6px;      /* 补偿 letter-spacing 末尾那 6px 空白: 视觉中点 = 几何中点 */
   margin-left: var(--s1); /* 2026-08-17 主人反馈"往右边移一点点": 整体右移 4px */
 }
 .nav-brand-text { display: flex; flex-direction: column; align-items: center; gap: var(--s1); line-height: 1.1; }

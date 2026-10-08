@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '../stores/user'
 
 /**
- * 2026-09-27 v4.11.58 前端信息架构改造（工单《快选前端信息架构改造工单》）:
+ * 2026-09-27 v4.11.58 前端信息架构改造（工单《快选股前端信息架构改造工单》）:
  *   9 个平铺顶部 tab → 5 个一级分组（竞价 / 盘中 / 复盘 / 自选 / 我的）。
  *   - 每条用户路由补 meta.group + meta.order，供 NavBar / GroupNav / AppTabBar 统一渲染；
  *   - ★ 原有 16 条路径一律不变（书签 / 分享外链不失效），只新增 /lhb 一条；

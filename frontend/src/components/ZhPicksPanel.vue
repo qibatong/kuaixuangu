@@ -275,57 +275,19 @@ body[data-bg="light"] .zh-empty { color: #6b6257; }
   .zh-table td.concept-cell { max-width: 110px; white-space: normal; line-height: 1.3; overflow-wrap: anywhere; }
 }
 
+/* ============================================================
+   🔴 2026-10-08 主人指示「竞价精选手机端看起来不方便，改成和电脑端一样的表格形式」
+   ⇒ **撤销** 2026-09-29 的卡片化（与 YijinerView 同批试的卡片，同日一并撤）。
+
+   做法：删掉 tr→卡片 / td→字段 的全套规则（含 `.zh-swipe-hint{display:none}`、
+        `.zh-scroll{overflow-x:visible}`、`.zh-table{display:block;min-width:0}`、
+        `thead{display:none}` 与 data-label 伪元素）⇒ 恢复「表头 + 列 + 横滑」，
+        手机与电脑**同一套表格结构**。
+   注：≤768px 给的 min-width 是 420px（6 列）——390px 屏只多出一点点，横滑很轻微。
+   回滚：从 git 历史取回本段原卡片规则即可。
+   ============================================================ */
 @media (max-width: 430px) {
-  .zh-swipe-hint { display: none; }          /* 卡片态不需要横滑, 提示反而误导 */
-  .zh-scroll { overflow-x: visible; }
-  .zh-table { display: block; width: 100%; min-width: 0; font-size: var(--fs-xs); }
-  .zh-table thead { display: none; }         /* 字段名改由 data-label 在卡内展示 */
-  .zh-table tbody { display: block; }
-  .zh-table tbody tr {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--s1) var(--s2);
-    padding: var(--s2) var(--s2) var(--s2);
-    margin: 0 0 var(--s2);
-    border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.1));
-    border-radius: var(--r-md);
-    background: var(--bg-panel, rgba(18, 22, 35, 0.85));
-  }
-  .zh-table tbody td {
-    display: inline-flex;
-    align-items: baseline;
-    gap: var(--s1);
-    width: auto;
-    padding: 0;
-    border: 0;
-    font-size: var(--fs-xs);
-    white-space: nowrap;
-  }
-  /* 第 1 行: 名称独占整行(名称+代码上下两行)
-     🔴 卡片态的 td 是 inline-flex ⇒ 名称格内「代码/名称」两个 div 会被并排;
-        这里显式改 block 才恢复上下两行。 */
-  .zh-table tbody td:nth-child(1) { display: block; flex: 1 0 100%; text-align: left; }
-  .zh-table tbody td:nth-child(1) .stock-code-row,
-  .zh-table tbody td:nth-child(1) .stock-name-row { display: block; }
-  .zh-table tbody td:nth-child(1) .stock-name { font-size: var(--fs-sm); }
-  /* 其余字段: 灰色标签 + 值, 自动换行铺满卡片 */
-  .zh-table tbody td:nth-child(n + 2)::before {
-    content: attr(data-label);
-    color: var(--text-muted);
-    font-size: var(--fs-xs);
-    font-weight: 400;
-  }
-  /* 概念: 独占一行且可折行(表格态被限宽截断, 卡片态要看全) */
-  .zh-table tbody td.concept-cell {
-    flex: 1 0 100%;
-    max-width: none;
-    min-width: 0;
-    margin-top: 2px;
-    white-space: normal;
-    line-height: 1.35;
-    overflow-wrap: anywhere;
-  }
+  /* 表格态表头可见 ⇒ 本条必须保留，否则首行会被 sticky 表头压住。 */
   .zh-table thead th { position: static; }
 }
 </style>

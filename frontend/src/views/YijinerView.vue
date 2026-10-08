@@ -466,70 +466,22 @@ body[data-bg="light"] .yj-chip { color: var(--watermark); }
   .yj-embedded .yj-concept { max-width: 100px; }
 }
 
+/* ============================================================
+   🔴 2026-10-08 主人指示「手机端看起来不方便，建议改成和电脑端一样的表格形式」
+   ⇒ **撤销** 2026-09-29 的卡片化（当时是主人拍板试卡片，本日主人改主意）。
+
+   做法：删掉 tr→卡片 / td→字段 的全部规则（含 `.yj-swipe-hint{display:none}`、
+        `.yj-scroll{overflow-x:visible}`、`.yj-table{display:block;min-width:0}`、
+        `thead{display:none}` 与 data-label 伪元素那一套）⇒ 恢复成
+        「表头 + 11 列 + 横滑」，手机与电脑**同一套表格结构**。
+        ≤430px 因此不再需要任何独占规则，只留下面一条必需覆盖。
+   代价（如实记）：390px 屏需横滑约 2 屏（min-width: 880px 来自 ≤768px 段），
+        横滑提示 `.yj-swipe-hint` 由 ≤768px 段打开，用户知道右边还有列。
+   回滚：从 git 历史取回本段原卡片规则即可。
+   ============================================================ */
 @media (max-width: 430px) {
-  /* ============================================================
-     🔴 2026-09-29 主人拍板：一进二**先试卡片化**（本页单独试，金睛/火眼暂不动）
-     背景: 12 列在 390px 屏上无论怎么收紧地板都要横滑 2 屏多，而手机不显示滚动条
-          ⇒ 用户常年"看不全"（当天日志/反馈都指向这一点）。
-     做法: ≤430px 把 `tr` 变卡片、`td` 变卡片内的字段，字段名由每个 `<td data-label>`
-          用 `::before` 生成 —— **纯 CSS，不动接口、不动数据结构**；
-          桌面/平板/横屏完全不受影响（断点外仍是表格）。
-     回滚: 注释/删掉本段 @media 即恢复原状（其余 ≤768px 规则保持不变）。
-     代价: 一屏约 8~9 张卡（表格约 14~18 行）—— 用"行数减半"换"字段全在一屏、零横滑"。
-     ============================================================ */
-  .yj-swipe-hint { display: none; }        /* 卡片不需要横滑, 提示反而误导 */
-  .yj-scroll { overflow-x: visible; }
-  .yj-table { display: block; width: 100%; min-width: 0; font-size: var(--fs-xs); }
-  .yj-table thead { display: none; }       /* 字段名改由 data-label 在卡内展示 */
-  .yj-table tbody { display: block; }
-  .yj-table tbody tr {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--s1) var(--s2);
-    padding: var(--s2) var(--s2) var(--s2);
-    margin: 0 0 var(--s2);
-    border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.1));
-    border-radius: var(--r-md);
-    background: var(--bg-panel, rgba(18, 22, 35, 0.85));
-  }
-  .yj-table tbody td {
-    display: inline-flex;
-    align-items: baseline;
-    gap: var(--s1);
-    width: auto;
-    padding: 0;
-    border: 0;
-    font-size: var(--fs-xs);
-    white-space: nowrap;
-  }
-  /* 第 1 行：名次(🏆/序号) + 名称(撑满, 逼后面字段换行) + 综合评分(靠右, 与名称同一行) */
-  .yj-table tbody td:nth-child(1) { flex: 0 0 auto; }
-  .yj-table tbody td:nth-child(2) { flex: 1 1 auto; min-width: 0; text-align: left; }
-  .yj-table tbody td:nth-child(2) .yj-name-main { display: block; font-size: var(--fs-sm); }
-  .yj-table tbody td:nth-child(2) .yj-name-sub { display: block; }
-  .yj-table tbody td:nth-child(3) { flex: 0 0 auto; margin-left: auto; }
-  /* 其余字段：灰标签 + 值, 自动换行铺满卡片（一行能放几个就放几个） */
-  .yj-table tbody td:nth-child(n + 4)::before {
-    content: attr(data-label);
-    color: var(--text-muted);
-    font-size: var(--fs-xs);
-    font-weight: 400;
-  }
-  /* 概念：独占一行且可折行（表格态被 118px 限宽 + 省略号截断, 卡片态要能看全）
-     🔴 2026-09-29: 原用 nth-child(12) —— 去掉「行业」列后概念变第 11 列, 序号会失配;
-       改为按类名选择(.yj-concept), 列增删不再需要改这里。 */
-  .yj-table tbody td.yj-concept {
-    flex: 1 0 100%;
-    max-width: none;
-    min-width: 0;
-    margin-top: 2px;
-    white-space: normal;
-    line-height: 1.35;
-    overflow-wrap: anywhere;   /* 同上: 保住 MiniLED/CPO 等英文概念不被拦腰断开 */
-  }
-  /* 与 2026-09-28 那段注释同因(本 tab 没有 .home-filter ⇒ sticky 变量沿用旧值会压首行);
-     卡片态 thead 已隐藏, 这里保留是为防以后有人在卡片上方又补表头时踩同一个坑。 */
+  /* 与 2026-09-28 那段注释同因(本 tab 没有 .home-filter ⇒ sticky 变量沿用旧值会压首行)。
+     表格态表头可见 ⇒ 这条**必须保留**，否则首行会被 sticky 表头压住。 */
   .yj-panel .yj-table thead th { position: static; }
 }
 </style>

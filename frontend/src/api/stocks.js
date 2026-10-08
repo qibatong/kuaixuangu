@@ -65,7 +65,7 @@ export function stockDetail(code) {
   return request('/api/stock/detail', { query: { code } })
 }
 
-// 2026-09-27 v4.11.63 全市场股票快速搜索(《快选移动端追加清单》§三「🔍 跳股」)。
+// 2026-09-27 v4.11.63 全市场股票快速搜索(《快选股移动端追加清单》§三「🔍 跳股」)。
 // 输入：代码 / 中文名片段 / 拼音首字母，三种可混用。
 // 返回 { ok, q, count, list:[{ code, name, board, py }] }。
 // ★ 清单原文写「纯前端、零后端改动」，但实测本仓**没有任何全市场名录接口**，

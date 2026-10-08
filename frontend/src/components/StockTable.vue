@@ -120,7 +120,7 @@ import { fmtNum, pct } from '../utils/format'
 // 🔴 `lbTip` 已不再引入: 2026-09-23 15:5x 主人要求取消连板标签的悬停提示(函数仍留在 lb.js)。
 import { lbClass, lbLabel } from '../utils/lb'
 import { useYidongMonitor } from '../composables/useYidongMonitor'
-// 2026-09-27 v4.11.64「异动风险」徽章（《快选异动停牌风险功能工单》§六：打通选股名单）
+// 2026-09-27 v4.11.64「异动风险」徽章（《快选股异动停牌风险功能工单》§六：打通选股名单）
 // ★ 用 AutoLoad 版：它在 **onMounted** 里惰性拉取。不能放 setup 顶层 ——
 //   setup 在 SSR/单测里会执行、onMounted 不会，顶层拉取会在 Node 里发真实 fetch。
 import { useDevWarnAutoLoad } from '../composables/useDevWarn'

@@ -118,9 +118,21 @@ def _snapshot_items():
         if not day:
             c.close()
             return [], ''
+        # 🔴 2026-10-08 主人反馈「竞价选股排序不是按照评分的」——根因就在这里：
+        #   原为 `ORDER BY rank`，而 `rank` 是 **save_snapshot 按"那一次请求过滤后的列表下标"** 写的
+        #   ⇒ 只要同一天被**不同筛选条件**写过两次（竞价时段前端会带不同 markets/阈值各请求一次），
+        #     两套枚举就会互相错位 ⇒ 表里的 rank 序 **不再等于评分序**（实测 2026-10-08：
+        #     336 行、rank 连续且唯一，但评分序列是 48,95,48,48,95… ⇒ 完全无序；
+        #     而 2026-10-03 那次 113 行是**有序**的 ⇒ 属"有时才坏"的静默脏数据）。
+        #   修法：**一律按评分降序取数**（评分相同的再按 rank 稳定兜底）。
+        #   三重收益：① 前端看到的顺序 = 他的原件语义（`sort((a,b)=>b.probability-a.probability)`）；
+        #             ② 历史脏快照**无需改库即刻自愈**（读侧就已排好）；
+        #             ③ 9:30 后的「读快照→刷现涨→回写」路径用的就是本函数的顺序 ⇒ 回写时顺便
+        #                把库里的 rank 一并修正（自愈，见 services/his_pick.save_snapshot 的兜底排序）。
         rows = c.execute("""SELECT code, name, probability, confidence, bid_change, real_change,
                                    entity_change, warn_type, industry, concept, bid_turnover
-                            FROM his_pick_daily WHERE trade_date=? ORDER BY rank""", (day,)).fetchall()
+                            FROM his_pick_daily WHERE trade_date=?
+                            ORDER BY probability DESC, rank""", (day,)).fetchall()
         c.close()
         items = [{'code': x[0], 'name': x[1], 'probability': x[2], 'confidence': x[3],
                   'bidChange': x[4], 'realChange': x[5], 'entityChange': x[6], 'warnType': x[7],

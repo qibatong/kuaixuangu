@@ -31,18 +31,17 @@
     text-align: center;
     padding: 48px 0 28px;
   }
+  /* 2026-10-08: 图标从内联 SVG 换成站点 logo（<img>）⇒ 去掉渐变底与 svg 尺寸规则，
+     只留圆角/投影；object-fit 兜住非正方形源图 */
   .app-icon {
+    display: block;
     width: 84px;
     height: 84px;
     border-radius: 20px;
-    background: linear-gradient(135deg, #D93025 0%, #B31E14 100%);
+    object-fit: cover;
     margin: 0 auto 18px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     box-shadow: 0 8px 24px rgba(217, 48, 37, 0.25);
   }
-  .app-icon svg { width: 44px; height: 44px; }
   .app-name {
     font-size: 28px;
     font-weight: 700;
@@ -248,13 +247,9 @@
 
   <!-- ===== Hero ===== -->
   <div class="hero">
-    <div class="app-icon">
-      <!-- App 图标：可替换成你自己的 logo -->
-      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 17 L9 11 L13 15 L21 6"/>
-        <path d="M15 6 L21 6 L21 12"/>
-      </svg>
-    </div>
+    <!-- 2026-10-08 主人要求：下载页图标换成**站点 logo**（/logo.jpg，与站内顶栏同一个文件，
+         随 public/ 一起发布；换 logo 只需替换 frontend/public/logo.jpg）。 -->
+    <img class="app-icon" src="/logo.jpg" alt="快选股" width="84" height="84">
     <h1 class="app-name">快选股</h1>
     <p class="app-slogan">实时行情 · 智能选股 · 轻松看盘</p>
   </div>

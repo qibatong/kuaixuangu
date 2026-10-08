@@ -49,6 +49,24 @@
               </button>
             </div>
           </details>
+          <!-- 2026-10-08 主人要求「会员登录网站后也能下载」：与「联系客服」同一套原生 <details>
+               折叠面板（零 JS 状态、零依赖；绝对定位向上弹出 ⇒ 展开不推挤页脚）。
+               面板里给「二维码 + 下载页 + APK 直链」三条路：电脑扫码、手机长按识别、桌面一键到手。
+               二维码缺图时 AppDownloadQr 自身不渲染 ⇒ 面板仍剩两个按钮，不出现裂图。
+               🔴 本页脚只在 `!isBare` 渲染（登录页/匿名落地页不挂载）⇒ 不会与落地页首屏的
+                  下载区块同屏重复；下载配置仍只有 utils/appDownload.js 一个来源。 -->
+          <details class="footer-dl">
+            <summary class="footer-link-btn">
+              <i class="fa fa-android" aria-hidden="true"></i> 下载 App
+            </summary>
+            <div class="footer-dl-pop">
+              <AppDownloadQr :width="150" />
+              <a class="footer-link-btn" :href="APP_PAGE_URL">
+                <i class="fa fa-download" aria-hidden="true"></i> 打开下载页
+              </a>
+              <a class="footer-link-btn" :href="APP_APK_URL" download="快选股.apk">直接下载 APK</a>
+            </div>
+          </details>
         </nav>
         <div class="disclaimer">本平台仅提供软件工具使用权，不构成任何投资建议，股市有风险，投资需谨慎。</div>
         <div class="footer-copy">
@@ -81,6 +99,9 @@ import PwaBar from './components/PwaBar.vue'
 const StockChartModal = defineAsyncComponent(() => import('./components/StockChartModal.vue'))
 import { uiBus, openStockChart, closeStockChart } from './composables/uiBus'
 import ContactQr from './components/ContactQr.vue'   // 2026-10-05 客服二维码（页脚展开面板）
+// 2026-10-08 主人要求「会员登录后也能下载 App」：页脚新增「下载 App」折叠面板
+import AppDownloadQr from './components/AppDownloadQr.vue'
+import { APP_APK_URL, APP_PAGE_URL } from './utils/appDownload'
 import { useTheme } from './composables/useTheme'
 import { useUserStore } from './stores/user'
 // 2026-10-04 安卓壳: 物理返回键接管(仅壳内生效, 网页恒 no-op)。必须 setup 顶层调用。
@@ -362,18 +383,19 @@ onBeforeUnmount(() => {
   display: inline-flex; align-items: center; gap: var(--s1);
 }
 .footer-links a:hover, .footer-link-btn:hover { color: var(--accent); }
-/* 2026-10-05 页脚「联系客服」展开面板：原生 <details>，绝对定位向上弹出 ⇒ 展开不推挤页脚布局 */
-.footer-wx { position: relative; display: inline-flex; }
-.footer-wx > summary { list-style: none; }
-.footer-wx > summary::-webkit-details-marker { display: none; }
-.footer-wx-pop {
+/* 2026-10-05 页脚「联系客服」展开面板：原生 <details>，绝对定位向上弹出 ⇒ 展开不推挤页脚布局
+   2026-10-08: 「下载 App」复用同一套（选择器并列，不复制样式） */
+.footer-wx, .footer-dl { position: relative; display: inline-flex; }
+.footer-wx > summary, .footer-dl > summary { list-style: none; }
+.footer-wx > summary::-webkit-details-marker, .footer-dl > summary::-webkit-details-marker { display: none; }
+.footer-wx-pop, .footer-dl-pop {
   position: absolute; bottom: calc(100% + var(--s2)); right: 0; z-index: 60;
   display: flex; flex-direction: column; align-items: center; gap: var(--s2);
   padding: var(--s3); min-width: 168px;
   background: var(--bg-panel-solid); border: 1px solid var(--border-soft); border-radius: var(--r-md);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
 }
-.footer-wx-pop .footer-link-btn { white-space: nowrap; }
+.footer-wx-pop .footer-link-btn, .footer-dl-pop .footer-link-btn { white-space: nowrap; }
 .footer-copy {
   display: flex; flex-wrap: wrap; gap: var(--s1) var(--s4);
   align-items: center; justify-content: center;
