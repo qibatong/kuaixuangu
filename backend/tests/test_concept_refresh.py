@@ -331,3 +331,33 @@ def test_run_refresh_round_skips_non_weekend_and_timewindow(monkeypatch):
     finally:
         config.DB_FILE = orig_db
         _safe_unlink(db_path)
+
+
+# ---------------- 刷新时刻：首轮让开竞价最关键窗口（2026-10-08 主人指示） ----------------
+def test_first_refresh_slot_avoids_auction_critical_window():
+    """🔴 2026-10-08：概念刷新首轮 09:30 → **09:35**，让开竞价最关键链路。
+
+    依据（2026-10-08 生产实测，非推测）：
+      · 本服务今日 09:29:03 起跑（调度 ±1 分钟窗落点）、09:30:02 结束，**耗时 59.1s**，
+        与「定格落库 09:26:51 → 系统批次 09:27:45(48687ms) → auto_apply 09:28:16
+        → AI 名单 09:30:43」这条链路完全重叠；
+      · 同一时刻 09:29:15 出现「开盘啦数据源故障 + GetWPQC 调用失败」—— 本服务逐股打开盘啦
+        (doc94 GetStockIDPlate, MAX_WORKERS=3) 与竞价各 tab 的实时出网**共用同一份配额**
+        (跨进程信号量 sem:kpl limit=3) ⇒ 起跑时刻正是在和用户正在看的实时榜抢配额。
+    故此用例把新时刻钉死（本仓库纪律：注释不会报错，断言会）。
+    """
+    from app.services import concept_refresh as C
+    first = min(C.REFRESH_TIMES)
+    assert first == 9 * 60 + 35, \
+        "概念刷新首轮应让开竞价关键窗口(09:26~09:31)，当前首轮=%02d:%02d" % (first // 60, first % 60)
+    # 任何时段都不得落在 09:26~09:31（定格→系统批次→auto_apply→AI 名单）
+    for t in C.REFRESH_TIMES:
+        assert not (9 * 60 + 26 <= t <= 9 * 60 + 31), \
+            "时段与竞价关键窗口重叠: %02d:%02d" % (t // 60, t % 60)
+    # 午休（11:30 之后 ~ 13:00 之前）不得有刷新时段
+    assert all(t <= 11 * 60 + 30 or t >= 13 * 60 for t in C.REFRESH_TIMES), "午休时段不应刷新"
+    # 除首轮外，其余 9 个时段保持不变（本次只动首轮，不扩大改动面）
+    assert C.REFRESH_TIMES[1:] == [
+        10 * 60, 10 * 60 + 30, 11 * 60, 11 * 60 + 30,
+        13 * 60, 13 * 60 + 30, 14 * 60, 14 * 60 + 30, 15 * 60,
+    ], "除首轮外的时段不应改动"
