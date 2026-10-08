@@ -441,7 +441,8 @@ def build_png(data, date_str, out_path, fanbao=None):
     # ---------- 底部 ----------
     draw.line([MARGIN, card_y1 + 14, WIDTH - MARGIN, card_y1 + 14],
               fill=LINE, width=1)
-    brand = "快选 Kuaixuan"
+    # 2026-10-08 主人定名：「网站和 app 名称都是快选股」⇒ 连板天梯图右下角水印补「股」
+    brand = "快选股 Kuaixuan"
     draw.text((WIDTH - MARGIN - _font(13).getbbox(brand)[2], card_y1 + 22),
               brand, font=_font(13), fill=FAINT)
 

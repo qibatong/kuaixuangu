@@ -313,7 +313,8 @@ def _check_system_batch():
                 "⚠️ 今日 %s 系统自动选股批次未生成(9_25 快照可能未采集或数据源故障)。\n"
                 "已尝试后台补跑, 请稍后在「历史回看」确认; 若持续缺失请检查东财接口/快照调度。"
                 % today_str,
-                title="快选·历史回看批次缺失")
+                # 2026-10-08 主人定名：「网站和 app 名称都是快选股」
+                title="快选股·历史回看批次缺失")
         except Exception as e:
             log.error("system_batch 缺失告警推送失败 err=%s", e)
     except Exception as e:

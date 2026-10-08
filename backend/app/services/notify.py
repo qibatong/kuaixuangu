@@ -43,7 +43,8 @@ def build_message(result, filters=None, limit=None):
     limit = limit or config.NOTIFY_TOP_N
     top = (result or [])[:limit]
     markets = "、".join((filters or {}).get("markets", [])) or "沪深A股"
-    head = "【快选 · 竞价选股 %s】" % bj_date_str()
+    # 2026-10-08 主人定名：「网站和 app 名称都是快选股」⇒ 推送抬头补上「股」
+    head = "【快选股 · 竞价选股 %s】" % bj_date_str()
     sub = "%s · 入选 %d 只" % (markets, len(result or []))
     if result and len(result) > len(top):
         sub += "（展示 Top%d）" % len(top)

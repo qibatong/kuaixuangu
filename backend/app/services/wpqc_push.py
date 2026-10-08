@@ -22,7 +22,9 @@ _TOP_N = 8
 
 def _build_message(rows):
     """把尾盘抢筹榜构造成推送文本"""
-    head = "【快选 · 尾盘竞价抢筹 %s】" % notify.bj_date_str()
+    # 2026-10-08 主人定名：「网站和 app 名称都是快选股」⇒ 推送抬头补上「股」
+    # （幂等键是 `wpqc:done:<date>`，与标题无关 ⇒ 改文案不会导致重推）
+    head = "【快选股 · 尾盘竞价抢筹 %s】" % notify.bj_date_str()
     lines = [head, "尾盘竞价抢筹信号 Top%d:" % _TOP_N]
     if not rows:
         lines.append("今日尾盘无抢筹信号。")

@@ -681,16 +681,20 @@ def smtp_configured():
 
 
 def send_reset_email(to_email, reset_url, username):
-    """发送密码重置邮件(纯标准库 smtplib)"""
+    """发送密码重置邮件(纯标准库 smtplib)
+
+    2026-10-08 主人定名：「网站和 app 名称都是快选股」⇒ 正文落款与邮件主题统一补「股」。
+    （发件显示名早在 2026-08-16 就已指定为「快选股」，只有这两处漏了。）
+    """
     body = (
         "你好 %s：\n\n"
         "我们收到了重置密码的请求。请点击下面的链接设置新密码"
         "（30 分钟内有效，仅可使用一次）：\n\n%s\n\n"
         "如果这不是你本人的操作，请忽略本邮件，你的密码不会改变。\n\n"
-        "—— 快选系统"
+        "—— 快选股"
     ) % (username, reset_url)
     msg = MIMEText(body, "plain", "utf-8")
-    msg["Subject"] = Header("快选 - 重置密码", "utf-8")
+    msg["Subject"] = Header("快选股 - 重置密码", "utf-8")
     # 发件显示名: 品牌「快选股」(2026-08-16 用户指定); SMTP_FROM 是发件地址
     msg["From"] = formataddr((str(Header("快选股", "utf-8")), config.SMTP_FROM or config.SMTP_USER))
     msg["To"] = to_email
