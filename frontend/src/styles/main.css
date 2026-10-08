@@ -159,8 +159,12 @@
 
   /* 字号阶（8 档）：0.75rem=12px 是**下限**，手机上再小中文不可读。
      旧值里 0.6~0.72rem 与 10/11/11.5px 共 143 处全部吸附到 --fs-xs。 */
-  --fs-xs: 0.75rem;       /* 12px 角标/单位/表头备注 */
-  --fs-sm: 0.8125rem;     /* 13px 表格正文 */
+  --fs-xs: 0.75rem;       /* 12px 角标/单位/表头备注 **+ 密集行情表正文**
+                             🔴 2026-10-08 口径确认（主人拍板）：竞价 / 连板天梯 / 历史 / 概念等
+                             "列多行多、扫读型"的行情表，**正文就用这一档**（实测用量：/auction 2196 处、
+                             /his-pick 3743 处、/concept 9742 处）；普通列表与卡片正文仍用 --fs-sm(13)。
+                             原先注释只写"角标/备注"，与实际的表格正文用法矛盾 —— 现在口径写清。 */
+  --fs-sm: 0.8125rem;     /* 13px 表格正文（**普通表格/列表**；密集行情表见 --fs-xs） */
   --fs-base: 0.875rem;    /* 14px 正文/按钮 */
   --fs-md: 0.9375rem;     /* 15px 小标题 */
   --fs-lg: 1rem;          /* 16px 卡片标题 */
@@ -169,6 +173,17 @@
   --fs-3xl: 1.75rem;      /* 28px 大标题（旧值 1.75/1.875rem、28px 归此） */
   --fs-display: 1.5rem;   /* 24px 大数字 */
   --fs-hero: 2.875rem;    /* 46px Hero（首页主标题，仅此一处） */
+  /* ===== 展示级字号（2026-10-08 备案，**刻意不并入上面的阶梯**）=====
+     以下大字号是"一眼数字"性质的设计取值，且**已经是 rem**（会跟随用户字号档位缩放 ✓），
+     强行塞进阶梯会改变设计观感，故保留原值并在此登记，避免日后再被当成"漏网字面量"：
+       · main.css  .medal-prob-big  2.25rem(36px) / 4.125rem(66px)  奖牌概率大数字
+       · HisPickPanel .medal-prob-big 2.25rem(36px，小屏档)
+       · MedalPanel / StockTemperView .big-score 2.125rem(34px)
+       · StockDetailPanel .sd-price-num 2rem(32px) · StockChartModal .chart-empty i 2rem
+       · VipGate 2.75rem(44px) · NotFoundView 5rem(80px，404 巨型数字)
+       · main.css 媒体查询(≤768) .dominant-title 2rem(32px，手机端大标题)
+       · AdminView 里 <i class="fa fa-lock"> 的 2.25rem(36px，图标尺寸)
+     规则：**展示级字号必须是 rem**（禁止 px）—— px 不跟随用户字号设置，这才是缺陷。 */
 
   /* 圆角 4 档（旧 28 种 → 4）。50% 仅头像/圆点，不入档。 */
   --r-sm: 4px;            /* 标签/徽章 */
@@ -201,9 +216,16 @@
      栈顺序刻意"思源黑体等价优先": HarmonyOS Sans SC / MiSans / PingFang SC 与
      思源黑体(Source Han Sans = Noto Sans SC)同属现代无衬线, 华为/小米/macOS/iOS
      原生字体观感与之一致; Android 通用机由 Noto Sans CJK SC 兜底; 中文永不缺字。 */
-  --font-system: -apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC",
-                 "MiSans", "Source Han Sans SC", "Noto Sans CJK SC", "Noto Sans SC",
-                 "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+  /* 2026-10-08 字体治理（主人确认「都按你的建议来」）：把"超长栈"收敛为**拉丁优先短栈**。
+     🔴 旧栈把 PingFang / HarmonyOS / MiSans 等 CJK 族排在 "Segoe UI" **之前** ⇒ 西文与数字
+        实际落到哪一款**取决于该机器装了什么**（本机实测宽度 118.83px：既不是雅黑 126.66px、
+        也不是 Segoe 116.39px ⇒ 行为不可预测）。这既是"同一份设计在不同设备看着不一样"的来源，
+        也是用户反馈"中英文和数字观感不一致"的一部分。
+     ✅ 新栈：拉丁/数字优先取系统西文字体（SF / Segoe UI / Roboto…），中文由后面的 CJK 族兜底
+        —— 西文字体**不含汉字** ⇒ 汉字自然落到 CJK 族，两段各取所长，且每台机器上的落点可预期。 */
+  --font-system: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Source Han Sans SC", "Noto Sans CJK SC",
+    "Noto Sans SC", "Microsoft YaHei", sans-serif;
 }
 body[data-bg="light"] {
   /* 浅色主题: 纯白底(2026-09-21 主人拍板「干净化」) —— 去掉蓝灰渐变/半透明黑,
@@ -602,27 +624,41 @@ html, body, #app {
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
+/* 2026-10-08 字体治理批次 1：字体族同时挂到 html（原先只有 body ⇒ html 自身掉到浏览器默认的
+   Times New Roman；任何"不继承字体"的元素（首当其冲就是表单控件）都会露出非预期字体）。 */
+html { font-family: var(--font-system); }
 body {
 /* 2026-10-05 (S5): 默认字体改为**系统中文黑体栈** var(--font-system), 不再全局加载
-   Noto Sans SC 网络字体(main.js 已移除 400/700 两个全量子集 CSS ⇒ 入口 CSS 少 203 条
-   @font-face / 原始 215KB, 首访字体字节 459KB → 仅剩图标字体 77KB)。
-   理由与取舍: 中文 UI 用系统字体是本领域标准做法(同花顺/东财/通达信皆然), 观感几乎无损;
-   需要"统一品牌字形"的用户仍可在「我的会员 → 字体」里显式选「思源黑体」, 那时才**按需
-   动态加载**(useTheme.js 的 _FONT_CSS.sans)。
-   (数字列/股票代码/金额涨幅 19 处硬编码组件仍固定霞鹜等宽, 保证表格对齐不歪) */
+Noto Sans SC 网络字体(main.js 已移除 400/700 两个全量子集 CSS ⇒ 入口 CSS 少 203 条
+@font-face / 原始 215KB, 首访字体字节 459KB → 仅剩图标字体 77KB)。
+理由与取舍: 中文 UI 用系统字体是本领域标准做法(同花顺/东财/通达信皆然), 观感几乎无损;
+需要"统一品牌字形"的用户仍可在「我的会员 → 字体」里显式选「思源黑体」, 那时才**按需
+动态加载**(useTheme.js 的 _FONT_CSS.sans)。
+🔴 2026-10-08 变更：原注释里"数字列/股票代码 19 处固定霞鹜等宽"的做法**已整体取消** ——
+   全站实测 31 处 font-family:var(--font-mono) ⇒ 渲染出 **1104 个 ui-monospace(Consolas)**
+   元素；而霞鹜字体只在用户手动选它时才加载 ⇒ 该策略**默认根本没生效**，还造成"中文系统
+   字体 + 数字 Consolas"的混排。数字对齐改由下面两行（tnum / tabular-nums）保证 ⇒ 不再需要
+   为数字换字体族。 */
 font-family: var(--font-system);
 font-feature-settings: "tnum" 1, "lnum" 1; /* 表格数字 + 阿拉伯数字, 增强数字等宽对齐 */
-font-variant-numeric: tabular-nums;        /* 2026-10-05: 系统字体下也保证数字等宽对齐 */
+font-variant-numeric: tabular-nums;        /* 数字等宽对齐的**唯一**机制（不换字体族） */
 background: var(--bg-body);
 color: var(--text-main); padding: 2px; line-height: 1.5; min-height: 100vh;
 transition: background 0.3s, color 0.3s;
 }
+/* 2026-10-08 字体治理批次 1（本批**核心修复**）：**表单控件继承全站字体**。
+   🔴 背景：浏览器 UA 样式给 button/input/select/textarea 套的是 `Arial / 13.3333px` ——
+   它们**不继承**页面字体。生产实测：全站 **429 个可见控件 / 429 个异常 = 100%**
+   （登录页用户名框、密码框、登录按钮全是 Arial；/admin 184 个、/theme 61 个、/ 24 个…）。
+   这是"同一页面出现不同字体"影响面最大的一处，也是"全站统一用系统字体"能否落地的前提。 */
+button, input, select, textarea { font-family: inherit; font-size: inherit; }
 /* === 字体族切换: body[data-font] 控制 ===
-   字体族第一位 = 当前选中的"主角字体", 让你在对比时看到真实的字形风格;
-   但数字列 (.mono / code / .stock-code / .amount 等写死 "LXGW WenKai Mono"
-   的 19 处组件) 永远走 LXGW 保证等宽对齐, 不会受这里的切换影响.
-   所以: 正文(中文标题、段落、菜单文字)看到的是当前选的字体,
-        数字列(金额/涨幅/股票代码) 固定等宽 = 切换时仍保持表格整齐 */
+字体族第一位 = 当前选中的"主角字体", 让你在对比时看到真实的字形风格。
+🔴 2026-10-08 变更：原先"数字列写死 LXGW 等宽、不受这里的切换影响"的策略**已整体取消**
+   （实测那套默认根本没生效：霞鹜字体只在用户手动选它时才加载 ⇒ 实际落到 ui-monospace/Consolas，
+    全站 1104 个元素中英数字体断层 —— 详见上方 body 的注释）。
+   现在**所有**文字（含股票代码、金额、涨幅）都跟随用户选择的字体；
+   数字列的对齐由 body 上的 tnum / tabular-nums 保证，不需要为数字单独换字体族。 */
 /* data-font="system" (2026-10-05 S5 起为**默认**) = 系统中文黑体栈, 零下载 */
 body[data-font="system"] {
   font-family: var(--font-system);
@@ -678,7 +714,7 @@ flex-wrap: wrap; backdrop-filter: blur(4px); gap: var(--s2);
 .health-down { color: #ff9090; background: rgba(var(--accent-rgb), 0.12); border: 1px solid rgba(var(--accent-rgb), 0.35); }
 .health-none { color: var(--text-muted); background: rgba(120,160,200,0.1); border: 1px solid rgba(120,160,200,0.25); }
 
-.rule-text { font-size: var(--fs-sm); font-weight: 500; color: var(--accent-text); display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.rule-text { font-size: var(--fs-sm); font-weight: 400; color: var(--accent-text); display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
 .rule-text strong { color: #ff7b7b; }
 .right-group { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
 .btn-group { display: flex; gap: var(--s2); flex-wrap: wrap; }
@@ -902,7 +938,7 @@ text-align: center; outline: none; font-family: inherit; transition: border-colo
 .auto-tag { background: rgba(0,200,100,0.2); border-radius: var(--r-pill); padding: var(--s1) var(--s2); font-size: var(--fs-xs); color: #a2ffc2; margin-left: var(--s2); }
 .pool-expiry-info { font-size: var(--fs-xs); color: var(--warn-text); margin-left: var(--s2); background: rgba(255,150,50,0.15); padding: var(--s1) var(--s2); border-radius: var(--r-pill); white-space: nowrap; display: inline-block; }
 .pool-buttons { display: flex; gap: var(--s2); flex-wrap: wrap; }
-.pool-btn { background: rgba(50,65,100,0.6); border: 1px solid rgba(255,160,120,0.5); padding: var(--s1) var(--s4); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 500; cursor: pointer; transition: 0.2s; color: #ffe0e0; display: inline-flex; align-items: center; gap: var(--s1); }
+.pool-btn { background: rgba(50,65,100,0.6); border: 1px solid rgba(255,160,120,0.5); padding: var(--s1) var(--s4); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 400; cursor: pointer; transition: 0.2s; color: #ffe0e0; display: inline-flex; align-items: center; gap: var(--s1); }
 .pool-btn:hover { background: #ff6a3a; border-color: #fff0c0; color: white; transform: translateY(-1px); }
 .pool-list { flex: 1; min-height: 0; overflow-y: auto; margin-top: var(--s2); border-radius: var(--r-md); padding-right: 2px; }
 .pool-item { display: flex; align-items: center; justify-content: space-between; background: var(--bg-panel); margin: var(--s2) 0; padding: var(--s2) var(--s4); border-radius: var(--r-lg); border: 1px solid rgba(255,140,140,0.18); border-left: 3px solid #ff8866; transition: 0.18s; }
@@ -1797,6 +1833,10 @@ table, td, th,
   overflow: hidden !important;
   clip: rect(0, 0, 0, 0) !important;
   white-space: nowrap !important;
+  /* 2026-10-08 字体治理批次 3：本类原先**没有字号**，于是 h1.visually-hidden 继承了浏览器
+     对 <h1> 的默认 2em ⇒ 全站每页都出现一个"32px"的阶梯外值（实测抓到）。
+     它虽然不可见（只给读屏），但既然要"字号全部落在阶梯上"，就显式给一个值。 */
+  font-size: var(--fs-base) !important;
   border: 0 !important;
   }
 

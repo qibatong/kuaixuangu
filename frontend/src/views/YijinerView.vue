@@ -326,7 +326,7 @@ defineExpose({ load })
 }
 .yj-chip {
   font-size: var(--fs-xs);
-  font-weight: 500;
+  font-weight: 400;
   padding: 1px var(--s2);
   border-radius: var(--r-lg);
   border: 1px solid var(--border-soft, #3a3f4b);

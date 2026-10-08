@@ -709,7 +709,7 @@ onUnmounted(stopRealtime)
   cursor: pointer;
   font-size: var(--fs-sm);
   display: inline-flex; align-items: center; gap: var(--s2);
-  font-family: var(--font-mono);
+  font-family: inherit;
   transition: color 0.15s, border-color 0.15s;
   overflow: hidden;
 }
@@ -815,7 +815,7 @@ body[data-bg="light"] .ap-rule-in { color-scheme: light; }
   padding: 0 var(--s1);
   border-radius: var(--r-sm);
   font-size: var(--fs-xs);
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: 0;
   line-height: 1.35;
   vertical-align: 1px;

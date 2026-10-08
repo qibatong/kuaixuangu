@@ -502,7 +502,7 @@ body[data-bg="light"] .lhb-date { color-scheme: light; }
 
 /* ---- 营业部 tab ---- */
 .c-seat { flex: 1 1 auto; min-width: 0; }
-.c-seat .rn { font-size: var(--fs-sm); font-weight: 500; color: var(--text-main); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.c-seat .rn { font-size: var(--fs-sm); font-weight: 400; color: var(--text-main); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .c-seat .rc { font-size: var(--fs-xs); color: var(--text-dim); margin-top: 1px; }
 .c-seat ~ .c-net { flex: 0 0 20%; }
 .seat-caret { color: var(--text-dim); transition: transform .15s; }

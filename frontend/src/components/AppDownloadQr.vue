@@ -51,6 +51,9 @@ const failed = ref(false)
 }
 .appqr-shot:hover { transform: translateY(-1px); }
 .appqr-shot img { display: block; height: auto; max-width: 100%; border-radius: 4px; }
-.appqr-cap { font-size: var(--fs-xs); color: var(--text-muted); text-align: center; line-height: 1.6; }
-.appqr-cap small { display: block; color: var(--text-dim); }
+.appqr-cap { font-size: var(--fs-sm); color: var(--text-muted); text-align: center; line-height: 1.6; }
+/* 🔴 2026-10-08 字体治理：原先这里只写了 color，<small> 的字号由浏览器 UA 的 `smaller`
+   算出来（实测 = **10px**，全站唯一低于 12px 下限的值，且出现在每个页面的页脚）。
+   现在两端都显式落在字号阶梯上：标题 --fs-sm(13) / 版本行 --fs-xs(12)。 */
+.appqr-cap small { display: block; font-size: var(--fs-xs); color: var(--text-dim); }
 </style>

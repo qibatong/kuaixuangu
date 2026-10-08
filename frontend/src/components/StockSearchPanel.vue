@@ -207,7 +207,7 @@ body[data-bg="light"] .ss-err { color: #b87220; }
 .ss-py {
   flex: 0 0 auto;
   font-size: var(--fs-xs); color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: inherit;
   letter-spacing: 0.5px;
 }
 .ss-foot {

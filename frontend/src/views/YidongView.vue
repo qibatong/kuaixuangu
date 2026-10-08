@@ -508,7 +508,7 @@ onMounted(() => {
 
 .trigger-status {
   display: inline-block; padding: 2px var(--s2); border-radius: var(--r-sm);
-  font-size: var(--fs-xs); font-weight: 500;
+  font-size: var(--fs-xs); font-weight: 400;
   color: var(--text-faint); background: rgba(255, 255, 255, 0.05); white-space: nowrap;
 }
 .trigger-status.triggered { color: var(--accent); background: rgba(255, 77, 79, 0.15); border: 1px solid rgba(255, 77, 79, 0.4); }

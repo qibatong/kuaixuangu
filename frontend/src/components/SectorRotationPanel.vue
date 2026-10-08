@@ -92,7 +92,7 @@ onMounted(load)
 .srp-stocks-close { margin-left: auto; background: none; border: none; color: var(--text-muted, var(--text-faint)); cursor: pointer; font-size: var(--fs-base); }
 .srp-table { width: 100%; border-collapse: collapse; }
 .srp-table th, .srp-table td { padding: var(--s2) var(--s2); font-size: var(--fs-sm); text-align: left; border-top: 1px solid rgba(255,255,255,.04); }
-.srp-table th { color: var(--text-muted, var(--text-faint)); font-weight: 500; }
+.srp-table th { color: var(--text-muted, var(--text-faint)); font-weight: 400; }
 .srp-table tr { cursor: pointer; }
 .srp-table tr:hover { background: rgba(255,255,255,.04); }
 .up { color: var(--accent); }

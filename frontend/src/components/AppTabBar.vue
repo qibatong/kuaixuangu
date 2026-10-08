@@ -93,7 +93,7 @@ const activeKey = computed(() => tabbarKeyOfRoute(route))
 .tabbar-label {
   font-size: var(--fs-xs);                /* 4 格更宽松 ⇒ 由 10px 提到 11px 更好点 */
   line-height: 1;
-  font-weight: 500;
+  font-weight: 400;
   white-space: nowrap;
   /* 2026-10-01 起为 4 格（首页/竞价/盘中/我的）⇒ 单格宽 = 屏宽/4
      （375px→93.8px、320px→80px），最长标签 2 字 ⇒ 极宽松；这里仍留 overflow 兜底 */

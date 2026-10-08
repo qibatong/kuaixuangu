@@ -1208,7 +1208,7 @@ polling = usePolling(async () => {
   font-size: var(--fs-sm);
   cursor: pointer;
   transition: background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
-  font-weight: 500;
+  font-weight: 400;
   white-space: nowrap;
   position: relative;
   flex: 1;

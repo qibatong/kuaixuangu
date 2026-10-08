@@ -70,7 +70,7 @@ async function loadPlayback() {
 .table-scroll { overflow-x: auto; }
 .admin-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .admin-table th, .admin-table td { border-bottom: 1px solid var(--border-soft); padding: var(--s2) var(--s2); text-align: center; color: var(--text-secondary); }
-.admin-table th { color: var(--text-muted); font-weight: 500; }
+.admin-table th { color: var(--text-muted); font-weight: 400; }
 
 /* 浅色主题覆盖 */
 body[data-bg="light"] .card-title { color: var(--watermark); }

@@ -945,7 +945,7 @@ onMounted(() => { loadBoard(); loadUsage(); loadActive() })
 .ma-input.wide { width: 100%; max-width: 460px; }
 .ma-textarea {
   width: 100%; box-sizing: border-box; padding: var(--s2); font-size: var(--fs-sm);
-  font-family: var(--font-mono); line-height: 1.6;
+  font-family: inherit; line-height: 1.6;
   border: 1px solid var(--border-soft); border-radius: var(--r-md);
   background: var(--bg-input); color: var(--text-main); resize: vertical;
 }
@@ -963,7 +963,7 @@ onMounted(() => { loadBoard(); loadUsage(); loadActive() })
 .ma-table th { color: var(--text-muted); font-weight: 600; white-space: nowrap; }
 .ma-table tr.danger td { background: rgba(255, 106, 106, .06); }
 .ma-table .ck { width: 30px; }
-.ma-table .mono { font-family: var(--font-mono); font-size: var(--fs-xs); }
+.ma-table .mono { font-family: inherit; font-size: var(--fs-xs); }
 .ma-table .ops { white-space: nowrap; }
 .ma-table .detail { max-width: 260px; word-break: break-all; font-size: var(--fs-xs); color: var(--text-muted); }
 .ma-table .names { max-width: 320px; word-break: break-all; }
@@ -978,7 +978,7 @@ onMounted(() => { loadBoard(); loadUsage(); loadActive() })
 .ma-conf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--s3); }
 .ma-conf-item { display: flex; flex-direction: column; gap: var(--s1); }
 .ma-conf-label { font-size: var(--fs-sm); color: var(--text-secondary); }
-.ma-conf-key { font-size: var(--fs-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.ma-conf-key { font-size: var(--fs-xs); color: var(--text-muted); font-family: inherit; }
 
 /* 导入结果 */
 .ma-import-result { margin-top: var(--s3); font-size: var(--fs-xs); line-height: 1.7; }

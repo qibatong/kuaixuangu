@@ -392,14 +392,14 @@ v-for="t in memberTabs" :key="t.key" class="member-tab"
         </div>
         <div class="pager">
           <div class="pager-left">
-            <span style="color:#888;font-size:0.75rem;">每页</span>
+            <span style="color:#888;font-size: var(--fs-xs);">每页</span>
             <select v-model.number="pageSize" class="admin-input" style="width:70px;padding:5px 8px;" @change="changePageSize">
               <option :value="10">10</option>
               <option :value="20">20</option>
               <option :value="50">50</option>
               <option :value="100">100</option>
             </select>
-            <span style="color:#888;font-size:0.75rem;">条</span>
+            <span style="color:#888;font-size: var(--fs-xs);">条</span>
           </div>
           <div class="pager-right">
             <button class="page-btn" :disabled="page <= 1" @click="loadUsers(page - 1)">上一页</button>
@@ -412,7 +412,7 @@ v-for="t in memberTabs" :key="t.key" class="member-tab"
       <!-- 重置密码弹层 -->
       <div v-if="pwdTarget" class="pwd-mask" @click.self="closePwdReset">
         <div class="pwd-pop">
-          <div class="pwd-title">🔑 重置密码：{{ pwdTarget.username }}<span style="color:#999;font-size:0.75rem;margin-left:8px;">({{ pwdTarget.phone || pwdTarget.email || '-' }})</span></div>
+          <div class="pwd-title">🔑 重置密码：{{ pwdTarget.username }}<span style="color:#999;font-size: var(--fs-xs);margin-left:8px;">({{ pwdTarget.phone || pwdTarget.email || '-' }})</span></div>
           <input v-model="pwdNew" type="text" class="admin-input" style="width:100%;box-sizing:border-box;" placeholder="输入新密码(至少6位)" @keyup.enter="doResetPwd" />
           <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
             <button class="mini-btn" @click="closePwdReset">取消</button>
@@ -460,7 +460,7 @@ v-model="createForm.pay_remark" maxlength="500" rows="2" class="admin-input"
           <!-- 创建成功结果展示 -->
           <div v-if="createResult" class="create-result">
             <div><b>{{ createResult.username }}</b> 创建成功!</div>
-            <div style="margin-top:6px;font-size:0.75rem;color:#999;">
+            <div style="margin-top:6px;font-size: var(--fs-xs);color:#999;">
               ID {{ createResult.uid }} · 到期 {{ fmtBjDay(createResult.expire_at) }} · 等级 {{ levelLabel(createResult.member_level) }}
             </div>
             <div style="margin-top:8px;padding:8px;background:rgba(255,200,80,0.15);border:1px solid #ffc850;border-radius:6px;color:#ffe0a0;">
@@ -476,7 +476,7 @@ v-model="createForm.pay_remark" maxlength="500" rows="2" class="admin-input"
         <div class="pwd-pop" style="width:520px;">
           <div class="pwd-title">
 👥 邀请关系：{{ invitesTarget.username }}
-            <span style="color:#999;font-size:0.75rem;margin-left:8px;">(ID {{ invitesTarget.id }})</span>
+            <span style="color:#999;font-size: var(--fs-xs);margin-left:8px;">(ID {{ invitesTarget.id }})</span>
 </div>
           <div class="invite-chain">
             <div class="chain-row">
@@ -518,7 +518,7 @@ v-model="createForm.pay_remark" maxlength="500" rows="2" class="admin-input"
         <div class="pwd-pop" style="width:560px;">
           <div class="pwd-title">
 📝 编辑资料：{{ profileTarget.username }}
-            <span style="color:#999;font-size:0.75rem;margin-left:8px;">(ID {{ profileTarget.id }})</span>
+            <span style="color:#999;font-size: var(--fs-xs);margin-left:8px;">(ID {{ profileTarget.id }})</span>
 </div>
           <div class="profile-grid">
             <label class="profile-label">手机号
@@ -557,7 +557,7 @@ v-model="profileForm.pay_remark" maxlength="500" rows="3" class="admin-input adm
             </div>
             <div class="pop-label" style="margin-top:12px;">自定义到期日(统一设为该日)</div>
             <div class="pop-row">
-              <input v-model="batchExpireDate" type="date" class="mini-date" style="flex:1;padding:8px 12px;font-size:0.875rem;" :max="'2099-12-31'" />
+              <input v-model="batchExpireDate" type="date" class="mini-date" style="flex:1;padding:8px 12px;font-size: var(--fs-base);" :max="'2099-12-31'" />
               <button class="mini-btn batch-exp-btn" @click="batchSetDate">设为该日</button>
             </div>
             <div class="pop-row" style="margin-top:12px;">
@@ -630,7 +630,7 @@ v-model="profileForm.pay_remark" maxlength="500" rows="3" class="admin-input adm
         </div>
         <div v-if="factors[activeFactor] && factors[activeFactor].buckets" class="factor-box">
           <div class="factor-title">
-{{ factors[activeFactor].label }} <span style="color:#888;font-size:0.75rem;">（{{ factors[activeFactor].unit }}）</span>
+{{ factors[activeFactor].label }} <span style="color:#888;font-size: var(--fs-xs);">（{{ factors[activeFactor].unit }}）</span>
             <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
               默认分 <input v-model.number="factors[activeFactor].default" type="number" step="0.05" min="0" max="1" class="admin-input" style="width:70px;" />
             </span>
@@ -704,10 +704,10 @@ v-model="profileForm.pay_remark" maxlength="500" rows="3" class="admin-input adm
             评分门槛 <input v-model.number="adminDefaults.scoreFloor" type="number" min="50" max="100" class="admin-input" style="width:110px;" />
           </label>
           <!-- 2026-08-25 正逻辑: 勾上=只看这类票(不勾=剔除); tooltip 保留说明; 主人要求去掉"只看"二字 -->
-          <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size:0.8125rem;" title="勾选后只显示昨日涨停/连板股; 不勾选则剔除">
+          <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size: var(--fs-sm);" title="勾选后只显示昨日涨停/连板股; 不勾选则剔除">
             <input v-model="adminDefaults.limitUp" type="checkbox" /> 昨日涨停
           </label>
-          <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size:0.8125rem;" title="勾选后只显示 ST/停牌股; 不勾选则剔除">
+          <label class="field-label" style="display:flex;align-items:center;gap:6px;font-size: var(--fs-sm);" title="勾选后只显示 ST/停牌股; 不勾选则剔除">
             <input v-model="adminDefaults.stSuspend" type="checkbox" /> ST/停牌
           </label>
           <button class="tdx-export-btn admin-save-btn" :disabled="savingDefaults" @click="saveDefaults(false)">
@@ -716,7 +716,7 @@ v-model="profileForm.pay_remark" maxlength="500" rows="3" class="admin-input adm
           <button class="tdx-export-btn admin-save-btn save-force-btn" :disabled="savingDefaultsForce" @click="saveDefaults(true)">
             <i class="fa fa-bolt"></i> {{ savingDefaultsForce ? '生效中...' : '保存并强制生效' }}
           </button>
-          <span v-if="defaultsMsg" :class="defaultsErr ? 'admin-msg-err' : 'admin-msg-ok'" style="font-size:0.75rem;">{{ defaultsMsg }}</span>
+          <span v-if="defaultsMsg" :class="defaultsErr ? 'admin-msg-err' : 'admin-msg-ok'" style="font-size: var(--fs-xs);">{{ defaultsMsg }}</span>
         </div>
       </div>
 
@@ -1803,7 +1803,7 @@ body[data-bg="light"] .btn-create {
 .table-scroll { overflow-x: auto; }
 .admin-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .admin-table th, .admin-table td { border-bottom: 1px solid var(--border-soft); padding: var(--s2) var(--s2); text-align: center; color: var(--text-secondary); }
-.admin-table th { color: var(--text-muted); font-weight: 500; }
+.admin-table th { color: var(--text-muted); font-weight: 400; }
 .admin-tag { color: var(--gold); border: 1px solid var(--gold); border-radius: var(--r-sm); padding: 1px var(--s2); font-size: var(--fs-xs); }
 .user-tag { color: var(--text-muted); border: 1px solid var(--text-faint); border-radius: var(--r-sm); padding: 1px var(--s2); font-size: var(--fs-xs); }
 /* 角色徽标 (合并 is_admin + member_level 显示, 紧贴用户名) */
@@ -1876,7 +1876,7 @@ body[data-bg="light"] .btn-create {
 /* 用户列表: 微信名/备注小字 */
 .user-sub { font-size: var(--fs-xs); color: var(--text-muted); margin-top: 2px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-remark { color: #b8965a; }
-.user-pay { color: var(--accent-text); font-weight: 500; }
+.user-pay { color: var(--accent-text); font-weight: 400; }
 /* 会员筛选 tab */
 .member-tabs { display: flex; flex-wrap: wrap; gap: 2px; background: rgba(255,255,255,0.04); padding: 2px; border-radius: var(--r-md); }
 .member-tab { background: transparent; border: 0; color: var(--text-muted); padding: var(--s1) var(--s2); font-size: var(--fs-xs); cursor: pointer; border-radius: var(--r-sm); white-space: nowrap; }
@@ -2021,7 +2021,7 @@ body[data-bg="light"] .weight-warn { color: var(--brand-deep); }
 .cal-blank { border: none; background: transparent; cursor: default; }
 .cal-cell.today { border-color: var(--accent-deep2); }
 .cal-cell.on { background: rgba(120, 160, 255, 0.15); }
-.cal-d { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim); }
+.cal-d { font-family: inherit; font-size: var(--fs-xs); color: var(--text-dim); }
 .cal-cell.today .cal-d { color: var(--accent-text); }
 /* 🔴 事件配色收进 i-* 语义类：格子里的圆点与图例、明细里的 chip 共用同一套，
    不会出现"图例改了颜色、格子没跟着改"的漂移。 */
@@ -2033,7 +2033,7 @@ body[data-bg="light"] .weight-warn { color: var(--brand-deep); }
 .cal-legend { display: flex; flex-wrap: wrap; gap: var(--s3); margin-top: var(--s2); font-size: var(--fs-xs); color: var(--text-dim); }
 .cal-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; }
 .cal-detail { margin-top: var(--s3); border-top: 1px dashed var(--border-soft); padding-top: var(--s2); }
-.cal-detail-day { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim); margin-bottom: var(--s2); }
+.cal-detail-day { font-family: inherit; font-size: var(--fs-xs); color: var(--text-dim); margin-bottom: var(--s2); }
 .cal-row { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-xs); color: var(--text-secondary); padding: 3px 0; }
 .cal-row-txt { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cal-row-dim { color: var(--text-dim); }

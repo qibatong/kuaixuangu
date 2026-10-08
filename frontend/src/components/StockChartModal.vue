@@ -654,7 +654,7 @@ onUnmounted(() => {
 .chart-tab {
   padding: var(--s2) var(--s4); border-radius: 6px 6px 0 0; border: none; cursor: pointer;
   background: transparent; color: var(--text-secondary, var(--text-dim)); font-size: var(--fs-sm);
-  font-weight: 500; transition: background-color 0.15s, color 0.15s;
+  font-weight: 400; transition: background-color 0.15s, color 0.15s;
 }
 .chart-tab:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
 .chart-tab.active {
@@ -796,7 +796,7 @@ onUnmounted(() => {
 .bid-chg {
   display: block; margin: 2px 0 var(--s1); font-size: var(--fs-lg); font-weight: 700;
   color: var(--text-main, #f3f4f6);
-  font-family: var(--font-mono);
+  font-family: inherit;
 }
 .bid-chg.up { color: var(--up); }     /* A 股口径：红涨绿跌(2026-10-07 自查: 原裸 #ef4444/#22c55e 不随主题) */
 .bid-chg.down { color: var(--down); }

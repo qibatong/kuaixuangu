@@ -185,7 +185,7 @@ onBeforeUnmount(() => { if (idxTimer) clearInterval(idxTimer) })
 .idx-px { font-size: var(--fs-sm); font-weight: 700; font-family: inherit; }
 .idx-chg { font-size: var(--fs-xs); font-weight: 600; font-family: inherit; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .idx-chg .idx-chg-sep { color: var(--text-muted); font-weight: 400; }
-.idx-chg .idx-chg-pts { color: var(--text-secondary); font-weight: 500; }
+.idx-chg .idx-chg-pts { color: var(--text-secondary); font-weight: 400; }
 .idx-px { font-variant-numeric: tabular-nums; }
 .idx-up { color: var(--accent); }
 .idx-down { color: var(--down); }

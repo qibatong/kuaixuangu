@@ -442,11 +442,11 @@ usePolling(async () => {
 .medal-rank-icon { font-size: var(--fs-3xl); }
 .medal-name-big { font-size: var(--fs-2xl); font-weight: 700; color: var(--text-main); letter-spacing: 1px; margin: 2px 0; }
 .medal-code {
-  font-size: var(--fs-xl); font-weight: 600; color: var(--gold); cursor: pointer; font-family: var(--font-mono);
+  font-size: var(--fs-xl); font-weight: 600; color: var(--gold); cursor: pointer; font-family: inherit;
   letter-spacing: 1px; margin: 2px 0; transition: color 0.2s;
 }
 .medal-code:hover { color: var(--text-main); text-shadow: 0 0 8px rgba(255, 215, 0, 0.6); }
-.medal-prob-big { font-size: 48px; font-weight: 700; color: var(--up); line-height: 1; margin: var(--s1) 0; }
+.medal-prob-big { font-size: var(--fs-hero); font-weight: 700; color: var(--up); line-height: 1; margin: var(--s1) 0; }
 .medal-detail { font-size: var(--fs-sm); color: var(--text-secondary); display: flex; gap: var(--s3); align-items: center; }
 .medal-detail .bid-chg { color: var(--up); font-weight: 600; }
 .medal-detail .conf-val { color: var(--accent-text); font-weight: 600; }
@@ -478,7 +478,7 @@ body[data-bg="light"] .auto-tag { background: #fdf3e6; color: var(--warn-text); 
 .pool-buttons { display: flex; gap: var(--s2); flex-wrap: wrap; }
 .pool-btn {
   background: var(--bg-input); border: 1px solid var(--accent-border); padding: var(--s1) var(--s4);
-  border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 500; cursor: pointer; transition: 0.2s;
+  border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 400; cursor: pointer; transition: 0.2s;
   color: var(--accent-text); display: inline-flex; align-items: center; gap: var(--s1);
 }
 .pool-btn:hover { background: var(--accent-solid); border-color: var(--accent); color: var(--text-main); transform: translateY(-1px); }
@@ -489,7 +489,7 @@ body[data-bg="light"] .auto-tag { background: #fdf3e6; color: var(--warn-text); 
 }
 .pool-item-info { display: flex; flex-direction: column; gap: 2px; }
 .pool-stock-name { font-weight: 600; font-size: var(--fs-base); }
-.pool-stock-code { font-size: var(--fs-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.pool-stock-code { font-size: var(--fs-xs); color: var(--text-muted); font-family: inherit; }
 .pool-add-time { font-size: var(--fs-xs); color: var(--text-muted); }
 .del-single { background: var(--accent-deep); border: none; border-radius: var(--r-pill); padding: var(--s1) var(--s2); color: var(--text-main); cursor: pointer; font-size: var(--fs-xs); }
 .del-single:hover { background: var(--accent-deep2); }
@@ -541,6 +541,6 @@ body[data-bg="light"] .auto-tag { background: #fdf3e6; color: var(--warn-text); 
 @media (max-width: 768px) {
   .medal-card { min-width: 140px; }
   .medal-name-big { font-size: var(--fs-xl); }
-  .medal-prob-big { font-size: 36px; }
+  .medal-prob-big { font-size: 2.25rem; }
 }
 </style>

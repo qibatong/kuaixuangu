@@ -32,7 +32,7 @@
       <div v-if="viewMode === 'batch'" class="batch-view">
         <div class="batch-tip">按选股批次分组展示：<b>每次选股操作（锁定/筛选）为一组</b>，点击批次可展开查看该批选出的股票明细</div>
         <div v-if="batchesLoading" class="loading-placeholder"><div class="spinner"></div><div>正在加载批次...</div></div>
-        <div v-else-if="!batches.length" class="empty-state">暂无历史批次<br><span style="font-size:0.75rem">先在主页选股（锁定/筛选）后，这里就会按批次展示</span></div>
+        <div v-else-if="!batches.length" class="empty-state">暂无历史批次<br><span style="font-size: var(--fs-xs)">先在主页选股（锁定/筛选）后，这里就会按批次展示</span></div>
         <div v-else class="batch-list">
           <div v-for="b in batches" :key="b.id" class="batch-card" :class="{ expanded: expandedId === b.id }">
             <div class="batch-head" @click="toggleBatch(b.id)">
@@ -147,7 +147,7 @@
         <div class="query-tip">打开时已自动查询当月记录；<b>同一天同一只股票评分相同自动去重</b>（只保留一条）；竞价涨幅、流通市值、评分、可信度等条件可留空，留空表示不限制</div>
         <div class="query-result">
           <div v-if="loading" class="loading-placeholder"><div class="spinner"></div><div>正在查询...</div></div>
-          <div v-else-if="!rows.length" class="empty-state">没有符合条件的记录<br><span style="font-size:0.75rem">可放宽日期范围或属性条件</span></div>
+          <div v-else-if="!rows.length" class="empty-state">没有符合条件的记录<br><span style="font-size: var(--fs-xs)">可放宽日期范围或属性条件</span></div>
           <template v-else>
             <div class="query-summary">共 {{ total }} 条记录（同一天同评分自动去重）</div>
             <div style="overflow-x:auto;">
@@ -434,7 +434,7 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 .batch-head:hover { background: var(--bg-hover); }
-.batch-time { color: var(--warn-text); font-size: var(--fs-base); font-weight: 500; }
+.batch-time { color: var(--warn-text); font-size: var(--fs-base); font-weight: 400; }
 .batch-type {
   font-size: var(--fs-xs);
   border-radius: var(--r-sm);

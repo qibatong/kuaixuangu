@@ -357,7 +357,7 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
        ⇒ 真要在手机端显示它，动的是**顶栏布局**（会与「搜索居中」冲突），需要主人拍板。
      ✅ 桌面/平板（>768px）不受影响：实测 1440 / 1024 / 834 宽 × 深/浅两主题**均可见**
         （深色 #9a9a9a、浅色 #6b7280，112×13）。 */
-  .nav-brand-slogan { font-size: 10px; letter-spacing: 0.2px; opacity: 0.9; }
+  .nav-brand-slogan { font-size: var(--fs-xs); letter-spacing: 0.2px; opacity: 0.9; }
 
   /* ===== 2026-10-04 主人需求(参考开盘啦 App 截图): 手机端浅色模式顶栏改**品牌红**，
      与系统状态栏连成一体(状态栏红条见 main.css 的 body::before，iOS PWA

@@ -713,9 +713,9 @@ body[data-bg="light"] .mb-bg-btn.active { background: rgba(11, 134, 200, .12); c
 }
 .mb-login-list li:last-child { border-bottom: none; }
 .mb-lg-ic { flex: 0 0 auto; }
-.mb-lg-when { flex: 0 0 auto; font-family: var(--font-mono); color: var(--text-dim); }
+.mb-lg-when { flex: 0 0 auto; font-family: inherit; color: var(--text-dim); }
 .mb-lg-dev { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mb-lg-ip { flex: 0 0 auto; font-family: var(--font-mono); color: var(--text-dim); }
+.mb-lg-ip { flex: 0 0 auto; font-family: inherit; color: var(--text-dim); }
 .mb-lg-res { flex: 0 0 auto; color: var(--up); }
 .mb-lg-res.lg-bad, .lg-bad { color: var(--up); }
 .lg-ok { color: var(--down); }

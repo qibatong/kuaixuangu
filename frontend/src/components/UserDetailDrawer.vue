@@ -364,7 +364,7 @@ watch(open, (v) => {
 .ud-line { display: flex; gap: var(--s2); font-size: var(--fs-xs); margin-top: var(--s2); align-items: flex-start; }
 .ud-line .ud-k { flex-shrink: 0; width: 92px; color: var(--text-muted); }
 .ud-line .ud-v { flex: 1; color: var(--text-secondary); word-break: break-all; }
-.ud-line .mono { font-family: var(--font-mono); }
+.ud-line .mono { font-family: inherit; }
 .ud-chip {
   display: inline-block; padding: 1px var(--s2); margin: 0 var(--s1) var(--s1) 0; border-radius: var(--r-md);
   background: var(--bg-input); color: var(--text-secondary); font-size: var(--fs-xs);

@@ -192,7 +192,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 .ld-h1 {
   margin: var(--s3) 0 var(--s2); font-size: var(--fs-hero); line-height: 1.18;
-  font-weight: 800; letter-spacing: -0.5px; color: var(--text-main);
+  font-weight: 700; letter-spacing: -0.5px; color: var(--text-main);
 }
 .ld-sub { margin: 0; color: var(--text-secondary); font-size: var(--fs-md); line-height: 1.7; max-width: 46em; }
 .ld-cta { display: flex; flex-wrap: wrap; gap: var(--s3); margin-top: var(--s5); }

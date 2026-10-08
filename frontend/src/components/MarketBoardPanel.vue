@@ -214,12 +214,12 @@ function dirCls(v) {
 .mb-right { overflow-x: auto; }
 .mb-stocks { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); table-layout: fixed; }
 .mb-stocks th, .mb-stocks td { padding: var(--s1) var(--s2); text-align: left; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
-.mb-stocks th { color: var(--text-muted); font-weight: 500; font-size: var(--fs-xs); }
+.mb-stocks th { color: var(--text-muted); font-weight: 400; font-size: var(--fs-xs); }
 .mb-stocks .r { text-align: right; font-variant-numeric: tabular-nums; }
 .mb-stocks tbody tr { cursor: pointer; }
 .mb-stocks tbody tr:hover td { background: rgba(255,180,0,.06); }
 .mb-sname { color: var(--text-main); }
-.mb-scode { color: var(--text-muted); font-size: var(--fs-xs); font-family: var(--font-mono); }
+.mb-scode { color: var(--text-muted); font-size: var(--fs-xs); font-family: inherit; }
 .mb-tag { display: inline-block; margin-left: var(--s1); font-size: var(--fs-xs); color: var(--accent); }
 .mb-concept { color: var(--text-muted); font-size: var(--fs-xs); max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
 .mb-stocks th.sortable { cursor: pointer; }

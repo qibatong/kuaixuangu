@@ -325,7 +325,7 @@ onBeforeUnmount(() => {
 }
 .ss-tab-icon { font-size: var(--fs-xl); line-height: 1; transition: transform 0.15s; }
 .ss-tab-label {
-  font-size: var(--fs-xs); line-height: 1; font-weight: 500;
+  font-size: var(--fs-xs); line-height: 1; font-weight: 400;
   white-space: nowrap; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis;
 }

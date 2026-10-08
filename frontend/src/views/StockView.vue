@@ -623,7 +623,7 @@ body[data-bg="light"] .spot-notice b { color: #1a5fb4; }
   border-radius: var(--r-md);
   gap: var(--s1);
   line-height: 1.2;
-  font-weight: 500;
+  font-weight: 400;
   box-shadow: none;
 }
 .mode-tab.mode-tab-compact:hover { transform: none; box-shadow: none; border-color: var(--star); }
@@ -643,7 +643,7 @@ body[data-bg="light"] .spot-notice b { color: #1a5fb4; }
 .mode-tab.mode-tab-compact.active:after { display: none; }
 /* 浅色主题: 由 :root 重定义的深红 --accent 变量自动适配(白字 on 深红渐变可读),
    无需单独规则; 保留该选择器占位注释避免误以为遗漏 */
-.alert-rule.alert-rule-compact .tdx-export-btn { padding: 3px 8px; font-size: 0.75rem; gap: 3px; border-radius: 4px; font-weight: 500; }
+.alert-rule.alert-rule-compact .tdx-export-btn { padding: 3px 8px; font-size: var(--fs-xs); gap: 3px; border-radius: 4px; font-weight: 400; }
 .alert-rule.alert-rule-compact .tdx-export-btn:hover { transform: none; box-shadow: 0 2px 6px rgba(var(--accent-rgb),0.25); }
 /* 左栏筛选面板紧凑 */
 .home-col-left .filter-custom { padding: var(--s1) var(--s2); margin: var(--s1) 0; gap: var(--s1); border-radius: var(--r-md); }

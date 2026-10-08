@@ -76,14 +76,14 @@ onMounted(load)
 .hrm-empty { padding: var(--s5) 0; text-align: center; color: var(--text-muted, var(--text-faint)); font-size: var(--fs-xs); }
 .hrm-table { width: 100%; border-collapse: collapse; }
 .hrm-table th, .hrm-table td { padding: var(--s1) var(--s1); font-size: var(--fs-xs); text-align: left; }
-.hrm-table th { color: var(--text-muted, var(--text-faint)); font-weight: 500; border-bottom: 1px solid var(--border-soft, #1f2937); }
+.hrm-table th { color: var(--text-muted, var(--text-faint)); font-weight: 400; border-bottom: 1px solid var(--border-soft, #1f2937); }
 .c-src { cursor: pointer; text-align: center; }
 .c-src.on { color: var(--accent, var(--up)); font-weight: 700; }
 .hrm-table tbody tr { cursor: pointer; }
 .hrm-table tbody tr:hover { background: rgba(255,255,255,.04); }
-.c-rk { color: var(--text-muted, var(--text-faint)); width: 16px; font-family: var(--font-mono); }
+.c-rk { color: var(--text-muted, var(--text-faint)); width: 16px; font-family: inherit; }
 .c-name { color: var(--text-main, #f3f4f6); }
-.c-src { color: var(--text-muted, var(--text-faint)); font-family: var(--font-mono); text-align: center; }
+.c-src { color: var(--text-muted, var(--text-faint)); font-family: inherit; text-align: center; }
 .c-chg { text-align: right; font-weight: 600; }
 .up { color: var(--accent); }
 .down { color: var(--down); }

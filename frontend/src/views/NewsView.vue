@@ -398,7 +398,7 @@ watch(tab, (k) => {
 }
 .nf-src.src-kpl { border-color: rgba(255, 90, 60, 0.45); color: var(--up); }
 .nf-src.src-meoz { border-color: rgba(80, 160, 255, 0.45); color: #7cb6ff; }
-.nf-title { font-size: var(--fs-md); color: var(--text-main, var(--text-secondary)); font-weight: 500; }
+.nf-title { font-size: var(--fs-md); color: var(--text-main, var(--text-secondary)); font-weight: 400; }
 .nf-summary { margin: var(--s1) 0 0 var(--s8); color: var(--text-muted); font-size: var(--fs-sm); line-height: 1.55; }
 .nf-foot { margin: var(--s1) 0 0 var(--s8); display: flex; gap: var(--s4); flex-wrap: wrap; }
 .nf-link { color: #7cb6ff; font-size: var(--fs-xs); text-decoration: none; }

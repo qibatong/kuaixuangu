@@ -753,7 +753,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
      与标题的区分不靠字号，而靠 **font-weight 700 + --text-main 最高对比**（规范原话：
      "其余层级靠颜色与字重区分"）—— 这才是"少档位但不丢层级"的做法。 */
   font-size: var(--fs-xl); font-weight: 700;
-  font-family: var(--font-mono);      /* 规范：数字列必须等宽，否则金额/涨幅对不齐 */
+  font-family: inherit;      /* 规范：数字列必须等宽，否则金额/涨幅对不齐 */
   color: var(--text-main);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -762,8 +762,8 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 /* 同比副行（2026-10-06「vs 昨日同期」）：KPI 值下方一行小字，颜色 = 差值方向 */
 .czh-d {
   display: block;
-  font-size: var(--fs-xs); font-weight: 500;
-  font-family: var(--font-mono);      /* 同比数字同样要等宽 */
+  font-size: var(--fs-xs); font-weight: 400;
+  font-family: inherit;      /* 同比数字同样要等宽 */
   color: var(--text-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -788,7 +788,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
   margin-bottom: var(--s2);
 }
 .czh-rlabel { font-size: var(--fs-sm); font-weight: 700; }
-.czh-rcnt { font-size: var(--fs-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.czh-rcnt { font-size: var(--fs-xs); color: var(--text-muted); font-family: inherit; }
 .czh-rempty { font-size: var(--fs-xs); color: var(--text-dim); }
 /* 档1 深红 / 档2 红 / 档3 橙 —— 全部走令牌（裸色值由 color_guard 棘轮闸门只许减不许增） */
 .czh-rt1 { border-left-color: var(--accent-deep); background: var(--accent-bg); }
@@ -798,7 +798,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 .czh-rt3 { border-left-color: var(--warn); background: var(--warn-bg); }
 .czh-rt3 .czh-rlabel { color: var(--warn); }
 /* 榜内 chip：沿用 .czh-chip 基础样式，仅加等宽数字与可点击手感 */
-.czh-rchip { cursor: pointer; font-family: var(--font-mono); }
+.czh-rchip { cursor: pointer; font-family: inherit; }
 .czh-rchip:hover { border-color: var(--accent); }
 .czh-v.dim { color: var(--text-muted); }
 .czh-v.gold { color: var(--gold); }
@@ -814,14 +814,14 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
   padding: var(--s3); cursor: pointer; list-style: none;
 }
 .czh-sum::-webkit-details-marker { display: none; }
-.czh-brief { font-size: var(--fs-sm); color: var(--text-secondary); font-family: var(--font-mono); }
+.czh-brief { font-size: var(--fs-sm); color: var(--text-secondary); font-family: inherit; }
 .czh-brief b { color: var(--text-main); font-weight: 700; }
 .czh-cue { margin-left: auto; font-size: var(--fs-sm); color: var(--text-dim); white-space: nowrap; }
 .czh-fold-body { padding: 0 var(--s3) var(--s3); border-top: 1px solid var(--border-soft); }
 
 .czh-promo { display: flex; flex-wrap: wrap; gap: var(--s2); padding: var(--s2) 0; font-size: var(--fs-sm); color: var(--text-muted); }
 .czh-promo-i { background: var(--bg-subtle); border: 1px solid var(--border-soft); border-radius: var(--r-sm); padding: 2px var(--s2); }
-.czh-promo-i b, .czh-promo-d b { color: var(--text-main); font-weight: 700; font-family: var(--font-mono); }
+.czh-promo-i b, .czh-promo-d b { color: var(--text-main); font-weight: 700; font-family: inherit; }
 .czh-promo-d { margin-left: auto; }
 
 /* ③ 连板梯队降级后的一行卡片（2026-10-07）：感知数字 + 跳 /ladder
@@ -855,7 +855,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 }
 .czh-chip b { color: var(--text-main); font-weight: 700; }
 .czh-chip em { font-style: normal; color: var(--text-dim); }
-.czh-chip i { font-style: normal; font-family: var(--font-mono); }
+.czh-chip i { font-style: normal; font-family: inherit; }
 .czh-chip.up { border-color: rgba(var(--accent-rgb), 0.45); }
 /* 2026-10-07: 带 data-stock-code 的可点个股（chip / 龙头·中军名）——给出可点提示，
    点击由 App.vue 全局委托弹「个股详情 / 分时 / 日K」 */
@@ -877,7 +877,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 .czh-pill.p-split { background: var(--bg-subtle); color: var(--text-dim); }
 .czh-pill.p-out { background: var(--bg-subtle); color: var(--text-dim); }
 .czh-flow { font-size: var(--fs-sm); color: var(--text-muted); margin-top: var(--s1); }
-.czh-flow b { font-family: var(--font-mono); }
+.czh-flow b { font-family: inherit; }
 .czh-flow b.up { color: var(--up); }
 .czh-flow b.down { color: var(--down); }
 /* 2026-10-07: .dim（0 值 / 无数据）此前**没有任何规则** ⇒ 继承父级灰，看着像"颜色坏了"。
@@ -885,7 +885,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 .czh-flow b.dim { color: var(--text-secondary); }
 /* 龙头/中军行 —— 结构照旧页 .lrow/.ltag */
 .czh-lrow { display: flex; align-items: center; gap: var(--s1); font-size: var(--fs-sm); color: var(--text-secondary); margin-top: var(--s1); }
-.czh-lrow b { font-family: var(--font-mono); }
+.czh-lrow b { font-family: inherit; }
 .czh-lrow b.up { color: var(--up); }
 .czh-lrow b.down { color: var(--down); }
 .czh-lrow b.dim { color: var(--text-secondary); }
@@ -899,7 +899,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 .czh-amt {
   margin-left: var(--s1);
   color: var(--text-muted); font-size: var(--fs-xs);
-  font-family: var(--font-mono);
+  font-family: inherit;
 }
 /* 「新」角标（新股 / 无涨跌幅限制）：用金色中性底，**不用涨跌红绿** —— 它不是行情信号 */
 .czh-new {
@@ -954,11 +954,11 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 /* 数字列统一：等宽字体 + 定宽 + 居中。
    规范：--font-mono 用于数字（旧 4 种写法收敛为 1），否则跨行金额/涨幅对不齐。
    （原只用 tabular-nums：它只保证**同一字体内**数字等宽，不解决字体本身不一致。） */
-.czh-table .rk { color: var(--gold); font-weight: 700; width: 34px; font-family: var(--font-mono); }
-.czh-table .sc { font-weight: 700; width: 62px; font-family: var(--font-mono); }
-.czh-table .pr { color: var(--text-secondary); width: 52px; font-family: var(--font-mono); }
+.czh-table .rk { color: var(--gold); font-weight: 700; width: 34px; font-family: inherit; }
+.czh-table .sc { font-weight: 700; width: 62px; font-family: inherit; }
+.czh-table .pr { color: var(--text-secondary); width: 52px; font-family: inherit; }
 .czh-table .tg { width: 64px; }
-.czh-table .chg { width: 74px; font-family: var(--font-mono); }
+.czh-table .chg { width: 74px; font-family: inherit; }
 /* 表头可点击排序（口径与 AI 精选报告一致）：高亮作反馈，**不加箭头**
    （2026-09-05 主人明确"所有表格去掉排序箭头"）。 */
 .czh-table th.czh-th { cursor: pointer; user-select: none; }
@@ -990,7 +990,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 /* 连板徽章：文案与连板天梯 ladderText 同一口径（N板 / ≥8 → 8板+），不另造写法 */
 .czh-table .name-col .czh-board {
   display: inline-block; margin-left: var(--s1); padding: 0 var(--s1);
-  border-radius: var(--r-sm); font-size: var(--fs-xs); font-weight: 500;
+  border-radius: var(--r-sm); font-size: var(--fs-xs); font-weight: 400;
   color: var(--gold); background: var(--gold-bg);
 }
 /* 概念列：吃剩余宽度，超宽省略号（悬浮 title 看全量） */

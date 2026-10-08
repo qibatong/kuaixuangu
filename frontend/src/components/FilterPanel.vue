@@ -304,7 +304,7 @@ const layoutStyle = computed(() => {
       // 按钮组(marginLeft:auto)整体换到下一行靠右, 正是本文件头注释描述的设计。
       display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-start',
       alignItems: 'center', gap: '3px', rowGap: '5px', width: '100%',
-      boxSizing: 'border-box', fontSize: '0.75rem',
+      boxSizing: 'border-box', fontSize: 'var(--fs-xs)',
     },
     actions: {
       marginLeft: 'auto', display: 'inline-flex', alignItems: 'center',
@@ -316,11 +316,11 @@ const layoutStyle = computed(() => {
 /* 输入框样式: 仅控制输入框本身的宽度/字号, 不涉及 cell/row2 布局 */
 function inputStyle(px) {
   // 2026-09-21 P0-3 最小字号12px: 原窄屏 11px/宽屏 11.5px 统一提到 0.75rem(12px)
-  if (isWideDesktop.value) return { width: `${px}px`, padding: '1px 3px', fontSize: '0.75rem', textAlign: 'center', lineHeight: '1.3' }
+  if (isWideDesktop.value) return { width: `${px}px`, padding: '1px 3px', fontSize: 'var(--fs-xs)', textAlign: 'center', lineHeight: '1.3' }
   const maxW = (viewport.w <= 480) ? 65 : (viewport.w <= 768 ? 75 : 85)
   return {
     width: 'auto', maxWidth: `${maxW}px`, minWidth: `${Math.min(22, px)}px`,
-    padding: '2px 4px', fontSize: '0.75rem',
+    padding: '2px 4px', fontSize: 'var(--fs-xs)',
     lineHeight: '1.3', textAlign: 'center', boxSizing: 'border-box',
   }
 }

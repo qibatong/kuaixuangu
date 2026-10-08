@@ -672,7 +672,7 @@ onBeforeUnmount(() => { if (staleTimer) clearInterval(staleTimer) })
 .rot-table-scroll { overflow-x: auto; border: 1px solid var(--border-soft); border-radius: var(--r-md); }
 .rot-table { border-collapse: collapse; min-width: 100%; font-size: var(--fs-xs); }
 .rot-table th, .rot-table td { padding: var(--s1) var(--s2); text-align: center; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
-.rot-table th { background: var(--bg-subtle); color: var(--text-secondary); font-weight: 500; position: sticky; top: 0; }
+.rot-table th { background: var(--bg-subtle); color: var(--text-secondary); font-weight: 400; position: sticky; top: 0; }
 .rot-rownum { color: var(--text-muted); font-size: var(--fs-xs); min-width: 40px; }
 .rot-date { color: var(--text-secondary); font-size: var(--fs-xs); min-width: 70px; }
 .rot-cell { min-width: 80px; padding: var(--s1) var(--s1) !important; vertical-align: middle; }
