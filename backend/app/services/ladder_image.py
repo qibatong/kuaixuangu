@@ -312,7 +312,9 @@ def build_png(data, date_str, out_path, fanbao=None):
     card_top_pad = 8
     card_bottom_pad = 10
     inner_h = card_top_pad + sections_h + card_bottom_pad
-    bottom_pad = 46
+    # 2026-10-08 主人「去掉水印功能」⇒ 底部原留 46px 是给右下角品牌水印（分隔线 + 「快选股 Kuaixuan」）的，
+    #   水印去掉后收回到与左右页边距一致（MARGIN），底边留白不再比两侧宽一截。
+    bottom_pad = MARGIN
     total_h = header_h + chips_h + 6 + banner_h + inner_h + bottom_pad
 
     img = Image.new("RGB", (WIDTH, total_h), PAGE)
@@ -439,12 +441,10 @@ def build_png(data, date_str, out_path, fanbao=None):
         y += zone_h + tier_gap
 
     # ---------- 底部 ----------
-    draw.line([MARGIN, card_y1 + 14, WIDTH - MARGIN, card_y1 + 14],
-              fill=LINE, width=1)
-    # 2026-10-08 主人定名：「网站和 app 名称都是快选股」⇒ 连板天梯图右下角水印补「股」
-    brand = "快选股 Kuaixuan"
-    draw.text((WIDTH - MARGIN - _font(13).getbbox(brand)[2], card_y1 + 22),
-              brand, font=_font(13), fill=FAINT)
+    # 2026-10-08 主人「去掉水印功能」⇒ 原此处的**分隔线 + 右下角品牌水印「快选股 Kuaixuan」**
+    #   已整体移除（连同 bottom_pad 46→MARGIN，避免底部留出一条空白带）。
+    #   ⚠️ 页内的「风险提示：…不构成投资建议…」与各卡片文字**不是水印**，保持原样；
+    #      同理 main.css 的 `--watermark` 只是颜色 token 名，与本功能无关。
 
     # ---------- 写出 ----------
     _lock = threading.Lock()

@@ -14,7 +14,11 @@
     <main class="app-main">
       <router-view />
     </main>
-    <Watermark />
+    <!-- 2026-10-08 主人：「需要去掉水印功能」⇒ 全屏防截图水印（用户名 + 时间，压在内容之上）
+         已停用。组件文件保留（components/Watermark.vue 顶部有说明），要恢复只需把下面这行放回来。
+         ⚠️ 配套已同步改掉《隐私政策》里"页面带有你账号标识的水印"那句（见 LegalView.vue），
+            避免政策与实现不一致。 -->
+    <!-- <Watermark /> -->
     <!-- 全局股票图表弹窗(分时/日K/周K/月K): 全站任意表格点击股票单元格弹出(data 委托在 App) -->
     <StockChartModal
       v-if="chartVisible"
@@ -89,7 +93,10 @@
 <script setup>
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import Watermark from './components/Watermark.vue'
+// 2026-10-08 主人「去掉水印功能」⇒ 全屏水印组件停止引入（模板里那一行也已注释）。
+//   ⚠️ 若日后要恢复：取消这里的 import 注释 + 模板里 <Watermark /> 的注释，
+//      并把 LegalView.vue《隐私政策》里那句"页面带有你账号标识的水印"改回来。
+// import Watermark from './components/Watermark.vue'
 import NavBar from './components/NavBar.vue'
 import GroupNav from './components/GroupNav.vue'
 import AppTabBar from './components/AppTabBar.vue'

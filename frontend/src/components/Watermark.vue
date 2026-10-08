@@ -1,3 +1,11 @@
+<!--
+  🔴 2026-10-08 主人：「需要去掉水印功能」⇒ 本组件**已停用**（App.vue 里的 <Watermark /> 已注释掉）。
+     它是"防截图泄露、便于追溯"的特性（登录后全屏铺「快选股 · 用户名 + 时间」的斜纹）。
+     停用后截图无法追溯来源；要恢复只需取消 App.vue 里那一行的注释，并同步恢复
+     LegalView.vue《隐私政策》"页面带有你账号标识的水印"那句（现已随停用一并改掉）。
+     ⚠️ 名字相近但**无关**的东西：main.css 里的 `--watermark` 是**颜色 token**（很多页面的浅色
+        主题拿它当文字色），与本功能无关，别一起删。
+-->
 <template>
   <!-- 全屏水印: 登录后显示用户名+时间, 防截图泄露便于追溯 (pointer-events:none 不挡操作) -->
   <div v-if="show && force" ref="wmEl" class="wm-layer" :style="{ backgroundImage: `url(${bg})` }"></div>

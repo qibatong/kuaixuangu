@@ -164,9 +164,14 @@ onMounted(() => {
 }
 .nav-brand-text { display: flex; flex-direction: column; align-items: center; gap: var(--s1); line-height: 1.1; }
 .nav-brand-slogan {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-  opacity: 0.85;
+  /* 2026-10-08 主人：「左上角快选股下面的一键筛选，高效复盘，这几个字不明显，是不是可以优化一下」
+     ⇒ 原来三重叠减（12px 小字 + --text-muted 弱灰 + opacity .85）确实最弱。
+     只调这三项：字号 --fs-xs→--fs-sm、颜色 --text-muted→--text-secondary、opacity .85→1。
+     刻意不加大到 --fs-base/--fs-lg —— 标语不该抢品牌名的视觉重心（品牌名仍是 --fs-xl）。
+     色值全部走既有 token（不新增裸色，避开 color_guard；对比度同时高于原值，利于 contrast_guard）。 */
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  opacity: 1;
   white-space: nowrap;
   letter-spacing: 0.5px;
   line-height: 1.1;
@@ -197,8 +202,10 @@ body[data-bg="light"] .nav-bar {
   box-shadow: 0 1px 4px rgba(30, 40, 60, 0.06);
 }
 body[data-bg="light"] .nav-brand-name { color: #1a1d26; }
-/* 2026-10-05 (S2): 原 #8a8f9c 在白底仅 3.24:1(不达 AA) → 改用 --text-muted(#6b7280, 4.83:1) */
-body[data-bg="light"] .nav-brand-slogan { color: var(--text-muted); }
+/* 2026-10-05 (S2): 原 #8a8f9c 在白底仅 3.24:1(不达 AA) → 改用 --text-muted(#6b7280, 4.83:1)
+   2026-10-08 主人反馈"标语不明显" ⇒ 白底同样提到 --text-secondary(#5f6672)，与深色主题一起加浓；
+   对比度由 4.83:1 提升到 ~6.4:1（仍高于 AA 4.5:1 门槛，越清晰越安全）。 */
+body[data-bg="light"] .nav-brand-slogan { color: var(--text-secondary); }
 body[data-bg="light"] .nav-brand { border-right-color: #e3e6ec; }
 body[data-bg="light"] .nav-item {
   background: #f2f4f8;
