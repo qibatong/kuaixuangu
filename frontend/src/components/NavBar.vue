@@ -203,9 +203,17 @@ body[data-bg="light"] .nav-bar {
 }
 body[data-bg="light"] .nav-brand-name { color: #1a1d26; }
 /* 2026-10-05 (S2): 原 #8a8f9c 在白底仅 3.24:1(不达 AA) → 改用 --text-muted(#6b7280, 4.83:1)
-   2026-10-08 主人反馈"标语不明显" ⇒ 白底同样提到 --text-secondary(#5f6672)，与深色主题一起加浓；
-   对比度由 4.83:1 提升到 ~6.4:1（仍高于 AA 4.5:1 门槛，越清晰越安全）。 */
-body[data-bg="light"] .nav-brand-slogan { color: var(--text-secondary); }
+   2026-10-08 主人反馈"标语不明显" ⇒ 白底提到 --text-secondary(#5f6672)（实测 5.78:1）。
+   2026-10-08 二次反馈"浅色下还是不明显" ⇒ 主人拍板走「只加字重、不动红色」这一步：
+     加 font-weight 600（真粗体，渲染确定；当初被我排除的只有 500 那档），字号仍 13px、颜色仍灰。
+     🔴 为什么红不放在这里、也不放品牌名：
+       · 本块已有**红色 logo**；品牌名若也改红 ⇒ 色相差归零，整块读成一个"红坨"（白底无明度差兜底）；
+       · 品牌名对比度会从 16.83:1 掉到 6.5:1 —— AA 4.5:1 是底线不是目标，最要紧的一行字不该拿去换风格；
+       · 红色的注意力预算该花在**可点元素**（激活 tab / CTA）上 —— 延续主人 2026-09-21 定的
+         「白底细边、红色只作点缀」。饱和度色留给"需要它救命"的位置（若本步不够，下一步才考虑
+         把标语改 --accent-text #b91c1c：白底 6.47:1，比现在的灰**更高**，且红只出现在一个元素上）。
+     ⚠️ 深色主题**刻意不动**（名字红 6.19:1 + 标语 #ddd 13.79:1，已是本块最佳状态）。 */
+body[data-bg="light"] .nav-brand-slogan { color: var(--text-secondary); font-weight: 600; }
 body[data-bg="light"] .nav-brand { border-right-color: #e3e6ec; }
 body[data-bg="light"] .nav-item {
   background: #f2f4f8;
