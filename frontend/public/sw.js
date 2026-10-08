@@ -1,5 +1,5 @@
 /**
- * 快选 Service Worker —— **离线壳**（2026-10-03 · 主人决策：先做 PWA 再谈 APK 封装）
+ * 快选股 Service Worker —— **离线壳**（2026-10-03 · 主人决策：先做 PWA 再谈 APK 封装）
  *
  * 🎯 目标：断网/弱网时打开不是白屏，而是能进 App 骨架（有图标、有导航、有本地偏好）；
  *    同时**绝不缓存任何行情数据**。
@@ -74,11 +74,11 @@ self.addEventListener('activate', (e) => {
 function offlineResponse() {
   const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>快选 · 离线</title>
+<title>快选股 · 离线</title>
 <style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
 background:#0a0a0e;color:#9aa;font:14px/1.7 system-ui,sans-serif;text-align:center;padding:24px}
 b{display:block;color:#e8e8ef;font-size:16px;margin-bottom:8px}</style></head>
-<body><div><b>当前无网络</b>快选需要联网获取行情数据<br>（行情不做离线缓存，避免给您过期数据）<br>
+<body><div><b>当前无网络</b>快选股需要联网获取行情数据<br>（行情不做离线缓存，避免给您过期数据）<br>
 网络恢复后请下拉刷新</div></body></html>`
   return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } })
 }
@@ -152,9 +152,9 @@ self.addEventListener('push', (e) => {
   try {
     data = e.data ? e.data.json() : {}
   } catch (err) {
-    data = { title: '快选', body: e && e.data ? e.data.text() : '' }
+    data = { title: '快选股', body: e && e.data ? e.data.text() : '' }
   }
-  const title = data.title || '快选'
+  const title = data.title || '快选股'
   const opts = {
     body: data.body || '',
     icon: '/icon-192.png',

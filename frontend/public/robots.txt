@@ -1,4 +1,4 @@
-# 快选 · 竞价选股  https://www.kuaixuangu.cn
+# 快选股 · 竞价选股  https://www.kuaixuangu.cn
 # 2026-10-05 (A1): 此前站点**没有** robots.txt —— nginx 的 SPA 回退(try_files ... /index.html)
 #   会把 /robots.txt 当成未知路径返回 HTML 首页，爬虫拿到的是一段 HTML 而不是指令。
 #   本次补齐，并显式排除「登录墙内页面」。

@@ -1,8 +1,8 @@
 <template>
   <div class="auth-overlay">
     <div class="login-box">
-      <img src="/logo.jpg" class="login-logo" alt="快选 Kuaixuan">
-      <div class="login-title">快选</div>
+      <img src="/logo.jpg" class="login-logo" alt="快选股 Kuaixuan">
+      <div class="login-title">快选股</div>
       <div class="login-sub">{{ subText }}</div>
 
       <!-- 登录 -->

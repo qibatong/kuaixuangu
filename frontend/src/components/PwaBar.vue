@@ -28,7 +28,7 @@
 
     <template v-else>
       <i class="fa fa-download" aria-hidden="true"></i>
-      <span class="pwa-txt">把快选装到桌面，全屏打开</span>
+      <span class="pwa-txt">把快选股装到桌面，全屏打开</span>
       <button class="pwa-btn pwa-btn-main" @click="doInstall">安装</button>
       <button class="pwa-x" aria-label="关闭" @click="dismiss">✕</button>
     </template>

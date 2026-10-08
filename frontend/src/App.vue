@@ -52,7 +52,7 @@
         </nav>
         <div class="disclaimer">本平台仅提供软件工具使用权，不构成任何投资建议，股市有风险，投资需谨慎。</div>
         <div class="footer-copy">
-          <span>© {{ year }} 快选</span>
+          <span>© {{ year }} 快选股</span>
           <!-- 🔴 2026-10-05 (S6) 备案号**待主人提供**: 填好下面 ICP 常量即自动展示(绝不写假号)。
                国内经营性网站需在页脚展示 ICP 备案号并链接到 beian.miit.gov.cn。 -->
           <a v-if="ICP" class="footer-icp" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">{{ ICP }}</a>

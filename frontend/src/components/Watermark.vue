@@ -18,7 +18,7 @@ let obs = null
 
 function makeBg() {
   try {
-    const text = '快选 · ' + user.username
+    const text = '快选股 · ' + user.username
     const sub = new Date().toLocaleString('zh-CN', { hour12: false })
     // 颜色随主题: 深色背景用浅色文字, 浅色背景用深色文字(两种背景下都清晰可见)
     const isDark = themeBg.value !== 'light'

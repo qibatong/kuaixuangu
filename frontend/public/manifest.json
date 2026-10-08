@@ -1,6 +1,7 @@
 {
-  "name": "快选·AI选股",
-  "short_name": "快选",
+  "name": "快选股 · 竞价选股",
+  "description": "快选股：A 股竞价选股与盘中盯盘工具",
+  "short_name": "快选股",
   "description": "A 股竞价选股与盘中盯盘工具",
   "start_url": "/",
   "scope": "/",

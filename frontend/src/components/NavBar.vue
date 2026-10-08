@@ -18,10 +18,10 @@
         <i v-else class="fa fa-user" aria-hidden="true"></i>
       </router-link>
       <!-- 2026-09-28: 品牌副标题随 tab 改名同步（AI选股 → 竞价选股），避免站点 tooltip 指向不存在的一级概念 -->
-      <router-link to="/" class="nav-brand" title="快选 · 竞价选股">
-        <img src="/logo.jpg" class="nav-logo" alt="快选">
+      <router-link to="/" class="nav-brand" title="快选股 · 竞价选股">
+        <img src="/logo.jpg" class="nav-logo" alt="快选股">
         <div class="nav-brand-text">
-          <span class="nav-brand-name">快选</span>
+          <span class="nav-brand-name">快选股</span>
           <span class="nav-brand-slogan">一键筛选 · 高效复盘</span>
         </div>
       </router-link>
@@ -157,7 +157,7 @@ onMounted(() => {
   font-size: var(--fs-xl); font-weight: 700;
   color: var(--accent); letter-spacing: 10px;
   line-height: 1.1;
-  padding-left: var(--s1); /* 补偿 letter-spacing 末尾 10px 空白, 让"快选"视觉中点 = 几何中点 */
+  padding-left: var(--s1); /* 补偿 letter-spacing 末尾 10px 空白, 让"快选股"视觉中点 = 几何中点 */
   margin-left: var(--s1); /* 2026-08-17 主人反馈"往右边移一点点": 整体右移 4px */
 }
 .nav-brand-text { display: flex; flex-direction: column; align-items: center; gap: var(--s1); line-height: 1.1; }
@@ -335,7 +335,7 @@ body[data-bg="light"] .mini-btn:hover { background: #e8ebf1; color: #1a1d26; }
   /* 2026-10-05：把副标语的**手机端字号预先写好**（10px），供"哪天恢复手机端品牌块"时直接生效。
      🔴 但必须讲清楚：**这条规则今天是惰性的** —— 上面第 281 行 `.nav-brand { display: none }`
        （2026-10-04 主人要求「搜索栏居中」⇒ 顶栏改三列等宽栅格，左列只留头像，**整个品牌块
-       logo + 「快选」+ 标语一起让位**）把父节点藏掉了。只改标语自己的 display/size 是没用的：
+       logo + 「快选股」+ 标语一起让位**）把父节点藏掉了。只改标语自己的 display/size 是没用的：
        实测 390px 下 `.nav-brand` 与 `.nav-brand-slogan` 的盒子都是 0×0。
        ⇒ 真要在手机端显示它，动的是**顶栏布局**（会与「搜索居中」冲突），需要主人拍板。
      ✅ 桌面/平板（>768px）不受影响：实测 1440 / 1024 / 834 宽 × 深/浅两主题**均可见**

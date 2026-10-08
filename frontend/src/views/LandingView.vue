@@ -73,7 +73,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
 <template>
   <div class="page-shell ld-page">
-    <h1 class="visually-hidden">快选 · 竞价选股</h1>
+    <h1 class="visually-hidden">快选股 · 竞价选股</h1>
 
     <!-- ================= 首屏：价值主张 + 双 CTA ================= -->
     <section class="ld-hero">
@@ -136,11 +136,11 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
               <span>手机扫码，或在浏览器打开<a href="/app.html">下载页</a></span>
             </li>
             <li><b>2</b><span>首次安装需在系统提示里允许「未知来源应用」</span></li>
-            <li><b>3</b><span>打开快选，用同一账号登录即可</span></li>
+            <li><b>3</b><span>打开快选股，用同一账号登录即可</span></li>
           </ol>
           <div class="ld-cta">
             <a class="ld-btn ld-btn-primary" :href="APP_PAGE_URL">下载安卓版</a>
-            <a class="ld-btn ld-btn-ghost" :href="APP_APK_URL" download="快选.apk">
+            <a class="ld-btn ld-btn-ghost" :href="APP_APK_URL" download="快选股.apk">
               <i class="fa fa-download" aria-hidden="true"></i> 直接下载 APK
             </a>
           </div>
@@ -245,12 +245,12 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           <i class="fa fa-times" aria-hidden="true"></i>
         </button>
         <h3 id="ld-dl-title" class="ld-modal-h">
-          <i class="fa fa-android" aria-hidden="true"></i> 手机扫码下载「快选」
+          <i class="fa fa-android" aria-hidden="true"></i> 手机扫码下载「快选股」
         </h3>
         <AppDownloadQr :width="200" />
         <div class="ld-modal-acts">
           <a class="ld-btn ld-btn-primary" :href="APP_PAGE_URL">打开下载页</a>
-          <a class="ld-btn ld-btn-ghost" :href="APP_APK_URL" download="快选.apk">直接下载 APK</a>
+          <a class="ld-btn ld-btn-ghost" :href="APP_APK_URL" download="快选股.apk">直接下载 APK</a>
         </div>
         <p class="ld-cta-note">下载页含安装教程；微信内长按二维码识别，或点右上角「···」在浏览器打开。</p>
       </div>

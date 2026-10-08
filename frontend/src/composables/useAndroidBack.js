@@ -38,7 +38,7 @@ export function useAndroidBack() {
       return
     }
     lastBackAt = now
-    showToast('再按一次退出快选', 'info')
+    showToast('再按一次退出快选股', 'info')
   }
 
   const setup = async () => {

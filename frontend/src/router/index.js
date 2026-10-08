@@ -96,7 +96,7 @@ const router = createRouter({
 
 // 2026-09-21: 路由级 <title>, 便于多标签区分/书签辨识/前进后退历史
 // 2026-10-05 (S7): 补齐 4 个缺失键（theme/chaozhi/his-pick/messages）——
-//   缺键时兜底值 '快选' 会被拼成「**快选 · 快选 竞价选股**」(重复品牌词, 实测 4 条路由如此);
+//   缺键时兜底值 '快选股' 会被拼成「**快选股 · 快选股 竞价选股**」(重复品牌词, 实测 4 条路由如此);
 //   同时把 bigv 的「大V资讯」对齐到导航一级 pill 的「大V复盘」(useNavGroups.js:103),
 //   避免"点的是大V复盘、标签写的是大V资讯"的自相矛盾。
 const TITLES = {
@@ -109,15 +109,15 @@ const TITLES = {
   terms: '用户协议', privacy: '隐私政策', refund: '退款说明',
 }
 // 2026-10-05 (S7): 未登录首屏（/，落地页）给一个能进搜索/分享卡片的标题，
-//   不再让新用户第一眼看到「选股 · 快选 竞价选股」这种内部术语。
-const GUEST_TITLE = '快选 · 竞价选股｜早 9:25 定格名单，一键导出通达信'
+//   不再让新用户第一眼看到「选股 · 快选股 竞价选股」这种内部术语。
+const GUEST_TITLE = '快选股 · 竞价选股｜早 9:25 定格名单，一键导出通达信'
 router.afterEach((to) => {
-  if (to.name === 'login') { document.title = '登录 · 快选'; return }
-  if (to.name === 'notFound') { document.title = '页面不存在 · 快选'; return }
+  if (to.name === 'login') { document.title = '登录 · 快选股'; return }
+  if (to.name === 'notFound') { document.title = '页面不存在 · 快选股'; return }
   if (to.name === 'stock' && !useUserStore().isLoggedIn) { document.title = GUEST_TITLE; return }
   // 2026-09-28: 站点后缀随 tab 改名同步（AI选股 → 竞价选股）
   const t = TITLES[to.name]
-  document.title = t ? `${t} · 快选 竞价选股` : '快选 · 竞价选股'
+  document.title = t ? `${t} · 快选股 竞价选股` : '快选股 · 竞价选股'
 })
 
 // 路由守卫: 除白名单外均需登录; 已登录访问 /login 跳回主页; /admin 需管理员

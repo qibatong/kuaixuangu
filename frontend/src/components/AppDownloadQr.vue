@@ -1,5 +1,5 @@
 <template>
-  <!-- 「快选」安卓 App 下载二维码（未登录访客可见，落地页首屏弹层 + 中部下载区块共用）。
+  <!-- 「快选股」安卓 App 下载二维码（未登录访客可见，落地页首屏弹层 + 中部下载区块共用）。
        🔴 设计要点与 ContactQr.vue 同套：图片缺失时**整块不渲染**（@error ⇒ failed=true）——
           图还没放进仓库就先上线时，页面上不会出现裂图/空框，旁边「下载安卓版」按钮照常可用。
        图片来源 = /app-qr.png，文件位置 = frontend/public/app-qr.png
@@ -17,7 +17,7 @@
       <img
         :src="APP_QR"
         :style="{ width: width + 'px' }"
-        :alt="'快选安卓版下载二维码：扫码打开下载页 ' + APP_PAGE_URL"
+        :alt="'快选股安卓版下载二维码：扫码打开下载页 ' + APP_PAGE_URL"
         loading="lazy"
         @error="failed = true"
       />
