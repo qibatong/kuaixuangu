@@ -297,7 +297,21 @@ def snapshot_table(conn):
 
 
 def save_snapshot(items, day, meta):
-    """把"他选出的名单"落**我们自己的库**（纯写入，不再打东财 ⇒ 不会加剧本就紧张的额度）"""
+    """把"他选出的名单"落**我们自己的库**（纯写入，不再打东财 ⇒ 不会加剧本就紧张的额度）
+
+    🔴 2026-10-08 主人反馈「网页版只有 100 多只，我们有 300 多只」⇒ 根因 = **当日名单在累积**：
+      原件语义是"**一次拉取 + 一次过滤 = 一份名单**"——浏览器端 `cachedStocks` 每次都被**整份替换**
+      （9:30 前"重新选股"重算覆盖，9:30 后冻结、只刷现涨不重算）⇒ 名单**从不做并集**。
+      而本表主键是 (trade_date, code)、写入用 INSERT OR REPLACE ⇒ 当天**不同筛选条件**
+      （markets / 阈值 / limitUp 各改一次）各写一份，结果就**并进了同一天**：
+      实测 2026-10-08 `his_pick_meta.pool_size=200`（200 只池子的上限**在生效**）但 `picked=336`、
+      且含 **12 行 `warn_type≥5`**（当时勾着"剔除昨日涨停"，本不该出现）
+      ⇒ **名单比池子还大**，这是并集的铁证（网页版 10-03 那天只有一次请求 ⇒ 113 只 ✓ 正常）。
+
+    修法：**当日整批替换** —— 写入前先 `DELETE` 当日旧行（= 原件"覆盖"语义，不是并集）；
+      历史日期不受影响（仍可按日回看）。同一份名单被 9:30 后的"刷现涨回写"再写一次时，
+      也是整批替换（内容同集，仅现涨/实体新值）⇒ 不会重新长胖。
+    """
     try:
         c = sqlite3.connect(DB, timeout=5)
         snapshot_table(c)
@@ -308,6 +322,9 @@ def save_snapshot(items, day, meta):
         #   这里只重排**本次要写的顺序**，不改他原件的评分/过滤/排序逻辑（他的 processAllStocks 本就
         #   已按评分排好，此行为对正常输入是**无操作**，只对异常输入兜底）。
         items = sorted(items, key=lambda x: -(x.get('probability') or 0))
+        # 🔴 2026-10-08 修复「名单累积」：当日整批替换（先清后写），与原件"覆盖"语义一致。
+        #    不加这一行 ⇒ 本日不同筛选条件的结果会并集，实测 336 行 > 池子 200 行（见函数 docstring）。
+        c.execute("DELETE FROM his_pick_daily WHERE trade_date=?", (day,))
         for i, it in enumerate(items, 1):
             c.execute("INSERT OR REPLACE INTO his_pick_daily VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                       (day, ts, it['code'], it.get('name', ''), i, it.get('probability'),

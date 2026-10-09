@@ -19,9 +19,13 @@ export function usePolling(fn, intervalMs,
   const lastError = ref(null)
 
   function currentDelay() {
-    if (!backoff || failStreak <= 0) return intervalMs
+    // 2026-10-09: intervalMs 支持**函数**(动态间隔) —— 竞价爆量在 09:26:00~09:30:00
+    // 「等 9_25 定格数据」窗口内提速到 10s, 窗口外维持调用方的原间隔。
+    // 传数字时行为与改造前完全一致(向后兼容)。
+    const base = (typeof intervalMs === 'function') ? intervalMs() : intervalMs
+    if (!backoff || failStreak <= 0) return base
     // 2^失败次数 递增, 封顶 maxBackoffMs(默认 5 分钟)
-    return Math.min(intervalMs * Math.pow(2, failStreak), maxBackoffMs)
+    return Math.min(base * Math.pow(2, failStreak), maxBackoffMs)
   }
 
   function schedule() {

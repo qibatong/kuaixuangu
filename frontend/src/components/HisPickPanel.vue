@@ -10,8 +10,17 @@
   <div class="hp-root">
     <!-- ① 标题行：2026-10-03 主人指令去掉（顶部已有页面标题）-->
 
-    <!-- ② 规则条：2026-10-03 主人指令**整条删除**（原「9:30前可重新选股 · 9:30后仅更新实时涨幅」）
-         —— 该行信息与「刷新实时涨幅」按钮、页脚等处重复，主人要求去掉。 -->
+    <!-- ② 规则条（原件 .alert-rule）：2026-10-08 主人指令「按照网页原封不动」⇒ 恢复
+         （2026-10-03 曾按当时指令整条删除）。
+         ⚠️ 与原件的一处**有意差异**：原件右侧那两个按钮（「重新锁定(9:30前可用)」/「刷新实时涨幅」）
+            本页下方筛选区已有同功能按钮（应用筛选 / 刷新实时涨幅）⇒ 这里不重复放置，
+            只保留原件文案 + 原件那个**北京时间时钟**（.live-time/.time-digital，每秒走字）。 -->
+    <div class="alert-rule">
+      <div class="rule-text">
+        <i class="fa fa-clock-o"></i> <strong>9:30前可重新选股 · 9:30后仅更新实时涨幅</strong>
+      </div>
+      <div class="live-time"><div class="time-digital">{{ clock }}</div></div>
+    </div>
 
     <!-- ③ 筛选条（原件 8 项 + 应用/重置/锁定） -->
     <div class="filter-custom">
@@ -112,12 +121,17 @@
       <table v-else class="stock-table">
         <thead>
           <tr>
-            <!-- 2026-10-05 主人指令（方案 A）：① 删「行业」列；② 「综合评分」「可信度」移到「概念」左侧；
-                 ③ 股票代码挪到股票名称**下方**（照竞价优选 / AI 精选报告的写法）。
-                 列数 11 → 9，表格 min-width 随之从 1100 收到 980（见样式区）。 -->
+            <!-- 2026-10-08 主人指令（本页两轮，按最新一轮为准）：
+                 ① 列集合仍按原件（含行业 f100 / 综合评分 / 可信度）；
+                 ② 「**把股票代码放到股票名称下面**」⇒ 代码**不再独立成列**，与名称合并成一格（上下两行），
+                    列数 11 → 10；写法定式对齐 `YijinerView.vue:116-128`（站内「名称 + 代码」标准写法）；
+                 ③ 「**点击名称可以显示个股详情分时一类的**」⇒ 整格挂 `data-stock-code`/`data-stock-name`，
+                    交给 `App.vue` 的全局点击代理（与竞价优选同源）**不再自己写 @click**
+                    —— 两处都写会同一击弹两次（代理 `closest` 也会命中本格）；
+                 ④ 表头可排序保留（上一轮指令）⇒ 合并列按**名称**排序，代码随名称同格显示。 -->
             <th>排名</th>
             <th class="sortable" :class="{ active: sort.keyOf('name') }" :aria-sort="ariaSort('name')" tabindex="0"
-                @click="sort.onSort('name', 'string')" @keydown.enter.prevent="sort.onSort('name', 'string')" @keydown.space.prevent="sort.onSort('name', 'string')">名称<span class="sort-ind" aria-hidden="true">{{ sort.ind('name') }}</span></th>
+                @click="sort.onSort('name', 'string')" @keydown.enter.prevent="sort.onSort('name', 'string')" @keydown.space.prevent="sort.onSort('name', 'string')">股票名称<span class="sort-ind" aria-hidden="true">{{ sort.ind('name') }}</span></th>
             <th class="sortable" :class="{ active: sort.keyOf('bidChange') }" :aria-sort="ariaSort('bidChange')" tabindex="0"
                 @click="sort.onSort('bidChange')" @keydown.enter.prevent="sort.onSort('bidChange')" @keydown.space.prevent="sort.onSort('bidChange')">竞价涨幅<span class="sort-ind" aria-hidden="true">{{ sort.ind('bidChange') }}</span></th>
             <th class="sortable" :class="{ active: sort.keyOf('realChange') }" :aria-sort="ariaSort('realChange')" tabindex="0"
@@ -126,33 +140,34 @@
                 @click="sort.onSort('entityChange')" @keydown.enter.prevent="sort.onSort('entityChange')" @keydown.space.prevent="sort.onSort('entityChange')">实体涨幅<span class="sort-ind" aria-hidden="true">{{ sort.ind('entityChange') }}</span></th>
             <th class="sortable" :class="{ active: sort.keyOf('warnType') }" :aria-sort="ariaSort('warnType')" tabindex="0"
                 @click="sort.onSort('warnType')" @keydown.enter.prevent="sort.onSort('warnType')" @keydown.space.prevent="sort.onSort('warnType')">异动<span class="sort-ind" aria-hidden="true">{{ sort.ind('warnType') }}</span></th>
+            <th class="sortable" :class="{ active: sort.keyOf('industry') }" :aria-sort="ariaSort('industry')" tabindex="0"
+                @click="sort.onSort('industry', 'string')" @keydown.enter.prevent="sort.onSort('industry', 'string')" @keydown.space.prevent="sort.onSort('industry', 'string')">行业<span class="sort-ind" aria-hidden="true">{{ sort.ind('industry') }}</span></th>
+            <th class="sortable" :class="{ active: sort.keyOf('concept') }" :aria-sort="ariaSort('concept')" tabindex="0"
+                @click="sort.onSort('concept', 'string')" @keydown.enter.prevent="sort.onSort('concept', 'string')" @keydown.space.prevent="sort.onSort('concept', 'string')">概念<span class="sort-ind" aria-hidden="true">{{ sort.ind('concept') }}</span></th>
             <th class="sortable" :class="{ active: sort.keyOf('probability') }" :aria-sort="ariaSort('probability')" tabindex="0"
                 @click="sort.onSort('probability')" @keydown.enter.prevent="sort.onSort('probability')" @keydown.space.prevent="sort.onSort('probability')">综合评分<span class="sort-ind" aria-hidden="true">{{ sort.ind('probability') }}</span></th>
             <th class="sortable" :class="{ active: sort.keyOf('confidence') }" :aria-sort="ariaSort('confidence')" tabindex="0"
                 @click="sort.onSort('confidence')" @keydown.enter.prevent="sort.onSort('confidence')" @keydown.space.prevent="sort.onSort('confidence')">可信度<span class="sort-ind" aria-hidden="true">{{ sort.ind('confidence') }}</span></th>
-            <th class="sortable" :class="{ active: sort.keyOf('concept') }" :aria-sort="ariaSort('concept')" tabindex="0"
-                @click="sort.onSort('concept', 'string')" @keydown.enter.prevent="sort.onSort('concept', 'string')" @keydown.space.prevent="sort.onSort('concept', 'string')">概念<span class="sort-ind" aria-hidden="true">{{ sort.ind('concept') }}</span></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(it, idx) in sortedList" :key="it.code">
             <td class="rank-col">{{ idx + 1 }}</td>
-            <!-- 名称 + 代码两行，容器挂 .name-col + data-stock-* —— 与 YijinerView.vue:116 /
-                 AipickReport.vue:106 同构（其它页面就是这么写的，主人要求「参考其他的页面」）。
-                 ⚠️ 行为变化要说清：原来只有「代码」格（td.code-click）能被 App.vue 的全局代理
-                 命中弹分时，现在**整格（名称+代码）**都能弹。这不是新增功能，是把原来只覆盖
-                 代码格的既有行为扩到整格；若主人只要代码可点，说一声即可收窄。 -->
+            <!-- 「名称 + 代码」上下两行，整格挂 data-stock-* ⇒ 点**名称或代码任意位置**都由
+                 App.vue 全局代理弹个股详情/分时（App.vue:184-200 的委托：closest('.name-col, [data-stock-code]')）。
+                 写法与 YijinerView.vue:116-128 / AipickReport.vue:106 同构；**本格不写 @click**。 -->
             <td class="name-col" :data-stock-code="it.code" :data-stock-name="it.name">
               <div class="name-main">{{ it.name }}</div>
-              <div class="name-sub code-click" @click="linkToSoftware(it.code, it.name)">{{ it.code }}</div>
+              <div class="name-sub code-click">{{ it.code }}</div>
             </td>
             <td :class="cls(it.bidChange)">{{ fmt(it.bidChange) }}%</td>
             <td :class="isGreen(it) ? 'real-green' : cls(it.realChange)">{{ fmt(it.realChange) }}%</td>
             <td :class="cls(it.entityChange)">{{ fmt(it.entityChange) }}%</td>
             <td>{{ warnText(it.warnType) }}</td>
+            <td>{{ it.industry || '-' }}</td>
+            <td class="concept-col">{{ it.concept }}</td>
             <td class="prob-col">{{ it.probability }}%</td>
             <td>{{ it.confidence }}%</td>
-            <td class="concept-col">{{ it.concept }}</td>
           </tr>
         </tbody>
       </table>
@@ -161,11 +176,19 @@
          （同文案/同图标/同 @click=exportAll，实测同屏出现两次 ⇒ 用户不知道点哪个，也显得页面没做完）。
          保留表格上方工具条位置的那个，理由：它在表头之上、长列表滚动时仍能被第一眼看到。 -->
 
+    <!-- ⑧ 页脚（原件 .footnote）：2026-10-08 按原件恢复，文案**逐字照抄**原件。
+         注：其中「点击股票代码联动通达信」这句是原件原文；本站 2026-10-06 起按主人指令
+             点个股统一打开**个股详情/分时**（不跳通达信），此处保留原文以免与原件不一致，
+             若你要求改成实际行为，说一声即可（一行文案）。 -->
+    <div class="footnote">
+      <i class="fa fa-bullhorn"></i> 9:30前可唯一选股并缓存 | 9:30后仅更新实时涨幅 | 实时涨幅＜竞价涨幅自动标绿 | 点击股票代码联动通达信 | 股票池10小时防刷新锁定
+    </div>
+
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { hisPick } from '../api/hisPick'
 import { linkToSoftware } from '../utils/tdx'
 // 2026-10-08 主人反馈「部分实时涨幅不自动更新」：本页原先**没有数据轮询**（详见下方长注释）
@@ -200,6 +223,11 @@ const medals = ref([])
 const date = ref('')
 const fetchedAt = ref('')
 const tick = ref(0)                               // 不显示；只用于定期刷新下面的时间类 computed
+// 2026-10-08 原件规则条里的**北京时间时钟**（原件 .time-digital，每秒走字）。
+// ⚠️ 这是**纯本地 DOM 计时器，不发任何请求** ⇒ 与 AGENTS「禁止 5s/10s 短轮询」不冲突
+//    （那条约束针对数据请求；原件本身也是 1s 走字）。
+const clock = ref('--:--:--')
+let clockTimer = null
 const exportCount = ref(3)
 const stockPool = ref([])
 const poolLockAt = ref(0)
@@ -331,6 +359,13 @@ function exportAll() { exportByList(list.value) }
 //    ⇒ 删除本地实现，改用模块统一的 linkToSoftware（= 打开个股详情/分时）。
 //    ⚠️ 勿再在此处新增任何 treeid / 通达信协议跳转。
 
+/** 原件 updateBeijingTime()：把北京时间写进规则条时钟（每秒一次，纯本地） */
+function updateClock() {
+  const t = bj()
+  clock.value = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}:` +
+                `${String(t.getSeconds()).padStart(2, '0')}`
+}
+
 onMounted(() => {
   try {
     const lk = localStorage.getItem(LOCK_KEY)
@@ -342,7 +377,13 @@ onMounted(() => {
       poolLockAt.value = o.lockAt || 0
     }
   } catch (e) { /* ignore */ }
+  updateClock()
+  clockTimer = setInterval(updateClock, 1000)     // 原件同样 1s 走字；纯本地，无请求
   fetchData(false)
+})
+
+onUnmounted(() => {
+  if (clockTimer) { clearInterval(clockTimer); clockTimer = null }
 })
 
 /* 🔴 2026-10-08 主人反馈「竞价选股有部分实时涨幅没有自动更新」——
@@ -427,6 +468,28 @@ usePolling(async () => {
 .fh-label { color: var(--accent-text); font-weight: 600; }
 .filter-divider { color: var(--border-soft); }
 .lock-indicator { color: var(--warn-text); font-size: var(--fs-xs); }
+/* 规则条 + 页脚（原件 .alert-rule / .rule-text / .live-time / .time-digital / .footnote）
+   2026-10-08 按原件恢复。配色一律用语义 token（不照抄原件硬编码色），
+   理由与做法见本文件顶部 2026-10-04「浅色主题」说明 —— 照抄硬编码色会让白底主题整块失效。 */
+.alert-rule {
+  background: var(--accent-bg2); border-left: 4px solid var(--accent); padding: var(--s2) var(--s3);
+  border-radius: var(--r-sm); margin: var(--s2) 0; display: flex; align-items: center;
+  justify-content: space-between; flex-wrap: wrap; gap: var(--s2);
+}
+.rule-text {
+  font-size: var(--fs-xs); font-weight: 500; color: var(--accent-text);
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+}
+.rule-text strong { color: var(--accent); }
+.live-time {
+  background: var(--bg-card); border: 1px solid var(--accent-border);
+  border-radius: var(--r-sm); padding: var(--s1) var(--s3); white-space: nowrap;
+}
+.time-digital {
+  font-size: var(--fs-base); font-weight: 700; color: var(--gold-text);
+  letter-spacing: 1px; font-variant-numeric: tabular-nums;
+}
+.footnote { color: var(--text-muted); font-size: var(--fs-xs); text-align: center; padding: var(--s2) 0; }
 /* 勋章区（原件 .medal-section/.medal-card/…） */
 .medal-section {
   background: var(--bg-panel); backdrop-filter: blur(8px); border-radius: var(--r-lg); padding: var(--s4);
@@ -485,7 +548,8 @@ body[data-bg="light"] .auto-tag { background: #fdf3e6; color: var(--warn-text); 
 .pool-list { max-height: 240px; overflow-y: auto; margin-top: var(--s2); border-radius: var(--r-md); }
 .pool-item {
   display: flex; align-items: center; justify-content: space-between; background: var(--bg-subtle);
-  margin: var(--s2) 0; padding: var(--s2) var(--s3); border-radius: 16px; border-left: 3px solid var(--up);
+  /* 2026-10-08 随「行距紧凑」一并收紧：上下 8px → 2px、行间距 8px → 4px（手机端见 768 档） */
+  margin: var(--s1) 0; padding: 2px var(--s3); border-radius: 16px; border-left: 3px solid var(--up);
 }
 .pool-item-info { display: flex; flex-direction: column; gap: 2px; }
 .pool-stock-name { font-weight: 600; font-size: var(--fs-base); }
@@ -499,32 +563,37 @@ body[data-bg="light"] .auto-tag { background: #fdf3e6; color: var(--warn-text); 
   background: var(--bg-panel); backdrop-filter: blur(4px); border-radius: var(--r-md); padding: var(--s2);
   border: 1px solid var(--accent-border); margin: var(--s2) 0; overflow-x: auto;
 }
-/* 2026-10-05 方案 A：列数 11 → 9（删行业、代码并入名称列）⇒ min-width 同步下调。
-   🔴 定值依据是**实测自然宽度**，不是拍脑袋：线上量出「去掉 min-width 后表格自然宽 = 676px」，
-      而 9 列里最宽的概念列本身有 max-width:180px 兜着 ⇒ 给 720 就够（比自然宽留 ~44px 余量，
-      个别长名/长概念也不会挤断）。
-   ⚠️ 原值 1100 是从「11 列 + 4 列长表头」时代留下的：不减就等于**白留 300+px 空列宽**
-      —— 实测 980 时表格被撑到 980，各列之间大片空白，反而更不像样。 */
+/* 2026-10-08 主人指令（第二轮）：代码并入名称列（11 → 10 列）+ 列间距压缩
+   ⇒ min-width 1100 → **720px**。推导：2026-10-05 实测「9 列版去掉 min-width 的自然宽 = 676px」，
+      本轮 +行业列(约 56px) −代码独立列(并入名称后约省 30px) −列间距(10 列 × 4px ≈ 40px)
+      ⇒ 自然宽约 660~680px，取 **720** 留约 50px 余量（长名称/长概念不挤断）。
+   ⚠️ 该值只影响"窄屏时的最小宽度"（更小 = 手机上少滚一点），宽屏仍 width:100% 撑满。 */
 .stock-table { width: 100%; border-collapse: collapse; text-align: center; min-width: 720px; }
 .stock-table thead { background: var(--accent-bg); border-bottom: 2px solid var(--accent); }
-.stock-table th { padding: var(--s2) var(--s1); font-weight: 600; color: var(--accent-text); font-size: var(--fs-xs); white-space: nowrap; text-align: center; }
-.stock-table td { padding: var(--s2) var(--s1); border-bottom: 1px solid var(--border-soft); font-size: var(--fs-xs); text-align: center; }
+/* 2026-10-08 主人指令（第二轮）：「行距调整完，**列与列之间也要压缩**」
+   ⇒ 横向内边距也从 4px(--s1) 压到 **2px**（内外一致），行高保持 1.2/1.25。
+   实测：行高约 **19px**；相邻两列的"视觉间距" = 2+2 = **4px**（原先 8px）⇒ 一列密集行情表
+   在手机上横向也省出约 10 列 × 4px ≈ 40px 可视宽度。
+   正文仍是 --fs-xs(12px)：main.css 为「列多行多的行情表」指定的正文档，**不再往下压字号**。
+   （手机档再收一档，见文件末尾 768 档。） */
+.stock-table th { padding: 2px; line-height: 1.2; font-weight: 600; color: var(--accent-text); font-size: var(--fs-xs); white-space: nowrap; text-align: center; }
+.stock-table td { padding: 2px; line-height: 1.25; border-bottom: 1px solid var(--border-soft); font-size: var(--fs-xs); text-align: center; }
 .stock-table tbody tr:hover { background: var(--bg-hover); }
 .rank-col { font-weight: 700; color: var(--accent-deep); }
 .up { color: var(--up); }
 .down { color: var(--down); }
 .real-green { color: var(--down) !important; }
 .code-click { cursor: pointer; color: var(--gold) !important; font-weight: 700; }
-/* 2026-10-05 方案 A：名称格改「名称 + 代码」两行。
-   写法对齐竞价优选（.yj-name-main / .yj-name-sub，YijinerView.vue:402-403）与 AI 精选报告
-   （.name-main / .name-sub）—— 主人要求「参考其他的页面」。
-   · 名称用 --text-main + 600，代码用 --gold（沿用原 .code-click 的配色，不动视觉语言）
-   · line-height 1.3 收紧，两行合计仍比原来「代码列 + 名称列」省宽（列数 11 → 9）
-   · 整表居中（.stock-table td 就是 center）⇒ 这里**不改成左对齐**，避免又出现
-     「表头居中、内容左对齐」那种错位（YijinerView 那边踩过这个坑，注释里有记录）。 */
-.stock-table .name-col { white-space: nowrap; }
-.stock-table .name-main { font-weight: 600; color: var(--text-main); line-height: 1.3; }
-.stock-table .name-sub { font-size: var(--fs-xs); line-height: 1.3; font-variant-numeric: tabular-nums; }
+/* 2026-10-08（第二轮）：代码并入名称列 ⇒ 恢复「名称 + 代码」上下两行样式。
+   与站内同源写法一致（YijinerView.vue:401-403），并按本轮"紧凑"要求：两行之间**不加 margin**、
+   line-height 收到 1.15 ⇒ 该格总高约 12×1.15×2 ≈ 28px（仅比单行行高 19px 多一行字）。
+   `.name-col{cursor:pointer}` 只是视觉提示：**点击由 App.vue 全局代理接管**（本格不写 @click，
+   写了会与代理重复触发、同一击弹两次）。代码行沿用原件 `.code-click` 的金色加粗（= 可点语义）。
+   ⚠️ 若哪天又要把代码拆回独立列，请连带删掉这三条（别留死样式）。 */
+.stock-table .name-col { white-space: nowrap; cursor: pointer; }
+.stock-table .name-main { font-weight: 600; color: var(--text-main); line-height: 1.15; }
+.stock-table .name-sub { font-size: var(--fs-xs); line-height: 1.15; font-variant-numeric: tabular-nums; }
+/* 概念列样式 = **原件那行内联样式**逐字等价（原件：`style="max-width:180px;white-space:pre-wrap"`）。 */
 .concept-col { max-width: 180px; white-space: pre-wrap; color: var(--text-secondary); }
 .prob-col { color: var(--up); font-weight: 700; }
 /* 2026-10-05 主人要求：点表头排序。视觉照 StockTable.vue:399-418 的既有排序表头范式
@@ -542,5 +611,13 @@ body[data-bg="light"] .auto-tag { background: #fdf3e6; color: var(--warn-text); 
   .medal-card { min-width: 140px; }
   .medal-name-big { font-size: var(--fs-xl); }
   .medal-prob-big { font-size: 2.25rem; }
+  /* 2026-10-08 手机端再收一档（行距 + 列距，同一轮指令）：
+     单元格内边距 2px → **1px**（行高 1.15）、表格容器内边距 8px → 4px、股票池行上下 2px。
+     ⇒ 相邻列视觉间距 2px、行高约 16px，手机一屏可多看近一倍行数。字号不动（12px 是可读下限）。 */
+  .stock-table th, .stock-table td { padding: 1px; }
+  .stock-table th { line-height: 1.15; }
+  .stock-table td { line-height: 1.15; }
+  .stock-table-container { padding: var(--s1); }
+  .pool-item { padding: 2px var(--s2); }
 }
 </style>

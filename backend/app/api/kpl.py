@@ -348,6 +348,14 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(quota_guard("auction")
             d = kpl.query_auction_history(_today, "seal") or []
             if d:
                 log.info("bid-seal 实时为空 → 回退今日落库 %d 只", len(d))
+        if not d:
+            # 2026-10-09 第三级兜底: 猫爪 screening.ztwme(涨停委买额) —— 仅在**实时与今日落库
+            #   都返空**时触发(盘后 / 开盘啦未就绪 / 竞价早段)。
+            #   对拍依据: ztwme vs 开盘啦 Type4 bidSealAmt, 10-08/10-09/09-30 三日 419 只
+            #   比值精确 1.0000 ⇒ 同源同口径。开关 KX_SEAL_FALLBACK_MEOZ=0 关闭。
+            d = kpl.seal_from_meoz_ztwme() or []
+            if d:
+                log.info("bid-seal 实时+落库均空 → 猫爪ztwme重建 %d 只", len(d))
         # 概念列统一用开盘啦接口覆盖(只取开盘啦概念, 避免东财长串多概念混入)
         try:
             kpl.apply_board_concept(d, log_tag="auc:bid-seal", deep=True,
@@ -366,23 +374,44 @@ def api_kpl_bid_seal(request: Request, uid: int = Depends(quota_guard("auction")
 
 @router.get("/api/kpl/bid-boom")
 def api_kpl_bid_boom(request: Request, uid: int = Depends(quota_guard("auction")), date: str = ""):
-    """竞价爆量/撮合>2000万: date 空=实时, 指定日期回看历史"""
+    """竞价爆量/撮合>2000万: date 空=实时, 指定日期回看历史
+    2026-10-09 C2: 补接口级缓存(对齐 bid-seal)。此前本接口**无接口级缓存**, 而 boom
+    每次要全市场自算 + 东财点查 ⇒ 每请求都重跑一遍, 成本明显高于另两个 tab。
+    TTL 同 bid-seal: 竞价 15s(需实时感) / 盘后 300s(已定格) / 指定历史日 600s(不可变)。"""
+    from ..services.cache_store import cached_singleflight, store
+
     if date:
-        resolved = _resolve_date(date)
-        d = kpl.query_auction_history(resolved, "boom")
-        # 2026-09-05 修复"竞价爆量历史/非交易日无数据": auction_daily_history 长期无 boom 落库
-        # (仅历史极早期有), 周末前端自动回退带 date.boom 会读到空 → 当日 snapshot_bid 存在则重建
-        if not d:
+        ck = "bidboom:hist:" + date
+
+        def _load_hist():
+            resolved = _resolve_date(date)
+            d = kpl.query_auction_history(resolved, "boom")
+            # 2026-09-05 修复"竞价爆量历史/非交易日无数据": auction_daily_history 长期无 boom 落库
+            # (仅历史极早期有), 周末前端自动回退带 date.boom 会读到空 → 当日 snapshot_bid 存在则重建
+            if not d:
+                try:
+                    d = kpl._boom_from_snap(resolved) or []
+                    if d:
+                        log.info("bid-boom 历史 %s 无落库 → snapshot_bid 重建 %d 只", resolved, len(d))
+                except Exception as e:
+                    log.warning("bid-boom 历史重建失败 err=%s", e)
+                    d = []
+            # 2026-08-23: 老版落库把大盘股 floatMv 错位为极小值 → 竞换荒谬; 用当日快照修复
+            kpl.fill_bid_turnover_from_snap(d, resolved)
+            if d:
+                d = [it for it in d if (it.get("bidChange") if it.get("bidChange") is not None else 0) >= 0.01]
+            # 2026-08-22 历史回看: 现涨(realChange/change)=当日收盘涨跌幅, 而非最新今天实时
             try:
-                d = kpl._boom_from_snap(resolved) or []
-                if d:
-                    log.info("bid-boom 历史 %s 无落库 → snapshot_bid 重建 %d 只", resolved, len(d))
+                kpl.fill_close_change_from_kline(d, resolved)
             except Exception as e:
-                log.warning("bid-boom 历史重建失败 err=%s", e)
-                d = []
-        # 2026-08-23: 老版落库把大盘股 floatMv 错位为极小值 → 竞换荒谬; 用当日快照修复
-        kpl.fill_bid_turnover_from_snap(d, resolved)
-    else:
+                log.warning("bid-boom 历史现涨(当日收盘)覆盖失败 err=%s", e)
+            return {"ok": True, "list": d, "count": len(d), "date": resolved, "requestedDate": date}
+        return jr(cached_singleflight(store, ck, 600, _load_hist))
+
+    auction = _is_auction_hours()
+    ck = "bidboom:" + ("live" if auction else "post")
+
+    def _load():
         d = kpl.fetch_bid_boom() or []
         try:
             kpl.apply_board_concept_db(d, log_tag="auc:bid-boom", field="board", truncate=2, blank_if_missing=True)
@@ -390,72 +419,92 @@ def api_kpl_bid_boom(request: Request, uid: int = Depends(quota_guard("auction")
             kpl.fill_bid_ratio_yest(d, None)
             # 🔴 2026-09-29 口径统一: **实时路径也要补流通列** —— 开盘啦各榜自带那列口径不一
             #   (实测 600241: 榜单 25.31 亿 vs 自采快照自由流通 13.36 亿, 差 1.9 倍) ⇒ 同一票
-            #   在「竞价爆量」与「竞价封单」两个 tab 差一倍。历史路径(line 359)本就有这一行,
-            #   实时路径此前漏了。
+            #   在「竞价爆量」与「竞价封单」两个 tab 差一倍。历史路径本就有这一行, 实时路径此前漏了。
             kpl.fill_bid_turnover_from_snap(d, None)
         except Exception as e:
             log.warning("竞价异动概念/量比补齐失败 bid-boom err=%s", e)
-    # 统一过滤: 竞价涨幅 < 0.01%(含零/负涨幅) 不展示 — 同时覆盖实时与历史回看
-    # (落库历史快照可能由旧版逻辑生成, 含零/负涨幅; 接口层兜底保证展示口径一致)
-    if d:
-        d = [it for it in d if (it.get("bidChange") if it.get("bidChange") is not None else 0) >= 0.01]
-    if date:
-        # 2026-08-22 历史回看: 现涨(realChange/change)=当日收盘涨跌幅, 而非最新今天实时
+        # 统一过滤: 竞价涨幅 < 0.01%(含零/负涨幅) 不展示
+        # (落库历史快照可能由旧版逻辑生成, 含零/负涨幅; 接口层兜底保证展示口径一致)
+        if d:
+            d = [it for it in d if (it.get("bidChange") if it.get("bidChange") is not None else 0) >= 0.01]
+        # 现涨(realChange/change)口径: 盘中=实时涨幅; 盘后/非交易日=当日收盘涨幅固定值(不调实时接口)
         try:
-            kpl.fill_close_change_from_kline(d, resolved)
+            _apply_change_for(d, kpl.freeze_day())
         except Exception as e:
-            log.warning("bid-boom 历史现涨(当日收盘)覆盖失败 err=%s", e)
-        return jr({"ok": True, "list": d, "count": len(d), "date": resolved, "requestedDate": date})
-    # 现涨(realChange/change)口径: 盘中=实时涨幅; 盘后/非交易日=当日收盘涨幅固定值(不调实时接口)
-    try:
-        _apply_change_for(d, kpl.freeze_day())
-    except Exception as e:
-        log.warning("bid-boom 现涨覆盖失败 err=%s", e)
-    return jr({"ok": True, "list": d, "count": len(d)})
+            log.warning("bid-boom 现涨覆盖失败 err=%s", e)
+        return {"ok": True, "list": d, "count": len(d)}
+    return jr(cached_singleflight(store, ck, 5 if kpl.bid_boom_hot_window() else (15 if auction else 300), _load))
 
 
 @router.get("/api/kpl/bid-net")
 def api_kpl_bid_net(request: Request, uid: int = Depends(quota_guard("auction")), date: str = ""):
     """竞价净额榜(2026-08-18 主人要求): 开盘啦 MorningBiddingList Type=2(全市场竞价金额>1000万)
     替代仅从涨停封单列表按净额排序; 非竞价时段返回空 → 前端回退封单列表
-    2026-08-22: 增加历史回看(date) + 非交易/非竞价时段回退上一交易日(历史快照 → 快照重建)"""
+    2026-08-22: 增加历史回看(date) + 非交易/非竞价时段回退上一交易日(历史快照 → 快照重建)
+    2026-10-09 C2: 补接口级缓存(对齐 bid-seal) —— 此前本接口**无接口级缓存**,
+    每请求都重跑 query + 三次 fill + 概念补齐。TTL: 竞价 15s / 盘后 300s / 历史 600s。"""
+    from ..services.cache_store import cached_singleflight, store
+
     if date:
-        resolved = _resolve_date(date)
-        d = kpl.query_auction_history(resolved, "bid_net") or []
-        # 老快照未存竞换/竞额 → 用当日 9_25 快照补
-        kpl.fill_bid_turnover_from_snap(d, resolved)
-        kpl.fill_bid_amt_from_snap(d, resolved)
-        kpl.fill_bid_net_from_snap(d, resolved)        # 2026-09-29: 09:24 快照净额全 0 → 补 9_25 官方值
-        kpl.fill_close_change_from_kline(d, resolved)  # 2026-08-22: 历史回看现涨=当日收盘涨跌幅
-        kpl.apply_board_concept_db(d, log_tag="auc:bid-net[hist]", field="board", truncate=2, blank_if_missing=True, date=resolved)
-        return jr({"ok": True, "list": d, "count": len(d), "date": resolved, "requestedDate": date})
-    if not _is_auction_hours():
-        # 非竞价时段: 只读库。交易日当日为空 ⇒ 就让它空着(铁律); 非交易日由
-        # `_read_auction_fast` 内部对齐到最近交易日。
-        # 🔴 2026-09-29 移除原"无则用上一交易日 9_25 快照重建"分支 —— 那是把**昨天的票**
-        #   当今天的净额榜(与主角今日两次反馈的"数据是昨天的"同类)。
-        d, d_str = _read_auction_fast("bid_net")
-        kpl.fill_bid_turnover_from_snap(d, d_str)
-        kpl.fill_bid_amt_from_snap(d, d_str)
-        kpl.fill_bid_net_from_snap(d, d_str)          # 2026-09-29: 同因 —— 落库快照净额全 0
-        _apply_change_for(d, d_str)   # 现涨: 盘中=实时; 盘后/非交易=当日收盘固定值(不调实时)
-        kpl.apply_board_concept_db(d, log_tag="auc:bid-net[fast]", field="board", truncate=2, blank_if_missing=True, date=d_str)
-        return jr({"ok": True, "list": d, "count": len(d), "date": d_str})
-    d = kpl.fetch_bid_net() or []
-    # 2026-08-18 主人要求: doc112(Type=2)字段结构与Type4不同, 换手/成交额解析为0
-    # → 用 9_25 快照补竞价换手 + 竞价成交额(可靠同源)
-    try:
-        kpl.fill_bid_turnover_from_snap(d, None)
-        kpl.fill_bid_amt_from_snap(d, None)
-        kpl.apply_board_concept_db(d, log_tag="auc:bid-net", field="board", truncate=2, blank_if_missing=True)
-    except Exception as e:
-        log.warning("竞价净额换手/成交额/概念补齐失败 err=%s", e)
-    # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
-    try:
-        _apply_change_for(d, kpl.freeze_day())
-    except Exception as e:
-        log.warning("bid-net 现涨覆盖失败 err=%s", e)
-    return jr({"ok": True, "list": d, "count": len(d)})
+        ck = "bidnet:hist:" + date
+
+        def _load_hist():
+            resolved = _resolve_date(date)
+            d = kpl.query_auction_history(resolved, "bid_net") or []
+            # 老快照未存竞换/竞额 → 用当日 9_25 快照补
+            kpl.fill_bid_turnover_from_snap(d, resolved)
+            kpl.fill_bid_amt_from_snap(d, resolved)
+            kpl.fill_bid_net_from_snap(d, resolved)        # 2026-09-29: 09:24 快照净额全 0 → 补 9_25 官方值
+            kpl.fill_close_change_from_kline(d, resolved)  # 2026-08-22: 历史回看现涨=当日收盘涨跌幅
+            kpl.apply_board_concept_db(d, log_tag="auc:bid-net[hist]", field="board", truncate=2, blank_if_missing=True, date=resolved)
+            return {"ok": True, "list": d, "count": len(d), "date": resolved, "requestedDate": date}
+        return jr(cached_singleflight(store, ck, 600, _load_hist))
+
+    auction = _is_auction_hours()
+
+    if not auction:
+        ck = "bidnet:post"
+
+        def _load_post():
+            # 非竞价时段: 只读库。交易日当日为空 ⇒ 就让它空着(铁律); 非交易日由
+            # `_read_auction_fast` 内部对齐到最近交易日。
+            # 🔴 2026-09-29 移除原"无则用上一交易日 9_25 快照重建"分支 —— 那是把**昨天的票**
+            #   当今天的净额榜(与主人两次反馈的"数据是昨天的"同类)。
+            d, d_str = _read_auction_fast("bid_net")
+            kpl.fill_bid_turnover_from_snap(d, d_str)
+            kpl.fill_bid_amt_from_snap(d, d_str)
+            kpl.fill_bid_net_from_snap(d, d_str)          # 2026-09-29: 同因 —— 落库快照净额全 0
+            _apply_change_for(d, d_str)   # 现涨: 盘中=实时; 盘后/非交易=当日收盘固定值(不调实时)
+            kpl.apply_board_concept_db(d, log_tag="auc:bid-net[fast]", field="board", truncate=2, blank_if_missing=True, date=d_str)
+            return {"ok": True, "list": d, "count": len(d), "date": d_str}
+        return jr(cached_singleflight(store, ck, 300, _load_post))
+
+    ck = "bidnet:live"
+
+    def _load_live():
+        d = kpl.fetch_bid_net() or []
+        if not d:
+            # 2026-10-09 兜底: 猫爪 screening.auc_net_amount(竞价净额)。
+            #   ⚠️ 该字段全市场多为 0(2026-10-09 实测 104 只里仅 13 只非 0) ⇒ 只在开盘啦
+            #   doc112 返空时救急, **不做主源**。开关 KX_NET_FALLBACK_MEOZ=0 关闭。
+            d = kpl.net_from_meoz_auc_net() or []
+            if d:
+                log.info("bid-net 实时为空 → 猫爪竞价净额重建 %d 只", len(d))
+        # 2026-08-18 主人要求: doc112(Type=2)字段结构与Type4不同, 换手/成交额解析为0
+        # → 用 9_25 快照补竞价换手 + 竞价成交额(可靠同源)
+        try:
+            kpl.fill_bid_turnover_from_snap(d, None)
+            kpl.fill_bid_amt_from_snap(d, None)
+            kpl.apply_board_concept_db(d, log_tag="auc:bid-net", field="board", truncate=2, blank_if_missing=True)
+        except Exception as e:
+            log.warning("竞价净额换手/成交额/概念补齐失败 err=%s", e)
+        # 2026-08-23 口径统一: 盘中=实时涨幅 覆盖; 盘后/非交易日=当日收盘涨幅固定(不调实时接口)
+        try:
+            _apply_change_for(d, kpl.freeze_day())
+        except Exception as e:
+            log.warning("bid-net 现涨覆盖失败 err=%s", e)
+        return {"ok": True, "list": d, "count": len(d)}
+    return jr(cached_singleflight(store, ck, 15, _load_live))
 
 
 @router.get("/api/kpl/broken")

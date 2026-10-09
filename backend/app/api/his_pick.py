@@ -4,7 +4,8 @@
 · 逻辑：`app/services/his_pick.py` —— 逐行等价于桌面原件
         （docs/reference/his-pick-竞价终极版.html，md5 961edece9454fb6535c186e10344de24）
         等价性测试：同一份东财夹具，node 跑原码 vs 本移植版 ⇒ 200 行评分逐行一致、名单 113/113 完全一致 ✓
-· 取数：**服务端代理东财**（URL 与参数逐字取自原件）
+· 取数：**服务端代理东财**（URL 与参数逐字取自原件）——**只用原件里那一个接口**：
+        `push2dycalc/api/qt/clist/get` + 原件那 17 个字段 + `fid=f3&po=1&pn=1&pz=200&np=1`
 · 节奏（与原件语义一致）：
     竞价时段（9:15–9:30 交易日）→ 实时取数 + 跑他的逻辑 + **落快照**（TTL 20s）
     9:30 之后/非交易日        → **读快照冻结名单**，只用实时取数**刷新现涨**（TTL 30s / 盘后 300s）
@@ -12,6 +13,14 @@
 · 快照：落**我们自己的库**（纯写入，不做任何额外东财请求）
 · 降级：东财不可用 ⇒ 回退快照（零额外请求）
 · 鉴权：登录即可（`get_uid`），**不消耗配额**
+
+🔴 2026-10-08 主人指令（本次变更的唯一依据）：
+   「**他的字段不要动，任何字段都不动**，通过他的字段去获取东财的数据；
+     他这里**不使用其他的数据接口**，就是使用网页中的。」
+   ⇒ 本文件撤掉此前两处"改他的话"的改动，恢复原件：
+     ① 概念列**不再换成开盘啦**（原为 `kpl.apply_board_concept_db` + 截 2 个）⇒ 用原件 `f103` 原样；
+     ② 现涨刷新**不再按代码二次点查**（原为 fetcher 模块的 fetch_spot_quote_map_by_codes，
+        那是原件里没有的第二个接口）⇒ 只认这一次 clist 的返回，未命中即保持旧值（原件语义）。
 """
 import json
 import re
@@ -23,9 +32,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from ..core import logger, net
 from ..core import trade_calendar as tc
-from ..services import fetcher
 from ..services import his_pick as H
-from ..services import kpl as KPL          # 概念列改用**开盘啦**映射（库内 concept_refresh 已回写，零额外抓取）
 from .deps import get_uid, jr
 
 router = APIRouter(prefix='/api/his-pick', tags=['his-pick'])
@@ -54,7 +61,7 @@ def _phase():
 
 
 def _fetch_em(fs):
-    """服务端代理东财（URL 与参数逐字取自原件）"""
+    """服务端代理东财（URL 与参数逐字取自原件）——**全文件唯一的上游请求**"""
     url = H.getStockApiUrl(fs)
     req = urllib.request.Request(url, headers={'User-Agent': H.UA,
                                               'Referer': 'https://quote.eastmoney.com/'})
@@ -73,41 +80,14 @@ def _fetch_em(fs):
 
 
 def _public(it):
-    """只输出前端要渲染的字段（他表格用到的列）；不带 rawStock"""
+    """只输出前端要渲染的字段（他表格用到的列）；不带 rawStock。
+
+    `concept` = 原件 `f103` **原样长串**（2026-10-08 起不再换源、不再截断）——
+    前端表格用 `white-space: pre-wrap` 完整展示（与原件一致）。
+    """
     return {k: it.get(k) for k in ('code', 'name', 'probability', 'confidence', 'bidChange',
                                    'realChange', 'entityChange', 'warnType', 'industry', 'concept',
                                    'bidTurnover', 'speed')}
-
-
-def _enrich_concept(items, date=None):
-    """概念列改用**开盘啦**概念（原件用的是东财 f103，过长；按主人要求换源）。
-
-    · 数据来自我们库里 concept_refresh 已回写的映射（**不出网** ✓）
-    · truncate=2 ⇒ 最多两个概念（与站内其它列表一致）
-    · blank_if_missing=False ⇒ 库内查不到的票保留原件东财概念（不清空）
-    · 🔴 2026-10-05 修 bug：新增 `date` 参数并透传给 apply_board_concept_db。
-      原实现**不传日期** ⇒ _load_board_map_db 会默认取**今天**；而本接口在
-      「9:30 后 / 非交易日」走的是**快照分支**（快照日未必是今天 —— 例：10-05 国庆假期，
-      快照日=09-30，概念表里根本没有 10-05 的行）⇒ 覆盖必然落空。
-      因 blank_if_missing=False 会保留东财概念，所以症状不是"空白"而是
-      **"概念不是开盘啦的"**——比空白更难发现，与 stats.py 竞价精选那处是同一类 bug。
-    · 只影响展示列：他的评分/过滤/排序**完全不用** concept ⇒ 数值与名单零变化 ✓
-    """
-    if not items:
-        return items
-    try:
-        KPL.apply_board_concept_db(items, log_tag='his-pick', field='concept',
-                                   truncate=2, blank_if_missing=False, date=date)
-    except Exception as e:                              # noqa: BLE001
-        log.warning('his-pick 概念换源失败（保留东财概念）：%s', str(e)[:80])
-    # 兜底：库里查不到开盘啦概念的票，把东财那串长概念也截成最多 2 个（只影响展示）
-    for it in items:
-        c = (it.get('concept') or '').strip()
-        if c and ('、' not in c):
-            parts = [x for x in c.replace('，', ',').split(',') if x]
-            if len(parts) > 2:
-                it['concept'] = '、'.join(parts[:2])
-    return items
 
 
 def _snapshot_items():
@@ -146,45 +126,38 @@ def _snapshot_items():
 def _refresh_quote(items, rows):
     """冻结名单下**只刷新现涨**（原件语义：9:30 后仅更新实时涨幅）
 
-    🔴 2026-10-08 主人反馈「竞价选股有部分实时涨幅没有自动更新」—— 本函数是根因之一：
-       `rows` 来自东财 clist，而那个 URL 带 `fid=f3&po=1&pz=200` ⇒ **只给「现涨前 200 名」**，
-       再叠加 `fs` 只覆盖**当前勾选的板块** ⇒ 冻结名单里相当一部分票压根不在 rows 里；
-       原逻辑对未命中的 code `continue`，**保留竞价时的旧值** ⇒ 用户看到"有些数字一直不动"。
+    🔴 2026-10-08 主人指令：「他的字段不要动，任何字段都不动；他这里不使用其他的数据接口，
+       就是使用网页中的」⇒ 撤掉本函数此前新增的「按代码二次点查」：
+       原实现用 fetcher 的 fetch_spot_quote_map_by_codes()（东财 ulist 点查 / 腾讯兜底），
+       那是**原件里根本没有的第二个数据接口** ✗。
 
-    修法：对**未命中的代码按代码二次点查**（`fetch_spot_quote_map_by_codes` 走东财 ulist，
-    51 只 = 1 个请求；逐 code 缓存 25s < 前端 30s 轮询 ⇒ 每轮都拿到新价），
-    整体失败时仍回退"保留旧值"（可用性不降低，只是退回改动前的行为）。
+    现恢复为**原件 `updateRealTimeOnly()` 的原样语义**：
+       ```js
+       json.data.diff.forEach(s => { const it = cachedStocks.find(x => x.code === s.f12);
+                                     if (it) { it.realChange = parseFloat(s.f3||0);
+                                               it.entityChange = getEntityChange(s); } });
+       ```
+       ⇒ 只遍历**这一次 clist 返回的 diff**，名单里没命中的票**保持旧值**（`if (it)` 即此意）。
+
+    如实记录的代价（**这正是原件的行为，按指令照旧**）：
+       该 URL 带 `fid=f3&po=1&pz=200` ⇒ 只覆盖"现涨前 200 名"；名单中落在 200 名之外的票，
+       现涨不会刷新（原件同样如此 —— 原件根本没有补查机制）。
     """
     idx = {}
     for s in rows:
         k = str(s.get('f12') or '').zfill(6)
         if k:
             idx[k] = s
-    miss = [it.get('code') for it in items if it.get('code') and it.get('code') not in idx]
-    extra = {}
-    if miss:
-        try:
-            extra = fetcher.fetch_spot_quote_map_by_codes(miss) or {}
-        except Exception as e:                                  # noqa: BLE001
-            log.warning('his-pick 按代码补查现涨失败 %d只 err=%s', len(miss), str(e)[:120])
-            extra = {}
+    hit = 0
     for it in items:
-        code = it.get('code')
-        s = idx.get(code)
-        if s:
-            it['realChange'] = H.pf(H.or0(s.get('f3')))
-            it['entityChange'] = H.getEntityChange(s)
-            continue
-        q = extra.get(code)
-        if q:
-            # ulist 路径返回的是**已算好**的字段（与 clist 的 f3 同义）
-            if q.get('realChange') is not None:
-                it['realChange'] = q['realChange']
-            if q.get('entityChange') is not None:
-                it['entityChange'] = q['entityChange']
-    if miss:
-        log.info('his-pick 现涨补查: 名单%d只 clist未命中%d只 补到%d只',
-                 len(items), len(miss), len(extra))
+        s = idx.get(it.get('code'))
+        if not s:
+            continue                       # 原件：未命中 ⇒ 保持旧值（不引入第二个接口补查）
+        it['realChange'] = H.pf(H.or0(s.get('f3')))
+        it['entityChange'] = H.getEntityChange(s)
+        hit += 1
+    log.info('his-pick 现涨刷新: 名单%d只 clist命中%d只（原件语义，未命中保持旧值）',
+             len(items), hit)
     return items
 
 
@@ -221,8 +194,8 @@ def api_his_pick(request: Request,
 
         # ① 竞价时段：实时取数 → 跑他的逻辑 → 落快照（他的"9:30 前重新选股"语义）
         if live and rows:
-            day = time.strftime('%Y-%m-%d')          # 2026-10-05: 提前取出, 供概念覆盖按日查库
-            items = _enrich_concept(H.processAllStocks(rows, filters), day)
+            day = time.strftime('%Y-%m-%d')
+            items = H.processAllStocks(rows, filters)
             ok = H.save_snapshot(items, day, {'pool_size': len(rows)})
             pub = [_public(x) for x in items]
             return {'ok': True, 'date': day, 'fetchedAt': time.strftime('%Y-%m-%d %H:%M:%S'),
@@ -235,7 +208,6 @@ def api_his_pick(request: Request,
             if rows:
                 items = _refresh_quote(items, rows)
                 H.save_snapshot(items, day, {'pool_size': len(rows)})
-            _enrich_concept(items, day)     # 2026-10-05: 必须用**快照日**（不一定是今天）查概念库
             pub = [_public(x) for x in items]
             return {'ok': True, 'date': day, 'fetchedAt': time.strftime('%Y-%m-%d %H:%M:%S'),
                     'src': 'snapshot', 'phase': phase, 'poolSize': None, 'picked': len(pub),

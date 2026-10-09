@@ -354,6 +354,52 @@ def fetch_bid_seal():
     return _cached("bid_seal", config.KPL_BID_TTL, loader)
 
 
+def seal_from_meoz_ztwme():
+    """2026-10-09: 猫爪 screening.ztwme(涨停委买额) 重建竞价封单榜。
+
+    仅当**开盘啦 Type4 与今日落库都返空**时兜底(盘后 / 开盘啦未就绪 / 竞价早段)。
+    🔴 对拍依据(2026-10-09 实测): ztwme vs 开盘啦 Type4 bidSealAmt ——
+       10-08(171只) / 10-09(104只) / 09-30(144只) 三日共 419 只,
+       比值 min/中位/max = 1.0000 / 1.0000 / 1.0022 ⇒ **同源同口径(精确到元)**,
+       可直接替代。09-29 中位 1.1765 是因该日落库采于 09:24 早段(委买额未定格)。
+    🔴 开关: KX_SEAL_FALLBACK_MEOZ=0 关闭(回滚无需改代码)。
+    返回 [{code,name,bidSealAmt,bidChange,bidTurnover,floatMv,board,limitBoards,...}]
+    按 bidSealAmt 降序。screening 复用选股链路缓存 ⇒ 零新增出网。"""
+    if os.environ.get("KX_SEAL_FALLBACK_MEOZ", "1") == "0":
+        return []
+    try:
+        from . import meoz_client as _mc
+        smap = _mc.screening_map() or {}
+    except Exception as e:
+        log.warning("猫爪ztwme重建: screening 不可用 err=%s", e)
+        return []
+    out = []
+    for code, s in (smap or {}).items():
+        s = s or {}
+        try:
+            z = float(s.get("ztwme") or 0)
+        except (TypeError, ValueError):
+            continue
+        if z <= 0:
+            continue
+        out.append({
+            "code": str(code),
+            "name": s.get("name") or "",
+            "bidSealAmt": z,
+            "bidChange": s.get("auc_pct_chg") or 0,
+            "bidTurnover": s.get("auc_turnover") or 0,
+            "bidNetAmt": s.get("auc_net_amount") or 0,
+            "bidAmt": s.get("auc_amt") or 0,
+            "floatMv": s.get("free_float_mv") or 0,
+            "board": s.get("theme_names_kpl") or "",
+            "limitBoards": s.get("limit_times") or 0,
+            "realChange": s.get("pct_chg") or 0,
+        })
+    out.sort(key=lambda x: x["bidSealAmt"], reverse=True)
+    log.info("猫爪ztwme重建竞价封单 %d 只", len(out))
+    return out
+
+
 def fetch_bid_net():
     """竞价净额榜(实时): docs/112 竞价大于1000万 (MorningBiddingList, apphwshhq host + w44)
     (2026-08-18 主人确认: 净额数据原封不动用 doc112 接口; 晚间接口可能为空 → default/w41 双路兜底)
@@ -378,6 +424,46 @@ def fetch_bid_net():
             log.info("竞价净额(doc112>1000万)返回%d只 耗时%dms", len(lst), ms)
         return lst or []
     return _cached("bid_net", config.KPL_BID_TTL, loader)
+
+
+def net_from_meoz_auc_net():
+    """2026-10-09: 猫爪 screening.auc_net_amount(竞价净额) 重建竞价净额榜。
+
+    兜底层级同 seal_from_meoz_ztwme(开盘啦 Type2 与落库都返空时)。
+    ⚠️ 预期条数偏少: auc_net_amount 全市场多为 0(2026-10-09 实测 104 只里仅 13 只非 0),
+       故本兜底是「有比没有好」, 不能当主源 —— 主源仍是开盘啦 Type2(竞价时段 116 只)。
+    🔴 开关: KX_NET_FALLBACK_MEOZ=0 关闭。
+    返回 [{code,name,bidNetAmt,bidAmt,bidChange,bidTurnover,floatMv,board},...] 按净额降序。"""
+    if os.environ.get("KX_NET_FALLBACK_MEOZ", "1") == "0":
+        return []
+    try:
+        from . import meoz_client as _mc
+        smap = _mc.screening_map() or {}
+    except Exception as e:
+        log.warning("猫爪净额重建: screening 不可用 err=%s", e)
+        return []
+    out = []
+    for code, s in (smap or {}).items():
+        s = s or {}
+        try:
+            v = float(s.get("auc_net_amount") or 0)
+        except (TypeError, ValueError):
+            continue
+        if v == 0:
+            continue
+        out.append({
+            "code": str(code),
+            "name": s.get("name") or "",
+            "bidNetAmt": v,
+            "bidAmt": s.get("auc_amt") or 0,
+            "bidChange": s.get("auc_pct_chg") or 0,
+            "bidTurnover": s.get("auc_turnover") or 0,
+            "floatMv": s.get("free_float_mv") or 0,
+            "board": s.get("theme_names_kpl") or "",
+        })
+    out.sort(key=lambda x: x["bidNetAmt"], reverse=True)
+    log.info("猫爪竞价净额重建 %d 只", len(out))
+    return out
 
 
 def bid_net_from_snap(date=None):
@@ -510,6 +596,24 @@ def _boom_from_snap(snap_date, spot_map=None):
     return out
 
 
+def bid_boom_hot_window() -> bool:
+    """竞价爆量「关键窗口」= 09:26:00~09:30:00 (2026-10-09 提速)。
+
+    依据(2026-10-09 实测): 9_25 定格 09:26:30 开枪、09:26:39 落库 ⇒ 定格数据最早
+    09:26:39 才存在; boom 完全本地自算、不出网, 用户看到它的时间 = 落库时刻 +
+    缓存/轮询延迟(实测约 09:27:20)。这 4 分钟正是用户「等定格数据」的窗口 ⇒
+    期间把三道延迟全部提速:  服务层 TTL 30→10 / 接口层 TTL 15→5 / 前端轮询 30→10,
+    合计把可见时刻从 ≈09:27:20 提前到 ≈09:26:50(约 30s)。
+
+    ⚠️ 窗口外一律维持原节奏 ⇒ 全天请求成本基本不变(只在 4 分钟内变密)。
+    ⚠️ 只作用于 boom: config.KPL_BID_TTL 是 bid_seal/bid_net/bid_boom **共用**的,
+       故不全局改, 只在 boom 的 _cached 处按窗口取值, 避免连累另两个 tab。
+    """
+    g = time.gmtime(time.time() + 8 * 3600)
+    sec = g.tm_hour * 3600 + g.tm_min * 60 + g.tm_sec
+    return (9 * 3600 + 26 * 60) <= sec <= (9 * 3600 + 30 * 60)
+
+
 def fetch_bid_boom():
     """竞价爆量榜(2026-08-19 主人要求改版):
     **按竞价量比排序(不限条数)** — 竞价量比 = 今日竞价额 / 昨日竞价额。
@@ -558,7 +662,7 @@ def fetch_bid_boom():
         out = _boom_from_snap(today)
         log.info("竞价爆量(量比榜) date=%s 全市场候选=%d (不限条数)", today, len(out))
         return out
-    return _cached("bid_boom_ratio_v3", config.KPL_BID_TTL, loader)   # v3: 实时涨幅全市场map(2026-08-19)
+    return _cached("bid_boom_ratio_v3", 10 if bid_boom_hot_window() else config.KPL_BID_TTL, loader)   # v3: 实时涨幅全市场map(2026-08-19)
 
 
 def _parse_bid_boom(data):
@@ -1451,14 +1555,113 @@ def _flash_pool(pool_name, date=None):
     return _cached(key, ttl, lambda: _flash_pool_raw(pool_name, date)) or []
 
 
+# 猫爪涨停池是否保留北交所：默认 False = 与选股宝名单逐只一致（零行为变化）。
+# 放开为 True 后，涨停池/连板数会**多出北交所**（猫爪实测每天多 0~1 只，样例 920627/920779）。
+# 这是**行为变化**，需要主人点头才动 —— 见 deploy/第1批换源-同票对拍-20261009.md。
+_MEOZ_POOL_KEEP_BJ = False
+
+
+def _meoz_pool_rows(date=None):
+    """猫爪涨停池(封住) → **与 `_flash_pool("limit_up_pool", date)` 同形的行**。
+
+    2026-10-09 第 1 批换源（对拍证据见 `deploy/第1批换源-同票对拍-20261009.md`）：
+      · 7 个真交易日 / 356 只样本逐只对拍：**选股宝独有的 = 0 只**（猫爪 356/356 全覆盖）；
+        连板数 `limit_times` ↔ `limitUpDays` **356 等 / 0 不等**；涨幅 `pct_chg` ↔ `change` 全等；
+        首封时刻 `first_time` ↔ `firstLimitUp`（换算后）全等 ✓
+      · 猫爪多出的是**北交所 4 只**（920627/920779/920748/920526）⇒ 本函数**默认过滤北交所**，
+        与选股宝名单逐只一致 ⇒ **零行为变化**（要放开时把 `_MEOZ_POOL_KEEP_BJ` 置 True 即可）。
+      · 🔴 猫爪 `limit_pool` **没有 `reason`（涨停原因）与 `firstBreak`（炸板时刻）**
+        ⇒ 只有"不读这两列"的消费方才允许改用本函数；需要 reason 的一律继续走选股宝。
+      · 🔴 炸板池(`limit_up_broken`)猫爪**根本没有**（实测 is_break 三天全 False；用
+        `limit_event_v2_history` 的 event=1 推导是**超集**，选股宝 126 只 vs 推导 142 只 ⇒ 会多 13%）
+        ⇒ 炸板/昨破板链路一律保持选股宝，未改动 ✓
+
+    返回值：`[{code,name,change,limitUpDays,breakTimes,firstLimitUp,day}, ...]`；
+            猫爪不可用/未启用/非交易日 → **None**（与 `_flash_pool` 的"失败返回 []"区分，供上层兜底）。
+    """
+    def loader():
+        from . import meoz_client
+        rows = meoz_client.limit_pool_map(date=date, limit_type="u")
+        if not rows:
+            return None
+        out = []
+        for sym, r in rows.items():
+            c = str(sym or "").strip().upper()
+            for suf in (".SZ", ".SH", ".BJ"):
+                if c.endswith(suf):
+                    c = c[:-3]
+            if not c:
+                continue
+            if not _MEOZ_POOL_KEEP_BJ and c.startswith(("43", "83", "87", "88", "92")):
+                continue                                  # 北交所: 选股宝不含 ⇒ 默认保持名单一致
+            out.append({
+                "code": c,
+                "name": r.get("name") or "",
+                # ⚠️ 必须用 `_f`（float）而不是 `_num`（= int(float()) 会截断小数）——
+                # 选股宝那边 change 也是 `_f(change_percent)*100`（见 _flash_pool_raw:1432），
+                # 用 `_num` 会把 10.03% 变成 10%（实测踩到，测试用例锁定 ✓）
+                "change": _f(r.get("pct_chg")),
+                "limitUpDays": int(_num(r.get("limit_times")) or 0),
+                "breakTimes": int(_num(r.get("open_times")) or 0),
+                # 选股宝给的是 Unix 秒（前端按北京时间 HH:MM 呈现）⇒ 猫爪的 "HH:MM:SS" 换算成秒，
+                # 口径对齐（换算用本机本地时区；生产机本地 = 北京时间，已与选股宝实测逐只一致 ✓）
+                "firstLimitUp": _hhmmss_to_ts(date, r.get("first_time")),
+                "day": date or _bj_today(),
+                # 猫爪无此两列：显式给空，避免消费方 KeyError（用到的消费方不该走本函数，见上文红线）
+                "reason": "",
+                "firstBreak": 0,
+            })
+        return out
+    key = "meoz_zt_" + (str(date).replace("-", "") if date else "today")
+    is_hist = bool(date) and date != _bj_today()
+    return _cached(key, (6 * 3600) if is_hist else 30, loader)
+
+
+def _hhmmss_to_ts(date, hhmmss):
+    """'10:43:00' + 交易日 → Unix 秒（选股宝 firstLimitUp 同口径）；失败返回 0。"""
+    try:
+        s = str(hhmmss or "").strip()
+        if not s:
+            return 0
+        parts = [int(x) for x in s.split(":")]
+        while len(parts) < 3:
+            parts.append(0)
+        d = str(date or _bj_today()).replace("-", "")
+        t = time.mktime((int(d[:4]), int(d[4:6]), int(d[6:8]),
+                         parts[0], parts[1], parts[2], 0, 0, -1))
+        return int(t)
+    except Exception:                                    # noqa: BLE001
+        return 0
+
+
+def zt_pool_rows(date=None):
+    """涨停池(封住)统一取数：**猫爪优先 → 选股宝兜底**（2026-10-09 第1批换源）。
+
+    除数据源外，返回值与 `_flash_pool("limit_up_pool", date)` **逐键同形**（`reason`/`firstBreak`
+    在猫爪路径恒为空/0，理由见 `_meoz_pool_rows` 的红线）。仅限"只读 code / limitUpDays"的消费方调用。
+    """
+    try:
+        rows = _meoz_pool_rows(date)
+    except Exception as e:                                   # noqa: BLE001
+        log.warning("[猫爪] 涨停池取数异常 date=%s err=%s（回退选股宝）", date, str(e)[:120])
+        rows = None
+    if rows:
+        return rows
+    return _flash_pool("limit_up_pool", date)
+
+
 def real_limit_days(date):
     """当日涨停池(封住)每只股票的真实连板数 {code: limitUpDays}。
     用于连板天梯图/梯队表: 开盘啦连板梯队 pid 只分到'五板+'(≥5), 无法区分 6 板以上;
-    用东财 flash 涨停池的 limit_up_days 取真实连板数, 修正显示的连板与顶部最高连板。
-    60s 缓存(梯队页每分钟轮询, 避免每轮都打东财)。失败/为空返回 {}(调用方回退到 pid 档位)。"""
+    用涨停池的 limit_up_days 取真实连板数, 修正显示的连板与顶部最高连板。
+    60s 缓存(梯队页每分钟轮询, 避免每轮都打上游)。失败/为空返回 {}(调用方回退到 pid 档位)。
+
+    2026-10-09 第1批换源: 取数改走 `zt_pool_rows()`（猫爪主 + 选股宝兜底）；
+    本函数只读 `code`/`limitUpDays`，属"可换"白名单（356/356 全等 ✓）。
+    """
     def loader():
         m = {}
-        for it in _flash_pool("limit_up_pool", date):
+        for it in zt_pool_rows(date):
             lu = int(it.get("limitUpDays") or 0)
             if lu >= 1:
                 m[it.get("code")] = lu
@@ -2023,8 +2226,9 @@ def fetch_broken_zt(day=None):
         yest_day = _prev_trade_day()
         yest_map = {}
         if yest_day:
+            # 2026-10-09 第1批换源: 只读 code/limitUpDays ⇒ 走猫爪主 + 选股宝兜底 ✓
             yest_map = {x["code"]: x["limitUpDays"]
-                        for x in _flash_pool("limit_up_pool", yest_day)}
+                        for x in zt_pool_rows(yest_day)}
         for it in lst:
             if not it.get("limitUpDays") and it["code"] in yest_map:
                 it["limitUpDays"] = yest_map[it["code"]]
@@ -2381,11 +2585,39 @@ def apply_board_concept(result, log_tag="", deep=True, field="concept",
     for it in result:
         c = str(it.get("code"))
         by_code.setdefault(c, []).append(it)
-    covered = set()  # 已被开盘啦覆盖的 code
+    covered = set()       # 已被覆盖的 code(第 0 层 + 第一层), 供 blank_if_missing 判断
+    covered_meoz = set()  # 仅第 0 层(猫爪 screening 开盘啦题材)覆盖的 code
+    n = 0                 # 覆盖计数(第 0 层 + 第一层累加)
+
+    # 第 0 层(2026-10-09): 猫爪 screening.theme_names_kpl —— **开盘啦来源**的当日题材。
+    #   ★ 为什么放在最前: 用户要求"所有表格概念以开盘啦为准"; theme_names_kpl 正是开盘啦
+    #     题材(全市场实测 1139 只), 而第一层 fetch_board_map 混有东财板块/状态词污染值
+    #     (见下方第二层注释) ⇒ 由它先覆盖, 污染值便无机可乘。
+    #   ★ 为什么零成本: screening_map() 参数已归一 tradedate_offset=0(TTL 30s), 与选股
+    #     链路/auction_snapshot 共用同一缓存键 ⇒ **命中已有缓存, 零新增出网**。
+    #   ★ 收益: 覆盖到即不进第二层 GetStockIDPlate 逐股查询(实测 seal 名单 64/104 命中)。
+    #   🔴 开关: KX_CONCEPT_FROM_MEOZ=0 关闭本层(回滚无需改代码)。
+    if os.environ.get("KX_CONCEPT_FROM_MEOZ", "1") != "0":
+        n0 = 0
+        try:
+            from . import meoz_client as _meoz_cli
+            _smap = _meoz_cli.screening_map() or {}
+            for it in result:
+                _c = str(it.get("code") or "")
+                _b = (_smap.get(_c) or {}).get("theme_names_kpl")
+                if _b:
+                    it[field] = _trunc(_b)
+                    covered.add(_c)
+                    covered_meoz.add(_c)
+                    n0 += 1
+            if n0:
+                log.info("概念覆盖[猫爪screening] %s 覆盖%d只/共%d只", log_tag, n0, len(result))
+        except Exception as e:
+            log.warning("概念覆盖[猫爪screening]失败 %s err=%s", log_tag, e)
+        n += n0
 
     # 第一层: 榜单合并（全市场一次接口）
     board_map = {}
-    n = 0
     try:
         board_map = fetch_board_map() or {}
         for it in result:
@@ -2405,13 +2637,18 @@ def apply_board_concept(result, log_tag="", deep=True, field="concept",
     # 东财板块/上榜标签(如竞价爆量表的 "昨日炸板、昨日触板" 状态词, 见 001225),
     # 导致这些污染值被当成"已覆盖"跳过开盘啦查询 → 概念来源错误。
     # 现在 deep=True 时对全部股票都走开盘啦 doc94 按股查询, 保证概念统一来自开盘啦前 N 个。
+    #   🔴 2026-10-09 例外(只此一条): **第 0 层(猫爪 screening.theme_names_kpl)已覆盖的不查**
+    #      —— 它就是开盘啦题材, 与 doc94 同源, 再查一次纯属浪费出网。
+    #   ⚠️ 注意只排除 covered_meoz, **不是 covered**: 第一层 fetch_board_map 的污染值
+    #      (东财板块/状态词)必须继续走 doc94 修正, 否则等于废掉 2026-08-21 那次修复。
     if not deep:
         if blank_if_missing:
             for it in result:
                 if str(it.get("code")) not in covered:
                     it[field] = ""
         return n
-    miss_codes = [str(it.get("code")) for it in result if it.get("code")]
+    miss_codes = [str(it.get("code")) for it in result
+                  if it.get("code") and str(it.get("code")) not in covered_meoz]
     if not miss_codes:
         if blank_if_missing:
             for it in result:
@@ -2612,7 +2849,9 @@ def fetch_yest_zt():
         # "今日是否仍涨停(连板)" 的"今日" = 定格基准日: 交易日 → 实时池(None);
         # 非交易日 → 定格日 fd 的池(2026-09-27 v4.11.67, 原恒用 None ⇒ 周日拿到的是
         # 最近交易日自己的池 ⇒ 与"昨日池"同日 ⇒ stillLimit 恒 True 自己比自己)
-        today_codes = {x["code"] for x in _flash_pool("limit_up_pool", None if fd == _bj_today() else fd)}
+        # 2026-10-09 第1批换源: 这里只取 code 集合 ⇒ 走猫爪主 + 选股宝兜底 ✓
+        # （上面 `lst` 那行必须继续走选股宝 —— 它要 reason/firstLimitUp，猫爪没有）
+        today_codes = {x["code"] for x in zt_pool_rows(None if fd == _bj_today() else fd)}
         seal_map = _seal_map(fd)
         snap25 = _snap25_map(fd)
         out = []
@@ -2672,10 +2911,11 @@ def fetch_yest_broken():
         if not prev2:
             log.warning("昨断板 无法定位前一日(day=%s), 返回空", day)
             return []
-        prev2_pool = _flash_pool("limit_up_pool", prev2)   # 前一日涨停池
+        # 2026-10-09 第1批换源: 两处都只读 code / limitUpDays ⇒ 走猫爪主 + 选股宝兜底 ✓
+        prev2_pool = zt_pool_rows(prev2)                   # 前一日涨停池
         if not prev2_pool:
             return []
-        yest_codes = {x["code"] for x in _flash_pool("limit_up_pool", day)}
+        yest_codes = {x["code"] for x in zt_pool_rows(day)}
         # 前一日连板≥2 + 昨日未涨停 = 昨日断板(连板中断)
         broken = [x for x in prev2_pool
                   if x["code"] not in yest_codes and (x.get("limitUpDays") or 0) >= 2]

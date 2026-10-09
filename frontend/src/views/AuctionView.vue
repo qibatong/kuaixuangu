@@ -1108,6 +1108,15 @@ onMounted(() => {
 // 2026-09-05 P0: 轮询开启失败退避 — fn 返回成败, 连续失败时下一次间隔按 2^n 递增
 // (30s → 60s → 120s … 上限 5min), 成功一次即重置。避免服务端抖动/限流时被前端
 // 以固定 30s 持续打; 失败期间 ensureTabData 不清空 list, 页面保留上次成功数据。
+// 2026-10-09: 间隔改为**动态** —— 09:26:00~09:30:00 是竞价爆量「等 9_25 定格」窗口
+//   (定格实测 09:26:39 落库), 期间提速到 10s, 与后端服务层/接口层 TTL 同步提速,
+//   把定格数据可见时刻从 ≈09:27:20 提前到 ≈09:26:50; 窗口外维持 30s ⇒ 全天请求量
+//   基本不变(只在 4 分钟内变密)。判据与后端 kpl.bid_boom_hot_window() 同口径。
+function bidBoomHotWindow () {
+  const d = new Date()
+  const sec = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds()
+  return sec >= 9 * 3600 + 26 * 60 && sec <= 9 * 3600 + 30 * 60
+}
 polling = usePolling(async () => {
   // 历史回看模式(**用户显式选了日期**)不轮询; 实时模式必须继续轮询,
   // 否则今日快照落库后页面不会自愈(2026-09-29 修: 原实现把回退写进 datePicker, 连轮询一起关了)。
@@ -1125,7 +1134,7 @@ polling = usePolling(async () => {
   } finally {
     silentRefreshing.value = false
   }
-}, 30000, { backoff: true })
+}, () => (bidBoomHotWindow() ? 10000 : 30000), { backoff: true })
 </script>
 
 <style scoped>

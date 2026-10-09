@@ -349,6 +349,15 @@ def call(apiname: str, params=None, fields=None, timeout: int = _TIMEOUT):
         while idx < min(len(lines), _MAX_ATTEMPTS):
             url = lines[idx]
             attempt = 0
+            # ★ 2026-10-09 修 UnboundLocalError（生产实测命中）:
+            #   网络层故障时内层 `break` 跳出会**跳过** `data` 的赋值，而下面
+            #   `if not isinstance(data, dict)` 仍会读它 ⇒ 抛
+            #   "cannot access local variable 'data' where it is not associated with a value"，
+            #   违反本函数自己的契约「失败返回 None, 永不抛异常」(见函数 docstring)。
+            #   实测复现: `猫爪网络故障 a=pricelimit line=… err=timed out → 切线路`
+            #            紧随 `猫爪调用异常 a=pricelimit err=cannot access local variable 'data'`。
+            #   修法(最小): 每条线路尝试前重置 data=None，并在下面显式判 None ⇒ 切下一条线路。
+            data = None
             while attempt < 3:                                  # 同线路最多 3 次(429/5xx 退避)
                 try:
                     data = _post_one(url, payload, timeout)
@@ -386,6 +395,9 @@ def call(apiname: str, params=None, fields=None, timeout: int = _TIMEOUT):
                     log.warning("猫爪网络故障 a=%s line=%s err=%s → 切线路", apiname, url, e)
                     break                                           # 跳出内层, 切下一条线路
             else:
+                idx += 1
+                continue
+            if data is None:                                        # 网络故障 break 出来 ⇒ 切下一条线路
                 idx += 1
                 continue
             if attempt >= 3:                                        # 内层耗尽仍未拿到
