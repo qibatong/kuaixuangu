@@ -387,6 +387,13 @@ def run(date=None):
     不抛异常: 取数失败一律返回 (None, 原因), 由路由层转成 {ok:false}。
     """
     t0 = time.time()
+    # 周末/非交易日: 自动走回看模式, 取最近一个交易日的竞价定格名单
+    if not date:
+        from . import kpl as _kpl
+        _fd = _kpl.freeze_day()
+        _today = trade_calendar.bj_date()
+        if _fd != _today:
+            date = _fd
     hist = bool(date)
 
     # 1) 昨日(最近交易日)涨停池 —— 复用生产在用的涨停池链路
@@ -499,7 +506,10 @@ def run(date=None):
     log.info("竞价一进二 uid-agnostic 池%s %d只 首板%d(剔一字%d) 候选%d 入选%d 剔除=%s 耗时%.0fms",
              zt_date, len(zt_map), len(first_board), one_word_dropped,
              len(items), len(kept), dropped, (time.time() - t0) * 1000)
-    return _payload(zt_date, kept, stats, t0), None
+    _p = _payload(zt_date, kept, stats, t0)
+    if hist and date:
+        _p["dataDate"] = date.replace("-", "")
+    return _p, None
 
 
 def _payload(zt_date, kept, stats, t0):

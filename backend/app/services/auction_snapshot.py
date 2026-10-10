@@ -981,6 +981,44 @@ _VR_READY_MIN_N = int(round(_VR_READY_MIN * _MARKET_SIZE_MEDIAN))   # ≈ 4688
 _BID25_RETRY_UNTIL = _ready_sec("auc_vol_ratio", 55, 9 * 3600 + 26 * 60 + 30)
 
 
+# ---- 9_25 「就绪即定格」提前开枪时刻(2026-10-09 主人: 拿到数据就不用等 09:26) ----
+# 依据: 猫爪竞价字段(daily_auc / fundflow_kp)实测 **09:25:35 起**才产出(见 1340 行与
+#   meoz_client:691 的实测记录); 早于此刻探测必然扑空, 只会白烧一轮全市场拉取。
+# 🔴 与「09:25:20~49 提前定格」那次事故的区别(那次导致 auc_vol_ratio 恒 0):
+#    那次是**无条件**提前; 本次是**确认就绪**才提前 —— 判据复用 meoz_bid_ready
+#    (防串日 + auc_vol_ratio 非零 ≥ 4688), 未就绪/异常一律继续等到 09:26:30 硬上限。
+#    故最坏情况与现状**完全一致**, 不存在"提前定格导致数据不全"的风险。
+_BID25_EARLY_PROBE_SEC = 9 * 3600 + 25 * 60 + 35      # 09:25:35 = 33935
+
+
+def _bid25_early_freeze_due(hm, sec, date):
+    """9:25 静默段内是否应**提前**打定格枪(主人 2026-10-09「就绪即定格」)。
+
+    Args:
+        hm: 当日分钟数(hour*60+min); sec: 当前秒; date: 目标交易日。
+
+    Returns:
+        True  = 猫爪竞价字段已确认就绪 ⇒ 提前开枪(调度器不再 continue);
+        False = 继续静默等待, 最迟 09:26:30 由硬上限定格(与现状一致)。
+
+    与 meoz_bid_ready 的语义边界:
+      后者用于「采完后判断是否回滚重采」; 本函数用于「是否提前开枪」, 必须**明确就绪**
+      才 True。而 meoz_bid_ready 的 except 分支本身就返回 False(视为未就绪),
+      语义天然一致 ⇒ 直接复用, 无需额外兜底。
+    """
+    try:
+        if hm * 60 + sec < _BID25_EARLY_PROBE_SEC:
+            return False                       # 早于 09:25:35: 探了必扑空, 不探
+        if not meoz_bid_ready(date):
+            return False                       # 未就绪/异常: 继续等 09:26:30
+        log.info("[快照采集] 9_25 猫爪竞价字段已就绪 ⇒ **提前定格**(原定 09:26:30) "
+                 "hm=%d:%02d:%02d date=%s", hm // 60, hm % 60, sec, date)
+        return True
+    except Exception as e:                                      # noqa: BLE001
+        log.warning("[快照采集] 9_25 提前定格判定异常(继续等 09:26:30) err=%s", str(e)[:120])
+        return False
+
+
 def _bid25_retry_open(hm: int, sec: int) -> bool:
     """9:25 定格是否仍处于「可回滚重采」的时间窗内(未到 _BID25_RETRY_UNTIL)。
 
@@ -2393,7 +2431,8 @@ def _scheduler_loop():
                     # 注意: 判断必须 < 9*60+25(窗口内), 写 9*60+30(9:30) 会导致永不采集!
                     if hm < 9 * 60 + 24 or (hm == 9 * 60 + 24 and g.tm_sec < 40):
                         snapshot_at(tp)
-                elif tp == "9_25" and _bid25_before_freeze(hm, g.tm_sec):
+                elif (tp == "9_25" and _bid25_before_freeze(hm, g.tm_sec)
+                      and not _bid25_early_freeze_due(hm, g.tm_sec, date)):
                     # ★ 定格首采前的**静默段**(2026-09-24 主人拍板: 定格枪固定在 09:26:30):
                     #   9:25:00~9:26:29 一律不采 —— 猫爪竞价字段实测 09:25:35~09:26:16 才产出,
                     #   此刻采必然是空车, 还白烧一轮全市场拉取(8~15s)并把完成标记反复 set/delete。

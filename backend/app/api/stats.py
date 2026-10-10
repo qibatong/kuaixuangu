@@ -493,6 +493,110 @@ def api_stats_zh_picks(request: Request, uid: int = Depends(get_uid), date: str 
                "list": picks, "stats": stats_, "cfg": meta.get("cfg", {})})
 
 
+# =====================================================================
+# 2026-10-09 封单改版: 三时点封单列改走猫爪 daily_auc_fd 的 fa_* 逐分钟字段
+# ---------------------------------------------------------------------
+# 语义(主人 2026-10-09 确认): 三列依次定格, 到达目标时刻前**每分钟滚动刷新**:
+#     09:15        → 9:15 列定格, 取 fa_0915
+#     09:16~09:20  → 9:20 列滚动, 取 fa_0916..fa_0920, 09:20 定格
+#     09:21~09:25  → 9:25 列滚动, 取 fa_0921..fa_0925, 09:25 定格
+#
+# ★ 与落库的区别(关键): 落库要等 09:20:14 / 09:26:39(全市场 5924 行写入 9~20s),
+#   而滚动值**只走接口层缓存, 不落 snapshot_bid** ⇒ 前端提前约 5 分钟看到,
+#   且下游(9:26 系统批次 / AI 选股)读的仍是库内定格值, **零影响**。
+#
+# ★ 为什么必须"补出"缺失时点: 竞价期库里根本没有 9_20/9_25 行, 只覆盖已有值
+#   等于没做。fa_09xx > 0 即表示该时刻「匹配价=涨停价」, 可直接作为涨停判据。
+#
+# ★ 降级: 猫爪不可用 / 非当日 / 非竞价期 → 原样返回库内榜, 绝不比现状更差。
+# =====================================================================
+_FD_COL_RANGE = {"9_15": (915, 915), "9_20": (916, 920), "9_25": (921, 925)}
+
+
+def _apply_fd_seal(rows, resolved, limit, _now_hhmm=None):
+    """竞价期用 daily_auc_fd 逐分钟封单补全/覆盖三时点, 并重算分层排序。
+
+    Args:
+        rows: query_3points_board 返回的行(会被就地修改并重新排序截断)
+        resolved: 实际数据日
+        limit: 榜单条数上限
+        _now_hhmm: 仅测试用, 强制指定 HHMM(如 922) 以验证滚动逻辑
+
+    Returns:
+        处理后的 rows; 任何异常都**原样返回**入参, 保证不比现状差。
+    """
+    try:
+        import time as _t
+        now = _t.gmtime(_t.time() + 8 * 3600)
+        today = _t.strftime("%Y-%m-%d", now)
+        hhmm = int(_now_hhmm) if _now_hhmm else int(_t.strftime("%H%M", now))
+        # 仅「当日 + 竞价期(9:15~9:25)」启用; 盘后/历史/非交易日一律走原库内逻辑
+        if resolved != today or not (915 <= hhmm <= 925):
+            return rows
+        from ..services import meoz_client as mc
+        fd = mc.auc_fd_map() or {}
+        if not fd:
+            return rows
+        # 各列当前应取的分钟字段(未到起始分钟则取起始, 超过定格分钟则取定格值)
+        colfield = {c: "fa_%04d" % min(max(hhmm, lo), hi)
+                    for c, (lo, hi) in _FD_COL_RANGE.items()}
+        idx = {str(it.get("code") or ""): it for it in rows}
+        for code, r in fd.items():
+            code = str(code or "")
+            if not code:
+                continue
+            vals = {}
+            for c, f in colfield.items():
+                try:
+                    vals[c] = float(r.get(f) or 0)
+                except (TypeError, ValueError):
+                    vals[c] = 0.0
+            if not any(vals.values()):
+                continue                       # 该票当前无任何时刻封单
+            it = idx.get(code)
+            if it is None:                     # 库里没进榜(竞价期尚未落库) → 补一行
+                try:
+                    amt = round(float(r.get("auc_amt") or 0) / 1e4, 2)
+                except (TypeError, ValueError):
+                    amt = 0.0
+                it = {"code": code, "name": r.get("name") or "", "layer": 9, "tag": "",
+                      "sort_amt": 0.0, "degraded": False,
+                      "board": r.get("theme_names_kpl") or "", "points": {}}
+                rows.append(it)
+                idx[code] = it
+            pts = it.setdefault("points", {}) or {}
+            for c in ("9_15", "9_20", "9_25"):
+                p = pts.get(c)
+                if p is None:
+                    try:
+                        amt = round(float(r.get("auc_amt") or 0) / 1e4, 2)
+                    except (TypeError, ValueError):
+                        amt = 0.0
+                    p = {"bid_change": r.get("auc_pct_chg"), "bid_amt": amt,
+                         "bid_buy_amt": 0.0, "float_mv": 0}
+                    pts[c] = p
+                if vals.get(c):
+                    # ★ 库内 bid_buy_amt 口径 = 「元」(实测 9_15 均值 875875、max 20.05亿),
+                    #   而 bid_amt 才是「万元」(均值 22.49) —— 两者单位不同, 别搞混。
+                    #   猫爪 fa_* 同样是「元」⇒ 直接赋值, 不做换算。
+                    p["bid_buy_amt"] = round(vals[c], 2)
+        # 统一按 fa_* 重算分层: fa_09xx>0 ⇒ 该时刻匹配价=涨停价(比 bid_change 判据更直接)
+        for it in rows:
+            pts = it.get("points") or {}
+            for lv, c in ((1, "9_25"), (2, "9_20"), (3, "9_15")):
+                v = (pts.get(c) or {}).get("bid_buy_amt") or 0
+                if v > 0:
+                    it["layer"] = lv
+                    it["sort_amt"] = round(v, 2)
+                    it["degraded"] = False
+                    break
+        rows.sort(key=lambda x: (x.get("layer") or 9, -(x.get("sort_amt") or 0)))
+        return rows[: min(limit, 300)]
+    except Exception as e:                                      # noqa: BLE001
+        log.warning("三时点封单滚动覆盖失败(保持库内原榜) err=%s", e)
+        return rows
+
+
 @router.get("/api/stats/bid-snapshot-3points")
 def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)):
     """三时点封单榜(全市场): ?date=YYYY-MM-DD&limit=100
@@ -525,6 +629,7 @@ def api_stats_bid_snapshot_3points(request: Request, uid: int = Depends(get_uid)
         # 2026-09-04 修复: 主查询原先写在缓存**外**(每请求必跑, 缓存形同虚设,
         # 生产实测 956ms 里绝大部分是它) → 移进 _compute 内, 缓存命中时完全跳过
         rows = auction_snapshot.query_3points_board(resolved, limit)
+        rows = _apply_fd_seal(rows, resolved, limit)
         # 2026-08-18 主人要求: 三时点榜加竞价换手 = 9_25竞价成交额/流通市值×100(与开盘啦口径一致)
         for it in rows:
             try:

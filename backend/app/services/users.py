@@ -169,6 +169,15 @@ def grant_invite_reward(inviter_id, days=5):
             return 0
         if int(inviter.get("member_level") or 0) == 2:
             return 0
+        # 2026-10-12: 邀请人累计封顶10天(2人x5天), 第3个邀请起不再发奖
+        try:
+            _c = database.get_conn().execute(
+                "SELECT COUNT(*) FROM users WHERE invited_by=?", (inviter_id,)).fetchone()[0]
+            if int(_c or 0) >= 2:
+                log.info("邀请人奖励封顶停发 inviter=%s 已邀%d人(累计10天)", inviter_id, _c)
+                return 0
+        except Exception:
+            pass
         return extend_expire(inviter_id, days)
     except Exception as e:
         log.warning("邀请奖励发放失败 inviter=%s days=%s err=%s", inviter_id, days, e)

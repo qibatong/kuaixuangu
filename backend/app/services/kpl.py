@@ -1722,6 +1722,15 @@ def rebin_ladder(d, date):
                 zt = max(int(pid), int(real.get(code) or 0))
             except (TypeError, ValueError):
                 zt = int(pid)
+            # 标签按**实际连板数**逐票标注(2026-10-10 修正):
+            # 旧逻辑把第8档整档改成"九板+" ⇒ 8 板会被误标; 且 rebin 出 6/7/8 档后
+            # 这些票仍沿用开盘啦 pid 档的旧标签("五板+")。
+            # 5 板及以下保持原标签(东财缺失时 pid=5 本就是"五板+"档, 不做窄化);
+            # >=9 板统一"九板+"(与 min(zt,8) 归并口径一致)。
+            if zt >= 9:
+                it["ladderLabel"] = "九板+"
+            elif zt in (6, 7, 8):
+                it["ladderLabel"] = {6: "六板", 7: "七板", 8: "八板"}[zt]
             out[min(zt, 8)].append(it)
     return out
 
@@ -2955,6 +2964,17 @@ def fetch_yest_broken():
                 "floatMv": float_mv,
                 "board": t4.get("board") or s.get("board") or "",   # 概念: Type4 → 9_25快照(f103/f100)
             })
+        # 猫爪路径 reason 恒为空, 用选股宝涨停池补涨停原因
+        try:
+            _xz_pool = _flash_pool("limit_up_pool", prev2)
+            if _xz_pool:
+                _rm = {x["code"]: (x.get("reason") or "") for x in _xz_pool}
+                for _it in out:
+                    _c = str(_it.get("code") or "")
+                    if _c and not _it.get("reason") and _c in _rm:
+                        _it["reason"] = _rm[_c]
+        except Exception as _e:
+            log.warning("昨断板涨停原因补全失败 err=%s", str(_e)[:100])
         return out
     return _cached("yest_broken", 60 * 5, loader)
 
@@ -3777,7 +3797,7 @@ def fetch_bid_qiangcang(date=None):
         _today8 = time.strftime("%Y%m%d", time.gmtime(time.time() + 8 * 3600))
         _ttl = 1800 if _d8 < _today8 else 600
     else:
-        _ttl = 30 if in_bid else 300
+        _ttl = 30 if in_bid else 1800
     return _cached("bid_qiangcang" + (("_" + date.replace("-", "")) if date else ""), _ttl, loader)
 
 
@@ -5339,6 +5359,45 @@ def _kpl_prewarm_once():
         except Exception as e:
             log.warning("KPL预热 %s 异常 err=%s", name, str(e)[:100])
 
+    # ===== 2026-10-09: 抢筹三表 + 连续封单预热(用户打开直接读缓存, 不等猫爪) =====
+    # 只在 9:25-9:27 窗口跑, setnx 锁保证当天只跑一次(避免重复打猫爪)
+    try:
+        g = time.gmtime(time.time() + 8 * 3600)
+        hm = g.tm_hour * 60 + g.tm_min
+        # 封单: 9:15-9:25 竞价过程中每分钟拉一次, 三列数据逐步填充
+        if 9 * 60 + 15 <= hm <= 9 * 60 + 25:
+            if store.setnx("bseal_prewarm:tick", 1, ttl=60):
+                from . import bid_seal_daily as _bsd
+                payload = _bsd.build(days=5, limit=200)
+                log.info("连续封单预热(tick) days=%d", len(payload.get("days", []) or []))
+        # 抢筹: 9:15-9:25 竞价过程中每分钟预热(list20实时刷新; listLast 9:24:45后秒级采样兜底)
+        if 9 * 60 + 15 <= hm <= 9 * 60 + 25:
+            if store.setnx("qc_prewarm:tick", 1, ttl=60):
+                qc = fetch_bid_qiangcang()
+                log.info("抢筹预热(tick) list20=%d list20Chg=%d listLast=%d",
+                         len(qc.get("list20", []) or []),
+                         len(qc.get("list20Chg", []) or []),
+                         len(qc.get("listLast", []) or []))
+    except Exception as e:
+        log.warning("竞价预热(抢筹/封单)异常 err=%s", str(e)[:100])
+
+
+def _offpeak_keepalive():
+    # 盘后保活: 非竞价时段(周末/晚间)每30分钟预热抢筹
+    try:
+        g = time.gmtime(time.time() + 8 * 3600)
+        hm = g.tm_hour * 60 + g.tm_min
+        in_bid_window = (9 * 60 + 15 <= hm <= 9 * 60 + 26)
+        if not in_bid_window:
+            if store.setnx("qc_prewarm:offpeak", 1, ttl=1800):
+                qc = fetch_bid_qiangcang()
+                log.info("抢筹盘后保活 list20=%d list20Chg=%d listLast=%d",
+                         len(qc.get("list20", []) or []),
+                         len(qc.get("list20Chg", []) or []),
+                         len(qc.get("listLast", []) or []))
+    except Exception as e:
+        log.warning("抢筹盘后保活异常 err=%s", str(e)[:100])
+
 
 def _kpl_prewarm_loop():
     """常驻后台循环(main.py startup 启动; 每 web worker 各一份, 与 spot-prewarm 同模式)
@@ -5346,6 +5405,8 @@ def _kpl_prewarm_loop():
     抢 12s 窗口锁, 只有抢到的 worker 真拉(避免双倍 KPL 调用浪费付费配额)"""
     while True:
         try:
+            # 盘后保活: 不管工作日周末都跑(内部 setnx 锁控制 30 分钟一次)
+            _offpeak_keepalive()
             if kpl_prewarm_active(time.time()):
                 # setnx 抢窗口锁(ttl=周期*1.5): 抢到者执行, 未抢到跳过本轮
                 if store.setnx("kpl_prewarm:turn", 1, ttl=int(_KPL_PREWARM_PERIOD * 1.5)):

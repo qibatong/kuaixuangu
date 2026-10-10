@@ -1061,7 +1061,12 @@ def api_kpl_yest_broken(request: Request, uid: int = Depends(require_vip_or_paid
     if date:
         resolved = _resolve_date(date)
         d = kpl.query_auction_history(resolved, "yest_broken")
-        kpl.fill_reason_from_pool(d, resolved)
+        # 涨停原因从断板前一日的涨停池找: resolved→昨日→前一日
+        _day = kpl._prev_trade_day(resolved)
+        if _day:
+            _prev2 = kpl._latest_trade_snap_date(_day, strict=True)
+            if _prev2:
+                kpl.fill_reason_from_pool(d, _prev2)
         kpl.fill_float_mv_from_snap(d, resolved)
         # 2026-08-23: 历史回看现涨(change)=当日收盘涨跌幅, 而非最新今天实时
         try:
@@ -1072,6 +1077,7 @@ def api_kpl_yest_broken(request: Request, uid: int = Depends(require_vip_or_paid
         return jr({"ok": True, "list": d or [], "count": len(d) if d else 0,
                    "date": resolved, "requestedDate": date})
     d = kpl.fetch_yest_broken() or []
+    kpl.fill_reason_from_pool(d, kpl.freeze_day())
     try:
         kpl.apply_board_concept_db(d, log_tag="auc:yest-broken", field="board", truncate=2, blank_if_missing=True)
     except Exception as e:

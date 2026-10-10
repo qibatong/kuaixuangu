@@ -582,7 +582,9 @@ def hhmm(value) -> str:
 #   * before 取严格早于边界的最后一条(≈9:24:5x); after 取等于/晚于边界的第一条(=9:25:00)
 #   * 9:15 整点无数据(code=1002), 9:16 起可用
 
-_AUC_SNAP_TTL = 30      # 时点快照缓存(秒): 竞价时段避免高频重复拉同一分钟
+_AUC_SNAP_TTL = 30
+_AUC_FD_TTL = 10        # daily_auc_fd 专用(2026-10-09 封单改版): 竞价期按分钟滚动刷新,
+                        # 30s 缓存会让相邻两次拿到同一份 ⇒ 降到 10s。      # 时点快照缓存(秒): 竞价时段避免高频重复拉同一分钟
 
 # 各接口缓存 TTL 登记表(2026-09-24 实测 grep 全量 ttl= 用法得出)。
 #   _AUC_SNAP_TTL(=30): auc_kp / fundflow_kp / daily_auc / daily_auc_detail
@@ -978,7 +980,7 @@ def auc_fd_map(trademin="0925", date_offset=None, date=None):
         params["tradedate"] = str(date).replace("-", "")
     elif date_offset is not None:
         params["tradedate_offset"] = date_offset
-    data = call_cached("daily_auc_fd", params=params, ttl=_AUC_SNAP_TTL,
+    data = call_cached("daily_auc_fd", params=params, ttl=_AUC_FD_TTL,
                        fields="tradedate,symbol,name,auc_pct_chg,auc_amt,auc_turnover,"
                               "is_st,theme_names_kpl," + _AUC_FD_FIELDS)
     return _sym_rows(data)
@@ -1106,7 +1108,10 @@ def daily_history_map(symbols, days=3, date=None, fresh=False):
         params["tradedate"] = str(date).replace("-", "")
     else:
         params["recentdays"] = int(days)
-    data = call_cached("daily", params=params, ttl=_AUC_SNAP_TTL, fields=_DAILY_FIELDS,
+    # 2026-10-09: TTL 30s->120s。日K调用方盘中只取"昨日及以前"bar(见 _yday_pair_from_daily
+    # 排除当日), 历史数据日内不变; 个股日K图当日bar延迟2分钟无感。原30s TTL导致午间多路径
+    # 并发打上游触发 429(44条/日), 拉长后请求频率降为1/4。
+    data = call_cached("daily", params=params, ttl=120, fields=_DAILY_FIELDS,
                        fresh=fresh)
     dd = (data or {}).get("data") or {}
     cols = dd.get("fields") or []

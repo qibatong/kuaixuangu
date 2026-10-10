@@ -162,9 +162,9 @@ def api_register(request: Request, body: dict = Body(...)):
     first_claim = True
     if not inviter:
         # 受邀注册: 由邀请奖励链路统一赠送(避免双份)
-        expire_days = config.NEW_USER_DAYS
+        expire_days = 0  # 2026-10-12: 取消新人注册赠送
     else:
-        expire_days = config.NEW_USER_DAYS
+        expire_days = 0  # 2026-10-12: 取消新人注册赠送
 
     uid = users.create_user(
         username, password, phone=phone,

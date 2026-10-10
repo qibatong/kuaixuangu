@@ -101,7 +101,7 @@ def _streaks(c, since_date):
     by_uid = {}
     for r in rows:
         by_uid.setdefault(int(r["uid"]), set()).add(str(r["date"]))
-    today = _bj_date()
+    today = _bj_date(_now())
     yday = _bj_date(_now() - 86400)
     out = {}
     for uid, days in by_uid.items():

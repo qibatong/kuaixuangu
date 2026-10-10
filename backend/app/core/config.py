@@ -199,7 +199,7 @@ NOTIFY_DEDUP_SECONDS = int(os.environ.get("NOTIFY_DEDUP_SECONDS", "120"))    # �
 
 # ---------- 会员/邀请 ----------
 INVITE_REWARD_DAYS = int(os.environ.get("INVITE_REWARD_DAYS", "5"))          # 每成功邀请一个新用户, 邀请人 +N 天使用时间
-NEW_USER_DAYS = int(os.environ.get("NEW_USER_DAYS", "5"))                    # 新用户注册即送 N 天完整体验(每个手机号仅限 1 次)
+NEW_USER_DAYS = int(os.environ.get("NEW_USER_DAYS", "0"))  # 2026-10-12: 新人注册不再赠送                    # 新用户注册即送 N 天完整体验(每个手机号仅限 1 次)
 NEW_USER_MEMBER_LEVEL = int(os.environ.get("NEW_USER_MEMBER_LEVEL", "1"))     # 注册赠送期间的会员等级(1=付费会员完整体验)
 INVITE_SAME_IP_LIMIT = int(os.environ.get("INVITE_SAME_IP_LIMIT", "3"))       # 邀请人同 IP 被邀超过 N 人后不再发奖励(防同 IP 小号刷)
 REG_IP_DAY_LIMIT = int(os.environ.get("REG_IP_DAY_LIMIT", "5"))               # 同 IP 24h 最多注册 N 个新账号(防批量刷号)

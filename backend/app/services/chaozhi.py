@@ -733,11 +733,24 @@ OVERVIEW_PREWARM_SEC = 30
 _overview_prewarm_started = False
 
 
+def _czh_prewarm_active() -> bool:
+    """超智聚合预热窗口: 工作日 08:30-20:00(盘前准备+盘中+盘后复盘)。
+    非窗口时段不预热: 情绪/资金数据隔夜不变, 凌晨主动打上游只会拿到
+    code=1002(当日数据未生成) 并制造降级统计噪声(2026-10-09 实测)。"""
+    import time as _t
+    g = _t.gmtime(_t.time() + 8 * 3600)
+    if g.tm_wday >= 5:
+        return False
+    hm = g.tm_hour * 60 + g.tm_min
+    return 8 * 60 + 30 <= hm <= 20 * 60
+
+
 def _overview_prewarm_loop():
     import time as _t
     while True:
         try:
-            build_overview()          # 带缓存的入口：未过期→直接命中(几乎零成本)；已过期→重算并回写
+            if _czh_prewarm_active():
+                build_overview()      # 带缓存的入口：未过期→直接命中(几乎零成本)；已过期→重算并回写
         except Exception as e:                                     # noqa: BLE001
             log.warning("超智聚合预热失败(%ds 后重试) err=%s", OVERVIEW_PREWARM_SEC, str(e)[:120])
         _t.sleep(OVERVIEW_PREWARM_SEC)
